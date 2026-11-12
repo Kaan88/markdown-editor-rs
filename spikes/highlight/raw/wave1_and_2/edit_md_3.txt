@@ -1,0 +1,6 @@
+== markdown
+-- type '<!--' at line 10
+   K=1    lines median   49990 (range 49990-49990)  time median   29.000 ms (range 19.750-29.627)  converged 0/5
+   K=16   lines median   50000 (range 50000-50000)  time median   36.722 ms (range 31.939-47.957)  converged 0/5
+   K=64   lines median   50000 (range 50000-50000)  time median   48.260 ms (range 39.256-50.757)  converged 0/5
+   K=256  lines median   50000 (range 50000-50000)  time median   49.909 ms (range 46.185-53.294)  converged 0/5

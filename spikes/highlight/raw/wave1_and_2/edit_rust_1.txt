@@ -1,0 +1,6 @@
+== rust
+-- type '{' at 25000 (unbalanced)
+   K=1    lines median   25000 (range 25000-25000)  time median 2302.817 ms (range 2295.306-2317.014)  converged 0/5
+   K=16   lines median   25008 (range 25008-25008)  time median 2206.914 ms (range 2070.166-2312.304)  converged 0/5
+   K=64   lines median   25040 (range 25040-25040)  time median 2244.831 ms (range 2184.089-2279.647)  converged 0/5
+   K=256  lines median   25168 (range 25168-25168)  time median 2237.455 ms (range 2160.435-2247.178)  converged 0/5

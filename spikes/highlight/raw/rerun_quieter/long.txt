@@ -1,0 +1,16 @@
+per-line cost, lines of one kind in a row (fresh state per rep, 7 reps, ~400 KB per rep)
+   rust-code       200 chars x  2000:     395.0 us/line (range 377.8-588.3) = 1975.0 ns/char; worst single line 0.781 ms
+   rust-code      2000 chars x   200:    3756.3 us/line (range 3244.8-4074.4) = 1878.2 ns/char; worst single line 5.956 ms
+   rust-code     20000 chars x    20:   42953.5 us/line (range 41465.1-46197.0) = 2147.7 ns/char; worst single line 55.441 ms
+   blob            200 chars x  2000:     993.8 us/line (range 916.9-1114.1) = 4969.2 ns/char; worst single line 2.461 ms
+   blob           2000 chars x   200:   46322.5 us/line (range 45127.8-48776.7) = 23161.3 ns/char; worst single line 102.698 ms
+   blob          20000 chars x    20:   44135.2 us/line (range 43994.3-61584.4) = 2206.8 ns/char; worst single line 68.730 ms
+   json            200 chars x  2000:     148.2 us/line (range 144.8-238.2) =  741.2 ns/char; worst single line 0.336 ms
+   json           2000 chars x   200:     769.6 us/line (range 630.4-972.2) =  384.8 ns/char; worst single line 1.202 ms
+   json          20000 chars x    20:    6461.3 us/line (range 6389.0-6615.9) =  323.1 ns/char; worst single line 6.771 ms
+   minified-js     200 chars x  2000:     562.2 us/line (range 555.5-567.6) = 2811.1 ns/char; worst single line 1.010 ms
+   minified-js    2000 chars x   200:    3964.3 us/line (range 3946.6-4029.8) = 1982.1 ns/char; worst single line 6.142 ms
+   minified-js   20000 chars x    20:   49485.6 us/line (range 49254.4-49752.2) = 2474.3 ns/char; worst single line 51.518 ms
+   md-prose        200 chars x  2000:     161.5 us/line (range 160.3-162.4) =  807.5 ns/char; worst single line 13.668 ms
+   md-prose       2000 chars x   200:    1536.1 us/line (range 1531.8-1539.7) =  768.1 ns/char; worst single line 17.078 ms
+   md-prose      20000 chars x    20:   15267.0 us/line (range 15197.2-15377.5) =  763.4 ns/char; worst single line 28.724 ms

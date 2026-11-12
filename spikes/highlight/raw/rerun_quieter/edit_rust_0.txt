@@ -1,0 +1,6 @@
+== rust
+-- typical: insert '_x' after 'let' (40 sites)
+   K=1    lines median       1 (range 1-1)  time median    0.156 ms (range 0.058-0.188)  converged 40/40
+   K=16   lines median      16 (range 16-16)  time median    1.478 ms (range 0.574-2.491)  converged 40/40
+   K=64   lines median      64 (range 64-64)  time median    5.868 ms (range 4.005-7.147)  converged 40/40
+   K=256  lines median     256 (range 256-256)  time median   23.264 ms (range 16.125-25.540)  converged 40/40

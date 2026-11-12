@@ -1291,6 +1291,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0#09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0"
 dependencies = [
  "notify",
 ]
@@ -1298,6 +1299,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0#09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0"
 dependencies = [
  "syntect",
 ]
@@ -1305,6 +1307,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0#09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0"
 dependencies = [
  "parley",
  "png",
@@ -1314,6 +1317,7 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0#09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0"
 dependencies = [
  "mdshared-app",
  "mdshared-text",

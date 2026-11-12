@@ -1,7 +1,61 @@
 # Plan: mdedit, a light text editor
 
-Written 2026-11-12. Nothing here is built, and nothing should be until the user says so. The
-budgets are proposals until measured, and the decisions marked **Open** are the user's.
+Written 2026-11-12. The user said to start the same day. Phases 0 and 1 are built (see "State"
+below); the user has not yet looked at the interface, so nothing about it is approved.
+
+## State (2026-11-12)
+
+**The rule for every feature (the user, 2026-11-12):** "as long as the app remains just as fast to
+open and work, implement useful features from Notepad++." A feature goes in only if first frame,
+keystroke time, scroll frame, memory and idle CPU stay within the budgets below, measured before
+and after.
+
+**Phase 0, done.** Results in `spikes/*/RESULTS.md`, measured on a loaded machine:
+
+- Buffer: `ropey`. A 100 MB file loads in about 75 ms; edits and lookups take microseconds.
+- Long lines: lines up to 4 KB are shaped whole; longer ones in visible chunks of about 1 KB.
+- Highlighting: syntect with a stored state every 16 lines and time-boxed slices on a worker.
+  Markdown through syntect is slow (about 2,000 lines a second).
+- Input methods: the test window builds and runs; its typing script in `spikes/ime/RESULTS.md`
+  has NOT been done by hand.
+
+**Phase 1, built, not yet seen by the user.** Measured on the PC, release build:
+
+| | Budget | Measured |
+|---|---|---|
+| First frame, small file | under 100 ms | 84 to 104 ms across runs, median about 90 |
+| First frame, 100 MB file | under 500 ms | 138 to 199 ms warm, 271 ms cold |
+| Private memory, small file | under 30 MiB | 27.5 MiB |
+| Private memory, 100 MB file | file size plus 25% (125 MiB) | 133 MiB: over by 8 MiB |
+| Scroll frame, p95 | under 4 ms | 0.8 to 1.5 ms |
+| Idle CPU | zero | none measured, focused window with caret blink |
+| Exe | under 6 MB | 5.7 MB |
+
+Notes: the release profile uses `panic = "abort"` to meet the exe budget (0.9 MB of unwind tables
+gone), so a panic on any thread ends the process; the viewer uses `unwind`. The 100 MB memory
+figure was left as it is. Idle CPU with the window unfocused was not measured. Not done by hand:
+everything interactive (selection, copy, find, tabs, Files pane, theme switch, reload on change,
+second-instance hand-over).
+
+## Feature roadmap (agreed 2026-11-12)
+
+After editing (phase 2) and safe saving (phase 3), in this order:
+
+1. Editing basics: duplicate, move and delete line, indent and outdent, toggle comment, change
+   case, trim trailing spaces, tabs to spaces.
+2. Find and replace: match case, whole word, regular expressions, replace all, find in all open
+   tabs, mark all matches, count.
+3. Unsaved-session restore: tabs with unsaved text survive a close.
+4. View aids: show whitespace and line endings, word wrap, current-line highlight, matching
+   bracket, other occurrences of the selected word, zoom, go to line.
+5. Encoding and line-ending conversion from the status bar.
+6. Column selection and multiple carets.
+7. Bookmarks on lines.
+8. Find in files, on a worker.
+9. Code folding and a function list, only if typing stays as fast.
+10. Macro record and playback; split view.
+
+Left out: plugins, the FTP and project panels, printing.
 
 ## What it is
 
@@ -25,7 +79,7 @@ opens any text file and shares the shell, text and highlighting code with the vi
 
 ## Depends on
 
-[markdown-shared-rs](https://github.com/Kaan88/markdown-shared-rs), pinned to a commit: `Painter`,
+[markdown-shared-rs](https://github.com/Kaan88/markdown-shared-rs), pinned to a commit (`rev` in the root `Cargo.toml`): `Painter`,
 palettes, menus, the single-line text field (for the find box), the folder tree, the window frame,
 `platform`, `TextEngine`, `Bitmap` and the syntect set-up. That repository's plan has the
 extraction steps; this project starts after its step 4 (or step 3, with its own window loop, if

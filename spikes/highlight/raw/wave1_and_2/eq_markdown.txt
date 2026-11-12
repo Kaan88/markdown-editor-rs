@@ -1,0 +1,8 @@
+== markdown: state comparison cost over all 50000 line states
+   ParseState+HighlightState == (equal)         p50      15 ns  p99      45 ns  max     4065 ns
+   ParseState == (equal)                        p50       5 ns  p99      20 ns  max       55 ns
+   HighlightState == (equal)                    p50      10 ns  p99      25 ns  max      105 ns
+   State == next line's state (mostly unequal)  p50      15 ns  p99      45 ns  max       85 ns
+   State clone                                  p50     125 ns  p99     305 ns  max     1055 ns
+   HighlightState::new(scope stack) rebuild     p50     400 ns  p99     900 ns  max     9700 ns
+   rebuilt HighlightState equal to original: 10000/10000

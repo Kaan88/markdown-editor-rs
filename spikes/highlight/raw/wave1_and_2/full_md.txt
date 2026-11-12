@@ -1,0 +1,7 @@
+== markdown: 50000 lines, 2989 KiB, longest line 592 bytes
+parse only (no style)              median  25059.0 ms  range 24630.6-34325.7  =>     1995 lines/s, 0.1 MB/s
+parse + style, no checkpoints      median  24826.4 ms  range 23972.2-32408.0  =>     2014 lines/s, 0.1 MB/s
+parse + style, checkpoint every 1  median  25440.8 ms  range 24483.7-34302.6  =>     1965 lines/s, 0.1 MB/s
+parse + style, checkpoint every 16 median  27881.2 ms  range 23979.4-32707.1  =>     1793 lines/s, 0.1 MB/s
+parse + style, checkpoint every 64 median  24543.9 ms  range 23854.0-31286.1  =>     2037 lines/s, 0.1 MB/s
+parse + style, checkpoint every 256 median  23930.7 ms  range 23902.4-28173.9  =>     2089 lines/s, 0.1 MB/s

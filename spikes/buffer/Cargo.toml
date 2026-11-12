@@ -1,0 +1,13 @@
+[package]
+name = "buffer-spike"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ropey = "1.6"
+windows-sys = { version = "0.59", features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[workspace]
+
+[profile.release]
+opt-level = 3

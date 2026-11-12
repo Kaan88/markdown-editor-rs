@@ -1,0 +1,9 @@
+== rust: fixed-size slices over the whole file (3 passes pooled)
+     25 lines/slice: p50 1.733 ms  p99 3.082 ms  max 3.852 ms
+     50 lines/slice: p50 3.820 ms  p99 5.654 ms  max 5.987 ms
+    100 lines/slice: p50 6.187 ms  p99 10.488 ms  max 11.334 ms
+    200 lines/slice: p50 11.709 ms  p99 18.658 ms  max 21.551 ms
+    400 lines/slice: p50 23.197 ms  p99 29.226 ms  max 39.221 ms
+   time-boxed 1 ms (clock per line): slice time p50 1.036 max 1.212 ms; lines/slice p50 17 min 6
+   time-boxed 2 ms (clock per line): slice time p50 2.034 max 2.250 ms; lines/slice p50 34 min 14
+   per-line us: mean 59.8 p50 46.6 p99 166.6 max 1140.4

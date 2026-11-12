@@ -1,0 +1,30 @@
+size_of ParseState 56 B, HighlightState 96 B, ScopeStack 48 B
+== rust: 50000 lines, text 1605 KiB
+   K=1    ParseState + HighlightState     50000 entries: heap    53.43 MiB =   1121 B/entry; private-bytes delta +59.28 MiB
+   K=1    ParseState + ScopeStack         50000 entries: heap    29.60 MiB =    621 B/entry; private-bytes delta +31.33 MiB
+   K=1    ParseState only                 50000 entries: heap    24.26 MiB =    509 B/entry; private-bytes delta +25.89 MiB
+   K=16   ParseState + HighlightState      3125 entries: heap     2.74 MiB =    920 B/entry; private-bytes delta +3.13 MiB
+   K=16   ParseState + ScopeStack          3125 entries: heap     1.86 MiB =    625 B/entry; private-bytes delta +1.85 MiB
+   K=16   ParseState only                  3125 entries: heap     1.53 MiB =    512 B/entry; private-bytes delta +1.42 MiB
+   K=64   ParseState + HighlightState       782 entries: heap     0.69 MiB =    925 B/entry; private-bytes delta +0.72 MiB
+   K=64   ParseState + ScopeStack           782 entries: heap     0.47 MiB =    628 B/entry; private-bytes delta +0.39 MiB
+   K=64   ParseState only                   782 entries: heap     0.38 MiB =    516 B/entry; private-bytes delta +0.69 MiB
+   K=256  ParseState + HighlightState       196 entries: heap     0.17 MiB =    929 B/entry; private-bytes delta +0.09 MiB
+   K=256  ParseState + ScopeStack           196 entries: heap     0.12 MiB =    633 B/entry; private-bytes delta +0.23 MiB
+   K=256  ParseState only                   196 entries: heap     0.10 MiB =    521 B/entry; private-bytes delta +0.20 MiB
+   process now: private 26.1 MiB, working set 29.2 MiB, peak working set 127.5 MiB; allocator peak live 116.9 MiB
+== markdown: 50000 lines, text 2989 KiB
+   K=1    ParseState + HighlightState     50000 entries: heap    55.43 MiB =   1162 B/entry; private-bytes delta +61.79 MiB
+   K=1    ParseState + ScopeStack         50000 entries: heap    25.14 MiB =    527 B/entry; private-bytes delta +27.71 MiB
+   K=1    ParseState only                 50000 entries: heap    20.22 MiB =    424 B/entry; private-bytes delta +21.40 MiB
+   K=16   ParseState + HighlightState      3125 entries: heap     2.31 MiB =    775 B/entry; private-bytes delta +3.33 MiB
+   K=16   ParseState + ScopeStack          3125 entries: heap     1.56 MiB =    525 B/entry; private-bytes delta +1.80 MiB
+   K=16   ParseState only                  3125 entries: heap     1.26 MiB =    422 B/entry; private-bytes delta +0.92 MiB
+   K=64   ParseState + HighlightState       782 entries: heap     0.58 MiB =    773 B/entry; private-bytes delta -1.55 MiB
+   K=64   ParseState + ScopeStack           782 entries: heap     0.39 MiB =    524 B/entry; private-bytes delta +0.48 MiB
+   K=64   ParseState only                   782 entries: heap     0.31 MiB =    422 B/entry; private-bytes delta +0.16 MiB
+   K=256  ParseState + HighlightState       196 entries: heap     0.15 MiB =    794 B/entry; private-bytes delta +0.00 MiB
+   K=256  ParseState + ScopeStack           196 entries: heap     0.10 MiB =    542 B/entry; private-bytes delta +0.00 MiB
+   K=256  ParseState only                   196 entries: heap     0.08 MiB =    439 B/entry; private-bytes delta +0.00 MiB
+   process now: private 45.0 MiB, working set 47.5 MiB, peak working set 131.0 MiB; allocator peak live 116.9 MiB
+final private 40.2 MiB (includes syntax set, themes, both files' text)

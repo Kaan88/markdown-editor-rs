@@ -1,0 +1,6 @@
+== rust
+-- type 'r#"' at line 10
+   K=1    lines median      11 (range 11-11)  time median    0.142 ms (range 0.139-0.154)  converged 5/5
+   K=16   lines median      32 (range 32-32)  time median    1.918 ms (range 1.907-1.942)  converged 5/5
+   K=64   lines median      64 (range 64-64)  time median    4.472 ms (range 4.452-4.498)  converged 5/5
+   K=256  lines median     256 (range 256-256)  time median   21.322 ms (range 20.434-21.787)  converged 5/5

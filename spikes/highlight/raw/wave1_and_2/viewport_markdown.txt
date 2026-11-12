@@ -1,0 +1,6 @@
+== markdown: highlight a 60-line viewport from the nearest checkpoint (200 random positions, plus line 40000 repeated)
+   K=1    avg lines   60.0  time p50 29.335 ms  p95 66.875 ms  max 106.492 ms
+   K=16   avg lines   67.8  time p50 42.642 ms  p95 108.891 ms  max 182.308 ms
+   K=64   avg lines   91.1  time p50 39.210 ms  p95 91.110 ms  max 152.810 ms
+   K=256  avg lines  183.0  time p50 85.146 ms  p95 175.109 ms  max 248.749 ms
+   exact state (60 lines only): p50 26.245 ms  p95 57.045 ms  max 106.157 ms

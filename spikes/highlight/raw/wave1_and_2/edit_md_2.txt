@@ -1,0 +1,6 @@
+== markdown
+-- type '```' at line 25000
+   K=1    lines median      68 (range 68-68)  time median   10.574 ms (range 8.139-13.311)  converged 5/5
+   K=16   lines median      80 (range 80-80)  time median   15.392 ms (range 12.108-15.833)  converged 5/5
+   K=64   lines median     128 (range 128-128)  time median   68.265 ms (range 64.978-69.084)  converged 5/5
+   K=256  lines median     256 (range 256-256)  time median  254.935 ms (range 204.674-270.268)  converged 5/5

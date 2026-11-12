@@ -1,0 +1,6 @@
+== rust
+-- type '/*' at 25000
+   K=1    lines median   25000 (range 25000-25000)  time median   44.411 ms (range 43.241-44.687)  converged 0/5
+   K=16   lines median   25008 (range 25008-25008)  time median   42.688 ms (range 41.269-45.642)  converged 0/5
+   K=64   lines median   25040 (range 25040-25040)  time median   49.033 ms (range 45.042-49.375)  converged 0/5
+   K=256  lines median   25168 (range 25168-25168)  time median   58.103 ms (range 57.210-60.570)  converged 0/5

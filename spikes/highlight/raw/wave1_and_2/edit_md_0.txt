@@ -1,0 +1,6 @@
+== markdown
+-- typical: insert 'x' at col 5 (40 sites)
+   K=1    lines median       1 (range 1-1)  time median    0.222 ms (range 0.055-30.387)  converged 40/40
+   K=16   lines median      16 (range 16-16)  time median    3.059 ms (range 0.481-59.095)  converged 40/40
+   K=64   lines median      64 (range 64-64)  time median   52.121 ms (range 6.540-152.289)  converged 40/40
+   K=256  lines median     256 (range 256-256)  time median  186.517 ms (range 61.648-318.853)  converged 40/40

@@ -1,0 +1,6 @@
+== rust
+-- type r##" at line 10 (no later "## in file)
+   K=1    lines median   49990 (range 49990-49990)  time median  157.172 ms (range 155.511-200.675)  converged 0/5
+   K=16   lines median   50000 (range 50000-50000)  time median  167.732 ms (range 146.430-190.822)  converged 0/5
+   K=64   lines median   50000 (range 50000-50000)  time median  198.591 ms (range 176.446-230.695)  converged 0/5
+   K=256  lines median   50000 (range 50000-50000)  time median  240.603 ms (range 238.310-243.100)  converged 0/5

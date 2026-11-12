@@ -1,0 +1,7 @@
+== rust: 50000 lines, 1605 KiB, longest line 95 bytes
+parse only (no style)              median   3639.5 ms  range 3263.6-4283.0  =>    13738 lines/s, 0.5 MB/s
+parse + style, no checkpoints      median   3000.9 ms  range 2888.4-3124.1  =>    16662 lines/s, 0.5 MB/s
+parse + style, checkpoint every 1  median   3041.2 ms  range 2961.9-4264.0  =>    16441 lines/s, 0.5 MB/s
+parse + style, checkpoint every 16 median   3841.6 ms  range 2981.9-4194.2  =>    13015 lines/s, 0.4 MB/s
+parse + style, checkpoint every 64 median   2894.5 ms  range 2864.4-2932.1  =>    17274 lines/s, 0.6 MB/s
+parse + style, checkpoint every 256 median   2918.9 ms  range 2877.4-3428.0  =>    17130 lines/s, 0.6 MB/s

@@ -1,0 +1,8 @@
+== rust: state comparison cost over all 50000 line states
+   ParseState+HighlightState == (equal)         p50      35 ns  p99      50 ns  max     1365 ns
+   ParseState == (equal)                        p50      10 ns  p99      20 ns  max      155 ns
+   HighlightState == (equal)                    p50      25 ns  p99      35 ns  max      110 ns
+   State == next line's state (mostly unequal)  p50       5 ns  p99      50 ns  max      120 ns
+   State clone                                  p50     205 ns  p99     235 ns  max     2320 ns
+   HighlightState::new(scope stack) rebuild     p50     800 ns  p99    1300 ns  max    35500 ns
+   rebuilt HighlightState equal to original: 10000/10000

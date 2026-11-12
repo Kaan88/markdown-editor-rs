@@ -1,0 +1,6 @@
+== rust: highlight a 60-line viewport from the nearest checkpoint (200 random positions, plus line 40000 repeated)
+   K=1    avg lines   60.0  time p50 3.425 ms  p95 3.981 ms  max 4.334 ms
+   K=16   avg lines   67.8  time p50 3.845 ms  p95 4.651 ms  max 5.229 ms
+   K=64   avg lines   91.1  time p50 5.107 ms  p95 7.109 ms  max 8.540 ms
+   K=256  avg lines  183.0  time p50 10.556 ms  p95 17.261 ms  max 19.023 ms
+   exact state (60 lines only): p50 3.447 ms  p95 4.001 ms  max 4.454 ms

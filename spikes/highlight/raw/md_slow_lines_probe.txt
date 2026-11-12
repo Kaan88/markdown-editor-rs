@@ -1,0 +1,19 @@
+total 9605 ms over 20000 lines
+   50540 us  len 250  "and typing [between](https://example.com/width) fast `layout()` text l"
+   24321 us  len 468  "[because](https://example.com/value) fast [text](https://example.com/i"
+   21912 us  len 406  "editor *rope* [because](https://example.com/parser) highlights matter "
+   21908 us  len 368  "`layout()` only and text only fast **only** **of** editor fast [visibl"
+   21855 us  len 348  "text *rope* `scope()` and [because](https://example.com/parser) *keeps"
+   21149 us  len 417  "`token()` [slowly](https://example.com/line_count) [while](https://exa"
+   20721 us  len 438  "visible fast [lines](https://example.com/parser) [between](https://exa"
+   20530 us  len 436  "lines `token()` only `width()` **between** a a **rows** rows **rope** "
+lines >1ms: 894, their share of time 83%
+len 0-60: n=12200 mean 69 us p50 52 p95 137 max 13660
+len 60-120: n=1394 mean 94 us p50 78 p95 174 max 1013
+len 120-200: n=1019 mean 392 us p50 139 p95 1272 max 14275
+len 200-300: n=1250 mean 2239 us p50 224 p95 13566 max 50540
+len 300-700: n=984 mean 5464 us p50 347 p95 16410 max 24321
+table '|'    n=3153 mean 18 us max 5875 us
+list '-'     n=2165 mean 78 us max 4518 us
+quote '>'    n=563 mean 55 us max 686 us
+heading '#'  n=545 mean 20 us max 96 us

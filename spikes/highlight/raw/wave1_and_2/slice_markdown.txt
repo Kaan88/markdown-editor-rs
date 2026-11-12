@@ -1,0 +1,9 @@
+== markdown: fixed-size slices over the whole file (3 passes pooled)
+     25 lines/slice: p50 9.199 ms  p99 65.987 ms  max 127.819 ms
+     50 lines/slice: p50 21.434 ms  p99 79.890 ms  max 124.958 ms
+    100 lines/slice: p50 45.948 ms  p99 123.975 ms  max 191.559 ms
+    200 lines/slice: p50 101.894 ms  p99 256.143 ms  max 308.276 ms
+    400 lines/slice: p50 233.995 ms  p99 472.892 ms  max 548.568 ms
+   time-boxed 1 ms (clock per line): slice time p50 1.186 max 41.914 ms; lines/slice p50 7 min 1
+   time-boxed 2 ms (clock per line): slice time p50 3.710 max 32.447 ms; lines/slice p50 15 min 1
+   per-line us: mean 481.2 p50 71.0 p99 14642.4 max 25248.5
