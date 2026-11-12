@@ -22,7 +22,7 @@ The painter, widgets, text engine and highlighting come from
 ```powershell
 cargo build --release --workspace
 cargo test --release --workspace
-targetelease\mdedit.exe README.md
+target\release\mdedit.exe README.md
 ```
 
 `bash tests/shots.sh <dir>` renders 33 interface states to PNG without a window.
