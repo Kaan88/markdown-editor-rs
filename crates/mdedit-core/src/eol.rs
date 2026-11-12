@@ -66,6 +66,51 @@ impl EolCounts {
         counts
     }
 
+    /// Counts over text given in pieces (a rope's chunks); a CRLF split between two pieces is
+    /// one CRLF.
+    pub fn of_chunks<'a>(chunks: impl IntoIterator<Item = &'a str>) -> EolCounts {
+        let mut counts = EolCounts::default();
+        for piece in chunks {
+            counts.scan(piece.as_bytes());
+        }
+        counts.finish();
+        counts
+    }
+
+    /// Updates counts of a text after an edit, given the counts of a window of the old text and
+    /// of the same window of the new text (`Change::eol_removed` and `eol_added`). The result is
+    /// exactly the counts of the new text when `self` was those of the old. Applying the sum of
+    /// several edits' windows in one call is the same as applying them one by one.
+    pub fn apply(&mut self, removed: &EolCounts, added: &EolCounts) {
+        self.crlf = (self.crlf + added.crlf) - removed.crlf;
+        self.lf = (self.lf + added.lf) - removed.lf;
+        self.cr = (self.cr + added.cr) - removed.cr;
+    }
+
+    /// The window counts of two edits applied one after the other, as one pair for
+    /// [`EolCounts::apply`]: the sums of their removed and of their added counts.
+    pub(crate) fn add(&mut self, other: &EolCounts) {
+        self.crlf += other.crlf;
+        self.lf += other.lf;
+        self.cr += other.cr;
+    }
+
+    /// The line break a new line should get in a text with these counts: the most frequent of
+    /// CRLF, LF and CR (ties in that order), and the platform's (CRLF on Windows, else LF) when
+    /// the text has none.
+    pub fn dominant(&self) -> &'static str {
+        if self.crlf == 0 && self.lf == 0 && self.cr == 0 {
+            return if cfg!(windows) { "\r\n" } else { "\n" };
+        }
+        if self.crlf >= self.lf && self.crlf >= self.cr {
+            "\r\n"
+        } else if self.lf >= self.cr {
+            "\n"
+        } else {
+            "\r"
+        }
+    }
+
     pub fn style(&self) -> LineEnding {
         match (self.crlf > 0, self.lf > 0, self.cr > 0) {
             (false, false, false) => LineEnding::None,
@@ -74,6 +119,36 @@ impl EolCounts {
             (false, false, true) => LineEnding::Cr,
             _ => LineEnding::Mixed,
         }
+    }
+}
+
+/// `text` with every line break (CRLF, lone CR, lone LF) replaced by `eol`; borrowed when every
+/// break already is `eol`. For pasted text, so a buffer of one style does not gain another.
+pub fn normalize_eols<'a>(text: &'a str, eol: &str) -> std::borrow::Cow<'a, str> {
+    let bytes = text.as_bytes();
+    let mut out: Option<String> = None;
+    let (mut i, mut copied) = (0, 0);
+    while let Some(j) = memchr::memchr2(b'\n', b'\r', &bytes[i..]) {
+        let at = i + j;
+        let n = if bytes[at] == b'\r' && bytes.get(at + 1) == Some(&b'\n') {
+            2
+        } else {
+            1
+        };
+        if &text[at..at + n] != eol {
+            let o = out.get_or_insert_with(|| String::with_capacity(text.len()));
+            o.push_str(&text[copied..at]);
+            o.push_str(eol);
+            copied = at + n;
+        }
+        i = at + n;
+    }
+    match out {
+        Some(mut o) => {
+            o.push_str(&text[copied..]);
+            std::borrow::Cow::Owned(o)
+        }
+        None => std::borrow::Cow::Borrowed(text),
     }
 }
 
@@ -184,6 +259,63 @@ mod tests {
         assert_eq!((c.crlf, c.lf, c.cr), (0, 0, 1));
         c.finish();
         assert_eq!(c.cr, 1);
+    }
+
+    #[test]
+    fn dominant_break() {
+        let platform = if cfg!(windows) { "\r\n" } else { "\n" };
+        assert_eq!(EolCounts::of("abc").dominant(), platform);
+        assert_eq!(EolCounts::of("a\r\nb\nc\nd").dominant(), "\n");
+        assert_eq!(EolCounts::of("a\r\nb\nc\r\nd").dominant(), "\r\n");
+        assert_eq!(EolCounts::of("a\rb\rc\nd").dominant(), "\r");
+        // Ties go CRLF, LF, CR.
+        assert_eq!(EolCounts::of("a\r\nb\nc\rd").dominant(), "\r\n");
+        assert_eq!(EolCounts::of("a\nb\rc").dominant(), "\n");
+    }
+
+    #[test]
+    fn normalizing() {
+        use std::borrow::Cow;
+        for eol in ["\n", "\r\n", "\r"] {
+            let all = [
+                "a\r\nb\nc\rd\r\n\r\ne",
+                "",
+                "x",
+                "\n",
+                "\r",
+                "\r\n",
+                "é\r\r\n\n",
+            ];
+            for t in all {
+                let n = normalize_eols(t, eol);
+                let want = t
+                    .replace("\r\n", "\n")
+                    .replace('\r', "\n")
+                    .replace('\n', eol);
+                assert_eq!(n, want, "{t:?} {eol:?}");
+                let c = EolCounts::of(&n);
+                assert_eq!(
+                    c.crlf + c.lf + c.cr,
+                    EolCounts::of(t).crlf + EolCounts::of(t).lf + EolCounts::of(t).cr
+                );
+            }
+        }
+        assert!(matches!(normalize_eols("a\nb\n", "\n"), Cow::Borrowed(_)));
+        assert!(matches!(normalize_eols("a\r\nb", "\r\n"), Cow::Borrowed(_)));
+        assert!(matches!(normalize_eols("abc", "\r\n"), Cow::Borrowed(_)));
+        assert!(matches!(normalize_eols("a\nb", "\r\n"), Cow::Owned(_)));
+    }
+
+    #[test]
+    fn of_chunks_pairs_across_pieces() {
+        let t = "a\r\nb\r\r\n\n\r";
+        for cut in 0..=t.len() {
+            assert_eq!(
+                EolCounts::of_chunks([&t[..cut], &t[cut..]]),
+                EolCounts::of(t),
+                "cut {cut}"
+            );
+        }
     }
 
     #[test]

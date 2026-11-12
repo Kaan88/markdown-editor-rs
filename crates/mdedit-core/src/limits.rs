@@ -42,3 +42,10 @@ pub const SYNC_FIND_BYTES: usize = 4 << 20;
 
 /// Copying a larger selection is refused with a message rather than building a string of it.
 pub const COPY_LIMIT: usize = 256 << 20;
+
+/// Text held by undo and redo steps (the removed text of every edit) is capped at this many
+/// bytes: past it the oldest undo steps are dropped, never the newest one.
+pub const UNDO_BYTES: usize = 64 << 20;
+/// Removed text up to this many bytes is kept as a `String`; larger text is kept as a `Rope`
+/// slice that shares the buffer's chunks instead of copying them.
+pub const UNDO_SHARE_BYTES: usize = 4096;

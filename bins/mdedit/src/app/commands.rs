@@ -3,8 +3,15 @@
 
 use super::*;
 use crate::commands::CommandId as C;
-use crate::ui::{Act, BarItem, EditAct, Popup};
+use crate::docs::{EditOp, SaveFailed};
+use crate::ui::{Act, After, BarItem, EditAct, Pending, Popup};
 use mdedit_core::limits::COPY_LIMIT;
+use mdedit_core::save::SaveError;
+
+/// How long after the last edit the find marks are searched for again.
+const REFIND_DELAY: Duration = Duration::from_millis(300);
+/// What `--type-steps` types, over and over.
+const TYPE_TEXT: &str = "the quick brown fox jumps over the lazy dog ";
 
 impl App {
     // ---- activation and commands -------------------------------------------------------------
@@ -17,9 +24,9 @@ impl App {
                 }
             }
             Hit::WinMax => self.toggle_maximized(),
-            Hit::WinClose => self.exit = true,
+            Hit::WinClose => self.request(After::Exit),
             Hit::NewTab => self.command(C::OpenFiles),
-            Hit::TabClose(i) => self.docs.close(i, self.service.as_ref()),
+            Hit::TabClose(i) => self.close_tab(i),
             Hit::Bar(item) => match item {
                 BarItem::Open => self.command(C::OpenFiles),
                 BarItem::Reload => self.command(C::Reload),
@@ -53,13 +60,11 @@ impl App {
                     self.open(&p);
                 }
             }
-            Hit::DlgButton(n) => {
-                if n == 0 {
-                    self.close_dialog();
-                } else {
-                    self.docs.recents.clear();
-                }
-            }
+            Hit::DlgButton(n) => match self.ui.dialog.as_ref().map(|d| d.kind) {
+                Some(kind) if kind.is_confirm() => self.answer(n),
+                Some(DialogKind::Recent) if n == 1 => self.docs.recents.clear(),
+                _ => self.close_dialog(),
+            },
             Hit::DlgOpen(i) => {
                 if let Some(p) = self.docs.recents.paths().get(i).cloned() {
                     self.open(&p);
@@ -141,23 +146,215 @@ impl App {
         self.redraw();
     }
 
-    /// Copies the selection as it is in the buffer.
-    pub(super) fn copy(&mut self) {
+    /// Copies the selection as it is in the buffer. True when it is on the clipboard.
+    pub(super) fn copy(&mut self) -> bool {
         let Some(r) = self.docs.active_ready() else {
-            return;
+            return false;
         };
         let range = r.sel.range();
         if range.is_empty() {
-            return;
+            return false;
         }
         if range.len() > COPY_LIMIT {
             self.docs.set_toast(strings::COPY_TOO_LARGE);
-            return;
+            return false;
         }
         let mut text = String::with_capacity(range.len());
         r.buffer.text(range, &mut text);
         if !platform::set_clipboard_text(&text) {
             self.docs.set_toast("Could not copy to the clipboard");
+            return false;
+        }
+        true
+    }
+
+    // ---- editing -----------------------------------------------------------------------------
+
+    /// Applies an editing command to the active document. True when the text changed.
+    pub(super) fn edit(&mut self, op: EditOp) -> bool {
+        let changed = self.docs.edit(op, self.service.as_ref());
+        if changed && self.docs.find_stale() {
+            self.find_due = Some(Instant::now() + REFIND_DELAY);
+        }
+        self.caret_reset();
+        self.redraw();
+        changed
+    }
+
+    fn paste(&mut self) {
+        if let Some(text) = platform::clipboard_text().filter(|t| !t.is_empty()) {
+            self.edit(EditOp::Paste(&text));
+        }
+    }
+
+    // ---- saving and unsaved changes ----------------------------------------------------------
+
+    /// Saves a document. On a file that changed on disk it asks first, and `after` waits for
+    /// the answer. True when the file was written.
+    pub(super) fn save_doc(&mut self, id: DocId, overwrite: bool, after: After) -> bool {
+        let Some(i) = self.docs.index_of_id(id) else {
+            return false;
+        };
+        let name = self.docs.tabs[i].name();
+        match self.docs.save(i, overwrite) {
+            Ok(()) => true,
+            Err(SaveFailed::Error(SaveError::ChangedOnDisk)) => {
+                self.ask(DialogKind::Overwrite, id, after);
+                false
+            }
+            Err(SaveFailed::Error(e)) => {
+                self.docs.set_toast(&format!("{name}: {e}"));
+                self.cancel_pending();
+                false
+            }
+            Err(SaveFailed::NotSavable) => {
+                self.docs.set_toast(&format!("{name} cannot be saved"));
+                self.cancel_pending();
+                false
+            }
+        }
+    }
+
+    fn save_as(&mut self) {
+        let Some(i) = self.docs.active() else { return };
+        if self.docs.tabs[i].ready().is_none() {
+            return;
+        }
+        let current = self.docs.tabs[i].path.clone();
+        let Some(to) = platform::pick_save(&current) else {
+            return;
+        };
+        let dark = self.dark();
+        match self.docs.save_as(i, &to, self.service.as_ref(), dark) {
+            Ok(()) => {
+                self.last_active = None;
+                self.ui.tree.refresh();
+            }
+            Err(SaveFailed::Error(e)) => {
+                let name = to.file_name().map_or_else(
+                    || to.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+                self.docs.set_toast(&format!("{name}: {e}"));
+            }
+            Err(SaveFailed::NotSavable) => self.docs.set_toast("This file cannot be saved"),
+        }
+    }
+
+    pub(super) fn close_tab(&mut self, index: usize) {
+        if let Some(id) = self.docs.tabs.get(index).map(|d| d.id) {
+            self.request(After::CloseTab(id));
+        }
+    }
+
+    /// Does `after`, once no unsaved changes are in its way: while a document it would lose has
+    /// some, that document is shown and the user is asked about it.
+    pub(super) fn request(&mut self, after: After) {
+        let in_scope = |id: DocId| match after {
+            After::CloseTab(t) | After::Reload(t) => id == t,
+            After::CloseOthers(keep) => id != keep,
+            After::CloseAll | After::Exit => true,
+            After::Nothing => false,
+        };
+        let next = self
+            .docs
+            .modified_ids()
+            .into_iter()
+            .find(|&id| in_scope(id));
+        let Some(id) = next else {
+            self.perform(after);
+            return;
+        };
+        if let Some(i) = self.docs.index_of_id(id) {
+            self.docs.activate(i);
+        }
+        let kind = if matches!(after, After::Reload(_)) {
+            DialogKind::Discard
+        } else {
+            DialogKind::Unsaved
+        };
+        self.ask(kind, id, after);
+    }
+
+    /// Opens a question about document `id`; `after` goes on when it is answered.
+    pub(super) fn ask(&mut self, kind: DialogKind, id: DocId, after: After) {
+        let subject = self
+            .docs
+            .index_of_id(id)
+            .map(|i| self.docs.tabs[i].name())
+            .unwrap_or_default();
+        self.open_dialog(kind);
+        if let Some(d) = self.ui.dialog.as_mut() {
+            d.subject = subject;
+        }
+        self.ui.pending = Some(Pending { doc: id, after });
+        self.redraw();
+    }
+
+    fn perform(&mut self, after: After) {
+        let service = self.service.as_ref();
+        let index = |docs: &Docs, id: DocId| docs.index_of_id(id);
+        match after {
+            After::Nothing => {}
+            After::CloseTab(id) => {
+                if let Some(i) = index(&self.docs, id) {
+                    self.docs.close(i, service);
+                }
+            }
+            After::CloseOthers(id) => {
+                if let Some(i) = index(&self.docs, id) {
+                    self.docs.close_others(i, service);
+                }
+            }
+            After::CloseAll => self.docs.close_all(service),
+            After::Exit => self.exit = true,
+            After::Reload(id) => {
+                if let Some(i) = index(&self.docs, id)
+                    && !matches!(self.docs.tabs[i].state, DocState::Pending)
+                {
+                    self.docs.start_load(i);
+                }
+                self.ui.tree.refresh();
+            }
+        }
+        self.redraw();
+    }
+
+    /// The answer to the question dialog: button `n`, the first being its default.
+    pub(super) fn answer(&mut self, n: usize) {
+        let kind = self.ui.dialog.as_ref().map(|d| d.kind);
+        let Some(p) = self.ui.pending.take() else {
+            self.close_dialog();
+            return;
+        };
+        self.close_dialog();
+        match (kind, n) {
+            (Some(DialogKind::Unsaved), 0) => {
+                if self.save_doc(p.doc, false, p.after) {
+                    self.request(p.after);
+                }
+            }
+            (Some(DialogKind::Unsaved), 1) => {
+                if let Some(i) = self.docs.index_of_id(p.doc) {
+                    self.docs.tabs[i].discard = true;
+                }
+                self.request(p.after);
+            }
+            (Some(DialogKind::Overwrite), 0) => {
+                if self.save_doc(p.doc, true, p.after) {
+                    self.request(p.after);
+                }
+            }
+            (Some(DialogKind::Discard), 0) => self.perform(p.after),
+            _ => self.cancel_pending(),
+        }
+    }
+
+    /// The question was cancelled: nothing closes, and changes given up on the way count again.
+    fn cancel_pending(&mut self) {
+        self.ui.pending = None;
+        for d in &mut self.docs.tabs {
+            d.discard = false;
         }
     }
 
@@ -165,11 +362,13 @@ impl App {
         let Some(path) = self.docs.tabs.get(index).map(|d| d.path.clone()) else {
             return;
         };
-        let service = self.service.as_ref();
+        let Some(doc) = self.docs.tabs.get(index).map(|d| d.id) else {
+            return;
+        };
         match id {
-            C::CloseTab => self.docs.close(index, service),
-            C::CloseOtherTabs => self.docs.close_others(index, service),
-            C::CloseAllTabs => self.docs.close_all(service),
+            C::CloseTab => self.request(After::CloseTab(doc)),
+            C::CloseOtherTabs => self.request(After::CloseOthers(doc)),
+            C::CloseAllTabs => self.request(After::CloseAll),
             C::CopyFilePath => {
                 if platform::set_clipboard_text(&path.display().to_string()) {
                     self.docs.set_toast("File path copied");
@@ -237,6 +436,10 @@ impl App {
     }
 
     pub(super) fn close_dialog(&mut self) {
+        // Closed without an answer (Escape, a click beside it): the question is cancelled.
+        if self.ui.pending.is_some() {
+            self.cancel_pending();
+        }
         self.ui.dialog = None;
         self.ui.pressed = None;
         self.ui.dlg_hover_row = None;
@@ -266,6 +469,14 @@ impl App {
     }
 
     pub(super) fn command(&mut self, id: C) {
+        // The find box has the keyboard: these are not for the document.
+        if self.ui.find_focused && matches!(id, C::Undo | C::Redo | C::Cut | C::Paste) {
+            return;
+        }
+        // A command ends the run of typing that one Undo takes back.
+        if !matches!(id, C::Undo | C::Redo) {
+            self.docs.seal();
+        }
         match id {
             C::OpenFiles => {
                 for path in platform::pick_files(self.start_dir().as_deref()) {
@@ -278,21 +489,45 @@ impl App {
                     self.set_folder(dir);
                 }
             }
-            C::Reload => {
-                self.docs.reload_active();
-                self.ui.tree.refresh();
+            C::Save => {
+                if let Some(doc) = self.docs.active_doc().filter(|d| d.ready().is_some()) {
+                    let id = doc.id;
+                    self.save_doc(id, false, After::Nothing);
+                }
             }
+            C::SaveAs => self.save_as(),
+            C::Reload => match self.docs.active_doc().map(|d| (d.id, d.modified())) {
+                Some((id, true)) => self.request(After::Reload(id)),
+                _ => {
+                    self.docs.reload_active();
+                    self.ui.tree.refresh();
+                }
+            },
             C::OpenRecent => self.open_popup(PopupKind::Recent),
             C::ManageRecent => self.open_dialog(DialogKind::Recent),
             C::ClearRecent => self.docs.recents.clear(),
             C::CloseTab => {
                 if let Some(i) = self.docs.active() {
-                    self.docs.close(i, self.service.as_ref());
+                    self.close_tab(i);
                 }
             }
-            C::CloseAllTabs => self.docs.close_all(self.service.as_ref()),
-            C::Exit => self.exit = true,
-            C::Copy => self.copy(),
+            C::CloseAllTabs => self.request(After::CloseAll),
+            C::Exit => self.request(After::Exit),
+            C::Undo => {
+                self.edit(EditOp::Undo);
+            }
+            C::Redo => {
+                self.edit(EditOp::Redo);
+            }
+            C::Cut => {
+                if self.copy() {
+                    self.edit(EditOp::Insert(""));
+                }
+            }
+            C::Copy => {
+                self.copy();
+            }
+            C::Paste => self.paste(),
             C::SelectAll => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.sel = mdedit_core::selection::select_all(&r.buffer);
@@ -458,6 +693,15 @@ impl App {
                 at(d);
             }
         }
+        if let Some(due) = self.find_due {
+            if now >= due {
+                self.find_due = None;
+                self.docs.refind();
+                self.wants_frame = true;
+            } else {
+                at(due);
+            }
+        }
         if let Some(due) = self.size_save_due {
             if now >= due {
                 self.size_save_due = None;
@@ -489,6 +733,47 @@ impl App {
             size.height.round() as u32,
             w.is_maximized(),
         );
+    }
+
+    /// `--type-steps`: one keystroke per frame at the caret, then a summary of the time from
+    /// keystroke to pixels (the edit plus the frame's own work) and exit without saving.
+    pub(super) fn type_step(&mut self) {
+        let Some(n) = self.type_steps else { return };
+        if n == 0 {
+            let (p50, p95, max) = summary(&self.type_times);
+            let count = self.type_times.len().max(1) as f64;
+            eprintln!(
+                "mdedit: {} keystrokes at {}x{} px, keystroke to pixels: p50 {:.2} ms, p95 {:.2} ms, max {:.2} ms; mean edit {:.3} ms",
+                self.type_times.len(),
+                self.size.0,
+                self.size.1,
+                p50,
+                p95,
+                max,
+                self.type_edit_ms / count,
+            );
+            self.exit = true;
+            return;
+        }
+        self.type_steps = Some(n - 1);
+        let k = self.type_count;
+        self.type_count += 1;
+        let letter = &TYPE_TEXT[k % TYPE_TEXT.len()..][..1];
+        let op = match k {
+            _ if k % 61 == 60 => EditOp::Newline,
+            _ if k % 23 == 22 => EditOp::Backspace,
+            _ => EditOp::Insert(letter),
+        };
+        let frames = self.step_times.len();
+        let t = Instant::now();
+        self.docs.edit(op, self.service.as_ref());
+        let edit = crate::trace::ms(t.elapsed());
+        self.draw();
+        if self.step_times.len() > frames {
+            let own = self.step_times.last().map_or(0.0, FrameTimes::own_ms);
+            self.type_times.push(edit + own);
+            self.type_edit_ms += edit;
+        }
     }
 
     /// `--scroll-steps`: one wheel step per frame, down and back at the ends, then a summary and

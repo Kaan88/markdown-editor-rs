@@ -6,19 +6,19 @@
 //! `WHOLE_LINE_BYTES` is one layout; a longer one is cut by a `display::ChunkIndex` and only the
 //! chunks on screen, plus one each side, are shaped. A chunk is placed at the x its start's counts
 //! give: narrow columns times the advance plus wide characters times the measured width of a
-//! wide glyph, zero-width characters nothing. Layouts are cached by (document, line, chunk, the
-//! revision of the text, colours, theme).
+//! wide glyph, zero-width characters nothing. Layouts are cached by what they show (a hash of the
+//! text, its start column, colours, theme), not by where it is, so an edit re-shapes only the
+//! lines whose text changed and equal lines share one layout.
 
 pub mod cache;
 pub mod metrics;
 
 use crate::chrome::Ctx;
-use crate::commands::strings;
 use crate::docs::{Doc, DocState, Ready};
 use cache::Lru;
 use mdedit_core::display::{ChunkIndex, ChunkStart, Cols, DisplayLine};
 use mdedit_core::limits::{TAB_WIDTH, WHOLE_LINE_BYTES};
-use mdedit_highlight::{DocId, Span, foreground};
+use mdedit_highlight::{Span, foreground};
 use mdshared_text::{TextEngine, shared_fonts};
 use mdshared_ui::gfx::{Face, Rect, Rgb, mix};
 use mdshared_ui::glyph;
@@ -41,7 +41,7 @@ const WIDE_SAMPLE: &str =
     "\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}";
 /// Long-line chunk indexes a document keeps (one per line).
 pub const CHUNK_INDEXES: usize = 256;
-/// The missing-file banner over the text.
+/// The banner over the text.
 pub const BANNER_H: f32 = 34.0;
 /// The horizontal scrollbar's band at the bottom of the text area.
 const HBAR_H: f32 = 12.0;
@@ -85,7 +85,7 @@ pub struct Shaped {
 }
 
 impl Shaped {
-    /// The x of a buffer offset inside this text, device px from its start.
+    /// The x of an offset inside this text (bytes from its start), device px from its start.
     pub fn x_of(&self, offset: usize) -> f32 {
         let i = self.dl.to_display(offset);
         if i == 0 {
@@ -102,16 +102,22 @@ impl Shaped {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct LineKey {
-    doc: DocId,
-    line: usize,
-    /// The chunk's start offset.
-    chunk: usize,
-    /// The revision the document's text was loaded at (`Ready::revision`, not the document's
-    /// counter, which a reload bumps while the old text is still drawn).
-    revision: u64,
+    /// A hash of the text shaped, and its length.
+    text: u64,
+    len: usize,
+    /// The display column the text starts at (tab stops depend on it).
+    col: usize,
+    /// Where the text starts in its line, which the colour spans are relative to.
+    in_line: usize,
     /// A hash of the line's colour spans; 0 when it has none.
     colors: u64,
     dark: bool,
+}
+
+fn text_hash(text: &str) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    h.finish()
 }
 
 /// Where things are in the text region this frame.
@@ -481,43 +487,47 @@ impl View {
         Some(geom(r, area, &m))
     }
 
-    fn shaped(
-        &mut self,
-        doc: DocId,
-        r: &mut Ready,
-        line: usize,
-        ch: Chunk,
-        dark: bool,
-    ) -> Rc<Shaped> {
+    /// The layout of one line or chunk. Offsets in it are bytes from the chunk's start.
+    fn shaped(&mut self, r: &mut Ready, line: usize, ch: Chunk, dark: bool) -> Rc<Shaped> {
         let range = r.buffer.line_range(line);
         let (c, end) = (ch.start, ch.end);
         let spans = r.colors.line(line, dark).filter(|s| !s.is_empty());
+        let mut source = std::mem::take(&mut self.scratch);
+        source.clear();
+        r.buffer.text(c.offset..end, &mut source);
+        let in_line = c.offset - range.start;
         let key = LineKey {
-            doc,
-            line,
-            chunk: c.offset,
-            revision: r.revision,
+            text: text_hash(&source),
+            len: source.len(),
+            col: c.col,
+            in_line,
             colors: spans_hash(spans),
             dark,
         };
         if let Some(s) = self.cache.get(&key) {
+            self.scratch = source;
             return s.clone();
         }
         let size = self.metrics.map_or(14.0, |m| m.size);
-        let mut source = std::mem::take(&mut self.scratch);
-        source.clear();
-        r.buffer.text(c.offset..end, &mut source);
         let mut dl = DisplayLine::new();
-        dl.build(&source, c.offset, c.col, TAB_WIDTH);
-        self.scratch = source;
+        dl.build(&source, 0, c.col, TAB_WIDTH);
         let mut brushes = Vec::new();
         for s in spans.unwrap_or(&[]) {
-            let (a, b) = (range.start + s.start as usize, range.start + s.end as usize);
-            let (a, b) = (a.max(c.offset), b.min(end));
-            if a < b {
+            // Spans are bytes in the line; stale ones (the line was just edited) may run past
+            // its end or sit inside a character, so they are cut to the text and to boundaries.
+            let cut = |x: u32| {
+                let mut x = (x as usize).saturating_sub(in_line).min(source.len());
+                while !source.is_char_boundary(x) {
+                    x -= 1;
+                }
+                x
+            };
+            let (a, b) = (cut(s.start), cut(s.end));
+            if (s.end as usize) > in_line && a < b {
                 brushes.push((dl.to_display(a)..dl.to_display(b), s.color));
             }
         }
+        self.scratch = source;
         let layout = self.build(&dl.text, size, foreground(dark), &brushes);
         let width = layout.width();
         let baseline = layout.lines().next().map_or(0.0, |l| l.metrics().baseline);
@@ -560,11 +570,10 @@ impl View {
         let area = text_area(doc, region);
         if bands.is_none() {
             c.p.fill(region, pal.page);
-            if doc.shows_gone_banner() {
-                draw_banner(c, Rect::new(region.x, region.y, region.w, BANNER_H));
+            if let Some(text) = doc.banner() {
+                draw_banner(c, Rect::new(region.x, region.y, region.w, BANNER_H), text);
             }
         }
-        let id = doc.id;
         let name = doc.name();
         let (done, total) = doc.progress();
         let r = match &mut doc.state {
@@ -637,7 +646,7 @@ impl View {
                 .map(|(k, m)| (m.clone(), r.find.current == Some(first_mark + k)))
                 .collect();
             for chunk in shown {
-                let shaped = self.shaped(id, r, i, chunk, s.dark);
+                let shaped = self.shaped(r, i, chunk, s.dark);
                 let (ch, end) = (chunk.start, chunk.end);
                 let cx = m.chunk_x(&ch);
                 let x = origin + cx;
@@ -650,8 +659,8 @@ impl View {
                     if a > b || (a == b && a != end) {
                         return None;
                     }
-                    let xa = x + shaped.x_of(a) as f64;
-                    let xb = x + shaped.x_of(b) as f64;
+                    let xa = x + shaped.x_of(a - ch.offset) as f64;
+                    let xb = x + shaped.x_of(b - ch.offset) as f64;
                     Some((xa.round() as i32, xb.round() as i32))
                 };
                 for (mr, current) in &marks {
@@ -699,8 +708,9 @@ impl View {
         // The caret.
         if s.caret && vis.contains(&caret_line) && wanted(caret_line) {
             let chunk = chunk_at_offset(r, caret_line, r.sel.caret);
-            let shaped = self.shaped(id, r, caret_line, chunk, s.dark);
-            let x = origin + m.chunk_x(&chunk.start) + shaped.x_of(r.sel.caret) as f64;
+            let shaped = self.shaped(r, caret_line, chunk, s.dark);
+            let in_chunk = r.sel.caret.saturating_sub(chunk.start.offset);
+            let x = origin + m.chunk_x(&chunk.start) + shaped.x_of(in_chunk) as f64;
             let w = (1.5 * scale).round().max(1.0) as i32;
             let (x, y) = (x.round() as i32, line_top(caret_line));
             fill_clipped(c, (x, y, x + w, y + lh), text_clip, pal.text, 1.0);
@@ -758,7 +768,6 @@ impl View {
     ) -> Option<usize> {
         let m = self.metrics(scale);
         let area = text_area(doc, region);
-        let id = doc.id;
         let r = doc.ready_mut()?;
         let g = geom(r, area, &m);
         let dy = ((y - area.y) * scale) as f64;
@@ -766,7 +775,7 @@ impl View {
         let rel = (x * scale) as f64 - g.origin_x(scale, r.left);
         let chunk = chunk_at_x(r, line, rel.max(0.0), m.advance, m.wide);
         let dark = r.colors.dark;
-        let shaped = self.shaped(id, r, line, chunk, dark);
+        let shaped = self.shaped(r, line, chunk, dark);
         let local = (rel - m.chunk_x(&chunk.start)) as f32;
         let range = r.buffer.line_range(line);
         let offset = if local <= 0.0 {
@@ -775,7 +784,7 @@ impl View {
             chunk.end
         } else {
             let cur = Cursor::from_point(&shaped.layout, local, shaped.layout.height() / 2.0);
-            shaped.dl.to_source(cur.index(), false)
+            chunk.start.offset + shaped.dl.to_source(cur.index(), false)
         };
         let offset = r
             .buffer
@@ -784,9 +793,9 @@ impl View {
     }
 }
 
-/// The region below the missing-file banner.
+/// The region below the banner (file gone, or changed on disk under unsaved changes).
 pub fn text_area(doc: &Doc, region: Rect) -> Rect {
-    if doc.shows_gone_banner() {
+    if doc.banner().is_some() {
         Rect::new(
             region.x,
             region.y + BANNER_H,
@@ -853,7 +862,7 @@ fn fill_clipped(
     }
 }
 
-fn draw_banner(c: &mut Ctx, banner: Rect) {
+fn draw_banner(c: &mut Ctx, banner: Rect, text: &str) {
     let pal = *c.pal;
     c.p.fill(banner, pal.warn_bg);
     let px = c.p.px();
@@ -867,7 +876,7 @@ fn draw_banner(c: &mut Ctx, banner: Rect) {
         12.5,
         banner.x + 38.0,
         banner.cy(),
-        strings::FILE_GONE,
+        text,
         pal.text,
         banner.w - 54.0,
     );

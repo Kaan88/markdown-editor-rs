@@ -15,7 +15,7 @@
 use crate::args::{Args, ShotDialog, ShotMenu};
 use crate::chrome::{self, Ctx};
 use crate::commands::strings;
-use crate::docs::{DocState, Docs, Waker};
+use crate::docs::{DocState, Docs, EditOp, Waker};
 use crate::keys::Mods;
 use crate::overlays::{self, Bubble};
 use crate::panes;
@@ -24,8 +24,8 @@ use crate::session::{Session, ThemeChoice};
 use crate::status;
 use crate::trace::{FrameTimes, Trace, summary};
 use crate::ui::{
-    Areas, Dialog, DialogKind, Drag, Hit, PANE_MAX, PANE_MIN, PopupKind, REGIONS, Region, Scroller,
-    Ui,
+    After, Areas, Dialog, DialogKind, Drag, Hit, PANE_MAX, PANE_MIN, PopupKind, REGIONS, Region,
+    Scroller, Ui,
 };
 use crate::view::{self, DrawState, View, metrics};
 use mdedit_highlight::{DocId, HighlightService};
@@ -149,6 +149,14 @@ struct App {
     steps: Option<u32>,
     step_down: bool,
     step_times: Vec<FrameTimes>,
+    /// `--type-steps`: keystrokes left and typed, each one's time from keystroke to pixels (ms),
+    /// and the part of it spent in the edit itself.
+    type_steps: Option<u32>,
+    type_count: usize,
+    type_times: Vec<f64>,
+    type_edit_ms: f64,
+    /// When the find marks are searched for again after an edit.
+    find_due: Option<Instant>,
     /// Loading and colouring have gone idle once; `--trace` printed the idle figures.
     settled: bool,
     load_traced: bool,
@@ -175,6 +183,11 @@ impl App {
         App {
             started: trace.started,
             steps: args.scroll_steps,
+            type_steps: args.type_steps,
+            type_count: 0,
+            type_times: Vec::new(),
+            type_edit_ms: 0.0,
+            find_due: None,
             theme_from_args: args.dark.is_some(),
             save: args.shot.is_none(),
             args,
@@ -507,6 +520,7 @@ impl App {
                     doc.id,
                     doc.revision,
                     doc.missing,
+                    doc.changed_on_disk,
                     state,
                     self.dark(),
                     thumbs,
@@ -827,10 +841,11 @@ impl App {
         if !damage.is_empty() {
             self.trace.frame(&times);
         }
-        if self.steps.is_some() && self.settled && !damage.is_empty() {
+        if (self.steps.is_some() || self.type_steps.is_some()) && self.settled && !damage.is_empty()
+        {
             self.step_times.push(times);
         }
-        let title = strings::window_title(self.docs.active_doc().map(|d| d.name()).as_deref());
+        let title = strings::window_title(self.docs.active_doc().map(|d| d.title()).as_deref());
         if title != self.last_title {
             if let Some(w) = &self.window {
                 w.set_title(&title);
@@ -1052,7 +1067,7 @@ impl ApplicationHandler<Wake> for App {
             return;
         }
         let (w, h, max) = self.session.window_size().unwrap_or((1280, 800, false));
-        let title = strings::window_title(self.docs.active_doc().map(|d| d.name()).as_deref());
+        let title = strings::window_title(self.docs.active_doc().map(|d| d.title()).as_deref());
         let mut attributes = Window::default_attributes()
             .with_title(title)
             .with_decorations(false)
@@ -1139,7 +1154,10 @@ impl ApplicationHandler<Wake> for App {
 
     fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => self.exit = true,
+            WindowEvent::CloseRequested => {
+                self.request(After::Exit);
+                self.redraw();
+            }
             WindowEvent::RedrawRequested => {
                 self.wants_frame = false;
                 if !std::mem::take(&mut self.requested) {
@@ -1184,6 +1202,7 @@ impl ApplicationHandler<Wake> for App {
                 } else {
                     self.ui.caret_on = true;
                     self.ui.tip = None;
+                    self.docs.seal();
                 }
                 self.redraw();
             }
@@ -1248,6 +1267,14 @@ impl ApplicationHandler<Wake> for App {
             self.trace.stage("loading and colouring idle");
             self.trace.memory("idle");
             self.trace.cpu("idle");
+        }
+        if self.type_steps.is_some() && self.settled {
+            self.type_step();
+            if self.exit {
+                return;
+            }
+            event_loop.set_control_flow(ControlFlow::Poll);
+            return;
         }
         if self.steps.is_some() && self.settled {
             self.step();
@@ -1316,6 +1343,9 @@ impl App {
                 };
                 view::reveal(r, t, false);
             }
+        }
+        if let Some(text) = &a.type_text {
+            self.docs.edit(EditOp::Insert(text), self.service.as_ref());
         }
         if let Some(q) = &a.find {
             self.ui.find.set_text(q);
@@ -1391,6 +1421,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotDialog::About) => app.open_dialog(DialogKind::About),
         Some(ShotDialog::Shortcuts) => app.open_dialog(DialogKind::Shortcuts),
         Some(ShotDialog::Recent) => app.open_dialog(DialogKind::Recent),
+        Some(ShotDialog::Unsaved) => {
+            if let Some(id) = app.docs.active_doc().map(|d| d.id) {
+                app.ask(DialogKind::Unsaved, id, After::Nothing);
+            }
+        }
         None => {}
     }
     if app.ui.dialog.is_some() || app.ui.popup.is_some() {
@@ -1508,6 +1543,7 @@ pub fn run() -> i32 {
         return shot(app, &path);
     }
     let positions = a.goto.is_some()
+        || a.type_text.is_some()
         || a.select.is_some()
         || a.find.is_some()
         || a.scroll.is_some()

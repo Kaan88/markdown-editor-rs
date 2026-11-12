@@ -22,6 +22,8 @@ bytemuck.workspace = true
 [target.'cfg(windows)'.dependencies]
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
 softbuffer = { version = "=0.4.8", default-features = false }
+# The Save as dialog; the same version and features as mdshared-ui, which opens the others.
+rfd = { version = "0.15.4", default-features = false }
 # GetACP (Globalization), the memory figures --trace prints (ProcessStatus, Threading) and the
 # first line of the clipboard for the find box (DataExchange, Memory).
 windows-sys = { version = "0.59", features = [
@@ -37,3 +39,4 @@ windows-sys = { version = "0.59", features = [
 [target.'cfg(not(windows))'.dependencies]
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
 softbuffer = { version = "=0.4.8", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
+rfd = { version = "0.15.4", default-features = false, features = ["xdg-portal", "async-std"] }

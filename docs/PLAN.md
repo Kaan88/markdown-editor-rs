@@ -1,9 +1,9 @@
 # Plan: mdedit, a light text editor
 
-Written 2026-11-12. The user said to start the same day. Phases 0 and 1 are built (see "State"
+Written 2026-11-12. The user said to start the same day. Phases 0 to 3 are built (see "State"
 below); the user has not yet looked at the interface, so nothing about it is approved.
 
-## State (2026-11-12)
+## State (2026-11-13)
 
 **The rule for every feature (the user, 2026-11-12):** "as long as the app remains just as fast to
 open and work, implement useful features from Notepad++." A feature goes in only if first frame,
@@ -36,6 +36,33 @@ gone), so a panic on any thread ends the process; the viewer uses `unwind`. The 
 figure was left as it is. Idle CPU with the window unfocused was not measured. Not done by hand:
 everything interactive (selection, copy, find, tabs, Files pane, theme switch, reload on change,
 second-instance hand-over).
+
+**Phases 2 and 3, built 2026-11-13, not yet seen by the user.** Typing, deletion, selection
+editing, clipboard, undo and redo, auto-indent, Tab and Shift+Tab; Save, Save as, the unsaved mark
+and the questions before closing, and the handling of a file that changed on disk
+(`docs/DESIGN.md`, section 16). Measured on the PC, release build:
+
+| | Budget | Measured |
+|---|---|---|
+| Keystroke to pixels, small file | under 8 ms, typical 2 to 4 | p50 0.8 ms, p95 0.9 ms, max 1.7 ms (`--type-steps 300`, three runs) |
+| Keystroke to pixels, 100 MB file | the same | p50 0.9 ms, p95 0.95 ms, max 1.4 ms |
+| Keystroke to pixels, Markdown file | the same | p50 1.8 ms, p95 2.2 ms (one run) |
+| First frame, small file | under 100 ms | 80 to 90 ms |
+| First frame, 100 MB file | under 500 ms | 135 to 212 ms |
+| Private memory, small file | under 30 MiB | 27.8 MiB |
+| Private memory, 100 MB file | 125 MiB | 133.4 MiB, as before |
+| Scroll frame, p95 | under 4 ms | 0.9 ms small, 2.0 ms on the 100 MB file |
+| Exe | under 6 MB | 5.8 MB |
+| Save, 100 MB | none set | 88 ms as UTF-8, 261 ms as UTF-16 |
+
+The keystroke figure is the edit plus the frame's own work up to handing the pixels to the
+system; it leaves out the system's present and the later frame that brings the new colours. The
+scripted edit run (20,000 operations against a plain-string reference, then undo and redo of all
+of them) and the round trips (every fixture that loads without replaced bytes, plus 135 generated
+files over UTF-8, BOM, UTF-16 LE and BE, Windows-1254, Windows-1252, Shift_JIS, GBK and every
+line-ending mix) pass byte for byte. Not done by hand: anything interactive, including every
+editing key, the questions before closing, Save as, and a file changing on disk under unsaved
+text. Not measured: idle CPU after these changes.
 
 ## Feature roadmap (agreed 2026-11-12)
 

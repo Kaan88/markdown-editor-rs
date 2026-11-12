@@ -16,6 +16,18 @@ pub fn pick_files(start_dir: Option<&Path>) -> Vec<PathBuf> {
     mdshared_ui::platform::pick_files(start_dir, "Text and code", OPEN_FILTER)
 }
 
+/// The Save as dialog, opened on `current`'s folder with its name filled in.
+pub fn pick_save(current: &Path) -> Option<PathBuf> {
+    let mut dialog = rfd::FileDialog::new();
+    if let Some(dir) = current.parent().filter(|d| d.is_dir()) {
+        dialog = dialog.set_directory(dir);
+    }
+    if let Some(name) = current.file_name() {
+        dialog = dialog.set_file_name(name.to_string_lossy());
+    }
+    dialog.save_file()
+}
+
 /// The most characters a paste into the find box takes.
 pub const PASTE_MAX_CHARS: usize = 1000;
 

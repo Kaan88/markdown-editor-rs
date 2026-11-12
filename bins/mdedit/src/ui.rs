@@ -4,6 +4,7 @@
 use crate::commands::CommandId;
 use crate::session::ThemeChoice;
 use crate::status::STATUS_H;
+use mdedit_highlight::DocId;
 use mdshared_ui::gfx::Rect;
 use mdshared_ui::menu::Menu;
 use mdshared_ui::textfield::TextField;
@@ -174,6 +175,40 @@ pub enum DialogKind {
     About,
     Shortcuts,
     Recent,
+    /// A tab with unsaved changes is about to close: Save, Don't save, Cancel.
+    Unsaved,
+    /// A save found the file changed on disk: Overwrite, Cancel.
+    Overwrite,
+    /// A reload would drop unsaved changes: Reload, Cancel.
+    Discard,
+}
+
+impl DialogKind {
+    /// A question whose answer something waits for (`Ui::pending`).
+    pub fn is_confirm(self) -> bool {
+        matches!(
+            self,
+            DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard
+        )
+    }
+}
+
+/// What goes on once the unsaved changes in its way are saved or given up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum After {
+    Nothing,
+    CloseTab(DocId),
+    CloseOthers(DocId),
+    CloseAll,
+    Exit,
+    Reload(DocId),
+}
+
+/// The question on screen: the document it is about and what waits for the answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pending {
+    pub doc: DocId,
+    pub after: After,
 }
 
 pub struct Dialog {
@@ -184,6 +219,8 @@ pub struct Dialog {
     pub view: f32,
     pub content: f32,
     pub list: Rect,
+    /// The file a question is about.
+    pub subject: String,
 }
 
 impl Dialog {
@@ -194,6 +231,7 @@ impl Dialog {
             view: 0.0,
             content: 0.0,
             list: Rect::default(),
+            subject: String::new(),
         }
     }
 }
@@ -288,6 +326,8 @@ pub struct Ui {
     pub drag: Option<Drag>,
     pub popup: Option<Popup>,
     pub dialog: Option<Dialog>,
+    /// What the question dialog on screen is about.
+    pub pending: Option<Pending>,
     pub tip: Option<Tip>,
     /// A tooltip was dismissed by a press; it stays hidden until the pointer leaves that hit.
     pub tip_blocked: Option<Hit>,
@@ -321,6 +361,7 @@ impl Ui {
             drag: None,
             popup: None,
             dialog: None,
+            pending: None,
             tip: None,
             tip_blocked: None,
             dlg_hover_row: None,

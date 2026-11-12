@@ -2,3 +2,4 @@
 target/
 spikes/*/target/
 *.png.tmp
+.claude/worktrees/

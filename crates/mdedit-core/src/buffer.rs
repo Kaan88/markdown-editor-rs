@@ -1,7 +1,9 @@
 //! The text: a `ropey::Rope` of UTF-8, with lines broken at LF, CRLF and CR (the `cr_lines`
-//! feature). Positions are byte offsets on `char` boundaries. Phase 1 never changes a buffer; a
-//! reload replaces it. Phase 2 adds `replace`, which bumps [`Buffer::revision`].
+//! feature). Positions are byte offsets on `char` boundaries. The one way to change a buffer is
+//! [`Buffer::replace`], which bumps [`Buffer::revision`] and reports what it did as a [`Change`];
+//! a reload makes a new buffer.
 
+use crate::eol::EolCounts;
 use ropey::Rope;
 use std::ops::Range;
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
@@ -12,6 +14,87 @@ use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 pub struct Position {
     pub line: usize,
     pub col: usize,
+}
+
+/// What one edit did, for the shell's caches (layouts, colours, find, line-ending counts).
+///
+/// Every line before `first_line` is unchanged. Every line from `first_line + lines_before` in
+/// the old text equals the line from `first_line + lines_after` in the new text. Between, the old
+/// text had `lines_before` lines and the new has `lines_after`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Change {
+    /// Start of the replaced range, after clamping and flooring to a `char` boundary. The bytes
+    /// before it are unchanged.
+    pub at: usize,
+    /// Bytes removed from `at` (old coordinates).
+    pub removed: usize,
+    /// Bytes inserted at `at` (new coordinates). The bytes after `at + removed` in the old text
+    /// are those after `at + inserted` in the new.
+    pub inserted: usize,
+    /// First line whose text or line break changed. A CR before `at` counts: an inserted LF
+    /// joins it into a CRLF, and a removed LF after it splits one.
+    pub first_line: usize,
+    /// How many lines, from `first_line`, the edit touched in the old text (at least 1).
+    pub lines_before: usize,
+    /// How many lines, from `first_line`, they became in the new text (at least 1).
+    pub lines_after: usize,
+    /// Line-ending counts of a window of the old text, the replaced range plus a byte each side.
+    pub eol_removed: EolCounts,
+    /// The same window of the new text. `EolCounts::apply(eol_removed, eol_added)` takes the old
+    /// text's counts to the new text's.
+    pub eol_added: EolCounts,
+}
+
+impl Change {
+    /// New line count minus old: `lines_after - lines_before`.
+    pub fn line_delta(&self) -> isize {
+        self.lines_after as isize - self.lines_before as isize
+    }
+
+    fn is_noop(&self) -> bool {
+        self.removed == 0 && self.inserted == 0
+    }
+
+    /// Makes `self` the change of two edits applied one after the other, `later` being in the
+    /// coordinates of the text `self` produced. The first line is the smaller; the line spans
+    /// reach the later end of the two in the middle text and map back to the old and forward to
+    /// the new. `removed` and `inserted` become the span from the smaller `at` to the furthest
+    /// touched end in old and in new coordinates (bytes in between that neither edit touched are
+    /// counted in both). The eol windows are summed.
+    pub fn merge(&mut self, later: &Change) {
+        if later.is_noop() {
+            return;
+        }
+        if self.is_noop() {
+            *self = later.clone();
+            return;
+        }
+        let first = self.first_line.min(later.first_line);
+        // The end, in the middle text, of what either edit touched.
+        let mid_line =
+            (self.first_line + self.lines_after).max(later.first_line + later.lines_before);
+        let lines_before = (mid_line as isize - self.line_delta()) as usize - first;
+        let lines_after = (mid_line as isize + later.line_delta()) as usize - first;
+        let mid_end = (self.at + self.inserted).max(later.at + later.removed);
+        let at = self.at.min(later.at);
+        let old_end = (mid_end as isize - self.inserted as isize + self.removed as isize) as usize;
+        let new_end =
+            (mid_end as isize - later.removed as isize + later.inserted as isize) as usize;
+        self.at = at;
+        self.removed = old_end - at;
+        self.inserted = new_end - at;
+        self.first_line = first;
+        self.lines_before = lines_before;
+        self.lines_after = lines_after;
+        self.eol_removed.add(&later.eol_removed);
+        self.eol_added.add(&later.eol_added);
+    }
+}
+
+/// What replaces a range: text, or a rope whose chunks the buffer then shares.
+enum Insert<'a> {
+    Str(&'a str),
+    Rope(&'a Rope),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -52,6 +135,89 @@ impl Buffer {
     /// buffer has one line.
     pub fn len_lines(&self) -> usize {
         self.rope.len_lines()
+    }
+
+    /// Replaces `range` with `text` and bumps [`Buffer::revision`]. The range is clamped to the
+    /// buffer and its ends moved back to `char` boundaries. An empty range with empty text
+    /// changes nothing: the revision stays and the [`Change`] has no bytes. Costs O(log n) plus
+    /// the size of the edit, however large the buffer.
+    pub fn replace(&mut self, range: Range<usize>, text: &str) -> Change {
+        self.replace_with(range, Insert::Str(text))
+    }
+
+    /// [`Buffer::replace`] with a rope: the new text shares the rope's chunks, so restoring a
+    /// large removed text (undo) copies nothing.
+    pub(crate) fn replace_rope(&mut self, range: Range<usize>, text: &Rope) -> Change {
+        self.replace_with(range, Insert::Rope(text))
+    }
+
+    fn replace_with(&mut self, range: Range<usize>, ins: Insert<'_>) -> Change {
+        let len = self.rope.len_bytes();
+        let at = self.floor_char(range.start);
+        let end = self.floor_char(range.end).max(at);
+        let removed = end - at;
+        let inserted = match &ins {
+            Insert::Str(s) => s.len(),
+            Insert::Rope(r) => r.len_bytes(),
+        };
+        let mut first_line = self.rope.byte_to_line(at);
+        if removed == 0 && inserted == 0 {
+            return Change {
+                at,
+                first_line,
+                lines_before: 1,
+                lines_after: 1,
+                ..Change::default()
+            };
+        }
+        if at > 0 && self.rope.byte(at - 1) == b'\r' {
+            first_line = self.rope.byte_to_line(at - 1);
+        }
+        let lines_before_total = self.rope.len_lines();
+        let last_line = self.rope.byte_to_line(end);
+        // The window for the line-ending counts: the range and a `char` each side, so a pair
+        // that the edit joins or splits is inside it.
+        let win_start = if at == 0 { 0 } else { self.floor_char(at - 1) };
+        let win_end = end + self.char_at(end).map_or(0, char::len_utf8);
+        let eol_removed = self.eol_window(win_start..win_end);
+
+        let (c0, c1) = (self.rope.byte_to_char(at), self.rope.byte_to_char(end));
+        if c1 > c0 {
+            self.rope.remove(c0..c1);
+        }
+        match ins {
+            Insert::Str(s) => {
+                if !s.is_empty() {
+                    self.rope.insert(c0, s);
+                }
+            }
+            Insert::Rope(r) => {
+                if r.len_bytes() > 0 {
+                    let tail = self.rope.split_off(c0);
+                    self.rope.append(r.clone());
+                    self.rope.append(tail);
+                }
+            }
+        }
+        self.revision += 1;
+        let eol_added = self.eol_window(win_start..win_end - removed + inserted);
+        debug_assert!(win_end <= len);
+        let lines_before = last_line - first_line + 1;
+        let lines_after = lines_before + self.rope.len_lines() - lines_before_total;
+        Change {
+            at,
+            removed,
+            inserted,
+            first_line,
+            lines_before,
+            lines_after,
+            eol_removed,
+            eol_added,
+        }
+    }
+
+    fn eol_window(&self, range: Range<usize>) -> EolCounts {
+        EolCounts::of_chunks(self.rope.byte_slice(range).chunks())
     }
 
     /// `offset` clamped to the buffer and moved back to the start of the `char` holding it.
@@ -578,5 +744,237 @@ mod tests {
             assert!(set.contains(&s) && s <= o);
             assert!(!expect.iter().any(|&e| e > s && e <= o), "offset {o}");
         }
+    }
+
+    // ---- replace
+
+    use crate::testutil::{Rng, check_change, check_eols};
+
+    fn floor(s: &str, mut i: usize) -> usize {
+        i = i.min(s.len());
+        while !s.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    }
+
+    /// The same edit on a plain string: the floored range.
+    fn model_replace(s: &mut String, range: Range<usize>, text: &str) -> (usize, usize) {
+        let at = floor(s, range.start);
+        let end = floor(s, range.end).max(at);
+        s.replace_range(at..end, text);
+        (at, end)
+    }
+
+    const PIECES: [&str; 9] = ["a", "\r", "\n", "\r\n", "\r", "\n", "é", "x", "漢"];
+
+    fn random_text(rng: &mut Rng, max_pieces: usize) -> String {
+        (0..rng.below(max_pieces + 1))
+            .map(|_| *rng.pick(&PIECES))
+            .collect()
+    }
+
+    /// An offset biased to land next to or inside line breaks and multi-byte characters.
+    fn random_offset(rng: &mut Rng, s: &str) -> usize {
+        let breaks: Vec<usize> = s
+            .char_indices()
+            .filter(|&(_, c)| c == '\r' || c == '\n')
+            .map(|(i, _)| i)
+            .collect();
+        if !breaks.is_empty() && rng.chance(60) {
+            let i = *rng.pick(&breaks);
+            return (i + rng.below(4)).saturating_sub(1).min(s.len() + 1);
+        }
+        rng.below(s.len() + 3)
+    }
+
+    #[test]
+    fn replace_basics() {
+        let mut buf = b("hello\nworld");
+        let c = buf.replace(0..5, "HELLO!");
+        assert_eq!(buf.rope().to_string(), "HELLO!\nworld");
+        assert_eq!(buf.revision(), 1);
+        assert_eq!((c.at, c.removed, c.inserted), (0, 5, 6));
+        assert_eq!((c.first_line, c.lines_before, c.lines_after), (0, 1, 1));
+        assert_eq!(c.line_delta(), 0);
+
+        let c = buf.replace(6..7, "");
+        assert_eq!(buf.rope().to_string(), "HELLO!world");
+        assert_eq!((c.first_line, c.lines_before, c.lines_after), (0, 2, 1));
+        assert_eq!(c.line_delta(), -1);
+        assert_eq!(c.eol_removed.lf, 1);
+
+        // Clamped and floored; an offset inside a char moves to the char's start.
+        let mut buf = b("a\u{11F}b");
+        let c = buf.replace(2..400, "");
+        assert_eq!(buf.rope().to_string(), "a");
+        assert_eq!((c.at, c.removed), (1, 3));
+        let c = buf.replace(9..9, "z");
+        assert_eq!(buf.rope().to_string(), "az");
+        assert_eq!((c.at, c.inserted), (1, 1));
+
+        // Nothing: no revision.
+        let before = buf.revision();
+        let c = buf.replace(1..1, "");
+        assert_eq!(buf.revision(), before);
+        assert_eq!(
+            (c.removed, c.inserted, c.lines_before, c.lines_after),
+            (0, 0, 1, 1)
+        );
+        let (hi, lo) = (5, 2);
+        let c = buf.replace(hi..lo, ""); // inverted range: empty at its start
+        assert_eq!(buf.revision(), before);
+        assert_eq!(c.at, 2.min(buf.len_bytes()));
+
+        // Empty buffer.
+        let mut e = b("");
+        let c = e.replace(0..0, "ab\r\ncd");
+        assert_eq!(e.len_lines(), 2);
+        assert_eq!((c.first_line, c.lines_before, c.lines_after), (0, 1, 2));
+        e.replace(0..e.len_bytes(), "");
+        assert_eq!(e.len_bytes(), 0);
+        assert_eq!(e.len_lines(), 1);
+    }
+
+    #[test]
+    fn replace_joining_and_splitting_crlf() {
+        // An LF after a CR joins them: the CR's line changes.
+        let mut buf = b("a\rb");
+        let c = buf.replace(2..2, "\n");
+        assert_eq!(buf.rope().to_string(), "a\r\nb");
+        assert_eq!(c.first_line, 0);
+        assert_eq!(buf.len_lines(), 2);
+        // Removing the LF of a CRLF splits... nothing, but the CR's line changes.
+        let mut buf = b("a\r\nb");
+        let c = buf.replace(2..3, "");
+        assert_eq!(buf.rope().to_string(), "a\rb");
+        assert_eq!(c.first_line, 0);
+        // Text inserted between the CR and the LF of a CRLF.
+        let mut buf = b("a\r\nb");
+        let c = buf.replace(2..2, "x");
+        assert_eq!(buf.rope().to_string(), "a\rx\nb");
+        assert_eq!((c.first_line, c.lines_before, c.lines_after), (0, 1, 2));
+        assert_eq!(buf.len_lines(), 3);
+    }
+
+    #[test]
+    fn replace_random_against_a_string() {
+        let mut rng = Rng::new(7);
+        for round in 0..300 {
+            let mut model = random_text(&mut rng, 24);
+            let mut buf = b(&model);
+            let mut counts = EolCounts::of(&model);
+            for step in 0..200 {
+                let before = model.clone();
+                let r1 = random_offset(&mut rng, &model);
+                let r2 = if rng.chance(30) {
+                    r1
+                } else {
+                    random_offset(&mut rng, &model)
+                };
+                let range = if rng.chance(90) {
+                    r1.min(r2)..r1.max(r2)
+                } else {
+                    r1..r2
+                };
+                let text = random_text(&mut rng, 4);
+                let (at, end) = model_replace(&mut model, range.clone(), &text);
+                let rev = buf.revision();
+                let c = if rng.chance(25) {
+                    buf.replace_rope(range.clone(), &Rope::from_str(&text))
+                } else {
+                    buf.replace(range.clone(), &text)
+                };
+                let ctx = format!("round {round} step {step}: {before:?} {range:?} {text:?}");
+                assert_eq!(buf.rope().to_string(), model, "{ctx}");
+                assert_eq!(
+                    (c.at, c.removed, c.inserted),
+                    (at, end - at, text.len()),
+                    "{ctx}"
+                );
+                assert_eq!(
+                    buf.revision(),
+                    rev + u64::from(end > at || !text.is_empty())
+                );
+                assert_eq!(buf.len_lines(), lines_len(&model));
+                check_change(&before, &model, &c);
+                check_eols(&mut counts, &model, &c);
+            }
+        }
+    }
+
+    fn lines_len(s: &str) -> usize {
+        crate::testutil::lines_of(s).len()
+    }
+
+    #[test]
+    fn replace_with_a_large_rope_joins_crlf_at_the_seams() {
+        // Many chunks so that the seams are real chunk boundaries.
+        let big: String = "ab\r\n".repeat(5000);
+        let (cr_first, lf_first) = (format!("{big}\r"), format!("\n{big}"));
+        let mut buf = b("x\ry");
+        let c = buf.replace_rope(2..2, &Rope::from_str(&lf_first));
+        let want = format!("x\r{lf_first}y");
+        assert_eq!(buf.rope().to_string(), want);
+        assert_eq!(c.first_line, 0);
+        let mut buf = b("x\ny");
+        buf.replace_rope(1..1, &Rope::from_str(&cr_first));
+        assert_eq!(buf.rope().to_string(), format!("x{cr_first}\ny"));
+        assert_eq!(buf.len_lines(), lines_len(&buf.rope().to_string()));
+        assert_eq!(buf.len_lines(), 5000 + 2);
+    }
+
+    #[test]
+    fn merge_of_two_changes_is_one_change() {
+        let mut rng = Rng::new(11);
+        for round in 0..400 {
+            let mut model = random_text(&mut rng, 30);
+            let mut buf = b(&model);
+            let start = model.clone();
+            let start_counts = EolCounts::of(&model);
+            let mut merged: Option<Change> = None;
+            // One to four edits, merged one by one.
+            for _ in 0..1 + rng.below(4) {
+                let r1 = random_offset(&mut rng, &model);
+                let r2 = random_offset(&mut rng, &model);
+                let text = random_text(&mut rng, 4);
+                let range = r1.min(r2)..r1.max(r2);
+                model_replace(&mut model, range.clone(), &text);
+                let c = buf.replace(range, &text);
+                match merged.as_mut() {
+                    Some(m) => m.merge(&c),
+                    None => merged = Some(c),
+                }
+            }
+            let m = merged.unwrap();
+            assert_eq!(buf.rope().to_string(), model, "round {round}");
+            check_change(&start, &model, &m);
+            let mut counts = start_counts;
+            check_eols(&mut counts, &model, &m);
+        }
+    }
+
+    #[test]
+    fn merge_with_a_no_change() {
+        let mut buf = b("abc\ndef");
+        let mut m = buf.replace(0..1, "xy");
+        let none = buf.replace(3..3, "");
+        let snapshot = m.clone();
+        m.merge(&none);
+        assert_eq!(m, snapshot);
+        let mut n = none.clone();
+        n.merge(&snapshot);
+        assert_eq!(n, snapshot);
+    }
+
+    #[test]
+    fn replace_in_a_large_buffer_keeps_chunks_shared() {
+        let (text, mut buf) = big_rope();
+        let snap = buf.snapshot();
+        let c = buf.replace(50_000..50_010, "Z");
+        assert!(c.removed >= 9 && c.removed <= 12);
+        // The snapshot is unchanged.
+        assert_eq!(snap.to_string(), text);
+        assert_ne!(buf.rope().to_string(), text);
     }
 }

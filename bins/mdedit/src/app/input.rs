@@ -2,6 +2,7 @@
 //! viewer's `bins/mdv-app/src/app/input.rs`; the text area's selection follows DESIGN.md section 8.
 
 use super::*;
+use crate::docs::EditOp;
 use crate::keys::{self, KeyName};
 use crate::ui::{BarItem, Popup, SelectUnit, Tip};
 use crate::view::offset_for_hthumb;
@@ -370,6 +371,7 @@ impl App {
                 let Some(offset) = self.text_offset(x, y) else {
                     return;
                 };
+                self.docs.seal();
                 let shift = self.mods.shift;
                 let Some(r) = self.docs.active_ready_mut() else {
                     return;
@@ -509,7 +511,7 @@ impl App {
             return;
         }
         if let Some(Hit::Tab(i) | Hit::TabClose(i)) = self.hit_at(x, y) {
-            self.docs.close(i, self.service.as_ref());
+            self.close_tab(i);
             self.redraw();
         }
     }
@@ -650,7 +652,16 @@ impl App {
         }
         // A dialog too.
         if let Some(d) = self.ui.dialog.as_ref() {
-            let scroll = d.scroll;
+            let (scroll, kind) = (d.scroll, d.kind);
+            if kind.is_confirm() {
+                match name {
+                    Some(KeyName::Enter) => self.answer(0),
+                    Some(KeyName::Escape) => self.close_dialog(),
+                    Some(KeyName::Char('n')) if kind == DialogKind::Unsaved => self.answer(1),
+                    _ => {}
+                }
+                return;
+            }
             match name {
                 Some(KeyName::Escape | KeyName::Enter) => self.close_dialog(),
                 Some(KeyName::Up) => self.set_scroll(Scroller::Dialog, scroll - 40.0),
@@ -672,13 +683,39 @@ impl App {
             return;
         }
         let Some(name) = name else { return };
-        self.text_key(&name, mods);
+        if self.text_key(&name, mods) {
+            return;
+        }
+        // Typed text. Ctrl alone is a shortcut and Alt alone a menu key; both together are
+        // AltGr on layouts where winit reports it that way.
+        if self.text_focused()
+            && mods.ctrl == mods.alt
+            && let Some(text) = typed.filter(|t| !t.is_empty() && !t.chars().any(char::is_control))
+        {
+            self.edit(EditOp::Insert(text));
+        }
     }
 
-    /// Caret keys for the text area.
-    fn text_key(&mut self, name: &KeyName, mods: Mods) {
+    /// Editing and caret keys for the text area. True when the key was used.
+    fn text_key(&mut self, name: &KeyName, mods: Mods) -> bool {
+        let op = match (name, mods.ctrl, mods.shift) {
+            (KeyName::Enter, false, _) => Some(EditOp::Newline),
+            (KeyName::Backspace, false, _) => Some(EditOp::Backspace),
+            (KeyName::Backspace, true, _) => Some(EditOp::WordLeft),
+            (KeyName::Delete, false, false) => Some(EditOp::Delete),
+            (KeyName::Delete, true, _) => Some(EditOp::WordRight),
+            (KeyName::Tab, false, false) => Some(EditOp::Indent),
+            (KeyName::Tab, false, true) => Some(EditOp::Outdent),
+            _ => None,
+        };
+        if let Some(op) = op {
+            if self.text_focused() && !mods.alt {
+                self.edit(op);
+            }
+            return true;
+        }
         let Some(r) = self.docs.active_ready_mut() else {
-            return;
+            return false;
         };
         let page = ((r.view_lines.floor() as usize).saturating_sub(1)).max(1);
         let motion = match (name, mods.ctrl) {
@@ -696,14 +733,16 @@ impl App {
             (KeyName::PageDown, false) => Motion::Down(page),
             (KeyName::Up, true) => {
                 r.top -= 1.0;
-                return;
+                return true;
             }
             (KeyName::Down, true) => {
                 r.top += 1.0;
-                return;
+                return true;
             }
-            _ => return,
+            _ => return false,
         };
+        // A caret move ends the run of typing that one Undo takes back.
+        r.history.seal();
         r.sel = selection::apply(&r.buffer, r.sel, motion, mods.shift, TAB_WIDTH);
         if matches!(motion, Motion::Up(n) | Motion::Down(n) if n > 1) {
             // Page keys move the view with the caret.
@@ -717,6 +756,7 @@ impl App {
         }
         view::reveal(r, r.sel.caret, false);
         self.caret_reset();
+        true
     }
 
     /// Keys for the focused find box. True when the key was used.

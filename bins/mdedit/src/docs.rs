@@ -5,17 +5,24 @@
 //! `Ready` text on screen until the new one arrives. Every job result carries the document id and
 //! the revision it was started for (a counter per document, bumped on every load); results for
 //! another revision are dropped.
+//!
+//! An edit goes through [`Docs::edit`]: it changes the buffer and its undo history, bumps the
+//! revision, and keeps what hangs on the text in step (colours, find marks, line-ending counts,
+//! the highlight worker's copy). A document with unsaved changes is never reloaded by itself.
 
 use crate::app::Wake;
 use crate::commands::strings;
 use crate::session::ThemeChoice;
 use crate::view::cache::Lru;
 use mdedit_core::display::ChunkIndex;
+use mdedit_core::edit::{self, Outcome};
+use mdedit_core::eol::normalize_eols;
 use mdedit_core::find::{self, FindOptions, Matches, Query};
-use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES};
+use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
+use mdedit_core::save::{self, SaveError};
 use mdedit_core::selection::Selection;
-use mdedit_core::{Buffer, FileInfo, Position};
+use mdedit_core::{Buffer, Change, FileInfo, History, Position};
 use mdedit_highlight::{Colored, DocId, HighlightService, Language, Span};
 use mdshared_app::files::{FileStamp, stamp};
 use mdshared_app::paths::{canonical_or_absolute, same_path, tab_labels};
@@ -51,12 +58,90 @@ impl LineColors {
         self.lines.get(line - self.first).map(Vec::as_slice)
     }
 
+    /// Keeps the window in step with an edit until the worker answers for the new text: lines
+    /// below the change move with it, the edited line keeps its colours around the edit (the
+    /// typed text takes the colour it lands in), other changed lines go plain. `rel` is the
+    /// edit's start in bytes from the start of `change.first_line`.
+    pub fn edited(&mut self, change: &Change, rel: usize) {
+        self.requested = None;
+        if self.generation == 0 {
+            return;
+        }
+        let first = change.first_line;
+        let end = self.first + self.lines.len();
+        if first >= end {
+            return;
+        }
+        if first < self.first {
+            if first + change.lines_before <= self.first {
+                self.first = self.first.saturating_add_signed(change.line_delta());
+            } else {
+                // The change runs into the window from above: nothing here is known to be right.
+                self.lines.clear();
+            }
+            self.generation += 1;
+            return;
+        }
+        let a = first - self.first;
+        let b = (a + change.lines_before).min(self.lines.len());
+        let mut head = std::mem::take(&mut self.lines[a]);
+        let one_line = change.lines_before == 1 && change.lines_after == 1;
+        let (removed, inserted) = if one_line {
+            (change.removed, change.inserted)
+        } else {
+            (usize::MAX / 2, 0)
+        };
+        shift_spans(&mut head, rel, removed, inserted);
+        let mut fresh = vec![Vec::new(); change.lines_after];
+        fresh[0] = head;
+        self.lines.splice(a..b, fresh);
+        self.generation += 1;
+    }
+
     /// Whether every line of `lines` has colours in `dark`.
     pub fn covers(&self, lines: &Range<usize>, dark: bool) -> bool {
         self.generation > 0
             && self.dark == dark
             && lines.start >= self.first
             && lines.end <= self.first + self.lines.len()
+    }
+}
+
+/// Moves a line's colour spans for an edit at byte `rel` of the line that removed `removed`
+/// bytes and inserted `inserted`. Spans stay sorted and contiguous; the span the edit starts in
+/// (or, at the line's end, the last one) grows over the inserted text.
+fn shift_spans(spans: &mut Vec<Span>, rel: usize, removed: usize, inserted: usize) {
+    let old_end = spans.last().map_or(0, |s| s.end as usize);
+    let cut = rel.saturating_add(removed);
+    let start = |x: usize| {
+        if x <= rel {
+            x
+        } else if x < cut {
+            rel + inserted
+        } else {
+            x - removed + inserted
+        }
+    };
+    let end = |x: usize| {
+        if x <= rel {
+            x
+        } else if x <= cut {
+            rel + inserted
+        } else {
+            x - removed + inserted
+        }
+    };
+    for s in spans.iter_mut() {
+        let (a, b) = (start(s.start as usize), end(s.end as usize));
+        s.start = a as u32;
+        s.end = b.max(a) as u32;
+    }
+    spans.retain(|s| s.start < s.end);
+    if rel >= old_end
+        && let Some(last) = spans.last_mut()
+        && last.end as usize == rel
+    {
+        last.end = (rel + inserted) as u32;
     }
 }
 
@@ -73,10 +158,46 @@ pub struct FindState {
     pub searching: bool,
     /// Bumped whenever the marks or the current match change, for the text region's signature.
     pub generation: u64,
+    /// The text changed since the matches were found: they were moved with it, and a new search
+    /// is due once typing pauses.
+    pub stale: bool,
     cancel: Option<Arc<AtomicBool>>,
 }
 
 impl FindState {
+    /// Moves the matches with an edit: those the edit touches go, later ones shift.
+    fn edited(&mut self, change: &Change) {
+        self.cancel();
+        self.searching = false;
+        if self.text.is_empty() {
+            return;
+        }
+        self.stale = true;
+        self.generation += 1;
+        let (at, cut) = (change.at, change.at + change.removed);
+        let delta = change.inserted as isize - change.removed as isize;
+        // A match the edit starts inside, or removes part of, is gone; one that ends where the
+        // edit starts stays; one that starts at or after its end moves.
+        let kept = |m: &Range<usize>| m.end <= at || m.start >= cut;
+        let moved = |m: &Range<usize>| {
+            if m.end > at {
+                m.start.saturating_add_signed(delta)..m.end.saturating_add_signed(delta)
+            } else {
+                m.clone()
+            }
+        };
+        let current = self
+            .current
+            .and_then(|k| self.matches.get(k))
+            .filter(|m| kept(m))
+            .map(moved);
+        self.matches.retain(kept);
+        for m in &mut self.matches {
+            *m = moved(m);
+        }
+        self.current = current.and_then(|c| self.matches.iter().position(|m| *m == c));
+    }
+
     fn cancel(&mut self) {
         if let Some(c) = self.cancel.take() {
             c.store(true, Ordering::Relaxed);
@@ -103,6 +224,8 @@ pub struct Ready {
     /// once but keeps drawing this text until the new one arrives, so layouts are keyed by this.
     pub revision: u64,
     pub info: FileInfo,
+    /// Undo and redo, and whether the text differs from the file.
+    pub history: History,
     pub language: Option<Language>,
     /// The language exists and the file is within its limits: the service colours it.
     pub colourable: bool,
@@ -128,11 +251,23 @@ pub struct Ready {
 }
 
 impl Ready {
+    /// Keeps what hangs on the text in step with an edit.
+    fn changed(&mut self, change: &Change) {
+        self.info.eol.apply(&change.eol_removed, &change.eol_added);
+        let rel = change
+            .at
+            .saturating_sub(self.buffer.line_start(change.first_line));
+        self.colors.edited(change, rel);
+        self.find.edited(change);
+        self.chunks.clear();
+    }
+
     fn new(loaded: Loaded, language: Option<Language>, revision: u64) -> Ready {
         Ready {
             buffer: loaded.buffer,
             revision,
             info: loaded.info,
+            history: History::new(),
             language,
             colourable: false,
             sel: Selection::at(0),
@@ -177,6 +312,11 @@ pub struct Doc {
     /// The file is not on disk: gone since it was read (the tab keeps the text last read), or
     /// never there (the tab shows why it could not be opened).
     pub missing: bool,
+    /// The file changed on disk while the text had unsaved changes, so it was not reloaded.
+    pub changed_on_disk: bool,
+    /// The user chose not to save these changes while closing; cleared by the next edit or when
+    /// the close is cancelled.
+    pub discard: bool,
     /// The lossy- or binary-file toast was shown for this document.
     lossy_toasted: bool,
     /// Bytes read and total, written by the load thread.
@@ -192,6 +332,8 @@ impl Doc {
             revision: 0,
             state: DocState::Pending,
             missing: false,
+            changed_on_disk: false,
+            discard: false,
             lossy_toasted: false,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
@@ -227,6 +369,31 @@ impl Doc {
     /// The "deleted or moved, showing the text last read" banner: only over text that was read.
     pub fn shows_gone_banner(&self) -> bool {
         self.missing && self.ready().is_some()
+    }
+
+    /// The text has changes that are not in the file.
+    pub fn modified(&self) -> bool {
+        !self.discard && self.ready().is_some_and(|r| r.history.is_modified())
+    }
+
+    /// The banner over the text, if any.
+    pub fn banner(&self) -> Option<&'static str> {
+        if self.shows_gone_banner() {
+            Some(strings::FILE_GONE)
+        } else if self.changed_on_disk && self.ready().is_some() {
+            Some(strings::FILE_CHANGED)
+        } else {
+            None
+        }
+    }
+
+    /// The name with the unsaved mark, for the window title.
+    pub fn title(&self) -> String {
+        if self.modified() {
+            format!("{}{}", strings::MODIFIED_MARK, self.name())
+        } else {
+            self.name()
+        }
     }
 
     pub fn name(&self) -> String {
@@ -299,6 +466,32 @@ fn run_load(
     )?;
     let language = language_of(path, &loaded.buffer);
     Ok((loaded, language))
+}
+
+/// One editing command for [`Docs::edit`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditOp<'a> {
+    /// Replaces the selection (typing; empty text deletes the selection).
+    Insert(&'a str),
+    /// Clipboard text: its line breaks become the document's.
+    Paste(&'a str),
+    Newline,
+    Backspace,
+    Delete,
+    WordLeft,
+    WordRight,
+    Indent,
+    Outdent,
+    Undo,
+    Redo,
+}
+
+/// Why a save did not happen.
+#[derive(Debug)]
+pub enum SaveFailed {
+    /// Nothing to save to or from (no ready document, or one with bytes that could not be read).
+    NotSavable,
+    Error(SaveError),
 }
 
 /// What taking in a load result means for the shell.
@@ -376,7 +569,17 @@ impl Docs {
 
     pub fn labels(&self) -> Vec<String> {
         let paths: Vec<PathBuf> = self.tabs.iter().map(|d| d.path.clone()).collect();
-        tab_labels(&paths)
+        let mut labels = tab_labels(&paths);
+        for (label, doc) in labels.iter_mut().zip(&self.tabs) {
+            if doc.modified() {
+                label.insert_str(0, strings::MODIFIED_MARK);
+            }
+        }
+        labels
+    }
+
+    pub fn index_of_id(&self, id: DocId) -> Option<usize> {
+        self.tabs.iter().position(|d| d.id == id)
     }
 
     pub fn index_of(&self, path: &Path) -> Option<usize> {
@@ -601,10 +804,12 @@ impl Docs {
                 }
                 doc.state = DocState::Ready(Box::new(r));
                 doc.missing = false;
+                doc.changed_on_disk = false;
+                doc.discard = false;
                 let path = doc.path.clone();
                 self.recents.add(path);
                 if let Some((text, case)) = query {
-                    self.find_in(i, &text, case, false);
+                    self.find_in(i, &text, case, false, false);
                 }
                 if active {
                     self.toast_lossy(i);
@@ -639,9 +844,16 @@ impl Docs {
             match (&doc.state, now) {
                 (DocState::Ready(_), FileStamp::Missing) => self.tabs[i].missing = true,
                 (DocState::Ready(r), s) if s != r.info.stamp || doc.missing => {
-                    self.tabs[i].missing = false;
-                    if !self.tabs[i].is_loading() {
-                        self.start_load(i);
+                    let changed = s != r.info.stamp;
+                    if r.history.is_modified() {
+                        // Unsaved changes are never replaced behind the user's back.
+                        self.tabs[i].changed_on_disk = changed;
+                        self.tabs[i].missing = false;
+                    } else {
+                        self.tabs[i].missing = false;
+                        if !self.tabs[i].is_loading() {
+                            self.start_load(i);
+                        }
                     }
                 }
                 (DocState::Failed(_), FileStamp::Present { .. }) if doc.missing => {
@@ -659,6 +871,182 @@ impl Docs {
         {
             self.start_load(i);
         }
+    }
+
+    // ---- editing ---------------------------------------------------------------------------
+
+    /// Applies an editing command to the active document. True when the text changed.
+    pub fn edit(&mut self, op: EditOp, service: Option<&HighlightService>) -> bool {
+        let Some(i) = self.active else { return false };
+        let doc = &mut self.tabs[i];
+        // A reload in flight would replace the text the edit went into.
+        if doc.is_loading() {
+            return false;
+        }
+        let name = doc.name();
+        let Doc {
+            id,
+            revision,
+            state,
+            discard,
+            ..
+        } = doc;
+        let DocState::Ready(r) = state else {
+            return false;
+        };
+        if r.info.lossy {
+            self.set_toast(&strings::read_only_toast(&name));
+            return false;
+        }
+        let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.sel);
+        let out = match op {
+            EditOp::Insert(text) => edit::insert(buf, hist, sel, text),
+            EditOp::Paste(text) => {
+                let text = normalize_eols(text, r.info.eol.dominant());
+                edit::insert(buf, hist, sel, &text)
+            }
+            EditOp::Newline => edit::newline(buf, hist, sel, r.info.eol.dominant(), true),
+            EditOp::Backspace => edit::backspace(buf, hist, sel),
+            EditOp::Delete => edit::delete(buf, hist, sel),
+            EditOp::WordLeft => edit::delete_word_left(buf, hist, sel),
+            EditOp::WordRight => edit::delete_word_right(buf, hist, sel),
+            EditOp::Indent => edit::indent(buf, hist, sel, TAB_WIDTH),
+            EditOp::Outdent => edit::outdent(buf, hist, sel, TAB_WIDTH),
+            EditOp::Undo => match edit::undo(buf, hist) {
+                Some(out) => out,
+                None => return false,
+            },
+            EditOp::Redo => match edit::redo(buf, hist) {
+                Some(out) => out,
+                None => return false,
+            },
+        };
+        let Outcome { sel, change } = out;
+        r.sel = sel;
+        let changed = change.is_some();
+        if let Some(change) = change {
+            *revision += 1;
+            *discard = false;
+            r.revision = *revision;
+            r.changed(&change);
+            if let Some(s) = service.filter(|_| r.colourable) {
+                s.edit(
+                    *id,
+                    *revision,
+                    r.buffer.snapshot(),
+                    change.first_line,
+                    change.line_delta(),
+                );
+            }
+        }
+        crate::view::reveal(r, r.sel.caret, false);
+        changed
+    }
+
+    /// Ends the current undo step of the active document (the caret moved, the focus left).
+    pub fn seal(&mut self) {
+        if let Some(r) = self.active_ready_mut() {
+            r.history.seal();
+        }
+    }
+
+    // ---- saving ----------------------------------------------------------------------------
+
+    /// Writes tab `i` to its file. `overwrite` skips the check that the file is still the one
+    /// that was read. The text is written on this thread: about 0.1 s per 100 MB.
+    pub fn save(&mut self, i: usize, overwrite: bool) -> Result<(), SaveFailed> {
+        let Some(doc) = self.tabs.get_mut(i) else {
+            return Err(SaveFailed::NotSavable);
+        };
+        let path = doc.path.clone();
+        let Some(r) = doc.ready_mut().filter(|r| !r.info.lossy) else {
+            return Err(SaveFailed::NotSavable);
+        };
+        let expected = (!overwrite).then_some(&r.info.stamp);
+        let saved = save::save_path(
+            &path,
+            r.buffer.rope(),
+            r.info.encoding,
+            expected,
+            &AtomicBool::new(false),
+        )
+        .map_err(SaveFailed::Error)?;
+        r.info.stamp = saved.stamp;
+        r.info.file_bytes = saved.bytes;
+        r.history.mark_saved();
+        doc.missing = false;
+        doc.changed_on_disk = false;
+        doc.discard = false;
+        Ok(())
+    }
+
+    /// Writes tab `i` to `path` and makes that its file: the language follows the new name.
+    pub fn save_as(
+        &mut self,
+        i: usize,
+        path: &Path,
+        service: Option<&HighlightService>,
+        dark: bool,
+    ) -> Result<(), SaveFailed> {
+        let path = canonical_or_absolute(path);
+        // Another tab already shows that file: it would then show stale text.
+        if let Some(other) = self.index_of(&path).filter(|&o| o != i) {
+            let name = self.tabs[other].name();
+            return Err(SaveFailed::Error(SaveError::Io(format!(
+                "{name} is open in another tab"
+            ))));
+        }
+        let Some(doc) = self.tabs.get_mut(i) else {
+            return Err(SaveFailed::NotSavable);
+        };
+        let Some(r) = doc.ready_mut().filter(|r| !r.info.lossy) else {
+            return Err(SaveFailed::NotSavable);
+        };
+        let saved = save::save_path(
+            &path,
+            r.buffer.rope(),
+            r.info.encoding,
+            None,
+            &AtomicBool::new(false),
+        )
+        .map_err(SaveFailed::Error)?;
+        r.info.stamp = saved.stamp;
+        r.info.file_bytes = saved.bytes;
+        r.history.mark_saved();
+        // The file may have been created just now: its real name is known only after that.
+        let path = canonical_or_absolute(&path);
+        r.language = language_of(&path, &r.buffer);
+        r.colors = LineColors::default();
+        r.colourable = false;
+        doc.revision += 1;
+        let (id, revision) = (doc.id, doc.revision);
+        if let Some(s) = service {
+            s.close(id);
+        }
+        let r = doc.ready_mut().expect("checked above");
+        r.revision = revision;
+        if let (Some(lang), Some(s)) = (r.language, service)
+            && lang.limits().allows_file(r.buffer.len_bytes())
+        {
+            s.open(id, revision, r.buffer.snapshot(), lang, dark);
+            r.colourable = true;
+        }
+        doc.path = path.clone();
+        doc.missing = false;
+        doc.changed_on_disk = false;
+        doc.discard = false;
+        self.recents.add(path);
+        self.watch_changed = true;
+        Ok(())
+    }
+
+    /// Tabs with unsaved changes.
+    pub fn modified_ids(&self) -> Vec<DocId> {
+        self.tabs
+            .iter()
+            .filter(|d| d.modified())
+            .map(|d| d.id)
+            .collect()
     }
 
     // ---- toast -----------------------------------------------------------------------------
@@ -736,16 +1124,32 @@ impl Docs {
     /// thread; then goes to the first match at or after the selection.
     pub fn find_set(&mut self, text: &str, match_case: bool) {
         if let Some(i) = self.active {
-            self.find_in(i, text, match_case, true);
+            self.find_in(i, text, match_case, true, false);
         }
     }
 
-    fn find_in(&mut self, i: usize, text: &str, match_case: bool, go: bool) {
+    /// Searches the active document again after edits (its matches were only moved along).
+    pub fn refind(&mut self) {
+        if let Some(i) = self.active
+            && let Some(r) = self.tabs[i].ready()
+            && r.find.stale
+        {
+            let (text, case) = (r.find.text.clone(), r.find.match_case);
+            self.find_in(i, &text, case, false, true);
+        }
+    }
+
+    /// The active document's matches are waiting for a new search.
+    pub fn find_stale(&self) -> bool {
+        self.active_ready().is_some_and(|r| r.find.stale)
+    }
+
+    fn find_in(&mut self, i: usize, text: &str, match_case: bool, go: bool, force: bool) {
         let (tx, waker) = (self.find_tx.clone(), self.waker.clone());
         let doc = &mut self.tabs[i];
         let (id, revision) = (doc.id, doc.revision);
         let Some(r) = doc.ready_mut() else { return };
-        if r.find.text == text && r.find.match_case == match_case {
+        if r.find.text == text && r.find.match_case == match_case && !force {
             return;
         }
         r.find.cancel();
@@ -755,6 +1159,7 @@ impl Docs {
         r.find.capped = false;
         r.find.current = None;
         r.find.searching = false;
+        r.find.stale = false;
         r.find.generation += 1;
         let Some(query) = Query::new(text, FindOptions { match_case }) else {
             return;
@@ -944,6 +1349,242 @@ fn take_next(r: &mut Ready, found: Option<Range<usize>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn span(start: u32, end: u32, c: u8) -> Span {
+        Span {
+            start,
+            end,
+            color: [c, c, c],
+        }
+    }
+
+    #[test]
+    fn colour_spans_follow_an_edit() {
+        // "let x = 1;" as [0,3) [3,8) [8,10)
+        let base = vec![span(0, 3, 1), span(3, 8, 2), span(8, 10, 3)];
+        // Typing inside the middle span grows it.
+        let mut s = base.clone();
+        shift_spans(&mut s, 5, 0, 2);
+        assert_eq!(s, [span(0, 3, 1), span(3, 10, 2), span(10, 12, 3)]);
+        // Typing at a boundary goes to the span that starts there.
+        let mut s = base.clone();
+        shift_spans(&mut s, 3, 0, 1);
+        assert_eq!(s, [span(0, 3, 1), span(3, 9, 2), span(9, 11, 3)]);
+        // Typing at the line's end grows the last span.
+        let mut s = base.clone();
+        shift_spans(&mut s, 10, 0, 4);
+        assert_eq!(s, [span(0, 3, 1), span(3, 8, 2), span(8, 14, 3)]);
+        // Removing across spans closes the gap; a span removed whole is dropped.
+        let mut s = base.clone();
+        shift_spans(&mut s, 2, 7, 0);
+        assert_eq!(s, [span(0, 2, 1), span(2, 3, 3)]);
+        // Replacing the whole line.
+        let mut s = base.clone();
+        shift_spans(&mut s, 0, 10, 3);
+        assert_eq!(s, [span(0, 3, 1)]);
+        // The rest of the line went to another line.
+        let mut s = base.clone();
+        shift_spans(&mut s, 4, usize::MAX / 2, 0);
+        assert_eq!(s, [span(0, 3, 1), span(3, 4, 2)]);
+        // Whatever the edit, spans stay sorted, contiguous and non-empty.
+        for rel in 0..=10 {
+            for removed in 0..=(10 - rel) {
+                for inserted in 0..3 {
+                    let mut s = base.clone();
+                    shift_spans(&mut s, rel, removed, inserted);
+                    let mut at = s.first().map_or(0, |x| x.start);
+                    for x in &s {
+                        assert!(
+                            x.start == at && x.end > x.start,
+                            "{rel} {removed} {inserted}"
+                        );
+                        at = x.end;
+                    }
+                    assert!(at as usize <= 10 - removed + inserted);
+                }
+            }
+        }
+    }
+
+    fn file_docs(name: &str, text: &[u8]) -> (Docs, usize, PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mdedit-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("file.txt");
+        std::fs::write(&path, text).unwrap();
+        let mut d = docs();
+        let i = d.open(&path);
+        d.load_now(i, None, false);
+        (d, i, path, dir)
+    }
+
+    fn text_of(d: &Docs, i: usize) -> String {
+        let r = d.tabs[i].ready().unwrap();
+        let mut s = String::new();
+        r.buffer.text(0..r.buffer.len_bytes(), &mut s);
+        s
+    }
+
+    #[test]
+    fn typing_marks_the_tab_and_saving_clears_it() {
+        let (mut d, i, path, dir) = file_docs("edit", b"one\r\ntwo\r\n");
+        assert!(!d.tabs[i].modified());
+        assert_eq!(d.labels(), ["file.txt"]);
+        let rev = d.tabs[i].revision;
+        assert!(d.edit(EditOp::Insert("X"), None));
+        assert!(d.tabs[i].modified());
+        assert_eq!(d.labels(), ["\u{2022} file.txt"]);
+        assert_eq!(d.tabs[i].title(), "\u{2022} file.txt");
+        assert!(d.tabs[i].revision > rev);
+        assert_eq!(d.tabs[i].ready().unwrap().revision, d.tabs[i].revision);
+        // Enter uses the file's line ending; a paste is converted to it.
+        assert!(d.edit(EditOp::Newline, None));
+        assert!(d.edit(EditOp::Paste("a\nb\rc"), None));
+        assert_eq!(text_of(&d, i), "X\r\na\r\nb\r\ncone\r\ntwo\r\n");
+        let eol = d.tabs[i].ready().unwrap().info.eol;
+        assert_eq!((eol.crlf, eol.lf, eol.cr), (5, 0, 0));
+        // The file is untouched until it is saved.
+        assert_eq!(std::fs::read(&path).unwrap(), b"one\r\ntwo\r\n");
+        d.save(i, false).unwrap();
+        assert!(!d.tabs[i].modified());
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"X\r\na\r\nb\r\ncone\r\ntwo\r\n"
+        );
+        // The save is not seen as a change on disk.
+        d.check_changed();
+        assert!(!d.tabs[i].is_loading() && !d.tabs[i].changed_on_disk);
+        // Undo goes back past the save point: modified again; redo returns to it.
+        assert!(d.edit(EditOp::Undo, None));
+        assert!(d.tabs[i].modified());
+        assert!(d.edit(EditOp::Redo, None));
+        assert!(!d.tabs[i].modified());
+        assert!(!d.edit(EditOp::Redo, None));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_change_on_disk_does_not_replace_unsaved_text() {
+        let (mut d, i, path, dir) = file_docs("disk", b"one\n");
+        d.edit(EditOp::Insert("mine "), None);
+        std::fs::write(&path, "theirs, and longer\n").unwrap();
+        d.check_changed();
+        assert!(d.tabs[i].changed_on_disk && !d.tabs[i].is_loading());
+        assert_eq!(d.tabs[i].banner(), Some(strings::FILE_CHANGED));
+        assert_eq!(text_of(&d, i), "mine one\n");
+        // Saving refuses until told to overwrite.
+        assert!(matches!(
+            d.save(i, false),
+            Err(SaveFailed::Error(SaveError::ChangedOnDisk))
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), b"theirs, and longer\n");
+        d.save(i, true).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"mine one\n");
+        assert!(!d.tabs[i].changed_on_disk && d.tabs[i].banner().is_none());
+        // Without unsaved changes a change on disk reloads, as before.
+        std::fs::write(&path, "theirs again, longer still\n").unwrap();
+        d.check_changed();
+        assert!(d.tabs[i].is_loading());
+        d.wait_load(Instant::now() + Duration::from_secs(10), None, false);
+        assert_eq!(text_of(&d, i), "theirs again, longer still\n");
+        assert!(!d.tabs[i].modified());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_with_replaced_bytes_is_read_only() {
+        // UTF-16 with an odd final byte.
+        let (mut d, i, _, dir) = file_docs("lossy", &[0xFF, 0xFE, b'a', 0, b'b']);
+        assert!(d.tabs[i].ready().unwrap().info.lossy);
+        d.clear_toast();
+        assert!(!d.edit(EditOp::Insert("x"), None));
+        assert!(
+            d.toast(Instant::now())
+                .is_some_and(|t| t.contains("read-only"))
+        );
+        assert!(matches!(d.save(i, false), Err(SaveFailed::NotSavable)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_as_moves_the_tab_to_the_new_file() {
+        let (mut d, i, path, dir) = file_docs("saveas", b"fn main() {}\n");
+        d.edit(EditOp::Insert("// x\n"), None);
+        let to = dir.join("copy.rs");
+        d.save_as(i, &to, None, false).unwrap();
+        assert_eq!(d.tabs[i].name(), "copy.rs");
+        assert!(!d.tabs[i].modified());
+        assert_eq!(std::fs::read(&to).unwrap(), b"// x\nfn main() {}\n");
+        assert_eq!(std::fs::read(&path).unwrap(), b"fn main() {}\n");
+        let r = d.tabs[i].ready().unwrap();
+        assert_eq!(r.language.map(Language::name), Some("Rust"));
+        // Onto a file another tab shows: refused.
+        let j = d.open(&path);
+        d.load_now(j, None, false);
+        assert!(d.save_as(j, &to, None, false).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_marks_move_with_edits() {
+        let (mut d, i, _, dir) = file_docs("find", b"ab ab ab ab\n");
+        d.find_set("ab", false);
+        let marks = |d: &Docs| d.tabs[i].ready().unwrap().find.matches.clone();
+        assert_eq!(marks(&d), [0..2, 3..5, 6..8, 9..11]);
+        // find_set selected the first match; put the caret inside the second and type.
+        d.tabs[i].ready_mut().unwrap().sel = Selection::at(4);
+        d.edit(EditOp::Insert("X"), None);
+        assert_eq!(marks(&d), [0..2, 7..9, 10..12]);
+        assert!(d.find_stale());
+        // Typing right before a match moves it; right after one leaves it.
+        d.tabs[i].ready_mut().unwrap().sel = Selection::at(7);
+        d.edit(EditOp::Insert("Y"), None);
+        assert_eq!(marks(&d), [0..2, 8..10, 11..13]);
+        d.tabs[i].ready_mut().unwrap().sel = Selection::at(2);
+        d.edit(EditOp::Insert("Z"), None);
+        assert_eq!(marks(&d), [0..2, 9..11, 12..14]);
+        // The new search finds what the text now holds.
+        d.refind();
+        assert!(!d.find_stale());
+        assert_eq!(text_of(&d, i), "abZ aXb Yab ab\n");
+        assert_eq!(marks(&d), [0..2, 9..11, 12..14]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn colours_window_follows_line_changes() {
+        let mut c = LineColors {
+            first: 10,
+            lines: (0..5).map(|k| vec![span(0, 4, k)]).collect(),
+            dark: false,
+            generation: 1,
+            requested: Some((0..20, false)),
+        };
+        let change = |first_line, lines_before, lines_after| Change {
+            first_line,
+            lines_before,
+            lines_after,
+            ..Change::default()
+        };
+        // A line added above the window: it moves down.
+        c.edited(&change(3, 1, 2), 0);
+        assert_eq!((c.first, c.lines.len()), (11, 5));
+        assert!(c.requested.is_none());
+        // Line 12 split in two at byte 2: its start keeps its colour, the new line is plain.
+        c.edited(&change(12, 1, 2), 2);
+        assert_eq!(c.lines.len(), 6);
+        assert_eq!(c.lines[1], [span(0, 2, 1)]);
+        assert!(c.lines[2].is_empty());
+        assert_eq!(c.lines[3], [span(0, 4, 2)]);
+        // Three lines joined into one.
+        c.edited(&change(13, 3, 1), 0);
+        assert_eq!(c.lines.len(), 4);
+        // Below the window: nothing moves.
+        c.edited(&change(40, 1, 5), 0);
+        assert_eq!((c.first, c.lines.len()), (11, 4));
+        // A change that runs into the window from above drops it.
+        c.edited(&change(9, 4, 1), 0);
+        assert!(c.line(11, false).is_none());
+    }
 
     #[test]
     fn line_colors_window() {

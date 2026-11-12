@@ -18,7 +18,7 @@ application. Every number marked "spike" was measured on a loaded machine and is
 
 | Path | Crate | What it holds | Work package |
 |---|---|---|---|
-| `crates/mdedit-core` | `mdedit-core` (lib) | Buffer, loading, encodings, line endings, display text, selection, find. Headless, no threads, no window system, no `unsafe` | A |
+| `crates/mdedit-core` | `mdedit-core` (lib) | Buffer, loading, encodings, line endings, display text, selection, find. Headless, no threads, no window system, no `unsafe` except the file replace in `save.rs` (section 16) | A |
 | `../markdown-shared-rs/crates/mdshared-highlight/src/incremental.rs` | module of `mdshared-highlight` | The line highlighter: checkpoints, time-boxed runs, limits, language lookup by path | B |
 | `crates/mdedit-highlight` | `mdedit-highlight` (lib) | The highlighting worker thread and the rope adapter | B |
 | `bins/mdedit` | `mdedit` (bin `mdedit`) | The shell: window loop, text view, tabs, title row, bar, Files pane, menus, dialogs, status strip, session, `--shot`, `--trace` | C |
@@ -644,3 +644,60 @@ Files nobody edits in phase 1 without agreement: the root `Cargo.toml`, `Cargo.l
 updates it; commit what it writes), `.gitignore`, `.gitattributes`, `docs/**`,
 `markdown-shared-rs/crates/mdshared-highlight/src/lib.rs` (holds only the `pub mod incremental;`
 line added for this design) and every other shared file.
+
+## 16. Phases 2 and 3: editing and saving (2026-11-13)
+
+Built as section 13 said, with these decisions. Nothing here is approved by the user yet.
+
+**Core (`mdedit-core`).**
+
+- `Buffer::replace(range, text) -> Change` is the only way the text changes. `Change` says what
+  the shell's caches need: the byte range, the first line touched, how many lines it was and
+  became, and the line-ending counts removed and added (so `FileInfo::eol` stays exact without a
+  rescan).
+- `edit.rs` holds the commands (insert, newline with auto-indent, backspace, delete, delete word
+  left and right, indent, outdent, undo, redo). Each takes the buffer, the history and the
+  selection and returns the new selection and one merged `Change`.
+- `history.rs`: undo steps are lists of (position, removed, inserted). Typing merges into one step
+  until the caret moves, a command runs, the focus leaves or a word ends; Backspace and Delete
+  runs merge likewise. Removed text over 4 KiB is kept as a rope slice that shares the buffer's
+  chunks. Held text is capped at `UNDO_BYTES` (64 MiB): the oldest steps go first, the newest
+  never. `is_modified` is by history position against the save point, not by comparing text.
+- `save.rs`: `save_path` encodes the rope in the file's encoding (byte order mark included, no
+  line ending touched) into a temporary file beside the target, flushes and syncs it, then puts
+  it in place with `ReplaceFileW`, which keeps the target's attributes, ACL, creation time and
+  alternate streams (`rename` where that is not supported, and on other systems). It refuses when
+  the file's stamp is not the one last seen (`ChangedOnDisk`), when the target is read-only, and
+  when the encoding cannot hold a character (`Unencodable`, with line and column); in each case
+  the target is untouched and no temporary file is left. That call is the crate's one `unsafe`
+  block.
+
+**Shell.**
+
+- Every edit goes through `Docs::edit`, which bumps the document's revision and keeps in step:
+  the line-ending counts, the colours (lines below move with the change; the edited line keeps
+  its spans, shifted, so typed text takes the colour it lands in until the worker answers; other
+  changed lines go plain), the find marks (moved with the text, then searched again 300 ms after
+  the last edit), the long-line chunk indexes (dropped), and the highlight worker
+  (`HighlightService::edit`: new rope, first changed line, line delta).
+- The layout cache is keyed by what a layout shows (hash of the text, start column, colours,
+  theme), not by revision and line number. An edit therefore re-shapes only lines whose text
+  changed, and equal lines share one layout. Offsets inside a `Shaped` are relative to its text.
+- Keys: typed text from `KeyEvent.text` (when Ctrl and Alt are both up or both down), Enter,
+  Backspace, Delete, Ctrl+Backspace, Ctrl+Delete, Tab, Shift+Tab; commands Undo Ctrl+Z, Redo
+  Ctrl+Y and Ctrl+Shift+Z, Cut Ctrl+X and Shift+Delete, Paste Ctrl+V and Shift+Insert, Save
+  Ctrl+S, Save as Ctrl+Shift+S. Tab inserts a tab character. Enter and pasted line breaks use the
+  document's most frequent line ending. Dead keys and AltGr arrive as `KeyEvent.text`; the IME
+  stays off until phase 5.
+- A file with replaced bytes (`lossy`) is read-only: typing shows a toast.
+- Unsaved changes: a bullet before the name on the tab and in the window title. Closing a tab,
+  other tabs, all tabs or the window asks for each modified file in turn (Save, Don't save,
+  Cancel; Enter, N, Escape); Reload asks before dropping changes. A file that changes on disk
+  while it has unsaved changes is not reloaded: a banner says so, and Save then asks before it
+  overwrites.
+- Saving runs on the UI thread (measured: 88 ms for 100 MB of UTF-8, 261 ms as UTF-16).
+- `--type-steps N` types N keystrokes, one per frame, and prints the time from keystroke to
+  pixels; `--type TEXT` types text for a shot; `--dialog unsaved` shows the question.
+
+Not built: a New file command (documents have a path from the start), choosing or converting the
+encoding, recovery of unsaved text after a crash, IME.

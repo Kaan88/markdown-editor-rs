@@ -19,6 +19,8 @@ pub enum ShotDialog {
     About,
     Shortcuts,
     Recent,
+    /// The "Save changes?" question for the active file.
+    Unsaved,
 }
 
 /// A line and column as the user types them: 1-based, `12` or `12:5`.
@@ -74,6 +76,13 @@ pub struct Args {
     /// screen, scroll N wheel steps, print frame-time statistics and exit. 0 exits right after
     /// that first state is reached.
     pub scroll_steps: Option<u32>,
+    /// `--type <text>`: type the text at the caret once the file has loaded (after `--goto` and
+    /// `--select`), so a shot can show a file with unsaved changes.
+    pub type_text: Option<String>,
+    /// `--type-steps N`: after the first frame and the load, type N keystrokes at the caret
+    /// (letters, with a line break and a Backspace now and then), one per frame, print the time
+    /// from keystroke to pixels and exit without saving.
+    pub type_steps: Option<u32>,
     /// `--exit-after-ms N`: close the window N ms after the first frame, as if the user closed
     /// it, so a real window can be started and stopped from a script. Added in package C; not in
     /// DESIGN.md section 12.
@@ -136,6 +145,8 @@ impl Args {
                 "--folder" => out.folder = value(&a).map(PathBuf::from),
                 "--shot" => out.shot = value(&a).map(PathBuf::from),
                 "--find" => out.find = value(&a).filter(|v| !v.is_empty()),
+                "--type" => out.type_text = value(&a).filter(|v| !v.is_empty()),
+                "--type-steps" => out.type_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--size" => {
                     out.size = checked(&a, value(&a), |v| {
                         pair::<u32>(&v.to_ascii_lowercase(), 'x').filter(|&(w, h)| {
@@ -183,6 +194,7 @@ impl Args {
                         "about" => Some(ShotDialog::About),
                         "shortcuts" => Some(ShotDialog::Shortcuts),
                         "recent" => Some(ShotDialog::Recent),
+                        "unsaved" => Some(ShotDialog::Unsaved),
                         _ => None,
                     })
                 }

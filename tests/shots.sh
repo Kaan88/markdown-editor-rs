@@ -81,5 +81,7 @@ shot small --light --size 520x360 "$fx/sample.rs"
 shot files-pane --light --files --folder "$fx" "$fx/sample.rs"
 shot tabs --dark "$fx/sample.md" "$fx/sample.rs" "$fx/sample.toml" "$fx/sample.py" \
     "$fx/turkish.txt" "$fx/cjk.txt" "$fx/crlf.txt"
+shot typed --light --goto 5:1 --type "edited " "$fx/sample.rs"
+shot dialog-unsaved --dark --goto 5:1 --type "edited " --dialog unsaved "$fx/sample.rs"
 
 ls "$out" | wc -l

@@ -156,7 +156,18 @@ mod tests {
         assert_eq!(c(n(KeyName::Char('q')), CTRL), Some(CommandId::Exit));
         assert_eq!(c(n(KeyName::Escape), NONE), Some(CommandId::Escape));
         assert_eq!(c(n(KeyName::Char('o')), NONE), None);
-        assert_eq!(c(n(KeyName::Char('v')), CTRL), None);
+        assert_eq!(c(n(KeyName::Char('v')), CTRL), Some(CommandId::Paste));
+        assert_eq!(c(Key::Insert, SHIFT), Some(CommandId::Paste));
+        assert_eq!(c(n(KeyName::Delete), SHIFT), Some(CommandId::Cut));
+        assert_eq!(c(n(KeyName::Delete), NONE), None);
+        assert_eq!(c(n(KeyName::Char('s')), CTRL), Some(CommandId::Save));
+        assert_eq!(
+            c(n(KeyName::Char('s')), CTRL_SHIFT),
+            Some(CommandId::SaveAs)
+        );
+        assert_eq!(c(n(KeyName::Char('z')), CTRL), Some(CommandId::Undo));
+        assert_eq!(c(n(KeyName::Char('z')), CTRL_SHIFT), Some(CommandId::Redo));
+        assert_eq!(c(n(KeyName::Char('y')), CTRL), Some(CommandId::Redo));
     }
 
     #[test]

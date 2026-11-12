@@ -5,6 +5,8 @@
 pub enum CommandId {
     OpenFiles,
     OpenFolder,
+    Save,
+    SaveAs,
     Reload,
     OpenRecent,
     ManageRecent,
@@ -12,7 +14,11 @@ pub enum CommandId {
     CloseTab,
     CloseAllTabs,
     Exit,
+    Undo,
+    Redo,
+    Cut,
     Copy,
+    Paste,
     SelectAll,
     Find,
     FindNext,
@@ -57,6 +63,8 @@ const SHOW_IN_FILE_MANAGER: &str = if cfg!(windows) {
 pub const COMMANDS: &[Command] = &[
     cmd(C::OpenFiles, "Open files", &["Ctrl+O"]),
     cmd(C::OpenFolder, "Open folder", &["Ctrl+Shift+O"]),
+    cmd(C::Save, "Save", &["Ctrl+S"]),
+    cmd(C::SaveAs, "Save as", &["Ctrl+Shift+S"]),
     cmd(C::Reload, "Reload", &["F5"]),
     cmd(C::OpenRecent, "Open recent", &[]),
     cmd(C::ManageRecent, "Manage recent files", &[]),
@@ -64,7 +72,11 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::CloseTab, "Close tab", &["Ctrl+W", "Ctrl+F4"]),
     cmd(C::CloseAllTabs, "Close all tabs", &["Ctrl+Shift+W"]),
     cmd(C::Exit, "Exit", &["Ctrl+Q"]),
+    cmd(C::Undo, "Undo", &["Ctrl+Z"]),
+    cmd(C::Redo, "Redo", &["Ctrl+Y", "Ctrl+Shift+Z"]),
+    cmd(C::Cut, "Cut", &["Ctrl+X", "Shift+Delete"]),
     cmd(C::Copy, "Copy", &["Ctrl+C", "Ctrl+Insert"]),
+    cmd(C::Paste, "Paste", &["Ctrl+V", "Shift+Insert"]),
     cmd(C::SelectAll, "Select all", &["Ctrl+A"]),
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
@@ -109,7 +121,7 @@ pub fn shortcut_help() -> Vec<(String, &'static str)> {
 pub mod strings {
     pub const APP_NAME: &str = "mdedit";
     pub const ABOUT: &str =
-        "A native text and Markdown editor. Phase 1 is read-only: select, copy and find.";
+        "A light native text editor with syntax colours, the companion of mdview.";
     pub const ABOUT_DETAIL: &str =
         "winit and softbuffer, with every pixel drawn by the shared renderer. No webview.";
     pub const SHORTCUTS_TITLE: &str = "Keyboard shortcuts";
@@ -124,7 +136,36 @@ pub mod strings {
     pub const FIND_SEARCHING: &str = "Searching";
     pub const FILES_DOCK: &str = "FILES";
     pub const FILE_GONE: &str = "The file was deleted or moved. Showing the text last read.";
+    pub const FILE_CHANGED: &str =
+        "The file changed on disk. Saving asks before it overwrites; Reload drops your changes.";
+    /// Before the name of a file with unsaved changes, on its tab and in the window title.
+    pub const MODIFIED_MARK: &str = "\u{2022} ";
     pub const COPY_TOO_LARGE: &str = "The selection is too large to copy.";
+    pub const UNSAVED_TITLE: &str = "Save changes?";
+    pub const OVERWRITE_TITLE: &str = "The file changed on disk";
+    pub const DISCARD_TITLE: &str = "Reload and lose changes?";
+    pub const SAVE: &str = "Save";
+    pub const DONT_SAVE: &str = "Don't save";
+    pub const CANCEL: &str = "Cancel";
+    pub const OVERWRITE: &str = "Overwrite";
+    pub const RELOAD: &str = "Reload";
+
+    pub fn unsaved_body(name: &str) -> String {
+        format!("{name} has changes that are not saved.")
+    }
+
+    pub fn overwrite_body(name: &str) -> String {
+        format!(
+            "{name} was changed by another program after it was opened. Saving replaces that \
+             version with this text."
+        )
+    }
+
+    pub fn discard_body(name: &str) -> String {
+        format!(
+            "{name} has changes that are not saved. Reloading reads the file again and drops them."
+        )
+    }
     /// How long a toast stays, ms.
     pub const TOAST_MS: u64 = 2500;
 
@@ -151,6 +192,10 @@ pub mod strings {
     /// The toast for a file read with replacement characters.
     pub fn lossy_toast(name: &str) -> String {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
+    }
+
+    pub fn read_only_toast(name: &str) -> String {
+        format!("{name} has bytes that could not be read, so it is open read-only.")
     }
 
     pub fn binary_toast(name: &str) -> String {

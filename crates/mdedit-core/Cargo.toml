@@ -13,3 +13,8 @@ memchr.workspace = true
 chardetng.workspace = true
 unicode-width.workspace = true
 mdshared-app.workspace = true
+
+# Saving replaces the file with ReplaceFileW, which keeps its attributes, ACL, creation time and
+# alternate streams. That call is the crate's one `unsafe` block (see `save.rs`).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

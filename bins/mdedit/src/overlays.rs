@@ -24,6 +24,8 @@ fn cmd(id: C, label: &str, icon: &'static str) -> Item<Act> {
 /// The "⋯" menu: everything the bar does not show.
 pub fn main_menu(docs: &Docs, ui: &Ui, x: f32, y: f32) -> Menu<Act> {
     let has_tab = docs.active().is_some();
+    let ready = docs.active_ready().is_some();
+    let modified = docs.active_doc().is_some_and(|d| d.modified());
     let theme = |choice: ThemeChoice, label: &str| {
         Item::new(Act::Theme(choice), label).checked(docs.theme == choice)
     };
@@ -35,9 +37,9 @@ pub fn main_menu(docs: &Docs, ui: &Ui, x: f32, y: f32) -> Menu<Act> {
             .hint("›")
             .enabled(!docs.recents.is_empty()),
         cmd(C::ManageRecent, "Manage recent files…", ""),
-        cmd(C::Reload, "Reload", glyph::RELOAD)
-            .sep()
-            .enabled(has_tab),
+        cmd(C::Save, "Save", "").sep().enabled(modified),
+        cmd(C::SaveAs, "Save as…", "").enabled(ready),
+        cmd(C::Reload, "Reload", glyph::RELOAD).enabled(has_tab),
         cmd(C::CloseTab, "Close tab", glyph::CLOSE).enabled(has_tab),
         cmd(C::CloseAllTabs, "Close all tabs", "").enabled(has_tab),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(has_tab),
@@ -110,11 +112,16 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         .active_ready()
         .is_some_and(|r| !r.sel.range().is_empty());
     let ready = docs.active_ready().is_some();
+    let history = docs.active_ready().map(|r| &r.history);
     let items = vec![
+        cmd(C::Undo, "Undo", "").enabled(history.is_some_and(|h| h.can_undo())),
+        cmd(C::Redo, "Redo", "").enabled(history.is_some_and(|h| h.can_redo())),
+        cmd(C::Cut, "Cut", glyph::CUT).sep().enabled(has_selection),
         Item::new(Act::Cmd(C::Copy), "Copy")
             .hint(hint(C::Copy))
             .icon(glyph::COPY)
             .enabled(has_selection),
+        cmd(C::Paste, "Paste", glyph::PASTE).enabled(ready),
         Item::new(Act::Cmd(C::SelectAll), "Select all")
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
@@ -172,6 +179,7 @@ pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
         DialogKind::About => (460.0, 256.0),
         DialogKind::Shortcuts => (580.0, list(KEY_ROW, 0.0).min(700.0)),
         DialogKind::Recent => (600.0, list(RECENT_ROW, 80.0).min(560.0)),
+        DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => (460.0, 196.0),
     };
     dialog_card(cw, ch, w, h)
 }
@@ -224,7 +232,7 @@ pub fn draw_dialog(
     c.hit(Hit::Backdrop, Rect::new(0.0, 0.0, w, h));
     draw_backdrop(c.p, &pal, w, h);
     let rows = match d.kind {
-        DialogKind::About => 0,
+        DialogKind::About | DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => 0,
         DialogKind::Shortcuts => shortcut_help().len(),
         DialogKind::Recent => docs.recents.paths().len(),
     };
@@ -275,6 +283,49 @@ pub fn draw_dialog(
                 "OK",
                 true,
             );
+        }
+        DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => {
+            let (heading, body, buttons): (&str, String, &[&str]) = match d.kind {
+                DialogKind::Unsaved => (
+                    strings::UNSAVED_TITLE,
+                    strings::unsaved_body(&d.subject),
+                    &[strings::SAVE, strings::DONT_SAVE, strings::CANCEL],
+                ),
+                DialogKind::Overwrite => (
+                    strings::OVERWRITE_TITLE,
+                    strings::overwrite_body(&d.subject),
+                    &[strings::OVERWRITE, strings::CANCEL],
+                ),
+                _ => (
+                    strings::DISCARD_TITLE,
+                    strings::discard_body(&d.subject),
+                    &[strings::RELOAD, strings::CANCEL],
+                ),
+            };
+            title(c, r, heading);
+            c.p.paragraph(
+                Face::Ui,
+                13.5,
+                r.x + PAD,
+                r.y + PAD + 40.0,
+                r.w - 2.0 * PAD,
+                &body,
+                pal.text,
+            );
+            // The answers sit at the right in reading order, the first one the default.
+            let mut x = r.right() - PAD;
+            for (n, label) in buttons.iter().enumerate().rev() {
+                let bw = dialog_button_w(c.p, label);
+                x -= bw;
+                button(
+                    c,
+                    Rect::new(x, by, bw, 32.0),
+                    Hit::DlgButton(n),
+                    label,
+                    n == 0,
+                );
+                x -= 8.0;
+            }
         }
         DialogKind::Shortcuts => {
             title(c, r, strings::SHORTCUTS_TITLE);
@@ -570,7 +621,14 @@ mod tests {
 
     #[test]
     fn cards_fit_small_windows() {
-        for kind in [DialogKind::About, DialogKind::Shortcuts, DialogKind::Recent] {
+        for kind in [
+            DialogKind::About,
+            DialogKind::Shortcuts,
+            DialogKind::Recent,
+            DialogKind::Unsaved,
+            DialogKind::Overwrite,
+            DialogKind::Discard,
+        ] {
             let r = card(kind, 30, 520.0, 360.0);
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.right() <= 520.0 && r.bottom() <= 360.0);
         }

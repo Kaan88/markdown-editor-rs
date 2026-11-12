@@ -1,7 +1,7 @@
 //! The highlighting worker. One thread per window holds a
 //! [`LineHighlighter`](mdshared_highlight::incremental::LineHighlighter) per open document and a
 //! rope snapshot of its text. The UI thread sends it commands (open, view, theme, close) and
-//! takes coloured lines back; the worker calls the `wake` closure after it sends, which the shell
+//! takes coloured lines back (an edit sends the new text and the first line it changed); the worker calls the `wake` closure after it sends, which the shell
 //! turns into a winit user event. When it has nothing to do it blocks on its command channel, so
 //! an idle window costs no CPU here.
 //!
@@ -77,6 +77,13 @@ enum Command {
         revision: u64,
         range: Range<usize>,
     },
+    Edit {
+        doc: DocId,
+        revision: u64,
+        rope: Rope,
+        first_line: usize,
+        line_delta: isize,
+    },
     SetDark(bool),
     Close(DocId),
     Stop,
@@ -130,6 +137,27 @@ impl HighlightService {
             doc,
             revision,
             range: lines,
+        });
+    }
+
+    /// The document's text changed: `text` is the new text at `revision`, `first_line` the first
+    /// line that differs from the old text and `line_delta` how many lines were added (negative:
+    /// removed). The parse goes back to its last stored state at or before `first_line`; the view
+    /// request stays and must be made again with the new revision to be answered.
+    pub fn edit(
+        &self,
+        doc: DocId,
+        revision: u64,
+        text: Rope,
+        first_line: usize,
+        line_delta: isize,
+    ) {
+        let _ = self.commands.send(Command::Edit {
+            doc,
+            revision,
+            rope: text,
+            first_line,
+            line_delta,
         });
     }
 
@@ -269,6 +297,23 @@ impl Worker {
                     entry.view = Some(range);
                     entry.pending = true;
                     self.active = Some(doc);
+                }
+            }
+            Command::Edit {
+                doc,
+                revision,
+                rope,
+                first_line,
+                line_delta,
+            } => {
+                if let Some(entry) = self.docs.get_mut(&doc) {
+                    entry
+                        .highlighter
+                        .invalidate_from(first_line, rope.len_lines(), line_delta);
+                    entry.rope = rope;
+                    entry.revision = revision;
+                    // The lines asked for belong to the old text.
+                    entry.pending = false;
                 }
             }
             Command::SetDark(dark) => {
@@ -444,6 +489,50 @@ mod tests {
         let got = f.service.wait(within(5));
         assert_eq!(got[0].first_line, total - 3);
         assert_eq!(got[0].lines.len(), 3);
+    }
+
+    #[test]
+    fn an_edit_recolours_from_the_changed_line() {
+        let f = fixture();
+        let text = generated_rust(600);
+        let rope = Rope::from_str(&text);
+        f.service.open(1, 1, rope.clone(), rust(), false);
+        f.service.view(1, 1, 280..330);
+        assert_eq!(f.service.wait(within(10)).len(), 1);
+        // Open a block comment at line 300: every line after it changes colour, and one line
+        // is added.
+        let mut edited = rope.clone();
+        let at = edited.line_to_char(300);
+        edited.insert(
+            at,
+            "/* opened
+",
+        );
+        f.service.edit(1, 2, edited.clone(), 300, 1);
+        // The old revision is no longer answered.
+        f.service.view(1, 1, 290..320);
+        f.service.view(1, 2, 290..320);
+        let got = f.service.wait(within(10));
+        assert_eq!(got.len(), 1);
+        assert_eq!((got[0].revision, got[0].first_line), (2, 290));
+        let mut direct =
+            LineHighlighter::new(rust(), false, edited.len_lines(), edited.len_bytes());
+        let all = direct
+            .spans(
+                &RopeLines(&edited),
+                0..320,
+                Instant::now() + Duration::from_secs(60),
+            )
+            .unwrap();
+        assert_eq!(got[0].lines[..], all[290..]);
+        // An edit for a document the worker does not hold is ignored.
+        f.service.edit(9, 1, Rope::from_str("x"), 0, 0);
+        f.service.view(9, 1, 0..1);
+        assert!(
+            f.service
+                .wait(Instant::now() + Duration::from_millis(100))
+                .is_empty()
+        );
     }
 
     #[test]

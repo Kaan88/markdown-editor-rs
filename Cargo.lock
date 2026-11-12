@@ -1262,6 +1262,7 @@ dependencies = [
  "mdshared-text",
  "mdshared-ui",
  "parley",
+ "rfd",
  "softbuffer",
  "windows-sys 0.59.0",
  "winit",
@@ -1278,6 +1279,7 @@ dependencies = [
  "ropey",
  "unicode-segmentation",
  "unicode-width",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1291,7 +1293,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0#09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e93719bf3bd37edc5570769a5850d22af3603ca5#e93719bf3bd37edc5570769a5850d22af3603ca5"
 dependencies = [
  "notify",
 ]
@@ -1299,7 +1301,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0#09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e93719bf3bd37edc5570769a5850d22af3603ca5#e93719bf3bd37edc5570769a5850d22af3603ca5"
 dependencies = [
  "syntect",
 ]
@@ -1307,7 +1309,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0#09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e93719bf3bd37edc5570769a5850d22af3603ca5#e93719bf3bd37edc5570769a5850d22af3603ca5"
 dependencies = [
  "parley",
  "png",
@@ -1317,7 +1319,7 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0#09576bc19cc5d9ff6bbe128bb1e699b6cc51d8e0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e93719bf3bd37edc5570769a5850d22af3603ca5#e93719bf3bd37edc5570769a5850d22af3603ca5"
 dependencies = [
  "mdshared-app",
  "mdshared-text",

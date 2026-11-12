@@ -7,16 +7,23 @@
 
 pub mod buffer;
 pub mod display;
+pub mod edit;
 pub mod encoding;
 pub mod eol;
 pub mod find;
+pub mod history;
 pub mod limits;
 pub mod load;
+pub mod save;
 pub mod selection;
+#[cfg(test)]
+mod testutil;
 
-pub use buffer::{Buffer, Position};
+pub use buffer::{Buffer, Change, Position};
 pub use encoding::Encoding;
 pub use eol::{EolCounts, LineEnding};
 pub use find::{FindOptions, Matches, Query};
+pub use history::History;
 pub use load::{FileInfo, LoadError, LoadOptions, Loaded};
+pub use save::SaveError;
 pub use selection::{Motion, Selection};
