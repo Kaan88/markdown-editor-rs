@@ -1,0 +1,5 @@
+Windows-1254 metin, BOM yok.
+Türkçe örnek metin
+Pijamalý hasta yaðýz þoföre çabucak güvendi.
+ÐÜÞÝÖÇ ðüþýöç: büyük ve küçük harfler.
+Ýstanbul, Ýzmir, Iðdýr, Muþ.

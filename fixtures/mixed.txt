@@ -1,0 +1,4 @@
+Mixed line endings: this line ends in CRLF.
+This one in LF.
+This one in CR.CRLF again.
+No break at the end.

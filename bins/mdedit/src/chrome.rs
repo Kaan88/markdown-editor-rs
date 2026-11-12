@@ -1,1 +1,586 @@
-//! The title row (logo, tabs, window buttons) and the command bar.
+//! The title row (logo, tabs, window buttons) and the command bar under it, drawn from scratch each
+//! time their region is dirty, recording what the pointer can hit. Adapted from the viewer's
+//! `bins/mdv-app/src/chrome.rs`; the bar has the editor's buttons.
+
+use crate::commands::{CommandId, hint, strings};
+use crate::docs::Docs;
+use crate::session::ThemeChoice;
+use crate::ui::{BarItem, Drag, Hit, PopupKind, Ui};
+use mdshared_ui::chrome::{
+    BAR_H, DRAG_MIN, NEW_TAB_W, TABS_X, TITLE_H, TabState, WIN_BTN_W, WinButton, button_fill,
+    draw_new_tab_button, draw_tab, draw_win_button, tab_natural_width, tab_widths, win_button_rect,
+};
+use mdshared_ui::gfx::{Face, Painter, Rect, Rgb, mix};
+pub use mdshared_ui::glyph;
+use mdshared_ui::textfield::FieldColors;
+use mdshared_ui::theme::Palette;
+
+pub const FIND_W: f32 = 260.0;
+
+/// Shared by every drawing function: the painter, colours, and where hits are recorded.
+pub struct Ctx<'a, 'b> {
+    pub p: &'a mut Painter<'b>,
+    pub pal: &'a Palette,
+    pub hits: &'a mut Vec<(Hit, Rect)>,
+    pub hover: Option<Hit>,
+    pub pressed: Option<Hit>,
+}
+
+impl Ctx<'_, '_> {
+    pub fn hit(&mut self, hit: Hit, r: Rect) {
+        self.hits.push((hit, r));
+    }
+
+    /// The fill behind a button: pressed, hovered, toggled on, or none.
+    pub fn fill_for(&self, hit: Hit, on: bool, open: bool) -> Option<Rgb> {
+        button_fill(
+            self.pal,
+            self.hover == Some(hit),
+            self.pressed == Some(hit),
+            on,
+            open,
+        )
+    }
+}
+
+/// The mark's shapes on the icon's 256-unit canvas, as in `assets/mdedit.svg`: an "M" and a
+/// pencil (eraser, then body and point).
+const MARK_M: [(f32, f32); 12] = [
+    (38.26, 174.08),
+    (38.26, 81.92),
+    (65.14, 81.92),
+    (92.02, 116.48),
+    (118.90, 81.92),
+    (145.78, 81.92),
+    (145.78, 174.08),
+    (118.90, 174.08),
+    (118.90, 122.24),
+    (92.02, 156.80),
+    (65.14, 122.24),
+    (65.14, 174.08),
+];
+const MARK_ERASER: [(f32, f32); 4] = [
+    (194.01, 82.70),
+    (217.74, 95.32),
+    (212.33, 105.49),
+    (188.60, 92.87),
+];
+const MARK_PENCIL: [(f32, f32); 5] = [
+    (186.34, 97.11),
+    (210.08, 109.73),
+    (187.99, 151.26),
+    (164.41, 166.99),
+    (164.26, 138.64),
+];
+const TILE: Rgb = [0x1d, 0x7d, 0x6b];
+
+/// The app logo, the same drawing as the icon file: a green tile with a lighter top half and the
+/// white mark. `r` is the tile.
+pub fn logo(p: &mut Painter, r: Rect) {
+    // The icon's tile is 240 of its 256 units wide, with corners of 52.
+    let radius = r.w * 52.0 / 240.0;
+    p.rbox(r, radius, TILE);
+    p.rbox_a(
+        Rect::new(r.x, r.y, r.w, r.h / 2.0),
+        radius,
+        [255, 255, 255],
+        0.08,
+    );
+    let place =
+        |&(x, y): &(f32, f32)| (r.x + (x - 8.0) / 240.0 * r.w, r.y + (y - 8.0) / 240.0 * r.h);
+    let white = [255, 255, 255];
+    for shape in [&MARK_M[..], &MARK_ERASER[..], &MARK_PENCIL[..]] {
+        p.polygon(&shape.iter().map(place).collect::<Vec<_>>(), white);
+    }
+}
+
+/// What the command bar shows at a given width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BarPlan {
+    pub labels: bool,
+    pub find_w: f32,
+    /// The Files toggle.
+    pub panes: bool,
+    /// Reload and Recent.
+    pub recent: bool,
+    pub count: bool,
+}
+
+/// Label widths that decide the bar's fit, in logical px.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BarText {
+    pub open: f32,
+    pub recent: f32,
+    pub files: f32,
+    pub theme: f32,
+    /// The match counter, 0 when empty.
+    pub count: f32,
+}
+
+const ICON_BTN: f32 = 36.0;
+const GAP: f32 = 2.0;
+const SEP: f32 = 13.0;
+const MARGIN: f32 = 8.0;
+
+fn labelled(label: f32, on: bool) -> f32 {
+    if on { 44.0 + label } else { ICON_BTN }
+}
+
+/// The width a plan needs.
+fn plan_width(plan: &BarPlan, t: &BarText) -> f32 {
+    let l = plan.labels;
+    let mut w = 2.0 * MARGIN;
+    w += labelled(t.open, l) + GAP;
+    if plan.recent {
+        w += ICON_BTN + GAP + labelled(t.recent, l) + GAP;
+    }
+    if plan.panes {
+        w += SEP + labelled(t.files, l) + GAP;
+    }
+    // Right group: more, theme, separator, next, previous, find box, counter.
+    w += ICON_BTN + GAP + labelled(t.theme, l) + SEP + 2.0 * (ICON_BTN + GAP) + plan.find_w;
+    if plan.count && t.count > 0.0 {
+        w += t.count + 12.0;
+    }
+    w + 16.0
+}
+
+/// Drops labels first, then narrows the find box, then hides the Files toggle and Reload/Recent
+/// (all of which stay in the main menu and on the keyboard), so nothing overlaps.
+pub fn bar_plan(avail: f32, t: &BarText) -> BarPlan {
+    let full = BarPlan {
+        labels: true,
+        find_w: FIND_W,
+        panes: true,
+        recent: true,
+        count: true,
+    };
+    let steps = [
+        full,
+        BarPlan {
+            labels: false,
+            ..full
+        },
+        BarPlan {
+            labels: false,
+            find_w: 200.0,
+            ..full
+        },
+        BarPlan {
+            labels: false,
+            find_w: 180.0,
+            panes: false,
+            ..full
+        },
+        BarPlan {
+            labels: false,
+            find_w: 160.0,
+            panes: false,
+            recent: false,
+            ..full
+        },
+    ];
+    for plan in steps {
+        if plan_width(&plan, t) <= avail {
+            return plan;
+        }
+    }
+    let mut last = BarPlan {
+        labels: false,
+        find_w: 0.0,
+        panes: false,
+        recent: false,
+        count: false,
+    };
+    last.find_w = (avail - plan_width(&last, t)).clamp(96.0, 160.0);
+    last
+}
+
+fn theme_glyph(choice: ThemeChoice) -> &'static str {
+    match choice {
+        ThemeChoice::System => glyph::SYSTEM,
+        ThemeChoice::Light => glyph::SUN,
+        ThemeChoice::Dark => glyph::MOON,
+    }
+}
+
+pub fn theme_label(choice: ThemeChoice) -> &'static str {
+    match choice {
+        ThemeChoice::System => "System",
+        ThemeChoice::Light => "Light",
+        ThemeChoice::Dark => "Dark",
+    }
+}
+
+/// The tooltip for a chrome hit, if it has one.
+pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
+    let with = |text: &str, id: CommandId| {
+        let k = hint(id);
+        if k.is_empty() {
+            text.to_string()
+        } else {
+            format!("{text} ({k})")
+        }
+    };
+    Some(match hit {
+        Hit::Tab(i) => docs.tabs.get(i)?.path.display().to_string(),
+        Hit::TabClose(_) => with("Close tab", CommandId::CloseTab),
+        Hit::NewTab => with("Open files", CommandId::OpenFiles),
+        Hit::WinMin => "Minimize".into(),
+        Hit::WinMax if maximized => "Restore down".into(),
+        Hit::WinMax => "Maximize".into(),
+        Hit::WinClose => "Close".into(),
+        Hit::Bar(b) => match b {
+            BarItem::Open => with("Open files", CommandId::OpenFiles),
+            BarItem::Reload => with("Reload", CommandId::Reload),
+            BarItem::Recent => "Recent files".into(),
+            BarItem::Files => with("Files pane", CommandId::ToggleFiles),
+            BarItem::FindPrev => with("Previous match", CommandId::FindPrevious),
+            BarItem::FindNext => with("Next match", CommandId::FindNext),
+            BarItem::Theme => format!("Theme: {} (click to change)", theme_label(docs.theme)),
+            BarItem::More => "More".into(),
+        },
+        Hit::FindClear => "Clear search (Escape)".into(),
+        Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
+        _ => return None,
+    })
+}
+
+// ---- title row -------------------------------------------------------------------------------
+
+/// Draws the title row into `r` (the full window width, `TITLE_H` tall).
+pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
+    let pal = *c.pal;
+    c.p.fill(r, pal.title);
+    c.hit(Hit::TitleDrag, r);
+    logo(c.p, Rect::new(14.0, 9.0, 22.0, 22.0));
+
+    // Window buttons, right to left.
+    let mut right = r.right();
+    let buttons = [
+        (Hit::WinClose, WinButton::Close),
+        (Hit::WinMax, WinButton::Max),
+        (Hit::WinMin, WinButton::Min),
+    ];
+    for (hit, kind) in buttons {
+        let b = win_button_rect(right, 0);
+        right -= WIN_BTN_W;
+        draw_win_button(
+            c.p,
+            &pal,
+            kind,
+            b,
+            maximized,
+            c.hover == Some(hit),
+            c.pressed == Some(hit),
+        );
+        c.hit(hit, b);
+    }
+
+    // Tabs.
+    let labels = docs.labels();
+    let avail = (right - DRAG_MIN - NEW_TAB_W - TABS_X).max(0.0);
+    let natural: Vec<f32> = labels.iter().map(|l| tab_natural_width(c.p, l)).collect();
+    let widths = tab_widths(&natural, avail);
+    let active = docs.active();
+    let mut x = TABS_X;
+    // Tabs that still do not fit at the floor width are cut off rather than drawn over the buttons.
+    let clip = c.p.clip(Rect::new(0.0, 0.0, TABS_X + avail + 8.0, TITLE_H));
+    let is_hot = |hover: Option<Hit>, i: usize| matches!(hover, Some(Hit::Tab(j) | Hit::TabClose(j)) if j == i);
+    for (i, label) in labels.iter().enumerate() {
+        let w = widths[i];
+        let state = TabState {
+            active: active == Some(i),
+            hovered: is_hot(c.hover, i),
+            dragging: matches!(
+                ui.drag,
+                Some(Drag::Tab { index, moving: true, .. }) if index == i
+            ),
+            missing: docs.tabs[i].missing,
+            next_quiet: i + 1 < labels.len() && active != Some(i + 1) && !is_hot(c.hover, i + 1),
+            close_hovered: c.hover == Some(Hit::TabClose(i)),
+            close_pressed: c.pressed == Some(Hit::TabClose(i)),
+        };
+        let drawn = draw_tab(c.p, &pal, x, w, r.w, label, &state);
+        c.hit(Hit::Tab(i), drawn.tab);
+        if let Some(b) = drawn.close {
+            c.hit(Hit::TabClose(i), b);
+        }
+        x += w;
+    }
+    c.p.restore(clip);
+    let b = draw_new_tab_button(
+        c.p,
+        &pal,
+        x,
+        avail,
+        c.hover == Some(Hit::NewTab),
+        c.pressed == Some(Hit::NewTab),
+    );
+    c.hit(Hit::NewTab, b);
+}
+
+// ---- command bar -----------------------------------------------------------------------------
+
+/// The counter beside the find box for the active document, and whether it says "No matches".
+pub fn find_label(docs: &Docs) -> (String, bool) {
+    match docs.active_ready() {
+        Some(r) => (
+            r.find.label(),
+            !r.find.text.is_empty() && !r.find.searching && r.find.matches.is_empty(),
+        ),
+        None => (String::new(), false),
+    }
+}
+
+/// The measured text widths the bar's fit depends on.
+pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
+    let (count, _) = find_label(docs);
+    BarText {
+        open: p.measure(Face::Ui, 13.0, "Open"),
+        recent: p.measure(Face::Ui, 13.0, "Recent"),
+        files: p.measure(Face::Ui, 13.0, "Files"),
+        theme: p.measure(Face::Ui, 13.0, theme_label(docs.theme)),
+        count: if count.is_empty() {
+            0.0
+        } else {
+            p.measure(Face::Ui, 12.5, &count)
+        },
+    }
+}
+
+/// Where the find box's text goes inside its frame, and the clear button if the field has text.
+pub fn find_parts(frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
+    let clear =
+        has_text.then(|| Rect::new(frame.right() - 30.0, frame.y + 4.0, 24.0, frame.h - 8.0));
+    let right = if has_text {
+        frame.right() - 32.0
+    } else {
+        frame.right() - 10.0
+    };
+    (
+        Rect::new(
+            frame.x + 32.0,
+            frame.y + 1.0,
+            (right - frame.x - 32.0).max(0.0),
+            frame.h - 2.0,
+        ),
+        clear,
+    )
+}
+
+/// Draws the command bar into `r`.
+pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+    let pal = *c.pal;
+    c.p.fill(r, pal.bar);
+    let t = bar_text(c.p, docs);
+    let plan = bar_plan(r.w, &t);
+    let y = r.y + (BAR_H - 32.0) / 2.0;
+    let cy = y + 16.0;
+    let open = ui.popup_kind();
+
+    let has_tab = docs.active().is_some();
+    let has_matches = docs
+        .active_ready()
+        .is_some_and(|r| !r.find.matches.is_empty());
+    let button =
+        |c: &mut Ctx, x: f32, item: BarItem, g: &str, label: Option<&str>, on: bool| -> f32 {
+            // Reload needs a document and match stepping needs matches; without them they show
+            // greyed and do nothing.
+            let enabled = match item {
+                BarItem::Reload => has_tab,
+                BarItem::FindPrev | BarItem::FindNext => has_matches,
+                _ => true,
+            };
+            let w = match label {
+                Some(l) => 44.0 + c.p.measure(Face::Ui, 13.0, l),
+                None => ICON_BTN,
+            };
+            let b = Rect::new(x, y, w, 32.0);
+            let hit = Hit::Bar(item);
+            let menu_open = matches!(
+                (item, open),
+                (BarItem::Recent, Some(PopupKind::Recent)) | (BarItem::More, Some(PopupKind::Main))
+            );
+            if let Some(fill) = c.fill_for(hit, on, menu_open).filter(|_| enabled) {
+                c.p.rbox(b, 6.0, fill);
+            }
+            let gx = if label.is_some() { x + 18.0 } else { b.cx() };
+            let color = if !enabled {
+                pal.faint
+            } else if on {
+                pal.accent
+            } else {
+                pal.text
+            };
+            c.p.icon(g, 15.0, gx, cy, color);
+            if let Some(l) = label {
+                c.p.text(Face::Ui, 13.0, x + 34.0, cy, l, pal.text, f32::INFINITY);
+            }
+            if enabled {
+                c.hit(hit, b);
+            }
+            w
+        };
+    let sep = |c: &mut Ctx, x: f32| {
+        c.p.fill(
+            Rect::new((x + SEP / 2.0).round(), y + 6.0, c.p.px(), 20.0),
+            pal.line,
+        );
+        SEP
+    };
+    let lab = |s: &'static str| plan.labels.then_some(s);
+
+    // Left group.
+    let mut x = r.x + MARGIN;
+    x += button(c, x, BarItem::Open, glyph::OPEN, lab("Open"), false) + GAP;
+    if plan.recent {
+        x += button(c, x, BarItem::Reload, glyph::RELOAD, None, false) + GAP;
+        x += button(c, x, BarItem::Recent, glyph::RECENT, lab("Recent"), false) + GAP;
+    }
+    if plan.panes {
+        x += sep(c, x);
+        button(
+            c,
+            x,
+            BarItem::Files,
+            glyph::FOLDER,
+            lab("Files"),
+            ui.panes.files,
+        );
+    }
+
+    // Right group, from the right edge.
+    let mut rx = r.right() - MARGIN - ICON_BTN;
+    button(c, rx, BarItem::More, glyph::MORE, None, false);
+    let choice = docs.theme;
+    let tw = labelled(t.theme, plan.labels);
+    rx -= GAP + tw;
+    button(
+        c,
+        rx,
+        BarItem::Theme,
+        theme_glyph(choice),
+        lab(theme_label(choice)),
+        false,
+    );
+    rx -= SEP;
+    sep(c, rx);
+    rx -= ICON_BTN + GAP;
+    button(c, rx, BarItem::FindNext, glyph::DOWN, None, false);
+    rx -= ICON_BTN + GAP;
+    button(c, rx, BarItem::FindPrev, glyph::UP, None, false);
+    rx -= plan.find_w + 4.0;
+    let frame = Rect::new(rx, y, plan.find_w, 32.0);
+    draw_find(c, ui, frame);
+    if plan.count && t.count > 0.0 {
+        let (label, none) = find_label(docs);
+        c.p.text_right(
+            Face::Ui,
+            12.5,
+            frame.x - 10.0,
+            cy,
+            &label,
+            if none { pal.warn } else { pal.muted },
+        );
+    }
+}
+
+fn draw_find(c: &mut Ctx, ui: &mut Ui, frame: Rect) {
+    let pal = *c.pal;
+    let focused = ui.find_focused;
+    let hovered = c.hover == Some(Hit::Find) || c.hover == Some(Hit::FindClear);
+    let edge = if hovered && !focused {
+        mix(pal.line, pal.text, 0.18)
+    } else {
+        pal.line
+    };
+    let fill = if focused || !hovered {
+        pal.field
+    } else {
+        mix(pal.field, pal.text, 0.03)
+    };
+    c.p.frame(frame, 6.0, fill, edge);
+    if focused {
+        // The Windows 11 text box: an accent underline that follows the rounded corners.
+        let old =
+            c.p.clip(Rect::new(frame.x, frame.bottom() - 2.0, frame.w, 2.0));
+        c.p.rbox(frame, 6.0, pal.accent);
+        c.p.restore(old);
+    }
+    c.p.icon(
+        glyph::SEARCH,
+        12.0,
+        frame.x + 17.0,
+        frame.cy(),
+        if focused { pal.text } else { pal.muted },
+    );
+    let (area, clear) = find_parts(frame, !ui.find.is_empty());
+    let colors = FieldColors {
+        text: pal.text,
+        placeholder: pal.faint,
+        selection: pal.selection,
+        caret: pal.text,
+    };
+    ui.find.draw(
+        c.p,
+        area,
+        Face::Ui,
+        13.0,
+        &colors,
+        strings::FIND_PLACEHOLDER,
+        focused,
+        ui.caret_on,
+    );
+    c.hit(Hit::Find, frame);
+    if let Some(b) = clear {
+        if let Some(f) = c.fill_for(Hit::FindClear, false, false) {
+            c.p.rbox(b, 4.0, f);
+        }
+        c.p.icon(glyph::CLOSE, 8.5, b.cx(), b.cy(), pal.muted);
+        c.hit(Hit::FindClear, b);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text() -> BarText {
+        BarText {
+            open: 32.0,
+            recent: 42.0,
+            files: 28.0,
+            theme: 44.0,
+            count: 50.0,
+        }
+    }
+
+    #[test]
+    fn bar_degrades_in_order() {
+        let t = text();
+        let wide = bar_plan(1400.0, &t);
+        assert!(wide.labels && wide.panes && wide.recent && wide.find_w == FIND_W);
+        let mut seen_no_labels = false;
+        for avail in (300..1400).rev().step_by(10) {
+            let plan = bar_plan(avail as f32, &t);
+            if !plan.labels {
+                seen_no_labels = true;
+            }
+            // Items hide only after labels are gone.
+            if !plan.panes || !plan.recent {
+                assert!(seen_no_labels && !plan.labels);
+            }
+        }
+        let narrow = bar_plan(520.0, &t);
+        assert!(plan_width(&narrow, &t) <= 520.0);
+    }
+
+    #[test]
+    fn bar_fits_at_the_window_minimum() {
+        let plan = bar_plan(520.0, &text());
+        assert!(plan_width(&plan, &text()) <= 520.0 + 1.0);
+        let tiny = bar_plan(300.0, &text());
+        assert!(tiny.find_w >= 96.0);
+    }
+}
