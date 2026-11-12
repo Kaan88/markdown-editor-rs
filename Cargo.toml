@@ -15,6 +15,12 @@ ropey = { version = "=1.6.1", default-features = false, features = ["simd", "cr_
 encoding_rs = "0.8.35"
 unicode-segmentation = "1.12"
 memchr = "2.7"
+# Guesses the legacy code page of a file that is not UTF-8 (Firefox's detector, by the author of
+# encoding_rs).
+chardetng = "0.1.17"
+# Wide (East Asian) and zero-width characters, for the horizontal position estimates of long
+# lines. The ambiguous-width ("cjk") tables are left out.
+unicode-width = { version = "0.2", default-features = false }
 parley = "=0.12.0"
 bytemuck = "1.25"
 mdshared-app = { path = "../markdown-shared-rs/crates/mdshared-app" }
@@ -27,4 +33,6 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
-panic = "unwind"
+# Nothing catches a panic, so unwinding buys only a dead worker thread instead of an ended
+# process; the unwind tables cost about 0.9 MB of the 6 MB exe budget (docs/DESIGN.md, section 2).
+panic = "abort"

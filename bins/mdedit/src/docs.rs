@@ -9,7 +9,8 @@
 use crate::app::Wake;
 use crate::commands::strings;
 use crate::session::ThemeChoice;
-use mdedit_core::display::ChunkStart;
+use crate::view::cache::Lru;
+use mdedit_core::display::ChunkIndex;
 use mdedit_core::find::{self, FindOptions, Matches, Query};
 use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES};
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
@@ -19,10 +20,8 @@ use mdedit_highlight::{Colored, DocId, HighlightService, Language, Span};
 use mdshared_app::files::{FileStamp, stamp};
 use mdshared_app::paths::{canonical_or_absolute, same_path, tab_labels};
 use mdshared_app::recents::Recents;
-use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -100,6 +99,9 @@ impl FindState {
 
 pub struct Ready {
     pub buffer: Buffer,
+    /// The document revision this text was loaded at. A reload bumps the document's revision at
+    /// once but keeps drawing this text until the new one arrives, so layouts are keyed by this.
+    pub revision: u64,
     pub info: FileInfo,
     pub language: Option<Language>,
     /// The language exists and the file is within its limits: the service colours it.
@@ -111,22 +113,25 @@ pub struct Ready {
     pub left: f64,
     pub colors: LineColors,
     pub find: FindState,
-    /// Chunk starts of long lines, per line. A reload makes a new `Ready`, so the cache is per
-    /// revision.
-    pub chunks: HashMap<usize, Rc<Vec<ChunkStart>>>,
-    /// The widest line shaped so far, logical px.
+    /// Chunk indexes of long lines, per line, the most recently used
+    /// [`CHUNK_INDEXES`](crate::view::CHUNK_INDEXES). A reload makes a new `Ready`, so they are
+    /// per revision.
+    pub chunks: Lru<usize, ChunkIndex>,
+    /// The right end of the widest line or chunk shaped so far, logical px.
     pub widest: f32,
     /// The view as last drawn, for keeping the caret in view between frames: lines that fit,
-    /// text width and advance in logical px.
+    /// text width, and the advances of a narrow and a wide glyph, in logical px.
     pub view_lines: f64,
     pub view_w: f32,
     pub advance: f32,
+    pub wide_advance: f32,
 }
 
 impl Ready {
-    fn new(loaded: Loaded, language: Option<Language>) -> Ready {
+    fn new(loaded: Loaded, language: Option<Language>, revision: u64) -> Ready {
         Ready {
             buffer: loaded.buffer,
+            revision,
             info: loaded.info,
             language,
             colourable: false,
@@ -135,11 +140,12 @@ impl Ready {
             left: 0.0,
             colors: LineColors::default(),
             find: FindState::default(),
-            chunks: HashMap::new(),
+            chunks: Lru::new(crate::view::CHUNK_INDEXES),
             widest: 0.0,
             view_lines: 30.0,
             view_w: 800.0,
             advance: 7.7,
+            wide_advance: 14.0,
         }
     }
 
@@ -168,9 +174,10 @@ pub struct Doc {
     pub path: PathBuf,
     pub revision: u64,
     pub state: DocState,
-    /// The file is gone from disk; the tab keeps the text last read.
+    /// The file is not on disk: gone since it was read (the tab keeps the text last read), or
+    /// never there (the tab shows why it could not be opened).
     pub missing: bool,
-    /// The lossy-file toast was shown for this document.
+    /// The lossy- or binary-file toast was shown for this document.
     lossy_toasted: bool,
     /// Bytes read and total, written by the load thread.
     progress: Arc<(AtomicU64, AtomicU64)>,
@@ -217,6 +224,11 @@ impl Doc {
         }
     }
 
+    /// The "deleted or moved, showing the text last read" banner: only over text that was read.
+    pub fn shows_gone_banner(&self) -> bool {
+        self.missing && self.ready().is_some()
+    }
+
     pub fn name(&self) -> String {
         self.path.file_name().map_or_else(
             || self.path.display().to_string(),
@@ -251,11 +263,18 @@ pub struct FindDone {
     pub kind: FindKind,
 }
 
-/// The document's language from its path and first line, worked out on the load thread.
+/// How much of the first line the language lookup sees: enough for a shebang or a mode line.
+const FIRST_LINE_BYTES: usize = 1024;
+
+/// The document's language from its path and the start of its first line, worked out on the
+/// load thread. Only the first `FIRST_LINE_BYTES` are copied, so a file that is one long line is
+/// not copied whole beside its rope, and syntect's first-line patterns run over that much only.
 fn language_of(path: &Path, buffer: &Buffer) -> Option<Language> {
     let mut first = String::new();
     if buffer.len_lines() > 0 {
-        buffer.line_text(0, &mut first);
+        let range = buffer.line_range(0);
+        let end = buffer.snap_to_grapheme(range.end.min(range.start + FIRST_LINE_BYTES));
+        buffer.text(range.start..end, &mut first);
     }
     Language::for_path(path, &first)
 }
@@ -556,7 +575,7 @@ impl Docs {
         doc.cancel = None;
         match done.result {
             Ok((loaded, language)) => {
-                let mut r = Ready::new(loaded, language);
+                let mut r = Ready::new(loaded, language, done.revision);
                 // A reload keeps the caret's line and column, the scroll and the find query.
                 let mut query = None;
                 if let Some(old) = doc.ready_mut() {
@@ -568,6 +587,7 @@ impl Docs {
                     r.view_lines = old.view_lines;
                     r.view_w = old.view_w;
                     r.advance = old.advance;
+                    r.wide_advance = old.wide_advance;
                     old.find.cancel();
                     if !old.find.text.is_empty() {
                         query = Some((old.find.text.clone(), old.find.match_case));
@@ -665,12 +685,22 @@ impl Docs {
         self.toast.as_ref().map(|t| t.1)
     }
 
+    /// The toast for a file shown with replaced bytes, or one that holds NUL characters (most
+    /// likely not text), once per document.
     fn toast_lossy(&mut self, i: usize) {
         let doc = &mut self.tabs[i];
-        let lossy = doc.ready().is_some_and(|r| r.info.lossy);
-        if lossy && !doc.lossy_toasted {
+        let Some(info) = doc.ready().map(|r| &r.info) else {
+            return;
+        };
+        let text = if info.lossy {
+            strings::lossy_toast(&doc.name())
+        } else if info.has_nul {
+            strings::binary_toast(&doc.name())
+        } else {
+            return;
+        };
+        if !doc.lossy_toasted {
             doc.lossy_toasted = true;
-            let text = strings::lossy_toast(&doc.name());
             self.set_toast(&text);
         }
     }
@@ -950,6 +980,76 @@ mod tests {
 
     fn docs() -> Docs {
         Docs::new(1254, Arc::new(|_| {}))
+    }
+
+    #[test]
+    fn a_file_that_never_existed_has_no_gone_banner() {
+        let dir = std::env::temp_dir().join(format!("mdedit-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut d = docs();
+        let i = d.open(&dir.join("never-there.txt"));
+        d.load_now(i, None, false);
+        let doc = &d.tabs[i];
+        assert!(matches!(doc.state, DocState::Failed(_)));
+        assert!(doc.missing);
+        assert!(!doc.shows_gone_banner());
+        // A file read and then deleted shows the banner over its text.
+        let path = dir.join("was-there.txt");
+        std::fs::write(&path, "text\n").unwrap();
+        let j = d.open(&path);
+        d.load_now(j, None, false);
+        assert!(d.tabs[j].ready().is_some());
+        std::fs::remove_file(&path).unwrap();
+        d.check_changed();
+        assert!(d.tabs[j].shows_gone_banner());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn layouts_follow_the_text_not_the_reload() {
+        // A reload bumps the document's revision while the old text stays; the text's own
+        // revision changes only when the new text is taken in.
+        let dir = std::env::temp_dir().join(format!("mdedit-rev-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("notes.txt");
+        std::fs::write(&path, "one\ntwo\n").unwrap();
+        let mut d = docs();
+        let i = d.open(&path);
+        d.load_now(i, None, false);
+        let first = d.tabs[i].ready().unwrap().revision;
+        assert_eq!(first, d.tabs[i].revision);
+        std::fs::write(&path, "one\nTWO\n").unwrap();
+        d.start_load(i);
+        assert_ne!(d.tabs[i].revision, first);
+        assert_eq!(d.tabs[i].ready().unwrap().revision, first);
+        let applied = d.wait_load(Instant::now() + Duration::from_secs(10), None, false);
+        assert!(applied.active_ready);
+        let r = d.tabs[i].ready().unwrap();
+        assert_eq!(r.revision, d.tabs[i].revision);
+        assert_ne!(r.revision, first);
+        let mut line = String::new();
+        r.buffer.line_text(1, &mut line);
+        assert_eq!(line, "TWO");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn language_lookup_reads_only_the_start_of_the_first_line() {
+        let long = format!("#!/usr/bin/env python\n{}", "x".repeat(10));
+        let buf = Buffer::from_text(&long);
+        let lang = language_of(Path::new("script"), &buf);
+        assert_eq!(lang.map(Language::name), Some("Python"));
+        // One line of 3 MB: found by extension, and the first line is not copied whole (the
+        // lookup sees at most FIRST_LINE_BYTES, which this checks through a mode line placed
+        // past them).
+        let mut one = "a".repeat(3 << 20);
+        one.push_str(" -*- mode: python -*-");
+        let buf = Buffer::from_text(&one);
+        assert_eq!(
+            language_of(Path::new("data.json"), &buf).map(Language::name),
+            Some("JSON")
+        );
+        assert!(language_of(Path::new("data.unknown"), &buf).is_none());
     }
 
     #[test]

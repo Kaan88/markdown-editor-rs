@@ -3,7 +3,9 @@
 //! control picture (U+2400 + c, U+2421 for DEL) so it is visible. The map between the two lets
 //! the text view hit-test and draw carets and selections in buffer offsets.
 //!
-//! Long lines are split into chunks ([`chunk_starts`]) so only the part on screen is shaped.
+//! Long lines are split into chunks ([`ChunkIndex`]) so only the part on screen is shaped. A
+//! chunk start carries its display column and how many wide and zero-width characters come before
+//! it, so the view can estimate its x without shaping what is before it ([`width_of`]).
 
 use crate::buffer::Buffer;
 use crate::limits::{CHUNK_BYTES, CHUNK_LOOKAHEAD, WHOLE_LINE_BYTES};
@@ -160,40 +162,159 @@ impl DisplayLine {
     }
 }
 
-/// Where a chunk of a long line starts.
+/// How wide a character is drawn, as a class: the view turns it into px with the measured
+/// advance of a narrow and of a wide glyph. Combining marks, joiners and variation selectors are
+/// zero-width; East Asian wide and fullwidth characters (Han, kana, Hangul, most emoji) are wide.
+/// Anything else, tabs and control characters included, is narrow (a tab's extra columns are
+/// counted separately).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Width {
+    Zero,
+    Narrow,
+    Wide,
+}
+
+pub fn width_of(c: char) -> Width {
+    if c.is_ascii() {
+        return Width::Narrow;
+    }
+    match unicode_width::UnicodeWidthChar::width(c) {
+        Some(0) => Width::Zero,
+        Some(2) => Width::Wide,
+        _ => Width::Narrow,
+    }
+}
+
+/// Display columns counted along a line (a tab to its stop, every other character 1) and, of
+/// the characters counted, how many are wide and how many zero-width.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Cols {
+    pub col: usize,
+    pub wide: usize,
+    pub zero: usize,
+}
+
+impl Cols {
+    /// The counts after `text` (no line break in it). ASCII without tabs costs a length check.
+    pub fn after(mut self, text: &str, tab_width: usize) -> Cols {
+        let tab = tab_width.max(1);
+        let bytes = text.as_bytes();
+        if bytes.is_ascii() {
+            let mut from = 0;
+            for t in memchr::memchr_iter(b'\t', bytes) {
+                self.col += t - from;
+                self.col += tab - self.col % tab;
+                from = t + 1;
+            }
+            self.col += bytes.len() - from;
+            return self;
+        }
+        for c in text.chars() {
+            if c == '\t' {
+                self.col += tab - self.col % tab;
+                continue;
+            }
+            self.col += 1;
+            match width_of(c) {
+                Width::Zero => self.zero += 1,
+                Width::Wide => self.wide += 1,
+                Width::Narrow => {}
+            }
+        }
+        self
+    }
+}
+
+/// Where a chunk of a long line starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ChunkStart {
     /// Buffer offset.
     pub offset: usize,
     /// Display column.
     pub col: usize,
+    /// Wide characters on the line before the chunk.
+    pub wide: usize,
+    /// Zero-width characters on the line before the chunk.
+    pub zero: usize,
 }
 
-/// The chunk starts of `line`, the first at the line's start. Each chunk is about
-/// [`CHUNK_BYTES`](crate::limits::CHUNK_BYTES) of buffer text and ends after the first ASCII
-/// space or tab within [`CHUNK_LOOKAHEAD`](crate::limits::CHUNK_LOOKAHEAD) bytes past that, else
-/// at the next grapheme boundary; never inside a grapheme. A line of at most
-/// [`WHOLE_LINE_BYTES`](crate::limits::WHOLE_LINE_BYTES) is one chunk. Costs one pass over the
-/// line's bytes (to count columns); the shell caches the result per line and revision.
-pub fn chunk_starts(buf: &Buffer, line: usize, tab_width: usize) -> Vec<ChunkStart> {
-    let range = buf.line_range(line);
-    let mut out = vec![ChunkStart {
-        offset: range.start,
-        col: 0,
-    }];
-    if range.len() <= WHOLE_LINE_BYTES {
-        return out;
+impl ChunkStart {
+    pub fn cols(&self) -> Cols {
+        Cols {
+            col: self.col,
+            wide: self.wide,
+            zero: self.zero,
+        }
     }
-    let mut start = range.start;
-    let mut col = 0usize;
-    loop {
+}
+
+/// The chunk starts of one line, found from the line's start as far as they are needed. Each
+/// chunk is about [`CHUNK_BYTES`](crate::limits::CHUNK_BYTES) of buffer text and ends after the
+/// first ASCII space or tab within [`CHUNK_LOOKAHEAD`](crate::limits::CHUNK_LOOKAHEAD) bytes past
+/// that, else at the next grapheme boundary; never inside a grapheme. A line of at most
+/// [`WHOLE_LINE_BYTES`](crate::limits::WHOLE_LINE_BYTES) is one chunk.
+///
+/// Finding a chunk costs a pass over its own bytes (to count columns), so the index costs what
+/// the part of the line it covers costs: the view extends it to the chunks on screen, a caret
+/// or a click extends it to its offset. The shell keeps a few indexes per document revision.
+#[derive(Clone, Debug)]
+pub struct ChunkIndex {
+    starts: Vec<ChunkStart>,
+    /// The line's end (line break excluded).
+    end: usize,
+    /// Every chunk start of the line is in `starts`.
+    complete: bool,
+}
+
+impl ChunkIndex {
+    pub fn new(buf: &Buffer, line: usize) -> ChunkIndex {
+        let range = buf.line_range(line);
+        ChunkIndex {
+            starts: vec![ChunkStart {
+                offset: range.start,
+                ..ChunkStart::default()
+            }],
+            end: range.end,
+            complete: range.len() <= WHOLE_LINE_BYTES,
+        }
+    }
+
+    pub fn starts(&self) -> &[ChunkStart] {
+        &self.starts
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    /// Adds chunk starts while `more(last start)` holds and the line goes on.
+    pub fn extend_while(
+        &mut self,
+        buf: &Buffer,
+        tab_width: usize,
+        mut more: impl FnMut(&ChunkStart) -> bool,
+    ) {
+        while !self.complete && more(&self.starts[self.starts.len() - 1]) {
+            self.push_next(buf, tab_width);
+        }
+    }
+
+    /// Extends the index until it holds the chunk that `offset` is in.
+    pub fn extend_to(&mut self, buf: &Buffer, tab_width: usize, offset: usize) {
+        self.extend_while(buf, tab_width, |last| last.offset <= offset);
+    }
+
+    fn push_next(&mut self, buf: &Buffer, tab_width: usize) {
+        let last = self.starts[self.starts.len() - 1];
+        let start = last.offset;
         let target = start + CHUNK_BYTES;
-        if target >= range.end {
-            break;
+        if target >= self.end {
+            self.complete = true;
+            return;
         }
         // The first space or tab at or after `target`, within the lookahead.
         let scan_from = buf.floor_char(target);
-        let scan_to = (target + CHUNK_LOOKAHEAD).min(range.end);
+        let scan_to = (target + CHUNK_LOOKAHEAD).min(self.end);
         let mut wanted = target;
         let mut at = scan_from;
         'scan: for piece in buf.chunks(scan_from..scan_to) {
@@ -210,30 +331,38 @@ pub fn chunk_starts(buf: &Buffer, line: usize, tab_width: usize) -> Vec<ChunkSta
         } else {
             buf.next_grapheme(floor)
         };
-        if next >= range.end {
-            break;
+        if next >= self.end {
+            self.complete = true;
+            return;
         }
+        let mut cols = last.cols();
         for piece in buf.chunks(start..next) {
-            col = end_column(piece, col, tab_width);
+            cols = cols.after(piece, tab_width);
         }
-        out.push(ChunkStart { offset: next, col });
-        start = next;
+        self.starts.push(ChunkStart {
+            offset: next,
+            col: cols.col,
+            wide: cols.wide,
+            zero: cols.zero,
+        });
     }
-    out
 }
 
-/// The end column, shared by [`columns`] and the chunk walk.
+/// Every chunk start of `line` (the whole [`ChunkIndex`]); one pass over the line.
+pub fn chunk_starts(buf: &Buffer, line: usize, tab_width: usize) -> Vec<ChunkStart> {
+    let mut index = ChunkIndex::new(buf, line);
+    index.extend_while(buf, tab_width, |_| true);
+    index.starts
+}
+
+/// The end column, shared by [`columns`] and the selection's column counts.
 pub(crate) fn end_column(text: &str, start_col: usize, tab_width: usize) -> usize {
-    let tab = tab_width.max(1);
-    let mut col = start_col;
-    for &b in text.as_bytes() {
-        if b == b'\t' {
-            col += tab - col % tab;
-        } else if (b & 0xC0) != 0x80 {
-            col += 1;
-        }
+    Cols {
+        col: start_col,
+        ..Cols::default()
     }
-    col
+    .after(text, tab_width)
+    .col
 }
 
 /// Display columns of `text` starting at column `start_col` (tabs to stops).
@@ -365,27 +494,20 @@ mod tests {
     #[test]
     fn chunks_of_short_lines() {
         let buf = Buffer::from_text(&format!("{}\nabc", "x".repeat(4096)));
+        let at = |offset, col| ChunkStart {
+            offset,
+            col,
+            ..ChunkStart::default()
+        };
         let c = chunk_starts(&buf, 0, 4);
-        assert_eq!(c, vec![ChunkStart { offset: 0, col: 0 }]);
+        assert_eq!(c, vec![at(0, 0)]);
         let c = chunk_starts(&buf, 1, 4);
-        assert_eq!(
-            c,
-            vec![ChunkStart {
-                offset: 4097,
-                col: 0
-            }]
-        );
+        assert_eq!(c, vec![at(4097, 0)]);
         let buf = Buffer::from_text(&format!("{}\nabc", "x".repeat(4097)));
         let c = chunk_starts(&buf, 0, 4);
         assert!(c.len() > 1);
-        assert_eq!(c[0], ChunkStart { offset: 0, col: 0 });
-        assert_eq!(
-            c[1],
-            ChunkStart {
-                offset: 1024,
-                col: 1024
-            }
-        );
+        assert_eq!(c[0], at(0, 0));
+        assert_eq!(c[1], at(1024, 1024));
         // Past the last line.
         assert_eq!(chunk_starts(&buf, 5, 4).len(), 1);
     }
@@ -463,6 +585,10 @@ mod tests {
         for (k, c) in starts.iter().enumerate() {
             assert!(boundaries.contains(&c.offset), "chunk {k} at {}", c.offset);
             assert_eq!(c.col, columns(&s[..c.offset], 0, 4), "chunk {k}");
+            let before = &s[..c.offset];
+            let wide = before.chars().filter(|&ch| width_of(ch) == Width::Wide);
+            let zero = before.chars().filter(|&ch| width_of(ch) == Width::Zero);
+            assert_eq!((c.wide, c.zero), (wide.count(), zero.count()), "chunk {k}");
             if k > 0 {
                 let size = c.offset - starts[k - 1].offset;
                 // About 1 KB, up to the lookahead past it (a tab ends the chunk early in the
@@ -473,7 +599,58 @@ mod tests {
                 );
             }
         }
-        assert_eq!(starts[0], ChunkStart { offset: 0, col: 0 });
+        assert_eq!(starts[0], ChunkStart::default());
+    }
+
+    #[test]
+    fn widths() {
+        assert_eq!(width_of('a'), Width::Narrow);
+        assert_eq!(width_of('\t'), Width::Narrow);
+        assert_eq!(width_of('ğ'), Width::Narrow);
+        assert_eq!(width_of('漢'), Width::Wide);
+        assert_eq!(width_of('あ'), Width::Wide);
+        assert_eq!(width_of('\u{AC00}'), Width::Wide);
+        assert_eq!(width_of('\u{1F600}'), Width::Wide);
+        assert_eq!(width_of('\u{301}'), Width::Zero);
+        assert_eq!(width_of('\u{200D}'), Width::Zero);
+        let c = Cols::default().after("a\t漢e\u{301}\u{1F600}", 4);
+        assert_eq!(
+            c,
+            Cols {
+                col: 8,
+                wide: 2,
+                zero: 1
+            }
+        );
+        // ASCII with tabs takes the short path and agrees with the long one.
+        let ascii = "ab\tc\t\tdefgh\t";
+        let mut long = Cols::default();
+        for ch in ascii.chars() {
+            long = long.after(&ch.to_string(), 4);
+        }
+        assert_eq!(Cols::default().after(ascii, 4), long);
+        assert_eq!(columns(ascii, 0, 4), long.col);
+    }
+
+    #[test]
+    fn index_extends_only_as_far_as_asked() {
+        let s = "word ".repeat(200_000); // 1 MB, one line
+        let buf = Buffer::from_text(&s);
+        let mut index = ChunkIndex::new(&buf, 0);
+        assert!(!index.is_complete());
+        assert_eq!(index.starts().len(), 1);
+        index.extend_to(&buf, 4, 5000);
+        let n = index.starts().len();
+        assert!((5..=7).contains(&n), "{n}");
+        assert!(index.starts()[n - 1].offset > 5000);
+        // Asking again for less adds nothing; the full walk agrees with the partial one.
+        index.extend_to(&buf, 4, 100);
+        assert_eq!(index.starts().len(), n);
+        let all = chunk_starts(&buf, 0, 4);
+        assert_eq!(&all[..n], index.starts());
+        index.extend_while(&buf, 4, |_| true);
+        assert!(index.is_complete());
+        assert_eq!(index.starts(), &all[..]);
     }
 
     #[test]

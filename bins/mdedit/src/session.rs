@@ -156,7 +156,13 @@ impl Session {
         Some((w, h, words.any(|word| word == "max")))
     }
 
+    /// Records the window's size. A maximized window keeps the restored size saved before (its
+    /// own size is the screen's), so Restore down after the next start gives that size back.
     pub fn set_window_size(&mut self, width: u32, height: u32, maximized: bool) {
+        let (width, height) = match (maximized, self.window_size()) {
+            (true, Some((w, h, _))) => (w, h),
+            _ => (width, height),
+        };
         let position = self.window_position();
         self.geometry = format!("{width}x{height}{}", if maximized { " max" } else { "" });
         if let Some((x, y)) = position {
@@ -247,8 +253,9 @@ mod tests {
         assert_eq!(s.window_position(), None);
         s.set_window_position(10, 20);
         assert_eq!(s.geometry, "800x600 @10,20");
+        // Maximized: the restored size stays.
         s.set_window_size(900, 700, true);
-        assert_eq!(s.geometry, "900x700 max @10,20");
+        assert_eq!(s.geometry, "800x600 max @10,20");
         let mut e = Session::default();
         e.set_window_position(3, 4);
         assert_eq!(e.geometry, "@3,4");
@@ -263,5 +270,22 @@ mod tests {
         assert!(ThemeChoice::System.is_dark(true));
         assert!(!ThemeChoice::Light.is_dark(true));
         assert!(ThemeChoice::Dark.is_dark(false));
+    }
+
+    #[test]
+    fn maximizing_keeps_the_restored_size() {
+        let mut s = Session::default();
+        s.set_window_size(1100, 700, false);
+        s.set_window_position(40, 30);
+        s.set_window_size(2560, 1380, true);
+        assert_eq!(s.window_size(), Some((1100, 700, true)));
+        assert_eq!(s.window_position(), Some((40, 30)));
+        // Restored again at a new size.
+        s.set_window_size(900, 600, false);
+        assert_eq!(s.window_size(), Some((900, 600, false)));
+        // Maximized with no size saved before: its own size is all there is.
+        let mut fresh = Session::default();
+        fresh.set_window_size(2560, 1380, true);
+        assert_eq!(fresh.window_size(), Some((2560, 1380, true)));
     }
 }

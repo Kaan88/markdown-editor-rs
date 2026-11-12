@@ -8,6 +8,11 @@ pub const MAX_FILE_BYTES: u64 = 1 << 30;
 /// the file's bytes are never held whole next to the rope.
 pub const READ_CHUNK: usize = 64 * 1024;
 
+/// A file that is not valid UTF-8 and has no byte order mark is judged on this many bytes from
+/// around its first invalid byte: mostly valid UTF-8 there means UTF-8 with the invalid bytes
+/// replaced, otherwise `chardetng` guesses the legacy code page.
+pub const DETECT_BYTES: usize = 1 << 20;
+
 /// The loader reports progress after at least this many bytes.
 pub const PROGRESS_STEP: u64 = 4 << 20;
 
@@ -18,6 +23,10 @@ pub const CHUNK_BYTES: usize = 1024;
 /// A chunk boundary is looked for this far past [`CHUNK_BYTES`]: an ASCII space or tab first,
 /// else the next grapheme boundary.
 pub const CHUNK_LOOKAHEAD: usize = 512;
+
+/// Word motions and double click look at most this many bytes each way from where they start, so
+/// a word of millions of letters (a hex blob) cannot hold the UI thread: the word ends there.
+pub const WORD_LIMIT: usize = 64 * 1024;
 
 /// Columns per tab stop.
 pub const TAB_WIDTH: usize = 4;

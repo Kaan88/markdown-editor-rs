@@ -147,7 +147,9 @@ impl App {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.sel =
                         selection::drag_to(&r.buffer, origin.0..origin.1, unit_of(unit), offset);
-                    view::reveal(r, r.sel.caret, false);
+                    // No margin: a pointer inside the text must not scroll it; outside it, the
+                    // auto-scroll timer does.
+                    view::reveal_no_margin(r, r.sel.caret);
                 }
                 let area = self
                     .docs
@@ -754,8 +756,8 @@ impl App {
                 }
                 f.delete_selection()
             }
-            (KeyName::Char('v'), true) if !mods.alt => match platform::clipboard_text() {
-                Some(t) => f.insert(t.lines().next().unwrap_or("")),
+            (KeyName::Char('v'), true) if !mods.alt => match platform::clipboard_line() {
+                Some(t) => f.insert(&t),
                 None => false,
             },
             (KeyName::Up | KeyName::Down | KeyName::PageUp | KeyName::PageDown, false) => {
@@ -801,9 +803,10 @@ impl App {
         if dx == 0.0 && dy == 0.0 {
             return;
         }
+        let (down, right) = autoscroll_step(dx, dy);
         if let Some(r) = self.docs.active_ready_mut() {
-            r.top += (dy.abs() / 20.0).clamp(0.25, 3.0) as f64 * dy.signum() as f64;
-            r.left = (r.left + ((dx.abs() * 0.6).clamp(4.0, 60.0) * dx.signum()) as f64).max(0.0);
+            r.top += down;
+            r.left = (r.left + right).max(0.0);
         }
         // Clamp through a layout pass, then extend the selection to the pointer.
         let region = self.areas.text;
@@ -814,5 +817,43 @@ impl App {
             self.drag_to(drag, x, y);
         }
         self.wants_frame = true;
+    }
+}
+
+/// One auto-scroll step for a pointer `dx`, `dy` logical px outside the text area on each axis
+/// (0 when inside on that axis): (lines down, logical px right). An axis the pointer is inside
+/// on does not move (`f32::signum` of 0 is 1, so it is not used there).
+fn autoscroll_step(dx: f32, dy: f32) -> (f64, f64) {
+    let down = if dy == 0.0 {
+        0.0
+    } else {
+        (dy.abs() / 20.0).clamp(0.25, 3.0) * dy.signum()
+    };
+    let right = if dx == 0.0 {
+        0.0
+    } else {
+        (dx.abs() * 0.6).clamp(4.0, 60.0) * dx.signum()
+    };
+    (down as f64, right as f64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::autoscroll_step;
+
+    #[test]
+    fn autoscroll_moves_only_the_axes_outside() {
+        // Left of the text at the same height: no vertical scroll.
+        let (down, right) = autoscroll_step(-30.0, 0.0);
+        assert_eq!(down, 0.0);
+        assert!(right < 0.0);
+        // Below the text: no horizontal scroll.
+        let (down, right) = autoscroll_step(0.0, 40.0);
+        assert_eq!(right, 0.0);
+        assert_eq!(down, 2.0);
+        // Above and to the right at once.
+        let (down, right) = autoscroll_step(10.0, -5.0);
+        assert_eq!((down, right), (-0.25, 6.0));
+        assert_eq!(autoscroll_step(0.0, 0.0), (0.0, 0.0));
     }
 }

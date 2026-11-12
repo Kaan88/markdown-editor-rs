@@ -54,6 +54,7 @@ The committed stubs are the reference; doc comments there give the details. Summ
 pub const MAX_FILE_BYTES: u64 = 1 << 30;      pub const READ_CHUNK: usize = 64 * 1024;
 pub const PROGRESS_STEP: u64 = 4 << 20;       pub const WHOLE_LINE_BYTES: usize = 4096;
 pub const CHUNK_BYTES: usize = 1024;          pub const CHUNK_LOOKAHEAD: usize = 512;
+pub const DETECT_BYTES: usize = 1 << 20;      pub const WORD_LIMIT: usize = 64 * 1024;
 pub const TAB_WIDTH: usize = 4;               pub const FIND_CAP: usize = 10_000;
 pub const FIND_WORK_PER_BYTE: usize = 64;     pub const SYNC_FIND_BYTES: usize = 4 << 20;
 pub const COPY_LIMIT: usize = 256 << 20;
@@ -119,8 +120,20 @@ impl DisplayLine {
     pub fn column_of(&self, source: usize) -> usize;
     pub fn offset_at_column(&self, col: usize) -> usize;
 }
-pub struct ChunkStart { pub offset: usize, pub col: usize }
-pub fn chunk_starts(buf: &Buffer, line: usize, tab_width: usize) -> Vec<ChunkStart>;
+pub enum Width { Narrow, Wide, Zero }
+pub fn width_of(c: char) -> Width;                                 // unicode-width classes
+pub struct Cols { pub col: usize, pub wide: usize, pub zero: usize }
+impl Cols { pub fn after(self, text: &str, tab_width: usize) -> Cols }
+pub struct ChunkStart { pub offset: usize, pub col: usize, pub wide: usize, pub zero: usize }
+impl ChunkStart { pub fn cols(&self) -> Cols }
+pub struct ChunkIndex { /* starts found so far, line end, complete */ }
+impl ChunkIndex {
+    pub fn new(buf: &Buffer, line: usize) -> ChunkIndex;
+    pub fn starts(&self) -> &[ChunkStart];  pub fn is_complete(&self) -> bool;
+    pub fn extend_while(&mut self, buf: &Buffer, tab_width: usize, more: impl FnMut(&ChunkStart) -> bool);
+    pub fn extend_to(&mut self, buf: &Buffer, tab_width: usize, offset: usize);
+}
+pub fn chunk_starts(buf: &Buffer, line: usize, tab_width: usize) -> Vec<ChunkStart>; // whole line
 pub fn columns(text: &str, start_col: usize, tab_width: usize) -> usize;
 
 // selection
@@ -224,14 +237,17 @@ load and find jobs), `ui.rs` (regions, hits, drags, popups, dialogs, panes), `ch
 | Positions | Byte offsets into the UTF-8 buffer, always on a `char` boundary; caret and selection ends on grapheme boundaries | parley, syntect and find all speak bytes. ropey's char indices appear only inside `mdedit-core` |
 | Lines | 0-based in code, 1-based on screen; the last line after a final line break exists and is empty | What ropey and every editor do |
 | Columns (status "Col") | `char`s from the line start, a tab counts 1, plus 1 | Notepad's "Col" |
-| Display columns (Up/Down goal, horizontal extent) | Tabs to stops of 4, every other `char` 1 | Monospace; wide CJK glyphs make this an estimate, accepted for phase 1 |
+| Display columns (Up/Down goal) | Tabs to stops of 4, every other `char` 1 | Monospace; on CJK lines Up and Down keep the `char` column, not the drawn x |
+| Horizontal extent and chunk x | Columns plus a count of wide (East Asian wide and fullwidth, 2 columns) and zero-width (combining marks, joiners, variation selectors, 0) characters, from `unicode-width`; x = narrow columns times the advance plus wide characters times the measured width of a wide glyph | A CJK line's extent and its chunks' x match the glyphs; other fallback glyphs and emoji sequences stay an estimate |
 | Loading | On a worker thread, streamed into a `RopeBuilder`, never the whole file in memory beside the rope | Section 5 |
 | Wrap | None in phase 1; horizontal scrolling | Plan: word wrap is phase 4 |
-| Long lines | A line of at most 4 KB of display text is shaped whole; a longer one in chunks of about 1 KB, only the chunks on screen plus one each side | Spike "longlines": cost and memory then do not depend on line length |
+| Long lines | A line of at most 4 KB of display text is shaped whole; a longer one in chunks of about 1 KB, only the chunks on screen plus one each side; the chunk starts are found from the line start only as far as the view, caret or click needs, and kept for the 256 lines used last | Spike "longlines": cost and memory then do not depend on line length |
 | Highlighting | syntect through `mdshared-highlight::incremental`, checkpoints every K = max(16, lines / 3000) lines, on a worker thread in time-boxed slices; lines over 1,000 chars (200 for Markdown) and files over 2 MiB (300 KiB for Markdown) stay plain | Spike "highlight" |
 | Font | "Consolas, Cascadia Mono, Noto Sans Mono, DejaVu Sans Mono, monospace" (the viewer's `mono`), from the system, 14 logical px at zoom 100; no bundled fonts | The viewer's rule since 2026-11-08 |
 | Find | Literal; case-insensitive by default with the viewer's folding; Match case as an option; matches capped at 10,000; on the UI thread up to 4 MiB of text, else on a worker | Section 9 |
 | Invalid bytes | Never repaired silently: replaced by U+FFFD for display, the file marked `lossy` (read-only in every phase) and named in the status area and a toast | Plan, "Encodings and line endings" |
+| Panics | `panic = "abort"` in the release profile | Nothing catches a panic, so unwinding buys only a dead worker thread instead of an ended process; the unwind tables cost about 0.9 MB. The release exe is 5,699,584 bytes with `chardetng` and `unicode-width` added, against the 6 MB budget |
+| Fonts the system fallback lacks | The view's own font context puts Microsoft YaHei, Microsoft JhengHei and SimSun-ExtB behind the system's Han fallback, and Segoe UI Symbol and Segoe UI Emoji behind the common-script and Latin ones; the system family stays first | The system's Han fallback has no glyph for some simplified characters (U+4F24), and there is none for musical symbols (U+1D11E); both drew as boxes |
 | IME | Not enabled in phase 1 (`set_ime_allowed` stays false, as in the viewer) | Read-only; the spike "ime" notes are for phase 2 |
 | Zoom | Fixed at 100 in phase 1; metrics are computed from a zoom value so phase 4 only adds commands | Plan: zoom is phase 4 |
 
@@ -272,8 +288,9 @@ Rules:
    first bytes; decode each chunk to UTF-8 (UTF-8: validate with a carry of an incomplete trailing
    sequence; UTF-16: `encoding_rs` decoder; legacy: `encoding_rs` decoder); count line endings and
    NULs and track the longest line on the decoded text; append to a `ropey::RopeBuilder`. If UTF-8
-   without a BOM turns out invalid, drop the builder and decode the whole file again with the legacy
-   code page. Stamp again; if the stamp changed, retry (three attempts). Result:
+   without a BOM turns out invalid, drop the builder, choose an encoding from the bytes around the
+   first invalid one (section 6) and decode the whole file again with it. Stamp again; if the stamp
+   changed, retry (three attempts). Result:
    `Loaded { buffer, info }`.
 3. **Language** (same worker): `Language::for_path(path, first line)`.
 4. **Ready** (UI). The tab gets the buffer, info and language; the view scrolls to the top (or to
@@ -346,14 +363,24 @@ Detection, in order:
    is not put into the buffer. (A file starting `FF FE 00 00` is read as UTF-16 LE; UTF-32 is not
    detected.)
 2. No mark: UTF-8 if the bytes are valid UTF-8 from start to end (an empty file is UTF-8).
-3. Otherwise the system's legacy code page, from `GetACP()` mapped by
-   `encoding::legacy_for_code_page` (Windows-1254 on the user's PC; windows-1252 when the code page
-   is not one of 874, 932, 936, 949, 950, 1250-1258, and on other systems).
+3. Otherwise `DETECT_BYTES` (1 MiB) around the first invalid byte are read again and counted. If
+   they hold valid multi-byte UTF-8 sequences and at most one invalid byte for every four of
+   those, the file is UTF-8 with invalid bytes (read as UTF-8, invalid sequences become U+FFFD,
+   `lossy`).
+4. Otherwise `chardetng` guesses a legacy encoding from the same bytes, with the system's code page
+   (`GetACP()` mapped by `encoding::legacy_for_code_page`) as the hint: 1254 hints Turkish, 1251
+   Cyrillic, and so on. When the guess is not sure, the system's code page is used
+   (windows-1252 when the code page is not one of 874, 932, 936, 949, 950, 1250-1258, and on other
+   systems). There is no command to choose an encoding by hand in phase 1.
 
-Invalid input: after a UTF-8 BOM, invalid sequences become U+FFFD; in UTF-16, unpaired surrogates
-and an odd final byte become U+FFFD. Either sets `FileInfo::lossy`. Legacy single-byte code pages
-in `encoding_rs` map every byte, so they never set it. NUL characters are kept (shown as control
-pictures) and set `has_nul`.
+Invalid input: after a UTF-8 BOM, or in a file chosen as UTF-8 in step 3, invalid sequences become
+U+FFFD; in UTF-16, unpaired surrogates and an odd final byte become U+FFFD. Either sets
+`FileInfo::lossy`. A legacy decode is encoded back as it goes and compared with the file's bytes;
+bytes that do not come back the same (a multi-byte page's unmapped pairs, which `encoding_rs`
+decodes to U+FFFD or to a character that encodes differently) set `lossy` too. Single-byte code
+pages map every byte, so they never set it. NUL characters are kept (shown as control pictures)
+and set `has_nul`; the status area's encoding field then adds ", contains NUL" and the first
+showing of the tab gives a toast: "name contains NUL characters and may not be a text file."
 
 Status area, the encoding field: `Encoding::label()`, that is "UTF-8", "UTF-8 with BOM",
 "UTF-16 LE", "UTF-16 BE", or the code page's name ("Windows-1254"). A lossy file shows
@@ -378,13 +405,16 @@ drawn at `caret`; `range()` is the ordered pair. Phase 1 has a caret even though
 editable: it shows where keyboard selection starts and what the status position means.
 
 - Keys (text focused): Left, Right, Ctrl+Left, Ctrl+Right (words: letters, digits and `_`;
-  whitespace; other), Home (smart: first non-blank, then column 0), End, Up, Down (goal display
-  column kept), Page Up and Page Down (by the visible line count less one), Ctrl+Home, Ctrl+End;
+  whitespace; other; a word longer than `WORD_LIMIT`, 64 KiB, ends there, so a click or a key on a
+  long line without spaces costs no more than that), Home (smart: first non-blank, then column 0),
+  End, Up, Down (goal display column kept), Page Up and Page Down (by the visible line count less one), Ctrl+Home, Ctrl+End;
   each with Shift to extend. Without Shift, Left or Right on a selection collapses it to its start
   or end. Ctrl+A selects all.
 - Mouse: press places the caret; Shift+press extends; drag selects, with auto-scroll when the
-  pointer is above, below, left or right of the text area; double click selects a word and the drag
-  then grows by words; triple click selects the line with its break and the drag grows by lines.
+  pointer is above, below, left or right of the text area (only on the axes it is outside on);
+  inside the text area a drag keeps the caret in view without the keyboard's margin, so the text
+  does not move under the pointer; double click selects a word and the drag then grows by words;
+  triple click selects the line with its break and the drag grows by lines.
 - Copy: Ctrl+C or Ctrl+Insert copies the selection as it is in the buffer (its line breaks
   unchanged) with `mdshared_ui::platform::set_clipboard_text`. An empty selection copies nothing.
   Over `COPY_LIMIT` (256 MiB) a toast says the selection is too large to copy.
@@ -396,6 +426,8 @@ The viewer's find box in the command bar (`mdshared_ui::textfield::TextField`, `
 with the counter, Previous and Next buttons and the Clear button. Right-click on the box opens its
 editing menu with a checkable "Match case" item.
 
+- Paste (Ctrl+V or the menu) puts the first line of the clipboard in the box, at most 1,000
+  characters; only that much of the clipboard is read.
 - Query: literal; case-insensitive by default with the viewer's folding
   (`mv/crates/core/src/find.rs`, `fold` and `chars_match`, copied into `mdedit-core`); a line break
   in the query matches any one line break in the text. Empty query: no matches, no counter.
@@ -436,22 +468,29 @@ The caret is `max(1, round(1.5 * scale))` device px wide, line height tall, in `
 at `platform::caret_blink_time()` while the window and the text area have focus.
 
 **Lines.** For each visible line: if its display text is at most `WHOLE_LINE_BYTES`, one layout of
-the whole line. Otherwise `display::chunk_starts` (cached per line and revision) gives chunks; a
-chunk's x is its start column times the advance (exact for ASCII in a monospace face, an estimate
-when glyphs from fallback fonts or wide characters are involved; seams may then gap or overlap by a
-few px, accepted for phase 1); only chunks that overlap the horizontal view, plus one each side,
-are built and shaped. Control characters and tabs are drawn through `DisplayLine`.
+the whole line. Otherwise a `display::ChunkIndex` gives chunks; the shell keeps one per line for the
+256 lines used last, per document, dropped on reload, and extends it only as far as needed. A
+chunk's x is its narrow columns times the advance plus its wide characters times the width of a
+wide glyph (measured once per size by shaping ten Han characters); zero-width characters add
+nothing. That matches the glyphs for ASCII and CJK text in the fonts used; glyphs from other
+fallback fonts and emoji sequences keep it an estimate, so seams may gap or overlap by a few px
+there. Only chunks whose estimated x range overlaps the horizontal view, plus one each side, are
+built and shaped. The widest line is raised from each drawn chunk's x plus its shaped width.
+Control characters and tabs are drawn through `DisplayLine`. Layouts are cached under the revision
+the text was loaded at, so after a reload none of the old ones is drawn.
 
-**Hit testing.** y gives the line (`top + y / line_h`, clamped); x gives the chunk (by start column)
-and then the byte through parley's cursor hit test in that layout, mapped back with
-`DisplayLine::to_source`; positions snap to grapheme boundaries.
+**Hit testing.** y gives the line (`top + y / line_h`, clamped); x gives the chunk (the last that
+starts at or before x) and then the byte through parley's cursor hit test in that layout, mapped
+back with `DisplayLine::to_source`; positions snap to grapheme boundaries.
 
 **Scrolling.** Vertical scroll is `top: f64` in lines, clamped so the last line can reach the bottom
 edge and no further. Wheel: 3 lines per notch; pixel deltas (touchpads) are converted by the line
 height. Shift+wheel and horizontal wheel scroll horizontally by 3 advances per notch. Horizontal
 scroll `left: f64` in logical px, clamped to `extent - view width`, where `extent` is
 `(longest_line_chars + 2) * advance` from the load, raised to the widest line actually shaped.
-Keyboard moves keep the caret in view with a margin of 2 lines and 4 advances.
+Keyboard moves keep the caret in view with a margin of 2 lines and 4 advances (a mouse drag keeps
+it in view with none), using the caret's estimated x, so a caret after wide characters is revealed
+where it is drawn.
 
 **Scrollbars.** The vertical one is `mdshared_ui::scroll::scrollbar` / `draw_scrollbar` with content
 and view in lines. The horizontal one is the same geometry turned on its side, written in the view
@@ -500,7 +539,10 @@ Overlays: menus, dialogs, toast, tooltip.
   ("mdedit")`), or the file named by `MDEDIT_SETTINGS`. Section `[mdedit]`, keys `tab` (repeated,
   `encode_path`), `active`, `recent` (repeated), `theme` (0 system, 1 light, 2 dark), `geometry`
   (`WxH[ max][ @x,y]`, the viewer's format and limits), `files` (0 or 1), `files_w`, `folder`.
-  Written with `settings::Writer` and `write_atomic` on exit and after a resize settles.
+  Written with `settings::Writer` and `write_atomic` whenever what it holds changes (checked at
+  the end of each pass of the event loop, not during a drag), so a shutdown or an ended process
+  loses nothing, and on exit. While the window is maximized the saved size stays the restored
+  one, with ` max` added.
 - **Single instance**: `mdshared_app::single` with the app name "mdedit": a second launch hands its
   paths to the running window and exits.
 - **Changes on disk**: `FileWatcher` over the open files. A file whose stamp changed is reloaded in
@@ -534,6 +576,9 @@ Overlays: menus, dialogs, toast, tooltip.
 | `--hover x,y` | Pointer position in the shot (tooltips show at once) |
 | `--trace` | Print timings and memory on stderr (below) |
 | `--scroll-steps N` | After the first frame, the load and the first screen's colours, scroll N wheel steps (down, reversing at the ends), print frame-time statistics, exit. `0` exits at that point |
+
+In a windowed run, `--goto`, `--select`, `--find`, `--scroll` and `--hscroll` apply when the first
+file has loaded and the window has a size, in the order below.
 
 A shot never touches the user's session (it may use `MDEDIT_SETTINGS`), loads every file
 synchronously, waits up to 10 s for the colours of the visible lines, draws the caret in its

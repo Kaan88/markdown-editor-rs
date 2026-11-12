@@ -155,6 +155,12 @@ struct App {
     colours_traced: bool,
     /// Touchpad deltas below one line or advance, kept until they add up.
     wheel_rest: (f64, f64),
+    /// The session state last written (`session_sig`); a change is written at the next pass of
+    /// the loop, so an ended process (shutdown, Task Manager) loses nothing.
+    saved_sig: u64,
+    /// `--goto`, `--select`, `--find`, `--scroll` or `--hscroll` wait for this document to be
+    /// ready in a windowed run.
+    positions_for: Option<DocId>,
 }
 
 impl App {
@@ -220,6 +226,8 @@ impl App {
             load_traced: false,
             colours_traced: false,
             wheel_rest: (0.0, 0.0),
+            saved_sig: 0,
+            positions_for: None,
         }
     }
 
@@ -283,7 +291,26 @@ impl App {
                 self.trace_colours();
             }
         }
+        changed |= self.apply_positions_due();
         changed
+    }
+
+    /// In a windowed run, applies the position flags once their document is ready and the
+    /// window has a size. True when they were applied.
+    fn apply_positions_due(&mut self) -> bool {
+        let Some(id) = self.positions_for else {
+            return false;
+        };
+        let ready = self
+            .docs
+            .active_doc()
+            .is_some_and(|d| d.id == id && d.ready().is_some());
+        if !ready || self.window.is_none() {
+            return false;
+        }
+        self.positions_for = None;
+        self.apply_positions();
+        true
     }
 
     fn trace_load(&mut self) {
@@ -948,6 +975,31 @@ impl App {
 
     // ---- session -----------------------------------------------------------------------------
 
+    /// What the session file holds, as a hash.
+    fn session_sig(&self) -> u64 {
+        sig((
+            self.docs.paths(),
+            self.docs.active(),
+            self.docs.recents.paths(),
+            (!self.theme_from_args).then_some(self.docs.theme),
+            self.ui.panes.files,
+            self.ui.panes.files_w.round() as u32,
+            &self.docs.folder,
+            &self.session.geometry,
+        ))
+    }
+
+    /// Writes the session when it changed since the last write; not during a drag (the Files
+    /// pane's width moves with it).
+    fn persist_if_changed(&mut self) {
+        if !self.save || self.session_path.is_none() || self.ui.drag.is_some() {
+            return;
+        }
+        if self.session_sig() != self.saved_sig {
+            self.save_session();
+        }
+    }
+
     fn save_session(&mut self) {
         let Some(path) = self.session_path.clone().filter(|_| self.save) else {
             return;
@@ -965,6 +1017,7 @@ impl App {
         if let Err(e) = s.save(&path) {
             eprintln!("mdedit: could not save the session: {e}");
         }
+        self.saved_sig = self.session_sig();
     }
 }
 
@@ -1189,6 +1242,7 @@ impl ApplicationHandler<Wake> for App {
                 w.set_files(paths.iter().map(PathBuf::as_path));
             }
         }
+        self.persist_if_changed();
         if !self.settled && !self.first && self.is_settled() {
             self.settled = true;
             self.trace.stage("loading and colouring idle");
@@ -1453,6 +1507,15 @@ pub fn run() -> i32 {
         app.focused = true;
         return shot(app, &path);
     }
+    let positions = a.goto.is_some()
+        || a.select.is_some()
+        || a.find.is_some()
+        || a.scroll.is_some()
+        || a.hscroll.is_some();
+    if positions {
+        app.positions_for = app.docs.active_doc().map(|d| d.id);
+    }
+    app.saved_sig = app.session_sig();
     let event_loop = match EventLoop::<Wake>::with_user_event().build() {
         Ok(l) => l,
         Err(e) => {

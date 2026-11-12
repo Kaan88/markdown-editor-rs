@@ -148,10 +148,6 @@ fn invalid_utf8_without_bom_falls_back_to_windows_1254() {
     assert_eq!(l.info.encoding, Encoding::Legacy(encoding_rs::WINDOWS_1254));
     assert_eq!(l.info.encoding.label(), "Windows-1254");
     assert!(!l.info.lossy);
-    // With the default options the code page is windows-1252.
-    let l = load_bytes(&[0xF0, 0xFD, 0xFE], &LoadOptions::default());
-    assert_eq!(text_of(&l), "ðýþ");
-    assert_eq!(l.info.encoding.label(), "Windows-1252");
     // A multi-byte legacy page keeps its name.
     let sj = LoadOptions {
         legacy: encoding_rs::SHIFT_JIS,
@@ -161,9 +157,100 @@ fn invalid_utf8_without_bom_falls_back_to_windows_1254() {
     assert_eq!(l.info.encoding.label(), "Shift_JIS");
 }
 
+/// The Turkish fixture is found to be windows-1254 whatever the system's code page is (the PC
+/// it is tested on runs code page 1252).
 #[test]
-fn late_invalid_byte_restarts_as_legacy() {
-    // Valid UTF-8 for well over one read chunk, then a lone 0xFD.
+fn legacy_page_is_guessed_from_the_text() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/cp1254.txt");
+    let bytes = std::fs::read(fixture).unwrap();
+    let reference = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turkish.txt"),
+    )
+    .unwrap();
+    for legacy in [encoding_rs::WINDOWS_1252, encoding_rs::WINDOWS_1254] {
+        let o = LoadOptions {
+            legacy,
+            max_bytes: 1 << 30,
+        };
+        let l = load_bytes(&bytes, &o);
+        assert_eq!(
+            l.info.encoding,
+            Encoding::Legacy(encoding_rs::WINDOWS_1254),
+            "system page {}",
+            legacy.name()
+        );
+        assert!(!l.info.lossy);
+        assert!(text_of(&l).contains("Pijamalı hasta yağız şoföre"));
+        // Below its first line, which names its page, the fixture is the UTF-8 fixture's text.
+        let text = text_of(&l);
+        assert!(text.lines().skip(1).eq(reference.lines()));
+    }
+    // Twenty copies, the case the checker ran.
+    let many = bytes.repeat(20);
+    let l = load_bytes(&many, &LoadOptions::default());
+    assert_eq!(l.info.encoding, Encoding::Legacy(encoding_rs::WINDOWS_1254));
+    // Cyrillic in windows-1251 on a 1252 system.
+    let (cyr, _, _) = encoding_rs::WINDOWS_1251
+        .encode("Съешь же ещё этих мягких французских булок, да выпей чаю.\n");
+    let l = load_bytes(&cyr, &LoadOptions::default());
+    assert_eq!(l.info.encoding, Encoding::Legacy(encoding_rs::WINDOWS_1251));
+}
+
+#[test]
+fn mostly_utf8_is_read_as_utf8_with_replacements() {
+    let mut bytes = "ğüş line\n".repeat(50).into_bytes();
+    bytes.extend_from_slice(b"bad \xFF\xFE\xC3 bytes\n");
+    bytes.extend_from_slice("şöç\n".as_bytes());
+    let l = load_bytes(&bytes, &LoadOptions::default());
+    assert_eq!(l.info.encoding, Encoding::Utf8);
+    assert!(l.info.lossy);
+    assert!(text_of(&l).contains("bad \u{FFFD}\u{FFFD}\u{FFFD} bytes\nşöç"));
+    // Without a single valid multi-byte sequence the file is legacy, not lossy UTF-8.
+    let l = load_bytes(b"ok line\nbad \xFF\xFE\xC3 bytes", &LoadOptions::default());
+    assert!(matches!(l.info.encoding, Encoding::Legacy(_)));
+    assert!(!l.info.lossy);
+}
+
+#[test]
+fn legacy_bytes_that_do_not_round_trip_are_lossy() {
+    let with = |legacy| LoadOptions {
+        legacy,
+        max_bytes: 1 << 30,
+    };
+    // Each decodes without an error, but the page's encoder writes something else back. The
+    // sample is too short for a sure guess, so the system page given is used.
+    let cases: [(&'static encoding_rs::Encoding, &[u8]); 3] = [
+        // An NEC-selected IBM extension, written back as FA 5C.
+        (encoding_rs::SHIFT_JIS, b"ok \xED\x40"),
+        // A GB18030 four-byte sequence, which GBK cannot write.
+        (encoding_rs::GBK, b"ok \x81\x30\x81\x30"),
+        // HKSCS, written back as numeric character references.
+        (encoding_rs::BIG5, b"ok \x88\x62"),
+    ];
+    for (enc, bytes) in cases {
+        let l = load_bytes(bytes, &with(enc));
+        assert_eq!(l.info.encoding, Encoding::Legacy(enc), "{}", enc.name());
+        assert!(l.info.lossy, "{}", enc.name());
+    }
+    // Text that does round trip in the same pages is not lossy.
+    for (enc, text) in [
+        (encoding_rs::SHIFT_JIS, "日本語のテキスト"),
+        (encoding_rs::GBK, "中文文本"),
+        (encoding_rs::BIG5, "繁體中文"),
+    ] {
+        let (bytes, _, unmappable) = enc.encode(text);
+        assert!(!unmappable);
+        let l = load_bytes(&bytes, &with(enc));
+        assert_eq!(l.info.encoding, Encoding::Legacy(enc), "{}", enc.name());
+        assert!(!l.info.lossy, "{}", enc.name());
+        assert_eq!(text_of(&l), text);
+    }
+}
+
+#[test]
+fn late_invalid_byte_in_utf8_text_is_replaced() {
+    // Valid UTF-8 for well over one read chunk, then a lone 0xFD: mostly UTF-8, so the file is
+    // UTF-8 with one replacement, not a legacy page.
     let mut bytes = Vec::new();
     while bytes.len() < 200_000 {
         bytes.extend_from_slice("valid ğüşiöç line\r\n".as_bytes());
@@ -171,12 +258,12 @@ fn late_invalid_byte_restarts_as_legacy() {
     let valid_len = bytes.len();
     bytes.extend_from_slice(b"tail \xFD end");
     let l = load_bytes(&bytes, &opts());
-    assert_eq!(l.info.encoding, Encoding::Legacy(encoding_rs::WINDOWS_1254));
+    assert_eq!(l.info.encoding, Encoding::Utf8);
+    assert!(l.info.lossy);
     let text = text_of(&l);
-    assert!(text.ends_with("tail ı end"));
-    // Everything before is read as windows-1254, so the UTF-8 pairs became two characters.
-    assert!(text.starts_with("valid Ä"));
-    assert!(text.len() > valid_len);
+    assert!(text.ends_with("tail \u{FFFD} end"));
+    assert!(text.starts_with("valid ğ"));
+    assert_eq!(text.len(), valid_len + "tail \u{FFFD} end".len());
     // The same through every trickle size.
     for seed in 0..7 {
         let t = trickled(&bytes, seed);
@@ -282,8 +369,11 @@ fn nul_and_longest_line() {
     // Characters, not bytes; the last line has no break.
     let l = load_bytes("ğğğ\nabcd".as_bytes(), &opts());
     assert_eq!(l.info.longest_line_chars, 4);
+    // Wide characters count two advances, combining marks none.
     let l = load_bytes("漢字漢字漢字".as_bytes(), &opts());
-    assert_eq!(l.info.longest_line_chars, 6);
+    assert_eq!(l.info.longest_line_chars, 12);
+    let l = load_bytes("e\u{301}e\u{301}x".as_bytes(), &opts());
+    assert_eq!(l.info.longest_line_chars, 3);
     // A CR LF pair split across pieces ends one line.
     let l = load_bytes(b"abc\r\n\r\nde", &opts());
     assert_eq!(l.info.longest_line_chars, 3);

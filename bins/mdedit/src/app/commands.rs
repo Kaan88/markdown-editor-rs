@@ -121,9 +121,9 @@ impl App {
                         }
                         false
                     }
-                    EditAct::Paste => match platform::clipboard_text() {
-                        // A search is one line here.
-                        Some(text) => f.insert(text.lines().next().unwrap_or("")),
+                    // A search is one line here, and only that much is read.
+                    EditAct::Paste => match platform::clipboard_line() {
+                        Some(text) => f.insert(&text),
                         None => false,
                     },
                     EditAct::SelectAll => {

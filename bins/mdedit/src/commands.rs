@@ -152,6 +152,10 @@ pub mod strings {
     pub fn lossy_toast(name: &str) -> String {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
     }
+
+    pub fn binary_toast(name: &str) -> String {
+        format!("{name} contains NUL characters and may not be a text file.")
+    }
 }
 
 #[cfg(test)]
@@ -174,6 +178,7 @@ mod tests {
         assert_eq!(window_title(None), "mdedit");
         assert_eq!(window_title(Some("a.rs")), "a.rs — mdedit");
         assert!(lossy_toast("x.txt").contains('\u{FFFD}'));
+        assert!(binary_toast("x.exe").starts_with("x.exe contains NUL"));
     }
 
     #[test]

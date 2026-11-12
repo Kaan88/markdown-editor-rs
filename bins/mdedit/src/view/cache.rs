@@ -29,6 +29,15 @@ impl<K: Hash + Eq + Clone, V> Lru<K, V> {
         })
     }
 
+    pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
+        self.tick += 1;
+        let tick = self.tick;
+        self.map.get_mut(k).map(|(v, t)| {
+            *t = tick;
+            v
+        })
+    }
+
     pub fn insert(&mut self, k: K, v: V) {
         self.tick += 1;
         self.map.insert(k, (v, self.tick));

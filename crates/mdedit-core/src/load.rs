@@ -2,11 +2,18 @@
 //! pieces, decoded, counted for line endings and fed to a rope builder in one pass, so the file's
 //! bytes are never held whole beside the rope. Runs on a worker thread in the shell; nothing here
 //! touches a window.
+//!
+//! A file with no byte order mark is read as UTF-8 first. If that meets an invalid byte, the
+//! bytes around it ([`DETECT_BYTES`](crate::limits::DETECT_BYTES)) decide the second pass:
+//! mostly valid UTF-8 there gives UTF-8 with the invalid bytes replaced (the file is `lossy`),
+//! anything else the legacy code page `chardetng` guesses, with the system's code page as the
+//! hint and as the answer when the guess is not sure.
 
 use crate::buffer::Buffer;
+use crate::display::{Width, width_of};
 use crate::encoding::{Encoding, sniff_bom};
 use crate::eol::EolCounts;
-use crate::limits::{MAX_FILE_BYTES, PROGRESS_STEP, READ_CHUNK, TAB_WIDTH};
+use crate::limits::{DETECT_BYTES, MAX_FILE_BYTES, PROGRESS_STEP, READ_CHUNK, TAB_WIDTH};
 use mdshared_app::files::{FileStamp, stamp};
 use ropey::RopeBuilder;
 use std::io::{Read, Seek, SeekFrom};
@@ -17,9 +24,9 @@ use std::time::{Duration, Instant};
 /// What the caller decides about a load.
 #[derive(Clone, Copy, Debug)]
 pub struct LoadOptions {
-    /// The code page for files that are not valid UTF-8 and have no byte order mark. The shell
-    /// passes the system's (`GetACP`, through `encoding::legacy_for_code_page`); tests pass
-    /// windows-1254 explicitly.
+    /// The system's code page (`GetACP`, through `encoding::legacy_for_code_page`; tests pass
+    /// windows-1254 explicitly). For a file that is neither UTF-8 nor marked it is the hint for
+    /// the guess, and the answer when the guess is not sure.
     pub legacy: &'static encoding_rs::Encoding,
     /// Files larger than this on disk are refused.
     pub max_bytes: u64,
@@ -40,9 +47,11 @@ impl Default for LoadOptions {
 pub struct FileInfo {
     pub encoding: Encoding,
     pub eol: EolCounts,
-    /// Some input could not be decoded and was replaced by U+FFFD (invalid UTF-8 after a UTF-8
-    /// byte order mark, unpaired UTF-16 surrogates, an odd UTF-16 byte count). Such a file stays
-    /// read-only once editing exists, so it is never saved repaired.
+    /// The text cannot be written back to the same bytes: some input could not be decoded and
+    /// was replaced by U+FFFD (invalid UTF-8, unpaired UTF-16 surrogates, an odd UTF-16 byte
+    /// count), or a legacy code page decoded bytes that its own encoder writes differently or
+    /// not at all (Shift_JIS's NEC-selected IBM rows, GB18030 sequences read as GBK, Big5-HKSCS).
+    /// Such a file stays read-only once editing exists, so it is never saved changed.
     pub lossy: bool,
     /// The file holds U+0000 characters (shown as control pictures).
     pub has_nul: bool,
@@ -50,8 +59,10 @@ pub struct FileInfo {
     pub file_bytes: u64,
     /// The stamp taken before reading; a load that saw the stamp change while reading retries.
     pub stamp: FileStamp,
-    /// The most characters any line has (line break excluded, a tab counted as
-    /// `TAB_WIDTH` characters), for the horizontal scroll range before lines are shaped.
+    /// The widest line in advances (line break excluded, a tab counted as `TAB_WIDTH`, a wide
+    /// character as 2 and a zero-width one as 0), for the horizontal scroll range before lines
+    /// are shaped. Wide glyphs are a little narrower than two advances, so this is an upper
+    /// estimate.
     pub longest_line_chars: usize,
     /// Wall time of the load, for `--trace`.
     pub elapsed: Duration,
@@ -128,12 +139,22 @@ struct Sink {
     after_cr: bool,
 }
 
-/// Characters in a UTF-8 slice, a tab counting `TAB_WIDTH`.
+/// The width of a piece of a line in advances: a tab counts `TAB_WIDTH`, a wide character 2, a
+/// zero-width one 0. `bytes` is valid UTF-8 cut at character boundaries.
 fn line_chars(bytes: &[u8]) -> usize {
-    bytes
-        .iter()
-        .map(|&b| ((b & 0xC0) != 0x80) as usize + (TAB_WIDTH - 1) * (b == b'\t') as usize)
-        .sum()
+    if bytes.is_ascii() {
+        return bytes.len() + (TAB_WIDTH - 1) * memchr::memchr_iter(b'\t', bytes).count();
+    }
+    std::str::from_utf8(bytes).map_or(bytes.len(), |text| {
+        text.chars()
+            .map(|c| match width_of(c) {
+                _ if c == '\t' => TAB_WIDTH,
+                Width::Zero => 0,
+                Width::Narrow => 1,
+                Width::Wide => 2,
+            })
+            .sum()
+    })
 }
 
 impl Sink {
@@ -181,7 +202,7 @@ impl Sink {
                 Some(j) => {
                     let seg = &b[..j];
                     // A line that starts and ends inside this piece cannot beat the longest
-                    // when even four characters per byte would not.
+                    // when even four advances per byte would not.
                     if self.cur != 0 || seg.len().saturating_mul(4) > self.longest {
                         self.longest = self.longest.max(self.cur + line_chars(seg));
                     }
@@ -328,17 +349,82 @@ impl Utf8 {
     }
 }
 
-/// `encoding_rs` decoding (UTF-16 or a legacy code page), without byte order mark handling.
+/// Checks that a legacy code page's encoder writes the decoded text back to the bytes it came
+/// from. The bytes consumed by the decoder wait in `pending` until the encoded text matches them;
+/// the decoder holds back at most a few bytes of an unfinished sequence, so `pending` stays small.
+struct RoundTrip {
+    encoder: encoding_rs::Encoder,
+    pending: Vec<u8>,
+    out: Vec<u8>,
+    broken: bool,
+}
+
+impl RoundTrip {
+    fn new(encoding: &'static encoding_rs::Encoding) -> RoundTrip {
+        RoundTrip {
+            encoder: encoding.new_encoder(),
+            pending: Vec::new(),
+            out: Vec::new(),
+            broken: false,
+        }
+    }
+
+    /// `input` was decoded to `text`. False once the two disagree.
+    fn check(&mut self, input: &[u8], text: &str, last: bool) -> bool {
+        if self.broken {
+            return false;
+        }
+        self.pending.extend_from_slice(input);
+        let mut src = text;
+        loop {
+            self.out.clear();
+            let need = self
+                .encoder
+                .max_buffer_length_from_utf8_without_replacement(src.len())
+                .unwrap_or(src.len().saturating_mul(4) + 16);
+            self.out.reserve(need);
+            let (result, read) =
+                self.encoder
+                    .encode_from_utf8_to_vec_without_replacement(src, &mut self.out, last);
+            if matches!(result, encoding_rs::EncoderResult::Unmappable(_))
+                || !self.pending.starts_with(&self.out)
+            {
+                return self.fail();
+            }
+            self.pending.drain(..self.out.len());
+            src = &src[read..];
+            if result == encoding_rs::EncoderResult::InputEmpty {
+                break;
+            }
+        }
+        if last && !self.pending.is_empty() {
+            return self.fail();
+        }
+        true
+    }
+
+    fn fail(&mut self) -> bool {
+        self.broken = true;
+        self.pending = Vec::new();
+        self.out = Vec::new();
+        false
+    }
+}
+
+/// `encoding_rs` decoding (UTF-16 or a legacy code page), without byte order mark handling. A
+/// legacy page also checks the round trip.
 struct Rs {
     decoder: encoding_rs::Decoder,
     out: String,
+    round_trip: Option<RoundTrip>,
 }
 
 impl Rs {
-    fn new(encoding: &'static encoding_rs::Encoding) -> Rs {
+    fn new(encoding: &'static encoding_rs::Encoding, check_round_trip: bool) -> Rs {
         Rs {
             decoder: encoding.new_decoder_without_bom_handling(),
             out: String::new(),
+            round_trip: check_round_trip.then(|| RoundTrip::new(encoding)),
         }
     }
 
@@ -355,9 +441,16 @@ impl Rs {
             if had_errors {
                 sink.lossy = true;
             }
+            let done = result == encoding_rs::CoderResult::InputEmpty;
+            if !sink.lossy
+                && let Some(rt) = &mut self.round_trip
+                && !rt.check(&data[..read], &self.out, last && done)
+            {
+                sink.lossy = true;
+            }
             sink.push(&self.out);
             data = &data[read..];
-            if result == encoding_rs::CoderResult::InputEmpty {
+            if done {
                 break;
             }
         }
@@ -395,18 +488,23 @@ impl Decoder {
 // One pass over a reader.
 
 /// What to do with a file that has no byte order mark.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Detect {
-    /// Try UTF-8; stop at the first invalid byte so the caller can start again as legacy.
+    /// Try UTF-8; stop at the first invalid byte so the caller can choose again.
     Utf8First,
-    /// Read it as the legacy code page.
-    Legacy,
+    /// UTF-8 with invalid input replaced by U+FFFD.
+    Utf8Lossy,
+    /// Read it in this legacy code page.
+    Legacy(&'static encoding_rs::Encoding),
 }
 
 enum Pass {
     Done(Decoded),
-    /// Not valid UTF-8 and no byte order mark: read again with [`Detect::Legacy`].
-    NotUtf8,
+    /// Not valid UTF-8 and no byte order mark; the piece holding the first invalid byte starts
+    /// at byte `at`. Detect, then read again.
+    NotUtf8 {
+        at: u64,
+    },
 }
 
 struct Decoded {
@@ -436,7 +534,6 @@ struct Progress<'a> {
 fn decode<R: Read + ?Sized>(
     reader: &mut R,
     progress: &mut Progress<'_>,
-    opts: &LoadOptions,
     cancel: &AtomicBool,
     detect: Detect,
 ) -> Result<Pass, LoadError> {
@@ -465,37 +562,34 @@ fn decode<R: Read + ?Sized>(
         head.extend_from_slice(&buf[..n]);
         progress.done += n as u64;
     }
-    let bom = if detect == Detect::Legacy {
-        None
-    } else {
+    let bom = if detect == Detect::Utf8First {
         sniff_bom(&head)
+    } else {
+        None
     };
     let (encoding, mut decoder, skip) = match bom {
         Some(enc @ Encoding::Utf8Bom) => (enc, Decoder::Utf8(Utf8::new(false)), enc.bom_len()),
         Some(enc @ Encoding::Utf16Le) => (
             enc,
-            Decoder::Rs(Rs::new(encoding_rs::UTF_16LE)),
+            Decoder::Rs(Rs::new(encoding_rs::UTF_16LE, false)),
             enc.bom_len(),
         ),
         Some(enc @ Encoding::Utf16Be) => (
             enc,
-            Decoder::Rs(Rs::new(encoding_rs::UTF_16BE)),
+            Decoder::Rs(Rs::new(encoding_rs::UTF_16BE, false)),
             enc.bom_len(),
         ),
         _ => match detect {
             Detect::Utf8First => (Encoding::Utf8, Decoder::Utf8(Utf8::new(true)), 0),
-            Detect::Legacy => (
-                Encoding::Legacy(opts.legacy),
-                Decoder::Rs(Rs::new(opts.legacy)),
-                0,
-            ),
+            Detect::Utf8Lossy => (Encoding::Utf8, Decoder::Utf8(Utf8::new(false)), 0),
+            Detect::Legacy(enc) => (Encoding::Legacy(enc), Decoder::Rs(Rs::new(enc, true)), 0),
         },
     };
     if decoder
         .feed(&head[skip.min(head.len())..], &mut sink)
         .is_err()
     {
-        return Ok(Pass::NotUtf8);
+        return Ok(Pass::NotUtf8 { at: 0 });
     }
 
     loop {
@@ -516,7 +610,9 @@ fn decode<R: Read + ?Sized>(
             });
         }
         if decoder.feed(&buf[..n], &mut sink).is_err() {
-            return Ok(Pass::NotUtf8);
+            return Ok(Pass::NotUtf8 {
+                at: progress.done - n as u64,
+            });
         }
         if progress.done - progress.reported >= PROGRESS_STEP {
             progress.reported = progress.done;
@@ -524,7 +620,9 @@ fn decode<R: Read + ?Sized>(
         }
     }
     if decoder.finish(&mut sink).is_err() {
-        return Ok(Pass::NotUtf8);
+        return Ok(Pass::NotUtf8 {
+            at: progress.done.saturating_sub(4),
+        });
     }
     Ok(Pass::Done(Decoded { sink, encoding }))
 }
@@ -532,22 +630,145 @@ fn decode<R: Read + ?Sized>(
 /// A reader that can be started again from its beginning.
 trait Source: Read {
     fn rewind(&mut self) -> Result<(), LoadError>;
+
+    /// Goes to byte `pos` (the default reads and drops the bytes before it).
+    fn skip_to(&mut self, pos: u64) -> Result<(), LoadError> {
+        self.rewind()?;
+        let mut left = pos;
+        let mut buf = vec![0u8; READ_CHUNK];
+        while left > 0 {
+            let want = buf.len().min(usize::try_from(left).unwrap_or(usize::MAX));
+            let n = read_some(self, &mut buf[..want])?;
+            if n == 0 {
+                break;
+            }
+            left -= n as u64;
+        }
+        Ok(())
+    }
 }
 
-/// Both passes: UTF-8 first, then the legacy code page if the bytes were not UTF-8.
+/// The top-level domain `chardetng` takes as its hint for a system code page: one whose
+/// language uses that page. Windows-1252 (and anything unknown) gives no hint.
+fn tld_hint(legacy: &'static encoding_rs::Encoding) -> Option<&'static [u8]> {
+    let pairs: [(&'static encoding_rs::Encoding, &'static [u8]); 13] = [
+        (encoding_rs::WINDOWS_1250, b"cz"),
+        (encoding_rs::WINDOWS_1251, b"ru"),
+        (encoding_rs::WINDOWS_1253, b"gr"),
+        (encoding_rs::WINDOWS_1254, b"tr"),
+        (encoding_rs::WINDOWS_1255, b"il"),
+        (encoding_rs::WINDOWS_1256, b"sa"),
+        (encoding_rs::WINDOWS_1257, b"lt"),
+        (encoding_rs::WINDOWS_1258, b"vn"),
+        (encoding_rs::WINDOWS_874, b"th"),
+        (encoding_rs::SHIFT_JIS, b"jp"),
+        (encoding_rs::GBK, b"cn"),
+        (encoding_rs::EUC_KR, b"kr"),
+        (encoding_rs::BIG5, b"tw"),
+    ];
+    pairs
+        .iter()
+        .find(|(e, _)| *e == legacy)
+        .map(|(_, tld)| *tld)
+}
+
+/// Counts in a sample of bytes: complete valid UTF-8 sequences of two to four bytes, and
+/// invalid sequences. A sequence cut by the sample's ends counts as neither.
+fn utf8_counts(sample: &[u8], from_start: bool) -> (usize, usize) {
+    let mut s = sample;
+    if !from_start {
+        // The sample may start inside a sequence.
+        let skip = s
+            .iter()
+            .take(3)
+            .take_while(|&&b| (b & 0xC0) == 0x80)
+            .count();
+        s = &s[skip..];
+    }
+    let (mut valid, mut invalid) = (0, 0);
+    loop {
+        match std::str::from_utf8(s) {
+            Ok(text) => {
+                valid += text.bytes().filter(|&b| b >= 0xC0).count();
+                break;
+            }
+            Err(e) => {
+                let v = e.valid_up_to();
+                valid += s[..v].iter().filter(|&&b| b >= 0xC0).count();
+                match e.error_len() {
+                    Some(bad) => {
+                        invalid += 1;
+                        s = &s[v + bad..];
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+    (valid, invalid)
+}
+
+/// How to read a file without a byte order mark that turned out not to be valid UTF-8, judged
+/// on `sample` (the bytes around the first invalid one; `whole` when it is the whole file).
+fn choose_encoding(sample: &[u8], from_start: bool, whole: bool, opts: &LoadOptions) -> Detect {
+    let (valid, invalid) = utf8_counts(sample, from_start);
+    if valid > 0 && invalid * 4 <= valid {
+        return Detect::Utf8Lossy;
+    }
+    let mut detector = chardetng::EncodingDetector::new();
+    detector.feed(sample, whole);
+    let (guess, sure) = detector.guess_assess(tld_hint(opts.legacy), false);
+    Detect::Legacy(if sure { guess } else { opts.legacy })
+}
+
+/// Reads the sample around byte `at` and chooses the second pass.
+fn detect<S: Source>(
+    source: &mut S,
+    at: u64,
+    opts: &LoadOptions,
+    cancel: &AtomicBool,
+) -> Result<Detect, LoadError> {
+    let start = at.saturating_sub(DETECT_BYTES as u64 / 2);
+    source.skip_to(start)?;
+    let mut sample = vec![0u8; DETECT_BYTES];
+    let mut len = 0;
+    let mut eof = false;
+    while len < sample.len() {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(LoadError::Cancelled);
+        }
+        let n = read_some(source, &mut sample[len..])?;
+        if n == 0 {
+            eof = true;
+            break;
+        }
+        len += n;
+    }
+    Ok(choose_encoding(
+        &sample[..len],
+        start == 0,
+        eof && start == 0,
+        opts,
+    ))
+}
+
+/// Both passes: UTF-8 first, then, if the bytes were not UTF-8, what [`detect`] chooses.
 fn decode_with_fallback<S: Source>(
     source: &mut S,
     progress: &mut Progress<'_>,
     opts: &LoadOptions,
     cancel: &AtomicBool,
 ) -> Result<Decoded, LoadError> {
-    match decode(source, progress, opts, cancel, Detect::Utf8First)? {
+    match decode(source, progress, cancel, Detect::Utf8First)? {
         Pass::Done(d) => Ok(d),
-        Pass::NotUtf8 => {
+        Pass::NotUtf8 { at } => {
+            let detect = detect(source, at, opts, cancel)?;
             source.rewind()?;
-            match decode(source, progress, opts, cancel, Detect::Legacy)? {
+            match decode(source, progress, cancel, detect)? {
                 Pass::Done(d) => Ok(d),
-                Pass::NotUtf8 => unreachable!("legacy decoding never asks for another pass"),
+                Pass::NotUtf8 { .. } => {
+                    unreachable!("only the first pass asks for another")
+                }
             }
         }
     }
@@ -592,8 +813,12 @@ impl Read for FileSource {
 
 impl Source for FileSource {
     fn rewind(&mut self) -> Result<(), LoadError> {
+        self.skip_to(0)
+    }
+
+    fn skip_to(&mut self, pos: u64) -> Result<(), LoadError> {
         self.0
-            .seek(SeekFrom::Start(0))
+            .seek(SeekFrom::Start(pos))
             .map(|_| ())
             .map_err(|e| LoadError::Io(e.to_string()))
     }
@@ -642,35 +867,31 @@ pub fn load_path(
     Err(LoadError::StillChanging)
 }
 
-/// Keeps the bytes read in the first pass, to hand them out again when it is rewound.
+/// Keeps every byte read, to hand them out again from any position.
 struct Recorder<'a> {
     inner: &'a mut dyn Read,
     kept: Vec<u8>,
-    recording: bool,
-    replay: Option<std::io::Cursor<Vec<u8>>>,
+    pos: usize,
 }
 
 impl Read for Recorder<'_> {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-        if let Some(cursor) = &mut self.replay {
-            let n = cursor.read(out)?;
-            if n > 0 {
-                return Ok(n);
-            }
-            self.replay = None;
+        if self.pos < self.kept.len() {
+            let n = out.len().min(self.kept.len() - self.pos);
+            out[..n].copy_from_slice(&self.kept[self.pos..self.pos + n]);
+            self.pos += n;
+            return Ok(n);
         }
         let n = self.inner.read(out)?;
-        if self.recording {
-            self.kept.extend_from_slice(&out[..n]);
-        }
+        self.kept.extend_from_slice(&out[..n]);
+        self.pos += n;
         Ok(n)
     }
 }
 
 impl Source for Recorder<'_> {
     fn rewind(&mut self) -> Result<(), LoadError> {
-        self.recording = false;
-        self.replay = Some(std::io::Cursor::new(std::mem::take(&mut self.kept)));
+        self.pos = 0;
         Ok(())
     }
 }
@@ -700,8 +921,7 @@ pub fn load_reader(
     let mut source = Recorder {
         inner: reader,
         kept: Vec::new(),
-        recording: true,
-        replay: None,
+        pos: 0,
     };
     let decoded = decode_with_fallback(&mut source, &mut prog, opts, cancel)?;
     Ok(finish(decoded, prog.done, FileStamp::Missing, started))

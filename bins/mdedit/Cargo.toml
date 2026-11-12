@@ -22,10 +22,13 @@ bytemuck.workspace = true
 [target.'cfg(windows)'.dependencies]
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
 softbuffer = { version = "=0.4.8", default-features = false }
-# GetACP (Globalization) and the memory figures --trace prints (ProcessStatus, Threading).
+# GetACP (Globalization), the memory figures --trace prints (ProcessStatus, Threading) and the
+# first line of the clipboard for the find box (DataExchange, Memory).
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
     "Win32_System_ProcessStatus",
     "Win32_System_Threading",
 ] }

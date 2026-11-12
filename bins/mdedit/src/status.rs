@@ -56,11 +56,14 @@ pub fn language_text(name: Option<&str>, over_limit: bool) -> String {
     }
 }
 
-/// The encoding's label, with ", invalid bytes replaced" for a lossy file.
-pub fn encoding_text(encoding: Encoding, lossy: bool) -> String {
+/// The encoding's label, with ", invalid bytes replaced" for a lossy file or ", contains NUL"
+/// for one with NUL characters (most likely not a text file).
+pub fn encoding_text(encoding: Encoding, lossy: bool, nul: bool) -> String {
     let label = encoding.label();
     if lossy {
         format!("{label}, invalid bytes replaced")
+    } else if nul {
+        format!("{label}, contains NUL")
     } else {
         label
     }
@@ -118,7 +121,7 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
                         r.language.is_some() && !r.colourable,
                     ),
                     eol_text(r.info.eol.style()).to_string(),
-                    encoding_text(r.info.encoding, r.info.lossy),
+                    encoding_text(r.info.encoding, r.info.lossy, r.info.has_nul),
                 ],
             )
         }
@@ -185,20 +188,31 @@ mod tests {
 
     #[test]
     fn encodings() {
-        assert_eq!(encoding_text(Encoding::Utf8, false), "UTF-8");
-        assert_eq!(encoding_text(Encoding::Utf8Bom, false), "UTF-8 with BOM");
-        assert_eq!(encoding_text(Encoding::Utf16Le, false), "UTF-16 LE");
-        assert_eq!(encoding_text(Encoding::Utf16Be, false), "UTF-16 BE");
+        assert_eq!(encoding_text(Encoding::Utf8, false, false), "UTF-8");
         assert_eq!(
-            encoding_text(Encoding::Legacy(legacy_for_code_page(1254)), false),
+            encoding_text(Encoding::Utf8Bom, false, false),
+            "UTF-8 with BOM"
+        );
+        assert_eq!(encoding_text(Encoding::Utf16Le, false, false), "UTF-16 LE");
+        assert_eq!(encoding_text(Encoding::Utf16Be, false, false), "UTF-16 BE");
+        assert_eq!(
+            encoding_text(Encoding::Legacy(legacy_for_code_page(1254)), false, false),
             "Windows-1254"
         );
         assert_eq!(
-            encoding_text(Encoding::Utf16Le, true),
+            encoding_text(Encoding::Utf16Le, true, false),
             "UTF-16 LE, invalid bytes replaced"
         );
         assert_eq!(
-            encoding_text(Encoding::Utf8Bom, true),
+            encoding_text(Encoding::Utf8, false, true),
+            "UTF-8, contains NUL"
+        );
+        assert_eq!(
+            encoding_text(Encoding::Utf8, true, true),
+            "UTF-8, invalid bytes replaced"
+        );
+        assert_eq!(
+            encoding_text(Encoding::Utf8Bom, true, false),
             "UTF-8 with BOM, invalid bytes replaced"
         );
     }

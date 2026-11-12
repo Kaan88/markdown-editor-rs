@@ -3,18 +3,20 @@
 //!
 //! Lines are shaped with the view's own parley context in the monospace family and drawn with its
 //! own `TextEngine` straight into the window's composed bitmap. A line of at most
-//! `WHOLE_LINE_BYTES` is one layout; a longer one is cut by `display::chunk_starts` and only the
-//! chunks on screen, plus one each side, are shaped, each placed at its start column times the
-//! advance. Layouts are cached by (document, line, chunk, revision, colours, theme).
+//! `WHOLE_LINE_BYTES` is one layout; a longer one is cut by a `display::ChunkIndex` and only the
+//! chunks on screen, plus one each side, are shaped. A chunk is placed at the x its start's counts
+//! give: narrow columns times the advance plus wide characters times the measured width of a
+//! wide glyph, zero-width characters nothing. Layouts are cached by (document, line, chunk, the
+//! revision of the text, colours, theme).
 
-mod cache;
+pub mod cache;
 pub mod metrics;
 
 use crate::chrome::Ctx;
 use crate::commands::strings;
 use crate::docs::{Doc, DocState, Ready};
 use cache::Lru;
-use mdedit_core::display::{self, ChunkStart, DisplayLine};
+use mdedit_core::display::{ChunkIndex, ChunkStart, Cols, DisplayLine};
 use mdedit_core::limits::{TAB_WIDTH, WHOLE_LINE_BYTES};
 use mdedit_highlight::{DocId, Span, foreground};
 use mdshared_text::{TextEngine, shared_fonts};
@@ -34,6 +36,11 @@ use std::time::{Duration, Instant};
 pub type Brush = [u8; 4];
 
 pub const MONO: &str = "Consolas, Cascadia Mono, Noto Sans Mono, DejaVu Sans Mono, monospace";
+/// What a wide glyph's width is measured on.
+const WIDE_SAMPLE: &str =
+    "\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}";
+/// Long-line chunk indexes a document keeps (one per line).
+pub const CHUNK_INDEXES: usize = 256;
 /// The missing-file banner over the text.
 pub const BANNER_H: f32 = 34.0;
 /// The horizontal scrollbar's band at the bottom of the text area.
@@ -48,6 +55,8 @@ pub struct Metrics {
     pub zoom: u32,
     pub size: f32,
     pub advance: f32,
+    /// The width of a wide (CJK) glyph, measured in the fallback font the system gives.
+    pub wide: f32,
     pub line_h: i32,
     /// Where the baseline sits below a line's top.
     pub baseline: f32,
@@ -57,6 +66,11 @@ impl Metrics {
     /// The advance in logical px.
     pub fn advance_l(&self) -> f32 {
         self.advance / self.scale
+    }
+
+    /// Where a chunk starts, device px from column 0.
+    fn chunk_x(&self, c: &ChunkStart) -> f64 {
+        cols_x(c.cols(), self.advance, self.wide)
     }
 }
 
@@ -92,6 +106,8 @@ struct LineKey {
     line: usize,
     /// The chunk's start offset.
     chunk: usize,
+    /// The revision the document's text was loaded at (`Ready::revision`, not the document's
+    /// counter, which a reload bumps while the old text is still drawn).
     revision: u64,
     /// A hash of the line's colour spans; 0 when it has none.
     colors: u64,
@@ -201,40 +217,132 @@ fn spans_hash(spans: Option<&[Span]>) -> u64 {
     h.finish() | 1
 }
 
-/// The chunks of `line`: one for a line of at most `WHOLE_LINE_BYTES`, else cached chunk starts.
-fn chunks_of(r: &mut Ready, line: usize) -> Rc<Vec<ChunkStart>> {
-    let range = r.buffer.line_range(line);
-    if range.len() <= WHOLE_LINE_BYTES {
-        return Rc::new(vec![ChunkStart {
-            offset: range.start,
-            col: 0,
-        }]);
-    }
-    r.chunks
-        .entry(line)
-        .or_insert_with(|| Rc::new(display::chunk_starts(&r.buffer, line, TAB_WIDTH)))
-        .clone()
+/// One chunk of a line: where it starts and the offset it ends at.
+#[derive(Clone, Copy, Debug)]
+struct Chunk {
+    start: ChunkStart,
+    end: usize,
 }
 
-/// The display column of `offset` (on its line).
-pub fn column_at(r: &mut Ready, offset: usize) -> usize {
+/// Runs `f` on the chunk index of `line`, made (and kept) on first use. `None` for a line short
+/// enough to be shaped whole.
+fn with_index<T>(
+    r: &mut Ready,
+    line: usize,
+    f: impl FnOnce(&mut ChunkIndex, &mdedit_core::Buffer) -> T,
+) -> Option<T> {
+    if r.buffer.line_range(line).len() <= WHOLE_LINE_BYTES {
+        return None;
+    }
+    if r.chunks.get_mut(&line).is_none() {
+        r.chunks.insert(line, ChunkIndex::new(&r.buffer, line));
+    }
+    let index = r.chunks.get_mut(&line)?;
+    Some(f(index, &r.buffer))
+}
+
+/// The chunk `k` of a complete enough index (its end is known).
+fn chunk_k(index: &ChunkIndex, k: usize, line_end: usize) -> Chunk {
+    let s = index.starts();
+    Chunk {
+        start: s[k],
+        end: s.get(k + 1).map_or(line_end, |n| n.offset),
+    }
+}
+
+fn whole(r: &Ready, line: usize) -> Chunk {
+    let range = r.buffer.line_range(line);
+    Chunk {
+        start: ChunkStart {
+            offset: range.start,
+            ..ChunkStart::default()
+        },
+        end: range.end,
+    }
+}
+
+/// The chunk of `line` that holds `offset`.
+fn chunk_at_offset(r: &mut Ready, line: usize, offset: usize) -> Chunk {
+    let end = r.buffer.line_range(line).end;
+    with_index(r, line, |index, buf| {
+        index.extend_to(buf, TAB_WIDTH, offset);
+        let k = metrics::chunk_at_offset(index.starts(), offset);
+        chunk_k(index, k, end)
+    })
+    .unwrap_or_else(|| whole(r, line))
+}
+
+/// The chunk of `line` under `x` (px from column 0, in the units of `advance` and `wide`).
+fn chunk_at_x(r: &mut Ready, line: usize, x: f64, advance: f32, wide: f32) -> Chunk {
+    let end = r.buffer.line_range(line).end;
+    let cx = |c: &ChunkStart| cols_x(c.cols(), advance, wide);
+    with_index(r, line, |index, buf| {
+        index.extend_while(buf, TAB_WIDTH, |last| cx(last) <= x);
+        let k = chunk_at_x_in(index.starts(), x, cx);
+        let mut extra = 0;
+        index.extend_while(buf, TAB_WIDTH, |_| {
+            extra += 1;
+            extra <= 1
+        });
+        chunk_k(index, k, end)
+    })
+    .unwrap_or_else(|| whole(r, line))
+}
+
+/// The chunks of `line` to draw for the device x range `xs`: those overlapping it plus one each
+/// side.
+fn chunks_in_view(r: &mut Ready, line: usize, xs: Range<f64>, m: &Metrics) -> Vec<Chunk> {
+    let end = r.buffer.line_range(line).end;
+    let cx = |c: &ChunkStart| m.chunk_x(c);
+    with_index(r, line, |index, buf| {
+        index.extend_while(buf, TAB_WIDTH, |last| cx(last) <= xs.end);
+        let mut extra = 0;
+        index.extend_while(buf, TAB_WIDTH, |_| {
+            extra += 1;
+            extra <= 2
+        });
+        let shown = metrics::chunks_in_view(index.starts(), xs.clone(), cx);
+        shown.map(|k| chunk_k(index, k, end)).collect()
+    })
+    .unwrap_or_else(|| vec![whole(r, line)])
+}
+
+/// The estimated x of `offset` from its line's column 0, logical px: the chunk's start plus the
+/// counts of the text before `offset` in it, with the advances of the last frame.
+pub fn x_of(r: &mut Ready, offset: usize) -> f64 {
     let line = r.buffer.line_of(offset);
-    let chunks = chunks_of(r, line);
-    let c = chunks[chunk_at_offset(&chunks, offset)];
-    let mut col = c.col;
+    let c = chunk_at_offset(r, line, offset);
     let mut text = String::new();
-    r.buffer.text(c.offset..offset.max(c.offset), &mut text);
-    col += display::columns(&text, c.col, TAB_WIDTH);
-    col
+    r.buffer
+        .text(c.start.offset..offset.max(c.start.offset), &mut text);
+    let cols: Cols = c.start.cols().after(&text, TAB_WIDTH);
+    cols_x(cols, r.advance, r.wide_advance)
 }
 
 /// Keeps `offset` in view (with the margin), or centres it when `center` and it is off screen.
 /// Uses the view size of the last frame.
 pub fn reveal(r: &mut Ready, offset: usize, center: bool) {
+    reveal_with(r, offset, center, true);
+}
+
+/// [`reveal`] without the margin: scrolls only when `offset` is outside the view (a selection
+/// drag, whose pointer inside the text must not move it).
+pub fn reveal_no_margin(r: &mut Ready, offset: usize) {
+    reveal_with(r, offset, false, false);
+}
+
+fn reveal_with(r: &mut Ready, offset: usize, center: bool, margin: bool) {
     let line = r.buffer.line_of(offset);
-    r.top = reveal_top(r.top, line, r.view_lines, r.buffer.len_lines(), center);
-    let x = column_at(r, offset) as f64 * r.advance as f64;
-    r.left = reveal_left(r.left, x, r.view_w, r.advance, center);
+    r.top = reveal_top(
+        r.top,
+        line,
+        r.view_lines,
+        r.buffer.len_lines(),
+        center,
+        margin,
+    );
+    let x = x_of(r, offset);
+    r.left = reveal_left(r.left, x, r.view_w, r.advance, center, margin);
 }
 
 /// A shaped line number and its width.
@@ -251,12 +359,47 @@ pub struct View {
     scratch: String,
 }
 
+/// Families tried after the system's fallback for a script, for characters it lacks: the
+/// system's Han fallback has no glyph for some simplified characters (U+4F24) and the common
+/// script's none for musical symbols (U+1D11E), which then drew as boxes. A line of only
+/// common-script characters found its fallback under Latin, not Common, so Latin gets them too.
+const EXTRA_FALLBACKS: &[([u8; 4], &[&str])] = &[
+    (
+        *b"Hani",
+        &["Microsoft YaHei", "Microsoft JhengHei", "SimSun-ExtB"],
+    ),
+    (*b"Zyyy", &["Segoe UI Symbol", "Segoe UI Emoji"]),
+    (*b"Zinh", &["Segoe UI Symbol"]),
+    (*b"Latn", &["Segoe UI Symbol", "Segoe UI Emoji"]),
+];
+
+/// Puts [`EXTRA_FALLBACKS`] behind the system's fallback family in the editor's own font
+/// context (a copy, so the chrome's text is unchanged). The system family stays first, so text
+/// it covers is drawn as before.
+fn add_fallbacks(fonts: &mut FontContext) {
+    use parley::fontique::{FallbackKey, Script};
+    for (script, names) in EXTRA_FALLBACKS {
+        let key = FallbackKey::new(Script::from_bytes(*script), None);
+        let mut ids: Vec<_> = fonts.collection.fallback_families(key).collect();
+        for name in *names {
+            if let Some(id) = fonts.collection.family_id(name)
+                && !ids.contains(&id)
+            {
+                ids.push(id);
+            }
+        }
+        fonts.collection.set_fallbacks(key, ids.into_iter());
+    }
+}
+
 impl View {
     pub fn new() -> View {
         let mut engine = TextEngine::new(4 << 20);
         engine.set_subpixel(crate::platform::subpixel_order());
+        let mut fonts = shared_fonts();
+        add_fallbacks(&mut fonts);
         View {
-            fonts: shared_fonts(),
+            fonts,
             lcx: LayoutContext::new(),
             engine,
             metrics: None,
@@ -306,6 +449,8 @@ impl View {
         let size = font_px(self.zoom) * scale;
         let sample = self.build("0000000000", size, [0, 0, 0], &[]);
         let advance = sample.width() / 10.0;
+        let wide_sample = self.build(WIDE_SAMPLE, size, [0, 0, 0], &[]);
+        let wide = (wide_sample.width() / 10.0).max(advance);
         let line_h = line_height(size);
         let first = sample
             .lines()
@@ -318,6 +463,7 @@ impl View {
             zoom: self.zoom,
             size,
             advance,
+            wide,
             line_h,
             baseline,
         };
@@ -335,26 +481,22 @@ impl View {
         Some(geom(r, area, &m))
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn shaped(
         &mut self,
         doc: DocId,
-        revision: u64,
         r: &mut Ready,
         line: usize,
-        chunks: &[ChunkStart],
-        index: usize,
+        ch: Chunk,
         dark: bool,
     ) -> Rc<Shaped> {
         let range = r.buffer.line_range(line);
-        let c = chunks[index];
-        let end = chunks.get(index + 1).map_or(range.end, |n| n.offset);
+        let (c, end) = (ch.start, ch.end);
         let spans = r.colors.line(line, dark).filter(|s| !s.is_empty());
         let key = LineKey {
             doc,
             line,
             chunk: c.offset,
-            revision,
+            revision: r.revision,
             colors: spans_hash(spans),
             dark,
         };
@@ -418,11 +560,11 @@ impl View {
         let area = text_area(doc, region);
         if bands.is_none() {
             c.p.fill(region, pal.page);
-            if doc.missing {
+            if doc.shows_gone_banner() {
                 draw_banner(c, Rect::new(region.x, region.y, region.w, BANNER_H));
             }
         }
-        let (id, revision) = (doc.id, doc.revision);
+        let id = doc.id;
         let name = doc.name();
         let (done, total) = doc.progress();
         let r = match &mut doc.state {
@@ -459,12 +601,10 @@ impl View {
             .is_some_and(|m| *m == sel);
         let caret_line = r.buffer.line_of(r.sel.caret);
         let vis = visible(r.top, g.view_lines, g.lines);
-        let cols = {
-            let a = (r.left / r.advance as f64).floor().max(0.0) as usize;
-            let b = ((r.left + g.view_w as f64) / r.advance as f64)
-                .ceil()
-                .max(0.0) as usize;
-            a..b + 1
+        // The horizontal view, device px from column 0.
+        let xs = {
+            let s = scale as f64;
+            (r.left * s).max(0.0)..(r.left + g.view_w as f64) * s + adv
         };
         let mark_a = if pal.dark { 0.38 } else { 0.45 };
         let top = r.top;
@@ -482,13 +622,7 @@ impl View {
             }
             let range = r.buffer.line_range(i);
             let with_break = r.buffer.line_range_with_break(i);
-            let chunks = chunks_of(r, i);
-            let whole = chunks.len() == 1;
-            let shown = if whole {
-                0..1
-            } else {
-                chunks_in_view(&chunks, cols.clone())
-            };
+            let shown = chunks_in_view(r, i, xs.clone(), &m);
             // Find marks overlapping the line.
             let marks: &[Range<usize>] = {
                 let all = &r.find.matches;
@@ -502,15 +636,15 @@ impl View {
                 .enumerate()
                 .map(|(k, m)| (m.clone(), r.find.current == Some(first_mark + k)))
                 .collect();
-            for k in shown {
-                let shaped = self.shaped(id, revision, r, i, &chunks, k, s.dark);
-                let ch = chunks[k];
-                let end = chunks.get(k + 1).map_or(range.end, |n| n.offset);
-                let x = origin + chunk_x(ch.col, m.advance);
-                let last = k + 1 == chunks.len();
-                if whole {
-                    r.widest = r.widest.max(shaped.width / scale);
-                }
+            for chunk in shown {
+                let shaped = self.shaped(id, r, i, chunk, s.dark);
+                let (ch, end) = (chunk.start, chunk.end);
+                let cx = m.chunk_x(&ch);
+                let x = origin + cx;
+                let last = end == range.end;
+                r.widest = r
+                    .widest
+                    .max(((cx + shaped.width as f64) / scale as f64) as f32);
                 let span = |a: usize, b: usize| -> Option<(i32, i32)> {
                     let (a, b) = (a.max(ch.offset), b.min(end));
                     if a > b || (a == b && a != end) {
@@ -564,10 +698,9 @@ impl View {
         }
         // The caret.
         if s.caret && vis.contains(&caret_line) && wanted(caret_line) {
-            let chunks = chunks_of(r, caret_line);
-            let k = chunk_at_offset(&chunks, r.sel.caret);
-            let shaped = self.shaped(id, revision, r, caret_line, &chunks, k, s.dark);
-            let x = origin + chunk_x(chunks[k].col, m.advance) + shaped.x_of(r.sel.caret) as f64;
+            let chunk = chunk_at_offset(r, caret_line, r.sel.caret);
+            let shaped = self.shaped(id, r, caret_line, chunk, s.dark);
+            let x = origin + m.chunk_x(&chunk.start) + shaped.x_of(r.sel.caret) as f64;
             let w = (1.5 * scale).round().max(1.0) as i32;
             let (x, y) = (x.round() as i32, line_top(caret_line));
             fill_clipped(c, (x, y, x + w, y + lh), text_clip, pal.text, 1.0);
@@ -625,27 +758,21 @@ impl View {
     ) -> Option<usize> {
         let m = self.metrics(scale);
         let area = text_area(doc, region);
-        let (id, revision) = (doc.id, doc.revision);
+        let id = doc.id;
         let r = doc.ready_mut()?;
         let g = geom(r, area, &m);
         let dy = ((y - area.y) * scale) as f64;
         let line = line_at(dy, r.top, m.line_h, g.lines);
         let rel = (x * scale) as f64 - g.origin_x(scale, r.left);
-        let chunks = chunks_of(r, line);
-        let col = (rel / m.advance as f64).max(0.0) as usize;
-        let k = if chunks.len() == 1 {
-            0
-        } else {
-            chunk_at_col(&chunks, col)
-        };
+        let chunk = chunk_at_x(r, line, rel.max(0.0), m.advance, m.wide);
         let dark = r.colors.dark;
-        let shaped = self.shaped(id, revision, r, line, &chunks, k, dark);
-        let local = (rel - chunk_x(chunks[k].col, m.advance)) as f32;
+        let shaped = self.shaped(id, r, line, chunk, dark);
+        let local = (rel - m.chunk_x(&chunk.start)) as f32;
         let range = r.buffer.line_range(line);
         let offset = if local <= 0.0 {
-            chunks[k].offset
+            chunk.start.offset
         } else if local >= shaped.width {
-            chunks.get(k + 1).map_or(range.end, |n| n.offset)
+            chunk.end
         } else {
             let cur = Cursor::from_point(&shaped.layout, local, shaped.layout.height() / 2.0);
             shaped.dl.to_source(cur.index(), false)
@@ -659,7 +786,7 @@ impl View {
 
 /// The region below the missing-file banner.
 pub fn text_area(doc: &Doc, region: Rect) -> Rect {
-    if doc.missing {
+    if doc.shows_gone_banner() {
         Rect::new(
             region.x,
             region.y + BANNER_H,
@@ -686,6 +813,7 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
     r.view_lines = vl;
     r.view_w = view_w;
     r.advance = adv_l;
+    r.wide_advance = m.wide / scale;
     Geom {
         area,
         gutter_w,

@@ -3,7 +3,7 @@
 //! positions are `f64` lines so a 1.85-million-line file scrolls exactly; device px are integers
 //! per line so line tops never drift.
 
-use mdedit_core::display::ChunkStart;
+use mdedit_core::display::{ChunkStart, Cols};
 use std::ops::Range;
 
 /// The text size at zoom 100, logical px.
@@ -101,14 +101,18 @@ pub fn clamp_left(left: f64, extent: f32, view_w: f32) -> f64 {
     left.clamp(0.0, max_left(extent, view_w))
 }
 
-/// Where a chunk starting at display column `col` begins, relative to column 0.
-pub fn chunk_x(col: usize, advance: f32) -> f64 {
-    col as f64 * advance as f64
+/// The estimated x of a position with the counts `c`, from column 0: narrow columns (tab columns
+/// included) at `advance` each, wide characters at `wide`, zero-width ones at nothing. Exact
+/// when the narrow glyphs are the monospace face's and the wide ones all as wide as the measured
+/// one; glyphs from other fallback fonts make it an estimate.
+pub fn cols_x(c: Cols, advance: f32, wide: f32) -> f64 {
+    let narrow = c.col.saturating_sub(c.wide + c.zero);
+    narrow as f64 * advance as f64 + c.wide as f64 * wide as f64
 }
 
-/// The chunk that holds display column `col`: the last one starting at or before it.
-pub fn chunk_at_col(chunks: &[ChunkStart], col: usize) -> usize {
-    chunks.partition_point(|c| c.col <= col).saturating_sub(1)
+/// The chunk that holds `x`: the last one whose x (`cx`) is at or before it.
+pub fn chunk_at_x_in(chunks: &[ChunkStart], x: f64, cx: impl Fn(&ChunkStart) -> f64) -> usize {
+    chunks.partition_point(|c| cx(c) <= x).saturating_sub(1)
 }
 
 /// The chunk that holds buffer offset `offset`.
@@ -118,25 +122,37 @@ pub fn chunk_at_offset(chunks: &[ChunkStart], offset: usize) -> usize {
         .saturating_sub(1)
 }
 
-/// The chunks to build for a view of columns `cols`: those overlapping it, plus one each side.
-pub fn chunks_in_view(chunks: &[ChunkStart], cols: Range<usize>) -> Range<usize> {
+/// The chunks to build for the x range `xs`: those overlapping it, plus one each side.
+pub fn chunks_in_view(
+    chunks: &[ChunkStart],
+    xs: Range<f64>,
+    cx: impl Fn(&ChunkStart) -> f64,
+) -> Range<usize> {
     if chunks.is_empty() {
         return 0..0;
     }
-    let first = chunk_at_col(chunks, cols.start).saturating_sub(1);
-    let last = (chunk_at_col(chunks, cols.end) + 2).min(chunks.len());
+    let first = chunk_at_x_in(chunks, xs.start, &cx).saturating_sub(1);
+    let last = (chunk_at_x_in(chunks, xs.end, &cx) + 2).min(chunks.len());
     first..last
 }
 
-/// The `top` that keeps `line` in a view of `view_lines` lines with a margin: unchanged when it
-/// is already in, centred when `center` and it was off screen.
-pub fn reveal_top(top: f64, line: usize, view_lines: f64, lines: usize, center: bool) -> f64 {
+/// The `top` that keeps `line` in a view of `view_lines` lines, with a margin of `KEEP_LINES`
+/// when `margin`: unchanged when it is already in, centred when `center` and it was off screen.
+pub fn reveal_top(
+    top: f64,
+    line: usize,
+    view_lines: f64,
+    lines: usize,
+    center: bool,
+    margin: bool,
+) -> f64 {
     let l = line as f64;
     let inside = l >= top && l + 1.0 <= top + view_lines;
     let next = if center && !inside {
         l + 0.5 - view_lines / 2.0
     } else {
-        let margin = KEEP_LINES.min(((view_lines - 1.0) / 2.0).max(0.0)).floor();
+        let keep = if margin { KEEP_LINES } else { 0.0 };
+        let margin = keep.min(((view_lines - 1.0) / 2.0).max(0.0)).floor();
         if l < top + margin {
             l - margin
         } else if l + 1.0 + margin > top + view_lines {
@@ -149,9 +165,17 @@ pub fn reveal_top(top: f64, line: usize, view_lines: f64, lines: usize, center: 
 }
 
 /// The same for the horizontal scroll: `x` is the caret's x from column 0, all logical px.
-pub fn reveal_left(left: f64, x: f64, view_w: f32, advance: f32, center: bool) -> f64 {
+pub fn reveal_left(
+    left: f64,
+    x: f64,
+    view_w: f32,
+    advance: f32,
+    center: bool,
+    margin: bool,
+) -> f64 {
     let view = view_w as f64;
-    let margin = (KEEP_COLS * advance as f64).min(view / 3.0);
+    let keep = if margin { KEEP_COLS } else { 0.0 };
+    let margin = (keep * advance as f64).min(view / 3.0);
     let inside = x >= left && x <= left + view;
     let next = if center && !inside {
         x - view / 2.0
@@ -244,40 +268,81 @@ mod tests {
     fn horizontal_extent_and_chunks() {
         assert_eq!(extent(98, 8.0, 0.0), 800.0);
         assert_eq!(extent(98, 8.0, 1000.0), 1016.0);
-        assert_eq!(chunk_x(1024, 7.5), 7680.0);
-        // A 1 MB line at 7.697 px stays exact enough in f64.
-        assert_eq!(chunk_x(1_048_576, 8.0), 8_388_608.0);
+        let at = |col| Cols {
+            col,
+            ..Cols::default()
+        };
+        assert_eq!(cols_x(at(1024), 7.5, 14.0), 7680.0);
+        // A 1 MB line at 8 px stays exact in f64.
+        assert_eq!(cols_x(at(1_048_576), 8.0, 14.0), 8_388_608.0);
+        // Wide characters at their own width, zero-width ones at none.
+        let c = Cols {
+            col: 10,
+            wide: 4,
+            zero: 2,
+        };
+        assert_eq!(cols_x(c, 8.0, 14.0), 4.0 * 8.0 + 4.0 * 14.0);
         let chunks: Vec<ChunkStart> = (0..10)
             .map(|i| ChunkStart {
                 offset: i * 1000,
                 col: i * 1000,
+                ..ChunkStart::default()
             })
             .collect();
-        assert_eq!(chunk_at_col(&chunks, 0), 0);
-        assert_eq!(chunk_at_col(&chunks, 999), 0);
-        assert_eq!(chunk_at_col(&chunks, 1000), 1);
-        assert_eq!(chunk_at_col(&chunks, 1_000_000), 9);
+        let cx = |c: &ChunkStart| cols_x(c.cols(), 1.0, 2.0);
+        assert_eq!(chunk_at_x_in(&chunks, 0.0, cx), 0);
+        assert_eq!(chunk_at_x_in(&chunks, 999.0, cx), 0);
+        assert_eq!(chunk_at_x_in(&chunks, 1000.0, cx), 1);
+        assert_eq!(chunk_at_x_in(&chunks, 1e6, cx), 9);
         assert_eq!(chunk_at_offset(&chunks, 2500), 2);
-        assert_eq!(chunks_in_view(&chunks, 2500..2600), 1..4);
-        assert_eq!(chunks_in_view(&chunks, 0..100), 0..2);
-        assert_eq!(chunks_in_view(&chunks, 9500..9600), 8..10);
-        assert_eq!(chunks_in_view(&[], 0..10), 0..0);
+        assert_eq!(chunks_in_view(&chunks, 2500.0..2600.0, cx), 1..4);
+        assert_eq!(chunks_in_view(&chunks, 0.0..100.0, cx), 0..2);
+        assert_eq!(chunks_in_view(&chunks, 9500.0..9600.0, cx), 8..10);
+        assert_eq!(chunks_in_view(&[], 0.0..10.0, cx), 0..0);
+        // Chunks of wide text sit by their wide counts, so they do not overlap.
+        let cjk: Vec<ChunkStart> = (0..4)
+            .map(|i| ChunkStart {
+                offset: i * 1023,
+                col: i * 341,
+                wide: i * 341,
+                zero: 0,
+            })
+            .collect();
+        let cx = |c: &ChunkStart| cols_x(c.cols(), 7.7, 14.0);
+        assert_eq!(cx(&cjk[1]), 341.0 * 14.0);
+        assert_eq!(chunk_at_x_in(&cjk, 341.0 * 14.0 + 1.0, cx), 1);
     }
 
     #[test]
     fn reveal() {
         // Already visible: unchanged.
-        assert_eq!(reveal_top(10.0, 15, 20.0, 100, false), 10.0);
+        assert_eq!(reveal_top(10.0, 15, 20.0, 100, false, true), 10.0);
         // Below: just enough to show it with the margin.
-        assert_eq!(reveal_top(10.0, 40, 20.0, 100, false), 23.0);
+        assert_eq!(reveal_top(10.0, 40, 20.0, 100, false, true), 23.0);
         // Above.
-        assert_eq!(reveal_top(10.0, 5, 20.0, 100, false), 3.0);
+        assert_eq!(reveal_top(10.0, 5, 20.0, 100, false, true), 3.0);
         // Centred when it was off screen.
-        assert_eq!(reveal_top(0.0, 50, 20.0, 100, true), 40.5);
-        assert_eq!(reveal_top(0.0, 99, 20.0, 100, true), 80.0);
-        assert_eq!(reveal_left(0.0, 100.0, 400.0, 8.0, false), 0.0);
-        assert_eq!(reveal_left(0.0, 500.0, 400.0, 8.0, false), 132.0);
-        assert_eq!(reveal_left(200.0, 10.0, 400.0, 8.0, false), 0.0);
-        assert_eq!(reveal_left(0.0, 5000.0, 400.0, 8.0, true), 4800.0);
+        assert_eq!(reveal_top(0.0, 50, 20.0, 100, true, true), 40.5);
+        assert_eq!(reveal_top(0.0, 99, 20.0, 100, true, true), 80.0);
+        assert_eq!(reveal_left(0.0, 100.0, 400.0, 8.0, false, true), 0.0);
+        assert_eq!(reveal_left(0.0, 500.0, 400.0, 8.0, false, true), 132.0);
+        assert_eq!(reveal_left(200.0, 10.0, 400.0, 8.0, false, true), 0.0);
+        assert_eq!(reveal_left(0.0, 5000.0, 400.0, 8.0, true, true), 4800.0);
+    }
+
+    #[test]
+    fn reveal_without_margin_leaves_visible_lines_alone() {
+        // A drag over the last two visible lines (the margin's band) does not scroll.
+        for line in 100..=136 {
+            assert_eq!(reveal_top(100.0, line, 37.0, 1000, false, false), 100.0);
+        }
+        // With the margin the same lines scroll.
+        assert_ne!(reveal_top(100.0, 136, 37.0, 1000, false, true), 100.0);
+        // Below the view it scrolls just enough.
+        assert_eq!(reveal_top(100.0, 140, 37.0, 1000, false, false), 104.0);
+        // Horizontally: inside the view nothing moves, near the edges included.
+        assert_eq!(reveal_left(100.0, 101.0, 400.0, 8.0, false, false), 100.0);
+        assert_eq!(reveal_left(100.0, 499.0, 400.0, 8.0, false, false), 100.0);
+        assert_eq!(reveal_left(100.0, 520.0, 400.0, 8.0, false, false), 120.0);
     }
 }

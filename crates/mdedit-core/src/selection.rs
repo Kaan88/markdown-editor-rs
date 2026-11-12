@@ -2,9 +2,14 @@
 //! clusters, never into one; words follow the find box's classes (letters, digits and `_`;
 //! whitespace; anything else). Up and Down keep a goal display column, so moving through a short
 //! line and back returns to the same column.
+//!
+//! Nothing here walks a line character by character from its start: columns come from the
+//! rope's character index and a byte search for tabs, and words stop after
+//! [`WORD_LIMIT`](crate::limits::WORD_LIMIT) bytes, so a line or a word of many megabytes costs a
+//! search over bytes, not a step per character.
 
 use crate::buffer::Buffer;
-use crate::display::end_column;
+use crate::limits::WORD_LIMIT;
 use std::ops::Range;
 
 /// `anchor` is where the selection started, `caret` where it ends and the caret is drawn. Both
@@ -73,22 +78,24 @@ fn class_at(buf: &Buffer, offset: usize) -> Option<Class> {
     buf.char_at(offset).map(class)
 }
 
-/// The start of the word before `i`: skip whitespace, then one run of the same class.
+/// The start of the word before `i`: skip whitespace, then one run of the same class. Stops
+/// [`WORD_LIMIT`] bytes before `i`.
 fn prev_word(buf: &Buffer, i: usize) -> usize {
+    let floor = i.saturating_sub(WORD_LIMIT);
     let mut pos = i;
-    while pos > 0 {
+    while pos > floor {
         let p = buf.prev_grapheme(pos);
         if class_at(buf, p) != Some(Class::Space) {
             break;
         }
         pos = p;
     }
-    if pos == 0 {
-        return 0;
+    if pos <= floor {
+        return pos;
     }
     let first = buf.prev_grapheme(pos);
     let k = class_at(buf, first);
-    while pos > 0 {
+    while pos > floor {
         let p = buf.prev_grapheme(pos);
         if class_at(buf, p) != k {
             break;
@@ -98,18 +105,20 @@ fn prev_word(buf: &Buffer, i: usize) -> usize {
     pos
 }
 
-/// The end of the word after `i`: skip whitespace, then one run of the same class.
+/// The end of the word after `i`: skip whitespace, then one run of the same class. Stops
+/// [`WORD_LIMIT`] bytes after `i`.
 fn next_word(buf: &Buffer, i: usize) -> usize {
     let len = buf.len_bytes();
+    let ceil = i.saturating_add(WORD_LIMIT).min(len);
     let mut pos = i;
-    while pos < len && class_at(buf, pos) == Some(Class::Space) {
+    while pos < ceil && class_at(buf, pos) == Some(Class::Space) {
         pos = buf.next_grapheme(pos);
     }
-    if pos >= len {
-        return len;
+    if pos >= ceil {
+        return pos;
     }
     let k = class_at(buf, pos);
-    while pos < len && class_at(buf, pos) == k {
+    while pos < ceil && class_at(buf, pos) == k {
         pos = buf.next_grapheme(pos);
     }
     pos
@@ -129,15 +138,33 @@ fn first_non_blank(buf: &Buffer, line: usize) -> usize {
     r.end
 }
 
+/// Characters between two byte offsets (char boundaries), from the rope's index.
+fn chars_between(buf: &Buffer, a: usize, b: usize) -> usize {
+    let rope = buf.rope();
+    rope.byte_to_char(b) - rope.byte_to_char(a)
+}
+
+/// The tabs in `range`, in order.
+fn tabs_in(buf: &Buffer, range: Range<usize>) -> impl Iterator<Item = usize> + '_ {
+    let mut at = buf.floor_char(range.start);
+    buf.chunks(range).flat_map(move |piece| {
+        let base = at;
+        at += piece.len();
+        memchr::memchr_iter(b'\t', piece.as_bytes()).map(move |i| base + i)
+    })
+}
+
 /// The display column of `offset` on its line.
 fn display_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
-    let line = buf.line_of(offset);
-    let start = buf.line_start(line);
-    let mut col = 0;
-    for piece in buf.chunks(start..offset) {
-        col = end_column(piece, col, tab_width);
+    let tab = tab_width.max(1);
+    let start = buf.line_start(buf.line_of(offset));
+    let (mut col, mut from) = (0, start);
+    for t in tabs_in(buf, start..offset) {
+        col += chars_between(buf, from, t);
+        col += tab - col % tab;
+        from = t + 1;
     }
-    col
+    col + chars_between(buf, from, offset)
 }
 
 /// The offset on `line` at display column `goal`: the character holding it, or the line's end
@@ -145,22 +172,31 @@ fn display_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
 fn offset_at_display_col(buf: &Buffer, line: usize, goal: usize, tab_width: usize) -> usize {
     let tab = tab_width.max(1);
     let r = buf.line_range(line);
-    let mut col = 0;
-    let mut at = r.start;
-    for piece in buf.chunks(r.clone()) {
-        for c in piece.chars() {
-            if col >= goal {
-                return buf.snap_to_grapheme(at);
-            }
-            let w = if c == '\t' { tab - col % tab } else { 1 };
-            if col + w > goal {
-                return buf.snap_to_grapheme(at);
-            }
-            col += w;
-            at += c.len_utf8();
+    // The goal falls in the run of tab-free characters starting at `from`, at column `col`.
+    let in_run = |from: usize, col: usize| {
+        let rope = buf.rope();
+        let c = rope.byte_to_char(from) + (goal - col);
+        buf.snap_to_grapheme(rope.char_to_byte(c))
+    };
+    let (mut col, mut from) = (0, r.start);
+    for t in tabs_in(buf, r.clone()) {
+        let n = chars_between(buf, from, t);
+        if col + n > goal {
+            return in_run(from, col);
         }
+        col += n;
+        let w = tab - col % tab;
+        if col >= goal || col + w > goal {
+            return buf.snap_to_grapheme(t);
+        }
+        col += w;
+        from = t + 1;
     }
-    r.end
+    if col + chars_between(buf, from, r.end) > goal {
+        in_run(from, col)
+    } else {
+        r.end
+    }
 }
 
 /// The selection after a motion. With `extend` the anchor stays; without it, Left and Right on a
@@ -228,7 +264,8 @@ pub fn apply(
 }
 
 /// The word, run of whitespace, or single other grapheme at `offset` (double click). At a line's
-/// end it is the empty range there.
+/// end it is the empty range there. A run reaches at most [`WORD_LIMIT`] bytes each way from
+/// `offset`.
 pub fn word_at(buf: &Buffer, offset: usize) -> Range<usize> {
     let at = buf.snap_to_grapheme(offset);
     let line = buf.line_of(at);
@@ -240,8 +277,10 @@ pub fn word_at(buf: &Buffer, offset: usize) -> Range<usize> {
     if k == Some(Class::Other) {
         return at..buf.next_grapheme(at);
     }
+    let floor = r.start.max(at.saturating_sub(WORD_LIMIT));
+    let ceil = r.end.min(at.saturating_add(WORD_LIMIT));
     let mut start = at;
-    while start > r.start {
+    while start > floor {
         let p = buf.prev_grapheme(start);
         if class_at(buf, p) != k {
             break;
@@ -249,7 +288,7 @@ pub fn word_at(buf: &Buffer, offset: usize) -> Range<usize> {
         start = p;
     }
     let mut end = at;
-    while end < r.end && class_at(buf, end) == k {
+    while end < ceil && class_at(buf, end) == k {
         end = buf.next_grapheme(end);
     }
     start..end
@@ -516,6 +555,57 @@ mod tests {
                 );
             }
             o = buf.next_grapheme(o);
+        }
+    }
+
+    #[test]
+    fn long_words_stop_at_the_limit() {
+        let blob = "a".repeat(3 * WORD_LIMIT);
+        let buf = b(&format!("x {blob} y"));
+        let mid = 2 + blob.len() / 2;
+        let w = word_at(&buf, mid);
+        assert_eq!(w, mid - WORD_LIMIT..mid + WORD_LIMIT);
+        let at = |m, from| mv(&buf, Selection::at(from), m, false).caret;
+        assert_eq!(at(Motion::WordRight, 2), 2 + WORD_LIMIT);
+        assert_eq!(
+            at(Motion::WordLeft, 2 + blob.len()),
+            2 + blob.len() - WORD_LIMIT
+        );
+        // A word shorter than the limit is whole.
+        assert_eq!(at(Motion::WordRight, 2 + blob.len() - 10), 2 + blob.len());
+        // Whitespace runs stop at the limit too.
+        let spaces = b(&" ".repeat(2 * WORD_LIMIT));
+        assert_eq!(
+            mv(&spaces, Selection::at(0), Motion::WordRight, false).caret,
+            WORD_LIMIT
+        );
+    }
+
+    #[test]
+    fn columns_on_long_lines_with_tabs() {
+        // Columns from the rope's index agree with a walk over the characters.
+        let mut s = String::new();
+        for i in 0..3000 {
+            s.push_str(if i % 7 == 0 { "\tğ漢" } else { "ab" });
+        }
+        let buf = b(&s);
+        let mut d = DisplayLine::new();
+        d.build(&s, 0, 0, TAB);
+        let mut o = 0;
+        let mut k = 0;
+        while o < s.len() {
+            if k % 97 == 0 {
+                assert_eq!(display_col(&buf, o, TAB), d.column_of(o), "offset {o}");
+            }
+            o = buf.next_grapheme(o);
+            k += 1;
+        }
+        for goal in (0..d.columns + 5).step_by(13) {
+            assert_eq!(
+                offset_at_display_col(&buf, 0, goal, TAB),
+                d.offset_at_column(goal),
+                "goal {goal}"
+            );
         }
     }
 

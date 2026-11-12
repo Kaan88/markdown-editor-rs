@@ -10,4 +10,6 @@ ropey.workspace = true
 encoding_rs.workspace = true
 unicode-segmentation.workspace = true
 memchr.workspace = true
+chardetng.workspace = true
+unicode-width.workspace = true
 mdshared-app.workspace = true
