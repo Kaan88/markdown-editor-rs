@@ -1,0 +1,36 @@
+[package]
+name = "mdedit"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "mdedit: the winit + softbuffer shell. Every control is drawn by this crate or by mdshared-ui."
+
+[[bin]]
+name = "mdedit"
+path = "src/main.rs"
+
+[dependencies]
+mdedit-core = { path = "../../crates/mdedit-core" }
+mdedit-highlight = { path = "../../crates/mdedit-highlight" }
+mdshared-app.workspace = true
+mdshared-text.workspace = true
+mdshared-ui.workspace = true
+parley.workspace = true
+# Views softbuffer's u32 pixels as bytes, so presenting is a row memcpy.
+bytemuck.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
+softbuffer = { version = "=0.4.8", default-features = false }
+# GetACP (Globalization) and the memory figures --trace prints (ProcessStatus, Threading).
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
+# Linux is not built or run yet; these are the features it will need.
+[target.'cfg(not(windows))'.dependencies]
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+softbuffer = { version = "=0.4.8", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }

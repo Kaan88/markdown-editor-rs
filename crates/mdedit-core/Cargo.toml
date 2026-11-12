@@ -1,0 +1,13 @@
+[package]
+name = "mdedit-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "mdedit's headless core: the text buffer, loading and encodings, line endings, display columns, selection and find."
+
+[dependencies]
+ropey.workspace = true
+encoding_rs.workspace = true
+unicode-segmentation.workspace = true
+memchr.workspace = true
+mdshared-app.workspace = true

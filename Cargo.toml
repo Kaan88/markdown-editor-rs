@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["crates/mdedit-core", "crates/mdedit-highlight", "bins/mdedit"]
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Versions the viewer pins are pinned to the same here. ropey has its default features off: lines
+# break at LF, CRLF and CR only (`cr_lines`), not at the Unicode separators `unicode_lines` adds.
+[workspace.dependencies]
+ropey = { version = "=1.6.1", default-features = false, features = ["simd", "cr_lines"] }
+encoding_rs = "0.8.35"
+unicode-segmentation = "1.12"
+memchr = "2.7"
+parley = "=0.12.0"
+bytemuck = "1.25"
+mdshared-app = { path = "../markdown-shared-rs/crates/mdshared-app" }
+mdshared-text = { path = "../markdown-shared-rs/crates/mdshared-text" }
+mdshared-highlight = { path = "../markdown-shared-rs/crates/mdshared-highlight" }
+mdshared-ui = { path = "../markdown-shared-rs/crates/mdshared-ui" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"

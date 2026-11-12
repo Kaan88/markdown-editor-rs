@@ -1,0 +1,3 @@
+# Test files hold exact bytes (UTF-16, Windows-1254, CR, CRLF and LF line endings); git must not
+# convert them.
+fixtures/** -text

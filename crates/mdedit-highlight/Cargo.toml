@@ -1,0 +1,10 @@
+[package]
+name = "mdedit-highlight"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "mdedit's highlighting worker: one thread that runs mdshared-highlight's line highlighter over rope snapshots."
+
+[dependencies]
+ropey.workspace = true
+mdshared-highlight.workspace = true
