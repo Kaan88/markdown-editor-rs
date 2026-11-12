@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- The mdedit mark. Written by make_icon.py; change the shapes there. -->
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#1d7d6b"/>
+  <rect x="8" y="8" width="240" height="120" rx="52" fill="#fff" opacity="0.08"/>
+  <path d="M38.26 174.08 38.26 81.92 65.14 81.92 92.02 116.48 118.90 81.92 145.78 81.92 145.78 174.08 118.90 174.08 118.90 122.24 92.02 156.80 65.14 122.24 65.14 174.08zM194.01 82.70 217.74 95.32 212.33 105.49 188.60 92.87zM186.34 97.11 210.08 109.73 187.99 151.26 164.41 166.99 164.26 138.64z" fill="#fff"/>
+</svg>
