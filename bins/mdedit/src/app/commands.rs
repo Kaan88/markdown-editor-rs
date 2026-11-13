@@ -290,6 +290,11 @@ impl App {
     /// Does `after`, once no unsaved changes are in its way: while a document it would lose has
     /// some, that document is shown and the user is asked about it.
     pub(super) fn request(&mut self, after: After) {
+        // Closing the window keeps unsaved text for the next start instead of asking.
+        if after == After::Exit && self.keep_unsaved() {
+            self.perform(after);
+            return;
+        }
         let in_scope = |id: DocId| match after {
             After::CloseTab(t) | After::Reload(t) => id == t,
             After::CloseOthers(keep) => id != keep,
@@ -314,6 +319,24 @@ impl App {
             DialogKind::Unsaved
         };
         self.ask(kind, id, after);
+    }
+
+    /// Writes the unsaved text of every tab beside the session, for the next start. False when
+    /// there is no session to come back to or a text could not be written: then the user is asked.
+    fn keep_unsaved(&mut self) -> bool {
+        let Some(dir) = self.backup_dir() else {
+            return false;
+        };
+        match self.docs.write_backups(&dir) {
+            Ok(list) => {
+                self.session.unsaved = list;
+                true
+            }
+            Err(e) => {
+                eprintln!("mdedit: could not keep the unsaved text: {e}");
+                false
+            }
+        }
     }
 
     /// Opens a question about document `id`; `after` goes on when it is answered.

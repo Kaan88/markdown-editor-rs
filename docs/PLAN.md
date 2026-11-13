@@ -73,7 +73,7 @@ After editing (phase 2) and safe saving (phase 3), in this order:
 2. Find and replace: match case, whole word, regular expressions, replace all, find in all open
    tabs, mark all matches, count. (Done 2026-11-13, except find in all open tabs, which waits
    for item 8's results panel.)
-3. Unsaved-session restore: tabs with unsaved text survive a close.
+3. Unsaved-session restore: tabs with unsaved text survive a close. (Done 2026-11-13.)
 4. View aids: show whitespace and line endings, word wrap, current-line highlight, matching
    bracket, other occurrences of the selected word, zoom, go to line.
 5. Encoding and line-ending conversion from the status bar.

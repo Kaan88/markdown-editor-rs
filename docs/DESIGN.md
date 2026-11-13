@@ -742,3 +742,19 @@ selects the next, and only goes to the next when no match is selected; Ctrl+Shif
 replaces all; Escape leaves the box, then closes the strip, then clears the query. The
 replacement's line breaks become the document's. A pattern that does not compile shows "Not a
 valid pattern" where the count is.
+
+## 19. Unsaved text survives a close (2026-11-13)
+
+Closing the window with a session does not ask about unsaved changes: `App::request` with
+`After::Exit` calls `keep_unsaved`, and only asks if that fails or there is no session.
+
+| Where | What |
+|---|---|
+| `docs.rs` `write_backups` | Writes the text of each modified tab to `<n>.txt` in the folder (to a `.tmp` name, synced, renamed), removes every other file there, returns the list. A tab still waiting for its text keeps the backup it has |
+| `session.rs` `Unsaved` | `unsaved=<n>.txt\|<untitled number>\|<path or nothing>`, one line per tab. Only names made of digits and `.txt` are read |
+| `app.rs` (start) | For each entry whose backup exists: a file's tab is added with `Doc::restore` set and read at once; a document without a file (or whose file is gone) is opened with the text |
+| `docs.rs` `apply_load`, `Ready::put_back` | Once the file is read, the backup replaces the whole text as one edit, before the colours are asked for |
+
+The folder is `backup` beside the session file (`%LOCALAPPDATA%\mdeditackup`, or beside the
+file `MDEDIT_SETTINGS` names). `Doc::modified` is also true while `restore` is set, so such a
+tab shows its mark and closing it asks.

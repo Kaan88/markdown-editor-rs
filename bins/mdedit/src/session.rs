@@ -43,9 +43,52 @@ impl ThemeChoice {
     }
 }
 
+/// A tab that had unsaved text when the window closed: its text is in `file` of the backup
+/// folder beside the settings file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unsaved {
+    /// A name this application made: digits and `.txt`.
+    pub file: String,
+    /// The number of a document that has no file ("Untitled 2"), else 0.
+    pub untitled: u32,
+    pub path: Option<PathBuf>,
+}
+
+impl Unsaved {
+    /// The backup's name for a number.
+    pub fn file_name(n: u32) -> String {
+        format!("{n}.txt")
+    }
+
+    /// `file` is a name `file_name` gives, so joining it to the folder stays inside it.
+    pub fn is_file_name(file: &str) -> bool {
+        file.strip_suffix(".txt")
+            .is_some_and(|n| !n.is_empty() && n.len() <= 9 && n.bytes().all(|b| b.is_ascii_digit()))
+    }
+
+    fn parse(value: &str) -> Option<Unsaved> {
+        let mut parts = value.splitn(3, '|');
+        let file = parts.next()?.trim();
+        let untitled = parts.next()?.trim().parse().ok()?;
+        let path = parts.next()?;
+        Unsaved::is_file_name(file).then(|| Unsaved {
+            file: file.to_string(),
+            untitled,
+            path: (!path.is_empty()).then(|| decode_path(path)),
+        })
+    }
+
+    fn serialize(&self) -> String {
+        let path = self.path.as_deref().map(encode_path).unwrap_or_default();
+        format!("{}|{}|{path}", self.file, self.untitled)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Session {
     pub tabs: Vec<PathBuf>,
+    /// The tabs whose unsaved text was kept when the window last closed.
+    pub unsaved: Vec<Unsaved>,
     pub active: usize,
     pub recent: Recents,
     pub theme: ThemeChoice,
@@ -66,6 +109,7 @@ impl Default for Session {
     fn default() -> Session {
         Session {
             tabs: Vec::new(),
+            unsaved: Vec::new(),
             active: 0,
             recent: Recents::default(),
             theme: ThemeChoice::default(),
@@ -102,6 +146,7 @@ impl Session {
             for (key, value) in settings::pairs(line) {
                 match key {
                     "tab" if !value.is_empty() => s.tabs.push(decode_path(value)),
+                    "unsaved" => s.unsaved.extend(Unsaved::parse(value)),
                     "recent" if !value.is_empty() => recent.push(decode_path(value)),
                     "active" => s.active = value.trim().parse().unwrap_or(0),
                     "theme" => {
@@ -141,6 +186,9 @@ impl Session {
         let mut out = Writer::new(SECTION);
         for t in &self.tabs {
             out.line("tab", &encode_path(t));
+        }
+        for u in &self.unsaved {
+            out.line("unsaved", &u.serialize());
         }
         out.line("active", &self.active.to_string());
         for r in self.recent.paths() {
@@ -244,6 +292,40 @@ mod tests {
         assert_eq!(back.recent.paths()[0], PathBuf::from("C:/new.txt"));
         assert_eq!(back.window_size(), Some((1100, 700, false)));
         assert_eq!(back.window_position(), Some((-8, 40)));
+    }
+
+    #[test]
+    fn unsaved_tabs_round_trip() {
+        let mut s = Session {
+            unsaved: Vec::new(),
+            ..Session::default()
+        };
+        s.unsaved.extend([
+            Unsaved {
+                file: Unsaved::file_name(1),
+                untitled: 0,
+                path: Some(PathBuf::from("C:/a b/c|d.txt")),
+            },
+            Unsaved {
+                file: Unsaved::file_name(12),
+                untitled: 3,
+                path: None,
+            },
+        ]);
+        assert_eq!(Session::parse(&s.serialize()), s);
+        // Only names this application makes are taken: nothing that could leave the folder.
+        for bad in [
+            "..\\x.txt|0|",
+            "a.txt|0|",
+            ".txt|0|",
+            "1.txt|x|",
+            "1.txt",
+            "1.txt|0",
+        ] {
+            let text = format!("[mdedit]\nunsaved={bad}\n");
+            assert!(Session::parse(&text).unsaved.is_empty(), "{bad}");
+        }
+        assert!(Unsaved::is_file_name("7.txt") && !Unsaved::is_file_name("7.txt.txt"));
     }
 
     #[test]

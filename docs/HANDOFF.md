@@ -202,7 +202,7 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 266 passed on 2026-11-13
+cargo test --release --workspace        # 268 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 bash tests/shots.sh target/shots/a      # 42 PNGs, deterministic; first run generates target/data
@@ -231,6 +231,29 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Unsaved text survives a close (2026-11-13, roadmap item 3)
+
+`docs/DESIGN.md` section 19. Written in the main session.
+
+- Decisions made without the user: closing the window (or Exit) no longer asks about unsaved
+  changes when there is a session; the text is kept in `backup\` beside `settings.ini` and put
+  back at the next start, the tabs marked modified. Closing a tab still asks. With
+  `--no-session` closing asks as before. The backups are written only at close: a crash or a
+  power cut loses unsaved text as it did before.
+- A file tab gets its unsaved text back as one edit over the file as it is on disk now, so
+  Undo gives the file's text. If the file changed on disk between the two runs nothing says
+  so, and saving overwrites it.
+- Run in a real window by script with `MDEDIT_SETTINGS` on a scratch file: typed into a file
+  and a new document, Alt+F4 (no question, two backups, the file untouched); started again
+  (both tabs back and modified), Ctrl+S on the file's tab, Alt+F4 (the file had the text, one
+  backup left); started again, Ctrl+Z in the new document, Alt+F4 (no backup left).
+- Measured after: exe 5,987,328 bytes (12 KB under the budget: the next feature will need
+  room found for it), window shown 79 ms, private memory 27.6 to 27.8 MiB, 42 shots unchanged,
+  268 tests, clippy and fmt clean.
+- Not run: a large unsaved file (the text is written and read on the UI thread); a backup that
+  cannot be written (the code then asks as before); a file deleted between the runs (the code
+  restores it as a new document); closing before a restored tab was read (unit test only).
 
 ## Find and replace (2026-11-13, roadmap item 2)
 

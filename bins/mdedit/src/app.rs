@@ -1050,6 +1050,12 @@ impl App {
         }
     }
 
+    /// Where unsaved text is kept between runs: `backup` beside the session file.
+    pub(crate) fn backup_dir(&self) -> Option<PathBuf> {
+        let path = self.session_path.as_deref().filter(|_| self.save)?;
+        backup_dir_of(path)
+    }
+
     fn save_session(&mut self) {
         let Some(path) = self.session_path.clone().filter(|_| self.save) else {
             return;
@@ -1070,6 +1076,10 @@ impl App {
         }
         self.saved_sig = self.session_sig();
     }
+}
+
+fn backup_dir_of(session: &Path) -> Option<PathBuf> {
+    session.parent().map(|d| d.join("backup"))
 }
 
 fn overlaps(a: Rect, b: Rect) -> bool {
@@ -1583,6 +1593,29 @@ pub fn run() -> i32 {
             }
         }
     }
+    // Tabs that had unsaved text when the window last closed get it back.
+    let mut restored = Vec::new();
+    if let Some(dir) = session_path.as_deref().and_then(backup_dir_of) {
+        for u in &session.unsaved {
+            let file = dir.join(&u.file);
+            if !file.is_file() {
+                continue;
+            }
+            match u.path.as_ref().filter(|p| p.is_file()) {
+                Some(path) => {
+                    let k = docs.add_pending(path);
+                    docs.tabs[k].restore = Some(file);
+                    restored.push(k);
+                }
+                // A document that had no file, or whose file is gone since.
+                None => {
+                    if let Ok(text) = std::fs::read_to_string(&file) {
+                        docs.restore_untitled(u.untitled, &text);
+                    }
+                }
+            }
+        }
+    }
     if active.is_none() && !docs.tabs.is_empty() {
         active = Some(0);
     }
@@ -1597,6 +1630,12 @@ pub fn run() -> i32 {
     let mut app = App::new(args, docs, trace, session_path, session);
     app.service = Some(service);
     app.sync_theme();
+    // Read at once, so their tabs show as modified without being visited.
+    for k in restored {
+        if matches!(app.docs.tabs[k].state, DocState::Pending) {
+            app.docs.start_load(k);
+        }
+    }
     if let Some(i) = active {
         app.docs.activate(i);
         trace.stage("load started");

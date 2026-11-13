@@ -12,7 +12,7 @@
 
 use crate::app::Wake;
 use crate::commands::strings;
-use crate::session::ThemeChoice;
+use crate::session::{ThemeChoice, Unsaved};
 use crate::view::cache::Lru;
 use mdedit_core::display::ChunkIndex;
 use mdedit_core::edit::{self, Outcome};
@@ -258,6 +258,20 @@ pub struct Ready {
 }
 
 impl Ready {
+    /// Puts unsaved text back over the text just read, as one edit: Undo gives the file's text.
+    fn put_back(&mut self, text: &str) {
+        if self.info.lossy {
+            return;
+        }
+        let all = mdedit_core::selection::select_all(&self.buffer);
+        let out = edit::insert(&mut self.buffer, &mut self.history, all, text);
+        if let Some(change) = out.change {
+            self.info.eol.apply(&change.eol_removed, &change.eol_added);
+        }
+        self.history.seal();
+        self.sel = Selection::at(0);
+    }
+
     /// Keeps what hangs on the text in step with an edit.
     fn changed(&mut self, change: &Change) {
         self.info.eol.apply(&change.eol_removed, &change.eol_added);
@@ -327,6 +341,9 @@ pub struct Doc {
     /// The user chose not to save these changes while closing; cleared by the next edit or when
     /// the close is cancelled.
     pub discard: bool,
+    /// The file holding the unsaved text this tab had when the window last closed; it replaces
+    /// the file's text once that is read.
+    pub restore: Option<PathBuf>,
     /// The lossy- or binary-file toast was shown for this document.
     lossy_toasted: bool,
     /// Bytes read and total, written by the load thread.
@@ -345,6 +362,7 @@ impl Doc {
             missing: false,
             changed_on_disk: false,
             discard: false,
+            restore: None,
             lossy_toasted: false,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
@@ -382,9 +400,10 @@ impl Doc {
         self.missing && self.ready().is_some()
     }
 
-    /// The text has changes that are not in the file.
+    /// The text has changes that are not in the file (also unsaved text still to be put back).
     pub fn modified(&self) -> bool {
-        !self.discard && self.ready().is_some_and(|r| r.history.is_modified())
+        !self.discard
+            && (self.restore.is_some() || self.ready().is_some_and(|r| r.history.is_modified()))
     }
 
     /// The banner over the text, if any.
@@ -678,6 +697,7 @@ impl Docs {
             missing: false,
             changed_on_disk: false,
             discard: false,
+            restore: None,
             lossy_toasted: false,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
@@ -685,6 +705,77 @@ impl Docs {
         let i = self.tabs.len() - 1;
         self.active = Some(i);
         i
+    }
+
+    /// Opens a document that has no file with the unsaved text it had. `number` is the one in
+    /// its name, or 0 for the next free one.
+    pub fn restore_untitled(&mut self, number: u32, text: &str) -> usize {
+        let i = self.new_untitled();
+        let free = !self
+            .tabs
+            .iter()
+            .any(|d| d.path.is_none() && d.untitled == number);
+        let doc = &mut self.tabs[i];
+        if number > 0 && free {
+            doc.untitled = number;
+        }
+        if let Some(r) = doc.ready_mut() {
+            r.put_back(text);
+        }
+        i
+    }
+
+    /// Writes the text of every tab with unsaved changes into `dir`, removes the backups nothing
+    /// refers to any more, and returns the list for the session. A tab whose unsaved text was
+    /// never put back (it was not read yet) keeps the backup it has.
+    pub fn write_backups(&self, dir: &Path) -> std::io::Result<Vec<Unsaved>> {
+        use std::io::Write;
+        let mut out = Vec::new();
+        let waiting = |d: &Doc| {
+            let file = d.restore.as_ref()?.file_name()?.to_str()?.to_string();
+            Unsaved::is_file_name(&file).then_some(file)
+        };
+        let kept: Vec<String> = self.tabs.iter().filter_map(waiting).collect();
+        let mut number = 0u32;
+        for d in self.tabs.iter().filter(|d| d.modified()) {
+            let file = match waiting(d) {
+                Some(file) => file,
+                None => {
+                    let Some(r) = d.ready() else { continue };
+                    std::fs::create_dir_all(dir)?;
+                    let file = loop {
+                        number += 1;
+                        let name = Unsaved::file_name(number);
+                        if !kept.contains(&name) {
+                            break name;
+                        }
+                    };
+                    // Written beside its place and renamed, so a backup is whole or absent.
+                    let (tmp, path) = (dir.join(format!("{file}.tmp")), dir.join(&file));
+                    let mut w = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+                    for chunk in r.buffer.rope().chunks() {
+                        w.write_all(chunk.as_bytes())?;
+                    }
+                    w.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+                    std::fs::rename(&tmp, &path)?;
+                    file
+                }
+            };
+            out.push(Unsaved {
+                file,
+                untitled: d.untitled,
+                path: d.path.clone(),
+            });
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if !out.iter().any(|u| u.file == name) {
+                    let _ = std::fs::remove_file(e.path());
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Opens `path` in a tab (or shows the tab that has it) and makes it active.
@@ -901,6 +992,14 @@ impl Docs {
                     if !old.find.text.is_empty() {
                         query = Some((old.find.text.clone(), old.find.options));
                     }
+                }
+                // Unsaved text from the last run goes back over what was read.
+                if let Some(text) = doc
+                    .restore
+                    .take()
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+                {
+                    r.put_back(&text);
                 }
                 if let (Some(lang), Some(s)) = (language, service)
                     && lang.limits().allows_file(r.buffer.len_bytes())
@@ -1732,6 +1831,60 @@ mod tests {
         d.find_set("zebra", FindOptions::default());
         assert!(!d.edit(EditOp::ReplaceAll("x"), None));
         assert_eq!(d.toast.as_ref().unwrap().0, strings::NOTHING_TO_REPLACE);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unsaved_text_survives_a_restart() {
+        let (mut d, i, path, dir) = file_docs("unsaved", b"one\r\ntwo\r\n");
+        let backup = dir.join("backup");
+        // Nothing unsaved: no list, and stray files in the folder go.
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(backup.join("9.txt"), "old").unwrap();
+        assert!(d.write_backups(&backup).unwrap().is_empty());
+        assert!(!backup.join("9.txt").exists());
+        // An edited file and an edited new document are both kept.
+        d.tabs[i].ready_mut().unwrap().sel = Selection::at(0);
+        assert!(d.edit(EditOp::Insert("zero\n"), None));
+        let n = d.new_untitled();
+        d.new_untitled();
+        d.activate(n);
+        assert!(d.edit(EditOp::Insert("note"), None));
+        let list = d.write_backups(&backup).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!((list[0].path.as_ref(), list[0].untitled), (Some(&path), 0));
+        assert_eq!((list[1].path.as_ref(), list[1].untitled), (None, 1));
+        assert_eq!(std::fs::read_dir(&backup).unwrap().count(), 2);
+
+        // The next run: the file's tab waits for its text, the new document has it at once.
+        let mut e = docs();
+        let k = e.add_pending(&path);
+        e.tabs[k].restore = Some(backup.join(&list[0].file));
+        assert!(e.tabs[k].modified());
+        let text = std::fs::read_to_string(backup.join(&list[1].file)).unwrap();
+        let u = e.restore_untitled(list[1].untitled, &text);
+        assert_eq!((text_of(&e, u).as_str(), e.tabs[u].untitled), ("note", 1));
+        assert!(e.tabs[u].modified());
+        // Closing again before the file's tab was read keeps its backup as it is.
+        let again = e.write_backups(&backup).unwrap();
+        assert_eq!(again.len(), 2);
+        assert_eq!(again[0], list[0]);
+        assert!(backup.join(&list[0].file).is_file());
+        assert_ne!(again[1].file, list[0].file);
+        // Read: the unsaved text is back, the tab is modified, and Undo gives the file's text.
+        e.load_now(k, None, false);
+        assert_eq!(text_of(&e, k), "zero\none\r\ntwo\r\n");
+        assert!(e.tabs[k].modified() && e.tabs[k].restore.is_none());
+        let eol = e.tabs[k].ready().unwrap().info.eol;
+        assert_eq!((eol.crlf, eol.lf), (2, 1));
+        e.activate(k);
+        assert!(e.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&e, k), "one\r\ntwo\r\n");
+        assert!(!e.tabs[k].modified());
+        // Saved or undone, nothing is left to keep.
+        e.close(u, None);
+        assert!(e.write_backups(&backup).unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(&backup).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
