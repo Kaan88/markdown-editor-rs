@@ -4,7 +4,7 @@ members = ["crates/mdedit-core", "crates/mdedit-highlight", "crates/mdedit-outli
 exclude = ["spikes"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 publish = false
 
