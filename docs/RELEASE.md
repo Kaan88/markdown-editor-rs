@@ -8,7 +8,7 @@
    if the tree is dirty (changes under `tools\` and `docs\` are ignored) or HEAD is on no remote
    branch. It re-reads the manifest it wrote and compares the keys and the hash with the file.
 3. Add `-Publish` (and `-ReleaseNotes '...'` for the GitHub release text) to create the release
-   `v<version>` on the current commit with `gh release create`, marked latest.
+   `v<version>` on the current commit with `gh release create`, marked latest. The release carries three assets: the exe, the manifest and the installer.
 
 Check afterwards: fetch the manifest address below, download the asset from its URL, compare the
 SHA-256, and run `mdedit --check-update`.
@@ -16,7 +16,10 @@ SHA-256, and run `mdedit --check-update`.
 ## Assets
 
 - `mdedit-<version>-windows-x86_64.exe`: the executable, the only file the updater installs.
-  There is no engine executable and no installer.
+  There is no engine executable.
+- `mdedit-setup-<version>.exe` (from 0.3.1): the Inno Setup installer (`packaging\windows\mdedit.iss`,
+  built by `toolselease.ps1`), per-user, with file associations. Not code-signed. An extra asset;
+  the manifest does not name it.
 - `mdedit-update.txt`: the manifest (`manifest: 1`, `version`, `notes`, and the three keys
   `windows-x86_64.asset`, `.url`, `.sha256`; grammar in `mdshared-app`'s `update.rs`).
 

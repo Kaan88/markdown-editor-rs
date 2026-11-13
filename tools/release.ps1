@@ -1,11 +1,13 @@
 <#
-  Builds the release executable, writes the update manifest, and with -Publish creates the
-  GitHub release v<version> (targeting the current commit) with the two assets.
+  Builds the release executable, writes the update manifest, builds the Inno Setup installer
+  (packaging\windows\mdedit.iss), and with -Publish creates the GitHub release v<version>
+  (targeting the current commit) with the three assets.
 
   tools\release.ps1 -Notes 'One short sentence.'             build and check only
   tools\release.ps1 -Notes 'One short sentence.' -Publish    also publish
 
-  Output: target\dist\<version>\mdedit-<version>-windows-x86_64.exe and mdedit-update.txt
+  Output: target\dist\<version>\mdedit-<version>-windows-x86_64.exe, mdedit-update.txt and
+  mdedit-setup-<version>.exe
   Changes under tools\ and docs\ do not count as a dirty tree (the exe does not depend on them).
 #>
 param(
@@ -76,10 +78,17 @@ foreach ($k in $want.Keys) {
 }
 if ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash) { Fail 'hash mismatch' }
 if ((Get-Item $manifest).Length -gt 8192) { Fail 'manifest too large' }
+# The installer, an extra asset: the manifest keeps naming the bare exe, which is all the updater installs.
+& (Join-Path $repo 'packaging\windows\build-installer.ps1') -SkipBuild
+if ($LASTEXITCODE -ne 0) { Fail 'installer build failed' }
+$setupName = "mdedit-setup-$version.exe"
+$setup = Join-Path $dist $setupName
+Copy-Item (Join-Path $repo "target\installer\$setupName") $setup
+Write-Host "built $setupName ($((Get-Item $setup).Length) bytes)"
 Write-Host "built $asset ($((Get-Item $exe).Length) bytes) sha256 $hash from $sha"
 
 if (-not $Publish) { Write-Host "not published (no -Publish). Files are in $dist"; exit 0 }
 
-& gh release create "v$version" $exe $manifest --repo $slug --target $sha --title "mdedit $version" --notes $ReleaseNotes --latest
+& gh release create "v$version" $exe $manifest $setup --repo $slug --target $sha --title "mdedit $version" --notes $ReleaseNotes --latest
 if ($LASTEXITCODE -ne 0) { Fail 'gh release create failed' }
 Write-Host "published https://github.com/$slug/releases/tag/v$version"

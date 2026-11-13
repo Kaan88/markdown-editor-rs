@@ -242,6 +242,67 @@ Putting that script into the viewer's repository would be a useful first task.
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## More languages and an installer (2026-11-13, 0.3.1, asked by the owner)
+
+- **Languages.** Looked up by file extension through `Language::for_path` before the change:
+  coloured were Rust, C, C++, C#, Java, Go, Python, Ruby, PHP, JavaScript (also `.ts`, `.tsx`,
+  `.jsx`, read with the JavaScript grammar), SQL, Bash, Batch, HTML, CSS, JSON, YAML, XML,
+  Markdown, Makefile, Lua, Perl, R, Diff, Scala, Haskell, Erlang, Clojure, LaTeX, OCaml, Groovy
+  and, from the hand-written scanners, TOML, Kotlin, Swift, PowerShell and Dockerfile. Not
+  coloured: SCSS, Less, INI, `.env`, `.conf`, `.cfg`, CMake, Dart, Zig, Vue, Svelte, Elixir,
+  Protobuf, Julia, Nim, Terraform, VB, F#, `.csv`, `.log`, `.txt` (the last three are plain text
+  on purpose).
+- **Added** in `markdown-shared-rs` `mdshared-highlight` `scan.rs`: TypeScript (`.ts`, `.tsx`,
+  `.mts`, `.cts`; `.js` and `.jsx` stay on the JavaScript grammar), Dart, Zig, SCSS, Less, INI
+  (`.ini`, `.cfg`, `.conf`, `.env` files, `.editorconfig`, `.gitconfig`) and CMake
+  (`CMakeLists.txt`, `.cmake`). **They are hand-written line scanners, not `.sublime-syntax`
+  files**: the existing extra languages (Kotlin, Swift, PowerShell, Dockerfile, TOML) are scanners
+  too, a sublime syntax needs a second syntax dump or a YAML parse at start-up, and no licence
+  text had to be taken from anyone. Nothing was downloaded. They are approximations: no
+  regular-expression literals or JSX tags in TypeScript, no string interpolation colours except
+  escapes, selectors in SCSS and Less are plain. Vue and Svelte were not added. `line_comment`
+  covers them (`//` for TypeScript, Dart, Zig, SCSS, Less; `#` for INI and CMake). The viewer's
+  fenced code blocks pick the new languages up when it moves its pin (`ts` fences change from the
+  JavaScript grammar to the scanner).
+- **Shared commit:** branch `feat/more-languages`, commit `fce8c8e71a9cbf0bab366bf7795f0e3860f9be3f`,
+  pinned by the editor. **The shared `main` was not moved** (it is still at `870d620`); merging the
+  branch is the owner's call. `cargo test --workspace --release` in the shared repository: the
+  `mdshared-highlight` tests (31) and the rest pass; clippy with `-D warnings` is clean for
+  `mdshared-highlight` but fails in `mdshared-app` (five warnings in test code, not touched here).
+- **Installer.** `packaging\windows\mdedit.iss` is the viewer's `mdview.iss` adapted (same
+  `[Setup]` choices: per-user, no elevation, `{localappdata}\Programs\mdedit`, no Start menu folder
+  page, lzma2, modern wizard; same tasks wording and registry layout). The extension list is one
+  line of the script. The wizard asks: where to install; Tasks page with "Register mdedit for text
+  and source files" (checked), "Add Edit with mdedit to the context menu of all files" (off),
+  "Create a desktop shortcut" (off); the last page offers Launch mdedit and, if associations were
+  chosen, opening Settings at Default apps (off). **The viewer's installer lacks** the context-menu
+  task and does not ask for whom to install (it is per-user only, so mdedit's does not either).
+  `tools\release.ps1` builds it through `packaging\windows\build-installer.ps1` and uploads
+  `mdedit-setup-<version>.exe` as the third asset; the manifest still names the bare exe.
+- **Updater and an installed copy.** The shared updater (`mdshared-app` `selfupdate.rs`,
+  `updater.rs`) does not look at how the app was installed: it renames the running exe aside to
+  `.old` and moves the new one into the exe's own folder, and removes `.old` later. The per-user
+  install folder is writable, so an installed mdedit updates in place; the uninstaller removes the
+  files it installed by name, and the updated exe is the same name. An update leaves the installer's
+  version number in "Apps" stale. Not tested: an update applied to an installed copy.
+- **Measured** (release build, this PC): exe 5,650,432 bytes (budget 6,000,000; 5,637,632 before);
+  installer 4,277,023 bytes; window shown 78.1 to 81.5 ms over five runs; private memory 27.5 to
+  27.9 MiB; keystroke p50 0.47 ms. `cargo test --release --workspace` 378 passed, 0 failed;
+  clippy `-D warnings` and `fmt --check` clean.
+- **Run:** silent installs into a folder under `target` with `/VERYSILENT /CURRENTUSER` and
+  `/TASKS=` of nothing, `assoc`, `assoc,contextmenu` and `contextmenu`: the keys appeared only with
+  their task (the ProgId, `Software\mdedit\Capabilities` with 64 extensions, `Applications`,
+  `RegisteredApplications`, `OpenWithProgids`; the `*\shell\mdedit` key with its command) and the
+  uninstaller removed all of them and the folder. The installed exe answered `--check-update`
+  with "nothing newer". A shot of a `.ts` file shows keywords, strings, comments and types in colour
+  and "TypeScript" in the status strip.
+- **Not run:** the installer's wizard clicked through by a person (only silent installs), "Open
+  with" and Default apps as Windows draws them, a double click or the context-menu entry on a file,
+  upgrading over an older install, the 62 shots (not re-rendered, so any shot of a `.ts`, `.ini`
+  or `.conf` file may have changed), the new languages on Linux, an update applied to an installed
+  copy, anything of the interface by the owner. The installer is not code-signed, so SmartScreen
+  may warn. The unit tests colour a small sample per language; real files of each were not tried.
+
 ## Our own icons (2026-11-13, asked by the user: the same look on every system)
 
 The user approved mockups (stroke 1.25 on a 16 px grid, round ends) and named no icon to
