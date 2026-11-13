@@ -126,5 +126,3 @@ Root: HKA; Subkey: "Software\Classes\*\shell\{#AppName}\command"; ValueType: str
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch mdedit"; Flags: nowait postinstall skipifsilent
-; Opens Settings at mdedit's Default apps page, where it can be made the default for a file type.
-Filename: "ms-settings:defaultapps?registeredAppUser={#AppName}"; Description: "Choose mdedit as the default app for some file types"; Flags: shellexec nowait postinstall skipifsilent unchecked; Tasks: assoc
