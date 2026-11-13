@@ -46,6 +46,7 @@ pub fn main_menu(docs: &Docs, ui: &Ui, x: f32, y: f32) -> Menu<Act> {
         cmd(C::CloseAllTabs, "Close all tabs", "").enabled(has_tab),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(has_tab),
         cmd(C::Replace, "Replace…", "").enabled(has_tab),
+        cmd(C::GoToLine, "Go to line…", "").enabled(has_tab),
         cmd(C::ToggleFiles, "Files pane", "").checked(ui.panes.files),
         theme(ThemeChoice::System, "System theme").sep(),
         theme(ThemeChoice::Light, "Light theme"),

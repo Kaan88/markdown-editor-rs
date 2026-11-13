@@ -71,3 +71,9 @@ opt-level = "s"
 opt-level = "s"
 [profile.release.package.mdshared-fetch]
 opt-level = "s"
+[profile.release.package.mdshared-app]
+opt-level = "s"
+[profile.release.package.winit]
+opt-level = "s"
+[profile.release.package.chardetng]
+opt-level = "s"

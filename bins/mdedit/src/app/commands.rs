@@ -192,6 +192,16 @@ impl App {
 
     // ---- editing -----------------------------------------------------------------------------
 
+    /// Sets the text size. The first visible line stays where it is: the scroll is in lines.
+    pub(super) fn set_zoom(&mut self, zoom: u32) {
+        let zoom = zoom.clamp(metrics::ZOOM_MIN, metrics::ZOOM_MAX);
+        if zoom != self.docs.zoom {
+            self.docs.zoom = zoom;
+            self.view.zoom = zoom;
+            self.redraw();
+        }
+    }
+
     /// Applies an editing command to the active document. True when the text changed.
     pub(super) fn edit(&mut self, op: EditOp) -> bool {
         let changed = self.docs.edit(op, self.service.as_ref());
@@ -705,6 +715,16 @@ impl App {
             C::ThemeLight => self.set_theme(ThemeChoice::Light),
             C::ThemeDark => self.set_theme(ThemeChoice::Dark),
             C::ToggleFiles => self.ui.panes.files = !self.ui.panes.files,
+            C::GoToLine => {
+                if self.docs.active_ready().is_some() {
+                    self.ui.focus_field(BarField::Goto);
+                    self.ui.goto.select_all();
+                    self.caret_reset();
+                }
+            }
+            C::ZoomIn => self.set_zoom(metrics::zoom_stepped(self.docs.zoom, 1)),
+            C::ZoomOut => self.set_zoom(metrics::zoom_stepped(self.docs.zoom, -1)),
+            C::ZoomReset => self.set_zoom(100),
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
             C::NextTab => self.docs.step_tab(true),
@@ -731,6 +751,9 @@ impl App {
         }
         if self.ui.find_focused {
             self.ui.find_focused = false;
+            if self.ui.field == BarField::Goto {
+                self.ui.field = BarField::Find;
+            }
             return;
         }
         if self.ui.replace_open {

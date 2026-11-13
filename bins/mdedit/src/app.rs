@@ -462,6 +462,7 @@ impl App {
                         (ui.match_case, ui.whole_word, ui.regex),
                         ui.replace.text(),
                         ui.replace.caret(),
+                        (ui.goto.text(), ui.goto.caret()),
                     ),
                     chrome::find_label(&self.docs),
                     ui.panes.files,
@@ -1030,6 +1031,7 @@ impl App {
             self.docs.active_among_paths(),
             self.docs.recents.paths(),
             (!self.theme_from_args).then_some(self.docs.theme),
+            (self.args.zoom.is_none()).then_some(self.docs.zoom),
             self.ui.panes.files,
             self.ui.panes.files_w.round() as u32,
             &self.docs.folder,
@@ -1066,6 +1068,9 @@ impl App {
         s.recent = self.docs.recents.clone();
         if !self.theme_from_args {
             s.theme = self.docs.theme;
+        }
+        if self.args.zoom.is_none() {
+            s.zoom = self.docs.zoom;
         }
         s.check_updates = self.docs.check_updates;
         s.files = Some(self.ui.panes.files);
@@ -1574,6 +1579,7 @@ pub fn run() -> i32 {
     if let Some(stage) = &args.update_bar {
         docs.updates.preview(stage);
     }
+    docs.zoom = args.zoom.unwrap_or(session.zoom);
     docs.theme = match args.dark {
         Some(true) => ThemeChoice::Dark,
         Some(false) => ThemeChoice::Light,
@@ -1629,6 +1635,7 @@ pub fn run() -> i32 {
     let service = HighlightService::spawn(move || w(Wake::Highlight));
     let mut app = App::new(args, docs, trace, session_path, session);
     app.service = Some(service);
+    app.view.zoom = app.docs.zoom;
     app.sync_theme();
     // Read at once, so their tabs show as modified without being visited.
     for k in restored {

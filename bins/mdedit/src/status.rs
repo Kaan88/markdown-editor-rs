@@ -112,18 +112,20 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
             } else {
                 String::new()
             };
-            (
-                left,
-                vec![
-                    position_text(pos.line + 1, pos.col + 1, selected),
-                    language_text(
-                        r.language.map(|l| l.name()),
-                        r.language.is_some() && !r.colourable,
-                    ),
-                    eol_text(r.info.eol.style()).to_string(),
-                    encoding_text(r.info.encoding, r.info.lossy, r.info.has_nul),
-                ],
-            )
+            let mut right = Vec::new();
+            if docs.zoom != 100 {
+                right.push(format!("{}%", docs.zoom));
+            }
+            right.extend([
+                position_text(pos.line + 1, pos.col + 1, selected),
+                language_text(
+                    r.language.map(|l| l.name()),
+                    r.language.is_some() && !r.colourable,
+                ),
+                eol_text(r.info.eol.style()).to_string(),
+                encoding_text(r.info.encoding, r.info.lossy, r.info.has_nul),
+            ]);
+            (left, right)
         }
     }
 }

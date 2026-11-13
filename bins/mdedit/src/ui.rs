@@ -35,12 +35,14 @@ pub enum FindOpt {
 pub enum BarField {
     Find,
     Replace,
+    /// The line to go to, typed in the find box's place while it has the keyboard.
+    Goto,
 }
 
 impl BarField {
     pub fn hit(self) -> Hit {
         match self {
-            BarField::Find => Hit::Find,
+            BarField::Find | BarField::Goto => Hit::Find,
             BarField::Replace => Hit::Replace,
         }
     }
@@ -368,6 +370,8 @@ pub struct Ui {
     /// The replacement text, and whether its strip shows.
     pub replace: TextField,
     pub replace_open: bool,
+    /// What Go to line is typing.
+    pub goto: TextField,
     pub caret_on: bool,
     /// When the caret next blinks.
     pub caret_due: Option<Instant>,
@@ -410,6 +414,7 @@ impl Ui {
             regex: false,
             replace: TextField::new(),
             replace_open: false,
+            goto: TextField::new(),
             caret_on: true,
             caret_due: None,
             mouse: (-1.0, -1.0),
@@ -432,13 +437,20 @@ impl Ui {
         match self.field {
             BarField::Find => &self.find,
             BarField::Replace => &self.replace,
+            BarField::Goto => &self.goto,
         }
+    }
+
+    /// Go to line is being typed: its box shows in the find box's place.
+    pub fn going_to(&self) -> bool {
+        self.find_focused && self.field == BarField::Goto
     }
 
     pub fn field_mut(&mut self) -> &mut TextField {
         match self.field {
             BarField::Find => &mut self.find,
             BarField::Replace => &mut self.replace,
+            BarField::Goto => &mut self.goto,
         }
     }
 

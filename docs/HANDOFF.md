@@ -202,10 +202,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 268 passed on 2026-11-13
+cargo test --release --workspace        # 271 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 42 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 43 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -231,6 +231,23 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## View aids, first part (2026-11-13, roadmap item 4)
+
+Zoom and go to line are in; the current line was already banded. Still to do from item 4:
+matching bracket, other occurrences of the selected word, show whitespace and line endings,
+word wrap (the large one: every line-to-row mapping in `view.rs` changes).
+
+- Zoom: 50 to 400 % in steps of 10, kept in the session (`zoom=`), shown in the status strip
+  when it is not 100. Ctrl and the wheel, Ctrl+- and Ctrl+0 were run in a real window. Zoom in
+  by key is the shared "Ctrl++" (Ctrl+= on a US layout), which no key gives on a Turkish Q
+  layout; that binding was not run. `--zoom N` for shots.
+- Go to line: Ctrl+G types in the find box's place ("12", "12:5" or "12,5"); Enter goes there
+  and gives the keyboard back to the text, Escape leaves. Run in a real window by keys.
+- The main menu is as tall as an 800 px window now, so the zoom commands are not in it; the
+  next menu entry needs a submenu or a shorter menu.
+- `Cargo.toml` also builds `mdshared-app`, `winit` and `chardetng` for size: the exe is
+  5,933,056 bytes with these features, window shown 78 to 82 ms, keystroke p50 0.77 ms.
 
 ## Unsaved text survives a close (2026-11-13, roadmap item 3)
 

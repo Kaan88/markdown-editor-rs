@@ -19,6 +19,17 @@ pub const WHEEL_COLS: f64 = 3.0;
 pub const KEEP_LINES: f64 = 2.0;
 pub const KEEP_COLS: f64 = 4.0;
 
+/// The zoom percentages the text can have, and one step of Zoom in or out.
+pub const ZOOM_MIN: u32 = 50;
+pub const ZOOM_MAX: u32 = 400;
+pub const ZOOM_STEP: u32 = 10;
+
+/// The zoom one step in (`steps` > 0) or out from `zoom`, on the grid of steps and within limits.
+pub fn zoom_stepped(zoom: u32, steps: i32) -> u32 {
+    let on_grid = (zoom as i32 + ZOOM_STEP as i32 / 2) / ZOOM_STEP as i32 * ZOOM_STEP as i32;
+    (on_grid + steps * ZOOM_STEP as i32).clamp(ZOOM_MIN as i32, ZOOM_MAX as i32) as u32
+}
+
 /// The text size in logical px at a zoom percentage.
 pub fn font_px(zoom: u32) -> f32 {
     FONT_PX * zoom as f32 / 100.0
@@ -192,6 +203,17 @@ pub fn reveal_left(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zoom_steps_stay_on_the_grid_and_in_range() {
+        assert_eq!(zoom_stepped(100, 1), 110);
+        assert_eq!(zoom_stepped(100, -1), 90);
+        assert_eq!(zoom_stepped(100, 3), 130);
+        assert_eq!(zoom_stepped(104, 1), 110);
+        assert_eq!(zoom_stepped(ZOOM_MAX, 1), ZOOM_MAX);
+        assert_eq!(zoom_stepped(ZOOM_MIN, -5), ZOOM_MIN);
+        assert_eq!(font_px(150), 21.0);
+    }
 
     const LINES: usize = 1_852_171;
 

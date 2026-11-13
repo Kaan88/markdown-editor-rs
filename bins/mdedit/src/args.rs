@@ -72,6 +72,8 @@ pub struct Args {
     pub dialog: Option<ShotDialog>,
     /// `--hover x,y`: logical pointer position for `--shot`.
     pub hover: Option<(f32, f32)>,
+    /// `--zoom <50..400>`: the text size in percent, instead of the session's.
+    pub zoom: Option<u32>,
     /// `--maximize`: start maximized.
     pub maximize: bool,
     /// `--trace`: print start-up stages, load and first-frame times, memory and frame times on
@@ -149,6 +151,11 @@ impl Args {
                 "--files" => out.files_pane = Some(true),
                 "--no-files" => out.files_pane = Some(false),
                 "--maximize" => out.maximize = true,
+                "--zoom" => {
+                    out.zoom = checked(&a, value(&a), |v| {
+                        v.parse().ok().filter(|z| (50..=400).contains(z))
+                    })
+                }
                 "--match-case" => out.match_case = true,
                 "--whole-word" => out.whole_word = true,
                 "--regex" => out.regex = true,

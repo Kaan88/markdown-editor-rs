@@ -743,6 +743,17 @@ replaces all; Escape leaves the box, then closes the strip, then clears the quer
 replacement's line breaks become the document's. A pattern that does not compile shows "Not a
 valid pattern" where the count is.
 
+## 20. Zoom and go to line (2026-11-13)
+
+`Docs::zoom` is the text size in percent (the status strip reads it); `App::set_zoom` sets it
+and `View::zoom` together, and the view measures its metrics again. The scroll is in lines, so
+the first visible line stays. `metrics::zoom_stepped` keeps steps on a grid of 10 between 50
+and 400.
+
+Go to line is a third box of the bar, `BarField::Goto` with `Ui::goto`, drawn in the find
+box's frame while it has the keyboard (`Ui::going_to`). `strings::parse_line_col` reads it and
+`Docs::go_to` clamps the line and column to the text.
+
 ## 19. Unsaved text survives a close (2026-11-13)
 
 Closing the window with a session does not ask about unsaved changes: `App::request` with

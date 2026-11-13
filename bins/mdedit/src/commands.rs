@@ -36,6 +36,10 @@ pub enum CommandId {
     Replace,
     ReplaceNext,
     ReplaceAll,
+    GoToLine,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
     ClearSearch,
     ToggleFiles,
     NextTab,
@@ -108,6 +112,12 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::Replace, "Replace", &["Ctrl+H"]),
     cmd(C::ReplaceNext, "Replace and find next", &[]),
     cmd(C::ReplaceAll, "Replace all", &["Ctrl+Shift+Enter"]),
+    cmd(C::GoToLine, "Go to line", &["Ctrl+G"]),
+    // The shared key code takes Ctrl+= for this on US layouts. Where "+" and "=" are on digit
+    // keys (Turkish Q) no key gives it: Ctrl and the wheel does.
+    cmd(C::ZoomIn, "Zoom in", &["Ctrl++"]),
+    cmd(C::ZoomOut, "Zoom out", &["Ctrl+-"]),
+    cmd(C::ZoomReset, "Reset zoom", &["Ctrl+0"]),
     cmd(C::ClearSearch, "Clear search", &[]),
     cmd(C::ToggleFiles, "Files pane", &["Ctrl+Shift+1"]),
     cmd(C::NextTab, "Next tab", &["Ctrl+Tab"]),
@@ -164,6 +174,17 @@ pub mod strings {
     pub const RECENT_DONE: &str = "Done";
     pub const FIND_PLACEHOLDER: &str = "Find in file";
     pub const REPLACE_PLACEHOLDER: &str = "Replace with";
+    pub const GOTO_PLACEHOLDER: &str = "Go to line, or line:column";
+
+    /// The line and column "12", "12:5" or "12,5" names, both from 1.
+    pub fn parse_line_col(text: &str) -> Option<(usize, usize)> {
+        let text = text.trim();
+        let (line, col) = match text.split_once([':', ',']) {
+            Some((l, c)) => (l.trim(), c.trim().parse().ok()?),
+            None => (text, 1),
+        };
+        Some((line.parse().ok()?, col))
+    }
     pub const REPLACE_ONE: &str = "Replace";
     pub const REPLACE_ALL: &str = "Replace all";
     pub const BAD_PATTERN: &str = "Not a valid pattern";
@@ -256,6 +277,18 @@ pub mod strings {
 mod tests {
     use super::strings::*;
     use super::*;
+
+    #[test]
+    fn lines_and_columns_are_read() {
+        use strings::parse_line_col as p;
+        assert_eq!(p("12"), Some((12, 1)));
+        assert_eq!(p(" 12 : 5 "), Some((12, 5)));
+        assert_eq!(p("12,5"), Some((12, 5)));
+        assert_eq!(p(""), None);
+        assert_eq!(p("x"), None);
+        assert_eq!(p("12:"), None);
+        assert_eq!(p("-3"), None);
+    }
 
     #[test]
     fn find_counter_strings() {

@@ -571,6 +571,8 @@ pub struct Docs {
     pub recents: Recents,
     pub folder: Option<PathBuf>,
     pub theme: ThemeChoice,
+    /// The text size, percent; the view draws at it and the status strip shows it.
+    pub zoom: u32,
     opts: LoadOptions,
     waker: Waker,
     load_tx: Sender<LoadDone>,
@@ -593,6 +595,7 @@ impl Docs {
             recents: Recents::default(),
             folder: None,
             theme: ThemeChoice::System,
+            zoom: 100,
             opts: LoadOptions {
                 legacy: mdedit_core::encoding::legacy_for_code_page(code_page),
                 max_bytes: MAX_FILE_BYTES,
@@ -1210,6 +1213,22 @@ impl Docs {
             None => {}
         }
         changed
+    }
+
+    /// Puts the caret of the active document at a line and column, both from 1 and clamped to
+    /// the text, and shows it. False without a document.
+    pub fn go_to(&mut self, line: usize, col: usize) -> bool {
+        let Some(r) = self.active_ready_mut() else {
+            return false;
+        };
+        let line = line.clamp(1, r.buffer.len_lines().max(1)) - 1;
+        let range = r.buffer.line_range(line);
+        let at = (range.start + col.saturating_sub(1)).min(range.end);
+        let at = r.buffer.snap_to_grapheme(at).min(range.end);
+        r.history.seal();
+        r.sel = Selection::at(at);
+        crate::view::reveal(r, at, true);
+        true
     }
 
     /// Ends the current undo step of the active document (the caret moved, the focus left).
@@ -1885,6 +1904,24 @@ mod tests {
         e.close(u, None);
         assert!(e.write_backups(&backup).unwrap().is_empty());
         assert_eq!(std::fs::read_dir(&backup).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn go_to_clamps_to_the_text() {
+        let (mut d, i, _path, dir) = file_docs("goto", "one\nçay two\nthree".as_bytes());
+        let caret = |d: &Docs| d.tabs[i].ready().unwrap().sel.caret;
+        assert!(d.go_to(2, 1));
+        assert_eq!(caret(&d), 4);
+        // A column inside a character goes to its start; one past the end, to the line's end.
+        assert!(d.go_to(2, 2));
+        assert_eq!(caret(&d), 4);
+        assert!(d.go_to(2, 99));
+        assert_eq!(caret(&d), 12);
+        assert!(d.go_to(0, 0));
+        assert_eq!(caret(&d), 0);
+        assert!(d.go_to(99, 3));
+        assert_eq!(caret(&d), 15);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

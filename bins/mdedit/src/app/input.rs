@@ -408,10 +408,12 @@ impl App {
                 self.caret_reset();
             }
             Hit::Find | Hit::Replace => {
-                self.ui.focus_field(if hit == Hit::Find {
-                    BarField::Find
-                } else {
+                self.ui.focus_field(if hit == Hit::Replace {
                     BarField::Replace
+                } else if self.ui.going_to() {
+                    BarField::Goto
+                } else {
+                    BarField::Find
                 });
                 let Some(area) = self.field_area() else {
                     return;
@@ -498,6 +500,8 @@ impl App {
                 // The box takes the focus and keeps its selection, so Cut and Copy act on it.
                 self.ui.focus_field(if h == Hit::Replace {
                     BarField::Replace
+                } else if self.ui.going_to() {
+                    BarField::Goto
                 } else {
                     BarField::Find
                 });
@@ -564,6 +568,17 @@ impl App {
             return;
         }
         if !self.areas.text.contains(x, y) {
+            return;
+        }
+        // Ctrl and the wheel change the text size, a step per notch.
+        if self.mods.ctrl {
+            let steps = match pixels {
+                Some((_, py)) => (py / 40.0).round() as i32,
+                None => ny.round() as i32,
+            };
+            if steps != 0 {
+                self.set_zoom(metrics::zoom_stepped(self.docs.zoom, steps));
+            }
             return;
         }
         let line_h = self.view.metrics(self.scale).line_h as f64;
@@ -794,15 +809,34 @@ impl App {
                 self.command(C::ReplaceNext);
                 return true;
             }
+            (KeyName::Enter, _) if which == BarField::Goto => {
+                // A line that reads as one is gone to and the keyboard is the text's again;
+                // anything else stays to be corrected.
+                if let Some((line, col)) = strings::parse_line_col(self.ui.goto.text())
+                    && self.docs.go_to(line, col)
+                {
+                    self.ui.goto.clear();
+                    self.ui.field = BarField::Find;
+                    self.ui.find_focused = false;
+                }
+                self.caret_reset();
+                return true;
+            }
+            (KeyName::Escape, _) if which == BarField::Goto => {
+                self.ui.field = BarField::Find;
+                self.ui.find_focused = false;
+                self.caret_reset();
+                return true;
+            }
             (KeyName::Enter, _) => {
                 self.docs.find_step(!mods.shift);
                 return true;
             }
-            (KeyName::Tab, false) if replace_open => {
+            (KeyName::Tab, false) if replace_open && which != BarField::Goto => {
                 // Between the two boxes.
                 self.ui.field = match which {
                     BarField::Find => BarField::Replace,
-                    BarField::Replace => BarField::Find,
+                    _ => BarField::Find,
                 };
                 self.ui.field_mut().select_all();
                 self.caret_reset();

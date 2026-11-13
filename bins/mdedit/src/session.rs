@@ -92,6 +92,8 @@ pub struct Session {
     pub active: usize,
     pub recent: Recents,
     pub theme: ThemeChoice,
+    /// The text size, percent.
+    pub zoom: u32,
     /// `WxH[ max][ @x,y]`, the viewer's format.
     pub geometry: String,
     /// Whether the Files pane shows; `None` when never set.
@@ -113,6 +115,7 @@ impl Default for Session {
             active: 0,
             recent: Recents::default(),
             theme: ThemeChoice::default(),
+            zoom: 100,
             geometry: String::new(),
             files: None,
             files_w: None,
@@ -151,6 +154,14 @@ impl Session {
                     "active" => s.active = value.trim().parse().unwrap_or(0),
                     "theme" => {
                         s.theme = ThemeChoice::from_setting(value.trim().parse().unwrap_or(0))
+                    }
+                    "zoom" => {
+                        s.zoom = value
+                            .trim()
+                            .parse()
+                            .ok()
+                            .filter(|z| (50..=400).contains(z))
+                            .unwrap_or(100)
                     }
                     "geometry" => s.geometry = unescape(value),
                     "files" => {
@@ -195,6 +206,9 @@ impl Session {
             out.line("recent", &encode_path(r));
         }
         out.line("theme", &self.theme.to_setting().to_string());
+        if self.zoom != 100 {
+            out.line("zoom", &self.zoom.to_string());
+        }
         if !self.geometry.is_empty() {
             out.line("geometry", &escape(&self.geometry));
         }

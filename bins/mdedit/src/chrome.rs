@@ -385,7 +385,7 @@ pub fn find_parts(frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
 pub fn field_parts(which: BarField, frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
     match which {
         BarField::Find => find_parts(frame, has_text),
-        BarField::Replace => (
+        BarField::Replace | BarField::Goto => (
             Rect::new(
                 frame.x + 10.0,
                 frame.y + 1.0,
@@ -614,6 +614,10 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     button(c, rx, BarItem::FindPrev, glyph::UP, None, false);
     rx -= plan.find_w + 4.0;
     let frame = Rect::new(rx, y, plan.find_w, 32.0);
+    if ui.going_to() {
+        draw_field(c, &mut ui.goto, true, ui.caret_on, frame, BarField::Goto);
+        return;
+    }
     let focused = ui.find_focused && ui.field == BarField::Find;
     draw_field(c, &mut ui.find, focused, ui.caret_on, frame, BarField::Find);
     if plan.count && t.count > 0.0 {
@@ -682,10 +686,10 @@ fn draw_field(
         Face::Ui,
         13.0,
         &colors,
-        if find {
-            strings::FIND_PLACEHOLDER
-        } else {
-            strings::REPLACE_PLACEHOLDER
+        match which {
+            BarField::Find => strings::FIND_PLACEHOLDER,
+            BarField::Replace => strings::REPLACE_PLACEHOLDER,
+            BarField::Goto => strings::GOTO_PLACEHOLDER,
         },
         focused,
         caret_on,
