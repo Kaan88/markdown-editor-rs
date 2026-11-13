@@ -202,10 +202,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 271 passed on 2026-11-13
+cargo test --release --workspace        # 275 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 43 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 45 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -234,9 +234,18 @@ from converting them.
 
 ## View aids, first part (2026-11-13, roadmap item 4)
 
-Zoom and go to line are in; the current line was already banded. Still to do from item 4:
-matching bracket, other occurrences of the selected word, show whitespace and line endings,
-word wrap (the large one: every line-to-row mapping in `view.rs` changes).
+Zoom, go to line, the matching bracket and the other occurrences of the selected word are in;
+the current line was already banded. Still to do from item 4: show whitespace and line
+endings, and word wrap (the large one: every line-to-row mapping in `view.rs` changes).
+
+- Matching bracket: with nothing selected, the bracket after the caret (else the one before
+  it) and its partner get a grey box. `()`, `[]`, `{}` by nesting of the same kind, looked for
+  within 64 KiB each way, strings and comments not told apart. There is no "go to matching
+  bracket" command.
+- Selected word: when the selection is one whole word (letters, digits, `_`, up to 128
+  bytes), its other whole-word occurrences on the visible lines are tinted, case sensitive,
+  on lines up to 8192 bytes. Neither aid has a setting to turn it off.
+- Both were seen in shots only (`bracket`, `twins-dark`), not in a real window.
 
 - Zoom: 50 to 400 % in steps of 10, kept in the session (`zoom=`), shown in the status strip
   when it is not 100. Ctrl and the wheel, Ctrl+- and Ctrl+0 were run in a real window. Zoom in

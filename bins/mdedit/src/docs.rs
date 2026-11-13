@@ -225,6 +225,9 @@ impl FindState {
     }
 }
 
+/// A revision and caret, and the bracket pair found there.
+type BracketAt = (u64, usize, Option<(usize, usize)>);
+
 pub struct Ready {
     pub buffer: Buffer,
     /// The document revision this text was loaded at. A reload bumps the document's revision at
@@ -243,6 +246,8 @@ pub struct Ready {
     pub left: f64,
     pub colors: LineColors,
     pub find: FindState,
+    /// The bracket pair at the caret, kept for the revision and caret it was found at.
+    bracket: std::cell::Cell<Option<BracketAt>>,
     /// Chunk indexes of long lines, per line, the most recently used
     /// [`CHUNK_INDEXES`](crate::view::CHUNK_INDEXES). A reload makes a new `Ready`, so they are
     /// per revision.
@@ -258,6 +263,46 @@ pub struct Ready {
 }
 
 impl Ready {
+    /// The bracket at the caret and its partner, as byte offsets, when nothing is selected.
+    pub fn brackets(&self) -> Option<(usize, usize)> {
+        if !self.sel.range().is_empty() {
+            return None;
+        }
+        let (revision, caret) = (self.revision, self.sel.caret);
+        if let Some((r, c, found)) = self.bracket.get()
+            && (r, c) == (revision, caret)
+        {
+            return found;
+        }
+        let found = mdedit_core::bracket::matching(
+            self.buffer.rope(),
+            caret,
+            mdedit_core::limits::BRACKET_SCAN,
+        );
+        self.bracket.set(Some((revision, caret, found)));
+        found
+    }
+
+    /// The selection when it is one whole word on one line: its other occurrences are marked.
+    pub fn twin_word(&self) -> Option<String> {
+        let sel = self.sel.range();
+        if sel.is_empty() || sel.len() > mdedit_core::limits::TWIN_WORD_MAX {
+            return None;
+        }
+        let word_char = |c: char| c.is_alphanumeric() || c == '_';
+        let mut word = String::new();
+        self.buffer.text(sel.clone(), &mut word);
+        if !word.chars().all(word_char) {
+            return None;
+        }
+        // Whole: no word character touches it on either side.
+        let rope = self.buffer.rope();
+        let (a, b) = (rope.byte_to_char(sel.start), rope.byte_to_char(sel.end));
+        let before = a.checked_sub(1).map(|i| rope.char(i));
+        let after = (b < rope.len_chars()).then(|| rope.char(b));
+        (!before.is_some_and(word_char) && !after.is_some_and(word_char)).then_some(word)
+    }
+
     /// Puts unsaved text back over the text just read, as one edit: Undo gives the file's text.
     fn put_back(&mut self, text: &str) {
         if self.info.lossy {
@@ -296,6 +341,7 @@ impl Ready {
             left: 0.0,
             colors: LineColors::default(),
             find: FindState::default(),
+            bracket: std::cell::Cell::new(None),
             chunks: Lru::new(crate::view::CHUNK_INDEXES),
             widest: 0.0,
             view_lines: 30.0,
@@ -1904,6 +1950,44 @@ mod tests {
         e.close(u, None);
         assert!(e.write_backups(&backup).unwrap().is_empty());
         assert_eq!(std::fs::read_dir(&backup).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn brackets_and_twin_words_come_from_the_selection() {
+        let (mut d, i, _path, dir) = file_docs("aids", b"foo(bar) foo_bar foo\n");
+        let set = |d: &mut Docs, a: usize, c: usize| {
+            d.tabs[i].ready_mut().unwrap().sel = Selection {
+                anchor: a,
+                caret: c,
+                goal_col: None,
+            };
+        };
+        let r = |d: &Docs| d.tabs[i].ready().unwrap().brackets();
+        set(&mut d, 3, 3);
+        assert_eq!(r(&d), Some((3, 7)));
+        set(&mut d, 8, 8);
+        assert_eq!(r(&d), Some((7, 3)));
+        set(&mut d, 0, 0);
+        assert_eq!(r(&d), None);
+        // An edit moves the pair: the answer is found again.
+        set(&mut d, 4, 4);
+        assert!(d.edit(EditOp::Insert("("), None));
+        assert_eq!(r(&d), Some((4, 8)));
+        assert!(d.edit(EditOp::Undo, None));
+        // A selection has no bracket pair, and marks its twins when it is a whole word.
+        set(&mut d, 0, 3);
+        assert_eq!(r(&d), None);
+        let w = |d: &Docs| d.tabs[i].ready().unwrap().twin_word();
+        assert_eq!(w(&d).as_deref(), Some("foo"));
+        set(&mut d, 0, 2);
+        assert_eq!(w(&d), None);
+        set(&mut d, 9, 12);
+        assert_eq!(w(&d), None);
+        set(&mut d, 3, 8);
+        assert_eq!(w(&d), None);
+        set(&mut d, 17, 20);
+        assert_eq!(w(&d).as_deref(), Some("foo"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

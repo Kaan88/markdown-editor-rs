@@ -37,6 +37,12 @@ pub const FIND_CAP: usize = 10_000;
 /// A search gives up (capped) after comparing this many characters per byte of text, so a long
 /// query against text that nearly matches everywhere cannot run away.
 pub const FIND_WORK_PER_BYTE: usize = 64;
+/// How far from the caret the partner of a bracket is looked for, in bytes each way.
+pub const BRACKET_SCAN: usize = 1 << 16;
+/// The longest selection, in bytes, whose other occurrences are marked, and the longest line
+/// they are looked for in.
+pub const TWIN_WORD_MAX: usize = 128;
+pub const TWIN_LINE_MAX: usize = 8192;
 /// A line longer than this many bytes (without its break) is skipped by regex find, so one huge
 /// line cannot hold a search; plain and whole-word find are not limited by it.
 pub const REGEX_LINE_MAX: usize = 1 << 20;

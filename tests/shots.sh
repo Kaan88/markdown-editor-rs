@@ -77,6 +77,8 @@ shot replace-dark --dark --find '(\w+)_(\w+)' --regex --match-case --replace '$2
 shot replace-bad-pattern --light --find '(self' --regex --replace x "$fx/sample.rs"
 shot replace-narrow --light --size 520x600 --find self --replace this "$fx/sample.rs"
 shot zoom --light --zoom 150 --goto 30:9 "$fx/sample.rs"
+shot bracket --light --goto 17:41 "$fx/sample.rs"
+shot twins-dark --dark --select 28:19-28:23 "$fx/sample.rs"
 shot dialog-about --dark --dialog about "$fx/sample.rs"
 shot dialog-shortcuts --light --dialog shortcuts "$fx/sample.rs"
 shot dialog-recent --light --dialog recent "$fx/sample.rs" "$fx/sample.md" "$fx/cjk.txt"

@@ -5,6 +5,7 @@
 //! Positions are byte offsets into the buffer's UTF-8 text, always on a `char` boundary. Lines
 //! are 0-based here; the status area shows them 1-based. `docs/DESIGN.md` has the full contract.
 
+pub mod bracket;
 pub mod buffer;
 pub mod display;
 pub mod edit;

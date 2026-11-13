@@ -525,6 +525,7 @@ impl App {
                             r.find.generation,
                             r.colors.generation,
                             (r.widest.to_bits(), r.buffer.len_lines()),
+                            r.brackets(),
                         ))
                     }
                 };

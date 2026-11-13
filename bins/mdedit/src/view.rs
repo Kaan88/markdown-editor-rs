@@ -17,6 +17,7 @@ use crate::chrome::Ctx;
 use crate::docs::{Doc, DocState, Ready};
 use cache::Lru;
 use mdedit_core::display::{ChunkIndex, ChunkStart, Cols, DisplayLine};
+use mdedit_core::limits::TWIN_LINE_MAX;
 use mdedit_core::limits::{TAB_WIDTH, WHOLE_LINE_BYTES};
 use mdedit_highlight::{Span, foreground};
 use mdshared_text::{TextEngine, shared_fonts};
@@ -609,6 +610,11 @@ impl View {
             .and_then(|k| r.find.matches.get(k))
             .is_some_and(|m| *m == sel);
         let caret_line = r.buffer.line_of(r.sel.caret);
+        // The bracket pair at the caret, and the selected word whose other occurrences show.
+        let brackets = r.brackets().map(|(a, b)| [a, b]);
+        let twin = (!sel_is_current).then(|| r.twin_word()).flatten();
+        let mut line_text = String::new();
+        let bracket_c = mix(pal.page, pal.text, 0.22);
         let vis = visible(r.top, g.view_lines, g.lines);
         // The horizontal view, device px from column 0.
         let xs = {
@@ -645,6 +651,21 @@ impl View {
                 .enumerate()
                 .map(|(k, m)| (m.clone(), r.find.current == Some(first_mark + k)))
                 .collect();
+            // Other occurrences of the selected word on this line, as whole words.
+            let mut twins: Vec<Range<usize>> = Vec::new();
+            if let Some(word) = twin.as_deref().filter(|_| range.len() <= TWIN_LINE_MAX) {
+                line_text.clear();
+                r.buffer.text(range.clone(), &mut line_text);
+                let word_char = |c: char| c.is_alphanumeric() || c == '_';
+                for (k, _) in line_text.match_indices(word) {
+                    let end = k + word.len();
+                    let whole = !line_text[..k].chars().next_back().is_some_and(word_char)
+                        && !line_text[end..].chars().next().is_some_and(word_char);
+                    if whole && range.start + k != sel.start {
+                        twins.push(range.start + k..range.start + end);
+                    }
+                }
+            }
             for chunk in shown {
                 let shaped = self.shaped(r, i, chunk, s.dark);
                 let (ch, end) = (chunk.start, chunk.end);
@@ -676,6 +697,20 @@ impl View {
                             b
                         };
                         fill_clipped(c, (a, y, b, y + lh), text_clip, col, alpha);
+                    }
+                }
+                for t in &twins {
+                    if let Some((a, b)) = span(t.start, t.end) {
+                        fill_clipped(c, (a, y, b, y + lh), text_clip, pal.selection, 0.16);
+                    }
+                }
+                for &o in brackets.iter().flatten() {
+                    if range.contains(&o)
+                        && o >= ch.offset
+                        && o < end
+                        && let Some((a, b)) = span(o, o + 1)
+                    {
+                        fill_clipped(c, (a, y, b, y + lh), text_clip, bracket_c, 1.0);
                     }
                 }
                 // A selection that is the current match shows as the match alone.

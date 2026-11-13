@@ -754,6 +754,14 @@ Go to line is a third box of the bar, `BarField::Goto` with `Ui::goto`, drawn in
 box's frame while it has the keyboard (`Ui::going_to`). `strings::parse_line_col` reads it and
 `Docs::go_to` clamps the line and column to the text.
 
+## 21. Matching bracket and twin words (2026-11-13)
+
+`mdedit_core::bracket::matching` finds the pair. `Ready::brackets` keeps the answer for the
+revision and caret (a `Cell`, so the text region's signature can ask too: a change of pair
+repaints the whole text, since the partner may be on any line). `Ready::twin_word` gives the
+selected whole word; `View::draw` looks for it in each visible line's text and tints the
+matches under the glyphs, after the find marks and before the selection.
+
 ## 19. Unsaved text survives a close (2026-11-13)
 
 Closing the window with a session does not ask about unsaved changes: `App::request` with
