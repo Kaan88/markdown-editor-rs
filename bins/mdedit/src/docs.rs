@@ -854,6 +854,8 @@ pub struct Docs {
     pub zoom: u32,
     /// Spaces, tabs and line endings show as marks.
     pub whitespace: bool,
+    /// A macro is being recorded (the status strip says so).
+    pub recording: bool,
     /// Lines longer than the view go on in rows below (word wrap).
     pub wrap: bool,
     opts: LoadOptions,
@@ -880,6 +882,7 @@ impl Docs {
             theme: ThemeChoice::System,
             zoom: 100,
             whitespace: false,
+            recording: false,
             wrap: false,
             opts: LoadOptions {
                 legacy: mdedit_core::encoding::legacy_for_code_page(code_page),

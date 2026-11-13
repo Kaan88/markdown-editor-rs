@@ -115,6 +115,9 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
                 String::new()
             };
             let mut right = Vec::new();
+            if docs.recording {
+                right.push("Recording".to_string());
+            }
             if docs.zoom != 100 {
                 right.push(format!("{}%", docs.zoom));
             }

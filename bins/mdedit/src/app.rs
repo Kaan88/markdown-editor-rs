@@ -155,6 +155,7 @@ struct App {
     steps: Option<u32>,
     step_down: bool,
     step_times: Vec<FrameTimes>,
+    macros: crate::macros::Macros,
     /// `--type-steps`: keystrokes left and typed, each one's time from keystroke to pixels (ms),
     /// and the part of it spent in the edit itself.
     type_steps: Option<u32>,
@@ -241,6 +242,7 @@ impl App {
             exit_due: None,
             step_down: true,
             step_times: Vec::new(),
+            macros: crate::macros::Macros::default(),
             settled: false,
             load_traced: false,
             colours_traced: false,
@@ -1574,6 +1576,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotMenu::Main) => app.open_popup(PopupKind::Main),
         Some(ShotMenu::Recent) => app.open_popup(PopupKind::Recent),
         Some(ShotMenu::View) => app.open_popup(PopupKind::View),
+        Some(ShotMenu::Macro) => app.open_popup(PopupKind::Macro),
         Some(ShotMenu::Eol) => app.open_popup(PopupKind::Eol),
         Some(ShotMenu::Encoding) => app.open_popup(PopupKind::Encoding),
         Some(ShotMenu::Tab) => {

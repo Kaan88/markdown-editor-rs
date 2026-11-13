@@ -54,6 +54,9 @@ pub enum CommandId {
     ToggleFold,
     FoldAll,
     UnfoldAll,
+    RecordMacro,
+    PlayMacro,
+    PlayMacroToEnd,
     ClearSearch,
     ToggleFiles,
     ToggleOutline,
@@ -147,6 +150,13 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ToggleFold, "Fold or open the block", &["F9"]),
     cmd(C::FoldAll, "Fold all blocks", &["Shift+F9"]),
     cmd(C::UnfoldAll, "Open all folds", &["Ctrl+F9"]),
+    cmd(C::RecordMacro, "Record a macro, or stop", &["Ctrl+Shift+R"]),
+    cmd(C::PlayMacro, "Play the macro", &["Ctrl+Shift+P"]),
+    cmd(
+        C::PlayMacroToEnd,
+        "Play the macro to the end of the file",
+        &[],
+    ),
     cmd(C::ClearSearch, "Clear search", &[]),
     cmd(C::ToggleFiles, "Files pane", &["Ctrl+Shift+1"]),
     cmd(C::ToggleOutline, "Function list", &["Ctrl+Shift+2"]),
@@ -225,6 +235,24 @@ pub mod strings {
     pub const RESULT_TAB_CLOSED: &str = "That tab is closed.";
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
     pub const NO_BLOCK: &str = "Nothing to fold here: no lines below are indented more.";
+    pub const MACRO_RECORDING: &str = "Recording the keys you press. Ctrl+Shift+R stops.";
+    pub const MACRO_EMPTY: &str = "No key was pressed: nothing recorded.";
+    pub const NO_MACRO: &str = "No macro yet. Ctrl+Shift+R records one.";
+    pub const MACRO_BUSY: &str = "Still recording. Ctrl+Shift+R stops.";
+
+    pub fn macro_recorded(keys: usize) -> String {
+        match keys {
+            1 => "Macro recorded: 1 key. Ctrl+Shift+P plays it.".to_string(),
+            n => format!("Macro recorded: {n} keys. Ctrl+Shift+P plays it."),
+        }
+    }
+
+    pub fn macro_ran(runs: usize) -> String {
+        match runs {
+            1 => "The macro ran once.".to_string(),
+            n => format!("The macro ran {n} times."),
+        }
+    }
     pub const NO_BLOCKS: &str = "Nothing to fold: no line has indented lines under it.";
     pub const FOLD_ALL_PART: &str = "Folded the first 200,000 lines; the rest was left alone.";
 

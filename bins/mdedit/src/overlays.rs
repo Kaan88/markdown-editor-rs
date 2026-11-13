@@ -38,7 +38,6 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .icon(glyph::RECENT)
             .hint("›")
             .enabled(!docs.recents.is_empty()),
-        cmd(C::ManageRecent, "Manage recent files…", ""),
         cmd(C::Save, "Save", "").sep().enabled(modified),
         cmd(C::SaveAs, "Save as…", "").enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD).enabled(has_tab),
@@ -48,6 +47,7 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         cmd(C::Replace, "Replace…", "").enabled(has_tab),
         cmd(C::GoToLine, "Go to line…", "").enabled(has_tab),
         Item::new(Act::ViewMenu, "View").hint("›"),
+        Item::new(Act::MacroMenu, "Macro").hint("›"),
         theme(ThemeChoice::System, "System theme").sep(),
         theme(ThemeChoice::Light, "Light theme"),
         theme(ThemeChoice::Dark, "Dark theme"),
@@ -89,6 +89,21 @@ pub fn recent_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> 
             .icon(glyph::DELETE)
             .enabled(any),
     );
+    Menu::new(items, x, y, align_right)
+}
+
+/// The Macro menu, opened from the main menu in its place.
+pub fn macro_menu(recording: bool, any: bool, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    let record = if recording {
+        "Stop recording"
+    } else {
+        "Record a macro"
+    };
+    let items = vec![
+        cmd(C::RecordMacro, record, ""),
+        cmd(C::PlayMacro, "Play the macro", "").enabled(any && !recording),
+        cmd(C::PlayMacroToEnd, "Play it to the end of the file", "").enabled(any && !recording),
+    ];
     Menu::new(items, x, y, align_right)
 }
 

@@ -765,6 +765,10 @@ impl App {
             }
             return;
         }
+        if self.macros.recording.is_some() {
+            let command = keys::command_for(&key, mods);
+            self.macros.note(&key, mods, typed, command);
+        }
         if self.ui.find_focused
             && let Some(n) = &name
             && self.find_key(n, mods, typed)

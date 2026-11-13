@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShotMenu {
+    Macro,
     Eol,
     Encoding,
     View,
@@ -239,6 +240,7 @@ impl Args {
                         "main" => Some(ShotMenu::Main),
                         "recent" => Some(ShotMenu::Recent),
                         "view" => Some(ShotMenu::View),
+                        "macro" => Some(ShotMenu::Macro),
                         "eol" => Some(ShotMenu::Eol),
                         "encoding" => Some(ShotMenu::Encoding),
                         "tab" => Some(ShotMenu::Tab),

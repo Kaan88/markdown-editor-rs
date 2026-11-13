@@ -230,6 +230,7 @@ impl App {
             Act::Recent(path) => self.open(&path),
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
+            Act::MacroMenu => self.open_popup(PopupKind::Macro),
             Act::Eol(to) => {
                 self.docs.seal();
                 self.edit(EditOp::LineEndings(to));
@@ -629,7 +630,9 @@ impl App {
         }
         // From the main menu, Recent replaces it in place.
         let (x, y, right) = match (&self.ui.popup, kind) {
-            (Some(p), PopupKind::Recent | PopupKind::View) if p.kind == PopupKind::Main => {
+            (Some(p), PopupKind::Recent | PopupKind::View | PopupKind::Macro)
+                if p.kind == PopupKind::Main =>
+            {
                 let r = p.menu.rect();
                 (r.right(), r.y, true)
             }
@@ -639,6 +642,13 @@ impl App {
             PopupKind::Main => overlays::main_menu(&self.docs, x, y),
             PopupKind::Recent => overlays::recent_menu(&self.docs, x, y, right),
             PopupKind::View => overlays::view_menu(&self.docs, &self.ui, x, y, right),
+            PopupKind::Macro => {
+                let (recording, any) = (
+                    self.macros.recording.is_some(),
+                    !self.macros.steps.is_empty(),
+                );
+                overlays::macro_menu(recording, any, x, y, right)
+            }
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return,
@@ -931,6 +941,21 @@ impl App {
                     r.unfold_all();
                 }
             }
+            C::RecordMacro if self.macros.playing => {}
+            C::RecordMacro => {
+                if self.macros.recording.is_some() {
+                    match self.macros.finish() {
+                        0 => self.docs.set_toast(strings::MACRO_EMPTY),
+                        n => self.docs.set_toast(&strings::macro_recorded(n)),
+                    }
+                } else {
+                    self.macros.recording = Some(Vec::new());
+                    self.docs.set_toast(strings::MACRO_RECORDING);
+                }
+                self.docs.recording = self.macros.recording.is_some();
+            }
+            C::PlayMacro => self.play_macro(false),
+            C::PlayMacroToEnd => self.play_macro(true),
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
             C::NextTab => self.docs.step_tab(true),
@@ -947,6 +972,62 @@ impl App {
     }
 
     /// Escape peels one layer: a menu, a dialog, the find box's focus, the find, the selection.
+    /// Plays the macro once, or again and again for as long as each run leaves the caret on
+    /// a later line than the one before (a macro that ends with Down goes through the file).
+    /// A question or a menu that a key opens ends it.
+    fn play_macro(&mut self, to_end: bool) {
+        if self.macros.playing {
+            return;
+        }
+        if self.macros.recording.is_some() {
+            self.docs.set_toast(strings::MACRO_BUSY);
+            return;
+        }
+        if self.macros.steps.is_empty() {
+            self.docs.set_toast(strings::NO_MACRO);
+            return;
+        }
+        let steps = self.macros.steps.clone();
+        let mods = self.mods;
+        self.macros.playing = true;
+        let line = |app: &Self| {
+            app.docs
+                .active_ready()
+                .map(|r| r.buffer.line_of(r.sel.caret))
+        };
+        let mut runs = 0;
+        'runs: loop {
+            let before = line(self);
+            for step in &steps {
+                self.mods = step.mods;
+                self.key_pressed(step.key.clone(), step.typed.as_deref());
+                if self.ui.dialog.is_some() || self.ui.popup.is_some() {
+                    break 'runs;
+                }
+            }
+            runs += 1;
+            if !to_end || runs >= crate::macros::RUNS_MAX {
+                break;
+            }
+            if line(self).zip(before).is_none_or(|(now, was)| now <= was) {
+                break;
+            }
+            // The empty line after the file's last line break is not one more line to do.
+            if self.docs.active_ready().is_some_and(|r| {
+                let last = r.buffer.len_lines().saturating_sub(1);
+                r.buffer.line_of(r.sel.caret) == last && r.buffer.line_range(last).is_empty()
+            }) {
+                break;
+            }
+        }
+        self.mods = mods;
+        self.macros.playing = false;
+        if to_end {
+            self.docs.set_toast(&strings::macro_ran(runs));
+        }
+        self.caret_reset();
+    }
+
     pub(super) fn escape(&mut self) {
         if self.ui.popup.take().is_some() {
             return;

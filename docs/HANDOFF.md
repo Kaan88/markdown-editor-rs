@@ -198,8 +198,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 9 are done; next is
-   item 10, macro record and playback, then split view.
+2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 9 are done and the
+   macros of item 10; what is left of the roadmap is split view.
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -214,10 +214,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 376 passed on 2026-11-13
+cargo test --release --workspace        # 377 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 59 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 60 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -243,6 +243,42 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Macros (2026-11-13, the first half of roadmap item 10)
+
+`bins/mdedit/src/macros.rs`; `App::play_macro` in `app/commands.rs`. Written in the main
+session.
+
+- Ctrl+Shift+R starts recording and stops it; Ctrl+Shift+P plays the macro. "Play it to
+  the end of the file" has no key. The three are in a new "Macro" entry of the main menu,
+  which replaces it in place as "View" does. While recording, the status strip says
+  "Recording".
+- A macro is the keys pressed while recording (key, modifiers, the text typed), given again
+  to `key_pressed`. So it holds typing, caret moves, the editing commands and what was typed
+  in the find box. Not in it: the mouse, what was chosen from a menu, and the commands that
+  open a dialog or change tabs, files or the look (`macros::recordable`). At most 10,000
+  keys.
+- "To the end of the file" plays again for as long as a run leaves the caret on a later
+  line than the run before, and stops on the empty line after the last line break; at most
+  100,000 runs. A macro that does not end one line further down runs once. It runs on the UI
+  thread and cannot be stopped; the window waits.
+- A question or menu that a key of the macro opens ends the playback.
+- There is one macro, kept in memory: not saved, not named, gone when the editor closes.
+  Each key is its own undo step, as when typed; one Undo does not take a whole run back.
+- A search in a file over the size searched at once (`SYNC_FIND_BYTES`) runs on a worker, so
+  a macro that searches there would go on before the search is done. Not tried.
+- Decision made without the user: "Manage recent files…" left the main menu to make room
+  (it is still in "Open recent"), since the menu was as tall as an 800 px window.
+- Run in a real window on Windows: Ctrl+Shift+R, Home, "- ", End, ";", Down, Ctrl+Shift+R,
+  Ctrl+Shift+P twice, Ctrl+S (three lines changed); and a macro played to the end of the
+  file from the menu (a click on the menu button, then arrow keys and Enter), on a file
+  with and one without a last line break: every line changed once. Not run: recording over
+  the cap, a macro with a search, playback on a large file, the "Recording" field (no shot
+  has it).
+- Measured after: exe 5,984,256 bytes; window shown 77 to 78 ms; private memory 27.5 to
+  28.0 MiB; keystroke p50 0.49 ms. 377 tests, clippy and fmt clean; the shots are
+  byte-identical to the build before but `menu-main` and `dialog-shortcuts`; `menu-macro`
+  is new (60 shots).
 
 ## Code folding (2026-11-13, the rest of roadmap item 9)
 

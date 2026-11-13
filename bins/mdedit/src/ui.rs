@@ -210,6 +210,8 @@ pub enum Act {
     RecentMenu,
     /// Replace the open menu by the View menu.
     ViewMenu,
+    /// Replace the open menu by the Macro menu.
+    MacroMenu,
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").
     Eol(&'static str),
     /// Save the document in this encoding from now on.
@@ -237,6 +239,8 @@ pub enum PopupKind {
     Recent,
     /// What shows and how: the Files pane, whitespace, zoom.
     View,
+    /// Record and play.
+    Macro,
     /// The status strip's menus.
     Eol,
     Encoding,
