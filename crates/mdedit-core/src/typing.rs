@@ -202,27 +202,28 @@ impl Assist {
 // ---- the machinery: acts, and applying them as one step
 
 /// One replacement, in the offsets of the text before the edit.
-struct Edit {
-    start: usize,
-    end: usize,
-    text: String,
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct Edit {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) text: String,
 }
 
 /// What one selection does. A position of the selection afterwards is `(offset, extra)`: the
 /// offset in the old text mapped through the edits (an insertion at the offset stays after it),
 /// plus `extra` bytes.
-struct Act {
-    edits: Vec<Edit>,
-    anchor: (usize, usize),
-    caret: (usize, usize),
+pub(crate) struct Act {
+    pub(crate) edits: Vec<Edit>,
+    pub(crate) anchor: (usize, usize),
+    pub(crate) caret: (usize, usize),
     /// Not the plain edit.
-    special: bool,
+    pub(crate) special: bool,
     /// A single insertion of typed text that may join a typing run.
-    typing: bool,
+    pub(crate) typing: bool,
 }
 
 impl Act {
-    fn replace(r: Range<usize>, text: &str, caret_extra: usize, special: bool) -> Act {
+    pub(crate) fn replace(r: Range<usize>, text: &str, caret_extra: usize, special: bool) -> Act {
         let at = (r.start, caret_extra);
         Act {
             edits: vec![Edit {
@@ -263,7 +264,7 @@ fn map_pos(edits: &[Edit], prefix: &[isize], p: usize) -> usize {
 
 /// Makes the act of every selection as one step. `None` when no act is special, or the edits
 /// overlap.
-fn run(
+pub(crate) fn run(
     buf: &mut Buffer,
     hist: &mut History,
     sels: &[Selection],
@@ -281,9 +282,17 @@ fn run(
     let typing = norm.len() == 1 && acts[0].typing;
     let mut edits: Vec<Edit> = Vec::new();
     let mut points: Vec<((usize, usize), (usize, usize))> = Vec::new();
+    let mut last_edits: Vec<Edit> = Vec::new();
     for a in acts {
         points.push((a.anchor, a.caret));
-        edits.extend(a.edits);
+        // Two carets removing the same text (both inside one wrapped span) remove it once.
+        let twin = !a.edits.is_empty()
+            && a.edits == last_edits
+            && a.edits.iter().all(|e| e.end > e.start && e.text.is_empty());
+        if !twin {
+            last_edits.clone_from(&a.edits);
+            edits.extend(a.edits);
+        }
     }
     let mut prefix = Vec::with_capacity(edits.len() + 1);
     let mut grown = 0isize;
@@ -785,10 +794,10 @@ pub fn enter(
         let last = last_non_blank(buf, r.start);
         let opens =
             matches!(last, Some('{' | '[' | '(')) || (cfg.colon_blocks && last == Some(':'));
-        let between = match (char_before(buf, r.start), buf.char_at(r.end)) {
-            (Some('{'), Some('}')) | (Some('['), Some(']')) | (Some('('), Some(')')) => true,
-            _ => false,
-        };
+        let between = matches!(
+            (char_before(buf, r.start), buf.char_at(r.end)),
+            (Some('{'), Some('}')) | (Some('['), Some(']')) | (Some('('), Some(')'))
+        );
         let mut text = String::from(eol);
         text.push_str(&base);
         if opens {
@@ -890,7 +899,7 @@ pub fn list_indent(
 mod tests {
     use super::*;
     use crate::edit::{insert, redo, undo};
-    use crate::testutil::{Rng, check_change};
+    use crate::testutil::{Rng, check_change, marked_parse, marked_show};
 
     const SP4: Indent = Indent::Spaces(4);
 
@@ -898,54 +907,12 @@ mod tests {
         Assist::for_language(lang, SP4, 4)
     }
 
-    /// `|` is a caret; `‹x›` a forward selection, `›x‹` a backward one.
     fn parse(s: &str) -> (String, Vec<Selection>) {
-        let mut text = String::new();
-        let mut sels = Vec::new();
-        let mut open: Option<(usize, char)> = None;
-        for c in s.chars() {
-            match c {
-                '|' => sels.push(Selection::at(text.len())),
-                '‹' | '›' => match open.take() {
-                    None => open = Some((text.len(), c)),
-                    Some((from, first)) => {
-                        let (a, b) = if first == '‹' {
-                            (from, text.len())
-                        } else {
-                            (text.len(), from)
-                        };
-                        sels.push(Selection {
-                            anchor: a,
-                            caret: b,
-                            goal_col: None,
-                        });
-                    }
-                },
-                c => text.push(c),
-            }
-        }
-        (text, sels)
+        marked_parse(s, '|')
     }
 
     fn show(text: &str, sels: &[Selection]) -> String {
-        let mut marks: Vec<(usize, char)> = Vec::new();
-        for s in sels {
-            if s.is_empty() {
-                marks.push((s.caret, '|'));
-            } else if s.anchor < s.caret {
-                marks.push((s.anchor, '‹'));
-                marks.push((s.caret, '›'));
-            } else {
-                marks.push((s.caret, '›'));
-                marks.push((s.anchor, '‹'));
-            }
-        }
-        marks.sort_by_key(|m| std::cmp::Reverse(m.0));
-        let mut out = text.to_string();
-        for (at, c) in marks {
-            out.insert(at, c);
-        }
-        out
+        marked_show(text, sels, '|')
     }
 
     /// Runs `f` on the document `s`; checks the change, one step, undo and redo. `None` when `f`
@@ -1236,10 +1203,7 @@ mod tests {
         // One caret before a word gets the plain edit within the same step.
         assert_eq!(ty("|\n|x", '(', &c).unwrap(), "(|)\n(|x");
         // Step over at one, pair at another.
-        assert_eq!(
-            ty("(a|)\n|", ')', &c).unwrap(),
-            "(a)|\n)|".replace("\n)|", "\n)|")
-        );
+        assert_eq!(ty("(a|)\n|", ')', &c).unwrap(), "(a)|\n)|");
         // Wrap at several selections.
         assert_eq!(ty("‹a› ‹b›", '[', &c).unwrap(), "[‹a›] [‹b›]");
         // Enter at each.
@@ -1257,11 +1221,19 @@ mod tests {
     }
 
     #[test]
-    fn dedent_with_several_carets_shares_a_budget() {
+    fn dedent_with_several_carets() {
         let c = cfg("rust");
-        let text = format!("{}{{\n    |", "x".repeat(10));
-        let many = text.repeat(1);
-        assert!(ty(&many, '}', &c).is_some());
+        assert_eq!(ty("{\n    |\n{\n    |", '}', &c).unwrap(), "{\n}|\n{\n}|");
+        // Past the shared budget the rest are plain: many carets, each far from its opener.
+        let unit = format!("{{\n{}\n    |\n", "x\n".repeat(30_000));
+        let mut text = String::new();
+        let mut caret_text = String::new();
+        for _ in 0..8 {
+            caret_text.push_str(&unit);
+        }
+        text.push_str(&caret_text);
+        let r = ty(&text, '}', &c);
+        assert!(r.is_some());
     }
 
     /// Anything goes: random documents and selections, bad offsets included.
@@ -1304,14 +1276,7 @@ mod tests {
                     *rng.pick(&['(', ')', '}', '"', '\'', '`', 'a', ']']),
                     &c,
                 ),
-                1 => enter(
-                    &mut buf,
-                    &mut hist,
-                    &sels,
-                    p,
-                    *rng.pick(&["\n", "\r\n"]),
-                    &c,
-                ),
+                1 => enter(&mut buf, &mut hist, &sels, p, rng.pick(&["\n", "\r\n"]), &c),
                 2 => backspace(&mut buf, &mut hist, &sels, p, &c),
                 _ => list_indent(&mut buf, &mut hist, sels[0], rng.chance(50), &c)
                     .map(|o| (o.clone(), vec![o.sel], 0)),

@@ -349,9 +349,17 @@ pub fn change_case(buf: &mut Buffer, hist: &mut History, sel: Selection, upper: 
 /// place.
 pub fn trim_trailing_whitespace(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
     let len = buf.len_bytes();
-    let (oa, oc) = (sel.anchor.min(len), sel.caret.min(len));
-    let (mut a, mut c) = (oa, oc);
+    let (mut a, mut c) = (sel.anchor.min(len), sel.caret.min(len));
     let mut cmd = Cmd::new(buf);
+    trim_into(&mut cmd, &mut a, &mut c);
+    cmd.finish(hist, Kind::Other, sel, sel_of(a, c))
+}
+
+/// The walk of [`trim_trailing_whitespace`] inside a command, so `prefs::apply_on_save` can make
+/// it part of a bigger step. `a` and `c` are selection ends (offsets in the buffer as it is now)
+/// and are moved as the text goes.
+pub(crate) fn trim_into(cmd: &mut Cmd<'_>, a: &mut usize, c: &mut usize) {
+    let (oa, oc) = (*a, *c);
     // Bytes removed so far: the buffer's offsets are the original ones minus this.
     let mut removed = 0;
     let mut total = cmd.buf.len_lines();
@@ -369,7 +377,7 @@ pub fn trim_trailing_whitespace(buf: &mut Buffer, hist: &mut History, sel: Selec
         }
         let n = range.end - from;
         let s = from + removed;
-        for end in [(&oa, &mut a), (&oc, &mut c)] {
+        for end in [(&oa, &mut *a), (&oc, &mut *c)] {
             if *end.0 >= s + n {
                 *end.1 -= n;
             } else if *end.0 > s {
@@ -383,7 +391,6 @@ pub fn trim_trailing_whitespace(buf: &mut Buffer, hist: &mut History, sel: Selec
         line = line + 1 - (total - now);
         total = now;
     }
-    cmd.finish(hist, Kind::Other, sel, sel_of(a, c))
 }
 
 /// Tabs replaced per batch within one line, so a line of millions of tabs does not need a list
