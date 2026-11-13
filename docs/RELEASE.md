@@ -99,3 +99,25 @@ Not verified: that an older install downloads and installs 0.3.2 (the offer only
 0.3.2 installer was built but not run or compared with the uploaded copy. Copies of 0.3.1 and
 older still look once a day, so they find 0.3.2 at launch only when their day is up, or by the
 manual check.
+
+## v0.4.0 (published from commit c2e43f1, 2026-11-13)
+
+Cut with the minimap (View menu or Ctrl+Shift+M) and the setup's last page without the Default
+apps question. Assets: the exe (5,678,592 bytes), the manifest and `mdedit-setup-0.4.0.exe`
+(4,285,554 bytes). Verified against the live release: the manifest at the address above names
+0.4.0 a minute after publishing; the exe downloaded from its URL has the manifest's SHA-256
+`e3d05e91bd3cde888acae3eaa569c7fde60caf64b2be2e2fec8229897c369f67`; the installer downloaded
+from the release has the local build's SHA-256
+`ccb65eb36b3b178ffc3832d6be4959c676cbc994dd703754c7e908ea872bafa9`; `mdedit --check-update`
+with the 0.4.0 exe answered "nothing newer", exit 0; the published 0.3.2 exe's answered "mdedit
+0.4.0 is available", exit 0.
+
+The first update seen from start to end: the published 0.3.2 exe, in a folder of its own with
+a scratch settings file, started normally. The bar "mdedit 0.4.0 is available" with its notes
+and an Update button showed by itself at launch (seen in a screenshot). After a click on
+Update the exe in that folder was the 0.4.0 file (the manifest's SHA-256), the old one stood
+beside it as `mdedit.exe.old`, and `--check-update` with the new file answered "nothing newer".
+
+Not verified: what the bar shows after the download and that the restart it offers starts
+0.4.0 (the window was closed by script instead); an update of a copy the setup installed; the
+setup's wizard pages on screen (the 0.4.0 setup was run silently only); Linux.
