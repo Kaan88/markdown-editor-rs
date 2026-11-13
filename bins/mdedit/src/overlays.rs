@@ -30,7 +30,8 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     let theme = |choice: ThemeChoice, label: &str| {
         Item::new(Act::Theme(choice), label).checked(docs.theme == choice)
     };
-    let items = vec![
+    #[cfg_attr(windows, allow(unused_mut))]
+    let mut items = vec![
         cmd(C::NewFile, "New file", ""),
         cmd(C::OpenFiles, "Open files…", glyph::OPEN),
         cmd(C::OpenFolder, "Open folder…", glyph::FOLDER_OPEN),
@@ -52,9 +53,19 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         theme(ThemeChoice::Light, "Light theme"),
         theme(ThemeChoice::Dark, "Dark theme"),
         cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD).sep(),
-        cmd(C::About, "About mdedit", glyph::INFO),
-        cmd(C::Exit, "Exit", glyph::POWER).sep(),
     ];
+    // Off Windows, from an AppImage (the desktop entry exists), until mdedit is the default.
+    #[cfg(not(windows))]
+    if mdshared_app::appimage::path().is_some()
+        && !mdshared_ui::desktop_entry::is_default(
+            strings::APP_NAME,
+            mdshared_ui::desktop_entry::EDITOR_MIME_TYPES,
+        )
+    {
+        items.push(cmd(C::MakeDefault, strings::MAKE_DEFAULT, ""));
+    }
+    items.push(cmd(C::About, "About mdedit", glyph::INFO));
+    items.push(cmd(C::Exit, "Exit", glyph::POWER).sep());
     Menu::new(items, x, y, true)
 }
 

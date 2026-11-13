@@ -12,11 +12,24 @@ const OPEN_FILTER: &[&str] = &[
     "bat", "sql",
 ];
 
+#[cfg(windows)]
 pub fn pick_files(start_dir: Option<&Path>) -> Vec<PathBuf> {
     mdshared_ui::platform::pick_files(start_dir, "Text and code", OPEN_FILTER)
 }
 
-/// The Save as dialog, opened on `current`'s folder with its name filled in.
+/// The open dialog without blocking the UI thread; `done` runs on a helper thread. False when
+/// another dialog is open (`done` has then been called with an empty list).
+#[cfg(not(windows))]
+pub fn pick_files_async(
+    start_dir: Option<&Path>,
+    done: impl FnOnce(Vec<PathBuf>) + Send + 'static,
+) -> bool {
+    mdshared_ui::platform::pick_files_async(start_dir, "Text and code", OPEN_FILTER, done)
+}
+
+/// The Save as dialog, opened on `current`'s folder with its name filled in. Windows only: the
+/// other systems use `mdshared_ui::platform::pick_save_async`.
+#[cfg(windows)]
 pub fn pick_save(current: &Path) -> Option<PathBuf> {
     let mut dialog = rfd::FileDialog::new();
     if let Some(dir) = current.parent().filter(|d| d.is_dir()) {

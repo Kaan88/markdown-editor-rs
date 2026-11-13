@@ -37,7 +37,13 @@ use std::time::{Duration, Instant};
 
 pub type Brush = [u8; 4];
 
+#[cfg(windows)]
 pub const MONO: &str = "Consolas, Cascadia Mono, Noto Sans Mono, DejaVu Sans Mono, monospace";
+/// The colour emoji families come before the `monospace` generic: that generic can reach a
+/// monochrome font that has the emoji before any emoji font is tried.
+#[cfg(not(windows))]
+pub const MONO: &str =
+    "Consolas, Cascadia Mono, Noto Sans Mono, DejaVu Sans Mono, Noto Color Emoji, monospace";
 /// What a wide glyph's width is measured on.
 const WIDE_SAMPLE: &str =
     "\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}";
@@ -548,45 +554,16 @@ pub struct View {
     scratch: String,
 }
 
-/// Families tried after the system's fallback for a script, for characters it lacks: the
-/// system's Han fallback has no glyph for some simplified characters (U+4F24) and the common
-/// script's none for musical symbols (U+1D11E), which then drew as boxes. A line of only
-/// common-script characters found its fallback under Latin, not Common, so Latin gets them too.
-const EXTRA_FALLBACKS: &[([u8; 4], &[&str])] = &[
-    (
-        *b"Hani",
-        &["Microsoft YaHei", "Microsoft JhengHei", "SimSun-ExtB"],
-    ),
-    (*b"Zyyy", &["Segoe UI Symbol", "Segoe UI Emoji"]),
-    (*b"Zinh", &["Segoe UI Symbol"]),
-    (*b"Latn", &["Segoe UI Symbol", "Segoe UI Emoji"]),
-];
-
-/// Puts [`EXTRA_FALLBACKS`] behind the system's fallback family in the editor's own font
-/// context (a copy, so the chrome's text is unchanged). The system family stays first, so text
-/// it covers is drawn as before.
-fn add_fallbacks(fonts: &mut FontContext) {
-    use parley::fontique::{FallbackKey, Script};
-    for (script, names) in EXTRA_FALLBACKS {
-        let key = FallbackKey::new(Script::from_bytes(*script), None);
-        let mut ids: Vec<_> = fonts.collection.fallback_families(key).collect();
-        for name in *names {
-            if let Some(id) = fonts.collection.family_id(name)
-                && !ids.contains(&id)
-            {
-                ids.push(id);
-            }
-        }
-        fonts.collection.set_fallbacks(key, ids.into_iter());
-    }
-}
-
 impl View {
     pub fn new() -> View {
         let mut engine = TextEngine::new(4 << 20);
         engine.set_subpixel(crate::platform::subpixel_order());
+        // Off Windows `shared_fonts` already has the shared fallbacks; on Windows the editor adds
+        // them to its own copy so the chrome's text is unchanged.
+        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut fonts = shared_fonts();
-        add_fallbacks(&mut fonts);
+        #[cfg(windows)]
+        mdshared_text::add_fallbacks(&mut fonts);
         View {
             fonts,
             lcx: LayoutContext::new(),

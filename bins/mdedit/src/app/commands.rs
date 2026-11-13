@@ -15,6 +15,15 @@ const REFIND_DELAY: Duration = Duration::from_millis(300);
 /// What `--type-steps` types, over and over.
 const TYPE_TEXT: &str = "the quick brown fox jumps over the lazy dog ";
 
+/// How a Save as went: written, not done, or (off Windows) asked of a dialog still open.
+enum SaveAs {
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Saved,
+    Cancelled,
+    #[cfg_attr(windows, allow(dead_code))]
+    Waiting,
+}
+
 impl App {
     // ---- activation and commands -------------------------------------------------------------
 
@@ -365,13 +374,15 @@ impl App {
                 false
             }
             // A new document: ask where to put it. Cancelling the file dialog cancels `after`.
-            Err(SaveFailed::Untitled) => {
-                let saved = self.save_as(i);
-                if !saved {
+            Err(SaveFailed::Untitled) => match self.save_as(i, after) {
+                SaveAs::Saved => true,
+                SaveAs::Cancelled => {
                     self.cancel_pending();
+                    false
                 }
-                saved
-            }
+                // The dialog is open; the answer carries `after` on (see `finish_save_as`).
+                SaveAs::Waiting => false,
+            },
             Err(SaveFailed::Error(e)) => {
                 self.docs.set_toast(&format!("{name}: {e}"));
                 self.cancel_pending();
@@ -385,10 +396,14 @@ impl App {
         }
     }
 
-    /// Asks for a file name and writes tab `i` there. True when the file was written.
-    fn save_as(&mut self, i: usize) -> bool {
+    /// Asks for a file name and writes tab `i` there. Where the dialog blocks (Windows) the answer
+    /// is `Saved` or `Cancelled`; elsewhere the dialog runs on a helper thread, the answer is
+    /// `Waiting`, and `finish_save_as` carries on with `after` when the result comes back.
+    fn save_as(&mut self, i: usize, after: After) -> SaveAs {
+        #[cfg(windows)]
+        let _ = after;
         let Some(doc) = self.docs.tabs.get(i).filter(|d| d.ready().is_some()) else {
-            return false;
+            return SaveAs::Cancelled;
         };
         // A new document is offered its name as a text file, in the folder in use.
         let current = doc.path.clone().unwrap_or_else(|| {
@@ -396,11 +411,36 @@ impl App {
                 .unwrap_or_default()
                 .join(format!("{}.txt", doc.name()))
         });
-        let Some(to) = platform::pick_save(&current) else {
-            return false;
-        };
+        #[cfg(windows)]
+        {
+            let Some(to) = platform::pick_save(&current) else {
+                return SaveAs::Cancelled;
+            };
+            if self.save_to(i, &to) {
+                SaveAs::Saved
+            } else {
+                SaveAs::Cancelled
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            if self.dialog_busy {
+                return SaveAs::Cancelled;
+            }
+            let id = doc.id;
+            let wake = self.docs.waker();
+            self.dialog_busy = true;
+            platform::pick_save_async(&current, move |to| {
+                wake(Wake::Dialog(Picked::Save { doc: id, to, after }));
+            });
+            SaveAs::Waiting
+        }
+    }
+
+    /// Writes tab `i` to `to`; the toast says why when it fails. True when the file was written.
+    fn save_to(&mut self, i: usize, to: &Path) -> bool {
         let dark = self.dark();
-        match self.docs.save_as(i, &to, self.service.as_ref(), dark) {
+        match self.docs.save_as(i, to, self.service.as_ref(), dark) {
             Ok(()) => {
                 self.last_active = None;
                 self.ui.tree.refresh();
@@ -417,6 +457,37 @@ impl App {
             Err(SaveFailed::NotSavable | SaveFailed::Untitled) => {
                 self.docs.set_toast("This file cannot be saved");
                 false
+            }
+        }
+    }
+
+    /// A file dialog was answered (off Windows): does what the blocking call's caller did next.
+    #[cfg(not(windows))]
+    fn dialog_done(&mut self, picked: Picked) {
+        self.dialog_busy = false;
+        match picked {
+            Picked::Files(paths) => {
+                for path in paths {
+                    self.open(&path);
+                }
+            }
+            Picked::Folder(dir) => {
+                if let Some(dir) = dir {
+                    self.set_folder(dir);
+                }
+            }
+            Picked::Save { doc, to, after } => {
+                let saved = match (to, self.docs.index_of_id(doc)) {
+                    (Some(to), Some(i)) => self.save_to(i, &to),
+                    _ => false,
+                };
+                // Carrying on is `request(after)`, as after the Save button; it does nothing for
+                // `After::Nothing`. A cancel, a failure or a closed tab cancels the whole flow.
+                if saved {
+                    self.request(after);
+                } else {
+                    self.cancel_pending();
+                }
             }
         }
     }
@@ -792,15 +863,38 @@ impl App {
                 self.ui.find_focused = false;
                 self.caret_reset();
             }
+            #[cfg(windows)]
             C::OpenFiles => {
                 for path in platform::pick_files(self.start_dir().as_deref()) {
                     self.open(&path);
                 }
             }
+            #[cfg(not(windows))]
+            C::OpenFiles => {
+                if !self.dialog_busy {
+                    self.dialog_busy = true;
+                    let wake = self.docs.waker();
+                    platform::pick_files_async(self.start_dir().as_deref(), move |files| {
+                        wake(Wake::Dialog(Picked::Files(files)));
+                    });
+                }
+            }
+            #[cfg(windows)]
             C::OpenFolder => {
                 let start = self.docs.folder.clone().or_else(|| self.start_dir());
                 if let Some(dir) = platform::pick_folder(start.as_deref()) {
                     self.set_folder(dir);
+                }
+            }
+            #[cfg(not(windows))]
+            C::OpenFolder => {
+                if !self.dialog_busy {
+                    self.dialog_busy = true;
+                    let start = self.docs.folder.clone().or_else(|| self.start_dir());
+                    let wake = self.docs.waker();
+                    platform::pick_folder_async(start.as_deref(), move |dir| {
+                        wake(Wake::Dialog(Picked::Folder(dir)));
+                    });
                 }
             }
             C::Save => {
@@ -811,7 +905,7 @@ impl App {
             }
             C::SaveAs => {
                 if let Some(i) = self.docs.active() {
-                    self.save_as(i);
+                    self.save_as(i, After::Nothing);
                 }
             }
             C::Reload => match self.docs.active_doc().map(|d| (d.id, d.modified())) {
@@ -1037,6 +1131,7 @@ impl App {
             C::NextTab => self.docs.step_tab(true),
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),
+            C::MakeDefault => self.make_default(),
             C::CloseOtherTabs | C::CopyFilePath | C::ShowInFileManager => {
                 if let Some(i) = self.docs.active() {
                     self.tab_command(id, i);
@@ -1045,6 +1140,19 @@ impl App {
         }
         self.caret_reset();
         self.redraw();
+    }
+
+    /// Makes mdedit the default application for text files and says how it went (off Windows).
+    fn make_default(&mut self) {
+        #[cfg(not(windows))]
+        {
+            use mdshared_ui::desktop_entry::{EDITOR_MIME_TYPES, make_default};
+            let text = match make_default("mdedit", EDITOR_MIME_TYPES) {
+                Ok(()) => "mdedit is now the default for text files".to_string(),
+                Err(e) => format!("Could not set the default: {e}"),
+            };
+            self.docs.set_toast(&text);
+        }
     }
 
     /// Escape peels one layer: a menu, a dialog, the find box's focus, the find, the selection.
@@ -1182,6 +1290,8 @@ impl App {
                     self.docs.set_toast(&text);
                 }
             }
+            #[cfg(not(windows))]
+            Wake::Dialog(picked) => self.dialog_done(picked),
         }
         self.redraw();
     }

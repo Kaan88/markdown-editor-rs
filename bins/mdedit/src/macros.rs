@@ -87,6 +87,7 @@ pub fn recordable(id: C) -> bool {
             | C::About
             | C::CopyFilePath
             | C::ShowInFileManager
+            | C::MakeDefault
             | C::ToggleSplit
             | C::FocusOther
             | C::ToggleFiles

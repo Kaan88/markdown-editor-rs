@@ -1368,7 +1368,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=f49edd3b8bf84de86440793b5fb765a9356203b5#f49edd3b8bf84de86440793b5fb765a9356203b5"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=84de734a1aaecc50cca80b23bacee127b6778ef3#84de734a1aaecc50cca80b23bacee127b6778ef3"
 dependencies = [
  "notify",
 ]
@@ -1376,15 +1376,16 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=f49edd3b8bf84de86440793b5fb765a9356203b5#f49edd3b8bf84de86440793b5fb765a9356203b5"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=84de734a1aaecc50cca80b23bacee127b6778ef3#84de734a1aaecc50cca80b23bacee127b6778ef3"
 dependencies = [
+ "libloading",
  "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=f49edd3b8bf84de86440793b5fb765a9356203b5#f49edd3b8bf84de86440793b5fb765a9356203b5"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=84de734a1aaecc50cca80b23bacee127b6778ef3#84de734a1aaecc50cca80b23bacee127b6778ef3"
 dependencies = [
  "syntect",
 ]
@@ -1392,7 +1393,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=f49edd3b8bf84de86440793b5fb765a9356203b5#f49edd3b8bf84de86440793b5fb765a9356203b5"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=84de734a1aaecc50cca80b23bacee127b6778ef3#84de734a1aaecc50cca80b23bacee127b6778ef3"
 dependencies = [
  "parley",
  "png",
@@ -1402,7 +1403,7 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=f49edd3b8bf84de86440793b5fb765a9356203b5#f49edd3b8bf84de86440793b5fb765a9356203b5"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=84de734a1aaecc50cca80b23bacee127b6778ef3#84de734a1aaecc50cca80b23bacee127b6778ef3"
 dependencies = [
  "arboard",
  "mdshared-app",
@@ -1411,6 +1412,7 @@ dependencies = [
  "rfd",
  "windows-sys 0.59.0",
  "winit",
+ "zbus",
  "zeno",
 ]
 

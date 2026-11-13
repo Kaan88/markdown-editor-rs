@@ -75,6 +75,8 @@ pub enum CommandId {
     CloseOtherTabs,
     CopyFilePath,
     ShowInFileManager,
+    /// Off Windows, from an AppImage: the default application for text files.
+    MakeDefault,
 }
 
 pub struct Command {
@@ -178,6 +180,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::CloseOtherTabs, "Close other tabs", &[]),
     cmd(C::CopyFilePath, "Copy file path", &[]),
     cmd(C::ShowInFileManager, SHOW_IN_FILE_MANAGER, &[]),
+    cmd(C::MakeDefault, strings::MAKE_DEFAULT, &[]),
 ];
 
 pub fn command(id: CommandId) -> &'static Command {
@@ -211,6 +214,7 @@ pub mod strings {
         "A light native text editor with syntax colours, the companion of mdview.";
     pub const ABOUT_DETAIL: &str =
         "winit and softbuffer, with every pixel drawn by the shared renderer. No webview.";
+    pub const MAKE_DEFAULT: &str = "Make mdedit the default for text files";
     pub const SHORTCUTS_TITLE: &str = "Keyboard shortcuts";
     pub const MANAGE_RECENT_TITLE: &str = "Manage recent files";
     pub const EMPTY_HINT: &str = "Open a file or drag one into this window.";

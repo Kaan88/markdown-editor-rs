@@ -85,6 +85,25 @@ pub enum Wake {
     Highlight,
     /// An updater thread has an answer.
     Update(crate::updater::Event),
+    /// A file dialog (off Windows they run on a helper thread) was answered or cancelled.
+    #[cfg(not(windows))]
+    Dialog(Picked),
+}
+
+/// The result of a file dialog, posted from its helper thread and handled on the UI thread where
+/// the blocking call used to return.
+#[cfg(not(windows))]
+#[derive(Debug)]
+pub enum Picked {
+    Files(Vec<PathBuf>),
+    Folder(Option<PathBuf>),
+    /// Save as for document `doc`; `after` is what waits for the save (`After::Nothing` for the
+    /// plain command).
+    Save {
+        doc: DocId,
+        to: Option<PathBuf>,
+        after: After,
+    },
 }
 
 /// A minimap's window and band for a document laid out as `g`, in the column `rect`.
@@ -179,6 +198,10 @@ struct App {
     last_active: Option<PathBuf>,
     toast_until: Option<Instant>,
     size_save_due: Option<Instant>,
+    /// A file dialog is open on its helper thread: the window keeps drawing and a second request
+    /// is ignored.
+    #[cfg(not(windows))]
+    dialog_busy: bool,
     exit_due: Option<Instant>,
     /// `--scroll-steps`: steps left, the direction, and the frame times taken.
     steps: Option<u32>,
@@ -271,6 +294,8 @@ impl App {
             last_active: None,
             toast_until: None,
             size_save_due: None,
+            #[cfg(not(windows))]
+            dialog_busy: false,
             exit_due: None,
             step_down: true,
             step_times: Vec::new(),
@@ -1261,7 +1286,11 @@ impl App {
             return Duration::ZERO;
         };
         let t = Instant::now();
-        let whole = buffer.age() == 0;
+        // The back buffer holds the previous frame only when its age is exactly 1. softbuffer's
+        // Wayland backend swaps two buffers (age 2 in steady state) and a resized buffer keeps
+        // its age, so any other age means stale pixels: copy and present the whole frame. On
+        // Windows the age is only 0 or 1, so nothing changes there.
+        let whole = buffer.age() != 1;
         let clamp = |d: &(i32, i32, i32, i32)| {
             let x0 = d.0.clamp(0, w as i32) as usize;
             let x1 = d.2.clamp(0, w as i32) as usize;
@@ -1475,6 +1504,12 @@ impl ApplicationHandler<Wake> for App {
             .with_min_inner_size(LogicalSize::new(520.0, 360.0))
             .with_inner_size(LogicalSize::new(w.max(520) as f64, h.max(360) as f64))
             .with_maximized(max || self.args.maximize);
+        // The window class and icon: off Linux this returns the attributes unchanged.
+        attributes = mdshared_ui::window::identify(
+            attributes,
+            "mdedit",
+            Some(include_bytes!("../../../assets/mdedit.png")),
+        );
         // Back where it was, if a screen still shows that place: the title row's left end has
         // to be on one, or the window could not be reached.
         if let Some((x, y)) = self.session.window_position() {
@@ -1954,6 +1989,15 @@ pub fn run() -> i32 {
     if args.check_update {
         return crate::updater::check_and_print();
     }
+    // From an AppImage this writes the desktop entry and icon (on a thread); elsewhere nothing.
+    mdshared_ui::desktop_entry::ensure(mdshared_ui::desktop_entry::Spec {
+        name: "mdedit",
+        display_name: "mdedit",
+        comment: "Text editor",
+        icon_png: include_bytes!("../../../assets/mdedit.png"),
+        mime_types: mdshared_ui::desktop_entry::EDITOR_MIME_TYPES,
+        categories: &["Utility", "TextEditor", "Development"],
+    });
     let explicit = std::env::var_os("MDEDIT_SETTINGS").map(PathBuf::from);
     // A shot never touches the user's session; it may read a scratch one named by MDEDIT_SETTINGS.
     let session_path = match (args.no_session, args.shot.is_some()) {
