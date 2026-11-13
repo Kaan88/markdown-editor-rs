@@ -105,6 +105,14 @@ impl App {
 
     pub(super) fn drag_to(&mut self, drag: Drag, x: f32, y: f32) {
         match drag {
+            Drag::Title { x: x0, y: y0 } => {
+                if title_moved((x0, y0), (x, y)) {
+                    self.ui.drag = None;
+                    if let Some(w) = &self.window {
+                        let _ = w.drag_window();
+                    }
+                }
+            }
             Drag::Tab {
                 index,
                 x: start,
@@ -542,13 +550,15 @@ impl App {
         self.redraw();
         match hit {
             Hit::Backdrop => self.close_dialog(),
-            Hit::TitleDrag => {
-                if clicks == 2 {
-                    self.toggle_maximized();
-                } else if let Some(w) = &self.window {
-                    let _ = w.drag_window();
+            Hit::TitleDrag => match title_press(clicks, DEFER_TITLE_DRAG) {
+                TitlePress::Maximize => self.toggle_maximized(),
+                TitlePress::DragNow => {
+                    if let Some(w) = &self.window {
+                        let _ = w.drag_window();
+                    }
                 }
-            }
+                TitlePress::DragOnMove => self.ui.drag = Some(Drag::Title { x, y }),
+            },
             Hit::Tab(i) => {
                 self.docs.activate(i);
                 self.ui.drag = Some(Drag::Tab {
@@ -1314,6 +1324,40 @@ impl App {
     }
 }
 
+/// Whether a press on the title row waits for the pointer to move before the window is dragged.
+/// On Wayland the compositor takes the pointer when the move starts and the second click of a
+/// double click never arrives, so a press that does not move must not start one. Windows runs
+/// its own move loop and still delivers the second click: it is left as it was.
+const DEFER_TITLE_DRAG: bool = cfg!(not(windows));
+
+/// How far (logical px, either axis) the pointer goes from a title row press before it is a drag.
+const TITLE_DRAG_SLOP: f32 = 4.0;
+
+/// What a press on the title row does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TitlePress {
+    /// The second click of a double click: maximise or restore.
+    Maximize,
+    /// Start moving the window now.
+    DragNow,
+    /// Wait for the pointer to move; a release first leaves the press to count as a click.
+    DragOnMove,
+}
+
+fn title_press(clicks: u32, deferred: bool) -> TitlePress {
+    if clicks == 2 {
+        TitlePress::Maximize
+    } else if deferred {
+        TitlePress::DragOnMove
+    } else {
+        TitlePress::DragNow
+    }
+}
+
+fn title_moved(from: (f32, f32), to: (f32, f32)) -> bool {
+    (to.0 - from.0).abs() > TITLE_DRAG_SLOP || (to.1 - from.1).abs() > TITLE_DRAG_SLOP
+}
+
 /// One auto-scroll step for a pointer `dx`, `dy` logical px outside the text area on each axis
 /// (0 when inside on that axis): (lines down, logical px right). An axis the pointer is inside
 /// on does not move (`f32::signum` of 0 is 1, so it is not used there).
@@ -1333,7 +1377,24 @@ fn autoscroll_step(dx: f32, dy: f32) -> (f64, f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::autoscroll_step;
+    use super::{TitlePress, autoscroll_step, title_moved, title_press};
+
+    #[test]
+    fn a_title_press_drags_only_after_the_pointer_moves_where_that_is_deferred() {
+        // Deferred (Wayland and the other desktops): the first press waits, the second maximises.
+        assert_eq!(title_press(1, true), TitlePress::DragOnMove);
+        assert_eq!(title_press(2, true), TitlePress::Maximize);
+        // Windows keeps the immediate move; its double click still maximises.
+        assert_eq!(title_press(1, false), TitlePress::DragNow);
+        assert_eq!(title_press(2, false), TitlePress::Maximize);
+        // A third click is a new first click.
+        assert_eq!(title_press(3, true), TitlePress::DragOnMove);
+        // A jitter of a pixel or two is a click; a few pixels on either axis is a drag.
+        assert!(!title_moved((100.0, 10.0), (102.0, 11.0)));
+        assert!(!title_moved((100.0, 10.0), (96.0, 14.0)));
+        assert!(title_moved((100.0, 10.0), (105.0, 10.0)));
+        assert!(title_moved((100.0, 10.0), (100.0, 4.0)));
+    }
 
     #[test]
     fn autoscroll_moves_only_the_axes_outside() {

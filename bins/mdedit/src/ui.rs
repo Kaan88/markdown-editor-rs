@@ -476,6 +476,12 @@ pub enum Drag {
     },
     /// The divider of a split view, dragged.
     Divider,
+    /// The title row pressed: the window moves once the pointer has gone a few px, so that a
+    /// press and release without moving can still be half of a double click.
+    Title {
+        x: f32,
+        y: f32,
+    },
     /// A scrollbar thumb, grabbed `grab` logical px from its start.
     Thumb {
         target: Scroller,
