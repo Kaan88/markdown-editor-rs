@@ -13,7 +13,9 @@ fn main() {
         return;
     }
     let Some((rc, llvm)) = find_rc() else {
-        println!("cargo:warning=rc.exe and llvm-rc not found; mdedit.exe is built without its icon");
+        println!(
+            "cargo:warning=rc.exe and llvm-rc not found; mdedit.exe is built without its icon"
+        );
         return;
     };
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
@@ -33,7 +35,12 @@ fn main() {
     if llvm {
         // llvm-rc: the script has no #include, so it needs no preprocessor (and no clang).
         // `--` ends the options: llvm-rc takes an absolute input path like /cache/... for one.
-        command.arg("/FO").arg(&res).arg("-no-preprocess").arg("--").arg(&script);
+        command
+            .arg("/FO")
+            .arg(&res)
+            .arg("-no-preprocess")
+            .arg("--")
+            .arg(&script);
     } else {
         command.arg("/nologo").arg("/fo").arg(&res).arg(&script);
     }
@@ -41,7 +48,9 @@ fn main() {
     if ok {
         println!("cargo:rustc-link-arg-bins={}", res.display());
     } else {
-        println!("cargo:warning=the resource compiler failed; mdedit.exe is built without its icon");
+        println!(
+            "cargo:warning=the resource compiler failed; mdedit.exe is built without its icon"
+        );
     }
 }
 

@@ -58,7 +58,8 @@ fn the_release_manifests_are_read_and_their_files_match() {
         let offer = shared::offer(&APP, &bytes, &older).expect("the manifest parses");
         match k.get(&format!("{current}.asset")) {
             Some(asset) => {
-                let o = offer.unwrap_or_else(|| panic!("{}: no offer for {current}", dir.display()));
+                let o =
+                    offer.unwrap_or_else(|| panic!("{}: no offer for {current}", dir.display()));
                 assert_eq!(o.version.to_string(), *version);
                 assert!(
                     o.app.url.ends_with(&format!("/v{version}/{asset}")),
@@ -68,7 +69,11 @@ fn the_release_manifests_are_read_and_their_files_match() {
                 );
                 assert!(o.engine.is_none(), "mdedit has no engine file");
             }
-            None => assert!(offer.is_none(), "{}: offered a platform it does not list", dir.display()),
+            None => assert!(
+                offer.is_none(),
+                "{}: offered a platform it does not list",
+                dir.display()
+            ),
         }
         // A manifest at the current version offers nothing.
         let same = Version::parse(version).unwrap();
@@ -90,6 +95,10 @@ fn the_release_manifests_are_read_and_their_files_match() {
             );
             checked += 1;
         }
-        assert!(checked >= 1, "{}: no file hashes in the manifest", dir.display());
+        assert!(
+            checked >= 1,
+            "{}: no file hashes in the manifest",
+            dir.display()
+        );
     }
 }
