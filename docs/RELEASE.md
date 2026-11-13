@@ -121,3 +121,86 @@ beside it as `mdedit.exe.old`, and `--check-update` with the new file answered "
 Not verified: what the bar shows after the download and that the restart it offers starts
 0.4.0 (the window was closed by script instead); an update of a copy the setup installed; the
 setup's wizard pages on screen (the 0.4.0 setup was run silently only); Linux.
+
+## Releasing from Linux
+
+Added 2026-11-14. Both platforms' files can be built on a Linux PC with Docker, `appimagetool`,
+`wine`, and the Inno Setup folder from a Windows install. Nothing here replaces `tools\release.ps1`
+on Windows; the two make the same file names.
+
+### Commands
+
+```
+packaging/linux/build-appimage.sh                  # target/dist-linux/mdedit-<ver>-linux-x86_64.AppImage
+tools/release-cross.sh --notes 'One sentence.'     # target/dist-cross/: the Windows exe, the setup, the manifest
+tools/write-manifest.sh --version V --notes N --out DIR --windows EXE --linux APPIMAGE
+tools/release-all.sh --notes 'One sentence.'       # everything into target/release-files-all/
+tools/release-all.sh --notes '...' --notes-file FILE --publish    # also: gh release create v<ver> ... --latest
+tools/wine-compare.sh NATIVE_EXE CROSS_EXE         # tests/shots.sh under Wine with both exes, cmp the PNGs
+```
+
+`release-all.sh` refuses a dirty tree (changes under `tools/` and `docs/` excepted) and a HEAD no
+remote branch contains. `--notes` is the manifest's line, `--notes-file` the GitHub release text.
+`--publish --dry-run` prints the `gh` command instead of running it. The release has four assets:
+the AppImage, the exe, the setup and the manifest (`windows-x86_64.*` and `linux-x86_64.*` keys in
+the one `mdedit-update.txt`; Linux has no engine keys, mdedit has no engine anyway).
+
+### What is built how
+
+- **AppImage.** `packaging/linux/Dockerfile` (Ubuntu 20.04, glibc 2.31, rustup stable) builds
+  `cargo build --release --locked -p mdedit` from the repository mounted read-only. The script
+  then checks that `objdump -T` needs no glibc symbol newer than 2.31 (0.4.1: 2.30), assembles
+  `AppDir` (`usr/bin/mdedit`, `mdedit.desktop`, `mdedit.png`, `.DirIcon`, `AppRun` a symlink to
+  `usr/bin/mdedit`) and runs the host's `appimagetool` with a pinned runtime
+  (`--runtime-file`, so it never downloads one). `SOURCE_DATE_EPOCH` is the commit time: two runs on
+  one commit give the same AppImage (checked).
+  Nothing is bundled; the AppImage needs from the host libc, fontconfig, freetype, libX11,
+  libX11-xcb and libxcb (a bare `ubuntu:20.04` or `debian:11` container lacks the X11 ones, and
+  works once `libx11-6 libx11-xcb1 libxcb1 libfontconfig1 libfreetype6` are installed), plus
+  libcurl, wayland and the like loaded at run time if they are there.
+- **Windows exe.** `packaging/windows-cross/Dockerfile` (Ubuntu 24.04, rustup stable with the
+  `x86_64-pc-windows-msvc` target, `cargo-xwin` 0.23.1, clang, lld, llvm) runs
+  `cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p mdedit`. `build.rs` uses
+  `rc.exe` when it finds one and otherwise `llvm-rc` (`MD_LLVM_RC`, else PATH), so the icon is
+  embedded (the script sets `MD_LLVM_RC=/usr/bin/llvm-rc`).
+- **Installer.** `ISCC.exe` from the copied Inno Setup folder runs under Wine on the same
+  `packaging\windows\mdedit.iss`, in a scratch tree (`target/cross-installer`) laid out the way
+  the script expects its inputs.
+
+### Licence
+
+`cargo-xwin` downloads the MSVC C runtime and the Windows SDK from Microsoft at its first run.
+Using them means accepting Microsoft's licence (https://go.microsoft.com/fwlink/?LinkId=2086102).
+cargo-xwin 0.23.1 has no accept flag or variable: it accepts for you when it downloads, so a run
+of `tools/release-cross.sh` is that acceptance. Whoever runs it accepts the licence for themselves.
+
+### Caches
+
+`$MD_BUILD_CACHE`, default `~/.cache/md-build`: `mdedit/cargo` (registry and git checkouts),
+`mdedit/target-linux` and `mdedit/target-win` (cargo target directories), `xwin` (the SDK and CRT,
+about 1.2 GB), `innosetup` (a copy of `/mnt/C/Program Files/Inno Setup 7`; override the source with
+`INNO_SETUP_DIR`), `wine-prefix` (the `WINEPREFIX` for ISCC and `wine-compare.sh`, with the Windows
+fonts copied into `drive_c/windows/Fonts`) and `runtime-x86_64-20251108` (the AppImage runtime,
+SHA-256 pinned in `build-appimage.sh`). The Docker images are `mdedit-linux-build` and
+`mdedit-windows-cross`. All of it can be deleted; the next run rebuilds it.
+
+### What the cross-built Windows files have and have not been checked for
+
+Checked (0.4.1, commit `7eb4b9b`'s code, on Linux): the exe imports the same 25 DLLs as the
+natively built `target\dist\0.4.1\` exe, has the same icon resources, and is 5,676,032 bytes
+against 5,680,128. Under Wine 11 with the same prefix and fonts, `tests/shots.sh` run with the
+native exe and with the cross exe gave 74 PNGs each, all byte-identical; `--check-update` of both
+answered "nothing newer", exit 0. The cross setup installs and uninstalls silently under Wine and
+installs the same exe it was given.
+
+Not checked: any run on Windows. The cross exe is not byte-identical to the native one (a
+different linker and resource compiler) and has not been through the Windows-side checks
+(`docs/HANDOFF.md`) that the native files had. The cross-built setup differs from the native one
+in size (about 4.41 MB against 4.29 MB) because Wine's `UpdateResource` leaves Inno Setup's stock
+icons in `Setup.exe` when ISCC swaps in ours; that setup has never been clicked through, and
+every run makes a different file (Inno stamps the build time), unlike the exe and the AppImage.
+Release builds meant for users are still best made, or at least tried, on Windows.
+
+On Linux: `--check-update` answers "the look failed: Unsupported" with the shared pin of 0.4.1,
+whose non-Windows transport is a stub; the Linux AppImage cannot look for updates or fetch
+remote images until the pin moves to a `markdown-shared-rs` with the libcurl transport.
