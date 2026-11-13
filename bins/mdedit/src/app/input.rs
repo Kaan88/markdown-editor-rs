@@ -62,6 +62,7 @@ impl App {
             (Some(dir), _) => CursorIcon::from(dir),
             (None, Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace)) => CursorIcon::Text,
             (None, Some(Hit::Splitter)) => CursorIcon::ColResize,
+            (None, Some(Hit::Fold(_) | Hit::FoldBox(_))) => CursorIcon::Pointer,
             _ => CursorIcon::Default,
         };
         self.set_cursor(cursor);
@@ -495,7 +496,14 @@ impl App {
                     self.caret_reset();
                 }
             }
-            Hit::Text => {
+            Hit::Fold(line) | Hit::FoldBox(line) => {
+                self.docs.seal();
+                if let Some(r) = self.docs.active_ready_mut() {
+                    r.toggle_fold_at(line);
+                }
+                self.caret_reset();
+            }
+            Hit::Text | Hit::Gutter => {
                 let Some(offset) = self.text_offset(x, y) else {
                     return;
                 };
@@ -625,7 +633,7 @@ impl App {
                     overlays::minimap_menu(x + 2.0, y + 2.0),
                 ));
             }
-            Some(Hit::Text) => {
+            Some(Hit::Text | Hit::Gutter) => {
                 // A right-click outside the selection moves the caret there first.
                 if let Some(offset) = self.text_offset(x, y)
                     && let Some(r) = self.docs.active_ready_mut()

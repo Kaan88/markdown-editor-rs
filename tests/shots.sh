@@ -137,6 +137,12 @@ shot menu-recent-dark --dark --menu recent "$fx/sample.rs" "$fx/sample.md" "$fx/
 shot menu-eol-dark --dark --menu eol "$fx/sample.rs"
 shot menu-encoding-light --light --menu encoding "$fx/sample.rs"
 
+# Fold chevrons: the pointer in the gutter (faint chevrons, one hovered), a folded block, both themes.
+shot fold-gutter --light --hover 46,263 "$fx/sample.rs"
+shot fold-gutter-dark --dark --hover 46,263 --fold 27 "$fx/sample.rs"
+shot fold-gutter-wrap --light --wrap --size 700x500 --hover 46,264 "$fx/sample.md"
+shot fold-box-hover --light --fold 10 --hover 230,263 "$fx/sample.rs"
+
 # A menu taller than its window: kept below the title row, scrolling, and scrolled to its end.
 shot menu-tall-main --light --size 1000x520 --menu main "$fx/sample.rs"
 shot menu-tall-main-end --light --size 1000x520 --menu main-end "$fx/sample.rs"

@@ -18,6 +18,7 @@ use crate::chrome::Ctx;
 use crate::docs::{Doc, DocState, Ready};
 use cache::Lru;
 use mdedit_core::display::{ChunkIndex, ChunkStart, Cols, DisplayLine};
+use mdedit_core::fold::heads_block;
 use mdedit_core::limits::TWIN_LINE_MAX;
 use mdedit_core::limits::{TAB_WIDTH, WHOLE_LINE_BYTES};
 use mdedit_highlight::{Span, foreground};
@@ -768,7 +769,19 @@ impl View {
         let g = geom(r, area, &m);
         if bands.is_none() {
             c.hit(crate::ui::Hit::Text, area);
+            if s.band {
+                c.hit(
+                    crate::ui::Hit::Gutter,
+                    Rect::new(area.x, area.y, g.gutter_w, area.h),
+                );
+            }
         }
+        // The pointer is in the gutter of the pane that has the keyboard: chevrons show.
+        let gutter_hot = s.band
+            && matches!(
+                c.hover,
+                Some(crate::ui::Hit::Gutter | crate::ui::Hit::Fold(_))
+            );
         let (x0, y0, x1, y1) = c.p.dev_rect(area);
         let gutter_r = ((area.x + g.gutter_w) * scale).round() as i32;
         let base = current_clip(c.p);
@@ -1005,8 +1018,20 @@ impl View {
                         (lh as f32 * 0.56).round() as i32,
                     );
                     let top = y + (lh - h) / 2;
-                    let box_c = mix(pal.page, pal.text, 0.10);
+                    let hit = crate::ui::Hit::FoldBox(i);
+                    let box_c = mix(
+                        pal.page,
+                        pal.text,
+                        if c.hover == Some(hit) { 0.18 } else { 0.10 },
+                    );
                     fill_clipped(c, (a, top, a + w, top + h), text_clip, box_c, 1.0);
+                    if bands.is_none() && s.band {
+                        let sc = scale;
+                        c.hit(
+                            hit,
+                            Rect::new(a as f32 / sc, top as f32 / sc, w as f32 / sc, h as f32 / sc),
+                        );
+                    }
                     for k in 1..4 {
                         let (dx, dy) = (a + w * k / 4 - dot / 2, top + (h - dot) / 2);
                         fill_clipped(c, (dx, dy, dx + dot, dy + dot), text_clip, fold_c, 1.0);
@@ -1124,13 +1149,31 @@ impl View {
                 );
                 c.p.rbox(dot, d as f32 / scale / 2.0, pal.accent);
             }
-            // A folded block: an arrowhead between the number and the text.
-            if r.folds.headed(i).is_some() {
-                let half = (3.0 * scale).round() as i32;
-                let (ax, ay) = (gutter_r - (9.0 * scale).round() as i32, y + lh / 2);
-                for dy in -half..=half {
-                    let w = half - dy.abs() + 1;
-                    fill_clipped(c, (ax, ay + dy, ax + w, ay + dy + 1), gutter, fold_c, 1.0);
+            // A line that starts a block, or is folded: a chevron right of the number, shown
+            // faintly while the pointer is in the gutter and always for a folded one. Only the
+            // visible lines are asked.
+            let folded = r.folds.headed(i).is_some();
+            if folded || (gutter_hot && heads_block(&r.buffer, i, TAB_WIDTH)) {
+                let cell =
+                    metrics::fold_cell(area.x, g.gutter_w, y as f32 / scale, lh as f32 / scale);
+                let hit = crate::ui::Hit::Fold(i);
+                let hovered = c.hover == Some(hit);
+                let (cx, cy) = metrics::fold_icon_centre(&cell);
+                if hovered && let Some(f) = c.fill_for(hit, false, false) {
+                    let b = Rect::new(cx - 7.0, cell.y + 1.0, 14.0, cell.h - 2.0);
+                    c.p.rbox(b, 4.0, f);
+                }
+                let color = if hovered {
+                    pal.text
+                } else if folded {
+                    pal.muted
+                } else {
+                    mix(pal.page, pal.faint, 0.8)
+                };
+                let g_name = if folded { glyph::RIGHT } else { glyph::DOWN };
+                c.p.icon(g_name, metrics::FOLD_ICON, cx, cy, color);
+                if bands.is_none() {
+                    c.hit(hit, cell);
                 }
             }
             let color = if Some(i) == band_line {

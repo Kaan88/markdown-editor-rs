@@ -12,6 +12,24 @@ pub const FONT_PX: f32 = 14.0;
 pub const GUTTER_PAD_L: f32 = 16.0;
 pub const GUTTER_PAD_R: f32 = 14.0;
 pub const TEXT_PAD: f32 = 6.0;
+/// The fold chevron's cell: this wide at the right end of the gutter, one row high. The chevron
+/// sits in its middle; the numbers keep the rest of the gutter.
+pub const FOLD_CELL_W: f32 = 24.0;
+/// The chevron's size, logical px.
+pub const FOLD_ICON: f32 = 12.0;
+
+/// The fold cell of a row: the right end of a gutter that starts at `x` and is `gutter_w` wide,
+/// logical px; `y` and `h` are the row's.
+pub fn fold_cell(x: f32, gutter_w: f32, y: f32, h: f32) -> mdshared_ui::gfx::Rect {
+    let w = FOLD_CELL_W.min(gutter_w);
+    mdshared_ui::gfx::Rect::new(x + gutter_w - w, y, w, h)
+}
+
+/// Where the chevron's centre is in a fold cell: a little left of the gutter's edge, where the
+/// old arrowhead was.
+pub fn fold_icon_centre(cell: &mdshared_ui::gfx::Rect) -> (f32, f32) {
+    (cell.right() - GUTTER_PAD_R / 2.0, cell.cy())
+}
 /// A wheel notch scrolls this many lines; a horizontal notch this many advances.
 pub const WHEEL_LINES: f64 = 3.0;
 pub const WHEEL_COLS: f64 = 3.0;
@@ -213,6 +231,28 @@ mod tests {
         assert_eq!(zoom_stepped(ZOOM_MAX, 1), ZOOM_MAX);
         assert_eq!(zoom_stepped(ZOOM_MIN, -5), ZOOM_MIN);
         assert_eq!(font_px(150), 21.0);
+    }
+
+    #[test]
+    fn the_fold_cell_is_the_gutters_right_end_of_one_row() {
+        let cell = fold_cell(40.0, 60.0, 100.0, 19.0);
+        // Inside the gutter, ending at its edge, one row high.
+        assert_eq!((cell.x, cell.right()), (76.0, 100.0));
+        assert_eq!((cell.y, cell.h), (100.0, 19.0));
+        // The text starts at the gutter's edge: a point there is not in the cell.
+        assert!(cell.contains(99.0, 110.0) && !cell.contains(100.0, 110.0));
+        // The number area, left of the cell, keeps its clicks; so do the rows around.
+        assert!(!cell.contains(60.0, 110.0));
+        assert!(!cell.contains(90.0, 99.0) && !cell.contains(90.0, 119.0));
+        // The chevron is inside its cell, and its box inside the gutter at any zoom of the pad.
+        let (cx, cy) = fold_icon_centre(&cell);
+        assert!(
+            cell.contains(cx - FOLD_ICON / 2.0, cy)
+                && cell.contains(cx + FOLD_ICON / 2.0 - 0.01, cy)
+        );
+        // A narrow gutter gives a narrow cell, never one that leaves it.
+        let narrow = fold_cell(0.0, 20.0, 0.0, 10.0);
+        assert_eq!((narrow.x, narrow.right()), (0.0, 20.0));
     }
 
     const LINES: usize = 1_852_171;

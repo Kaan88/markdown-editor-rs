@@ -1969,6 +1969,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     if let Some((x, y)) = app.args.hover {
         app.pointer_moved(x, y);
+        // What the pointer is over can change what is drawn and hit (the fold chevrons).
+        app.compose();
+        app.pointer_moved(x, y);
         if let Some(t) = app.ui.tip.as_mut() {
             t.shown = true;
         }

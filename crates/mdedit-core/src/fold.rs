@@ -46,6 +46,22 @@ pub fn block_end(buf: &Buffer, line: usize, tab_width: usize) -> Option<usize> {
     last
 }
 
+/// Whether `line` heads a block, that is whether `block_end` would find one, without looking
+/// for its end: the next line with text must be indented more. Cheap enough to ask for every
+/// visible line, even when the block is huge.
+pub fn heads_block(buf: &Buffer, line: usize, tab_width: usize) -> bool {
+    let Some(base) = indent(buf, line, tab_width) else {
+        return false;
+    };
+    let stop = buf.len_lines().min(line.saturating_add(1 + SCAN_MAX));
+    for l in line + 1..stop {
+        if let Some(i) = indent(buf, l, tab_width) {
+            return i > base;
+        }
+    }
+    false
+}
+
 /// The block to fold for a caret on `line`: the one the line heads, or else the nearest block
 /// above that holds it. The header and the last line.
 pub fn block_at(buf: &Buffer, line: usize, tab_width: usize) -> Option<(usize, usize)> {
@@ -305,6 +321,28 @@ fn b() {}
         assert_eq!(block_at(&b, 6, 4), None);
         assert_eq!(block_at(&b, 7, 4), None);
         assert_eq!(top_blocks(&b, 4), (vec![(0, 5), (8, 9)], false));
+    }
+
+    #[test]
+    fn heads_block_agrees_with_block_end() {
+        let samples = [
+            "a\n  b\n\n  c\nd\n\n\ne\n\tf\n",
+            "x\n\n\n",
+            "x\n    \n  y",
+            "if a {\n    b;\n}\n\nfn f() {\n}\n",
+            "",
+            "\n\n  a\nb\n",
+        ];
+        for text in samples {
+            let b = Buffer::from_text(text);
+            for line in 0..b.len_lines() {
+                assert_eq!(
+                    heads_block(&b, line, 4),
+                    block_end(&b, line, 4).is_some(),
+                    "{text:?} line {line}"
+                );
+            }
+        }
     }
 
     #[test]

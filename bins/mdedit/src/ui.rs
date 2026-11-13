@@ -157,8 +157,14 @@ pub enum Hit {
     FilesOpenFolder,
     Splitter,
     ScrollBar(Scroller),
-    /// The text area (gutter included).
+    /// The text area, the gutter included.
     Text,
+    /// A gutter row: a press acts as on the text; the pointer over it shows the fold chevrons.
+    Gutter,
+    /// The fold chevron's cell of a line that starts a block, or is folded.
+    Fold(usize),
+    /// The box after a folded line: a press opens that fold.
+    FoldBox(usize),
     EmptyOpen,
     EmptyRecent(usize),
     DlgButton(usize),
@@ -200,6 +206,9 @@ impl Hit {
             | Hit::ScrollBar(Scroller::Files) => Region::Files,
             Hit::ScrollBar(Scroller::Text | Scroller::TextH)
             | Hit::Text
+            | Hit::Gutter
+            | Hit::Fold(_)
+            | Hit::FoldBox(_)
             | Hit::EmptyOpen
             | Hit::EmptyRecent(_) => Region::Text,
             Hit::Other => Region::Other,
@@ -215,6 +224,9 @@ impl Hit {
             self,
             Hit::TitleDrag
                 | Hit::Text
+                | Hit::Gutter
+                | Hit::Fold(_)
+                | Hit::FoldBox(_)
                 | Hit::Other
                 | Hit::Minimap
                 | Hit::MinimapOther
@@ -938,6 +950,10 @@ mod tests {
         assert_eq!(Hit::Backdrop.region(), None);
         assert!(Hit::Bar(BarItem::Open).is_button());
         assert!(!Hit::Text.is_button());
+        for h in [Hit::Gutter, Hit::Fold(3), Hit::FoldBox(3)] {
+            assert_eq!(h.region(), Some(Region::Text));
+            assert!(!h.is_button());
+        }
     }
 }
 

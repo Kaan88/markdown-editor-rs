@@ -223,6 +223,17 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         }
     };
     Some(match hit {
+        Hit::Fold(line) | Hit::FoldBox(line) => {
+            let folded = docs.active_ready()?.folds.headed(line).is_some();
+            with(
+                if folded {
+                    "Open the block"
+                } else {
+                    "Fold the block"
+                },
+                CommandId::ToggleFold,
+            )
+        }
         Hit::Tab(i) => {
             let doc = docs.tabs.get(i)?;
             doc.path

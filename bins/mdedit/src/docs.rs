@@ -487,6 +487,25 @@ impl Ready {
         true
     }
 
+    /// A click on a line's fold chevron or box: opens the fold the line heads, or else folds
+    /// the block it heads (not the block around it). False when it does neither.
+    pub fn toggle_fold_at(&mut self, line: usize) -> bool {
+        if line >= self.buffer.len_lines() {
+            return false;
+        }
+        if self.folds.unfold(line) {
+            return true;
+        }
+        let Some(end) = fold::block_end(&self.buffer, line, TAB_WIDTH) else {
+            return false;
+        };
+        if !self.folds.fold(line, end) {
+            return false;
+        }
+        self.caret_out_of_folds();
+        true
+    }
+
     /// Folds every block that starts at the left margin. The number folded, and whether the
     /// document has more lines than were looked at.
     pub fn fold_all(&mut self) -> (usize, bool) {
@@ -2491,6 +2510,35 @@ mod tests {
         // The choice stays for the next load of this tab.
         d.load_now(i, None, false);
         assert_eq!(d.tabs[i].ready().unwrap().info.encoding, latin);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_click_on_a_chevron_folds_the_block_that_line_heads_and_opens_it_again() {
+        let text = b"a {\n  b\n  c {\n    d\n  }\n}\ne\n";
+        let (mut d, i, _path, dir) = file_docs("foldclick", text);
+        let r = d.tabs[i].ready_mut().unwrap();
+        // A line that heads no block does nothing, even inside one (unlike F9).
+        assert!(!r.toggle_fold_at(1) && !r.toggle_fold_at(6) && !r.toggle_fold_at(99));
+        assert!(r.folds.is_empty());
+        // The inner block first, then the outer one takes it in.
+        assert!(r.toggle_fold_at(2));
+        assert_eq!(r.folds.ranges(), [(2, 3)]);
+        r.sel = Selection::at(r.buffer.line_start(1));
+        assert!(r.toggle_fold_at(0));
+        assert_eq!(r.folds.ranges(), [(0, 4)]);
+        // The caret was inside: it is at the end of the header, in view.
+        assert_eq!(r.sel, Selection::at(3));
+        // The same click opens it; the inner fold went with the outer one.
+        assert!(r.toggle_fold_at(0));
+        assert!(r.folds.is_empty());
+        // The cheap test the gutter uses agrees with what a click would do.
+        for line in 0..r.buffer.len_lines() {
+            assert_eq!(
+                fold::heads_block(&r.buffer, line, TAB_WIDTH),
+                fold::block_end(&r.buffer, line, TAB_WIDTH).is_some()
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
