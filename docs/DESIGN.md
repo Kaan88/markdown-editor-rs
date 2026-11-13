@@ -953,3 +953,107 @@ Closing the window with a session does not ask about unsaved changes: `App::requ
 The folder is `backup` beside the session file (`%LOCALAPPDATA%\mdeditackup`, or beside the
 file `MDEDIT_SETTINGS` names). `Doc::modified` is also true while `restore` is set, so such a
 tab shows its mark and closing it asks.
+
+## Compare two files (2026-11-14)
+
+Headless core only (`mdedit-core::diff`); no window part exists yet. Not run in a window.
+
+**Input.** `diff(a: &Buffer, b: &Buffer, opts: DiffOptions, cancel: &AtomicBool) -> Diff`. Lines are
+compared by content without their line break, so a CRLF file and an LF file with the same text are
+equal. A text that ends with a line break has no empty last line (`diff::line_count`), so "a\n" and
+"a" compare equal, and the empty text has no lines. `DiffOptions { ignore_trailing_ws,
+ignore_ws, ignore_case }`: trailing white space is cut; all white space is dropped (a b = ab); letters
+are compared by their lower-case forms. Each line is read once from the rope's chunks (in one piece
+when it lies in one chunk, otherwise copied into a reused string), hashed to 128 bits
+(`hash.rs`, two multiply-fold streams) and interned to a `u32`; from there only ids are compared. A
+hash collision (negligible at 128 bits) would show two different lines as equal and nothing else.
+
+**Algorithm.** Myers O(ND) in linear space (middle snake, recursion on the two halves), after the
+common prefix and suffix are cut and the lines that occur on one side only are set aside (changed for
+certain; this shrinks the problem much when the files differ much). The result is minimal (the
+equal lines are a longest common subsequence; the tests check this against a dynamic-programming LCS
+on 3000 random small cases) unless a bound is hit. A moved block is a deletion and an insertion.
+
+**Bounds** (`limits.rs`). `DIFF_MAX_LINES` 2,000,000 lines per side: with more, nothing is hashed
+and the result is one changed block. `DIFF_WORK` 80,000,000 steps (a step is a diagonal visited
+or a line pair compared) for the whole comparison, and `DIFF_MAX_D` 50,000 edits for one split. A
+stretch that is not finished stays one changed block, the rest is still compared exactly, and
+`Diff::approximate` is set (everything reported `Equal` is equal; the hunks still tile both files).
+`cancel` is looked at every 4096 lines while hashing and at every step of the diagonals loop; a
+cancelled result is coarse and has `cancelled` set. Measured on this machine (release build, the
+machine busy with other builds, load average about 16): 200,000 lines with 2,000 random block edits 37 ms
+(hashing included); 2,000,000 lines with 10,000 edits 0.7 s; the worst case for the bound (2,000,000
+lines against 2,000,000 lines drawn from 1,000 values, so no line is set aside) 0.57 s and 200,000
+against 200,000 from 4 values 0.64 s, both approximate; 2,000,000 identical lines 0.13 s.
+
+**Output.** `Diff::hunks()`: `Hunk { kind: Equal | Insert | Delete | Change, a: Range, b: Range }`
+in order, tiling both files. Rows for two panes: `rows()`, `row(i)` give `Row { a: Option<line>,
+b: Option<line>, kind }`; equal lines share a row; an inserted or deleted block has filler rows
+opposite it; a changed block pairs its lines in order and the longer side's surplus has fillers.
+`row_of_a(line)`, `row_of_b(line)` map a line to its row, `row(i)` gives each side's line back;
+`next_hunk(row)` and `prev_hunk(row)` give the index of the next changed hunk starting after the row (before
+the row), `hunk_rows(i)` its rows, `hunk_at(row)` the changed hunk a row is in. `stats()` gives
+`DiffStats { added, removed, changed, hunks }`: inserted lines plus the surplus of changed blocks,
+deleted lines plus their surplus, the lines a changed block pairs, and the number of changed hunks.
+Nothing is stored per line: rows come from the hunks (a binary search over their first rows).
+
+**Inside a line.** `intra_line(row, a, b, opts)` for a row of a changed hunk with as many lines on each
+side (at most `INTRA_HUNK_LINES` 256, lines of at most `INTRA_LINE_BYTES` 64 KiB) gives the byte
+range of each line left after the characters the two lines share at the start and at the end are cut
+(case folded when `ignore_case`). Cuts are moved to grapheme boundaries of both lines, never inside a
+UTF-8 sequence or a cluster; an empty range means pure insertion or deletion. None for other rows
+and for a pair equal under the options.
+
+## Replace in files (2026-11-14)
+
+Headless core only (`mdedit-core::replace_files`, plus `search::walk_files` and
+`save::save_bytes`, both added without changing what was there; `save_path` now runs through a shared
+`save_with`). No window part exists yet. Not run in a window.
+
+**Plan** (`plan(Source, &Query, replacement, &PlanOptions, skip, cancel, progress) -> Plan`).
+`Source::Tree(path)` (a folder, or one file) or `Source::Files(list)`. A tree is walked by
+`search::walk_files`, which keeps find in files' order and choices: files then subfolders, by name ignoring
+ASCII case; `.git`, `node_modules`, `target`, and names starting with a dot (`skip_hidden`) are skipped;
+links to folders are not followed. Each file is read once (the bytes are kept only long enough to
+hash them), decoded with the editor's loader (`load_reader`, the system code page from
+`PlanOptions::load`) and searched with `find_all`, so literal, whole word, regex and case behave as in
+the single-file replace; the replacement is the same template (`$1`..`$99`, `${name}`, `$$`).
+A file is left out, with a reason in `Plan::skipped`, when it is over `REPLACE_FILE_BYTES` (16 MiB, the cap of
+find in files), contains NUL, cannot be read, changed while it was read, is listed in `skip` (the
+caller's documents open with unsaved changes), or has matches but some bytes could not be decoded (it
+could not be written back unchanged). Files without a match are searched and not listed. Per file
+in the plan: encoding, line-ending counts, number of matches (at most `REPLACE_MATCHES_PER_FILE`
+100,000, with `capped`), a preview of the first `REPLACE_PREVIEW_LINES` 5 matches (line, the text around
+the match before and after, each part at most 120 bytes), and the byte length and 128-bit hash of what
+was read. Limits: `REPLACE_WALK_FILES` 500,000 files looked at, `REPLACE_PLAN_FILES` 10,000 files and
+`REPLACE_PLAN_BYTES` 1 GiB in the plan (`Plan::truncated`), `REPLACE_SKIPPED_KEPT` 5,000 skipped entries
+kept (`skipped_count` is the true number). `cancel` is looked at between files (and in the load and the
+search); `progress(done, total)` after each file.
+
+**Apply** (`apply(&Plan, chosen: &[usize], &ApplyOptions, cancel, progress) -> Report`). `chosen` are indexes
+into `plan.files` (out of range ones ignored, duplicates once). For each: skipped when in
+`ApplyOptions::skip`; the file is read again and skipped (reason "changed since the search") unless it
+has the recorded length and hash; decoded forced to the recorded encoding (so the byte order mark state
+is the same); `replace::replace_all` runs on the buffer with the file's most frequent line ending for
+line breaks inside the replacement (the rope keeps every other break as it was, so the bytes outside the
+replaced text are untouched, mixed endings included); the result must fit the encoding
+(`save::first_unencodable`, else a failure, nothing written); a read-only file is a failure; with `backup` the
+original bytes go to `<name>.bak`, else `.bak1`.. `.bak99` (created exclusively, an existing one is never
+overwritten, all taken is a failure), and the backup of a file that then fails to save is removed; the
+new text is written by `save::save_path` (temporary file beside the target, flush, sync, then
+`ReplaceFileW` or rename), with the stamp seen before the read as the expected one. A failure in one file
+does not stop the others. `cancel` is looked at before each file; a file being written is finished, so
+a cancelled run leaves every file either whole-old or whole-new, and `Report::changed` lists the new
+ones. A replacement equal to the text, or with no matches left, is a skip. `Report { changed,
+replacements, skipped, failures, cancelled, reverts }`.
+
+**Revert** (`revert(&Report, cancel, progress) -> RevertReport`). Each `Revert` holds the length and
+hash of the original and of what apply wrote, and the original bytes in memory (all files together up to
+`REPLACE_REVERT_BYTES` 64 MiB, `ApplyOptions::keep_bytes`) or the backup path. A file is restored (through
+`save::save_bytes`: the same safe write) only if it still has exactly the bytes apply wrote; the backup is
+checked against the original hash. Files edited since, or whose original was not kept, are skipped with
+a reason. Backups are left in place. `Report::revertible()` counts the files that can be restored.
+
+**Measured** (release, same busy machine): 5,000 files of 60 lines (12 MB, 300,000 matches) in 50 folders:
+plan 54 to 72 ms; apply 3.6 to 21 s and revert 3.1 to 21 s over three runs, which is the one
+`sync_all` per file of the safe write (the disk was shared with other builds); not measured on Windows.

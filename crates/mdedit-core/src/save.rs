@@ -300,16 +300,13 @@ fn replace(target: &Path, temp: &Path) -> Result<(), SaveError> {
     Ok(())
 }
 
-/// Writes the text to `path`, safely (see the module doc). `expected` is the stamp the caller
-/// last saw for the file; `None` skips the check (Save As, or an explicit overwrite). A file
-/// that was there and is now missing counts as changed; one missing at load and still missing
-/// does not.
-pub fn save_path(
+/// The safe-write protocol around one write: the stamp and read-only checks, a temporary file
+/// beside the target that `write` fills (it is given the temporary file's path and returns the
+/// bytes written), then the swap. The temporary file is removed on any failure.
+fn save_with(
     path: &Path,
-    rope: &Rope,
-    encoding: Encoding,
     expected: Option<&FileStamp>,
-    cancel: &AtomicBool,
+    write: impl FnOnce(&Path) -> Result<u64, SaveError>,
 ) -> Result<Saved, SaveError> {
     if let Some(expected) = expected
         && stamp(path) != *expected
@@ -322,7 +319,7 @@ pub fn save_path(
         return Err(SaveError::ReadOnly);
     }
     let temp = temp_path(path);
-    let result = write_temp(&temp, rope, encoding, cancel).and_then(|bytes| {
+    let result = write(&temp).and_then(|bytes| {
         replace(path, &temp)?;
         Ok(bytes)
     });
@@ -336,6 +333,38 @@ pub fn save_path(
             Err(e)
         }
     }
+}
+
+/// Writes the text to `path`, safely (see the module doc). `expected` is the stamp the caller
+/// last saw for the file; `None` skips the check (Save As, or an explicit overwrite). A file
+/// that was there and is now missing counts as changed; one missing at load and still missing
+/// does not.
+pub fn save_path(
+    path: &Path,
+    rope: &Rope,
+    encoding: Encoding,
+    expected: Option<&FileStamp>,
+    cancel: &AtomicBool,
+) -> Result<Saved, SaveError> {
+    save_with(path, expected, |temp| {
+        write_temp(temp, rope, encoding, cancel)
+    })
+}
+
+/// [`save_path`] for bytes that are already encoded (restoring a file's earlier bytes): the
+/// same temporary file, flush, sync and swap, the same checks.
+pub fn save_bytes(
+    path: &Path,
+    bytes: &[u8],
+    expected: Option<&FileStamp>,
+) -> Result<Saved, SaveError> {
+    save_with(path, expected, |temp| {
+        let mut file = OpenOptions::new().write(true).create_new(true).open(temp)?;
+        file.write_all(bytes)?;
+        file.flush()?;
+        file.sync_all()?;
+        Ok(bytes.len() as u64)
+    })
 }
 
 #[cfg(test)]

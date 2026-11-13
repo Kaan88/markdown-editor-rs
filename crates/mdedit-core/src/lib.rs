@@ -7,18 +7,21 @@
 
 pub mod bracket;
 pub mod buffer;
+pub mod diff;
 pub mod display;
 pub mod edit;
 pub mod encoding;
 pub mod eol;
 pub mod find;
 pub mod fold;
+mod hash;
 pub mod history;
 pub mod limits;
 pub mod lines;
 pub mod load;
 pub mod multi;
 pub mod replace;
+pub mod replace_files;
 pub mod save;
 pub mod search;
 pub mod selection;

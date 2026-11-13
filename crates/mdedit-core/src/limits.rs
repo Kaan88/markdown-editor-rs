@@ -61,3 +61,34 @@ pub const UNDO_BYTES: usize = 64 << 20;
 /// Removed text up to this many bytes is kept as a `String`; larger text is kept as a `Rope`
 /// slice that shares the buffer's chunks instead of copying them.
 pub const UNDO_SHARE_BYTES: usize = 4096;
+
+/// Comparing two files: each side may have at most this many lines; with more, the result is one
+/// changed block (flagged approximate) and nothing is read.
+pub const DIFF_MAX_LINES: usize = 2_000_000;
+/// The comparison gives up on a stretch (it stays one changed block, flagged approximate) once
+/// the whole comparison has taken this many steps (one step is one diagonal visited or one line
+/// pair compared). Chosen so that the worst case stays near a second (`docs/DESIGN.md`).
+pub const DIFF_WORK: usize = 80_000_000;
+/// The most edits (D) either half of one split may look at: the work vectors are this long.
+pub const DIFF_MAX_D: usize = 50_000;
+/// The changed characters inside a line are marked only for a changed block of at most this many
+/// lines on each side, and for lines of at most this many bytes.
+pub const INTRA_HUNK_LINES: usize = 256;
+pub const INTRA_LINE_BYTES: usize = 64 * 1024;
+
+/// Replace in files: the largest file read (the same as find in files), the most files looked
+/// at, the most files and bytes in a plan, the most matches counted in one file, and the
+/// longest list of skipped files kept.
+pub const REPLACE_FILE_BYTES: u64 = 16 << 20;
+pub const REPLACE_WALK_FILES: usize = 500_000;
+pub const REPLACE_PLAN_FILES: usize = 10_000;
+pub const REPLACE_PLAN_BYTES: u64 = 1 << 30;
+pub const REPLACE_MATCHES_PER_FILE: usize = 100_000;
+pub const REPLACE_SKIPPED_KEPT: usize = 5_000;
+/// Lines of before and after kept per file for the preview, and the bytes of each part of one.
+pub const REPLACE_PREVIEW_LINES: usize = 5;
+pub const REPLACE_PREVIEW_PART: usize = 120;
+/// The original bytes of changed files are kept in memory for undo up to this many in all.
+pub const REPLACE_REVERT_BYTES: u64 = 64 << 20;
+/// Backup names `name.bak`, `name.bak1` .. `name.bak99`; with all taken the file is not changed.
+pub const REPLACE_BACKUPS: usize = 99;
