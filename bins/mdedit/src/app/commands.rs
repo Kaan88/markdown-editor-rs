@@ -964,6 +964,7 @@ impl App {
                 self.docs.wrap = !self.docs.wrap;
                 self.docs.sync_wrap();
             }
+            C::ToggleMinimap => self.docs.minimap = !self.docs.minimap,
             C::ToggleBookmark => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.toggle_bookmark();

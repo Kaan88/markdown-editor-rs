@@ -84,6 +84,8 @@ pub struct Args {
     pub whitespace: bool,
     /// `--wrap`: word wrap.
     pub wrap: bool,
+    /// `--minimap`: the minimap beside the text.
+    pub minimap: bool,
     /// `--find-in-tabs`: the results panel with what `--find` finds in the open tabs.
     pub find_in_tabs: bool,
     /// `--outline`: the left pane with the active document's function list.
@@ -176,6 +178,7 @@ impl Args {
                 "--maximize" => out.maximize = true,
                 "--whitespace" => out.whitespace = true,
                 "--wrap" => out.wrap = true,
+                "--minimap" => out.minimap = true,
                 "--find-in-tabs" => out.find_in_tabs = true,
                 "--outline" => out.outline = true,
                 "--bookmark" => {
@@ -281,6 +284,16 @@ mod tests {
 
     fn parse(s: &str) -> Args {
         Args::parse(s.split_whitespace().map(String::from))
+    }
+
+    #[test]
+    fn the_minimap_switch() {
+        assert!(parse("--minimap a.rs").minimap);
+        assert!(!parse("a.rs").minimap);
+        // It goes with the other switches of the timing runs.
+        let a = parse("--minimap --trace --type-steps 5 --scroll-steps 7 a.rs");
+        assert!(a.minimap && a.trace);
+        assert_eq!((a.type_steps, a.scroll_steps), (Some(5), Some(7)));
     }
 
     #[test]

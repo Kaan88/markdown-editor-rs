@@ -98,6 +98,8 @@ pub struct Session {
     pub whitespace: bool,
     /// Word wrap.
     pub wrap: bool,
+    /// The minimap beside the text.
+    pub minimap: bool,
     /// `WxH[ max][ @x,y]`, the viewer's format.
     pub geometry: String,
     /// Whether the Files pane shows; `None` when never set.
@@ -122,6 +124,7 @@ impl Default for Session {
             zoom: 100,
             whitespace: false,
             wrap: false,
+            minimap: false,
             geometry: String::new(),
             files: None,
             files_w: None,
@@ -171,6 +174,7 @@ impl Session {
                     }
                     "whitespace" => s.whitespace = value.trim() == "1",
                     "wrap" => s.wrap = value.trim() == "1",
+                    "minimap" => s.minimap = value.trim() == "1",
                     "geometry" => s.geometry = unescape(value),
                     "files" => {
                         s.files = match value.trim() {
@@ -222,6 +226,9 @@ impl Session {
         }
         if self.wrap {
             out.line("wrap", "1");
+        }
+        if self.minimap {
+            out.line("minimap", "1");
         }
         if !self.geometry.is_empty() {
             out.line("geometry", &escape(&self.geometry));
@@ -320,6 +327,26 @@ mod tests {
         assert_eq!(back.recent.paths()[0], PathBuf::from("C:/new.txt"));
         assert_eq!(back.window_size(), Some((1100, 700, false)));
         assert_eq!(back.window_position(), Some((-8, 40)));
+    }
+
+    #[test]
+    fn the_minimap_is_remembered() {
+        let s = Session {
+            minimap: true,
+            ..Session::default()
+        };
+        assert!(s.serialize().contains("minimap=1"));
+        assert!(Session::parse(&s.serialize()).minimap);
+        // Off is the default and is not written.
+        assert!(!Session::default().serialize().contains("minimap"));
+        assert!(
+            !Session::parse(
+                "[mdedit]
+minimap=0
+"
+            )
+            .minimap
+        );
     }
 
     #[test]

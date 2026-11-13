@@ -87,9 +87,11 @@ pub enum Region {
     Results,
     /// The second text pane of a split view.
     Other,
+    /// The minimap, at the right edge of the text area.
+    Minimap,
 }
 
-pub const REGIONS: [Region; 7] = [
+pub const REGIONS: [Region; 8] = [
     Region::Title,
     Region::Bar,
     Region::Files,
@@ -97,6 +99,7 @@ pub const REGIONS: [Region; 7] = [
     Region::Status,
     Region::Results,
     Region::Other,
+    Region::Minimap,
 ];
 
 /// A text pane of a split view is at least this wide; a narrower window shows one pane.
@@ -162,6 +165,8 @@ pub enum Hit {
     Backdrop,
     /// The second text pane of a split view: a click gives it the keyboard.
     Other,
+    /// The minimap.
+    Minimap,
 }
 
 impl Hit {
@@ -194,6 +199,7 @@ impl Hit {
             | Hit::EmptyOpen
             | Hit::EmptyRecent(_) => Region::Text,
             Hit::Other => Region::Other,
+            Hit::Minimap => Region::Minimap,
             _ => return None,
         })
     }
@@ -205,6 +211,7 @@ impl Hit {
             Hit::TitleDrag
                 | Hit::Text
                 | Hit::Other
+                | Hit::Minimap
                 | Hit::Splitter
                 | Hit::ScrollBar(_)
                 | Hit::Find
@@ -452,6 +459,10 @@ pub enum Drag {
     },
     /// Selecting in the focused box of the bar.
     FindSelect,
+    /// The minimap's band, held `grab` device px below its top.
+    Minimap {
+        grab: f32,
+    },
 }
 
 /// A tooltip waiting to show, or showing.
@@ -655,6 +666,8 @@ pub struct Areas {
     pub results: Option<Rect>,
     /// The second text pane of a split view; `text` is the one with the keyboard.
     pub other: Option<Rect>,
+    /// The minimap, at the right edge of what the `text` area was before it gave the column up.
+    pub minimap: Option<Rect>,
 }
 
 impl Areas {
@@ -667,7 +680,21 @@ impl Areas {
             Region::Status => Some(self.status),
             Region::Results => self.results,
             Region::Other => self.other,
+            Region::Minimap => self.minimap,
         }
+    }
+
+    /// Gives the right edge of the text (of the pane with the keyboard, in a split view) to the
+    /// minimap, when the text keeps `TEXT_MIN` beside it.
+    pub fn with_minimap(mut self, on: bool) -> Areas {
+        use crate::minimap::{TEXT_MIN, WIDTH};
+        if !on || self.text.w - WIDTH < TEXT_MIN {
+            return self;
+        }
+        let t = self.text;
+        self.minimap = Some(Rect::new(t.right() - WIDTH, t.y, WIDTH, t.h));
+        self.text.w -= WIDTH;
+        self
     }
 
     /// Gives half of the text to a second pane, at its left or its right, when both halves
@@ -731,6 +758,7 @@ impl Areas {
             status,
             results: None,
             other: None,
+            minimap: None,
         }
     }
 }
@@ -738,6 +766,58 @@ impl Areas {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_minimap_takes_its_width_from_the_text_and_hides_when_that_leaves_too_little() {
+        use crate::minimap::{TEXT_MIN, WIDTH};
+        let a = Areas::compute(1280.0, 800.0, false, 250.0, 0.0);
+        let m = a.with_minimap(true);
+        let t = m.minimap.unwrap();
+        assert_eq!(t.w, WIDTH);
+        assert_eq!(m.text.w, a.text.w - WIDTH);
+        // At the text's right edge, full height.
+        assert_eq!((t.right(), t.y, t.h), (a.text.right(), a.text.y, a.text.h));
+        assert_eq!(m.text.right(), t.x);
+        assert_eq!(m.region(Region::Minimap), Some(t));
+        // Off, nothing changes.
+        assert_eq!(a.with_minimap(false), a);
+        // Just enough room keeps it; one px less hides it.
+        let w = TEXT_MIN + WIDTH;
+        assert!(
+            Areas::compute(w, 600.0, false, 250.0, 0.0)
+                .with_minimap(true)
+                .minimap
+                .is_some()
+        );
+        assert!(
+            Areas::compute(w - 1.0, 600.0, false, 250.0, 0.0)
+                .with_minimap(true)
+                .minimap
+                .is_none()
+        );
+        // With the split only the pane with the keyboard has one, the other keeps its width.
+        let s = a.with_split(true, false).with_minimap(true);
+        let other = s.other.unwrap();
+        assert_eq!(other.w, a.with_split(true, false).other.unwrap().w);
+        assert_eq!(
+            s.minimap.unwrap().right(),
+            a.with_split(true, false).text.right()
+        );
+        let l = a.with_split(true, true).with_minimap(true);
+        assert_eq!(
+            l.minimap.unwrap().right(),
+            a.with_split(true, true).text.right()
+        );
+        // A pane too narrow for the column and the text goes without it.
+        let narrow = Areas::compute(900.0, 600.0, false, 250.0, 0.0).with_split(true, false);
+        assert_eq!(narrow.text.w, 450.0);
+        assert!(narrow.with_minimap(true).minimap.is_some());
+        let narrow = Areas::compute(800.0, 600.0, false, 250.0, 0.0).with_split(true, false);
+        assert!(narrow.with_minimap(true).minimap.is_none());
+        // The results panel takes the text's height first and the column follows.
+        let r = a.with_results(true).with_minimap(true);
+        assert_eq!(r.minimap.unwrap().h, r.text.h);
+    }
 
     #[test]
     fn panes_give_way_to_the_text() {

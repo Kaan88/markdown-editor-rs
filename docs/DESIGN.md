@@ -226,7 +226,8 @@ Internal to package C, listed so the layout is known: `main.rs`, `app.rs` (loop,
 `--shot`, `run`), `app/input.rs`, `app/commands.rs`, `args.rs` (the `Args` struct is fixed in the
 stub), `commands.rs` (command table and strings), `keys.rs`, `docs.rs` (tabs and their documents,
 load and find jobs), `ui.rs` (regions, hits, drags, popups, dialogs, panes), `chrome.rs`,
-`panes.rs`, `overlays.rs`, `status.rs`, `view.rs` (and `view/*.rs` if it is split), `session.rs`,
+`panes.rs`, `overlays.rs`, `status.rs`, `view.rs` (and `view/*.rs` if it is split), `minimap.rs`,
+`session.rs`,
 `platform.rs` (`GetACP`, memory and CPU figures; the only `unsafe` in the crate), `trace.rs`.
 
 ## 2. Decisions
@@ -849,6 +850,65 @@ A caret is never on a hidden line: `reveal` opens the fold over what it brings i
 `geom`, which runs before every frame and click, opens those over the carets
 (`Ready::unfold_carets`). Up and Down without wrap are made as long as the lines between the
 rows are many (`app/input.rs`). `Ready::changed` gives each edit to `Folds::shift`.
+
+## 28. Minimap (2026-11-13)
+
+A narrow column at the right edge of the text area that shows the document in miniature, with
+the part the editor shows marked. Off by default; View > Minimap (no key), `--minimap` for shots,
+kept in the session as `minimap=1`. `bins/mdedit/src/minimap.rs` holds the pure parts and the
+drawing; `view.rs` (`map_scene`, `map_scroll`) and `app.rs` / `app/input.rs` wire it in.
+
+**Region.** `Region::Minimap` (the eighth), `Areas::minimap`, `Hit::Minimap`, `Drag::Minimap`.
+`Areas::with_minimap` runs after the results panel and the split: it takes 96 logical px off the
+right of `text` (the pane with the keyboard, in a split view; the other pane keeps its width) and
+gives them to the new region, full height, unless the text would be left under 320 px. So the
+text, its gutter and its vertical scrollbar simply get a narrower rectangle; `view.rs` does not
+know the column is there. It repaints alone, and it has no signature of its own beyond the
+document's revision, the view's place, the colour answers, the theme and the pointer.
+
+**Rows.** One row per line that shows (`Folds::line_at_row` maps a row to its line; folded lines
+are skipped; word wrap is ignored). A row is 2 px of ink and 1 px of gap at scale 1.0, a character
+column 1 px, all scaled and rounded with at least 1 (`Px`). `segments` turns a line's characters
+into filled segments: a run of non-whitespace characters of one colour, tabs going to the next
+`TAB_WIDTH` stop, nothing past the columns that fit. A run that crosses a colour change is split
+there. Only the first 512 bytes of a line are read. No text is laid out; the marks are filled
+rectangles in a cached `Bitmap` (the rows without the band), blitted with the band over it, so a
+repaint caused only by the pointer entering the band does not draw the rows again. The cache is
+keyed by document, revision, window start, both colour generations, folds, theme, scale and size.
+Typing re-draws the window (about 250 rows) in the same frame as the text.
+
+**Window.** `Plan::new(rows, band_first, band_rows, row_h, column_h)`. When all rows fit, the
+document starts at the top. Otherwise `top_px = fraction * (rows_px - column_px)`, where the
+fraction is the band's first row over its range, which for a view without word wrap is exactly the
+editor's scroll position over its scroll range. The window is at most `column_h / row_h` rows
+however large the file is; nothing walks the document (a row count is `len_lines` less the folds'
+prefix sum). With word wrap the band is the lines from the view's top line to the one at its
+bottom, and the fraction is taken over those.
+
+**Colours.** Each segment takes its colour in the editor at 60 % over the page; a line without
+colours uses `foreground(dark)` the same way. They come from the highlight worker with a new
+request, `HighlightService::map`, answered in a `Colored` with `map` set and stored in
+`Ready::map_colors`. `peek` could not be used: the worker keeps one request slot per document and
+the minimap's window is another range of the document the editor is viewing, so the worker has a
+second slot. Order of work in the worker: the view (or a peek) first, then the map, tried in 2 ms
+slices (the view's are 8 ms) so a view request arriving meanwhile waits at most that long, then
+the background parse. The shell asks when the window leaves the lines asked for last (the request
+holds half a window more each side), the theme changes, or an edit makes the answer stale.
+Until an answer arrives a line is drawn with the editor's own colours when it has them, else in
+the text colour. The first frame does not wait for these answers (`--shot` does).
+
+**Band and pointer.** The rows in view get the text colour at 8 % (14 % while the pointer is over
+the column or a drag runs). A press outside the band centres the view on the row pressed
+(`first_to_centre_on`) and then holds the band where it ended up, so a drag moves it by as many
+pixels as the pointer moves; a press inside it holds it where it was pressed. A drag turns the
+band's wanted top into the view's first row with the inverse of the column's scrolling
+(`first_for_band_top`), so the band follows the pointer exactly and nothing feeds back. In a file
+too long for its rows to fit, the band after a press is generally not under the pointer: the
+minimap scrolls with the editor, as Sublime's does. The wheel over the column scrolls the text as
+it does over the text. No tooltip, no context menu.
+
+**Not shown:** the selection, find matches, bookmarks, the caret; wide (CJK) characters count one
+column.
 
 ## 19. Unsaved text survives a close (2026-11-13)
 

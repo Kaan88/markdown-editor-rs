@@ -212,15 +212,15 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 378 passed on 2026-11-13
+cargo test --release --workspace        # 400 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 62 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 69 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
 with `--size WxH --scale N --light|--dark --menu NAME --dialog NAME --find TEXT --goto L[:C]
---select A-B --type TEXT --scroll N --hscroll N --hover X,Y --bookmark L --fold L`; `--trace` prints stage times, first
+--select A-B --type TEXT --scroll N --hscroll N --hover X,Y --bookmark L --fold L --minimap`; `--trace` prints stage times, first
 frame, memory and CPU time; `--scroll-steps N` times scroll frames; `--type-steps N` types N
 keystrokes at the caret and times each from keystroke to pixels (it exits without saving);
 `--exit-after-ms N` opens a real window and closes it.
@@ -241,6 +241,93 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Minimap (2026-11-13, asked by the owner: "a minimap like Sublime Text")
+
+`docs/DESIGN.md` section 28 has the design as built. Built to a written design from the main
+session; not released, version not changed (still 0.3.2), nothing pushed to other repositories.
+
+- **What it is.** View > Minimap (no key) shows a 96 px column at the right edge of the text with
+  the document in miniature: one row per line that shows (folds skipped, word wrap ignored), a run
+  of non-whitespace one coloured rectangle, the editor's colours at 60 %, a translucent band over
+  the rows in view (8 %, 14 % over the column), the column scrolling in proportion to the editor
+  in long files. Press outside the band: the editor centres on that line, a drag goes on from
+  there; press inside it: a drag keeps the grab offset; the wheel scrolls the text. Off by
+  default; remembered in the session (`minimap=1`); `--minimap` for shots and timing runs.
+- **Decisions made without the owner.**
+  - **The worker has a second request slot.** `peek` is one slot per document and the minimap
+    wants another range of the document the editor is viewing, so `mdedit-highlight` gained
+    `HighlightService::map` and a `map` flag on `Colored` (two tests). The worker serves view and
+    peek first, then the map in 2 ms slices, then the background parse. This is in this
+    repository's crate; nothing in the shared repository changed.
+  - **Split view: only the pane with the keyboard has the column.** It was one call to
+    `with_minimap` on the `text` area after the split, so it was not harder than giving none. The
+    other pane keeps its full width. With the keyboard pane on the left, the column sits between
+    the two panes. Under 320 px of text beside it (a pane in a narrow window) it hides.
+  - **A run that crosses a colour change is split there**, not drawn in the colour of its first
+    character (`fn main() {` is several colours in the editor).
+  - **With word wrap** the band is the lines from the view's top line to the one at its bottom and
+    the window's fraction is taken over those lines; without wrap it is exactly the editor's
+    scroll fraction.
+  - **Where the band is after a press outside it.** In a file longer than the column's rows the
+    band does not land under the pointer (the column scrolls with the editor). The drag then moves
+    the band by the pointer's movement from where it stands. Putting the band under the pointer
+    instead would send the view elsewhere than the line that was clicked.
+  - The first frame does not wait for the minimap's colours; a `--shot` does.
+  - A line is read up to 512 bytes; wide characters count one column; the ink is cached as a
+    bitmap per window, and typing draws the window again (no per-line patching).
+- **Measured** (release, same quiet PC, runs alternated; budgets: exe 6,000,000 bytes, window
+  shown 100 ms, memory 30 MiB, keystroke p50 8 ms, scroll step p50 4 ms):
+
+  | | before | after, off | after, on |
+  |---|---|---|---|
+  | exe bytes | 5,651,968 | 5,666,304 | same exe |
+  | shown, sample.rs (ms) | 74.8 to 75.3 (3 runs) | 74.6 to 76.3 (5 runs) | 77.1 to 82.4 (3 runs) |
+  | private memory, sample.rs (MiB) | 27.8 | 27.5 to 27.7 | 27.8 to 28.0 |
+  | keystroke p50, sample.rs (ms) | 0.51 to 0.52 | 0.47 | 0.57 to 0.59 |
+  | scroll step p50, sample.rs (ms) | 0.44 to 0.45 | 0.40 | 0.43 |
+  | keystroke p50, 50k.rs (ms) | 0.52 | 0.47 to 0.49 | 0.66 to 0.67 |
+  | scroll step p50, 50k.rs (ms) | 0.46 | 0.43 | 0.61 to 0.62 |
+  | private memory, 50k.rs (MiB) | 29.4 | 29.5 | 29.6 to 29.9 |
+  | keystroke p50, 100mb.txt (ms) | 0.59 | 0.53 to 0.54 | 0.74 |
+  | scroll step p50, 100mb.txt (ms) | 0.58 to 0.59 | 0.54 to 0.55 | 0.72 to 0.73 |
+  | shown, 100mb.txt (ms) | 131 to 136 | 135 to 161 | 131 to 142 |
+
+  The first build with the minimap on showed the window at 92 to 101 ms (sample.rs) and 110 to 118
+  ms (50k.rs) because the first frame waited for the minimap's colours; that wait was removed (see
+  above) and the table is of the final exe. Idle CPU with the minimap on: the CPU time at idle
+  and at exit were equal on sample.rs and 100mb.txt (no timer was added); on 50k.rs the CPU time
+  grows over the run as it does without it (the background parse). The 50k.rs file is already at
+  29.4 MiB without the minimap (the 30 MiB budget was set on the small file); the minimap adds 0.1
+  to 0.5 MiB (its bitmap is 96 x 700 px).
+- **Tests.** `cargo test --release --workspace`: 400 passed, 0 failed (382 before): the arithmetic
+  (marks, segments with tabs and cut-off, window and proportional scroll, pointer y to row, row to
+  line with folds, drag and press) in `minimap.rs`, `Areas::with_minimap` in `ui.rs` (hide under
+  320, split, results panel), the session and the argument, two for the worker. Clippy
+  `-D warnings` and `fmt --check` clean. `tests/shots.sh` makes 69 shots (five new: `minimap`,
+  `minimap-dark`, `minimap-long`, `minimap-fold`, `minimap-split`); the 64 earlier ones are
+  byte-identical to a run made before the change except `menu-view` and `menu-main-view`, which
+  list "Minimap"; two runs of the whole set were identical. I looked at the five new shots,
+  `menu-view` and the real-window screenshots.
+- **Run in a real window** (Windows, scale 1.0, launched from Git Bash with `MDEDIT_SETTINGS` on a
+  scratch file and a copy of the 50,000-line file; mouse by `SetCursorPos` and `mouse_event`,
+  screenshots of the window): the menu button, View, Minimap (turned on, `minimap=1` written);
+  a press outside the band (the view went to the line at the pointer, 121 to 157 for a press on
+  line 139); a drag after it (to line 13,000); a press inside the band and a drag of 40 px (the
+  band moved 40 px); the wheel over the column (3 notches, 9 lines); a click in the text and
+  typing 60 letters, a line break and 30 letters (the two long lines show in the column at once);
+  Minimap off (full-width text, `minimap` gone from the file); on again; the window closed and
+  started again on the same settings file (the column is there).
+- **Not run:** scale other than 1.0 (the shots at 1.5 were not made for the minimap, only the
+  unit arithmetic covers it); Linux; the split view in a real window (shot only), a drag with
+  word wrap or folds in a real window (shots only for folds; wrap not even that); a window narrow
+  enough to hide the column (unit test only); the results panel open with the column; a file that
+  is not coloured at all in a real window (100mb.txt was only timed); the first frame with the
+  column on a slow disk; the column on the 1 MB single-line file; a minimap request racing an
+  edit in a real window beyond the typing above; idle CPU in a real window with the column on
+  (only the `--trace` figures); typing with the split view open. **What is not built:** selection
+  and find marks, bookmarks and the caret in the column, one row per wrapped row, the second pane's
+  column, a width setting, a key for the command. The owner has not seen any of it.
 
 ## Update look at every launch, and submenus on mouse-over (2026-11-13, 0.3.2, asked by the owner)
 

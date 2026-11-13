@@ -267,6 +267,8 @@ pub struct Ready {
     /// Horizontal scroll, logical px.
     pub left: f64,
     pub colors: LineColors,
+    /// The colours of the minimap's window, asked for apart from `colors`.
+    pub map_colors: LineColors,
     pub find: FindState,
     /// The bracket pair at the caret, kept for the revision and caret it was found at.
     bracket: std::cell::Cell<Option<BracketAt>>,
@@ -430,6 +432,7 @@ impl Ready {
             .at
             .saturating_sub(self.buffer.line_start(change.first_line));
         self.colors.edited(change, rel);
+        self.map_colors.edited(change, rel);
         self.find.edited(change);
         self.chunks.clear();
         lines::shift_marks(&mut self.bookmarks, change);
@@ -549,6 +552,7 @@ impl Ready {
             rows_stamp: (0, 0, 0, 0),
             left: 0.0,
             colors: LineColors::default(),
+            map_colors: LineColors::default(),
             find: FindState::default(),
             bracket: std::cell::Cell::new(None),
             chunks: Lru::new(crate::view::CHUNK_INDEXES),
@@ -854,6 +858,8 @@ pub struct Docs {
     pub zoom: u32,
     /// Spaces, tabs and line endings show as marks.
     pub whitespace: bool,
+    /// The minimap shows beside the text.
+    pub minimap: bool,
     /// Split view: the tab that shows in the second pane, and whether that pane is the left
     /// one. The active tab shows in the other pane and has the keyboard.
     pub other: Option<DocId>,
@@ -886,6 +892,7 @@ impl Docs {
             theme: ThemeChoice::System,
             zoom: 100,
             whitespace: false,
+            minimap: false,
             other: None,
             other_left: false,
             recording: false,
@@ -1795,6 +1802,7 @@ impl Docs {
         let path = canonical_or_absolute(&path);
         r.language = language_of(&path, &r.buffer);
         r.colors = LineColors::default();
+        r.map_colors = LineColors::default();
         r.colourable = false;
         doc.revision += 1;
         let (id, revision) = (doc.id, doc.revision);
@@ -1888,10 +1896,16 @@ impl Docs {
             }
             let id = doc.id;
             if let Some(r) = doc.ready_mut().filter(|r| r.colourable) {
-                r.colors.first = c.first_line;
-                r.colors.lines = c.lines;
-                r.colors.dark = c.dark;
-                r.colors.generation += 1;
+                // The minimap's window has its own store: it is not what the text view shows.
+                let store = if c.map {
+                    &mut r.map_colors
+                } else {
+                    &mut r.colors
+                };
+                store.first = c.first_line;
+                store.lines = c.lines;
+                store.dark = c.dark;
+                store.generation += 1;
                 changed |= Some(id) == active;
             }
         }

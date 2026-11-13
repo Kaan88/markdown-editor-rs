@@ -9,6 +9,7 @@ mod commands;
 mod docs;
 mod keys;
 mod macros;
+mod minimap;
 mod outline;
 mod overlays;
 mod panes;

@@ -137,6 +137,7 @@ impl App {
                 self.ui.panes.files_w = (width + (x - start)).clamp(PANE_MIN, max).round();
             }
             Drag::Thumb { target, grab } => self.thumb_to(target, x - grab, y - grab),
+            Drag::Minimap { grab } => self.minimap_drag(y, grab),
             Drag::Column { line, col } => {
                 let Some(offset) = self.text_offset(x, y) else {
                     return;
@@ -279,6 +280,53 @@ impl App {
         }
     }
 
+    /// The minimap's column, window and the view's geometry now.
+    fn minimap_now(&mut self) -> Option<(Rect, minimap::Plan, view::Geom)> {
+        let rect = self.areas.minimap?;
+        let region = self.areas.text;
+        let i = self.docs.active()?;
+        let g = self
+            .view
+            .layout(&mut self.docs.tabs[i], region, self.scale)?;
+        let plan = self.minimap_plan(Some(g))?;
+        Some((rect, plan, g))
+    }
+
+    /// A press on the minimap. Inside the band it grabs the band where it was pressed; outside it
+    /// centres the view on the line pressed and then holds the band as it stands after that.
+    fn minimap_press(&mut self, y: f32) {
+        let Some((rect, plan, g)) = self.minimap_now() else {
+            return;
+        };
+        let yd = ((y - rect.y) * self.scale) as f64;
+        let (b0, b1) = plan.band();
+        let grab = if yd >= b0 as f64 && yd < b1 as f64 {
+            yd - b0 as f64
+        } else {
+            let first = plan.first_to_centre_on(yd);
+            if let Some(r) = self.docs.active_ready_mut() {
+                view::map_scroll(r, &g, first);
+            }
+            match self.minimap_now() {
+                Some((_, after, _)) => yd - after.band().0 as f64,
+                None => return,
+            }
+        };
+        self.ui.drag = Some(Drag::Minimap { grab: grab as f32 });
+    }
+
+    /// The pointer at `y` with the band held `grab` device px below its top.
+    pub(super) fn minimap_drag(&mut self, y: f32, grab: f32) {
+        let Some((rect, plan, g)) = self.minimap_now() else {
+            return;
+        };
+        let yd = ((y - rect.y) * self.scale) as f64;
+        let first = plan.first_for_band_top(yd - grab as f64);
+        if let Some(r) = self.docs.active_ready_mut() {
+            view::map_scroll(r, &g, first);
+        }
+    }
+
     /// A press on a scrollbar: grabs the thumb, or pages towards the press.
     fn scrollbar_press(&mut self, target: Scroller, x: f32, y: f32) {
         match target {
@@ -397,6 +445,7 @@ impl App {
                 self.ui.drag = Some(Drag::Splitter { x, width });
             }
             Hit::ScrollBar(target) => self.scrollbar_press(target, x, y),
+            Hit::Minimap => self.minimap_press(y),
             Hit::Other => {
                 self.docs.seal();
                 if self.docs.focus_other() {
@@ -642,7 +691,9 @@ impl App {
             self.redraw();
             return;
         }
-        if !self.areas.text.contains(x, y) {
+        // The wheel over the minimap scrolls the text as it does over the text.
+        let over_map = self.areas.minimap.is_some_and(|m| m.contains(x, y));
+        if !self.areas.text.contains(x, y) && !over_map {
             return;
         }
         // Ctrl and the wheel change the text size, a step per notch.

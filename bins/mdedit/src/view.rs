@@ -217,6 +217,49 @@ pub fn shown_lines(r: &Ready) -> Range<usize> {
     vis.start..end.clamp(vis.start, lines.min(vis.start + SHOWN_LINES_MAX))
 }
 
+/// What the minimap needs of the view: the rows that show, and where the view is among them
+/// (its first row, fractional, and how many rows it spans).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MapScene {
+    pub rows: usize,
+    pub first: f64,
+    pub span: f64,
+}
+
+/// The view as the minimap draws it. Without word wrap it is the rows in view exactly; with it
+/// the minimap goes by lines, so the view is the lines from the top one to the one at its
+/// bottom.
+pub fn map_scene(r: &mut Ready, g: &Geom) -> MapScene {
+    if !g.wrapped {
+        return MapScene {
+            rows: g.rows,
+            first: g.top,
+            span: g.view_lines,
+        };
+    }
+    let top = wrap::top(r);
+    let first = r.folds.row_of(r.folds.shown(top.line)) as f64;
+    let bottom = wrap::step(r, top, g.view_lines.ceil() as isize);
+    let last = r.folds.row_of(r.folds.shown(bottom.line)) as f64;
+    MapScene {
+        rows: g.rows,
+        first,
+        span: (last + 1.0 - first).max(1.0),
+    }
+}
+
+/// Puts the view's first row at `first` (a row among those that show) for the minimap; with word
+/// wrap, at the line of that row.
+pub fn map_scroll(r: &mut Ready, g: &Geom, first: f64) {
+    if g.wrapped {
+        let row = first.round().max(0.0) as usize;
+        let line = r.folds.line_at_row(row.min(g.rows.saturating_sub(1)));
+        scroll_to(r, g, line as f64);
+    } else {
+        scroll_to(r, g, first);
+    }
+}
+
 /// Puts line `top` (fractional without word wrap) at the view's top: a scrollbar's answer.
 pub fn scroll_to(r: &mut Ready, g: &Geom, top: f64) {
     if g.wrapped {

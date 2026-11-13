@@ -5,9 +5,11 @@
 //! turns into a winit user event. When it has nothing to do it blocks on its command channel, so
 //! an idle window costs no CPU here.
 //!
-//! Order of work: the latest `view` request of the most recently viewed document first; then that
-//! document's parse forward to the end of the text, in slices of about 2 ms with the command
-//! channel checked between slices. Other documents wait until they are viewed.
+//! Order of work: the latest `view` request of the most recently viewed document first (then any
+//! `peek`); then a `map` request (the minimap's window, which only ever waits for the two before
+//! it and is tried in short slices); then that document's parse forward to the end of the text,
+//! in slices of about 2 ms with the command channel checked between slices. Other documents wait
+//! until they are viewed.
 
 pub use mdshared_highlight::incremental::{Language, Limits, Span, foreground};
 
@@ -23,6 +25,9 @@ pub type DocId = u64;
 
 /// How long the worker serves a view request before it looks at its commands again.
 const VIEW_SLICE: Duration = Duration::from_millis(8);
+/// The same for a minimap request, which is shorter so that a view request that arrives meanwhile
+/// is not kept waiting.
+const MAP_SLICE: Duration = Duration::from_millis(2);
 /// The longest try at one request; commands are looked at between tries.
 const VIEW_SLICE_MAX: Duration = Duration::from_secs(2);
 /// How long one step of the background parse runs before the commands are looked at again.
@@ -64,6 +69,8 @@ pub struct Colored {
     pub first_line: usize,
     /// One entry per line from `first_line`, as `LineHighlighter::spans` makes them.
     pub lines: Vec<Vec<Span>>,
+    /// The answer to a [`HighlightService::map`] request, not to a view or a peek.
+    pub map: bool,
 }
 
 enum Command {
@@ -81,6 +88,12 @@ enum Command {
     },
     /// A request like `View` for a document that is not the one worked on in the background.
     Peek {
+        doc: DocId,
+        revision: u64,
+        range: Range<usize>,
+    },
+    /// The minimap's window of lines of a document: a second request slot beside `View`.
+    Map {
         doc: DocId,
         revision: u64,
         range: Range<usize>,
@@ -159,6 +172,17 @@ impl HighlightService {
         });
     }
 
+    /// The lines the minimap shows, for any document (the active one, whose view request is not
+    /// touched). Replaces the previous map request. It is answered after any view or peek request
+    /// is, and before the background parse runs on, in a [`Colored`] with `map` set.
+    pub fn map(&self, doc: DocId, revision: u64, lines: Range<usize>) {
+        let _ = self.commands.send(Command::Map {
+            doc,
+            revision,
+            range: lines,
+        });
+    }
+
     /// The document's text changed: `text` is the new text at `revision`, `first_line` the first
     /// line that differs from the old text and `line_delta` how many lines were added (negative:
     /// removed). The parse goes back to its last stored state at or before `first_line`; the view
@@ -228,6 +252,10 @@ struct Doc {
     /// request's first line, so each one gets twice the time of the one before: a request too
     /// long for one slice is still answered.
     slice: Duration,
+    /// The lines the minimap last asked for, and whether that is still unanswered.
+    map: Option<Range<usize>>,
+    map_pending: bool,
+    map_slice: Duration,
 }
 
 /// What one round of work did.
@@ -306,6 +334,9 @@ impl Worker {
                         view: None,
                         pending: false,
                         slice: VIEW_SLICE,
+                        map: None,
+                        map_pending: false,
+                        map_slice: MAP_SLICE,
                     },
                 );
                 if self.active.is_none() {
@@ -335,6 +366,17 @@ impl Worker {
                     entry.slice = VIEW_SLICE;
                 }
             }
+            Command::Map {
+                doc,
+                revision,
+                range,
+            } => {
+                if let Some(entry) = self.docs.get_mut(&doc).filter(|d| d.revision == revision) {
+                    entry.map = Some(range);
+                    entry.map_pending = true;
+                    entry.map_slice = MAP_SLICE;
+                }
+            }
             Command::Edit {
                 doc,
                 revision,
@@ -350,6 +392,7 @@ impl Worker {
                     entry.revision = revision;
                     // The lines asked for belong to the old text.
                     entry.pending = false;
+                    entry.map_pending = false;
                 }
             }
             Command::SetDark(dark) => {
@@ -358,6 +401,9 @@ impl Worker {
                 }
                 if let Some(entry) = self.active.and_then(|id| self.docs.get_mut(&id)) {
                     entry.pending = entry.view.is_some();
+                }
+                for entry in self.docs.values_mut() {
+                    entry.map_pending = entry.map.is_some();
                 }
             }
             Command::Close(doc) => {
@@ -378,12 +424,17 @@ impl Worker {
             |docs: &HashMap<DocId, Doc>, id: &DocId| docs.get(id).is_some_and(|d| d.pending);
         let id = match self.active {
             Some(id) if waiting(&self.docs, &id) => Some(id),
-            active => self
-                .docs
-                .iter()
-                .find(|(_, d)| d.pending)
-                .map(|(id, _)| *id)
-                .or(active),
+            active => match self.docs.iter().find(|(_, d)| d.pending) {
+                Some((id, _)) => Some(*id),
+                None => {
+                    // No view or peek waits: the minimap's window, before the parse runs on.
+                    if let Some((id, _)) = self.docs.iter().find(|(_, d)| d.map_pending) {
+                        let id = *id;
+                        return self.work_map(id);
+                    }
+                    active
+                }
+            },
         };
         let Some(id) = id else {
             return Work::Idle;
@@ -411,6 +462,7 @@ impl Worker {
                         dark: doc.highlighter.dark(),
                         first_line,
                         lines,
+                        map: false,
                     });
                     Work::Sent
                 }
@@ -426,6 +478,41 @@ impl Worker {
         doc.highlighter
             .advance(&src, Instant::now() + ADVANCE_SLICE);
         Work::Ran
+    }
+}
+
+impl Worker {
+    /// One time-boxed piece of work on `id`'s minimap request.
+    fn work_map(&mut self, id: DocId) -> Work {
+        let Some(doc) = self.docs.get_mut(&id) else {
+            return Work::Idle;
+        };
+        let src = RopeLines(&doc.rope);
+        let range = doc.map.clone().unwrap_or(0..0);
+        let first_line = range.start.min(doc.rope.len_lines());
+        let deadline = Instant::now() + doc.map_slice;
+        if doc.highlighter.frontier() < first_line {
+            doc.highlighter.advance(&src, deadline);
+            return Work::Ran;
+        }
+        match doc.highlighter.spans(&src, range, deadline) {
+            Some(lines) => {
+                doc.map_pending = false;
+                let _ = self.results.send(Colored {
+                    doc: id,
+                    revision: doc.revision,
+                    dark: doc.highlighter.dark(),
+                    first_line,
+                    lines,
+                    map: true,
+                });
+                Work::Sent
+            }
+            None => {
+                doc.map_slice = (doc.map_slice * 2).min(VIEW_SLICE_MAX);
+                Work::Ran
+            }
+        }
     }
 }
 
@@ -683,6 +770,45 @@ mod tests {
             (got[1].doc, got[1].first_line, got[1].lines.len()),
             (2, 100, 40)
         );
+    }
+
+    #[test]
+    fn a_map_request_is_answered_beside_the_view_of_the_same_document() {
+        let f = fixture();
+        f.service
+            .open(1, 0, Rope::from_str(&generated_rust(3000)), rust(), false);
+        f.service.view(1, 0, 0..40);
+        f.service.map(1, 0, 1000..1100);
+        let mut got = Vec::new();
+        while got.len() < 2 {
+            let more = f.service.wait(within(20));
+            assert!(!more.is_empty(), "no answer");
+            got.extend(more);
+        }
+        let view = got.iter().find(|c| !c.map).expect("the view is answered");
+        let map = got.iter().find(|c| c.map).expect("the map is answered");
+        assert_eq!((view.first_line, view.lines.len()), (0, 40));
+        assert_eq!((map.first_line, map.lines.len()), (1000, 100));
+        // The map's lines are what a view of them gives.
+        f.service.view(1, 0, 1000..1100);
+        let again = f.service.wait(within(20));
+        assert_eq!(again[0].lines, map.lines);
+        assert!(!again[0].map);
+    }
+
+    #[test]
+    fn a_map_request_for_a_stale_revision_is_not_answered() {
+        let f = fixture();
+        f.service
+            .open(1, 3, Rope::from_str(&generated_rust(300)), rust(), false);
+        f.service.map(1, 2, 0..50);
+        assert!(
+            f.service
+                .wait(Instant::now() + Duration::from_millis(300))
+                .is_empty()
+        );
+        f.service.map(1, 3, 0..50);
+        assert_eq!(f.service.wait(within(10))[0].lines.len(), 50);
     }
 
     #[test]
