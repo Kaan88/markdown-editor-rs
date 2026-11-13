@@ -253,7 +253,8 @@ went to 0.4.0 and nothing else).
   on the second pane's column scrolled only that pane (10,492 against 5,246 in the other), and
   the keyboard went to it (tab and status line); (3) folds (Shift+F9, thousands) and word wrap
   together: a drag moved the band and the text with wrapped lines in view; (4) 50k.rs beside
-  100mb.txt was not run (see below); (5) the Files pane open, then with the results panel too,
+  100mb.txt in a split with both columns: a drag on each column, ten wheel notches, letters
+  typed in each file and a click between them took 3.1 s of scripted steps in all, no stall; (5) the Files pane open, then with the results panel too,
   the window narrowed to 660 px (column hidden) and widened (back), the results panel closed
   (column full height again); (6) the right-click menu: Escape closed it, Down and Enter hid the
   minimap; (7) 453 carets (a column selection extended by the wheel over a long range), scrolled,
@@ -266,10 +267,7 @@ went to 0.4.0 and nothing else).
   submenu toggled it; (10) the installer: see below.
 - **Not possible or not run:** (1) a scale other than 100 %: `--scale` exists only for `--shot`;
   in a window the scale is the display's, and the owner's display settings were not changed (the
-  1.5 and 2.0 shots stay the only evidence). (4) Two large files together, 50k.rs with 100mb.txt in
-  a split, was not run: the split in a real window was run with two copies of 50k.rs, and 100mb.txt
-  alone was timed with `--trace` (shown 142 ms) but not opened beside another file in a window.
-  (10) The installer was **not** run interactively: an install of mdedit (0.3.2, `AppId`
+  1.5 and 2.0 shots stay the only evidence). (10) The installer was **not** run interactively: an install of mdedit (0.3.2, `AppId`
   C58A9AB1-...) already exists on this PC, so the wizard would have upgraded it in place; the
   silent variant was run instead, with no tasks, into `target\insttest` (`/VERYSILENT /TASKS=""
   /DIR=...`): the 0.4.0 setup installed the exe, icon and uninstaller there, the installed exe ran
