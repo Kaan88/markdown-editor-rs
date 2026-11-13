@@ -242,6 +242,29 @@ Putting that script into the viewer's repository would be a useful first task.
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Our own icons (2026-11-13, asked by the user: the same look on every system)
+
+The user approved mockups (stroke 1.25 on a 16 px grid, round ends) and named no icon to
+change. The shared `main` is at `870d620` with them; the user asked for them on main.
+
+- How: `mdshared-ui` `glyph.rs` holds each of the 38 icons as SVG path data; `Gfx::icon`
+  strokes it with `zeno` (the rasterizer `swash` already brings in) and keeps the mask per
+  size; `Painter::icon` has the same signature as before, so neither app's code changes.
+  Segoe Fluent Icons, the Fluent System Icons subset for Linux and `Face::Icon` are gone.
+  Icons are grey antialiased now, where the font glyphs had ClearType colour fringes.
+- A dot is a small circle whose stroke closes over its middle, and the dashed frame of
+  Select all is drawn dash by dash, so there is one way of drawing and no fill.
+- `cargo test -p mdshared-ui icon_sheet -- --ignored` in the shared repository writes
+  `target/icons.png` and `icons-150.png`: every icon at 8.5 to 32 px in both themes.
+- Measured after, on Windows: exe 5,637,632 bytes (142 KB more: the stroker and the path
+  parser); window shown 76 to 82 ms; private memory 27.4 to 27.6 MiB; keystroke p50
+  0.47 ms. 378 tests with `--release` (in a debug build
+  `a_request_longer_than_one_slice_is_answered` runs out of its 60 s; whether it did before this change was not checked), clippy and fmt clean. All 62 shots differ from before, as they must.
+- Looked at by me: the sheet, `menu-main`, `files-pane`. Not looked at: the other shots.
+  The user has not seen the icons in a real window.
+- Not done: the viewer still pins the commit before; it needs only its pin moved (the names
+  and `Painter::icon` are unchanged) and new baselines for its shots.
+
 ## Split view (2026-11-13, the rest of roadmap item 10: the roadmap is done)
 
 - Shift+F8 ("Two files side by side" in the View menu) shows two tabs beside each other:
