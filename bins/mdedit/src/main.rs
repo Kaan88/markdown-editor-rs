@@ -15,6 +15,7 @@ mod session;
 mod status;
 mod trace;
 mod ui;
+mod updater;
 mod view;
 
 fn main() {

@@ -102,7 +102,8 @@ opens any text file and shares the shell, text and highlighting code with the vi
 - Not an IDE: no language servers, no completion, no build or debug, no plugins, no terminal.
 - Not a WYSIWYG Markdown editor. Markdown is edited as text; the rendered page is the viewer's job.
 - No multiple cursors, split views, minimap or code folding in the first version.
-- No network use at all.
+- No network use, except looking for and downloading its own updates (added 2026-11-13 with
+  the shared updater; a small manifest from GitHub at most once a day, off with one setting).
 
 ## Depends on
 

@@ -5,6 +5,7 @@ use super::*;
 use crate::commands::CommandId as C;
 use crate::docs::{EditOp, SaveFailed};
 use crate::ui::{Act, After, BarItem, EditAct, Pending, Popup};
+use crate::updater;
 use mdedit_core::limits::COPY_LIMIT;
 use mdedit_core::save::SaveError;
 
@@ -25,8 +26,10 @@ impl App {
             }
             Hit::WinMax => self.toggle_maximized(),
             Hit::WinClose => self.request(After::Exit),
-            Hit::NewTab => self.command(C::OpenFiles),
+            Hit::NewTab => self.command(C::NewFile),
             Hit::TabClose(i) => self.close_tab(i),
+            Hit::UpdateGo => self.install_update(),
+            Hit::UpdateClose => self.docs.updates.dismiss(),
             Hit::Bar(item) => match item {
                 BarItem::Open => self.command(C::OpenFiles),
                 BarItem::Reload => self.command(C::Reload),
@@ -63,6 +66,18 @@ impl App {
             Hit::DlgButton(n) => match self.ui.dialog.as_ref().map(|d| d.kind) {
                 Some(kind) if kind.is_confirm() => self.answer(n),
                 Some(DialogKind::Recent) if n == 1 => self.docs.recents.clear(),
+                Some(DialogKind::About) if n == 1 => {
+                    // The answer shows in the window (the bar or a toast), so the dialog goes.
+                    self.close_dialog();
+                    if matches!(self.docs.updates.stage(), updater::Stage::Available(_)) {
+                        self.install_update();
+                    } else {
+                        self.check_for_updates();
+                    }
+                }
+                Some(DialogKind::About) if n == 2 => {
+                    self.docs.check_updates = !self.docs.check_updates;
+                }
                 _ => self.close_dialog(),
             },
             Hit::DlgOpen(i) => {
@@ -202,6 +217,14 @@ impl App {
                 self.ask(DialogKind::Overwrite, id, after);
                 false
             }
+            // A new document: ask where to put it. Cancelling the file dialog cancels `after`.
+            Err(SaveFailed::Untitled) => {
+                let saved = self.save_as(i);
+                if !saved {
+                    self.cancel_pending();
+                }
+                saved
+            }
             Err(SaveFailed::Error(e)) => {
                 self.docs.set_toast(&format!("{name}: {e}"));
                 self.cancel_pending();
@@ -215,20 +238,26 @@ impl App {
         }
     }
 
-    fn save_as(&mut self) {
-        let Some(i) = self.docs.active() else { return };
-        if self.docs.tabs[i].ready().is_none() {
-            return;
-        }
-        let current = self.docs.tabs[i].path.clone();
+    /// Asks for a file name and writes tab `i` there. True when the file was written.
+    fn save_as(&mut self, i: usize) -> bool {
+        let Some(doc) = self.docs.tabs.get(i).filter(|d| d.ready().is_some()) else {
+            return false;
+        };
+        // A new document is offered its name as a text file, in the folder in use.
+        let current = doc.path.clone().unwrap_or_else(|| {
+            self.start_dir()
+                .unwrap_or_default()
+                .join(format!("{}.txt", doc.name()))
+        });
         let Some(to) = platform::pick_save(&current) else {
-            return;
+            return false;
         };
         let dark = self.dark();
         match self.docs.save_as(i, &to, self.service.as_ref(), dark) {
             Ok(()) => {
                 self.last_active = None;
                 self.ui.tree.refresh();
+                true
             }
             Err(SaveFailed::Error(e)) => {
                 let name = to.file_name().map_or_else(
@@ -236,8 +265,12 @@ impl App {
                     |n| n.to_string_lossy().into_owned(),
                 );
                 self.docs.set_toast(&format!("{name}: {e}"));
+                false
             }
-            Err(SaveFailed::NotSavable) => self.docs.set_toast("This file cannot be saved"),
+            Err(SaveFailed::NotSavable | SaveFailed::Untitled) => {
+                self.docs.set_toast("This file cannot be saved");
+                false
+            }
         }
     }
 
@@ -359,10 +392,7 @@ impl App {
     }
 
     pub(super) fn tab_command(&mut self, id: C, index: usize) {
-        let Some(path) = self.docs.tabs.get(index).map(|d| d.path.clone()) else {
-            return;
-        };
-        let Some(doc) = self.docs.tabs.get(index).map(|d| d.id) else {
+        let Some((doc, path)) = self.docs.tabs.get(index).map(|d| (d.id, d.path.clone())) else {
             return;
         };
         match id {
@@ -370,12 +400,16 @@ impl App {
             C::CloseOtherTabs => self.request(After::CloseOthers(doc)),
             C::CloseAllTabs => self.request(After::CloseAll),
             C::CopyFilePath => {
-                if platform::set_clipboard_text(&path.display().to_string()) {
+                if let Some(path) = path
+                    && platform::set_clipboard_text(&path.display().to_string())
+                {
                     self.docs.set_toast("File path copied");
                 }
             }
             C::ShowInFileManager => {
-                platform::reveal_in_file_manager(&path);
+                if let Some(path) = path {
+                    platform::reveal_in_file_manager(&path);
+                }
             }
             other => self.command(other),
         }
@@ -450,7 +484,7 @@ impl App {
     pub(super) fn start_dir(&self) -> Option<PathBuf> {
         self.docs
             .active_doc()
-            .and_then(|d| d.path.parent().map(Path::to_path_buf))
+            .and_then(|d| d.path.as_deref()?.parent().map(Path::to_path_buf))
             .or_else(|| self.docs.folder.clone())
     }
 
@@ -478,6 +512,11 @@ impl App {
             self.docs.seal();
         }
         match id {
+            C::NewFile => {
+                self.docs.new_untitled();
+                self.ui.find_focused = false;
+                self.caret_reset();
+            }
             C::OpenFiles => {
                 for path in platform::pick_files(self.start_dir().as_deref()) {
                     self.open(&path);
@@ -495,8 +534,14 @@ impl App {
                     self.save_doc(id, false, After::Nothing);
                 }
             }
-            C::SaveAs => self.save_as(),
+            C::SaveAs => {
+                if let Some(i) = self.docs.active() {
+                    self.save_as(i);
+                }
+            }
             C::Reload => match self.docs.active_doc().map(|d| (d.id, d.modified())) {
+                // A new document has no file to read again.
+                Some(_) if self.docs.active_doc().is_some_and(|d| d.path.is_none()) => {}
                 Some((id, true)) => self.request(After::Reload(id)),
                 _ => {
                     self.docs.reload_active();
@@ -635,8 +680,66 @@ impl App {
             Wake::Loaded | Wake::Found | Wake::Highlight => {
                 self.drain();
             }
+            Wake::Update(updater::Event::Checked { manual, result }) => {
+                self.session.update_checked = updater::unix_now();
+                if let Some(text) = self.docs.updates.checked(&updater::APP, manual, result) {
+                    self.docs.set_toast(&text);
+                }
+            }
+            Wake::Update(updater::Event::Installed(result)) => {
+                if let Some(text) = self.docs.updates.finished(&updater::APP, result) {
+                    self.docs.set_toast(&text);
+                }
+            }
         }
         self.redraw();
+    }
+
+    // ---- updates -----------------------------------------------------------------------------
+
+    /// At launch: clears what an earlier update left behind and, when a look for a newer
+    /// version is due, takes it. Nothing here runs for a launch without a session or for a copy
+    /// that cannot update itself, and all of it is on its own thread.
+    pub(super) fn updates_at_launch(&mut self) {
+        if self.session_path.is_none() || !self.save {
+            return;
+        }
+        let Some(files) = updater::installed_files() else {
+            return;
+        };
+        let due = updater::check_due(
+            self.docs.check_updates,
+            true,
+            self.session.update_checked,
+            updater::unix_now(),
+        );
+        let wake = self.docs.waker();
+        updater::spawn_at_launch(updater::APP, files, due, updater::fetch, move |e| {
+            wake(Wake::Update(e))
+        });
+    }
+
+    /// Looks for a newer version now, because the user asked: the answer always shows.
+    pub(super) fn check_for_updates(&mut self) {
+        let wake = self.docs.waker();
+        updater::spawn_check(updater::APP, true, updater::fetch, move |e| {
+            wake(Wake::Update(e))
+        });
+    }
+
+    /// Downloads and swaps in the version that was offered, on its own thread.
+    pub(super) fn install_update(&mut self) {
+        let Some(files) = updater::installed_files() else {
+            self.docs.set_toast(updater::NOT_INSTALLED);
+            return;
+        };
+        let Some(offer) = self.docs.updates.begin() else {
+            return;
+        };
+        let wake = self.docs.waker();
+        updater::spawn_install(updater::APP, offer, files, updater::fetch, move |e| {
+            wake(Wake::Update(e))
+        });
     }
 
     pub(super) fn dropped(&mut self, path: PathBuf) {

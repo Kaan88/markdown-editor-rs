@@ -23,10 +23,11 @@ chardetng = "0.1.17"
 unicode-width = { version = "0.2", default-features = false }
 parley = "=0.12.0"
 bytemuck = "1.25"
-mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "e93719bf3bd37edc5570769a5850d22af3603ca5" }
-mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "e93719bf3bd37edc5570769a5850d22af3603ca5" }
-mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "e93719bf3bd37edc5570769a5850d22af3603ca5" }
-mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "e93719bf3bd37edc5570769a5850d22af3603ca5" }
+mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d0ec8b8d4dfc4ec8e744e26843b7a5e1a03bf718" }
+mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d0ec8b8d4dfc4ec8e744e26843b7a5e1a03bf718" }
+mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d0ec8b8d4dfc4ec8e744e26843b7a5e1a03bf718" }
+mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d0ec8b8d4dfc4ec8e744e26843b7a5e1a03bf718" }
+mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d0ec8b8d4dfc4ec8e744e26843b7a5e1a03bf718" }
 
 [profile.release]
 opt-level = 3

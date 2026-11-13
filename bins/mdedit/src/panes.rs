@@ -83,7 +83,7 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         .files_scroll
         .clamp(0.0, (ui.panes.files_content - list.h).max(0.0));
     let scroll = ui.panes.files_scroll;
-    let active = docs.active_doc().map(|d| d.path.clone());
+    let active = docs.active_doc().and_then(|d| d.path.clone());
     let quiet = mix(pal.text, pal.muted, 0.35);
     let old = c.p.clip(list);
     let first = (scroll / ROW).floor() as usize;

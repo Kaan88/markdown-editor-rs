@@ -3,6 +3,7 @@
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CommandId {
+    NewFile,
     OpenFiles,
     OpenFolder,
     Save,
@@ -61,6 +62,7 @@ const SHOW_IN_FILE_MANAGER: &str = if cfg!(windows) {
 
 /// In the order the Keyboard shortcuts dialog lists them.
 pub const COMMANDS: &[Command] = &[
+    cmd(C::NewFile, "New file", &["Ctrl+N"]),
     cmd(C::OpenFiles, "Open files", &["Ctrl+O"]),
     cmd(C::OpenFolder, "Open folder", &["Ctrl+Shift+O"]),
     cmd(C::Save, "Save", &["Ctrl+S"]),
@@ -120,6 +122,10 @@ pub fn shortcut_help() -> Vec<(String, &'static str)> {
 
 pub mod strings {
     pub const APP_NAME: &str = "mdedit";
+    /// The name of a new document that has no file yet.
+    pub fn untitled(n: u32) -> String {
+        format!("Untitled {n}")
+    }
     pub const ABOUT: &str =
         "A light native text editor with syntax colours, the companion of mdview.";
     pub const ABOUT_DETAIL: &str =

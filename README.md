@@ -7,10 +7,12 @@
 alternative for personal use that opens any text file, with the same hand-drawn interface as the
 viewer.
 
-**Status: phases 1 to 3 are built (viewing, editing, safe saving); the user has not yet looked
-at it.** It opens files in tabs, scrolls, selects, finds, highlights syntax, detects encodings and
+**Status: phases 1 to 3 are built (viewing, editing, safe saving); the user has tried it once
+and approved nothing yet.** It opens files in tabs, scrolls, selects, finds, highlights syntax, detects encodings and
 line endings, edits with undo and redo, and saves in the file's own encoding and line endings
-without touching any other byte. There is no New file command yet, and no input-method support.
+without touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks a name
+for. It can update itself in place like mdview (no release exists yet). There is no input-method
+support yet.
 [docs/PLAN.md](docs/PLAN.md) holds the goals, the budgets, the phases and the feature roadmap;
 [docs/DESIGN.md](docs/DESIGN.md) the design (section 16 for editing and saving).
 

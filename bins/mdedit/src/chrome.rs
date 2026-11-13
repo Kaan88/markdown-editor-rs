@@ -223,9 +223,14 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         }
     };
     Some(match hit {
-        Hit::Tab(i) => docs.tabs.get(i)?.path.display().to_string(),
+        Hit::Tab(i) => {
+            let doc = docs.tabs.get(i)?;
+            doc.path
+                .as_ref()
+                .map_or_else(|| doc.name(), |p| p.display().to_string())
+        }
         Hit::TabClose(_) => with("Close tab", CommandId::CloseTab),
-        Hit::NewTab => with("Open files", CommandId::OpenFiles),
+        Hit::NewTab => with("New file", CommandId::NewFile),
         Hit::WinMin => "Minimize".into(),
         Hit::WinMax if maximized => "Restore down".into(),
         Hit::WinMax => "Maximize".into(),
@@ -370,6 +375,27 @@ pub fn find_parts(frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
 }
 
 /// Draws the command bar into `r`.
+/// The bar under the command bar that offers a newer version, shows its download, and says
+/// when it is in place.
+pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect) {
+    use mdshared_ui::notice::{self, UpdateBarState};
+    let Some(stage) = docs.updates.bar() else {
+        return;
+    };
+    let state = UpdateBarState {
+        go_hovered: c.hover == Some(Hit::UpdateGo),
+        go_pressed: c.pressed == Some(Hit::UpdateGo),
+        close_hovered: c.hover == Some(Hit::UpdateClose),
+    };
+    let hits = notice::draw_update_bar(c.p, c.pal, bar, &crate::updater::APP, stage, state);
+    if let Some(r) = hits.go {
+        c.hit(Hit::UpdateGo, r);
+    }
+    if let Some(r) = hits.close {
+        c.hit(Hit::UpdateClose, r);
+    }
+}
+
 pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);

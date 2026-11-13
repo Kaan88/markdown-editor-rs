@@ -13,6 +13,7 @@ path = "src/main.rs"
 mdedit-core = { path = "../../crates/mdedit-core" }
 mdedit-highlight = { path = "../../crates/mdedit-highlight" }
 mdshared-app.workspace = true
+mdshared-fetch.workspace = true
 mdshared-text.workspace = true
 mdshared-ui.workspace = true
 parley.workspace = true

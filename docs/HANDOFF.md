@@ -11,12 +11,16 @@ Three public repositories under `Kaan88`, all MIT, all pushed and clean on `main
 | Repository | What | Head on 2026-11-13 |
 |---|---|---|
 | `markdown-viewer-rs` | `mdview`, the Markdown viewer. Its own `docs/HANDOFF.md` describes it | `b4e1617` |
-| `markdown-shared-rs` | Four crates both applications use | `e93719b` |
+| `markdown-shared-rs` | The crates both applications use | `d0ec8b8` |
 | `markdown-editor-rs` | `mdedit`, this repository | this commit |
 
 The editor pins the shared repository by `rev` in its root `Cargo.toml`, since 2026-11-13 at
-`e93719bf3bd37edc5570769a5850d22af3603ca5` (the watcher's `set_folders` and the tree's public
-`watched_dirs`, which the editor does not use yet). The viewer pins it in `crates/core`,
+`d0ec8b8d4dfc4ec8e744e26843b7a5e1a03bf718`. Two shared commits were made from this repository's
+session on 2026-11-13: `a74aca4` (the updater's threads: `spawn_at_launch`, `spawn_check`,
+`spawn_install`, `unix_now`) and `d0ec8b8` (`Language::line_comment`). The viewer still starts
+its updater threads with its own copies in `bins/mdv-app/src/app/commands.rs`; moving it to the
+shared ones is a small change that was left to the viewer's own session. The editor does not yet
+use the watcher's `set_folders` or the tree's `watched_dirs` (`e93719b`). The viewer pins it in `crates/core`,
 `crates/render` and `bins/mdv-app`; check there which commit it is on.
 
 On the Windows PC the three checkouts sit side by side in `C:\Users\kaank\Desktop`: `mv`,
@@ -34,6 +38,9 @@ history was rewritten on 2026-11-12, so an older clone of it must be re-cloned, 
 - Commit and push as phases complete or when asked. There is no CI: run the tests yourself.
 - On the Windows PC, launch a built `.exe` from Git Bash, not PowerShell (PowerShell refuses it as
   unsigned).
+- **Shared first (2026-11-13):** "whatever can be shared will start shared. no need for
+  duplicate work." Anything both applications could use is written in `markdown-shared-rs`,
+  pushed, and pinned; the application keeps only its own names and settings.
 - The user asked for cheaper models where they do the job, and on 2026-11-13 said: no Opus
   subagents; the main session does that work itself. So the headless crates with a clear
   specification go to Sonnet subagents (each in its own git worktree, so their builds do not
@@ -97,7 +104,21 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
 - Nothing interactive in the editor was tried by hand: selection, copy into another program, find,
   tabs (drag, middle click, menu), the Files pane, theme switch, reload when the file changes, a
   second launch handing over to the first.
-- Of phases 2 and 3, by hand: nothing. Typing ran only through `--type-steps` (a real window,
+- **2026-11-13, later:** the user tried the build and reported that everything worked. Three
+  things they raised turned out not to be faults (Redo after Backspace, a file drop with a tab
+  open, heavy shadows; the last is the About card in dark mode, which draws its shadow twice
+  over the dimmed window in shared code, and the user said to leave it). While checking them the
+  main session drove a real window with synthetic keys, mouse and an OLE drag: typing, Backspace,
+  Delete, undo, redo, the right-click menu's Undo, Save, a dropped file, New file and Save
+  through the file dialog all behaved. That is not the user's approval of the interface.
+- Updates (2026-11-13): no release of mdedit exists, so the look answers 404 (seen with
+  `--check-update`), and **no update has been offered or installed by mdedit**. The bar and the
+  About buttons were only rendered with `--update-bar`; nobody has clicked them. There is no
+  script that builds a release and its manifest for mdedit (the viewer's is
+  `build-installer.ps1`), and "one installer or two" is still open.
+- New file (2026-11-13): `Doc::path` is optional. Tested by one unit test and one scripted run
+  in a real window; the user has not seen the untitled tab or the changed "+" button.
+- Of phases 2 and 3, by hand, before that: nothing. Typing ran only through `--type-steps` (a real window,
   scripted keystrokes) and `--type`. Never pressed by a person: every editing key, dead keys and
   AltGr on the Turkish layout, cut and paste with another program, the three questions (Save
   changes, file changed on disk, reload and lose changes), Save as and its file dialog, closing
@@ -137,19 +158,27 @@ These were made to keep moving and are easy to undo:
 6. Made on 2026-11-13 for phases 2 and 3: Tab inserts a tab character (no spaces option); the
    unsaved mark is a bullet before the file name; a file with replaced bytes is read-only;
    saving runs on the UI thread; the layout cache is keyed by line content; the IME stays off
-   until phase 5; no New file command (a document has a path from the start).
+   until phase 5.
+7. Made on 2026-11-13 for New file: Ctrl+N and the "+" beside the tabs make an "Untitled N" tab
+   (the "+" opened the file dialog before); it is UTF-8 with the platform's line ending; Save
+   on it is Save as, offering "Untitled N.txt"; it is not in the session, so an untitled tab
+   does not come back after a restart (a modified one asks before closing).
+8. Made on 2026-11-13 for updates, after the user said to wire the shared updater in: mdedit
+   updates itself the way mdview does (`docs/DESIGN.md`, section 17). The manifest address is
+   `https://github.com/Kaan88/markdown-editor-rs/releases/latest/download/mdedit-update.txt`,
+   chosen by analogy with the viewer's; `MDEDIT_UPDATE_MANIFEST` names another one. One
+   executable, no engine, no installer entry. The bar sits under the command bar; the two
+   controls are in About, as in mdview. This ends the plan's "no network use at all".
 
 ## 6. What to do next
 
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. **A New file command** (untitled documents: `Doc::path` becomes optional, Save falls through
-   to Save as). It was left out of phases 2 and 3 and an editor needs it.
-3. Then the feature roadmap in `docs/PLAN.md`, in its order: editing basics (duplicate, move and
+2. Then the feature roadmap in `docs/PLAN.md`, in its order: editing basics (duplicate, move and
    delete line, toggle comment, change case, trim trailing spaces, tabs to spaces), then find and
    replace, then unsaved-session restore.
-4. The Files pane could follow changes in its folders with the shared watcher's new
+3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
    push, then move the `rev` in both applications.
@@ -163,10 +192,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 207 passed on 2026-11-13
+cargo test --release --workspace        # 208 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 35 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 38 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`

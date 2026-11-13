@@ -30,6 +30,7 @@ pub fn main_menu(docs: &Docs, ui: &Ui, x: f32, y: f32) -> Menu<Act> {
         Item::new(Act::Theme(choice), label).checked(docs.theme == choice)
     };
     let items = vec![
+        cmd(C::NewFile, "New file", ""),
         cmd(C::OpenFiles, "Open files…", glyph::OPEN),
         cmd(C::OpenFolder, "Open folder…", glyph::FOLDER_OPEN),
         Item::new(Act::RecentMenu, "Open recent")
@@ -90,18 +91,21 @@ pub fn recent_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> 
 
 pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     let many = docs.tabs.len() > 1;
+    let has_file = docs.tabs.get(index).is_some_and(|d| d.path.is_some());
     let items = vec![
         Item::new(Act::TabCmd(C::CloseTab, index), "Close tab").icon(glyph::CLOSE),
         Item::new(Act::TabCmd(C::CloseOtherTabs, index), "Close other tabs").enabled(many),
         Item::new(Act::TabCmd(C::CloseAllTabs, index), "Close all tabs"),
         Item::new(Act::TabCmd(C::CopyFilePath, index), "Copy file path")
             .icon(glyph::COPY)
-            .sep(),
+            .sep()
+            .enabled(has_file),
         Item::new(
             Act::TabCmd(C::ShowInFileManager, index),
             command(C::ShowInFileManager).label,
         )
-        .icon(glyph::FOLDER_OPEN),
+        .icon(glyph::FOLDER_OPEN)
+        .enabled(has_file),
     ];
     Menu::new(items, x, y, false)
 }
@@ -176,7 +180,7 @@ pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
     let list =
         |row: f32, min: f32| (PAD + 36.0 + (rows as f32 * row + 12.0).max(min) + FOOTER).round();
     let (cw, ch): (f32, f32) = match kind {
-        DialogKind::About => (460.0, 256.0),
+        DialogKind::About => (520.0, 256.0),
         DialogKind::Shortcuts => (580.0, list(KEY_ROW, 0.0).min(700.0)),
         DialogKind::Recent => (600.0, list(RECENT_ROW, 80.0).min(560.0)),
         DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => (460.0, 196.0),
@@ -282,6 +286,27 @@ pub fn draw_dialog(
                 Hit::DlgButton(0),
                 "OK",
                 true,
+            );
+            // Updates live here, beside the version, as in mdview: look now (or install what
+            // was found, which stays one click away after its bar is closed), and the
+            // at-launch setting.
+            let look = docs.updates.about_label();
+            let lw = dialog_button_w(c.p, &look);
+            button(
+                c,
+                Rect::new(r.x + PAD, by, lw, 32.0),
+                Hit::DlgButton(1),
+                &look,
+                false,
+            );
+            let launch = crate::updater::at_launch_label(docs.check_updates);
+            let aw = dialog_button_w(c.p, launch);
+            button(
+                c,
+                Rect::new(r.x + PAD + lw + 8.0, by, aw, 32.0),
+                Hit::DlgButton(2),
+                launch,
+                false,
             );
         }
         DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => {

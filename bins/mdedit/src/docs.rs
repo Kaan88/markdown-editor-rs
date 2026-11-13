@@ -306,7 +306,10 @@ pub enum DocState {
 
 pub struct Doc {
     pub id: DocId,
-    pub path: PathBuf,
+    /// The file, or `None` for a new document that has not been saved yet.
+    pub path: Option<PathBuf>,
+    /// The number in the name of a new document ("Untitled 2"); 0 once it has a file.
+    pub untitled: u32,
     pub revision: u64,
     pub state: DocState,
     /// The file is not on disk: gone since it was read (the tab keeps the text last read), or
@@ -328,7 +331,8 @@ impl Doc {
     fn new(id: DocId, path: PathBuf) -> Doc {
         Doc {
             id,
-            path,
+            path: Some(path),
+            untitled: 0,
             revision: 0,
             state: DocState::Pending,
             missing: false,
@@ -397,8 +401,11 @@ impl Doc {
     }
 
     pub fn name(&self) -> String {
-        self.path.file_name().map_or_else(
-            || self.path.display().to_string(),
+        let Some(path) = &self.path else {
+            return strings::untitled(self.untitled);
+        };
+        path.file_name().map_or_else(
+            || path.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
         )
     }
@@ -491,6 +498,8 @@ pub enum EditOp<'a> {
 pub enum SaveFailed {
     /// Nothing to save to or from (no ready document, or one with bytes that could not be read).
     NotSavable,
+    /// A new document: it needs a file name first (Save as).
+    Untitled,
     Error(SaveError),
 }
 
@@ -502,6 +511,10 @@ pub struct Applied {
 }
 
 pub struct Docs {
+    /// The update on offer, downloading or installed, as the bar and About show it.
+    pub updates: crate::updater::Updates,
+    /// The setting: look for a newer version at launch.
+    pub check_updates: bool,
     pub tabs: Vec<Doc>,
     active: Option<usize>,
     next_id: DocId,
@@ -540,8 +553,15 @@ impl Docs {
             find_tx,
             find_rx,
             toast: None,
+            updates: crate::updater::Updates::default(),
+            check_updates: true,
             watch_changed: true,
         }
+    }
+
+    /// Wakes the event loop, for threads the shell starts.
+    pub fn waker(&self) -> Waker {
+        self.waker.clone()
     }
 
     // ---- tabs ------------------------------------------------------------------------------
@@ -568,7 +588,12 @@ impl Docs {
     }
 
     pub fn labels(&self) -> Vec<String> {
-        let paths: Vec<PathBuf> = self.tabs.iter().map(|d| d.path.clone()).collect();
+        // A new document's label is its name; it has no folder to tell it from another.
+        let paths: Vec<PathBuf> = self
+            .tabs
+            .iter()
+            .map(|d| d.path.clone().unwrap_or_else(|| PathBuf::from(d.name())))
+            .collect();
         let mut labels = tab_labels(&paths);
         for (label, doc) in labels.iter_mut().zip(&self.tabs) {
             if doc.modified() {
@@ -583,7 +608,9 @@ impl Docs {
     }
 
     pub fn index_of(&self, path: &Path) -> Option<usize> {
-        self.tabs.iter().position(|d| same_path(&d.path, path))
+        self.tabs
+            .iter()
+            .position(|d| d.path.as_deref().is_some_and(|p| same_path(p, path)))
     }
 
     /// Adds a tab without loading it (a restored tab). Returns its index.
@@ -597,6 +624,36 @@ impl Docs {
         self.tabs.push(Doc::new(id, path));
         self.watch_changed = true;
         self.tabs.len() - 1
+    }
+
+    /// Opens an empty document that has no file yet and makes it active. It takes the platform's
+    /// line ending and is saved as UTF-8.
+    pub fn new_untitled(&mut self) -> usize {
+        let taken = |n: u32| {
+            self.tabs
+                .iter()
+                .any(|d| d.path.is_none() && d.untitled == n)
+        };
+        let number = (1..).find(|&n| !taken(n)).unwrap_or(1);
+        let id = self.next_id;
+        self.next_id += 1;
+        let loaded = load::load_bytes(b"", &self.opts);
+        self.tabs.push(Doc {
+            id,
+            path: None,
+            untitled: number,
+            revision: 1,
+            state: DocState::Ready(Box::new(Ready::new(loaded, None, 1))),
+            missing: false,
+            changed_on_disk: false,
+            discard: false,
+            lossy_toasted: false,
+            progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
+            cancel: None,
+        });
+        let i = self.tabs.len() - 1;
+        self.active = Some(i);
+        i
     }
 
     /// Opens `path` in a tab (or shows the tab that has it) and makes it active.
@@ -680,14 +737,30 @@ impl Docs {
         }
     }
 
+    /// The files of the tabs that have one, in tab order.
     pub fn paths(&self) -> Vec<PathBuf> {
-        self.tabs.iter().map(|d| d.path.clone()).collect()
+        self.tabs.iter().filter_map(|d| d.path.clone()).collect()
+    }
+
+    /// The active tab's place in [`Docs::paths`]. With a new document active, the nearest tab
+    /// before it that has a file.
+    pub fn active_among_paths(&self) -> usize {
+        let Some(a) = self.active else { return 0 };
+        self.tabs[..=a.min(self.tabs.len().saturating_sub(1))]
+            .iter()
+            .filter(|d| d.path.is_some())
+            .count()
+            .saturating_sub(1)
     }
 
     // ---- loading ---------------------------------------------------------------------------
 
     /// Starts a load (or reload) of tab `i` on a thread.
     pub fn start_load(&mut self, i: usize) {
+        // A new document has nothing to read.
+        let Some(path) = self.tabs[i].path.clone() else {
+            return;
+        };
         let opts = self.opts;
         let tx = self.load_tx.clone();
         let waker = self.waker.clone();
@@ -701,8 +774,7 @@ impl Docs {
         }
         let cancel = Arc::new(AtomicBool::new(false));
         doc.cancel = Some(cancel.clone());
-        let (id, revision, path, progress) =
-            (doc.id, doc.revision, doc.path.clone(), doc.progress.clone());
+        let (id, revision, progress) = (doc.id, doc.revision, doc.progress.clone());
         std::thread::spawn(move || {
             let w = waker.clone();
             let result = run_load(&path, &opts, &progress, &cancel, &move || w(Wake::Loaded));
@@ -721,10 +793,13 @@ impl Docs {
     /// Loads tab `i` on this thread (for `--shot`) and takes the result in.
     pub fn load_now(&mut self, i: usize, service: Option<&HighlightService>, dark: bool) {
         let doc = &mut self.tabs[i];
+        let Some(path) = doc.path.clone() else {
+            return;
+        };
         doc.cancel_load();
         doc.revision += 1;
         let cancel = AtomicBool::new(false);
-        let result = run_load(&doc.path, &self.opts, &doc.progress, &cancel, &|| {});
+        let result = run_load(&path, &self.opts, &doc.progress, &cancel, &|| {});
         let done = LoadDone {
             doc: doc.id,
             revision: doc.revision,
@@ -806,8 +881,9 @@ impl Docs {
                 doc.missing = false;
                 doc.changed_on_disk = false;
                 doc.discard = false;
-                let path = doc.path.clone();
-                self.recents.add(path);
+                if let Some(path) = doc.path.clone() {
+                    self.recents.add(path);
+                }
                 if let Some((text, case)) = query {
                     self.find_in(i, &text, case, false, false);
                 }
@@ -840,7 +916,10 @@ impl Docs {
     pub fn check_changed(&mut self) {
         for i in 0..self.tabs.len() {
             let doc = &self.tabs[i];
-            let now = stamp(&doc.path);
+            let Some(path) = &doc.path else {
+                continue;
+            };
+            let now = stamp(path);
             match (&doc.state, now) {
                 (DocState::Ready(_), FileStamp::Missing) => self.tabs[i].missing = true,
                 (DocState::Ready(r), s) if s != r.info.stamp || doc.missing => {
@@ -868,6 +947,7 @@ impl Docs {
     pub fn reload_active(&mut self) {
         if let Some(i) = self.active
             && !matches!(self.tabs[i].state, DocState::Pending)
+            && self.tabs[i].path.is_some()
         {
             self.start_load(i);
         }
@@ -958,7 +1038,9 @@ impl Docs {
         let Some(doc) = self.tabs.get_mut(i) else {
             return Err(SaveFailed::NotSavable);
         };
-        let path = doc.path.clone();
+        let Some(path) = doc.path.clone() else {
+            return Err(SaveFailed::Untitled);
+        };
         let Some(r) = doc.ready_mut().filter(|r| !r.info.lossy) else {
             return Err(SaveFailed::NotSavable);
         };
@@ -1031,7 +1113,8 @@ impl Docs {
             s.open(id, revision, r.buffer.snapshot(), lang, dark);
             r.colourable = true;
         }
-        doc.path = path.clone();
+        doc.path = Some(path.clone());
+        doc.untitled = 0;
         doc.missing = false;
         doc.changed_on_disk = false;
         doc.discard = false;
@@ -1422,6 +1505,51 @@ mod tests {
         let mut s = String::new();
         r.buffer.text(0..r.buffer.len_bytes(), &mut s);
         s
+    }
+
+    #[test]
+    fn a_new_document_has_no_file_until_save_as() {
+        let (mut d, i, path, dir) = file_docs("new", b"one\n");
+        let n = d.new_untitled();
+        assert_eq!(d.active(), Some(n));
+        assert_eq!(d.tabs[n].name(), "Untitled 1");
+        assert_eq!(d.labels(), ["file.txt", "Untitled 1"]);
+        assert!(!d.tabs[n].modified());
+        // It is not a session tab or a watched file, and nothing reads it.
+        assert_eq!(d.paths(), [d.tabs[i].path.clone().unwrap()]);
+        assert_eq!(d.active_among_paths(), 0);
+        d.reload_active();
+        d.check_changed();
+        assert!(!d.tabs[n].is_loading() && !d.tabs[n].missing);
+        // A second one takes the next number; a closed one's number is free again.
+        let m = d.new_untitled();
+        assert_eq!(d.tabs[m].name(), "Untitled 2");
+        d.close(m, None);
+        d.activate(n);
+        assert!(d.edit(EditOp::Insert("\u{15f}"), None));
+        assert!(d.edit(EditOp::Newline, None));
+        assert!(d.tabs[n].modified());
+        assert_eq!(d.labels(), ["file.txt", "\u{2022} Untitled 1"]);
+        // Save needs a name first.
+        assert!(matches!(d.save(n, false), Err(SaveFailed::Untitled)));
+        // A file open in another tab is refused; a new name is taken.
+        assert!(d.save_as(n, &path, None, false).is_err());
+        let to = dir.join("made.rs");
+        d.save_as(n, &to, None, false).unwrap();
+        let eol = if cfg!(windows) { "\r\n" } else { "\n" };
+        assert_eq!(
+            std::fs::read(&to).unwrap(),
+            format!("\u{15f}{eol}").as_bytes()
+        );
+        assert_eq!(d.tabs[n].name(), "made.rs");
+        assert!(!d.tabs[n].modified() && d.tabs[n].path.is_some());
+        assert_eq!(d.paths().len(), 2);
+        assert_eq!(d.active_among_paths(), 1);
+        d.save(n, false).unwrap();
+        // The freed number is used again.
+        let k = d.new_untitled();
+        assert_eq!(d.tabs[k].name(), "Untitled 1");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

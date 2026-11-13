@@ -43,7 +43,7 @@ impl ThemeChoice {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Session {
     pub tabs: Vec<PathBuf>,
     pub active: usize,
@@ -56,6 +56,27 @@ pub struct Session {
     /// The Files pane's width, logical px, once the user dragged it.
     pub files_w: Option<u32>,
     pub folder: Option<PathBuf>,
+    /// Look for a newer version at launch, at most once a day.
+    pub check_updates: bool,
+    /// When the last look finished, seconds since the Unix epoch; 0 for never.
+    pub update_checked: u64,
+}
+
+impl Default for Session {
+    fn default() -> Session {
+        Session {
+            tabs: Vec::new(),
+            active: 0,
+            recent: Recents::default(),
+            theme: ThemeChoice::default(),
+            geometry: String::new(),
+            files: None,
+            files_w: None,
+            folder: None,
+            check_updates: true,
+            update_checked: 0,
+        }
+    }
 }
 
 impl Session {
@@ -102,6 +123,8 @@ impl Session {
                             .filter(|w| (40..=4000).contains(w))
                     }
                     "folder" if !value.is_empty() => s.folder = Some(decode_path(value)),
+                    "check_updates" => s.check_updates = value.trim() != "0",
+                    "update_checked" => s.update_checked = value.trim().parse().unwrap_or(0),
                     _ => {}
                 }
             }
@@ -136,6 +159,8 @@ impl Session {
         if let Some(f) = &self.folder {
             out.line("folder", &encode_path(f));
         }
+        out.line("check_updates", if self.check_updates { "1" } else { "0" });
+        out.line("update_checked", &self.update_checked.to_string());
         out.finish()
     }
 

@@ -80,6 +80,9 @@ pub enum Hit {
     Bar(BarItem),
     Find,
     FindClear,
+    /// The update bar's button and its close button.
+    UpdateGo,
+    UpdateClose,
     FilesRow(usize),
     FilesFolder,
     FilesOpenFolder,
@@ -102,7 +105,9 @@ impl Hit {
         Some(match self {
             Hit::Tab(_) | Hit::TabClose(_) | Hit::NewTab | Hit::TitleDrag => Region::Title,
             Hit::WinMin | Hit::WinMax | Hit::WinClose => Region::Title,
-            Hit::Bar(_) | Hit::Find | Hit::FindClear => Region::Bar,
+            Hit::Bar(_) | Hit::Find | Hit::FindClear | Hit::UpdateGo | Hit::UpdateClose => {
+                Region::Bar
+            }
             Hit::FilesRow(_)
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
@@ -400,11 +405,12 @@ impl Areas {
     }
 
     /// Splits a `w` x `h` window. The status strip runs along the whole bottom; the Files pane
-    /// shrinks, then hides, so the text keeps `PAGE_MIN`.
-    pub fn compute(w: f32, h: f32, files_on: bool, files_w: f32) -> Areas {
+    /// shrinks, then hides, so the text keeps `PAGE_MIN`. `notice` is the height of a bar shown
+    /// under the command bar (the update bar), which belongs to the bar's region.
+    pub fn compute(w: f32, h: f32, files_on: bool, files_w: f32, notice: f32) -> Areas {
         let title = Rect::new(0.0, 0.0, w, TITLE_H);
-        let bar = Rect::new(0.0, TITLE_H, w, BAR_H);
-        let top = TITLE_H + BAR_H;
+        let bar = Rect::new(0.0, TITLE_H, w, BAR_H + notice);
+        let top = TITLE_H + BAR_H + notice;
         let status_y = (h - STATUS_H).max(top);
         let status = Rect::new(0.0, status_y, w, (h - status_y).max(0.0));
         let body_h = (status_y - top).max(0.0);
@@ -435,19 +441,24 @@ mod tests {
 
     #[test]
     fn panes_give_way_to_the_text() {
-        let a = Areas::compute(1280.0, 800.0, true, 250.0);
+        let a = Areas::compute(1280.0, 800.0, true, 250.0, 0.0);
         assert_eq!(a.files.unwrap().w, 250.0);
         assert_eq!(a.text.x, 250.0);
         assert_eq!(a.text.w, 1030.0);
         assert_eq!(a.text.y, TITLE_H + BAR_H);
+        // A bar under the command bar pushes the body down and is part of the bar's region.
+        let b = Areas::compute(1280.0, 800.0, true, 250.0, 34.0);
+        assert_eq!(b.bar.h, BAR_H + 34.0);
+        assert_eq!(b.text.y, a.text.y + 34.0);
+        assert_eq!(b.text.h, a.text.h - 34.0);
         // The Files pane shrinks to keep the text at its minimum, then hides.
-        let a = Areas::compute(560.0, 600.0, true, 250.0);
+        let a = Areas::compute(560.0, 600.0, true, 250.0, 0.0);
         assert_eq!(a.files.unwrap().w, 200.0);
         assert_eq!(a.text.w, PAGE_MIN);
-        let a = Areas::compute(500.0, 600.0, true, 250.0);
+        let a = Areas::compute(500.0, 600.0, true, 250.0, 0.0);
         assert!(a.files.is_none());
         assert_eq!(a.text.w, 500.0);
-        let a = Areas::compute(1280.0, 800.0, false, 250.0);
+        let a = Areas::compute(1280.0, 800.0, false, 250.0, 0.0);
         assert!(a.files.is_none());
         assert_eq!(a.text.x, 0.0);
     }
@@ -455,7 +466,7 @@ mod tests {
     #[test]
     fn status_strip_runs_along_the_bottom() {
         for files in [false, true] {
-            let a = Areas::compute(1280.0, 800.0, files, 300.0);
+            let a = Areas::compute(1280.0, 800.0, files, 300.0, 0.0);
             assert_eq!(a.status, Rect::new(0.0, 800.0 - STATUS_H, 1280.0, STATUS_H));
             assert_eq!(a.text.bottom(), a.status.y);
             if let Some(f) = a.files {
@@ -463,7 +474,7 @@ mod tests {
             }
         }
         // A window shorter than the chrome keeps every rectangle non-negative.
-        let a = Areas::compute(520.0, 60.0, true, 250.0);
+        let a = Areas::compute(520.0, 60.0, true, 250.0, 0.0);
         assert!(a.text.h >= 0.0 && a.status.h >= 0.0);
     }
 

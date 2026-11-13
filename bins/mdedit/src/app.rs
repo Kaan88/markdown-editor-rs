@@ -66,7 +66,7 @@ const PANE_WHEEL: f32 = 90.0;
 const CLICK_SLOP: f32 = 4.0;
 
 /// Wakes the loop from other threads; the data travels on channels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Wake {
     /// The single-instance listener queued paths.
     Instance,
@@ -78,6 +78,8 @@ pub enum Wake {
     Found,
     /// The highlight worker queued colours.
     Highlight,
+    /// An updater thread has an answer.
+    Update(crate::updater::Event),
 }
 
 fn sig<T: Hash>(t: T) -> u64 {
@@ -460,10 +462,14 @@ impl App {
                     ui.popup_kind(),
                     self.docs.active().is_some(),
                     has_matches,
+                    self.docs
+                        .updates
+                        .bar()
+                        .map(|s| crate::updater::Updates::bar_label(&crate::updater::APP, s)),
                 ))
             }
             Region::Files => {
-                let active = self.docs.active_doc().map(|d| d.path.clone());
+                let active = self.docs.active_doc().and_then(|d| d.path.clone());
                 let drag = matches!(
                     ui.drag,
                     Some(Drag::Splitter { .. })
@@ -552,7 +558,13 @@ impl App {
         }
         self.sync_theme();
         let (w, h) = self.logical();
-        let areas = Areas::compute(w, h, self.ui.panes.files, self.ui.panes.files_w);
+        let areas = Areas::compute(
+            w,
+            h,
+            self.ui.panes.files,
+            self.ui.panes.files_w,
+            self.notice_h(),
+        );
         if areas != self.areas {
             self.areas = areas;
             self.full = true;
@@ -644,6 +656,8 @@ impl App {
                     d.scroll.to_bits(),
                     self.ui.dlg_hover_row,
                     self.docs.recents.paths().len(),
+                    self.docs.updates.about_label(),
+                    self.docs.check_updates,
                 )
             }),
             self.ui
@@ -732,7 +746,15 @@ impl App {
                     Region::Title => {
                         chrome::draw_title(&mut c, &self.docs, &self.ui, rect, maximized)
                     }
-                    Region::Bar => chrome::draw_bar(&mut c, &self.docs, &mut self.ui, rect),
+                    Region::Bar => {
+                        let bar = Rect::new(rect.x, rect.y, rect.w, crate::ui::BAR_H);
+                        chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar);
+                        let under =
+                            Rect::new(rect.x, bar.bottom(), rect.w, rect.h - crate::ui::BAR_H);
+                        if under.h > 0.0 {
+                            chrome::draw_update_bar(&mut c, &self.docs, under);
+                        }
+                    }
                     Region::Files => panes::draw_files(&mut c, &self.docs, &mut self.ui, rect),
                     Region::Text => match self.docs.active() {
                         None => overlays::draw_empty(&mut c, &self.docs, rect),
@@ -811,7 +833,7 @@ impl App {
 
     /// Selects the active file in the Files tree when it changes.
     fn follow_active_file(&mut self) {
-        let active = self.docs.active_doc().map(|d| d.path.clone());
+        let active = self.docs.active_doc().and_then(|d| d.path.clone());
         if active == self.last_active {
             return;
         }
@@ -994,13 +1016,15 @@ impl App {
     fn session_sig(&self) -> u64 {
         sig((
             self.docs.paths(),
-            self.docs.active(),
+            self.docs.active_among_paths(),
             self.docs.recents.paths(),
             (!self.theme_from_args).then_some(self.docs.theme),
             self.ui.panes.files,
             self.ui.panes.files_w.round() as u32,
             &self.docs.folder,
             &self.session.geometry,
+            self.docs.check_updates,
+            self.session.update_checked,
         ))
     }
 
@@ -1021,11 +1045,12 @@ impl App {
         };
         let s = &mut self.session;
         s.tabs = self.docs.paths();
-        s.active = self.docs.active().unwrap_or(0);
+        s.active = self.docs.active_among_paths();
         s.recent = self.docs.recents.clone();
         if !self.theme_from_args {
             s.theme = self.docs.theme;
         }
+        s.check_updates = self.docs.check_updates;
         s.files = Some(self.ui.panes.files);
         s.files_w = Some(self.ui.panes.files_w.round() as u32);
         s.folder = self.docs.folder.clone();
@@ -1303,11 +1328,26 @@ impl ApplicationHandler<Wake> for App {
 }
 
 impl App {
+    /// The height of the update bar under the command bar, when it shows.
+    fn notice_h(&self) -> f32 {
+        if self.docs.updates.bar().is_some() {
+            view::BANNER_H
+        } else {
+            0.0
+        }
+    }
+
     /// The layout pass of a frame without drawing: areas, scroll clamping, colour requests.
     fn compose_layout_only(&mut self) {
         self.sync_theme();
         let (w, h) = self.logical();
-        self.areas = Areas::compute(w, h, self.ui.panes.files, self.ui.panes.files_w);
+        self.areas = Areas::compute(
+            w,
+            h,
+            self.ui.panes.files,
+            self.ui.panes.files_w,
+            self.notice_h(),
+        );
         let text = self.areas.text;
         if let Some(doc) = self.docs.active_doc_mut() {
             self.view.layout(doc, text, self.scale);
@@ -1460,6 +1500,9 @@ pub fn run() -> i32 {
     let args = Args::parse(std::env::args().skip(1));
     let trace = Trace::new(args.trace, started);
     trace.stage("arguments parsed");
+    if args.check_update {
+        return crate::updater::check_and_print();
+    }
     let explicit = std::env::var_os("MDEDIT_SETTINGS").map(PathBuf::from);
     // A shot never touches the user's session; it may read a scratch one named by MDEDIT_SETTINGS.
     let session_path = match (args.no_session, args.shot.is_some()) {
@@ -1494,6 +1537,10 @@ pub fn run() -> i32 {
     });
     let mut docs = Docs::new(platform::code_page(), waker.clone());
     docs.recents = session.recent.clone();
+    docs.check_updates = session.check_updates;
+    if let Some(stage) = &args.update_bar {
+        docs.updates.preview(stage);
+    }
     docs.theme = match args.dark {
         Some(true) => ThemeChoice::Dark,
         Some(false) => ThemeChoice::Light,
@@ -1574,6 +1621,7 @@ pub fn run() -> i32 {
     app.watcher = FileWatcher::new(move || {
         let _ = pw.send_event(Wake::Files);
     });
+    app.updates_at_launch();
     let _ = event_loop.run_app(&mut app);
     0
 }

@@ -699,5 +699,28 @@ Built as section 13 said, with these decisions. Nothing here is approved by the 
 - `--type-steps N` types N keystrokes, one per frame, and prints the time from keystroke to
   pixels; `--type TEXT` types text for a shot; `--dialog unsaved` shows the question.
 
-Not built: a New file command (documents have a path from the start), choosing or converting the
-encoding, recovery of unsaved text after a crash, IME.
+## 17. Updates
+
+mdedit updates itself with the code mdview uses, all of it in `markdown-shared-rs`; the viewer's
+`docs/UPDATE.md` describes the flow, the manifest and the swap. What is the editor's own:
+
+| Where | What |
+|---|---|
+| `bins/mdedit/src/updater.rs` | `APP` (name, version, manifest address, no engine, no installer entry), `fetch` with the user agent `mdedit`, `--check-update` |
+| `docs.rs` | `Docs::updates` (the shared `Updates`) and `Docs::check_updates` (the setting), so drawing code sees them |
+| `session.rs` | `check_updates=0\|1` (default 1) and `update_checked=<seconds since 1970>` |
+| `ui.rs` | `Areas::compute` takes the height of a bar under the command bar; it is part of the Bar region. `Hit::UpdateGo`, `Hit::UpdateClose` |
+| `chrome.rs` `draw_update_bar` | Places the shared bar and records its hits |
+| `overlays.rs` (About) | "Check for updates" (or "Update to x") and "Check at launch: on/off" |
+| `app/commands.rs` ("updates") | `updates_at_launch`, `check_for_updates`, `install_update`: each starts a shared thread that posts `Wake::Update` |
+
+The look at launch runs only with a session file and for a copy outside a cargo output folder
+(`release`, `debug`, `deps`). `--update-bar available|installing|installed` shows the bar with a
+made-up version for a shot.
+
+New file: a document's path is optional. `Docs::new_untitled` makes a ready, empty "Untitled N"
+document (UTF-8, the platform's line ending, no language until it has a name). It is left out of
+the session, the watcher and reloads; `Docs::save` answers `SaveFailed::Untitled` and the shell
+goes to Save as, where cancelling the file dialog also cancels whatever waited on the save.
+
+Not built: choosing or converting the encoding, recovery of unsaved text after a crash, IME.
