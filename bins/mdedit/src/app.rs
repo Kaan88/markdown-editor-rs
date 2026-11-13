@@ -1900,6 +1900,17 @@ impl App {
         if let Some(text) = &a.type_text {
             self.docs.edit(EditOp::Insert(text), self.service.as_ref());
         }
+        if let Some(keys) = &a.type_keys {
+            for c in keys.chars() {
+                let mut buf = [0; 4];
+                let op = if c == '\n' {
+                    EditOp::Newline
+                } else {
+                    EditOp::Insert(c.encode_utf8(&mut buf))
+                };
+                self.docs.edit(op, self.service.as_ref());
+            }
+        }
         if let Some(q) = &a.find {
             self.ui.find.set_text(q);
             self.ui.match_case = a.match_case;
@@ -2249,6 +2260,7 @@ pub fn run() -> i32 {
     }
     let positions = a.goto.is_some()
         || a.type_text.is_some()
+        || a.type_keys.is_some()
         || a.select.is_some()
         || a.find.is_some()
         || a.scroll.is_some()
@@ -2282,4 +2294,60 @@ pub fn run() -> i32 {
     app.updates_at_launch();
     let _ = event_loop.run_app(&mut app);
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::Key;
+    use mdshared_ui::keys::KeyName;
+
+    fn app() -> App {
+        let args = Args::parse(["--no-session".to_string()]);
+        let mut docs = Docs::new(1254, Arc::new(|_| {}));
+        docs.new_untitled();
+        let trace = Trace {
+            on: false,
+            started: Instant::now(),
+        };
+        App::new(args, docs, trace, None, Session::default())
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        for c in text.chars() {
+            let (key, typed) = match c {
+                '\n' => (KeyName::Enter, None),
+                '\u{8}' => (KeyName::Backspace, None),
+                c => (KeyName::Char(c), Some(c.to_string())),
+            };
+            app.key_pressed(Key::Name(key), typed.as_deref());
+        }
+    }
+
+    fn text(app: &App) -> String {
+        let r = app.docs.active_ready().unwrap();
+        let mut s = String::new();
+        r.buffer.text(0..r.buffer.len_bytes(), &mut s);
+        s
+    }
+
+    #[test]
+    fn a_macro_replays_typing_help_to_the_same_result() {
+        let mut a = app();
+        // Record: a bracket (paired), a letter, then Enter between the pair.
+        a.macros.recording = Some(Vec::new());
+        type_text(&mut a, "{a");
+        a.key_pressed(Key::Name(KeyName::Right), None);
+        type_text(&mut a, "\n");
+        let recorded = text(&a);
+        assert_eq!(recorded, "{a}\n");
+        a.macros.finish();
+        assert!(!a.macros.steps.is_empty());
+        // Replay at the end of the text: the keys do what they did, help included.
+        a.docs.edit(crate::docs::EditOp::Insert("\n"), None);
+        let before = text(&a);
+        a.play_macro(false);
+        let after = text(&a);
+        assert_eq!(&after[before.len()..], "{a}\n");
+    }
 }

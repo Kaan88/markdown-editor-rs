@@ -24,9 +24,11 @@ use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
 use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
 use mdedit_core::multi::{self, MultiOp};
+use mdedit_core::prefs::Prefs;
 use mdedit_core::replace;
 use mdedit_core::save::{self, SaveError};
 use mdedit_core::selection::Selection;
+use mdedit_core::typing::{self, Assist};
 use mdedit_core::{Buffer, Change, FileInfo, History, Position};
 use mdedit_highlight::{Colored, DocId, HighlightService, Language, Span};
 use mdshared_app::files::{FileStamp, stamp};
@@ -255,6 +257,8 @@ pub struct Ready {
     /// the strip closes.
     pub replace_scope: Option<Range<usize>>,
     pub scope_on: bool,
+    /// The typing help for this document's language and the preferences.
+    pub assist: Assist,
     /// The column selection being extended by keys: anchor line and column, caret line and
     /// column, and the selections it made (it goes on only while they are still the ones).
     pub column: Option<(usize, usize, usize, usize, Selection, usize)>,
@@ -631,6 +635,7 @@ impl Ready {
             extra: Vec::new(),
             replace_scope: None,
             scope_on: false,
+            assist: Prefs::default().assist(language.map_or("", Language::name)),
             column: None,
             top: 0.0,
             top_row: 0,
@@ -940,6 +945,8 @@ pub struct Docs {
     pub updates: crate::updater::Updates,
     /// The setting: look for a newer version at launch.
     pub check_updates: bool,
+    /// The preferences: the typing help, the save options and what new documents start with.
+    pub prefs: Prefs,
     pub tabs: Vec<Doc>,
     active: Option<usize>,
     next_id: DocId,
@@ -1003,6 +1010,7 @@ impl Docs {
             toast: None,
             updates: crate::updater::Updates::default(),
             check_updates: true,
+            prefs: Prefs::default(),
             watch_changed: true,
         }
     }
@@ -1469,6 +1477,7 @@ impl Docs {
         match done.result {
             Ok((loaded, language)) => {
                 let mut r = Ready::new(loaded, language, done.revision);
+                r.assist = self.prefs.assist(language.map_or("", Language::name));
                 // A reload keeps the caret's line and column, the scroll and the find query.
                 let mut query = None;
                 if let Some(old) = doc.ready_mut() {
@@ -1685,8 +1694,13 @@ impl Docs {
             r.extra.clear();
         }
         r.column = None;
+        // The typing help goes first, for one character typed, Enter, Backspace and (in Markdown)
+        // Tab and Shift+Tab; `None` is the plain edit below.
+        let typed = typing_edit(r, &op, eol);
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.sel);
-        let out = if let Some(multi_op) = multi_op {
+        let out = if let Some(out) = typed {
+            out
+        } else if let Some(multi_op) = multi_op {
             let at = r
                 .extra
                 .partition_point(|s| s.range().start < sel.range().start);
@@ -2352,6 +2366,61 @@ fn take_next(r: &mut Ready, found: Option<Range<usize>>) {
     r.select_and_reveal(range);
 }
 
+/// One typed character, Enter, Backspace or (in Markdown) Tab through the typing help, for the
+/// primary caret and the others alike. `None` when the help has nothing to do (or is off): the
+/// plain edit follows. On `Some` the selections are already set (`r.sel` and `r.extra`).
+fn typing_edit(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
+    let cfg = r.assist;
+    if !cfg.auto_pair && !cfg.auto_indent {
+        return None;
+    }
+    enum Key {
+        Char(char),
+        Enter,
+        Backspace,
+        Tab(bool),
+    }
+    let key = match op {
+        EditOp::Insert(t) => {
+            let mut chars = t.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) => Key::Char(c),
+                _ => return None,
+            }
+        }
+        EditOp::Newline => Key::Enter,
+        EditOp::Backspace => Key::Backspace,
+        // Tab is a list's only with one caret, and only in Markdown.
+        EditOp::Indent if r.extra.is_empty() => Key::Tab(false),
+        EditOp::Outdent if r.extra.is_empty() => Key::Tab(true),
+        _ => return None,
+    };
+    if let Key::Tab(outdent) = key {
+        let out = typing::list_indent(&mut r.buffer, &mut r.history, r.sel, outdent, &cfg)?;
+        return Some(out);
+    }
+    // The selections in document order, and where the primary is among them.
+    let at = r
+        .extra
+        .partition_point(|s| s.range().start < r.sel.range().start);
+    let mut list = r.extra.clone();
+    list.insert(at, r.sel);
+    let typed = match key {
+        Key::Char(c) => typing::type_char(&mut r.buffer, &mut r.history, &list, at, c, &cfg),
+        Key::Enter => typing::enter(&mut r.buffer, &mut r.history, &list, at, eol, &cfg),
+        Key::Backspace => typing::backspace(&mut r.buffer, &mut r.history, &list, at, &cfg),
+        Key::Tab(_) => None,
+    };
+    let (out, mut list, primary) = typed?;
+    if list.is_empty() {
+        return None;
+    }
+    let primary = primary.min(list.len() - 1);
+    let sel = list.remove(primary);
+    r.extra = list;
+    Some(Outcome { sel, ..out })
+}
+
 /// A range of the text after `change` replaced `at..at + removed` with `inserted` bytes: what
 /// is before it stays, what is after it moves, a start inside the replaced text goes to its
 /// start and an end inside it to the end of what replaced it.
@@ -2569,6 +2638,63 @@ mod tests {
         // Nothing to change: no change, no history entry.
         assert!(d.edit(EditOp::Undo, None));
         assert_eq!(text_of(&d, i), "A\nb\nc\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn typing_help_pairs_undoes_in_one_step_and_works_at_every_caret() {
+        let (mut d, i, _path, dir) = file_docs("typing", b"");
+        let type_ = |d: &mut Docs, s: &str| {
+            for c in s.chars() {
+                d.edit(EditOp::Insert(&c.to_string()), None);
+            }
+        };
+        // "(" pairs; "a" and "b" go inside; the whole run is one Undo.
+        type_(&mut d, "(ab");
+        assert_eq!(text_of(&d, i), "(ab)");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "");
+        // Typing the closer steps over it; Backspace between an empty pair takes both.
+        type_(&mut d, "(a)");
+        assert_eq!(text_of(&d, i), "(a)");
+        assert_eq!(d.tabs[i].ready().unwrap().sel.caret, 3);
+        d.edit(EditOp::Undo, None);
+        d.edit(EditOp::Undo, None);
+        type_(&mut d, "[");
+        assert_eq!(text_of(&d, i), "[]");
+        assert!(d.edit(EditOp::Backspace, None));
+        assert_eq!(text_of(&d, i), "");
+        // Enter between braces opens a block: the caret on the middle line, the closer below.
+        type_(&mut d, "{");
+        assert!(d.edit(EditOp::Newline, None));
+        assert_eq!(text_of(&d, i), "{\n\t\n}");
+        d.edit(EditOp::Undo, None);
+        d.edit(EditOp::Undo, None);
+        // Two carets: each gets its pair, in one step.
+        d.edit(EditOp::Insert("a\nb"), None);
+        {
+            let r = d.tabs[i].ready_mut().unwrap();
+            r.sel = Selection::at(1);
+            r.extra = vec![Selection::at(3)];
+        }
+        d.edit(EditOp::Insert("("), None);
+        assert_eq!(text_of(&d, i), "a()\nb()");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "a\nb");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn typing_help_off_leaves_the_plain_edits() {
+        let (mut d, i, _path, dir) = file_docs("typingoff", b"");
+        for doc in &mut d.tabs {
+            if let Some(r) = doc.ready_mut() {
+                r.assist.auto_pair = false;
+                r.assist.auto_indent = false;
+            }
+        }
+        d.edit(EditOp::Insert("("), None);
+        assert_eq!(text_of(&d, i), "(");
         std::fs::remove_dir_all(dir).ok();
     }
 

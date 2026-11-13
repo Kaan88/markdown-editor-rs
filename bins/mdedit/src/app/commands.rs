@@ -1251,7 +1251,7 @@ impl App {
     /// Plays the macro once, or again and again for as long as each run leaves the caret on
     /// a later line than the one before (a macro that ends with Down goes through the file).
     /// A question or a menu that a key opens ends it.
-    fn play_macro(&mut self, to_end: bool) {
+    pub(super) fn play_macro(&mut self, to_end: bool) {
         if self.macros.playing {
             return;
         }

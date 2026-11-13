@@ -130,6 +130,8 @@ pub struct Args {
     /// `--type <text>`: type the text at the caret once the file has loaded (after `--goto` and
     /// `--select`), so a shot can show a file with unsaved changes.
     pub type_text: Option<String>,
+    /// Typed one key at a time through the typing help ("\n" is Enter), after `--type`.
+    pub type_keys: Option<String>,
     /// `--type-steps N`: after the first frame and the load, type N keystrokes at the caret
     /// (letters, with a line break and a Backspace now and then), one per frame, print the time
     /// from keystroke to pixels and exit without saving.
@@ -235,6 +237,7 @@ impl Args {
                 "--shot" => out.shot = value(&a).map(PathBuf::from),
                 "--find" => out.find = value(&a).filter(|v| !v.is_empty()),
                 "--type" => out.type_text = value(&a).filter(|v| !v.is_empty()),
+                "--type-keys" => out.type_keys = value(&a).filter(|v| !v.is_empty()),
                 "--type-steps" => out.type_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--size" => {
                     out.size = checked(&a, value(&a), |v| {
