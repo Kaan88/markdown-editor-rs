@@ -883,6 +883,8 @@ pub struct Docs {
     /// one. The active tab shows in the other pane and has the keyboard.
     pub other: Option<DocId>,
     pub other_left: bool,
+    /// The left pane's share of the text's width in a split view (0.5 = halves).
+    pub split_ratio: f32,
     /// A macro is being recorded (the status strip says so).
     pub recording: bool,
     /// Lines longer than the view go on in rows below (word wrap).
@@ -914,6 +916,7 @@ impl Docs {
             minimap: false,
             other: None,
             other_left: false,
+            split_ratio: 0.5,
             recording: false,
             wrap: false,
             opts: LoadOptions {
@@ -1149,6 +1152,26 @@ impl Docs {
         let i = (a + 1) % self.tabs.len();
         self.other = Some(self.tabs[i].id);
         self.other_left = false;
+        if matches!(self.tabs[i].state, DocState::Pending) {
+            self.start_load(i);
+        }
+        true
+    }
+
+    /// Puts the tab of `path` in the second pane (at the left when `left`) with the left pane's
+    /// share of the width `ratio`, for a restored session. False when no tab has the file or it
+    /// is the active one.
+    pub fn restore_split(&mut self, path: &Path, left: bool, ratio: f32) -> bool {
+        let Some(i) = self.index_of(path).filter(|&i| Some(i) != self.active) else {
+            return false;
+        };
+        self.other = Some(self.tabs[i].id);
+        self.other_left = left;
+        self.split_ratio = if ratio.is_finite() {
+            ratio.clamp(0.1, 0.9)
+        } else {
+            0.5
+        };
         if matches!(self.tabs[i].state, DocState::Pending) {
             self.start_load(i);
         }
@@ -2510,6 +2533,28 @@ mod tests {
         // The choice stays for the next load of this tab.
         d.load_now(i, None, false);
         assert_eq!(d.tabs[i].ready().unwrap().info.encoding, latin);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_split_comes_back_from_the_session_only_when_both_files_did() {
+        let (mut d, i, path, dir) = file_docs("splitback", b"a\n");
+        let other = dir.join("b.txt");
+        std::fs::write(&other, b"b\n").unwrap();
+        let j = d.add_pending(&other);
+        d.activate(i);
+        // The second file is open and not the active one: the split is back, at the left.
+        assert!(d.restore_split(&other, true, 0.3));
+        assert_eq!(d.other(), Some(j));
+        assert!(d.other_left && (d.split_ratio - 0.3).abs() < 1e-6);
+        // A hostile share is held inside the layout's range.
+        assert!(d.restore_split(&other, false, f32::NAN));
+        assert_eq!(d.split_ratio, 0.5);
+        assert!(d.restore_split(&other, false, 77.0));
+        assert_eq!(d.split_ratio, 0.9);
+        // The active tab cannot be its own second pane; an unknown file is no split.
+        assert!(!d.restore_split(&path, false, 0.5));
+        assert!(!d.restore_split(&dir.join("gone.txt"), false, 0.5));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

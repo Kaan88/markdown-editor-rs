@@ -100,6 +100,10 @@ pub struct Args {
     pub bookmarks: Vec<usize>,
     /// `--split`: two files side by side, the tab after the active one in the second pane.
     pub split: bool,
+    /// `--split-ratio <0.1..0.9>` and `--split-left`: the left pane's share of the width, and the
+    /// second pane at the left, for a shot.
+    pub split_ratio: Option<f32>,
+    pub split_left: bool,
     /// `--fold <line>`, as often as wanted: lines of the active document whose blocks are
     /// folded.
     pub folds: Vec<usize>,
@@ -193,6 +197,12 @@ impl Args {
                     }
                 }
                 "--split" => out.split = true,
+                "--split-left" => out.split_left = true,
+                "--split-ratio" => {
+                    out.split_ratio = checked(&a, value(&a), |v| {
+                        v.parse::<f32>().ok().filter(|r| (0.1..=0.9).contains(r))
+                    })
+                }
                 "--fold" => {
                     if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
                         out.folds.push(n);

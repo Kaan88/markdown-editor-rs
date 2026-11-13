@@ -609,7 +609,7 @@ impl App {
                     common,
                     self.maximized,
                     self.docs.labels(),
-                    self.docs.active(),
+                    (self.docs.active(), self.docs.other()),
                     missing,
                     drag,
                 ))
@@ -814,25 +814,7 @@ impl App {
         self.sync_theme();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
-        let areas = Areas::compute(
-            w,
-            h,
-            self.ui.panes.files,
-            self.ui.panes.files_w,
-            self.notice_h(),
-        )
-        .with_results(self.ui.results.open);
-        // A split whose second tab was closed, or became the active one, is over.
-        if self.docs.other.is_some() && self.docs.other().is_none() {
-            self.docs.other = None;
-        }
-        let areas = areas
-            .with_split(self.docs.other.is_some(), self.docs.other_left)
-            .with_minimap(self.docs.minimap && self.docs.active().is_some());
-        if areas != self.areas {
-            self.areas = areas;
-            self.full = true;
-        }
+        self.relayout_areas();
         // Lay the text out first: it clamps the scroll and says which lines want colours.
         let text = self.areas.text;
         let mut geom = None;
@@ -1013,6 +995,7 @@ impl App {
                         ..
                     })
                 ),
+            other: false,
             hbar_active: hover == Some(Hit::ScrollBar(Scroller::TextH))
                 || matches!(
                     self.ui.drag,
@@ -1115,8 +1098,23 @@ impl App {
                             let quiet = view::DrawState {
                                 caret: false,
                                 band: false,
-                                vbar_active: false,
-                                hbar_active: false,
+                                vbar_active: hover == Some(Hit::ScrollBar(Scroller::OtherText))
+                                    || matches!(
+                                        self.ui.drag,
+                                        Some(Drag::Thumb {
+                                            target: Scroller::OtherText,
+                                            ..
+                                        })
+                                    ),
+                                hbar_active: hover == Some(Hit::ScrollBar(Scroller::OtherTextH))
+                                    || matches!(
+                                        self.ui.drag,
+                                        Some(Drag::Thumb {
+                                            target: Scroller::OtherTextH,
+                                            ..
+                                        })
+                                    ),
+                                other: true,
                                 ..ds
                             };
                             let doc = &mut self.docs.tabs[i];
@@ -1127,8 +1125,8 @@ impl App {
                             if self.areas.minimap_other.is_none() || !left {
                                 c.p.fill(Rect::new(x, rect.y, px, rect.h), pal.line);
                             }
-                            c.hits.clear();
-                            c.hit(Hit::Other, rect);
+                            // One hit for the pane, under its scrollbars.
+                            c.hits.insert(0, (Hit::Other, rect));
                         }
                     }
                 }
@@ -1347,6 +1345,12 @@ impl App {
                 .find(|(_, r)| r.contains(x, y))
                 .map(|(h, _)| *h);
         }
+        // The line between two panes is not drawn by a region: it is where the layout says.
+        if let (Some(d), Some(_)) = (self.areas.divider, self.areas.other)
+            && d.grab(self.areas.text.y, self.areas.text.h).contains(x, y)
+        {
+            return Some(Hit::Divider);
+        }
         for r in REGIONS {
             if let Some(h) = self.hits[r.index()]
                 .iter()
@@ -1391,7 +1395,7 @@ impl App {
     fn session_sig(&self) -> u64 {
         sig((
             self.docs.paths(),
-            self.docs.active_among_paths(),
+            (self.docs.active_among_paths(), self.split_state()),
             self.docs.recents.paths(),
             (!self.theme_from_args).then_some(self.docs.theme),
             (self.args.zoom.is_none()).then_some(self.docs.zoom),
@@ -1406,6 +1410,17 @@ impl App {
             &self.session.geometry,
             self.docs.check_updates,
             self.session.update_checked,
+        ))
+    }
+
+    /// The split view as the session keeps it: the second pane's file (a document without a
+    /// file is not kept), its side and the share of the width.
+    fn split_state(&self) -> Option<crate::session::Split> {
+        let path = self.docs.tabs[self.docs.other()?].path.clone()?;
+        Some(crate::session::Split::new(
+            path,
+            self.docs.other_left,
+            self.docs.split_ratio,
         ))
     }
 
@@ -1430,9 +1445,11 @@ impl App {
         let Some(path) = self.session_path.clone().filter(|_| self.save) else {
             return;
         };
+        let split = self.split_state();
         let s = &mut self.session;
         s.tabs = self.docs.paths();
         s.active = self.docs.active_among_paths();
+        s.split = split;
         s.recent = self.docs.recents.clone();
         if !self.theme_from_args {
             s.theme = self.docs.theme;
@@ -1754,6 +1771,35 @@ impl App {
         strip + update
     }
 
+    /// Works out where everything goes now (the split's roles and share, the minimap, the
+    /// panels) and makes it the current layout; a change repaints everything.
+    pub(super) fn relayout_areas(&mut self) {
+        let (w, h) = self.logical();
+        let areas = Areas::compute(
+            w,
+            h,
+            self.ui.panes.files,
+            self.ui.panes.files_w,
+            self.notice_h(),
+        )
+        .with_results(self.ui.results.open);
+        // A split whose second tab was closed, or became the active one, is over.
+        if self.docs.other.is_some() && self.docs.other().is_none() {
+            self.docs.other = None;
+        }
+        let areas = areas
+            .with_split(
+                self.docs.other.is_some(),
+                self.docs.other_left,
+                self.docs.split_ratio,
+            )
+            .with_minimap(self.docs.minimap && self.docs.active().is_some());
+        if areas != self.areas {
+            self.areas = areas;
+            self.full = true;
+        }
+    }
+
     /// The layout pass of a frame without drawing: areas, scroll clamping, colour requests.
     fn compose_layout_only(&mut self) {
         self.sync_theme();
@@ -1873,6 +1919,10 @@ fn shot(mut app: App, path: &Path) -> i32 {
     app.sync_theme();
     if app.args.split {
         app.docs.toggle_split();
+        if app.docs.other.is_some() {
+            app.docs.other_left = app.args.split_left;
+            app.docs.split_ratio = app.args.split_ratio.unwrap_or(0.5);
+        }
     }
     for i in 0..app.docs.tabs.len() {
         app.docs.load_now(i, app.service.as_ref(), dark);
@@ -2119,6 +2169,11 @@ pub fn run() -> i32 {
     if let Some(i) = active {
         app.docs.activate(i);
         trace.stage("load started");
+    }
+    // The split view comes back when both its files did (and the second is not the active one).
+    if let Some(split) = app.session.split.clone() {
+        app.docs
+            .restore_split(&split.path, split.left, split.ratio());
     }
     let a = app.args.clone();
     app.ui.panes.files = a.files_pane.or(app.session.files).unwrap_or(false);

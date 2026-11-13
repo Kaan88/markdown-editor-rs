@@ -327,6 +327,14 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
         };
         let drawn = draw_tab(c.p, &pal, x, w, r.w, label, &state);
         c.hit(Hit::Tab(i), drawn.tab);
+        // The tab in the second pane of a split view: a short line under its name.
+        if docs.other() == Some(i) {
+            let t = drawn.tab;
+            c.p.fill(
+                Rect::new(t.x + 12.0, t.bottom() - 4.0, (t.w - 24.0).max(0.0), 2.0),
+                pal.muted,
+            );
+        }
         if let Some(b) = drawn.close {
             c.hit(Hit::TabClose(i), b);
         }

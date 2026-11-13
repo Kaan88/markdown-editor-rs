@@ -84,12 +84,74 @@ impl Unsaved {
     }
 }
 
+/// A split view: the file in the second pane, the side it is on, and the left pane's share of
+/// the width in thousandths.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Split {
+    pub path: PathBuf,
+    pub left: bool,
+    pub permille: u16,
+}
+
+impl Split {
+    /// The share kept in the file: the layout clamps it again to the pane's minimum width.
+    pub const MIN: u16 = 100;
+    pub const MAX: u16 = 900;
+
+    pub fn new(path: PathBuf, left: bool, ratio: f32) -> Split {
+        let permille = if ratio.is_finite() {
+            (ratio * 1000.0)
+                .round()
+                .clamp(Split::MIN as f32, Split::MAX as f32) as u16
+        } else {
+            500
+        };
+        Split {
+            path,
+            left,
+            permille,
+        }
+    }
+
+    pub fn ratio(&self) -> f32 {
+        self.permille as f32 / 1000.0
+    }
+
+    /// `<L|R>|<permille>|<path>`; anything else is no split.
+    fn parse(value: &str) -> Option<Split> {
+        let mut parts = value.splitn(3, '|');
+        let left = match parts.next()?.trim() {
+            "L" => true,
+            "R" => false,
+            _ => return None,
+        };
+        let permille: u16 = parts.next()?.trim().parse().ok()?;
+        let path = parts.next().filter(|p| !p.is_empty())?;
+        Some(Split {
+            path: decode_path(path),
+            left,
+            permille: permille.clamp(Split::MIN, Split::MAX),
+        })
+    }
+
+    fn serialize(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            if self.left { "L" } else { "R" },
+            self.permille,
+            encode_path(&self.path)
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Session {
     pub tabs: Vec<PathBuf>,
     /// The tabs whose unsaved text was kept when the window last closed.
     pub unsaved: Vec<Unsaved>,
     pub active: usize,
+    /// The split view, when two tabs were side by side.
+    pub split: Option<Split>,
     pub recent: Recents,
     pub theme: ThemeChoice,
     /// The text size, percent.
@@ -119,6 +181,7 @@ impl Default for Session {
             tabs: Vec::new(),
             unsaved: Vec::new(),
             active: 0,
+            split: None,
             recent: Recents::default(),
             theme: ThemeChoice::default(),
             zoom: 100,
@@ -160,6 +223,7 @@ impl Session {
                     "tab" if !value.is_empty() => s.tabs.push(decode_path(value)),
                     "unsaved" => s.unsaved.extend(Unsaved::parse(value)),
                     "recent" if !value.is_empty() => recent.push(decode_path(value)),
+                    "split" => s.split = Split::parse(value),
                     "active" => s.active = value.trim().parse().unwrap_or(0),
                     "theme" => {
                         s.theme = ThemeChoice::from_setting(value.trim().parse().unwrap_or(0))
@@ -214,6 +278,9 @@ impl Session {
             out.line("unsaved", &u.serialize());
         }
         out.line("active", &self.active.to_string());
+        if let Some(split) = &self.split {
+            out.line("split", &split.serialize());
+        }
         for r in self.recent.paths() {
             out.line("recent", &encode_path(r));
         }
@@ -304,6 +371,28 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_split_round_trips_and_a_damaged_one_is_none() {
+        let split = Split::new(PathBuf::from("C:/a b/y|z.md"), true, 0.37);
+        assert_eq!(split.permille, 370);
+        let s = Session {
+            tabs: vec![PathBuf::from("C:/x.rs"), split.path.clone()],
+            split: Some(split.clone()),
+            ..Session::default()
+        };
+        assert_eq!(Session::parse(&s.serialize()).split, Some(split));
+        // Out-of-range shares are clamped; nothing else gets through.
+        assert_eq!(Split::new("a".into(), false, 7.0).permille, Split::MAX);
+        assert_eq!(Split::new("a".into(), false, f32::NAN).permille, 500);
+        assert_eq!(Split::parse("R|950|a").unwrap().permille, Split::MAX);
+        assert_eq!(Split::parse("R|99999|a"), None);
+        for bad in [
+            "", "X|500|a", "L|abc|a", "L|500|", "L|500", "L", "|||", "L|-5|a",
+        ] {
+            assert_eq!(Split::parse(bad), None, "{bad:?}");
+        }
+    }
 
     #[test]
     fn round_trip() {

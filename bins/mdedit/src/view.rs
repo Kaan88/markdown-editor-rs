@@ -393,6 +393,8 @@ pub struct DrawState {
     pub whitespace: bool,
     pub vbar_active: bool,
     pub hbar_active: bool,
+    /// The second pane of a split view: its scrollbars hit as its own.
+    pub other: bool,
 }
 
 fn spans_hash(spans: Option<&[Span]>) -> u64 {
@@ -767,7 +769,7 @@ impl View {
             }
         };
         let g = geom(r, area, &m);
-        if bands.is_none() {
+        if bands.is_none() && !s.other {
             c.hit(crate::ui::Hit::Text, area);
             if s.band {
                 c.hit(
@@ -1187,17 +1189,25 @@ impl View {
             self.engine
                 .draw_layout_clipped(c.p.bmp, &n.0, x as f32, gy.round(), gutter);
         }
+        let (vscroller, hscroller) = if s.other {
+            (
+                crate::ui::Scroller::OtherText,
+                crate::ui::Scroller::OtherTextH,
+            )
+        } else {
+            (crate::ui::Scroller::Text, crate::ui::Scroller::TextH)
+        };
         // Scrollbars sit over the text; a band repaint draws them again inside its clip.
         if let Some((track, thumb)) = g.vbar() {
             scroll::draw_scrollbar(c.p, &pal, track, thumb, s.vbar_active);
             if bands.is_none() {
-                c.hit(crate::ui::Hit::ScrollBar(crate::ui::Scroller::Text), track);
+                c.hit(crate::ui::Hit::ScrollBar(vscroller), track);
             }
         }
         if let Some((track, thumb)) = g.hbar(r.left) {
             draw_hscrollbar(c, track, thumb, s.hbar_active);
             if bands.is_none() {
-                c.hit(crate::ui::Hit::ScrollBar(crate::ui::Scroller::TextH), track);
+                c.hit(crate::ui::Hit::ScrollBar(hscroller), track);
             }
         }
         let rows: usize = shown_lines.iter().map(|l| l.parts.len().max(1)).sum();

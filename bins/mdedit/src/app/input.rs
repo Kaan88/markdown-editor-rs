@@ -61,7 +61,7 @@ impl App {
         let cursor = match (edge, hit) {
             (Some(dir), _) => CursorIcon::from(dir),
             (None, Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace)) => CursorIcon::Text,
-            (None, Some(Hit::Splitter)) => CursorIcon::ColResize,
+            (None, Some(Hit::Splitter | Hit::Divider)) => CursorIcon::ColResize,
             (None, Some(Hit::Fold(_) | Hit::FoldBox(_))) => CursorIcon::Pointer,
             _ => CursorIcon::Default,
         };
@@ -137,6 +137,11 @@ impl App {
                 let max = PANE_MAX.min(w - crate::ui::PAGE_MIN).max(PANE_MIN);
                 self.ui.panes.files_w = (width + (x - start)).clamp(PANE_MIN, max).round();
             }
+            Drag::Divider => {
+                if let Some(d) = self.areas.divider {
+                    self.docs.split_ratio = d.ratio_at(x);
+                }
+            }
             Drag::Thumb { target, grab } => self.thumb_to(target, x - grab, y - grab),
             Drag::Minimap { grab, doc } => self.minimap_drag(doc, y, grab),
             Drag::Column { line, col } => {
@@ -208,7 +213,7 @@ impl App {
                 let list = crate::results::list(self.areas.results?);
                 Some((list, res.content, res.view, res.scroll))
             }
-            Scroller::Text | Scroller::TextH => None,
+            Scroller::Text | Scroller::TextH | Scroller::OtherText | Scroller::OtherTextH => None,
         }
     }
 
@@ -231,40 +236,67 @@ impl App {
                 let cur = self.ui.results.scroll;
                 self.ui.results.scroll_by(offset - cur);
             }
-            Scroller::Text | Scroller::TextH => {}
+            Scroller::Text | Scroller::TextH | Scroller::OtherText | Scroller::OtherTextH => {}
         }
     }
 
     /// The text's scroll geometry: (vertical track and thumb, horizontal track and thumb, lines,
     /// view lines, extent, view width).
-    fn text_bars(&mut self) -> Option<TextBars> {
-        let region = self.areas.text;
-        let i = self.docs.active()?;
+    fn text_bars(&mut self, pane: usize) -> Option<TextBars> {
+        let region = self.pane_region(pane)?;
+        let i = self.pane_doc(pane)?;
         let doc = &mut self.docs.tabs[i];
         let g = self.view.layout(doc, region, self.scale)?;
         let r = doc.ready()?;
         Some((g.vbar(), g.hbar(r.left), g))
     }
 
+    /// The text region of pane 0 (the one with the keyboard) or 1 (the second pane).
+    pub(super) fn pane_region(&self, pane: usize) -> Option<Rect> {
+        match pane {
+            0 => Some(self.areas.text),
+            _ => self
+                .areas
+                .other
+                .map(|o| crate::ui::split_inner(o, self.docs.other_left, 1.0 / self.scale)),
+        }
+    }
+
+    /// The tab shown in pane 0 or 1.
+    pub(super) fn pane_doc(&self, pane: usize) -> Option<usize> {
+        if pane == 0 {
+            self.docs.active()
+        } else {
+            self.docs.other()
+        }
+    }
+
+    pub(super) fn pane_ready_mut(&mut self, pane: usize) -> Option<&mut crate::docs::Ready> {
+        let i = self.pane_doc(pane)?;
+        self.docs.tabs[i].ready_mut()
+    }
+
     /// A thumb dragged so its start is at `thumb_x` (horizontal) or `thumb_y`.
     pub(super) fn thumb_to(&mut self, target: Scroller, thumb_x: f32, thumb_y: f32) {
         match target {
-            Scroller::Text => {
-                let Some((Some((track, thumb)), _, g)) = self.text_bars() else {
+            Scroller::Text | Scroller::OtherText => {
+                let pane = usize::from(target == Scroller::OtherText);
+                let Some((Some((track, thumb)), _, g)) = self.text_bars(pane) else {
                     return;
                 };
                 let (content, page) = g.vscroll();
                 let top = offset_for_thumb(track, thumb.h, thumb_y, content, page);
-                if let Some(r) = self.docs.active_ready_mut() {
+                if let Some(r) = self.pane_ready_mut(pane) {
                     view::scroll_to(r, &g, top as f64);
                 }
             }
-            Scroller::TextH => {
-                let Some((_, Some((track, thumb)), g)) = self.text_bars() else {
+            Scroller::TextH | Scroller::OtherTextH => {
+                let pane = usize::from(target == Scroller::OtherTextH);
+                let Some((_, Some((track, thumb)), g)) = self.text_bars(pane) else {
                     return;
                 };
                 let left = offset_for_hthumb(track, thumb.w, thumb_x, g.extent, g.view_w);
-                if let Some(r) = self.docs.active_ready_mut() {
+                if let Some(r) = self.pane_ready_mut(pane) {
                     r.left = metrics::clamp_left(left as f64, g.extent, g.view_w);
                 }
             }
@@ -358,8 +390,9 @@ impl App {
     /// A press on a scrollbar: grabs the thumb, or pages towards the press.
     fn scrollbar_press(&mut self, target: Scroller, x: f32, y: f32) {
         match target {
-            Scroller::Text => {
-                let Some((Some((_, thumb)), _, g)) = self.text_bars() else {
+            Scroller::Text | Scroller::OtherText => {
+                let pane = usize::from(target == Scroller::OtherText);
+                let Some((Some((_, thumb)), _, g)) = self.text_bars(pane) else {
                     return;
                 };
                 if y >= thumb.y && y < thumb.bottom() {
@@ -367,13 +400,14 @@ impl App {
                         target,
                         grab: y - thumb.y,
                     });
-                } else if let Some(r) = self.docs.active_ready_mut() {
+                } else if let Some(r) = self.pane_ready_mut(pane) {
                     let step = (g.view_lines - 1.0).max(1.0) * if y < thumb.y { -1.0 } else { 1.0 };
                     view::scroll_rows(r, step);
                 }
             }
-            Scroller::TextH => {
-                let Some((_, Some((_, thumb)), g)) = self.text_bars() else {
+            Scroller::TextH | Scroller::OtherTextH => {
+                let pane = usize::from(target == Scroller::OtherTextH);
+                let Some((_, Some((_, thumb)), g)) = self.text_bars(pane) else {
                     return;
                 };
                 if x >= thumb.x && x < thumb.right() {
@@ -381,7 +415,7 @@ impl App {
                         target,
                         grab: x - thumb.x,
                     });
-                } else if let Some(r) = self.docs.active_ready_mut() {
+                } else if let Some(r) = self.pane_ready_mut(pane) {
                     let step = g.view_w as f64 * 0.9 * if x < thumb.x { -1.0 } else { 1.0 };
                     r.left = metrics::clamp_left(r.left + step, g.extent, g.view_w);
                 }
@@ -404,6 +438,60 @@ impl App {
                 }
             }
         }
+    }
+
+    /// A left press in the text (or its gutter) of the pane that has the keyboard: puts the
+    /// caret, extends the selection or starts a drag, by the number of clicks.
+    fn text_press(&mut self, x: f32, y: f32, clicks: u32) {
+        let Some(offset) = self.text_offset(x, y) else {
+            return;
+        };
+        self.docs.seal();
+        let shift = self.mods.shift;
+        let (ctrl, alt) = (self.mods.ctrl, self.mods.alt);
+        let Some(r) = self.docs.active_ready_mut() else {
+            return;
+        };
+        // Alt and a drag select a column; Ctrl and a click add a caret.
+        if clicks == 1 && alt && !ctrl {
+            let (line, col) = r.line_col(offset);
+            r.extra.clear();
+            r.sel = mdedit_core::Selection::at(offset);
+            self.ui.drag = Some(Drag::Column { line, col });
+            self.caret_reset();
+            return;
+        }
+        if clicks == 1 && ctrl && !alt && !shift {
+            r.add_caret(offset);
+            self.caret_reset();
+            return;
+        }
+        r.extra.clear();
+        let (unit, origin) = match clicks {
+            2 => (SelectUnit::Word, selection::word_at(&r.buffer, offset)),
+            3 => (SelectUnit::Line, selection::line_at(&r.buffer, offset)),
+            _ if shift => {
+                let a = r.sel.anchor;
+                (SelectUnit::Grapheme, a..a)
+            }
+            _ => (SelectUnit::Grapheme, offset..offset),
+        };
+        r.sel = if clicks == 1 && !shift {
+            mdedit_core::Selection::at(offset)
+        } else if clicks == 1 {
+            selection::drag_to(&r.buffer, origin.clone(), Unit::Grapheme, offset)
+        } else {
+            mdedit_core::Selection {
+                anchor: origin.start,
+                caret: origin.end,
+                goal_col: None,
+            }
+        };
+        self.ui.drag = Some(Drag::Select {
+            unit,
+            origin: (origin.start, origin.end),
+        });
+        self.caret_reset();
     }
 
     pub(super) fn left_press(&mut self) {
@@ -490,10 +578,21 @@ impl App {
                 }
             }
             Hit::Other => {
+                // The first click in the other pane gives it the keyboard and puts the caret
+                // where it was made: the panes change roles, so lay them out again first.
                 self.docs.seal();
                 if self.docs.focus_other() {
                     self.ui.find_focused = false;
                     self.caret_reset();
+                    self.relayout_areas();
+                    self.text_press(x, y, clicks);
+                }
+            }
+            Hit::Divider => {
+                if clicks == 2 {
+                    self.docs.split_ratio = 0.5;
+                } else {
+                    self.ui.drag = Some(Drag::Divider);
                 }
             }
             Hit::Fold(line) | Hit::FoldBox(line) => {
@@ -503,57 +602,7 @@ impl App {
                 }
                 self.caret_reset();
             }
-            Hit::Text | Hit::Gutter => {
-                let Some(offset) = self.text_offset(x, y) else {
-                    return;
-                };
-                self.docs.seal();
-                let shift = self.mods.shift;
-                let (ctrl, alt) = (self.mods.ctrl, self.mods.alt);
-                let Some(r) = self.docs.active_ready_mut() else {
-                    return;
-                };
-                // Alt and a drag select a column; Ctrl and a click add a caret.
-                if clicks == 1 && alt && !ctrl {
-                    let (line, col) = r.line_col(offset);
-                    r.extra.clear();
-                    r.sel = mdedit_core::Selection::at(offset);
-                    self.ui.drag = Some(Drag::Column { line, col });
-                    self.caret_reset();
-                    return;
-                }
-                if clicks == 1 && ctrl && !alt && !shift {
-                    r.add_caret(offset);
-                    self.caret_reset();
-                    return;
-                }
-                r.extra.clear();
-                let (unit, origin) = match clicks {
-                    2 => (SelectUnit::Word, selection::word_at(&r.buffer, offset)),
-                    3 => (SelectUnit::Line, selection::line_at(&r.buffer, offset)),
-                    _ if shift => {
-                        let a = r.sel.anchor;
-                        (SelectUnit::Grapheme, a..a)
-                    }
-                    _ => (SelectUnit::Grapheme, offset..offset),
-                };
-                r.sel = if clicks == 1 && !shift {
-                    mdedit_core::Selection::at(offset)
-                } else if clicks == 1 {
-                    selection::drag_to(&r.buffer, origin.clone(), Unit::Grapheme, offset)
-                } else {
-                    mdedit_core::Selection {
-                        anchor: origin.start,
-                        caret: origin.end,
-                        goal_col: None,
-                    }
-                };
-                self.ui.drag = Some(Drag::Select {
-                    unit,
-                    origin: (origin.start, origin.end),
-                });
-                self.caret_reset();
-            }
+            Hit::Text | Hit::Gutter => self.text_press(x, y, clicks),
             Hit::Find | Hit::Replace => {
                 self.ui.focus_field(if hit == Hit::Replace {
                     BarField::Replace
@@ -750,26 +799,12 @@ impl App {
             self.redraw();
             return;
         }
-        // Over the second pane the wheel scrolls its text, by lines only.
-        if self.areas.other.is_some_and(|r| r.contains(x, y))
-            || self.areas.minimap_other.is_some_and(|r| r.contains(x, y))
-        {
-            let line_h = self.view.metrics(self.scale).line_h as f64;
-            let down = match pixels {
-                Some((_, py)) => -py / line_h,
-                None => -ny * metrics::WHEEL_LINES,
-            };
-            if let Some(i) = self.docs.other()
-                && let Some(r) = self.docs.tabs[i].ready_mut()
-            {
-                view::scroll_rows(r, down);
-            }
-            self.redraw();
-            return;
-        }
         // The wheel over the minimap scrolls the text as it does over the text.
         let over_map = self.areas.minimap.is_some_and(|m| m.contains(x, y));
-        if !self.areas.text.contains(x, y) && !over_map {
+        // Over the second pane the wheel scrolls its text, with Shift sideways, as in the first.
+        let over_other = self.areas.other.is_some_and(|r| r.contains(x, y))
+            || self.areas.minimap_other.is_some_and(|r| r.contains(x, y));
+        if !self.areas.text.contains(x, y) && !over_map && !over_other {
             return;
         }
         // Ctrl and the wheel change the text size, a step per notch.
@@ -786,7 +821,10 @@ impl App {
         let line_h = self.view.metrics(self.scale).line_h as f64;
         let scale = self.scale as f64;
         let shift = self.mods.shift;
-        let Some(r) = self.docs.active_ready_mut() else {
+        let Some(i) = self.pane_doc(usize::from(over_other)) else {
+            return;
+        };
+        let Some(r) = self.docs.tabs[i].ready_mut() else {
             return;
         };
         let adv = r.advance as f64;
@@ -808,7 +846,7 @@ impl App {
         view::scroll_rows(r, down);
         r.left = (r.left + right).max(0.0);
         // The layout pass of the next frame clamps both.
-        if let Some(Drag::Select { .. } | Drag::Column { .. }) = self.ui.drag {
+        if !over_other && let Some(Drag::Select { .. } | Drag::Column { .. }) = self.ui.drag {
             let drag = self.ui.drag.unwrap();
             self.drag_to(drag, x, y);
         }

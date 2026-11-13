@@ -137,6 +137,10 @@ shot menu-recent-dark --dark --menu recent "$fx/sample.rs" "$fx/sample.md" "$fx/
 shot menu-eol-dark --dark --menu eol "$fx/sample.rs"
 shot menu-encoding-light --light --menu encoding "$fx/sample.rs"
 
+# Split view: the second pane's tab marked, a dragged divider (not half), the second pane at the left.
+shot split-ratio --dark --split --split-ratio 0.35 --hover 441,300 --goto 12:5 "$fx/sample.rs" "$fx/sample.md"
+shot split-left --light --split --split-left --split-ratio 0.62 "$fx/sample.rs" "$fx/sample.md"
+
 # Fold chevrons: the pointer in the gutter (faint chevrons, one hovered), a folded block, both themes.
 shot fold-gutter --light --hover 46,263 "$fx/sample.rs"
 shot fold-gutter-dark --dark --hover 46,263 --fold 27 "$fx/sample.rs"

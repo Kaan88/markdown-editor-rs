@@ -60,6 +60,9 @@ pub enum Scroller {
     Dialog,
     /// The results panel's list.
     Results,
+    /// The second pane's text, vertically and horizontally.
+    OtherText,
+    OtherTextH,
 }
 
 /// The command bar's buttons.
@@ -165,6 +168,8 @@ pub enum Hit {
     Fold(usize),
     /// The box after a folded line: a press opens that fold.
     FoldBox(usize),
+    /// The line that parts the two panes of a split view: drag to resize, double click to halve.
+    Divider,
     EmptyOpen,
     EmptyRecent(usize),
     DlgButton(usize),
@@ -204,6 +209,7 @@ impl Hit {
             | Hit::FilesOpenFolder
             | Hit::Splitter
             | Hit::ScrollBar(Scroller::Files) => Region::Files,
+            Hit::ScrollBar(Scroller::OtherText | Scroller::OtherTextH) => Region::Other,
             Hit::ScrollBar(Scroller::Text | Scroller::TextH)
             | Hit::Text
             | Hit::Gutter
@@ -228,6 +234,7 @@ impl Hit {
                 | Hit::Fold(_)
                 | Hit::FoldBox(_)
                 | Hit::Other
+                | Hit::Divider
                 | Hit::Minimap
                 | Hit::MinimapOther
                 | Hit::Splitter
@@ -460,6 +467,8 @@ pub enum Drag {
         x: f32,
         width: f32,
     },
+    /// The divider of a split view, dragged.
+    Divider,
     /// A scrollbar thumb, grabbed `grab` logical px from its start.
     Thumb {
         target: Scroller,
@@ -689,6 +698,41 @@ pub struct Areas {
     pub minimap: Option<Rect>,
     /// The second pane's minimap, at the right edge of that pane.
     pub minimap_other: Option<Rect>,
+    /// The line between the panes of a split view.
+    pub divider: Option<Divider>,
+}
+
+/// Where a split view's panes part: the x of the line, and the span both panes share.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Divider {
+    pub x: f32,
+    pub left: f32,
+    pub right: f32,
+}
+
+/// The pointer is this far (logical px) from the divider's line, either side, and it is hit.
+pub const DIVIDER_GRAB: f32 = 3.0;
+
+impl Divider {
+    /// The strip the pointer can grab, over the text's height `y..y+h`.
+    pub fn grab(&self, y: f32, h: f32) -> Rect {
+        Rect::new(self.x - DIVIDER_GRAB, y, 2.0 * DIVIDER_GRAB, h)
+    }
+
+    /// The share of the span the left pane gets when the line is dragged to `x`, kept so both
+    /// panes keep `SPLIT_MIN`.
+    pub fn ratio_at(&self, x: f32) -> f32 {
+        split_ratio(self.right - self.left, x - self.left)
+    }
+}
+
+/// The left pane's share of a span `width` wide when it is `left` wide, clamped so both panes
+/// keep `SPLIT_MIN`; a span too narrow for two panes gives one half.
+pub fn split_ratio(width: f32, left: f32) -> f32 {
+    if width < 2.0 * SPLIT_MIN || !left.is_finite() {
+        return 0.5;
+    }
+    (left / width).clamp(SPLIT_MIN / width, 1.0 - SPLIT_MIN / width)
 }
 
 impl Areas {
@@ -729,12 +773,17 @@ impl Areas {
 
     /// Gives half of the text to a second pane, at its left or its right, when both halves
     /// keep `SPLIT_MIN`.
-    pub fn with_split(mut self, on: bool, other_left: bool) -> Areas {
+    pub fn with_split(mut self, on: bool, other_left: bool, ratio: f32) -> Areas {
         if !on || self.text.w < 2.0 * SPLIT_MIN {
             return self;
         }
         let t = self.text;
-        let half = (t.w / 2.0).floor();
+        let half = (t.w * split_ratio(t.w, t.w * ratio)).floor();
+        self.divider = Some(Divider {
+            x: t.x + half,
+            left: t.x,
+            right: t.right(),
+        });
         let (a, b) = (
             Rect::new(t.x, t.y, half, t.h),
             Rect::new(t.x + half, t.y, t.w - half, t.h),
@@ -790,6 +839,7 @@ impl Areas {
             other: None,
             minimap: None,
             minimap_other: None,
+            divider: None,
         }
     }
 }
@@ -827,7 +877,7 @@ mod tests {
                 .is_none()
         );
         // With the split each pane has its own, at its right edge.
-        let plain = a.with_split(true, false);
+        let plain = a.with_split(true, false, 0.5);
         let s = plain.with_minimap(true);
         assert_eq!(s.other.unwrap().w, plain.other.unwrap().w - WIDTH);
         assert_eq!(s.minimap.unwrap().right(), plain.text.right());
@@ -835,19 +885,65 @@ mod tests {
         assert_eq!(mo.right(), plain.other.unwrap().right());
         assert_eq!(s.other.unwrap().right(), mo.x);
         assert_eq!(s.region(Region::MinimapOther), Some(mo));
-        let lp = a.with_split(true, true);
+        let lp = a.with_split(true, true, 0.5);
         let l = lp.with_minimap(true);
         assert_eq!(l.minimap.unwrap().right(), lp.text.right());
         assert_eq!(l.minimap_other.unwrap().right(), lp.other.unwrap().right());
         // A pane too narrow for the column and the text goes without it.
-        let narrow = Areas::compute(900.0, 600.0, false, 250.0, 0.0).with_split(true, false);
+        let narrow = Areas::compute(900.0, 600.0, false, 250.0, 0.0).with_split(true, false, 0.5);
         assert_eq!(narrow.text.w, 450.0);
         assert!(narrow.with_minimap(true).minimap.is_some());
-        let narrow = Areas::compute(800.0, 600.0, false, 250.0, 0.0).with_split(true, false);
+        let narrow = Areas::compute(800.0, 600.0, false, 250.0, 0.0).with_split(true, false, 0.5);
         assert!(narrow.with_minimap(true).minimap.is_none());
         // The results panel takes the text's height first and the column follows.
         let r = a.with_results(true).with_minimap(true);
         assert_eq!(r.minimap.unwrap().h, r.text.h);
+    }
+
+    #[test]
+    fn the_divider_follows_the_share_and_keeps_both_panes_wide_enough() {
+        let a = Areas::compute(1280.0, 800.0, false, 250.0, 0.0);
+        // Halves, as before.
+        let half = a.with_split(true, false, 0.5);
+        assert_eq!(half.text.w, 640.0);
+        assert_eq!(half.divider.unwrap().x, 640.0);
+        // A share moves the line; the second pane has the rest, whichever side it is on.
+        let s = a.with_split(true, false, 0.25);
+        assert_eq!((s.text.w, s.other.unwrap().w), (320.0, 960.0));
+        assert_eq!(s.divider.unwrap().x, 320.0);
+        let l = a.with_split(true, true, 0.25);
+        assert_eq!((l.other.unwrap().w, l.text.w), (320.0, 960.0));
+        assert_eq!(l.divider.unwrap().x, 320.0);
+        // Shares that would leave a pane under SPLIT_MIN are held at it.
+        let tiny = a.with_split(true, false, 0.01);
+        assert_eq!(tiny.text.w, SPLIT_MIN);
+        let huge = a.with_split(true, false, 5.0);
+        assert_eq!(huge.other.unwrap().w, SPLIT_MIN);
+        assert_eq!(a.with_split(true, false, f32::NAN).text.w, 640.0);
+        // Dragging: the pointer's x gives the share, clamped the same way.
+        let d = half.divider.unwrap();
+        assert_eq!(d.ratio_at(320.0), 0.25);
+        assert_eq!(d.ratio_at(0.0), SPLIT_MIN / 1280.0);
+        assert_eq!(d.ratio_at(5000.0), 1.0 - SPLIT_MIN / 1280.0);
+        assert_eq!(d.ratio_at(f32::NAN), 0.5);
+        // With the Files pane open the span starts at the text.
+        let f = Areas::compute(1280.0, 800.0, true, 250.0, 0.0).with_split(true, false, 0.5);
+        let fd = f.divider.unwrap();
+        assert_eq!((fd.left, fd.right), (250.0, 1280.0));
+        assert_eq!(fd.ratio_at(250.0 + 1030.0 * 0.4), 0.4);
+        // The grab strip is a few px either side of the line, as high as the text.
+        let g = d.grab(100.0, 500.0);
+        assert!(g.contains(640.0, 300.0) && g.contains(637.5, 300.0) && g.contains(642.5, 300.0));
+        assert!(!g.contains(630.0, 300.0) && !g.contains(650.0, 300.0));
+        assert!(!g.contains(640.0, 99.0) && !g.contains(640.0, 601.0));
+        // No split, no line.
+        assert!(a.with_split(false, false, 0.5).divider.is_none());
+        assert!(
+            Areas::compute(500.0, 800.0, false, 250.0, 0.0)
+                .with_split(true, false, 0.5)
+                .divider
+                .is_none()
+        );
     }
 
     #[test]
