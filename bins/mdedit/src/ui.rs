@@ -260,6 +260,8 @@ pub enum Act {
     ViewMenu,
     /// Open the Macro menu beside the open one.
     MacroMenu,
+    /// Play saved macro `n` of the Macro menu.
+    PlaySaved(usize),
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").
     Eol(&'static str),
     /// Save the document in this encoding from now on.
@@ -382,6 +384,8 @@ pub enum DialogKind {
     About,
     Shortcuts,
     Recent,
+    /// The saved macros: play or delete one, or all.
+    Macros,
     /// A tab with unsaved changes is about to close: Save, Don't save, Cancel.
     Unsaved,
     /// A save found the file changed on disk: Overwrite, Cancel.
@@ -550,6 +554,8 @@ pub struct Ui {
     pub replace_open: bool,
     /// What Go to line is typing.
     pub goto: TextField,
+    /// The Go to box is asking for a macro's name instead of a line.
+    pub naming: bool,
     pub caret_on: bool,
     /// When the caret next blinks.
     pub caret_due: Option<Instant>,
@@ -595,6 +601,7 @@ impl Ui {
             replace: TextField::new(),
             replace_open: false,
             goto: TextField::new(),
+            naming: false,
             caret_on: true,
             caret_due: None,
             mouse: (-1.0, -1.0),

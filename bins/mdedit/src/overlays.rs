@@ -107,8 +107,16 @@ pub fn recent_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> 
     Menu::new(items, x, y, align_right)
 }
 
-/// The Macro menu, opened from the main menu in its place.
-pub fn macro_menu(recording: bool, any: bool, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+/// The Macro menu, opened from the main menu in its place: record, play, save the macro, then
+/// the saved ones (most recently used first) and the dialog that deletes them.
+pub fn macro_menu(
+    recording: bool,
+    any: bool,
+    saved: &[String],
+    x: f32,
+    y: f32,
+    align_right: bool,
+) -> Menu<Act> {
     let record = if recording {
         "Stop recording"
     } else {
@@ -119,7 +127,7 @@ pub fn macro_menu(recording: bool, any: bool, x: f32, y: f32, align_right: bool)
     } else {
         glyph::RECORD
     };
-    let items = vec![
+    let mut items = vec![
         cmd(C::RecordMacro, record, record_icon),
         cmd(C::PlayMacro, "Play the macro", glyph::PLAY).enabled(any && !recording),
         cmd(
@@ -128,7 +136,19 @@ pub fn macro_menu(recording: bool, any: bool, x: f32, y: f32, align_right: bool)
             glyph::PLAY_END,
         )
         .enabled(any && !recording),
+        cmd(C::SaveMacroAs, "Save the macro as…", glyph::SAVE_AS)
+            .sep()
+            .enabled(any && !recording),
     ];
+    for (i, name) in saved.iter().enumerate() {
+        let item = Item::new(Act::PlaySaved(i), name.as_str())
+            .icon(glyph::PLAY)
+            .enabled(!recording);
+        items.push(if i == 0 { item.sep() } else { item });
+    }
+    if !saved.is_empty() {
+        items.push(cmd(C::DeleteMacros, "Delete saved macros…", glyph::DELETE).sep());
+    }
     Menu::new(items, x, y, align_right)
 }
 
@@ -285,6 +305,7 @@ const PAD: f32 = DIALOG_PAD;
 const FOOTER: f32 = DIALOG_FOOTER;
 const KEY_ROW: f32 = 34.0;
 const RECENT_ROW: f32 = 52.0;
+const MACRO_ROW: f32 = 48.0;
 
 /// The card for a dialog in a `w` x `h` window, sized to its list where it has one.
 pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
@@ -294,6 +315,7 @@ pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
         DialogKind::About => (520.0, 256.0),
         DialogKind::Shortcuts => (580.0, list(KEY_ROW, 0.0).min(700.0)),
         DialogKind::Recent => (600.0, list(RECENT_ROW, 80.0).min(560.0)),
+        DialogKind::Macros => (480.0, list(MACRO_ROW, 80.0).min(560.0)),
         DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => (460.0, 196.0),
     };
     dialog_card(cw, ch, w, h)
@@ -338,6 +360,7 @@ fn list_rect(r: Rect, footer: Rect) -> Rect {
 pub fn draw_dialog(
     c: &mut Ctx,
     docs: &Docs,
+    macros: &[crate::macros::Named],
     d: &mut Dialog,
     w: f32,
     h: f32,
@@ -350,6 +373,7 @@ pub fn draw_dialog(
         DialogKind::About | DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => 0,
         DialogKind::Shortcuts => shortcut_help().len(),
         DialogKind::Recent => docs.recents.paths().len(),
+        DialogKind::Macros => macros.len(),
     };
     let r = card(d.kind, rows, w, h);
     c.hit(Hit::DlgCard, r);
@@ -503,6 +527,77 @@ pub fn draw_dialog(
                 true,
             );
         }
+        DialogKind::Macros => {
+            title(c, r, strings::MACROS_TITLE);
+            let list = list_rect(r, footer);
+            d.list = list;
+            d.view = list.h;
+            d.content = macros.len() as f32 * MACRO_ROW + 8.0;
+            d.scroll = d.scroll.clamp(0.0, (d.content - d.view).max(0.0));
+            if macros.is_empty() {
+                c.p.text_center(
+                    Face::Ui,
+                    13.5,
+                    Rect::new(list.x, list.y + 30.0, list.w, 24.0),
+                    strings::MACROS_EMPTY,
+                    pal.faint,
+                );
+            }
+            let old = c.p.clip(list);
+            for (i, m) in macros.iter().enumerate() {
+                let y = list.y + i as f32 * MACRO_ROW - d.scroll;
+                if y + MACRO_ROW < list.y || y > list.bottom() {
+                    continue;
+                }
+                let row = Rect::new(list.x + 8.0, y + 2.0, list.w - 16.0, MACRO_ROW - 4.0);
+                if hover_row == Some(i) {
+                    c.p.rbox(row, 6.0, mix(pal.popup, pal.text, 0.05));
+                }
+                c.p.icon(glyph::MACRO, 15.0, row.x + 20.0, row.cy(), pal.accent);
+                let tx = row.x + 40.0;
+                let tw = row.w - 40.0 - 120.0;
+                c.p.text(Face::Ui, 13.5, tx, row.y + 14.0, &m.name, pal.text, tw);
+                let keys = match m.steps.len() {
+                    1 => "1 key".to_string(),
+                    n => format!("{n} keys"),
+                };
+                c.p.text(Face::Ui, 11.5, tx, row.y + 31.0, &keys, pal.faint, tw);
+                let play = Rect::new(row.right() - 112.0, row.cy() - 15.0, 70.0, 30.0);
+                button(c, play, Hit::DlgOpen(i), "Play", false);
+                let rm = Rect::new(row.right() - 36.0, row.cy() - 15.0, 30.0, 30.0);
+                let hit = Hit::DlgRemove(i);
+                if c.hover == Some(hit) {
+                    let fill = if c.pressed == Some(hit) {
+                        pal.press
+                    } else {
+                        pal.hover
+                    };
+                    c.p.rbox(rm, 5.0, fill);
+                }
+                c.p.icon(glyph::DELETE, 14.0, rm.cx(), rm.cy(), pal.muted);
+                c.hit(hit, rm);
+            }
+            c.p.restore(old);
+            dialog_scrollbar(c, d);
+            let bw = dialog_button_w(c.p, strings::RECENT_DONE);
+            button(
+                c,
+                Rect::new(r.right() - PAD - bw, by, bw, 32.0),
+                Hit::DlgButton(0),
+                strings::RECENT_DONE,
+                true,
+            );
+            if !macros.is_empty() {
+                let cw = dialog_button_w(c.p, strings::MACROS_DELETE_ALL);
+                button(
+                    c,
+                    Rect::new(r.x + PAD, by, cw, 32.0),
+                    Hit::DlgButton(1),
+                    strings::MACROS_DELETE_ALL,
+                    false,
+                );
+            }
+        }
         DialogKind::Recent => {
             title(c, r, strings::MANAGE_RECENT_TITLE);
             let list = list_rect(r, footer);
@@ -615,10 +710,15 @@ fn dialog_scrollbar(c: &mut Ctx, d: &Dialog) {
 
 /// The Recent dialog row under `(x, y)`, for hover.
 pub fn dialog_row_at(d: &Dialog, x: f32, y: f32) -> Option<usize> {
-    if d.kind != DialogKind::Recent || !d.list.contains(x, y) {
+    let row = match d.kind {
+        DialogKind::Recent => RECENT_ROW,
+        DialogKind::Macros => MACRO_ROW,
+        _ => return None,
+    };
+    if !d.list.contains(x, y) {
         return None;
     }
-    Some(((y - d.list.y + d.scroll) / RECENT_ROW).floor() as usize)
+    Some(((y - d.list.y + d.scroll) / row).floor() as usize)
 }
 
 // ---- empty state -----------------------------------------------------------------------------
@@ -761,6 +861,7 @@ mod tests {
             DialogKind::About,
             DialogKind::Shortcuts,
             DialogKind::Recent,
+            DialogKind::Macros,
             DialogKind::Unsaved,
             DialogKind::Overwrite,
             DialogKind::Discard,

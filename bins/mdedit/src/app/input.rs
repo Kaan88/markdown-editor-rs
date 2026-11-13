@@ -1133,6 +1133,7 @@ impl App {
     pub(super) fn find_key(&mut self, name: &KeyName, mods: Mods, typed: Option<&str>) -> bool {
         use crate::commands::CommandId as C;
         let (which, replace_open) = (self.ui.field, self.ui.replace_open);
+        let naming = self.ui.naming;
         let f = self.ui.field_mut();
         let (word, extend) = (mods.ctrl, mods.shift);
         let changed = match (name, mods.ctrl) {
@@ -1142,6 +1143,22 @@ impl App {
             }
             (KeyName::Enter, _) if which == BarField::Replace => {
                 self.command(C::ReplaceNext);
+                return true;
+            }
+            (KeyName::Enter, _) if which == BarField::Goto && naming => {
+                // The name of the macro: kept when it is a good one, else left to correct.
+                let name = self.ui.goto.text().to_string();
+                if self.macros.save_as(&name) {
+                    let kept = crate::macros::clean_name(&name).unwrap_or_default();
+                    self.docs.set_toast(&strings::macro_saved(&kept));
+                    self.ui.goto.clear();
+                    self.ui.naming = false;
+                    self.ui.field = BarField::Find;
+                    self.ui.find_focused = false;
+                } else {
+                    self.docs.set_toast(strings::MACRO_NAME_BAD);
+                }
+                self.caret_reset();
                 return true;
             }
             (KeyName::Enter, _) if which == BarField::Goto => {
@@ -1158,6 +1175,7 @@ impl App {
                 return true;
             }
             (KeyName::Escape, _) if which == BarField::Goto => {
+                self.ui.naming = false;
                 self.ui.field = BarField::Find;
                 self.ui.find_focused = false;
                 self.caret_reset();

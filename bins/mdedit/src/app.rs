@@ -631,7 +631,7 @@ impl App {
                         (ui.match_case, ui.whole_word, ui.regex),
                         ui.replace.text(),
                         ui.replace.caret(),
-                        (ui.goto.text(), ui.goto.caret()),
+                        (ui.goto.text(), ui.goto.caret(), ui.naming),
                     ),
                     chrome::find_label(&self.docs),
                     ui.panes.files,
@@ -1177,7 +1177,15 @@ impl App {
                 };
                 c.hits.clear();
                 if let Some(d) = self.ui.dialog.as_mut() {
-                    overlays::draw_dialog(&mut c, &self.docs, d, w, h, self.ui.dlg_hover_row);
+                    overlays::draw_dialog(
+                        &mut c,
+                        &self.docs,
+                        &self.macros.named,
+                        d,
+                        w,
+                        h,
+                        self.ui.dlg_hover_row,
+                    );
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
@@ -1945,6 +1953,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
     }
     app.compose();
+    if let Some(t) = app.args.macro_prompt.clone() {
+        app.ui.naming = true;
+        app.ui.focus_field(crate::ui::BarField::Goto);
+        app.ui.goto.set_text(&t);
+    }
     let text = app.areas.text;
     match app.args.menu {
         Some(ShotMenu::Main) => app.open_popup(PopupKind::Main),
@@ -2007,6 +2020,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotDialog::About) => app.open_dialog(DialogKind::About),
         Some(ShotDialog::Shortcuts) => app.open_dialog(DialogKind::Shortcuts),
         Some(ShotDialog::Recent) => app.open_dialog(DialogKind::Recent),
+        Some(ShotDialog::Macros) => app.open_dialog(DialogKind::Macros),
         Some(ShotDialog::Unsaved) => {
             if let Some(id) = app.docs.active_doc().map(|d| d.id) {
                 app.ask(DialogKind::Unsaved, id, After::Nothing);
@@ -2157,6 +2171,16 @@ pub fn run() -> i32 {
     let w = waker.clone();
     let service = HighlightService::spawn(move || w(Wake::Highlight));
     let mut app = App::new(args, docs, trace, session_path, session);
+    // Macros are read from here when first wanted, not now.
+    app.macros.path = app
+        .session_path
+        .as_deref()
+        .filter(|_| app.save)
+        .and_then(|p| p.parent())
+        .map(|d| d.join("macros.txt"));
+    if app.args.demo_macros {
+        app.macros.demo();
+    }
     app.service = Some(service);
     app.view.zoom = app.docs.zoom;
     app.sync_theme();

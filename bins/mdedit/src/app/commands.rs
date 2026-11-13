@@ -95,6 +95,7 @@ impl App {
             Hit::DlgButton(n) => match self.ui.dialog.as_ref().map(|d| d.kind) {
                 Some(kind) if kind.is_confirm() => self.answer(n),
                 Some(DialogKind::Recent) if n == 1 => self.docs.recents.clear(),
+                Some(DialogKind::Macros) if n == 1 => self.macros.delete_all_saved(),
                 Some(DialogKind::About) if n == 1 => {
                     // The answer shows in the window (the bar or a toast), so the dialog goes.
                     self.close_dialog();
@@ -109,6 +110,19 @@ impl App {
                 }
                 _ => self.close_dialog(),
             },
+            Hit::DlgOpen(i)
+                if self.ui.dialog.as_ref().map(|d| d.kind) == Some(DialogKind::Macros) =>
+            {
+                if self.macros.use_saved(i) {
+                    self.close_dialog();
+                    self.play_macro(false);
+                }
+            }
+            Hit::DlgRemove(i)
+                if self.ui.dialog.as_ref().map(|d| d.kind) == Some(DialogKind::Macros) =>
+            {
+                self.macros.delete_saved(i);
+            }
             Hit::DlgOpen(i) => {
                 if let Some(p) = self.docs.recents.paths().get(i).cloned() {
                     self.open(&p);
@@ -240,6 +254,11 @@ impl App {
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
+            Act::PlaySaved(i) => {
+                if self.macros.use_saved(i) {
+                    self.play_macro(false);
+                }
+            }
             Act::Eol(to) => {
                 self.docs.seal();
                 self.edit(EditOp::LineEndings(to));
@@ -717,7 +736,7 @@ impl App {
     }
 
     fn build_menu(
-        &self,
+        &mut self,
         kind: PopupKind,
         x: f32,
         y: f32,
@@ -728,11 +747,11 @@ impl App {
             PopupKind::Recent => overlays::recent_menu(&self.docs, x, y, right),
             PopupKind::View => overlays::view_menu(&self.docs, &self.ui, x, y, right),
             PopupKind::Macro => {
-                let (recording, any) = (
-                    self.macros.recording.is_some(),
-                    !self.macros.steps.is_empty(),
-                );
-                overlays::macro_menu(recording, any, x, y, right)
+                let recording = self.macros.recording.is_some();
+                let any = !self.macros.last().is_empty();
+                let names: Vec<String> =
+                    self.macros.saved().iter().map(|n| n.name.clone()).collect();
+                overlays::macro_menu(recording, any, &names, x, y, right)
             }
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
@@ -1045,6 +1064,7 @@ impl App {
             }
             C::GoToLine => {
                 if self.docs.active_ready().is_some() {
+                    self.ui.naming = false;
                     self.ui.focus_field(BarField::Goto);
                     self.ui.goto.select_all();
                     self.caret_reset();
@@ -1124,6 +1144,19 @@ impl App {
                 }
                 self.docs.recording = self.macros.recording.is_some();
             }
+            C::SaveMacroAs => {
+                if self.macros.recording.is_some() {
+                    self.docs.set_toast(strings::MACRO_BUSY);
+                } else if self.macros.last().is_empty() {
+                    self.docs.set_toast(strings::NO_MACRO);
+                } else {
+                    // The Go to box asks for the name, in the find box's place.
+                    self.ui.naming = true;
+                    self.ui.focus_field(BarField::Goto);
+                    self.ui.goto.clear();
+                }
+            }
+            C::DeleteMacros => self.open_dialog(DialogKind::Macros),
             C::PlayMacro => self.play_macro(false),
             C::PlayMacroToEnd => self.play_macro(true),
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
@@ -1167,7 +1200,7 @@ impl App {
             self.docs.set_toast(strings::MACRO_BUSY);
             return;
         }
-        if self.macros.steps.is_empty() {
+        if self.macros.last().is_empty() {
             self.docs.set_toast(strings::NO_MACRO);
             return;
         }

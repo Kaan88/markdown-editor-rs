@@ -487,6 +487,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         ui.caret_on,
         frame,
         BarField::Replace,
+        false,
     );
     if !toggles {
         return;
@@ -636,11 +637,27 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     rx -= plan.find_w + 4.0;
     let frame = Rect::new(rx, y, plan.find_w, 32.0);
     if ui.going_to() {
-        draw_field(c, &mut ui.goto, true, ui.caret_on, frame, BarField::Goto);
+        draw_field(
+            c,
+            &mut ui.goto,
+            true,
+            ui.caret_on,
+            frame,
+            BarField::Goto,
+            ui.naming,
+        );
         return;
     }
     let focused = ui.find_focused && ui.field == BarField::Find;
-    draw_field(c, &mut ui.find, focused, ui.caret_on, frame, BarField::Find);
+    draw_field(
+        c,
+        &mut ui.find,
+        focused,
+        ui.caret_on,
+        frame,
+        BarField::Find,
+        false,
+    );
     if plan.count && t.count > 0.0 {
         let (label, none) = find_label(docs);
         c.p.text_right(
@@ -663,6 +680,7 @@ fn draw_field(
     caret_on: bool,
     frame: Rect,
     which: BarField,
+    naming: bool,
 ) {
     let pal = *c.pal;
     let find = which == BarField::Find;
@@ -710,6 +728,7 @@ fn draw_field(
         match which {
             BarField::Find => strings::FIND_PLACEHOLDER,
             BarField::Replace => strings::REPLACE_PLACEHOLDER,
+            BarField::Goto if naming => strings::MACRO_NAME_PLACEHOLDER,
             BarField::Goto => strings::GOTO_PLACEHOLDER,
         },
         focused,

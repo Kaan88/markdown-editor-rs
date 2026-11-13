@@ -141,6 +141,13 @@ shot menu-encoding-light --light --menu encoding "$fx/sample.rs"
 shot split-ratio --dark --split --split-ratio 0.35 --hover 441,300 --goto 12:5 "$fx/sample.rs" "$fx/sample.md"
 shot split-left --light --split --split-left --split-ratio 0.62 "$fx/sample.rs" "$fx/sample.md"
 
+# Macros: saved ones in the menu, the dialog that deletes them, the box that asks a name.
+shot menu-macro-saved --light --demo-macros --menu macro "$fx/sample.rs"
+shot menu-macro-saved-dark --dark --demo-macros --menu macro "$fx/sample.rs"
+shot dialog-macros --dark --demo-macros --dialog macros "$fx/sample.rs"
+shot dialog-macros-light --light --demo-macros --dialog macros --size 700x400 "$fx/sample.rs"
+shot macro-name-prompt --light --demo-macros --macro-prompt "Bullet the line" "$fx/sample.rs"
+
 # Fold chevrons: the pointer in the gutter (faint chevrons, one hovered), a folded block, both themes.
 shot fold-gutter --light --hover 46,263 "$fx/sample.rs"
 shot fold-gutter-dark --dark --hover 46,263 --fold 27 "$fx/sample.rs"

@@ -60,6 +60,8 @@ pub enum CommandId {
     RecordMacro,
     PlayMacro,
     PlayMacroToEnd,
+    SaveMacroAs,
+    DeleteMacros,
     ClearSearch,
     ToggleFiles,
     ToggleOutline,
@@ -165,6 +167,8 @@ pub const COMMANDS: &[Command] = &[
         "Play the macro to the end of the file",
         &[],
     ),
+    cmd(C::SaveMacroAs, "Save the macro as", &[]),
+    cmd(C::DeleteMacros, "Delete saved macros", &[]),
     cmd(C::ClearSearch, "Clear search", &[]),
     cmd(C::ToggleFiles, "Files pane", &["Ctrl+Shift+1"]),
     cmd(C::ToggleOutline, "Function list", &["Ctrl+Shift+2"]),
@@ -250,6 +254,14 @@ pub mod strings {
     pub const MACRO_RECORDING: &str = "Recording the keys you press. Ctrl+Shift+R stops.";
     pub const MACRO_EMPTY: &str = "No key was pressed: nothing recorded.";
     pub const NO_MACRO: &str = "No macro yet. Ctrl+Shift+R records one.";
+    pub const MACRO_NAME_PLACEHOLDER: &str = "Name for the macro, then Enter";
+    pub const MACRO_NAME_BAD: &str = "A name has 1 to 64 characters and no control characters.";
+    pub const MACROS_TITLE: &str = "Saved macros";
+    pub const MACROS_EMPTY: &str = "No saved macros";
+    pub const MACROS_DELETE_ALL: &str = "Delete all";
+    pub fn macro_saved(name: &str) -> String {
+        format!("Saved the macro as {name}.")
+    }
     pub const MACRO_BUSY: &str = "Still recording. Ctrl+Shift+R stops.";
 
     pub fn macro_recorded(keys: usize) -> String {

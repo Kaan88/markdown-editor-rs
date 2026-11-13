@@ -30,6 +30,7 @@ pub enum ShotMenu {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShotDialog {
+    Macros,
     About,
     Shortcuts,
     Recent,
@@ -100,6 +101,10 @@ pub struct Args {
     pub bookmarks: Vec<usize>,
     /// `--split`: two files side by side, the tab after the active one in the second pane.
     pub split: bool,
+    /// `--demo-macros`: three saved macros in memory, for a shot of the Macro menu and dialog.
+    pub demo_macros: bool,
+    /// `--macro-prompt <text>`: the box that asks a macro's name, with this text typed in it.
+    pub macro_prompt: Option<String>,
     /// `--split-ratio <0.1..0.9>` and `--split-left`: the left pane's share of the width, and the
     /// second pane at the left, for a shot.
     pub split_ratio: Option<f32>,
@@ -198,6 +203,10 @@ impl Args {
                 }
                 "--split" => out.split = true,
                 "--split-left" => out.split_left = true,
+                "--demo-macros" => out.demo_macros = true,
+                "--macro-prompt" => {
+                    out.macro_prompt = checked(&a, value(&a), |v| Some(v.to_string()))
+                }
                 "--split-ratio" => {
                     out.split_ratio = checked(&a, value(&a), |v| {
                         v.parse::<f32>().ok().filter(|r| (0.1..=0.9).contains(r))
@@ -285,6 +294,7 @@ impl Args {
                         "about" => Some(ShotDialog::About),
                         "shortcuts" => Some(ShotDialog::Shortcuts),
                         "recent" => Some(ShotDialog::Recent),
+                        "macros" => Some(ShotDialog::Macros),
                         "unsaved" => Some(ShotDialog::Unsaved),
                         _ => None,
                     })
