@@ -35,13 +35,9 @@ impl App {
             return;
         }
         let edge = self.edge_at(x, y);
-        let in_menu = self
-            .ui
-            .popup
-            .as_ref()
-            .is_some_and(|p| p.menu.contains(x, y));
+        let in_menu = self.ui.popup.as_ref().is_some_and(|p| p.contains(x, y));
         if let Some(p) = self.ui.popup.as_mut()
-            && p.menu.pointer(x, y)
+            && p.pointer(x, y, Instant::now())
         {
             self.wants_frame = true;
         }
@@ -345,7 +341,7 @@ impl App {
             return;
         }
         if let Some(p) = &self.ui.popup {
-            if p.menu.contains(x, y) {
+            if p.contains(x, y) {
                 return;
             }
             self.ui.popup = None;
@@ -499,13 +495,12 @@ impl App {
             self.redraw();
             return;
         }
-        if let Some(p) = &self.ui.popup
-            && p.menu.contains(x, y)
+        if let Some(p) = self.ui.popup.as_mut()
+            && let Some(menu) = p.menu_at(x, y)
         {
-            let act = p.menu.chosen();
+            let act = menu.chosen();
             if let Some(act) = act {
-                self.ui.popup = None;
-                self.act(act);
+                self.choose(act, false);
             }
             self.redraw();
             return;
@@ -527,10 +522,10 @@ impl App {
         self.ui.popup = None;
         match self.hit_at(x, y) {
             Some(Hit::Tab(i) | Hit::TabClose(i)) => {
-                self.ui.popup = Some(Popup {
-                    kind: PopupKind::Tab(i),
-                    menu: overlays::tab_menu(&self.docs, i, x, y + 2.0),
-                });
+                self.ui.popup = Some(Popup::new(
+                    PopupKind::Tab(i),
+                    overlays::tab_menu(&self.docs, i, x, y + 2.0),
+                ));
             }
             Some(Hit::Text) => {
                 // A right-click outside the selection moves the caret there first.
@@ -543,10 +538,10 @@ impl App {
                     }
                 }
                 self.ui.find_focused = false;
-                self.ui.popup = Some(Popup {
-                    kind: PopupKind::Text,
-                    menu: overlays::text_menu(&self.docs, x + 2.0, y + 2.0),
-                });
+                self.ui.popup = Some(Popup::new(
+                    PopupKind::Text,
+                    overlays::text_menu(&self.docs, x + 2.0, y + 2.0),
+                ));
             }
             Some(h @ (Hit::Find | Hit::FindClear | Hit::Replace)) => {
                 // The box takes the focus and keeps its selection, so Cut and Copy act on it.
@@ -559,16 +554,16 @@ impl App {
                 });
                 self.caret_reset();
                 let field = self.ui.field();
-                self.ui.popup = Some(Popup {
-                    kind: PopupKind::Find,
-                    menu: overlays::find_menu(
+                self.ui.popup = Some(Popup::new(
+                    PopupKind::Find,
+                    overlays::find_menu(
                         !field.is_empty(),
                         field.has_selection(),
                         self.ui.options(),
                         x + 2.0,
                         y + 2.0,
                     ),
-                });
+                ));
             }
             _ => {}
         }
@@ -749,17 +744,38 @@ impl App {
             keys::Key::Insert => None,
         };
 
-        // A menu takes the keyboard.
+        // A menu takes the keyboard; an open submenu has it first.
         if let Some(p) = self.ui.popup.as_mut() {
+            let kind = p.kind;
+            let open = p.sub.is_some();
             match name {
-                Some(KeyName::Up) => p.menu.step(false),
-                Some(KeyName::Down | KeyName::Tab) => p.menu.step(true),
+                Some(KeyName::Up) => match p.sub.as_mut() {
+                    Some(s) => s.menu.step(false),
+                    None => p.menu.step(false),
+                },
+                Some(KeyName::Down | KeyName::Tab) => match p.sub.as_mut() {
+                    Some(s) => s.menu.step(true),
+                    None => p.menu.step(true),
+                },
                 Some(KeyName::Enter | KeyName::Space) => {
-                    if let Some(act) = p.menu.chosen() {
-                        self.ui.popup = None;
-                        self.act(act);
+                    let act = match p.sub.as_ref().filter(|s| s.menu.hover.is_some()) {
+                        Some(s) => s.menu.chosen(),
+                        None => p.menu.chosen(),
+                    };
+                    if let Some(act) = act {
+                        self.choose(act, true);
                     }
                 }
+                Some(KeyName::Right) if !open => {
+                    if let Some(sub) = p.menu.chosen().and_then(|a| a.submenu()) {
+                        self.open_sub(kind, sub, true);
+                    }
+                }
+                Some(KeyName::Left) if open => {
+                    p.sub = None;
+                    p.dwell = None;
+                }
+                Some(KeyName::Escape) if open => p.sub = None,
                 Some(KeyName::Escape) => self.ui.popup = None,
                 _ => {}
             }

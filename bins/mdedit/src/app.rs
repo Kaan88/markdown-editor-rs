@@ -733,12 +733,18 @@ impl App {
             }
             if let Some(popup) = self.ui.popup.as_mut() {
                 popup.menu.place(&mut p, w, h);
+                if let Some(s) = popup.sub.as_mut() {
+                    s.menu.place(&mut p, w, h);
+                }
             }
         }
         self.toast_until = self.docs.toast(now).and(self.docs.toast_expires());
         let mut bounds: Vec<Rect> = bubbles.iter().map(Bubble::bounds).collect();
         if let Some(popup) = &self.ui.popup {
             bounds.push(popup.menu.rect().inset(-20.0));
+            if let Some(s) = &popup.sub {
+                bounds.push(s.menu.rect().inset(-20.0));
+            }
         }
         if self.ui.dialog.is_some() {
             bounds.push(Rect::new(0.0, 0.0, w, h));
@@ -755,10 +761,14 @@ impl App {
                     )
                 })
                 .collect::<Vec<_>>(),
-            self.ui
-                .popup
-                .as_ref()
-                .map(|p| (p.kind, p.menu.hover, p.menu.items.len())),
+            self.ui.popup.as_ref().map(|p| {
+                (
+                    p.kind,
+                    p.menu.hover,
+                    p.menu.items.len(),
+                    p.sub.as_ref().map(|s| (s.kind, s.menu.hover)),
+                )
+            }),
             self.ui.dialog.as_ref().map(|d| {
                 (
                     d.kind,
@@ -957,6 +967,9 @@ impl App {
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     popup.menu.draw(c.p, &pal, w, h);
+                    if let Some(s) = popup.sub.as_mut() {
+                        s.menu.draw(c.p, &pal, w, h);
+                    }
                 }
                 for b in &bubbles {
                     b.draw(c.p, &pal);
@@ -1649,6 +1662,22 @@ fn shot(mut app: App, path: &Path) -> i32 {
     match app.args.menu {
         Some(ShotMenu::Main) => app.open_popup(PopupKind::Main),
         Some(ShotMenu::Recent) => app.open_popup(PopupKind::Recent),
+        Some(ShotMenu::MainView) => {
+            app.open_popup(PopupKind::Main);
+            app.compose();
+            if let Some(p) = app.ui.popup.as_mut() {
+                p.menu.hover = Some(12);
+            }
+            app.open_sub(PopupKind::Main, PopupKind::View, true);
+        }
+        Some(ShotMenu::MainMacro) => {
+            app.open_popup(PopupKind::Main);
+            app.compose();
+            if let Some(p) = app.ui.popup.as_mut() {
+                p.menu.hover = Some(13);
+            }
+            app.open_sub(PopupKind::Main, PopupKind::Macro, true);
+        }
         Some(ShotMenu::View) => app.open_popup(PopupKind::View),
         Some(ShotMenu::Macro) => app.open_popup(PopupKind::Macro),
         Some(ShotMenu::Eol) => app.open_popup(PopupKind::Eol),

@@ -92,6 +92,8 @@ shot wrap-dark --dark --wrap --whitespace --size 520x600 --goto 12:40 "$fx/sampl
 shot whitespace-dark --dark --whitespace "$fx/mixed.txt"
 shot menu-view --light --menu view "$fx/sample.rs"
 shot menu-macro --light --menu macro "$fx/sample.rs"
+shot menu-main-view --light --menu main-view "$fx/sample.rs"
+shot menu-main-macro-dark --dark --menu main-macro "$fx/sample.rs"
 shot split --light --split --goto 12:5 "$fx/sample.rs" "$fx/sample.md"
 shot split-dark --dark --split --wrap --size 900x600 "$fx/sample.md" "$fx/sample.rs"
 shot menu-eol --light --menu eol "$fx/sample.rs"

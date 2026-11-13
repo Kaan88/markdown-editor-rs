@@ -638,7 +638,21 @@ impl App {
             }
             _ => self.popup_anchor(kind),
         };
-        let menu = match kind {
+        let Some(menu) = self.build_menu(kind, x, y, right) else {
+            return;
+        };
+        self.ui.popup = Some(Popup::new(kind, menu));
+        self.ui.tip = None;
+    }
+
+    fn build_menu(
+        &self,
+        kind: PopupKind,
+        x: f32,
+        y: f32,
+        right: bool,
+    ) -> Option<mdshared_ui::menu::Menu<Act>> {
+        Some(match kind {
             PopupKind::Main => overlays::main_menu(&self.docs, x, y),
             PopupKind::Recent => overlays::recent_menu(&self.docs, x, y, right),
             PopupKind::View => overlays::view_menu(&self.docs, &self.ui, x, y, right),
@@ -651,10 +665,58 @@ impl App {
             }
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
-            _ => return,
+            _ => return None,
+        })
+    }
+
+    /// Opens `sub` as a cascade beside the open menu, which stays. With `keys` its first item
+    /// is lit, since the keyboard opened it; the pointer lights its own.
+    pub(super) fn open_sub(&mut self, _parent: PopupKind, sub: PopupKind, keys: bool) {
+        let mouse_y = self.ui.mouse.1;
+        let Some(p) = self.ui.popup.as_ref() else {
+            return;
         };
-        self.ui.popup = Some(Popup { kind, menu });
+        if p.sub.as_ref().is_some_and(|s| s.kind == sub) {
+            return;
+        }
+        let r = p.menu.rect();
+        // Level with the item the pointer is on, else with the menu's top.
+        let y = if keys || !r.contains(self.ui.mouse.0, mouse_y) {
+            r.y
+        } else {
+            mouse_y - 14.0
+        };
+        // Beside the parent, on its left when there is room (the main menu hangs at the right).
+        let (x, right) = if r.x >= 200.0 {
+            (r.x, true)
+        } else {
+            (r.right(), false)
+        };
+        let Some(mut menu) = self.build_menu(sub, x, y, right) else {
+            return;
+        };
+        if keys {
+            menu.step(true);
+        }
+        if let Some(p) = self.ui.popup.as_mut() {
+            p.sub = Some(Box::new(Popup::new(sub, menu)));
+            p.dwell = None;
+        }
         self.ui.tip = None;
+        self.redraw();
+    }
+
+    /// An item of a menu was chosen, by click or key: a menu item opens its submenu and leaves
+    /// the cascade up, anything else closes the menus and runs.
+    pub(super) fn choose(&mut self, act: Act, keys: bool) {
+        if let Some(sub) = act.submenu() {
+            if let Some(kind) = self.ui.popup_kind() {
+                self.open_sub(kind, sub, keys);
+            }
+            return;
+        }
+        self.ui.popup = None;
+        self.act(act);
     }
 
     pub(super) fn open_dialog(&mut self, kind: DialogKind) {
@@ -1200,6 +1262,26 @@ impl App {
                 self.wants_frame = true;
             } else {
                 at(tip.due);
+            }
+        }
+        // The pointer resting on a menu item with a submenu; no menu, no timer.
+        if let Some((i, due)) = self.ui.popup.as_ref().and_then(|p| p.dwell) {
+            if now >= due {
+                let kind = self.ui.popup_kind();
+                let sub = self
+                    .ui
+                    .popup
+                    .as_mut()
+                    .and_then(|p| {
+                        p.dwell = None;
+                        p.menu.items.get(i).and_then(|it| it.id.submenu())
+                    })
+                    .zip(kind);
+                if let Some((sub, kind)) = sub {
+                    self.open_sub(kind, sub, false);
+                }
+            } else {
+                at(due);
             }
         }
         if let Some(until) = self.toast_until {

@@ -222,11 +222,11 @@ pub enum Act {
     /// A tab context menu command for this tab.
     TabCmd(CommandId, usize),
     Recent(PathBuf),
-    /// Replace the open menu by the Recent menu.
+    /// Open the Recent menu beside the open one.
     RecentMenu,
-    /// Replace the open menu by the View menu.
+    /// Open the View menu beside the open one.
     ViewMenu,
-    /// Replace the open menu by the Macro menu.
+    /// Open the Macro menu beside the open one.
     MacroMenu,
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").
     Eol(&'static str),
@@ -239,6 +239,18 @@ pub enum Act {
     Edit(EditAct),
     /// Turns a search option on or off.
     Opt(FindOpt),
+}
+
+impl Act {
+    /// The submenu this item opens, for the items that have one.
+    pub fn submenu(&self) -> Option<PopupKind> {
+        match self {
+            Act::RecentMenu => Some(PopupKind::Recent),
+            Act::ViewMenu => Some(PopupKind::View),
+            Act::MacroMenu => Some(PopupKind::Macro),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -270,6 +282,67 @@ pub enum PopupKind {
 pub struct Popup {
     pub kind: PopupKind,
     pub menu: Menu<Act>,
+    /// The submenu standing beside this menu, if one is open.
+    pub sub: Option<Box<Popup>>,
+    /// The item with a submenu the pointer rests on, and when its submenu opens.
+    pub dwell: Option<(usize, Instant)>,
+}
+
+/// How long the pointer rests on an item with a submenu before the submenu opens.
+pub const SUBMENU_DWELL: std::time::Duration = std::time::Duration::from_millis(300);
+
+impl Popup {
+    pub fn new(kind: PopupKind, menu: Menu<Act>) -> Popup {
+        Popup {
+            kind,
+            menu,
+            sub: None,
+            dwell: None,
+        }
+    }
+
+    /// The menu under the point, the submenu first.
+    pub fn menu_at(&mut self, x: f32, y: f32) -> Option<&mut Menu<Act>> {
+        if let Some(s) = self.sub.as_mut().filter(|s| s.menu.contains(x, y)) {
+            return Some(&mut s.menu);
+        }
+        self.menu.contains(x, y).then_some(&mut self.menu)
+    }
+
+    /// Whether the point is on this menu or its submenu.
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        self.menu.contains(x, y) || self.sub.as_ref().is_some_and(|s| s.menu.contains(x, y))
+    }
+
+    /// The pointer moved to `(x, y)`; `now` starts the dwell. Returns true if anything changed.
+    pub fn pointer(&mut self, x: f32, y: f32, now: Instant) -> bool {
+        if let Some(s) = self.sub.as_mut().filter(|s| s.menu.contains(x, y)) {
+            // In the submenu: the parent keeps its item lit and nothing is pending.
+            self.dwell = None;
+            return s.menu.pointer(x, y);
+        }
+        if self.sub.is_some() && !self.menu.contains(x, y) {
+            // Outside both menus: the cascade stays as it is.
+            return false;
+        }
+        let mut changed = self.menu.pointer(x, y);
+        let hovered = self.menu.hover;
+        let sub_of_hovered = hovered.and_then(|i| self.menu.items[i].id.submenu());
+        if let Some(s) = &self.sub
+            && sub_of_hovered != Some(s.kind)
+        {
+            self.sub = None;
+            changed = true;
+        }
+        self.dwell = match hovered {
+            Some(i) if self.sub.is_none() && sub_of_hovered.is_some() => match self.dwell {
+                Some((j, due)) if j == i => Some((j, due)),
+                _ => Some((i, now + SUBMENU_DWELL)),
+            },
+            _ => None,
+        };
+        changed
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -766,5 +839,106 @@ mod tests {
         assert_eq!(Hit::Backdrop.region(), None);
         assert!(Hit::Bar(BarItem::Open).is_button());
         assert!(!Hit::Text.is_button());
+    }
+}
+
+#[cfg(test)]
+mod popup_tests {
+    use super::*;
+    use mdshared_text::Bitmap;
+    use mdshared_ui::gfx::{Gfx, Painter};
+    use mdshared_ui::menu::Item;
+    use std::time::Duration;
+
+    /// A parent with a submenu item in its second row, and the two-item submenu that goes
+    /// beside it, both placed in a 600x400 window.
+    fn cascade() -> (Popup, Popup) {
+        let items = vec![
+            Item::new(Act::Theme(ThemeChoice::Dark), "Dark"),
+            Item::new(Act::ViewMenu, "View").hint("›"),
+            Item::new(Act::Theme(ThemeChoice::Light), "Light"),
+        ];
+        let mut parent = Popup::new(PopupKind::Main, Menu::new(items, 400.0, 20.0, true));
+        let mut bm = Bitmap::new(600, 400);
+        let mut gfx = Gfx::new();
+        let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+        parent.menu.place(&mut p, 600.0, 400.0);
+        let subitems = vec![
+            Item::new(Act::Theme(ThemeChoice::System), "A"),
+            Item::new(Act::Theme(ThemeChoice::Light), "B"),
+        ];
+        let mut sub = Popup::new(
+            PopupKind::View,
+            Menu::new(subitems, parent.menu.rect().x, 20.0, true),
+        );
+        sub.menu.place(&mut p, 600.0, 400.0);
+        (parent, sub)
+    }
+
+    /// The centre of the parent's row `i`: rows are 1 + i of the three below the padding.
+    fn row(parent: &Popup, i: usize) -> (f32, f32) {
+        let r = parent.menu.rect();
+        let rows = parent.menu.items.len() as f32;
+        let each = (r.h - 8.0) / rows;
+        (r.x + r.w / 2.0, r.y + 4.0 + each * (i as f32 + 0.5))
+    }
+
+    #[test]
+    fn resting_on_a_submenu_item_starts_the_dwell() {
+        let (mut parent, _sub) = cascade();
+        let t0 = Instant::now();
+        let (x, y) = row(&parent, 1);
+        assert!(parent.pointer(x, y, t0));
+        assert_eq!(parent.dwell, Some((1, t0 + SUBMENU_DWELL)));
+        // Moving within the same row keeps the first deadline.
+        parent.pointer(x + 3.0, y, t0 + Duration::from_millis(100));
+        assert_eq!(parent.dwell, Some((1, t0 + SUBMENU_DWELL)));
+    }
+
+    #[test]
+    fn a_plain_item_or_leaving_cancels_the_dwell() {
+        let (mut parent, _sub) = cascade();
+        let t0 = Instant::now();
+        let (x, y) = row(&parent, 1);
+        parent.pointer(x, y, t0);
+        let (x0, y0) = row(&parent, 0);
+        parent.pointer(x0, y0, t0);
+        assert_eq!(parent.dwell, None);
+        parent.pointer(x, y, t0);
+        assert!(parent.dwell.is_some());
+        parent.pointer(5.0, 5.0, t0);
+        assert_eq!(parent.dwell, None);
+    }
+
+    #[test]
+    fn another_item_closes_the_submenu_and_the_submenu_keeps_the_parent_lit() {
+        let (mut parent, sub) = cascade();
+        let s = sub.menu.rect();
+        parent.sub = Some(Box::new(sub));
+        let t0 = Instant::now();
+        let (x, y) = row(&parent, 1);
+        parent.pointer(x, y, t0);
+        assert!(parent.sub.is_some(), "the item that opened it keeps it");
+        assert_eq!(parent.dwell, None, "already open: no new dwell");
+        // Into the submenu: the parent's item stays lit.
+        parent.pointer(s.x + s.w / 2.0, s.y + 12.0, t0);
+        assert_eq!(parent.menu.hover, Some(1));
+        assert!(parent.sub.as_ref().unwrap().menu.hover.is_some());
+        // Outside both: nothing moves.
+        parent.pointer(2.0, 390.0, t0);
+        assert!(parent.sub.is_some());
+        assert_eq!(parent.menu.hover, Some(1));
+        // Another item of the parent closes it.
+        let (x2, y2) = row(&parent, 2);
+        assert!(parent.pointer(x2, y2, t0));
+        assert!(parent.sub.is_none());
+    }
+
+    #[test]
+    fn only_the_submenu_items_have_submenus() {
+        assert_eq!(Act::RecentMenu.submenu(), Some(PopupKind::Recent));
+        assert_eq!(Act::ViewMenu.submenu(), Some(PopupKind::View));
+        assert_eq!(Act::MacroMenu.submenu(), Some(PopupKind::Macro));
+        assert_eq!(Act::Theme(ThemeChoice::Dark).submenu(), None);
     }
 }

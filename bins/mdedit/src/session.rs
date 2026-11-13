@@ -105,7 +105,7 @@ pub struct Session {
     /// The Files pane's width, logical px, once the user dragged it.
     pub files_w: Option<u32>,
     pub folder: Option<PathBuf>,
-    /// Look for a newer version at launch, at most once a day.
+    /// Look for a newer version at launch, at every launch.
     pub check_updates: bool,
     /// When the last look finished, seconds since the Unix epoch; 0 for never.
     pub update_checked: u64,

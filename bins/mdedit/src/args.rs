@@ -12,6 +12,10 @@ pub enum ShotMenu {
     View,
     Main,
     Recent,
+    /// The main menu with its View submenu open beside it.
+    MainView,
+    /// The main menu with its Macro submenu open beside it.
+    MainMacro,
     Tab,
     /// The text area's right-click menu.
     Text,
@@ -242,6 +246,8 @@ impl Args {
                     out.menu = checked(&a, value(&a), |v| match v {
                         "main" => Some(ShotMenu::Main),
                         "recent" => Some(ShotMenu::Recent),
+                        "main-view" => Some(ShotMenu::MainView),
+                        "main-macro" => Some(ShotMenu::MainMacro),
                         "view" => Some(ShotMenu::View),
                         "macro" => Some(ShotMenu::Macro),
                         "eol" => Some(ShotMenu::Eol),
@@ -310,6 +316,8 @@ mod tests {
         assert_eq!(a.exit_after_ms, Some(2000));
         for (name, m) in [
             ("main", ShotMenu::Main),
+            ("main-view", ShotMenu::MainView),
+            ("main-macro", ShotMenu::MainMacro),
             ("tab", ShotMenu::Tab),
             ("text", ShotMenu::Text),
             ("find", ShotMenu::Find),

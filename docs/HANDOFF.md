@@ -242,6 +242,55 @@ Putting that script into the viewer's repository would be a useful first task.
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Update look at every launch, and submenus on mouse-over (2026-11-13, 0.3.2, asked by the owner)
+
+- **Update look.** The owner saw the launch look find nothing while the manual check found 0.3.1.
+  Cause: `check_due` allowed the launch look once in 24 h, so an earlier look the same day
+  suppressed it. Shared commit `1c3710a1ae2fed59585e37b2d4108c8d2802ac43` (branch
+  `fix/update-look-every-launch` of `markdown-shared-rs`, on top of the old pin `fce8c8e`) makes it
+  true at every launch with the setting on and removes `CHECK_EVERY`. All five `rev`s are moved to
+  it. **That branch is pinned and the shared `main` was not moved.** Nothing in the editor used
+  `CHECK_EVERY` and no test asserted "once a day"; only a doc comment in `session.rs` changed.
+  Copies of 0.3.1 and older still look once a day, so they find 0.3.2 at launch only when their
+  day is up, or by the manual check.
+- **Submenus: a cascade.** `Popup` (`ui.rs`) now holds an optional `sub` popup and a `dwell`.
+  Resting the pointer on "Open recent ›", "View ›" or "Macro ›" for 300 ms (`SUBMENU_DWELL`) opens
+  the submenu beside the main menu, which stays; a click or Right opens it at once (Enter too, with
+  the first item lit). The submenu sits level with the item when the pointer opened it, else at the
+  menu's top, on the parent's left when there is room. Another item of the parent closes it (and
+  starts that item's dwell); Escape or Left closes only the submenu; a click outside, the wheel or
+  a right click close both; a click on a submenu item runs it and closes both. Up, Down and Enter
+  act on the submenu while one is open. No other menu has a "›" item (checked: tab, text, find,
+  line-ending and encoding menus), so none changed; the code is generic over `Act::submenu`. The
+  dwell is a deadline in `Popup`, read by `timers()` like the tooltip's; with no menu open, or no
+  item being rested on, there is no deadline and the loop waits. Built as a cascade because the
+  popup code needed one extra field, not a rewrite (about 300 lines with tests).
+- **Tests and shots.** 4 unit tests in `ui.rs` (`popup_tests`: dwell starts and keeps its
+  deadline, a plain item or leaving cancels it, another item closes the submenu, the submenu keeps
+  the parent lit, outside both changes nothing) place real menus headless. `--menu main-view` and
+  `--menu main-macro` are new shot states; `tests/shots.sh` gains `menu-main-view` and
+  `menu-main-macro-dark` (64 PNGs). I looked at those two and at `menu-main`.
+- **Measured** (release): exe 5,651,968 bytes (budget 6,000,000); window shown 77 to 83 ms on
+  quiet runs (95 to 109 ms in runs when the machine was busy; the published 0.3.1 exe showed the
+  same spread in turns with it); private memory 27.3 to 27.8 MiB; keystroke p50 0.54 ms against
+  0.50 ms for the 0.3.1 exe run in turns with it (0.47 was measured on a quieter day; budget 8).
+  `cargo test --release --workspace` 382 passed, 0 failed; clippy `-D warnings` and `fmt --check`
+  clean.
+- **Run.** Update look: the release exe copied to `target\launchtest\` with `MDEDIT_SETTINGS` on a
+  scratch file and `update_checked` one minute old: after the run the file said `update_checked` =
+  the launch time (moved to now). The published 0.3.1 exe in the same setup left it at one minute
+  old (the control). Hover, in a real window on Windows (Git Bash launch, cursor moved with
+  `SetCursorPos`, screenshots of the window): the menu button clicked; after 100 ms on "View" no
+  submenu; after 500 ms the View menu beside the main menu; the pointer into it kept View lit;
+  to "Macro" the View menu closed and Macro opened; to "Go to line" it closed; a click on the text
+  closed both menus.
+- **Not run:** the keyboard paths (Right, Left, Escape, Enter into a submenu) in a real window
+  (code only, no test); a click on an item inside a submenu in a real window; "Open recent ›" in
+  a real window (the scratch settings had one recent entry, not hovered); scale 1.5 or 2; Linux;
+  a submenu on a narrow window (it falls to the parent's right); idle CPU with a menu open was not
+  measured (by reading the code the deadline is cleared when it fires); an update installed from
+  the launch look. The owner has not seen any of it.
+
 ## More languages and an installer (2026-11-13, 0.3.1, asked by the owner)
 
 - **Languages.** Looked up by file extension through `Language::for_path` before the change:
