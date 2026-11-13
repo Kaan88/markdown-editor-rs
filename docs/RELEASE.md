@@ -64,3 +64,20 @@ Bash) answered "nothing newer", exit code 0. `cargo test --release --workspace` 
 
 Not verified: that an older install is offered 0.3.0 and installs it. Nothing newer than 0.3.0
 exists yet, so that test needs an install of an earlier build.
+
+## v0.3.1 (published from commit 5210d8a, 2026-11-13)
+
+Cut with TypeScript, Dart, Zig, SCSS, Less, INI and CMake colouring (shared branch
+`feat/more-languages`, commit `fce8c8e`; the shared `main` was not moved) and the installer
+`mdedit-setup-0.3.1.exe`, the first release with three assets (4,277,023 bytes for the installer).
+Verified against the live release: the manifest at the address above names 0.3.1 (it still served
+0.3.0 for about two minutes after publishing); the exe downloaded from its URL (5650432 bytes) has
+the manifest's SHA-256 `ce872472fc1e945702c1fb8fc8596a4cef97b84d5e7607b0fbe657bd5f68d75a`;
+`mdedit --check-update` with that exe answered "nothing newer", exit 0; the published 0.3.0 exe's
+`--check-update` answered "mdedit 0.3.1 is available" with the 0.3.1 exe's URL, exit 0. The
+installer downloaded from the release has the SHA-256 of the local build. Silent install and
+uninstall of the local build were checked with each task (see `docs/HANDOFF.md`).
+
+Not verified: that an older install downloads and installs 0.3.1 (the offer only was seen); the
+installer on a machine other than this PC, clicked through by a person, or over an older install;
+that Windows shows mdedit under "Open with" and Default apps. The installer is not code-signed.
