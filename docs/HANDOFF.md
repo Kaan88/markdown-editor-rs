@@ -242,6 +242,57 @@ Putting that script into the viewer's repository would be a useful first task.
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Minimap tested in a real window, and 0.4.0 (2026-11-13)
+
+The owner asked for the left-out runs and then a release. Windows, launched from Git Bash,
+scratch `MDEDIT_SETTINGS` files, mouse and keys by `SetCursorPos`, `mouse_event`, `keybd_event`,
+a screenshot or a file check for each. No defect was found, so no code was changed (the version
+went to 0.4.0 and nothing else).
+
+- **Run, with what was seen:** (2) split view of two 50,000-line files: a press and a 60 px drag
+  on the second pane's column scrolled only that pane (10,492 against 5,246 in the other), and
+  the keyboard went to it (tab and status line); (3) folds (Shift+F9, thousands) and word wrap
+  together: a drag moved the band and the text with wrapped lines in view; (4) 50k.rs beside
+  100mb.txt was not run (see below); (5) the Files pane open, then with the results panel too,
+  the window narrowed to 660 px (column hidden) and widened (back), the results panel closed
+  (column full height again); (6) the right-click menu: Escape closed it, Down and Enter hid the
+  minimap; (7) 453 carets (a column selection extended by the wheel over a long range), scrolled,
+  and typed into (all 453 lines took the letters), no stall; (8) idle CPU: 0 to 15.6 ms of CPU
+  time per 20 s with the window idle and the column on, the same as the exe built before the
+  minimap (0 to 31 ms per 20 s; the clock ticks in 15.6 ms steps); (9) the main menu by keyboard:
+  Down to View, Right opened the submenu with its first item lit, Down four times and Enter
+  toggled Minimap, Escape and Left each closed only the submenu, Escape again closed the menu,
+  Right on "Open recent" showed the scratch settings' recent file, a click on an item in the View
+  submenu toggled it; (10) the installer: see below.
+- **Not possible or not run:** (1) a scale other than 100 %: `--scale` exists only for `--shot`;
+  in a window the scale is the display's, and the owner's display settings were not changed (the
+  1.5 and 2.0 shots stay the only evidence). (4) Two large files together, 50k.rs with 100mb.txt in
+  a split, was not run: the split in a real window was run with two copies of 50k.rs, and 100mb.txt
+  alone was timed with `--trace` (shown 142 ms) but not opened beside another file in a window.
+  (10) The installer was **not** run interactively: an install of mdedit (0.3.2, `AppId`
+  C58A9AB1-...) already exists on this PC, so the wizard would have upgraded it in place; the
+  silent variant was run instead, with no tasks, into `target\insttest` (`/VERYSILENT /TASKS=""
+  /DIR=...`): the 0.4.0 setup installed the exe, icon and uninstaller there, the installed exe ran
+  and Ctrl+Shift+M worked in it, the uninstaller removed the folder and the uninstall key. So the
+  wizard's pages, and that the last page now offers only "Launch mdedit", were not seen on screen;
+  the script (`mdedit.iss`) has one `[Run]` entry and no Default apps task. **A slip:** the
+  uninstall key of the existing install is the same key, so the test install replaced it and the
+  test uninstall deleted it, and the Start Menu shortcut with it; I had meant to export the key
+  first and the export failed (Git Bash rewrote the `/y`). The existing install was put back by
+  running the 0.3.2 setup silently into its own folder with all three tasks: its exe is the same
+  file (SHA-256 5872957b...a026, 5,651,968 bytes), the uninstall key says 0.3.2 with its location,
+  and the Start Menu and desktop shortcuts, the context-menu entry and "Open with" are there. It
+  was not the exact original key (the unins000 files are rewritten), and its task choices were
+  inferred from what was registered. Linux was not run.
+- **Not run besides:** a drag on the column with folds, wrap and a split all at once; the first
+  press of the keyboard menu on a high-DPI display; thousands of carets.
+- **Measured** (the 0.4.0 exe, 5,678,592 bytes; budgets: 6,000,000, 100 ms, 30 MiB, 8 ms, 4 ms):
+  sample.rs shown 75.4 to 76.5 ms off and 77.0 to 79.1 ms on; private memory 27.7 to 27.9 MiB off
+  and 27.5 to 28.0 MiB on; keystroke p50 0.47 ms off, 0.59 to 0.60 ms on; scroll step p50 0.41 off,
+  0.44 to 0.45 on; 50k.rs 0.48 and 0.44 off, 0.68 and 0.62 to 0.65 on; 100mb.txt 0.54 to 0.55 and
+  0.55 to 0.56 off, 0.77 to 0.78 and 0.76 to 0.77 on. Tests 404 passed, clippy and fmt clean,
+  72 shots, all byte-identical to the last run but `dialog-about` (it shows the version).
+
 ## Minimap, finished (2026-11-13, after the owner saw it: "looks great. finish it. and make it togglable")
 
 First part of the day: the section below. This one builds what it left out. Design in
