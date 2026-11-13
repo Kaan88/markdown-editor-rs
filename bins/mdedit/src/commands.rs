@@ -21,6 +21,15 @@ pub enum CommandId {
     Copy,
     Paste,
     SelectAll,
+    DuplicateLine,
+    MoveLineUp,
+    MoveLineDown,
+    DeleteLine,
+    ToggleComment,
+    UpperCase,
+    LowerCase,
+    TrimTrailing,
+    TabsToSpaces,
     Find,
     FindNext,
     FindPrevious,
@@ -80,6 +89,16 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::Copy, "Copy", &["Ctrl+C", "Ctrl+Insert"]),
     cmd(C::Paste, "Paste", &["Ctrl+V", "Shift+Insert"]),
     cmd(C::SelectAll, "Select all", &["Ctrl+A"]),
+    cmd(C::DuplicateLine, "Duplicate line", &["Ctrl+D"]),
+    cmd(C::MoveLineUp, "Move line up", &["Alt+Up"]),
+    cmd(C::MoveLineDown, "Move line down", &["Alt+Down"]),
+    cmd(C::DeleteLine, "Delete line", &["Ctrl+Shift+K"]),
+    // Ctrl+/ needs Shift on layouts where "/" is on a digit key (Turkish Q), so Ctrl+K too.
+    cmd(C::ToggleComment, "Toggle comment", &["Ctrl+K", "Ctrl+/"]),
+    cmd(C::UpperCase, "UPPERCASE", &["Ctrl+Shift+U"]),
+    cmd(C::LowerCase, "lowercase", &["Ctrl+U"]),
+    cmd(C::TrimTrailing, "Trim trailing spaces", &[]),
+    cmd(C::TabsToSpaces, "Tabs to spaces", &[]),
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
     cmd(C::FindPrevious, "Find previous", &["Shift+F3"]),
@@ -199,6 +218,10 @@ pub mod strings {
     pub fn lossy_toast(name: &str) -> String {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
     }
+
+    pub const NO_LINE_COMMENT: &str = "This kind of file has no line comment.";
+    pub const TOO_LARGE_FOR_ALL_LINES: &str =
+        "This file is too large to change every line at once.";
 
     pub fn read_only_toast(name: &str) -> String {
         format!("{name} has bytes that could not be read, so it is open read-only.")

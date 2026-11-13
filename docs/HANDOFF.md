@@ -111,11 +111,13 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
   main session drove a real window with synthetic keys, mouse and an OLE drag: typing, Backspace,
   Delete, undo, redo, the right-click menu's Undo, Save, a dropped file, New file and Save
   through the file dialog all behaved. That is not the user's approval of the interface.
-- Updates (2026-11-13): no release of mdedit exists, so the look answers 404 (seen with
-  `--check-update`), and **no update has been offered or installed by mdedit**. The bar and the
-  About buttons were only rendered with `--update-bar`; nobody has clicked them. There is no
-  script that builds a release and its manifest for mdedit (the viewer's is
-  `build-installer.ps1`), and "one installer or two" is still open.
+- Updates (2026-11-13): v0.1.0 is published and `--check-update` answers "nothing newer"
+  against it. **No update has been offered or installed by mdedit**, since nothing newer
+  exists. The bar and the About buttons were only rendered with `--update-bar`; nobody has
+  clicked them. "One installer or two" is still open; the release is the bare exe.
+- Editing basics (2026-11-13): each shortcut was pressed once by script in a real window on a
+  small Rust file and gave the right text. The user has not seen the longer right-click menu.
+  Move line and the two every-line commands on large or odd files ran only in the unit tests.
 - New file (2026-11-13): `Doc::path` is optional. Tested by one unit test and one scripted run
   in a real window; the user has not seen the untitled tab or the changed "+" button.
 - Of phases 2 and 3, by hand, before that: nothing. Typing ran only through `--type-steps` (a real window,
@@ -163,6 +165,15 @@ These were made to keep moving and are easy to undo:
    (the "+" opened the file dialog before); it is UTF-8 with the platform's line ending; Save
    on it is Save as, offering "Untitled N.txt"; it is not in the session, so an untitled tab
    does not come back after a restart (a modified one asks before closing).
+9. Made on 2026-11-13 for the editing basics (roadmap item 1, `mdedit-core`'s `lines.rs`, by a
+   Sonnet subagent, wired by the main session): Duplicate line Ctrl+D, Move line Alt+Up and
+   Alt+Down, Delete line Ctrl+Shift+K, Toggle comment Ctrl+K and Ctrl+/ (the language's line
+   comment, from the shared `Language::line_comment`; a language without one gets a toast),
+   UPPERCASE Ctrl+Shift+U, lowercase Ctrl+U, Trim trailing spaces and Tabs to spaces (no
+   shortcut). All but the two moves are in the text's right-click menu. Trim and Tabs to spaces
+   refuse a file over 8 MiB: they run on the UI thread at 4 to 7 s per 100 MB.
+10. v0.1.0 was published on 2026-11-13 from `2ba9912` with `tools/release.ps1`
+   (`docs/RELEASE.md`): the exe and `mdedit-update.txt`. It does not hold the editing basics.
 8. Made on 2026-11-13 for updates, after the user said to wire the shared updater in: mdedit
    updates itself the way mdview does (`docs/DESIGN.md`, section 17). The manifest address is
    `https://github.com/Kaan88/markdown-editor-rs/releases/latest/download/mdedit-update.txt`,
@@ -175,9 +186,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order: editing basics (duplicate, move and
-   delete line, toggle comment, change case, trim trailing spaces, tabs to spaces), then find and
-   replace, then unsaved-session restore.
+2. Then the feature roadmap in `docs/PLAN.md`, in its order: find and replace (item 2), then
+   unsaved-session restore.
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -192,7 +202,7 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 208 passed on 2026-11-13
+cargo test --release --workspace        # 234 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 bash tests/shots.sh target/shots/a      # 38 PNGs, deterministic; first run generates target/data

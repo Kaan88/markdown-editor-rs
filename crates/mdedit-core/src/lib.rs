@@ -13,6 +13,7 @@ pub mod eol;
 pub mod find;
 pub mod history;
 pub mod limits;
+pub mod lines;
 pub mod load;
 pub mod save;
 pub mod selection;

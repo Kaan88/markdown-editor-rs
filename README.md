@@ -11,7 +11,8 @@ viewer.
 and approved nothing yet.** It opens files in tabs, scrolls, selects, finds, highlights syntax, detects encodings and
 line endings, edits with undo and redo, and saves in the file's own encoding and line endings
 without touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks a name
-for. It can update itself in place like mdview (no release exists yet). There is no input-method
+for. It has the line commands (duplicate, move, delete, toggle comment, change case, trim, tabs to
+spaces) and updates itself in place like mdview (v0.1.0 is the first release). There is no input-method
 support yet.
 [docs/PLAN.md](docs/PLAN.md) holds the goals, the budgets, the phases and the feature roadmap;
 [docs/DESIGN.md](docs/DESIGN.md) the design (section 16 for editing and saving).

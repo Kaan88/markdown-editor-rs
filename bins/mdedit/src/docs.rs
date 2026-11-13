@@ -19,6 +19,7 @@ use mdedit_core::edit::{self, Outcome};
 use mdedit_core::eol::normalize_eols;
 use mdedit_core::find::{self, FindOptions, Matches, Query};
 use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
+use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
 use mdedit_core::save::{self, SaveError};
 use mdedit_core::selection::Selection;
@@ -491,7 +492,22 @@ pub enum EditOp<'a> {
     Outdent,
     Undo,
     Redo,
+    DuplicateLines,
+    /// Down when true.
+    MoveLines(bool),
+    DeleteLines,
+    /// With the language's line comment.
+    ToggleComment,
+    /// Upper case when true.
+    Case(bool),
+    TrimTrailing,
+    TabsToSpaces,
 }
+
+/// The largest text the two every-line commands (trim trailing spaces, tabs to spaces) take.
+/// They run on the UI thread at about 4 to 7 s per 100 MB when every line changes, so this
+/// keeps the worst case near half a second.
+pub const ALL_LINES_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /// Why a save did not happen.
 #[derive(Debug)]
@@ -978,8 +994,32 @@ impl Docs {
             self.set_toast(&strings::read_only_toast(&name));
             return false;
         }
+        let comment = r.language.and_then(Language::line_comment);
+        let refused = match op {
+            EditOp::ToggleComment if comment.is_none() => Some(strings::NO_LINE_COMMENT),
+            EditOp::TrimTrailing | EditOp::TabsToSpaces
+                if r.buffer.len_bytes() > ALL_LINES_MAX_BYTES =>
+            {
+                Some(strings::TOO_LARGE_FOR_ALL_LINES)
+            }
+            _ => None,
+        };
+        if let Some(text) = refused {
+            self.set_toast(text);
+            return false;
+        }
+        let eol = r.info.eol.dominant();
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.sel);
         let out = match op {
+            EditOp::DuplicateLines => lines::duplicate_lines(buf, hist, sel, eol),
+            EditOp::MoveLines(down) => lines::move_lines(buf, hist, sel, down, eol),
+            EditOp::DeleteLines => lines::delete_lines(buf, hist, sel),
+            EditOp::ToggleComment => {
+                lines::toggle_comment(buf, hist, sel, comment.unwrap_or_default())
+            }
+            EditOp::Case(upper) => lines::change_case(buf, hist, sel, upper),
+            EditOp::TrimTrailing => lines::trim_trailing_whitespace(buf, hist, sel),
+            EditOp::TabsToSpaces => lines::tabs_to_spaces(buf, hist, sel, TAB_WIDTH),
             EditOp::Insert(text) => edit::insert(buf, hist, sel, text),
             EditOp::Paste(text) => {
                 let text = normalize_eols(text, r.info.eol.dominant());
@@ -1549,6 +1589,55 @@ mod tests {
         // The freed number is used again.
         let k = d.new_untitled();
         assert_eq!(d.tabs[k].name(), "Untitled 1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn line_commands_go_through_the_document() {
+        let (mut d, i, _path, dir) = file_docs("lines", b"one\r\n  two  \r\n\tthree\r\n");
+        let caret = |d: &mut Docs, at: usize| {
+            d.tabs[i].ready_mut().unwrap().sel = Selection::at(at);
+        };
+        // A plain text file has no line comment: nothing changes and a toast says so.
+        assert!(!d.edit(EditOp::ToggleComment, None));
+        assert!(!d.tabs[i].modified());
+        assert!(d.edit(EditOp::DuplicateLines, None));
+        assert_eq!(text_of(&d, i), "one\r\none\r\n  two  \r\n\tthree\r\n");
+        assert!(d.edit(EditOp::MoveLines(true), None));
+        assert_eq!(text_of(&d, i), "one\r\n  two  \r\none\r\n\tthree\r\n");
+        assert!(d.edit(EditOp::DeleteLines, None));
+        assert_eq!(text_of(&d, i), "one\r\n  two  \r\n\tthree\r\n");
+        assert!(d.edit(EditOp::TrimTrailing, None));
+        assert_eq!(text_of(&d, i), "one\r\n  two\r\n\tthree\r\n");
+        assert!(d.edit(EditOp::TabsToSpaces, None));
+        assert_eq!(text_of(&d, i), "one\r\n  two\r\n    three\r\n");
+        // Case needs a selection.
+        caret(&mut d, 0);
+        assert!(!d.edit(EditOp::Case(true), None));
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 0,
+            caret: 3,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::Case(true), None));
+        assert_eq!(text_of(&d, i), "ONE\r\n  two\r\n    three\r\n");
+        // Each was one undo step, and the line-ending counts followed.
+        let eol = d.tabs[i].ready().unwrap().info.eol;
+        assert_eq!((eol.crlf, eol.lf, eol.cr), (3, 0, 0));
+        for _ in 0..6 {
+            assert!(d.edit(EditOp::Undo, None));
+        }
+        assert_eq!(text_of(&d, i), "one\r\n  two  \r\n\tthree\r\n");
+        assert!(!d.tabs[i].modified());
+        // With a language, the comment is its own.
+        let rs = dir.join("a.rs");
+        std::fs::write(&rs, "fn a() {}\n").unwrap();
+        let k = d.open(&rs);
+        d.load_now(k, None, false);
+        assert!(d.edit(EditOp::ToggleComment, None));
+        assert_eq!(text_of(&d, k), "// fn a() {}\n");
+        assert!(d.edit(EditOp::ToggleComment, None));
+        assert_eq!(text_of(&d, k), "fn a() {}\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -504,7 +504,23 @@ impl App {
 
     pub(super) fn command(&mut self, id: C) {
         // The find box has the keyboard: these are not for the document.
-        if self.ui.find_focused && matches!(id, C::Undo | C::Redo | C::Cut | C::Paste) {
+        let edits = matches!(
+            id,
+            C::Undo
+                | C::Redo
+                | C::Cut
+                | C::Paste
+                | C::DuplicateLine
+                | C::MoveLineUp
+                | C::MoveLineDown
+                | C::DeleteLine
+                | C::ToggleComment
+                | C::UpperCase
+                | C::LowerCase
+                | C::TrimTrailing
+                | C::TabsToSpaces
+        );
+        if self.ui.find_focused && edits {
             return;
         }
         // A command ends the run of typing that one Undo takes back.
@@ -573,6 +589,33 @@ impl App {
                 self.copy();
             }
             C::Paste => self.paste(),
+            C::DuplicateLine => {
+                self.edit(EditOp::DuplicateLines);
+            }
+            C::MoveLineUp => {
+                self.edit(EditOp::MoveLines(false));
+            }
+            C::MoveLineDown => {
+                self.edit(EditOp::MoveLines(true));
+            }
+            C::DeleteLine => {
+                self.edit(EditOp::DeleteLines);
+            }
+            C::ToggleComment => {
+                self.edit(EditOp::ToggleComment);
+            }
+            C::UpperCase => {
+                self.edit(EditOp::Case(true));
+            }
+            C::LowerCase => {
+                self.edit(EditOp::Case(false));
+            }
+            C::TrimTrailing => {
+                self.edit(EditOp::TrimTrailing);
+            }
+            C::TabsToSpaces => {
+                self.edit(EditOp::TabsToSpaces);
+            }
             C::SelectAll => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.sel = mdedit_core::selection::select_all(&r.buffer);

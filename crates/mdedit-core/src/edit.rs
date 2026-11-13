@@ -23,14 +23,14 @@ pub struct Outcome {
 }
 
 /// The replacements of one command, collected so they become one undo step.
-struct Cmd<'a> {
-    buf: &'a mut Buffer,
+pub(crate) struct Cmd<'a> {
+    pub(crate) buf: &'a mut Buffer,
     records: Vec<Record>,
     change: Option<Change>,
 }
 
 impl<'a> Cmd<'a> {
-    fn new(buf: &'a mut Buffer) -> Cmd<'a> {
+    pub(crate) fn new(buf: &'a mut Buffer) -> Cmd<'a> {
         Cmd {
             buf,
             records: Vec::new(),
@@ -39,7 +39,7 @@ impl<'a> Cmd<'a> {
     }
 
     /// Replaces `range` (clamped, floored to `char` boundaries) with `text`.
-    fn replace(&mut self, range: Range<usize>, text: &str) {
+    pub(crate) fn replace(&mut self, range: Range<usize>, text: &str) {
         let at = self.buf.floor_char(range.start);
         let end = self.buf.floor_char(range.end).max(at);
         if at == end && text.is_empty() {
@@ -64,7 +64,7 @@ impl<'a> Cmd<'a> {
     }
 
     /// Ends the command: records the step and snaps the selection ends to grapheme boundaries.
-    fn finish(
+    pub(crate) fn finish(
         self,
         hist: &mut History,
         kind: Kind,
@@ -90,12 +90,12 @@ impl<'a> Cmd<'a> {
     }
 }
 
-fn nothing(sel: Selection) -> Outcome {
+pub(crate) fn nothing(sel: Selection) -> Outcome {
     Outcome { sel, change: None }
 }
 
 /// The selection's range clamped to the buffer, ends floored to `char` boundaries.
-fn clamped(buf: &Buffer, sel: Selection) -> Range<usize> {
+pub(crate) fn clamped(buf: &Buffer, sel: Selection) -> Range<usize> {
     let r = sel.range();
     let start = buf.floor_char(r.start);
     start..buf.floor_char(r.end).max(start)
@@ -226,7 +226,7 @@ pub fn delete_word_right(buf: &mut Buffer, hist: &mut History, sel: Selection) -
 /// The lines the selection touches: from the one holding its start to the one holding its end,
 /// except that a line the selection only ends at column 0 of is not touched (a selection of whole
 /// lines, ending at the start of the next, touches those lines only).
-fn touched_lines(buf: &Buffer, r: &Range<usize>) -> (usize, usize) {
+pub(crate) fn touched_lines(buf: &Buffer, r: &Range<usize>) -> (usize, usize) {
     let first = buf.line_of(r.start);
     let mut last = buf.line_of(r.end);
     if last > first && r.end == buf.line_start(last) {

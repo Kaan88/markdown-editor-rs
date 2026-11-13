@@ -1,0 +1,1577 @@
+//! Line-editing commands: duplicate, move and delete lines, toggle line comments, change case,
+//! trim trailing whitespace, tabs to spaces. They have the shape of the commands in
+//! [`crate::edit`]: each is exactly one undo step (`Kind::Other`), returns the new selection and
+//! one merged [`Change`](crate::Change), and returns the selection unchanged with no change (and
+//! no history entry) when it would change no byte.
+//!
+//! "The lines of the selection" are those from the line holding the selection's start to the one
+//! holding its end, except that a non-empty selection ending at column 0 of a line does not
+//! include that line (the rule `indent` and `outdent` use).
+//!
+//! The two whole-document commands, [`trim_trailing_whitespace`] and [`tabs_to_spaces`], walk the
+//! lines one at a time and replace in place, front to back; they never build the document as one
+//! `String`. Their cost is one rope replacement (O(log n)) and one history record per changed
+//! line (per tab, for tabs), plus the removed text kept for undo.
+
+use crate::buffer::Buffer;
+use crate::display::Cols;
+use crate::edit::{Cmd, Outcome, clamped, nothing, touched_lines};
+use crate::history::{History, Kind};
+use crate::selection::Selection;
+use std::ops::Range;
+
+fn sel_of(anchor: usize, caret: usize) -> Selection {
+    Selection {
+        anchor,
+        caret,
+        goal_col: None,
+    }
+}
+
+/// The line has a line break after its text (the last line may not).
+fn has_break(buf: &Buffer, line: usize) -> bool {
+    buf.line_range(line).end != buf.line_range_with_break(line).end
+}
+
+fn text_of(buf: &Buffer, range: Range<usize>) -> String {
+    let mut s = String::new();
+    buf.text(range, &mut s);
+    s
+}
+
+/// Inserts a copy of the lines of the selection directly below them. The selection (or caret)
+/// ends up on the copy, at the same columns. A last line with no line break is joined to its copy
+/// with `eol`.
+pub fn duplicate_lines(buf: &mut Buffer, hist: &mut History, sel: Selection, eol: &str) -> Outcome {
+    let r = clamped(buf, sel);
+    let (first, last) = touched_lines(buf, &r);
+    let start = buf.line_start(first);
+    let end = buf.line_range_with_break(last).end;
+    let mut text = String::new();
+    let copy_start = if has_break(buf, last) {
+        end
+    } else {
+        text.push_str(eol);
+        end + eol.len()
+    };
+    for piece in buf.chunks(start..end) {
+        text.push_str(piece);
+    }
+    let d = copy_start - start;
+    let len = buf.len_bytes();
+    let after = sel_of(sel.anchor.min(len) + d, sel.caret.min(len) + d);
+    let mut cmd = Cmd::new(buf);
+    cmd.replace(end..end, &text);
+    cmd.finish(hist, Kind::Other, sel, after)
+}
+
+/// Moves the lines of the selection one line up or down, the selection moving with them. Nothing
+/// at the top or bottom edge, or when the swap changes no byte.
+///
+/// Each line moves with its own line break. When the last line of the document is involved and
+/// has no break, the document still ends without one: the line that was last keeps no break
+/// and takes the break of the line that is now last (so no `eol` is ever needed; the parameter is
+/// kept for the callers' symmetry with `duplicate_lines`).
+pub fn move_lines(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    down: bool,
+    _eol: &str,
+) -> Outcome {
+    let r = clamped(buf, sel);
+    let (first, last) = touched_lines(buf, &r);
+    // The region: the block and the one line it swaps with.
+    let (r0, r1) = if down {
+        if last + 1 >= buf.len_lines() {
+            return nothing(sel);
+        }
+        (first, last + 1)
+    } else {
+        if first == 0 {
+            return nothing(sel);
+        }
+        (first - 1, last)
+    };
+    let n = r1 - r0 + 1;
+    struct Ln {
+        start: usize,
+        content: String,
+        brk: String,
+    }
+    let lines: Vec<Ln> = (r0..=r1)
+        .map(|l| {
+            let c = buf.line_range(l);
+            let w = buf.line_range_with_break(l);
+            Ln {
+                start: w.start,
+                content: text_of(buf, c.clone()),
+                brk: text_of(buf, c.end..w.end),
+            }
+        })
+        .collect();
+    // `order[slot]` is the region index of the line that ends up in that slot.
+    let order: Vec<usize> = if down {
+        std::iter::once(n - 1).chain(0..n - 1).collect()
+    } else {
+        (1..n).chain(std::iter::once(0)).collect()
+    };
+    let mut brk: Vec<&str> = lines.iter().map(|l| l.brk.as_str()).collect();
+    if brk[n - 1].is_empty() {
+        let y = order[n - 1];
+        brk[n - 1] = brk[y];
+        brk[y] = "";
+    }
+    let mut new_text = String::new();
+    let mut slot_start = Vec::with_capacity(n + 1);
+    let mut item_start = vec![0; n];
+    for &i in &order {
+        slot_start.push(new_text.len());
+        item_start[i] = new_text.len();
+        new_text.push_str(&lines[i].content);
+        new_text.push_str(brk[i]);
+    }
+    slot_start.push(new_text.len());
+    let old: String = lines.iter().flat_map(|l| [&*l.content, &*l.brk]).collect();
+    if old == new_text {
+        return nothing(sel);
+    }
+    let base = lines[0].start;
+    // The block's lines, as region indexes, and where it ends in the new text.
+    let (b0, b1, end_slot) = if down { (0, n - 1, n) } else { (1, n, n - 1) };
+    let new_block_end = base + slot_start[end_slot];
+    // A selection ending at column 0 after the block ends after the block, wherever it goes.
+    let trailing = !sel.is_empty() && buf.line_of(r.end) > last;
+    let map = |p: usize| {
+        let p = p.min(base + old.len());
+        if trailing && p == r.end {
+            return new_block_end;
+        }
+        let i = (b0..b1).rfind(|&i| lines[i].start <= p).unwrap_or(b0);
+        base + item_start[i] + (p - lines[i].start).min(lines[i].content.len())
+    };
+    let after = sel_of(map(sel.anchor), map(sel.caret));
+    let mut cmd = Cmd::new(buf);
+    cmd.replace(base..base + old.len(), &new_text);
+    cmd.finish(hist, Kind::Other, sel, after)
+}
+
+/// Removes the lines of the selection with their line breaks. When the block includes the last
+/// line and that has no break, the break before the block goes too, so no empty last line is
+/// left. The caret goes to the same column (clamped to the line, snapped to a grapheme boundary)
+/// of the line that takes the block's place, the new last line when there is none after.
+pub fn delete_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
+    let r = clamped(buf, sel);
+    let (first, last) = touched_lines(buf, &r);
+    let start = buf.line_start(first);
+    let end = buf.line_range_with_break(last).end;
+    let caret = buf.floor_char(sel.caret);
+    let col = caret - buf.line_start(buf.line_of(caret));
+    let in_line = |line: usize| {
+        let c = buf.line_range(line);
+        buf.floor_char(c.start + col.min(c.end - c.start))
+    };
+    let (cut, pos) = if has_break(buf, last) {
+        // The line after the block exists (maybe empty); it moves up to `start`.
+        (start..end, in_line(last + 1) - (end - start))
+    } else if first > 0 {
+        (buf.line_range(first - 1).end..end, in_line(first - 1))
+    } else {
+        (0..end, 0)
+    };
+    let mut cmd = Cmd::new(buf);
+    cmd.replace(cut, "");
+    cmd.finish(hist, Kind::Other, sel, Selection::at(pos))
+}
+
+/// What `toggle_comment` needs to know of a line.
+struct LineInfo {
+    start: usize,
+    /// Bytes of leading spaces and tabs.
+    indent: usize,
+    blank: bool,
+    /// After the indentation comes the prefix.
+    commented: bool,
+    /// ... and a space after that.
+    space: bool,
+}
+
+fn line_info(buf: &Buffer, line: usize, prefix: &str) -> LineInfo {
+    let r = buf.line_range(line);
+    let mut indent = 0;
+    let mut blank = true;
+    'scan: for piece in buf.chunks(r.clone()) {
+        for b in piece.bytes() {
+            if b != b' ' && b != b'\t' {
+                blank = false;
+                break 'scan;
+            }
+            indent += 1;
+        }
+    }
+    let mut info = LineInfo {
+        start: r.start,
+        indent,
+        blank,
+        commented: false,
+        space: false,
+    };
+    if !blank {
+        let from = r.start + indent;
+        let to = (from + prefix.len() + 1).min(r.end);
+        let head: Vec<u8> = buf.chunks(from..to).flat_map(str::bytes).collect();
+        info.commented = head.starts_with(prefix.as_bytes());
+        info.space = info.commented && head.get(prefix.len()) == Some(&b' ');
+    }
+    info
+}
+
+/// Line comments over the lines of the selection, blank lines ignored. When every other line
+/// starts (after its indentation) with `prefix`, removes it and one space after it, if there is
+/// one, from each. Otherwise inserts `prefix` and a space at the smallest indentation of those
+/// lines (the same byte column on each). When all lines are blank, the caret's line (kept inside
+/// the lines of the selection) is commented at the end of its indentation.
+///
+/// A selection end after an insertion point moves by the inserted length, one at the point stays
+/// in front of it (except for the all-blank case, where the caret goes after the comment); an end
+/// inside removed text goes to its start. `prefix` empty: nothing.
+pub fn toggle_comment(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    prefix: &str,
+) -> Outcome {
+    if prefix.is_empty() {
+        return nothing(sel);
+    }
+    let r = clamped(buf, sel);
+    let (first, last) = touched_lines(buf, &r);
+    let infos: Vec<LineInfo> = (first..=last).map(|l| line_info(buf, l, prefix)).collect();
+    let inserted = format!("{prefix} ");
+    // Ascending (position, bytes removed); inserting is `removed == 0`.
+    let mut edits: Vec<(usize, usize)> = Vec::new();
+    let mut stay = true;
+    let solid: Vec<&LineInfo> = infos.iter().filter(|i| !i.blank).collect();
+    if solid.is_empty() {
+        let caret = buf.floor_char(sel.caret);
+        let line = buf.line_of(caret).clamp(first, last);
+        let i = &infos[line - first];
+        edits.push((i.start + i.indent, 0));
+        stay = false;
+    } else if solid.iter().all(|i| i.commented) {
+        for i in &solid {
+            edits.push((i.start + i.indent, prefix.len() + usize::from(i.space)));
+        }
+    } else {
+        let col = solid.iter().map(|i| i.indent).min().unwrap_or(0);
+        edits.extend(solid.iter().map(|i| (i.start + col, 0)));
+    }
+    let map = |p: usize| {
+        let mut q = p;
+        for &(pos, rem) in &edits {
+            if rem == 0 {
+                if p > pos || (p == pos && !stay) {
+                    q += inserted.len();
+                }
+            } else if p >= pos + rem {
+                q -= rem;
+            } else if p > pos {
+                q -= p - pos;
+            }
+        }
+        q
+    };
+    let after = sel_of(map(sel.anchor), map(sel.caret));
+    let mut cmd = Cmd::new(buf);
+    for &(pos, rem) in edits.iter().rev() {
+        cmd.replace(pos..pos + rem, if rem == 0 { &inserted } else { "" });
+    }
+    cmd.finish(hist, Kind::Other, sel, after)
+}
+
+/// Selections over this many bytes are converted piece by piece.
+const CASE_CHUNK: usize = 1 << 20;
+
+/// Replaces the selected text with its `to_uppercase()` (`upper`) or `to_lowercase()`: Rust's
+/// Unicode rules, no locale. The selection then covers the result, in the same direction. Nothing
+/// when the selection is empty or the text does not change.
+///
+/// A selection over 1 MiB is converted in pieces cut after a whitespace character (so the final
+/// sigma rule of `to_lowercase` sees the same neighbours as it would in the whole text), at most
+/// a few KiB past 1 MiB each, so the memory used besides the history stays bounded; it is still
+/// one undo step.
+pub fn change_case(buf: &mut Buffer, hist: &mut History, sel: Selection, upper: bool) -> Outcome {
+    let r = clamped(buf, sel);
+    if r.is_empty() {
+        return nothing(sel);
+    }
+    let mut cmd = Cmd::new(buf);
+    // Where the part not converted yet starts in the buffer as it is now, and how long it is.
+    let mut now = r.start;
+    let mut rest = r.end - r.start;
+    let mut piece = String::new();
+    while rest > 0 {
+        let mut end = cmd.buf.floor_char(now + rest.min(CASE_CHUNK));
+        if end < now + rest {
+            let probe = cmd.buf.floor_char((end + 4096).min(now + rest));
+            let tail = text_of(cmd.buf, end..probe);
+            if let Some((i, c)) = tail.char_indices().find(|(_, c)| c.is_whitespace()) {
+                end += i + c.len_utf8();
+            }
+        }
+        if end <= now {
+            end = now + rest;
+        }
+        cmd.buf.text(now..end, &mut piece);
+        let converted = if upper {
+            piece.to_uppercase()
+        } else {
+            piece.to_lowercase()
+        };
+        if converted != piece {
+            cmd.replace(now..end, &converted);
+        }
+        rest -= piece.len();
+        now += converted.len();
+    }
+    let after = if sel.anchor <= sel.caret {
+        sel_of(r.start, now)
+    } else {
+        sel_of(now, r.start)
+    };
+    cmd.finish(hist, Kind::Other, sel, after)
+}
+
+/// Removes the spaces and tabs before the line break of every line of the document; the breaks
+/// stay as they are. A selection end inside the removed run goes to its start, one after it moves
+/// back by the run's length. The document is walked line by line, front to back, replacing in
+/// place.
+pub fn trim_trailing_whitespace(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
+    let len = buf.len_bytes();
+    let (oa, oc) = (sel.anchor.min(len), sel.caret.min(len));
+    let (mut a, mut c) = (oa, oc);
+    let mut cmd = Cmd::new(buf);
+    // Bytes removed so far: the buffer's offsets are the original ones minus this.
+    let mut removed = 0;
+    let mut total = cmd.buf.len_lines();
+    let mut line = 0;
+    while line < total {
+        let range = cmd.buf.line_range(line);
+        let rope = cmd.buf.rope();
+        let mut from = range.end;
+        while from > range.start && matches!(rope.byte(from - 1), b' ' | b'\t') {
+            from -= 1;
+        }
+        if from == range.end {
+            line += 1;
+            continue;
+        }
+        let n = range.end - from;
+        let s = from + removed;
+        for end in [(&oa, &mut a), (&oc, &mut c)] {
+            if *end.0 >= s + n {
+                *end.1 -= n;
+            } else if *end.0 > s {
+                *end.1 -= *end.0 - s;
+            }
+        }
+        cmd.replace(from..range.end, "");
+        removed += n;
+        // Taking spaces from between a CR and an LF makes them one CRLF: a line fewer.
+        let now = cmd.buf.len_lines();
+        line = line + 1 - (total - now);
+        total = now;
+    }
+    cmd.finish(hist, Kind::Other, sel, sel_of(a, c))
+}
+
+/// Tabs replaced per batch within one line, so a line of millions of tabs does not need a list
+/// of them all.
+const TAB_BATCH: usize = 1 << 16;
+
+/// The spaces for one tab.
+fn spaces(n: usize) -> String {
+    " ".repeat(n)
+}
+
+/// Replaces every tab of the document with the spaces up to the next tab stop of `tab_width`
+/// columns. Columns are counted as the rest of the crate counts them (`display::Cols`): from the
+/// line start, a tab to its stop and every other character as one column, a wide character or a
+/// combining mark included (the view scales those separately). A selection end moves with its
+/// text. The document is walked line by line, front to back.
+pub fn tabs_to_spaces(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    tab_width: usize,
+) -> Outcome {
+    let tab = tab_width.max(1);
+    let len = buf.len_bytes();
+    let (oa, oc) = (sel.anchor.min(len), sel.caret.min(len));
+    let (mut a, mut c) = (oa, oc);
+    let mut cmd = Cmd::new(buf);
+    // How far the buffer's offsets are ahead of the original ones.
+    let mut delta = 0usize;
+    for line in 0..cmd.buf.len_lines() {
+        let mut at = cmd.buf.line_start(line);
+        let mut col = 0usize;
+        loop {
+            let end = cmd.buf.line_range(line).end;
+            // (offset now, spaces) of the next tabs, and whether the scan stopped at the batch.
+            let mut reps: Vec<(usize, usize)> = Vec::new();
+            let mut pos = at;
+            let mut full = false;
+            'scan: for piece in cmd.buf.chunks(at..end) {
+                let mut from = 0;
+                for t in memchr::memchr_iter(b'\t', piece.as_bytes()) {
+                    col = Cols {
+                        col,
+                        ..Cols::default()
+                    }
+                    .after(&piece[from..t], tab)
+                    .col;
+                    let n = tab - col % tab;
+                    reps.push((pos + t, n));
+                    col += n;
+                    from = t + 1;
+                    if reps.len() == TAB_BATCH {
+                        full = true;
+                        break 'scan;
+                    }
+                }
+                col = Cols {
+                    col,
+                    ..Cols::default()
+                }
+                .after(&piece[from..], tab)
+                .col;
+                pos += piece.len();
+            }
+            let Some(&(last_at, _)) = reps.last() else {
+                break;
+            };
+            let mut grow = 0;
+            for &(p, n) in &reps {
+                let orig = p - delta;
+                if oa > orig {
+                    a += n - 1;
+                }
+                if oc > orig {
+                    c += n - 1;
+                }
+                grow += n - 1;
+            }
+            for &(p, n) in reps.iter().rev() {
+                cmd.replace(p..p + 1, &spaces(n));
+            }
+            delta += grow;
+            if !full {
+                break;
+            }
+            at = last_at + 1 + grow;
+        }
+    }
+    cmd.finish(hist, Kind::Other, sel, sel_of(a, c))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::edit::{backspace, insert, redo, undo};
+    use crate::eol::EolCounts;
+    use crate::testutil::{Rng, check_change, check_eols, lines_of};
+    use unicode_segmentation::UnicodeSegmentation;
+
+    fn txt(buf: &Buffer) -> String {
+        buf.rope().to_string()
+    }
+
+    fn sel(anchor: usize, caret: usize) -> Selection {
+        sel_of(anchor, caret)
+    }
+
+    fn grapheme_bounds(t: &str) -> Vec<usize> {
+        let mut v: Vec<usize> = t.grapheme_indices(true).map(|(i, _)| i).collect();
+        v.push(t.len());
+        v
+    }
+
+    /// Runs `f` on a fresh buffer with `text`; checks the change, that undo restores the text and
+    /// the selection byte for byte and that redo reapplies; for no change that nothing was
+    /// recorded. Returns the new text and the outcome.
+    fn go(
+        text: &str,
+        s: Selection,
+        f: impl FnOnce(&mut Buffer, &mut History, Selection) -> Outcome,
+    ) -> (String, Outcome) {
+        let mut buf = Buffer::from_text(text);
+        let mut hist = History::new();
+        let out = f(&mut buf, &mut hist, s);
+        let after = txt(&buf);
+        match &out.change {
+            None => {
+                assert_eq!(after, text);
+                assert_eq!(out.sel, s);
+                assert!(!hist.can_undo());
+                assert_eq!(buf.revision(), 0);
+            }
+            Some(c) => {
+                check_change(text, &after, c);
+                assert_ne!(after, text);
+                assert_eq!(hist.steps(), (1, 0), "one undo step");
+                let b = grapheme_bounds(&after);
+                assert!(b.contains(&out.sel.anchor) && b.contains(&out.sel.caret));
+                let u = undo(&mut buf, &mut hist).unwrap();
+                assert_eq!(txt(&buf), text);
+                assert_eq!(u.sel, s);
+                check_change(&after, text, u.change.as_ref().unwrap());
+                assert!(!hist.can_undo() && !hist.is_modified());
+                let r = redo(&mut buf, &mut hist).unwrap();
+                assert_eq!(txt(&buf), after);
+                assert_eq!(r.sel, out.sel);
+                assert!(hist.is_modified());
+            }
+        }
+        (after, out)
+    }
+
+    fn dup(text: &str, s: Selection, eol: &str) -> (String, Selection) {
+        let (t, o) = go(text, s, |b, h, s| duplicate_lines(b, h, s, eol));
+        (t, o.sel)
+    }
+
+    fn mv(text: &str, s: Selection, down: bool) -> (String, Selection) {
+        let (t, o) = go(text, s, |b, h, s| move_lines(b, h, s, down, "\n"));
+        (t, o.sel)
+    }
+
+    fn del(text: &str, s: Selection) -> (String, Selection) {
+        let (t, o) = go(text, s, delete_lines);
+        (t, o.sel)
+    }
+
+    fn cmt(text: &str, s: Selection, prefix: &str) -> (String, Selection) {
+        let (t, o) = go(text, s, |b, h, s| toggle_comment(b, h, s, prefix));
+        (t, o.sel)
+    }
+
+    fn case(text: &str, s: Selection, upper: bool) -> (String, Selection) {
+        let (t, o) = go(text, s, |b, h, s| change_case(b, h, s, upper));
+        (t, o.sel)
+    }
+
+    fn trim(text: &str, s: Selection) -> (String, Selection) {
+        let (t, o) = go(text, s, trim_trailing_whitespace);
+        (t, o.sel)
+    }
+
+    fn tabs(text: &str, s: Selection, w: usize) -> (String, Selection) {
+        let (t, o) = go(text, s, |b, h, s| tabs_to_spaces(b, h, s, w));
+        (t, o.sel)
+    }
+
+    // ---- duplicate_lines
+
+    #[test]
+    fn duplicate_plain_and_at_the_ends() {
+        assert_eq!(
+            dup("ab\ncd\nef", Selection::at(4), "\n"),
+            ("ab\ncd\ncd\nef".into(), Selection::at(7))
+        );
+        // First line.
+        assert_eq!(
+            dup("ab\ncd", Selection::at(1), "\n"),
+            ("ab\nab\ncd".into(), Selection::at(4))
+        );
+        // Last line without a break: joined with the given eol.
+        assert_eq!(
+            dup("ab\ncd", Selection::at(4), "\r\n"),
+            ("ab\ncd\r\ncd".into(), Selection::at(8))
+        );
+        // Last line that is empty (text ends with a break).
+        assert_eq!(
+            dup("ab\n", Selection::at(3), "\n"),
+            ("ab\n\n".into(), Selection::at(4))
+        );
+        // Empty buffer.
+        assert_eq!(
+            dup("", Selection::at(0), "\n"),
+            ("\n".into(), Selection::at(1))
+        );
+    }
+
+    #[test]
+    fn duplicate_selections_and_line_endings() {
+        // Ends at column 0 of the next line: that line is not copied. CRLF.
+        assert_eq!(
+            dup("a\r\nb\r\nc", sel(0, 3), "\n"),
+            ("a\r\na\r\nb\r\nc".into(), sel(3, 6))
+        );
+        // Backwards, over two lines.
+        assert_eq!(
+            dup("ab\ncd\nef", sel(5, 1), "\n"),
+            ("ab\ncd\nab\ncd\nef".into(), sel(11, 7))
+        );
+        // Mixed breaks keep their own.
+        assert_eq!(
+            dup("a\rb\r\nc\nd", Selection::at(5), "\n"),
+            ("a\rb\r\nc\nc\nd".into(), Selection::at(7))
+        );
+        // Turkish and CJK, last line without a break.
+        assert_eq!(
+            dup("İstanbul\n漢字かな", Selection::at(13), "\n"),
+            ("İstanbul\n漢字かな\n漢字かな".into(), Selection::at(26))
+        );
+    }
+
+    // ---- move_lines
+
+    #[test]
+    fn move_up_and_down() {
+        assert_eq!(
+            mv("a\nb\nc", Selection::at(2), false),
+            ("b\na\nc".into(), Selection::at(0))
+        );
+        // The last line has no break: it stays without one.
+        assert_eq!(
+            mv("a\nb\nc", Selection::at(2), true),
+            ("a\nc\nb".into(), Selection::at(4))
+        );
+        assert_eq!(
+            mv("a\nb\nc", Selection::at(4), false),
+            ("a\nc\nb".into(), Selection::at(2))
+        );
+        // Edges.
+        assert_eq!(mv("a\nb", Selection::at(0), false).1, Selection::at(0));
+        assert_eq!(mv("a\nb", Selection::at(2), true).1, Selection::at(2));
+        assert_eq!(mv("", Selection::at(0), true).0, "");
+        assert_eq!(mv("", Selection::at(0), false).0, "");
+        // Swapping equal lines changes no byte.
+        let (_, o) = go("a\na\nb", Selection::at(0), |b, h, s| {
+            move_lines(b, h, s, true, "\n")
+        });
+        assert!(o.change.is_none());
+    }
+
+    #[test]
+    fn move_with_mixed_line_endings() {
+        assert_eq!(
+            mv("a\r\nb\nc\rd", Selection::at(3), false),
+            ("b\na\r\nc\rd".into(), Selection::at(0))
+        );
+        assert_eq!(
+            mv("a\r\nb\nc\rd", Selection::at(3), true),
+            ("a\r\nc\rb\nd".into(), Selection::at(5))
+        );
+        // The last line has no break: the one that was last gets the break of the new last.
+        assert_eq!(
+            mv("a\r\nb\nc", Selection::at(4), true),
+            ("a\r\nc\nb".into(), Selection::at(6))
+        );
+        assert_eq!(
+            mv("a\r\nb\nc", Selection::at(5), false),
+            ("a\r\nc\nb".into(), Selection::at(3))
+        );
+        // A trailing empty last line takes part.
+        assert_eq!(mv("a\n", Selection::at(0), true).0, "\na");
+    }
+
+    #[test]
+    fn move_selections_in_both_directions() {
+        // Ends at column 0 of the next line: that line stays put and the end moves with the block.
+        assert_eq!(
+            mv("a\nb\nc\nd", sel(0, 4), true),
+            ("c\na\nb\nd".into(), sel(2, 6))
+        );
+        assert_eq!(
+            mv("a\nb\nc\nd", sel(4, 0), true),
+            ("c\na\nb\nd".into(), sel(6, 2))
+        );
+        // A block reaching the last line, moving up.
+        assert_eq!(
+            mv("a\nb\nc", sel(2, 5), false),
+            ("b\nc\na".into(), sel(0, 3))
+        );
+        assert_eq!(
+            mv("a\nb\nc", sel(5, 2), false),
+            ("b\nc\na".into(), sel(3, 0))
+        );
+        // The block moving up over a CRLF line.
+        assert_eq!(
+            mv("x\r\ny\nz\n", sel(3, 6), false),
+            ("y\nz\nx\r\n".into(), sel(0, 3))
+        );
+    }
+
+    #[test]
+    fn move_turkish_and_cjk() {
+        assert_eq!(
+            mv("çay\n漢字\nşeker", Selection::at(8), true),
+            ("çay\nşeker\n漢字".into(), Selection::at(15))
+        );
+        assert_eq!(
+            mv("çay\n漢字\nşeker", Selection::at(8), false),
+            ("漢字\nçay\nşeker".into(), Selection::at(3))
+        );
+    }
+
+    // ---- delete_lines
+
+    #[test]
+    fn delete_plain_and_at_the_ends() {
+        assert_eq!(
+            del("a\nb\nc", Selection::at(2)),
+            ("a\nc".into(), Selection::at(2))
+        );
+        assert_eq!(
+            del("a\nb\nc", Selection::at(0)),
+            ("b\nc".into(), Selection::at(0))
+        );
+        // Last line without a break: the break before it goes too.
+        assert_eq!(
+            del("a\nb\nc", Selection::at(4)),
+            ("a\nb".into(), Selection::at(2))
+        );
+        assert_eq!(
+            del("a\r\nb", Selection::at(4)),
+            ("a".into(), Selection::at(1))
+        );
+        // The empty last line.
+        assert_eq!(del("a\n", Selection::at(2)), ("a".into(), Selection::at(0)));
+        // The only line.
+        assert_eq!(del("abc", Selection::at(2)), ("".into(), Selection::at(0)));
+        // Empty buffer: nothing.
+        assert_eq!(del("", Selection::at(0)), ("".into(), Selection::at(0)));
+    }
+
+    #[test]
+    fn delete_columns_and_selections() {
+        // Column clamped to the line that takes the place.
+        assert_eq!(
+            del("abc\nd\nefgh", Selection::at(2)),
+            ("d\nefgh".into(), Selection::at(1))
+        );
+        // Both directions, ending at column 0: that line stays.
+        assert_eq!(
+            del("a\nb\nc\nd", sel(0, 4)),
+            ("c\nd".into(), Selection::at(0))
+        );
+        assert_eq!(
+            del("a\nb\nc\nd", sel(4, 0)),
+            ("c\nd".into(), Selection::at(0))
+        );
+        assert_eq!(del("a\nb\nc\nd", sel(1, 5)), ("d".into(), Selection::at(1)));
+        // CRLF and mixed.
+        assert_eq!(
+            del("a\r\nb\rc\nd", Selection::at(3)),
+            ("a\r\nc\nd".into(), Selection::at(3))
+        );
+    }
+
+    #[test]
+    fn delete_turkish_and_cjk() {
+        assert_eq!(
+            del("çay\n漢字\nşeker", Selection::at(8)),
+            ("çay\nşeker".into(), Selection::at(8))
+        );
+        // A column inside a character goes to its start.
+        assert_eq!(
+            del("ab\nşş", Selection::at(1)),
+            ("şş".into(), Selection::at(0))
+        );
+        assert_eq!(
+            del("abc\n漢字", Selection::at(4 + 3)),
+            ("abc".into(), Selection::at(3))
+        );
+    }
+
+    // ---- toggle_comment
+
+    #[test]
+    fn comment_and_uncomment() {
+        let (t, s) = cmt("foo\nbar", sel(0, 7), "//");
+        assert_eq!((t.as_str(), s), ("// foo\n// bar", sel(0, 13)));
+        let (t, s) = cmt(&t, s, "//");
+        assert_eq!((t.as_str(), s), ("foo\nbar", sel(0, 7)));
+        // Without the space, with two spaces.
+        assert_eq!(cmt("//a\n//b", sel(0, 7), "//").0, "a\nb");
+        assert_eq!(cmt("//  a", Selection::at(0), "//").0, " a");
+        // Some lines commented, some not: all get it.
+        assert_eq!(cmt("// a\nb", sel(0, 6), "//").0, "// // a\n// b");
+    }
+
+    #[test]
+    fn comment_uses_the_smallest_indent_and_skips_blank_lines() {
+        assert_eq!(
+            cmt("    a\n  b\n\n\tc", sel(0, 13), "#").0,
+            " #    a\n #  b\n\n\t# c"
+        );
+        // Blank lines do not stop uncommenting.
+        assert_eq!(cmt("  # a\n\n  # b", sel(0, 12), "#").0, "  a\n\n  b");
+    }
+
+    #[test]
+    fn comment_all_blank_and_empty() {
+        assert_eq!(
+            cmt("  \n\n", Selection::at(1), "#"),
+            ("  # \n\n".into(), Selection::at(1))
+        );
+        assert_eq!(
+            cmt("  \n\n", Selection::at(2), "#"),
+            ("  # \n\n".into(), Selection::at(4))
+        );
+        assert_eq!(
+            cmt("", Selection::at(0), "#"),
+            ("# ".into(), Selection::at(2))
+        );
+        // Several blank lines: the caret's line.
+        assert_eq!(cmt("\n\n\n", sel(0, 2), "//").0, "\n// \n\n");
+        assert_eq!(cmt("a", Selection::at(0), "").0, "a");
+    }
+
+    #[test]
+    fn comment_selection_ends() {
+        // Backwards, ending at column 0 of the third line.
+        assert_eq!(
+            cmt("a\nb\nc", sel(4, 0), "#"),
+            ("# a\n# b\nc".into(), sel(8, 0))
+        );
+        // The caret in the middle of a line, removal and insertion.
+        assert_eq!(
+            cmt("ab", Selection::at(1), "#"),
+            ("# ab".into(), Selection::at(3))
+        );
+        assert_eq!(
+            cmt("# ab", Selection::at(3), "#"),
+            ("ab".into(), Selection::at(1))
+        );
+        // An end inside the removed prefix goes to its start.
+        assert_eq!(
+            cmt("// ab", Selection::at(2), "//"),
+            ("ab".into(), Selection::at(0))
+        );
+        assert_eq!(cmt("a\r\nb", sel(0, 4), "#").0, "# a\r\n# b");
+    }
+
+    #[test]
+    fn comment_turkish_and_cjk() {
+        assert_eq!(cmt("çay\n漢字", sel(0, 11), "//").0, "// çay\n// 漢字");
+        assert_eq!(cmt("※ 漢字\n※漢", sel(0, 17), "※").0, "漢字\n漢");
+        assert_eq!(cmt("ışık", Selection::at(2), "※").0, "※ ışık");
+    }
+
+    // ---- change_case
+
+    #[test]
+    fn case_plain_and_directions() {
+        assert_eq!(
+            case("straße x", sel(0, 7), true),
+            ("STRASSE x".into(), sel(0, 7))
+        );
+        assert_eq!(
+            case("straße x", sel(7, 0), true),
+            ("STRASSE x".into(), sel(7, 0))
+        );
+        assert_eq!(case("Hello World", sel(3, 8), false).0, "Hello world");
+        assert_eq!(case("Hello", sel(0, 5), true).0, "HELLO");
+    }
+
+    #[test]
+    fn case_nothing_cases() {
+        for (t, s) in [
+            ("", Selection::at(0)),
+            ("abc", Selection::at(1)),
+            ("123 漢字", sel(0, 8)),
+            ("ABC", sel(0, 3)),
+        ] {
+            let (_, o) = go(t, s, |b, h, s| change_case(b, h, s, true));
+            assert!(o.change.is_none(), "{t:?}");
+        }
+        let (_, o) = go("abc", sel(0, 3), |b, h, s| change_case(b, h, s, true));
+        assert!(o.change.is_some());
+    }
+
+    #[test]
+    fn case_turkish_and_cjk() {
+        assert_eq!(case("ığ iş", sel(0, 8), true).0, "IĞ IŞ");
+        assert_eq!(case("İSTANBUL", sel(0, 9), false).0, "i\u{307}stanbul");
+        assert_eq!(case("ΟΔΥΣΣΕΥΣ", sel(0, 16), false).0, "οδυσσευς");
+        let (t, s) = case("漢字 ǆ カナ", sel(0, 16), true);
+        assert_eq!(t, "漢字 Ǆ カナ");
+        assert_eq!(s, sel(0, t.len()));
+    }
+
+    #[test]
+    fn case_over_a_megabyte_is_one_step() {
+        let unit = "straße ΑΣ ǆ ığ\n";
+        let text = unit.repeat(150_000);
+        assert!(text.len() > 3 << 20);
+        for upper in [true, false] {
+            let want = if upper {
+                text.to_uppercase()
+            } else {
+                text.to_lowercase()
+            };
+            let (t, s) = case(&text, sel(0, text.len()), upper);
+            assert!(t == want);
+            assert_eq!(s, sel(0, want.len()));
+        }
+    }
+
+    // ---- trim_trailing_whitespace
+
+    #[test]
+    fn trim_plain_and_mixed_breaks() {
+        assert_eq!(
+            trim("a  \nb\t \r\n  \nc \rd  ", Selection::at(0)).0,
+            "a\nb\r\n\nc\rd"
+        );
+        assert_eq!(trim("x \t", Selection::at(0)).0, "x");
+        assert_eq!(trim("a \n", Selection::at(0)).0, "a\n");
+        // Nothing to trim, empty buffer; an ideographic space is not a space or tab.
+        for t in ["", "a\nb", "漢　\n"] {
+            let (_, o) = go(t, Selection::at(0), trim_trailing_whitespace);
+            assert!(o.change.is_none(), "{t:?}");
+        }
+        assert_eq!(
+            trim("çay  \nşeker\t\n漢字 ", Selection::at(0)).0,
+            "çay\nşeker\n漢字"
+        );
+    }
+
+    #[test]
+    fn trim_selection_ends() {
+        assert_eq!(trim("ab  \ncd", sel(3, 6)), ("ab\ncd".into(), sel(2, 4)));
+        assert_eq!(trim("ab  \ncd", sel(6, 3)), ("ab\ncd".into(), sel(4, 2)));
+        assert_eq!(trim("ab  \ncd", sel(4, 4)), ("ab\ncd".into(), sel(2, 2)));
+        assert_eq!(trim("a \n b \n", sel(0, 7)), ("a\n b\n".into(), sel(0, 5)));
+    }
+
+    // ---- tabs_to_spaces
+
+    #[test]
+    fn tabs_plain_and_widths() {
+        assert_eq!(tabs("\ta\tb", Selection::at(0), 4).0, "    a   b");
+        assert_eq!(tabs("\ta\tb", sel(1, 3), 4).1, sel(4, 8));
+        assert_eq!(tabs("\ta\tb", Selection::at(0), 8).0, "        a       b");
+        assert_eq!(tabs("a\tb", Selection::at(0), 1).0, "a b");
+        assert_eq!(tabs("a\tb", Selection::at(0), 0).0, "a b");
+        // Each line counts from its own start, for any break.
+        assert_eq!(
+            tabs("ab\t\r\n\tc\n\t\rx\ty", Selection::at(0), 4).0,
+            "ab  \r\n    c\n    \rx   y"
+        );
+        for t in ["", "a b\nc"] {
+            let (_, o) = go(t, Selection::at(0), |b, h, s| tabs_to_spaces(b, h, s, 4));
+            assert!(o.change.is_none());
+        }
+    }
+
+    #[test]
+    fn tabs_count_characters_as_the_display_does() {
+        // A wide character and a combining mark count one column each.
+        assert_eq!(tabs("漢\tx", Selection::at(0), 4).0, "漢   x");
+        assert_eq!(tabs("e\u{301}\tx", Selection::at(0), 4).0, "e\u{301}  x");
+        assert_eq!(tabs("ş\tx\n\tİ", Selection::at(0), 4).0, "ş   x\n    İ");
+        assert_eq!(tabs("\t漢字", sel(1, 7), 4).1, sel(4, 10));
+    }
+
+    #[test]
+    fn tabs_in_a_line_longer_than_a_batch() {
+        let n = TAB_BATCH * 2 + 123;
+        let text = format!("a{}x{}\n\tb", "\t".repeat(n), "\t".repeat(n));
+        let want = model::tabs(&text, 0, 0, 4).unwrap().0;
+        let (t, s) = tabs(&text, sel(5, text.len() - 1), 4);
+        assert!(t == want);
+        assert_eq!(s, sel(16, want.len() - 1));
+    }
+
+    // ---- the reference model: the commands on a plain String
+
+    mod model {
+        use super::*;
+
+        /// The new text and selection, `None` when the command does nothing.
+        pub type Res = Option<(String, usize, usize)>;
+
+        pub fn bounds(t: &str) -> Vec<usize> {
+            grapheme_bounds(t)
+        }
+
+        pub fn snap(t: &str, p: usize) -> usize {
+            *bounds(t).iter().rev().find(|&&b| b <= p).unwrap()
+        }
+
+        pub fn prev_b(t: &str, p: usize) -> usize {
+            bounds(t)
+                .iter()
+                .rev()
+                .find(|&&b| b < p)
+                .copied()
+                .unwrap_or(0)
+        }
+
+        /// (content, break) of each line.
+        pub fn pairs(t: &str) -> Vec<(String, String)> {
+            lines_of(t)
+                .into_iter()
+                .map(|l| {
+                    let n = if l.ends_with("\r\n") {
+                        2
+                    } else if l.ends_with(['\r', '\n']) {
+                        1
+                    } else {
+                        0
+                    };
+                    (l[..l.len() - n].to_string(), l[l.len() - n..].to_string())
+                })
+                .collect()
+        }
+
+        pub fn join(p: &[(String, String)]) -> String {
+            p.iter().map(|(c, b)| format!("{c}{b}")).collect()
+        }
+
+        /// Where each line starts, and the text's length last.
+        pub fn starts(p: &[(String, String)]) -> Vec<usize> {
+            let mut at = 0;
+            let mut v: Vec<usize> = p
+                .iter()
+                .map(|(c, b)| {
+                    let s = at;
+                    at += c.len() + b.len();
+                    s
+                })
+                .collect();
+            v.push(at);
+            v
+        }
+
+        /// The line holding `p`, and the column in it.
+        pub fn locate(st: &[usize], p: usize) -> (usize, usize) {
+            let n = st.len() - 1;
+            let li = (0..n).rev().find(|&i| st[i] <= p).unwrap();
+            (li, p - st[li])
+        }
+
+        /// The first and last touched line, and whether the end is a trailing column-0 end.
+        pub fn touched(st: &[usize], a: usize, c: usize) -> (usize, usize, bool) {
+            let (lo, hi) = (a.min(c), a.max(c));
+            let first = locate(st, lo).0;
+            let mut last = locate(st, hi).0;
+            let mut trailing = false;
+            if last > first && hi == st[last] {
+                last -= 1;
+                trailing = true;
+            }
+            (first, last, trailing)
+        }
+
+        fn done(p: &[(String, String)], a: usize, c: usize) -> (String, usize, usize) {
+            let t = join(p);
+            let (a, c) = (snap(&t, a), snap(&t, c));
+            (t, a, c)
+        }
+
+        pub fn duplicate(t: &str, a: usize, c: usize, eol: &str) -> Res {
+            let p = pairs(t);
+            let st = starts(&p);
+            let (f, l, _) = touched(&st, a, c);
+            let mut d = st[l + 1] - st[f];
+            let mut np = p[..=l].to_vec();
+            if p[l].1.is_empty() {
+                np[l].1 = eol.to_string();
+                d += eol.len();
+            }
+            np.extend(p[f..=l].iter().cloned());
+            np.extend(p[l + 1..].iter().cloned());
+            Some(done(&np, a + d, c + d))
+        }
+
+        pub fn move_lines(t: &str, a: usize, c: usize, down: bool) -> Res {
+            let p = pairs(t);
+            let n = p.len();
+            let st = starts(&p);
+            let (f, l, trailing) = touched(&st, a, c);
+            if (down && l + 1 >= n) || (!down && f == 0) {
+                return None;
+            }
+            // Items: (old index, content, break).
+            let mut items: Vec<(usize, String, String)> = p
+                .iter()
+                .enumerate()
+                .map(|(i, (x, b))| (i, x.clone(), b.clone()))
+                .collect();
+            let nf = if down {
+                let x = items.remove(l + 1);
+                items.insert(f, x);
+                f + 1
+            } else {
+                let x = items.remove(f - 1);
+                items.insert(l, x);
+                f - 1
+            };
+            // The line that had no break (the last) gets the break of the new last line.
+            if p[n - 1].1.is_empty() {
+                let zi = items.iter().position(|x| x.0 == n - 1).unwrap();
+                if zi != n - 1 {
+                    let br = items[n - 1].2.clone();
+                    items[zi].2 = br;
+                    items[n - 1].2 = String::new();
+                }
+            }
+            let np: Vec<(String, String)> =
+                items.iter().map(|x| (x.1.clone(), x.2.clone())).collect();
+            let text = join(&np);
+            if text == t {
+                return None;
+            }
+            let nst = starts(&np);
+            let map = |q: usize| {
+                if trailing && q == a.max(c) {
+                    return nst[nf + (l - f + 1)];
+                }
+                let (li, col) = locate(&st, q);
+                let ni = items.iter().position(|x| x.0 == li).unwrap();
+                nst[ni] + col.min(p[li].0.len())
+            };
+            let (na, nc) = (map(a), map(c));
+            Some((text.clone(), snap(&text, na), snap(&text, nc)))
+        }
+
+        pub fn delete_lines(t: &str, a: usize, c: usize) -> Res {
+            let mut p = pairs(t);
+            let st = starts(&p);
+            let (f, l, _) = touched(&st, a, c);
+            let (_, col) = locate(&st, c);
+            let last_no_break = l == p.len() - 1 && p[l].1.is_empty();
+            p.drain(f..=l);
+            if last_no_break && f > 0 {
+                p[f - 1].1 = String::new();
+            }
+            let text = join(&p);
+            if text == t {
+                return None;
+            }
+            let pos = if p.is_empty() {
+                0
+            } else {
+                let nst = starts(&p);
+                let ti = f.min(p.len() - 1);
+                nst[ti] + col.min(p[ti].0.len())
+            };
+            let pos = snap(&text, pos);
+            Some((text, pos, pos))
+        }
+
+        pub fn toggle_comment(t: &str, a: usize, c: usize, prefix: &str) -> Res {
+            if prefix.is_empty() {
+                return None;
+            }
+            let p = pairs(t);
+            let st = starts(&p);
+            let (f, l, _) = touched(&st, a, c);
+            let indent = |s: &str| s.len() - s.trim_start_matches([' ', '\t']).len();
+            let solid: Vec<usize> = (f..=l)
+                .filter(|&i| indent(&p[i].0) < p[i].0.len())
+                .collect();
+            // Per line: (column, bytes removed); an insertion removes 0.
+            let mut edit: Vec<Option<(usize, usize)>> = vec![None; p.len()];
+            let mut stay = true;
+            if solid.is_empty() {
+                let (cl, _) = locate(&st, c);
+                let i = cl.clamp(f, l);
+                edit[i] = Some((indent(&p[i].0), 0));
+                stay = false;
+            } else if solid
+                .iter()
+                .all(|&i| p[i].0[indent(&p[i].0)..].starts_with(prefix))
+            {
+                for &i in &solid {
+                    let at = indent(&p[i].0);
+                    let space = p[i].0[at + prefix.len()..].starts_with(' ');
+                    edit[i] = Some((at, prefix.len() + usize::from(space)));
+                }
+            } else {
+                let col = solid.iter().map(|&i| indent(&p[i].0)).min().unwrap();
+                for &i in &solid {
+                    edit[i] = Some((col, 0));
+                }
+            }
+            let ins = format!("{prefix} ");
+            let mut np = p.clone();
+            for (i, e) in edit.iter().enumerate() {
+                if let Some((col, rem)) = *e {
+                    np[i]
+                        .0
+                        .replace_range(col..col + rem, if rem == 0 { &ins } else { "" });
+                }
+            }
+            let nst = starts(&np);
+            let map = |q: usize| {
+                let (li, col) = locate(&st, q);
+                let mut nc = col;
+                if let Some((e, rem)) = edit[li] {
+                    if rem == 0 {
+                        if col > e || (col == e && !stay) {
+                            nc += ins.len();
+                        }
+                    } else if col >= e + rem {
+                        nc -= rem;
+                    } else if col > e {
+                        nc = e;
+                    }
+                }
+                nst[li] + nc
+            };
+            let (na, nc) = (map(a), map(c));
+            Some(done(&np, na, nc))
+        }
+
+        pub fn change_case(t: &str, a: usize, c: usize, upper: bool) -> Res {
+            let (lo, hi) = (a.min(c), a.max(c));
+            if lo == hi {
+                return None;
+            }
+            let part = &t[lo..hi];
+            let conv = if upper {
+                part.to_uppercase()
+            } else {
+                part.to_lowercase()
+            };
+            if conv == part {
+                return None;
+            }
+            let mut text = t.to_string();
+            text.replace_range(lo..hi, &conv);
+            let end = lo + conv.len();
+            let (na, nc) = if a <= c { (lo, end) } else { (end, lo) };
+            Some((text.clone(), snap(&text, na), snap(&text, nc)))
+        }
+
+        pub fn trim(t: &str, a: usize, c: usize) -> Res {
+            let p = pairs(t);
+            let st = starts(&p);
+            let np: Vec<_> = p
+                .iter()
+                .map(|(x, b)| (x.trim_end_matches([' ', '\t']).to_string(), b.clone()))
+                .collect();
+            let text = join(&np);
+            if text == t {
+                return None;
+            }
+            let nst = starts(&np);
+            let map = |q: usize| {
+                let (li, col) = locate(&st, q);
+                nst[li] + col.min(np[li].0.len())
+            };
+            let (na, nc) = (map(a), map(c));
+            Some((text.clone(), snap(&text, na), snap(&text, nc)))
+        }
+
+        pub fn tabs(t: &str, a: usize, c: usize, w: usize) -> Res {
+            let w = w.max(1);
+            let p = pairs(t);
+            let st = starts(&p);
+            let expand = |s: &str| {
+                let mut out = String::new();
+                let mut col = 0;
+                for ch in s.chars() {
+                    if ch == '\t' {
+                        let n = w - col % w;
+                        out.push_str(&" ".repeat(n));
+                        col += n;
+                    } else {
+                        out.push(ch);
+                        col += 1;
+                    }
+                }
+                out
+            };
+            let np: Vec<_> = p.iter().map(|(x, b)| (expand(x), b.clone())).collect();
+            let text = join(&np);
+            if text == t {
+                return None;
+            }
+            let nst = starts(&np);
+            let map = |q: usize| {
+                let (li, col) = locate(&st, q);
+                nst[li] + expand(&p[li].0[..col.min(p[li].0.len())]).len()
+            };
+            let (na, nc) = (map(a), map(c));
+            Some((text.clone(), snap(&text, na), snap(&text, nc)))
+        }
+    }
+
+    // ---- the scripted run
+
+    const CHARS: [&str; 20] = [
+        "a",
+        "b",
+        " ",
+        " ",
+        "é",
+        "İ",
+        "ı",
+        "漢",
+        "\t",
+        "\t",
+        "\u{301}",
+        "👨‍👩‍👧",
+        "\r",
+        "\n",
+        "\n",
+        "e",
+        "#",
+        "/",
+        "Σ",
+        "ş",
+    ];
+    const STRINGS: [&str; 9] = [
+        "foo bar",
+        "\r\n",
+        "hello\nworld\r",
+        "  x  ",
+        "// ğüş iöç\n",
+        "a\r\nb  \r\nc",
+        "日本語\tテキスト",
+        "\t\ttabbed \n\t",
+        "# comment\n",
+    ];
+    const EOLS: [&str; 3] = ["\n", "\r\n", "\r"];
+    const PREFIXES: [&str; 4] = ["//", "#", "※", "--"];
+    const START: &str = "Merhaba dünya!\r\nİstanbul ışık ğüşöç  \n\tindented line\rçalışma\r\n  two spaces  \n\
+        漢字かな交じり文\n// 👨‍👩‍👧 family e\u{301}\n\n   \nlast line, no break";
+
+    fn random_sel(rng: &mut Rng, text: &str, near: usize) -> Selection {
+        let b = model::bounds(text);
+        let i = if rng.chance(50) {
+            let c = b.iter().position(|&x| x >= near).unwrap_or(b.len() - 1);
+            (c + rng.below(7)).saturating_sub(3).min(b.len() - 1)
+        } else {
+            rng.below(b.len())
+        };
+        let j = match rng.below(40) {
+            0..=11 => i,
+            12..=33 => (i + rng.below(60)).saturating_sub(30).min(b.len() - 1),
+            _ => rng.below(b.len()),
+        };
+        sel(b[j], b[i])
+    }
+
+    fn scripted(seed: u64, copies: usize, ops: usize) {
+        let mut rng = Rng::new(seed);
+        let original = START.repeat(copies);
+        let mut buf = Buffer::from_text(&original);
+        let mut hist = History::new();
+        let mut counts = EolCounts::of(&original);
+        let mut s = Selection::at(0);
+        let mut commands = 0usize;
+        for op in 0..ops {
+            let before = txt(&buf);
+            if rng.chance(20) {
+                s = random_sel(&mut rng, &before, s.caret);
+            }
+            let (a, c) = (s.anchor, s.caret);
+            let steps = hist.steps();
+            let pick = if before.len() > 12_000 {
+                60 + rng.below(8)
+            } else if before.len() < 300 {
+                rng.below(20)
+            } else {
+                rng.below(100)
+            };
+            let small = before.len() < 300;
+            let (name, out, want, other): (String, Outcome, model::Res, bool) = match pick {
+                0..=19 => {
+                    let t: String = if rng.chance(30) {
+                        (*rng.pick(&STRINGS)).to_string()
+                    } else if small {
+                        (0..100 + rng.below(200))
+                            .map(|_| *rng.pick(&CHARS))
+                            .collect()
+                    } else {
+                        (*rng.pick(&CHARS)).to_string()
+                    };
+                    let (lo, hi) = (a.min(c), a.max(c));
+                    let mut m = before.clone();
+                    m.replace_range(lo..hi, &t);
+                    let w = (!(lo == hi && t.is_empty())).then(|| {
+                        let p = model::snap(&m, lo + t.len());
+                        (m, p, p)
+                    });
+                    (
+                        format!("insert {t:?}"),
+                        insert(&mut buf, &mut hist, s, &t),
+                        w,
+                        false,
+                    )
+                }
+                20..=29 => {
+                    let w = if a != c {
+                        let mut m = before.clone();
+                        m.replace_range(a.min(c)..a.max(c), "");
+                        let p = model::snap(&m, a.min(c));
+                        Some((m, p, p))
+                    } else {
+                        let pb = model::prev_b(&before, c);
+                        (pb != c).then(|| {
+                            let mut m = before.clone();
+                            m.replace_range(pb..c, "");
+                            let p = model::snap(&m, pb);
+                            (m, p, p)
+                        })
+                    };
+                    (
+                        "backspace".into(),
+                        backspace(&mut buf, &mut hist, s),
+                        w,
+                        false,
+                    )
+                }
+                30..=36 => {
+                    let eol = *rng.pick(&EOLS);
+                    (
+                        format!("duplicate {eol:?}"),
+                        duplicate_lines(&mut buf, &mut hist, s, eol),
+                        model::duplicate(&before, a, c, eol),
+                        true,
+                    )
+                }
+                37..=46 => {
+                    let down = rng.chance(50);
+                    (
+                        format!("move down={down}"),
+                        move_lines(&mut buf, &mut hist, s, down, "\n"),
+                        model::move_lines(&before, a, c, down),
+                        true,
+                    )
+                }
+                47..=54 | 60..=67 => (
+                    "delete lines".into(),
+                    delete_lines(&mut buf, &mut hist, s),
+                    model::delete_lines(&before, a, c),
+                    true,
+                ),
+                55..=59 | 68..=74 => {
+                    let p = *rng.pick(&PREFIXES);
+                    (
+                        format!("comment {p:?}"),
+                        toggle_comment(&mut buf, &mut hist, s, p),
+                        model::toggle_comment(&before, a, c, p),
+                        true,
+                    )
+                }
+                75..=84 => {
+                    let upper = rng.chance(50);
+                    (
+                        format!("case upper={upper}"),
+                        change_case(&mut buf, &mut hist, s, upper),
+                        model::change_case(&before, a, c, upper),
+                        true,
+                    )
+                }
+                85..=91 => (
+                    "trim".into(),
+                    trim_trailing_whitespace(&mut buf, &mut hist, s),
+                    model::trim(&before, a, c),
+                    true,
+                ),
+                _ => {
+                    let w = 1 + rng.below(8);
+                    (
+                        format!("tabs {w}"),
+                        tabs_to_spaces(&mut buf, &mut hist, s, w),
+                        model::tabs(&before, a, c, w),
+                        true,
+                    )
+                }
+            };
+            let after = txt(&buf);
+            let ctx = format!("op {op} {name} sel {s:?} on {before:?}");
+            match want {
+                None => {
+                    assert_eq!(after, before, "{ctx}");
+                    assert!(out.change.is_none(), "{ctx}");
+                    assert_eq!(out.sel, s, "{ctx}");
+                    assert_eq!(hist.steps(), steps, "{ctx}");
+                }
+                Some((text, wa, wc)) => {
+                    assert_eq!(after, text, "{ctx}");
+                    assert_eq!((out.sel.anchor, out.sel.caret), (wa, wc), "{ctx}");
+                    assert_eq!(out.sel.goal_col, None, "{ctx}");
+                    let ch = out.change.as_ref().expect(&ctx);
+                    check_change(&before, &after, ch);
+                    check_eols(&mut counts, &after, ch);
+                    assert_eq!(buf.len_lines(), lines_of(&after).len(), "{ctx}");
+                    if other {
+                        commands += 1;
+                        assert_eq!(hist.steps(), (steps.0 + 1, 0), "{ctx}");
+                        if rng.chance(15) {
+                            // Undo restores text and selection exactly; redo reapplies.
+                            let u = undo(&mut buf, &mut hist).unwrap();
+                            assert_eq!(txt(&buf), before, "{ctx}");
+                            assert_eq!(u.sel, s, "{ctx}");
+                            check_change(&after, &before, u.change.as_ref().unwrap());
+                            check_eols(&mut counts, &before, u.change.as_ref().unwrap());
+                            let r = redo(&mut buf, &mut hist).unwrap();
+                            assert_eq!(txt(&buf), after, "{ctx}");
+                            assert_eq!(r.sel, out.sel, "{ctx}");
+                            check_change(&before, &after, r.change.as_ref().unwrap());
+                            check_eols(&mut counts, &after, r.change.as_ref().unwrap());
+                        }
+                    }
+                    s = out.sel;
+                }
+            }
+            assert_eq!(counts, EolCounts::of(&after), "{ctx}");
+        }
+        assert!(commands > ops / 4, "seed {seed}: only {commands} commands");
+        let last = txt(&buf);
+        while undo(&mut buf, &mut hist).is_some() {}
+        assert_eq!(txt(&buf), original, "seed {seed}");
+        assert!(!hist.is_modified());
+        while redo(&mut buf, &mut hist).is_some() {}
+        assert_eq!(txt(&buf), last, "seed {seed}");
+    }
+
+    #[test]
+    fn scripted_run_matches_the_reference_model() {
+        scripted(1, 4, 6_000);
+        scripted(2, 4, 3_000);
+        scripted(3, 1, 3_000);
+        scripted(4, 8, 3_000);
+    }
+
+    // ---- speed
+
+    /// Prints the time of the two whole-document commands on about 100 MB where every line
+    /// changes.
+    #[test]
+    #[ignore]
+    fn timing_whole_document_commands() {
+        use std::time::Instant;
+        let mut text = String::with_capacity(101 << 20);
+        let mut i = 0;
+        while text.len() < 100 << 20 {
+            text.push_str(&format!("\tline {i} ğüşiöç 漢字 \t \r\n"));
+            i += 1;
+        }
+        let mut buf = Buffer::from_text(&text);
+        let lines = buf.len_lines();
+        drop(text);
+        let mut hist = History::new();
+        let t = Instant::now();
+        let o = trim_trailing_whitespace(&mut buf, &mut hist, Selection::at(0));
+        println!("trim: {lines} lines in {:?}", t.elapsed());
+        assert!(o.change.is_some());
+        let t = Instant::now();
+        let o = tabs_to_spaces(&mut buf, &mut hist, Selection::at(0), 4);
+        println!("tabs: {lines} lines in {:?}", t.elapsed());
+        assert!(o.change.is_some());
+        let t = Instant::now();
+        undo(&mut buf, &mut hist);
+        undo(&mut buf, &mut hist);
+        println!("two undos in {:?}", t.elapsed());
+    }
+}

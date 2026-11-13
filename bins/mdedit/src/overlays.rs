@@ -117,6 +117,10 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         .is_some_and(|r| !r.sel.range().is_empty());
     let ready = docs.active_ready().is_some();
     let history = docs.active_ready().map(|r| &r.history);
+    let has_comment = docs
+        .active_ready()
+        .and_then(|r| r.language)
+        .is_some_and(|l| l.line_comment().is_some());
     let items = vec![
         cmd(C::Undo, "Undo", "").enabled(history.is_some_and(|h| h.can_undo())),
         cmd(C::Redo, "Redo", "").enabled(history.is_some_and(|h| h.can_redo())),
@@ -130,6 +134,17 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
             .enabled(ready),
+        cmd(C::DuplicateLine, "Duplicate line", "")
+            .sep()
+            .enabled(ready),
+        cmd(C::DeleteLine, "Delete line", "").enabled(ready),
+        cmd(C::ToggleComment, "Toggle comment", "").enabled(has_comment),
+        cmd(C::UpperCase, "UPPERCASE", "").enabled(has_selection),
+        cmd(C::LowerCase, "lowercase", "").enabled(has_selection),
+        cmd(C::TrimTrailing, "Trim trailing spaces", "")
+            .sep()
+            .enabled(ready),
+        cmd(C::TabsToSpaces, "Tabs to spaces", "").enabled(ready),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD),
     ];
