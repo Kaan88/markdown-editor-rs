@@ -210,7 +210,7 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 404 passed on 2026-11-13
+cargo test --release --workspace        # 516 passed on 2026-11-14
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 bash tests/shots.sh target/shots/a      # 72 PNGs, deterministic; first run generates target/data
@@ -237,6 +237,58 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Gaps closed: icons, chevrons, split, macros, find memory, title row (2026-11-14, still 0.4.1, not published)
+
+Done on one machine (CachyOS, Wayland), nothing run on Windows, nothing driven by hand: only
+tests, `--shot`, and `--trace --exit-after-ms`. Merges first: `3daf35d` (core-edit) and `b4f26e7`
+(core-files, with the core's `fuzzy.rs` removed). Shared pin `d6e6cf1`.
+
+- **Icons**: every menu item has its glyph, the replace strip's toggles are icons, shots for the
+  menus that had none (`--menu` names added; see `tests/shots.sh`). DESIGN 11.
+- **Fold chevrons** (DESIGN 37): `10f8d25`. Unit tests for the hit cell and the click.
+- **Split view** (DESIGN 38): divider, ratio/side/file in the session, unfocused-pane click,
+  scrollbars, Shift+wheel, tab underline. `f579149`.
+- **Macros** (DESIGN 39): `macros.txt`, named, bounded. `1d65863`.
+- **Find memory and replace in the selection** (DESIGN 40, 41): `c44cdf8`.
+- **Title row** (DESIGN 42): `a65b61e`.
+
+**Same file in both panes: what would have to move.** Not built (the owner said leave it). The
+caret and selection (`sel`, `extra`), scroll (`top`, `top_row`, `left`), folds (`folds`), find marks
+current (`find.current`) and the colours (`colors`, `map_colors`, keyed in the highlight service
+by `DocId`, with `peek` for the second pane) are fields of `docs.rs` `Ready`. A second view of the
+same document would need these in a per-view struct (one per pane), with the buffer, history and
+find matches staying in `Ready`; the highlight service would be keyed by (document, view), the
+minimap plan already is per pane (`map_lines`, `map_plan`), and `Region::Other` would draw a view,
+not a tab. `Docs::other` is a tab index today; it would become a view of any tab.
+
+**Decisions made without the owner**
+- Fold chevrons: hit area is the right 24 px of the gutter row, not the whole gutter.
+- Up/Down in find and replace boxes take the history only when it is not empty (DESIGN 40).
+- "In selection" is on by default only when the selection spans more than one line; the match
+  counter still counts the whole file; the toggle shows only while a range is kept.
+- Macros: playing a saved one makes it the "last" one that the play keys run.
+- Title row: deferred drag off Windows only; the 4 px slop is a guess.
+- Second pane's tab marker: a 2 px muted underline, chosen to stay quieter than the active tab.
+
+**Measured on Linux (window shown, `sample.rs`, 10 interleaved runs each)**: before 70 to 92 ms
+(median about 82), after 68 to 86 (median about 80), so no change; private memory 20.6 to 20.8 MiB
+before and after; keystroke p50 0.52 ms before, 0.49 after; scroll step p50 0.44 ms both. The exe
+grew 11,409,136 to 11,476,832 bytes (this Linux build, all of the work above). Macro and find
+history loading: macros are read on first use; the session's histories are 40 short strings. A
+launch with a session holding full histories was not timed.
+
+**Checks run**: `cargo test --release --workspace` 516 passed (404 at the start of the work),
+clippy `-D warnings` and `fmt --check` clean; `tests/shots.sh`: every shot without a menu, a
+replace strip, fold, minimap-fold or split was byte-identical to before each part; new shots were
+looked at one by one.
+
+**Not run**: anything interactive. Not run by hand or seen: dragging the divider, the clicks in the
+second pane, the fold chevron hover and click, Up/Down in the boxes, the in-selection toggle with
+the mouse, the macro prompt and dialog, the title row double click on Wayland (it needs the
+mouse; only the decision is unit tested). Nothing was built or run for Windows, including the
+deferred title drag's `cfg`. The fold-box tooltip in `fold-box-hover` is cut ("Open the block
+(F...") by the shared bubble width; not investigated.
 
 ## Linux: the shared Linux code adopted (2026-11-14, still 0.4.1, not published)
 
@@ -276,8 +328,7 @@ said; **nothing was built or run for Windows**. The Windows code paths are the o
   says nothing about AppImage; left to shared.
 - **`--trace`** on Linux: memory from `/proc/self/status` (`RssAnon` as private, `VmHWM` as peak)
   and CPU time from `/proc/self/stat` (user + system, 10 ms ticks). Unit-tested on sample text.
-- **Not done**: double click on the title row still does not maximise (cause not found without
-  driving the mouse; a likely fix is to call `drag_window` only on the first pointer move with
+- **Not done** (fixed later the same day, see the section above): double click on the title row did not maximise (a likely fix is to call `drag_window` only on the first pointer move with
   the button down, so that a double click never starts the compositor's move grab). "Show in file
   manager" still opens the folder only.
 - **Checks**: `cargo test --release --workspace` 404 passed (403 before plus one);

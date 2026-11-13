@@ -1203,3 +1203,80 @@ a reason. Backups are left in place. `Report::revertible()` counts the files tha
 **Measured** (release, same busy machine): 5,000 files of 60 lines (12 MB, 300,000 matches) in 50 folders:
 plan 54 to 72 ms; apply 3.6 to 21 s and revert 3.1 to 21 s over three runs, which is the one
 `sync_all` per file of the safe write (the disk was shared with other builds); not measured on Windows.
+
+## 37. Fold chevrons (2026-11-14)
+
+Foldable lines show a chevron at the right end of the gutter row: DOWN when open, RIGHT when
+folded (`glyph::CHEVRON_DOWN`/`CHEVRON_RIGHT`, 12 px, in a 24 px cell, `view/metrics.rs`
+`fold_cell`). Open chevrons are faint and show only while the pointer is in the gutter
+(`Hit::Gutter`, so entering and leaving repaints the Text region); a folded line always shows
+its chevron. A click on the cell (`Hit::Fold(line)`) or on the fold box (the three dots,
+`Hit::FoldBox(line)`) calls `Ready::toggle_fold_at`. Clicking the line numbers still places the
+caret. Whether a line heads a block is asked only for the visible lines, with
+`fold::heads_block` (same answer as `block_end(..).is_some()`, tested against it). The cursor over
+a cell is the hand and the cell is tinted. Both hits need the pane to have the keyboard
+(`DrawState::band`): the second pane of a split has no chevron hits.
+
+## 38. Split view, resizable and remembered (2026-11-14)
+
+- A divider between the panes (`Hit::Divider`, grab zone `DIVIDER_GRAB` 3 px each side, found in
+  `App::hit_at` from `Areas.divider` before any region's hits). Dragging sets the ratio, clamped
+  so each pane keeps its minimum width; a double click resets it to half. Cursor: column resize.
+- The session keeps `split=<L|R>|<permille>|<path>`: the second pane's file (a document without a
+  file is not kept), the side the second pane is on and the ratio (clamped 100..900 permille).
+  `Docs::restore_split` applies it after the first activate, and only when both files are open.
+- A click in the unfocused pane focuses it, re-lays out with the roles swapped and then places
+  the caret (`text_press` is the same code as for the focused pane). Its scrollbars are
+  draggable (`Scroller::OtherText`, `OtherTextH`, Region::Other); the wheel scrolls it, Shift+wheel
+  sideways, through `pane_doc`.
+- The second pane's tab has a 2 px muted underline inset 12 px (`chrome.rs`).
+- Still two files, not two views of one (see HANDOFF, "where it would have to move").
+
+## 39. Macros kept in a file (2026-11-14)
+
+`macros.txt` beside the settings, plain text: header `mdedit-macros 1`, then `last` (the macro
+being played by the play keys) and `m <name>` blocks, each step on a line `k <mods|-> <key>
+[t:<text>]`; names and typed text are percent-encoded. Bounds: 20 saved macros (`SAVED_MAX`), name
+64 chars (`NAME_MAX`), file 4 MiB (`FILE_MAX`), typed text 4096 bytes per step (`TYPED_MAX`),
+steps bounded as before. A file over the limit or with a bad header is ignored; a bad line drops
+that macro whole and never panics. The file is read the first time a macro is needed
+(`ensure_loaded`), so the launch does not read it, and written when a recording finishes or a
+saved macro is used or deleted (atomic write). "Save the macro as..." asks for the name in the
+Go to line box (`Ui.naming`, placeholder text); Enter saves, Escape cancels. The Macro submenu
+lists the saved macros, most recently used first (`Act::PlaySaved(i)`); "Delete saved
+macros..." opens a list dialog like Manage recent files. The play keys run the last macro.
+
+## 40. Find memory (2026-11-14)
+
+The three find options and the last 20 queries and 20 replacements (no duplicates, newest first,
+an entry over 1000 bytes or with a control character is not kept) are in the session
+(`find_case`, `find_word`, `find_regex`, `find_hist`, `replace_hist`) and restored at start
+(`recall.rs`, `Recall`). A query is remembered when it is used: Enter in the find box, Next and
+Previous, Replace and Replace all, find in files and in tabs; the replacement on Replace and
+Replace all. Up and Down in the find or replace box step through the list (the draft typed before
+is the last step down) **only when that list is not empty**; with no history they do what they did
+(they fall through to the text, which moves its caret). The brief said "only if Up/Down do nothing
+else there today": they do move the text caret from that box today, so this reading was chosen.
+
+## 41. Replace in the selection (2026-11-14)
+
+When the replace strip opens (the Replace command) over a selection that spans more than one
+line, that range is kept (`Ready::replace_scope`) with `scope_on` true, and a fourth toggle
+(`Hit::InSelection`, `glyph::SELECT_ALL`, tooltip "Replace only in the selection from when
+this opened") shows left of the others. The lines it covers show a faint accent tint while
+the strip is open. With the toggle on, Replace all calls `replace::replace_all_in` on that one
+range (the new range it returns becomes the scope), one undo step; Replace changes the selected
+match only if it lies inside the range, and Next after it goes to the next match inside the
+range, round its ends (`Docs::find_step_scoped`). The range follows edits (`map_scope`) and goes
+when the strip closes. The match counter and marks still cover the whole file.
+
+## 42. Title row on Linux (2026-11-14)
+
+A press on the title row used to call `drag_window()` at once. On Wayland that hands the pointer
+to the compositor and the second click of a double click never arrives, so the window did not
+maximise. Off Windows the press now only records the point (`Drag::Title`); `drag_window()` is
+called when the pointer has gone more than 4 px on either axis with the button down
+(`title_moved`), and a press and release that did not move counts toward the double click,
+which toggles maximise (`title_press`). Windows keeps the immediate drag
+(`DEFER_TITLE_DRAG = cfg!(not(windows))`). Unit tests cover the decision; the behaviour on Wayland
+was not run (it needs the mouse).
