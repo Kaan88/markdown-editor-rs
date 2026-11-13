@@ -80,6 +80,7 @@ fn peak() -> usize {
 // ---------------------------------------------------------------------------------------------
 // Process memory, as the spikes measured it.
 
+#[cfg(windows)]
 #[repr(C)]
 struct ProcessMemoryCountersEx {
     cb: u32,
@@ -95,6 +96,7 @@ struct ProcessMemoryCountersEx {
     private_usage: usize,
 }
 
+#[cfg(windows)]
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn GetCurrentProcess() -> isize;
@@ -106,6 +108,7 @@ unsafe extern "system" {
 }
 
 /// (private bytes, peak working set, peak commit).
+#[cfg(windows)]
 fn process_memory() -> (usize, usize, usize) {
     let mut c = ProcessMemoryCountersEx {
         cb: std::mem::size_of::<ProcessMemoryCountersEx>() as u32,
@@ -128,6 +131,21 @@ fn process_memory() -> (usize, usize, usize) {
         c.peak_working_set_size,
         c.peak_pagefile_usage,
     )
+}
+
+/// The same three figures from /proc: resident set, its peak, and the peak virtual size.
+#[cfg(not(windows))]
+fn process_memory() -> (usize, usize, usize) {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let kib = |key: &str| {
+        status
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<usize>().ok())
+            .unwrap_or(0)
+            * 1024
+    };
+    (kib("VmRSS:"), kib("VmHWM:"), kib("VmPeak:"))
 }
 
 const MIB: f64 = 1024.0 * 1024.0;

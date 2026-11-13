@@ -2793,14 +2793,17 @@ mod tests {
         let a = d.add_pending(&dir.join("a.txt"));
         let b = d.add_pending(&dir.join("b.txt"));
         assert_eq!((a, b), (0, 1));
-        assert_eq!(d.add_pending(&dir.join("A.txt")) == 0, cfg!(windows));
+        // File names compare without case on Windows only: there "A.txt" is the tab "a.txt".
+        let upper = d.add_pending(&dir.join("A.txt"));
+        assert_eq!(upper, if cfg!(windows) { 0 } else { 2 });
         let c = d.add_pending(&dir.join("c.txt"));
+        assert_eq!(c, if cfg!(windows) { 2 } else { 3 });
         d.active = Some(c);
-        assert!(d.move_tab(2, 0));
+        assert!(d.move_tab(c, 0));
         assert_eq!(d.active(), Some(0));
         assert_eq!(d.tabs[0].name(), "c.txt");
         d.close(0, None);
-        assert_eq!(d.tabs.len(), 2);
+        assert_eq!(d.tabs.len(), if cfg!(windows) { 2 } else { 3 });
         assert_eq!(d.active(), Some(0));
         d.close_all(None);
         assert!(d.tabs.is_empty() && d.active().is_none());

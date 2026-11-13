@@ -141,7 +141,20 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
 - Idle CPU with the editor's window unfocused was not measured.
 - The input-method hand test (`spikes/ime/RESULTS.md`: Turkish Q dead keys and AltGr, a CJK IME)
   was not done. Phase 2 depends on what it shows.
-- Linux: nothing in the shared crates or the editor has been built there.
+- Linux (Debian 13, rustc 1.99.1, run 2026-11-13 over SSH on a VM): builds, and
+  `cargo test --release --workspace` passes (372). `tests/shots.sh` renders 57 PNGs under Xvfb,
+  byte-identical across two runs. Not done: a real X11/Wayland window, input, clipboard, file
+  dialogs, IME, clippy. Known issues:
+  - Every icon draws as a tofu box: `mdshared-ui` (`gfx.rs` `ICON_FAMILY`) asks for Segoe Fluent
+    Icons / Segoe MDL2 Assets, which Linux does not have. Needs a bundled icon font or drawn
+    glyphs, in markdown-shared-rs. Not started.
+  - Debug-build `cargo test` fails four `mdedit-highlight` tests (no colours within the wait, even
+    at 30 s); the same four fail on Windows. Tests are run with `--release`.
+  - `platform.rs` `first_line` is dead code on Linux (one warning).
+  - `tests/shots.sh` needs LF line endings; a Windows checkout with autocrlf breaks it on Linux
+    (add a `.gitattributes` entry).
+  - Fixed: `tabs_open_close_move` assumed Windows case-insensitive names; `examples/bench.rs`
+    linked kernel32 on every platform (now gated, with a `/proc` version).
 - The editor's small-file first frame sits at the edge of its budget: about 60 ms of it is
   syntect start-up before the first colours.
 
