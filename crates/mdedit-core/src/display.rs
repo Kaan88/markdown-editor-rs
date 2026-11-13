@@ -248,6 +248,64 @@ impl ChunkStart {
     }
 }
 
+/// Where the rows of a wrapped line start. `text` is the whole line without its break and
+/// `offset` its place in the buffer; a row holds at most `max` px by the estimate the view uses
+/// for positions (`narrow` px for a narrow column, `wide` for a wide character, nothing for a
+/// zero-width one). A row ends after the last space or tab that fits, or, when it has none,
+/// before the first grapheme that does not fit; never inside a grapheme. The first start is the
+/// line's own, so there is always one row; `col`, `wide` and `zero` count from the line's start,
+/// as in a chunk start, so a tab keeps its stop on any row.
+pub fn wrap_rows(
+    text: &str,
+    offset: usize,
+    tab_width: usize,
+    narrow: f32,
+    wide: f32,
+    max: f32,
+) -> Vec<ChunkStart> {
+    use unicode_segmentation::UnicodeSegmentation;
+    let x = |c: Cols| {
+        c.col.saturating_sub(c.wide + c.zero) as f64 * narrow as f64 + c.wide as f64 * wide as f64
+    };
+    let start_of = |at: usize, c: Cols| ChunkStart {
+        offset: offset + at,
+        col: c.col,
+        wide: c.wide,
+        zero: c.zero,
+    };
+    // Room for a few characters at least, whatever the window.
+    let max = (max as f64).max(4.0 * narrow as f64).max(wide as f64);
+    let mut rows = vec![start_of(0, Cols::default())];
+    // Nothing to do for text that fits by its length alone: no tab, and a character of n bytes
+    // is at most n narrow columns or, when wide, at least 3 bytes.
+    let per_byte = (narrow as f64).max(wide as f64 / 3.0);
+    if text.len() as f64 * per_byte <= max && !text.as_bytes().contains(&b'\t') {
+        return rows;
+    }
+    let mut cur = Cols::default();
+    // Where the row began, and the last place in it a break may go (after a space or a tab).
+    let (mut row_at, mut row_cols) = (0usize, Cols::default());
+    let mut space: Option<(usize, Cols)> = None;
+    for (i, g) in text.grapheme_indices(true) {
+        let next = cur.after(g, tab_width);
+        // At most twice: at the last space, then, if what follows it still does not fit with
+        // this grapheme, before the grapheme.
+        for _ in 0..2 {
+            if i == row_at || x(next) - x(row_cols) <= max {
+                break;
+            }
+            let (at, cols) = space.take().unwrap_or((i, cur));
+            (row_at, row_cols) = (at, cols);
+            rows.push(start_of(at, cols));
+        }
+        cur = next;
+        if g == " " || g == "\t" {
+            space = Some((i + g.len(), cur));
+        }
+    }
+    rows
+}
+
 /// The chunk starts of one line, found from the line's start as far as they are needed. Each
 /// chunk is about [`CHUNK_BYTES`](crate::limits::CHUNK_BYTES) of buffer text and ends after the
 /// first ASCII space or tab within [`CHUNK_LOOKAHEAD`](crate::limits::CHUNK_LOOKAHEAD) bytes past
@@ -379,6 +437,79 @@ mod tests {
         let mut d = DisplayLine::new();
         d.build(src, start, start_col, 4);
         d
+    }
+
+    fn rows(text: &str, max_cols: usize) -> Vec<&str> {
+        // Narrow 10 px, wide 20 px.
+        let starts = wrap_rows(text, 100, 4, 10.0, 20.0, max_cols as f32 * 10.0);
+        let first = ChunkStart {
+            offset: 100,
+            ..ChunkStart::default()
+        };
+        assert_eq!(starts[0], first);
+        let mut out = Vec::new();
+        for (k, s) in starts.iter().enumerate() {
+            let end = starts.get(k + 1).map_or(text.len(), |n| n.offset - 100);
+            let (a, part) = (s.offset - 100, &text[s.offset - 100..end]);
+            assert!(k == 0 || !part.is_empty(), "an empty row in {text:?}");
+            // The counts of a start are those of the text before it.
+            let before = Cols::default().after(&text[..a], 4);
+            assert_eq!(s.cols(), before, "{text:?} row {k}");
+            out.push(part);
+        }
+        out
+    }
+
+    #[test]
+    fn wrap_breaks_after_spaces_and_inside_long_words() {
+        assert_eq!(rows("", 10), [""]);
+        assert_eq!(rows("abc", 10), ["abc"]);
+        assert_eq!(rows("0123456789", 10), ["0123456789"]);
+        assert_eq!(rows("aaa bbb ccc ddd", 8), ["aaa bbb ", "ccc ddd"]);
+        assert_eq!(rows("aaa bbb ccc ddd", 7), ["aaa ", "bbb ", "ccc ddd"]);
+        assert_eq!(
+            rows("aaaa bbbbbbbbbbbb c", 6),
+            ["aaaa ", "bbbbbb", "bbbbbb", " c"]
+        );
+        assert_eq!(rows("abcdefghijkl", 5), ["abcde", "fghij", "kl"]);
+        // A word longer than what is left after the last space, and than a row.
+        assert_eq!(rows("ab cdefghijklm", 5), ["ab ", "cdefg", "hijkl", "m"]);
+        // Never narrower than four columns.
+        assert_eq!(rows("abcdefgh", 1), ["abcd", "efgh"]);
+    }
+
+    #[test]
+    fn wrap_counts_tabs_wide_and_zero_width_characters() {
+        // A tab goes to its stop, counted from the line's start.
+        assert_eq!(rows("a\tb\tc", 8), ["a\tb\t", "c"]);
+        assert_eq!(rows("\t\t\tx", 8), ["\t\t", "\tx"]);
+        // A wide character takes two narrow columns here.
+        assert_eq!(rows("漢字漢字漢字", 8), ["漢字漢字", "漢字"]);
+        assert_eq!(rows("ab漢字cd漢", 6), ["ab漢字", "cd漢"]);
+        // A combining mark stays with its letter and takes no room.
+        let t = "e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}";
+        assert_eq!(
+            rows(t, 4),
+            ["e\u{301}e\u{301}e\u{301}e\u{301}", "e\u{301}e\u{301}"]
+        );
+        // Non-ASCII narrow text that fits is one row.
+        assert_eq!(rows("çğıöşü", 6), ["çğıöşü"]);
+        assert_eq!(rows("çğıöşü çğ", 6), ["çğıöşü", " çğ"]);
+    }
+
+    #[test]
+    fn wrap_rows_join_back_to_the_line() {
+        let texts = [
+            "The quick brown fox jumps over the lazy dog, twice: the quick brown fox.",
+            "\tif x {\t// 漢字 and é\u{301} mixed with    runs of   spaces\t}",
+            "nospacesatallinthisverylongidentifier_that_goes_on_and_on_and_on",
+            "   leading and trailing   ",
+        ];
+        for t in texts {
+            for w in 1..40 {
+                assert_eq!(rows(t, w).concat(), t);
+            }
+        }
     }
 
     #[test]

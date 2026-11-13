@@ -226,10 +226,10 @@ impl App {
                 let Some((Some((track, thumb)), _, g)) = self.text_bars() else {
                     return;
                 };
-                let top =
-                    offset_for_thumb(track, thumb.h, thumb_y, g.lines as f32, g.view_lines as f32);
+                let (content, page) = g.vscroll();
+                let top = offset_for_thumb(track, thumb.h, thumb_y, content, page);
                 if let Some(r) = self.docs.active_ready_mut() {
-                    r.top = metrics::clamp_top(top as f64, g.lines, g.view_lines);
+                    view::scroll_to(r, &g, top as f64);
                 }
             }
             Scroller::TextH => {
@@ -268,7 +268,7 @@ impl App {
                     });
                 } else if let Some(r) = self.docs.active_ready_mut() {
                     let step = (g.view_lines - 1.0).max(1.0) * if y < thumb.y { -1.0 } else { 1.0 };
-                    r.top = metrics::clamp_top(r.top + step, g.lines, g.view_lines);
+                    view::scroll_rows(r, step);
                 }
             }
             Scroller::TextH => {
@@ -603,7 +603,7 @@ impl App {
             None if shift && nx == 0.0 => (0.0, -ny * metrics::WHEEL_COLS * adv),
             None => (-ny * metrics::WHEEL_LINES, -nx * metrics::WHEEL_COLS * adv),
         };
-        r.top += down;
+        view::scroll_rows(r, down);
         r.left = (r.left + right).max(0.0);
         // The layout pass of the next frame clamps both.
         if let Some(Drag::Select { .. }) = self.ui.drag {
@@ -767,18 +767,35 @@ impl App {
             (KeyName::PageUp, false) => Motion::Up(page),
             (KeyName::PageDown, false) => Motion::Down(page),
             (KeyName::Up, true) => {
-                r.top -= 1.0;
+                view::scroll_rows(r, -1.0);
                 return true;
             }
             (KeyName::Down, true) => {
-                r.top += 1.0;
+                view::scroll_rows(r, 1.0);
                 return true;
             }
             _ => return false,
         };
         // A caret move ends the run of typing that one Undo takes back.
         r.history.seal();
-        r.sel = selection::apply(&r.buffer, r.sel, motion, mods.shift, TAB_WIDTH);
+        match motion {
+            // With word wrap Up and Down go by rows.
+            Motion::Up(n) | Motion::Down(n) if r.wrapped() => {
+                let n = n as isize
+                    * if matches!(motion, Motion::Up(_)) {
+                        -1
+                    } else {
+                        1
+                    };
+                let (caret, goal) = view::wrap::vertical(r, r.sel.caret, r.sel.goal_col, n);
+                r.sel = mdedit_core::Selection {
+                    anchor: if mods.shift { r.sel.anchor } else { caret },
+                    caret,
+                    goal_col: Some(goal),
+                };
+            }
+            _ => r.sel = selection::apply(&r.buffer, r.sel, motion, mods.shift, TAB_WIDTH),
+        }
         if matches!(motion, Motion::Up(n) | Motion::Down(n) if n > 1) {
             // Page keys move the view with the caret.
             let d = page as f64
@@ -787,7 +804,7 @@ impl App {
                 } else {
                     1.0
                 };
-            r.top += d;
+            view::scroll_rows(r, d);
         }
         view::reveal(r, r.sel.caret, false);
         self.caret_reset();
@@ -919,7 +936,7 @@ impl App {
         }
         let (down, right) = autoscroll_step(dx, dy);
         if let Some(r) = self.docs.active_ready_mut() {
-            r.top += down;
+            view::scroll_rows(r, down);
             r.left = (r.left + right).max(0.0);
         }
         // Clamp through a layout pass, then extend the selection to the pointer.

@@ -77,6 +77,8 @@ pub struct Args {
     pub hover: Option<(f32, f32)>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
+    /// `--wrap`: word wrap.
+    pub wrap: bool,
     /// `--zoom <50..400>`: the text size in percent, instead of the session's.
     pub zoom: Option<u32>,
     /// `--maximize`: start maximized.
@@ -157,6 +159,7 @@ impl Args {
                 "--no-files" => out.files_pane = Some(false),
                 "--maximize" => out.maximize = true,
                 "--whitespace" => out.whitespace = true,
+                "--wrap" => out.wrap = true,
                 "--zoom" => {
                     out.zoom = checked(&a, value(&a), |v| {
                         v.parse().ok().filter(|z| (50..=400).contains(z))

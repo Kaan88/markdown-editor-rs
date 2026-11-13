@@ -75,7 +75,7 @@ After editing (phase 2) and safe saving (phase 3), in this order:
    for item 8's results panel.)
 3. Unsaved-session restore: tabs with unsaved text survive a close. (Done 2026-11-13.)
 4. View aids: show whitespace and line endings, word wrap, current-line highlight, matching
-   bracket, other occurrences of the selected word, zoom, go to line.
+   bracket, other occurrences of the selected word, zoom, go to line. (Done 2026-11-13.)
 5. Encoding and line-ending conversion from the status bar. (Done 2026-11-13.)
 6. Column selection and multiple carets.
 7. Bookmarks on lines.
@@ -226,7 +226,8 @@ Each phase ends with a build the user runs. The user approves the interface by l
    the editor opens any text file. Renaming is cheap before phase 1.
 2. **Recovery of unsaved buffers** (above).
 3. **One installer or two** (above).
-4. **Word wrap default**, and whether Markdown files get conveniences (list continuation, bold
+4. **Word wrap default** (built off by default on 2026-11-13, the same for every file type;
+   not confirmed), and whether Markdown files get conveniences (list continuation, bold
    and italic shortcuts) or stay plain text like everything else.
 5. **When to start.** The viewer's plan says not before the reader has shipped (its roadmap steps
    A3 to A6) and its own next list is done or paused.

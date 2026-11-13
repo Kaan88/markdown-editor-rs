@@ -96,6 +96,8 @@ pub struct Session {
     pub zoom: u32,
     /// Show whitespace and line endings.
     pub whitespace: bool,
+    /// Word wrap.
+    pub wrap: bool,
     /// `WxH[ max][ @x,y]`, the viewer's format.
     pub geometry: String,
     /// Whether the Files pane shows; `None` when never set.
@@ -119,6 +121,7 @@ impl Default for Session {
             theme: ThemeChoice::default(),
             zoom: 100,
             whitespace: false,
+            wrap: false,
             geometry: String::new(),
             files: None,
             files_w: None,
@@ -167,6 +170,7 @@ impl Session {
                             .unwrap_or(100)
                     }
                     "whitespace" => s.whitespace = value.trim() == "1",
+                    "wrap" => s.wrap = value.trim() == "1",
                     "geometry" => s.geometry = unescape(value),
                     "files" => {
                         s.files = match value.trim() {
@@ -215,6 +219,9 @@ impl Session {
         }
         if self.whitespace {
             out.line("whitespace", "1");
+        }
+        if self.wrap {
+            out.line("wrap", "1");
         }
         if !self.geometry.is_empty() {
             out.line("geometry", &escape(&self.geometry));

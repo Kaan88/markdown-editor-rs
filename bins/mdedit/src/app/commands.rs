@@ -759,6 +759,10 @@ impl App {
             C::ZoomOut => self.set_zoom(metrics::zoom_stepped(self.docs.zoom, -1)),
             C::ZoomReset => self.set_zoom(100),
             C::ToggleWhitespace => self.docs.whitespace = !self.docs.whitespace,
+            C::ToggleWrap => {
+                self.docs.wrap = !self.docs.wrap;
+                self.docs.sync_wrap();
+            }
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
             C::NextTab => self.docs.step_tab(true),
@@ -1068,18 +1072,28 @@ impl App {
         }
         self.steps = Some(n - 1);
         if let Some(r) = self.docs.active_ready_mut() {
-            let max = metrics::max_top(r.buffer.len_lines(), r.view_lines);
-            if self.step_down && r.top >= max {
-                self.step_down = false;
-            } else if !self.step_down && r.top <= 0.0 {
-                self.step_down = true;
-            }
             let d = if self.step_down { 1.0 } else { -1.0 };
-            r.top = metrics::clamp_top(
-                r.top + d * metrics::WHEEL_LINES,
-                r.buffer.len_lines(),
-                r.view_lines,
-            );
+            if r.wrapped() {
+                // Turn where a step moves nothing: an end of the document.
+                let before = (r.top, r.top_row);
+                view::scroll_rows(r, d * metrics::WHEEL_LINES);
+                if (r.top, r.top_row) == before {
+                    self.step_down = !self.step_down;
+                }
+            } else {
+                let max = metrics::max_top(r.buffer.len_lines(), r.view_lines);
+                if self.step_down && r.top >= max {
+                    self.step_down = false;
+                } else if !self.step_down && r.top <= 0.0 {
+                    self.step_down = true;
+                }
+                let d = if self.step_down { 1.0 } else { -1.0 };
+                r.top = metrics::clamp_top(
+                    r.top + d * metrics::WHEEL_LINES,
+                    r.buffer.len_lines(),
+                    r.view_lines,
+                );
+            }
         }
         self.draw();
     }

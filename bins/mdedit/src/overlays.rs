@@ -97,6 +97,7 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
     let items = vec![
         cmd(C::ToggleFiles, "Files pane", "").checked(ui.panes.files),
         cmd(C::ToggleWhitespace, "Show whitespace", "").checked(docs.whitespace),
+        cmd(C::ToggleWrap, "Word wrap", "").checked(docs.wrap),
         cmd(C::ZoomIn, "Zoom in", "").sep(),
         cmd(C::ZoomOut, "Zoom out", ""),
         cmd(C::ZoomReset, "Reset zoom", "").enabled(docs.zoom != 100),

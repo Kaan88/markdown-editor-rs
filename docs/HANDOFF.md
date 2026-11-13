@@ -187,8 +187,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1, 2, 3 and 5 are done;
-   item 4 lacks word wrap, which is next, then column selection and multiple carets (item 6).
+2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 5 are done; next is
+   column selection and multiple carets (item 6).
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -203,10 +203,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 290 passed on 2026-11-13
+cargo test --release --workspace        # 294 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 50 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 52 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -232,6 +232,42 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Word wrap (2026-11-13, the last of roadmap item 4)
+
+View menu, "Word wrap", or Alt+Z; off by default, kept in the session (`wrap=1`), `--wrap`
+for shots. Roadmap item 4 is done with it.
+
+- A line longer than the view goes on in rows below: a row ends after the last space or tab
+  that fits, a word longer than a row is cut between characters. The line number stands
+  beside the first row only. There is no sideways scrolling.
+- Rows are found from column counts (`display::wrap_rows` in the core), with the same
+  estimate of widths the view already used for long lines, not from shaped text. Glyphs from
+  fallback fonts that are wider than the estimate can run past the right edge and be cut
+  there. 16 px are kept free at the right for the caret and the scrollbar.
+- Up, Down, Page Up and Page Down go by rows and keep the column in the row. Home and End
+  still go to the line's start and end, not the row's. A click and a drag find the row under
+  the pointer.
+- The scroll position is a line and a row in it. The vertical scrollbar's thumb shows the
+  top line's number, not rows: it moves unevenly through a file whose lines differ much in
+  length, a document that is one long line has no scrollbar (wheel and keys scroll it), and
+  the last line can be scrolled up to the view's top.
+- The caret's blink and moves repaint the whole text region with wrap on (without it, only
+  the lines involved).
+- A document read with a line longer than 262,144 characters is shown unwrapped though wrap
+  is on (`WRAP_LINE_MAX`); nothing says so on screen. The figure is the one from reading the
+  file: a longer line pasted later is wrapped, at about 20 ms a keystroke for each 1 MB of
+  that line.
+- Run in a real window by keys and one click on a file of long paragraphs: Alt+Z, Page Down,
+  Ctrl+End, Up three times and typing, a click in the middle of a paragraph and typing,
+  Ctrl+Home, Down, End. Not run in a window: the scrollbar's thumb with wrap, a selection
+  drag that scrolls, resizing the window with wrap on, scale 1.5 and 2, tabs and wide
+  characters at a row's end (unit tests only), the View menu's entry (the key was used).
+- Measured after: exe 5,987,328 bytes (12,672 under the budget: the next feature needs
+  room found for it); window shown 78 to 79 ms; private memory 27.6 to 27.8 MiB; keystroke
+  p50 0.79 ms with wrap off (unchanged), 0.79 ms with wrap on in `sample.rs`, 1.58 ms with
+  wrap on in paragraphs of up to 3,700 characters (1.42 ms there with wrap off); scroll step
+  p50 0.83 ms on the 100 MB file with wrap on (0.84 off). Shots: `wrap`, `wrap-dark`.
 
 ## Encoding and line endings from the status strip (2026-11-13, roadmap item 5)
 
@@ -271,8 +307,8 @@ The last two fields of the status strip are buttons now. Roadmap item 5 is done.
 ## View aids, first part (2026-11-13, roadmap item 4)
 
 Zoom, go to line, the matching bracket and the other occurrences of the selected word are in;
-the current line was already banded, and Show whitespace is in. Still to do from item 4: word
-wrap (the large one: every line-to-row mapping in `view.rs` changes).
+the current line was already banded, and Show whitespace is in. Word wrap has its own section
+above.
 
 - Show whitespace: a dot in each space, a dash with a tick in each tab, and at each line's end
   a down arrow for LF, a return arrow for CRLF, a left arrow for CR (drawn with the text font

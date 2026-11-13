@@ -1265,6 +1265,7 @@ dependencies = [
  "parley",
  "rfd",
  "softbuffer",
+ "unicode-segmentation",
  "windows-sys 0.59.0",
  "winit",
 ]

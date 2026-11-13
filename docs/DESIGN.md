@@ -783,6 +783,27 @@ before changing `info.encoding`. `Act::ReadAs(Option<Encoding>)` goes through `A
 decoding pass (`Detect::Forced`): a byte order mark of the chosen kind is skipped, invalid
 input becomes U+FFFD and the result is lossy.
 
+## 24. Word wrap (2026-11-13)
+
+`bins/mdedit/src/view/wrap.rs`. With `Docs::wrap` on (copied into each `Ready` by
+`Docs::sync_wrap` before a frame) and no line over `WRAP_LINE_MAX`, `Ready::wrapped()` holds
+and the view changes in four places, all behind that test, so nothing changes with wrap off.
+
+- Rows: `wrap::rows(r, line)` asks the core's `display::wrap_rows` for the row starts of a
+  line at the view's width as last drawn, each a `ChunkStart` (offset and column counts from
+  the line's start). They are kept per line in `Ready::rows` until the revision, the width or
+  the advances change. A row is then a `Chunk`: `View::shaped` shapes it and `View::draw`
+  places it at x 0 and its own y. `draw` first builds a list of `ShownLine`s (line, y,
+  height, parts) for both modes and draws from it.
+- Position: `Ready::top` is a whole line number and `Ready::top_row` the row in it.
+  `wrap::step` walks rows from a position, `wrap::rows_between` counts them up to a limit;
+  nothing counts the rows of the document. `view::scroll_rows` and `view::scroll_to` are the
+  two ways the shell moves the view in either mode.
+- `view::reveal` hands over to `wrap::reveal`; `View::hit` finds the row under y by stepping
+  from the top row; Up and Down call `wrap::vertical`, which keeps `Selection::goal_col` as
+  the column in the row.
+- `App::compose` does not use caret bands when the document is wrapped.
+
 ## 19. Unsaved text survives a close (2026-11-13)
 
 Closing the window with a session does not ask about unsaved changes: `App::request` with

@@ -12,6 +12,7 @@
 
 pub mod cache;
 pub mod metrics;
+pub mod wrap;
 
 use crate::chrome::Ctx;
 use crate::docs::{Doc, DocState, Ready};
@@ -135,9 +136,59 @@ pub struct Geom {
     /// Text width (gutter excluded), logical px.
     pub view_w: f32,
     pub extent: f32,
+    /// Word wrap: `top` is a line and a row in it, and nothing scrolls sideways.
+    pub wrapped: bool,
+}
+
+/// One line as drawn: its place and its parts, each a chunk with the device x of its start
+/// from column 0 and its y. Without word wrap the parts are the chunks in view, side by side;
+/// with it they are the line's rows in view, one below the other.
+struct ShownLine {
+    line: usize,
+    y: i32,
+    h: i32,
+    /// The line's start is among the parts (the line number goes beside it).
+    first: bool,
+    parts: Vec<(Chunk, f64, i32)>,
+}
+
+/// Scrolls the text by `by` rows, down when positive. The next layout pass clamps it.
+pub fn scroll_rows(r: &mut Ready, by: f64) {
+    if r.wrapped() {
+        wrap::scroll(r, by);
+    } else {
+        r.top += by;
+    }
+}
+
+/// Puts line `top` (fractional without word wrap) at the view's top: a scrollbar's answer.
+pub fn scroll_to(r: &mut Ready, g: &Geom, top: f64) {
+    if g.wrapped {
+        let last = g.lines.saturating_sub(1) as f64;
+        r.top = if top.is_finite() {
+            top.floor().clamp(0.0, last)
+        } else {
+            0.0
+        };
+        r.top_row = 0;
+        r.row_rest = 0.0;
+    } else {
+        r.top = clamp_top(top, g.lines, g.view_lines);
+    }
 }
 
 impl Geom {
+    /// What the vertical scrollbar measures: content and view, in lines. With word wrap the
+    /// thumb's place is the top line's number, so the last line can reach the top.
+    pub fn vscroll(&self) -> (f32, f32) {
+        let view = self.view_lines as f32;
+        if self.wrapped {
+            ((self.lines as f32 - 1.0).max(0.0) + view, view)
+        } else {
+            (self.lines as f32, view)
+        }
+    }
+
     /// Device x of display column 0 at the current horizontal scroll.
     fn origin_x(&self, scale: f32, left: f64) -> f64 {
         ((self.area.x + self.gutter_w + TEXT_PAD) * scale) as f64 - (left * scale as f64).round()
@@ -154,12 +205,8 @@ impl Geom {
 
     /// The vertical scrollbar's track and thumb.
     pub fn vbar(&self, top: f64) -> Option<(Rect, Rect)> {
-        scroll::scrollbar(
-            self.area,
-            self.lines as f32,
-            self.view_lines as f32,
-            top as f32,
-        )
+        let (content, view) = self.vscroll();
+        scroll::scrollbar(self.area, content, view, top as f32)
     }
 
     /// The horizontal scrollbar's track and thumb, the same geometry turned on its side.
@@ -343,6 +390,10 @@ pub fn reveal_no_margin(r: &mut Ready, offset: usize) {
 }
 
 fn reveal_with(r: &mut Ready, offset: usize, center: bool, margin: bool) {
+    if r.wrapped() {
+        wrap::reveal(r, offset, center, margin);
+        return;
+    }
     let line = r.buffer.line_of(offset);
     r.top = reveal_top(
         r.top,
@@ -638,7 +689,6 @@ impl View {
         let mut ws_text = String::new();
         let dot = ((scale * 1.6).round() as i32).max(1);
         let hair = (scale.round() as i32).max(1);
-        let vis = visible(r.top, g.view_lines, g.lines);
         // The horizontal view, device px from column 0.
         let xs = {
             let s = scale as f64;
@@ -648,19 +698,66 @@ impl View {
         let top = r.top;
         let line_top = |i: usize| y0 + line_y(i, top, lh).round() as i32;
         let wanted = |i: usize| bands.is_none_or(|b| b.contains(&i));
-        for i in vis.clone() {
-            if !wanted(i) {
-                continue;
+        let mut shown_lines: Vec<ShownLine> = Vec::new();
+        if g.wrapped {
+            let mut p = wrap::top(r);
+            let mut y = y0;
+            while y < y1 && p.line < g.lines {
+                let rows = wrap::rows(r, p.line);
+                let end = r.buffer.line_range(p.line).end;
+                let line_y = y;
+                let mut parts = Vec::new();
+                for k in p.row.min(rows.len() - 1)..rows.len() {
+                    if y >= y1 {
+                        break;
+                    }
+                    let chunk = Chunk {
+                        start: rows[k],
+                        end: rows.get(k + 1).map_or(end, |n| n.offset),
+                    };
+                    parts.push((chunk, 0.0, y));
+                    y += lh;
+                }
+                shown_lines.push(ShownLine {
+                    line: p.line,
+                    y: line_y,
+                    h: y - line_y,
+                    first: p.row == 0,
+                    parts,
+                });
+                p = wrap::Pos {
+                    line: p.line + 1,
+                    row: 0,
+                };
             }
-            let y = line_top(i);
+        } else {
+            for i in visible(r.top, g.view_lines, g.lines) {
+                if !wanted(i) {
+                    continue;
+                }
+                let y = line_top(i);
+                let parts = chunks_in_view(r, i, xs.clone(), &m)
+                    .into_iter()
+                    .map(|ch| (ch, m.chunk_x(&ch.start), y))
+                    .collect();
+                shown_lines.push(ShownLine {
+                    line: i,
+                    y,
+                    h: lh,
+                    first: true,
+                    parts,
+                });
+            }
+        }
+        for shown_line in &shown_lines {
+            let (i, y, h) = (shown_line.line, shown_line.y, shown_line.h);
             if sel.is_empty() && i == caret_line {
-                c.p.fill_dev(x0, y, x1, y + lh, band_c, 1.0);
+                c.p.fill_dev(x0, y, x1, y + h, band_c, 1.0);
             } else if bands.is_some() {
-                c.p.fill_dev(x0, y, x1, y + lh, pal.page, 1.0);
+                c.p.fill_dev(x0, y, x1, y + h, pal.page, 1.0);
             }
             let range = r.buffer.line_range(i);
             let with_break = r.buffer.line_range_with_break(i);
-            let shown = chunks_in_view(r, i, xs.clone(), &m);
             // Find marks overlapping the line.
             let marks: &[Range<usize>] = {
                 let all = &r.find.matches;
@@ -689,15 +786,16 @@ impl View {
                     }
                 }
             }
-            for chunk in shown {
+            for &(chunk, cx, y) in &shown_line.parts {
                 let shaped = self.shaped(r, i, chunk, s.dark);
                 let (ch, end) = (chunk.start, chunk.end);
-                let cx = m.chunk_x(&ch);
                 let x = origin + cx;
                 let last = end == range.end;
-                r.widest = r
-                    .widest
-                    .max(((cx + shaped.width as f64) / scale as f64) as f32);
+                if !g.wrapped {
+                    r.widest = r
+                        .widest
+                        .max(((cx + shaped.width as f64) / scale as f64) as f32);
+                }
                 let span = |a: usize, b: usize| -> Option<(i32, i32)> {
                     let (a, b) = (a.max(ch.offset), b.min(end));
                     if a > b || (a == b && a != end) {
@@ -825,29 +923,42 @@ impl View {
             }
         }
         // The caret.
-        if s.caret && vis.contains(&caret_line) && wanted(caret_line) {
-            let chunk = chunk_at_offset(r, caret_line, r.sel.caret);
+        let caret = r.sel.caret;
+        let caret_part = shown_lines
+            .iter()
+            .find(|l| l.line == caret_line)
+            .and_then(|l| {
+                if g.wrapped {
+                    // The row that holds the caret, when it is among those drawn.
+                    let part = l.parts.iter().rev().find(|p| p.0.start.offset <= caret);
+                    part.filter(|p| caret <= p.0.end).copied()
+                } else {
+                    let chunk = chunk_at_offset(r, caret_line, caret);
+                    Some((chunk, m.chunk_x(&chunk.start), l.y))
+                }
+            });
+        if let Some((chunk, cx, y)) = caret_part.filter(|_| s.caret) {
             let shaped = self.shaped(r, caret_line, chunk, s.dark);
-            let in_chunk = r.sel.caret.saturating_sub(chunk.start.offset);
-            let x = origin + m.chunk_x(&chunk.start) + shaped.x_of(in_chunk) as f64;
+            let in_chunk = caret.saturating_sub(chunk.start.offset);
+            let x = origin + cx + shaped.x_of(in_chunk) as f64;
             let w = (1.5 * scale).round().max(1.0) as i32;
-            let (x, y) = (x.round() as i32, line_top(caret_line));
+            let x = x.round() as i32;
             fill_clipped(c, (x, y, x + w, y + lh), text_clip, pal.text, 1.0);
         }
         // The gutter: same background, numbers right-aligned.
         let gutter = intersect((x0, y0, gutter_r, y1), base);
         let pad_r = (GUTTER_PAD_R * scale).round() as i32;
-        for i in vis.clone() {
-            if !wanted(i) {
-                continue;
-            }
-            let y = line_top(i);
+        for shown_line in &shown_lines {
+            let (i, y) = (shown_line.line, shown_line.y);
             let band = if sel.is_empty() && i == caret_line {
                 band_c
             } else {
                 pal.page
             };
-            fill_clipped(c, (x0, y, gutter_r, y + lh), gutter, band, 1.0);
+            fill_clipped(c, (x0, y, gutter_r, y + shown_line.h), gutter, band, 1.0);
+            if !shown_line.first {
+                continue;
+            }
             let color = if i == caret_line { pal.text } else { pal.faint };
             let n = self.number(i + 1, color);
             let x = gutter_r - pad_r - n.0.width().round() as i32;
@@ -868,7 +979,8 @@ impl View {
                 c.hit(crate::ui::Hit::ScrollBar(crate::ui::Scroller::TextH), track);
             }
         }
-        let cap = (vis.len().max(16) * CACHE_SCREENS).max(64);
+        let rows: usize = shown_lines.iter().map(|l| l.parts.len().max(1)).sum();
+        let cap = (rows.max(16) * CACHE_SCREENS).max(64);
         if self.cache.cap() < cap {
             self.cache.set_cap(cap);
         }
@@ -890,12 +1002,22 @@ impl View {
         let r = doc.ready_mut()?;
         let g = geom(r, area, &m);
         let dy = ((y - area.y) * scale) as f64;
-        let line = line_at(dy, r.top, m.line_h, g.lines);
         let rel = (x * scale) as f64 - g.origin_x(scale, r.left);
-        let chunk = chunk_at_x(r, line, rel.max(0.0), m.advance, m.wide);
+        let (line, chunk, cx) = if g.wrapped {
+            // The row under y, counted from the one at the top.
+            let n = (dy.max(0.0) / m.line_h.max(1) as f64).floor() as isize;
+            let t = wrap::top(r);
+            let p = wrap::step(r, t, n);
+            let (start, end) = wrap::row(r, p);
+            (p.line, Chunk { start, end }, 0.0)
+        } else {
+            let line = line_at(dy, r.top, m.line_h, g.lines);
+            let chunk = chunk_at_x(r, line, rel.max(0.0), m.advance, m.wide);
+            (line, chunk, m.chunk_x(&chunk.start))
+        };
         let dark = r.colors.dark;
         let shaped = self.shaped(r, line, chunk, dark);
-        let local = (rel - m.chunk_x(&chunk.start)) as f32;
+        let local = (rel - cx) as f32;
         let range = r.buffer.line_range(line);
         let offset = if local <= 0.0 {
             chunk.start.offset
@@ -905,9 +1027,14 @@ impl View {
             let cur = Cursor::from_point(&shaped.layout, local, shaped.layout.height() / 2.0);
             chunk.start.offset + shaped.dl.to_source(cur.index(), false)
         };
-        let offset = r
+        let mut offset = r
             .buffer
             .snap_to_grapheme(offset.clamp(range.start, range.end));
+        // The end of a row that is not its line's last shows on the next row: a click past it
+        // stays on this one.
+        if g.wrapped && offset == chunk.end && offset < range.end && offset > chunk.start.offset {
+            offset = r.buffer.prev_grapheme(offset);
+        }
         Some(offset.min(range.end))
     }
 }
@@ -935,13 +1062,24 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
     let (y0, y1) = ((area.y * scale).round(), (area.bottom() * scale).round());
     let vl = view_lines(y1 - y0, m.line_h);
     let view_w = (area.w - gutter_w - TEXT_PAD).max(0.0);
-    let extent = extent(r.info.longest_line_chars, adv_l, r.widest);
-    r.top = clamp_top(r.top, lines, vl);
-    r.left = clamp_left(r.left, extent, view_w);
+    let wrapped = r.wrapped();
+    let extent = if wrapped {
+        0.0
+    } else {
+        extent(r.info.longest_line_chars, adv_l, r.widest)
+    };
     r.view_lines = vl;
     r.view_w = view_w;
     r.advance = adv_l;
     r.wide_advance = m.wide / scale;
+    if wrapped {
+        let p = wrap::top(r);
+        wrap::set_top(r, p);
+        r.left = 0.0;
+    } else {
+        r.top = clamp_top(r.top, lines, vl);
+        r.left = clamp_left(r.left, extent, view_w);
+    }
     Geom {
         area,
         gutter_w,
@@ -949,6 +1087,7 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
         view_lines: vl,
         view_w,
         extent,
+        wrapped,
     }
 }
 

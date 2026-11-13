@@ -519,7 +519,7 @@ impl App {
                         let sel = r.sel.range();
                         sig((
                             3u8,
-                            r.top.to_bits(),
+                            (r.top.to_bits(), r.top_row, r.wrap),
                             r.left.to_bits(),
                             (!sel.is_empty()).then_some((sel.start, sel.end)),
                             r.find.generation,
@@ -566,6 +566,7 @@ impl App {
             self.full = true;
         }
         self.sync_theme();
+        self.docs.sync_wrap();
         let (w, h) = self.logical();
         let areas = Areas::compute(
             w,
@@ -610,7 +611,10 @@ impl App {
         if caret_sig != self.caret_sig && !dirty[ti] {
             let mut lines: Vec<usize> = self.caret_line.into_iter().chain(caret_line).collect();
             lines.dedup();
-            if lines.is_empty() {
+            // With word wrap a line's place depends on the rows above it: the whole text is
+            // painted.
+            let wrapped = self.docs.active_ready().is_some_and(|r| r.wrapped());
+            if lines.is_empty() || wrapped {
                 dirty[ti] = true;
             } else {
                 bands = Some(lines);
@@ -1035,7 +1039,10 @@ impl App {
             self.docs.recents.paths(),
             (!self.theme_from_args).then_some(self.docs.theme),
             (self.args.zoom.is_none()).then_some(self.docs.zoom),
-            self.docs.whitespace || self.args.whitespace,
+            (
+                self.docs.whitespace || self.args.whitespace,
+                self.docs.wrap || self.args.wrap,
+            ),
             self.ui.panes.files,
             self.ui.panes.files_w.round() as u32,
             &self.docs.folder,
@@ -1078,6 +1085,9 @@ impl App {
         }
         if !self.args.whitespace {
             s.whitespace = self.docs.whitespace;
+        }
+        if !self.args.wrap {
+            s.wrap = self.docs.wrap;
         }
         s.check_updates = self.docs.check_updates;
         s.files = Some(self.ui.panes.files);
@@ -1379,6 +1389,7 @@ impl App {
     /// The layout pass of a frame without drawing: areas, scroll clamping, colour requests.
     fn compose_layout_only(&mut self) {
         self.sync_theme();
+        self.docs.sync_wrap();
         let (w, h) = self.logical();
         self.areas = Areas::compute(
             w,
@@ -1439,7 +1450,7 @@ impl App {
         }
         if let Some(r) = self.docs.active_ready_mut() {
             if let Some(px) = a.scroll {
-                r.top += (px * scale) as f64 / line_h as f64;
+                view::scroll_rows(r, (px * scale) as f64 / line_h as f64);
             }
             if let Some(px) = a.hscroll {
                 r.left = px as f64;
@@ -1591,6 +1602,7 @@ pub fn run() -> i32 {
     }
     docs.zoom = args.zoom.unwrap_or(session.zoom);
     docs.whitespace = args.whitespace || session.whitespace;
+    docs.wrap = args.wrap || session.wrap;
     docs.theme = match args.dark {
         Some(true) => ThemeChoice::Dark,
         Some(false) => ThemeChoice::Light,

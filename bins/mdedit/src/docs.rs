@@ -241,8 +241,17 @@ pub struct Ready {
     /// The language exists and the file is within its limits: the service colours it.
     pub colourable: bool,
     pub sel: Selection,
-    /// First visible line, fractional.
+    /// First visible line, fractional. With word wrap a whole number: the line whose row
+    /// `top_row` is at the view's top.
     pub top: f64,
+    pub top_row: usize,
+    /// The part of a row a scroll left over (word wrap scrolls by whole rows).
+    pub row_rest: f64,
+    /// Word wrap is on (`Docs::wrap`, copied here before each frame).
+    pub wrap: bool,
+    /// The rows of wrapped lines and what they were found for: revision, view width, advances.
+    pub rows: Lru<usize, crate::view::wrap::Rows>,
+    pub rows_stamp: (u64, u32, u32, u32),
     /// Horizontal scroll, logical px.
     pub left: f64,
     pub colors: LineColors,
@@ -264,6 +273,11 @@ pub struct Ready {
 }
 
 impl Ready {
+    /// Lines show wrapped: word wrap is on and no line is too long for it.
+    pub fn wrapped(&self) -> bool {
+        self.wrap && self.info.longest_line_chars <= crate::view::wrap::WRAP_LINE_MAX
+    }
+
     /// The bracket at the caret and its partner, as byte offsets, when nothing is selected.
     pub fn brackets(&self) -> Option<(usize, usize)> {
         if !self.sel.range().is_empty() {
@@ -339,6 +353,11 @@ impl Ready {
             colourable: false,
             sel: Selection::at(0),
             top: 0.0,
+            top_row: 0,
+            row_rest: 0.0,
+            wrap: false,
+            rows: Lru::new(crate::view::wrap::ROW_CACHE),
+            rows_stamp: (0, 0, 0, 0),
             left: 0.0,
             colors: LineColors::default(),
             find: FindState::default(),
@@ -632,6 +651,8 @@ pub struct Docs {
     pub zoom: u32,
     /// Spaces, tabs and line endings show as marks.
     pub whitespace: bool,
+    /// Lines longer than the view go on in rows below (word wrap).
+    pub wrap: bool,
     opts: LoadOptions,
     waker: Waker,
     load_tx: Sender<LoadDone>,
@@ -656,6 +677,7 @@ impl Docs {
             theme: ThemeChoice::System,
             zoom: 100,
             whitespace: false,
+            wrap: false,
             opts: LoadOptions {
                 legacy: mdedit_core::encoding::legacy_for_code_page(code_page),
                 max_bytes: MAX_FILE_BYTES,
@@ -1056,6 +1078,8 @@ impl Docs {
                     let caret = r.buffer.snap_to_grapheme(r.buffer.offset(pos));
                     r.sel = Selection::at(caret);
                     r.top = old.top;
+                    r.top_row = old.top_row;
+                    r.wrap = old.wrap;
                     r.left = old.left;
                     r.view_lines = old.view_lines;
                     r.view_w = old.view_w;
@@ -1285,6 +1309,24 @@ impl Docs {
             None => {}
         }
         changed
+    }
+
+    /// Gives every open document the word-wrap setting. Called before each frame, so a
+    /// document that has just been read has it too.
+    pub fn sync_wrap(&mut self) {
+        let wrap = self.wrap;
+        for doc in &mut self.tabs {
+            if let Some(r) = doc.ready_mut()
+                && r.wrap != wrap
+            {
+                r.wrap = wrap;
+                r.top_row = 0;
+                r.left = 0.0;
+                // The caret's line stays in view across the change.
+                let caret = r.sel.caret;
+                crate::view::reveal(r, caret, false);
+            }
+        }
     }
 
     /// The system's code page, as the encoding menus offer it.
@@ -2091,6 +2133,71 @@ mod tests {
         // The choice stays for the next load of this tab.
         d.load_now(i, None, false);
         assert_eq!(d.tabs[i].ready().unwrap().info.encoding, latin);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wrapped_rows_are_walked_from_where_the_view_is() {
+        use crate::view::wrap::{self, Pos};
+        let text = b"aaaa bbbb cccc dddd\nx\n0123456789abcdefghij\n";
+        let (mut d, i, _path, dir) = file_docs("wrap", text);
+        let r = d.tabs[i].ready_mut().unwrap();
+        // Ten columns of 10 px fit beside the pad; four rows show.
+        r.wrap = true;
+        (r.advance, r.wide_advance, r.view_w, r.view_lines) = (10.0, 20.0, 116.0, 4.0);
+        assert!(r.wrapped());
+        let at = |line, row| Pos { line, row };
+        let starts = |r: &mut Ready, line| -> Vec<usize> {
+            wrap::rows(r, line).iter().map(|s| s.offset).collect()
+        };
+        assert_eq!(starts(r, 0), [0, 10]);
+        assert_eq!(starts(r, 1), [20]);
+        assert_eq!(starts(r, 2), [22, 32]);
+        assert_eq!(starts(r, 3), [43]);
+        assert_eq!(wrap::pos_of(r, 9), at(0, 0));
+        assert_eq!(wrap::pos_of(r, 10), at(0, 1));
+        assert_eq!(wrap::pos_of(r, 42), at(2, 1));
+        assert_eq!(wrap::row(r, at(0, 1)).1, 19);
+        assert_eq!(wrap::step(r, at(0, 0), 3), at(2, 0));
+        assert_eq!(wrap::step(r, at(2, 1), -4), at(0, 0));
+        assert_eq!(wrap::step(r, at(0, 0), 99), at(3, 0));
+        assert_eq!(wrap::step(r, at(3, 0), -99), at(0, 0));
+        assert_eq!(wrap::rows_between(r, at(0, 1), at(2, 1), 10), Some(3));
+        assert_eq!(wrap::rows_between(r, at(0, 1), at(2, 1), 2), None);
+        assert_eq!(wrap::rows_between(r, at(2, 1), at(0, 1), 10), None);
+        // Down and up keep the column in the row.
+        let mut caret = (3, None);
+        let mut seen = Vec::new();
+        for _ in 0..6 {
+            let (o, goal) = wrap::vertical(r, caret.0, caret.1, 1);
+            caret = (o, Some(goal));
+            seen.push(o);
+        }
+        assert_eq!(seen, [13, 21, 25, 35, 43, 43]);
+        assert_eq!(caret.1, Some(3));
+        assert_eq!(wrap::vertical(r, 25, None, -1), (21, 3));
+        assert_eq!(wrap::vertical(r, 3, None, -1), (0, 3));
+        // The end of a row that goes on shows on the next row: the caret stays before it.
+        assert_eq!(wrap::vertical(r, 42, None, -1), (31, 10));
+        // Keeping an offset in view scrolls by rows, with a row of margin in a view of four.
+        crate::view::reveal(r, 43, false);
+        assert_eq!((r.top, r.top_row), (2.0, 0));
+        crate::view::reveal(r, 12, false);
+        assert_eq!((r.top, r.top_row), (0.0, 0));
+        crate::view::reveal(r, 35, false);
+        assert_eq!((r.top, r.top_row), (1.0, 0));
+        // Parts of a row add up.
+        wrap::set_top(r, at(0, 0));
+        crate::view::scroll_rows(r, 0.5);
+        assert_eq!((r.top, r.top_row), (0.0, 0));
+        crate::view::scroll_rows(r, 0.5);
+        assert_eq!((r.top, r.top_row), (0.0, 1));
+        crate::view::scroll_rows(r, -5.0);
+        assert_eq!((r.top, r.top_row), (0.0, 0));
+        // An edit makes the rows anew.
+        assert!(d.edit(EditOp::Insert("zz "), None));
+        let r = d.tabs[i].ready_mut().unwrap();
+        assert_eq!(starts(r, 0), [0, 8, 18]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
