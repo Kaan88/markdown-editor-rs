@@ -25,8 +25,8 @@ use crate::session::{Session, ThemeChoice};
 use crate::status;
 use crate::trace::{FrameTimes, Trace, summary};
 use crate::ui::{
-    After, Areas, Dialog, DialogKind, Drag, Hit, PANE_MAX, PANE_MIN, PopupKind, REGIONS, Region,
-    Scroller, Ui,
+    Act, After, Areas, Dialog, DialogKind, Drag, Hit, PANE_MAX, PANE_MIN, PopupKind, REGIONS,
+    Region, Scroller, Ui,
 };
 use crate::view::{self, DrawState, View, metrics};
 use mdedit_highlight::{DocId, HighlightService};
@@ -50,7 +50,10 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, WindowId};
 
 mod commands;
+#[cfg(test)]
+mod files_tests;
 mod input;
+mod palette_events;
 
 const TIP_DELAY: Duration = Duration::from_millis(500);
 const AUTOSCROLL_TICK: Duration = Duration::from_millis(16);
@@ -81,6 +84,8 @@ pub enum Wake {
     Results,
     /// The function list of a document is made.
     Outline,
+    /// The palette's list of the folder's files, or of a document's symbols, is made.
+    Palette,
     /// The highlight worker queued colours.
     Highlight,
     /// An updater thread has an answer.
@@ -208,6 +213,8 @@ struct App {
     step_down: bool,
     step_times: Vec<FrameTimes>,
     macros: crate::macros::Macros,
+    /// The command palette: empty until it is first opened.
+    palette: crate::palette::Host,
     /// `--type-steps`: keystrokes left and typed, each one's time from keystroke to pixels (ms),
     /// and the part of it spent in the edit itself.
     type_steps: Option<u32>,
@@ -300,6 +307,7 @@ impl App {
             step_down: true,
             step_times: Vec::new(),
             macros: crate::macros::Macros::default(),
+            palette: Default::default(),
             settled: false,
             load_traced: false,
             colours_traced: false,
@@ -348,7 +356,10 @@ impl App {
 
     /// The caret shows: the text has the keyboard and the window has focus.
     fn text_focused(&self) -> bool {
-        !self.ui.find_focused && self.ui.dialog.is_none() && self.docs.active_ready().is_some()
+        !self.ui.find_focused
+            && self.ui.dialog.is_none()
+            && !self.palette_open()
+            && self.docs.active_ready().is_some()
     }
 
     // ---- documents -------------------------------------------------------------------------
@@ -914,6 +925,14 @@ impl App {
         if self.ui.dialog.is_some() {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
+        if let Some(p) = self.palette.open.as_mut() {
+            // The card's place is needed here, to redraw what it covers; drawing lays it out
+            // again.
+            let card = p
+                .palette
+                .layout(Rect::new(0.0, 0.0, w, h), crate::ui::TITLE_H);
+            bounds.push(card.inset(-20.0));
+        }
         let osig = sig((
             bubbles
                 .iter()
@@ -950,6 +969,12 @@ impl App {
                 .dialog
                 .as_ref()
                 .map(|_| (self.ui.hover, self.ui.pressed)),
+            // The palette does not say what changed inside: every event it handled raised the
+            // tick; the caret's blink is the one thing that changes alone.
+            self.palette
+                .open
+                .is_some()
+                .then_some((self.palette.tick, self.ui.caret_on)),
         ));
         let overlay_changed = osig != self.overlay_sig;
         self.overlay_sig = osig;
@@ -1202,6 +1227,12 @@ impl App {
                 for b in &bubbles {
                     b.draw(c.p, &pal);
                 }
+                // Last, over everything.
+                if let Some(p) = self.palette.open.as_mut() {
+                    let window = Rect::new(0.0, 0.0, w, h);
+                    p.palette
+                        .draw(c.p, &pal, window, crate::ui::TITLE_H, self.ui.caret_on);
+                }
             }
         }
         if dirty[ti] || bands.is_some() {
@@ -1350,6 +1381,10 @@ impl App {
     // ---- hit testing -------------------------------------------------------------------------
 
     fn hit_at(&self, x: f32, y: f32) -> Option<Hit> {
+        // The palette does its own hit testing.
+        if self.palette_open() {
+            return None;
+        }
         if self.ui.dialog.is_some() {
             return self
                 .overlay_hits
@@ -1988,7 +2023,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.open_popup(PopupKind::Main);
             app.compose();
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = Some(12);
+                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::ViewMenu);
             }
             app.open_sub(PopupKind::Main, PopupKind::View, true);
         }
@@ -1996,7 +2031,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.open_popup(PopupKind::Main);
             app.compose();
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = Some(13);
+                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::MacroMenu);
             }
             app.open_sub(PopupKind::Main, PopupKind::Macro, true);
         }
@@ -2044,7 +2079,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
         None => {}
     }
-    if app.ui.dialog.is_some() || app.ui.popup.is_some() {
+    if let Some(q) = app.args.palette.clone() {
+        app.open_palette(&q);
+        app.settle_palette();
+    }
+    if app.ui.dialog.is_some() || app.ui.popup.is_some() || app.palette_open() {
         app.compose();
     }
     if let Some((x, y)) = app.args.hover {

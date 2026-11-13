@@ -537,6 +537,11 @@ pub fn recordable(id: C) -> bool {
             | C::About
             | C::CopyFilePath
             | C::ShowInFileManager
+            | C::CommandPalette
+            | C::CompareOther
+            | C::CompareFile
+            | C::CompareSaved
+            | C::StopCompare
             | C::MakeDefault
             | C::ToggleSplit
             | C::FocusOther

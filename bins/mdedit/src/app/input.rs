@@ -29,6 +29,10 @@ impl App {
 
     pub(super) fn pointer_moved(&mut self, x: f32, y: f32) {
         self.ui.mouse = (x, y);
+        if self.palette_open() {
+            self.palette_pointer(x, y);
+            return;
+        }
         if let Some(drag) = self.ui.drag {
             self.drag_to(drag, x, y);
             self.redraw();
@@ -512,6 +516,11 @@ impl App {
             }
             return;
         }
+        if self.palette_open() {
+            let clicks = self.click_count(x, y);
+            self.palette_press(clicks);
+            return;
+        }
         if let Some(p) = &self.ui.popup {
             if p.contains(x, y) {
                 return;
@@ -535,18 +544,7 @@ impl App {
         ) {
             self.ui.find_focused = false;
         }
-        let now = Instant::now();
-        let clicks = match self.ui.last_press {
-            Some((t, (px, py), n))
-                if now - t < platform::double_click_time()
-                    && (px - x).abs() <= CLICK_SLOP
-                    && (py - y).abs() <= CLICK_SLOP =>
-            {
-                n % 3 + 1
-            }
-            _ => 1,
-        };
-        self.ui.last_press = Some((now, (x, y), clicks));
+        let clicks = self.click_count(x, y);
         self.redraw();
         match hit {
             Hit::Backdrop => self.close_dialog(),
@@ -644,9 +642,31 @@ impl App {
         }
     }
 
+    /// The number of the click a press at `(x, y)` is: 1, then 2 and 3 for presses in quick
+    /// succession on the same spot.
+    fn click_count(&mut self, x: f32, y: f32) -> u32 {
+        let now = Instant::now();
+        let clicks = match self.ui.last_press {
+            Some((t, (px, py), n))
+                if now - t < platform::double_click_time()
+                    && (px - x).abs() <= CLICK_SLOP
+                    && (py - y).abs() <= CLICK_SLOP =>
+            {
+                n % 3 + 1
+            }
+            _ => 1,
+        };
+        self.ui.last_press = Some((now, (x, y), clicks));
+        clicks
+    }
+
     pub(super) fn left_release(&mut self) {
         let (x, y) = self.ui.mouse;
         self.ui.autoscroll_due = None;
+        if self.palette_open() {
+            self.palette_release();
+            return;
+        }
         if let Some(drag) = self.ui.drag.take() {
             if matches!(drag, Drag::Splitter { .. }) {
                 self.session.files_w = Some(self.ui.panes.files_w.round() as u32);
@@ -675,7 +695,7 @@ impl App {
     pub(super) fn right_press(&mut self) {
         let (x, y) = self.ui.mouse;
         self.ui.tip = None;
-        if self.ui.dialog.is_some() {
+        if self.ui.dialog.is_some() || self.palette_open() {
             return;
         }
         self.ui.popup = None;
@@ -738,7 +758,7 @@ impl App {
 
     pub(super) fn middle_press(&mut self) {
         let (x, y) = self.ui.mouse;
-        if self.ui.dialog.is_some() || self.ui.popup.is_some() {
+        if self.ui.dialog.is_some() || self.ui.popup.is_some() || self.palette_open() {
             return;
         }
         if let Some(Hit::Tab(i) | Hit::TabClose(i)) = self.hit_at(x, y) {
@@ -754,6 +774,14 @@ impl App {
             MouseScrollDelta::LineDelta(dx, dy) => (dx as f64, dy as f64, None),
             MouseScrollDelta::PixelDelta(p) => (0.0, 0.0, Some((p.x, p.y))),
         };
+        if self.palette_open() {
+            let dy = match pixels {
+                Some((_, py)) => -(py as f32) / self.scale,
+                None => -(ny as f32) * PANE_WHEEL,
+            };
+            self.palette_wheel(dy);
+            return;
+        }
         if let Some(p) = self.ui.popup.as_mut() {
             // Over a menu the wheel scrolls it (if it is taller than its room); elsewhere it
             // closes the menus, as it always did.
@@ -920,6 +948,11 @@ impl App {
             keys::Key::Insert => None,
         };
 
+        // The palette takes the keyboard before anything else.
+        if self.palette_open() {
+            self.palette_key(name, typed);
+            return;
+        }
         // A menu takes the keyboard; an open submenu has it first.
         if let Some(p) = self.ui.popup.as_mut() {
             let kind = p.kind;

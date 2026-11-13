@@ -138,6 +138,21 @@ pub struct Args {
     pub check_update: bool,
     /// Show the update bar at a stage (`available`, `installing`, `installed`), for a shot.
     pub update_bar: Option<String>,
+    /// Open the command palette with this text in its box, for a shot.
+    pub palette: Option<String>,
+    /// `--compare A B`: open both files, side by side, compared.
+    pub compare: Option<(PathBuf, PathBuf)>,
+    /// Compare the active document with its file on disk (for a shot: with `--type`).
+    pub compare_saved: bool,
+    /// Step to the next difference this many times after comparing.
+    pub next_difference: usize,
+    /// `--find-in-files`: search the folder for the find text now, and wait for the answer.
+    pub find_in_files: bool,
+    /// The results panel's replacement box starts with this text.
+    pub results_replace: Option<String>,
+    /// Plan the replacement in files and show the confirmation, or apply it and show the report.
+    pub replace_dialog: bool,
+    pub replace_report: bool,
 }
 
 /// `a<sep>b` with both sides parsed.
@@ -226,6 +241,21 @@ impl Args {
                 "--whole-word" => out.whole_word = true,
                 "--regex" => out.regex = true,
                 "--replace" => out.replace = value(&a),
+                "--palette" => out.palette = value(&a),
+                "--compare" => {
+                    let pair = (value(&a), value(&a));
+                    if let (Some(x), Some(y)) = pair {
+                        out.compare = Some((PathBuf::from(x), PathBuf::from(y)));
+                    }
+                }
+                "--compare-saved" => out.compare_saved = true,
+                "--next-difference" => {
+                    out.next_difference = checked(&a, value(&a), |v| v.parse().ok()).unwrap_or(0)
+                }
+                "--find-in-files" => out.find_in_files = true,
+                "--results-replace" => out.results_replace = value(&a),
+                "--replace-dialog" => out.replace_dialog = true,
+                "--replace-report" => out.replace_report = true,
                 "--trace" => out.trace = true,
                 "--folder" => out.folder = value(&a).map(PathBuf::from),
                 "--shot" => out.shot = value(&a).map(PathBuf::from),

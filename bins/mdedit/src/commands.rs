@@ -77,6 +77,15 @@ pub enum CommandId {
     CloseOtherTabs,
     CopyFilePath,
     ShowInFileManager,
+    CommandPalette,
+    /// Compare the two panes of the split view, the active file with another, or the text with
+    /// the file on disk; leave the comparison; step through the differences.
+    CompareOther,
+    CompareFile,
+    CompareSaved,
+    StopCompare,
+    NextDifference,
+    PreviousDifference,
     /// Off Windows, from an AppImage: the default application for text files.
     MakeDefault,
 }
@@ -143,6 +152,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ReplaceNext, "Replace and find next", &[]),
     cmd(C::ReplaceAll, "Replace all", &["Ctrl+Shift+Enter"]),
     cmd(C::GoToLine, "Go to line", &["Ctrl+G"]),
+    cmd(C::CommandPalette, "Command palette", &["Ctrl+P"]),
     // The shared key code takes Ctrl+= for this on US layouts. Where "+" and "=" are on digit
     // keys (Turkish Q) no key gives it: Ctrl and the wheel does.
     cmd(C::ZoomIn, "Zoom in", &["Ctrl++"]),
@@ -160,6 +170,12 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::UnfoldAll, "Open all folds", &["Ctrl+F9"]),
     cmd(C::ToggleSplit, "Two files side by side", &["Shift+F8"]),
     cmd(C::FocusOther, "Go to the other pane", &["F8"]),
+    cmd(C::CompareOther, "Compare with the other pane", &[]),
+    cmd(C::CompareFile, "Compare with file", &[]),
+    cmd(C::CompareSaved, "Compare with saved", &[]),
+    cmd(C::StopCompare, "Stop comparing", &[]),
+    cmd(C::NextDifference, "Next difference", &["F7"]),
+    cmd(C::PreviousDifference, "Previous difference", &["Shift+F7"]),
     cmd(C::RecordMacro, "Record a macro, or stop", &["Ctrl+Shift+R"]),
     cmd(C::PlayMacro, "Play the macro", &["Ctrl+Shift+P"]),
     cmd(
@@ -250,6 +266,11 @@ pub mod strings {
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
     pub const NO_BLOCK: &str = "Nothing to fold here: no lines below are indented more.";
     pub const SPLIT_NEEDS_TWO: &str = "Open a second file to show two side by side.";
+    pub const PALETTE_PLACEHOLDER: &str =
+        "Type a file name, > for commands, : for a line, @ for symbols";
+    pub const PALETTE_READING: &str = "Reading the symbols\u{2026}";
+    pub const PALETTE_NO_SYMBOLS: &str = "This kind of file has no symbols to list.";
+    pub const PALETTE_NO_SYMBOLS_FOUND: &str = "No symbols found in this file.";
     pub const NO_OTHER_PANE: &str = "One pane only. Shift+F8 shows two files side by side.";
     pub const MACRO_RECORDING: &str = "Recording the keys you press. Ctrl+Shift+R stops.";
     pub const MACRO_EMPTY: &str = "No key was pressed: nothing recorded.";

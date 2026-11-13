@@ -1088,6 +1088,19 @@ impl App {
                 self.ui.panes.files = !shown;
                 self.ui.outline.on = outline && !shown;
             }
+            C::CommandPalette => {
+                if self.palette_open() {
+                    self.close_palette();
+                } else {
+                    self.open_palette("");
+                }
+            }
+            C::CompareOther
+            | C::CompareFile
+            | C::CompareSaved
+            | C::StopCompare
+            | C::NextDifference
+            | C::PreviousDifference => {}
             C::GoToLine => {
                 if self.docs.active_ready().is_some() {
                     self.ui.naming = false;
@@ -1338,6 +1351,13 @@ impl App {
             Wake::Outline => {
                 self.ui.outline.poll();
             }
+            Wake::Palette => {
+                if self.palette.poll() {
+                    self.palette
+                        .sync(&self.docs, &self.ui, &mut self.macros, true);
+                    self.palette.tick += 1;
+                }
+            }
             Wake::Update(updater::Event::Checked { manual, result }) => {
                 self.session.update_checked = updater::unix_now();
                 if let Some(text) = self.docs.updates.checked(&updater::APP, manual, result) {
@@ -1412,7 +1432,8 @@ impl App {
         let mut next: Option<Instant> = None;
         let mut at = |t: Instant| next = Some(next.map_or(t, |n| n.min(t)));
         // Caret blink, only while the window has focus and the text or the find box has the keys.
-        let blinking = self.focused && (self.ui.find_focused || self.text_focused());
+        let blinking =
+            self.focused && (self.ui.find_focused || self.text_focused() || self.palette_open());
         if blinking {
             if let Some(period) = platform::caret_blink_time() {
                 let due = *self.ui.caret_due.get_or_insert(now + period);

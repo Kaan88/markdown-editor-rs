@@ -49,6 +49,7 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(has_tab),
         cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(has_tab),
         cmd(C::GoToLine, "Go to line…", glyph::GO_TO_LINE).enabled(has_tab),
+        cmd(C::CommandPalette, "Command palette…", glyph::SEARCH),
         Item::new(Act::ViewMenu, "View").icon(glyph::VIEW).hint("›"),
         Item::new(Act::MacroMenu, "Macro")
             .icon(glyph::MACRO)
