@@ -319,10 +319,9 @@ files are in `~/mdedit-test/` there; it installed xdotool, xclip, wmctrl, scrot 
     than Segoe's. Seen in pictures and sensible: those of the bars, menus, panes and
     dialogs. Not seen in any picture: ZOOM, DELETE, LINK, POWER, SELECT_ALL, FULLSCREEN,
     BACK_TO_WINDOW, IMAGE, COPY, CUT, PASTE, OPEN_WITH, MOON, WARN.
-- **The editor pins that branch commit** (`1e244ec3ed5b62d9e38e2a894d4f3d242d11b6c8`), not
-  the shared `main`: the push that would have moved `main` to it was refused in this session,
-  so the branch is waiting to be merged by the user (it is a fast-forward of `main`). The
-  viewer's pin was not touched.
+- The editor pins that commit (`1e244ec3ed5b62d9e38e2a894d4f3d242d11b6c8`). It is the
+  shared `main` since the user said to push it (2026-11-13; a fast-forward from `b74e8cb`).
+  The viewer's pin was not touched.
 - File dialogs: nothing appeared on the VM, because `rfd` there needs either the desktop
   portal or zenity and the VM had neither. With zenity installed Ctrl+O opens its file
   chooser; choosing a file and Save as were not tried. The editor says nothing when no
