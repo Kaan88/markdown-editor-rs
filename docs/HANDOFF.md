@@ -282,7 +282,7 @@ said; **nothing was built or run for Windows**. The Windows code paths are the o
   manager" still opens the folder only.
 - **Checks**: `cargo test --release --workspace` 404 passed (403 before plus one);
   clippy `-D warnings` and `fmt --check` clean. `tests/shots.sh` before (HEAD `7eb4b9b` with the
-  old pin) and after: 72 shots, 64 byte-identical; the 8 that differ are exactly those with an
+  old pin) and after: 74 shots, 66 byte-identical; the 8 that differ are exactly those with an
   emoji (md-light, utf16le, utf16be, outline-dark, split, minimap-dark, minimap-split, tabs).
 - **Budgets on Linux (information)**: window shown 72 to 78 ms on `sample.rs`; private memory
   20.6 to 20.8 MiB (peak 49 MiB); 100 MB file: loaded 115 ms, window shown 190 ms, private
