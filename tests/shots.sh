@@ -44,7 +44,9 @@ fi
 shot() {
     local name="$1"
     shift
-    "$exe" --no-session --shot "$out/$name.png" "$@"
+    # The scale is pinned, so the system's display scale cannot change the pictures; a shot
+    # that asks for its own --scale comes later on the line and wins.
+    "$exe" --no-session --scale 1.0 --shot "$out/$name.png" "$@"
 }
 
 shot rs-light --light "$fx/sample.rs"

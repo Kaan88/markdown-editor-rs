@@ -100,8 +100,10 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
 
 ## 4. What has not been done or checked
 
-- **The user has not looked at either application since these changes.** The editor was opened on
-  their screen once; no feedback yet. Nothing about the interface is approved.
+- **Approval by eye:** the owner has approved the icons and the minimap by looking at them.
+  The rest of the interface has not been explicitly approved. (The older notes below say the
+  user had not looked at the editor; the owner has since used it and raised the update look and
+  the submenus, see 0.3.2.)
 - Nothing interactive in the editor was tried by hand: selection, copy into another program, find,
   tabs (drag, middle click, menu), the Files pane, theme switch, reload when the file changes, a
   second launch handing over to the first.
@@ -112,10 +114,9 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
   main session drove a real window with synthetic keys, mouse and an OLE drag: typing, Backspace,
   Delete, undo, redo, the right-click menu's Undo, Save, a dropped file, New file and Save
   through the file dialog all behaved. That is not the user's approval of the interface.
-- Updates (2026-11-13): v0.1.0 is published and `--check-update` answers "nothing newer"
-  against it. **No update has been offered or installed by mdedit**, since nothing newer
-  exists. The bar and the About buttons were only rendered with `--update-bar`; nobody has
-  clicked them. "One installer or two" is still open; the release is the bare exe.
+- Updates: 0.4.0 is published (and 0.3.1, 0.3.2 before it, with an installer since 0.3.1). The
+  bar and the About buttons were rendered with `--update-bar`; that an update was offered and
+  installed by a running mdedit through the bar (not re-checked).
 - Editing basics (2026-11-13): each shortcut was pressed once by script in a real window on a
   small Rust file and gave the right text. The user has not seen the longer right-click menu.
   Move line and the two every-line commands on large or odd files ran only in the unit tests.
@@ -128,29 +129,18 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
   the window with several modified tabs.
 - `ReplaceFileW`'s fallback for file systems that do not support it (network shares, FAT) has
   not run. The code for other systems than Windows has not been built.
-- Fixed 2026-11-13 ("Code folding" below): a view request the highlight worker could not
-  finish inside one 8 ms slice was never answered.
 - Undo steps are capped by the text they hold (64 MiB), not by their number.
 - The first frame of a Markdown file was 125 ms in one run (`fixtures/sample.md`), over the
-  100 ms budget set on `sample.rs`; whether phase 1 had that was not checked.
-- The viewer's first-frame time and memory were not re-measured after the move to shared crates,
-  and its installer was not rebuilt. The installed `mdview` on the PC is the build from before
-  the move.
+  100 ms budget set on `sample.rs`; whether phase 1 had that was not checked (not re-checked).
 - Idle CPU with the editor's window unfocused was not measured.
 - The input-method hand test (`spikes/ime/RESULTS.md`: Turkish Q dead keys and AltGr, a CJK IME)
   was not done. Phase 2 depends on what it shows.
-- Linux (Debian 13, rustc 1.99.1, run 2026-11-13 over SSH on a VM): builds, and
-  `cargo test --release --workspace` passes (372). `tests/shots.sh` renders 57 PNGs under Xvfb,
-  byte-identical across two runs. Not done: a real X11/Wayland window, input, clipboard, file
-  dialogs, IME, clippy. Known issues:
-  - Fixed later the same day (see "Linux in a real window"): every icon drew as a box.
-  - Debug-build `cargo test` fails four `mdedit-highlight` tests (no colours within the wait, even
-    at 30 s); the same four fail on Windows. Tests are run with `--release`.
-  - `platform.rs` `first_line` is dead code on Linux (one warning).
-  - `tests/shots.sh` needs LF line endings; a Windows checkout with autocrlf breaks it on Linux
-    (add a `.gitattributes` entry).
-  - Fixed: `tabs_open_close_move` assumed Windows case-insensitive names; `examples/bench.rs`
-    linked kernel32 on every platform (now gated, with a `/proc` version).
+- Linux: it built and its tests passed on a Debian 13 VM (2026-11-13, "Linux in a real window"
+  below), but that is not the owner's test: **the owner will test Linux later.** Open there:
+  Wayland, file dialogs (nothing appeared on the VM without zenity or a portal), a double click
+  on the title row does not maximise, IME, clippy, and `tests/shots.sh` needs LF line endings
+  (a Windows checkout with autocrlf breaks it on Linux; `.gitattributes` covers only
+  `fixtures/**`). The Linux build was not re-run after the clean-up of 2026-11-13.
 - The editor's small-file first frame sits at the edge of its budget: about 60 ms of it is
   syntect start-up before the first colours.
 
@@ -159,14 +149,15 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
 These were made to keep moving and are easy to undo:
 
 1. **`panic = "abort"`** in the editor's release profile. It saved 0.9 MB and brought the exe
-   under 6 MB. A panic on any thread ends the process, and since 2026-11-13 there is unsaved
-   text to lose. The viewer uses `unwind`. Unwinding alone would not save the text either; what
-   does is unsaved-session restore (roadmap item 3), so that is the place to settle this.
+   under 6 MB. A panic on any thread ends the process, and there is unsaved text to lose. The
+   viewer uses `unwind`. Unsaved-session restore (roadmap item 3, built 2026-11-13) is what
+   keeps the text, so the abort is less costly than when this was written; still not confirmed
+   by the owner.
 2. **Crate names** `mdshared-*` (the shared plan called them placeholders).
 3. **Step 4 put off**, as above.
 4. **`mdshared-app` created** (open decision 1 of the shared plan, taken as it recommended).
-5. Open in `docs/PLAN.md` and untouched: the editor's name, one installer or two, word-wrap
-   default, Markdown conveniences.
+5. Open in `docs/PLAN.md` and untouched: the editor's name, word-wrap default, Markdown
+   conveniences (not re-checked). An installer exists since 0.3.1 beside the bare exe.
 6. Made on 2026-11-13 for phases 2 and 3: Tab inserts a tab character (no spaces option); the
    unsaved mark is a bullet before the file name; a file with replaced bytes is read-only;
    saving runs on the UI thread; the layout cache is keyed by line content; the IME stays off
@@ -193,18 +184,25 @@ These were made to keep moving and are easy to undo:
 
 ## 6. What to do next
 
-1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
-   by measurement and tests only. The hand checks in section 4 come first, on the Turkish
-   layout.
-2. The feature roadmap in `docs/PLAN.md` is built to its end (2026-11-13). What each item
-   left unbuilt is listed in its section below; nothing of it has been seen by the user.
-3. The Files pane could follow changes in its folders with the shared watcher's new
-   `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
-5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
-   push, then move the `rev` in both applications.
-6. Code the editor's shell copied from the viewer because it was generic but had not been moved
-   (parts of the window loop, the bar, the find box wiring) is the input for step 4 of the shared
-   plan.
+1. **The owner looks at the interface.** Icons and minimap are approved by eye; the rest is
+   not explicitly. The hand checks listed in section 4 (typing on the Turkish layout, dead keys
+   and AltGr, cut and paste with another program, the three questions, Save as, closing with
+   several modified tabs) were not re-checked.
+2. **Linux is to be tested later by the owner** (section 4). Nothing on Linux has been run since
+   the clean-up of 2026-11-13.
+3. **Move the shared `main`.** The shared fixes live on branches (`fix/update-look-every-launch`
+   at `1c3710a` was pinned by 0.3.2 and 0.4.0; `chore/finalize` at `24865c5` is pinned after
+   the clean-up). A push to the shared `main` is refused from this PC; the owner moves it, then
+   the `rev`s here and in the viewer can name commits on `main`.
+4. The feature roadmap in `docs/PLAN.md` is built to its end. What each item left unbuilt is
+   listed in its own dated section below.
+5. The Files pane could follow changes in its folders with the shared watcher's `set_folders`
+   and the tree's `watched_dirs` (shared commit `e93719b`) (not re-checked).
+6. Any change to shared code: edit it in `markdown-shared-rs`, run both applications'
+   `tests/shots.sh` before and after, push, then move the `rev` in both.
+7. Code the editor's shell copied from the viewer because it was generic but had not been moved
+   (parts of the window loop, the bar, the find box wiring) is the input for step 4 of the
+   shared plan.
 
 ## 7. Build and check
 
@@ -216,6 +214,8 @@ cargo test --release --workspace        # 404 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 bash tests/shots.sh target/shots/a      # 72 PNGs, deterministic; first run generates target/data
+# The script pins --scale 1.0 for shots that give none: without it the shots take the Windows
+# display scale, and a changed display scale changes every picture.
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -231,16 +231,42 @@ target/release/mdedit.exe --no-session --trace --exit-after-ms 2500 target/data/
 target/release/mdedit.exe --no-session --trace --type-steps 300 --goto 20:5 fixtures/sample.rs
 ```
 
-**The viewer's no-pixel-change check.** The script and its baseline lived in a session scratch
-folder on the PC and are not in any repository. To recreate it: in the viewer, at a commit known
-to be good, render a fixed set of `--no-session --shot` states (both themes, each `--menu`, each
-`--dialog`, the empty state, panes, find, focus mode, page widths, scales 1.0, 1.5 and 2.0, a few
-`--hover` positions; 43 were used) into a baseline folder; after a change, render again and `cmp`
-every file, then run the workspace tests (which include the four goldens) and `cargo fmt --check`.
-Putting that script into the viewer's repository would be a useful first task.
+**The viewer's no-pixel-change check** is the viewer's own `tests/shots.sh` (added 2026-11-13,
+55 states): run it into a baseline folder at a good commit and again after a change, `cmp` every
+file, then run the workspace tests (which include the four goldens) and `cargo fmt --check`.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Clean-up of the three repositories (2026-11-13, no release)
+
+Headless work, asked by the owner to leave the code finished. No version change.
+
+- **Shared** (`chore/finalize` at `24865c593279c977d610ba10c4df4e0ada9a371b`, on top of
+  `1c3710a`; the shared `main` was not moved): `cargo clippy --workspace --all-targets -- -D
+  warnings` passes. `chunks_exact(N)` became `as_chunks::<N>()`, `% 2 == 0` became
+  `is_multiple_of`, `Gfx` got `Default`, a test's `clone()` into a slice became `from_ref`, and
+  five drawing or button functions and one test type got an `#[allow]` with a reason. New
+  `mdshared_ui::menu::row_span(items, i)` gives a row's offset below the menu's top and its
+  height, with a test tying it to the rows `Menu::place` lays out. Shared tests and fmt pass.
+- **Editor:** all five `rev`s moved to `24865c5`. The editor had no mirrored menu numbers in
+  its code (its cascade follows the pointer, or the menu's top for the keyboard); only the test
+  helper `row` in `ui.rs` used `4.0` and now uses `row_span`.
+- **Debug tests.** `a_request_longer_than_one_slice_is_answered` asked 5,000 lines of an
+  unoptimized highlighter, which is about a hundred times slower and worse than linear (1,000
+  lines took 1 s, 2,000 took 3.4 s). A debug build now asks 1,000 lines (it passes in under
+  2 s); release still asks 5,000. The whole workspace ran once in debug: 404 passed, none failed,
+  the `mdedit` test binary 29 s in all (no single test timed; none could pass 30 s).
+  The "four `mdedit-highlight` tests fail in debug" note in section 4 was from before and
+  is gone.
+- **`first_line`** in `platform.rs` is now `#[cfg(any(windows, test))]`: only the Windows
+  clipboard reads UTF-16. Not compiled for Linux: the target is installed but its system
+  libraries (fontconfig, X11 `pkg-config`) are not on this PC; the cfgs were read instead.
+- Checks: `cargo test --release --workspace` 404 passed; clippy `-D warnings` and fmt clean;
+  72 shots byte-identical to a baseline from the commit before; exe 5,678,592 bytes. The
+  first comparison differed in every picture because the Windows display scale had changed
+  between the two runs (1280x800 against 2240x1400 pixels); `tests/shots.sh` now pins
+  `--scale 1.0`, and the baseline was rebuilt from the old code with the pinned script.
 
 ## Minimap tested in a real window, and 0.4.0 (2026-11-13)
 

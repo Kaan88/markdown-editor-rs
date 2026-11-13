@@ -813,13 +813,19 @@ mod tests {
 
     #[test]
     fn a_request_longer_than_one_slice_is_answered() {
+        // The request must outlast the first slice (8 ms) so the slice doubles until it fits. The
+        // unoptimized highlighter is about a hundred times slower and worse than linear (measured
+        // on the Windows PC: 1000 lines 1 s, 2000 lines 3.4 s, 5000 lines past the old 60 s
+        // deadline), so a debug build asks for fewer lines: 1000 still takes over a hundred
+        // slices' worth, and answers well inside the deadline.
+        let lines = if cfg!(debug_assertions) { 1000 } else { 5000 };
         let f = fixture();
-        let rope = Rope::from_str(&generated_rust(6000));
+        let rope = Rope::from_str(&generated_rust(lines + 1000));
         f.service.open(1, 0, rope, rust(), false);
-        f.service.view(1, 0, 0..5000);
+        f.service.view(1, 0, 0..lines);
         let got = f.service.wait(within(60));
         assert_eq!(got.len(), 1);
-        assert_eq!((got[0].first_line, got[0].lines.len()), (0, 5000));
+        assert_eq!((got[0].first_line, got[0].lines.len()), (0, lines));
     }
 
     #[test]

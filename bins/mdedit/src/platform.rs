@@ -32,7 +32,9 @@ pub fn pick_save(current: &Path) -> Option<PathBuf> {
 pub const PASTE_MAX_CHARS: usize = 1000;
 
 /// The first line of UTF-16 `units` (up to a NUL, CR or LF), at most `max_chars` characters.
-/// Unpaired surrogates become U+FFFD.
+/// Unpaired surrogates become U+FFFD. Only the Windows clipboard hands out UTF-16; elsewhere the
+/// function exists for its test alone.
+#[cfg(any(windows, test))]
 pub fn first_line(units: &[u16], max_chars: usize) -> String {
     let line = units
         .iter()

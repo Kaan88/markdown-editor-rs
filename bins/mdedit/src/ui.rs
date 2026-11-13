@@ -974,12 +974,11 @@ mod popup_tests {
         (parent, sub)
     }
 
-    /// The centre of the parent's row `i`: rows are 1 + i of the three below the padding.
+    /// The centre of the parent's row `i`, from the shared menu's own row layout.
     fn row(parent: &Popup, i: usize) -> (f32, f32) {
         let r = parent.menu.rect();
-        let rows = parent.menu.items.len() as f32;
-        let each = (r.h - 8.0) / rows;
-        (r.x + r.w / 2.0, r.y + 4.0 + each * (i as f32 + 0.5))
+        let (offset, height) = mdshared_ui::menu::row_span(&parent.menu.items, i);
+        (r.x + r.w / 2.0, r.y + offset + height / 2.0)
     }
 
     #[test]
