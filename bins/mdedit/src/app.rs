@@ -539,6 +539,7 @@ impl App {
                     self.dark(),
                     thumbs,
                     self.view.zoom,
+                    self.docs.whitespace,
                 ))
             }
             Region::Status => sig((common, status::fields(&self.docs), self.dark())),
@@ -712,6 +713,7 @@ impl App {
         let ds = DrawState {
             dark: self.dark(),
             caret: self.text_focused() && self.focused && self.ui.caret_on,
+            whitespace: self.docs.whitespace,
             vbar_active: hover == Some(Hit::ScrollBar(Scroller::Text))
                 || matches!(
                     self.ui.drag,
@@ -1033,6 +1035,7 @@ impl App {
             self.docs.recents.paths(),
             (!self.theme_from_args).then_some(self.docs.theme),
             (self.args.zoom.is_none()).then_some(self.docs.zoom),
+            self.docs.whitespace || self.args.whitespace,
             self.ui.panes.files,
             self.ui.panes.files_w.round() as u32,
             &self.docs.folder,
@@ -1072,6 +1075,9 @@ impl App {
         }
         if self.args.zoom.is_none() {
             s.zoom = self.docs.zoom;
+        }
+        if !self.args.whitespace {
+            s.whitespace = self.docs.whitespace;
         }
         s.check_updates = self.docs.check_updates;
         s.files = Some(self.ui.panes.files);
@@ -1478,6 +1484,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
     match app.args.menu {
         Some(ShotMenu::Main) => app.open_popup(PopupKind::Main),
         Some(ShotMenu::Recent) => app.open_popup(PopupKind::Recent),
+        Some(ShotMenu::View) => app.open_popup(PopupKind::View),
         Some(ShotMenu::Tab) => {
             if let Some(r) = app.hit_rect(Hit::Tab(0)) {
                 app.ui.mouse = (r.x + 30.0, r.cy());
@@ -1581,6 +1588,7 @@ pub fn run() -> i32 {
         docs.updates.preview(stage);
     }
     docs.zoom = args.zoom.unwrap_or(session.zoom);
+    docs.whitespace = args.whitespace || session.whitespace;
     docs.theme = match args.dark {
         Some(true) => ThemeChoice::Dark,
         Some(false) => ThemeChoice::Light,

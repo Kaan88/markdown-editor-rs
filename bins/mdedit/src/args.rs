@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShotMenu {
+    View,
     Main,
     Recent,
     Tab,
@@ -72,6 +73,8 @@ pub struct Args {
     pub dialog: Option<ShotDialog>,
     /// `--hover x,y`: logical pointer position for `--shot`.
     pub hover: Option<(f32, f32)>,
+    /// `--whitespace`: show spaces, tabs and line endings.
+    pub whitespace: bool,
     /// `--zoom <50..400>`: the text size in percent, instead of the session's.
     pub zoom: Option<u32>,
     /// `--maximize`: start maximized.
@@ -151,6 +154,7 @@ impl Args {
                 "--files" => out.files_pane = Some(true),
                 "--no-files" => out.files_pane = Some(false),
                 "--maximize" => out.maximize = true,
+                "--whitespace" => out.whitespace = true,
                 "--zoom" => {
                     out.zoom = checked(&a, value(&a), |v| {
                         v.parse().ok().filter(|z| (50..=400).contains(z))
@@ -208,6 +212,7 @@ impl Args {
                     out.menu = checked(&a, value(&a), |v| match v {
                         "main" => Some(ShotMenu::Main),
                         "recent" => Some(ShotMenu::Recent),
+                        "view" => Some(ShotMenu::View),
                         "tab" => Some(ShotMenu::Tab),
                         "text" => Some(ShotMenu::Text),
                         "find" => Some(ShotMenu::Find),

@@ -129,6 +129,7 @@ impl App {
             Act::TabCmd(id, i) => self.tab_command(id, i),
             Act::Recent(path) => self.open(&path),
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
+            Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::Theme(choice) => self.set_theme(choice),
             Act::Opt(opt) => {
                 self.ui.toggle_option(opt);
@@ -486,15 +487,16 @@ impl App {
         }
         // From the main menu, Recent replaces it in place.
         let (x, y, right) = match (&self.ui.popup, kind) {
-            (Some(p), PopupKind::Recent) if p.kind == PopupKind::Main => {
+            (Some(p), PopupKind::Recent | PopupKind::View) if p.kind == PopupKind::Main => {
                 let r = p.menu.rect();
                 (r.right(), r.y, true)
             }
             _ => self.popup_anchor(kind),
         };
         let menu = match kind {
-            PopupKind::Main => overlays::main_menu(&self.docs, &self.ui, x, y),
+            PopupKind::Main => overlays::main_menu(&self.docs, x, y),
             PopupKind::Recent => overlays::recent_menu(&self.docs, x, y, right),
+            PopupKind::View => overlays::view_menu(&self.docs, &self.ui, x, y, right),
             _ => return,
         };
         self.ui.popup = Some(Popup { kind, menu });
@@ -725,6 +727,7 @@ impl App {
             C::ZoomIn => self.set_zoom(metrics::zoom_stepped(self.docs.zoom, 1)),
             C::ZoomOut => self.set_zoom(metrics::zoom_stepped(self.docs.zoom, -1)),
             C::ZoomReset => self.set_zoom(100),
+            C::ToggleWhitespace => self.docs.whitespace = !self.docs.whitespace,
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
             C::NextTab => self.docs.step_tab(true),

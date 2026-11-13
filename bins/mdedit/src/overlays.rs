@@ -23,7 +23,7 @@ fn cmd(id: C, label: &str, icon: &'static str) -> Item<Act> {
 }
 
 /// The "⋯" menu: everything the bar does not show.
-pub fn main_menu(docs: &Docs, ui: &Ui, x: f32, y: f32) -> Menu<Act> {
+pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     let has_tab = docs.active().is_some();
     let ready = docs.active_ready().is_some();
     let modified = docs.active_doc().is_some_and(|d| d.modified());
@@ -47,7 +47,7 @@ pub fn main_menu(docs: &Docs, ui: &Ui, x: f32, y: f32) -> Menu<Act> {
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(has_tab),
         cmd(C::Replace, "Replace…", "").enabled(has_tab),
         cmd(C::GoToLine, "Go to line…", "").enabled(has_tab),
-        cmd(C::ToggleFiles, "Files pane", "").checked(ui.panes.files),
+        Item::new(Act::ViewMenu, "View").hint("›"),
         theme(ThemeChoice::System, "System theme").sep(),
         theme(ThemeChoice::Light, "Light theme"),
         theme(ThemeChoice::Dark, "Dark theme"),
@@ -89,6 +89,18 @@ pub fn recent_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> 
             .icon(glyph::DELETE)
             .enabled(any),
     );
+    Menu::new(items, x, y, align_right)
+}
+
+/// The View menu, opened from the main menu in its place.
+pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    let items = vec![
+        cmd(C::ToggleFiles, "Files pane", "").checked(ui.panes.files),
+        cmd(C::ToggleWhitespace, "Show whitespace", "").checked(docs.whitespace),
+        cmd(C::ZoomIn, "Zoom in", "").sep(),
+        cmd(C::ZoomOut, "Zoom out", ""),
+        cmd(C::ZoomReset, "Reset zoom", "").enabled(docs.zoom != 100),
+    ];
     Menu::new(items, x, y, align_right)
 }
 

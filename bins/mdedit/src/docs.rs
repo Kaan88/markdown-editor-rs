@@ -619,6 +619,8 @@ pub struct Docs {
     pub theme: ThemeChoice,
     /// The text size, percent; the view draws at it and the status strip shows it.
     pub zoom: u32,
+    /// Spaces, tabs and line endings show as marks.
+    pub whitespace: bool,
     opts: LoadOptions,
     waker: Waker,
     load_tx: Sender<LoadDone>,
@@ -642,6 +644,7 @@ impl Docs {
             folder: None,
             theme: ThemeChoice::System,
             zoom: 100,
+            whitespace: false,
             opts: LoadOptions {
                 legacy: mdedit_core::encoding::legacy_for_code_page(code_page),
                 max_bytes: MAX_FILE_BYTES,

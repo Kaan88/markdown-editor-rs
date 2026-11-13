@@ -94,6 +94,8 @@ pub struct Session {
     pub theme: ThemeChoice,
     /// The text size, percent.
     pub zoom: u32,
+    /// Show whitespace and line endings.
+    pub whitespace: bool,
     /// `WxH[ max][ @x,y]`, the viewer's format.
     pub geometry: String,
     /// Whether the Files pane shows; `None` when never set.
@@ -116,6 +118,7 @@ impl Default for Session {
             recent: Recents::default(),
             theme: ThemeChoice::default(),
             zoom: 100,
+            whitespace: false,
             geometry: String::new(),
             files: None,
             files_w: None,
@@ -163,6 +166,7 @@ impl Session {
                             .filter(|z| (50..=400).contains(z))
                             .unwrap_or(100)
                     }
+                    "whitespace" => s.whitespace = value.trim() == "1",
                     "geometry" => s.geometry = unescape(value),
                     "files" => {
                         s.files = match value.trim() {
@@ -208,6 +212,9 @@ impl Session {
         out.line("theme", &self.theme.to_setting().to_string());
         if self.zoom != 100 {
             out.line("zoom", &self.zoom.to_string());
+        }
+        if self.whitespace {
+            out.line("whitespace", "1");
         }
         if !self.geometry.is_empty() {
             out.line("geometry", &escape(&self.geometry));

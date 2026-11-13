@@ -186,6 +186,8 @@ pub enum Act {
     Recent(PathBuf),
     /// Replace the open menu by the Recent menu.
     RecentMenu,
+    /// Replace the open menu by the View menu.
+    ViewMenu,
     Theme(ThemeChoice),
     /// An editing command for the focused box of the bar.
     Edit(EditAct),
@@ -205,6 +207,8 @@ pub enum EditAct {
 pub enum PopupKind {
     Main,
     Recent,
+    /// What shows and how: the Files pane, whitespace, zoom.
+    View,
     Tab(usize),
     /// The text area's right-click menu.
     Text,

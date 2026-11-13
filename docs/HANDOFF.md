@@ -205,7 +205,7 @@ cargo build --release --workspace
 cargo test --release --workspace        # 275 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 45 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 48 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -235,8 +235,17 @@ from converting them.
 ## View aids, first part (2026-11-13, roadmap item 4)
 
 Zoom, go to line, the matching bracket and the other occurrences of the selected word are in;
-the current line was already banded. Still to do from item 4: show whitespace and line
-endings, and word wrap (the large one: every line-to-row mapping in `view.rs` changes).
+the current line was already banded, and Show whitespace is in. Still to do from item 4: word
+wrap (the large one: every line-to-row mapping in `view.rs` changes).
+
+- Show whitespace: a dot in each space, a dash with a tick in each tab, and at each line's end
+  a down arrow for LF, a return arrow for CRLF, a left arrow for CR (drawn with the text font
+  and its fallbacks). Off by default, kept in the session (`whitespace=1`), `--whitespace` for
+  shots. Other blank characters (no-break space and the like) get no mark.
+- The main menu has a "View" entry that replaces it in place, as "Open recent" does: Files
+  pane, Show whitespace, Zoom in, Zoom out, Reset zoom. "Files pane" left the main menu for it.
+  Clicked through in a real window (the menu button, View, Show whitespace); the marks
+  themselves were seen in shots.
 
 - Matching bracket: with nothing selected, the bracket after the caret (else the one before
   it) and its partner get a grey box. `()`, `[]`, `{}` by nesting of the same kind, looked for

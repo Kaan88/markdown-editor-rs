@@ -44,6 +44,8 @@ const WIDE_SAMPLE: &str =
 pub const CHUNK_INDEXES: usize = 256;
 /// The banner over the text.
 pub const BANNER_H: f32 = 34.0;
+/// What shows at a line's end with Show whitespace on: LF, CRLF, CR.
+const EOL_MARKS: [&str; 3] = ["\u{2193}", "\u{21B5}", "\u{2190}"];
 /// The horizontal scrollbar's band at the bottom of the text area.
 const HBAR_H: f32 = 12.0;
 /// Screens of lines the layout cache holds.
@@ -209,6 +211,8 @@ fn draw_hscrollbar(c: &mut Ctx, track: Rect, thumb: Rect, active: bool) {
 pub struct DrawState {
     pub dark: bool,
     pub caret: bool,
+    /// Spaces, tabs and line endings show as marks.
+    pub whitespace: bool,
     pub vbar_active: bool,
     pub hbar_active: bool,
 }
@@ -542,6 +546,21 @@ impl View {
         shaped
     }
 
+    /// The mark of a line ending (`EOL_MARKS`), kept with the line numbers under keys no line
+    /// number has.
+    fn eol_mark(&mut self, kind: usize, color: Rgb) -> Number {
+        let key = (usize::MAX - kind, color);
+        if let Some(l) = self.numbers.get(&key) {
+            return l.clone();
+        }
+        let size = self.metrics.map_or(14.0, |m| m.size);
+        let layout = self.build(EOL_MARKS[kind], size, color, &[]);
+        let baseline = layout.lines().next().map_or(0.0, |l| l.metrics().baseline);
+        let v = Rc::new((layout, baseline));
+        self.numbers.insert(key, v.clone());
+        v
+    }
+
     fn number(&mut self, n: usize, color: Rgb) -> Number {
         if let Some(l) = self.numbers.get(&(n, color)) {
             return l.clone();
@@ -615,6 +634,10 @@ impl View {
         let twin = (!sel_is_current).then(|| r.twin_word()).flatten();
         let mut line_text = String::new();
         let bracket_c = mix(pal.page, pal.text, 0.22);
+        let ws_c = mix(pal.page, pal.text, 0.32);
+        let mut ws_text = String::new();
+        let dot = ((scale * 1.6).round() as i32).max(1);
+        let hair = (scale.round() as i32).max(1);
         let vis = visible(r.top, g.view_lines, g.lines);
         // The horizontal view, device px from column 0.
         let xs = {
@@ -738,6 +761,67 @@ impl View {
                     gy.round(),
                     text_clip,
                 );
+                if !s.whitespace {
+                    continue;
+                }
+                // A dot in each space and a dash with a tick in each tab. A run of spaces is
+                // measured once: its spaces are equally wide.
+                ws_text.clear();
+                r.buffer.text(ch.offset..end, &mut ws_text);
+                let bytes = ws_text.as_bytes();
+                let mid = y + lh / 2;
+                let mut k = 0;
+                while k < bytes.len() {
+                    let byte = bytes[k];
+                    if byte != b' ' && byte != b'\t' {
+                        k += 1;
+                        continue;
+                    }
+                    let mut e = k + 1;
+                    while byte == b' ' && e < bytes.len() && bytes[e] == b' ' {
+                        e += 1;
+                    }
+                    if let Some((xa, xb)) = span(ch.offset + k, ch.offset + e) {
+                        let n = (e - k) as i32;
+                        for j in 0..n {
+                            let (a, b) = (xa + (xb - xa) * j / n, xa + (xb - xa) * (j + 1) / n);
+                            if byte == b' ' {
+                                let (dx, dy) = ((a + b - dot) / 2, mid - dot / 2);
+                                let at = (dx, dy, dx + dot, dy + dot);
+                                fill_clipped(c, at, text_clip, ws_c, 1.0);
+                            } else {
+                                let pad = ((adv * 0.2) as i32).max(1);
+                                let (a, b) = (a + pad, (b - pad).max(a + pad + hair));
+                                fill_clipped(c, (a, mid, b, mid + hair), text_clip, ws_c, 1.0);
+                                let tick = (b - hair, mid - dot, b, mid + hair + dot);
+                                fill_clipped(c, tick, text_clip, ws_c, 1.0);
+                            }
+                        }
+                    }
+                    k = e;
+                }
+                // The line ending, after the last of the line's text.
+                if last && with_break.end > range.end {
+                    let first = r.buffer.rope().byte(range.end);
+                    let kind = match (with_break.end - range.end, first) {
+                        (1, b'\n') => Some(0),
+                        (2, b'\r') => Some(1),
+                        (1, b'\r') => Some(2),
+                        _ => None,
+                    };
+                    if let Some(kind) = kind {
+                        let mark = self.eol_mark(kind, ws_c);
+                        let mx = x + shaped.width as f64 + adv * 0.3;
+                        let my = y as f32 + m.baseline - mark.1;
+                        self.engine.draw_layout_clipped(
+                            c.p.bmp,
+                            &mark.0,
+                            mx.round() as f32,
+                            my.round(),
+                            text_clip,
+                        );
+                    }
+                }
             }
         }
         // The caret.

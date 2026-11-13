@@ -762,6 +762,14 @@ repaints the whole text, since the partner may be on any line). `Ready::twin_wor
 selected whole word; `View::draw` looks for it in each visible line's text and tints the
 matches under the glyphs, after the find marks and before the selection.
 
+## 22. Show whitespace and the View menu (2026-11-13)
+
+`Docs::whitespace` reaches `View::draw` through `DrawState`. After a chunk's glyphs are
+drawn, its source bytes are walked: a run of spaces is measured once and divided evenly, a tab
+is measured by itself; marks are plain fills in device px. The line-ending mark is a one-glyph
+layout kept in the line-number cache (`View::eol_mark`). `PopupKind::View` and `Act::ViewMenu`
+work like the Recent menu opened from the main menu.
+
 ## 19. Unsaved text survives a close (2026-11-13)
 
 Closing the window with a session does not ask about unsaved changes: `App::request` with
