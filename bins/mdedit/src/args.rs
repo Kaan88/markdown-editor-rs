@@ -52,6 +52,11 @@ pub struct Args {
     pub find: Option<String>,
     /// `--match-case`: the find box's Match case option on.
     pub match_case: bool,
+    /// `--whole-word` and `--regex`: the other two search options on.
+    pub whole_word: bool,
+    pub regex: bool,
+    /// `--replace <text>`: show the replace strip with this text in its box.
+    pub replace: Option<String>,
     /// `--scroll <px>`: scroll the text down this many logical px after loading.
     pub scroll: Option<f32>,
     /// `--hscroll <px>`: scroll the text right this many logical px.
@@ -145,6 +150,9 @@ impl Args {
                 "--no-files" => out.files_pane = Some(false),
                 "--maximize" => out.maximize = true,
                 "--match-case" => out.match_case = true,
+                "--whole-word" => out.whole_word = true,
+                "--regex" => out.regex = true,
+                "--replace" => out.replace = value(&a),
                 "--trace" => out.trace = true,
                 "--folder" => out.folder = value(&a).map(PathBuf::from),
                 "--shot" => out.shot = value(&a).map(PathBuf::from),

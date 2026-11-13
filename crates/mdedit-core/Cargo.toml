@@ -13,6 +13,7 @@ memchr.workspace = true
 chardetng.workspace = true
 unicode-width.workspace = true
 mdshared-app.workspace = true
+regex-automata.workspace = true
 
 # Saving replaces the file with ReplaceFileW, which keeps its attributes, ACL, creation time and
 # alternate streams. That call is the crate's one `unsafe` block (see `save.rs`).

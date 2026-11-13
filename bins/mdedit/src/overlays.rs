@@ -5,7 +5,8 @@ use crate::chrome::{Ctx, glyph, logo};
 use crate::commands::{CommandId as C, command, hint, shortcut_help, strings};
 use crate::docs::Docs;
 use crate::session::ThemeChoice;
-use crate::ui::{Act, Dialog, DialogKind, EditAct, Hit, Scroller, Ui};
+use crate::ui::{Act, Dialog, DialogKind, EditAct, FindOpt, Hit, Scroller, Ui};
+use mdedit_core::find::FindOptions;
 use mdshared_ui::gfx::{Face, Rect, mix};
 use mdshared_ui::menu::{Item, Menu};
 pub use mdshared_ui::overlay::Bubble;
@@ -44,6 +45,7 @@ pub fn main_menu(docs: &Docs, ui: &Ui, x: f32, y: f32) -> Menu<Act> {
         cmd(C::CloseTab, "Close tab", glyph::CLOSE).enabled(has_tab),
         cmd(C::CloseAllTabs, "Close all tabs", "").enabled(has_tab),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(has_tab),
+        cmd(C::Replace, "Replace…", "").enabled(has_tab),
         cmd(C::ToggleFiles, "Files pane", "").checked(ui.panes.files),
         theme(ThemeChoice::System, "System theme").sep(),
         theme(ThemeChoice::Light, "Light theme"),
@@ -146,16 +148,18 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .enabled(ready),
         cmd(C::TabsToSpaces, "Tabs to spaces", "").enabled(ready),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
+        cmd(C::Replace, "Replace…", "").enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD),
     ];
     Menu::new(items, x, y, false)
 }
 
-/// The find box's menu: the editing commands a text box has everywhere, and Match case.
+/// The menu of the bar's text boxes: the editing commands a text box has everywhere, and the
+/// search options.
 pub fn find_menu(
     has_text: bool,
     has_selection: bool,
-    match_case: bool,
+    options: FindOptions,
     x: f32,
     y: f32,
 ) -> Menu<Act> {
@@ -176,9 +180,11 @@ pub fn find_menu(
             .icon(glyph::SELECT_ALL)
             .enabled(has_text)
             .sep(),
-        Item::new(Act::MatchCase, "Match case")
-            .checked(match_case)
+        Item::new(Act::Opt(FindOpt::Case), "Match case")
+            .checked(options.match_case)
             .sep(),
+        Item::new(Act::Opt(FindOpt::Word), "Whole word").checked(options.whole_word),
+        Item::new(Act::Opt(FindOpt::Regex), "Regular expression").checked(options.regex),
     ];
     Menu::new(items, x, y, false)
 }

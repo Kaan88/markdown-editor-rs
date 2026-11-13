@@ -202,10 +202,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 234 passed on 2026-11-13
+cargo test --release --workspace        # 266 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 38 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 42 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -231,3 +231,30 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Find and replace (2026-11-13, roadmap item 2)
+
+`docs/DESIGN.md` section 18 describes it. A Sonnet subagent wrote the core part (whole word,
+regular expressions, `replace.rs`); the shell part was written in the main session.
+
+- Decisions made without the user: the strip sits under the command bar and opens with
+  Ctrl+H; Replace all is Ctrl+Shift+Enter (Ctrl+Alt is AltGr); Replace all refuses files over
+  24 MiB because it runs on the UI thread (1.4 to 2.2 s per 100 MB with dense matches); the
+  option toggles are text ("Aa", "W", ".*"), not icons; the options are not kept in the
+  session.
+- The exe went to 6,061,056 bytes with the regex search. `Cargo.toml` now builds
+  `regex-syntax`, `png`, `mdshared-fetch` and some cold crates with `opt-level = "s"`, which
+  gives 5,977,088. `regex-syntax` at that level also parses syntect's patterns: the first
+  colours of `fixtures/sample.rs` came at 55 to 57 ms, which was not compared with a build
+  without it.
+- Measured after: window shown 79 to 84 ms, private memory 27.8 to 28.0 MiB, keystroke p50
+  0.78 ms, 42 shots identical across two runs, 266 tests, clippy and fmt clean.
+- Run in a real window by script (keys only): Ctrl+H, a query, Tab, a replacement, Enter twice,
+  Ctrl+Shift+Enter, Escape twice, Ctrl+Z, saving after each step; the saved files had 2, then
+  29, then 2 replacements, so Replace all was one undo step.
+- Not run: no click on the strip's buttons or toggles, nor on the menu's options; a regular
+  expression was only used in tests and shots, not typed in a window; Replace all on a file
+  near 24 MiB; the user has not seen the strip.
+- Not built: "find in all open tabs" waits for the results panel of find in files (item 8);
+  replace within the selection (the core takes `within`, the shell always passes the whole
+  document); Undo with a box of the bar focused still does nothing.

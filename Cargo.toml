@@ -21,6 +21,10 @@ chardetng = "0.1.17"
 # Wide (East Asian) and zero-width characters, for the horizontal position estimates of long
 # lines. The ambiguous-width ("cjk") tables are left out.
 unicode-width = { version = "0.2", default-features = false }
+# Regex find (per line, linear time). Only features the tree already builds for it through
+# fancy-regex (syntect): the meta engine, and Unicode case folding, \w/\d/\s and general
+# categories, scripts and Unicode word boundaries (all of `unicode`).
+regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "nfa-pikevm", "nfa-backtrack", "dfa-onepass", "hybrid", "perf-literal", "unicode"] }
 parley = "=0.12.0"
 bytemuck = "1.25"
 mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d0ec8b8d4dfc4ec8e744e26843b7a5e1a03bf718" }
@@ -37,3 +41,33 @@ strip = "symbols"
 # Nothing catches a panic, so unwinding buys only a dead worker thread instead of an ended
 # process; the unwind tables cost about 0.9 MB of the 6 MB exe budget (docs/DESIGN.md, section 2).
 panic = "abort"
+
+# Code that runs once and waits on the user or the disk (file dialogs, the folder watcher's
+# set-up, formats syntect never reads at run time): built for size, which pays for the regex
+# search within the 6 MB exe budget. Nothing here is on the typing, drawing or loading paths.
+[profile.release.package.rfd]
+opt-level = "s"
+[profile.release.package.windows]
+opt-level = "s"
+[profile.release.package.windows-core]
+opt-level = "s"
+[profile.release.package.plist]
+opt-level = "s"
+[profile.release.package.quick-xml]
+opt-level = "s"
+[profile.release.package.yaml-rust]
+opt-level = "s"
+[profile.release.package.serde_json]
+opt-level = "s"
+[profile.release.package.time]
+opt-level = "s"
+[profile.release.package.notify]
+opt-level = "s"
+[profile.release.package.walkdir]
+opt-level = "s"
+[profile.release.package.regex-syntax]
+opt-level = "s"
+[profile.release.package.png]
+opt-level = "s"
+[profile.release.package.mdshared-fetch]
+opt-level = "s"

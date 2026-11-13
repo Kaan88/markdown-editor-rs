@@ -37,6 +37,12 @@ pub const FIND_CAP: usize = 10_000;
 /// A search gives up (capped) after comparing this many characters per byte of text, so a long
 /// query against text that nearly matches everywhere cannot run away.
 pub const FIND_WORK_PER_BYTE: usize = 64;
+/// A line longer than this many bytes (without its break) is skipped by regex find, so one huge
+/// line cannot hold a search; plain and whole-word find are not limited by it.
+pub const REGEX_LINE_MAX: usize = 1 << 20;
+/// The compiled size a regex may reach (its program, in bytes): a pattern that needs more, such
+/// as `(a{1000}){1000}`, is refused as invalid.
+pub const REGEX_SIZE_LIMIT: usize = 1 << 20;
 /// Buffers up to this size are searched on the UI thread; larger ones on a worker.
 pub const SYNC_FIND_BYTES: usize = 4 << 20;
 

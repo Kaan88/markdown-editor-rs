@@ -73,6 +73,12 @@ fn class(c: char) -> Class {
     }
 }
 
+/// Whether `c` is a word character: the class word motions and double click treat as a word
+/// (alphanumeric or `_`). Whole-word find uses it too.
+pub(crate) fn is_word_char(c: char) -> bool {
+    class(c) == Class::Word
+}
+
 /// The class of the grapheme starting at `offset` (its first `char` decides).
 fn class_at(buf: &Buffer, offset: usize) -> Option<Class> {
     buf.char_at(offset).map(class)

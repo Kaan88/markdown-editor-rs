@@ -15,6 +15,7 @@ pub mod history;
 pub mod limits;
 pub mod lines;
 pub mod load;
+pub mod replace;
 pub mod save;
 pub mod selection;
 #[cfg(test)]

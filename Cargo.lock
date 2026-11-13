@@ -1277,6 +1277,7 @@ dependencies = [
  "encoding_rs",
  "mdshared-app",
  "memchr",
+ "regex-automata",
  "ropey",
  "unicode-segmentation",
  "unicode-width",

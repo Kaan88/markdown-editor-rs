@@ -229,6 +229,7 @@ fn all() {
             text,
             FindOptions {
                 match_case: *match_case,
+                ..FindOptions::default()
             },
         )
         .unwrap();

@@ -5,14 +5,14 @@
 use crate::commands::{CommandId, hint, strings};
 use crate::docs::Docs;
 use crate::session::ThemeChoice;
-use crate::ui::{BarItem, Drag, Hit, PopupKind, Ui};
+use crate::ui::{BarField, BarItem, Drag, FindOpt, Hit, PopupKind, Ui};
 use mdshared_ui::chrome::{
     BAR_H, DRAG_MIN, NEW_TAB_W, TABS_X, TITLE_H, TabState, WIN_BTN_W, WinButton, button_fill,
     draw_new_tab_button, draw_tab, draw_win_button, tab_natural_width, tab_widths, win_button_rect,
 };
 use mdshared_ui::gfx::{Face, Painter, Rect, Rgb, mix};
 pub use mdshared_ui::glyph;
-use mdshared_ui::textfield::FieldColors;
+use mdshared_ui::textfield::{FieldColors, TextField};
 use mdshared_ui::theme::Palette;
 
 pub const FIND_W: f32 = 260.0;
@@ -246,6 +246,12 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
             BarItem::More => "More".into(),
         },
         Hit::FindClear => "Clear search (Escape)".into(),
+        Hit::FindOpt(FindOpt::Case) => "Match case".into(),
+        Hit::FindOpt(FindOpt::Word) => "Whole word".into(),
+        Hit::FindOpt(FindOpt::Regex) => "Regular expression".into(),
+        Hit::ReplaceOne => "Replace this match and go to the next (Enter)".into(),
+        Hit::ReplaceAll => with("Replace every match", CommandId::ReplaceAll),
+        Hit::ReplaceClose => "Close (Escape)".into(),
         Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
         _ => return None,
     })
@@ -374,6 +380,116 @@ pub fn find_parts(frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
     )
 }
 
+/// Where the text of one of the bar's boxes goes inside its frame, and the clear button if it
+/// has one.
+pub fn field_parts(which: BarField, frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
+    match which {
+        BarField::Find => find_parts(frame, has_text),
+        BarField::Replace => (
+            Rect::new(
+                frame.x + 10.0,
+                frame.y + 1.0,
+                (frame.w - 20.0).max(0.0),
+                frame.h - 2.0,
+            ),
+            None,
+        ),
+    }
+}
+
+/// What the replace strip shows at a width: the box's width and whether the option toggles fit
+/// (they are in the find box's menu too).
+pub fn replace_plan(avail: f32, buttons: f32) -> (f32, bool) {
+    let fixed = MARGIN * 2.0 + ICON_BTN + buttons + 16.0;
+    let toggles = 3.0 * (TOGGLE_W + GAP) + 8.0;
+    if avail >= fixed + toggles + FIND_W {
+        (FIND_W, true)
+    } else if avail >= fixed + toggles + 140.0 {
+        (avail - fixed - toggles, true)
+    } else {
+        ((avail - fixed).clamp(60.0, FIND_W), false)
+    }
+}
+
+const TOGGLE_W: f32 = 32.0;
+
+/// Draws the replace strip into `r`: from the right, Close, Replace all, Replace, the
+/// replacement's box, and the three search options.
+pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+    let pal = *c.pal;
+    c.p.fill(r, pal.bar);
+    let y = r.y;
+    let has_matches = docs
+        .active_ready()
+        .is_some_and(|r| !r.find.matches.is_empty() && !r.find.searching);
+    let width = |c: &mut Ctx, label: &str| (c.p.measure(Face::Ui, 13.0, label) + 26.0).round();
+    let (one_w, all_w) = (
+        width(c, strings::REPLACE_ONE),
+        width(c, strings::REPLACE_ALL),
+    );
+    let (field_w, toggles) = replace_plan(r.w, one_w + all_w + 6.0);
+
+    let mut right = r.right() - MARGIN;
+    let close = Rect::new(right - ICON_BTN, y, ICON_BTN, 32.0);
+    if let Some(f) = c.fill_for(Hit::ReplaceClose, false, false) {
+        c.p.rbox(close, 6.0, f);
+    }
+    c.p.icon(glyph::CLOSE, 10.0, close.cx(), close.cy(), pal.muted);
+    c.hit(Hit::ReplaceClose, close);
+    right = close.x - 8.0;
+
+    for (hit, label, w) in [
+        (Hit::ReplaceAll, strings::REPLACE_ALL, all_w),
+        (Hit::ReplaceOne, strings::REPLACE_ONE, one_w),
+    ] {
+        let b = Rect::new(right - w, y, w, 32.0);
+        let fill = c
+            .fill_for(hit, false, false)
+            .filter(|_| has_matches)
+            .map_or(pal.field, |f| mix(pal.field, f, 0.6));
+        c.p.frame(b, 6.0, fill, pal.line);
+        let color = if has_matches { pal.text } else { pal.faint };
+        c.p.text_center(Face::Ui, 13.0, b, label, color);
+        if has_matches {
+            c.hit(hit, b);
+        }
+        right = b.x - 6.0;
+    }
+    right -= 2.0;
+
+    let frame = Rect::new(right - field_w, y, field_w, 32.0);
+    let focused = ui.find_focused && ui.field == BarField::Replace;
+    draw_field(
+        c,
+        &mut ui.replace,
+        focused,
+        ui.caret_on,
+        frame,
+        BarField::Replace,
+    );
+    if !toggles {
+        return;
+    }
+    let mut x = frame.x - 8.0;
+    for (opt, label) in [
+        (FindOpt::Regex, ".*"),
+        (FindOpt::Word, "W"),
+        (FindOpt::Case, "Aa"),
+    ] {
+        x -= TOGGLE_W;
+        let b = Rect::new(x, y, TOGGLE_W, 32.0);
+        let on = ui.option(opt);
+        let hit = Hit::FindOpt(opt);
+        if let Some(f) = c.fill_for(hit, on, false) {
+            c.p.rbox(b, 6.0, f);
+        }
+        let color = if on { pal.accent } else { pal.muted };
+        c.p.text_center(Face::Ui, 13.0, b, label, color);
+        c.hit(hit, b);
+        x -= GAP;
+    }
+}
+
 /// Draws the command bar into `r`.
 /// The bar under the command bar that offers a newer version, shows its download, and says
 /// when it is in place.
@@ -498,7 +614,8 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     button(c, rx, BarItem::FindPrev, glyph::UP, None, false);
     rx -= plan.find_w + 4.0;
     let frame = Rect::new(rx, y, plan.find_w, 32.0);
-    draw_find(c, ui, frame);
+    let focused = ui.find_focused && ui.field == BarField::Find;
+    draw_field(c, &mut ui.find, focused, ui.caret_on, frame, BarField::Find);
     if plan.count && t.count > 0.0 {
         let (label, none) = find_label(docs);
         c.p.text_right(
@@ -512,10 +629,19 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     }
 }
 
-fn draw_find(c: &mut Ctx, ui: &mut Ui, frame: Rect) {
+/// One of the bar's two text boxes: the find box with its icon and clear button, or the
+/// replacement's.
+fn draw_field(
+    c: &mut Ctx,
+    field: &mut TextField,
+    focused: bool,
+    caret_on: bool,
+    frame: Rect,
+    which: BarField,
+) {
     let pal = *c.pal;
-    let focused = ui.find_focused;
-    let hovered = c.hover == Some(Hit::Find) || c.hover == Some(Hit::FindClear);
+    let find = which == BarField::Find;
+    let hovered = c.hover == Some(which.hit()) || (find && c.hover == Some(Hit::FindClear));
     let edge = if hovered && !focused {
         mix(pal.line, pal.text, 0.18)
     } else {
@@ -534,31 +660,37 @@ fn draw_find(c: &mut Ctx, ui: &mut Ui, frame: Rect) {
         c.p.rbox(frame, 6.0, pal.accent);
         c.p.restore(old);
     }
-    c.p.icon(
-        glyph::SEARCH,
-        12.0,
-        frame.x + 17.0,
-        frame.cy(),
-        if focused { pal.text } else { pal.muted },
-    );
-    let (area, clear) = find_parts(frame, !ui.find.is_empty());
+    if find {
+        c.p.icon(
+            glyph::SEARCH,
+            12.0,
+            frame.x + 17.0,
+            frame.cy(),
+            if focused { pal.text } else { pal.muted },
+        );
+    }
+    let (area, clear) = field_parts(which, frame, !field.is_empty());
     let colors = FieldColors {
         text: pal.text,
         placeholder: pal.faint,
         selection: pal.selection,
         caret: pal.text,
     };
-    ui.find.draw(
+    field.draw(
         c.p,
         area,
         Face::Ui,
         13.0,
         &colors,
-        strings::FIND_PLACEHOLDER,
+        if find {
+            strings::FIND_PLACEHOLDER
+        } else {
+            strings::REPLACE_PLACEHOLDER
+        },
         focused,
-        ui.caret_on,
+        caret_on,
     );
-    c.hit(Hit::Find, frame);
+    c.hit(which.hit(), frame);
     if let Some(b) = clear {
         if let Some(f) = c.fill_for(Hit::FindClear, false, false) {
             c.p.rbox(b, 4.0, f);
@@ -571,6 +703,28 @@ fn draw_find(c: &mut Ctx, ui: &mut Ui, frame: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_replace_strip_gives_way() {
+        // Wide: the full box and the toggles.
+        assert_eq!(replace_plan(1280.0, 180.0), (FIND_W, true));
+        // Narrower: the box shrinks first.
+        let (w, toggles) = replace_plan(560.0, 180.0);
+        assert!(toggles && (140.0..FIND_W).contains(&w));
+        // Narrow: the toggles go (the find box's menu has them) and the box keeps a minimum.
+        let (w, toggles) = replace_plan(400.0, 180.0);
+        assert!(!toggles && w >= 60.0);
+        let (w, _) = replace_plan(200.0, 180.0);
+        assert_eq!(w, 60.0);
+        // The replacement's text starts at the frame's padding; it has no clear button.
+        let frame = Rect::new(100.0, 10.0, 200.0, 32.0);
+        let (area, clear) = field_parts(BarField::Replace, frame, true);
+        assert_eq!((area.x, area.w, clear), (110.0, 180.0, None));
+        assert_eq!(
+            field_parts(BarField::Find, frame, true),
+            find_parts(frame, true)
+        );
+    }
 
     fn text() -> BarText {
         BarText {

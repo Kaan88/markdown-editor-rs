@@ -21,6 +21,7 @@ use mdedit_core::find::{self, FindOptions, Matches, Query};
 use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
 use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
+use mdedit_core::replace;
 use mdedit_core::save::{self, SaveError};
 use mdedit_core::selection::Selection;
 use mdedit_core::{Buffer, Change, FileInfo, History, Position};
@@ -150,7 +151,9 @@ fn shift_spans(spans: &mut Vec<Span>, rel: usize, removed: usize, inserted: usiz
 #[derive(Default)]
 pub struct FindState {
     pub text: String,
-    pub match_case: bool,
+    pub options: FindOptions,
+    /// Why the query cannot be searched for (a regular expression that does not compile).
+    pub error: Option<String>,
     pub matches: Vec<Range<usize>>,
     pub capped: bool,
     /// Index into `matches` of the current match.
@@ -207,6 +210,9 @@ impl FindState {
 
     /// The counter beside the find box.
     pub fn label(&self) -> String {
+        if self.error.is_some() {
+            return strings::BAD_PATTERN.to_string();
+        }
         if self.searching && !self.text.is_empty() {
             return strings::FIND_SEARCHING.to_string();
         }
@@ -434,7 +440,7 @@ pub struct FindDone {
     pub doc: DocId,
     pub revision: u64,
     pub text: String,
-    pub match_case: bool,
+    pub options: FindOptions,
     pub kind: FindKind,
 }
 
@@ -502,7 +508,16 @@ pub enum EditOp<'a> {
     Case(bool),
     TrimTrailing,
     TabsToSpaces,
+    /// Replaces the selection by this template when the selection is a match of the document's
+    /// query.
+    ReplaceOne(&'a str),
+    /// Replaces every match of the document's query by this template, as one undo step.
+    ReplaceAll(&'a str),
 }
+
+/// The largest text Replace all takes. It runs on the UI thread at about 1.4 to 2.2 s per
+/// 100 MB when matches are dense, so this keeps the worst case near half a second.
+pub const REPLACE_ALL_MAX_BYTES: usize = 24 * 1024 * 1024;
 
 /// The largest text the two every-line commands (trim trailing spaces, tabs to spaces) take.
 /// They run on the UI thread at about 4 to 7 s per 100 MB when every line changes, so this
@@ -884,7 +899,7 @@ impl Docs {
                     r.wide_advance = old.wide_advance;
                     old.find.cancel();
                     if !old.find.text.is_empty() {
-                        query = Some((old.find.text.clone(), old.find.match_case));
+                        query = Some((old.find.text.clone(), old.find.options));
                     }
                 }
                 if let (Some(lang), Some(s)) = (language, service)
@@ -1002,6 +1017,9 @@ impl Docs {
             {
                 Some(strings::TOO_LARGE_FOR_ALL_LINES)
             }
+            EditOp::ReplaceAll(_) if r.buffer.len_bytes() > REPLACE_ALL_MAX_BYTES => {
+                Some(strings::TOO_LARGE_FOR_REPLACE_ALL)
+            }
             _ => None,
         };
         if let Some(text) = refused {
@@ -1009,8 +1027,35 @@ impl Docs {
             return false;
         }
         let eol = r.info.eol.dominant();
+        let query = match op {
+            EditOp::ReplaceOne(_) | EditOp::ReplaceAll(_) => {
+                match Query::new(&r.find.text, r.find.options) {
+                    Some(q) => Some(q),
+                    None => return false,
+                }
+            }
+            _ => None,
+        };
+        // How many matches Replace all found.
+        let mut replaced = None;
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.sel);
         let out = match op {
+            EditOp::ReplaceOne(with) => {
+                let (Some(q), range) = (&query, sel.range()) else {
+                    return false;
+                };
+                if range.is_empty() {
+                    return false;
+                }
+                replace::replace_one(buf, hist, sel, q, range, with, eol)
+            }
+            EditOp::ReplaceAll(with) => {
+                let Some(q) = &query else { return false };
+                let never = AtomicBool::new(false);
+                let (out, n) = replace::replace_all(buf, hist, sel, q, with, eol, None, &never);
+                replaced = Some(n);
+                out
+            }
             EditOp::DuplicateLines => lines::duplicate_lines(buf, hist, sel, eol),
             EditOp::MoveLines(down) => lines::move_lines(buf, hist, sel, down, eol),
             EditOp::DeleteLines => lines::delete_lines(buf, hist, sel),
@@ -1060,6 +1105,11 @@ impl Docs {
             }
         }
         crate::view::reveal(r, r.sel.caret, false);
+        match replaced {
+            Some(0) => self.set_toast(strings::NOTHING_TO_REPLACE),
+            Some(n) => self.set_toast(&strings::replaced(n)),
+            None => {}
+        }
         changed
     }
 
@@ -1245,9 +1295,9 @@ impl Docs {
 
     /// Sets the active document's query. Searches at once up to `SYNC_FIND_BYTES`, else on a
     /// thread; then goes to the first match at or after the selection.
-    pub fn find_set(&mut self, text: &str, match_case: bool) {
+    pub fn find_set(&mut self, text: &str, options: FindOptions) {
         if let Some(i) = self.active {
-            self.find_in(i, text, match_case, true, false);
+            self.find_in(i, text, options, true, false);
         }
     }
 
@@ -1257,8 +1307,8 @@ impl Docs {
             && let Some(r) = self.tabs[i].ready()
             && r.find.stale
         {
-            let (text, case) = (r.find.text.clone(), r.find.match_case);
-            self.find_in(i, &text, case, false, true);
+            let (text, options) = (r.find.text.clone(), r.find.options);
+            self.find_in(i, &text, options, false, true);
         }
     }
 
@@ -1267,24 +1317,25 @@ impl Docs {
         self.active_ready().is_some_and(|r| r.find.stale)
     }
 
-    fn find_in(&mut self, i: usize, text: &str, match_case: bool, go: bool, force: bool) {
+    fn find_in(&mut self, i: usize, text: &str, options: FindOptions, go: bool, force: bool) {
         let (tx, waker) = (self.find_tx.clone(), self.waker.clone());
         let doc = &mut self.tabs[i];
         let (id, revision) = (doc.id, doc.revision);
         let Some(r) = doc.ready_mut() else { return };
-        if r.find.text == text && r.find.match_case == match_case && !force {
+        if r.find.text == text && r.find.options == options && !force {
             return;
         }
         r.find.cancel();
         r.find.text = text.to_string();
-        r.find.match_case = match_case;
+        r.find.options = options;
+        r.find.error = Query::check(text, options).err();
         r.find.matches.clear();
         r.find.capped = false;
         r.find.current = None;
         r.find.searching = false;
         r.find.stale = false;
         r.find.generation += 1;
-        let Some(query) = Query::new(text, FindOptions { match_case }) else {
+        let Some(query) = Query::new(text, options) else {
             return;
         };
         if r.buffer.len_bytes() <= SYNC_FIND_BYTES {
@@ -1306,7 +1357,7 @@ impl Docs {
                 doc: id,
                 revision,
                 text,
-                match_case,
+                options,
                 kind: FindKind::All(m),
             });
             waker(Wake::Found);
@@ -1358,12 +1409,7 @@ impl Docs {
             r.select_and_reveal(range);
             return;
         }
-        let Some(query) = Query::new(
-            &r.find.text,
-            FindOptions {
-                match_case: r.find.match_case,
-            },
-        ) else {
+        let Some(query) = Query::new(&r.find.text, r.find.options) else {
             return;
         };
         if r.buffer.len_bytes() <= SYNC_FIND_BYTES {
@@ -1383,7 +1429,7 @@ impl Docs {
         let cancel = Arc::new(AtomicBool::new(false));
         r.find.cancel = Some(cancel.clone());
         let rope = r.buffer.snapshot();
-        let (text, match_case) = (r.find.text.clone(), r.find.match_case);
+        let (text, options) = (r.find.text.clone(), r.find.options);
         std::thread::spawn(move || {
             let found = find::find_next(&rope, &query, from, forward, true, &cancel);
             if cancel.load(Ordering::Relaxed) {
@@ -1393,7 +1439,7 @@ impl Docs {
                 doc: id,
                 revision,
                 text,
-                match_case,
+                options,
                 kind: FindKind::Next(found),
             });
             waker(Wake::Found);
@@ -1413,7 +1459,7 @@ impl Docs {
             }
             let id = doc.id;
             let Some(r) = doc.ready_mut() else { continue };
-            if r.find.text != done.text || r.find.match_case != done.match_case {
+            if r.find.text != done.text || r.find.options != done.options {
                 continue;
             }
             r.find.cancel = None;
@@ -1642,6 +1688,54 @@ mod tests {
     }
 
     #[test]
+    fn replace_goes_through_the_document() {
+        let (mut d, i, _path, dir) = file_docs("replace", b"cat Cat concat\r\ncat\r\n");
+        let word = FindOptions {
+            whole_word: true,
+            ..FindOptions::default()
+        };
+        // The query selected the first match: Replace changes it, and the caret is after it.
+        d.find_set("cat", word);
+        assert_eq!(d.tabs[i].ready().unwrap().find.matches.len(), 3);
+        assert!(d.edit(EditOp::ReplaceOne("dog"), None));
+        assert_eq!(text_of(&d, i), "dog Cat concat\r\ncat\r\n");
+        // The marks moved with the edit, so the next step selects the next match.
+        d.find_step(true);
+        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 4..7);
+        // A selection that is not a match is left alone.
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 8,
+            caret: 11,
+            goal_col: None,
+        };
+        assert!(!d.edit(EditOp::ReplaceOne("dog"), None));
+        // Replace all is one undo step and says how many.
+        assert!(d.edit(EditOp::ReplaceAll("bird\n"), None));
+        assert_eq!(text_of(&d, i), "dog bird\r\n concat\r\nbird\r\n\r\n");
+        assert_eq!(d.toast.as_ref().unwrap().0, "Replaced 2 matches.");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "dog Cat concat\r\ncat\r\n");
+        // A regular expression with groups; one that does not compile changes nothing.
+        let regex = FindOptions {
+            regex: true,
+            ..FindOptions::default()
+        };
+        d.find_set(r"(\w+) (\w+)", regex);
+        assert!(d.edit(EditOp::ReplaceAll("$2 $1"), None));
+        assert_eq!(text_of(&d, i), "Cat dog concat\r\ncat\r\n");
+        d.find_set("(", regex);
+        let r = d.tabs[i].ready().unwrap();
+        assert!(r.find.error.is_some() && r.find.matches.is_empty());
+        assert_eq!(r.find.label(), strings::BAD_PATTERN);
+        assert!(!d.edit(EditOp::ReplaceAll("x"), None));
+        // No match: nothing changes and a toast says so.
+        d.find_set("zebra", FindOptions::default());
+        assert!(!d.edit(EditOp::ReplaceAll("x"), None));
+        assert_eq!(d.toast.as_ref().unwrap().0, strings::NOTHING_TO_REPLACE);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn typing_marks_the_tab_and_saving_clears_it() {
         let (mut d, i, path, dir) = file_docs("edit", b"one\r\ntwo\r\n");
         assert!(!d.tabs[i].modified());
@@ -1744,7 +1838,7 @@ mod tests {
     #[test]
     fn find_marks_move_with_edits() {
         let (mut d, i, _, dir) = file_docs("find", b"ab ab ab ab\n");
-        d.find_set("ab", false);
+        d.find_set("ab", FindOptions::default());
         let marks = |d: &Docs| d.tabs[i].ready().unwrap().find.matches.clone();
         assert_eq!(marks(&d), [0..2, 3..5, 6..8, 9..11]);
         // find_set selected the first match; put the caret inside the second and type.

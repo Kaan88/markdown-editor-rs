@@ -724,3 +724,21 @@ the session, the watcher and reloads; `Docs::save` answers `SaveFailed::Untitled
 goes to Save as, where cancelling the file dialog also cancels whatever waited on the save.
 
 Not built: choosing or converting the encoding, recovery of unsaved text after a crash, IME.
+
+## 18. Find and replace (2026-11-13)
+
+| Where | What |
+|---|---|
+| `mdedit-core` `find.rs` | `FindOptions { match_case, whole_word, regex }`. Whole word uses the word class of the caret motions. A regular expression (`regex-automata`'s meta engine) is applied per line, skips lines over `REGEX_LINE_MAX` (1 MiB) and empty matches, and is refused over `REGEX_SIZE_LIMIT`. `Query::check` gives the reason a pattern does not compile |
+| `mdedit-core` `replace.rs` | `expand` (`$0`..`$99`, `${name}`, `$$`), `replace_one` (only when the range is a match now), `replace_all` (matches found first, replaced front to back in place, one undo step; `within` for a range) |
+| `docs.rs` | `FindState::options` and `error`; `EditOp::ReplaceOne` and `ReplaceAll` go through `Docs::edit` like every edit, so marks, colours and line-ending counts follow. `REPLACE_ALL_MAX_BYTES` is 24 MiB |
+| `ui.rs` | `Ui::replace` (a second text field), `replace_open`, `field` (which box has the keyboard while `find_focused`), the three options; `Hit::Replace`, `ReplaceOne`, `ReplaceAll`, `ReplaceClose`, `FindOpt(..)`; `REPLACE_H` |
+| `chrome.rs` | `draw_replace_strip`, `replace_plan` (the box shrinks, then the toggles go), `draw_field` for both boxes |
+| `app.rs` | The strip is part of the Bar region, above the update bar: `notice_h` adds both |
+
+Keys: Ctrl+H opens the strip (the replacement box when there is a query, else the find box);
+Tab moves between the boxes; Enter in the replacement box replaces the selected match and
+selects the next, and only goes to the next when no match is selected; Ctrl+Shift+Enter
+replaces all; Escape leaves the box, then closes the strip, then clears the query. The
+replacement's line breaks become the document's. A pattern that does not compile shows "Not a
+valid pattern" where the count is.

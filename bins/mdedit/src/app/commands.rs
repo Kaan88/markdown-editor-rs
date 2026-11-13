@@ -4,7 +4,7 @@
 use super::*;
 use crate::commands::CommandId as C;
 use crate::docs::{EditOp, SaveFailed};
-use crate::ui::{Act, After, BarItem, EditAct, Pending, Popup};
+use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
 use mdedit_core::limits::COPY_LIMIT;
 use mdedit_core::save::SaveError;
@@ -43,8 +43,15 @@ impl App {
             Hit::FindClear => {
                 self.ui.find.clear();
                 self.docs.find_clear();
-                self.ui.find_focused = true;
+                self.ui.focus_field(BarField::Find);
                 self.caret_reset();
+            }
+            Hit::ReplaceOne => self.command(C::ReplaceNext),
+            Hit::ReplaceAll => self.command(C::ReplaceAll),
+            Hit::ReplaceClose => self.ui.close_replace(),
+            Hit::FindOpt(opt) => {
+                self.ui.toggle_option(opt);
+                self.find_changed();
             }
             Hit::FilesRow(i) => {
                 let Some(row) = self.ui.tree.rows().get(i).cloned() else {
@@ -123,12 +130,12 @@ impl App {
             Act::Recent(path) => self.open(&path),
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::Theme(choice) => self.set_theme(choice),
-            Act::MatchCase => {
-                self.ui.match_case = !self.ui.match_case;
+            Act::Opt(opt) => {
+                self.ui.toggle_option(opt);
                 self.find_changed();
             }
             Act::Edit(edit) => {
-                let f = &mut self.ui.find;
+                let f = self.ui.field_mut();
                 let changed = match edit {
                     EditAct::Cut => {
                         f.has_selection()
@@ -152,7 +159,7 @@ impl App {
                     }
                 };
                 self.ui.find_focused = true;
-                if changed {
+                if changed && self.ui.field == BarField::Find {
                     self.find_changed();
                 }
                 self.caret_reset();
@@ -622,9 +629,31 @@ impl App {
                 }
             }
             C::Find => {
-                self.ui.find_focused = true;
+                self.ui.focus_field(BarField::Find);
                 self.ui.find.select_all();
                 self.caret_reset();
+            }
+            C::Replace => {
+                // With a query already there, the next thing to type is what replaces it.
+                self.ui.replace_open = true;
+                self.ui.focus_field(if self.ui.find.is_empty() {
+                    BarField::Find
+                } else {
+                    BarField::Replace
+                });
+                self.ui.field_mut().select_all();
+                self.caret_reset();
+            }
+            C::ReplaceNext | C::ReplaceAll => {
+                let with = self.ui.replace.text().to_string();
+                if id == C::ReplaceAll {
+                    self.edit(EditOp::ReplaceAll(&with));
+                } else {
+                    // The selected match is replaced, then the next one is selected; with no
+                    // match selected this only goes to the next.
+                    self.edit(EditOp::ReplaceOne(&with));
+                    self.docs.find_step(true);
+                }
             }
             C::FindNext | C::FindPrevious => {
                 let empty = self
@@ -679,6 +708,10 @@ impl App {
         }
         if self.ui.find_focused {
             self.ui.find_focused = false;
+            return;
+        }
+        if self.ui.replace_open {
+            self.ui.close_replace();
             return;
         }
         let has_query = self

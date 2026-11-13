@@ -456,7 +456,13 @@ impl App {
                     ui.find.text(),
                     ui.find.caret(),
                     ui.find_focused,
-                    ui.find_focused && ui.caret_on,
+                    (
+                        ui.find_focused && ui.caret_on,
+                        (ui.replace_open, ui.field),
+                        (ui.match_case, ui.whole_word, ui.regex),
+                        ui.replace.text(),
+                        ui.replace.caret(),
+                    ),
                     chrome::find_label(&self.docs),
                     ui.panes.files,
                     ui.popup_kind(),
@@ -749,8 +755,13 @@ impl App {
                     Region::Bar => {
                         let bar = Rect::new(rect.x, rect.y, rect.w, crate::ui::BAR_H);
                         chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar);
-                        let under =
-                            Rect::new(rect.x, bar.bottom(), rect.w, rect.h - crate::ui::BAR_H);
+                        let mut y = bar.bottom();
+                        if self.ui.replace_open {
+                            let strip = Rect::new(rect.x, y, rect.w, crate::ui::REPLACE_H);
+                            chrome::draw_replace_strip(&mut c, &self.docs, &mut self.ui, strip);
+                            y = strip.bottom();
+                        }
+                        let under = Rect::new(rect.x, y, rect.w, rect.bottom() - y);
                         if under.h > 0.0 {
                             chrome::draw_update_bar(&mut c, &self.docs, under);
                         }
@@ -1328,13 +1339,19 @@ impl ApplicationHandler<Wake> for App {
 }
 
 impl App {
-    /// The height of the update bar under the command bar, when it shows.
+    /// The height of what shows under the command bar: the replace strip, then the update bar.
     fn notice_h(&self) -> f32 {
-        if self.docs.updates.bar().is_some() {
+        let strip = if self.ui.replace_open {
+            crate::ui::REPLACE_H
+        } else {
+            0.0
+        };
+        let update = if self.docs.updates.bar().is_some() {
             view::BANNER_H
         } else {
             0.0
-        }
+        };
+        strip + update
     }
 
     /// The layout pass of a frame without drawing: areas, scroll clamping, colour requests.
@@ -1390,7 +1407,13 @@ impl App {
         if let Some(q) = &a.find {
             self.ui.find.set_text(q);
             self.ui.match_case = a.match_case;
-            self.docs.find_set(q, a.match_case);
+            self.ui.whole_word = a.whole_word;
+            self.ui.regex = a.regex;
+            self.docs.find_set(q, self.ui.options());
+        }
+        if let Some(with) = &a.replace {
+            self.ui.replace.set_text(with);
+            self.ui.replace_open = true;
         }
         if let Some(r) = self.docs.active_ready_mut() {
             if let Some(px) = a.scroll {

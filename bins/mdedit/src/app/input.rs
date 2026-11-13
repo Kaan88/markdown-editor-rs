@@ -4,7 +4,7 @@
 use super::*;
 use crate::docs::EditOp;
 use crate::keys::{self, KeyName};
-use crate::ui::{BarItem, Popup, SelectUnit, Tip};
+use crate::ui::{BarField, BarItem, Popup, SelectUnit, Tip};
 use crate::view::offset_for_hthumb;
 use mdedit_core::limits::TAB_WIDTH;
 use mdedit_core::selection::{self, Motion, Unit};
@@ -64,7 +64,7 @@ impl App {
         }
         let cursor = match (edge, hit) {
             (Some(dir), _) => CursorIcon::from(dir),
-            (None, Some(Hit::Text | Hit::Find)) => CursorIcon::Text,
+            (None, Some(Hit::Text | Hit::Find | Hit::Replace)) => CursorIcon::Text,
             (None, Some(Hit::Splitter)) => CursorIcon::ColResize,
             _ => CursorIcon::Default,
         };
@@ -164,10 +164,9 @@ impl App {
                 }
             }
             Drag::FindSelect => {
-                if let Some(frame) = self.hit_rect(Hit::Find) {
-                    let (area, _) = chrome::find_parts(frame, !self.ui.find.is_empty());
+                if let Some(area) = self.field_area() {
                     let stops = self.stops();
-                    self.ui.find.drag(x - area.x, &stops);
+                    self.ui.field_mut().drag(x - area.x, &stops);
                     self.caret_reset();
                 }
             }
@@ -325,10 +324,16 @@ impl App {
             return;
         }
         let Some(hit) = self.hit_at(x, y) else { return };
-        // Clicking elsewhere takes focus from the find box, except for its own buttons.
+        // Clicking elsewhere takes focus from the bar's boxes, except for their own buttons.
         if !matches!(
             hit,
-            Hit::Find | Hit::FindClear | Hit::Bar(BarItem::FindNext | BarItem::FindPrev)
+            Hit::Find
+                | Hit::FindClear
+                | Hit::Bar(BarItem::FindNext | BarItem::FindPrev)
+                | Hit::Replace
+                | Hit::ReplaceOne
+                | Hit::ReplaceAll
+                | Hit::FindOpt(_)
         ) {
             self.ui.find_focused = false;
         }
@@ -402,19 +407,24 @@ impl App {
                 });
                 self.caret_reset();
             }
-            Hit::Find => {
-                self.ui.find_focused = true;
-                let Some(frame) = self.hit_rect(Hit::Find) else {
+            Hit::Find | Hit::Replace => {
+                self.ui.focus_field(if hit == Hit::Find {
+                    BarField::Find
+                } else {
+                    BarField::Replace
+                });
+                let Some(area) = self.field_area() else {
                     return;
                 };
-                let (area, _) = chrome::find_parts(frame, !self.ui.find.is_empty());
                 let stops = self.stops();
+                let shift = self.mods.shift;
+                let field = self.ui.field_mut();
                 if clicks == 2 {
-                    self.ui.find.select_word_at(x - area.x, &stops);
+                    field.select_word_at(x - area.x, &stops);
                 } else if clicks == 3 {
-                    self.ui.find.select_all();
+                    field.select_all();
                 } else {
-                    self.ui.find.press(x - area.x, &stops, self.mods.shift);
+                    field.press(x - area.x, &stops, shift);
                     self.ui.drag = Some(Drag::FindSelect);
                 }
                 self.caret_reset();
@@ -484,17 +494,21 @@ impl App {
                     menu: overlays::text_menu(&self.docs, x + 2.0, y + 2.0),
                 });
             }
-            Some(Hit::Find | Hit::FindClear) => {
+            Some(h @ (Hit::Find | Hit::FindClear | Hit::Replace)) => {
                 // The box takes the focus and keeps its selection, so Cut and Copy act on it.
-                self.ui.find_focused = true;
+                self.ui.focus_field(if h == Hit::Replace {
+                    BarField::Replace
+                } else {
+                    BarField::Find
+                });
                 self.caret_reset();
-                let find = &self.ui.find;
+                let field = self.ui.field();
                 self.ui.popup = Some(Popup {
                     kind: PopupKind::Find,
                     menu: overlays::find_menu(
-                        !find.is_empty(),
-                        find.has_selection(),
-                        self.ui.match_case,
+                        !field.is_empty(),
+                        field.has_selection(),
+                        self.ui.options(),
                         x + 2.0,
                         y + 2.0,
                     ),
@@ -594,7 +608,14 @@ impl App {
 
     pub(super) fn stops(&mut self) -> Vec<f32> {
         let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
-        p.caret_stops(Face::Ui, 13.0, self.ui.find.text())
+        p.caret_stops(Face::Ui, 13.0, self.ui.field().text())
+    }
+
+    /// Where the focused box's text is drawn.
+    pub(super) fn field_area(&self) -> Option<Rect> {
+        let which = self.ui.field;
+        let frame = self.hit_rect(which.hit())?;
+        Some(chrome::field_parts(which, frame, !self.ui.field().is_empty()).0)
     }
 
     pub(super) fn caret_reset(&mut self) {
@@ -604,8 +625,7 @@ impl App {
 
     pub(super) fn find_changed(&mut self) {
         let q = self.ui.find.text().to_string();
-        let case = self.ui.match_case;
-        self.docs.find_set(&q, case);
+        self.docs.find_set(&q, self.ui.options());
     }
 
     pub(super) fn key(&mut self, event: &KeyEvent) {
@@ -759,13 +779,33 @@ impl App {
         true
     }
 
-    /// Keys for the focused find box. True when the key was used.
+    /// Keys for the focused box of the bar. True when the key was used.
     pub(super) fn find_key(&mut self, name: &KeyName, mods: Mods, typed: Option<&str>) -> bool {
-        let f = &mut self.ui.find;
+        use crate::commands::CommandId as C;
+        let (which, replace_open) = (self.ui.field, self.ui.replace_open);
+        let f = self.ui.field_mut();
         let (word, extend) = (mods.ctrl, mods.shift);
         let changed = match (name, mods.ctrl) {
+            (KeyName::Enter, true) if mods.shift && !mods.alt => {
+                self.command(C::ReplaceAll);
+                return true;
+            }
+            (KeyName::Enter, _) if which == BarField::Replace => {
+                self.command(C::ReplaceNext);
+                return true;
+            }
             (KeyName::Enter, _) => {
                 self.docs.find_step(!mods.shift);
+                return true;
+            }
+            (KeyName::Tab, false) if replace_open => {
+                // Between the two boxes.
+                self.ui.field = match which {
+                    BarField::Find => BarField::Replace,
+                    BarField::Replace => BarField::Find,
+                };
+                self.ui.field_mut().select_all();
+                self.caret_reset();
                 return true;
             }
             (KeyName::Escape, _) => {
@@ -812,7 +852,7 @@ impl App {
                 }
             }
         };
-        if changed {
+        if changed && which == BarField::Find {
             self.find_changed();
         }
         self.caret_reset();

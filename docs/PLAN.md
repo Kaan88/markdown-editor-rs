@@ -71,7 +71,8 @@ After editing (phase 2) and safe saving (phase 3), in this order:
 1. Editing basics: duplicate, move and delete line, indent and outdent, toggle comment, change
    case, trim trailing spaces, tabs to spaces.
 2. Find and replace: match case, whole word, regular expressions, replace all, find in all open
-   tabs, mark all matches, count.
+   tabs, mark all matches, count. (Done 2026-11-13, except find in all open tabs, which waits
+   for item 8's results panel.)
 3. Unsaved-session restore: tabs with unsaved text survive a close.
 4. View aids: show whitespace and line endings, word wrap, current-line highlight, matching
    bracket, other occurrences of the selected word, zoom, go to line.

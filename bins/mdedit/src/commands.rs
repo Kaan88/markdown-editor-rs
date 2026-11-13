@@ -33,6 +33,9 @@ pub enum CommandId {
     Find,
     FindNext,
     FindPrevious,
+    Replace,
+    ReplaceNext,
+    ReplaceAll,
     ClearSearch,
     ToggleFiles,
     NextTab,
@@ -102,6 +105,9 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
     cmd(C::FindPrevious, "Find previous", &["Shift+F3"]),
+    cmd(C::Replace, "Replace", &["Ctrl+H"]),
+    cmd(C::ReplaceNext, "Replace and find next", &[]),
+    cmd(C::ReplaceAll, "Replace all", &["Ctrl+Shift+Enter"]),
     cmd(C::ClearSearch, "Clear search", &[]),
     cmd(C::ToggleFiles, "Files pane", &["Ctrl+Shift+1"]),
     cmd(C::NextTab, "Next tab", &["Ctrl+Tab"]),
@@ -157,6 +163,20 @@ pub mod strings {
     pub const RECENT_CLEAR_LIST: &str = "Clear list";
     pub const RECENT_DONE: &str = "Done";
     pub const FIND_PLACEHOLDER: &str = "Find in file";
+    pub const REPLACE_PLACEHOLDER: &str = "Replace with";
+    pub const REPLACE_ONE: &str = "Replace";
+    pub const REPLACE_ALL: &str = "Replace all";
+    pub const BAD_PATTERN: &str = "Not a valid pattern";
+    pub const NOTHING_TO_REPLACE: &str = "Nothing to replace.";
+    pub const TOO_LARGE_FOR_REPLACE_ALL: &str =
+        "This file is too large to replace every match at once.";
+
+    pub fn replaced(n: usize) -> String {
+        match n {
+            1 => "Replaced 1 match.".to_string(),
+            n => format!("Replaced {n} matches."),
+        }
+    }
     pub const FIND_NO_MATCHES: &str = "No matches";
     pub const FIND_SEARCHING: &str = "Searching";
     pub const FILES_DOCK: &str = "FILES";

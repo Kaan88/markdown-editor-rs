@@ -4,6 +4,7 @@
 use crate::commands::CommandId;
 use crate::session::ThemeChoice;
 use crate::status::STATUS_H;
+use mdedit_core::find::FindOptions;
 use mdedit_highlight::DocId;
 use mdshared_ui::gfx::Rect;
 use mdshared_ui::menu::Menu;
@@ -18,6 +19,32 @@ pub const PANE_MAX: f32 = 480.0;
 pub const PANE_DEFAULT: f32 = 250.0;
 /// Below this the text would be too narrow; the Files pane gives way first.
 pub const PAGE_MIN: f32 = 360.0;
+/// The height of the replace strip under the command bar.
+pub const REPLACE_H: f32 = 40.0;
+
+/// The options of a search, as the strip's toggles and the find box's menu name them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum FindOpt {
+    Case,
+    Word,
+    Regex,
+}
+
+/// The two text boxes of the bar: the query and what replaces it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum BarField {
+    Find,
+    Replace,
+}
+
+impl BarField {
+    pub fn hit(self) -> Hit {
+        match self {
+            BarField::Find => Hit::Find,
+            BarField::Replace => Hit::Replace,
+        }
+    }
+}
 
 /// What can scroll with a scrollbar.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -80,6 +107,12 @@ pub enum Hit {
     Bar(BarItem),
     Find,
     FindClear,
+    /// The replace strip: its text box, its buttons and the search options.
+    Replace,
+    ReplaceOne,
+    ReplaceAll,
+    ReplaceClose,
+    FindOpt(FindOpt),
     /// The update bar's button and its close button.
     UpdateGo,
     UpdateClose,
@@ -108,6 +141,11 @@ impl Hit {
             Hit::Bar(_) | Hit::Find | Hit::FindClear | Hit::UpdateGo | Hit::UpdateClose => {
                 Region::Bar
             }
+            Hit::Replace
+            | Hit::ReplaceOne
+            | Hit::ReplaceAll
+            | Hit::ReplaceClose
+            | Hit::FindOpt(_) => Region::Bar,
             Hit::FilesRow(_)
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
@@ -130,6 +168,7 @@ impl Hit {
                 | Hit::Splitter
                 | Hit::ScrollBar(_)
                 | Hit::Find
+                | Hit::Replace
                 | Hit::Tab(_)
                 | Hit::DlgCard
         )
@@ -146,9 +185,10 @@ pub enum Act {
     /// Replace the open menu by the Recent menu.
     RecentMenu,
     Theme(ThemeChoice),
-    /// An editing command for the find box.
+    /// An editing command for the focused box of the bar.
     Edit(EditAct),
-    MatchCase,
+    /// Turns a search option on or off.
+    Opt(FindOpt),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -273,7 +313,7 @@ pub enum Drag {
         unit: SelectUnit,
         origin: (usize, usize),
     },
-    /// Selecting in the find box.
+    /// Selecting in the focused box of the bar.
     FindSelect,
 }
 
@@ -319,8 +359,15 @@ pub struct Ui {
     pub panes: Panes,
     pub tree: FileTree,
     pub find: TextField,
+    /// A box of the bar has the keyboard; `field` says which.
     pub find_focused: bool,
+    pub field: BarField,
     pub match_case: bool,
+    pub whole_word: bool,
+    pub regex: bool,
+    /// The replacement text, and whether its strip shows.
+    pub replace: TextField,
+    pub replace_open: bool,
     pub caret_on: bool,
     /// When the caret next blinks.
     pub caret_due: Option<Instant>,
@@ -357,7 +404,12 @@ impl Ui {
             tree: new_tree(),
             find: TextField::new(),
             find_focused: false,
+            field: BarField::Find,
             match_case: false,
+            whole_word: false,
+            regex: false,
+            replace: TextField::new(),
+            replace_open: false,
             caret_on: true,
             caret_due: None,
             mouse: (-1.0, -1.0),
@@ -373,6 +425,61 @@ impl Ui {
             last_press: None,
             autoscroll_due: None,
         }
+    }
+
+    /// The box of the bar the keyboard goes to when one is focused.
+    pub fn field(&self) -> &TextField {
+        match self.field {
+            BarField::Find => &self.find,
+            BarField::Replace => &self.replace,
+        }
+    }
+
+    pub fn field_mut(&mut self) -> &mut TextField {
+        match self.field {
+            BarField::Find => &mut self.find,
+            BarField::Replace => &mut self.replace,
+        }
+    }
+
+    /// Gives one of the bar's boxes the keyboard.
+    pub fn focus_field(&mut self, field: BarField) {
+        self.field = field;
+        self.find_focused = true;
+    }
+
+    /// Hides the replace strip; the keyboard goes back to the text if its box had it.
+    pub fn close_replace(&mut self) {
+        self.replace_open = false;
+        if self.field == BarField::Replace {
+            self.field = BarField::Find;
+            self.find_focused = false;
+        }
+    }
+
+    pub fn options(&self) -> FindOptions {
+        FindOptions {
+            match_case: self.match_case,
+            whole_word: self.whole_word,
+            regex: self.regex,
+        }
+    }
+
+    pub fn option(&self, opt: FindOpt) -> bool {
+        match opt {
+            FindOpt::Case => self.match_case,
+            FindOpt::Word => self.whole_word,
+            FindOpt::Regex => self.regex,
+        }
+    }
+
+    pub fn toggle_option(&mut self, opt: FindOpt) {
+        let flag = match opt {
+            FindOpt::Case => &mut self.match_case,
+            FindOpt::Word => &mut self.whole_word,
+            FindOpt::Regex => &mut self.regex,
+        };
+        *flag = !*flag;
     }
 
     pub fn popup_kind(&self) -> Option<PopupKind> {
@@ -479,9 +586,37 @@ mod tests {
     }
 
     #[test]
+    fn the_bar_has_two_boxes_and_three_options() {
+        let mut ui = Ui::new();
+        ui.find.set_text("a");
+        ui.replace.set_text("b");
+        assert_eq!(ui.field().text(), "a");
+        ui.replace_open = true;
+        ui.focus_field(BarField::Replace);
+        assert_eq!(ui.field().text(), "b");
+        assert_eq!(ui.field.hit(), Hit::Replace);
+        // Closing the strip under the focused box gives the keyboard back to the text.
+        ui.close_replace();
+        assert!(!ui.find_focused && !ui.replace_open && ui.field == BarField::Find);
+        // Closing it while the find box is focused leaves that focus alone.
+        ui.replace_open = true;
+        ui.focus_field(BarField::Find);
+        ui.close_replace();
+        assert!(ui.find_focused);
+        ui.toggle_option(FindOpt::Word);
+        ui.toggle_option(FindOpt::Regex);
+        let o = ui.options();
+        assert!(!o.match_case && o.whole_word && o.regex);
+        assert!(ui.option(FindOpt::Word) && !ui.option(FindOpt::Case));
+    }
+
+    #[test]
     fn hits_belong_to_regions() {
         assert_eq!(Hit::Tab(0).region(), Some(Region::Title));
         assert_eq!(Hit::Find.region(), Some(Region::Bar));
+        assert_eq!(Hit::Replace.region(), Some(Region::Bar));
+        assert_eq!(Hit::FindOpt(FindOpt::Regex).region(), Some(Region::Bar));
+        assert!(Hit::ReplaceAll.is_button() && !Hit::Replace.is_button());
         assert_eq!(Hit::Splitter.region(), Some(Region::Files));
         assert_eq!(Hit::ScrollBar(Scroller::TextH).region(), Some(Region::Text));
         assert_eq!(Hit::Backdrop.region(), None);
