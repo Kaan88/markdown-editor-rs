@@ -16,9 +16,8 @@ use mdshared_ui::pane::draw_row_fill;
 use mdshared_ui::scroll::{draw_scrollbar, scrollbar};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The panel's height, logical px, and what it leaves the text at least.
@@ -83,7 +82,9 @@ pub struct Results {
     /// Counts every change of what the panel shows.
     pub generation: u64,
     root: PathBuf,
-    rx: Option<Receiver<Event>>,
+    /// What the worker has found and the window has not taken in yet. A list under a lock, not
+    /// a channel, which costs the exe some 15 KB for each type sent.
+    rx: Option<Arc<Mutex<Vec<Event>>>>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -138,8 +139,8 @@ impl Results {
         self.reset(query.text(), format!("in {}", short(root)));
         self.root = root.to_path_buf();
         self.state = State::Running { files: 0 };
-        let (tx, rx) = channel();
-        self.rx = Some(rx);
+        let tx = Arc::new(Mutex::new(Vec::new()));
+        self.rx = Some(tx.clone());
         let cancel = self.cancel.clone();
         let root = root.to_path_buf();
         std::thread::spawn(move || {
@@ -147,10 +148,7 @@ impl Results {
             let opts = TreeOptions::default();
             search::in_tree(&root, &query, &load, &opts, &cancel, &mut |event| {
                 let done = matches!(event, Event::Done { .. });
-                if tx.send(event).is_err() {
-                    cancel.store(true, Ordering::Relaxed);
-                    return;
-                }
+                tx.lock().unwrap().push(event);
                 if done || woke.elapsed() >= WAKE_EVERY {
                     woke = Instant::now();
                     waker(Wake::Results);
@@ -204,7 +202,8 @@ impl Results {
         };
         let mut changed = false;
         let mut finished = false;
-        for event in rx.try_iter() {
+        let events = std::mem::take(&mut *rx.lock().unwrap());
+        for event in events {
             changed = true;
             match event {
                 Event::File { path, hits, more } => {
@@ -469,6 +468,7 @@ mod tests {
     use super::*;
     use mdedit_core::Buffer;
     use mdedit_core::find::FindOptions;
+    use std::sync::mpsc::channel;
 
     fn query(text: &str) -> Query {
         Query::new(text, FindOptions::default()).unwrap()

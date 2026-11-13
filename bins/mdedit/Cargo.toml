@@ -10,9 +10,11 @@ name = "mdedit"
 path = "src/main.rs"
 
 [dependencies]
+ropey.workspace = true
 unicode-segmentation.workspace = true
 mdedit-core = { path = "../../crates/mdedit-core" }
 mdedit-highlight = { path = "../../crates/mdedit-highlight" }
+mdedit-outline = { path = "../../crates/mdedit-outline" }
 mdshared-app.workspace = true
 mdshared-fetch.workspace = true
 mdshared-text.workspace = true

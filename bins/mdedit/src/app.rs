@@ -78,6 +78,8 @@ pub enum Wake {
     Found,
     /// The search of a folder has matches or finished.
     Results,
+    /// The function list of a document is made.
+    Outline,
     /// The highlight worker queued colours.
     Highlight,
     /// An updater thread has an answer.
@@ -477,6 +479,24 @@ impl App {
                         .map(|s| crate::updater::Updates::bar_label(&crate::updater::APP, s)),
                 ))
             }
+            Region::Files if ui.outline.on => {
+                let drag = matches!(
+                    ui.drag,
+                    Some(Drag::Splitter { .. })
+                        | Some(Drag::Thumb {
+                            target: Scroller::Files,
+                            ..
+                        })
+                );
+                sig((
+                    common,
+                    ui.outline.generation,
+                    ui.outline.scroll.to_bits(),
+                    crate::outline::caret_row(&self.docs, &ui.outline),
+                    self.docs.active_doc().map(|d| d.id),
+                    drag,
+                ))
+            }
             Region::Files => {
                 let active = self.docs.active_doc().and_then(|d| d.path.clone());
                 let drag = matches!(
@@ -607,6 +627,10 @@ impl App {
         }
         self.request_colours();
         self.follow_active_file();
+        let waker = self.docs.waker();
+        self.ui
+            .outline
+            .sync(&self.docs, self.areas.files.is_some(), &waker);
         times.layout = t0.elapsed();
 
         let t1 = Instant::now();
@@ -798,6 +822,9 @@ impl App {
                         if under.h > 0.0 {
                             chrome::draw_update_bar(&mut c, &self.docs, under);
                         }
+                    }
+                    Region::Files if self.ui.outline.on => {
+                        crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect)
                     }
                     Region::Files => panes::draw_files(&mut c, &self.docs, &mut self.ui, rect),
                     Region::Text => match self.docs.active() {
@@ -1116,7 +1143,8 @@ impl App {
             s.wrap = self.docs.wrap;
         }
         s.check_updates = self.docs.check_updates;
-        s.files = Some(self.ui.panes.files);
+        // The function list is not kept: the pane comes back with the Files tree, or not at all.
+        s.files = Some(self.ui.panes.files && !self.ui.outline.on);
         s.files_w = Some(self.ui.panes.files_w.round() as u32);
         s.folder = self.docs.folder.clone();
         if let Err(e) = s.save(&path) {
@@ -1479,6 +1507,11 @@ impl App {
             if a.find_in_tabs {
                 self.find_in_tabs();
             }
+        }
+        if a.outline {
+            self.ui.panes.files = true;
+            self.ui.outline.on = true;
+            self.ui.outline.fill_now(&self.docs);
         }
         if let Some(with) = &a.replace {
             self.ui.replace.set_text(with);

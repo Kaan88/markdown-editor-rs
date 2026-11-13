@@ -187,8 +187,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 8 are done; next is
-   code folding and a function list (item 9), only if typing stays as fast.
+2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 8 are done and the function list of item 9 is in; next is
+   code folding, whose core is written (see "Function list" below).
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -203,10 +203,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 345 passed on 2026-11-13
+cargo test --release --workspace        # 373 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 55 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 57 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -232,6 +232,38 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Function list, and v0.2.0 (2026-11-13, half of roadmap item 9)
+
+- Ctrl+Shift+2 (and "Function list" in the View menu) shows the active document's headings,
+  functions and types in the left pane, in the Files tree's place; Ctrl+Shift+1 or the folder
+  button in its title row brings the tree back, and each command hides the pane when its own
+  list is the one showing. A click on a row goes to its line; the row of the caret's place is
+  marked and scrolled into view. `bins/mdedit/src/outline.rs`.
+- The list comes from the new crate `mdedit-outline` (written by a Sonnet agent to a given
+  interface): line-wise rules for Markdown, Rust, Python, the C family, shell, TOML/INI, Ruby,
+  Lua and CSS, no parser, so it misses things (parameter lists over several lines, methods of
+  a JavaScript class) and other languages show "No list for this kind of file". It is a crate
+  of its own so that it is built for size. A worker thread is given the text after every
+  change while the list shows and gives up a list it is making when a newer text comes.
+- The exe went to 6,050,816 bytes with it. Most of that was not the rules but
+  `std::sync::mpsc`: each type sent on a channel costs about 15 KB. The outline and results
+  workers and the load and find results of `Docs` now use a list or a slot under a `Mutex`
+  (with a `Condvar` where something waits) and the exe is 5,984,768 bytes.
+- Measured after: window shown 77 to 79 ms; keystroke p50 0.47 ms, and 0.56 ms while the
+  function list shows; scroll step p50 0.40 ms; the 100 MB file loads in 98 ms.
+- Not run in a real window: the function list at all (two shots only: `outline`,
+  `outline-dark`), so not its clicks, its wheel, its updates while typing or the pane switch.
+  The load and find results were run by the tests and the shots only since the change from
+  channels.
+- Folding is not in the editor. Its core is written and tested (`mdedit_core::fold`:
+  blocks by indentation, the set of folds, how they follow edits). The plan for the view: a
+  document with folds is walked by rows as a wrapped one is (`view/wrap.rs`), a hidden line
+  having no rows; F9 folds or opens at the caret, Shift+F9 folds all, Ctrl+F9 opens all; a
+  caret that goes into a fold opens it. A patch along these lines was written and never
+  applied or compiled; it is not in the repository.
+- **v0.2.0** was published from this state so that the updater can be tried from 0.1.0
+  (`docs/RELEASE.md`).
 
 ## Find in files (2026-11-13, roadmap item 8)
 

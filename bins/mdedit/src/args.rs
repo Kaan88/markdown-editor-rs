@@ -81,6 +81,8 @@ pub struct Args {
     pub wrap: bool,
     /// `--find-in-tabs`: the results panel with what `--find` finds in the open tabs.
     pub find_in_tabs: bool,
+    /// `--outline`: the left pane with the active document's function list.
+    pub outline: bool,
     /// `--bookmark <line>`, as often as wanted: bookmarked lines of the active document.
     pub bookmarks: Vec<usize>,
     /// `--zoom <50..400>`: the text size in percent, instead of the session's.
@@ -165,6 +167,7 @@ impl Args {
                 "--whitespace" => out.whitespace = true,
                 "--wrap" => out.wrap = true,
                 "--find-in-tabs" => out.find_in_tabs = true,
+                "--outline" => out.outline = true,
                 "--bookmark" => {
                     if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
                         out.bookmarks.push(n);

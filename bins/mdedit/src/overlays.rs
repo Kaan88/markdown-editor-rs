@@ -95,7 +95,8 @@ pub fn recent_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> 
 /// The View menu, opened from the main menu in its place.
 pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let items = vec![
-        cmd(C::ToggleFiles, "Files pane", "").checked(ui.panes.files),
+        cmd(C::ToggleFiles, "Files pane", "").checked(ui.panes.files && !ui.outline.on),
+        cmd(C::ToggleOutline, "Function list", "").checked(ui.panes.files && ui.outline.on),
         cmd(C::ToggleWhitespace, "Show whitespace", "").checked(docs.whitespace),
         cmd(C::ToggleWrap, "Word wrap", "").checked(docs.wrap),
         cmd(C::ZoomIn, "Zoom in", "").sep(),

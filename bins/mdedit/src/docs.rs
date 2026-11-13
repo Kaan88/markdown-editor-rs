@@ -35,7 +35,6 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 /// Wakes the event loop from a worker thread. A no-op until the loop exists, and in `--shot`.
@@ -787,10 +786,12 @@ pub struct Docs {
     pub wrap: bool,
     opts: LoadOptions,
     waker: Waker,
-    load_tx: Sender<LoadDone>,
-    load_rx: Receiver<LoadDone>,
-    find_tx: Sender<FindDone>,
-    find_rx: Receiver<FindDone>,
+    /// The loads that are done and not taken in yet, with a signal for the start's wait. As
+    /// with `find_done`, not a channel.
+    load_done: Arc<(std::sync::Mutex<Vec<LoadDone>>, std::sync::Condvar)>,
+    /// What the find workers have done and the window has not taken in: a list under a lock, not
+    /// a channel, which costs the exe some 15 KB for each type sent.
+    find_done: Arc<std::sync::Mutex<Vec<FindDone>>>,
     toast: Option<(String, Instant)>,
     /// The set of open files changed: the watcher needs the new list.
     pub watch_changed: bool,
@@ -798,8 +799,6 @@ pub struct Docs {
 
 impl Docs {
     pub fn new(code_page: u32, waker: Waker) -> Docs {
-        let (load_tx, load_rx) = channel();
-        let (find_tx, find_rx) = channel();
         Docs {
             tabs: Vec::new(),
             active: None,
@@ -816,10 +815,8 @@ impl Docs {
                 forced: None,
             },
             waker,
-            load_tx,
-            load_rx,
-            find_tx,
-            find_rx,
+            load_done: Default::default(),
+            find_done: Default::default(),
             toast: None,
             updates: crate::updater::Updates::default(),
             check_updates: true,
@@ -1127,7 +1124,7 @@ impl Docs {
             forced: self.tabs[i].forced,
             ..self.opts
         };
-        let tx = self.load_tx.clone();
+        let tx = self.load_done.clone();
         let waker = self.waker.clone();
         let doc = &mut self.tabs[i];
         doc.cancel_load();
@@ -1146,11 +1143,12 @@ impl Docs {
             if matches!(result, Err(LoadError::Cancelled)) {
                 return;
             }
-            let _ = tx.send(LoadDone {
+            tx.0.lock().unwrap().push(LoadDone {
                 doc: id,
                 revision,
                 result,
             });
+            tx.1.notify_all();
             waker(Wake::Loaded);
         });
     }
@@ -1185,21 +1183,25 @@ impl Docs {
         service: Option<&HighlightService>,
         dark: bool,
     ) -> Applied {
-        let mut out = Applied::default();
-        let now = Instant::now();
-        if deadline > now
-            && let Ok(done) = self.load_rx.recv_timeout(deadline - now)
         {
-            out.active_ready |= self.apply_load(done, service, dark).active_ready;
+            let (list, signal) = &*self.load_done;
+            let mut done = list.lock().unwrap();
+            while done.is_empty() {
+                let now = Instant::now();
+                if deadline <= now {
+                    break;
+                }
+                done = signal.wait_timeout(done, deadline - now).unwrap().0;
+            }
         }
-        out.active_ready |= self.drain_loads(service, dark).active_ready;
-        out
+        self.drain_loads(service, dark)
     }
 
     /// Takes in every finished load.
     pub fn drain_loads(&mut self, service: Option<&HighlightService>, dark: bool) -> Applied {
         let mut out = Applied::default();
-        while let Ok(done) = self.load_rx.try_recv() {
+        let all = std::mem::take(&mut *self.load_done.0.lock().unwrap());
+        for done in all {
             out.active_ready |= self.apply_load(done, service, dark).active_ready;
         }
         out
@@ -1801,7 +1803,7 @@ impl Docs {
     }
 
     fn find_in(&mut self, i: usize, text: &str, options: FindOptions, go: bool, force: bool) {
-        let (tx, waker) = (self.find_tx.clone(), self.waker.clone());
+        let (tx, waker) = (self.find_done.clone(), self.waker.clone());
         let doc = &mut self.tabs[i];
         let (id, revision) = (doc.id, doc.revision);
         let Some(r) = doc.ready_mut() else { return };
@@ -1836,7 +1838,7 @@ impl Docs {
             if m.cancelled {
                 return;
             }
-            let _ = tx.send(FindDone {
+            tx.lock().unwrap().push(FindDone {
                 doc: id,
                 revision,
                 text,
@@ -1850,7 +1852,7 @@ impl Docs {
     /// Goes to the next or previous match, wrapping. Past the last kept match of a capped
     /// search, `find_next` looks further from the caret.
     pub fn find_step(&mut self, forward: bool) {
-        let (tx, waker) = (self.find_tx.clone(), self.waker.clone());
+        let (tx, waker) = (self.find_done.clone(), self.waker.clone());
         let Some(doc) = self.active_doc_mut() else {
             return;
         };
@@ -1918,7 +1920,7 @@ impl Docs {
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
-            let _ = tx.send(FindDone {
+            tx.lock().unwrap().push(FindDone {
                 doc: id,
                 revision,
                 text,
@@ -1933,7 +1935,8 @@ impl Docs {
     pub fn drain_finds(&mut self) -> bool {
         let active = self.active_doc().map(|d| d.id);
         let mut changed = false;
-        while let Ok(done) = self.find_rx.try_recv() {
+        let all = std::mem::take(&mut *self.find_done.lock().unwrap());
+        for done in all {
             let Some(doc) = self.tabs.iter_mut().find(|d| d.id == done.doc) else {
                 continue;
             };

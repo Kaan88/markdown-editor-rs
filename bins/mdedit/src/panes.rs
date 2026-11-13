@@ -152,7 +152,7 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
 }
 
 /// The splitter on the pane's right edge, and the hairline that marks it.
-fn edge(c: &mut Ctx, r: Rect, dragging: bool) {
+pub fn edge(c: &mut Ctx, r: Rect, dragging: bool) {
     let hot = dragging || c.hover == Some(Hit::Splitter);
     let hit = draw_splitter(c.p, c.pal, r, true, hot);
     c.hit(Hit::Splitter, hit);

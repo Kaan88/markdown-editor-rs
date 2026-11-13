@@ -130,6 +130,10 @@ pub enum Hit {
     /// The results panel: a row of its list and its close button.
     ResultsRow(usize),
     ResultsClose,
+    /// The function list in the left pane: a row, and the button that brings the Files tree
+    /// back.
+    OutlineRow(usize),
+    OutlineFiles,
     FilesRow(usize),
     FilesFolder,
     FilesOpenFolder,
@@ -165,6 +169,8 @@ impl Hit {
                 Region::Results
             }
             Hit::FilesRow(_)
+            | Hit::OutlineRow(_)
+            | Hit::OutlineFiles
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
             | Hit::Splitter
@@ -397,6 +403,8 @@ pub struct Ui {
     pub panes: Panes,
     /// What "Find in files" found, in the panel under the text.
     pub results: crate::results::Results,
+    /// The function list, shown in the left pane in the Files tree's place.
+    pub outline: crate::outline::Outline,
     pub tree: FileTree,
     pub find: TextField,
     /// A box of the bar has the keyboard; `field` says which.
@@ -451,6 +459,7 @@ impl Ui {
             whole_word: false,
             regex: false,
             results: Default::default(),
+            outline: Default::default(),
             replace: TextField::new(),
             replace_open: false,
             goto: TextField::new(),

@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["crates/mdedit-core", "crates/mdedit-highlight", "bins/mdedit"]
+members = ["crates/mdedit-core", "crates/mdedit-highlight", "crates/mdedit-outline", "bins/mdedit"]
 exclude = ["spikes"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 publish = false
 
@@ -118,4 +118,7 @@ opt-level = "s"
 [profile.release.package.miniz_oxide]
 opt-level = "s"
 [profile.release.package.aho-corasick]
+opt-level = "s"
+# The function list runs on a worker thread.
+[profile.release.package.mdedit-outline]
 opt-level = "s"

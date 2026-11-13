@@ -1,0 +1,9 @@
+[package]
+name = "mdedit-outline"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "mdedit's function list: the headings, functions and types of a text, found line by line without a parser. A crate of its own so that it can be built for size: it runs on a worker thread."
+
+[dependencies]
+ropey.workspace = true

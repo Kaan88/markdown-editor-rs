@@ -187,6 +187,11 @@ impl App {
     /// Scroll geometry of a list scroller: (view area, content, view, offset), logical px.
     pub(super) fn scroll_geom(&self, target: Scroller) -> Option<(Rect, f32, f32, f32)> {
         match target {
+            Scroller::Files if self.ui.outline.on => {
+                let out = &self.ui.outline;
+                let list = crate::outline::list(self.areas.files?);
+                Some((list, out.content, out.view, out.scroll))
+            }
             Scroller::Files => {
                 let list = panes::files_list(self.areas.files?);
                 Some((
@@ -211,6 +216,10 @@ impl App {
 
     pub(super) fn set_scroll(&mut self, target: Scroller, offset: f32) {
         match target {
+            Scroller::Files if self.ui.outline.on => {
+                let cur = self.ui.outline.scroll;
+                self.ui.outline.scroll_by(offset - cur);
+            }
             Scroller::Files => {
                 let cur = self.ui.panes.files_scroll;
                 self.ui.panes.scroll_by(offset - cur);
@@ -599,7 +608,11 @@ impl App {
                 Some((_, py)) => py as f32 / self.scale,
                 None => ny as f32 * PANE_WHEEL,
             };
-            self.ui.panes.scroll_by(-dy);
+            if self.ui.outline.on {
+                self.ui.outline.scroll_by(-dy);
+            } else {
+                self.ui.panes.scroll_by(-dy);
+            }
             self.redraw();
             return;
         }

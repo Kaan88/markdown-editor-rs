@@ -12,6 +12,7 @@ pub mod edit;
 pub mod encoding;
 pub mod eol;
 pub mod find;
+pub mod fold;
 pub mod history;
 pub mod limits;
 pub mod lines;

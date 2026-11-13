@@ -67,6 +67,14 @@ impl App {
                 }
             }
             Hit::FilesFolder | Hit::FilesOpenFolder => self.command(C::OpenFolder),
+            Hit::OutlineRow(i) => {
+                if let Some(line) = self.ui.outline.symbols.get(i).map(|s| s.line) {
+                    self.docs.go_to(line + 1, 1);
+                    self.ui.find_focused = false;
+                    self.caret_reset();
+                }
+            }
+            Hit::OutlineFiles => self.command(C::ToggleFiles),
             Hit::ResultsRow(i) => self.go_to_result(i),
             Hit::ResultsClose => self.ui.results.close(),
             Hit::EmptyOpen => self.command(C::OpenFiles),
@@ -673,6 +681,7 @@ impl App {
         self.ui.panes.files_scroll = 0.0;
         self.last_active = None;
         self.ui.panes.files = true;
+        self.ui.outline.on = false;
     }
 
     fn set_theme(&mut self, choice: ThemeChoice) {
@@ -860,7 +869,14 @@ impl App {
             C::ThemeSystem => self.set_theme(ThemeChoice::System),
             C::ThemeLight => self.set_theme(ThemeChoice::Light),
             C::ThemeDark => self.set_theme(ThemeChoice::Dark),
-            C::ToggleFiles => self.ui.panes.files = !self.ui.panes.files,
+            // The left pane shows the Files tree or the function list: each command shows its
+            // own, and hides the pane when that is what shows.
+            C::ToggleFiles | C::ToggleOutline => {
+                let outline = id == C::ToggleOutline;
+                let shown = self.ui.panes.files && self.ui.outline.on == outline;
+                self.ui.panes.files = !shown;
+                self.ui.outline.on = outline && !shown;
+            }
             C::GoToLine => {
                 if self.docs.active_ready().is_some() {
                     self.ui.focus_field(BarField::Goto);
@@ -971,6 +987,9 @@ impl App {
             }
             Wake::Results => {
                 self.ui.results.poll();
+            }
+            Wake::Outline => {
+                self.ui.outline.poll();
             }
             Wake::Update(updater::Event::Checked { manual, result }) => {
                 self.session.update_checked = updater::unix_now();

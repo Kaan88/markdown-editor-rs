@@ -8,6 +8,7 @@ mod chrome;
 mod commands;
 mod docs;
 mod keys;
+mod outline;
 mod overlays;
 mod panes;
 mod platform;
