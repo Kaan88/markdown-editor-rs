@@ -161,7 +161,7 @@ fn tabs_in(buf: &Buffer, range: Range<usize>) -> impl Iterator<Item = usize> + '
 }
 
 /// The display column of `offset` on its line.
-fn display_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
+pub(crate) fn display_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
     let tab = tab_width.max(1);
     let start = buf.line_start(buf.line_of(offset));
     let (mut col, mut from) = (0, start);
@@ -175,7 +175,12 @@ fn display_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
 
 /// The offset on `line` at display column `goal`: the character holding it, or the line's end
 /// when the line is shorter. Inside a tab it is the tab's start, as `DisplayLine` gives.
-fn offset_at_display_col(buf: &Buffer, line: usize, goal: usize, tab_width: usize) -> usize {
+pub(crate) fn offset_at_display_col(
+    buf: &Buffer,
+    line: usize,
+    goal: usize,
+    tab_width: usize,
+) -> usize {
     let tab = tab_width.max(1);
     let r = buf.line_range(line);
     // The goal falls in the run of tab-free characters starting at `from`, at column `col`.

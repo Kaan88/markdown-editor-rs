@@ -187,8 +187,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 5 are done; next is
-   column selection and multiple carets (item 6).
+2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 6 are done; next are
+   bookmarks (item 7) and find in files (item 8).
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -203,7 +203,7 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 294 passed on 2026-11-13
+cargo test --release --workspace        # 316 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 bash tests/shots.sh target/shots/a      # 52 PNGs, deterministic; first run generates target/data
@@ -232,6 +232,40 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Multiple carets and column selection (2026-11-13, roadmap item 6)
+
+`docs/DESIGN.md` section 25. A Sonnet subagent wrote the core module (`multi.rs`, 17 tests and
+a timing test); the shell part was written in the main session.
+
+- Ctrl and a click adds a caret. Alt and a drag selects a column; Alt+Shift and an arrow
+  makes or extends one from the keyboard. Escape, a plain click, the page keys or any command
+  that is not listed below goes back to one caret.
+- At every caret: typed text, Enter (a plain line break, no indent), Tab (a tab character),
+  Backspace, Delete, paste, cut, and the caret keys with or without Shift. Each edit is one
+  undo step, typed characters included (they do not merge into one step as with one caret),
+  and Undo leaves one caret.
+- Copy puts the selections one to a line, in text order. Paste gives one line to each caret
+  when the clipboard has as many lines as there are carets, else the whole text to each.
+- A column selection has no virtual space: on a line shorter than the column the selection
+  ends at the line's end, and a drag cannot go past the text of the line under the pointer.
+  Columns are display columns (a tab counts to its stop).
+- With word wrap on, Up and Down move several carets by lines, not rows.
+- With several carets the status strip says how many, the current-line band and the bracket
+  boxes are off, and every caret move repaints the whole text region.
+- Not built: Ctrl+D style "select next occurrence", Ctrl+click on a caret to remove it, Ctrl+
+  Backspace and Ctrl+Delete at every caret (they go back to one caret), line commands at
+  every caret.
+- Run in a real window: Alt+Shift+Down three times, typing, Right, Backspace, Shift+End,
+  Ctrl+C, Escape, Ctrl+End, Ctrl+V (four lines came out), a click and two Ctrl+clicks, typing,
+  Ctrl+Z (one step), Ctrl+S; the saved file was checked. That run found that Copy kept only
+  the last selection; fixed. Not run in a window: Alt and a drag (the script cannot drag),
+  a column over tabs or wide characters, many thousands of carets (core timing only: 100,000
+  carets, an insert 75 ms, its undo 68 ms), carets with word wrap on. No shot shows several
+  carets: `--shot` has no switch for them.
+- Measured after: exe 5,967,872 bytes (32,128 under the budget); window shown 78 to 80 ms;
+  private memory 27.3 to 28.1 MiB; keystroke p50 0.48 ms; scroll step p50 0.54 ms; the 52
+  shots are byte-identical to the build before.
 
 ## Room in the exe (2026-11-13)
 

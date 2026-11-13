@@ -118,6 +118,9 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
             if docs.zoom != 100 {
                 right.push(format!("{}%", docs.zoom));
             }
+            if !r.extra.is_empty() {
+                right.push(format!("{} carets", r.extra.len() + 1));
+            }
             right.extend([
                 position_text(pos.line + 1, pos.col + 1, selected),
                 language_text(

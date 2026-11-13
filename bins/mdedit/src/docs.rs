@@ -22,6 +22,7 @@ use mdedit_core::find::{self, FindOptions, Matches, Query};
 use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
 use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
+use mdedit_core::multi::{self, MultiOp};
 use mdedit_core::replace;
 use mdedit_core::save::{self, SaveError};
 use mdedit_core::selection::Selection;
@@ -241,6 +242,12 @@ pub struct Ready {
     /// The language exists and the file is within its limits: the service colours it.
     pub colourable: bool,
     pub sel: Selection,
+    /// The other selections when there are several carets, in document order. `sel` is the
+    /// primary: the one the view follows and Undo puts back.
+    pub extra: Vec<Selection>,
+    /// The column selection being extended by keys: anchor line and column, caret line and
+    /// column, and the selections it made (it goes on only while they are still the ones).
+    pub column: Option<(usize, usize, usize, usize, Selection, usize)>,
     /// First visible line, fractional. With word wrap a whole number: the line whose row
     /// `top_row` is at the view's top.
     pub top: f64,
@@ -273,6 +280,85 @@ pub struct Ready {
 }
 
 impl Ready {
+    /// Every selection in document order, and which of them is the primary.
+    pub fn all_sels(&self) -> (Vec<Selection>, usize) {
+        let at = self
+            .extra
+            .partition_point(|s| s.range().start < self.sel.range().start);
+        let mut v = self.extra.clone();
+        v.insert(at, self.sel);
+        (v, at)
+    }
+
+    /// Takes selections in document order: the primary and the others.
+    pub fn set_sels(&mut self, mut list: Vec<Selection>, primary: usize) {
+        if list.is_empty() {
+            return;
+        }
+        self.sel = list.remove(primary.min(list.len() - 1));
+        self.extra = list;
+    }
+
+    /// Adds a caret at `offset`, which becomes the primary.
+    pub fn add_caret(&mut self, offset: usize) {
+        let (mut list, _) = self.all_sels();
+        list.push(Selection::at(offset));
+        let (list, primary) = multi::normalize(&self.buffer, &list, list.len() - 1);
+        self.set_sels(list, primary);
+    }
+
+    /// The column selection between two (line, display column) corners; the caret's is the
+    /// primary.
+    pub fn select_column(&mut self, anchor: (usize, usize), caret: (usize, usize)) {
+        let (list, primary) = multi::column(
+            &self.buffer,
+            anchor.0,
+            anchor.1,
+            caret.0,
+            caret.1,
+            TAB_WIDTH,
+        );
+        self.set_sels(list, primary);
+        self.column = Some((
+            anchor.0,
+            anchor.1,
+            caret.0,
+            caret.1,
+            self.sel,
+            self.extra.len(),
+        ));
+    }
+
+    /// The line and display column of an offset.
+    pub fn line_col(&self, offset: usize) -> (usize, usize) {
+        (
+            self.buffer.line_of(offset),
+            multi::display_col(&self.buffer, offset, TAB_WIDTH),
+        )
+    }
+
+    /// Extends the column selection by keys: `lines` down and `cols` right. It starts from the
+    /// primary selection when no column selection is being made.
+    pub fn extend_column(&mut self, lines: isize, cols: isize) {
+        let going = self
+            .column
+            .filter(|c| (c.4, c.5) == (self.sel, self.extra.len()));
+        let (al, ac, cl, cc) = match going {
+            Some(c) => (c.0, c.1, c.2, c.3),
+            None => {
+                let (a, c) = (
+                    self.line_col(self.sel.anchor),
+                    self.line_col(self.sel.caret),
+                );
+                (a.0, a.1, c.0, c.1)
+            }
+        };
+        let last = self.buffer.len_lines().saturating_sub(1);
+        let cl = cl.saturating_add_signed(lines).min(last);
+        let cc = cc.saturating_add_signed(cols);
+        self.select_column((al, ac), (cl, cc));
+    }
+
     /// Lines show wrapped: word wrap is on and no line is too long for it.
     pub fn wrapped(&self) -> bool {
         self.wrap && self.info.longest_line_chars <= crate::view::wrap::WRAP_LINE_MAX
@@ -352,6 +438,8 @@ impl Ready {
             language,
             colourable: false,
             sel: Selection::at(0),
+            extra: Vec::new(),
+            column: None,
             top: 0.0,
             top_row: 0,
             row_rest: 0.0,
@@ -373,6 +461,7 @@ impl Ready {
 
     /// Selects `range` (caret at its end) and brings it into view, centred if it was off screen.
     pub fn select_and_reveal(&mut self, range: Range<usize>) {
+        self.extra.clear();
         self.sel = Selection {
             anchor: range.start,
             caret: range.end,
@@ -1235,54 +1324,103 @@ impl Docs {
         };
         // How many matches Replace all found.
         let mut replaced = None;
-        let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.sel);
-        let out = match op {
-            EditOp::ReplaceOne(with) => {
-                let (Some(q), range) = (&query, sel.range()) else {
-                    return false;
-                };
-                if range.is_empty() {
-                    return false;
+        // With several carets, typing and removing happen at each of them; anything else
+        // goes on with the primary alone.
+        let pasted;
+        let pieces: Vec<&str>;
+        let multi_op = if r.extra.is_empty() {
+            None
+        } else {
+            match op {
+                EditOp::Insert(text) => Some(MultiOp::Insert(text)),
+                EditOp::Newline => Some(MultiOp::Insert(eol)),
+                EditOp::Indent => Some(MultiOp::Insert("\t")),
+                EditOp::Backspace => Some(MultiOp::Backspace),
+                EditOp::Delete => Some(MultiOp::Delete),
+                EditOp::Paste(text) => {
+                    pasted = normalize_eols(text, eol);
+                    // As many lines as carets: one line to each.
+                    pieces = pasted
+                        .strip_suffix(eol)
+                        .unwrap_or(&pasted)
+                        .split(eol)
+                        .collect();
+                    if pieces.len() == r.extra.len() + 1 {
+                        Some(MultiOp::InsertEach(&pieces))
+                    } else {
+                        Some(MultiOp::Insert(&pasted))
+                    }
                 }
-                replace::replace_one(buf, hist, sel, q, range, with, eol)
+                _ => None,
             }
-            EditOp::ReplaceAll(with) => {
-                let Some(q) = &query else { return false };
-                let never = AtomicBool::new(false);
-                let (out, n) = replace::replace_all(buf, hist, sel, q, with, eol, None, &never);
-                replaced = Some(n);
-                out
+        };
+        if multi_op.is_none() {
+            r.extra.clear();
+        }
+        r.column = None;
+        let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.sel);
+        let out = if let Some(multi_op) = multi_op {
+            let at = r
+                .extra
+                .partition_point(|s| s.range().start < sel.range().start);
+            let mut list = std::mem::take(&mut r.extra);
+            list.insert(at, sel);
+            let (out, list, primary) = multi::edit(buf, hist, &list, at, multi_op);
+            let mut list = list;
+            if !list.is_empty() {
+                list.remove(primary.min(list.len() - 1));
             }
-            EditOp::DuplicateLines => lines::duplicate_lines(buf, hist, sel, eol),
-            EditOp::MoveLines(down) => lines::move_lines(buf, hist, sel, down, eol),
-            EditOp::DeleteLines => lines::delete_lines(buf, hist, sel),
-            EditOp::ToggleComment => {
-                lines::toggle_comment(buf, hist, sel, comment.unwrap_or_default())
+            r.extra = list;
+            out
+        } else {
+            match op {
+                EditOp::ReplaceOne(with) => {
+                    let (Some(q), range) = (&query, sel.range()) else {
+                        return false;
+                    };
+                    if range.is_empty() {
+                        return false;
+                    }
+                    replace::replace_one(buf, hist, sel, q, range, with, eol)
+                }
+                EditOp::ReplaceAll(with) => {
+                    let Some(q) = &query else { return false };
+                    let never = AtomicBool::new(false);
+                    let (out, n) = replace::replace_all(buf, hist, sel, q, with, eol, None, &never);
+                    replaced = Some(n);
+                    out
+                }
+                EditOp::DuplicateLines => lines::duplicate_lines(buf, hist, sel, eol),
+                EditOp::MoveLines(down) => lines::move_lines(buf, hist, sel, down, eol),
+                EditOp::DeleteLines => lines::delete_lines(buf, hist, sel),
+                EditOp::ToggleComment => {
+                    lines::toggle_comment(buf, hist, sel, comment.unwrap_or_default())
+                }
+                EditOp::Case(upper) => lines::change_case(buf, hist, sel, upper),
+                EditOp::TrimTrailing => lines::trim_trailing_whitespace(buf, hist, sel),
+                EditOp::TabsToSpaces => lines::tabs_to_spaces(buf, hist, sel, TAB_WIDTH),
+                EditOp::LineEndings(to) => lines::convert_line_endings(buf, hist, sel, to),
+                EditOp::Insert(text) => edit::insert(buf, hist, sel, text),
+                EditOp::Paste(text) => {
+                    let text = normalize_eols(text, r.info.eol.dominant());
+                    edit::insert(buf, hist, sel, &text)
+                }
+                EditOp::Newline => edit::newline(buf, hist, sel, r.info.eol.dominant(), true),
+                EditOp::Backspace => edit::backspace(buf, hist, sel),
+                EditOp::Delete => edit::delete(buf, hist, sel),
+                EditOp::WordLeft => edit::delete_word_left(buf, hist, sel),
+                EditOp::WordRight => edit::delete_word_right(buf, hist, sel),
+                EditOp::Indent => edit::indent(buf, hist, sel, TAB_WIDTH),
+                EditOp::Outdent => edit::outdent(buf, hist, sel, TAB_WIDTH),
+                EditOp::Undo => match edit::undo(buf, hist) {
+                    Some(out) => out,
+                    None => return false,
+                },
+                EditOp::Redo => match edit::redo(buf, hist) {
+                    Some(out) => out,
+                    None => return false,
+                },
             }
-            EditOp::Case(upper) => lines::change_case(buf, hist, sel, upper),
-            EditOp::TrimTrailing => lines::trim_trailing_whitespace(buf, hist, sel),
-            EditOp::TabsToSpaces => lines::tabs_to_spaces(buf, hist, sel, TAB_WIDTH),
-            EditOp::LineEndings(to) => lines::convert_line_endings(buf, hist, sel, to),
-            EditOp::Insert(text) => edit::insert(buf, hist, sel, text),
-            EditOp::Paste(text) => {
-                let text = normalize_eols(text, r.info.eol.dominant());
-                edit::insert(buf, hist, sel, &text)
-            }
-            EditOp::Newline => edit::newline(buf, hist, sel, r.info.eol.dominant(), true),
-            EditOp::Backspace => edit::backspace(buf, hist, sel),
-            EditOp::Delete => edit::delete(buf, hist, sel),
-            EditOp::WordLeft => edit::delete_word_left(buf, hist, sel),
-            EditOp::WordRight => edit::delete_word_right(buf, hist, sel),
-            EditOp::Indent => edit::indent(buf, hist, sel, TAB_WIDTH),
-            EditOp::Outdent => edit::outdent(buf, hist, sel, TAB_WIDTH),
-            EditOp::Undo => match edit::undo(buf, hist) {
-                Some(out) => out,
-                None => return false,
-            },
-            EditOp::Redo => match edit::redo(buf, hist) {
-                Some(out) => out,
-                None => return false,
-            },
         };
         let Outcome { sel, change } = out;
         r.sel = sel;
@@ -2198,6 +2336,49 @@ mod tests {
         assert!(d.edit(EditOp::Insert("zz "), None));
         let r = d.tabs[i].ready_mut().unwrap();
         assert_eq!(starts(r, 0), [0, 8, 18]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn several_carets_type_remove_and_paste_together() {
+        let (mut d, i, _path, dir) = file_docs("multi", b"one\ntwo\nthree\n");
+        let r = d.tabs[i].ready_mut().unwrap();
+        // A caret at the start of each of the three lines; the last added is the primary.
+        r.sel = Selection::at(0);
+        r.add_caret(4);
+        r.add_caret(8);
+        assert_eq!((r.sel.caret, r.extra.len()), (8, 2));
+        assert_eq!(r.all_sels().1, 2);
+        assert!(d.edit(EditOp::Insert("- "), None));
+        assert_eq!(text_of(&d, i), "- one\n- two\n- three\n");
+        let r = d.tabs[i].ready().unwrap();
+        assert_eq!((r.sel.caret, r.extra.len()), (14, 2));
+        assert!(d.edit(EditOp::Backspace, None));
+        assert_eq!(text_of(&d, i), "-one\n-two\n-three\n");
+        // As many pasted lines as carets: one each. Otherwise the whole text at each.
+        assert!(d.edit(EditOp::Paste("1\r\n2\r\n3"), None));
+        assert_eq!(text_of(&d, i), "-1one\n-2two\n-3three\n");
+        assert!(d.edit(EditOp::Paste("ab"), None));
+        assert_eq!(text_of(&d, i), "-1abone\n-2abtwo\n-3abthree\n");
+        // One undo step each, and Undo leaves one caret.
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "-1one\n-2two\n-3three\n");
+        assert!(d.tabs[i].ready().unwrap().extra.is_empty());
+        // A column selection by keys: two lines down, three columns right, then typed over.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.sel = Selection::at(1);
+        r.extend_column(2, 0);
+        r.extend_column(0, 1);
+        let (list, primary) = r.all_sels();
+        let ranges: Vec<_> = list.iter().map(|s| s.range()).collect();
+        assert_eq!(ranges, [1..2, 7..8, 13..14]);
+        assert_eq!(primary, 2);
+        assert!(d.edit(EditOp::Insert("#"), None));
+        assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n");
+        // A command that is not typing goes on with the primary alone.
+        assert!(d.edit(EditOp::DuplicateLines, None));
+        assert!(d.tabs[i].ready().unwrap().extra.is_empty());
+        assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n-#three\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

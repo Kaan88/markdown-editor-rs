@@ -804,6 +804,19 @@ and the view changes in four places, all behind that test, so nothing changes wi
   the column in the row.
 - `App::compose` does not use caret bands when the document is wrapped.
 
+## 25. Multiple carets (2026-11-13)
+
+`Ready::sel` stays the primary selection; `Ready::extra` holds the others in document order
+(`all_sels` and `set_sels` go between the two forms). The core's `multi` module does the work
+on a list: `normalize` (sort, merge), `edit` (one `Cmd`, one undo step, `MultiOp::Insert`,
+`InsertEach`, `Backspace`, `Delete`), `move_all`, `column`. `Docs::edit` turns Insert, Newline,
+Indent, Backspace, Delete and Paste into a `MultiOp` when `extra` is not empty and clears
+`extra` for every other operation, so no other command has to know about several carets.
+`Ready::column` remembers the corners of a column selection made by keys for as long as the
+selections are still the ones it made. `View::draw` fills the other selections and draws
+their carets inside the loop over a line's parts, finding those that reach a part by binary
+search, so a column down a large file costs what is on screen.
+
 ## 19. Unsaved text survives a close (2026-11-13)
 
 Closing the window with a session does not ask about unsaved changes: `App::request` with

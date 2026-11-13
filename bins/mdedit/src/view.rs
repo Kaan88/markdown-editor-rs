@@ -680,6 +680,17 @@ impl View {
             .and_then(|k| r.find.matches.get(k))
             .is_some_and(|m| *m == sel);
         let caret_line = r.buffer.line_of(r.sel.caret);
+        // The other selections of several carets, in document order.
+        let len = r.buffer.len_bytes();
+        let extras: Vec<(Range<usize>, usize)> = r
+            .extra
+            .iter()
+            .map(|s| {
+                let range = s.range();
+                (range.start.min(len)..range.end.min(len), s.caret.min(len))
+            })
+            .collect();
+        let alone = extras.is_empty();
         // The bracket pair at the caret, and the selected word whose other occurrences show.
         let brackets = r.brackets().map(|(a, b)| [a, b]);
         let twin = (!sel_is_current).then(|| r.twin_word()).flatten();
@@ -751,7 +762,7 @@ impl View {
         }
         for shown_line in &shown_lines {
             let (i, y, h) = (shown_line.line, shown_line.y, shown_line.h);
-            if sel.is_empty() && i == caret_line {
+            if sel.is_empty() && alone && i == caret_line {
                 c.p.fill_dev(x0, y, x1, y + h, band_c, 1.0);
             } else if bands.is_some() {
                 c.p.fill_dev(x0, y, x1, y + h, pal.page, 1.0);
@@ -851,6 +862,15 @@ impl View {
                     }
                     fill_clipped(c, (a, y, b, y + lh), text_clip, pal.selection, 0.35);
                 }
+                // The other selections that reach into this part.
+                let from = extras.partition_point(|e| e.0.end < ch.offset);
+                for (er, _) in extras[from..].iter().take_while(|e| e.0.start <= end) {
+                    if !er.is_empty()
+                        && let Some((a, b)) = span(er.start, er.end)
+                    {
+                        fill_clipped(c, (a, y, b, y + lh), text_clip, pal.selection, 0.35);
+                    }
+                }
                 let gy = y as f32 + m.baseline - shaped.baseline;
                 self.engine.draw_layout_clipped(
                     c.p.bmp,
@@ -859,6 +879,17 @@ impl View {
                     gy.round(),
                     text_clip,
                 );
+                // The other carets in this part: one at a part's end shows there only when the
+                // line ends with it.
+                if s.caret {
+                    let w = (1.5 * scale).round().max(1.0) as i32;
+                    for (_, at) in extras[from..].iter().take_while(|e| e.0.start <= end) {
+                        if *at >= ch.offset && (*at < end || (*at == end && last)) {
+                            let cx = (x + shaped.x_of(*at - ch.offset) as f64).round() as i32;
+                            fill_clipped(c, (cx, y, cx + w, y + lh), text_clip, pal.text, 1.0);
+                        }
+                    }
+                }
                 if !s.whitespace {
                     continue;
                 }
@@ -950,7 +981,7 @@ impl View {
         let pad_r = (GUTTER_PAD_R * scale).round() as i32;
         for shown_line in &shown_lines {
             let (i, y) = (shown_line.line, shown_line.y);
-            let band = if sel.is_empty() && i == caret_line {
+            let band = if sel.is_empty() && alone && i == caret_line {
                 band_c
             } else {
                 pal.page

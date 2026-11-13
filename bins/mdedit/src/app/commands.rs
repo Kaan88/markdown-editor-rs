@@ -189,16 +189,31 @@ impl App {
         let Some(r) = self.docs.active_ready() else {
             return false;
         };
-        let range = r.sel.range();
-        if range.is_empty() {
+        // Several selections go one to a line, in the order they are in the text.
+        let (list, _) = r.all_sels();
+        let ranges: Vec<_> = list
+            .iter()
+            .map(|s| s.range())
+            .filter(|r| !r.is_empty())
+            .collect();
+        let eol = r.info.eol.dominant();
+        let total: usize = ranges.iter().map(|r| r.len() + eol.len()).sum();
+        if ranges.is_empty() {
             return false;
         }
-        if range.len() > COPY_LIMIT {
+        if total > COPY_LIMIT + eol.len() {
             self.docs.set_toast(strings::COPY_TOO_LARGE);
             return false;
         }
-        let mut text = String::with_capacity(range.len());
-        r.buffer.text(range, &mut text);
+        let mut text = String::with_capacity(total);
+        for (k, range) in ranges.into_iter().enumerate() {
+            if k > 0 {
+                text.push_str(eol);
+            }
+            for piece in r.buffer.chunks(range) {
+                text.push_str(piece);
+            }
+        }
         if !platform::set_clipboard_text(&text) {
             self.docs.set_toast("Could not copy to the clipboard");
             return false;
@@ -691,6 +706,7 @@ impl App {
             }
             C::SelectAll => {
                 if let Some(r) = self.docs.active_ready_mut() {
+                    r.extra.clear();
                     r.sel = mdedit_core::selection::select_all(&r.buffer);
                 }
             }
@@ -949,8 +965,11 @@ impl App {
         if let Some(due) = self.ui.autoscroll_due {
             if now >= due {
                 self.autoscroll();
-                self.ui.autoscroll_due = matches!(self.ui.drag, Some(Drag::Select { .. }))
-                    .then(|| now + AUTOSCROLL_TICK);
+                self.ui.autoscroll_due = matches!(
+                    self.ui.drag,
+                    Some(Drag::Select { .. } | Drag::Column { .. })
+                )
+                .then(|| now + AUTOSCROLL_TICK);
             }
             if let Some(d) = self.ui.autoscroll_due {
                 at(d);

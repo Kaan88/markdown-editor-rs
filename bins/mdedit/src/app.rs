@@ -522,6 +522,7 @@ impl App {
                             (r.top.to_bits(), r.top_row, r.wrap),
                             r.left.to_bits(),
                             (!sel.is_empty()).then_some((sel.start, sel.end)),
+                            (!r.extra.is_empty()).then(|| sig(&r.extra)),
                             r.find.generation,
                             r.colors.generation,
                             (r.widest.to_bits(), r.buffer.len_lines()),
@@ -553,7 +554,7 @@ impl App {
         };
         let visible = self.text_focused() && self.focused && self.ui.caret_on;
         let line = r.buffer.line_of(r.sel.caret);
-        (sig((r.sel.caret, visible)), Some(line))
+        (sig((r.sel.caret, visible, r.extra.len())), Some(line))
     }
 
     /// Composes one frame into `screen` and returns the device-px rectangles changed.
@@ -613,7 +614,11 @@ impl App {
             lines.dedup();
             // With word wrap a line's place depends on the rows above it: the whole text is
             // painted.
-            let wrapped = self.docs.active_ready().is_some_and(|r| r.wrapped());
+            // Several carets are on several lines: the same.
+            let wrapped = self
+                .docs
+                .active_ready()
+                .is_some_and(|r| r.wrapped() || !r.extra.is_empty());
             if lines.is_empty() || wrapped {
                 dirty[ti] = true;
             } else {

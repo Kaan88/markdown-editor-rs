@@ -141,6 +141,17 @@ impl App {
                 self.ui.panes.files_w = (width + (x - start)).clamp(PANE_MIN, max).round();
             }
             Drag::Thumb { target, grab } => self.thumb_to(target, x - grab, y - grab),
+            Drag::Column { line, col } => {
+                let Some(offset) = self.text_offset(x, y) else {
+                    return;
+                };
+                if let Some(r) = self.docs.active_ready_mut() {
+                    let to = r.line_col(offset);
+                    r.select_column((line, col), to);
+                    view::reveal_no_margin(r, r.sel.caret);
+                }
+                self.redraw();
+            }
             Drag::Select { unit, origin } => {
                 let Some(offset) = self.text_offset(x, y) else {
                     return;
@@ -378,9 +389,25 @@ impl App {
                 };
                 self.docs.seal();
                 let shift = self.mods.shift;
+                let (ctrl, alt) = (self.mods.ctrl, self.mods.alt);
                 let Some(r) = self.docs.active_ready_mut() else {
                     return;
                 };
+                // Alt and a drag select a column; Ctrl and a click add a caret.
+                if clicks == 1 && alt && !ctrl {
+                    let (line, col) = r.line_col(offset);
+                    r.extra.clear();
+                    r.sel = mdedit_core::Selection::at(offset);
+                    self.ui.drag = Some(Drag::Column { line, col });
+                    self.caret_reset();
+                    return;
+                }
+                if clicks == 1 && ctrl && !alt && !shift {
+                    r.add_caret(offset);
+                    self.caret_reset();
+                    return;
+                }
+                r.extra.clear();
                 let (unit, origin) = match clicks {
                     2 => (SelectUnit::Word, selection::word_at(&r.buffer, offset)),
                     3 => (SelectUnit::Line, selection::line_at(&r.buffer, offset)),
@@ -606,7 +633,7 @@ impl App {
         view::scroll_rows(r, down);
         r.left = (r.left + right).max(0.0);
         // The layout pass of the next frame clamps both.
-        if let Some(Drag::Select { .. }) = self.ui.drag {
+        if let Some(Drag::Select { .. } | Drag::Column { .. }) = self.ui.drag {
             let drag = self.ui.drag.unwrap();
             self.drag_to(drag, x, y);
         }
@@ -752,6 +779,29 @@ impl App {
         let Some(r) = self.docs.active_ready_mut() else {
             return false;
         };
+        // Escape leaves one caret of several.
+        if *name == KeyName::Escape && !r.extra.is_empty() {
+            r.extra.clear();
+            self.caret_reset();
+            self.redraw();
+            return true;
+        }
+        // Alt+Shift and an arrow make or extend a column selection.
+        if mods.alt && mods.shift && !mods.ctrl {
+            let (lines, cols) = match name {
+                KeyName::Up => (-1, 0),
+                KeyName::Down => (1, 0),
+                KeyName::Left => (0, -1),
+                KeyName::Right => (0, 1),
+                _ => return false,
+            };
+            r.history.seal();
+            r.extend_column(lines, cols);
+            view::reveal(r, r.sel.caret, false);
+            self.caret_reset();
+            self.redraw();
+            return true;
+        }
         let page = ((r.view_lines.floor() as usize).saturating_sub(1)).max(1);
         let motion = match (name, mods.ctrl) {
             (KeyName::Left, false) => Motion::Left,
@@ -778,7 +828,18 @@ impl App {
         };
         // A caret move ends the run of typing that one Undo takes back.
         r.history.seal();
+        // The page keys leave one caret; any other motion moves every caret.
+        if matches!(motion, Motion::Up(n) | Motion::Down(n) if n > 1) {
+            r.extra.clear();
+        }
         match motion {
+            _ if !r.extra.is_empty() => {
+                let (list, primary) = r.all_sels();
+                let (list, primary) = mdedit_core::multi::move_all(
+                    &r.buffer, &list, primary, motion, mods.shift, TAB_WIDTH,
+                );
+                r.set_sels(list, primary);
+            }
             // With word wrap Up and Down go by rows.
             Motion::Up(n) | Motion::Down(n) if r.wrapped() => {
                 let n = n as isize

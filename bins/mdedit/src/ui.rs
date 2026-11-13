@@ -335,6 +335,11 @@ pub enum Drag {
         unit: SelectUnit,
         origin: (usize, usize),
     },
+    /// A column selection dragged out with Alt held: the line and display column pressed.
+    Column {
+        line: usize,
+        col: usize,
+    },
     /// Selecting in the focused box of the bar.
     FindSelect,
 }

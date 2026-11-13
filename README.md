@@ -14,7 +14,7 @@ without touching any other byte. New file (Ctrl+N) opens an untitled tab that Sa
 for. It has the line commands (duplicate, move, delete, toggle comment, change case, trim, tabs to
 spaces), finds and replaces with match case, whole word and regular expressions (Ctrl+F, Ctrl+H),
 changes a file's line endings and encoding from the status bar, wraps long lines when asked
-(Alt+Z),
+(Alt+Z), edits at several carets (Ctrl+click) and column selections (Alt+drag, Alt+Shift+arrows),
 keeps unsaved text when the window closes and puts it back at the next start, and updates itself
 in place like mdview (v0.1.0 is the first release). There is no input-method
 support yet.
