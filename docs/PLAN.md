@@ -10,6 +10,13 @@ open and work, implement useful features from Notepad++." A feature goes in only
 keystroke time, scroll frame, memory and idle CPU stay within the budgets below, measured before
 and after.
 
+**The exe size is not a gate (the owner, 2026-11-14).** It is reported with each release, and only
+a sudden large jump needs explaining. The gates are, in order: launch time first, then keystroke,
+scroll, memory and idle CPU. The size figures and the "Exe" rows of the tables below are kept as
+information and are not budgets. Still to do, on real Windows before the build profile is
+changed: compare the current build with one that has the editor crate compiled for speed and
+`panic = "unwind"`. The profile has not been changed.
+
 **Phase 0, done.** Results in `spikes/*/RESULTS.md`, measured on a loaded machine:
 
 - Buffer: `ropey`. A 100 MB file loads in about 75 ms; edits and lookups take microseconds.
@@ -29,10 +36,10 @@ and after.
 | Private memory, 100 MB file | file size plus 25% (125 MiB) | 133 MiB: over by 8 MiB |
 | Scroll frame, p95 | under 4 ms | 0.8 to 1.5 ms |
 | Idle CPU | zero | none measured, focused window with caret blink |
-| Exe | under 6 MB | 5.7 MB |
+| Exe (information, not a gate) | was under 6 MB | 5.7 MB |
 
-Notes: the release profile uses `panic = "abort"` to meet the exe budget (0.9 MB of unwind tables
-gone), so a panic on any thread ends the process; the viewer uses `unwind`. The 100 MB memory
+Notes: the release profile uses `panic = "abort"` to keep the exe small (0.9 MB of unwind tables
+gone; the size is no longer a gate, see above), so a panic on any thread ends the process; the viewer uses `unwind`. The 100 MB memory
 figure was left as it is. Idle CPU with the window unfocused was not measured. Not done by hand:
 everything interactive (selection, copy, find, tabs, Files pane, theme switch, reload on change,
 second-instance hand-over).
@@ -52,7 +59,7 @@ and the questions before closing, and the handling of a file that changed on dis
 | Private memory, small file | under 30 MiB | 27.8 MiB |
 | Private memory, 100 MB file | 125 MiB | 133.4 MiB, as before |
 | Scroll frame, p95 | under 4 ms | 0.9 ms small, 2.0 ms on the 100 MB file |
-| Exe | under 6 MB | 5.8 MB |
+| Exe (information, not a gate) | was under 6 MB | 5.8 MB |
 | Save, 100 MB | none set | 88 ms as UTF-8, 261 ms as UTF-16 |
 
 The keystroke figure is the edit plus the frame's own work up to handing the pixels to the
@@ -129,7 +136,7 @@ small document, 63-98 ms to first frame on a real launch, a 7.3 MB exe.
 | Scroll frame | under 4 ms at 1280x800 | The viewer's budget |
 | Opening a 100 MB file | first frame under 500 ms, memory about file size plus 25% | Loading must not shape or highlight what is not on screen |
 | Idle CPU | zero | Timers only for caret blink and pending work |
-| Exe | under 6 MB | syntect's syntax set is most of it |
+| Exe (information, not a gate since 2026-11-14) | was under 6 MB | syntect's syntax set is most of it |
 
 ## Design
 

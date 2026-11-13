@@ -241,7 +241,7 @@ from converting them.
 ## Linux: the shared Linux code adopted (2026-11-14, still 0.4.1, not published)
 
 Run on one machine: CachyOS, KDE Plasma on Wayland, cargo 1.99, build dir
-`~/.cache/md-linux-test/edit`. Shared pin moved to `84de734a1aaecc50cca80b23bacee127b6778ef3`
+`~/.cache/md-linux-test/edit`. Shared pin moved to `84de734a1aaecc50cca80b23bacee127b6778ef3` (now `20ac56f`, see the 2026-11-14 icons section)
 (branch `feat/linux`, not yet on shared `main`). Everything below is `cfg(not(windows))` unless
 said; **nothing was built or run for Windows**. The Windows code paths are the old ones.
 
