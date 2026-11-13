@@ -38,3 +38,13 @@ Not verified:
 - That an older build is offered this release was not tested; version ordering and offers are
   covered by the shared crates' unit tests only.
 - The release script was run only on the Windows PC where v0.1.0 was cut.
+
+## v0.2.0 (published from commit 64ddaa0, 2026-11-13)
+
+Cut so that the updater can be tried from a 0.1.0 install. Verified against the live release:
+the manifest is served at the address above and names 0.2.0; the asset downloaded from its URL
+(5984768 bytes) has the manifest's SHA-256; `mdedit --check-update` with the 0.2.0 exe answered
+"nothing newer", exit code 0.
+
+Not verified: that a 0.1.0 install is offered 0.2.0, and that it downloads and installs it.
+That is the test this release is for.
