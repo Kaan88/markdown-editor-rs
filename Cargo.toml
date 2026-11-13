@@ -77,3 +77,13 @@ opt-level = "s"
 opt-level = "s"
 [profile.release.package.chardetng]
 opt-level = "s"
+[profile.release.package.fontique]
+opt-level = "s"
+[profile.release.package.bincode]
+opt-level = "s"
+[profile.release.package.flate2]
+opt-level = "s"
+[profile.release.package.yazi]
+opt-level = "s"
+[profile.release.package.mdshared-ui]
+opt-level = "s"

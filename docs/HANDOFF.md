@@ -233,6 +233,17 @@ Putting that script into the viewer's repository would be a useful first task.
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Room in the exe (2026-11-13)
+
+`Cargo.toml` also builds `fontique`, `bincode`, `flate2`, `yazi` and `mdshared-ui` with
+`opt-level = "s"`. The exe went from 5,987,328 to 5,948,416 bytes (51,584 under the budget).
+All 52 shots are byte-identical to the build before. Measured after, three runs each: window
+shown 77 to 80 ms (78 to 79 before); keystroke p50 0.48 ms (0.79 before); scroll step p50
+0.54 ms on the 100 MB file (0.84 before); with wrap on in long paragraphs 1.20 ms (1.58
+before). Why painting got faster was not looked into, and which of the five crates did it
+was not separated. Tried and not kept: `encoding_rs` for size saves another 50 KB but reads a
+100 MB Windows-1254 file in 551 ms instead of 508; `url`, `idna` and `fdeflate` save nothing.
+
 ## Word wrap (2026-11-13, the last of roadmap item 4)
 
 View menu, "Word wrap", or Alt+Z; off by default, kept in the session (`wrap=1`), `--wrap`
