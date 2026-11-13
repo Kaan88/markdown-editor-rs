@@ -162,9 +162,30 @@ pub fn memory() -> Option<Memory> {
     })
 }
 
+/// Linux: `RssAnon` (memory private to the process, the counterpart of Windows' private bytes)
+/// and `VmHWM` (the peak resident set) from `/proc/self/status`. Other systems: none.
 #[cfg(not(windows))]
 pub fn memory() -> Option<Memory> {
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
+        parse_status(&status)
+    }
+    #[cfg(not(target_os = "linux"))]
     None
+}
+
+/// The two figures out of the text of `/proc/self/status` (lines like `RssAnon:   1234 kB`).
+#[cfg(any(target_os = "linux", test))]
+fn parse_status(status: &str) -> Option<Memory> {
+    let kib = |key: &str| -> Option<u64> {
+        let line = status.lines().find_map(|l| l.strip_prefix(key))?;
+        Some(line.trim().strip_suffix("kB")?.trim().parse::<u64>().ok()? * 1024)
+    };
+    Some(Memory {
+        private: kib("RssAnon:")?,
+        peak_working_set: kib("VmHWM:")?,
+    })
 }
 
 /// CPU time the process has used, kernel and user together.
@@ -192,9 +213,29 @@ pub fn cpu_time() -> Option<Duration> {
     (ok != 0).then(|| Duration::from_nanos((t(kernel) + t(user)) * 100))
 }
 
+/// Linux: user plus system time of the process from `/proc/self/stat`, in clock ticks of
+/// `USER_HZ`, which is 100 on every Linux. Other systems: none.
 #[cfg(not(windows))]
 pub fn cpu_time() -> Option<Duration> {
+    #[cfg(target_os = "linux")]
+    {
+        let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+        parse_stat(&stat)
+    }
+    #[cfg(not(target_os = "linux"))]
     None
+}
+
+/// The CPU time out of the text of `/proc/self/stat`. The command name (field 2) may hold spaces
+/// and parentheses, so the fields are counted from the last `)`: `utime` and `stime` are the 12th
+/// and 13th after it (fields 14 and 15 of the line).
+#[cfg(any(target_os = "linux", test))]
+fn parse_stat(stat: &str) -> Option<Duration> {
+    let rest = &stat[stat.rfind(')')? + 1..];
+    let mut f = rest.split_whitespace().skip(11);
+    let utime: u64 = f.next()?.parse().ok()?;
+    let stime: u64 = f.next()?.parse().ok()?;
+    Some(Duration::from_millis((utime + stime) * 10))
 }
 
 #[cfg(test)]
@@ -204,11 +245,23 @@ mod tests {
     #[test]
     fn figures_answer() {
         assert!(code_page() > 0);
-        if cfg!(windows) {
+        if cfg!(any(windows, target_os = "linux")) {
             let m = memory().expect("memory");
             assert!(m.private > 0 && m.peak_working_set > 0);
             assert!(cpu_time().is_some());
         }
+    }
+
+    #[test]
+    fn proc_text_is_read() {
+        let status = "Name:\tmdedit\nVmHWM:\t   2048 kB\nRssAnon:\t   1024 kB\nRssFile:\t 5 kB\n";
+        let m = parse_status(status).unwrap();
+        assert_eq!((m.private, m.peak_working_set), (1024 * 1024, 2048 * 1024));
+        assert!(parse_status("Name:\tx\n").is_none());
+        // Field 2 holds a space and a parenthesis; utime is 250 ticks, stime 50.
+        let stat = "42 (my (ed) it) S 1 2 3 4 5 6 7 8 9 10 250 50 0 0 20";
+        assert_eq!(parse_stat(stat), Some(Duration::from_millis(3000)));
+        assert!(parse_stat("garbage").is_none());
     }
 
     #[test]

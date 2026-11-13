@@ -238,6 +238,56 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Linux: the shared Linux code adopted (2026-11-14, still 0.4.1, not published)
+
+Run on one machine: CachyOS, KDE Plasma on Wayland, cargo 1.99, build dir
+`~/.cache/md-linux-test/edit`. Shared pin moved to `84de734a1aaecc50cca80b23bacee127b6778ef3`
+(branch `feat/linux`, not yet on shared `main`). Everything below is `cfg(not(windows))` unless
+said; **nothing was built or run for Windows**. The Windows code paths are the old ones.
+
+- **Repaint**: `present` copies the whole frame unless `buffer.age() == 1` (was `== 0`).
+  Wayland swaps two buffers (age 2) and a resized buffer keeps its age. Not seen on screen: the
+  glitched toolbar on maximise was not re-tried (no driven tests on this run).
+- **File dialogs**: Open files, Open folder and Save as use the shared `pick_*_async`; the helper
+  thread's `done` only posts `Wake::Dialog(Picked)`, handled on the UI thread (`dialog_done` in
+  `app/commands.rs`). `dialog_busy` ignores a second request. Save as inside a flow: `save_as`
+  returns `SaveAs::Waiting`, `Picked::Save` carries the document id and the `After`; a result calls
+  `request(after)` (as the Save button did), a cancel, a failed write or a closed tab calls
+  `cancel_pending`. Windows keeps the blocking calls (`platform::pick_files`, `pick_save`).
+  `rfd` is no longer a direct dependency off Windows. **Not run**: no dialog was opened (the
+  owner's PC); the flows are untested beyond compiling. Known gap: while a Save as dialog of a
+  close flow is open the window is live, and another close request made meanwhile would have its
+  question cleared by the cancel.
+- **Fonts**: the editor's `EXTRA_FALLBACKS` is gone; Windows calls `mdshared_text::add_fallbacks`
+  on its font copy, elsewhere `shared_fonts()` has it. Code font string off Windows ends
+  `..., Noto Color Emoji, monospace`. Looked at in `md-light.png`: the emoji is a coloured face.
+- **Window identity**: `window::identify(attrs, "mdedit", assets/mdedit.png)`;
+  `desktop_entry::ensure(..)` once in `run`. Run with `$APPIMAGE` set and `XDG_DATA_HOME` on a
+  scratch folder: `mdedit.desktop` and the icon were written, the entry looks right. New command
+  `MakeDefault` ("Make mdedit the default for text files", no key), in the main menu after
+  "Keyboard shortcuts", only off Windows, only when `$APPIMAGE` names a file, hidden once
+  `is_default`. Seen in a `--shot` with `$APPIMAGE` set; the command itself was **not run**
+  (it would edit the owner's `mimeapps.list`).
+- **Updates**: `--check-update` reaches GitHub on Linux (the manifest says 0.4.0, so "nothing
+  newer"; a 404 and a refused connection give `Status(404)` and `Os(7)`). With `$APPIMAGE` set the
+  launch check ran (`update_checked` written to the settings). A local http manifest is refused
+  ("not an https URL"), so the bar and Update were **not** run with a real offer. The wording
+  "Only an installed copy can update itself." (shared `NOT_INSTALLED`) is acceptable on Linux but
+  says nothing about AppImage; left to shared.
+- **`--trace`** on Linux: memory from `/proc/self/status` (`RssAnon` as private, `VmHWM` as peak)
+  and CPU time from `/proc/self/stat` (user + system, 10 ms ticks). Unit-tested on sample text.
+- **Not done**: double click on the title row still does not maximise (cause not found without
+  driving the mouse; a likely fix is to call `drag_window` only on the first pointer move with
+  the button down, so that a double click never starts the compositor's move grab). "Show in file
+  manager" still opens the folder only.
+- **Checks**: `cargo test --release --workspace` 404 passed (403 before plus one);
+  clippy `-D warnings` and `fmt --check` clean. `tests/shots.sh` before (HEAD `7eb4b9b` with the
+  old pin) and after: 72 shots, 64 byte-identical; the 8 that differ are exactly those with an
+  emoji (md-light, utf16le, utf16be, outline-dark, split, minimap-dark, minimap-split, tabs).
+- **Budgets on Linux (information)**: window shown 72 to 78 ms on `sample.rs`; private memory
+  20.6 to 20.8 MiB (peak 49 MiB); 100 MB file: loaded 115 ms, window shown 190 ms, private
+  124.5 MiB; keystroke p50 0.48 ms, p95 0.57 ms (300 keystrokes).
+
 ## Menus taller than the window scroll (2026-11-13, 0.4.1, not published)
 
 Found in a real window 665 to 760 logical px tall: the main menu rose to the window's top edge
