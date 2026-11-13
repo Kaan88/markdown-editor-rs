@@ -27,31 +27,35 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     let has_tab = docs.active().is_some();
     let ready = docs.active_ready().is_some();
     let modified = docs.active_doc().is_some_and(|d| d.modified());
-    let theme = |choice: ThemeChoice, label: &str| {
-        Item::new(Act::Theme(choice), label).checked(docs.theme == choice)
+    let theme = |choice: ThemeChoice, label: &str, icon: &'static str| {
+        Item::new(Act::Theme(choice), label)
+            .icon(icon)
+            .checked(docs.theme == choice)
     };
     #[cfg_attr(windows, allow(unused_mut))]
     let mut items = vec![
-        cmd(C::NewFile, "New file", ""),
+        cmd(C::NewFile, "New file", glyph::NEW_FILE),
         cmd(C::OpenFiles, "Open files…", glyph::OPEN),
         cmd(C::OpenFolder, "Open folder…", glyph::FOLDER_OPEN),
         Item::new(Act::RecentMenu, "Open recent")
             .icon(glyph::RECENT)
             .hint("›")
             .enabled(!docs.recents.is_empty()),
-        cmd(C::Save, "Save", "").sep().enabled(modified),
-        cmd(C::SaveAs, "Save as…", "").enabled(ready),
+        cmd(C::Save, "Save", glyph::SAVE).sep().enabled(modified),
+        cmd(C::SaveAs, "Save as…", glyph::SAVE_AS).enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD).enabled(has_tab),
         cmd(C::CloseTab, "Close tab", glyph::CLOSE).enabled(has_tab),
-        cmd(C::CloseAllTabs, "Close all tabs", "").enabled(has_tab),
+        cmd(C::CloseAllTabs, "Close all tabs", glyph::CLOSE_ALL).enabled(has_tab),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(has_tab),
-        cmd(C::Replace, "Replace…", "").enabled(has_tab),
-        cmd(C::GoToLine, "Go to line…", "").enabled(has_tab),
-        Item::new(Act::ViewMenu, "View").hint("›"),
-        Item::new(Act::MacroMenu, "Macro").hint("›"),
-        theme(ThemeChoice::System, "System theme").sep(),
-        theme(ThemeChoice::Light, "Light theme"),
-        theme(ThemeChoice::Dark, "Dark theme"),
+        cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(has_tab),
+        cmd(C::GoToLine, "Go to line…", glyph::GO_TO_LINE).enabled(has_tab),
+        Item::new(Act::ViewMenu, "View").icon(glyph::VIEW).hint("›"),
+        Item::new(Act::MacroMenu, "Macro")
+            .icon(glyph::MACRO)
+            .hint("›"),
+        theme(ThemeChoice::System, "System theme", glyph::SYSTEM).sep(),
+        theme(ThemeChoice::Light, "Light theme", glyph::SUN),
+        theme(ThemeChoice::Dark, "Dark theme", glyph::MOON),
         cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD).sep(),
     ];
     // Off Windows, from an AppImage (the desktop entry exists), until mdedit is the default.
@@ -92,7 +96,7 @@ pub fn recent_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> 
     let any = !docs.recents.is_empty();
     items.push(
         Item::new(Act::Cmd(C::ManageRecent), "Manage recent files…")
-            .icon(glyph::RECENT)
+            .icon(glyph::SLIDERS)
             .sep(),
     );
     items.push(
@@ -110,10 +114,20 @@ pub fn macro_menu(recording: bool, any: bool, x: f32, y: f32, align_right: bool)
     } else {
         "Record a macro"
     };
+    let record_icon = if recording {
+        glyph::STOP
+    } else {
+        glyph::RECORD
+    };
     let items = vec![
-        cmd(C::RecordMacro, record, ""),
-        cmd(C::PlayMacro, "Play the macro", "").enabled(any && !recording),
-        cmd(C::PlayMacroToEnd, "Play it to the end of the file", "").enabled(any && !recording),
+        cmd(C::RecordMacro, record, record_icon),
+        cmd(C::PlayMacro, "Play the macro", glyph::PLAY).enabled(any && !recording),
+        cmd(
+            C::PlayMacroToEnd,
+            "Play it to the end of the file",
+            glyph::PLAY_END,
+        )
+        .enabled(any && !recording),
     ];
     Menu::new(items, x, y, align_right)
 }
@@ -121,27 +135,34 @@ pub fn macro_menu(recording: bool, any: bool, x: f32, y: f32, align_right: bool)
 /// The View menu, opened from the main menu in its place.
 pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let items = vec![
-        cmd(C::ToggleFiles, "Files pane", "").checked(ui.panes.files && !ui.outline.on),
-        cmd(C::ToggleOutline, "Function list", "").checked(ui.panes.files && ui.outline.on),
-        cmd(C::ToggleWhitespace, "Show whitespace", "").checked(docs.whitespace),
-        cmd(C::ToggleWrap, "Word wrap", "").checked(docs.wrap),
-        cmd(C::ToggleMinimap, "Minimap", "").checked(docs.minimap),
-        cmd(C::ToggleSplit, "Two files side by side", "").checked(docs.other().is_some()),
-        cmd(C::FocusOther, "Go to the other pane", "").enabled(docs.other().is_some()),
-        cmd(C::ToggleFold, "Fold or open the block", "").sep(),
-        cmd(C::FoldAll, "Fold all blocks", ""),
-        cmd(C::UnfoldAll, "Open all folds", "")
+        cmd(C::ToggleFiles, "Files pane", glyph::SIDEBAR).checked(ui.panes.files && !ui.outline.on),
+        cmd(C::ToggleOutline, "Function list", glyph::FUNCTIONS)
+            .checked(ui.panes.files && ui.outline.on),
+        cmd(C::ToggleWhitespace, "Show whitespace", glyph::WHITESPACE).checked(docs.whitespace),
+        cmd(C::ToggleWrap, "Word wrap", glyph::WRAP).checked(docs.wrap),
+        cmd(C::ToggleMinimap, "Minimap", glyph::MINIMAP).checked(docs.minimap),
+        cmd(C::ToggleSplit, "Two files side by side", glyph::SPLIT).checked(docs.other().is_some()),
+        cmd(C::FocusOther, "Go to the other pane", glyph::OTHER_PANE)
+            .enabled(docs.other().is_some()),
+        cmd(C::ToggleFold, "Fold or open the block", glyph::FOLD).sep(),
+        cmd(C::FoldAll, "Fold all blocks", glyph::FOLD_ALL),
+        cmd(C::UnfoldAll, "Open all folds", glyph::UNFOLD)
             .enabled(docs.active_ready().is_some_and(|r| !r.folds.is_empty())),
-        cmd(C::ZoomIn, "Zoom in", "").sep(),
-        cmd(C::ZoomOut, "Zoom out", ""),
-        cmd(C::ZoomReset, "Reset zoom", "").enabled(docs.zoom != 100),
+        cmd(C::ZoomIn, "Zoom in", glyph::ZOOM).sep(),
+        cmd(C::ZoomOut, "Zoom out", glyph::ZOOM_OUT),
+        cmd(C::ZoomReset, "Reset zoom", glyph::ZOOM_RESET).enabled(docs.zoom != 100),
     ];
     Menu::new(items, x, y, align_right)
 }
 
 /// The minimap's right-click menu: one item.
 pub fn minimap_menu(x: f32, y: f32) -> Menu<Act> {
-    Menu::new(vec![cmd(C::ToggleMinimap, "Hide minimap", "")], x, y, false)
+    Menu::new(
+        vec![cmd(C::ToggleMinimap, "Hide minimap", glyph::MINIMAP)],
+        x,
+        y,
+        false,
+    )
 }
 
 pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
@@ -149,8 +170,10 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     let has_file = docs.tabs.get(index).is_some_and(|d| d.path.is_some());
     let items = vec![
         Item::new(Act::TabCmd(C::CloseTab, index), "Close tab").icon(glyph::CLOSE),
-        Item::new(Act::TabCmd(C::CloseOtherTabs, index), "Close other tabs").enabled(many),
-        Item::new(Act::TabCmd(C::CloseAllTabs, index), "Close all tabs"),
+        Item::new(Act::TabCmd(C::CloseOtherTabs, index), "Close other tabs")
+            .icon(glyph::CLOSE_OTHERS)
+            .enabled(many),
+        Item::new(Act::TabCmd(C::CloseAllTabs, index), "Close all tabs").icon(glyph::CLOSE_ALL),
         Item::new(Act::TabCmd(C::CopyFilePath, index), "Copy file path")
             .icon(glyph::COPY)
             .sep()
@@ -177,8 +200,8 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         .and_then(|r| r.language)
         .is_some_and(|l| l.line_comment().is_some());
     let items = vec![
-        cmd(C::Undo, "Undo", "").enabled(history.is_some_and(|h| h.can_undo())),
-        cmd(C::Redo, "Redo", "").enabled(history.is_some_and(|h| h.can_redo())),
+        cmd(C::Undo, "Undo", glyph::UNDO).enabled(history.is_some_and(|h| h.can_undo())),
+        cmd(C::Redo, "Redo", glyph::REDO).enabled(history.is_some_and(|h| h.can_redo())),
         cmd(C::Cut, "Cut", glyph::CUT).sep().enabled(has_selection),
         Item::new(Act::Cmd(C::Copy), "Copy")
             .hint(hint(C::Copy))
@@ -189,20 +212,20 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
             .enabled(ready),
-        cmd(C::DuplicateLine, "Duplicate line", "")
+        cmd(C::DuplicateLine, "Duplicate line", glyph::DUPLICATE_LINE)
             .sep()
             .enabled(ready),
-        cmd(C::DeleteLine, "Delete line", "").enabled(ready),
-        cmd(C::ToggleComment, "Toggle comment", "").enabled(has_comment),
-        cmd(C::UpperCase, "UPPERCASE", "").enabled(has_selection),
-        cmd(C::LowerCase, "lowercase", "").enabled(has_selection),
-        cmd(C::TrimTrailing, "Trim trailing spaces", "")
+        cmd(C::DeleteLine, "Delete line", glyph::DELETE_LINE).enabled(ready),
+        cmd(C::ToggleComment, "Toggle comment", glyph::COMMENT).enabled(has_comment),
+        cmd(C::UpperCase, "UPPERCASE", glyph::UPPERCASE).enabled(has_selection),
+        cmd(C::LowerCase, "lowercase", glyph::LOWERCASE).enabled(has_selection),
+        cmd(C::TrimTrailing, "Trim trailing spaces", glyph::TRIM)
             .sep()
             .enabled(ready),
-        cmd(C::TabsToSpaces, "Tabs to spaces", "").enabled(ready),
-        cmd(C::ToggleBookmark, "Toggle bookmark", "").enabled(ready),
+        cmd(C::TabsToSpaces, "Tabs to spaces", glyph::TABS).enabled(ready),
+        cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK).enabled(ready),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
-        cmd(C::Replace, "Replace…", "").enabled(ready),
+        cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD),
     ];
     Menu::new(items, x, y, false)
@@ -235,16 +258,23 @@ pub fn find_menu(
             .enabled(has_text)
             .sep(),
         Item::new(Act::Opt(FindOpt::Case), "Match case")
+            .icon(glyph::CASE)
             .checked(options.match_case)
             .sep(),
-        Item::new(Act::Opt(FindOpt::Word), "Whole word").checked(options.whole_word),
-        Item::new(Act::Opt(FindOpt::Regex), "Regular expression").checked(options.regex),
+        Item::new(Act::Opt(FindOpt::Word), "Whole word")
+            .icon(glyph::WORD)
+            .checked(options.whole_word),
+        Item::new(Act::Opt(FindOpt::Regex), "Regular expression")
+            .icon(glyph::REGEX)
+            .checked(options.regex),
         Item::new(Act::Cmd(C::FindInFiles), "Find in files")
             .hint("Ctrl+Shift+F")
             .icon(glyph::SEARCH)
             .enabled(has_text)
             .sep(),
-        Item::new(Act::Cmd(C::FindInTabs), "Find in open tabs").enabled(has_text),
+        Item::new(Act::Cmd(C::FindInTabs), "Find in open tabs")
+            .icon(glyph::FIND_TABS)
+            .enabled(has_text),
     ];
     Menu::new(items, x, y, false)
 }

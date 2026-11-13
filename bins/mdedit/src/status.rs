@@ -1,7 +1,7 @@
 //! The status strip under the text: position, selection, syntax, line endings, encoding, and the
 //! load progress on the left. 26 logical px across the window's bottom.
 
-use crate::chrome::Ctx;
+use crate::chrome::{Ctx, glyph};
 use crate::docs::{DocState, Docs};
 use crate::ui::{Act, Hit};
 use mdedit_core::{Encoding, LineEnding};
@@ -142,7 +142,9 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
 pub fn eol_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     let style = docs.active_ready().map(|r| r.info.eol.style());
     let item = |kind: LineEnding, eol: &'static str| {
-        Item::new(Act::Eol(eol), kind.label()).checked(style == Some(kind))
+        Item::new(Act::Eol(eol), kind.label())
+            .icon(glyph::EOL)
+            .checked(style == Some(kind))
     };
     let items = vec![
         item(LineEnding::Crlf, "\r\n"),
@@ -175,18 +177,23 @@ pub fn encoding_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     for e in encodings(docs) {
         items.push(
             Item::new(Act::SaveIn(e), format!("Save in {}", e.label()))
+                .icon(glyph::SAVE)
                 .checked(current == Some(e))
                 .enabled(!lossy),
         );
     }
     for (k, e) in encodings(docs).into_iter().enumerate() {
         let text = format!("Reopen as {}", e.label());
-        let item = Item::new(Act::ReadAs(Some(e)), text).enabled(has_file);
+        let item = Item::new(Act::ReadAs(Some(e)), text)
+            .icon(glyph::RELOAD)
+            .enabled(has_file);
         items.push(if k == 0 { item.sep() } else { item });
     }
     // Back to what the file's bytes suggest, after a choice.
     items.push(
-        Item::new(Act::ReadAs(None), "Reopen, detecting the encoding").enabled(has_file && forced),
+        Item::new(Act::ReadAs(None), "Reopen, detecting the encoding")
+            .icon(glyph::SEARCH)
+            .enabled(has_file && forced),
     );
     Menu::new(items, x, y, true).above()
 }

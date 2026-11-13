@@ -124,6 +124,19 @@ shot update-available --light --update-bar available "$fx/sample.rs"
 shot update-installing --dark --update-bar installing "$fx/sample.rs"
 shot update-installed --dark --update-bar installed
 
+# Menus with their icons, both themes, checked items.
+shot menu-main-dark --dark --menu main "$fx/sample.rs"
+shot menu-view-checked-dark --dark --wrap --whitespace --minimap --menu view "$fx/sample.rs"
+shot menu-view-checked --light --wrap --whitespace --minimap --menu view "$fx/sample.rs"
+shot menu-macro-rec --dark --menu macro-rec "$fx/sample.rs"
+shot menu-minimap --light --minimap --menu minimap "$fx/sample.rs"
+shot menu-text-dark --dark --select 9:1-10:20 --menu text "$fx/sample.rs"
+shot menu-find-opts --dark --find ring --match-case --regex --menu find "$fx/sample.rs"
+shot menu-find-opts-light --light --find ring --whole-word --menu find "$fx/sample.rs"
+shot menu-recent-dark --dark --menu recent "$fx/sample.rs" "$fx/sample.md" "$fx/sample.toml"
+shot menu-eol-dark --dark --menu eol "$fx/sample.rs"
+shot menu-encoding-light --light --menu encoding "$fx/sample.rs"
+
 # A menu taller than its window: kept below the title row, scrolling, and scrolled to its end.
 shot menu-tall-main --light --size 1000x520 --menu main "$fx/sample.rs"
 shot menu-tall-main-end --light --size 1000x520 --menu main-end "$fx/sample.rs"

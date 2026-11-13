@@ -22,6 +22,10 @@ pub enum ShotMenu {
     /// The text area's right-click menu.
     Text,
     Find,
+    /// The minimap's right-click menu (needs `--minimap`).
+    Minimap,
+    /// The Macro menu while a macro is being recorded.
+    MacroRec,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,6 +265,8 @@ impl Args {
                         "tab" => Some(ShotMenu::Tab),
                         "text" => Some(ShotMenu::Text),
                         "find" => Some(ShotMenu::Find),
+                        "minimap" => Some(ShotMenu::Minimap),
+                        "macro-rec" => Some(ShotMenu::MacroRec),
                         _ => None,
                     })
                 }
@@ -338,6 +344,8 @@ mod tests {
             ("tab", ShotMenu::Tab),
             ("text", ShotMenu::Text),
             ("find", ShotMenu::Find),
+            ("minimap", ShotMenu::Minimap),
+            ("macro-rec", ShotMenu::MacroRec),
         ] {
             assert_eq!(parse(&format!("--menu {name}")).menu, Some(m));
         }

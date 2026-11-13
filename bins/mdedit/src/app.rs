@@ -1923,6 +1923,16 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
         Some(ShotMenu::View) => app.open_popup(PopupKind::View),
         Some(ShotMenu::Macro) => app.open_popup(PopupKind::Macro),
+        Some(ShotMenu::MacroRec) => {
+            app.macros.recording = Some(Vec::new());
+            app.open_popup(PopupKind::Macro);
+        }
+        Some(ShotMenu::Minimap) => {
+            if let Some(r) = app.hit_rect(Hit::Minimap) {
+                app.ui.mouse = (r.x + r.w * 0.5, r.y + 120.0);
+                app.right_press();
+            }
+        }
         Some(ShotMenu::Eol) => app.open_popup(PopupKind::Eol),
         Some(ShotMenu::Encoding) => app.open_popup(PopupKind::Encoding),
         Some(ShotMenu::Tab) => {

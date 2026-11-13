@@ -474,9 +474,9 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     }
     let mut x = frame.x - 8.0;
     for (opt, label) in [
-        (FindOpt::Regex, ".*"),
-        (FindOpt::Word, "W"),
-        (FindOpt::Case, "Aa"),
+        (FindOpt::Regex, glyph::REGEX),
+        (FindOpt::Word, glyph::WORD),
+        (FindOpt::Case, glyph::CASE),
     ] {
         x -= TOGGLE_W;
         let b = Rect::new(x, y, TOGGLE_W, 32.0);
@@ -486,7 +486,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             c.p.rbox(b, 6.0, f);
         }
         let color = if on { pal.accent } else { pal.muted };
-        c.p.text_center(Face::Ui, 13.0, b, label, color);
+        c.p.icon(label, 16.0, b.cx(), b.cy(), color);
         c.hit(hit, b);
         x -= GAP;
     }
