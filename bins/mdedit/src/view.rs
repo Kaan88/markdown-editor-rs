@@ -792,6 +792,17 @@ impl View {
         let adv = m.advance as f64;
         let lh = m.line_h;
         let band_c = mix(pal.page, pal.text, 0.035);
+        // The lines the replace strip limits Replace to: a faint tint while it is open.
+        let scope_c = mix(pal.page, pal.accent, 0.07);
+        let scope_lines = r.scope().map(|s| {
+            let last =
+                if s.end > s.start && r.buffer.line_range(r.buffer.line_of(s.end)).start == s.end {
+                    s.end - 1
+                } else {
+                    s.end
+                };
+            r.buffer.line_of(s.start)..=r.buffer.line_of(last)
+        });
         let sel = r.sel.range();
         let sel_is_current = r
             .find
@@ -884,6 +895,8 @@ impl View {
             let (i, y, h) = (shown_line.line, shown_line.y, shown_line.h);
             if sel.is_empty() && alone && Some(i) == band_line {
                 c.p.fill_dev(x0, y, x1, y + h, band_c, 1.0);
+            } else if scope_lines.as_ref().is_some_and(|s| s.contains(&i)) {
+                c.p.fill_dev(x0, y, x1, y + h, scope_c, 1.0);
             } else if bands.is_some() {
                 c.p.fill_dev(x0, y, x1, y + h, pal.page, 1.0);
             }

@@ -263,6 +263,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         Hit::ReplaceOne => "Replace this match and go to the next (Enter)".into(),
         Hit::ReplaceAll => with("Replace every match", CommandId::ReplaceAll),
         Hit::ReplaceClose => "Close (Escape)".into(),
+        Hit::InSelection => "Replace only in the selection from when this opened".into(),
         Hit::StatusEol => "Line endings (click to change)".into(),
         Hit::StatusEncoding => "Encoding (click to change)".into(),
         Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
@@ -420,9 +421,9 @@ pub fn field_parts(which: BarField, frame: Rect, has_text: bool) -> (Rect, Optio
 
 /// What the replace strip shows at a width: the box's width and whether the option toggles fit
 /// (they are in the find box's menu too).
-pub fn replace_plan(avail: f32, buttons: f32) -> (f32, bool) {
+pub fn replace_plan(avail: f32, buttons: f32, scoped: bool) -> (f32, bool) {
     let fixed = MARGIN * 2.0 + ICON_BTN + buttons + 16.0;
-    let toggles = 3.0 * (TOGGLE_W + GAP) + 8.0;
+    let toggles = (3.0 + f32::from(u8::from(scoped))) * (TOGGLE_W + GAP) + 8.0;
     if avail >= fixed + toggles + FIND_W {
         (FIND_W, true)
     } else if avail >= fixed + toggles + 140.0 {
@@ -448,7 +449,8 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         width(c, strings::REPLACE_ONE),
         width(c, strings::REPLACE_ALL),
     );
-    let (field_w, toggles) = replace_plan(r.w, one_w + all_w + 6.0);
+    let scope = docs.active_ready().filter(|r| r.replace_scope.is_some());
+    let (field_w, toggles) = replace_plan(r.w, one_w + all_w + 6.0, scope.is_some());
 
     let mut right = r.right() - MARGIN;
     let close = Rect::new(right - ICON_BTN, y, ICON_BTN, 32.0);
@@ -509,6 +511,18 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         c.p.icon(label, 16.0, b.cx(), b.cy(), color);
         c.hit(hit, b);
         x -= GAP;
+    }
+    // The selection kept from when the strip opened: Replace stays inside it while this is on.
+    if let Some(r) = scope {
+        x -= TOGGLE_W;
+        let b = Rect::new(x, y, TOGGLE_W, 32.0);
+        let on = r.scope_on;
+        if let Some(f) = c.fill_for(Hit::InSelection, on, false) {
+            c.p.rbox(b, 6.0, f);
+        }
+        let color = if on { pal.accent } else { pal.muted };
+        c.p.icon(glyph::SELECT_ALL, 16.0, b.cx(), b.cy(), color);
+        c.hit(Hit::InSelection, b);
     }
 }
 
@@ -751,14 +765,14 @@ mod tests {
     #[test]
     fn the_replace_strip_gives_way() {
         // Wide: the full box and the toggles.
-        assert_eq!(replace_plan(1280.0, 180.0), (FIND_W, true));
+        assert_eq!(replace_plan(1280.0, 180.0, false), (FIND_W, true));
         // Narrower: the box shrinks first.
-        let (w, toggles) = replace_plan(560.0, 180.0);
+        let (w, toggles) = replace_plan(560.0, 180.0, false);
         assert!(toggles && (140.0..FIND_W).contains(&w));
         // Narrow: the toggles go (the find box's menu has them) and the box keeps a minimum.
-        let (w, toggles) = replace_plan(400.0, 180.0);
+        let (w, toggles) = replace_plan(400.0, 180.0, false);
         assert!(!toggles && w >= 60.0);
-        let (w, _) = replace_plan(200.0, 180.0);
+        let (w, _) = replace_plan(200.0, 180.0, false);
         assert_eq!(w, 60.0);
         // The replacement's text starts at the frame's padding; it has no clear button.
         let frame = Rect::new(100.0, 10.0, 200.0, 32.0);

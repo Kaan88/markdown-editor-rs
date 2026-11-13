@@ -522,6 +522,7 @@ impl App {
                 | Hit::Replace
                 | Hit::ReplaceOne
                 | Hit::ReplaceAll
+                | Hit::InSelection
                 | Hit::FindOpt(_)
         ) {
             self.ui.find_focused = false;
@@ -1134,6 +1135,8 @@ impl App {
         use crate::commands::CommandId as C;
         let (which, replace_open) = (self.ui.field, self.ui.replace_open);
         let naming = self.ui.naming;
+        let has_history = matches!(which, BarField::Find | BarField::Replace)
+            && !self.ui.recall(which).is_empty();
         let f = self.ui.field_mut();
         let (word, extend) = (mods.ctrl, mods.shift);
         let changed = match (name, mods.ctrl) {
@@ -1182,6 +1185,7 @@ impl App {
                 return true;
             }
             (KeyName::Enter, _) => {
+                self.remember_find();
                 self.docs.find_step(!mods.shift);
                 return true;
             }
@@ -1227,6 +1231,25 @@ impl App {
                 Some(t) => f.insert(&t),
                 None => false,
             },
+            (KeyName::Up | KeyName::Down, false) if has_history => {
+                // The remembered queries (or replacements), newest first.
+                let up = matches!(name, KeyName::Up);
+                let current = self.ui.field_ref().text().to_string();
+                let r = self.ui.recall_mut(which);
+                let next = if up {
+                    r.older(&current).map(str::to_string)
+                } else {
+                    r.newer().map(str::to_string)
+                };
+                if let Some(t) = next {
+                    self.ui.field_mut().set_text(&t);
+                    if which == BarField::Find {
+                        self.find_changed();
+                    }
+                }
+                self.caret_reset();
+                return true;
+            }
             (KeyName::Up | KeyName::Down | KeyName::PageUp | KeyName::PageDown, false) => {
                 return false;
             }
@@ -1239,6 +1262,10 @@ impl App {
                 }
             }
         };
+        if changed && matches!(which, BarField::Find | BarField::Replace) {
+            // Typing starts a new draft; the history is walked from its newest again.
+            self.ui.recall_mut(which).typed();
+        }
         if changed && which == BarField::Find {
             self.find_changed();
         }

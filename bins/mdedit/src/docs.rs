@@ -250,6 +250,11 @@ pub struct Ready {
     /// The other selections when there are several carets, in document order. `sel` is the
     /// primary: the one the view follows and Undo puts back.
     pub extra: Vec<Selection>,
+    /// The selection that was there, over more than one line, when the replace strip opened:
+    /// Replace and Replace all stay inside it while `scope_on`. It follows edits, and goes when
+    /// the strip closes.
+    pub replace_scope: Option<Range<usize>>,
+    pub scope_on: bool,
     /// The column selection being extended by keys: anchor line and column, caret line and
     /// column, and the selections it made (it goes on only while they are still the ones).
     pub column: Option<(usize, usize, usize, usize, Selection, usize)>,
@@ -437,6 +442,14 @@ impl Ready {
         self.chunks.clear();
         lines::shift_marks(&mut self.bookmarks, change);
         self.folds.shift(change);
+        if let Some(scope) = self.replace_scope.take() {
+            self.replace_scope = Some(map_scope(scope, change));
+        }
+    }
+
+    /// The range Replace is limited to now: the kept selection while its toggle is on.
+    pub fn scope(&self) -> Option<Range<usize>> {
+        self.replace_scope.clone().filter(|_| self.scope_on)
     }
 
     /// Opens the folds a caret is in: a caret is never on a line that does not show.
@@ -562,6 +575,8 @@ impl Ready {
             bookmarks: Vec::new(),
             folds: Folds::default(),
             extra: Vec::new(),
+            replace_scope: None,
+            scope_on: false,
             column: None,
             top: 0.0,
             top_row: 0,
@@ -1545,7 +1560,9 @@ impl Docs {
             {
                 Some(strings::TOO_LARGE_FOR_ALL_LINES)
             }
-            EditOp::ReplaceAll(_) if r.buffer.len_bytes() > REPLACE_ALL_MAX_BYTES => {
+            EditOp::ReplaceAll(_)
+                if r.scope().map_or(r.buffer.len_bytes(), |s| s.len()) > REPLACE_ALL_MAX_BYTES =>
+            {
                 Some(strings::TOO_LARGE_FOR_REPLACE_ALL)
             }
             _ => None,
@@ -1566,6 +1583,8 @@ impl Docs {
         };
         // How many matches Replace all found.
         let mut replaced = None;
+        // The range of "in selection" after a Replace all, as the core mapped it.
+        let mut new_scope = None;
         // With several carets, typing and removing happen at each of them; anything else
         // goes on with the primary alone.
         let pasted;
@@ -1620,7 +1639,13 @@ impl Docs {
                     let (Some(q), range) = (&query, sel.range()) else {
                         return false;
                     };
-                    if range.is_empty() {
+                    // In the range, only a match inside it is replaced.
+                    if range.is_empty()
+                        || r.replace_scope
+                            .as_ref()
+                            .filter(|_| r.scope_on)
+                            .is_some_and(|s| range.start < s.start || range.end > s.end)
+                    {
                         return false;
                     }
                     replace::replace_one(buf, hist, sel, q, range, with, eol)
@@ -1628,9 +1653,31 @@ impl Docs {
                 EditOp::ReplaceAll(with) => {
                     let Some(q) = &query else { return false };
                     let never = AtomicBool::new(false);
-                    let (out, n) = replace::replace_all(buf, hist, sel, q, with, eol, None, &never);
-                    replaced = Some(n);
-                    out
+                    let scope = r.replace_scope.clone().filter(|_| r.scope_on);
+                    match scope {
+                        Some(range) => {
+                            let (out, n, kept) = replace::replace_all_in(
+                                buf,
+                                hist,
+                                sel,
+                                q,
+                                with,
+                                eol,
+                                std::slice::from_ref(&range),
+                                &never,
+                            );
+                            replaced = Some(n);
+                            // The range stays as the replacement left it.
+                            new_scope = kept.into_iter().next();
+                            out
+                        }
+                        None => {
+                            let (out, n) =
+                                replace::replace_all(buf, hist, sel, q, with, eol, None, &never);
+                            replaced = Some(n);
+                            out
+                        }
+                    }
                 }
                 EditOp::DuplicateLines => lines::duplicate_lines(buf, hist, sel, eol),
                 EditOp::MoveLines(down) => lines::move_lines(buf, hist, sel, down, eol),
@@ -1667,11 +1714,15 @@ impl Docs {
         let Outcome { sel, change } = out;
         r.sel = sel;
         let changed = change.is_some();
+        let had_scope = new_scope.is_some();
         if let Some(change) = change {
             *revision += 1;
             *discard = false;
             r.revision = *revision;
             r.changed(&change);
+            if had_scope {
+                r.replace_scope = new_scope.take();
+            }
             if let Some(s) = service.filter(|_| r.colourable) {
                 s.edit(
                     *id,
@@ -2029,6 +2080,57 @@ impl Docs {
 
     /// Goes to the next or previous match, wrapping. Past the last kept match of a capped
     /// search, `find_next` looks further from the caret.
+    /// When the replace strip opens: a selection over more than one line becomes the range
+    /// Replace is limited to, with its toggle on; any other leaves no range.
+    pub fn capture_replace_scope(&mut self) {
+        let Some(r) = self.active_ready_mut() else {
+            return;
+        };
+        let range = r.sel.range();
+        let multi = r.buffer.line_of(range.start) != r.buffer.line_of(range.end);
+        r.replace_scope = multi.then_some(range);
+        r.scope_on = multi;
+    }
+
+    /// The strip closed: no document keeps a range.
+    pub fn clear_replace_scope(&mut self) {
+        for d in &mut self.tabs {
+            if let Some(r) = d.ready_mut() {
+                r.replace_scope = None;
+                r.scope_on = false;
+            }
+        }
+    }
+
+    /// Goes to the next (or previous) match inside the range Replace is limited to, round the
+    /// range's ends; with no range this is `find_step`.
+    pub fn find_step_scoped(&mut self, forward: bool) {
+        let Some(r) = self.active_ready_mut() else {
+            return;
+        };
+        let Some(scope) = r.scope() else {
+            return self.find_step(forward);
+        };
+        let m = &r.find.matches;
+        let lo = m.partition_point(|x| x.start < scope.start);
+        let hi = m.partition_point(|x| x.end <= scope.end).max(lo);
+        if r.find.text.is_empty() || lo == hi {
+            return;
+        }
+        let sel = r.sel.range();
+        let k = if forward {
+            let k = find::first_at_or_after(m, sel.end);
+            if (lo..hi).contains(&k) { k } else { lo }
+        } else {
+            let k = find::first_at_or_after(m, sel.start);
+            if k > lo && k <= hi { k - 1 } else { hi - 1 }
+        };
+        r.find.current = Some(k);
+        r.find.generation += 1;
+        let range = m[k].clone();
+        r.select_and_reveal(range);
+    }
+
     pub fn find_step(&mut self, forward: bool) {
         let (tx, waker) = (self.find_done.clone(), self.waker.clone());
         let Some(doc) = self.active_doc_mut() else {
@@ -2177,6 +2279,28 @@ fn take_next(r: &mut Ready, found: Option<Range<usize>>) {
     let Some(range) = found else { return };
     r.find.current = r.find.matches.iter().position(|m| *m == range);
     r.select_and_reveal(range);
+}
+
+/// A range of the text after `change` replaced `at..at + removed` with `inserted` bytes: what
+/// is before it stays, what is after it moves, a start inside the replaced text goes to its
+/// start and an end inside it to the end of what replaced it.
+fn map_scope(range: Range<usize>, change: &Change) -> Range<usize> {
+    let (at, gone) = (change.at, change.removed);
+    let start = if range.start <= at {
+        range.start
+    } else if range.start >= at + gone {
+        range.start - gone + change.inserted
+    } else {
+        at
+    };
+    let end = if range.end <= at {
+        range.end
+    } else if range.end >= at + gone {
+        range.end - gone + change.inserted
+    } else {
+        at + change.inserted
+    };
+    start..end.max(start)
 }
 
 #[cfg(test)]
@@ -2349,6 +2473,66 @@ mod tests {
         assert!(d.edit(EditOp::ToggleComment, None));
         assert_eq!(text_of(&d, k), "fn a() {}\n");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn replace_in_the_selection_stays_inside_it_and_follows_edits() {
+        let (mut d, i, _path, dir) = file_docs("scope", b"a\na\na\na\n");
+        // Lines 2 and 3 selected: the range is kept when the strip opens, with its toggle on.
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 2,
+            caret: 6,
+            goal_col: None,
+        };
+        d.capture_replace_scope();
+        let r = d.tabs[i].ready().unwrap();
+        assert_eq!((r.replace_scope.clone(), r.scope_on), (Some(2..6), true));
+        d.find_set("a", FindOptions::default());
+        assert!(d.edit(EditOp::ReplaceAll("bb"), None));
+        assert_eq!(text_of(&d, i), "a\nbb\nbb\na\n");
+        assert_eq!(d.toast.as_ref().unwrap().0, "Replaced 2 matches.");
+        // The range grew with the replacement; one undo puts it all back.
+        assert_eq!(d.tabs[i].ready().unwrap().replace_scope, Some(2..8));
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "a\na\na\na\n");
+        // Toggled off, every match goes.
+        d.tabs[i].ready_mut().unwrap().scope_on = false;
+        assert!(d.edit(EditOp::ReplaceAll("c"), None));
+        assert_eq!(text_of(&d, i), "c\nc\nc\nc\n");
+        // A selection within one line keeps no range; closing the strip drops it.
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 0,
+            caret: 1,
+            goal_col: None,
+        };
+        d.capture_replace_scope();
+        assert_eq!(d.tabs[i].ready().unwrap().replace_scope, None);
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 0,
+            caret: 4,
+            goal_col: None,
+        };
+        d.capture_replace_scope();
+        d.clear_replace_scope();
+        assert_eq!(d.tabs[i].ready().unwrap().replace_scope, None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_range_is_mapped_through_an_edit_before_inside_and_after_it() {
+        let change = |at, removed, inserted| Change {
+            at,
+            removed,
+            inserted,
+            first_line: 0,
+            ..Change::default()
+        };
+        // Before the range: it moves. After it: it stays. Over its start: it starts at the edit.
+        assert_eq!(map_scope(10..20, &change(0, 0, 3)), 13..23);
+        assert_eq!(map_scope(10..20, &change(25, 2, 9)), 10..20);
+        assert_eq!(map_scope(10..20, &change(8, 5, 1)), 8..16);
+        // Inside: the end follows.
+        assert_eq!(map_scope(10..20, &change(12, 2, 6)), 10..24);
     }
 
     #[test]

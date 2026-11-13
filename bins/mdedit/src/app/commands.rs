@@ -60,7 +60,12 @@ impl App {
             }
             Hit::ReplaceOne => self.command(C::ReplaceNext),
             Hit::ReplaceAll => self.command(C::ReplaceAll),
-            Hit::ReplaceClose => self.ui.close_replace(),
+            Hit::ReplaceClose => self.close_replace(),
+            Hit::InSelection => {
+                if let Some(r) = self.docs.active_ready_mut() {
+                    r.scope_on = !r.scope_on;
+                }
+            }
             Hit::FindOpt(opt) => {
                 self.ui.toggle_option(opt);
                 self.find_changed();
@@ -139,6 +144,18 @@ impl App {
         self.redraw();
     }
 
+    /// The find box's text goes to the front of the remembered queries.
+    pub(super) fn remember_find(&mut self) {
+        let text = self.ui.find.text().to_string();
+        self.ui.find_recall.push(&text);
+    }
+
+    /// The replace strip closes, and with it the range Replace was limited to.
+    pub(super) fn close_replace(&mut self) {
+        self.ui.close_replace();
+        self.docs.clear_replace_scope();
+    }
+
     /// The find box's text as a query for a search of files or tabs, or a toast saying why
     /// there is none.
     fn search_query(&mut self) -> Option<Query> {
@@ -148,6 +165,7 @@ impl App {
             self.docs.set_toast(strings::FIND_WHAT);
             return None;
         }
+        self.remember_find();
         let query = Query::new(&text, self.ui.options());
         if query.is_none() {
             self.docs.set_toast(strings::BAD_PATTERN);
@@ -1000,6 +1018,11 @@ impl App {
                 self.caret_reset();
             }
             C::Replace => {
+                // A selection over several lines is what Replace is limited to, until the
+                // strip closes.
+                if !self.ui.replace_open {
+                    self.docs.capture_replace_scope();
+                }
                 // With a query already there, the next thing to type is what replaces it.
                 self.ui.replace_open = true;
                 self.ui.focus_field(if self.ui.find.is_empty() {
@@ -1012,13 +1035,15 @@ impl App {
             }
             C::ReplaceNext | C::ReplaceAll => {
                 let with = self.ui.replace.text().to_string();
+                self.remember_find();
+                self.ui.replace_recall.push(&with);
                 if id == C::ReplaceAll {
                     self.edit(EditOp::ReplaceAll(&with));
                 } else {
                     // The selected match is replaced, then the next one is selected; with no
                     // match selected this only goes to the next.
                     self.edit(EditOp::ReplaceOne(&with));
-                    self.docs.find_step(true);
+                    self.docs.find_step_scoped(true);
                 }
             }
             C::FindInFiles => self.find_in_files(),
@@ -1036,6 +1061,7 @@ impl App {
                 if empty {
                     self.command(C::Find);
                 } else {
+                    self.remember_find();
                     self.docs.find_step(id == C::FindNext);
                 }
             }
@@ -1261,7 +1287,7 @@ impl App {
             return;
         }
         if self.ui.replace_open {
-            self.ui.close_replace();
+            self.close_replace();
             return;
         }
         let has_query = self

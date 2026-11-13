@@ -14,6 +14,7 @@ mod outline;
 mod overlays;
 mod panes;
 mod platform;
+mod recall;
 mod results;
 mod session;
 mod status;

@@ -630,7 +630,12 @@ impl App {
                         (ui.replace_open, ui.field),
                         (ui.match_case, ui.whole_word, ui.regex),
                         ui.replace.text(),
-                        ui.replace.caret(),
+                        (
+                            ui.replace.caret(),
+                            self.docs
+                                .active_ready()
+                                .map(|r| (r.replace_scope.clone(), r.scope_on)),
+                        ),
                         (ui.goto.text(), ui.goto.caret(), ui.naming),
                     ),
                     chrome::find_label(&self.docs),
@@ -720,7 +725,7 @@ impl App {
                             r.find.generation,
                             r.colors.generation,
                             (r.widest.to_bits(), r.buffer.len_lines()),
-                            r.brackets(),
+                            (r.brackets(), r.scope()),
                         ))
                     }
                 };
@@ -1416,8 +1421,12 @@ impl App {
             self.ui.panes.files_w.round() as u32,
             &self.docs.folder,
             &self.session.geometry,
-            self.docs.check_updates,
-            self.session.update_checked,
+            (self.docs.check_updates, self.session.update_checked),
+            (
+                (self.ui.match_case, self.ui.whole_word, self.ui.regex),
+                self.ui.find_recall.items(),
+                self.ui.replace_recall.items(),
+            ),
         ))
     }
 
@@ -1475,6 +1484,9 @@ impl App {
             s.minimap = self.docs.minimap;
         }
         s.check_updates = self.docs.check_updates;
+        s.find_options = (self.ui.match_case, self.ui.whole_word, self.ui.regex);
+        s.find_history = self.ui.find_recall.items().to_vec();
+        s.replace_history = self.ui.replace_recall.items().to_vec();
         // The function list is not kept: the pane comes back with the Files tree, or not at all.
         s.files = Some(self.ui.panes.files && !self.ui.outline.on);
         s.files_w = Some(self.ui.panes.files_w.round() as u32);
@@ -1881,6 +1893,10 @@ impl App {
                 view::reveal(r, t, false);
             }
         }
+        if a.replace.is_some() {
+            // The strip opens over the selection, as the Replace command would have it.
+            self.docs.capture_replace_scope();
+        }
         if let Some(text) = &a.type_text {
             self.docs.edit(EditOp::Insert(text), self.service.as_ref());
         }
@@ -2181,6 +2197,13 @@ pub fn run() -> i32 {
     if app.args.demo_macros {
         app.macros.demo();
     }
+    // The find options and the boxes' earlier entries come back with the session.
+    let (case, word, regex) = app.session.find_options;
+    app.ui.match_case = app.args.match_case || case;
+    app.ui.whole_word = app.args.whole_word || word;
+    app.ui.regex = app.args.regex || regex;
+    app.ui.find_recall = crate::recall::Recall::from_items(app.session.find_history.clone());
+    app.ui.replace_recall = crate::recall::Recall::from_items(app.session.replace_history.clone());
     app.service = Some(service);
     app.view.zoom = app.docs.zoom;
     app.sync_theme();

@@ -152,6 +152,11 @@ pub struct Session {
     pub active: usize,
     /// The split view, when two tabs were side by side.
     pub split: Option<Split>,
+    /// The find options (match case, whole word, regular expression).
+    pub find_options: (bool, bool, bool),
+    /// The last queries and replacements typed, newest first.
+    pub find_history: Vec<String>,
+    pub replace_history: Vec<String>,
     pub recent: Recents,
     pub theme: ThemeChoice,
     /// The text size, percent.
@@ -182,6 +187,9 @@ impl Default for Session {
             unsaved: Vec::new(),
             active: 0,
             split: None,
+            find_options: (false, false, false),
+            find_history: Vec::new(),
+            replace_history: Vec::new(),
             recent: Recents::default(),
             theme: ThemeChoice::default(),
             zoom: 100,
@@ -224,6 +232,15 @@ impl Session {
                     "unsaved" => s.unsaved.extend(Unsaved::parse(value)),
                     "recent" if !value.is_empty() => recent.push(decode_path(value)),
                     "split" => s.split = Split::parse(value),
+                    "find_case" => s.find_options.0 = value.trim() == "1",
+                    "find_word" => s.find_options.1 = value.trim() == "1",
+                    "find_regex" => s.find_options.2 = value.trim() == "1",
+                    "find_hist" if s.find_history.len() < crate::recall::KEPT => {
+                        s.find_history.push(unescape(value))
+                    }
+                    "replace_hist" if s.replace_history.len() < crate::recall::KEPT => {
+                        s.replace_history.push(unescape(value))
+                    }
                     "active" => s.active = value.trim().parse().unwrap_or(0),
                     "theme" => {
                         s.theme = ThemeChoice::from_setting(value.trim().parse().unwrap_or(0))
@@ -280,6 +297,22 @@ impl Session {
         out.line("active", &self.active.to_string());
         if let Some(split) = &self.split {
             out.line("split", &split.serialize());
+        }
+        let (case, word, regex) = self.find_options;
+        for (key, on) in [
+            ("find_case", case),
+            ("find_word", word),
+            ("find_regex", regex),
+        ] {
+            if on {
+                out.line(key, "1");
+            }
+        }
+        for h in self.find_history.iter().take(crate::recall::KEPT) {
+            out.line("find_hist", &escape(h));
+        }
+        for h in self.replace_history.iter().take(crate::recall::KEPT) {
+            out.line("replace_hist", &escape(h));
         }
         for r in self.recent.paths() {
             out.line("recent", &encode_path(r));
@@ -371,6 +404,37 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_options_and_history_round_trip_and_are_bounded() {
+        let s = Session {
+            find_options: (true, false, true),
+            find_history: vec![
+                "new one".into(),
+                "50%".into(),
+                "a=b\\c".into(),
+                "ünï".into(),
+            ],
+            replace_history: vec!["x y".into()],
+            ..Session::default()
+        };
+        let back = Session::parse(&s.serialize());
+        assert_eq!(back.find_options, (true, false, true));
+        assert_eq!(back.find_history, s.find_history);
+        assert_eq!(back.replace_history, s.replace_history);
+        // A file with far more lines than that keeps the first KEPT of each.
+        let many: String = (0..100)
+            .map(|i| format!("find_hist={i}\nreplace_hist={i}\n"))
+            .collect();
+        let back = Session::parse(&format!("[mdedit]\n{many}"));
+        assert_eq!(back.find_history.len(), crate::recall::KEPT);
+        assert_eq!(back.replace_history[0], "0");
+        // Defaults when absent.
+        assert_eq!(
+            Session::parse("[mdedit]\n").find_options,
+            (false, false, false)
+        );
+    }
 
     #[test]
     fn a_split_round_trips_and_a_damaged_one_is_none() {

@@ -141,6 +141,8 @@ pub enum Hit {
     ReplaceOne,
     ReplaceAll,
     ReplaceClose,
+    /// The replace strip's "only in the selection" toggle.
+    InSelection,
     FindOpt(FindOpt),
     /// The update bar's button and its close button.
     UpdateGo,
@@ -197,6 +199,7 @@ impl Hit {
             | Hit::ReplaceOne
             | Hit::ReplaceAll
             | Hit::ReplaceClose
+            | Hit::InSelection
             | Hit::FindOpt(_) => Region::Bar,
             Hit::StatusEol | Hit::StatusEncoding => Region::Status,
             Hit::ResultsRow(_) | Hit::ResultsClose | Hit::ScrollBar(Scroller::Results) => {
@@ -554,6 +557,9 @@ pub struct Ui {
     pub replace_open: bool,
     /// What Go to line is typing.
     pub goto: TextField,
+    /// The queries and replacements typed before, for Up and Down in the two boxes.
+    pub find_recall: crate::recall::Recall,
+    pub replace_recall: crate::recall::Recall,
     /// The Go to box is asking for a macro's name instead of a line.
     pub naming: bool,
     pub caret_on: bool,
@@ -601,6 +607,8 @@ impl Ui {
             replace: TextField::new(),
             replace_open: false,
             goto: TextField::new(),
+            find_recall: crate::recall::Recall::default(),
+            replace_recall: crate::recall::Recall::default(),
             naming: false,
             caret_on: true,
             caret_due: None,
@@ -631,6 +639,29 @@ impl Ui {
     /// Go to line is being typed: its box shows in the find box's place.
     pub fn going_to(&self) -> bool {
         self.find_focused && self.field == BarField::Goto
+    }
+
+    pub fn field_ref(&self) -> &TextField {
+        match self.field {
+            BarField::Find => &self.find,
+            BarField::Replace => &self.replace,
+            BarField::Goto => &self.goto,
+        }
+    }
+
+    /// The remembered texts of a box; the go-to box has none, and gets the replacements' list.
+    pub fn recall(&self, field: BarField) -> &crate::recall::Recall {
+        match field {
+            BarField::Find => &self.find_recall,
+            _ => &self.replace_recall,
+        }
+    }
+
+    pub fn recall_mut(&mut self, field: BarField) -> &mut crate::recall::Recall {
+        match field {
+            BarField::Find => &mut self.find_recall,
+            _ => &mut self.replace_recall,
+        }
     }
 
     pub fn field_mut(&mut self) -> &mut TextField {
