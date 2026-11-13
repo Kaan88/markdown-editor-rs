@@ -85,16 +85,28 @@ pub enum Region {
     Status,
     /// The results panel under the text.
     Results,
+    /// The second text pane of a split view.
+    Other,
 }
 
-pub const REGIONS: [Region; 6] = [
+pub const REGIONS: [Region; 7] = [
     Region::Title,
     Region::Bar,
     Region::Files,
     Region::Text,
     Region::Status,
     Region::Results,
+    Region::Other,
 ];
+
+/// A text pane of a split view is at least this wide; a narrower window shows one pane.
+pub const SPLIT_MIN: f32 = 260.0;
+
+/// The second pane's text inside its region: all but the line that parts it from the first.
+pub fn split_inner(rect: Rect, other_left: bool, px: f32) -> Rect {
+    let x = if other_left { rect.x } else { rect.x + px };
+    Rect::new(x, rect.y, (rect.w - px).max(0.0), rect.h)
+}
 
 impl Region {
     pub fn index(self) -> usize {
@@ -148,6 +160,8 @@ pub enum Hit {
     DlgRemove(usize),
     DlgCard,
     Backdrop,
+    /// The second text pane of a split view: a click gives it the keyboard.
+    Other,
 }
 
 impl Hit {
@@ -179,6 +193,7 @@ impl Hit {
             | Hit::Text
             | Hit::EmptyOpen
             | Hit::EmptyRecent(_) => Region::Text,
+            Hit::Other => Region::Other,
             _ => return None,
         })
     }
@@ -189,6 +204,7 @@ impl Hit {
             self,
             Hit::TitleDrag
                 | Hit::Text
+                | Hit::Other
                 | Hit::Splitter
                 | Hit::ScrollBar(_)
                 | Hit::Find
@@ -564,6 +580,8 @@ pub struct Areas {
     pub status: Rect,
     /// The results panel, under the text.
     pub results: Option<Rect>,
+    /// The second text pane of a split view; `text` is the one with the keyboard.
+    pub other: Option<Rect>,
 }
 
 impl Areas {
@@ -575,7 +593,28 @@ impl Areas {
             Region::Text => Some(self.text),
             Region::Status => Some(self.status),
             Region::Results => self.results,
+            Region::Other => self.other,
         }
+    }
+
+    /// Gives half of the text to a second pane, at its left or its right, when both halves
+    /// keep `SPLIT_MIN`.
+    pub fn with_split(mut self, on: bool, other_left: bool) -> Areas {
+        if !on || self.text.w < 2.0 * SPLIT_MIN {
+            return self;
+        }
+        let t = self.text;
+        let half = (t.w / 2.0).floor();
+        let (a, b) = (
+            Rect::new(t.x, t.y, half, t.h),
+            Rect::new(t.x + half, t.y, t.w - half, t.h),
+        );
+        (self.text, self.other) = if other_left {
+            (b, Some(a))
+        } else {
+            (a, Some(b))
+        };
+        self
     }
 
     /// Gives the bottom of the text to the results panel when it is open and the text keeps
@@ -618,6 +657,7 @@ impl Areas {
             text,
             status,
             results: None,
+            other: None,
         }
     }
 }

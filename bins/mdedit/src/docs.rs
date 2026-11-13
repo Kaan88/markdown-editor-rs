@@ -854,6 +854,10 @@ pub struct Docs {
     pub zoom: u32,
     /// Spaces, tabs and line endings show as marks.
     pub whitespace: bool,
+    /// Split view: the tab that shows in the second pane, and whether that pane is the left
+    /// one. The active tab shows in the other pane and has the keyboard.
+    pub other: Option<DocId>,
+    pub other_left: bool,
     /// A macro is being recorded (the status strip says so).
     pub recording: bool,
     /// Lines longer than the view go on in rows below (word wrap).
@@ -882,6 +886,8 @@ impl Docs {
             theme: ThemeChoice::System,
             zoom: 100,
             whitespace: false,
+            other: None,
+            other_left: false,
             recording: false,
             wrap: false,
             opts: LoadOptions {
@@ -1098,9 +1104,50 @@ impl Docs {
     }
 
     /// Makes tab `i` active; its first activation starts its load.
+    /// The tab in the second pane of a split view: one that is still open and is not the
+    /// active one.
+    pub fn other(&self) -> Option<usize> {
+        let i = self.index_of_id(self.other?)?;
+        (Some(i) != self.active).then_some(i)
+    }
+
+    /// Splits the view, with the tab after the active one in the second pane at the right, or
+    /// ends the split. False when there is no second tab to show.
+    pub fn toggle_split(&mut self) -> bool {
+        if self.other.take().is_some() {
+            return true;
+        }
+        let Some(a) = self.active.filter(|_| self.tabs.len() > 1) else {
+            return false;
+        };
+        let i = (a + 1) % self.tabs.len();
+        self.other = Some(self.tabs[i].id);
+        self.other_left = false;
+        if matches!(self.tabs[i].state, DocState::Pending) {
+            self.start_load(i);
+        }
+        true
+    }
+
+    /// Gives the keyboard to the second pane. False without one.
+    pub fn focus_other(&mut self) -> bool {
+        let Some(i) = self.other() else {
+            return false;
+        };
+        self.activate(i);
+        true
+    }
+
     pub fn activate(&mut self, i: usize) {
         if i >= self.tabs.len() {
             return;
+        }
+        // The tab of the second pane: the panes change roles, each keeping its tab.
+        if self.other == Some(self.tabs[i].id)
+            && let Some(a) = self.active.filter(|&a| a != i && a < self.tabs.len())
+        {
+            self.other = Some(self.tabs[a].id);
+            self.other_left = !self.other_left;
         }
         self.active = Some(i);
         if matches!(self.tabs[i].state, DocState::Pending) {

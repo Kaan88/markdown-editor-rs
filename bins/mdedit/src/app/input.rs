@@ -64,7 +64,7 @@ impl App {
         }
         let cursor = match (edge, hit) {
             (Some(dir), _) => CursorIcon::from(dir),
-            (None, Some(Hit::Text | Hit::Find | Hit::Replace)) => CursorIcon::Text,
+            (None, Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace)) => CursorIcon::Text,
             (None, Some(Hit::Splitter)) => CursorIcon::ColResize,
             _ => CursorIcon::Default,
         };
@@ -401,6 +401,13 @@ impl App {
                 self.ui.drag = Some(Drag::Splitter { x, width });
             }
             Hit::ScrollBar(target) => self.scrollbar_press(target, x, y),
+            Hit::Other => {
+                self.docs.seal();
+                if self.docs.focus_other() {
+                    self.ui.find_focused = false;
+                    self.caret_reset();
+                }
+            }
             Hit::Text => {
                 let Some(offset) = self.text_offset(x, y) else {
                     return;
@@ -622,6 +629,21 @@ impl App {
                 None => ny as f32 * PANE_WHEEL,
             };
             self.ui.results.scroll_by(-dy);
+            self.redraw();
+            return;
+        }
+        // Over the second pane the wheel scrolls its text, by lines only.
+        if self.areas.other.is_some_and(|r| r.contains(x, y)) {
+            let line_h = self.view.metrics(self.scale).line_h as f64;
+            let down = match pixels {
+                Some((_, py)) => -py / line_h,
+                None => -ny * metrics::WHEEL_LINES,
+            };
+            if let Some(i) = self.docs.other()
+                && let Some(r) = self.docs.tabs[i].ready_mut()
+            {
+                view::scroll_rows(r, down);
+            }
             self.redraw();
             return;
         }

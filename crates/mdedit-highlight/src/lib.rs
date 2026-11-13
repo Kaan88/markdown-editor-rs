@@ -79,6 +79,12 @@ enum Command {
         revision: u64,
         range: Range<usize>,
     },
+    /// A request like `View` for a document that is not the one worked on in the background.
+    Peek {
+        doc: DocId,
+        revision: u64,
+        range: Range<usize>,
+    },
     Edit {
         doc: DocId,
         revision: u64,
@@ -136,6 +142,17 @@ impl HighlightService {
     /// document was opened with gets no answer.
     pub fn view(&self, doc: DocId, revision: u64, lines: Range<usize>) {
         let _ = self.commands.send(Command::View {
+            doc,
+            revision,
+            range: lines,
+        });
+    }
+
+    /// [`view`](Self::view) for a second document that shows beside the one being worked in:
+    /// it is answered the same way, but the document `view` named last stays the one whose
+    /// parse runs on in the background.
+    pub fn peek(&self, doc: DocId, revision: u64, lines: Range<usize>) {
+        let _ = self.commands.send(Command::Peek {
             doc,
             revision,
             range: lines,
@@ -307,6 +324,17 @@ impl Worker {
                     self.active = Some(doc);
                 }
             }
+            Command::Peek {
+                doc,
+                revision,
+                range,
+            } => {
+                if let Some(entry) = self.docs.get_mut(&doc).filter(|d| d.revision == revision) {
+                    entry.view = Some(range);
+                    entry.pending = true;
+                    entry.slice = VIEW_SLICE;
+                }
+            }
             Command::Edit {
                 doc,
                 revision,
@@ -344,7 +372,20 @@ impl Worker {
 
     /// One time-boxed piece of work for the active document.
     fn work(&mut self) -> Work {
-        let Some(id) = self.active else {
+        // The active document's request first, then any other document's, then the active
+        // document's parse.
+        let waiting =
+            |docs: &HashMap<DocId, Doc>, id: &DocId| docs.get(id).is_some_and(|d| d.pending);
+        let id = match self.active {
+            Some(id) if waiting(&self.docs, &id) => Some(id),
+            active => self
+                .docs
+                .iter()
+                .find(|(_, d)| d.pending)
+                .map(|(id, _)| *id)
+                .or(active),
+        };
+        let Some(id) = id else {
             return Work::Idle;
         };
         let Some(doc) = self.docs.get_mut(&id) else {
@@ -619,6 +660,29 @@ mod tests {
         f.service.view(1, 0, 10..14);
         let got = f.service.wait(within(5));
         assert_eq!(got[0].lines, vec![Vec::<Span>::new(); 4]);
+    }
+
+    #[test]
+    fn a_peek_is_answered_beside_the_viewed_document() {
+        let f = fixture();
+        f.service
+            .open(1, 0, Rope::from_str(&generated_rust(3000)), rust(), false);
+        f.service
+            .open(2, 0, Rope::from_str(&generated_rust(300)), rust(), false);
+        f.service.view(1, 0, 0..40);
+        f.service.peek(2, 0, 100..140);
+        let mut got = Vec::new();
+        while got.len() < 2 {
+            let more = f.service.wait(within(20));
+            assert!(!more.is_empty(), "no answer");
+            got.extend(more);
+        }
+        got.sort_by_key(|c| c.doc);
+        assert_eq!((got[0].doc, got[0].first_line), (1, 0));
+        assert_eq!(
+            (got[1].doc, got[1].first_line, got[1].lines.len()),
+            (2, 100, 40)
+        );
     }
 
     #[test]

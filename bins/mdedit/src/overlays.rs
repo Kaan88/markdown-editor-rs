@@ -114,6 +114,8 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
         cmd(C::ToggleOutline, "Function list", "").checked(ui.panes.files && ui.outline.on),
         cmd(C::ToggleWhitespace, "Show whitespace", "").checked(docs.whitespace),
         cmd(C::ToggleWrap, "Word wrap", "").checked(docs.wrap),
+        cmd(C::ToggleSplit, "Two files side by side", "").checked(docs.other().is_some()),
+        cmd(C::FocusOther, "Go to the other pane", "").enabled(docs.other().is_some()),
         cmd(C::ToggleFold, "Fold or open the block", "").sep(),
         cmd(C::FoldAll, "Fold all blocks", ""),
         cmd(C::UnfoldAll, "Open all folds", "")

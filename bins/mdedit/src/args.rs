@@ -86,6 +86,8 @@ pub struct Args {
     pub outline: bool,
     /// `--bookmark <line>`, as often as wanted: bookmarked lines of the active document.
     pub bookmarks: Vec<usize>,
+    /// `--split`: two files side by side, the tab after the active one in the second pane.
+    pub split: bool,
     /// `--fold <line>`, as often as wanted: lines of the active document whose blocks are
     /// folded.
     pub folds: Vec<usize>,
@@ -177,6 +179,7 @@ impl Args {
                         out.bookmarks.push(n);
                     }
                 }
+                "--split" => out.split = true,
                 "--fold" => {
                     if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
                         out.folds.push(n);

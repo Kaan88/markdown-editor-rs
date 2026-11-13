@@ -941,6 +941,19 @@ impl App {
                     r.unfold_all();
                 }
             }
+            C::ToggleSplit => {
+                if !self.docs.toggle_split() {
+                    self.docs.set_toast(strings::SPLIT_NEEDS_TWO);
+                }
+            }
+            C::FocusOther => {
+                if self.docs.focus_other() {
+                    self.ui.find_focused = false;
+                    self.caret_reset();
+                } else {
+                    self.docs.set_toast(strings::NO_OTHER_PANE);
+                }
+            }
             C::RecordMacro if self.macros.playing => {}
             C::RecordMacro => {
                 if self.macros.recording.is_some() {

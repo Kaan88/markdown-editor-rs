@@ -196,8 +196,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 9 are done and the
-   macros of item 10; what is left of the roadmap is split view.
+2. The feature roadmap in `docs/PLAN.md` is built to its end (2026-11-13). What each item
+   left unbuilt is listed in its section below; nothing of it has been seen by the user.
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -212,10 +212,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 377 passed on 2026-11-13
+cargo test --release --workspace        # 378 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 60 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 62 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -241,6 +241,39 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Split view (2026-11-13, the rest of roadmap item 10: the roadmap is done)
+
+- Shift+F8 ("Two files side by side" in the View menu) shows two tabs beside each other:
+  the active one, and the tab after it in a second pane at the right. F8, a click on the
+  second pane, or a click on its tab gives it the keyboard: the panes change roles and each
+  keeps its tab and its side. Any other tab chosen shows in the pane with the keyboard.
+  Shift+F8 again, or closing the second pane's tab, ends the split.
+- **It is two files, not two views of one file** (decision made without the user). A
+  document's caret, scroll, folds and colours belong to the document (`docs.rs` `Ready`);
+  showing one document twice needs them taken out of it into a view of their own, which
+  was not done. The same file cannot be shown in both panes.
+- The pane without the keyboard has no caret and no line band. The wheel scrolls it (by
+  lines; not sideways). Its scrollbars show but cannot be dragged, and a first click on it
+  only gives it the keyboard: it does not place the caret.
+- The halves are equal and cannot be resized; under 520 px of text width one pane shows.
+  Nothing in the tab row marks the second pane's tab. The split is not in the session.
+- How: `Docs::other` is the second pane's tab and `Docs::activate` swaps the roles when
+  that tab is activated. The pane is a seventh region (`Region::Other`,
+  `Areas::with_split`), drawn by the same `View::draw` with its hits replaced by one
+  `Hit::Other`. Its colours are asked with the new `HighlightService::peek`, which the
+  worker answers without making that document the one it parses in the background.
+- Run in a real window on Windows by keys: Shift+F8, a letter and Ctrl+S, F8, a letter and
+  Ctrl+S, F8, a letter, Shift+F8, F8 (the toast), a letter; and a click on the second pane
+  followed by a letter. Each letter was in the right file. Seen in shots only (`split`,
+  `split-dark`): the look, word wrap in a pane, colours in both. Not run: the wheel over
+  the second pane, closing its tab, a split with the Files pane or the results panel open,
+  a narrow window, two large files.
+- Measured after: exe 5,495,808 bytes; window shown 77 to 79 ms (six runs; two of three
+  runs right after the build were 85 and 90); private memory 27.7 MiB; keystroke p50
+  0.48 ms; scroll step p50 0.55 ms. Typing with the split open was not timed (`--split`
+  works for `--shot` only). 378 tests, clippy and fmt clean; the shots are byte-identical
+  to the build before but `menu-view` and `dialog-shortcuts`; 62 shots.
 
 ## Linux in a real window, and room in the exe (2026-11-13, later)
 

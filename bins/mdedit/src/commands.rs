@@ -54,6 +54,8 @@ pub enum CommandId {
     ToggleFold,
     FoldAll,
     UnfoldAll,
+    ToggleSplit,
+    FocusOther,
     RecordMacro,
     PlayMacro,
     PlayMacroToEnd,
@@ -150,6 +152,8 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ToggleFold, "Fold or open the block", &["F9"]),
     cmd(C::FoldAll, "Fold all blocks", &["Shift+F9"]),
     cmd(C::UnfoldAll, "Open all folds", &["Ctrl+F9"]),
+    cmd(C::ToggleSplit, "Two files side by side", &["Shift+F8"]),
+    cmd(C::FocusOther, "Go to the other pane", &["F8"]),
     cmd(C::RecordMacro, "Record a macro, or stop", &["Ctrl+Shift+R"]),
     cmd(C::PlayMacro, "Play the macro", &["Ctrl+Shift+P"]),
     cmd(
@@ -235,6 +239,8 @@ pub mod strings {
     pub const RESULT_TAB_CLOSED: &str = "That tab is closed.";
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
     pub const NO_BLOCK: &str = "Nothing to fold here: no lines below are indented more.";
+    pub const SPLIT_NEEDS_TWO: &str = "Open a second file to show two side by side.";
+    pub const NO_OTHER_PANE: &str = "One pane only. Shift+F8 shows two files side by side.";
     pub const MACRO_RECORDING: &str = "Recording the keys you press. Ctrl+Shift+R stops.";
     pub const MACRO_EMPTY: &str = "No key was pressed: nothing recorded.";
     pub const NO_MACRO: &str = "No macro yet. Ctrl+Shift+R records one.";

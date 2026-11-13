@@ -128,9 +128,9 @@ struct App {
     maximized: bool,
     focused: bool,
     areas: Areas,
-    hits: [Vec<(Hit, Rect)>; 6],
+    hits: [Vec<(Hit, Rect)>; 7],
     overlay_hits: Vec<(Hit, Rect)>,
-    sigs: [u64; 6],
+    sigs: [u64; 7],
     caret_sig: u64,
     /// The caret's line at the last text repaint.
     caret_line: Option<usize>,
@@ -222,7 +222,7 @@ impl App {
             areas: Areas::default(),
             hits: Default::default(),
             overlay_hits: Vec::new(),
-            sigs: [0; 6],
+            sigs: [0; 7],
             caret_sig: 0,
             caret_line: None,
             overlay_sig: 0,
@@ -403,6 +403,30 @@ impl App {
         self.service_doc = Some(id);
     }
 
+    /// The colours of the second pane's lines: asked for beside the active document's.
+    fn request_colours_other(&mut self) {
+        let dark = self.dark();
+        let (Some(service), Some(i)) = (&self.service, self.docs.other()) else {
+            return;
+        };
+        let doc = &mut self.docs.tabs[i];
+        let (id, revision) = (doc.id, doc.revision);
+        let Some(r) = doc.ready_mut().filter(|r| r.colourable) else {
+            return;
+        };
+        let lines = r.buffer.len_lines();
+        let vis = view::shown_lines(r);
+        let screen = (r.view_lines.ceil() as usize).max(1);
+        let ok = matches!(&r.colors.requested, Some((req, d))
+            if *d == dark && vis.start >= req.start && vis.end <= req.end);
+        if ok {
+            return;
+        }
+        let want = vis.start.saturating_sub(screen)..(vis.end + screen).min(lines);
+        service.peek(id, revision, want.clone());
+        r.colors.requested = Some((want, dark));
+    }
+
     /// Loading, colouring and searching have nothing left for the active document.
     fn is_settled(&self) -> bool {
         let Some(doc) = self.docs.active_doc() else {
@@ -418,7 +442,12 @@ impl App {
                 if !r.colourable {
                     return true;
                 }
+                // The second pane's colours too.
+                let other = self.docs.other().and_then(|i| self.docs.tabs[i].ready());
                 r.colors.covers(&view::shown_lines(r), self.dark())
+                    && other.is_none_or(|o| {
+                        !o.colourable || o.colors.covers(&view::shown_lines(o), self.dark())
+                    })
             }
         }
     }
@@ -523,8 +552,13 @@ impl App {
                     drag,
                 ))
             }
-            Region::Text => {
-                let Some(doc) = self.docs.active_doc() else {
+            Region::Text | Region::Other => {
+                let shown = if r == Region::Text {
+                    self.docs.active()
+                } else {
+                    self.docs.other()
+                };
+                let Some(doc) = shown.map(|i| &self.docs.tabs[i]) else {
                     return sig((common, "empty", self.docs.recents.paths()));
                 };
                 let thumbs = match ui.drag {
@@ -618,6 +652,11 @@ impl App {
             self.notice_h(),
         )
         .with_results(self.ui.results.open);
+        // A split whose second tab was closed, or became the active one, is over.
+        if self.docs.other.is_some() && self.docs.other().is_none() {
+            self.docs.other = None;
+        }
+        let areas = areas.with_split(self.docs.other.is_some(), self.docs.other_left);
         if areas != self.areas {
             self.areas = areas;
             self.full = true;
@@ -627,7 +666,12 @@ impl App {
         if let Some(doc) = self.docs.active_doc_mut() {
             self.view.layout(doc, text, self.scale);
         }
+        if let (Some(rect), Some(i)) = (self.areas.other, self.docs.other()) {
+            let inner = crate::ui::split_inner(rect, self.docs.other_left, 1.0 / self.scale);
+            self.view.layout(&mut self.docs.tabs[i], inner, self.scale);
+        }
         self.request_colours();
+        self.request_colours_other();
         self.follow_active_file();
         let waker = self.docs.waker();
         self.ui
@@ -636,7 +680,7 @@ impl App {
         times.layout = t0.elapsed();
 
         let t1 = Instant::now();
-        let mut dirty = [self.full; 6];
+        let mut dirty = [self.full; 7];
         for r in REGIONS {
             let rect = self.areas.region(r);
             let s = self.region_sig(r, rect);
@@ -769,6 +813,7 @@ impl App {
         let ds = DrawState {
             dark: self.dark(),
             caret: self.text_focused() && self.focused && self.ui.caret_on,
+            band: true,
             whitespace: self.docs.whitespace,
             vbar_active: hover == Some(Hit::ScrollBar(Scroller::Text))
                 || matches!(
@@ -839,6 +884,27 @@ impl App {
                     },
                     Region::Status => status::draw(&mut c, &self.docs, rect),
                     Region::Results => crate::results::draw(&mut c, &mut self.ui, rect),
+                    Region::Other => {
+                        if let Some(i) = self.docs.other() {
+                            // The pane without the keyboard: no caret, and one hit for all
+                            // of it instead of the text's own.
+                            let (px, left) = (c.p.px(), self.docs.other_left);
+                            let inner = crate::ui::split_inner(rect, left, px);
+                            let quiet = view::DrawState {
+                                caret: false,
+                                band: false,
+                                vbar_active: false,
+                                hbar_active: false,
+                                ..ds
+                            };
+                            let doc = &mut self.docs.tabs[i];
+                            self.view.draw(&mut c, doc, inner, &quiet, None);
+                            let x = if left { rect.right() - px } else { rect.x };
+                            c.p.fill(Rect::new(x, rect.y, px, rect.h), pal.line);
+                            c.hits.clear();
+                            c.hit(Hit::Other, rect);
+                        }
+                    }
                 }
                 p.restore(old);
             }
@@ -1460,7 +1526,12 @@ impl App {
         if let Some(doc) = self.docs.active_doc_mut() {
             self.view.layout(doc, text, self.scale);
         }
+        if let (Some(rect), Some(i)) = (self.areas.other, self.docs.other()) {
+            let inner = crate::ui::split_inner(rect, self.docs.other_left, 1.0 / self.scale);
+            self.view.layout(&mut self.docs.tabs[i], inner, self.scale);
+        }
         self.request_colours();
+        self.request_colours_other();
     }
 
     /// Applies `--goto`, `--select`, `--find`, `--scroll` and `--hscroll` once the active
@@ -1550,6 +1621,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
     );
     let dark = app.dark();
     app.sync_theme();
+    if app.args.split {
+        app.docs.toggle_split();
+    }
     for i in 0..app.docs.tabs.len() {
         app.docs.load_now(i, app.service.as_ref(), dark);
     }

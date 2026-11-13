@@ -315,6 +315,8 @@ fn draw_hscrollbar(c: &mut Ctx, track: Rect, thumb: Rect, active: bool) {
 pub struct DrawState {
     pub dark: bool,
     pub caret: bool,
+    /// The caret's line has its band and its number stands out: the pane has the keyboard.
+    pub band: bool,
     /// Spaces, tabs and line endings show as marks.
     pub whitespace: bool,
     pub vbar_active: bool,
@@ -740,6 +742,7 @@ impl View {
             .and_then(|k| r.find.matches.get(k))
             .is_some_and(|m| *m == sel);
         let caret_line = r.buffer.line_of(r.sel.caret);
+        let band_line = s.band.then_some(caret_line);
         // The other selections of several carets, in document order.
         let len = r.buffer.len_bytes();
         let extras: Vec<(Range<usize>, usize)> = r
@@ -822,7 +825,7 @@ impl View {
         }
         for shown_line in &shown_lines {
             let (i, y, h) = (shown_line.line, shown_line.y, shown_line.h);
-            if sel.is_empty() && alone && i == caret_line {
+            if sel.is_empty() && alone && Some(i) == band_line {
                 c.p.fill_dev(x0, y, x1, y + h, band_c, 1.0);
             } else if bands.is_some() {
                 c.p.fill_dev(x0, y, x1, y + h, pal.page, 1.0);
@@ -1058,7 +1061,7 @@ impl View {
         let pad_r = (GUTTER_PAD_R * scale).round() as i32;
         for shown_line in &shown_lines {
             let (i, y) = (shown_line.line, shown_line.y);
-            let band = if sel.is_empty() && alone && i == caret_line {
+            let band = if sel.is_empty() && alone && Some(i) == band_line {
                 band_c
             } else {
                 pal.page
@@ -1088,7 +1091,11 @@ impl View {
                     fill_clipped(c, (ax, ay + dy, ax + w, ay + dy + 1), gutter, fold_c, 1.0);
                 }
             }
-            let color = if i == caret_line { pal.text } else { pal.faint };
+            let color = if Some(i) == band_line {
+                pal.text
+            } else {
+                pal.faint
+            };
             let n = self.number(i + 1, color);
             let x = gutter_r - pad_r - n.0.width().round() as i32;
             let gy = y as f32 + m.baseline - n.1;
