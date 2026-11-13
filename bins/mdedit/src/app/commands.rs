@@ -908,6 +908,29 @@ impl App {
                     r.bookmarks.clear();
                 }
             }
+            C::ToggleFold => {
+                if let Some(r) = self.docs.active_ready_mut()
+                    && !r.toggle_fold()
+                {
+                    self.docs.set_toast(strings::NO_BLOCK);
+                }
+                self.caret_reset();
+            }
+            C::FoldAll => {
+                if let Some(r) = self.docs.active_ready_mut() {
+                    match r.fold_all() {
+                        (0, _) if r.folds.is_empty() => self.docs.set_toast(strings::NO_BLOCKS),
+                        (_, true) => self.docs.set_toast(strings::FOLD_ALL_PART),
+                        _ => {}
+                    }
+                }
+                self.caret_reset();
+            }
+            C::UnfoldAll => {
+                if let Some(r) = self.docs.active_ready_mut() {
+                    r.unfold_all();
+                }
+            }
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
             C::NextTab => self.docs.step_tab(true),

@@ -99,6 +99,10 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
         cmd(C::ToggleOutline, "Function list", "").checked(ui.panes.files && ui.outline.on),
         cmd(C::ToggleWhitespace, "Show whitespace", "").checked(docs.whitespace),
         cmd(C::ToggleWrap, "Word wrap", "").checked(docs.wrap),
+        cmd(C::ToggleFold, "Fold or open the block", "").sep(),
+        cmd(C::FoldAll, "Fold all blocks", ""),
+        cmd(C::UnfoldAll, "Open all folds", "")
+            .enabled(docs.active_ready().is_some_and(|r| !r.folds.is_empty())),
         cmd(C::ZoomIn, "Zoom in", "").sep(),
         cmd(C::ZoomOut, "Zoom out", ""),
         cmd(C::ZoomReset, "Reset zoom", "").enabled(docs.zoom != 100),

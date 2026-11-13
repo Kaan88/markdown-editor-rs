@@ -84,7 +84,7 @@ pub fn pos_of(r: &mut Ready, offset: usize) -> Pos {
 pub fn step(r: &mut Ready, p: Pos, n: isize) -> Pos {
     let last = r.buffer.len_lines().saturating_sub(1);
     let mut p = Pos {
-        line: p.line.min(last),
+        line: r.folds.shown(p.line.min(last)),
         row: p.row,
     };
     p.row = p.row.min(rows(r, p.line).len() - 1);
@@ -96,15 +96,14 @@ pub fn step(r: &mut Ready, p: Pos, n: isize) -> Pos {
                 p.row += left;
                 return p;
             }
-            if p.line == last {
+            // Lines inside a fold have no rows.
+            let next = r.folds.next(p.line);
+            if next > last {
                 p.row = len - 1;
                 return p;
             }
             left -= len - p.row;
-            p = Pos {
-                line: p.line + 1,
-                row: 0,
-            };
+            p = Pos { line: next, row: 0 };
         }
     }
     loop {
@@ -112,12 +111,12 @@ pub fn step(r: &mut Ready, p: Pos, n: isize) -> Pos {
             p.row -= left;
             return p;
         }
-        if p.line == 0 {
+        let Some(prev) = r.folds.prev(p.line) else {
             p.row = 0;
             return p;
-        }
+        };
         left -= p.row + 1;
-        p.line -= 1;
+        p.line = prev;
         p.row = rows(r, p.line).len() - 1;
     }
 }
@@ -134,7 +133,7 @@ pub fn rows_between(r: &mut Ready, from: Pos, to: Pos, limit: usize) -> Option<u
             return None;
         }
         cur = Pos {
-            line: cur.line + 1,
+            line: r.folds.next(cur.line),
             row: 0,
         };
     }
@@ -150,6 +149,14 @@ pub fn top(r: &mut Ready) -> Pos {
     } else {
         0
     };
+    // A top line that a fold has since hidden: the fold's first line.
+    let shown = r.folds.shown(line);
+    if shown != line {
+        return Pos {
+            line: shown,
+            row: 0,
+        };
+    }
     let row = r.top_row.min(rows(r, line).len() - 1);
     Pos { line, row }
 }

@@ -51,6 +51,9 @@ pub enum CommandId {
     NextBookmark,
     PreviousBookmark,
     ClearBookmarks,
+    ToggleFold,
+    FoldAll,
+    UnfoldAll,
     ClearSearch,
     ToggleFiles,
     ToggleOutline,
@@ -141,6 +144,9 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::NextBookmark, "Next bookmark", &["F2"]),
     cmd(C::PreviousBookmark, "Previous bookmark", &["Shift+F2"]),
     cmd(C::ClearBookmarks, "Clear bookmarks", &[]),
+    cmd(C::ToggleFold, "Fold or open the block", &["F9"]),
+    cmd(C::FoldAll, "Fold all blocks", &["Shift+F9"]),
+    cmd(C::UnfoldAll, "Open all folds", &["Ctrl+F9"]),
     cmd(C::ClearSearch, "Clear search", &[]),
     cmd(C::ToggleFiles, "Files pane", &["Ctrl+Shift+1"]),
     cmd(C::ToggleOutline, "Function list", &["Ctrl+Shift+2"]),
@@ -218,6 +224,9 @@ pub mod strings {
     pub const NO_RESULTS: &str = "No results. Ctrl+Shift+F finds in files.";
     pub const RESULT_TAB_CLOSED: &str = "That tab is closed.";
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
+    pub const NO_BLOCK: &str = "Nothing to fold here: no lines below are indented more.";
+    pub const NO_BLOCKS: &str = "Nothing to fold: no line has indented lines under it.";
+    pub const FOLD_ALL_PART: &str = "Folded the first 200,000 lines; the rest was left alone.";
 
     /// A character the chosen encoding has no bytes for.
     pub fn cannot_encode(ch: char, line: usize, encoding: &str) -> String {

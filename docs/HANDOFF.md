@@ -128,10 +128,8 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
   the window with several modified tabs.
 - `ReplaceFileW`'s fallback for file systems that do not support it (network shares, FAT) has
   not run. The code for other systems than Windows has not been built.
-- A view request the highlight worker cannot finish inside one 8 ms slice from its start seems
-  never to be answered (`mdedit-highlight`'s `work`, found while writing a test: 600 lines of Rust
-  in one request timed out). Requests are a screen or three, so it has not shown, but a slow
-  syntax (Markdown) on a tall window could stay uncoloured. Not investigated further.
+- Fixed 2026-11-13 ("Code folding" below): a view request the highlight worker could not
+  finish inside one 8 ms slice was never answered.
 - Undo steps are capped by the text they hold (64 MiB), not by their number.
 - The first frame of a Markdown file was 125 ms in one run (`fixtures/sample.md`), over the
   100 ms budget set on `sample.rs`; whether phase 1 had that was not checked.
@@ -200,8 +198,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 8 are done and the function list of item 9 is in; next is
-   code folding, whose core is written (see "Function list" below).
+2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 9 are done; next is
+   item 10, macro record and playback, then split view.
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -216,15 +214,15 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 373 passed on 2026-11-13
+cargo test --release --workspace        # 376 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 57 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 59 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
 with `--size WxH --scale N --light|--dark --menu NAME --dialog NAME --find TEXT --goto L[:C]
---select A-B --type TEXT --scroll N --hscroll N --hover X,Y`; `--trace` prints stage times, first
+--select A-B --type TEXT --scroll N --hscroll N --hover X,Y --bookmark L --fold L`; `--trace` prints stage times, first
 frame, memory and CPU time; `--scroll-steps N` times scroll frames; `--type-steps N` types N
 keystrokes at the caret and times each from keystroke to pixels (it exits without saving);
 `--exit-after-ms N` opens a real window and closes it.
@@ -245,6 +243,45 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Code folding (2026-11-13, the rest of roadmap item 9)
+
+`docs/DESIGN.md` section 27. Written in the main session on the core that was already there.
+
+- F9 folds the block the caret's line heads, or else the nearest block around it (the caret
+  then goes to the end of that block's first line); on a folded block's first line it opens
+  it. Shift+F9 folds every block that starts at the left margin; Ctrl+F9 opens all. The three
+  are in the View menu. A block is the lines below a line that are indented more than it, so
+  a closing brace stays in view under the folded line.
+- A folded line has a grey box with three dots after its text and an arrowhead between its
+  number and the text. Neither can be clicked: folding is by key and menu only.
+- Up, Down, the page keys, the wheel, the scrollbar and a click go by the lines that show.
+  A caret that comes into a fold opens it (Right at the end of a folded line, Ctrl+End, a
+  find, go to line, a bookmark, a result of find in files). Several carets move by lines of
+  the document, so they open the folds they enter.
+- Folds follow edits. An edit that adds or removes lines inside a fold or in its first line
+  opens it, and so does a line break typed at the very start of its first line. Undo does not
+  fold again. A reload opens them all; they are not in the session.
+- Colours are asked for the lines from the view's top to its bottom with the hidden ones
+  between, at most 10,000 (`view::shown_lines`): under a larger fold the text is plain until
+  the fold is scrolled out at the top.
+- The highlight worker fault noted before is fixed: a request that could not be finished in
+  one 8 ms slice was started again for ever. Each try now gets twice the time of the one
+  before, up to 2 s (`mdedit-highlight`, test `a_request_longer_than_one_slice_is_answered`).
+- With folds the caret's blink and moves repaint the whole text region, as with word wrap.
+- Run in a real window by keys on Windows: go to line 18, F9, a letter, Down, a letter,
+  Shift+F9, Ctrl+End, a letter, Ctrl+F9, Ctrl+S; the saved file had the letters at the end of
+  line 17, of line 24 and of the file. Seen in shots only (`fold`, `fold-dark`): the marks,
+  folds with word wrap. Not run in a window: the wheel, the scrollbar and clicks with folds,
+  the menu's entries, Fold all on a large file (the core looks at the first 200,000 lines).
+- The exe went to 6,005,248 bytes with it, so ten more crates are built for size
+  (`icu_locale_core`, `icu_provider`, `icu_locale_fallback`, `litemap`, `yoke`, `writeable`,
+  `tinystr`, `potential_utf`, `utf8_iter`, `zeno`): 5,978,624 bytes.
+- Measured after: window shown 73 to 77 ms (four runs); private memory 27.3 to 28.3 MiB;
+  keystroke p50 0.47 ms, the same with two folds on screen. Scroll steps were not measured
+  again. 376 tests, clippy and fmt clean; of the 57 earlier shots all but `menu-view`,
+  `dialog-shortcuts` and `dialog-about` are byte-identical (the first two list the new
+  commands; why the About one differs from the morning's render was not looked into).
 
 ## Function list, and v0.2.0 (2026-11-13, half of roadmap item 9)
 
@@ -269,12 +306,7 @@ from converting them.
   `outline-dark`), so not its clicks, its wheel, its updates while typing or the pane switch.
   The load and find results were run by the tests and the shots only since the change from
   channels.
-- Folding is not in the editor. Its core is written and tested (`mdedit_core::fold`:
-  blocks by indentation, the set of folds, how they follow edits). The plan for the view: a
-  document with folds is walked by rows as a wrapped one is (`view/wrap.rs`), a hidden line
-  having no rows; F9 folds or opens at the caret, Shift+F9 folds all, Ctrl+F9 opens all; a
-  caret that goes into a fold opens it. A patch along these lines was written and never
-  applied or compiled; it is not in the repository.
+- Folding came after this release: see "Code folding" above.
 - **v0.2.0** was published from this state so that the updater can be tried from 0.1.0
   (`docs/RELEASE.md`).
 

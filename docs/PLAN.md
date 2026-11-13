@@ -80,8 +80,8 @@ After editing (phase 2) and safe saving (phase 3), in this order:
 6. Column selection and multiple carets. (Done 2026-11-13.)
 7. Bookmarks on lines. (Done 2026-11-13.)
 8. Find in files, on a worker. (Done 2026-11-13.)
-9. Code folding and a function list, only if typing stays as fast. (The function list is done,
-   2026-11-13; folding is not.)
+9. Code folding and a function list, only if typing stays as fast. (Done 2026-11-13; folding
+   is by indentation.)
 10. Macro record and playback; split view.
 
 Left out: plugins, the FTP and project panels, printing.

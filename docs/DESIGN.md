@@ -830,6 +830,26 @@ is still reading ends at the next file and its events go nowhere. The panel is a
 A match is a byte range: opening it calls `Docs::select_in`, which selects it at once in a tab
 that is read, or leaves it in `Doc::pending_select` for the load to apply.
 
+## 27. Code folding (2026-11-13)
+
+`mdedit_core::fold` finds a block from the indentation of the lines around one line, when
+asked; nothing scans the document as it is typed in. `Folds` is the sorted set of folded
+blocks of a document (`Ready::folds`), each a first line that shows and a last line; with it
+goes a running count of hidden lines, so `row_of` (a line's row among the lines that show) and
+`line_at_row` are binary searches.
+
+`Ready::top` stays a line of the document, so it means the same when folds open and close.
+Without word wrap the view turns it into a row and back where it does arithmetic on it
+(`view.rs` `top_rows`, `set_top_rows`: scrolling, the clamp in `geom`, `reveal`, the
+scrollbar, a click) and draws rows `visible(g.top, ..)` through `line_at_row`. With word wrap
+the walk over rows (`view/wrap.rs` `step`, `rows_between`, `top`) goes from a line to
+`Folds::next` or `prev` of it. Without folds every one of these is what it was.
+
+A caret is never on a hidden line: `reveal` opens the fold over what it brings into view, and
+`geom`, which runs before every frame and click, opens those over the carets
+(`Ready::unfold_carets`). Up and Down without wrap are made as long as the lines between the
+rows are many (`app/input.rs`). `Ready::changed` gives each edit to `Folds::shift`.
+
 ## 19. Unsaved text survives a close (2026-11-13)
 
 Closing the window with a session does not ask about unsaved changes: `App::request` with

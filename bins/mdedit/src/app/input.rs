@@ -245,7 +245,7 @@ impl App {
         let doc = &mut self.docs.tabs[i];
         let g = self.view.layout(doc, region, self.scale)?;
         let r = doc.ready()?;
-        Some((g.vbar(r.top), g.hbar(r.left), g))
+        Some((g.vbar(), g.hbar(r.left), g))
     }
 
     /// A thumb dragged so its start is at `thumb_x` (horizontal) or `thumb_y`.
@@ -885,6 +885,25 @@ impl App {
                     caret,
                     goal_col: Some(goal),
                 };
+            }
+            // Up and Down go over folded lines: the motion is made as long as the lines
+            // between are many. At the document's ends it is left as it is.
+            Motion::Up(n) | Motion::Down(n) if !r.folds.is_empty() => {
+                let up = matches!(motion, Motion::Up(_));
+                let line = r.buffer.line_of(r.sel.caret);
+                let row = r.folds.row_of(line);
+                let last = r.folds.row_of(r.buffer.len_lines().saturating_sub(1));
+                let to = r.folds.line_at_row(if up {
+                    row.saturating_sub(n)
+                } else {
+                    (row + n).min(last)
+                });
+                let motion = match to.cmp(&line) {
+                    std::cmp::Ordering::Less => Motion::Up(line - to),
+                    std::cmp::Ordering::Greater => Motion::Down(to - line),
+                    std::cmp::Ordering::Equal => motion,
+                };
+                r.sel = selection::apply(&r.buffer, r.sel, motion, mods.shift, TAB_WIDTH);
             }
             _ => r.sel = selection::apply(&r.buffer, r.sel, motion, mods.shift, TAB_WIDTH),
         }

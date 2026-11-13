@@ -382,7 +382,7 @@ impl App {
             return;
         }
         let lines = r.buffer.len_lines();
-        let vis = metrics::visible(r.top, r.view_lines, lines);
+        let vis = view::shown_lines(r);
         let screen = (r.view_lines.ceil() as usize).max(1);
         let ok = match &r.colors.requested {
             Some((req, d)) if *d == dark && asked == Some(id) => {
@@ -416,8 +416,7 @@ impl App {
                 if !r.colourable {
                     return true;
                 }
-                let vis = metrics::visible(r.top, r.view_lines, r.buffer.len_lines());
-                r.colors.covers(&vis, self.dark())
+                r.colors.covers(&view::shown_lines(r), self.dark())
             }
         }
     }
@@ -546,6 +545,7 @@ impl App {
                             (!sel.is_empty()).then_some((sel.start, sel.end)),
                             (!r.extra.is_empty()).then(|| sig(&r.extra)),
                             (!r.bookmarks.is_empty()).then(|| sig(&r.bookmarks)),
+                            (!r.folds.is_empty()).then(|| sig(r.folds.ranges())),
                             r.find.generation,
                             r.colors.generation,
                             (r.widest.to_bits(), r.buffer.len_lines()),
@@ -658,11 +658,12 @@ impl App {
             lines.dedup();
             // With word wrap a line's place depends on the rows above it: the whole text is
             // painted.
-            // Several carets are on several lines: the same.
+            // Several carets are on several lines, and folds move the lines below them: the
+            // same.
             let wrapped = self
                 .docs
                 .active_ready()
-                .is_some_and(|r| r.wrapped() || !r.extra.is_empty());
+                .is_some_and(|r| r.wrapped() || !r.extra.is_empty() || !r.folds.is_empty());
             if lines.is_empty() || wrapped {
                 dirty[ti] = true;
             } else {
@@ -1478,6 +1479,14 @@ impl App {
                 let line = n.clamp(1, r.buffer.len_lines().max(1)) - 1;
                 if let Err(k) = r.bookmarks.binary_search(&line) {
                     r.bookmarks.insert(k, line);
+                }
+            }
+            for &n in &a.folds {
+                let line = n.clamp(1, r.buffer.len_lines().max(1)) - 1;
+                if let Some(end) =
+                    mdedit_core::fold::block_end(&r.buffer, line, mdedit_core::limits::TAB_WIDTH)
+                {
+                    r.folds.fold(line, end);
                 }
             }
             if let Some(lc) = a.goto {

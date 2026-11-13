@@ -95,6 +95,8 @@ pub fn top_blocks(buf: &Buffer, tab_width: usize) -> (Vec<(usize, usize)>, bool)
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Folds {
     ranges: Vec<(usize, usize)>,
+    /// For each fold, the lines hidden by the folds before it; then the total.
+    cum: Vec<usize>,
 }
 
 impl Folds {
@@ -108,6 +110,48 @@ impl Folds {
 
     pub fn clear(&mut self) {
         self.ranges.clear();
+        self.recount();
+    }
+
+    fn recount(&mut self) {
+        self.cum.clear();
+        let mut n = 0;
+        for r in &self.ranges {
+            self.cum.push(n);
+            n += r.1 - r.0;
+        }
+        if !self.ranges.is_empty() {
+            self.cum.push(n);
+        }
+    }
+
+    /// How many lines the folds hide.
+    pub fn hidden(&self) -> usize {
+        self.cum.last().copied().unwrap_or(0)
+    }
+
+    /// The row of `line` among the lines that show, counted from 0; a hidden line has its
+    /// fold's header's row.
+    pub fn row_of(&self, line: usize) -> usize {
+        let line = self.shown(line);
+        let k = self.ranges.partition_point(|r| r.0 < line);
+        line - self.cum.get(k).copied().unwrap_or(0)
+    }
+
+    /// The line that shows as row `row`. Rows past the last give lines past the last.
+    pub fn line_at_row(&self, row: usize) -> usize {
+        // The folds whose header is above `row`: a header's row is its line less what is
+        // hidden above it.
+        let (mut lo, mut hi) = (0, self.ranges.len());
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if self.ranges[mid].0 - self.cum[mid] < row {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        row + self.cum.get(lo).copied().unwrap_or(0)
     }
 
     /// The fold that hides `line`.
@@ -152,6 +196,7 @@ impl Folds {
         let b = self.ranges.partition_point(|r| r.0 <= end);
         let end = self.ranges[a..b].iter().fold(end, |e, r| e.max(r.1));
         self.ranges.splice(a..b, [(header, end)]);
+        self.recount();
         true
     }
 
@@ -160,6 +205,7 @@ impl Folds {
         match self.ranges.binary_search_by_key(&header, |r| r.0) {
             Ok(k) => {
                 self.ranges.remove(k);
+                self.recount();
                 true
             }
             Err(_) => false,
@@ -186,6 +232,7 @@ impl Folds {
                 r.1 < first
             }
         });
+        self.recount();
     }
 }
 
@@ -279,6 +326,24 @@ fn b() {}
         assert!(f.reveal(2) && !f.reveal(2));
         assert_eq!(f.ranges(), [(8, 9)]);
         assert!(!f.unfold(9) && f.unfold(8) && f.is_empty());
+    }
+
+    #[test]
+    fn rows_count_the_lines_that_show() {
+        let mut f = Folds::default();
+        assert_eq!((f.hidden(), f.row_of(7), f.line_at_row(7)), (0, 7, 7));
+        f.fold(3, 5);
+        f.fold(8, 9);
+        assert_eq!(f.hidden(), 3);
+        // Lines 0 1 2 3 [4 5] 6 7 8 [9] 10 show as rows 0 to 7.
+        let rows: Vec<usize> = (0..11).map(|l| f.row_of(l)).collect();
+        assert_eq!(rows, [0, 1, 2, 3, 3, 3, 4, 5, 6, 6, 7]);
+        let lines: Vec<usize> = (0..9).map(|r| f.line_at_row(r)).collect();
+        assert_eq!(lines, [0, 1, 2, 3, 6, 7, 8, 10, 11]);
+        f.unfold(3);
+        assert_eq!((f.hidden(), f.row_of(10), f.line_at_row(9)), (1, 9, 10));
+        f.clear();
+        assert_eq!((f.hidden(), f.row_of(10)), (0, 10));
     }
 
     #[test]

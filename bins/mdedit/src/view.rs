@@ -138,6 +138,11 @@ pub struct Geom {
     pub extent: f32,
     /// Word wrap: `top` is a line and a row in it, and nothing scrolls sideways.
     pub wrapped: bool,
+    /// Lines that show: all but those inside folds.
+    pub rows: usize,
+    /// The view's top as the vertical scrollbar measures it: a row among those that show, or
+    /// with word wrap the top line's number.
+    pub top: f64,
 }
 
 /// One line as drawn: its place and its parts, each a chunk with the device x of its start
@@ -156,24 +161,76 @@ struct ShownLine {
 pub fn scroll_rows(r: &mut Ready, by: f64) {
     if r.wrapped() {
         wrap::scroll(r, by);
-    } else {
+    } else if r.folds.is_empty() {
         r.top += by;
+    } else {
+        let v = top_rows(r) + by;
+        set_top_rows(r, v);
     }
+}
+
+/// The view's top as a row among the lines that show. `Ready::top` is a line of the document,
+/// so that it means the same when folds open and close; without folds the two are one.
+fn top_rows(r: &Ready) -> f64 {
+    if r.folds.is_empty() || !r.top.is_finite() || r.top <= 0.0 {
+        return r.top;
+    }
+    let line = r.top.floor();
+    let shown = r.folds.shown(line as usize);
+    let part = if shown == line as usize {
+        r.top - line
+    } else {
+        0.0
+    };
+    r.folds.row_of(shown) as f64 + part
+}
+
+fn set_top_rows(r: &mut Ready, v: f64) {
+    if r.folds.is_empty() || !v.is_finite() || v <= 0.0 {
+        r.top = v;
+        return;
+    }
+    let row = v.floor();
+    r.top = r.folds.line_at_row(row as usize) as f64 + (v - row);
+}
+
+/// Lines that show: all but those inside folds.
+fn shown_rows(r: &Ready) -> usize {
+    let lines = r.buffer.len_lines().max(1);
+    lines - r.folds.hidden().min(lines - 1)
+}
+
+/// Most lines a view asks colours for when folds are on screen.
+const SHOWN_LINES_MAX: usize = 10_000;
+
+/// The lines the view shows, from its top to its bottom, hidden ones between them included:
+/// what colours are asked for. Past [`SHOWN_LINES_MAX`] lines it stops, so the text below a
+/// larger fold stays plain while the fold is on screen.
+pub fn shown_lines(r: &Ready) -> Range<usize> {
+    let lines = r.buffer.len_lines();
+    let vis = visible(r.top, r.view_lines, lines);
+    if r.folds.is_empty() {
+        return vis;
+    }
+    let rows = r.view_lines.ceil().max(1.0) as usize + 1;
+    let end = r.folds.line_at_row(r.folds.row_of(vis.start) + rows);
+    vis.start..end.clamp(vis.start, lines.min(vis.start + SHOWN_LINES_MAX))
 }
 
 /// Puts line `top` (fractional without word wrap) at the view's top: a scrollbar's answer.
 pub fn scroll_to(r: &mut Ready, g: &Geom, top: f64) {
     if g.wrapped {
         let last = g.lines.saturating_sub(1) as f64;
-        r.top = if top.is_finite() {
+        let line = if top.is_finite() {
             top.floor().clamp(0.0, last)
         } else {
             0.0
         };
+        r.top = r.folds.shown(line as usize) as f64;
         r.top_row = 0;
         r.row_rest = 0.0;
     } else {
-        r.top = clamp_top(top, g.lines, g.view_lines);
+        set_top_rows(r, clamp_top(top, g.rows, g.view_lines));
     }
 }
 
@@ -185,7 +242,7 @@ impl Geom {
         if self.wrapped {
             ((self.lines as f32 - 1.0).max(0.0) + view, view)
         } else {
-            (self.lines as f32, view)
+            (self.rows as f32, view)
         }
     }
 
@@ -204,9 +261,9 @@ impl Geom {
     }
 
     /// The vertical scrollbar's track and thumb.
-    pub fn vbar(&self, top: f64) -> Option<(Rect, Rect)> {
+    pub fn vbar(&self) -> Option<(Rect, Rect)> {
         let (content, view) = self.vscroll();
-        scroll::scrollbar(self.area, content, view, top as f32)
+        scroll::scrollbar(self.area, content, view, self.top as f32)
     }
 
     /// The horizontal scrollbar's track and thumb, the same geometry turned on its side.
@@ -390,19 +447,22 @@ pub fn reveal_no_margin(r: &mut Ready, offset: usize) {
 }
 
 fn reveal_with(r: &mut Ready, offset: usize, center: bool, margin: bool) {
+    // What is brought into view is not left inside a fold.
+    let line = r.buffer.line_of(offset);
+    r.folds.reveal(line);
     if r.wrapped() {
         wrap::reveal(r, offset, center, margin);
         return;
     }
-    let line = r.buffer.line_of(offset);
-    r.top = reveal_top(
-        r.top,
-        line,
+    let v = reveal_top(
+        top_rows(r),
+        r.folds.row_of(line),
         r.view_lines,
-        r.buffer.len_lines(),
+        shown_rows(r),
         center,
         margin,
     );
+    set_top_rows(r, v);
     let x = x_of(r, offset);
     r.left = reveal_left(r.left, x, r.view_w, r.advance, center, margin);
 }
@@ -706,8 +766,7 @@ impl View {
             (r.left * s).max(0.0)..(r.left + g.view_w as f64) * s + adv
         };
         let mark_a = if pal.dark { 0.38 } else { 0.45 };
-        let top = r.top;
-        let line_top = |i: usize| y0 + line_y(i, top, lh).round() as i32;
+        let fold_c = mix(pal.page, pal.text, 0.5);
         let wanted = |i: usize| bands.is_none_or(|b| b.contains(&i));
         let mut shown_lines: Vec<ShownLine> = Vec::new();
         if g.wrapped {
@@ -737,16 +796,17 @@ impl View {
                     parts,
                 });
                 p = wrap::Pos {
-                    line: p.line + 1,
+                    line: r.folds.next(p.line),
                     row: 0,
                 };
             }
         } else {
-            for i in visible(r.top, g.view_lines, g.lines) {
+            for row in visible(g.top, g.view_lines, g.rows) {
+                let i = r.folds.line_at_row(row);
                 if !wanted(i) {
                     continue;
                 }
-                let y = line_top(i);
+                let y = y0 + line_y(row, g.top, lh).round() as i32;
                 let parts = chunks_in_view(r, i, xs.clone(), &m)
                     .into_iter()
                     .map(|ch| (ch, m.chunk_x(&ch.start), y))
@@ -769,6 +829,7 @@ impl View {
             }
             let range = r.buffer.line_range(i);
             let with_break = r.buffer.line_range_with_break(i);
+            let folded = r.folds.headed(i).is_some();
             // Find marks overlapping the line.
             let marks: &[Range<usize>] = {
                 let all = &r.find.matches;
@@ -890,6 +951,22 @@ impl View {
                         }
                     }
                 }
+                // A folded block: a box with three dots after its first line.
+                if last && folded {
+                    let gap = if s.whitespace { 2.2 } else { 1.0 };
+                    let a = (x + shaped.width as f64 + adv * gap).round() as i32;
+                    let (w, h) = (
+                        (adv * 2.6).round() as i32,
+                        (lh as f32 * 0.56).round() as i32,
+                    );
+                    let top = y + (lh - h) / 2;
+                    let box_c = mix(pal.page, pal.text, 0.10);
+                    fill_clipped(c, (a, top, a + w, top + h), text_clip, box_c, 1.0);
+                    for k in 1..4 {
+                        let (dx, dy) = (a + w * k / 4 - dot / 2, top + (h - dot) / 2);
+                        fill_clipped(c, (dx, dy, dx + dot, dy + dot), text_clip, fold_c, 1.0);
+                    }
+                }
                 if !s.whitespace {
                     continue;
                 }
@@ -1002,6 +1079,15 @@ impl View {
                 );
                 c.p.rbox(dot, d as f32 / scale / 2.0, pal.accent);
             }
+            // A folded block: an arrowhead between the number and the text.
+            if r.folds.headed(i).is_some() {
+                let half = (3.0 * scale).round() as i32;
+                let (ax, ay) = (gutter_r - (9.0 * scale).round() as i32, y + lh / 2);
+                for dy in -half..=half {
+                    let w = half - dy.abs() + 1;
+                    fill_clipped(c, (ax, ay + dy, ax + w, ay + dy + 1), gutter, fold_c, 1.0);
+                }
+            }
             let color = if i == caret_line { pal.text } else { pal.faint };
             let n = self.number(i + 1, color);
             let x = gutter_r - pad_r - n.0.width().round() as i32;
@@ -1010,7 +1096,7 @@ impl View {
                 .draw_layout_clipped(c.p.bmp, &n.0, x as f32, gy.round(), gutter);
         }
         // Scrollbars sit over the text; a band repaint draws them again inside its clip.
-        if let Some((track, thumb)) = g.vbar(r.top) {
+        if let Some((track, thumb)) = g.vbar() {
             scroll::draw_scrollbar(c.p, &pal, track, thumb, s.vbar_active);
             if bands.is_none() {
                 c.hit(crate::ui::Hit::ScrollBar(crate::ui::Scroller::Text), track);
@@ -1054,7 +1140,7 @@ impl View {
             let (start, end) = wrap::row(r, p);
             (p.line, Chunk { start, end }, 0.0)
         } else {
-            let line = line_at(dy, r.top, m.line_h, g.lines);
+            let line = r.folds.line_at_row(line_at(dy, g.top, m.line_h, g.rows));
             let chunk = chunk_at_x(r, line, rel.max(0.0), m.advance, m.wide);
             (line, chunk, m.chunk_x(&chunk.start))
         };
@@ -1105,6 +1191,8 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
     let (y0, y1) = ((area.y * scale).round(), (area.bottom() * scale).round());
     let vl = view_lines(y1 - y0, m.line_h);
     let view_w = (area.w - gutter_w - TEXT_PAD).max(0.0);
+    r.unfold_carets();
+    let rows = shown_rows(r);
     let wrapped = r.wrapped();
     let extent = if wrapped {
         0.0
@@ -1120,9 +1208,11 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
         wrap::set_top(r, p);
         r.left = 0.0;
     } else {
-        r.top = clamp_top(r.top, lines, vl);
+        let v = clamp_top(top_rows(r), rows, vl);
+        set_top_rows(r, v);
         r.left = clamp_left(r.left, extent, view_w);
     }
+    let top = if wrapped { r.top } else { top_rows(r) };
     Geom {
         area,
         gutter_w,
@@ -1131,6 +1221,8 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
         view_w,
         extent,
         wrapped,
+        rows,
+        top,
     }
 }
 

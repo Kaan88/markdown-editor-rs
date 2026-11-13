@@ -85,6 +85,9 @@ pub struct Args {
     pub outline: bool,
     /// `--bookmark <line>`, as often as wanted: bookmarked lines of the active document.
     pub bookmarks: Vec<usize>,
+    /// `--fold <line>`, as often as wanted: lines of the active document whose blocks are
+    /// folded.
+    pub folds: Vec<usize>,
     /// `--zoom <50..400>`: the text size in percent, instead of the session's.
     pub zoom: Option<u32>,
     /// `--maximize`: start maximized.
@@ -171,6 +174,11 @@ impl Args {
                 "--bookmark" => {
                     if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
                         out.bookmarks.push(n);
+                    }
+                }
+                "--fold" => {
+                    if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
+                        out.folds.push(n);
                     }
                 }
                 "--zoom" => {

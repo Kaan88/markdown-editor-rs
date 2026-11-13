@@ -23,6 +23,8 @@ pub type DocId = u64;
 
 /// How long the worker serves a view request before it looks at its commands again.
 const VIEW_SLICE: Duration = Duration::from_millis(8);
+/// The longest try at one request; commands are looked at between tries.
+const VIEW_SLICE_MAX: Duration = Duration::from_secs(2);
 /// How long one step of the background parse runs before the commands are looked at again.
 const ADVANCE_SLICE: Duration = Duration::from_millis(2);
 
@@ -205,6 +207,10 @@ struct Doc {
     view: Option<Range<usize>>,
     /// The request in `view` has not been answered.
     pending: bool,
+    /// The time the next try at the request gets. A try that runs out starts again from the
+    /// request's first line, so each one gets twice the time of the one before: a request too
+    /// long for one slice is still answered.
+    slice: Duration,
 }
 
 /// What one round of work did.
@@ -282,6 +288,7 @@ impl Worker {
                         highlighter,
                         view: None,
                         pending: false,
+                        slice: VIEW_SLICE,
                     },
                 );
                 if self.active.is_none() {
@@ -296,6 +303,7 @@ impl Worker {
                 if let Some(entry) = self.docs.get_mut(&doc).filter(|d| d.revision == revision) {
                     entry.view = Some(range);
                     entry.pending = true;
+                    entry.slice = VIEW_SLICE;
                     self.active = Some(doc);
                 }
             }
@@ -347,7 +355,7 @@ impl Worker {
             let range = doc.view.clone().unwrap_or(0..0);
             let total = doc.rope.len_lines();
             let first_line = range.start.min(total);
-            let deadline = Instant::now() + VIEW_SLICE;
+            let deadline = Instant::now() + doc.slice;
             if doc.highlighter.frontier() < first_line {
                 // The parse has not reached the first requested line: run it on.
                 doc.highlighter.advance(&src, deadline);
@@ -365,7 +373,10 @@ impl Worker {
                     });
                     Work::Sent
                 }
-                None => Work::Ran,
+                None => {
+                    doc.slice = (doc.slice * 2).min(VIEW_SLICE_MAX);
+                    Work::Ran
+                }
             };
         }
         if doc.highlighter.done() {
@@ -608,6 +619,17 @@ mod tests {
         f.service.view(1, 0, 10..14);
         let got = f.service.wait(within(5));
         assert_eq!(got[0].lines, vec![Vec::<Span>::new(); 4]);
+    }
+
+    #[test]
+    fn a_request_longer_than_one_slice_is_answered() {
+        let f = fixture();
+        let rope = Rope::from_str(&generated_rust(6000));
+        f.service.open(1, 0, rope, rust(), false);
+        f.service.view(1, 0, 0..5000);
+        let got = f.service.wait(within(60));
+        assert_eq!(got.len(), 1);
+        assert_eq!((got[0].first_line, got[0].lines.len()), (0, 5000));
     }
 
     #[test]

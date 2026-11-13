@@ -19,6 +19,7 @@ use mdedit_core::edit::{self, Outcome};
 use mdedit_core::encoding::Encoding;
 use mdedit_core::eol::normalize_eols;
 use mdedit_core::find::{self, FindOptions, Matches, Query};
+use mdedit_core::fold::{self, Folds};
 use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
 use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
@@ -244,6 +245,8 @@ pub struct Ready {
     /// Bookmarked lines, sorted. They follow edits and a reload, and are gone when the tab
     /// closes.
     pub bookmarks: Vec<usize>,
+    /// The folded blocks. They follow edits; a reload opens them all.
+    pub folds: Folds,
     /// The other selections when there are several carets, in document order. `sel` is the
     /// primary: the one the view follows and Undo puts back.
     pub extra: Vec<Selection>,
@@ -430,6 +433,74 @@ impl Ready {
         self.find.edited(change);
         self.chunks.clear();
         lines::shift_marks(&mut self.bookmarks, change);
+        self.folds.shift(change);
+    }
+
+    /// Opens the folds a caret is in: a caret is never on a line that does not show.
+    pub fn unfold_carets(&mut self) {
+        if self.folds.is_empty() {
+            return;
+        }
+        let len = self.buffer.len_bytes();
+        for k in 0..=self.extra.len() {
+            let caret = self.extra.get(k).map_or(self.sel.caret, |s| s.caret);
+            let line = self.buffer.line_of(caret.min(len));
+            self.folds.reveal(line);
+        }
+    }
+
+    /// After folding: one caret, on a line that shows (the end of the fold's first line when
+    /// it was inside), and in view.
+    fn caret_out_of_folds(&mut self) {
+        let line = self.buffer.line_of(self.sel.caret);
+        let inside = self.folds.is_hidden(line);
+        if inside || !self.extra.is_empty() {
+            self.history.seal();
+            self.extra.clear();
+            self.column = None;
+        }
+        if inside {
+            let at = self.buffer.line_range(self.folds.shown(line)).end;
+            self.sel = Selection::at(at);
+        }
+        let caret = self.sel.caret;
+        crate::view::reveal(self, caret, false);
+    }
+
+    /// Opens the fold the caret's line heads, or else folds the block the line heads or is
+    /// in. False when the line is in no block.
+    pub fn toggle_fold(&mut self) -> bool {
+        let line = self.buffer.line_of(self.sel.caret);
+        if self.folds.unfold(line) {
+            return true;
+        }
+        let Some((header, end)) = fold::block_at(&self.buffer, line, TAB_WIDTH) else {
+            return false;
+        };
+        if !self.folds.fold(header, end) {
+            return false;
+        }
+        self.caret_out_of_folds();
+        true
+    }
+
+    /// Folds every block that starts at the left margin. The number folded, and whether the
+    /// document has more lines than were looked at.
+    pub fn fold_all(&mut self) -> (usize, bool) {
+        let (blocks, more) = fold::top_blocks(&self.buffer, TAB_WIDTH);
+        let mut n = 0;
+        for (header, end) in blocks {
+            n += self.folds.fold(header, end) as usize;
+        }
+        self.caret_out_of_folds();
+        (n, more)
+    }
+
+    /// Opens every fold, keeping the caret in view.
+    pub fn unfold_all(&mut self) {
+        self.folds.clear();
+        let caret = self.sel.caret;
+        crate::view::reveal(self, caret, false);
     }
 
     /// Sets or removes the bookmark of the caret's line.
@@ -467,6 +538,7 @@ impl Ready {
             colourable: false,
             sel: Selection::at(0),
             bookmarks: Vec::new(),
+            folds: Folds::default(),
             extra: Vec::new(),
             column: None,
             top: 0.0,
@@ -2356,6 +2428,97 @@ mod tests {
         d.load_now(i, None, false);
         assert_eq!(d.tabs[i].ready().unwrap().info.encoding, latin);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folds_hide_lines_from_the_view_and_open_for_the_caret() {
+        use crate::view::wrap::{self, Pos};
+        let text = b"a {\n  b\n  c {\n    d\n  }\n}\ne\nf\ng\nh\n";
+        let (mut d, i, _path, dir) = file_docs("fold", text);
+        let r = d.tabs[i].ready_mut().unwrap();
+        (r.advance, r.wide_advance, r.view_w, r.view_lines) = (10.0, 20.0, 400.0, 3.0);
+        // On a line in no block nothing folds.
+        r.sel = Selection::at(r.buffer.line_start(6));
+        assert!(!r.toggle_fold());
+        // Inside the outer block, on a line that heads none: the block around it folds and
+        // the caret goes to the end of its first line.
+        r.sel = Selection::at(r.buffer.line_start(1));
+        assert!(r.toggle_fold());
+        assert_eq!(r.folds.ranges(), [(0, 4)]);
+        assert_eq!(r.sel, Selection::at(3));
+        // Six rows are left: lines 0, 5, 6, 7, 8, 9 (the last is empty).
+        assert_eq!(crate::view::shown_lines(r), 0..8);
+        crate::view::scroll_rows(r, 2.0);
+        assert_eq!(r.top, 6.0);
+        crate::view::scroll_rows(r, -1.5);
+        assert_eq!(r.top, 0.5);
+        r.top = 0.0;
+        crate::view::reveal(r, r.buffer.line_start(8), false);
+        // Line 8 is row 4: with a row of margin, row 3 (line 7) is at the top.
+        assert_eq!(r.top, 7.0);
+        // With word wrap the rows of hidden lines are not walked.
+        r.wrap = true;
+        let at = |line, row| Pos { line, row };
+        assert_eq!(wrap::step(r, at(0, 0), 2), at(6, 0));
+        assert_eq!(wrap::step(r, at(6, 0), -1), at(5, 0));
+        assert_eq!(wrap::step(r, at(5, 0), -9), at(0, 0));
+        assert_eq!(wrap::rows_between(r, at(0, 0), at(7, 0), 10), Some(3));
+        assert_eq!(wrap::vertical(r, 1, None, 1).0, r.buffer.line_start(5) + 1);
+        r.wrap = false;
+        // The fold's own line opens it again; a fold inside is taken in by one around it.
+        assert!(r.toggle_fold());
+        assert!(r.folds.is_empty());
+        r.sel = Selection::at(r.buffer.line_start(2));
+        assert!(r.toggle_fold());
+        assert_eq!(r.folds.ranges(), [(2, 3)]);
+        assert_eq!(r.fold_all(), (1, false));
+        assert_eq!(r.folds.ranges(), [(0, 4)]);
+        assert_eq!(r.sel, Selection::at(3));
+        // Bringing a hidden place into view opens its fold, and so does a caret put there.
+        crate::view::reveal(r, r.buffer.line_start(3), false);
+        assert!(r.folds.is_empty());
+        r.fold_all();
+        r.sel = Selection::at(r.buffer.line_start(4));
+        r.unfold_carets();
+        assert!(r.folds.is_empty());
+        // A line typed below leaves the fold; a line break in its first line opens it.
+        r.sel = Selection::at(r.buffer.line_start(6));
+        r.fold_all();
+        d.edit(
+            EditOp::Insert(
+                "x
+",
+            ),
+            None,
+        );
+        let r = d.tabs[i].ready_mut().unwrap();
+        assert_eq!(r.folds.ranges(), [(0, 4)]);
+        r.sel = Selection::at(0);
+        d.edit(
+            EditOp::Insert(
+                "x
+",
+            ),
+            None,
+        );
+        let r = d.tabs[i].ready_mut().unwrap();
+        assert!(r.folds.is_empty());
+        // A fold below an edit moves with its lines.
+        r.sel = Selection::at(r.buffer.line_start(7));
+        assert_eq!(r.fold_all(), (1, false));
+        assert_eq!(r.folds.ranges(), [(1, 5)]);
+        r.sel = Selection::at(0);
+        d.edit(
+            EditOp::Insert(
+                "y
+",
+            ),
+            None,
+        );
+        let r = d.tabs[i].ready_mut().unwrap();
+        assert_eq!(r.folds.ranges(), [(2, 6)]);
+        r.unfold_all();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
