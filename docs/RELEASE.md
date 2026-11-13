@@ -48,3 +48,16 @@ the manifest is served at the address above and names 0.2.0; the asset downloade
 
 Not verified: that a 0.1.0 install is offered 0.2.0, and that it downloads and installs it.
 That is the test this release is for.
+
+## v0.3.0 (published from commit b94a36e, 2026-11-13)
+
+Cut with the find in files, function list, code folding, macros, split view and the shared
+icons. Verified against the live release: the manifest is served at the address above and names
+0.3.0 with the SHA-256 `41609145188fab19a7b3d30050164bfc82d1b93ce08f8c4664085b4807d2b236`; the
+asset downloaded from the manifest's URL is 5637632 bytes and has that SHA-256, the same as the
+local build in `target\dist\0.3.0`; `mdedit --check-update` with the 0.3.0 exe (run from Git
+Bash) answered "nothing newer", exit code 0. `cargo test --release --workspace` gave 378 passed,
+0 failed, 10 ignored.
+
+Not verified: that an older install is offered 0.3.0 and installs it. Nothing newer than 0.3.0
+exists yet, so that test needs an install of an earlier build.
