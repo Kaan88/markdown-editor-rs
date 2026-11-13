@@ -146,7 +146,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ZoomReset, "Reset zoom", &["Ctrl+0"]),
     cmd(C::ToggleWhitespace, "Show whitespace", &[]),
     cmd(C::ToggleWrap, "Word wrap", &["Alt+Z"]),
-    cmd(C::ToggleMinimap, "Minimap", &[]),
+    cmd(C::ToggleMinimap, "Minimap", &["Ctrl+Shift+M"]),
     cmd(C::ToggleBookmark, "Toggle bookmark", &["Ctrl+F2"]),
     cmd(C::NextBookmark, "Next bookmark", &["F2"]),
     cmd(C::PreviousBookmark, "Previous bookmark", &["Shift+F2"]),

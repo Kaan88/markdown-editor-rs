@@ -137,7 +137,7 @@ impl App {
                 self.ui.panes.files_w = (width + (x - start)).clamp(PANE_MIN, max).round();
             }
             Drag::Thumb { target, grab } => self.thumb_to(target, x - grab, y - grab),
-            Drag::Minimap { grab } => self.minimap_drag(y, grab),
+            Drag::Minimap { grab, doc } => self.minimap_drag(doc, y, grab),
             Drag::Column { line, col } => {
                 let Some(offset) = self.text_offset(x, y) else {
                     return;
@@ -280,51 +280,78 @@ impl App {
         }
     }
 
-    /// The minimap's column, window and the view's geometry now.
-    fn minimap_now(&mut self) -> Option<(Rect, minimap::Plan, view::Geom)> {
-        let rect = self.areas.minimap?;
-        let region = self.areas.text;
-        let i = self.docs.active()?;
-        let g = self
-            .view
-            .layout(&mut self.docs.tabs[i], region, self.scale)?;
-        let plan = self.minimap_plan(Some(g))?;
-        Some((rect, plan, g))
+    /// The column's top, the window and the view's geometry now, for the minimap of document
+    /// `doc`. Both panes' columns have the same top and height, so a drag that outlives the
+    /// roles of the panes changing still finds its column.
+    fn minimap_now(
+        &mut self,
+        doc: mdedit_highlight::DocId,
+    ) -> Option<(f32, minimap::Plan, view::Geom)> {
+        let pane = usize::from(self.docs.active_doc().map(|d| d.id) != Some(doc));
+        let rect = self
+            .minimap_rect(pane)
+            .or_else(|| self.minimap_rect(1 - pane))?;
+        let region = match (pane, self.areas.other) {
+            (1, Some(o)) => crate::ui::split_inner(o, self.docs.other_left, 1.0 / self.scale),
+            _ => self.areas.text,
+        };
+        let scale = self.scale;
+        let i = if pane == 0 {
+            self.docs.active()
+        } else {
+            self.docs.other()
+        }?;
+        let d = &mut self.docs.tabs[i];
+        let g = self.view.layout(d, region, scale)?;
+        let plan = make_plan(d.ready_mut()?, &g, rect, scale);
+        Some((rect.y, plan, g))
     }
 
-    /// A press on the minimap. Inside the band it grabs the band where it was pressed; outside it
-    /// centres the view on the line pressed and then holds the band as it stands after that.
-    fn minimap_press(&mut self, y: f32) {
-        let Some((rect, plan, g)) = self.minimap_now() else {
+    fn minimap_scroll(&mut self, doc: mdedit_highlight::DocId, g: &view::Geom, first: f64) {
+        if let Some(r) = self
+            .docs
+            .tabs
+            .iter_mut()
+            .find(|d| d.id == doc)
+            .and_then(|d| d.ready_mut())
+        {
+            view::map_scroll(r, g, first);
+        }
+    }
+
+    /// A press on the minimap of document `doc`. Inside the band it grabs the band where it was
+    /// pressed; outside it centres the view on the line pressed and then holds the band as it
+    /// stands after that.
+    fn minimap_press(&mut self, doc: mdedit_highlight::DocId, y: f32) {
+        let Some((top, plan, g)) = self.minimap_now(doc) else {
             return;
         };
-        let yd = ((y - rect.y) * self.scale) as f64;
+        let yd = ((y - top) * self.scale) as f64;
         let (b0, b1) = plan.band();
         let grab = if yd >= b0 as f64 && yd < b1 as f64 {
             yd - b0 as f64
         } else {
             let first = plan.first_to_centre_on(yd);
-            if let Some(r) = self.docs.active_ready_mut() {
-                view::map_scroll(r, &g, first);
-            }
-            match self.minimap_now() {
+            self.minimap_scroll(doc, &g, first);
+            match self.minimap_now(doc) {
                 Some((_, after, _)) => yd - after.band().0 as f64,
                 None => return,
             }
         };
-        self.ui.drag = Some(Drag::Minimap { grab: grab as f32 });
+        self.ui.drag = Some(Drag::Minimap {
+            grab: grab as f32,
+            doc,
+        });
     }
 
     /// The pointer at `y` with the band held `grab` device px below its top.
-    pub(super) fn minimap_drag(&mut self, y: f32, grab: f32) {
-        let Some((rect, plan, g)) = self.minimap_now() else {
+    pub(super) fn minimap_drag(&mut self, doc: mdedit_highlight::DocId, y: f32, grab: f32) {
+        let Some((top, plan, g)) = self.minimap_now(doc) else {
             return;
         };
-        let yd = ((y - rect.y) * self.scale) as f64;
+        let yd = ((y - top) * self.scale) as f64;
         let first = plan.first_for_band_top(yd - grab as f64);
-        if let Some(r) = self.docs.active_ready_mut() {
-            view::map_scroll(r, &g, first);
-        }
+        self.minimap_scroll(doc, &g, first);
     }
 
     /// A press on a scrollbar: grabs the thumb, or pages towards the press.
@@ -445,7 +472,22 @@ impl App {
                 self.ui.drag = Some(Drag::Splitter { x, width });
             }
             Hit::ScrollBar(target) => self.scrollbar_press(target, x, y),
-            Hit::Minimap => self.minimap_press(y),
+            Hit::Minimap => {
+                if let Some(id) = self.docs.active_doc().map(|d| d.id) {
+                    self.minimap_press(id, y);
+                }
+            }
+            Hit::MinimapOther => {
+                // The press acts on the second pane's document, which then has the keyboard.
+                if let Some(id) = self.docs.other().map(|i| self.docs.tabs[i].id) {
+                    self.minimap_press(id, y);
+                    self.docs.seal();
+                    if self.docs.focus_other() {
+                        self.ui.find_focused = false;
+                        self.caret_reset();
+                    }
+                }
+            }
             Hit::Other => {
                 self.docs.seal();
                 if self.docs.focus_other() {
@@ -576,6 +618,13 @@ impl App {
                     overlays::tab_menu(&self.docs, i, x, y + 2.0),
                 ));
             }
+            Some(Hit::Minimap | Hit::MinimapOther) => {
+                self.ui.find_focused = false;
+                self.ui.popup = Some(Popup::new(
+                    PopupKind::Text,
+                    overlays::minimap_menu(x + 2.0, y + 2.0),
+                ));
+            }
             Some(Hit::Text) => {
                 // A right-click outside the selection moves the caret there first.
                 if let Some(offset) = self.text_offset(x, y)
@@ -677,7 +726,9 @@ impl App {
             return;
         }
         // Over the second pane the wheel scrolls its text, by lines only.
-        if self.areas.other.is_some_and(|r| r.contains(x, y)) {
+        if self.areas.other.is_some_and(|r| r.contains(x, y))
+            || self.areas.minimap_other.is_some_and(|r| r.contains(x, y))
+        {
             let line_h = self.view.metrics(self.scale).line_h as f64;
             let down = match pixels {
                 Some((_, py)) => -py / line_h,

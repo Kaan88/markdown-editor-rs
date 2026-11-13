@@ -212,10 +212,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 400 passed on 2026-11-13
+cargo test --release --workspace        # 404 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 69 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 72 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -241,6 +241,79 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Minimap, finished (2026-11-13, after the owner saw it: "looks great. finish it. and make it togglable")
+
+First part of the day: the section below. This one builds what it left out. Design in
+`docs/DESIGN.md` section 28 (updated). Not released, version unchanged, nothing pushed elsewhere.
+
+- **Toggle.** Ctrl+Shift+M (free: no command had it; Ctrl+Alt is AltGr and was avoided), shown in
+  the View menu and the shortcuts dialog. A right click on a column opens a one-item menu,
+  "Hide minimap" (`PopupKind::Text`'s machinery, `overlays::minimap_menu`). Recordable in a macro,
+  as Word wrap is (nothing to change: `recordable` leaves view toggles in; a test says the two
+  agree).
+- **Marks:** selection (and several carets), the caret's row (keyboard pane only), find matches at
+  the right edge, bookmarks at the left edge. Drawn from the data the editor keeps, only for the
+  window's lines, never a search of its own. See the design section.
+- **Colour:** 78 % kept (60 % was grey). Compared side by side in a light and a dark shot.
+- **Word wrap:** one row per line still. The band's top is exact to a wrapped row and its bottom
+  edge counts the last visible wrapped row whole, so **the band can be up to one wrapped row too
+  tall**; the scroll fraction is the editor's own (top line over lines less one).
+- **Second pane:** each pane has its column (`Region::MinimapOther`, `Hit::MinimapOther`); the
+  map request is per document (the worker already had a slot per document). The restructuring was
+  the pattern already there (one more region, one more hit, arrays of nine); nothing beyond it.
+  A drag holds the document, not the pane (`Drag::Minimap { doc }`), so it survives the panes
+  changing roles when a press on the second column gives that pane the keyboard. The panes' two
+  columns have the same top and height, which is what a drag after the swap relies on for the one
+  event before the next frame has laid the areas out again.
+- **Measured** (release, quiet PC, runs alternated; budgets: exe 6,000,000 bytes, shown 100 ms,
+  memory 30 MiB, keystroke p50 8 ms, scroll step p50 4 ms):
+
+  | | before the minimap | after, off | after, on |
+  |---|---|---|---|
+  | exe bytes | 5,651,968 | 5,678,592 | same exe |
+  | shown, sample.rs (ms) | 73.7 to 77.5 (a first run at 93.7) | 76.4 to 86.8 (first two runs 119.5 and 104.1, machine busy) | 75.5 to 76.4 |
+  | private memory, sample.rs (MiB) | 27.5 to 28.0 | 27.3 to 27.8 | 27.6 to 28.1 |
+  | keystroke p50, sample.rs (ms) | 0.52 to 0.53 | 0.51 to 0.52 | 0.63 |
+  | scroll step p50, sample.rs (ms) | 0.45 to 0.46 | 0.44 | 0.48 |
+  | keystroke p50, 50k.rs (ms) | 0.53 | 0.52 | 0.71 to 0.72 |
+  | scroll step p50, 50k.rs (ms) | 0.48 to 0.49 | 0.46 | 0.66 to 0.67 |
+  | keystroke p50, 100mb.txt (ms) | 0.60 to 0.61 | 0.59 to 0.61 | 0.79 to 0.81 |
+  | scroll step p50, 100mb.txt (ms) | 0.59 to 0.75 | 0.59 to 0.61 | 0.81 to 1.02 |
+
+  Shown with the split and both columns (sample.rs and sample.md): 77.7, 84.0, 96.5 ms (the 96.5
+  was the first run); memory 27.8 to 27.9 MiB. Idle CPU with the column on: CPU time at idle and
+  at exit equal (no timer). The 1 MB single-line file with the column on: shown 53.7 ms, 16.5 MiB,
+  CPU time equal at idle and exit; the 100 MB file: shown 142.8 ms. Typing with the split open
+  cannot be timed (`--type-steps` has no split); it was typed in a real window (below).
+- **Tests:** 404 passed, 0 failed (400 before this part): the new pure parts (selection columns,
+  byte to column, wrapped scroll range and inverse, `Areas::with_minimap` for two panes), the
+  recordable toggle. Clippy `-D warnings` and `fmt --check` clean.
+- **Shots:** 72 now. New: `minimap-marks` (selection, find, bookmarks, caret row), `minimap-wrap`
+  (`--wrap`), `minimap-scale-150`. The 64 older ones are byte-identical to the run before the
+  minimap but `menu-view`, `menu-main-view` and `dialog-shortcuts` (they list the command and its
+  key). The five minimap shots of the first part changed (caret row, 78 % colour, a column for
+  each pane in `minimap-split`). Looked at: all new ones, `dialog-shortcuts`, and a scale 2.0
+  shot (rows and columns are whole pixels at 1.5 and 2.0; the ink is 3 px tall and 2 px wide at
+  1.5, 4 and 2 at 2.0).
+- **Run in a real window** (Windows, scale 1.0, Git Bash launch, `MDEDIT_SETTINGS` scratch files,
+  mouse and keys by `SetCursorPos`, `mouse_event`, `keybd_event`, window screenshots): split view
+  with two columns (Shift+F8); letters typed in the left pane, a click on the right pane's
+  column (the pane took the keyboard; letters typed went into its file), the wheel over that
+  column (the pane scrolled, its band followed); the right-click menu, "Hide minimap" (columns
+  and the setting gone); Ctrl+Shift+M (back); the window made 700 wide (both columns hidden),
+  980 (both back) and 1280; Shift+F9 on the 50,000-line file (thousands of folds), a press and a
+  drag on the column; word wrap on in a 760 px window, a drag on the column and the wheel (the
+  band moved with wrapped lines in view); the results panel open (`--find-in-tabs`) with the
+  column above it, and the find marks at the column's right edge; a plain `.txt` file (a press
+  centred the view); the 1 MB single-line file (no stall, typed in it).
+- **Not run:** scale other than 1.0 in a real window (shots at 1.5 and 2.0 only); Linux; a drag
+  on the second pane's column (a press and the wheel were run); a drag with folds and wrap
+  together; two large files in a split; typing with the split timed; the keyboard-only paths of
+  the right-click menu (Escape, Enter); the column with the Files pane open; a selection of
+  many carets over a long window (the code sorts them and looks at the window's lines only; no
+  test with thousands); idle CPU in a real window by a tool (only `--trace`). The owner has seen
+  the first part, not these additions.
 
 ## Minimap (2026-11-13, asked by the owner: "a minimap like Sublime Text")
 
@@ -327,7 +400,8 @@ session; not released, version not changed (still 0.3.2), nothing pushed to othe
   edit in a real window beyond the typing above; idle CPU in a real window with the column on
   (only the `--trace` figures); typing with the split view open. **What is not built:** selection
   and find marks, bookmarks and the caret in the column, one row per wrapped row, the second pane's
-  column, a width setting, a key for the command. The owner has not seen any of it.
+  column, a width setting, a key for the command. (Of these, the marks, the second pane's column
+  and the key were built later the same day: see "Minimap, finished" above.)
 
 ## Update look at every launch, and submenus on mouse-over (2026-11-13, 0.3.2, asked by the owner)
 

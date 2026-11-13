@@ -87,6 +87,21 @@ pub enum Wake {
     Update(crate::updater::Event),
 }
 
+/// A minimap's window and band for a document laid out as `g`, in the column `rect`.
+fn make_plan(r: &mut crate::docs::Ready, g: &view::Geom, rect: Rect, scale: f32) -> minimap::Plan {
+    let scene = view::map_scene(r, g);
+    let col_h = (rect.bottom() * scale).round() as i32 - (rect.y * scale).round() as i32;
+    let px = minimap::Px::new(scale);
+    minimap::Plan::with_range(
+        scene.rows,
+        scene.first,
+        scene.span,
+        scene.range,
+        px.row_h(),
+        col_h,
+    )
+}
+
 fn sig<T: Hash>(t: T) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     t.hash(&mut h);
@@ -129,14 +144,15 @@ struct App {
     maximized: bool,
     focused: bool,
     areas: Areas,
-    hits: [Vec<(Hit, Rect)>; 8],
+    hits: [Vec<(Hit, Rect)>; 9],
     overlay_hits: Vec<(Hit, Rect)>,
-    sigs: [u64; 8],
+    sigs: [u64; 9],
     /// The minimap's window and band as of the last frame, the lines of its window, and its
     /// drawing.
-    map_plan: Option<minimap::Plan>,
-    map_lines: Option<std::ops::Range<usize>>,
-    map_cache: minimap::Cache,
+    /// One of each for the pane with the keyboard and for the second pane.
+    map_plan: [Option<minimap::Plan>; 2],
+    map_lines: [Option<std::ops::Range<usize>>; 2],
+    map_cache: [minimap::Cache; 2],
     caret_sig: u64,
     /// The caret's line at the last text repaint.
     caret_line: Option<usize>,
@@ -228,10 +244,10 @@ impl App {
             areas: Areas::default(),
             hits: Default::default(),
             overlay_hits: Vec::new(),
-            sigs: [0; 8],
-            map_plan: None,
-            map_lines: None,
-            map_cache: minimap::Cache::default(),
+            sigs: [0; 9],
+            map_plan: [None; 2],
+            map_lines: [None, None],
+            map_cache: Default::default(),
             caret_sig: 0,
             caret_line: None,
             overlay_sig: 0,
@@ -436,34 +452,46 @@ impl App {
         r.colors.requested = Some((want, dark));
     }
 
-    /// Where the minimap's window and band are, from the view's layout of this frame.
-    fn minimap_plan(&mut self, geom: Option<view::Geom>) -> Option<minimap::Plan> {
-        let rect = self.areas.minimap?;
-        let g = geom?;
-        let scale = self.scale;
-        let r = self.docs.active_ready_mut()?;
-        let scene = view::map_scene(r, &g);
-        let col_h = (rect.bottom() * scale).round() as i32 - (rect.y * scale).round() as i32;
-        let px = minimap::Px::new(scale);
-        Some(minimap::Plan::new(
-            scene.rows,
-            scene.first,
-            scene.span,
-            px.row_h(),
-            col_h,
-        ))
+    /// The document of a pane: 0 is the one with the keyboard, 1 the second pane's.
+    fn pane_doc_mut(&mut self, pane: usize) -> Option<&mut crate::docs::Doc> {
+        if pane == 0 {
+            self.docs.active_doc_mut()
+        } else {
+            let i = self.docs.other()?;
+            Some(&mut self.docs.tabs[i])
+        }
     }
 
-    /// The colours of the minimap's window: asked for apart from the view's, with half a window
-    /// more each side, when the window has left what was asked last, the theme changed or an edit
-    /// made the answer stale.
-    fn request_colours_map(&mut self) {
-        self.map_lines = None;
+    fn minimap_rect(&self, pane: usize) -> Option<Rect> {
+        if pane == 0 {
+            self.areas.minimap
+        } else {
+            self.areas.minimap_other
+        }
+    }
+
+    /// Where a pane's minimap window and band are, from the view's layout of this frame.
+    fn minimap_plan(&mut self, pane: usize, geom: Option<view::Geom>) -> Option<minimap::Plan> {
+        let rect = self.minimap_rect(pane)?;
+        let g = geom?;
+        let scale = self.scale;
+        let r = self.pane_doc_mut(pane)?.ready_mut()?;
+        Some(make_plan(r, &g, rect, scale))
+    }
+
+    /// The colours of a pane's minimap window: asked for apart from the view's, with half a
+    /// window more each side, when the window has left what was asked last, the theme changed or
+    /// an edit made the answer stale.
+    fn request_colours_map(&mut self, pane: usize) {
+        self.map_lines[pane] = None;
         let dark = self.dark();
-        let (Some(service), Some(plan)) = (&self.service, self.map_plan) else {
+        let Some(plan) = self.map_plan[pane] else {
             return;
         };
-        let Some(doc) = self.docs.active_doc_mut() else {
+        if self.service.is_none() {
+            return;
+        }
+        let Some(doc) = self.pane_doc_mut(pane) else {
             return;
         };
         let (id, revision) = (doc.id, doc.revision);
@@ -472,15 +500,17 @@ impl App {
         };
         let (first, n) = (plan.first_row(), plan.row_count());
         let win = minimap::lines_of_rows(first..first + n, |row| r.folds.line_at_row(row));
-        self.map_lines = Some(win.clone());
         let ok = matches!(&r.map_colors.requested, Some((req, d))
             if *d == dark && win.start >= req.start && win.end <= req.end);
-        if ok {
-            return;
+        let want = (!ok)
+            .then(|| minimap::lines_of_rows(plan.colour_rows(), |row| r.folds.line_at_row(row)));
+        if let Some(want) = &want {
+            r.map_colors.requested = Some((want.clone(), dark));
         }
-        let want = minimap::lines_of_rows(plan.colour_rows(), |row| r.folds.line_at_row(row));
-        service.map(id, revision, want.clone());
-        r.map_colors.requested = Some((want, dark));
+        self.map_lines[pane] = Some(win);
+        if let (Some(want), Some(service)) = (want, &self.service) {
+            service.map(id, revision, want);
+        }
     }
 
     /// Loading, colouring and searching have nothing left for the active document.
@@ -507,16 +537,19 @@ impl App {
                 }
                 // The second pane's colours too.
                 let other = self.docs.other().and_then(|i| self.docs.tabs[i].ready());
-                // The minimap's window too, once it has been laid out.
+                // The minimaps' windows too, once they have been laid out.
                 let dark = self.dark();
-                (!minimap
-                    || self
-                        .map_lines
-                        .as_ref()
-                        .is_none_or(|w| r.map_colors.covers(w, dark)))
+                let mapped = |pane: usize, r: &crate::docs::Ready| {
+                    !minimap
+                        || self.map_lines[pane]
+                            .as_ref()
+                            .is_none_or(|w| r.map_colors.covers(w, dark))
+                };
+                mapped(0, r)
                     && r.colors.covers(&view::shown_lines(r), self.dark())
                     && other.is_none_or(|o| {
-                        !o.colourable || o.colors.covers(&view::shown_lines(o), self.dark())
+                        !o.colourable
+                            || (o.colors.covers(&view::shown_lines(o), self.dark()) && mapped(1, o))
                     })
             }
         }
@@ -672,8 +705,14 @@ impl App {
                     self.docs.whitespace,
                 ))
             }
-            Region::Minimap => {
-                let Some(doc) = self.docs.active().map(|i| &self.docs.tabs[i]) else {
+            Region::Minimap | Region::MinimapOther => {
+                let pane = usize::from(r == Region::MinimapOther);
+                let shown = if pane == 0 {
+                    self.docs.active()
+                } else {
+                    self.docs.other()
+                };
+                let Some(doc) = shown.map(|i| &self.docs.tabs[i]) else {
                     return sig((common, "empty"));
                 };
                 let state = doc.ready().map(|r| {
@@ -682,9 +721,14 @@ impl App {
                         r.colors.generation,
                         r.folds.ranges(),
                         r.buffer.len_lines(),
+                        // What the column marks over the rows.
+                        (r.sel.range(), r.sel.caret, pane == 0),
+                        (!r.extra.is_empty()).then(|| sig(&r.extra)),
+                        (r.find.generation, r.find.current),
+                        &r.bookmarks,
                     ))
                 });
-                let plan = self.map_plan.map(|p| {
+                let plan = self.map_plan[pane].map(|p| {
                     (
                         p.top_px,
                         p.rows,
@@ -693,7 +737,7 @@ impl App {
                         p.band_rows.to_bits(),
                     )
                 });
-                let drag = matches!(ui.drag, Some(Drag::Minimap { .. }));
+                let drag = matches!(ui.drag, Some(Drag::Minimap { doc: d, .. }) if d == doc.id);
                 sig((common, doc.id, doc.revision, plan, state, self.dark(), drag))
             }
             Region::Status => sig((common, status::fields(&self.docs), self.dark())),
@@ -763,14 +807,16 @@ impl App {
         if let Some(doc) = self.docs.active_doc_mut() {
             geom = self.view.layout(doc, text, self.scale);
         }
+        let mut geom_other = None;
         if let (Some(rect), Some(i)) = (self.areas.other, self.docs.other()) {
             let inner = crate::ui::split_inner(rect, self.docs.other_left, 1.0 / self.scale);
-            self.view.layout(&mut self.docs.tabs[i], inner, self.scale);
+            geom_other = self.view.layout(&mut self.docs.tabs[i], inner, self.scale);
         }
         self.request_colours();
         self.request_colours_other();
-        self.map_plan = self.minimap_plan(geom);
-        self.request_colours_map();
+        self.map_plan = [self.minimap_plan(0, geom), self.minimap_plan(1, geom_other)];
+        self.request_colours_map(0);
+        self.request_colours_map(1);
         self.follow_active_file();
         let waker = self.docs.waker();
         self.ui
@@ -779,7 +825,7 @@ impl App {
         times.layout = t0.elapsed();
 
         let t1 = Instant::now();
-        let mut dirty = [self.full; 8];
+        let mut dirty = [self.full; 9];
         for r in REGIONS {
             let rect = self.areas.region(r);
             let s = self.region_sig(r, rect);
@@ -991,18 +1037,36 @@ impl App {
                             times.paint = self.view.draw(&mut c, doc, rect, &ds, None);
                         }
                     },
-                    Region::Minimap => {
-                        let hot = hover == Some(Hit::Minimap)
-                            || matches!(self.ui.drag, Some(Drag::Minimap { .. }));
-                        let shown = self.docs.active_doc();
-                        let r = shown.and_then(|d| d.ready().map(|r| (r, d.id, d.revision)));
+                    Region::Minimap | Region::MinimapOther => {
+                        let pane = usize::from(r == Region::MinimapOther);
+                        let shown = if pane == 0 {
+                            self.docs.active()
+                        } else {
+                            self.docs.other()
+                        };
+                        let doc = shown.map(|i| &self.docs.tabs[i]);
+                        let hit = if pane == 0 {
+                            Hit::Minimap
+                        } else {
+                            Hit::MinimapOther
+                        };
+                        let hot = hover == Some(hit)
+                            || matches!(self.ui.drag, Some(Drag::Minimap { doc: d, .. })
+                                if Some(d) == doc.map(|d| d.id));
+                        let ready = doc.and_then(|d| d.ready().map(|r| (r, d.id, d.revision)));
+                        let look = minimap::Look {
+                            hot,
+                            keyboard: pane == 0,
+                            right_line: pane == 1 && self.docs.other_left,
+                            hit,
+                        };
                         minimap::draw(
                             &mut c,
-                            &mut self.map_cache,
-                            r,
-                            self.map_plan.as_ref(),
+                            &mut self.map_cache[pane],
+                            ready,
+                            self.map_plan[pane].as_ref(),
                             rect,
-                            hot,
+                            look,
                         );
                     }
                     Region::Status => status::draw(&mut c, &self.docs, rect),
@@ -1023,7 +1087,11 @@ impl App {
                             let doc = &mut self.docs.tabs[i];
                             self.view.draw(&mut c, doc, inner, &quiet, None);
                             let x = if left { rect.right() - px } else { rect.x };
-                            c.p.fill(Rect::new(x, rect.y, px, rect.h), pal.line);
+                            // With a minimap beside it that draws the line, where the panes
+                            // part, itself.
+                            if self.areas.minimap_other.is_none() || !left {
+                                c.p.fill(Rect::new(x, rect.y, px, rect.h), pal.line);
+                            }
                             c.hits.clear();
                             c.hit(Hit::Other, rect);
                         }
@@ -1665,8 +1733,9 @@ impl App {
         }
         self.request_colours();
         self.request_colours_other();
-        self.map_plan = self.minimap_plan(geom);
-        self.request_colours_map();
+        self.map_plan = [self.minimap_plan(0, geom), None];
+        self.request_colours_map(0);
+        self.request_colours_map(1);
     }
 
     /// Applies `--goto`, `--select`, `--find`, `--scroll` and `--hscroll` once the active

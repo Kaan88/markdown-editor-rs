@@ -22,13 +22,19 @@ pub const WIDTH: f32 = 96.0;
 /// The text area keeps at least this width (logical px) beside the minimap, or the minimap hides.
 pub const TEXT_MIN: f32 = 320.0;
 /// How much of a character's colour shows over the page.
-const INK_A: f32 = 0.6;
+const INK_A: f32 = 0.78;
 /// The viewport band: the text colour at this alpha, and while the pointer is over the column or
 /// dragging.
 const BAND_A: f32 = 0.08;
 const BAND_HOT_A: f32 = 0.14;
 /// Bytes of a line read for its marks; the column is cut well before this many columns.
 const LINE_BYTES: usize = 512;
+/// The caret's row: the text colour at this alpha over the full width.
+const CARET_A: f32 = 0.22;
+/// The selection's colour over the rows.
+const SEL_A: f32 = 0.55;
+/// Find matches marked at most per drawing.
+const MATCHES_MAX: usize = 4096;
 /// Lines a request for colours covers at most (folds can hide many lines in the window).
 const LINES_MAX: usize = 10_000;
 
@@ -129,18 +135,40 @@ pub struct Plan {
     /// The editor's view in rows: where it starts (fractional) and how many it spans.
     pub band_first: f64,
     pub band_rows: f64,
+    /// What the band's first row is counted over to give the scroll fraction: the rows less the
+    /// band's, or with word wrap the rows less one, as the editor's own scrollbar has it.
+    pub range: f64,
 }
 
 impl Plan {
     /// When all rows fit the column the document starts at its top; when they do not, the column
     /// scrolls in proportion to the editor: `top = fraction * (rows_px - column_px)`, where the
     /// fraction is the band's place over its range.
+    #[cfg(test)]
     pub fn new(rows: usize, band_first: f64, band_rows: f64, rh: i32, col_h: i32) -> Plan {
+        Plan::with_range(
+            rows,
+            band_first,
+            band_rows,
+            rows as f64 - band_rows,
+            rh,
+            col_h,
+        )
+    }
+
+    /// [`new`](Self::new) with the editor's scroll range given.
+    pub fn with_range(
+        rows: usize,
+        band_first: f64,
+        band_rows: f64,
+        range: f64,
+        rh: i32,
+        col_h: i32,
+    ) -> Plan {
         let rh = rh.max(1);
         let total = rows as i64 * rh as i64;
-        let span = rows as f64 - band_rows;
-        let fraction = if span > 0.0 {
-            (band_first / span).clamp(0.0, 1.0)
+        let fraction = if range > 0.0 {
+            (band_first / range).clamp(0.0, 1.0)
         } else {
             0.0
         };
@@ -157,6 +185,7 @@ impl Plan {
             top_px,
             band_first,
             band_rows,
+            range,
         }
     }
 
@@ -208,7 +237,7 @@ impl Plan {
     /// Where the band starts when its top is at `y` device px from the column's top: the inverse
     /// of the column's scrolling, so that dragging moves the band with the pointer.
     pub fn first_for_band_top(&self, y: f64) -> f64 {
-        let span = self.rows as f64 - self.band_rows;
+        let span = self.range;
         if span <= 0.0 {
             return 0.0;
         }
@@ -225,7 +254,7 @@ impl Plan {
 
     /// Where the band starts to centre the view on the row under `y`.
     pub fn first_to_centre_on(&self, y: f64) -> f64 {
-        let span = (self.rows as f64 - self.band_rows).max(0.0);
+        let span = self.range.max(0.0);
         (self.row_at(y) as f64 + 0.5 - self.band_rows / 2.0).clamp(0.0, span)
     }
 
@@ -281,7 +310,7 @@ pub fn draw(
     r: Option<(&Ready, u64, u64)>,
     plan: Option<&Plan>,
     rect: Rect,
-    hot: bool,
+    look: Look,
 ) {
     let pal = *c.pal;
     let scale = c.p.scale;
@@ -290,7 +319,10 @@ pub fn draw(
     c.p.fill(rect, pal.page);
     let hair = (scale.round() as i32).max(1);
     c.p.fill_dev(x0, y0, x0 + hair, y1, pal.line, 1.0);
-    c.hit(crate::ui::Hit::Minimap, rect);
+    if look.right_line {
+        c.p.fill_dev(x1 - hair, y0, x1, y1, pal.line, 1.0);
+    }
+    c.hit(look.hit, rect);
     let (Some((r, id, revision)), Some(plan)) = (r, plan) else {
         return;
     };
@@ -333,10 +365,167 @@ pub fn draw(
         c.p.blit(bmp, 0, h, x0, y0);
     }
     c.p.fill_dev(x0, y0, x0 + hair, y1, pal.line, 1.0);
+    let right = x1 - if look.right_line { hair } else { 0 };
+    marks(c, r, plan, (x0, y0, right), look.keyboard);
     let (b0, b1) = plan.band();
     if b1 > b0 {
-        let a = if hot { BAND_HOT_A } else { BAND_A };
-        c.p.fill_dev(x0 + hair, y0 + b0, x1, y0 + b1, pal.text, a);
+        let a = if look.hot { BAND_HOT_A } else { BAND_A };
+        c.p.fill_dev(x0 + hair, y0 + b0, right, y0 + b1, pal.text, a);
+    }
+}
+
+/// How the column is drawn this time.
+#[derive(Clone, Copy, Debug)]
+pub struct Look {
+    /// The pointer is over the column or a drag runs.
+    pub hot: bool,
+    /// The pane has the keyboard: its caret's row is marked.
+    pub keyboard: bool,
+    /// A hairline at the right edge too (the left pane's column, where the panes part).
+    pub right_line: bool,
+    /// The hit the column is: the pane's own.
+    pub hit: crate::ui::Hit,
+}
+
+/// The column of byte `byte` of a line's text: characters one column each, tabs to the next
+/// multiple of `tab`.
+pub fn col_of(text: impl Iterator<Item = char>, byte: usize, tab: usize) -> usize {
+    let tab = tab.max(1);
+    let (mut col, mut b) = (0, 0);
+    for ch in text {
+        if b >= byte {
+            break;
+        }
+        col += if ch == '\t' { tab - col % tab } else { 1 };
+        b += ch.len_utf8();
+    }
+    col
+}
+
+/// The columns a selection covers of one line. `line` is the line's bytes without its break,
+/// `next` where the line after it starts. `None` when nothing of the line is selected; otherwise
+/// the first column and where it ends, `None` there meaning the selection runs through the
+/// line's end (the break is selected) and the mark takes the rest of the row.
+pub fn sel_cols(
+    text: &str,
+    line: Range<usize>,
+    next: usize,
+    sel: Range<usize>,
+    tab: usize,
+) -> Option<(usize, Option<usize>)> {
+    if sel.start >= next || sel.end <= line.start {
+        return None;
+    }
+    let through = sel.end > line.end && next > line.end;
+    let a = sel.start.saturating_sub(line.start);
+    let b = sel.end.min(line.end) - line.start;
+    let from = col_of(text.chars(), a, tab);
+    if through {
+        return Some((from, None));
+    }
+    let to = col_of(text.chars(), b, tab);
+    (to > from).then_some((from, Some(to)))
+}
+
+/// Draws the marks over the rows of the window: the caret's row, the selections, the find
+/// matches at the right edge, the bookmarks at the left. Only the window's lines are looked at.
+/// `at` is the column's left, top and right edge in device px.
+fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: bool) {
+    let count = plan.row_count();
+    if count == 0 {
+        return;
+    }
+    let pal = *c.pal;
+    let scale = c.p.scale;
+    let (x0, y0, x1) = at;
+    let px = Px::new(scale);
+    let hair = (scale.round() as i32).max(1);
+    let pad = ((4.0 * scale).round() as i32).max(1);
+    let left = x0 + hair + pad;
+    let max_cols = ((x1 - left - pad) / px.col).max(0);
+    let first = plan.first_row();
+    let (first_line, last_line) = (
+        r.folds.line_at_row(first),
+        r.folds.line_at_row(first + count - 1),
+    );
+    let buf = &r.buffer;
+    let (ws, we) = (
+        buf.line_range(first_line).start,
+        buf.line_range_with_break(last_line).end,
+    );
+    // The top of a line's row, if the line is in the window.
+    let row_y = |line: usize| -> Option<i32> {
+        if line < first_line || line > last_line || r.folds.is_hidden(line) {
+            return None;
+        }
+        let k = r.folds.row_of(line).checked_sub(first)?;
+        (k < count).then(|| y0 + k as i32 * plan.rh - plan.offset())
+    };
+    let mut fill = |x: i32, y: i32, w: i32, h: i32, col: Rgb, a: f32| {
+        c.p.fill_dev(x, y, x + w, y + h, col, a);
+    };
+    if keyboard && let Some(y) = row_y(buf.line_of(r.sel.caret)) {
+        fill(x0 + hair, y, x1 - x0 - hair, px.ink, pal.text, CARET_A);
+    }
+    // Selections: the primary one and the others of several carets, those in the window.
+    let mut sels: Vec<Range<usize>> = std::iter::once(r.sel.range())
+        .chain(r.extra.iter().map(|s| s.range()))
+        .filter(|s| s.start < we && s.end > ws && s.start < s.end)
+        .collect();
+    sels.sort_by_key(|s| s.start);
+    let mut text = String::new();
+    for s in &sels {
+        let (a, b) = (buf.line_of(s.start.max(ws)), buf.line_of(s.end.min(we)));
+        for line in a.max(first_line)..=b.min(last_line) {
+            let Some(y) = row_y(line) else { continue };
+            let range = buf.line_range(line);
+            let next = buf.line_range_with_break(line).end;
+            let end = (range.start + LINE_BYTES).min(range.end);
+            let rope = buf.rope();
+            let end = rope.char_to_byte(rope.byte_to_char(end));
+            text.clear();
+            text.extend(rope.byte_slice(range.start..end).chars());
+            let Some((from, to)) = sel_cols(&text, range.clone(), next, s.clone(), TAB_WIDTH)
+            else {
+                continue;
+            };
+            let from = (from as i32).min(max_cols);
+            let to = to.map_or(max_cols, |t| (t as i32).min(max_cols));
+            if to > from {
+                fill(
+                    left + from * px.col,
+                    y,
+                    (to - from) * px.col,
+                    px.row_h(),
+                    pal.selection,
+                    SEL_A,
+                );
+            }
+        }
+    }
+    // Find matches: a mark at the row's right edge.
+    let all = &r.find.matches;
+    let a = all.partition_point(|m| m.end <= ws);
+    let b = all.partition_point(|m| m.start < we);
+    let mw = ((3.0 * scale).round() as i32).max(1);
+    for (k, m) in all[a..b.max(a)].iter().enumerate().take(MATCHES_MAX) {
+        let Some(y) = row_y(buf.line_of(m.start)) else {
+            continue;
+        };
+        let col = if r.find.current == Some(a + k) {
+            pal.find_current
+        } else {
+            pal.find_mark
+        };
+        fill(x1 - mw, y, mw, px.ink, col, 0.95);
+    }
+    // Bookmarks: a mark at the row's left edge.
+    let a = r.bookmarks.partition_point(|&l| l < first_line);
+    let b = r.bookmarks.partition_point(|&l| l <= last_line);
+    for &line in &r.bookmarks[a..b.max(a)] {
+        if let Some(y) = row_y(line) {
+            fill(x0 + hair, y, mw, px.ink, pal.accent, 1.0);
+        }
     }
 }
 
@@ -488,6 +677,53 @@ mod tests {
             segs("abcd", &[span(0, 2, red)], 100),
             [(0, 2, Some(red)), (2, 2, None)]
         );
+    }
+
+    #[test]
+    fn columns_follow_tabs_and_bytes() {
+        assert_eq!(col_of("abc".chars(), 2, 4), 2);
+        assert_eq!(col_of("a\tb".chars(), 2, 4), 4);
+        assert_eq!(col_of("\u{e7}b".chars(), 2, 4), 1);
+        assert_eq!(col_of("abc".chars(), 99, 4), 3);
+        assert_eq!(col_of("".chars(), 0, 4), 0);
+    }
+
+    #[test]
+    fn a_selection_covers_columns_or_the_rest_of_the_row() {
+        // The line "hello world" is bytes 10..21, the next line starts at 22.
+        let (t, line, next) = ("hello world", 10..21, 22);
+        let s = |r: std::ops::Range<usize>| sel_cols(t, line.clone(), next, r, 4);
+        assert_eq!(s(12..15), Some((2, Some(5))));
+        assert_eq!(s(10..21), Some((0, Some(11))));
+        // Through the break: the rest of the row.
+        assert_eq!(s(10..22), Some((0, None)));
+        assert_eq!(s(15..40), Some((5, None)));
+        // From an earlier line through this one.
+        assert_eq!(s(0..16), Some((0, Some(6))));
+        assert_eq!(s(0..40), Some((0, None)));
+        // Not this line.
+        assert_eq!(s(0..10), None);
+        assert_eq!(s(22..30), None);
+        assert_eq!(s(12..12), None);
+        // An empty line selected through its break is a full row.
+        assert_eq!(sel_cols("", 30..30, 31, 25..40, 4), Some((0, None)));
+        // The last line, with no break: to its end.
+        assert_eq!(sel_cols("ab", 5..7, 7, 5..7, 4), Some((0, Some(2))));
+        // Tabs count to the stop.
+        assert_eq!(sel_cols("a\tb", 0..3, 4, 2..3, 4), Some((4, Some(5))));
+    }
+
+    #[test]
+    fn a_wrapped_view_scrolls_over_the_rows_less_one() {
+        // 1000 rows, the band 10 rows high, in a 600 px column: the fraction is first / 999.
+        let p = Plan::with_range(1000, 499.5, 10.0, 999.0, 3, 600);
+        assert_eq!(p.top_px, (0.5 * 2400.0) as i32);
+        let end = Plan::with_range(1000, 999.0, 1.0, 999.0, 3, 600);
+        assert_eq!(end.top_px, 2400);
+        // The drag inverts it over the same range.
+        let y = p.band().0 as f64;
+        assert!((p.first_for_band_top(y) - 499.5).abs() < 2.0);
+        assert_eq!(p.first_for_band_top(1.0e9), 999.0);
     }
 
     #[test]

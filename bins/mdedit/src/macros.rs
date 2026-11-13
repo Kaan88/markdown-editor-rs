@@ -102,6 +102,12 @@ mod tests {
     use mdshared_ui::keys::KeyName;
 
     #[test]
+    fn the_minimap_toggle_is_recorded_as_word_wrap_is() {
+        assert_eq!(recordable(C::ToggleMinimap), recordable(C::ToggleWrap));
+        assert!(recordable(C::ToggleMinimap));
+    }
+
+    #[test]
     fn a_recording_takes_keys_and_becomes_the_macro() {
         let mut m = Macros::default();
         let key = Key::Name(KeyName::Char('a'));

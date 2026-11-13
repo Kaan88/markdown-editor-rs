@@ -128,6 +128,11 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
     Menu::new(items, x, y, align_right)
 }
 
+/// The minimap's right-click menu: one item.
+pub fn minimap_menu(x: f32, y: f32) -> Menu<Act> {
+    Menu::new(vec![cmd(C::ToggleMinimap, "Hide minimap", "")], x, y, false)
+}
+
 pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     let many = docs.tabs.len() > 1;
     let has_file = docs.tabs.get(index).is_some_and(|d| d.path.is_some());

@@ -855,16 +855,22 @@ rows are many (`app/input.rs`). `Ready::changed` gives each edit to `Folds::shif
 
 A narrow column at the right edge of the text area that shows the document in miniature, with
 the part the editor shows marked. Off by default; View > Minimap (no key), `--minimap` for shots,
-kept in the session as `minimap=1`. `bins/mdedit/src/minimap.rs` holds the pure parts and the
+kept in the session as `minimap=1`, and Ctrl+Shift+M (also a right click on the column: "Hide
+minimap"). `bins/mdedit/src/minimap.rs` holds the pure parts and the
 drawing; `view.rs` (`map_scene`, `map_scroll`) and `app.rs` / `app/input.rs` wire it in.
 
-**Region.** `Region::Minimap` (the eighth), `Areas::minimap`, `Hit::Minimap`, `Drag::Minimap`.
+**Region.** `Region::Minimap` and `Region::MinimapOther` (the eighth and ninth), `Areas::minimap`
+and `minimap_other`, `Hit::Minimap` and `Hit::MinimapOther`, `Drag::Minimap { grab, doc }`.
 `Areas::with_minimap` runs after the results panel and the split: it takes 96 logical px off the
-right of `text` (the pane with the keyboard, in a split view; the other pane keeps its width) and
-gives them to the new region, full height, unless the text would be left under 320 px. So the
+right of `text` and of `other` (each pane of a split view has its own column, at its own right
+edge) and gives them to the new regions, full height, unless a pane would be left with under
+320 px. The second pane's region is its text and no more, so its column is beside it; where the
+panes part, the line is the second pane's own when it is on the right, and the left pane's
+column draws it at its right edge when it is on the left. So the
 text, its gutter and its vertical scrollbar simply get a narrower rectangle; `view.rs` does not
 know the column is there. It repaints alone, and it has no signature of its own beyond the
-document's revision, the view's place, the colour answers, the theme and the pointer.
+document's revision, the view's place, the colour answers, the theme, the pointer and what the
+column marks (below).
 
 **Rows.** One row per line that shows (`Folds::line_at_row` maps a row to its line; folded lines
 are skipped; word wrap is ignored). A row is 2 px of ink and 1 px of gap at scale 1.0, a character
@@ -877,15 +883,23 @@ repaint caused only by the pointer entering the band does not draw the rows agai
 keyed by document, revision, window start, both colour generations, folds, theme, scale and size.
 Typing re-draws the window (about 250 rows) in the same frame as the text.
 
-**Window.** `Plan::new(rows, band_first, band_rows, row_h, column_h)`. When all rows fit, the
+**Window.** `Plan::with_range(rows, band_first, band_rows, range, row_h, column_h)`. When all rows fit, the
 document starts at the top. Otherwise `top_px = fraction * (rows_px - column_px)`, where the
 fraction is the band's first row over its range, which for a view without word wrap is exactly the
 editor's scroll position over its scroll range. The window is at most `column_h / row_h` rows
 however large the file is; nothing walks the document (a row count is `len_lines` less the folds'
 prefix sum). With word wrap the band is the lines from the view's top line to the one at its
-bottom, and the fraction is taken over those.
+bottom, to a wrapped row: a line's row is shared equally by its wrapped rows, so the band starts
+and ends at the fraction of a line that the top and the bottom row of the view are. The bottom
+row can be only partly in view and counts whole, so the band can be up to one wrapped row too
+tall; its top is exact to a wrapped row. The scroll fraction is the editor's own with wrap, the
+top line over the lines less one (`Plan::range`), and a press or drag sets the top line and the
+wrapped row in it (`view::map_scroll`).
 
-**Colours.** Each segment takes its colour in the editor at 60 % over the page; a line without
+**Colours.** Each segment takes its colour in the editor at 78 % over the page (60 % was tried
+first and compared with 78 % in a light and a dark shot: at 60 % the bars read mostly grey and
+comments, strings and keywords were hard to tell apart; at 78 % they are told apart at a glance
+and the column is still quieter than the text); a line without
 colours uses `foreground(dark)` the same way. They come from the highlight worker with a new
 request, `HighlightService::map`, answered in a `Colored` with `map` set and stored in
 `Ready::map_colors`. `peek` could not be used: the worker keeps one request slot per document and
@@ -897,6 +911,16 @@ holds half a window more each side), the theme changes, or an edit makes the ans
 Until an answer arrives a line is drawn with the editor's own colours when it has them, else in
 the text colour. The first frame does not wait for these answers (`--shot` does).
 
+**Marks.** Drawn over the rows each time the column is drawn, from what the editor already
+keeps, and only for the window's lines: the selections (primary and several carets) in the
+editor's selection colour at the same column scale, the whole row width for a line selected
+through its end (`sel_cols`); the caret's row, a full-width line in the text colour at low alpha
+(only in the pane with the keyboard); the find matches, a 3 px mark at the row's right edge for
+those of `Ready::find.matches` inside the window (the current one in its own colour; at most 4096
+a drawing; no search of its own); the bookmarks, a mark at the row's left edge in the accent
+colour. They are not in the cached bitmap, so a caret move redraws the column (blit and marks)
+and nothing else.
+
 **Band and pointer.** The rows in view get the text colour at 8 % (14 % while the pointer is over
 the column or a drag runs). A press outside the band centres the view on the row pressed
 (`first_to_centre_on`) and then holds the band where it ended up, so a drag moves it by as many
@@ -905,10 +929,14 @@ band's wanted top into the view's first row with the inverse of the column's scr
 (`first_for_band_top`), so the band follows the pointer exactly and nothing feeds back. In a file
 too long for its rows to fit, the band after a press is generally not under the pointer: the
 minimap scrolls with the editor, as Sublime's does. The wheel over the column scrolls the text as
-it does over the text. No tooltip, no context menu.
+it does over the text. A press on the second pane's column acts on that pane's document and
+gives it the keyboard, as a click on its text does; the wheel over it scrolls that pane. No
+tooltip. A right click opens a menu with one item, "Hide minimap" (the command).
 
-**Not shown:** the selection, find matches, bookmarks, the caret; wide (CJK) characters count one
-column.
+**Macros.** The toggle is recordable in a macro, as Word wrap and Show whitespace are (it is not
+in `macros::recordable`'s list of exclusions).
+
+**Not built:** one row per wrapped row; a width setting; wide (CJK) characters count one column.
 
 ## 19. Unsaved text survives a close (2026-11-13)
 
