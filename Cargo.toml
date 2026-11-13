@@ -27,11 +27,11 @@ unicode-width = { version = "0.2", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "nfa-pikevm", "nfa-backtrack", "dfa-onepass", "hybrid", "perf-literal", "unicode"] }
 parley = "=0.12.0"
 bytemuck = "1.25"
-mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "843b50f3cc025480ee06226be1247d38df7442a2" }
-mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "843b50f3cc025480ee06226be1247d38df7442a2" }
-mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "843b50f3cc025480ee06226be1247d38df7442a2" }
-mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "843b50f3cc025480ee06226be1247d38df7442a2" }
-mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "843b50f3cc025480ee06226be1247d38df7442a2" }
+mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e244ec3ed5b62d9e38e2a894d4f3d242d11b6c8" }
+mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e244ec3ed5b62d9e38e2a894d4f3d242d11b6c8" }
+mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e244ec3ed5b62d9e38e2a894d4f3d242d11b6c8" }
+mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e244ec3ed5b62d9e38e2a894d4f3d242d11b6c8" }
+mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e244ec3ed5b62d9e38e2a894d4f3d242d11b6c8" }
 
 [profile.release]
 opt-level = 3
@@ -140,6 +140,14 @@ opt-level = "s"
 [profile.release.package.utf8_iter]
 opt-level = "s"
 [profile.release.package.zeno]
+opt-level = "s"
+# The glue around syntect and the hand-written scanners; syntect itself stays at 3.
+[profile.release.package.mdshared-highlight]
+opt-level = "s"
+# The shell itself: with fat LTO this is where the generic code of every crate is made, and
+# building it for size takes 510 KB off the exe. Measured before and after (2026-11-13):
+# window shown, keystroke, scroll step and the 100 MB load are the same within the noise.
+[profile.release.package.mdedit]
 opt-level = "s"
 # The function list runs on a worker thread.
 [profile.release.package.mdedit-outline]

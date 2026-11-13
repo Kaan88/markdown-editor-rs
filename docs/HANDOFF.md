@@ -14,7 +14,7 @@ Three public repositories under `Kaan88`, all MIT, all pushed and clean on `main
 | `markdown-shared-rs` | The crates both applications use | `843b50f` |
 | `markdown-editor-rs` | `mdedit`, this repository | this commit |
 
-The editor pins the shared repository by `rev` in its root `Cargo.toml`, since 2026-11-13 at
+The editor pins the shared repository by `rev` in its root `Cargo.toml` (see "Linux in a real window" for the current one), earlier on 2026-11-13 at
 `843b50f3cc025480ee06226be1247d38df7442a2`. Three shared commits were made from this repository's
 session on 2026-11-13: `a74aca4` (the updater's threads: `spawn_at_launch`, `spawn_check`,
 `spawn_install`, `unix_now`), `d0ec8b8` (`Language::line_comment`) and `843b50f` (`Menu::above`,
@@ -143,9 +143,7 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
   `cargo test --release --workspace` passes (372). `tests/shots.sh` renders 57 PNGs under Xvfb,
   byte-identical across two runs. Not done: a real X11/Wayland window, input, clipboard, file
   dialogs, IME, clippy. Known issues:
-  - Every icon draws as a tofu box: `mdshared-ui` (`gfx.rs` `ICON_FAMILY`) asks for Segoe Fluent
-    Icons / Segoe MDL2 Assets, which Linux does not have. Needs a bundled icon font or drawn
-    glyphs, in markdown-shared-rs. Not started.
+  - Fixed later the same day (see "Linux in a real window"): every icon drew as a box.
   - Debug-build `cargo test` fails four `mdedit-highlight` tests (no colours within the wait, even
     at 30 s); the same four fail on Windows. Tests are run with `--release`.
   - `platform.rs` `first_line` is dead code on Linux (one warning).
@@ -243,6 +241,51 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Linux in a real window, and room in the exe (2026-11-13, later)
+
+A Sonnet agent drove the editor on the VM (`dietpi@192.168.1.113`, Debian 13, LXDE and
+Openbox on X display `:0`) with xdotool, checking saved files' bytes. Its scripts and work
+files are in `~/mdedit-test/` there; it installed xdotool, xclip, wmctrl, scrot and zenity.
+
+- Worked, by file bytes or screenshot: typing, Enter, Backspace, Delete, undo, redo, save;
+  find, replace, replace all, go to line; a second launch handing its file to the first
+  window (not with `--no-session`, which also turns the hand-over off); Ctrl+Tab, Ctrl+N, the
+  Save changes question; reload when the file changes on disk; click, double click, wheel,
+  the right-click menu, the main menu, the theme button; word wrap, the function list, find
+  in files; move, resize and maximise through the hand-drawn title row (Openbox adds no
+  title bar of its own), minimise and close; the folding keys. Idle CPU over 20 s: one tick
+  focused, none unfocused. Window shown at 68 ms, keystroke p50 0.71 ms, the 100 MB file
+  read in 141 ms. `--trace` prints no memory or CPU figures on Linux.
+- Found and fixed in the shared repository, branch `feat/linux-desktop`, commit `1e244ec`
+  (on top of `b74e8cb`; everything in it is under `cfg(not(windows))`):
+  - Copy, cut and paste did nothing: the clipboard off Windows was a stub. It now uses
+    `arboard`, with one clipboard kept for the life of the process. Checked on X11 with
+    xclip both ways and between two editor windows. Not checked on Wayland.
+  - Every icon was a box. Off Windows the icons now come from a 7 KB subset of Microsoft's
+    Fluent UI System Icons (MIT, the licence is beside the font) built into the binary, with
+    a second code point for each name in `glyph.rs`. They are a little lighter and smaller
+    than Segoe's. Seen in pictures and sensible: those of the bars, menus, panes and
+    dialogs. Not seen in any picture: ZOOM, DELETE, LINK, POWER, SELECT_ALL, FULLSCREEN,
+    BACK_TO_WINDOW, IMAGE, COPY, CUT, PASTE, OPEN_WITH, MOON, WARN.
+- **The editor pins that branch commit** (`1e244ec3ed5b62d9e38e2a894d4f3d242d11b6c8`), not
+  the shared `main`: the push that would have moved `main` to it was refused in this session,
+  so the branch is waiting to be merged by the user (it is a fast-forward of `main`). The
+  viewer's pin was not touched.
+- File dialogs: nothing appeared on the VM, because `rfd` there needs either the desktop
+  portal or zenity and the VM had neither. With zenity installed Ctrl+O opens its file
+  chooser; choosing a file and Save as were not tried. The editor says nothing when no
+  dialog can be shown.
+- Not fixed: a double click on the title row does not maximise on Linux; `first_line` in
+  `platform.rs` is unused there (one warning).
+- With the newer shared code the Windows exe was 6,008,832 bytes. `Cargo.toml` now builds
+  `mdshared-highlight` (the glue and the scanners, not syntect) and **the shell crate
+  `mdedit` itself** for size: with fat LTO the shell is where every crate's generic code
+  is made, and the exe is 5,490,688 bytes. Measured after, on Windows: window shown 75 to
+  77 ms; first colours 51 to 52 ms (50 before); keystroke p50 0.46 to 0.50 ms, 0.58 ms on
+  the 100 MB file, 0.66 ms in Markdown with wrap; scroll step p50 0.53 ms; the 100 MB file
+  read in 101 to 103 ms (96 to 98 was measured earlier in the day, not side by side). All
+  60 shots are byte-identical to the build before; 377 tests pass.
 
 ## Macros (2026-11-13, the first half of roadmap item 10)
 
