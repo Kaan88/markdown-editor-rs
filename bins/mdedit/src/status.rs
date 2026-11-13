@@ -3,8 +3,10 @@
 
 use crate::chrome::Ctx;
 use crate::docs::{DocState, Docs};
+use crate::ui::{Act, Hit};
 use mdedit_core::{Encoding, LineEnding};
 use mdshared_ui::gfx::{Face, Rect};
+use mdshared_ui::menu::{Item, Menu};
 
 pub const STATUS_H: f32 = 26.0;
 /// Between two right-aligned fields.
@@ -130,6 +132,59 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
     }
 }
 
+/// The menu of the line-ending field: the three kinds, the document's own checked.
+pub fn eol_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
+    let style = docs.active_ready().map(|r| r.info.eol.style());
+    let item = |kind: LineEnding, eol: &'static str| {
+        Item::new(Act::Eol(eol), kind.label()).checked(style == Some(kind))
+    };
+    let items = vec![
+        item(LineEnding::Crlf, "\r\n"),
+        item(LineEnding::Lf, "\n"),
+        item(LineEnding::Cr, "\r"),
+    ];
+    Menu::new(items, x, y, true).above()
+}
+
+/// The encodings offered: the Unicode ones and the system's code page.
+pub fn encodings(docs: &Docs) -> [Encoding; 5] {
+    [
+        Encoding::Utf8,
+        Encoding::Utf8Bom,
+        Encoding::Utf16Le,
+        Encoding::Utf16Be,
+        docs.legacy(),
+    ]
+}
+
+/// The menu of the encoding field: save in an encoding (the document's own checked), or read
+/// the file again as one.
+pub fn encoding_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
+    let doc = docs.active_doc();
+    let current = docs.active_ready().map(|r| r.info.encoding);
+    let lossy = docs.active_ready().is_some_and(|r| r.info.lossy);
+    let forced = doc.is_some_and(|d| d.forced.is_some());
+    let has_file = doc.is_some_and(|d| d.path.is_some());
+    let mut items = Vec::new();
+    for e in encodings(docs) {
+        items.push(
+            Item::new(Act::SaveIn(e), format!("Save in {}", e.label()))
+                .checked(current == Some(e))
+                .enabled(!lossy),
+        );
+    }
+    for (k, e) in encodings(docs).into_iter().enumerate() {
+        let text = format!("Reopen as {}", e.label());
+        let item = Item::new(Act::ReadAs(Some(e)), text).enabled(has_file);
+        items.push(if k == 0 { item.sep() } else { item });
+    }
+    // Back to what the file's bytes suggest, after a choice.
+    items.push(
+        Item::new(Act::ReadAs(None), "Reopen, detecting the encoding").enabled(has_file && forced),
+    );
+    Menu::new(items, x, y, true).above()
+}
+
 pub fn draw(c: &mut Ctx, docs: &Docs, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);
@@ -139,12 +194,28 @@ pub fn draw(c: &mut Ctx, docs: &Docs, r: Rect) {
     let cy = r.y + r.h / 2.0 + 0.5;
     let mut x = r.right() - 16.0;
     let mut first = true;
-    for f in right.iter().rev() {
+    // The last two fields of a document that can be edited open menus: encoding, line endings.
+    // A lossy reading cannot be edited, but can be read again as another encoding.
+    let lossy = docs.active_ready().map(|r| r.info.lossy);
+    let hits = [
+        lossy.is_some().then_some(Hit::StatusEncoding),
+        (lossy == Some(false)).then_some(Hit::StatusEol),
+    ];
+    for (k, f) in right.iter().rev().enumerate() {
         if !first {
             x -= GAP;
         }
         first = false;
-        let w = c.p.text_right(Face::Ui, 12.0, x, cy, f, pal.muted);
+        let hit = hits.get(k).copied().flatten();
+        let w = c.p.measure(Face::Ui, 12.0, f);
+        if let Some(hit) = hit {
+            let b = Rect::new(x - w - 8.0, r.y + 3.0, w + 16.0, r.h - 5.0);
+            if let Some(fill) = c.fill_for(hit, false, false) {
+                c.p.rbox(b, 4.0, fill);
+            }
+            c.hit(hit, b);
+        }
+        c.p.text_right(Face::Ui, 12.0, x, cy, f, pal.muted);
         x -= w;
     }
     if !left.is_empty() {

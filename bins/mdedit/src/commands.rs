@@ -191,6 +191,11 @@ pub mod strings {
     pub const REPLACE_ALL: &str = "Replace all";
     pub const BAD_PATTERN: &str = "Not a valid pattern";
     pub const NOTHING_TO_REPLACE: &str = "Nothing to replace.";
+
+    /// A character the chosen encoding has no bytes for.
+    pub fn cannot_encode(ch: char, line: usize, encoding: &str) -> String {
+        format!("{encoding} cannot hold \u{201C}{ch}\u{201D} (line {line}).")
+    }
     pub const TOO_LARGE_FOR_REPLACE_ALL: &str =
         "This file is too large to replace every match at once.";
 

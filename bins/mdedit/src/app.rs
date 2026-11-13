@@ -1485,6 +1485,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotMenu::Main) => app.open_popup(PopupKind::Main),
         Some(ShotMenu::Recent) => app.open_popup(PopupKind::Recent),
         Some(ShotMenu::View) => app.open_popup(PopupKind::View),
+        Some(ShotMenu::Eol) => app.open_popup(PopupKind::Eol),
+        Some(ShotMenu::Encoding) => app.open_popup(PopupKind::Encoding),
         Some(ShotMenu::Tab) => {
             if let Some(r) = app.hit_rect(Hit::Tab(0)) {
                 app.ui.mouse = (r.x + 30.0, r.cy());

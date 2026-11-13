@@ -16,6 +16,7 @@ use crate::session::{ThemeChoice, Unsaved};
 use crate::view::cache::Lru;
 use mdedit_core::display::ChunkIndex;
 use mdedit_core::edit::{self, Outcome};
+use mdedit_core::encoding::Encoding;
 use mdedit_core::eol::normalize_eols;
 use mdedit_core::find::{self, FindOptions, Matches, Query};
 use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
@@ -390,6 +391,10 @@ pub struct Doc {
     /// The file holding the unsaved text this tab had when the window last closed; it replaces
     /// the file's text once that is read.
     pub restore: Option<PathBuf>,
+    /// The encoding the user chose to read the file as; every load of this tab uses it.
+    pub forced: Option<Encoding>,
+    /// The encoding to save in was changed since the file was read or written.
+    pub encoding_changed: bool,
     /// The lossy- or binary-file toast was shown for this document.
     lossy_toasted: bool,
     /// Bytes read and total, written by the load thread.
@@ -409,6 +414,8 @@ impl Doc {
             changed_on_disk: false,
             discard: false,
             restore: None,
+            forced: None,
+            encoding_changed: false,
             lossy_toasted: false,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
@@ -449,7 +456,9 @@ impl Doc {
     /// The text has changes that are not in the file (also unsaved text still to be put back).
     pub fn modified(&self) -> bool {
         !self.discard
-            && (self.restore.is_some() || self.ready().is_some_and(|r| r.history.is_modified()))
+            && (self.restore.is_some()
+                || self.encoding_changed
+                || self.ready().is_some_and(|r| r.history.is_modified()))
     }
 
     /// The banner over the text, if any.
@@ -573,6 +582,8 @@ pub enum EditOp<'a> {
     Case(bool),
     TrimTrailing,
     TabsToSpaces,
+    /// Makes every line break this one.
+    LineEndings(&'static str),
     /// Replaces the selection by this template when the selection is a match of the document's
     /// query.
     ReplaceOne(&'a str),
@@ -648,6 +659,7 @@ impl Docs {
             opts: LoadOptions {
                 legacy: mdedit_core::encoding::legacy_for_code_page(code_page),
                 max_bytes: MAX_FILE_BYTES,
+                forced: None,
             },
             waker,
             load_tx,
@@ -750,6 +762,8 @@ impl Docs {
             changed_on_disk: false,
             discard: false,
             restore: None,
+            forced: None,
+            encoding_changed: false,
             lossy_toasted: false,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
@@ -935,7 +949,10 @@ impl Docs {
         let Some(path) = self.tabs[i].path.clone() else {
             return;
         };
-        let opts = self.opts;
+        let opts = LoadOptions {
+            forced: self.tabs[i].forced,
+            ..self.opts
+        };
         let tx = self.load_tx.clone();
         let waker = self.waker.clone();
         let doc = &mut self.tabs[i];
@@ -973,7 +990,11 @@ impl Docs {
         doc.cancel_load();
         doc.revision += 1;
         let cancel = AtomicBool::new(false);
-        let result = run_load(&path, &self.opts, &doc.progress, &cancel, &|| {});
+        let opts = LoadOptions {
+            forced: doc.forced,
+            ..self.opts
+        };
+        let result = run_load(&path, &opts, &doc.progress, &cancel, &|| {});
         let done = LoadDone {
             doc: doc.id,
             revision: doc.revision,
@@ -1063,6 +1084,7 @@ impl Docs {
                 doc.missing = false;
                 doc.changed_on_disk = false;
                 doc.discard = false;
+                doc.encoding_changed = false;
                 if let Some(path) = doc.path.clone() {
                     self.recents.add(path);
                 }
@@ -1163,7 +1185,7 @@ impl Docs {
         let comment = r.language.and_then(Language::line_comment);
         let refused = match op {
             EditOp::ToggleComment if comment.is_none() => Some(strings::NO_LINE_COMMENT),
-            EditOp::TrimTrailing | EditOp::TabsToSpaces
+            EditOp::TrimTrailing | EditOp::TabsToSpaces | EditOp::LineEndings(_)
                 if r.buffer.len_bytes() > ALL_LINES_MAX_BYTES =>
             {
                 Some(strings::TOO_LARGE_FOR_ALL_LINES)
@@ -1216,6 +1238,7 @@ impl Docs {
             EditOp::Case(upper) => lines::change_case(buf, hist, sel, upper),
             EditOp::TrimTrailing => lines::trim_trailing_whitespace(buf, hist, sel),
             EditOp::TabsToSpaces => lines::tabs_to_spaces(buf, hist, sel, TAB_WIDTH),
+            EditOp::LineEndings(to) => lines::convert_line_endings(buf, hist, sel, to),
             EditOp::Insert(text) => edit::insert(buf, hist, sel, text),
             EditOp::Paste(text) => {
                 let text = normalize_eols(text, r.info.eol.dominant());
@@ -1262,6 +1285,36 @@ impl Docs {
             None => {}
         }
         changed
+    }
+
+    /// The system's code page, as the encoding menus offer it.
+    pub fn legacy(&self) -> Encoding {
+        Encoding::Legacy(self.opts.legacy)
+    }
+
+    /// Saves the active document in `encoding` from now on. Nothing is written yet: the tab
+    /// shows as modified. Refused, with a toast naming the first of them, when the text has a
+    /// character the encoding cannot hold. True when the encoding changed.
+    pub fn save_in(&mut self, encoding: Encoding) -> bool {
+        let Some(doc) = self.active_doc_mut() else {
+            return false;
+        };
+        let Some(r) = doc.ready_mut().filter(|r| !r.info.lossy) else {
+            return false;
+        };
+        if r.info.encoding == encoding {
+            return false;
+        }
+        if let Some((ch, offset)) = save::first_unencodable(r.buffer.rope(), encoding) {
+            let line = r.buffer.line_of(offset) + 1;
+            let text = strings::cannot_encode(ch, line, &encoding.label());
+            self.set_toast(&text);
+            return false;
+        }
+        r.info.encoding = encoding;
+        doc.encoding_changed = true;
+        doc.discard = false;
+        true
     }
 
     /// Puts the caret of the active document at a line and column, both from 1 and clamped to
@@ -1316,6 +1369,7 @@ impl Docs {
         doc.missing = false;
         doc.changed_on_disk = false;
         doc.discard = false;
+        doc.encoding_changed = false;
         Ok(())
     }
 
@@ -1375,6 +1429,7 @@ impl Docs {
         doc.missing = false;
         doc.changed_on_disk = false;
         doc.discard = false;
+        doc.encoding_changed = false;
         self.recents.add(path);
         self.watch_changed = true;
         Ok(())
@@ -1991,6 +2046,51 @@ mod tests {
         assert_eq!(w(&d), None);
         set(&mut d, 17, 20);
         assert_eq!(w(&d).as_deref(), Some("foo"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn line_endings_and_encodings_change_from_the_status_strip() {
+        let (mut d, i, path, dir) = file_docs("status", "çay\r\nsu\n".as_bytes());
+        // Every break becomes the chosen one, as one undo step.
+        assert!(d.edit(EditOp::LineEndings("\n"), None));
+        assert_eq!(text_of(&d, i), "çay\nsu\n");
+        let eol = d.tabs[i].ready().unwrap().info.eol;
+        assert_eq!((eol.crlf, eol.lf, eol.cr), (0, 2, 0));
+        assert!(!d.edit(EditOp::LineEndings("\n"), None));
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "çay\r\nsu\n");
+        assert!(!d.tabs[i].modified());
+        // Saving in another encoding marks the tab and writes those bytes.
+        assert!(!d.save_in(Encoding::Utf8));
+        assert!(d.save_in(Encoding::Utf16Le));
+        assert!(d.tabs[i].modified());
+        d.save(i, false).unwrap();
+        assert!(!d.tabs[i].modified());
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[..4], [0xFF, 0xFE, 0xE7, 0x00]);
+        // An encoding that cannot hold the text is refused with a toast.
+        assert!(d.edit(EditOp::Insert("\u{4E2D}"), None));
+        let latin = Encoding::Legacy(mdedit_core::encoding::legacy_for_code_page(1254));
+        assert!(!d.save_in(latin));
+        assert!(
+            d.toast
+                .as_ref()
+                .unwrap()
+                .0
+                .contains("Windows-1254 cannot hold")
+        );
+        assert_eq!(d.tabs[i].ready().unwrap().info.encoding, Encoding::Utf16Le);
+        assert!(d.edit(EditOp::Undo, None));
+        // Reading the file again as another encoding: the bytes are the same, the text is not.
+        d.tabs[i].forced = Some(latin);
+        d.load_now(i, None, false);
+        let r = d.tabs[i].ready().unwrap();
+        assert_eq!(r.info.encoding, latin);
+        assert!(text_of(&d, i).starts_with("\u{FF}\u{15F}\u{E7}\u{0}"));
+        // The choice stays for the next load of this tab.
+        d.load_now(i, None, false);
+        assert_eq!(d.tabs[i].ready().unwrap().info.encoding, latin);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

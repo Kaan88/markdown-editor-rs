@@ -4,6 +4,7 @@
 use crate::commands::CommandId;
 use crate::session::ThemeChoice;
 use crate::status::STATUS_H;
+use mdedit_core::encoding::Encoding;
 use mdedit_core::find::FindOptions;
 use mdedit_highlight::DocId;
 use mdshared_ui::gfx::Rect;
@@ -118,6 +119,9 @@ pub enum Hit {
     /// The update bar's button and its close button.
     UpdateGo,
     UpdateClose,
+    /// The status strip's line-ending and encoding fields: each opens a menu.
+    StatusEol,
+    StatusEncoding,
     FilesRow(usize),
     FilesFolder,
     FilesOpenFolder,
@@ -148,6 +152,7 @@ impl Hit {
             | Hit::ReplaceAll
             | Hit::ReplaceClose
             | Hit::FindOpt(_) => Region::Bar,
+            Hit::StatusEol | Hit::StatusEncoding => Region::Status,
             Hit::FilesRow(_)
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
@@ -188,6 +193,12 @@ pub enum Act {
     RecentMenu,
     /// Replace the open menu by the View menu.
     ViewMenu,
+    /// Make every line break of the document this one ("\r\n", "\n" or "\r").
+    Eol(&'static str),
+    /// Save the document in this encoding from now on.
+    SaveIn(Encoding),
+    /// Read the file again as this encoding, or as its bytes suggest.
+    ReadAs(Option<Encoding>),
     Theme(ThemeChoice),
     /// An editing command for the focused box of the bar.
     Edit(EditAct),
@@ -209,6 +220,9 @@ pub enum PopupKind {
     Recent,
     /// What shows and how: the Files pane, whitespace, zoom.
     View,
+    /// The status strip's menus.
+    Eol,
+    Encoding,
     Tab(usize),
     /// The text area's right-click menu.
     Text,
@@ -253,6 +267,8 @@ pub enum After {
     CloseAll,
     Exit,
     Reload(DocId),
+    /// Read the file again as this encoding, or as its bytes suggest.
+    ReadAs(DocId, Option<Encoding>),
 }
 
 /// The question on screen: the document it is about and what waits for the answer.

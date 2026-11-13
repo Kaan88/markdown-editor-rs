@@ -30,6 +30,8 @@ impl App {
             Hit::TabClose(i) => self.close_tab(i),
             Hit::UpdateGo => self.install_update(),
             Hit::UpdateClose => self.docs.updates.dismiss(),
+            Hit::StatusEol => self.open_popup(PopupKind::Eol),
+            Hit::StatusEncoding => self.open_popup(PopupKind::Encoding),
             Hit::Bar(item) => match item {
                 BarItem::Open => self.command(C::OpenFiles),
                 BarItem::Reload => self.command(C::Reload),
@@ -130,6 +132,19 @@ impl App {
             Act::Recent(path) => self.open(&path),
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
+            Act::Eol(to) => {
+                self.docs.seal();
+                self.edit(EditOp::LineEndings(to));
+            }
+            Act::SaveIn(encoding) => {
+                self.docs.save_in(encoding);
+            }
+            Act::ReadAs(encoding) => {
+                // Unsaved changes would be lost: `request` asks first.
+                if let Some(doc) = self.docs.active_doc().filter(|d| d.path.is_some()) {
+                    self.request(After::ReadAs(doc.id, encoding));
+                }
+            }
             Act::Theme(choice) => self.set_theme(choice),
             Act::Opt(opt) => {
                 self.ui.toggle_option(opt);
@@ -307,7 +322,7 @@ impl App {
             return;
         }
         let in_scope = |id: DocId| match after {
-            After::CloseTab(t) | After::Reload(t) => id == t,
+            After::CloseTab(t) | After::Reload(t) | After::ReadAs(t, _) => id == t,
             After::CloseOthers(keep) => id != keep,
             After::CloseAll | After::Exit => true,
             After::Nothing => false,
@@ -324,7 +339,7 @@ impl App {
         if let Some(i) = self.docs.index_of_id(id) {
             self.docs.activate(i);
         }
-        let kind = if matches!(after, After::Reload(_)) {
+        let kind = if matches!(after, After::Reload(_) | After::ReadAs(..)) {
             DialogKind::Discard
         } else {
             DialogKind::Unsaved
@@ -382,10 +397,13 @@ impl App {
             }
             After::CloseAll => self.docs.close_all(service),
             After::Exit => self.exit = true,
-            After::Reload(id) => {
+            After::Reload(id) | After::ReadAs(id, _) => {
                 if let Some(i) = index(&self.docs, id)
                     && !matches!(self.docs.tabs[i].state, DocState::Pending)
                 {
+                    if let After::ReadAs(_, encoding) = after {
+                        self.docs.tabs[i].forced = encoding;
+                    }
                     self.docs.start_load(i);
                 }
                 self.ui.tree.refresh();
@@ -474,6 +492,17 @@ impl App {
                     return below(r, true);
                 }
             }
+            // Above their field: the menu is moved up to fit in the window.
+            PopupKind::Eol | PopupKind::Encoding => {
+                let hit = if kind == PopupKind::Eol {
+                    Hit::StatusEol
+                } else {
+                    Hit::StatusEncoding
+                };
+                if let Some(r) = self.hit_rect(hit) {
+                    return (r.right(), r.y - 4.0, true);
+                }
+            }
             _ => {}
         }
         let (w, _) = self.logical();
@@ -497,6 +526,8 @@ impl App {
             PopupKind::Main => overlays::main_menu(&self.docs, x, y),
             PopupKind::Recent => overlays::recent_menu(&self.docs, x, y, right),
             PopupKind::View => overlays::view_menu(&self.docs, &self.ui, x, y, right),
+            PopupKind::Eol => status::eol_menu(&self.docs, x, y),
+            PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return,
         };
         self.ui.popup = Some(Popup { kind, menu });

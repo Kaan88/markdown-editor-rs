@@ -252,6 +252,8 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         Hit::ReplaceOne => "Replace this match and go to the next (Enter)".into(),
         Hit::ReplaceAll => with("Replace every match", CommandId::ReplaceAll),
         Hit::ReplaceClose => "Close (Escape)".into(),
+        Hit::StatusEol => "Line endings (click to change)".into(),
+        Hit::StatusEncoding => "Encoding (click to change)".into(),
         Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
         _ => return None,
     })

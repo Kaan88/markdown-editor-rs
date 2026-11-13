@@ -13,6 +13,7 @@ fn opts() -> LoadOptions {
     LoadOptions {
         legacy: encoding_rs::WINDOWS_1254,
         max_bytes: 1 << 30,
+        forced: None,
     }
 }
 
@@ -152,6 +153,7 @@ fn invalid_utf8_without_bom_falls_back_to_windows_1254() {
     let sj = LoadOptions {
         legacy: encoding_rs::SHIFT_JIS,
         max_bytes: 1 << 30,
+        forced: None,
     };
     let l = load_bytes(&[0x82, 0xA0, 0xFF], &sj);
     assert_eq!(l.info.encoding.label(), "Shift_JIS");
@@ -171,6 +173,7 @@ fn legacy_page_is_guessed_from_the_text() {
         let o = LoadOptions {
             legacy,
             max_bytes: 1 << 30,
+            forced: None,
         };
         let l = load_bytes(&bytes, &o);
         assert_eq!(
@@ -216,6 +219,7 @@ fn legacy_bytes_that_do_not_round_trip_are_lossy() {
     let with = |legacy| LoadOptions {
         legacy,
         max_bytes: 1 << 30,
+        forced: None,
     };
     // Each decodes without an error, but the page's encoder writes something else back. The
     // sample is too short for a sure guess, so the system page given is used.
@@ -729,4 +733,120 @@ fn round_trip_through_a_file() {
         assert_eq!(encode_back(&l), bytes, "{name}");
         assert_eq!(l.info.file_bytes, bytes.len() as u64);
     }
+}
+
+// ---- a chosen encoding
+
+fn forced(enc: Encoding) -> LoadOptions {
+    LoadOptions {
+        forced: Some(enc),
+        ..opts()
+    }
+}
+
+#[test]
+fn forced_utf8_on_a_windows_1254_file_is_lossy() {
+    // "ğış" in windows-1254: F0 FD FE are all invalid UTF-8.
+    let bytes = [b'a', 0xF0, 0xFD, 0xFE, b'z'];
+    let l = load_bytes(&bytes, &forced(Encoding::Utf8));
+    assert_eq!(text_of(&l), "a\u{FFFD}\u{FFFD}\u{FFFD}z");
+    assert_eq!(l.info.encoding, Encoding::Utf8);
+    assert!(l.info.lossy);
+}
+
+#[test]
+fn forced_windows_1254_on_utf8_text_is_mojibake_and_not_lossy() {
+    let text = "ğış";
+    let o = forced(Encoding::Legacy(encoding_rs::WINDOWS_1254));
+    let l = load_bytes(text.as_bytes(), &o);
+    // C4 9F C4 B1 C5 9F read as windows-1254: Ä, Ÿ, Ä, ±, Å, Ÿ.
+    assert_eq!(text_of(&l), "Ä\u{178}Ä±Å\u{178}");
+    assert_eq!(l.info.encoding, Encoding::Legacy(encoding_rs::WINDOWS_1254));
+    // Each of those bytes decodes to a character the page's encoder writes back as the same
+    // byte, so the round trip holds: not lossy.
+    assert!(!l.info.lossy);
+}
+
+#[test]
+fn forced_utf16_le_without_a_bom() {
+    let bytes: Vec<u8> = "a\nİ漢".encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let l = load_bytes(&bytes, &forced(Encoding::Utf16Le));
+    assert_eq!(text_of(&l), "a\nİ漢");
+    assert_eq!(l.info.encoding, Encoding::Utf16Le);
+    assert!(!l.info.lossy);
+    // Not forced, the same bytes are not read as UTF-16.
+    assert_ne!(text_of(&load_bytes(&bytes, &opts())), "a\nİ漢");
+    // A BOM of the same order is skipped; an odd byte count is lossy.
+    let mut with_bom = vec![0xFF, 0xFE];
+    with_bom.extend_from_slice(&bytes);
+    let l = load_bytes(&with_bom, &forced(Encoding::Utf16Le));
+    assert_eq!(text_of(&l), "a\nİ漢");
+    with_bom.push(0x41);
+    assert!(load_bytes(&with_bom, &forced(Encoding::Utf16Le)).info.lossy);
+    // And big endian.
+    let mut be = vec![0xFE, 0xFF];
+    be.extend("ab".encode_utf16().flat_map(u16::to_be_bytes));
+    let l = load_bytes(&be, &forced(Encoding::Utf16Be));
+    assert_eq!(text_of(&l), "ab");
+    assert_eq!(l.info.encoding, Encoding::Utf16Be);
+}
+
+#[test]
+fn forced_utf8_skips_a_bom_and_keeps_the_forced_label() {
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice("héllo\r\nx".as_bytes());
+    for enc in [Encoding::Utf8, Encoding::Utf8Bom] {
+        let l = load_bytes(&bytes, &forced(enc));
+        assert_eq!(text_of(&l), "héllo\r\nx");
+        assert_eq!(l.info.encoding, enc);
+        assert!(!l.info.lossy);
+        assert_eq!(l.info.eol.crlf, 1);
+    }
+    // Without a BOM nothing is skipped.
+    let l = load_bytes("héllo".as_bytes(), &forced(Encoding::Utf8Bom));
+    assert_eq!(text_of(&l), "héllo");
+}
+
+#[test]
+fn forcing_what_the_detector_chose_changes_nothing() {
+    let mut bom8 = vec![0xEF, 0xBB, 0xBF];
+    bom8.extend_from_slice("héllo\r\nş\n".as_bytes());
+    let mut le = vec![0xFF, 0xFE];
+    le.extend("héllo\r\nş".encode_utf16().flat_map(u16::to_le_bytes));
+    let mut be = vec![0xFE, 0xFF];
+    be.extend("héllo\rş".encode_utf16().flat_map(u16::to_be_bytes));
+    let cases: Vec<Vec<u8>> = vec![
+        "plain utf-8 İstanbul\r\nx\n".as_bytes().to_vec(),
+        bom8,
+        le,
+        be,
+        vec![b'a', 0xF0, 0xFD, 0xFE, b'\n', b'z'],
+        b"ok line\nbad \xFF\xFE\xC3 bytes".to_vec(),
+        Vec::new(),
+    ];
+    for bytes in cases {
+        let free = load_bytes(&bytes, &opts());
+        let same = load_bytes(&bytes, &forced(free.info.encoding));
+        assert_eq!(text_of(&same), text_of(&free));
+        assert_eq!(same.info.encoding, free.info.encoding);
+        assert_eq!(same.info.lossy, free.info.lossy);
+        assert_eq!(same.info.eol, free.info.eol);
+        assert_eq!(same.info.has_nul, free.info.has_nul);
+        assert_eq!(same.info.longest_line_chars, free.info.longest_line_chars);
+    }
+}
+
+#[test]
+fn forced_encoding_works_through_a_reader_and_a_path() {
+    let bytes = [b'a', 0xF0, 0xFD, 0xFE, b'\n'];
+    let o = forced(Encoding::Legacy(encoding_rs::WINDOWS_1254));
+    let mut r = Trickle::new(&bytes, 3);
+    let l = load_reader(&mut r, None, &o, &|_, _| {}, &no()).unwrap();
+    assert_eq!(text_of(&l), "ağış\n");
+    let p = tmp("forced.txt");
+    std::fs::write(&p, bytes).unwrap();
+    let l = load_path(&p, &forced(Encoding::Utf8), &|_, _| {}, &no()).unwrap();
+    assert!(l.info.lossy);
+    assert_eq!(l.info.encoding, Encoding::Utf8);
+    let _ = std::fs::remove_file(&p);
 }

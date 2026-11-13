@@ -474,6 +474,68 @@ pub fn tabs_to_spaces(
     cmd.finish(hist, Kind::Other, sel, sel_of(a, c))
 }
 
+/// The next line break (LF, CRLF or CR) at or after `from`: its start and its length. Other
+/// Unicode breaks (VT, FF, NEL, LS, PS) are not breaks here, as in the buffer's line model.
+fn next_break(rope: &ropey::Rope, from: usize) -> Option<(usize, usize)> {
+    let len = rope.len_bytes();
+    let mut base = from;
+    for piece in rope.byte_slice(from..).chunks() {
+        if let Some(j) = memchr::memchr2(b'\n', b'\r', piece.as_bytes()) {
+            let at = base + j;
+            let crlf = rope.byte(at) == b'\r' && at + 1 < len && rope.byte(at + 1) == b'\n';
+            return Some((at, if crlf { 2 } else { 1 }));
+        }
+        base += piece.len();
+    }
+    None
+}
+
+/// Makes every line break of the document `to` ("\r\n", "\n" or "\r"), as one undo step. A CRLF
+/// pair is one break. Nothing when every break already is `to` (or `to` is none of the three).
+/// Other Unicode line separators (VT, FF, NEL, LS, PS) are not breaks to this crate and stay.
+///
+/// A selection end before a break stays on its text, one inside a CRLF pair goes to the start of
+/// its replacement, one after it moves by the difference in length. The document is walked front
+/// to back, replacing break by break in place; it never becomes one `String`. The scan reads
+/// only text ahead of the walk, which is still the original, so a replacement next to an
+/// unconverted break (a CR made, then an LF) is never mistaken for a pair.
+pub fn convert_line_endings(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    to: &str,
+) -> Outcome {
+    if !matches!(to, "\r\n" | "\n" | "\r") {
+        return nothing(sel);
+    }
+    let len = buf.len_bytes();
+    let (oa, oc) = (sel.anchor.min(len) as isize, sel.caret.min(len) as isize);
+    let (mut a, mut c) = (oa, oc);
+    let mut cmd = Cmd::new(buf);
+    // How far the buffer's offsets are ahead of the original ones.
+    let mut delta = 0isize;
+    let mut pos = 0;
+    while let Some((at, n)) = next_break(cmd.buf.rope(), pos) {
+        if n == to.len() && cmd.buf.rope().byte(at) == to.as_bytes()[0] {
+            pos = at + n;
+            continue;
+        }
+        let orig = at as isize - delta;
+        let d = to.len() as isize - n as isize;
+        for (o, e) in [(oa, &mut a), (oc, &mut c)] {
+            if o >= orig + n as isize {
+                *e += d;
+            } else if o > orig {
+                *e = orig + delta;
+            }
+        }
+        cmd.replace(at..at + n, to);
+        delta += d;
+        pos = at + to.len();
+    }
+    cmd.finish(hist, Kind::Other, sel, sel_of(a as usize, c as usize))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,7 +585,13 @@ mod tests {
                 assert!(b.contains(&out.sel.anchor) && b.contains(&out.sel.caret));
                 let u = undo(&mut buf, &mut hist).unwrap();
                 assert_eq!(txt(&buf), text);
-                assert_eq!(u.sel, s);
+                // Undo snaps to grapheme boundaries (a selection given inside a CRLF pair comes
+                // back at a boundary beside it); any other selection comes back exactly.
+                let want = sel(
+                    buf.snap_to_grapheme(s.anchor),
+                    buf.snap_to_grapheme(s.caret),
+                );
+                assert_eq!(u.sel, want);
                 check_change(&after, text, u.change.as_ref().unwrap());
                 assert!(!hist.can_undo() && !hist.is_modified());
                 let r = redo(&mut buf, &mut hist).unwrap();
@@ -1543,6 +1611,212 @@ mod tests {
         scripted(4, 8, 3_000);
     }
 
+    // ---- convert_line_endings
+
+    fn conv(text: &str, s: Selection, to: &str) -> (String, Selection) {
+        let (t, o) = go(text, s, |b, h, s| convert_line_endings(b, h, s, to));
+        (t, o.sel)
+    }
+
+    /// The reference: the converted text and, for every byte offset of `text`, where it goes (an
+    /// offset inside a CRLF goes to the start of its replacement).
+    fn conv_model(text: &str, to: &str) -> (String, Vec<usize>) {
+        let mut out = String::new();
+        let mut map = vec![0; text.len() + 1];
+        let mut chars = text.char_indices().peekable();
+        while let Some((i, ch)) = chars.next() {
+            let w = ch.len_utf8();
+            if ch == '\r' && chars.peek().map(|p| p.1) == Some('\n') {
+                map[i] = out.len();
+                map[i + 1] = out.len();
+                chars.next();
+                out.push_str(to);
+            } else if ch == '\r' || ch == '\n' {
+                map[i] = out.len();
+                out.push_str(to);
+            } else {
+                for k in 0..w {
+                    map[i + k] = out.len() + k;
+                }
+                out.push(ch);
+            }
+        }
+        map[text.len()] = out.len();
+        (out, map)
+    }
+
+    const ALL: [&str; 3] = ["\r\n", "\n", "\r"];
+
+    #[test]
+    fn convert_between_the_three_kinds() {
+        let from = [
+            ("\r\n", "a\r\nb\r\nc"),
+            ("\n", "a\nb\nc"),
+            ("\r", "a\rb\rc"),
+        ];
+        for (f, text) in from {
+            for to in ALL {
+                let (t, s) = conv(text, Selection::at(0), to);
+                assert_eq!(t, format!("a{to}b{to}c"), "{f:?} -> {to:?}");
+                assert_eq!(s, Selection::at(0));
+            }
+        }
+    }
+
+    #[test]
+    fn convert_nothing_when_every_break_already_is_the_target() {
+        let cases = [
+            ("a\r\nb\r\n", "\r\n"),
+            ("a\nb", "\n"),
+            ("a\rb\r", "\r"),
+            ("a\nb", "x"),
+            ("a\nb", ""),
+        ];
+        for (text, to) in cases {
+            let (_, o) = go(text, Selection::at(2), |b, h, s| {
+                convert_line_endings(b, h, s, to)
+            });
+            assert!(o.change.is_none(), "{text:?} {to:?}");
+        }
+        // No breaks at all, and an empty buffer.
+        for to in ALL {
+            for t in ["", "abc", "İstanbul 漢字"] {
+                let (_, o) = go(t, Selection::at(0), |b, h, s| {
+                    convert_line_endings(b, h, s, to)
+                });
+                assert!(o.change.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn convert_mixed_only_breaks_and_adjacent_sequences() {
+        let mixed = "a\r\nb\nc\rd";
+        assert_eq!(conv(mixed, Selection::at(0), "\n").0, "a\nb\nc\nd");
+        assert_eq!(conv(mixed, Selection::at(0), "\r\n").0, "a\r\nb\r\nc\r\nd");
+        assert_eq!(conv(mixed, Selection::at(0), "\r").0, "a\rb\rc\rd");
+        // Only breaks, at the very start and end.
+        assert_eq!(conv("\r\n\n\r", Selection::at(0), "\n").0, "\n\n\n");
+        assert_eq!(conv("\n", Selection::at(0), "\r\n").0, "\r\n");
+        assert_eq!(conv("\r\n", Selection::at(2), "\r").0, "\r");
+        assert_eq!(conv("\nabc\r\n", Selection::at(0), "\r").0, "\rabc\r");
+        // Adjacent sequences: no half pair is left and none is made.
+        assert_eq!(conv("\r\r\n\n", Selection::at(0), "\n").0, "\n\n\n");
+        assert_eq!(conv("\r\r\n\n", Selection::at(0), "\r").0, "\r\r\r");
+        assert_eq!(conv("\r\r\n\n", Selection::at(0), "\r\n").0, "\r\n\r\n\r\n");
+        assert_eq!(conv("\n\n", Selection::at(0), "\r").0, "\r\r");
+        assert_eq!(conv("\r\n\r\n\n\r", Selection::at(0), "\r").0, "\r\r\r\r");
+        // A lone CR and a lone LF, far apart, stay two breaks.
+        assert_eq!(conv("a\rb\nc", Selection::at(0), "\r").0, "a\rb\rc");
+        assert_eq!(conv("a\rb\nc", Selection::at(0), "\n").0, "a\nb\nc");
+    }
+
+    #[test]
+    fn convert_leaves_other_unicode_breaks_alone() {
+        let odd = "a\u{b}b\u{c}c\u{85}d\u{2028}e\u{2029}f\r\ng";
+        assert_eq!(
+            conv(odd, Selection::at(0), "\n").0,
+            "a\u{b}b\u{c}c\u{85}d\u{2028}e\u{2029}f\ng"
+        );
+        let (_, o) = go("a\u{2028}b\u{85}c\u{b}", Selection::at(0), |b, h, s| {
+            convert_line_endings(b, h, s, "\n")
+        });
+        assert!(o.change.is_none());
+    }
+
+    #[test]
+    fn convert_moves_selection_ends() {
+        // "a\r\nb\nc": CRLF at 1..3, LF at 4..5. To LF: before, at the start of, inside (goes to
+        // the start) and after the CRLF.
+        for (e, want) in [(0, 0), (1, 1), (2, 1), (3, 2), (4, 3), (5, 4), (6, 5)] {
+            assert_eq!(
+                conv("a\r\nb\nc", Selection::at(e), "\n").1,
+                Selection::at(want)
+            );
+        }
+        // To CRLF: the LF grows; ends after it move by one, the CRLF at 3..5 stays.
+        for (e, want) in [(0, 0), (1, 1), (2, 3), (3, 4), (6, 7), (7, 9)] {
+            assert_eq!(
+                conv("a\nb\r\nc\n", Selection::at(e), "\r\n").1,
+                Selection::at(want),
+                "{e}"
+            );
+        }
+        // Both ends, both directions, over multibyte characters.
+        let text = "é\r\nş\rğ\n";
+        assert_eq!(conv(text, sel(0, 10), "\n").1, sel(0, 9));
+        assert_eq!(conv(text, sel(10, 0), "\n").1, sel(9, 0));
+        assert_eq!(conv(text, sel(4, 6), "\n").1, sel(3, 5));
+        assert_eq!(conv(text, sel(3, 4), "\r").1, sel(2, 3));
+    }
+
+    #[test]
+    fn convert_selection_end_inside_a_kept_pair_stays_on_a_boundary() {
+        let (t, s) = conv("a\r\nb\n", sel(2, 2), "\r\n");
+        let b = grapheme_bounds(&t);
+        assert!(b.contains(&s.anchor) && b.contains(&s.caret));
+    }
+
+    #[test]
+    fn convert_reports_a_change_the_crate_can_check() {
+        for text in ["a\r\nb\nc\rd", "\r\r\n\n", "x\n", "\n\n\nz\r\n"] {
+            for to in ALL {
+                let mut buf = Buffer::from_text(text);
+                let mut hist = History::new();
+                let mut counts = EolCounts::of(text);
+                let o = convert_line_endings(&mut buf, &mut hist, Selection::at(0), to);
+                let Some(ch) = &o.change else {
+                    assert_eq!(txt(&buf), text);
+                    continue;
+                };
+                let after = txt(&buf);
+                check_change(text, &after, ch);
+                check_eols(&mut counts, &after, ch);
+                let u = undo(&mut buf, &mut hist).unwrap();
+                check_eols(&mut counts, text, u.change.as_ref().unwrap());
+                let r = redo(&mut buf, &mut hist).unwrap();
+                check_eols(&mut counts, &after, r.change.as_ref().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn convert_matches_the_reference_model() {
+        const PARTS: [&str; 12] = [
+            "\r", "\n", "\r\n", "\r", "\n", "a", "é", "漢", "\u{b}", "\u{2028}", "\u{85}", "ş",
+        ];
+        for seed in 1..=60u64 {
+            let mut rng = Rng::new(seed);
+            for round in 0..40 {
+                let n = rng.below(40);
+                let text: String = (0..n).map(|_| *rng.pick(&PARTS)).collect();
+                let to = *rng.pick(&ALL);
+                let bounds: Vec<usize> = text
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .chain([text.len()])
+                    .collect();
+                let s = sel(*rng.pick(&bounds), *rng.pick(&bounds));
+                let ctx = format!("seed {seed} round {round}: {text:?} -> {to:?}, {s:?}");
+                let (want, map) = conv_model(&text, to);
+                let (got, o) = go(&text, s, |b, h, s| convert_line_endings(b, h, s, to));
+                assert_eq!(got, want, "{ctx}");
+                assert_eq!(o.change.is_some(), want != text, "{ctx}");
+                if want != text {
+                    let b = grapheme_bounds(&got);
+                    for (end, from) in [(o.sel.anchor, s.anchor), (o.sel.caret, s.caret)] {
+                        let ex = map[from];
+                        if b.contains(&ex) {
+                            assert_eq!(end, ex, "{ctx}");
+                        } else {
+                            assert!(b.contains(&end), "{ctx}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // ---- speed
 
     /// Prints the time of the two whole-document commands on about 100 MB where every line
@@ -1573,5 +1847,40 @@ mod tests {
         undo(&mut buf, &mut hist);
         undo(&mut buf, &mut hist);
         println!("two undos in {:?}", t.elapsed());
+    }
+
+    /// Prints the time of converting about 100 MB of short lines LF to CRLF and back, and the
+    /// undo of each.
+    #[test]
+    #[ignore]
+    fn timing_convert_line_endings() {
+        use std::time::Instant;
+        let mut text = String::with_capacity(101 << 20);
+        let mut i = 0;
+        while text.len() < 100 << 20 {
+            text.push_str(&format!("line {i} ğüşiöç 漢字\n"));
+            i += 1;
+        }
+        let original = text.clone();
+        let mut buf = Buffer::from_text(&text);
+        drop(text);
+        let lines = buf.len_lines();
+        let mut hist = History::new();
+        let t = Instant::now();
+        let o = convert_line_endings(&mut buf, &mut hist, Selection::at(0), "\r\n");
+        println!("LF to CRLF: {lines} lines in {:?}", t.elapsed());
+        assert!(o.change.is_some());
+        let t = Instant::now();
+        let o = convert_line_endings(&mut buf, &mut hist, Selection::at(0), "\n");
+        println!("CRLF to LF: {lines} lines in {:?}", t.elapsed());
+        assert!(o.change.is_some());
+        assert_eq!(buf.len_bytes(), original.len());
+        let t = Instant::now();
+        undo(&mut buf, &mut hist);
+        println!("undo of CRLF to LF in {:?}", t.elapsed());
+        let t = Instant::now();
+        undo(&mut buf, &mut hist);
+        println!("undo of LF to CRLF in {:?}", t.elapsed());
+        assert_eq!(buf.len_bytes(), original.len());
     }
 }

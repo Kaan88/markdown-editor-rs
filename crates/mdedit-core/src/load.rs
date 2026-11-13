@@ -30,14 +30,18 @@ pub struct LoadOptions {
     pub legacy: &'static encoding_rs::Encoding,
     /// Files larger than this on disk are refused.
     pub max_bytes: u64,
+    /// Read the file as this encoding whatever its bytes suggest (the user chose it). A byte
+    /// order mark of the chosen kind is skipped; invalid input becomes U+FFFD (`lossy`).
+    pub forced: Option<Encoding>,
 }
 
 impl Default for LoadOptions {
-    /// windows-1252 and [`MAX_FILE_BYTES`](crate::limits::MAX_FILE_BYTES).
+    /// windows-1252, [`MAX_FILE_BYTES`](crate::limits::MAX_FILE_BYTES) and no forced encoding.
     fn default() -> LoadOptions {
         LoadOptions {
             legacy: encoding_rs::WINDOWS_1252,
             max_bytes: MAX_FILE_BYTES,
+            forced: None,
         }
     }
 }
@@ -496,6 +500,8 @@ enum Detect {
     Utf8Lossy,
     /// Read it in this legacy code page.
     Legacy(&'static encoding_rs::Encoding),
+    /// The user's choice: no byte order mark sniffing, no guessing.
+    Forced(Encoding),
 }
 
 enum Pass {
@@ -529,6 +535,36 @@ struct Progress<'a> {
     max_bytes: u64,
     done: u64,
     reported: u64,
+}
+
+/// The decoder for an encoding the user chose, and how many bytes of `head` (the file's first
+/// bytes) are a byte order mark of that kind to skip. Invalid input is replaced, never refused.
+fn forced_decoder(enc: Encoding, head: &[u8]) -> (Encoding, Decoder, usize) {
+    let bom = |mark: &[u8]| {
+        if head.starts_with(mark) {
+            mark.len()
+        } else {
+            0
+        }
+    };
+    match enc {
+        Encoding::Utf8 | Encoding::Utf8Bom => (
+            enc,
+            Decoder::Utf8(Utf8::new(false)),
+            bom(&[0xEF, 0xBB, 0xBF]),
+        ),
+        Encoding::Utf16Le => (
+            enc,
+            Decoder::Rs(Rs::new(encoding_rs::UTF_16LE, false)),
+            bom(&[0xFF, 0xFE]),
+        ),
+        Encoding::Utf16Be => (
+            enc,
+            Decoder::Rs(Rs::new(encoding_rs::UTF_16BE, false)),
+            bom(&[0xFE, 0xFF]),
+        ),
+        Encoding::Legacy(x) => (enc, Decoder::Rs(Rs::new(x, true)), 0),
+    }
 }
 
 fn decode<R: Read + ?Sized>(
@@ -583,6 +619,7 @@ fn decode<R: Read + ?Sized>(
             Detect::Utf8First => (Encoding::Utf8, Decoder::Utf8(Utf8::new(true)), 0),
             Detect::Utf8Lossy => (Encoding::Utf8, Decoder::Utf8(Utf8::new(false)), 0),
             Detect::Legacy(enc) => (Encoding::Legacy(enc), Decoder::Rs(Rs::new(enc, true)), 0),
+            Detect::Forced(enc) => forced_decoder(enc, &head),
         },
     };
     if decoder
@@ -759,6 +796,12 @@ fn decode_with_fallback<S: Source>(
     opts: &LoadOptions,
     cancel: &AtomicBool,
 ) -> Result<Decoded, LoadError> {
+    if let Some(enc) = opts.forced {
+        return match decode(source, progress, cancel, Detect::Forced(enc))? {
+            Pass::Done(d) => Ok(d),
+            Pass::NotUtf8 { .. } => unreachable!("a forced pass never asks for another"),
+        };
+    }
     match decode(source, progress, cancel, Detect::Utf8First)? {
         Pass::Done(d) => Ok(d),
         Pass::NotUtf8 { at } => {

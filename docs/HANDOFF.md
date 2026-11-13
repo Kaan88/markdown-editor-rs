@@ -11,13 +11,14 @@ Three public repositories under `Kaan88`, all MIT, all pushed and clean on `main
 | Repository | What | Head on 2026-11-13 |
 |---|---|---|
 | `markdown-viewer-rs` | `mdview`, the Markdown viewer. Its own `docs/HANDOFF.md` describes it | `b4e1617` |
-| `markdown-shared-rs` | The crates both applications use | `d0ec8b8` |
+| `markdown-shared-rs` | The crates both applications use | `843b50f` |
 | `markdown-editor-rs` | `mdedit`, this repository | this commit |
 
 The editor pins the shared repository by `rev` in its root `Cargo.toml`, since 2026-11-13 at
-`d0ec8b8d4dfc4ec8e744e26843b7a5e1a03bf718`. Two shared commits were made from this repository's
+`843b50f3cc025480ee06226be1247d38df7442a2`. Three shared commits were made from this repository's
 session on 2026-11-13: `a74aca4` (the updater's threads: `spawn_at_launch`, `spawn_check`,
-`spawn_install`, `unix_now`) and `d0ec8b8` (`Language::line_comment`). The viewer still starts
+`spawn_install`, `unix_now`), `d0ec8b8` (`Language::line_comment`) and `843b50f` (`Menu::above`,
+a menu that stands on its anchor, for menus opened from a status strip). The viewer still starts
 its updater threads with its own copies in `bins/mdv-app/src/app/commands.rs`; moving it to the
 shared ones is a small change that was left to the viewer's own session. The editor does not yet
 use the watcher's `set_folders` or the tree's `watched_dirs` (`e93719b`). The viewer pins it in `crates/core`,
@@ -186,8 +187,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order: find and replace (item 2), then
-   unsaved-session restore.
+2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1, 2, 3 and 5 are done;
+   item 4 lacks word wrap, which is next, then column selection and multiple carets (item 6).
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -202,10 +203,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 275 passed on 2026-11-13
+cargo test --release --workspace        # 290 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 48 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 50 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -231,6 +232,41 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Encoding and line endings from the status strip (2026-11-13, roadmap item 5)
+
+The last two fields of the status strip are buttons now. Roadmap item 5 is done.
+
+- Line endings: the field opens a menu standing on it (Windows (CRLF), Unix (LF), Macintosh
+  (CR), the document's own checked). Choosing one rewrites every line break as one undo step
+  (`lines::convert_line_endings`), so the tab shows as modified and Undo brings the old breaks
+  back. Refused with the same toast as Trim and Tabs to spaces above 8 MiB
+  (`ALL_LINES_MAX_BYTES`); the core function took about 5.4 s on 100 MB, 3.3 million lines.
+- Encoding: the menu has "Save in" UTF-8, UTF-8 with BOM, UTF-16 LE, UTF-16 BE and the system's
+  code page (the current one checked), then "Reopen as" the same five, then "Reopen, detecting
+  the encoding".
+  - Save in changes nothing on disk: it sets the encoding the next Save writes and marks the
+    tab modified (`Doc::encoding_changed`; it is not an undo step). When the text has a
+    character the encoding cannot hold, it is refused with a toast naming the character and
+    its line.
+  - Reopen as reads the file again as that encoding whatever its bytes suggest
+    (`LoadOptions::forced`, kept in `Doc::forced` so every later reload of the tab uses it,
+    until "Reopen, detecting the encoding"). With unsaved changes the Discard question comes
+    first (`After::ReadAs`); the choice is applied only once it is answered. The choice is
+    not kept in the session: after a restart the file is detected again.
+  - A file read with replacement characters (lossy, read-only) can still be reopened as
+    another encoding; its Save in entries and its line-ending field are off.
+  - Only those five encodings are offered. The other code pages the detector can choose
+    (`Encoding::Legacy` of any `encoding_rs` page) cannot be picked by hand yet.
+- Run in a real window by clicks: CRLF to LF, Save, then Save in UTF-16 LE, Save; the file's
+  bytes were checked (FF FE, LF breaks). Not run in a window: Reopen as (covered by a `docs.rs`
+  test and the core tests), the Discard question before a reopen, the refusal toast, a file near
+  8 MiB, the menus at scale 1.5 or 2.
+- The shared `Menu::above` is additive (a menu made without it is placed as before). The
+  viewer's check was not run for it and the viewer's `rev` was not moved: its checkout belongs
+  to another session.
+- Measured after: exe 5,965,824 bytes; window shown 78 to 86 ms; private memory 27.6 to
+  27.8 MiB; keystroke p50 0.78 ms. Shots: `menu-eol`, `menu-encoding`.
 
 ## View aids, first part (2026-11-13, roadmap item 4)
 

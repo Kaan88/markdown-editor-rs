@@ -770,6 +770,19 @@ is measured by itself; marks are plain fills in device px. The line-ending mark 
 layout kept in the line-number cache (`View::eol_mark`). `PopupKind::View` and `Act::ViewMenu`
 work like the Recent menu opened from the main menu.
 
+## 23. Encoding and line endings from the status strip (2026-11-13)
+
+`status::draw` records `Hit::StatusEncoding` and `Hit::StatusEol` (region Status) over its last
+two fields and fills them on hover. `PopupKind::Eol` and `PopupKind::Encoding` are menus built
+in `status.rs` and made with the shared `Menu::above`, anchored at the field's top right.
+`Act::Eol` goes through `Docs::edit` as `EditOp::LineEndings`, like the other whole-document
+line commands. `Act::SaveIn` calls `Docs::save_in`, which checks `save::first_unencodable`
+before changing `info.encoding`. `Act::ReadAs(Option<Encoding>)` goes through `App::request` as
+`After::ReadAs(id, encoding)`, which sets `Doc::forced` and starts a load; `start_load` and
+`load_now` copy `Doc::forced` into `LoadOptions::forced`. In the core a forced load is one
+decoding pass (`Detect::Forced`): a byte order mark of the chosen kind is skipped, invalid
+input becomes U+FFFD and the result is lossy.
+
 ## 19. Unsaved text survives a close (2026-11-13)
 
 Closing the window with a session does not ask about unsaved changes: `App::request` with
