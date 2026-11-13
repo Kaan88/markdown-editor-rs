@@ -990,6 +990,18 @@ impl View {
             if !shown_line.first {
                 continue;
             }
+            // A bookmark: a dot left of the number.
+            if r.bookmarks.binary_search(&i).is_ok() {
+                let d = (7.0 * scale).round() as i32;
+                let (bx, by) = (x0 + (5.0 * scale).round() as i32, y + (lh - d) / 2);
+                let dot = Rect::new(
+                    bx as f32 / scale,
+                    by as f32 / scale,
+                    d as f32 / scale,
+                    d as f32 / scale,
+                );
+                c.p.rbox(dot, d as f32 / scale / 2.0, pal.accent);
+            }
             let color = if i == caret_line { pal.text } else { pal.faint };
             let n = self.number(i + 1, color);
             let x = gutter_r - pad_r - n.0.width().round() as i32;

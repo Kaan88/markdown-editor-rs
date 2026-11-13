@@ -161,6 +161,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .sep()
             .enabled(ready),
         cmd(C::TabsToSpaces, "Tabs to spaces", "").enabled(ready),
+        cmd(C::ToggleBookmark, "Toggle bookmark", "").enabled(ready),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
         cmd(C::Replace, "Replace…", "").enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD),

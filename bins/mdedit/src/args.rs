@@ -79,6 +79,8 @@ pub struct Args {
     pub whitespace: bool,
     /// `--wrap`: word wrap.
     pub wrap: bool,
+    /// `--bookmark <line>`, as often as wanted: bookmarked lines of the active document.
+    pub bookmarks: Vec<usize>,
     /// `--zoom <50..400>`: the text size in percent, instead of the session's.
     pub zoom: Option<u32>,
     /// `--maximize`: start maximized.
@@ -160,6 +162,11 @@ impl Args {
                 "--maximize" => out.maximize = true,
                 "--whitespace" => out.whitespace = true,
                 "--wrap" => out.wrap = true,
+                "--bookmark" => {
+                    if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
+                        out.bookmarks.push(n);
+                    }
+                }
                 "--zoom" => {
                     out.zoom = checked(&a, value(&a), |v| {
                         v.parse().ok().filter(|z| (50..=400).contains(z))

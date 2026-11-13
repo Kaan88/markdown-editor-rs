@@ -474,6 +474,24 @@ pub fn tabs_to_spaces(
     cmd.finish(hist, Kind::Other, sel, sel_of(a, c))
 }
 
+/// Moves marked lines (sorted line numbers, such as bookmarks) with an edit: a mark below the
+/// lines the edit touched moves by the lines it added or removed, a mark on a touched line that
+/// is no longer there goes to the last line they became, and marks that meet become one.
+pub fn shift_marks(marks: &mut Vec<usize>, change: &crate::buffer::Change) {
+    if marks.is_empty() || change.lines_before == change.lines_after {
+        return;
+    }
+    let (first, before, after) = (change.first_line, change.lines_before, change.lines_after);
+    for m in marks.iter_mut() {
+        if *m >= first + before {
+            *m = *m + after - before;
+        } else if *m >= first + after {
+            *m = first + after - 1;
+        }
+    }
+    marks.dedup();
+}
+
 /// The next line break (LF, CRLF or CR) at or after `from`: its start and its length. Other
 /// Unicode breaks (VT, FF, NEL, LS, PS) are not breaks here, as in the buffer's line model.
 fn next_break(rope: &ropey::Rope, from: usize) -> Option<(usize, usize)> {
@@ -1609,6 +1627,30 @@ mod tests {
         scripted(2, 4, 3_000);
         scripted(3, 1, 3_000);
         scripted(4, 8, 3_000);
+    }
+
+    #[test]
+    fn marks_follow_the_lines_of_an_edit() {
+        let mut buf = Buffer::from_text("a\nb\nc\nd\ne\n");
+        let mut hist = History::new();
+        let mut marks = vec![0, 2, 3, 4];
+        // Two lines put in at the start of line 1: marks from line 2 on move down.
+        let out = crate::edit::insert(&mut buf, &mut hist, Selection::at(2), "x\ny\n");
+        shift_marks(&mut marks, out.change.as_ref().unwrap());
+        assert_eq!(marks, [0, 4, 5, 6]);
+        // Lines 3 to 5 joined into line 3 ("b" to "d"): their marks meet on it.
+        let (a, b) = (buf.line_start(3), buf.line_start(5));
+        let out = crate::edit::insert(&mut buf, &mut hist, sel(a, b), "");
+        shift_marks(&mut marks, out.change.as_ref().unwrap());
+        assert_eq!(marks, [0, 3, 4]);
+        // Undo brings the lines back; marks below move again, the merged one stays.
+        let out = crate::edit::undo(&mut buf, &mut hist).unwrap();
+        shift_marks(&mut marks, out.change.as_ref().unwrap());
+        assert_eq!(marks, [0, 3, 6]);
+        // An edit inside a line moves nothing.
+        let out = crate::edit::insert(&mut buf, &mut hist, Selection::at(0), "zz");
+        shift_marks(&mut marks, out.change.as_ref().unwrap());
+        assert_eq!(marks, [0, 3, 6]);
     }
 
     // ---- convert_line_endings

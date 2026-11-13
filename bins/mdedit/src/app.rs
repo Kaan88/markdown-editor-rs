@@ -523,6 +523,7 @@ impl App {
                             r.left.to_bits(),
                             (!sel.is_empty()).then_some((sel.start, sel.end)),
                             (!r.extra.is_empty()).then(|| sig(&r.extra)),
+                            (!r.bookmarks.is_empty()).then(|| sig(&r.bookmarks)),
                             r.find.generation,
                             r.colors.generation,
                             (r.widest.to_bits(), r.buffer.len_lines()),
@@ -1424,6 +1425,12 @@ impl App {
                 };
                 r.buffer.snap_to_grapheme(r.buffer.offset(pos))
             };
+            for &n in &a.bookmarks {
+                let line = n.clamp(1, r.buffer.len_lines().max(1)) - 1;
+                if let Err(k) = r.bookmarks.binary_search(&line) {
+                    r.bookmarks.insert(k, line);
+                }
+            }
             if let Some(lc) = a.goto {
                 let o = at(r, lc);
                 r.sel = mdedit_core::Selection::at(o);

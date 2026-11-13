@@ -42,6 +42,10 @@ pub enum CommandId {
     ZoomReset,
     ToggleWhitespace,
     ToggleWrap,
+    ToggleBookmark,
+    NextBookmark,
+    PreviousBookmark,
+    ClearBookmarks,
     ClearSearch,
     ToggleFiles,
     NextTab,
@@ -122,6 +126,10 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ZoomReset, "Reset zoom", &["Ctrl+0"]),
     cmd(C::ToggleWhitespace, "Show whitespace", &[]),
     cmd(C::ToggleWrap, "Word wrap", &["Alt+Z"]),
+    cmd(C::ToggleBookmark, "Toggle bookmark", &["Ctrl+F2"]),
+    cmd(C::NextBookmark, "Next bookmark", &["F2"]),
+    cmd(C::PreviousBookmark, "Previous bookmark", &["Shift+F2"]),
+    cmd(C::ClearBookmarks, "Clear bookmarks", &[]),
     cmd(C::ClearSearch, "Clear search", &[]),
     cmd(C::ToggleFiles, "Files pane", &["Ctrl+Shift+1"]),
     cmd(C::NextTab, "Next tab", &["Ctrl+Tab"]),
@@ -193,6 +201,7 @@ pub mod strings {
     pub const REPLACE_ALL: &str = "Replace all";
     pub const BAD_PATTERN: &str = "Not a valid pattern";
     pub const NOTHING_TO_REPLACE: &str = "Nothing to replace.";
+    pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
 
     /// A character the chosen encoding has no bytes for.
     pub fn cannot_encode(ch: char, line: usize, encoding: &str) -> String {

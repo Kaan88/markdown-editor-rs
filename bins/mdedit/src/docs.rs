@@ -242,6 +242,9 @@ pub struct Ready {
     /// The language exists and the file is within its limits: the service colours it.
     pub colourable: bool,
     pub sel: Selection,
+    /// Bookmarked lines, sorted. They follow edits and a reload, and are gone when the tab
+    /// closes.
+    pub bookmarks: Vec<usize>,
     /// The other selections when there are several carets, in document order. `sel` is the
     /// primary: the one the view follows and Undo puts back.
     pub extra: Vec<Selection>,
@@ -427,6 +430,32 @@ impl Ready {
         self.colors.edited(change, rel);
         self.find.edited(change);
         self.chunks.clear();
+        lines::shift_marks(&mut self.bookmarks, change);
+    }
+
+    /// Sets or removes the bookmark of the caret's line.
+    pub fn toggle_bookmark(&mut self) {
+        let line = self.buffer.line_of(self.sel.caret);
+        match self.bookmarks.binary_search(&line) {
+            Ok(k) => {
+                self.bookmarks.remove(k);
+            }
+            Err(k) => self.bookmarks.insert(k, line),
+        }
+    }
+
+    /// The bookmarked line after the caret's (before it when not `forward`), going round at
+    /// the document's ends.
+    pub fn bookmark_from_caret(&self, forward: bool) -> Option<usize> {
+        let line = self.buffer.line_of(self.sel.caret);
+        let marks = &self.bookmarks;
+        if forward {
+            let k = marks.partition_point(|&m| m <= line);
+            marks.get(k).or(marks.first()).copied()
+        } else {
+            let k = marks.partition_point(|&m| m < line);
+            k.checked_sub(1).map(|k| marks[k]).or(marks.last().copied())
+        }
     }
 
     fn new(loaded: Loaded, language: Option<Language>, revision: u64) -> Ready {
@@ -438,6 +467,7 @@ impl Ready {
             language,
             colourable: false,
             sel: Selection::at(0),
+            bookmarks: Vec::new(),
             extra: Vec::new(),
             column: None,
             top: 0.0,
@@ -1166,6 +1196,9 @@ impl Docs {
                     let pos: Position = old.buffer.position(old.sel.caret);
                     let caret = r.buffer.snap_to_grapheme(r.buffer.offset(pos));
                     r.sel = Selection::at(caret);
+                    let last = r.buffer.len_lines().saturating_sub(1);
+                    r.bookmarks = old.bookmarks.iter().map(|&m| m.min(last)).collect();
+                    r.bookmarks.dedup();
                     r.top = old.top;
                     r.top_row = old.top_row;
                     r.wrap = old.wrap;
@@ -1508,9 +1541,21 @@ impl Docs {
         let at = (range.start + col.saturating_sub(1)).min(range.end);
         let at = r.buffer.snap_to_grapheme(at).min(range.end);
         r.history.seal();
+        r.extra.clear();
         r.sel = Selection::at(at);
         crate::view::reveal(r, at, true);
         true
+    }
+
+    /// Goes to the next or the previous bookmark. False when the document has none.
+    pub fn go_to_bookmark(&mut self, forward: bool) -> bool {
+        let Some(line) = self
+            .active_ready()
+            .and_then(|r| r.bookmark_from_caret(forward))
+        else {
+            return false;
+        };
+        self.go_to(line + 1, 1)
     }
 
     /// Ends the current undo step of the active document (the caret moved, the focus left).
@@ -2379,6 +2424,39 @@ mod tests {
         assert!(d.edit(EditOp::DuplicateLines, None));
         assert!(d.tabs[i].ready().unwrap().extra.is_empty());
         assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n-#three\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bookmarks_toggle_follow_edits_and_go_round() {
+        let (mut d, i, _path, dir) = file_docs("marks", b"a\nb\nc\nd\n");
+        assert!(!d.go_to_bookmark(true));
+        for line in [2, 4] {
+            d.go_to(line, 1);
+            d.tabs[i].ready_mut().unwrap().toggle_bookmark();
+        }
+        assert_eq!(d.tabs[i].ready().unwrap().bookmarks, [1, 3]);
+        let caret_line = |d: &Docs| {
+            let r = d.tabs[i].ready().unwrap();
+            r.buffer.line_of(r.sel.caret)
+        };
+        assert!(d.go_to_bookmark(true));
+        assert_eq!(caret_line(&d), 1);
+        assert!(d.go_to_bookmark(true));
+        assert_eq!(caret_line(&d), 3);
+        assert!(d.go_to_bookmark(false));
+        assert_eq!(caret_line(&d), 1);
+        assert!(d.go_to_bookmark(false));
+        assert_eq!(caret_line(&d), 3);
+        // A line typed above moves both; Undo moves them back.
+        d.go_to(1, 1);
+        assert!(d.edit(EditOp::Newline, None));
+        assert_eq!(d.tabs[i].ready().unwrap().bookmarks, [2, 4]);
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(d.tabs[i].ready().unwrap().bookmarks, [1, 3]);
+        d.go_to(2, 1);
+        d.tabs[i].ready_mut().unwrap().toggle_bookmark();
+        assert_eq!(d.tabs[i].ready().unwrap().bookmarks, [3]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

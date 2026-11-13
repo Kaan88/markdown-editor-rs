@@ -78,7 +78,7 @@ After editing (phase 2) and safe saving (phase 3), in this order:
    bracket, other occurrences of the selected word, zoom, go to line. (Done 2026-11-13.)
 5. Encoding and line-ending conversion from the status bar. (Done 2026-11-13.)
 6. Column selection and multiple carets. (Done 2026-11-13.)
-7. Bookmarks on lines.
+7. Bookmarks on lines. (Done 2026-11-13.)
 8. Find in files, on a worker.
 9. Code folding and a function list, only if typing stays as fast.
 10. Macro record and playback; split view.

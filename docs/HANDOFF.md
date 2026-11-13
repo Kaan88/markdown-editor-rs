@@ -187,8 +187,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 6 are done; next are
-   bookmarks (item 7) and find in files (item 8).
+2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 7 are done; next is
+   find in files on a worker (item 8), with its results panel.
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -203,10 +203,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 316 passed on 2026-11-13
+cargo test --release --workspace        # 318 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 52 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 53 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -232,6 +232,24 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Bookmarks (2026-11-13, roadmap item 7)
+
+- Ctrl+F2 sets or removes a bookmark on the caret's line (also "Toggle bookmark" in the
+  text's right-click menu); F2 and Shift+F2 go to the next and the previous one, going round
+  at the ends; "Clear bookmarks" has no key and is in no menu (the shortcuts dialog lists it,
+  nothing runs it yet). A bookmarked line has a dot left of its number.
+- Bookmarks follow edits (`lines::shift_marks` in the core, called from `Ready::changed`,
+  so Undo and Redo move them too) and a reload. A bookmark on a line that is joined into
+  another goes to the joined line; pressing Enter at the start of a bookmarked line leaves the
+  bookmark on the empty line above the text, not on the text.
+- They are per tab and are not kept: closing the tab or the editor loses them.
+- Not built: a click in the gutter to toggle one, cut/copy/delete of bookmarked lines.
+- Run in a real window by keys: two bookmarks set, a line typed above them, F2 twice and
+  Shift+F2 with a letter typed at each stop; the saved file had the letters on the right
+  lines. The dot was seen in a shot only (`bookmarks`); the menu entry was not clicked.
+- Measured after: exe 5,975,040 bytes; window shown 77 to 78 ms; keystroke p50 0.48 ms.
+  The text menu is now 590 px tall: it fits an 800 px window with nothing to spare.
 
 ## Multiple carets and column selection (2026-11-13, roadmap item 6)
 

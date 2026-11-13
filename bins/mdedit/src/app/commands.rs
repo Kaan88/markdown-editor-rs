@@ -779,6 +779,22 @@ impl App {
                 self.docs.wrap = !self.docs.wrap;
                 self.docs.sync_wrap();
             }
+            C::ToggleBookmark => {
+                if let Some(r) = self.docs.active_ready_mut() {
+                    r.toggle_bookmark();
+                }
+            }
+            C::NextBookmark | C::PreviousBookmark => {
+                if !self.docs.go_to_bookmark(id == C::NextBookmark) {
+                    self.docs.set_toast(strings::NO_BOOKMARKS);
+                }
+                self.caret_reset();
+            }
+            C::ClearBookmarks => {
+                if let Some(r) = self.docs.active_ready_mut() {
+                    r.bookmarks.clear();
+                }
+            }
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
             C::NextTab => self.docs.step_tab(true),
