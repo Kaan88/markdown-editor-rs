@@ -11,6 +11,8 @@ pub enum ShotMenu {
     Encoding,
     View,
     Main,
+    /// The main menu scrolled to its last row (visible only when the window is too short for it).
+    MainEnd,
     Recent,
     /// The main menu with its View submenu open beside it.
     MainView,
@@ -248,6 +250,7 @@ impl Args {
                 "--menu" => {
                     out.menu = checked(&a, value(&a), |v| match v {
                         "main" => Some(ShotMenu::Main),
+                        "main-end" => Some(ShotMenu::MainEnd),
                         "recent" => Some(ShotMenu::Recent),
                         "main-view" => Some(ShotMenu::MainView),
                         "main-macro" => Some(ShotMenu::MainMacro),
@@ -329,6 +332,7 @@ mod tests {
         assert_eq!(a.exit_after_ms, Some(2000));
         for (name, m) in [
             ("main", ShotMenu::Main),
+            ("main-end", ShotMenu::MainEnd),
             ("main-view", ShotMenu::MainView),
             ("main-macro", ShotMenu::MainMacro),
             ("tab", ShotMenu::Tab),

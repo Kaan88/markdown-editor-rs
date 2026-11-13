@@ -681,16 +681,33 @@ impl App {
 
     pub(super) fn wheel(&mut self, delta: MouseScrollDelta) {
         let (x, y) = self.ui.mouse;
-        if self.ui.popup.is_some() {
-            self.ui.popup = None;
-            self.redraw();
-            return;
-        }
         // Notches (positive = scroll up / left).
         let (nx, ny, pixels) = match delta {
             MouseScrollDelta::LineDelta(dx, dy) => (dx as f64, dy as f64, None),
             MouseScrollDelta::PixelDelta(p) => (0.0, 0.0, Some((p.x, p.y))),
         };
+        if let Some(p) = self.ui.popup.as_mut() {
+            // Over a menu the wheel scrolls it (if it is taller than its room); elsewhere it
+            // closes the menus, as it always did.
+            let scale = self.scale;
+            match p.menu_at(x, y) {
+                Some(m) if m.scrolls() => {
+                    let dy = match pixels {
+                        Some((_, py)) => -(py as f32) / scale,
+                        None => -(ny as f32) * PANE_WHEEL,
+                    };
+                    if m.scroll_by(dy) {
+                        p.pointer(x, y, Instant::now());
+                        self.redraw();
+                    }
+                }
+                _ => {
+                    self.ui.popup = None;
+                    self.redraw();
+                }
+            }
+            return;
+        }
         if self.ui.dialog.is_some() {
             if let Some(d) = self.ui.dialog.as_ref() {
                 let dy = match pixels {

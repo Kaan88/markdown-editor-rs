@@ -238,6 +238,42 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Menus taller than the window scroll (2026-11-13, 0.4.1, not published)
+
+Found in a real window 665 to 760 logical px tall: the main menu rose to the window's top edge
+over the caption buttons and lost "Exit". It depends on the window's height, not the scale.
+
+- **What existed:** nothing scrolled. `mdshared_ui::menu::Menu::place` clamped a menu into the
+  window with a 4 px margin and cut its height (`h.min(height - 8)`), so the rows below were
+  unreachable and the menu covered the title row.
+- **Shared** (branch `fix/tall-menus` of `markdown-shared-rs`, from `chore/finalize`, head
+  `f49edd3`; the shared `main` was not moved): `Menu::place_in` / `draw_in` take the area a menu
+  may use. A menu pushed up to fit stops at the area's top (below the title row); one taller
+  than the area is as tall as fits and scrolls: `scroll_by` (wheel), `step` keeps the highlighted
+  row in view (and wraps as before), a thin scrollbar (`scroll::scrollbar`) shows the position,
+  hits use the placed, scrolled rows and only inside the menu, `row_rect` and `scroll` give the
+  placed row. `scroll_to_end` is for shots. `place` and `draw` are the old calls (the whole
+  window). A menu that fits and was opened inside the title row (the tab's own menu opens at the
+  pointer) stays where it was opened. Four unit tests.
+- **Editor:** `bins/mdedit/src/app.rs` gives both menus `menu_room(title, w, h)` (the window below
+  `areas.title`; the pre-placement for the damage rectangle must use the same room, or the two
+  calls clamp the scroll differently) and the overlay signature includes the scroll;
+  `app/input.rs` `wheel` scrolls the menu under the pointer when it is taller than its room and
+  closes the menus as before otherwise; `--menu main-end` and two shots (`menu-tall-main`,
+  `menu-tall-main-end`, 1000x520) in `tests/shots.sh`, now 74 PNGs.
+- **Ran:** `tests/shots.sh` before and after: the 72 existing PNGs byte-identical; the two new ones
+  looked at. `cargo test --release --workspace` 404 passed (the editor has no new test of its
+  own: the logic is the shared one), clippy `-D warnings` and fmt clean. Real window at the
+  display's scale 1.0, 1000x560: the main menu below the title row with Exit reachable; the
+  wheel over it scrolled it to Exit; "About mdedit" clicked opened its dialog; Down 20 times
+  wrapped to the first row, Up from it to Exit with the menu scrolled to the end; Right on Macro
+  opened its submenu inside the window; the encoding picker opened above the status strip inside
+  the window. Measured (release, small file): exe 5,679,616 bytes (5,678,592 before), window shown
+  about 77 to 85 ms (one cold run 236 ms), private memory 27.8 MiB, keystroke p50 0.48 ms.
+- **Not run:** another display scale (the display was at 1.0), a context menu or submenu taller
+  than the window, a scrollbar drag (the bar only shows the position), a touch pad's pixel wheel,
+  Linux. The user has not seen it.
+
 ## Clean-up of the three repositories (2026-11-13, no release)
 
 Headless work, asked by the owner to leave the code finished. No version change.

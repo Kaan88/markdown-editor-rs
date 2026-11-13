@@ -123,4 +123,8 @@ shot update-available --light --update-bar available "$fx/sample.rs"
 shot update-installing --dark --update-bar installing "$fx/sample.rs"
 shot update-installed --dark --update-bar installed
 
+# A menu taller than its window: kept below the title row, scrolling, and scrolled to its end.
+shot menu-tall-main --light --size 1000x520 --menu main "$fx/sample.rs"
+shot menu-tall-main-end --light --size 1000x520 --menu main-end "$fx/sample.rs"
+
 ls "$out" | wc -l
