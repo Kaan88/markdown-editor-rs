@@ -350,6 +350,8 @@ pub mod strings {
         }
     }
 
+    pub const FIND_NO_MATCHES_IN_SELECTION: &str = "No matches in selection";
+
     /// The toast for a file read with replacement characters.
     pub fn lossy_toast(name: &str) -> String {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")

@@ -25,11 +25,15 @@ pub fn fold_cell(x: f32, gutter_w: f32, y: f32, h: f32) -> mdshared_ui::gfx::Rec
     mdshared_ui::gfx::Rect::new(x + gutter_w - w, y, w, h)
 }
 
-/// Where the chevron's centre is in a fold cell: a little left of the gutter's edge, where the
-/// old arrowhead was.
+/// Where the chevron's centre is in a fold cell: in the middle of the gap between where the
+/// numbers end (`GUTTER_PAD_R` before the gutter's edge) and where the text starts (`TEXT_PAD`
+/// after it), so it is clear of both.
 pub fn fold_icon_centre(cell: &mdshared_ui::gfx::Rect) -> (f32, f32) {
-    (cell.right() - GUTTER_PAD_R / 2.0, cell.cy())
+    (cell.right() - (GUTTER_PAD_R - TEXT_PAD) / 2.0, cell.cy())
 }
+
+/// The width of the tint behind the chevron under the pointer.
+pub const FOLD_HOVER_W: f32 = 12.0;
 /// A wheel notch scrolls this many lines; a horizontal notch this many advances.
 pub const WHEEL_LINES: f64 = 3.0;
 pub const WHEEL_COLS: f64 = 3.0;
@@ -244,12 +248,14 @@ mod tests {
         // The number area, left of the cell, keeps its clicks; so do the rows around.
         assert!(!cell.contains(60.0, 110.0));
         assert!(!cell.contains(90.0, 99.0) && !cell.contains(90.0, 119.0));
-        // The chevron is inside its cell, and its box inside the gutter at any zoom of the pad.
+        // The chevron is in the middle of the gap between the numbers' end and the text's start,
+        // with its hover tint at least 3 px clear of both.
         let (cx, cy) = fold_icon_centre(&cell);
-        assert!(
-            cell.contains(cx - FOLD_ICON / 2.0, cy)
-                && cell.contains(cx + FOLD_ICON / 2.0 - 0.01, cy)
-        );
+        assert!(cell.contains(cx, cy));
+        let (numbers_end, text_start) = (100.0 - GUTTER_PAD_R, 100.0 + TEXT_PAD);
+        assert_eq!(cx - numbers_end, text_start - cx);
+        assert!(cx - FOLD_HOVER_W / 2.0 - numbers_end >= 3.0);
+        assert!(text_start - (cx + FOLD_HOVER_W / 2.0) >= 3.0);
         // A narrow gutter gives a narrow cell, never one that leaves it.
         let narrow = fold_cell(0.0, 20.0, 0.0, 10.0);
         assert_eq!((narrow.x, narrow.right()), (0.0, 20.0));

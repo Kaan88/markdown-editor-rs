@@ -1196,7 +1196,7 @@ impl App {
             }
             (KeyName::Enter, _) => {
                 self.remember_find();
-                self.docs.find_step(!mods.shift);
+                self.docs.find_step_scoped(!mods.shift);
                 return true;
             }
             (KeyName::Tab, false) if replace_open && which != BarField::Goto => {

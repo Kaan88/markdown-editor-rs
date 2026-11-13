@@ -794,6 +794,7 @@ impl View {
         let band_c = mix(pal.page, pal.text, 0.035);
         // The lines the replace strip limits Replace to: a faint tint while it is open.
         let scope_c = mix(pal.page, pal.accent, 0.07);
+        let window = r.match_window();
         let scope_lines = r.scope().map(|s| {
             let last =
                 if s.end > s.start && r.buffer.line_range(r.buffer.line_of(s.end)).start == s.end {
@@ -906,11 +907,19 @@ impl View {
             // Find marks overlapping the line.
             let marks: &[Range<usize>] = {
                 let all = &r.find.matches;
-                let a = all.partition_point(|m| m.end <= range.start);
-                let b = all.partition_point(|m| m.start < with_break.end.max(range.start + 1));
-                &all[a..b.max(a)]
+                let a = all
+                    .partition_point(|m| m.end <= range.start)
+                    .max(window.start);
+                let b = all
+                    .partition_point(|m| m.start < with_break.end.max(range.start + 1))
+                    .min(window.end);
+                &all[a.min(b)..b]
             };
-            let first_mark = r.find.matches.partition_point(|m| m.end <= range.start);
+            let first_mark = r
+                .find
+                .matches
+                .partition_point(|m| m.end <= range.start)
+                .max(window.start);
             let marks: Vec<(Range<usize>, bool)> = marks
                 .iter()
                 .enumerate()
@@ -1175,7 +1184,12 @@ impl View {
                 let hovered = c.hover == Some(hit);
                 let (cx, cy) = metrics::fold_icon_centre(&cell);
                 if hovered && let Some(f) = c.fill_for(hit, false, false) {
-                    let b = Rect::new(cx - 7.0, cell.y + 1.0, 14.0, cell.h - 2.0);
+                    let b = Rect::new(
+                        cx - metrics::FOLD_HOVER_W / 2.0,
+                        cell.y + 1.0,
+                        metrics::FOLD_HOVER_W,
+                        cell.h - 2.0,
+                    );
                     c.p.rbox(b, 4.0, f);
                 }
                 let color = if hovered {

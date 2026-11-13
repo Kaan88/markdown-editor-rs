@@ -504,9 +504,10 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
         }
     }
     // Find matches: a mark at the row's right edge.
+    let window = r.match_window();
     let all = &r.find.matches;
-    let a = all.partition_point(|m| m.end <= ws);
-    let b = all.partition_point(|m| m.start < we);
+    let a = all.partition_point(|m| m.end <= ws).max(window.start);
+    let b = all.partition_point(|m| m.start < we).min(window.end);
     let mw = ((3.0 * scale).round() as i32).max(1);
     for (k, m) in all[a..b.max(a)].iter().enumerate().take(MATCHES_MAX) {
         let Some(y) = row_y(buf.line_of(m.start)) else {

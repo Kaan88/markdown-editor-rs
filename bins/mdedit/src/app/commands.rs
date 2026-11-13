@@ -64,6 +64,7 @@ impl App {
             Hit::InSelection => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.scope_on = !r.scope_on;
+                    r.fit_current_to_scope();
                 }
             }
             Hit::FindOpt(opt) => {
@@ -1062,7 +1063,7 @@ impl App {
                     self.command(C::Find);
                 } else {
                     self.remember_find();
-                    self.docs.find_step(id == C::FindNext);
+                    self.docs.find_step_scoped(id == C::FindNext);
                 }
             }
             C::ClearSearch => {

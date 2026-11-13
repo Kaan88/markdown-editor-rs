@@ -447,6 +447,60 @@ impl Ready {
         }
     }
 
+    /// The matches that count: indexes into `find.matches` of all of them, or, with "in
+    /// selection" on, of those inside the kept range. Everything the strip shows (the counter,
+    /// the marks, the current match, the minimap's marks) goes by this window.
+    pub fn match_window(&self) -> Range<usize> {
+        let m = &self.find.matches;
+        match self.scope() {
+            None => 0..m.len(),
+            Some(s) => {
+                let lo = m.partition_point(|x| x.start < s.start);
+                let hi = m.partition_point(|x| x.end <= s.end).max(lo);
+                lo..hi
+            }
+        }
+    }
+
+    /// The counter beside the find box, for the matches that count.
+    pub fn find_label(&self) -> String {
+        let f = &self.find;
+        if self.scope().is_none() || f.text.is_empty() || f.error.is_some() || f.searching {
+            return f.label();
+        }
+        let w = self.match_window();
+        if w.is_empty() {
+            return strings::FIND_NO_MATCHES_IN_SELECTION.to_string();
+        }
+        let at = f
+            .current
+            .filter(|k| w.contains(k))
+            .map_or(0, |k| k - w.start + 1);
+        strings::find_label(false, at, w.len(), f.capped)
+    }
+
+    /// With a range on, the current match is one inside it: when it is not, the first inside
+    /// the range from the caret (or the first of the range).
+    pub fn fit_current_to_scope(&mut self) {
+        if self.scope().is_none() {
+            return;
+        }
+        let w = self.match_window();
+        if self.find.current.is_some_and(|k| w.contains(&k)) {
+            return;
+        }
+        let from = self.sel.range().start;
+        let k = find::first_at_or_after(&self.find.matches, from);
+        self.find.current = if w.is_empty() {
+            None
+        } else if w.contains(&k) {
+            Some(k)
+        } else {
+            Some(w.start)
+        };
+        self.find.generation += 1;
+    }
+
     /// The range Replace is limited to now: the kept selection while its toggle is on.
     pub fn scope(&self) -> Option<Range<usize>> {
         self.replace_scope.clone().filter(|_| self.scope_on)
@@ -2090,6 +2144,7 @@ impl Docs {
         let multi = r.buffer.line_of(range.start) != r.buffer.line_of(range.end);
         r.replace_scope = multi.then_some(range);
         r.scope_on = multi;
+        r.fit_current_to_scope();
     }
 
     /// The strip closed: no document keeps a range.
@@ -2108,12 +2163,11 @@ impl Docs {
         let Some(r) = self.active_ready_mut() else {
             return;
         };
-        let Some(scope) = r.scope() else {
+        if r.scope().is_none() {
             return self.find_step(forward);
         };
         let m = &r.find.matches;
-        let lo = m.partition_point(|x| x.start < scope.start);
-        let hi = m.partition_point(|x| x.end <= scope.end).max(lo);
+        let Range { start: lo, end: hi } = r.match_window();
         if r.find.text.is_empty() || lo == hi {
             return;
         }
@@ -2267,7 +2321,8 @@ fn take_matches(r: &mut Ready, m: Matches, go: bool) {
     let k = find::first_at_or_after(&r.find.matches, r.sel.range().start);
     let k = if k >= r.find.matches.len() { 0 } else { k };
     r.find.current = Some(k);
-    if go {
+    r.fit_current_to_scope();
+    if go && let Some(k) = r.find.current {
         let range = r.find.matches[k].clone();
         r.select_and_reveal(range);
     }
@@ -2515,6 +2570,52 @@ mod tests {
         d.capture_replace_scope();
         d.clear_replace_scope();
         assert_eq!(d.tabs[i].ready().unwrap().replace_scope, None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn in_selection_governs_the_counter_the_current_match_and_the_marks() {
+        let (mut d, i, _path, dir) = file_docs("scopecount", b"a\na\na\na\na\n");
+        d.find_set("a", FindOptions::default());
+        // Lines 2 and 3 selected (bytes 2..6) as the strip opens.
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 2,
+            caret: 6,
+            goal_col: None,
+        };
+        d.capture_replace_scope();
+        let r = d.tabs[i].ready().unwrap();
+        assert_eq!(r.find.matches.len(), 5);
+        assert_eq!(r.match_window(), 1..3);
+        // The counter counts only those inside, and the current one is among them.
+        assert_eq!(r.find_label(), "1 of 2");
+        // Next and Previous wrap inside the range: from past its end, back to its first.
+        d.find_step_scoped(true);
+        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 2..3);
+        d.find_step_scoped(true);
+        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 4..5);
+        assert_eq!(d.tabs[i].ready().unwrap().find_label(), "2 of 2");
+        d.find_step_scoped(true);
+        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 2..3);
+        d.find_step_scoped(false);
+        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 4..5);
+        // A query with no match inside says so; the toggle off is the whole file again.
+        d.find_set("zz", FindOptions::default());
+        assert_eq!(
+            d.tabs[i].ready().unwrap().find_label(),
+            "No matches in selection"
+        );
+        d.find_set("a", FindOptions::default());
+        {
+            let r = d.tabs[i].ready_mut().unwrap();
+            r.replace_scope = Some(0..1);
+            r.find.matches = std::iter::once(2..3).collect();
+            r.find.current = Some(0);
+            assert_eq!(r.find_label(), "No matches in selection");
+            r.scope_on = false;
+            r.fit_current_to_scope();
+            assert_eq!(r.find_label(), "1 of 1");
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 

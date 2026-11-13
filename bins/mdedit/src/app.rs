@@ -761,7 +761,7 @@ impl App {
                         // What the column marks over the rows.
                         (r.sel.range(), r.sel.caret, pane == 0),
                         (!r.extra.is_empty()).then(|| sig(&r.extra)),
-                        (r.find.generation, r.find.current),
+                        (r.find.generation, r.find.current, r.scope()),
                         &r.bookmarks,
                     ))
                 });
