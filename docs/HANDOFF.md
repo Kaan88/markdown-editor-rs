@@ -249,7 +249,9 @@ from converting them.
   second pane, or a click on its tab gives it the keyboard: the panes change roles and each
   keeps its tab and its side. Any other tab chosen shows in the pane with the keyboard.
   Shift+F8 again, or closing the second pane's tab, ends the split.
-- **It is two files, not two views of one file** (decision made without the user). A
+- **It is two files, not two views of one file.** The user was told the difference on
+  2026-11-13 and said: "leave as is, note it." So one file in both panes is not planned;
+  do not build it unless asked. A
   document's caret, scroll, folds and colours belong to the document (`docs.rs` `Ready`);
   showing one document twice needs them taken out of it into a view of their own, which
   was not done. The same file cannot be shown in both panes.

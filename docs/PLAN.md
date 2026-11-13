@@ -83,7 +83,7 @@ After editing (phase 2) and safe saving (phase 3), in this order:
 9. Code folding and a function list, only if typing stays as fast. (Done 2026-11-13; folding
    is by indentation.)
 10. Macro record and playback; split view. (Done 2026-11-13; the split shows two files, not
-    one file twice.)
+    one file twice, and the user said to leave it so.)
 
 Left out: plugins, the FTP and project panels, printing.
 
