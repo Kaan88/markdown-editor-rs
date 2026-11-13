@@ -275,6 +275,24 @@ from converting them.
   works for `--shot` only). 378 tests, clippy and fmt clean; the shots are byte-identical
   to the build before but `menu-view` and `dialog-shortcuts`; 62 shots.
 
+## Linux at `4280e9d` (2026-11-13, last run of the day)
+
+The same agent, same VM, the editor at `4280e9d` with its own pin of the shared branch.
+
+- Builds (one warning, `first_line`); 377 tests pass (378 on Windows); `tests/shots.sh`
+  gives 62 PNGs. Looked at: `split`, `split-dark`, `menu-macro`, `fold`: icons, both panes
+  and colours are right. The emoji of `sample.md` draws as a box there (no colour emoji
+  font on the VM, most likely; not looked into).
+- In the real window, by file bytes: a macro recorded and played twice; a macro played to
+  the end of the file from the menu (six lines, each changed once, none added); split view
+  by Shift+F8 and F8 (each letter in the right file); a click on the second pane then a
+  letter (in that pane's file, at the caret that pane had); copy read back with xclip. By
+  screenshot: "Recording" in the status strip, the wheel scrolling the second pane.
+- Window shown at 52 to 56 ms, keystroke p50 0.73 ms. The binary is 10,920,416 bytes
+  (10,025,128 at `f0c75a6`, 9,572,392 at `4023958`); why it grew by 0.9 MB in a day when
+  the Windows exe shrank was not looked into.
+- Not done: Wayland; the other 58 shots were not looked at.
+
 ## Linux in a real window, and room in the exe (2026-11-13, later)
 
 A Sonnet agent drove the editor on the VM (`dietpi@192.168.1.113`, Debian 13, LXDE and
