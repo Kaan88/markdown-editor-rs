@@ -81,3 +81,21 @@ uninstall of the local build were checked with each task (see `docs/HANDOFF.md`)
 Not verified: that an older install downloads and installs 0.3.1 (the offer only was seen); the
 installer on a machine other than this PC, clicked through by a person, or over an older install;
 that Windows shows mdedit under "Open with" and Default apps. The installer is not code-signed.
+
+## v0.3.2 (published from commit 787178b, 2026-11-13)
+
+Cut with the launch look for updates at every start (shared branch `fix/update-look-every-launch`,
+commit `1c3710a`; the shared `main` was not moved) and submenus that open on mouse-over. Assets:
+the exe (5,651,968 bytes), the manifest and `mdedit-setup-0.3.2.exe` (4,278,379 bytes). Verified
+against the live release: the manifest at the address above names 0.3.2 (it was already
+current at the first fetch, a few minutes after publishing); the exe downloaded from its URL is
+5651968 bytes and has the manifest's SHA-256
+`5872957b62369d773f104bb9f4eb6af1e67c8f98951f06ebc74884f9cd26a026`, the same as the local build;
+`mdedit --check-update` with that exe (run from Git Bash) answered "nothing newer", exit 0; the
+published 0.3.1 exe's `--check-update` answered "mdedit 0.3.2 is available" with the 0.3.2 exe's
+URL, exit 0. `cargo test --release --workspace` gave 382 passed, 0 failed.
+
+Not verified: that an older install downloads and installs 0.3.2 (the offer only was seen); the
+0.3.2 installer was built but not run or compared with the uploaded copy. Copies of 0.3.1 and
+older still look once a day, so they find 0.3.2 at launch only when their day is up, or by the
+manual check.
