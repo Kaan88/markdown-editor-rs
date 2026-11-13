@@ -61,3 +61,12 @@ pub const UNDO_BYTES: usize = 64 << 20;
 /// Removed text up to this many bytes is kept as a `String`; larger text is kept as a `Rope`
 /// slice that shares the buffer's chunks instead of copying them.
 pub const UNDO_SHARE_BYTES: usize = 4096;
+
+/// The line commands that rebuild a block of lines in memory (sort, remove duplicates, reverse,
+/// join) refuse a block of more bytes than this: they do nothing, and `lines::block_too_large`
+/// says so, so the shell can tell the user.
+pub const LINE_BLOCK_BYTES: usize = 64 << 20;
+/// How far from the caret the typing helpers (`typing`) look for the text that decides what a
+/// keystroke does: the line's indentation, the blanks before the caret. A longer run counts as
+/// not found.
+pub const TYPING_SCAN: usize = 4096;

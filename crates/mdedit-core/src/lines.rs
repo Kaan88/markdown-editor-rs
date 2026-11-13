@@ -17,6 +17,7 @@ use crate::buffer::Buffer;
 use crate::display::Cols;
 use crate::edit::{Cmd, Outcome, clamped, nothing, touched_lines};
 use crate::history::{History, Kind};
+use crate::limits::LINE_BLOCK_BYTES;
 use crate::selection::Selection;
 use std::ops::Range;
 
@@ -348,9 +349,17 @@ pub fn change_case(buf: &mut Buffer, hist: &mut History, sel: Selection, upper: 
 /// place.
 pub fn trim_trailing_whitespace(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
     let len = buf.len_bytes();
-    let (oa, oc) = (sel.anchor.min(len), sel.caret.min(len));
-    let (mut a, mut c) = (oa, oc);
+    let (mut a, mut c) = (sel.anchor.min(len), sel.caret.min(len));
     let mut cmd = Cmd::new(buf);
+    trim_into(&mut cmd, &mut a, &mut c);
+    cmd.finish(hist, Kind::Other, sel, sel_of(a, c))
+}
+
+/// The walk of [`trim_trailing_whitespace`] inside a command, so `prefs::apply_on_save` can make
+/// it part of a bigger step. `a` and `c` are selection ends (offsets in the buffer as it is now)
+/// and are moved as the text goes.
+pub(crate) fn trim_into(cmd: &mut Cmd<'_>, a: &mut usize, c: &mut usize) {
+    let (oa, oc) = (*a, *c);
     // Bytes removed so far: the buffer's offsets are the original ones minus this.
     let mut removed = 0;
     let mut total = cmd.buf.len_lines();
@@ -368,7 +377,7 @@ pub fn trim_trailing_whitespace(buf: &mut Buffer, hist: &mut History, sel: Selec
         }
         let n = range.end - from;
         let s = from + removed;
-        for end in [(&oa, &mut a), (&oc, &mut c)] {
+        for end in [(&oa, &mut *a), (&oc, &mut *c)] {
             if *end.0 >= s + n {
                 *end.1 -= n;
             } else if *end.0 > s {
@@ -382,7 +391,6 @@ pub fn trim_trailing_whitespace(buf: &mut Buffer, hist: &mut History, sel: Selec
         line = line + 1 - (total - now);
         total = now;
     }
-    cmd.finish(hist, Kind::Other, sel, sel_of(a, c))
 }
 
 /// Tabs replaced per batch within one line, so a line of millions of tabs does not need a list
@@ -552,6 +560,246 @@ pub fn convert_line_endings(
         pos = at + to.len();
     }
     cmd.finish(hist, Kind::Other, sel, sel_of(a as usize, c as usize))
+}
+
+/// How the lines of a block are put in order by [`sort_lines`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortOrder {
+    /// By the bytes of the line's text (UTF-8, so by code point), smallest first.
+    Ascending,
+    /// The reverse of `Ascending`; lines that compare equal keep their order.
+    Descending,
+    /// Ascending, comparing each char lowercased by its simple mapping (`char::to_lowercase`,
+    /// its first char where Unicode gives more than one: "İ" is "i"), so "B" sorts after "a".
+    /// Lines that compare equal keep their order.
+    IgnoreCase,
+}
+
+/// The lines the whole-block line commands work on, as (first, last): the lines of the selection
+/// ([`touched_lines`]), or every line of the document when the selection is empty and
+/// `whole_if_empty` is set. A last line that is empty and has no break (the text after the
+/// document's final line break) is left out when other lines remain, so a sort does not move the
+/// final break.
+fn block_lines(buf: &Buffer, sel: Selection, whole_if_empty: bool) -> (usize, usize) {
+    let r = clamped(buf, sel);
+    let (first, mut last) = if r.is_empty() && whole_if_empty {
+        (0, buf.len_lines() - 1)
+    } else {
+        touched_lines(buf, &r)
+    };
+    if last > first && buf.line_range_with_break(last).is_empty() {
+        last -= 1;
+    }
+    (first, last)
+}
+
+/// Whether the block `sort_lines`, `unique_lines`, `reverse_lines` or `join_lines` would work on
+/// is over [`LINE_BLOCK_BYTES`]: those commands then do nothing. They take the whole document
+/// when the selection is empty (`whole_if_empty` true); pass false to ask about the caret's line
+/// alone.
+pub fn block_too_large(buf: &Buffer, sel: Selection, whole_if_empty: bool) -> bool {
+    let (first, last) = block_lines(buf, sel, whole_if_empty);
+    buf.line_range_with_break(last).end - buf.line_start(first) > LINE_BLOCK_BYTES
+}
+
+/// The lines `first..=last` as their texts (without breaks) and their breaks.
+fn read_block(buf: &Buffer, first: usize, last: usize) -> (Vec<String>, Vec<String>) {
+    let mut texts = Vec::with_capacity(last - first + 1);
+    let mut breaks = Vec::with_capacity(last - first + 1);
+    for l in first..=last {
+        let c = buf.line_range(l);
+        let w = buf.line_range_with_break(l);
+        texts.push(text_of(buf, c.clone()));
+        breaks.push(text_of(buf, c.end..w.end));
+    }
+    (texts, breaks)
+}
+
+/// Writes `texts` with `breaks` between them (the last text gets no break: the last line's break
+/// stays where it is) over the lines `first..=last`, trimmed to the bytes that differ, and ends
+/// the command with the selection over the lines' new text. Nothing when no byte differs.
+fn put_block(
+    mut cmd: Cmd<'_>,
+    hist: &mut History,
+    sel: Selection,
+    first: usize,
+    last: usize,
+    texts: &[String],
+    breaks: &[String],
+) -> Outcome {
+    let start = cmd.buf.line_start(first);
+    let old_end = cmd.buf.line_range(last).end;
+    let old = text_of(cmd.buf, start..old_end);
+    let mut new = String::with_capacity(old.len());
+    for (i, t) in texts.iter().enumerate() {
+        new.push_str(t);
+        if i + 1 < texts.len() {
+            new.push_str(&breaks[i]);
+        }
+    }
+    let (ob, nb) = (old.as_bytes(), new.as_bytes());
+    let mut head = ob.iter().zip(nb).take_while(|(a, b)| a == b).count();
+    while !old.is_char_boundary(head) {
+        head -= 1;
+    }
+    let max_tail = ob.len().min(nb.len()) - head;
+    let mut tail = ob
+        .iter()
+        .rev()
+        .zip(nb.iter().rev())
+        .take(max_tail)
+        .take_while(|(a, b)| a == b)
+        .count();
+    while !old.is_char_boundary(ob.len() - tail) || !new.is_char_boundary(nb.len() - tail) {
+        tail -= 1;
+    }
+    let after = sel_of(start, start + new.len());
+    cmd.replace(start + head..old_end - tail, &new[head..nb.len() - tail]);
+    cmd.finish(hist, Kind::Other, sel, after)
+}
+
+/// Puts the lines of the selection in order, or every line of the document when nothing is
+/// selected. Each line keeps its own line break where it stands (the lines move, the breaks stay
+/// in their places), so the document's line endings, mixed or not, and whether it ends with a
+/// break are as they were. A final empty line (after the document's last break) is not sorted.
+/// The sort is stable. The selection then runs from the start of the first line to the end of
+/// the last line's text. Nothing when the block is one line, already in order, or over
+/// [`LINE_BLOCK_BYTES`].
+pub fn sort_lines(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    order: SortOrder,
+) -> Outcome {
+    let (first, last) = block_lines(buf, sel, true);
+    if first == last || block_too_large(buf, sel, true) {
+        return nothing(sel);
+    }
+    let (texts, breaks) = read_block(buf, first, last);
+    let mut keyed: Vec<(String, usize)> = texts
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let key = match order {
+                SortOrder::IgnoreCase => fold_case(t),
+                _ => String::new(),
+            };
+            (key, i)
+        })
+        .collect();
+    match order {
+        SortOrder::Ascending => keyed.sort_by(|a, b| texts[a.1].cmp(&texts[b.1])),
+        SortOrder::Descending => keyed.sort_by(|a, b| texts[b.1].cmp(&texts[a.1])),
+        SortOrder::IgnoreCase => keyed.sort_by(|a, b| a.0.cmp(&b.0)),
+    }
+    let sorted: Vec<String> = keyed.iter().map(|&(_, i)| texts[i].clone()).collect();
+    put_block(Cmd::new(buf), hist, sel, first, last, &sorted, &breaks)
+}
+
+/// `s` with every char lowercased by its simple mapping.
+fn fold_case(s: &str) -> String {
+    s.chars()
+        .map(|c| c.to_lowercase().next().unwrap_or(c))
+        .collect()
+}
+
+/// Reverses the order of the lines of the selection, or of the whole document when nothing is
+/// selected. Breaks stay in their places as for [`sort_lines`], as does the selection rule.
+/// Nothing when the block is one line, its lines read the same reversed, or it is over
+/// [`LINE_BLOCK_BYTES`].
+pub fn reverse_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
+    let (first, last) = block_lines(buf, sel, true);
+    if first == last || block_too_large(buf, sel, true) {
+        return nothing(sel);
+    }
+    let (mut texts, breaks) = read_block(buf, first, last);
+    texts.reverse();
+    put_block(Cmd::new(buf), hist, sel, first, last, &texts, &breaks)
+}
+
+/// Removes every line of the selection (the whole document when nothing is selected) that has
+/// the same text as an earlier line of the block, keeping the first of each; the order of the
+/// rest is kept. Texts are compared byte for byte, so "a" and "A", or "a" and "a " are different;
+/// two empty lines are duplicates. A removed line goes with its own break, except that the last
+/// line of the block hands its break (or the lack of one) to the last line that stays, so the
+/// document still ends as it did. A final empty line (after the document's last break) is not
+/// part of the block. The selection then covers the remaining lines as for [`sort_lines`].
+/// Nothing when there is no duplicate, or the block is over [`LINE_BLOCK_BYTES`].
+pub fn unique_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
+    let (first, last) = block_lines(buf, sel, true);
+    if first == last || block_too_large(buf, sel, true) {
+        return nothing(sel);
+    }
+    let (texts, breaks) = read_block(buf, first, last);
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let keep: Vec<usize> = (0..texts.len())
+        .filter(|&i| seen.insert(texts[i].as_str()))
+        .collect();
+    if keep.len() == texts.len() {
+        return nothing(sel);
+    }
+    let kept: Vec<String> = keep.iter().map(|&i| texts[i].clone()).collect();
+    let mut kept_breaks: Vec<String> = keep.iter().map(|&i| breaks[i].clone()).collect();
+    if let (Some(b), Some(end)) = (kept_breaks.last_mut(), breaks.last()) {
+        b.clone_from(end);
+    }
+    // Fewer lines than before: the whole block is replaced.
+    let start = buf.line_start(first);
+    let old_end = buf.line_range(last).end;
+    let mut new = String::new();
+    for (i, t) in kept.iter().enumerate() {
+        new.push_str(t);
+        if i + 1 < kept.len() {
+            new.push_str(&kept_breaks[i]);
+        }
+    }
+    let after = sel_of(start, start + new.len());
+    let mut cmd = Cmd::new(buf);
+    cmd.replace(start..old_end, &new);
+    cmd.finish(hist, Kind::Other, sel, after)
+}
+
+/// Joins lines. With a selection over several lines ([`touched_lines`]), joins all of them into
+/// the first; with no selection, or one inside a single line, joins that line (the caret's) with
+/// the next one. Each line break, with the leading spaces and tabs (any Unicode whitespace) of the
+/// line after it, becomes one space, or nothing when that line is empty or only whitespace. The
+/// first line's own text, trailing whitespace included, is kept as it is. The joined line ends
+/// with the break of the last line joined. With an empty selection the caret goes to the first
+/// join point (where the first space is, or would be); otherwise the selection covers the joined
+/// line's text. Nothing when there is no next line, or the block is over [`LINE_BLOCK_BYTES`].
+pub fn join_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
+    let r = clamped(buf, sel);
+    let (first, mut last) = touched_lines(buf, &r);
+    if first == last {
+        last = first + 1;
+    }
+    if last >= buf.len_lines()
+        || buf.line_range_with_break(last).end - buf.line_start(first) > LINE_BLOCK_BYTES
+    {
+        return nothing(sel);
+    }
+    let from = buf.line_range(first).end;
+    let to = buf.line_range(last).end;
+    let mut joined = String::new();
+    let mut piece = String::new();
+    for l in first + 1..=last {
+        buf.line_text(l, &mut piece);
+        let t = piece.trim_start();
+        if !t.is_empty() {
+            joined.push(' ');
+            joined.push_str(t);
+        }
+    }
+    let start = buf.line_start(first);
+    let end = start + (from - start) + joined.len();
+    let after = if r.is_empty() {
+        Selection::at(from)
+    } else {
+        sel_of(start, end)
+    };
+    let mut cmd = Cmd::new(buf);
+    cmd.replace(from..to, &joined);
+    cmd.finish(hist, Kind::Other, sel, after)
 }
 
 #[cfg(test)]
@@ -1924,5 +2172,346 @@ mod tests {
         undo(&mut buf, &mut hist);
         println!("undo of LF to CRLF in {:?}", t.elapsed());
         assert_eq!(buf.len_bytes(), original.len());
+    }
+}
+
+#[cfg(test)]
+mod block_tests {
+    use super::*;
+    use crate::edit::{redo, undo};
+    use crate::eol::EolCounts;
+    use crate::testutil::{Rng, check_change, check_eols};
+
+    fn txt(buf: &Buffer) -> String {
+        buf.rope().to_string()
+    }
+
+    fn sel(anchor: usize, caret: usize) -> Selection {
+        sel_of(anchor, caret)
+    }
+
+    /// Runs `f` on a fresh buffer; checks the change, the line-ending counts, one undo step, undo
+    /// and redo; for no change that nothing was recorded.
+    fn go(
+        text: &str,
+        s: Selection,
+        f: impl FnOnce(&mut Buffer, &mut History, Selection) -> Outcome,
+    ) -> (String, Selection) {
+        let mut buf = Buffer::from_text(text);
+        let mut hist = History::new();
+        let out = f(&mut buf, &mut hist, s);
+        let after = txt(&buf);
+        match &out.change {
+            None => {
+                assert_eq!(after, text);
+                assert_eq!(out.sel, s);
+                assert!(!hist.can_undo());
+            }
+            Some(c) => {
+                check_change(text, &after, c);
+                let mut counts = EolCounts::of(text);
+                check_eols(&mut counts, &after, c);
+                assert_ne!(after, text);
+                assert_eq!(hist.steps(), (1, 0));
+                assert!(
+                    buf.is_char_boundary(out.sel.anchor) && buf.is_char_boundary(out.sel.caret)
+                );
+                undo(&mut buf, &mut hist).unwrap();
+                assert_eq!(txt(&buf), text);
+                let r = redo(&mut buf, &mut hist).unwrap();
+                assert_eq!(txt(&buf), after);
+                assert_eq!(r.sel, out.sel);
+            }
+        }
+        (after, out.sel)
+    }
+
+    fn sort(text: &str, s: Selection, o: SortOrder) -> (String, Selection) {
+        go(text, s, |b, h, s| sort_lines(b, h, s, o))
+    }
+
+    #[test]
+    fn sort_orders() {
+        use SortOrder::*;
+        let none = Selection::at(0);
+        assert_eq!(
+            sort("b\nC\na\nB\n", none, Ascending),
+            ("B\nC\na\nb\n".into(), sel(0, 7))
+        );
+        assert_eq!(
+            sort("b\nC\na\nB\n", none, Descending),
+            ("b\na\nC\nB\n".into(), sel(0, 7))
+        );
+        assert_eq!(
+            sort("b\nC\na\nB\n", none, IgnoreCase).0,
+            // Equal keys ("b" and "B") keep their order.
+            "a\nb\nB\nC\n"
+        );
+        // Byte-wise: "é" (two bytes) sorts after "z".
+        assert_eq!(sort("é\nz\n", none, Ascending).0, "z\né\n");
+        // Simple lowercase of a capital with a longer full lowercase.
+        assert_eq!(sort("j\nİ\ni\n", none, IgnoreCase).0, "İ\ni\nj\n");
+        // Stable descending: equal lines keep their order, shown by the break that follows each.
+        assert_eq!(sort("a\r\na\n", none, Descending).0, "a\r\na\n");
+    }
+
+    #[test]
+    fn sort_keeps_breaks_in_place_and_the_last_line_ending() {
+        use SortOrder::*;
+        // Mixed breaks stay where they are; no final break stays none.
+        assert_eq!(
+            sort("b\r\na\nc", Selection::at(0), Ascending),
+            ("a\r\nb\nc".into(), sel(0, 6))
+        );
+        assert_eq!(sort("c\nb\na", Selection::at(2), Ascending).0, "a\nb\nc");
+        // A final empty line is not sorted: the final break stays last.
+        assert_eq!(sort("b\na\n", Selection::at(0), Ascending).0, "a\nb\n");
+        assert_eq!(sort("b\na\n\n", Selection::at(0), Ascending).0, "\na\nb\n");
+        // Already in order, one line, empty document: nothing.
+        assert_eq!(sort("a\nb\n", Selection::at(0), Ascending).0, "a\nb\n");
+        assert_eq!(sort("a", Selection::at(0), Ascending).0, "a");
+        assert_eq!(sort("", Selection::at(0), Descending).0, "");
+        assert_eq!(sort("\n", Selection::at(0), Descending).0, "\n");
+    }
+
+    #[test]
+    fn sort_with_a_selection_touches_only_its_lines() {
+        use SortOrder::*;
+        let t = "z\nc\nb\na\ny\n";
+        // Lines 1..=3; the selection starts inside line 1 and ends inside line 3.
+        let (r, s) = sort(t, sel(3, 7), Ascending);
+        assert_eq!(r, "z\na\nb\nc\ny\n");
+        assert_eq!(s, sel(2, 7));
+        // Ending at column 0 of line 4 leaves line 4 out.
+        assert_eq!(sort(t, sel(2, 8), Ascending).0, "z\na\nb\nc\ny\n");
+        // Backwards selection gives the same result; the result is forward.
+        assert_eq!(
+            sort(t, sel(7, 3), Ascending),
+            ("z\na\nb\nc\ny\n".into(), sel(2, 7))
+        );
+        // A caret or a selection in one line is that one line: nothing to sort... but with no
+        // selection the whole document is sorted.
+        assert_eq!(sort(t, sel(3, 3), Ascending).0, "a\nb\nc\ny\nz\n");
+        assert_eq!(sort(t, sel(3, 4), Ascending).0, t);
+    }
+
+    #[test]
+    fn sort_selection_to_the_end_of_a_document_without_a_final_break() {
+        use SortOrder::*;
+        assert_eq!(
+            sort("x\nb\na", sel(2, 5), Ascending),
+            ("x\na\nb".into(), sel(2, 5))
+        );
+        // The empty last line after the final break is not part of the block.
+        assert_eq!(sort("x\nb\na\n", sel(2, 6), Ascending).0, "x\na\nb\n");
+    }
+
+    #[test]
+    fn unique_keeps_the_first_of_each() {
+        let none = Selection::at(0);
+        let u = |t: &str, s| go(t, s, unique_lines);
+        assert_eq!(u("a\nb\na\nc\nb\n", none), ("a\nb\nc\n".into(), sel(0, 5)));
+        // Not adjacent only, and case, spaces count.
+        assert_eq!(u("a\nA\na \na\n", none).0, "a\nA\na \n");
+        // Empty lines are duplicates of each other.
+        assert_eq!(u("a\n\n\nb\n\n", none).0, "a\n\nb\n");
+        // The last line, a duplicate without a break: the document ends without one.
+        assert_eq!(u("a\nb\na", none).0, "a\nb");
+        assert_eq!(u("a\r\nb\r\na\r\nc", none).0, "a\r\nb\r\nc");
+        assert_eq!(u("a\r\na\r\n", none).0, "a\r\n");
+        // Nothing to remove, one line.
+        assert_eq!(u("a\nb\n", none).0, "a\nb\n");
+        assert_eq!(u("a", none).0, "a");
+        // Only the selected lines.
+        assert_eq!(u("a\na\nb\nb\nb\n", sel(2, 7)).0, "a\na\nb\nb\n");
+        assert_eq!(u("a\nb\nb\nb\na\n", sel(2, 6)).0, "a\nb\nb\na\n");
+    }
+
+    #[test]
+    fn reverse_reverses() {
+        let r = |t: &str, s| go(t, s, reverse_lines);
+        assert_eq!(
+            r("a\nb\nc\n", Selection::at(1)),
+            ("c\nb\na\n".into(), sel(0, 5))
+        );
+        assert_eq!(r("a\r\nb\nc", Selection::at(0)).0, "c\r\nb\na");
+        assert_eq!(r("a\nb\nc\nd\n", sel(2, 5)).0, "a\nc\nb\nd\n");
+        assert_eq!(r("a\nb\na\n", Selection::at(0)).0, "a\nb\na\n");
+        assert_eq!(r("a\n", Selection::at(0)).0, "a\n");
+        assert_eq!(r("", Selection::at(0)).0, "");
+    }
+
+    #[test]
+    fn join_with_the_next_line() {
+        let j = |t: &str, s| go(t, s, join_lines);
+        // No selection: the caret's line with the next; the caret at the join.
+        assert_eq!(
+            j("a\nb\nc", Selection::at(0)),
+            ("a b\nc".into(), Selection::at(1))
+        );
+        assert_eq!(j("a\n   \tb\nc", Selection::at(0)).0, "a b\nc");
+        // Next line empty or blank: no space.
+        assert_eq!(j("a\n\nc", Selection::at(0)).0, "a\nc");
+        assert_eq!(j("a\n  \nc", Selection::at(0)).0, "a\nc");
+        // Trailing whitespace of the first line stays; the next line's trailing too.
+        assert_eq!(j("a \n b \nc", Selection::at(0)).0, "a  b \nc");
+        // Last line: nothing. The empty final line is joined (the break goes).
+        assert_eq!(j("a\nb", Selection::at(3)).0, "a\nb");
+        assert_eq!(j("a\n", Selection::at(0)).0, "a");
+        // CRLF: the joined line ends with the break of the last line joined.
+        assert_eq!(j("a\r\nb\r\nc", Selection::at(0)).0, "a b\r\nc");
+        assert_eq!(j("a\nb\r\nc", sel(0, 0)).0, "a b\r\nc");
+        // A selection inside one line is the same as a caret.
+        assert_eq!(j("ab\ncd\n", sel(0, 2)).0, "ab cd\n");
+    }
+
+    #[test]
+    fn join_a_selection() {
+        let j = |t: &str, s| go(t, s, join_lines);
+        assert_eq!(
+            j("a\n b\n  c\nd\n", sel(0, 8)),
+            ("a b c\nd\n".into(), sel(0, 5))
+        );
+        // Ending at column 0 of the line after: that line is not joined.
+        assert_eq!(j("a\nb\nc\n", sel(0, 4)).0, "a b\nc\n");
+        // Backwards, with blank lines between.
+        assert_eq!(j("a\n\n\nb\n", sel(6, 0)).0, "a b\n");
+        // The last line without a break.
+        assert_eq!(j("x\na\nb", sel(2, 5)).0, "x\na b");
+        assert_eq!(j("é\n\té\n", sel(0, 6)).0, "é é\n");
+    }
+
+    #[test]
+    fn line_commands_refuse_nothing_that_is_valid_and_survive_bad_selections() {
+        // Selections past the end or inside a CRLF pair or a char do not panic.
+        for t in ["", "a", "a\n", "é\r\nb\rc\n", "\n\n", "\r\n"] {
+            let len = t.len();
+            for a in 0..=len + 2 {
+                for c in 0..=len + 2 {
+                    let s = sel(a, c);
+                    for f in 0..6 {
+                        let mut buf = Buffer::from_text(t);
+                        let mut hist = History::new();
+                        match f {
+                            0 => sort_lines(&mut buf, &mut hist, s, SortOrder::Ascending),
+                            1 => sort_lines(&mut buf, &mut hist, s, SortOrder::IgnoreCase),
+                            2 => unique_lines(&mut buf, &mut hist, s),
+                            3 => reverse_lines(&mut buf, &mut hist, s),
+                            4 => join_lines(&mut buf, &mut hist, s),
+                            _ => sort_lines(&mut buf, &mut hist, s, SortOrder::Descending),
+                        };
+                        // Whatever happened, the lines still partition the text.
+                        assert!(hist.steps().0 <= 1);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A reference: the same commands on `Vec<(text, break)>`.
+    fn model_lines(t: &str) -> Vec<(String, String)> {
+        let b = t.as_bytes();
+        let mut out = Vec::new();
+        let (mut start, mut i) = (0, 0);
+        while i < b.len() {
+            let n = match b[i] {
+                b'\n' => 1,
+                b'\r' if b.get(i + 1) == Some(&b'\n') => 2,
+                b'\r' => 1,
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            };
+            out.push((t[start..i].to_string(), t[i..i + n].to_string()));
+            i += n;
+            start = i;
+        }
+        out.push((t[start..].to_string(), String::new()));
+        out
+    }
+
+    #[test]
+    fn random_documents_match_a_reference() {
+        let mut rng = Rng::new(7);
+        let words = ["", "a", "B", "b", "ab", "é", " x", "z "];
+        let breaks = ["\n", "\r\n", "\r"];
+        for _ in 0..400 {
+            let n = 1 + rng.below(8);
+            let mut t = String::new();
+            for _ in 0..n {
+                t.push_str(rng.pick(&words));
+                if rng.chance(85) {
+                    t.push_str(rng.pick(&breaks));
+                }
+            }
+            let lines = model_lines(&t);
+            let mut last = lines.len() - 1;
+            if last > 0 && lines[last].0.is_empty() && lines[last].1.is_empty() {
+                last -= 1;
+            }
+            let block = &lines[..=last];
+            let texts: Vec<&str> = block.iter().map(|l| l.0.as_str()).collect();
+            let rebuild = |new: &[&str], tail_break: &str| {
+                let mut s = String::new();
+                for (i, x) in new.iter().enumerate() {
+                    s.push_str(x);
+                    s.push_str(if i + 1 < new.len() {
+                        &block[i].1
+                    } else {
+                        tail_break
+                    });
+                }
+                for l in &lines[last + 1..] {
+                    s.push_str(&l.0);
+                    s.push_str(&l.1);
+                }
+                s
+            };
+            let tail = &block[last].1;
+            let mut asc = texts.clone();
+            asc.sort();
+            assert_eq!(
+                sort(&t, Selection::at(0), SortOrder::Ascending).0,
+                rebuild(&asc, tail),
+                "{t:?}"
+            );
+            let mut desc = texts.clone();
+            desc.sort_by(|a, b| b.cmp(a));
+            assert_eq!(
+                sort(&t, Selection::at(0), SortOrder::Descending).0,
+                rebuild(&desc, tail),
+                "{t:?}"
+            );
+            let mut rev = texts.clone();
+            rev.reverse();
+            assert_eq!(
+                go(&t, Selection::at(0), reverse_lines).0,
+                rebuild(&rev, tail),
+                "{t:?}"
+            );
+            let keep: Vec<usize> = (0..texts.len())
+                .filter(|&k| texts.iter().position(|x| *x == texts[k]) == Some(k))
+                .collect();
+            let got = go(&t, Selection::at(0), unique_lines).0;
+            if keep.len() == texts.len() {
+                assert_eq!(got, t, "{t:?}");
+            } else {
+                let mut want = String::new();
+                for (n, &k) in keep.iter().enumerate() {
+                    want.push_str(texts[k]);
+                    want.push_str(if n + 1 < keep.len() {
+                        &block[k].1
+                    } else {
+                        tail
+                    });
+                }
+                for l in &lines[last + 1..] {
+                    want.push_str(&l.0);
+                    want.push_str(&l.1);
+                }
+                assert_eq!(got, want, "{t:?}");
+            }
+        }
     }
 }

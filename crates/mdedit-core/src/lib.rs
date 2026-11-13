@@ -13,17 +13,21 @@ pub mod encoding;
 pub mod eol;
 pub mod find;
 pub mod fold;
+pub mod fuzzy;
 pub mod history;
 pub mod limits;
 pub mod lines;
 pub mod load;
+pub mod markdown;
 pub mod multi;
+pub mod prefs;
 pub mod replace;
 pub mod save;
 pub mod search;
 pub mod selection;
 #[cfg(test)]
 mod testutil;
+pub mod typing;
 
 pub use buffer::{Buffer, Change, Position};
 pub use encoding::Encoding;

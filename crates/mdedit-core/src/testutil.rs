@@ -3,6 +3,7 @@
 
 use crate::buffer::Change;
 use crate::eol::EolCounts;
+use crate::selection::Selection;
 
 /// xorshift64*: deterministic, no dependencies.
 pub struct Rng(u64);
@@ -103,4 +104,57 @@ pub fn check_change(before: &str, after: &str, c: &Change) {
 pub fn check_eols(counts: &mut EolCounts, after: &str, c: &Change) {
     counts.apply(&c.eol_removed, &c.eol_added);
     assert_eq!(*counts, EolCounts::of(after), "{c:?} -> {after:?}");
+}
+
+/// A document with its selections written in it: `caret` marks an empty selection, `‹x›` a
+/// forward selection and `›x‹` a backward one. Returns the text and the selections in the order
+/// written.
+pub fn marked_parse(s: &str, caret: char) -> (String, Vec<Selection>) {
+    let mut text = String::new();
+    let mut sels = Vec::new();
+    let mut open: Option<(usize, char)> = None;
+    for c in s.chars() {
+        match c {
+            c if c == caret => sels.push(Selection::at(text.len())),
+            '‹' | '›' => match open.take() {
+                None => open = Some((text.len(), c)),
+                Some((from, first)) => {
+                    let (a, b) = if first == '‹' {
+                        (from, text.len())
+                    } else {
+                        (text.len(), from)
+                    };
+                    sels.push(Selection {
+                        anchor: a,
+                        caret: b,
+                        goal_col: None,
+                    });
+                }
+            },
+            c => text.push(c),
+        }
+    }
+    (text, sels)
+}
+
+/// The inverse of [`marked_parse`].
+pub fn marked_show(text: &str, sels: &[Selection], caret: char) -> String {
+    let mut marks: Vec<(usize, char)> = Vec::new();
+    for s in sels {
+        if s.is_empty() {
+            marks.push((s.caret, caret));
+        } else if s.anchor < s.caret {
+            marks.push((s.anchor, '‹'));
+            marks.push((s.caret, '›'));
+        } else {
+            marks.push((s.caret, '›'));
+            marks.push((s.anchor, '‹'));
+        }
+    }
+    marks.sort_by_key(|m| std::cmp::Reverse(m.0));
+    let mut out = text.to_string();
+    for (at, c) in marks {
+        out.insert(at, c);
+    }
+    out
 }

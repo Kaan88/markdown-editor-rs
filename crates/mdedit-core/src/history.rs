@@ -120,7 +120,7 @@ impl Step {
                     return false;
                 }
                 last.inserted += inserted;
-                self.pos = at + inserted;
+                self.pos = typing_pos(at, inserted, sel_after);
                 self.ends_ws = ws;
             }
             Kind::Backspace | Kind::Delete => {
@@ -165,6 +165,18 @@ impl Step {
         }
         self.sel_after = sel_after;
         true
+    }
+}
+
+/// Where the next typed character must land to join a typing run after an insertion of `inserted`
+/// bytes at `at`: the caret, which is the end of the text for plain typing but may lie inside it
+/// (an auto-paired `()` leaves the caret between the two).
+fn typing_pos(at: usize, inserted: usize, sel_after: Selection) -> usize {
+    let c = sel_after.caret;
+    if sel_after.is_empty() && c >= at && c <= at + inserted {
+        c
+    } else {
+        at + inserted
     }
 }
 
@@ -296,7 +308,7 @@ impl History {
             records.extend(rec);
         }
         let (pos, ends_ws) = match (kind, records.last()) {
-            (Kind::Typing, Some(r)) => (r.at + r.inserted, r.ws),
+            (Kind::Typing, Some(r)) => (typing_pos(r.at, r.inserted, sel_after), r.ws),
             (_, Some(r)) => (r.at, false),
             _ => (0, false),
         };

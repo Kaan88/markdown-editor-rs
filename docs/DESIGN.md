@@ -953,3 +953,156 @@ Closing the window with a session does not ask about unsaved changes: `App::requ
 The folder is `backup` beside the session file (`%LOCALAPPDATA%\mdeditackup`, or beside the
 file `MDEDIT_SETTINGS` names). `Doc::modified` is also true while `restore` is set, so such a
 tab shows its mark and closing it asks.
+
+## 29. Sort, reverse, remove duplicates, join (2026-11-14, core only)
+
+In `mdedit-core::lines`, with the shape of the other line commands: `(buf, hist, sel, ..) ->
+Outcome`, one undo step (`Kind::Other`), one merged `Change`, the selection returned unchanged with
+no change and no history entry when no byte would change. They take a single selection; as for the
+other line commands the shell drops the extra carets first. Move line up and down already exist
+(`move_lines`) and are unchanged.
+
+| Function | Block | What it does |
+|---|---|---|
+| `sort_lines(buf, hist, sel, SortOrder)` | selection's lines, **whole document when the selection is empty** | `Ascending` and `Descending` compare the line text (without its break) byte for byte; `IgnoreCase` compares each char lowercased by its simple mapping (`char::to_lowercase`, first char). Stable |
+| `reverse_lines(buf, hist, sel)` | as sort | reverses the order of the lines |
+| `unique_lines(buf, hist, sel)` | as sort | removes every line equal (bytes) to an earlier one of the block; keeps the first |
+| `join_lines(buf, hist, sel)` | selection's lines; **caret's line with the next** when the selection is empty or in one line | each break plus the next line's leading white space becomes one space, none when that line is empty or blank. The first line's text is kept as it is |
+| `block_too_large(buf, sel, whole_if_empty)` | | whether the block is over `LINE_BLOCK_BYTES` (64 MiB); the four commands do nothing then, so the shell can say why |
+
+"The lines of the selection" are those of `touched_lines` (a non-empty selection ending at column 0
+leaves that line out). A last line that is empty and has no break (the text after the document's
+final break) is not part of a sort, reverse or dedupe block, so the final break stays last.
+
+Line endings: sort and reverse move the line texts and leave every break where it was, so a mixed
+document keeps its pattern and a missing final break stays missing. `unique_lines` removes a line
+with its own break, except that the block's last line hands its break (or none) to the last line
+that stays. `join_lines` ends the joined line with the break of the last line joined. A CRLF is
+never split.
+
+Selection afterwards: sort, reverse and dedupe select from the start of the first line of the
+block to the end of its last line's text (so running another one of them acts on the same lines).
+`join_lines` with an empty selection puts the caret at the first join point; with a selection it
+selects the joined line's text. Unlike `move_lines`, the first three write only the bytes that
+differ (the common start and end of the block are kept).
+
+## 30. Typing help (2026-11-14, core only)
+
+`mdedit-core::typing`. The shell calls `type_char`, `enter` or `backspace` first, with the list of
+selections and the primary's index (as `multi::edit`); `None` means "do the plain edit", `Some` is
+the finished edit: `(Outcome, Vec<Selection>, primary index)`. The settings are an `Assist`
+(`Assist::for_language(name, Indent, tab_width)`, or `Prefs::assist(language)`): `auto_pair`,
+`auto_indent`, the `Pairs`, the `Indent` unit (`Tab` or `Spaces(n)`), `colon_blocks`, `markdown`.
+With a switch off the function returns `None` for what that switch covers (`auto_pair`: `type_char`
+for pairs, step-over, wrapping, and `backspace`; `auto_indent`: `enter`, and the dedent of a typed
+closer). A pure step over a closer returns `Some` with `change: None` and moved selections, and no
+history entry.
+
+**Pairing.** `Pairs::for_language(name)` (the highlighter's name or an extension, case-insensitive):
+plain text, "tex": brackets only; Markdown: brackets, `"`, backtick; JSON, Rust, the Lisps,
+Haskell, OCaml: brackets and `"`; JavaScript, TypeScript, Go, the shells, Ruby, Perl, SQL: all
+four; anything else: brackets, `"`, `'`. An opener typed with no selection inserts its closer when
+the next char is white space, a closer (`) ] }`) or the end; a quote also needs the previous char
+to be no word char (letter, digit, `_`), not the same quote and not a backslash. A closer typed
+before the same closer steps over it. With a selection an enabled opener wraps it (two inserts, no
+copy of the text) and the selection stays on its text, in its direction. Backspace between an empty
+pair (`()`, `""`, ...) removes both, as its own step.
+
+**Indentation.** Enter inserts the break (`eol`), then the leading blanks of the line up to the
+caret (at most 4096 bytes, `TYPING_SCAN`); one more unit when the last non-blank char before the
+caret is `{`, `[`, `(` (or `:` with `colon_blocks`); with the caret directly between `{}`, `[]` or
+`()` the closer goes to its own line at the outer indent and the caret to the middle line at the
+inner one. A selection is replaced. A `}`, `]` or `)` typed as the first non-blank of its line
+(blanks only before the caret) removes up to one unit of indent (a trailing tab, or spaces) when
+the indent is deeper than that of the line holding its opener, found by `bracket::opener_before`
+(nesting of the same kind, `BRACKET_SCAN` bytes, a shared budget of four times that per keystroke
+over all carets); never below the opener's indent.
+
+**Several carets, undo.** Every selection acts alone; carets with nothing special get the plain
+edit inside the same step; if the edits would overlap, `None`. One undo step per keystroke. A single
+caret typing a pair is `Kind::Typing`: `history` now keeps the caret, not the end of the inserted
+text, as the place where the next typed char joins the run, so "(", "a", "b" is one step and the
+step over the `)` ends it. Everything else made here is `Kind::Other`.
+
+**Markdown (`markdown` set, with `auto_indent`).** Enter on a list item or quote line, caret at or
+after where the item's text starts: continues it with the same indent and quote markers and the
+same marker and spacing; `N.` and `N)` continue with N+1 (zero padding kept, later items are not
+renumbered); a task item continues as `[ ] `; `>` and nested `> >` continue the quote. On an item
+with no text, Enter replaces the line instead: a nested item moves out one unit (marker kept), a
+top-level one loses its marker (a quote prefix stays), an empty quote loses its marker, a nested
+empty quote one level. A caret inside the marker gets the plain Enter. `list_indent(buf, hist, sel,
+outdent, &Assist) -> Option<Outcome>` is for the Tab key: with the caret in a list line up to where
+its text starts (or a selection over lines, each list line moving), it adds or removes one unit of
+the item's indent (after quote markers); `None` when nothing applies, so the shell does its normal
+Tab. It takes one selection.
+
+## 31. Markdown commands (2026-11-14, core only)
+
+`mdedit-core::markdown`. `toggle_wrap` and `link_from_selection` take the list of selections and
+return as the typing functions do (`Option<Typed>`); `toggle_heading`, `cycle_heading` and
+`format_table` take one selection and return an `Outcome` (no change when nothing applies).
+
+- `toggle_wrap(buf, hist, sels, primary, marker)`: a selection with the marker just inside both
+  ends or just outside both is unwrapped; otherwise wrapped; it stays on the same text. A caret
+  inside a span of the marker on its line (paired from the line's first marker, 4096 bytes each
+  way) unwraps it; any other caret inserts the pair, the caret between. A one-char marker beside
+  the same char is not a marker (`*` leaves `**a**` alone). Two carets in one span unwrap it once.
+- `toggle_heading(buf, hist, sel, level)` (1 to 6): lines of the selection become `#` headings of
+  that level after their indent (up to 3 spaces); the same level removes the prefix (all of them
+  when all non-blank lines have it); blank lines are skipped. `cycle_heading` steps none, 1 ..
+  6, none by the first non-blank line and sets all lines alike.
+- `format_table(buf, hist, sel)`: when the caret's line is in a pipe table (header, delimiter row
+  of `:?-+:?` cells with as many cells as the header, then lines containing `|`), rewrites it as
+  `| cell | cell |` with every column padded to its widest cell by display width
+  (`display::width_of`, wide characters 2), by the column's alignment, the delimiter row rebuilt
+  with its colons (3 dashes at least). Cell text is trimmed only, `\|` is not a separator, the
+  header's indent is used for all rows, line endings are untouched, a short row keeps its cells.
+  A selection end keeps its cell and offset. Nothing outside a table, over 2000 rows, 64 columns,
+  64 KiB in a line or 4 MiB in all, or when already lined up.
+- `link_from_selection(buf, hist, sels, primary)`: `[text](|)`; a selection that is an
+  `http(s)://` URL (no white space, up to 2048 bytes) becomes `[|](url)`; an empty one inserts
+  `[|]()`. Inserts only; the text is not copied.
+
+## 32. Replace in several ranges (2026-11-14, core only)
+
+`replace::replace_all` already took one `within` range, and works as documented: one undo step,
+literal, whole-word and regex, counts, selection mapped. New: `replace_all_in(buf, hist, sel, query,
+template, eol, within: &[Range<usize>], cancel) -> (Outcome, usize, Vec<Range<usize>>)` for the
+selections of several carets or a column. The ranges are clamped, floored to char boundaries,
+sorted, empty ones dropped and overlapping ones merged (touching ones stay apart, so a match is
+whole inside one range); each is searched as `within` is (a regex works on the lines it touches and
+keeps the matches inside it, whole-word looks beyond the range's ends). The count is the sum; the
+third result is the merged ranges in the new text (a start moves with the text, an end is the end
+of its last replacement) for the shell to select again. `replace_all` is this with one range.
+
+## 33. Fuzzy matching (2026-11-14, core only)
+
+`mdedit-core::fuzzy`, written with std only so it can move to the shared repository unchanged.
+`score(query, candidate) -> Option<Match { score, positions }>` and `rank(query, items, limit) ->
+Vec<(usize, Match)>`. Case-insensitive subsequence; white space in the query is ignored; best
+alignment by dynamic programming, O(query x candidate) with candidates cut at 256 chars and queries
+at 64. Bonuses: word start (after space, `_`, `-`, `/`, `\`, `.` or a lower-to-upper change), the
+very start, consecutive matches; small penalties for gaps and for the candidate's length; a
+candidate that starts with the query gets a bonus (2^20) that outweighs all of them. `positions` are
+char indexes. `rank` sorts by score, then the shorter candidate, then the earlier item; an empty query
+returns the first `limit` items in order.
+
+## 34. Preferences and the save options (2026-11-14, core only)
+
+`mdedit-core::prefs::Prefs`: font family (empty: default), `font_pt` (7 to 32, default 14, the
+shell's `FONT_PX`), `tab_width` (1 to 16, default 4), `indent_with_spaces` (off) and `indent_size`
+(1 to 16, 4), `auto_pair`, `auto_indent`, `line_numbers`, `highlight_line`, `restore_session`
+(on), `trim_on_save`, `final_newline_on_save`, `minimap`, `word_wrap` (off). `Prefs::parse(text)`
+reads the `[preferences]` section (or text with no header) of the settings file as `key=value`
+lines: unknown keys and sections ignored, bad values the default, numbers past a limit clamped;
+`serialize()` writes every key (flags `1`/`0`, the family escaped) so read-write-read is stable.
+Keys: `font_family`, `font_size`, `tab_width`, `indent_spaces`, `indent_size`, `auto_pair`,
+`auto_indent`, `trim_on_save`, `final_newline_on_save`, `line_numbers`, `highlight_line`, `minimap`,
+`word_wrap`, `restore_session`. `Prefs::indent()` and `Prefs::assist(language)` build the
+typing settings.
+
+`apply_on_save(buf, hist, sel, prefs, eol) -> Outcome` makes the two save options one undo step:
+trailing blanks removed from every line (`lines::trim_trailing_whitespace`'s walk), then a break
+`eol` added at the end of a non-empty document that does not end with one. No change, no history
+entry when nothing differs. The shell calls it before encoding, with the document's most frequent
+ending as `eol`.

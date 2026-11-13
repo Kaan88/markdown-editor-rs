@@ -72,6 +72,20 @@ pub fn matching(rope: &Rope, caret: usize, limit: usize) -> Option<(usize, usize
     })
 }
 
+/// The opener that a `closer` typed at byte offset `caret` would pair with: the nearest `(`,
+/// `[` or `{` of the matching kind before `caret` that no bracket of that kind closes, counted by
+/// nesting of the same kind only (as [`matching`]). Looks through at most `limit` bytes. `None`
+/// when `closer` is not `)`, `]` or `}`, when there is no such opener or when it is further
+/// than `limit`.
+pub fn opener_before(rope: &Rope, caret: usize, closer: char, limit: usize) -> Option<usize> {
+    if caret > rope.len_bytes() || !matches!(closer, ')' | ']' | '}') {
+        return None;
+    }
+    let at = rope.byte_to_char(caret);
+    let j = partner(rope, at, closer, limit)?;
+    Some(rope.char_to_byte(j))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,5 +134,20 @@ mod tests {
         assert_eq!(matching(&r, 0, 101), Some((0, 101)));
         assert_eq!(matching(&r, 0, 100), None);
         assert_eq!(matching(&r, 102, 100), None);
+    }
+
+    #[test]
+    fn opener_before_finds_the_unclosed_opener() {
+        let o =
+            |t: &str, caret: usize, c: char| opener_before(&Rope::from_str(t), caret, c, 1 << 16);
+        assert_eq!(o("fn f() {\n  a(b)\n  ", 18, '}'), Some(7));
+        assert_eq!(o("{ { } ", 6, '}'), Some(0));
+        assert_eq!(o("( [ ", 4, ')'), Some(0));
+        assert_eq!(o("a) ", 3, ')'), None);
+        assert_eq!(o("{ ", 2, '>'), None);
+        assert_eq!(o("{ ", 99, '}'), None);
+        assert_eq!(o("{ aaaa ", 7, '}'), Some(0));
+        assert_eq!(opener_before(&Rope::from_str("{ aaaa "), 7, '}', 3), None);
+        assert_eq!(o("é{é ", 6, '}'), Some(2));
     }
 }

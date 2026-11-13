@@ -212,6 +212,8 @@ pub fn replace_one(
 /// when the search hit its work limit (so a partial replacement never happens). When every
 /// replacement equals its match the result has no change (and no history entry) but the count is
 /// still that of the matches.
+///
+/// This is [`replace_all_in`] with one range (`within`) or the whole document.
 #[allow(clippy::too_many_arguments)]
 pub fn replace_all(
     buf: &mut Buffer,
@@ -223,30 +225,73 @@ pub fn replace_all(
     within: Option<Range<usize>>,
     cancel: &AtomicBool,
 ) -> (Outcome, usize) {
+    let scope = match within {
+        Some(w) => w,
+        None => 0..buf.len_bytes(),
+    };
+    let (out, count, _) = replace_all_in(
+        buf,
+        hist,
+        sel,
+        query,
+        template,
+        eol,
+        std::slice::from_ref(&scope),
+        cancel,
+    );
+    (out, count)
+}
+
+/// Like [`replace_all`] over several ranges (the selections of a multi-caret or column
+/// selection): every match lying wholly inside ONE of `within` is replaced, all as one undo
+/// step, and the count is the number of matches replaced. The ranges are clamped, floored to
+/// `char` boundaries, sorted, and ranges that overlap are merged into their union; empty ranges
+/// are dropped, and ranges that only touch stay apart, so a match that spans two of them is not
+/// one. No ranges (or only empty ones) means no match: nothing changes and the count is 0. Each
+/// range is searched as [`replace_all`] searches its `within`, with its own work limit.
+///
+/// Also returns the ranges (clamped, merged, sorted, as above) mapped into the new text, so the
+/// shell can keep them selected: a range's start moves with the text before it, its end is the
+/// end of its replacement. `sel` maps as in [`replace_all`].
+#[allow(clippy::too_many_arguments)]
+pub fn replace_all_in(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    query: &Query,
+    template: &str,
+    eol: &str,
+    within: &[Range<usize>],
+    cancel: &AtomicBool,
+) -> (Outcome, usize, Vec<Range<usize>>) {
+    let scopes = merged_scopes(buf, within);
     if cancel.load(Ordering::Relaxed) {
-        return (nothing(sel), 0);
+        return (nothing(sel), 0, scopes);
     }
     let len = buf.len_bytes();
-    let scope = match within {
-        Some(w) => {
-            let start = buf.floor_char(w.start);
-            start..buf.floor_char(w.end).max(start)
-        }
-        None => 0..len,
-    };
     let mut ranges: Vec<Range<usize>> = Vec::new();
-    let found = find::walk_within(buf.rope(), query, scope, cancel, |r| {
-        ranges.push(r);
-        true
-    });
-    if found.is_err() {
-        return (nothing(sel), 0);
+    for scope in &scopes {
+        let found = find::walk_within(buf.rope(), query, scope.clone(), cancel, |r| {
+            ranges.push(r);
+            true
+        });
+        if found.is_err() {
+            return (nothing(sel), 0, scopes);
+        }
     }
     let count = ranges.len();
-    // The selection ends, mapped through the edits as they are made: `mapped` is set once an end
-    // has been passed by a match.
-    let ends = [sel.anchor.min(len), sel.caret.min(len)];
-    let mut mapped: [Option<usize>; 2] = [None, None];
+    // The points to carry through the edits: the selection ends and the scopes' ends, ascending
+    // (a cursor walks them along the matches), each with where its mapped value goes.
+    let mut points: Vec<(usize, usize)> = Vec::with_capacity(2 + 2 * scopes.len());
+    points.push((sel.anchor.min(len), 0));
+    points.push((sel.caret.min(len), 1));
+    for (i, s) in scopes.iter().enumerate() {
+        points.push((s.start, 2 + 2 * i));
+        points.push((s.end, 3 + 2 * i));
+    }
+    points.sort_unstable();
+    let mut mapped: Vec<usize> = vec![0; points.len()];
+    let mut next = 0;
     let mut expander = Expander::new(query, template);
     let mut cmd = Cmd::new(buf);
     let (mut matched, mut out) = (String::new(), String::new());
@@ -259,30 +304,58 @@ pub fn replace_all(
         out.clear();
         expander.expand_into(&matched, &mut out);
         let text = normalize_eols(&out, eol);
-        for (x, m) in ends.iter().zip(mapped.iter_mut()) {
-            if m.is_none() {
-                if *x <= r.start {
-                    *m = Some(shift(*x, delta));
-                } else if *x <= r.end {
-                    *m = Some(now.start + text.len());
-                }
-            }
+        while next < points.len() && points[next].0 <= r.end {
+            let x = points[next].0;
+            mapped[points[next].1] = if x <= r.start {
+                shift(x, delta)
+            } else {
+                now.start + text.len()
+            };
+            next += 1;
         }
         if *text != *matched {
             cmd.replace(now, &text);
         }
         delta += text.len() as isize - (r.end - r.start) as isize;
     }
-    let [a, c] = [0, 1].map(|k| mapped[k].unwrap_or_else(|| shift(ends[k], delta)));
+    for &(x, slot) in &points[next..] {
+        mapped[slot] = shift(x, delta);
+    }
     let after = Selection {
-        anchor: a,
-        caret: c,
+        anchor: mapped[0],
+        caret: mapped[1],
         goal_col: None,
     };
-    (cmd.finish(hist, Kind::Other, sel, after), count)
+    let new_scopes = (0..scopes.len())
+        .map(|i| mapped[2 + 2 * i]..mapped[3 + 2 * i])
+        .collect();
+    (cmd.finish(hist, Kind::Other, sel, after), count, new_scopes)
+}
+
+/// `within` clamped to the buffer, floored to `char` boundaries, empty ranges dropped, sorted,
+/// overlapping ranges merged.
+fn merged_scopes(buf: &Buffer, within: &[Range<usize>]) -> Vec<Range<usize>> {
+    let mut v: Vec<Range<usize>> = within
+        .iter()
+        .map(|w| {
+            let start = buf.floor_char(w.start);
+            start..buf.floor_char(w.end).max(start)
+        })
+        .filter(|r| !r.is_empty())
+        .collect();
+    v.sort_unstable_by_key(|r| (r.start, r.end));
+    let mut out: Vec<Range<usize>> = Vec::with_capacity(v.len());
+    for r in v {
+        match out.last_mut() {
+            Some(last) if r.start < last.end => last.end = last.end.max(r.end),
+            _ => out.push(r),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use super::*;
     use crate::edit::{backspace, insert, redo, undo};
@@ -595,6 +668,200 @@ mod tests {
             &NO(),
         );
         assert_eq!(n, 0);
+    }
+
+    /// `replace_all_in` over `ranges`: text, count, selection, mapped ranges; checks one undo
+    /// step, undo and redo.
+    fn multi(
+        text: &str,
+        q: &Query,
+        template: &str,
+        ranges: &[Range<usize>],
+        sel: Selection,
+    ) -> (String, usize, Selection, Vec<Range<usize>>) {
+        let mut buf = Buffer::from_text(text);
+        let mut hist = History::new();
+        let (o, n, mapped) =
+            replace_all_in(&mut buf, &mut hist, sel, q, template, "\n", ranges, &NO());
+        let after = txt(&buf);
+        match &o.change {
+            Some(c) => {
+                check_change(text, &after, c);
+                assert_eq!(hist.steps(), (1, 0));
+                let u = undo(&mut buf, &mut hist).unwrap();
+                assert_eq!((txt(&buf).as_str(), u.sel), (text, sel));
+                let r = redo(&mut buf, &mut hist).unwrap();
+                assert_eq!((txt(&buf), r.sel), (after.clone(), o.sel));
+            }
+            None => {
+                assert_eq!(after, text);
+                assert!(!hist.can_undo());
+            }
+        }
+        (after, n, o.sel, mapped)
+    }
+
+    #[test]
+    fn replace_in_several_ranges() {
+        let text = "ab ab ab ab ab";
+        let q = lit("ab");
+        let sel = Selection {
+            anchor: 3,
+            caret: 11,
+            goal_col: None,
+        };
+        // Ranges 0..2 and 6..8 and 12..14: the first, third and fifth match.
+        let (t, n, s, m) = multi(text, &q, "XYZ", &[0..2, 12..14, 6..8], sel);
+        assert_eq!((t.as_str(), n), ("XYZ ab XYZ ab XYZ", 3));
+        // Selection ends are outside every match: they move with the text.
+        assert_eq!((s.anchor, s.caret), (4, 13));
+        assert_eq!(m, vec![0..3, 7..10, 14..17]);
+        // Overlapping ranges merge; touching ones stay apart: "ab ab" is two ranges here, so
+        // the match in the middle (which spans neither) is found in only one.
+        let (t, n, _, m) = multi(text, &q, "-", &[0..5, 3..8], Selection::at(0));
+        assert_eq!((t.as_str(), n), ("- - - ab ab", 3));
+        assert_eq!(m, vec![0..5]);
+        let (t, n, _, _) = multi("abab", &q, "-", &[0..3, 3..4], Selection::at(0));
+        assert_eq!((t.as_str(), n), ("-ab", 1));
+        // No ranges, empty ranges, ranges outside: nothing, no history.
+        assert_eq!(multi(text, &q, "-", &[], sel).1, 0);
+        assert_eq!(multi(text, &q, "-", &[4..4], sel).1, 0);
+        assert_eq!(multi(text, &q, "-", &[90..99], sel).1, 0);
+        // One range is replace_all's `within`.
+        let mut b1 = Buffer::from_text(text);
+        let mut h = History::new();
+        let (o1, n1) = replace_all(&mut b1, &mut h, sel, &q, "Q", "\n", Some(3..11), &NO());
+        let (t2, n2, s2, _) = multi(text, &q, "Q", &[3..11], sel);
+        assert_eq!((txt(&b1), n1, o1.sel), (t2, n2, s2));
+    }
+
+    #[test]
+    fn replace_in_ranges_whole_word_and_regex() {
+        let ww = Query::new("cat", opts(true, true, false)).unwrap();
+        let text = "cat concat cat catx cat";
+        // The ranges cut "concat" and "catx": a match needs its word's edges, not the range's.
+        let (t, n, _, _) = multi(
+            text,
+            &ww,
+            "dog",
+            &[0..3, 7..10, 11..14, 15..19, 20..23],
+            Selection::at(0),
+        );
+        assert_eq!((t.as_str(), n), ("dog concat dog catx dog", 3));
+        // A whole-word match may touch a range's edge but not stick out of it.
+        let (_, n, _, _) = multi(text, &ww, "dog", &[0..2], Selection::at(0));
+        assert_eq!(n, 0);
+        // Regex: `^` and `$` are the lines'; groups work; each range its own matches.
+        let q = re(r"(\w)(\d)");
+        let (t, n, s, m) = multi(
+            "a1 b2\nc3 d4\ne5",
+            &q,
+            "$2$1",
+            &[0..5, 9..14],
+            Selection::at(7),
+        );
+        assert_eq!((t.as_str(), n), ("1a 2b\nc3 4d\n5e", 4));
+        assert_eq!(s, Selection::at(7));
+        assert_eq!(m, vec![0..5, 9..14]);
+        let q = re("^a");
+        let (t, n, _, _) = multi("ab\nab\nab", &q, "X", &[1..6, 7..9], Selection::at(0));
+        assert_eq!((t.as_str(), n), ("ab\nXb\nab", 1));
+        // A regex match that sticks out of its range is not replaced.
+        let (t, n, _, _) = multi("aaaa", &re("a+"), "-", &[0..2, 3..4], Selection::at(0));
+        assert_eq!((t.as_str(), n), ("aaaa", 0));
+    }
+
+    #[test]
+    fn replace_in_ranges_counts_selection_and_crlf() {
+        // The selection inside a match goes to the end of its replacement; lengths change.
+        let text = "xx yy xx\r\nxx";
+        let q = lit("xx");
+        let (t, n, s, m) = multi(
+            text,
+            &q,
+            "a\nb",
+            &[0..2, 6..text.len()],
+            Selection {
+                anchor: 1,
+                caret: 6,
+                goal_col: None,
+            },
+        );
+        assert_eq!((t.as_str(), n), ("a\nb yy a\nb\r\na\nb", 3));
+        assert_eq!((s.anchor, s.caret), (3, 7));
+        assert_eq!(m.len(), 2);
+        // Several ranges, the match count is the sum, and replacing with the same text is no change.
+        let (t, n, s, _) = multi("a a a", &lit("a"), "a", &[0..1, 4..5], Selection::at(3));
+        assert_eq!((t.as_str(), n, s), ("a a a", 2, Selection::at(3)));
+    }
+
+    #[test]
+    fn replace_in_ranges_cancel_and_hostile() {
+        let mut buf = Buffer::from_text("a a a");
+        let mut hist = History::new();
+        let flag = AtomicBool::new(true);
+        let (o, n, _) = replace_all_in(
+            &mut buf,
+            &mut hist,
+            Selection::at(0),
+            &lit("a"),
+            "b",
+            "\n",
+            &[0..5],
+            &flag,
+        );
+        assert!(o.change.is_none() && n == 0 && !hist.can_undo());
+        // Reversed, huge and non-boundary ranges never panic.
+        let mut buf = Buffer::from_text("é a é");
+        #[allow(clippy::reversed_empty_ranges)]
+        let ranges = [3..1, 0..usize::MAX, 1..2, 0..0];
+        let (_, n, _) = replace_all_in(
+            &mut buf,
+            &mut hist,
+            Selection::at(0),
+            &lit("a"),
+            "b",
+            "\n",
+            &ranges,
+            &NO(),
+        );
+        assert_eq!(n, 1);
+        assert_eq!(txt(&buf), "é b é");
+        let mut rng = Rng::new(3);
+        for _ in 0..300 {
+            let text: String = (0..rng.below(20))
+                .map(|_| *rng.pick(&["a", "b", " ", "é", "\n", "\r\n"]))
+                .collect();
+            let ranges: Vec<Range<usize>> = (0..rng.below(4))
+                .map(|_| rng.below(text.len() + 3)..rng.below(text.len() + 3))
+                .collect();
+            let mut buf = Buffer::from_text(&text);
+            let mut hist = History::new();
+            let sel = Selection {
+                anchor: rng.below(text.len() + 3),
+                caret: rng.below(text.len() + 3),
+                goal_col: None,
+            };
+            let q = if rng.chance(50) { lit("a") } else { re("a|é") };
+            let (o, n, mapped) =
+                replace_all_in(&mut buf, &mut hist, sel, &q, "XY", "\n", &ranges, &NO());
+            let after = txt(&buf);
+            if let Some(c) = &o.change {
+                check_change(&text, &after, c);
+            }
+            assert!(n <= text.len());
+            assert!(
+                mapped
+                    .iter()
+                    .all(|r| r.start <= r.end && r.end <= after.len())
+            );
+            undo_all(&mut buf, &mut hist);
+            assert_eq!(txt(&buf), text);
+        }
+    }
+
+    fn undo_all(buf: &mut Buffer, hist: &mut History) {
+        while undo(buf, hist).is_some() {}
     }
 
     #[test]
