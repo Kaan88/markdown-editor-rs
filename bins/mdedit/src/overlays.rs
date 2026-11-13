@@ -232,21 +232,59 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
             .enabled(ready),
-        cmd(C::DuplicateLine, "Duplicate line", glyph::DUPLICATE_LINE)
+        cmd(C::ToggleComment, "Toggle comment", glyph::COMMENT)
             .sep()
+            .enabled(has_comment),
+        Item::new(Act::LinesMenu, "Lines")
+            .icon(glyph::DUPLICATE_LINE)
+            .hint("›")
             .enabled(ready),
-        cmd(C::DeleteLine, "Delete line", glyph::DELETE_LINE).enabled(ready),
-        cmd(C::ToggleComment, "Toggle comment", glyph::COMMENT).enabled(has_comment),
-        cmd(C::UpperCase, "UPPERCASE", glyph::UPPERCASE).enabled(has_selection),
-        cmd(C::LowerCase, "lowercase", glyph::LOWERCASE).enabled(has_selection),
-        cmd(C::TrimTrailing, "Trim trailing spaces", glyph::TRIM)
-            .sep()
+        Item::new(Act::ConvertMenu, "Convert")
+            .icon(glyph::UPPERCASE)
+            .hint("›")
             .enabled(ready),
-        cmd(C::TabsToSpaces, "Tabs to spaces", glyph::TABS).enabled(ready),
-        cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK).enabled(ready),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
         cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD),
+    ];
+    Menu::new(items, x, y, false)
+}
+
+/// The text menu's Lines submenu: the line commands, then the ones that sort and join them.
+pub fn lines_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
+    let ready = docs.active_ready().is_some();
+    let items = vec![
+        cmd(C::DuplicateLine, "Duplicate line", glyph::DUPLICATE_LINE).enabled(ready),
+        cmd(C::DeleteLine, "Delete line", glyph::DELETE_LINE).enabled(ready),
+        cmd(C::MoveLineUp, "Move line up", glyph::UP).enabled(ready),
+        cmd(C::MoveLineDown, "Move line down", glyph::DOWN).enabled(ready),
+        // No sort icon in the shared set: these have none rather than a borrowed one.
+        cmd(C::SortLines, "Sort lines", "").sep().enabled(ready),
+        cmd(C::SortLinesDescending, "Sort lines descending", "").enabled(ready),
+        cmd(C::SortLinesIgnoreCase, "Sort lines ignoring case", "").enabled(ready),
+        cmd(C::ReverseLines, "Reverse lines", "").enabled(ready),
+        cmd(C::UniqueLines, "Remove duplicate lines", "").enabled(ready),
+        cmd(C::JoinLines, "Join lines", "").enabled(ready),
+        cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK)
+            .sep()
+            .enabled(ready),
+    ];
+    Menu::new(items, x, y, false)
+}
+
+/// The text menu's Convert submenu: case, tabs and trailing spaces.
+pub fn convert_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
+    let ready = docs.active_ready().is_some();
+    let has_selection = docs
+        .active_ready()
+        .is_some_and(|r| !r.sel.range().is_empty());
+    let items = vec![
+        cmd(C::UpperCase, "UPPERCASE", glyph::UPPERCASE).enabled(has_selection),
+        cmd(C::LowerCase, "lowercase", glyph::LOWERCASE).enabled(has_selection),
+        cmd(C::TabsToSpaces, "Tabs to spaces", glyph::TABS)
+            .sep()
+            .enabled(ready),
+        cmd(C::TrimTrailing, "Trim trailing spaces", glyph::TRIM).enabled(ready),
     ];
     Menu::new(items, x, y, false)
 }

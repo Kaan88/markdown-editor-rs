@@ -8,6 +8,7 @@ use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
 use mdedit_core::find::Query;
 use mdedit_core::limits::COPY_LIMIT;
+use mdedit_core::lines;
 use mdedit_core::save::SaveError;
 
 /// How long after the last edit the find marks are searched for again.
@@ -273,6 +274,11 @@ impl App {
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
+            Act::LinesMenu | Act::ConvertMenu => {
+                if let (Some(kind), Some(sub)) = (self.ui.popup_kind(), act.submenu()) {
+                    self.open_sub(kind, sub, false);
+                }
+            }
             Act::PlaySaved(i) => {
                 if self.macros.use_saved(i) {
                     self.play_macro(false);
@@ -772,6 +778,8 @@ impl App {
                     self.macros.saved().iter().map(|n| n.name.clone()).collect();
                 overlays::macro_menu(recording, any, &names, x, y, right)
             }
+            PopupKind::Lines => overlays::lines_menu(&self.docs, x, y),
+            PopupKind::Convert => overlays::convert_menu(&self.docs, x, y),
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return None,
@@ -887,6 +895,12 @@ impl App {
                 | C::LowerCase
                 | C::TrimTrailing
                 | C::TabsToSpaces
+                | C::SortLines
+                | C::SortLinesDescending
+                | C::SortLinesIgnoreCase
+                | C::ReverseLines
+                | C::UniqueLines
+                | C::JoinLines
         );
         if self.ui.find_focused && edits {
             return;
@@ -1000,6 +1014,24 @@ impl App {
             }
             C::LowerCase => {
                 self.edit(EditOp::Case(false));
+            }
+            C::SortLines => {
+                self.edit(EditOp::SortLines(lines::SortOrder::Ascending));
+            }
+            C::SortLinesDescending => {
+                self.edit(EditOp::SortLines(lines::SortOrder::Descending));
+            }
+            C::SortLinesIgnoreCase => {
+                self.edit(EditOp::SortLines(lines::SortOrder::IgnoreCase));
+            }
+            C::ReverseLines => {
+                self.edit(EditOp::ReverseLines);
+            }
+            C::UniqueLines => {
+                self.edit(EditOp::UniqueLines);
+            }
+            C::JoinLines => {
+                self.edit(EditOp::JoinLines);
             }
             C::TrimTrailing => {
                 self.edit(EditOp::TrimTrailing);

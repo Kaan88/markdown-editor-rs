@@ -2024,6 +2024,20 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.ui.mouse = (text.x + text.w * 0.3, text.y + 160.0);
             app.right_press();
         }
+        Some(m @ (ShotMenu::TextLines | ShotMenu::TextConvert | ShotMenu::TextMarkdown)) => {
+            app.ui.mouse = (text.x + text.w * 0.3, text.y + 160.0);
+            app.right_press();
+            app.compose();
+            let (row, sub) = match m {
+                ShotMenu::TextLines => (7, PopupKind::Lines),
+                ShotMenu::TextConvert => (8, PopupKind::Convert),
+                _ => (7, PopupKind::Convert),
+            };
+            if let Some(p) = app.ui.popup.as_mut() {
+                p.menu.hover = Some(row);
+            }
+            app.open_sub(PopupKind::Text, sub, true);
+        }
         Some(ShotMenu::Find) => {
             if let Some(r) = app.hit_rect(Hit::Find) {
                 app.ui.mouse = (r.x + 60.0, r.cy());

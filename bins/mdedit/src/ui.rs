@@ -263,6 +263,9 @@ pub enum Act {
     ViewMenu,
     /// Open the Macro menu beside the open one.
     MacroMenu,
+    /// Open the text menu's Lines, Convert and Markdown submenus beside it.
+    LinesMenu,
+    ConvertMenu,
     /// Play saved macro `n` of the Macro menu.
     PlaySaved(usize),
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").
@@ -285,6 +288,8 @@ impl Act {
             Act::RecentMenu => Some(PopupKind::Recent),
             Act::ViewMenu => Some(PopupKind::View),
             Act::MacroMenu => Some(PopupKind::Macro),
+            Act::LinesMenu => Some(PopupKind::Lines),
+            Act::ConvertMenu => Some(PopupKind::Convert),
             _ => None,
         }
     }
@@ -312,6 +317,9 @@ pub enum PopupKind {
     Tab(usize),
     /// The text area's right-click menu.
     Text,
+    /// Its submenus: line commands, conversions, Markdown formatting.
+    Lines,
+    Convert,
     /// The find box's editing menu.
     Find,
 }

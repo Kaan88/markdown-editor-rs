@@ -26,6 +26,10 @@ pub enum ShotMenu {
     Minimap,
     /// The Macro menu while a macro is being recorded.
     MacroRec,
+    /// The text menu with its Lines, Convert (or Markdown) submenu open beside it.
+    TextLines,
+    TextConvert,
+    TextMarkdown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -286,6 +290,9 @@ impl Args {
                         "find" => Some(ShotMenu::Find),
                         "minimap" => Some(ShotMenu::Minimap),
                         "macro-rec" => Some(ShotMenu::MacroRec),
+                        "text-lines" => Some(ShotMenu::TextLines),
+                        "text-convert" => Some(ShotMenu::TextConvert),
+                        "text-markdown" => Some(ShotMenu::TextMarkdown),
                         _ => None,
                     })
                 }

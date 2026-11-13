@@ -30,6 +30,12 @@ pub enum CommandId {
     LowerCase,
     TrimTrailing,
     TabsToSpaces,
+    SortLines,
+    SortLinesDescending,
+    SortLinesIgnoreCase,
+    ReverseLines,
+    UniqueLines,
+    JoinLines,
     Find,
     FindNext,
     FindPrevious,
@@ -131,6 +137,12 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::LowerCase, "lowercase", &["Ctrl+U"]),
     cmd(C::TrimTrailing, "Trim trailing spaces", &[]),
     cmd(C::TabsToSpaces, "Tabs to spaces", &[]),
+    cmd(C::SortLines, "Sort lines", &[]),
+    cmd(C::SortLinesDescending, "Sort lines descending", &[]),
+    cmd(C::SortLinesIgnoreCase, "Sort lines ignoring case", &[]),
+    cmd(C::ReverseLines, "Reverse lines", &[]),
+    cmd(C::UniqueLines, "Remove duplicate lines", &[]),
+    cmd(C::JoinLines, "Join lines", &["Ctrl+J"]),
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
     cmd(C::FindPrevious, "Find previous", &["Shift+F3"]),
@@ -357,6 +369,7 @@ pub mod strings {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
     }
 
+    pub const BLOCK_TOO_LARGE: &str = "That block of lines is too large to change at once.";
     pub const NO_LINE_COMMENT: &str = "This kind of file has no line comment.";
     pub const TOO_LARGE_FOR_ALL_LINES: &str =
         "This file is too large to change every line at once.";

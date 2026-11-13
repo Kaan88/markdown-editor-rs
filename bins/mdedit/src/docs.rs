@@ -896,6 +896,10 @@ pub enum EditOp<'a> {
     Case(bool),
     TrimTrailing,
     TabsToSpaces,
+    SortLines(lines::SortOrder),
+    ReverseLines,
+    UniqueLines,
+    JoinLines,
     /// Makes every line break this one.
     LineEndings(&'static str),
     /// Replaces the selection by this template when the selection is a match of the document's
@@ -1614,6 +1618,14 @@ impl Docs {
             {
                 Some(strings::TOO_LARGE_FOR_ALL_LINES)
             }
+            EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
+                if lines::block_too_large(&r.buffer, r.sel, true) =>
+            {
+                Some(strings::BLOCK_TOO_LARGE)
+            }
+            EditOp::JoinLines if lines::block_too_large(&r.buffer, r.sel, false) => {
+                Some(strings::BLOCK_TOO_LARGE)
+            }
             EditOp::ReplaceAll(_)
                 if r.scope().map_or(r.buffer.len_bytes(), |s| s.len()) > REPLACE_ALL_MAX_BYTES =>
             {
@@ -1742,6 +1754,10 @@ impl Docs {
                 EditOp::Case(upper) => lines::change_case(buf, hist, sel, upper),
                 EditOp::TrimTrailing => lines::trim_trailing_whitespace(buf, hist, sel),
                 EditOp::TabsToSpaces => lines::tabs_to_spaces(buf, hist, sel, TAB_WIDTH),
+                EditOp::SortLines(order) => lines::sort_lines(buf, hist, sel, order),
+                EditOp::ReverseLines => lines::reverse_lines(buf, hist, sel),
+                EditOp::UniqueLines => lines::unique_lines(buf, hist, sel),
+                EditOp::JoinLines => lines::join_lines(buf, hist, sel),
                 EditOp::LineEndings(to) => lines::convert_line_endings(buf, hist, sel, to),
                 EditOp::Insert(text) => edit::insert(buf, hist, sel, text),
                 EditOp::Paste(text) => {
@@ -2528,6 +2544,32 @@ mod tests {
         assert!(d.edit(EditOp::ToggleComment, None));
         assert_eq!(text_of(&d, k), "fn a() {}\n");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn line_commands_sort_reverse_dedupe_and_join_in_one_undo_step_each() {
+        let (mut d, i, _path, dir) = file_docs("linecmds", b"b\nA\nb\nc\n");
+        // Whole document when nothing is selected.
+        assert!(d.edit(EditOp::SortLines(lines::SortOrder::Ascending), None));
+        assert_eq!(text_of(&d, i), "A\nb\nb\nc\n");
+        assert!(d.edit(EditOp::UniqueLines, None));
+        assert_eq!(text_of(&d, i), "A\nb\nc\n");
+        assert!(d.edit(EditOp::ReverseLines, None));
+        assert_eq!(text_of(&d, i), "c\nb\nA\n");
+        assert!(d.edit(EditOp::SortLines(lines::SortOrder::IgnoreCase), None));
+        assert_eq!(text_of(&d, i), "A\nb\nc\n");
+        assert!(d.edit(EditOp::SortLines(lines::SortOrder::Descending), None));
+        assert_eq!(text_of(&d, i), "c\nb\nA\n");
+        // Join: the caret's line with the next; one Undo takes each back.
+        d.tabs[i].ready_mut().unwrap().sel = Selection::at(0);
+        assert!(d.edit(EditOp::JoinLines, None));
+        assert_eq!(text_of(&d, i), "c b\nA\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "c\nb\nA\n");
+        // Nothing to change: no change, no history entry.
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "A\nb\nc\n");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
