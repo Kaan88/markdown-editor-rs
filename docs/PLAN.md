@@ -79,7 +79,7 @@ After editing (phase 2) and safe saving (phase 3), in this order:
 5. Encoding and line-ending conversion from the status bar. (Done 2026-11-13.)
 6. Column selection and multiple carets. (Done 2026-11-13.)
 7. Bookmarks on lines. (Done 2026-11-13.)
-8. Find in files, on a worker.
+8. Find in files, on a worker. (Done 2026-11-13.)
 9. Code folding and a function list, only if typing stays as fast.
 10. Macro record and playback; split view.
 

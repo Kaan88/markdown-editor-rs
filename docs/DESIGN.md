@@ -817,6 +817,19 @@ selections are still the ones it made. `View::draw` fills the other selections a
 their carets inside the loop over a line's parts, finding those that reach a part by binary
 search, so a column down a large file costs what is on screen.
 
+## 26. Find in files (2026-11-13)
+
+The search itself is in the core (`search::in_tree`): it walks the folder, reads each file with
+`load_path` and reports through a callback, so it knows nothing of threads. `Results::start_tree`
+runs it on a thread of its own, sends the events over a channel and wakes the loop with
+`Wake::Results` at most every 40 ms and at the end; `Results::poll` takes them in. A new search
+or closing the panel sets the old search's cancel flag and drops its channel, so a worker that
+is still reading ends at the next file and its events go nowhere. The panel is a sixth region
+(`Region::Results`), cut from the bottom of the text by `Areas::with_results`; its signature is
+`Results::generation` plus the scroll, so rows coming in repaint the panel and nothing else.
+A match is a byte range: opening it calls `Docs::select_in`, which selects it at once in a tab
+that is read, or leaves it in `Doc::pending_select` for the load to apply.
+
 ## 19. Unsaved text survives a close (2026-11-13)
 
 Closing the window with a session does not ask about unsaved changes: `App::request` with

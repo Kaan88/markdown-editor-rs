@@ -11,6 +11,7 @@ mod keys;
 mod overlays;
 mod panes;
 mod platform;
+mod results;
 mod session;
 mod status;
 mod trace;

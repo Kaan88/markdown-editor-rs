@@ -19,6 +19,7 @@ pub mod load;
 pub mod multi;
 pub mod replace;
 pub mod save;
+pub mod search;
 pub mod selection;
 #[cfg(test)]
 mod testutil;

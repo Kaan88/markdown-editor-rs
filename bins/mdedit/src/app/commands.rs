@@ -6,6 +6,7 @@ use crate::commands::CommandId as C;
 use crate::docs::{EditOp, SaveFailed};
 use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
+use mdedit_core::find::Query;
 use mdedit_core::limits::COPY_LIMIT;
 use mdedit_core::save::SaveError;
 
@@ -66,6 +67,8 @@ impl App {
                 }
             }
             Hit::FilesFolder | Hit::FilesOpenFolder => self.command(C::OpenFolder),
+            Hit::ResultsRow(i) => self.go_to_result(i),
+            Hit::ResultsClose => self.ui.results.close(),
             Hit::EmptyOpen => self.command(C::OpenFiles),
             Hit::EmptyRecent(i) => {
                 if let Some(p) = self.docs.recents.paths().get(i).cloned() {
@@ -103,6 +106,93 @@ impl App {
             _ => {}
         }
         self.redraw();
+    }
+
+    /// The find box's text as a query for a search of files or tabs, or a toast saying why
+    /// there is none.
+    fn search_query(&mut self) -> Option<Query> {
+        let text = self.ui.find.text().to_string();
+        if text.is_empty() {
+            self.command(C::Find);
+            self.docs.set_toast(strings::FIND_WHAT);
+            return None;
+        }
+        let query = Query::new(&text, self.ui.options());
+        if query.is_none() {
+            self.docs.set_toast(strings::BAD_PATTERN);
+        }
+        query
+    }
+
+    /// Looks for the find box's text in the files of the Files pane's folder, or of the active
+    /// file's folder when no folder is open, on a worker thread.
+    fn find_in_files(&mut self) {
+        let Some(query) = self.search_query() else {
+            return;
+        };
+        let root = self.ui.tree.root().map(Path::to_path_buf).or_else(|| {
+            let path = self.docs.active_doc()?.path.as_ref()?;
+            path.parent().map(Path::to_path_buf)
+        });
+        let Some(root) = root else {
+            self.docs.set_toast(strings::NO_SEARCH_FOLDER);
+            return;
+        };
+        let (load, waker) = (self.docs.load_options(), self.docs.waker());
+        self.ui.results.start_tree(&root, query, load, waker);
+    }
+
+    /// Looks for the find box's text in every open tab, in the text as it is now.
+    pub(super) fn find_in_tabs(&mut self) {
+        let Some(query) = self.search_query() else {
+            return;
+        };
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let mut left_out = false;
+        let mut tabs = Vec::new();
+        for d in &self.docs.tabs {
+            // A tab not read yet, or with more text than is searched while the window waits.
+            let Some(r) = d
+                .ready()
+                .filter(|r| r.buffer.len_bytes() <= crate::results::TAB_BYTES_MAX)
+            else {
+                left_out = true;
+                continue;
+            };
+            let max = crate::results::TAB_HITS_MAX;
+            let (hits, more) = mdedit_core::search::in_buffer(&r.buffer, &query, max, &cancel);
+            tabs.push((d.id, d.name(), d.path.clone(), hits, more));
+        }
+        self.ui.results.set_tabs(query.text(), tabs, left_out);
+    }
+
+    /// Opens the file or tab of a row of the results and selects the match there.
+    fn go_to_result(&mut self, row: usize) {
+        let Some((path, doc, range)) = self.ui.results.target(row) else {
+            return;
+        };
+        let open = doc
+            .and_then(|id| self.docs.index_of_id(id))
+            .or_else(|| path.as_deref().and_then(|p| self.docs.index_of(p)));
+        let i = match (open, path) {
+            (Some(i), _) => {
+                self.docs.activate(i);
+                i
+            }
+            (None, Some(p)) if p.is_file() => self.docs.open(&p),
+            (None, Some(p)) => {
+                self.open(&p);
+                return;
+            }
+            (None, None) => {
+                self.docs.set_toast(strings::RESULT_TAB_CLOSED);
+                return;
+            }
+        };
+        self.ui.results.select(row);
+        self.docs.select_in(i, range);
+        self.ui.find_focused = false;
+        self.caret_reset();
     }
 
     /// Opens a file in a tab, or says why not.
@@ -737,6 +827,13 @@ impl App {
                     self.docs.find_step(true);
                 }
             }
+            C::FindInFiles => self.find_in_files(),
+            C::FindInTabs => self.find_in_tabs(),
+            C::NextResult | C::PreviousResult => match self.ui.results.step(id == C::NextResult) {
+                Some(row) => self.go_to_result(row),
+                None => self.docs.set_toast(strings::NO_RESULTS),
+            },
+            C::CloseResults => self.ui.results.close(),
             C::FindNext | C::FindPrevious => {
                 let empty = self
                     .docs
@@ -871,6 +968,9 @@ impl App {
             }
             Wake::Loaded | Wake::Found | Wake::Highlight => {
                 self.drain();
+            }
+            Wake::Results => {
+                self.ui.results.poll();
             }
             Wake::Update(updater::Event::Checked { manual, result }) => {
                 self.session.update_checked = updater::unix_now();

@@ -187,8 +187,8 @@ These were made to keep moving and are easy to undo:
 1. **The user looks at the editor and types in it.** Phases 2 and 3 meet their "done when"
    by measurement and tests only. The hand checks in section 4 come first, on the Turkish
    layout.
-2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 7 are done; next is
-   find in files on a worker (item 8), with its results panel.
+2. Then the feature roadmap in `docs/PLAN.md`, in its order. Items 1 to 8 are done; next is
+   code folding and a function list (item 9), only if typing stays as fast.
 3. The Files pane could follow changes in its folders with the shared watcher's new
    `set_folders` and the tree's `watched_dirs` (shared commit `e93719b`).
 5. Any change to shared code: edit it in `markdown-shared-rs`, run the viewer's check (section 7),
@@ -203,10 +203,10 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 318 passed on 2026-11-13
+cargo test --release --workspace        # 345 passed on 2026-11-13
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 53 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # 55 PNGs, deterministic; first run generates target/data
 ```
 
 Useful flags of `mdedit.exe` (all in `bins/mdedit/src/args.rs`): `--no-session`, `--shot out.png`
@@ -232,6 +232,45 @@ Putting that script into the viewer's repository would be a useful first task.
 
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
+
+## Find in files (2026-11-13, roadmap item 8)
+
+- Ctrl+Shift+F looks for the find box's text, with its options, in every file of the Files
+  pane's folder, or of the active file's folder when no folder is open. "Find in open tabs"
+  (no key) looks in the tabs' text as it is now. Both are in the find box's right-click menu.
+  What is found shows in a panel under the text (`bins/mdedit/src/results.rs`): a row for each
+  file, a row for each match with its line number and the line, the match marked. A click on a
+  match, or F4 and Shift+F4, opens the file and selects the match. The panel's close button
+  (and the command "Close the results", no key) closes it and stops a search still running.
+- The core is `mdedit_core::search` (`in_buffer`, `in_tree`), written by a Sonnet agent to a
+  given interface and reviewed here. A folder is walked on a worker thread: files first, then
+  subfolders, by name; `.git`, `node_modules`, `target` and names starting with a dot are
+  skipped, as are files over 16 MiB, files with NUL bytes and files that cannot be read (the
+  title row says how many). It stops at 20,000 matches, 2,000 of one file. Files are read with
+  the editor's own loader, so encodings are detected the same way.
+- A folder search reads files from disk: a tab with unsaved changes is searched as it was
+  saved, and the match is then selected at the same offsets in the changed text, clamped to
+  it, so it can be off. "Find in open tabs" skips tabs not read yet and tabs over 64 MiB and
+  says "more were left out"; it runs while the window waits.
+- Not built: replace in files, a way to choose the folder or file kinds, keyboard focus in
+  the panel (arrows, Enter), a resizable panel (it is 230 px, less in a low window, none
+  below about 450 px of window height), Escape to close it, results that follow edits.
+- Run in a real window by keys: "ring" typed in the find box, Ctrl+Shift+F with
+  `fixtures/sample.rs` open (34 matches in 2 files, 1 file skipped), F4 three times (the
+  other file opened in a tab with the match selected), a click on a row, Shift+F4. Not run in
+  a window: "Find in open tabs" (two shots only: `results`, `results-dark`), the menu entries,
+  the wheel and the scrollbar of the panel, closing it, a search of a large folder, cancelling.
+- The exe went over the budget with this (6,041,600 bytes), so fifteen more crates are built
+  with `opt-level = "s"`: `icu_segmenter`, `icu_normalizer`, `icu_properties`, `softbuffer`,
+  `memmap2`, `icu_collections`, `zerovec`, `zerotrie`, `tracing`, `tracing-core`, `indexmap`,
+  `linked-hash-map`, `smol_str`, `miniz_oxide` and `aho-corasick`. Tried and
+  taken back: `read-fonts` and `skrifa` save 55 KB but the window shows about 5 ms later;
+  `bit-set`, `bit-vec`, `crc32fast` and `base64` save 2.5 KB and seemed to cost 2 ms.
+- Measured after: exe 5,979,648 bytes; keystroke p50 0.48 ms; scroll step p50 0.40 ms;
+  private memory 27.8 MiB; the 100 MB file loads in 96 ms. Window shown: 79 to 81 ms, and
+  the same for the build before this feature run in turns with it (the machine was about
+  2 ms slower than when 77 to 78 ms was measured). Find speed with `aho-corasick` built for
+  size was not measured apart from the core's tests passing.
 
 ## Bookmarks (2026-11-13, roadmap item 7)
 

@@ -33,6 +33,11 @@ pub enum CommandId {
     Find,
     FindNext,
     FindPrevious,
+    FindInFiles,
+    FindInTabs,
+    NextResult,
+    PreviousResult,
+    CloseResults,
     Replace,
     ReplaceNext,
     ReplaceAll,
@@ -115,6 +120,11 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
     cmd(C::FindPrevious, "Find previous", &["Shift+F3"]),
+    cmd(C::FindInFiles, "Find in files", &["Ctrl+Shift+F"]),
+    cmd(C::FindInTabs, "Find in open tabs", &[]),
+    cmd(C::NextResult, "Next result", &["F4"]),
+    cmd(C::PreviousResult, "Previous result", &["Shift+F4"]),
+    cmd(C::CloseResults, "Close the results", &[]),
     cmd(C::Replace, "Replace", &["Ctrl+H"]),
     cmd(C::ReplaceNext, "Replace and find next", &[]),
     cmd(C::ReplaceAll, "Replace all", &["Ctrl+Shift+Enter"]),
@@ -201,6 +211,10 @@ pub mod strings {
     pub const REPLACE_ALL: &str = "Replace all";
     pub const BAD_PATTERN: &str = "Not a valid pattern";
     pub const NOTHING_TO_REPLACE: &str = "Nothing to replace.";
+    pub const FIND_WHAT: &str = "Type what to look for in the find box first.";
+    pub const NO_SEARCH_FOLDER: &str = "Open a folder or a file first: its folder is searched.";
+    pub const NO_RESULTS: &str = "No results. Ctrl+Shift+F finds in files.";
+    pub const RESULT_TAB_CLOSED: &str = "That tab is closed.";
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
 
     /// A character the chosen encoding has no bytes for.

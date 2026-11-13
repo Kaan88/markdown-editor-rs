@@ -58,6 +58,8 @@ pub enum Scroller {
     TextH,
     Files,
     Dialog,
+    /// The results panel's list.
+    Results,
 }
 
 /// The command bar's buttons.
@@ -81,14 +83,17 @@ pub enum Region {
     Files,
     Text,
     Status,
+    /// The results panel under the text.
+    Results,
 }
 
-pub const REGIONS: [Region; 5] = [
+pub const REGIONS: [Region; 6] = [
     Region::Title,
     Region::Bar,
     Region::Files,
     Region::Text,
     Region::Status,
+    Region::Results,
 ];
 
 impl Region {
@@ -122,6 +127,9 @@ pub enum Hit {
     /// The status strip's line-ending and encoding fields: each opens a menu.
     StatusEol,
     StatusEncoding,
+    /// The results panel: a row of its list and its close button.
+    ResultsRow(usize),
+    ResultsClose,
     FilesRow(usize),
     FilesFolder,
     FilesOpenFolder,
@@ -153,6 +161,9 @@ impl Hit {
             | Hit::ReplaceClose
             | Hit::FindOpt(_) => Region::Bar,
             Hit::StatusEol | Hit::StatusEncoding => Region::Status,
+            Hit::ResultsRow(_) | Hit::ResultsClose | Hit::ScrollBar(Scroller::Results) => {
+                Region::Results
+            }
             Hit::FilesRow(_)
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
@@ -384,6 +395,8 @@ pub fn new_tree() -> FileTree {
 
 pub struct Ui {
     pub panes: Panes,
+    /// What "Find in files" found, in the panel under the text.
+    pub results: crate::results::Results,
     pub tree: FileTree,
     pub find: TextField,
     /// A box of the bar has the keyboard; `field` says which.
@@ -437,6 +450,7 @@ impl Ui {
             match_case: false,
             whole_word: false,
             regex: false,
+            results: Default::default(),
             replace: TextField::new(),
             replace_open: false,
             goto: TextField::new(),
@@ -535,6 +549,8 @@ pub struct Areas {
     /// The text region: gutter, text and scrollbars, or the empty state.
     pub text: Rect,
     pub status: Rect,
+    /// The results panel, under the text.
+    pub results: Option<Rect>,
 }
 
 impl Areas {
@@ -545,7 +561,20 @@ impl Areas {
             Region::Files => self.files,
             Region::Text => Some(self.text),
             Region::Status => Some(self.status),
+            Region::Results => self.results,
         }
+    }
+
+    /// Gives the bottom of the text to the results panel when it is open and the text keeps
+    /// enough height.
+    pub fn with_results(mut self, open: bool) -> Areas {
+        use crate::results::{RESULTS_H, RESULTS_TEXT_MIN};
+        let h = RESULTS_H.min(self.text.h - RESULTS_TEXT_MIN);
+        if open && h >= 90.0 {
+            self.text.h -= h;
+            self.results = Some(Rect::new(self.text.x, self.text.bottom(), self.text.w, h));
+        }
+        self
     }
 
     /// Splits a `w` x `h` window. The status strip runs along the whole bottom; the Files pane
@@ -575,6 +604,7 @@ impl Areas {
             files,
             text,
             status,
+            results: None,
         }
     }
 }
@@ -605,6 +635,30 @@ mod tests {
         let a = Areas::compute(1280.0, 800.0, false, 250.0, 0.0);
         assert!(a.files.is_none());
         assert_eq!(a.text.x, 0.0);
+    }
+
+    #[test]
+    fn results_panel_takes_the_bottom_of_the_text() {
+        let a = Areas::compute(1280.0, 800.0, true, 250.0, 0.0);
+        assert_eq!(a.with_results(false), a);
+        let b = a.with_results(true);
+        let p = b.results.unwrap();
+        assert_eq!((p.x, p.w), (a.text.x, a.text.w));
+        assert_eq!(p.h, crate::results::RESULTS_H);
+        assert_eq!(b.text.bottom(), p.y);
+        assert_eq!(p.bottom(), a.status.y);
+        assert_eq!(b.files, a.files);
+        // A low window gives the panel less, then none.
+        let low = Areas::compute(1280.0, 420.0, false, 0.0, 0.0).with_results(true);
+        assert_eq!(low.text.h, crate::results::RESULTS_TEXT_MIN);
+        assert!(low.results.unwrap().h < crate::results::RESULTS_H);
+        let lower = Areas::compute(1280.0, 300.0, false, 0.0, 0.0).with_results(true);
+        assert!(lower.results.is_none());
+        assert_eq!(Hit::ResultsRow(3).region(), Some(Region::Results));
+        assert_eq!(
+            Hit::ScrollBar(Scroller::Results).region(),
+            Some(Region::Results)
+        );
     }
 
     #[test]

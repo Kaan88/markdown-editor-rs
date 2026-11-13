@@ -200,6 +200,11 @@ impl App {
                 let d = self.ui.dialog.as_ref()?;
                 Some((d.list, d.content, d.view, d.scroll))
             }
+            Scroller::Results => {
+                let res = &self.ui.results;
+                let list = crate::results::list(self.areas.results?);
+                Some((list, res.content, res.view, res.scroll))
+            }
             Scroller::Text | Scroller::TextH => None,
         }
     }
@@ -214,6 +219,10 @@ impl App {
                 if let Some(d) = self.ui.dialog.as_mut() {
                     d.scroll = offset.clamp(0.0, (d.content - d.view).max(0.0)).round();
                 }
+            }
+            Scroller::Results => {
+                let cur = self.ui.results.scroll;
+                self.ui.results.scroll_by(offset - cur);
             }
             Scroller::Text | Scroller::TextH => {}
         }
@@ -591,6 +600,15 @@ impl App {
                 None => ny as f32 * PANE_WHEEL,
             };
             self.ui.panes.scroll_by(-dy);
+            self.redraw();
+            return;
+        }
+        if self.areas.results.is_some_and(|r| r.contains(x, y)) {
+            let dy = match pixels {
+                Some((_, py)) => py as f32 / self.scale,
+                None => ny as f32 * PANE_WHEEL,
+            };
+            self.ui.results.scroll_by(-dy);
             self.redraw();
             return;
         }

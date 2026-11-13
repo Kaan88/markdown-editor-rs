@@ -489,6 +489,16 @@ impl Ready {
         }
     }
 
+    /// Selects `range` as far as the text has it: a range found in the file as it was read
+    /// some time ago, which the text may no longer reach.
+    pub fn select_clamped(&mut self, range: Range<usize>) {
+        let len = self.buffer.len_bytes();
+        let start = self.buffer.snap_to_grapheme(range.start.min(len));
+        let end = self.buffer.snap_to_grapheme(range.end.min(len)).max(start);
+        self.history.seal();
+        self.select_and_reveal(start..end);
+    }
+
     /// Selects `range` (caret at its end) and brings it into view, centred if it was off screen.
     pub fn select_and_reveal(&mut self, range: Range<usize>) {
         self.extra.clear();
@@ -526,6 +536,8 @@ pub struct Doc {
     /// The user chose not to save these changes while closing; cleared by the next edit or when
     /// the close is cancelled.
     pub discard: bool,
+    /// A range to select once the text is read: a result of "Find in files" was opened.
+    pub pending_select: Option<Range<usize>>,
     /// The file holding the unsaved text this tab had when the window last closed; it replaces
     /// the file's text once that is read.
     pub restore: Option<PathBuf>,
@@ -551,6 +563,7 @@ impl Doc {
             missing: false,
             changed_on_disk: false,
             discard: false,
+            pending_select: None,
             restore: None,
             forced: None,
             encoding_changed: false,
@@ -815,6 +828,25 @@ impl Docs {
     }
 
     /// Wakes the event loop, for threads the shell starts.
+    /// How files are read, for a search of files that reads them the same way.
+    pub fn load_options(&self) -> LoadOptions {
+        LoadOptions {
+            forced: None,
+            ..self.opts
+        }
+    }
+
+    /// Selects `range` in tab `i`, now or when its text has been read.
+    pub fn select_in(&mut self, i: usize, range: Range<usize>) {
+        let Some(doc) = self.tabs.get_mut(i) else {
+            return;
+        };
+        match doc.ready_mut() {
+            Some(r) => r.select_clamped(range),
+            None => doc.pending_select = Some(range),
+        }
+    }
+
     pub fn waker(&self) -> Waker {
         self.waker.clone()
     }
@@ -902,6 +934,7 @@ impl Docs {
             missing: false,
             changed_on_disk: false,
             discard: false,
+            pending_select: None,
             restore: None,
             forced: None,
             encoding_changed: false,
@@ -1225,6 +1258,9 @@ impl Docs {
                 {
                     s.open(doc.id, doc.revision, r.buffer.snapshot(), lang, dark);
                     r.colourable = true;
+                }
+                if let Some(range) = doc.pending_select.take() {
+                    r.select_clamped(range);
                 }
                 doc.state = DocState::Ready(Box::new(r));
                 doc.missing = false;

@@ -87,3 +87,35 @@ opt-level = "s"
 opt-level = "s"
 [profile.release.package.mdshared-ui]
 opt-level = "s"
+# Added for find in files (2026-11-13). Startup, a keystroke and a scroll step measured the same
+# with them; `read-fonts` and `skrifa` did not (docs/HANDOFF.md).
+[profile.release.package.icu_segmenter]
+opt-level = "s"
+[profile.release.package.icu_normalizer]
+opt-level = "s"
+[profile.release.package.icu_properties]
+opt-level = "s"
+[profile.release.package.softbuffer]
+opt-level = "s"
+[profile.release.package.memmap2]
+opt-level = "s"
+[profile.release.package.icu_collections]
+opt-level = "s"
+[profile.release.package.zerovec]
+opt-level = "s"
+[profile.release.package.zerotrie]
+opt-level = "s"
+[profile.release.package.tracing]
+opt-level = "s"
+[profile.release.package.tracing-core]
+opt-level = "s"
+[profile.release.package.indexmap]
+opt-level = "s"
+[profile.release.package.linked-hash-map]
+opt-level = "s"
+[profile.release.package.smol_str]
+opt-level = "s"
+[profile.release.package.miniz_oxide]
+opt-level = "s"
+[profile.release.package.aho-corasick]
+opt-level = "s"

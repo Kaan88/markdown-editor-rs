@@ -200,6 +200,12 @@ pub fn find_menu(
             .sep(),
         Item::new(Act::Opt(FindOpt::Word), "Whole word").checked(options.whole_word),
         Item::new(Act::Opt(FindOpt::Regex), "Regular expression").checked(options.regex),
+        Item::new(Act::Cmd(C::FindInFiles), "Find in files")
+            .hint("Ctrl+Shift+F")
+            .icon(glyph::SEARCH)
+            .enabled(has_text)
+            .sep(),
+        Item::new(Act::Cmd(C::FindInTabs), "Find in open tabs").enabled(has_text),
     ];
     Menu::new(items, x, y, false)
 }

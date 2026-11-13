@@ -76,6 +76,8 @@ pub enum Wake {
     Loaded,
     /// A search finished.
     Found,
+    /// The search of a folder has matches or finished.
+    Results,
     /// The highlight worker queued colours.
     Highlight,
     /// An updater thread has an answer.
@@ -124,9 +126,9 @@ struct App {
     maximized: bool,
     focused: bool,
     areas: Areas,
-    hits: [Vec<(Hit, Rect)>; 5],
+    hits: [Vec<(Hit, Rect)>; 6],
     overlay_hits: Vec<(Hit, Rect)>,
-    sigs: [u64; 5],
+    sigs: [u64; 6],
     caret_sig: u64,
     /// The caret's line at the last text repaint.
     caret_line: Option<usize>,
@@ -217,7 +219,7 @@ impl App {
             areas: Areas::default(),
             hits: Default::default(),
             overlay_hits: Vec::new(),
-            sigs: [0; 5],
+            sigs: [0; 6],
             caret_sig: 0,
             caret_line: None,
             overlay_sig: 0,
@@ -545,6 +547,22 @@ impl App {
                 ))
             }
             Region::Status => sig((common, status::fields(&self.docs), self.dark())),
+            Region::Results => {
+                let drag = matches!(
+                    ui.drag,
+                    Some(Drag::Thumb {
+                        target: Scroller::Results,
+                        ..
+                    })
+                );
+                sig((
+                    common,
+                    ui.results.generation,
+                    ui.results.scroll.to_bits(),
+                    drag,
+                    self.dark(),
+                ))
+            }
         }
     }
 
@@ -576,7 +594,8 @@ impl App {
             self.ui.panes.files,
             self.ui.panes.files_w,
             self.notice_h(),
-        );
+        )
+        .with_results(self.ui.results.open);
         if areas != self.areas {
             self.areas = areas;
             self.full = true;
@@ -591,7 +610,7 @@ impl App {
         times.layout = t0.elapsed();
 
         let t1 = Instant::now();
-        let mut dirty = [self.full; 5];
+        let mut dirty = [self.full; 6];
         for r in REGIONS {
             let rect = self.areas.region(r);
             let s = self.region_sig(r, rect);
@@ -789,6 +808,7 @@ impl App {
                         }
                     },
                     Region::Status => status::draw(&mut c, &self.docs, rect),
+                    Region::Results => crate::results::draw(&mut c, &mut self.ui, rect),
                 }
                 p.restore(old);
             }
@@ -1403,7 +1423,8 @@ impl App {
             self.ui.panes.files,
             self.ui.panes.files_w,
             self.notice_h(),
-        );
+        )
+        .with_results(self.ui.results.open);
         let text = self.areas.text;
         if let Some(doc) = self.docs.active_doc_mut() {
             self.view.layout(doc, text, self.scale);
@@ -1455,6 +1476,9 @@ impl App {
             self.ui.whole_word = a.whole_word;
             self.ui.regex = a.regex;
             self.docs.find_set(q, self.ui.options());
+            if a.find_in_tabs {
+                self.find_in_tabs();
+            }
         }
         if let Some(with) = &a.replace {
             self.ui.replace.set_text(with);
