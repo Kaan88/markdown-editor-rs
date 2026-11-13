@@ -350,6 +350,80 @@ pub fn in_tree(
     (walk.sink)(done);
 }
 
+/// Calls `visit` for every file `in_tree` would search under `root`, in the same order and
+/// with the same choices (hidden names with `skip_hidden`, `.git`, `node_modules` and `target`
+/// folders, links to folders not followed, links to files visited), without reading any of
+/// them; `root` may itself be a file. `visit` returns false to stop. Returns false when it
+/// stopped, or `cancel` was set. For work that is not a search (replace in files), which plans
+/// from this list.
+pub fn walk_files(
+    root: &Path,
+    skip_hidden: bool,
+    cancel: &AtomicBool,
+    visit: &mut dyn FnMut(&Path) -> bool,
+) -> bool {
+    match std::fs::metadata(root) {
+        Ok(m) if m.is_dir() => walk_dir(root, skip_hidden, cancel, visit),
+        Ok(m) if m.is_file() => !cancel.load(Ordering::Relaxed) && visit(root),
+        _ => true,
+    }
+}
+
+fn walk_dir(
+    dir: &Path,
+    skip_hidden: bool,
+    cancel: &AtomicBool,
+    visit: &mut dyn FnMut(&Path) -> bool,
+) -> bool {
+    if cancel.load(Ordering::Relaxed) {
+        return false;
+    }
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return true;
+    };
+    let mut files: Vec<(String, PathBuf)> = Vec::new();
+    let mut dirs: Vec<(String, PathBuf)> = Vec::new();
+    for entry in read.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if skip_hidden && name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        let (is_dir, is_file) = if kind.is_symlink() {
+            match std::fs::metadata(&path) {
+                Ok(m) => (false, m.is_file()),
+                Err(_) => continue,
+            }
+        } else {
+            (kind.is_dir(), kind.is_file())
+        };
+        let key = format!("{}\0{}", name.to_ascii_lowercase(), name);
+        if is_dir {
+            if !SKIPPED_DIRS.contains(&name.as_str()) {
+                dirs.push((key, path));
+            }
+        } else if is_file {
+            files.push((key, path));
+        }
+    }
+    files.sort();
+    dirs.sort();
+    for (_, path) in files {
+        if cancel.load(Ordering::Relaxed) || !visit(&path) {
+            return false;
+        }
+    }
+    for (_, path) in dirs {
+        if !walk_dir(&path, skip_hidden, cancel, visit) {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -769,6 +843,79 @@ mod tests {
         };
         assert_eq!(hits[0].snippet, "wide needle \u{65E5}");
         assert_eq!(&hits[0].snippet[hits[0].mark.clone()], "needle");
+    }
+
+    #[test]
+    fn walk_files_visits_what_in_tree_visits() {
+        let t = make_tree(2000);
+        // Every file that has "needle" or is read at all: search for a letter all text files
+        // have, and compare with the walk minus what a search skips on content (binary, big).
+        let opts = TreeOptions {
+            max_file_bytes: u64::MAX,
+            ..TreeOptions::default()
+        };
+        let searched: Vec<String> = tree(&t.0, &plain("needle"), &opts)
+            .iter()
+            .filter_map(|e| rel(&t.0, e))
+            .collect();
+        let mut walked = Vec::new();
+        let done = walk_files(&t.0, true, &no_cancel(), &mut |p| {
+            walked.push(
+                p.strip_prefix(&t.0)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+            true
+        });
+        assert!(done);
+        // The walk also lists files without a match, binary ones and so on; the searched files
+        // are a subsequence of it, in the same order.
+        let mut it = walked.iter();
+        for s in &searched {
+            assert!(
+                it.any(|w| w == s),
+                "{s} missing or out of order in {walked:?}"
+            );
+        }
+        assert!(walked.iter().any(|w| w == "bin.dat" || w == "c.txt"));
+        assert!(
+            !walked
+                .iter()
+                .any(|w| w.starts_with(".git") || w.contains("node_modules"))
+        );
+        assert!(
+            !walked
+                .iter()
+                .any(|w| w.contains(".hid") || w.starts_with(".hidden"))
+        );
+        // Stopping, cancelling, hidden names, a file as the root.
+        let mut n = 0;
+        assert!(!walk_files(&t.0, true, &no_cancel(), &mut |_| {
+            n += 1;
+            n < 3
+        }));
+        assert_eq!(n, 3);
+        let yes = AtomicBool::new(true);
+        assert!(!walk_files(&t.0, true, &yes, &mut |_| panic!("cancelled")));
+        let mut with_hidden = 0;
+        walk_files(&t.0, false, &no_cancel(), &mut |_| {
+            with_hidden += 1;
+            true
+        });
+        assert!(with_hidden > walked.len());
+        let mut one = Vec::new();
+        walk_files(&t.0.join("a.txt"), true, &no_cancel(), &mut |p| {
+            one.push(p.to_path_buf());
+            true
+        });
+        assert_eq!(one, vec![t.0.join("a.txt")]);
+        assert!(walk_files(
+            &t.0.join("missing"),
+            true,
+            &no_cancel(),
+            &mut |_| false
+        ));
     }
 
     #[test]

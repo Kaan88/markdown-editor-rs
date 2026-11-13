@@ -1368,7 +1368,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=c71c27bfc23f26ab45ba6d581473347a71d59baf#c71c27bfc23f26ab45ba6d581473347a71d59baf"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d6e6cf192776a671c6493f15ddae4bb90846d80d#d6e6cf192776a671c6493f15ddae4bb90846d80d"
 dependencies = [
  "notify",
 ]
@@ -1376,7 +1376,7 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=c71c27bfc23f26ab45ba6d581473347a71d59baf#c71c27bfc23f26ab45ba6d581473347a71d59baf"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d6e6cf192776a671c6493f15ddae4bb90846d80d#d6e6cf192776a671c6493f15ddae4bb90846d80d"
 dependencies = [
  "libloading",
  "windows-sys 0.59.0",
@@ -1385,7 +1385,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=c71c27bfc23f26ab45ba6d581473347a71d59baf#c71c27bfc23f26ab45ba6d581473347a71d59baf"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d6e6cf192776a671c6493f15ddae4bb90846d80d#d6e6cf192776a671c6493f15ddae4bb90846d80d"
 dependencies = [
  "syntect",
 ]
@@ -1393,7 +1393,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=c71c27bfc23f26ab45ba6d581473347a71d59baf#c71c27bfc23f26ab45ba6d581473347a71d59baf"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d6e6cf192776a671c6493f15ddae4bb90846d80d#d6e6cf192776a671c6493f15ddae4bb90846d80d"
 dependencies = [
  "parley",
  "png",
@@ -1403,13 +1403,17 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=c71c27bfc23f26ab45ba6d581473347a71d59baf#c71c27bfc23f26ab45ba6d581473347a71d59baf"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d6e6cf192776a671c6493f15ddae4bb90846d80d#d6e6cf192776a671c6493f15ddae4bb90846d80d"
 dependencies = [
  "arboard",
  "mdshared-app",
  "mdshared-text",
  "parley",
  "rfd",
+ "rustix 1.1.6",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols-plasma",
  "windows-sys 0.59.0",
  "winit",
  "zbus",
