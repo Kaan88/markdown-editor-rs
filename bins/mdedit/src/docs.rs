@@ -1821,7 +1821,7 @@ impl Docs {
                 EditOp::WordRight => edit::delete_word_right(buf, hist, sel),
                 EditOp::Indent => match r.assist.indent {
                     // Spaces to the next multiple of the indent size, for a caret or a selection
-                    // inside one line; a block of lines gets the core's tabs.
+                    // inside one line; a block of lines gets one unit in front of each line.
                     typing::Indent::Spaces(n)
                         if buf.line_of(sel.range().start) == buf.line_of(sel.range().end) =>
                     {
@@ -1830,9 +1830,11 @@ impl Docs {
                             multi::display_col(buf, sel.range().start, crate::live::tab_width());
                         edit::insert(buf, hist, sel, &" ".repeat(n - col % n))
                     }
-                    _ => edit::indent(buf, hist, sel, crate::live::tab_width()),
+                    unit => edit::indent_with(buf, hist, sel, unit),
                 },
-                EditOp::Outdent => edit::outdent(buf, hist, sel, crate::live::tab_width()),
+                EditOp::Outdent => {
+                    edit::outdent_with(buf, hist, sel, r.assist.indent, crate::live::tab_width())
+                }
                 EditOp::Undo => match edit::undo(buf, hist) {
                     Some(out) => out,
                     None => return false,
@@ -2800,6 +2802,42 @@ mod tests {
         }
         d.edit(EditOp::Insert("("), None);
         assert_eq!(text_of(&d, i), "(");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn indent_with_spaces_applies_to_a_block_and_outdent_takes_one_unit() {
+        let (mut d, i, _path, dir) = file_docs("indentspaces", b"aa\nbb\n\ncc\n");
+        d.tabs[i].ready_mut().unwrap().assist.indent = typing::Indent::Spaces(2);
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 0,
+            caret: 8,
+            goal_col: None,
+        };
+        // Several lines: spaces, not tabs, one undo step.
+        assert!(d.edit(EditOp::Indent, None));
+        assert_eq!(text_of(&d, i), "  aa\n  bb\n\n  cc\n");
+        // One line: to the next multiple of the size.
+        d.tabs[i].ready_mut().unwrap().sel = Selection::at(3);
+        assert!(d.edit(EditOp::Indent, None));
+        assert_eq!(text_of(&d, i), "  a a\n  bb\n\n  cc\n");
+        // Shift+Tab: one unit (2 spaces) from every touched line, whatever the tab width is.
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 0,
+            caret: 12,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::Outdent, None));
+        assert_eq!(text_of(&d, i), "a a\nbb\n\n  cc\n");
+        // With tabs as the unit, a block gets tabs again.
+        d.tabs[i].ready_mut().unwrap().assist.indent = typing::Indent::Tab;
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 0,
+            caret: 8,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::Indent, None));
+        assert_eq!(text_of(&d, i), "\ta a\n\tbb\n\n  cc\n");
         std::fs::remove_dir_all(dir).ok();
     }
 
