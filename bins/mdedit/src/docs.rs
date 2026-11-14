@@ -1478,9 +1478,21 @@ impl Docs {
         dark: bool,
     ) -> Applied {
         {
-            let (list, signal) = &*self.load_done;
+            let shared = self.load_done.clone();
+            let (list, signal) = &*shared;
             let mut done = list.lock().unwrap();
-            while done.is_empty() {
+            loop {
+                // A result for a load that was replaced since (or for a closed tab) is dropped
+                // here, as `apply_load` would: it must not end the wait for the load that
+                // replaced it, which is still running.
+                done.retain(|d| {
+                    self.tabs
+                        .iter()
+                        .any(|t| t.id == d.doc && t.revision == d.revision)
+                });
+                if !done.is_empty() {
+                    break;
+                }
                 let now = Instant::now();
                 if deadline <= now {
                     break;
@@ -3607,6 +3619,27 @@ mod tests {
         d.wait_load(Instant::now() + Duration::from_secs(10), None, false);
         assert_eq!(text_of(&d, i), "theirs again, longer still\n");
         assert!(!d.tabs[i].modified());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_load_result_for_an_old_revision_does_not_end_the_wait() {
+        // `open` starts a load on a thread, and `load_now` (as a busy machine lets it come
+        // late) replaces it after that thread has finished: its result for the old revision is
+        // still queued. The wait for a later reload must not return on it.
+        let dir = std::env::temp_dir().join(format!("mdedit-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("file.txt");
+        std::fs::write(&path, b"one\n").unwrap();
+        let mut d = docs();
+        let i = d.open(&path);
+        std::thread::sleep(Duration::from_millis(300));
+        d.load_now(i, None, false);
+        std::fs::write(&path, "theirs again, longer still\n").unwrap();
+        d.check_changed();
+        assert!(d.tabs[i].is_loading());
+        d.wait_load(Instant::now() + Duration::from_secs(10), None, false);
+        assert_eq!(text_of(&d, i), "theirs again, longer still\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
