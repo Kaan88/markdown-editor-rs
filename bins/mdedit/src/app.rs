@@ -258,7 +258,7 @@ impl App {
     fn update_shadow(&mut self, focused: Option<bool>) {
         if let (Some(shadow), Some(w)) = (self.shadow.as_mut(), self.window.as_ref()) {
             let active = focused.unwrap_or_else(|| w.has_focus());
-            shadow.update(w.scale_factor(), active, w.is_maximized());
+            shadow.update(w, w.scale_factor(), active);
         }
     }
 
