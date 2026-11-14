@@ -70,9 +70,7 @@ pub fn rows(prefs: &Prefs, theme: ThemeChoice, check_updates: bool, look: &str) 
         Row::header("Editing"),
         Row::text(FONT_FAMILY, "Font", prefs.font_family.clone())
             .placeholder("Default")
-            .help(
-                "A monospace family, such as Cascadia Mono. One that is not installed is skipped.",
-            ),
+            .help("Any installed monospace family."),
         Row::number(
             FONT_SIZE,
             "Font size",
@@ -322,5 +320,75 @@ impl App {
         }
         self.full = true;
         self.redraw();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mdshared_text::Bitmap;
+    use mdshared_ui::gfx::{Face, Gfx, Painter, Rect};
+
+    fn help_of(row: &Row) -> &str {
+        match row {
+            Row::Toggle { help, .. }
+            | Row::Choice { help, .. }
+            | Row::Number { help, .. }
+            | Row::Text { help, .. } => help,
+            _ => "",
+        }
+    }
+
+    fn label_of(row: &Row) -> &str {
+        match row {
+            Row::Toggle { label, .. }
+            | Row::Choice { label, .. }
+            | Row::Number { label, .. }
+            | Row::Text { label, .. }
+            | Row::Action { label, .. } => label,
+            _ => "",
+        }
+    }
+
+    /// Every help line fits the space the form gives it (what is left of the row after the
+    /// control), at the default window, a narrow one and scale 1.5: none is cut with an ellipsis.
+    #[test]
+    fn every_help_line_fits_in_every_layout() {
+        let prefs = Prefs::default();
+        for (w, h, scale) in [
+            (1280.0, 800.0, 1.0),
+            (560.0, 640.0, 1.0),
+            (1280.0 / 1.5, 800.0 / 1.5, 1.5),
+        ] {
+            let mut form = Form::new("Settings", rows(&prefs, ThemeChoice::System, true, "Check"));
+            let mut bmp = Bitmap::new(100, 100);
+            let mut gfx = Gfx::new();
+            let mut p = Painter::new(&mut bmp, &mut gfx, scale);
+            form.layout(&mut p, Rect::new(0.0, 0.0, w, h));
+            for i in 0..form.rows().len() {
+                let help = help_of(&form.rows()[i]);
+                let (row, ctrl) = (form.rect_of_row(i), form.control_rect(i));
+                if ctrl.w > 0.0 {
+                    let label = label_of(&form.rows()[i]);
+                    let room = (ctrl.x - row.x - 12.0 - 16.0).max(40.0);
+                    let need = p.measure(Face::Ui, 13.5, label);
+                    assert!(
+                        need <= room,
+                        "label {label:?} needs {need} of {room} px at {w}x{h}"
+                    );
+                }
+                if help.is_empty() {
+                    continue;
+                }
+                // The form's own rule: the text runs from the row's inset to 16 px before the
+                // control.
+                let room = (ctrl.x - row.x - 12.0 - 16.0).max(40.0);
+                let need = p.measure(Face::Ui, 11.5, help);
+                assert!(
+                    need <= room,
+                    "help {help:?} needs {need} of {room} px at {w}x{h} scale {scale}"
+                );
+            }
+        }
     }
 }
