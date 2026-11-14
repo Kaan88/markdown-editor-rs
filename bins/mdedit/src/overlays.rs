@@ -58,7 +58,6 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         theme(ThemeChoice::Light, "Light theme", glyph::SUN),
         theme(ThemeChoice::Dark, "Dark theme", glyph::MOON),
         cmd(C::Settings, "Settings…", glyph::SLIDERS).sep(),
-        cmd(C::OpenSnippets, "Open snippets file", glyph::DOC),
         cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD),
     ];
     // Off Windows, from an AppImage (the desktop entry exists), until mdedit is the default.
@@ -208,6 +207,22 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
             .enabled(crate::compare::enabled(C::CompareFile, docs)),
         cmd(C::CompareSaved, "Compare with saved", glyph::SAVE)
             .enabled(crate::compare::enabled(C::CompareSaved, docs)),
+        cmd(C::NextDifference, "Next difference", glyph::DOWN)
+            .enabled(crate::compare::enabled(C::NextDifference, docs)),
+        cmd(C::PreviousDifference, "Previous difference", glyph::UP)
+            .enabled(crate::compare::enabled(C::PreviousDifference, docs)),
+        cmd(
+            C::CopyChangeAcross,
+            "Copy this change to the other side",
+            glyph::FORWARD,
+        )
+        .enabled(crate::compare::enabled(C::CopyChangeAcross, docs)),
+        cmd(
+            C::TakeChangeAcross,
+            "Take this change from the other side",
+            glyph::BACK,
+        )
+        .enabled(crate::compare::enabled(C::TakeChangeAcross, docs)),
         cmd(C::StopCompare, "Stop comparing", glyph::CLOSE)
             .enabled(crate::compare::enabled(C::StopCompare, docs)),
     ];
@@ -384,6 +399,16 @@ pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act
         cmd(C::MdTable, "Align table", glyph::TABLE)
             .sep()
             .enabled(ready),
+        cmd(C::MdRowBelow, "Insert row below", glyph::PLUS).enabled(ready),
+        cmd(C::MdRowAbove, "Insert row above", glyph::PLUS).enabled(ready),
+        cmd(C::MdDeleteRow, "Delete row", glyph::DELETE).enabled(ready),
+        cmd(C::MdColumnRight, "Insert column right", glyph::PLUS)
+            .sep()
+            .enabled(ready),
+        cmd(C::MdColumnLeft, "Insert column left", glyph::PLUS).enabled(ready),
+        cmd(C::MdDeleteColumn, "Delete column", glyph::DELETE).enabled(ready),
+        cmd(C::MdMoveColumnLeft, "Move column left", glyph::BACK).enabled(ready),
+        cmd(C::MdMoveColumnRight, "Move column right", glyph::FORWARD).enabled(ready),
     ];
     Menu::new(items, x, y, align_right)
 }

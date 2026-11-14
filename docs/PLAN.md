@@ -100,22 +100,54 @@ Left out: plugins, the FTP and project panels, printing.
 Agreed after mdedit 0.5.0 and mdview 0.3.0 (Windows and Linux). Each item has to keep the budgets
 above, measured before and after.
 
-- Copy a change across in compare.
-- Finer sync with the viewer inside long paragraphs and code blocks.
-- Live preview for a document that has never been saved.
-- Multi-caret support in the line commands (sort, join, headings, table alignment).
+- Copy a change across in compare. Done on `merge/next-release` (not in `main`).
+- Finer sync with the viewer inside long paragraphs and code blocks. Not started.
+- Live preview for a document that has never been saved. Not started.
+- Multi-caret support in the line commands (sort, join, headings, table alignment). Done on
+  `merge/next-release`.
 - Owner request 2026-11-14: a "Restart" button once an update is installed, both apps, only if it
-  is simple to do (the update bar now says the new version starts next time).
+  is simple to do (the update bar now says the new version starts next time). Built on
+  `feat/restart-after-update`, not merged: it waits for a hand test on Windows.
+- Also done on `merge/next-release`, not on this list before: column selection (DESIGN section
+  57), Markdown table editing (section 60), and autosave and crash recovery (section 61).
+- Budgets for the five features on `merge/next-release` were not measured yet (2026-11-15).
 - Carried over: the speed-versus-size build comparison on Windows (a build compiled for speed
   with unwinding against the current profile), and a hand run of 0.5.0 on a Windows desktop.
-- For consideration, not agreed (owner, 2026-11-14): rounded window corners. Default radius 8
+- For consideration, not agreed (owner, 2026-11-14; left out of `merge/next-release` because the
+  shared test `rounded_paint_touches_the_margin_and_the_corner_squares_only` fails on shared `next`
+  `e3d381b`): rounded window corners. Default radius 8
   logical px, scaled with the display, square when maximised, tiled or fullscreen, with a setting
   that includes 0. It sits between KDE Breeze (about 5 px, from bug reports) and GNOME libadwaita
   (about 12 px, from a 2021 commit and forum estimates) and matches the 8 px radius of the apps'
-  own dialogs. There is no standard way to ask a Linux desktop for its radius. On Windows 11, ask
-  the system for its standard rounding (the DWM corner preference) instead of drawing. On KDE it
+  own dialogs. There is no standard way to ask a Linux desktop for its radius. On Windows 11 the
+  window already has the system's rounding (owner, 2026-11-15); the DWM corner preference is only
+  needed for the setting's other choices. On KDE it
   needs the client-margin shadow route, because KWin's shadow route leaves the window opaque and
   square.
+
+## Later (owner request 2026-11-15): a frosted window (Mica, Acrylic, blur on Wayland)
+
+On the roadmap, after the next release, for both apps (the code goes in the shared crates). Nothing
+is built and nothing below was tried in this code: it is what the platforms offer.
+
+- **Windows 11:** the system draws it. One DWM call (`DWMWA_SYSTEMBACKDROP_TYPE`, Windows 11 22H2
+  and later) chooses Mica, Mica Alt or Acrylic. It shows only where the window's own pixels are
+  transparent, and softbuffer presents through GDI, which does not reliably carry an alpha channel.
+  That is the open question: either GDI carries it, or the Windows present path needs what the
+  softbuffer fork already does for Wayland (ARGB buffers). Windows 10 has no supported way: flat
+  colour there.
+- **Linux, Wayland:** KDE has a blur-behind protocol, and the window already has an ARGB surface
+  where the client-drawn margin is used (the same route question as the rounded corners). GNOME
+  offers applications no blur: flat colour there. Other compositors: only where a blur protocol
+  exists. X11: under KWin only.
+- **Where:** behind the chrome only (title row, tab strip, Files pane, status strip). The text area
+  stays opaque: text is blended against a known colour and reads worse over a shifting backdrop.
+- **Rules:** a setting that includes "off"; every surface keeps its flat colour as the fallback
+  (Mica is flat when the window is inactive, on battery saver, or with transparency effects off);
+  the budgets hold (the system does the blur, the app pays nothing per frame).
+- **First step:** a spike on Windows: one window, the DWM call and a transparent title row. It
+  answers the GDI alpha question and says whether this is a small feature or a change to how the
+  window is presented. Then the same on KDE Wayland.
 
 ## What it is
 

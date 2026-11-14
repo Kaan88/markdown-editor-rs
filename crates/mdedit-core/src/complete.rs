@@ -391,4 +391,50 @@ mod tests {
         pool[1].weight = 5;
         assert_eq!(texts(&narrow("abc", pool)), ["abce", "abcd"]);
     }
+
+    /// The cost of opening the list at its limits: a window of the active document, four other
+    /// documents, the candidates and the first narrowing. Run with
+    /// `cargo test --release -p mdedit-core complete::tests::cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a measurement, not a check"]
+    fn cost_of_a_list_at_the_limits() {
+        use crate::limits::{COMPLETE_OTHER_BYTES, COMPLETE_SCAN_BYTES};
+        // About 20 MB of source-like text with many distinct words.
+        let mut text = String::new();
+        let mut n = 0u32;
+        while text.len() < 20 << 20 {
+            n += 1;
+            text.push_str(&format!(
+                "let value_{} = parser.read_item({}, name_{}); // note {}
+",
+                n % 30_000,
+                n,
+                n % 7_000,
+                n % 500
+            ));
+        }
+        let b = Buffer::from_text(&text);
+        let start = std::time::Instant::now();
+        let mut w = Words::new();
+        w.scan(&b, b.len_bytes() / 2, COMPLETE_SCAN_BYTES);
+        let mut left = COMPLETE_OTHER_BYTES;
+        while left > 0 {
+            left -= w
+                .scan(&b, 0, COMPLETE_SCAN_BYTES.min(left))
+                .max(1)
+                .min(left);
+        }
+        let scanned = start.elapsed();
+        let words = w.len();
+        let cands = w.into_cands();
+        let pool = narrow("val", cands);
+        let all = start.elapsed();
+        println!(
+            "scan {:.1} ms, {} words; with narrowing {:.1} ms, {} left",
+            scanned.as_secs_f64() * 1e3,
+            words,
+            all.as_secs_f64() * 1e3,
+            pool.len()
+        );
+    }
 }

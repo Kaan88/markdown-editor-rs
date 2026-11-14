@@ -4,12 +4,14 @@
 use super::*;
 use crate::commands::CommandId as C;
 use crate::docs::{EditOp, SaveFailed};
+use crate::image_paste;
 use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
 use mdedit_core::find::Query;
 use mdedit_core::limits::COPY_LIMIT;
 use mdedit_core::lines;
 use mdedit_core::save::SaveError;
+use mdedit_core::table::TableOp;
 
 /// How long after the last edit the find marks are searched for again.
 const REFIND_DELAY: Duration = Duration::from_millis(300);
@@ -364,11 +366,20 @@ impl App {
         };
         // Several selections go one to a line, in the order they are in the text.
         let (list, _) = r.all_sels();
-        let ranges: Vec<_> = list
+        // A column selection keeps its empty rows (a short line, an empty one), so that the
+        // text pasted back into as many carets lands on the same rows.
+        let column = r
+            .view
+            .column
+            .is_some_and(|c| (c.4, c.5) == (r.view.sel, r.view.extra.len()));
+        let mut ranges: Vec<_> = list
             .iter()
             .map(|s| s.range())
-            .filter(|r| !r.is_empty())
+            .filter(|r| column || !r.is_empty())
             .collect();
+        if ranges.iter().all(|r| r.is_empty()) {
+            ranges.clear();
+        }
         let eol = r.info.eol.dominant();
         let total: usize = ranges.iter().map(|r| r.len() + eol.len()).sum();
         if ranges.is_empty() {
@@ -420,6 +431,85 @@ impl App {
     fn paste(&mut self) {
         if let Some(text) = platform::clipboard_text().filter(|t| !t.is_empty()) {
             self.edit(EditOp::Paste(&text));
+        } else {
+            self.paste_image();
+        }
+    }
+
+    /// A paste with no text on the clipboard: an image goes beside a saved Markdown document as
+    /// a PNG and its link goes in at the caret, as one undo step (the file stays). An unsaved
+    /// document has no folder yet, so it only says so. Anything else is left as it was.
+    fn paste_image(&mut self) {
+        let Some(doc) = self.docs.active_doc() else {
+            return;
+        };
+        let path = doc.path.clone();
+        if path.is_some() && !doc.is_markdown() {
+            return;
+        }
+        // Image files copied in the file manager: a link to each, not their pixels.
+        let files = platform::clipboard_files();
+        if !files.is_empty() {
+            if files.iter().all(|f| image_paste::is_image_file(f)) {
+                self.paste_image_files(path.as_deref(), &files);
+            }
+            return;
+        }
+        let Some(png) = platform::clipboard_png() else {
+            return;
+        };
+        let Some(path) = path else {
+            self.docs.set_toast(image_paste::SAVE_FIRST);
+            return;
+        };
+        match image_paste::save_png(&path, &png) {
+            Ok(saved) => {
+                if self.edit(EditOp::Paste(&saved.link)) {
+                    self.docs.set_toast(&image_paste::saved_toast(&saved.name));
+                } else {
+                    // The text could not go in (a read-only document): no stray file.
+                    let _ = std::fs::remove_file(&saved.path);
+                }
+            }
+            Err(e) => self
+                .docs
+                .set_toast(&format!("Could not save the image: {e}")),
+        }
+    }
+
+    /// Image files from the clipboard: a link to each goes in at the caret, one to a line, as
+    /// one undo step. A file with no path from the document's folder (another drive) is copied
+    /// beside the document first.
+    fn paste_image_files(&mut self, doc: Option<&Path>, files: &[PathBuf]) {
+        let Some(doc) = doc else {
+            self.docs.set_toast(image_paste::SAVE_FIRST);
+            return;
+        };
+        let mut links = Vec::with_capacity(files.len());
+        let mut copies = Vec::new();
+        for f in files {
+            match image_paste::link_to_file(doc, f) {
+                Ok((link, copy)) => {
+                    links.push(link);
+                    copies.extend(copy);
+                }
+                Err(e) => {
+                    for c in &copies {
+                        let _ = std::fs::remove_file(&c.path);
+                    }
+                    self.docs
+                        .set_toast(&format!("Could not copy the image: {e}"));
+                    return;
+                }
+            }
+        }
+        if !self.edit(EditOp::Paste(&links.join("\n"))) {
+            // The text could not go in (a read-only document): no stray files.
+            for c in &copies {
+                let _ = std::fs::remove_file(&c.path);
+            }
+        } else if let Some(c) = copies.first() {
+            self.docs.set_toast(&image_paste::saved_toast(&c.name));
         }
     }
 
@@ -955,6 +1045,14 @@ impl App {
                 | C::MdHeading
                 | C::MdLink
                 | C::MdTable
+                | C::MdRowBelow
+                | C::MdRowAbove
+                | C::MdDeleteRow
+                | C::MdColumnRight
+                | C::MdColumnLeft
+                | C::MdDeleteColumn
+                | C::MdMoveColumnLeft
+                | C::MdMoveColumnRight
         );
         if self.ui.find_focused && edits {
             return;
@@ -1108,6 +1206,30 @@ impl App {
             C::MdTable => {
                 self.edit(EditOp::MdTable);
             }
+            C::MdRowBelow => {
+                self.edit(EditOp::MdTableOp(TableOp::RowBelow));
+            }
+            C::MdRowAbove => {
+                self.edit(EditOp::MdTableOp(TableOp::RowAbove));
+            }
+            C::MdDeleteRow => {
+                self.edit(EditOp::MdTableOp(TableOp::DeleteRow));
+            }
+            C::MdColumnRight => {
+                self.edit(EditOp::MdTableOp(TableOp::ColumnRight));
+            }
+            C::MdColumnLeft => {
+                self.edit(EditOp::MdTableOp(TableOp::ColumnLeft));
+            }
+            C::MdDeleteColumn => {
+                self.edit(EditOp::MdTableOp(TableOp::DeleteColumn));
+            }
+            C::MdMoveColumnLeft => {
+                self.edit(EditOp::MdTableOp(TableOp::MoveColumnLeft));
+            }
+            C::MdMoveColumnRight => {
+                self.edit(EditOp::MdTableOp(TableOp::MoveColumnRight));
+            }
             C::TrimTrailing => {
                 self.edit(EditOp::TrimTrailing);
             }
@@ -1207,6 +1329,8 @@ impl App {
             C::StopCompare => self.compare_stop(),
             C::NextDifference => self.compare_jump(true),
             C::PreviousDifference => self.compare_jump(false),
+            C::CopyChangeAcross => self.compare_copy(true),
+            C::TakeChangeAcross => self.compare_copy(false),
             C::GoToLine => {
                 if self.docs.active_ready().is_some() {
                     self.ui.naming = false;

@@ -12,7 +12,7 @@
 
 use crate::app::Wake;
 use crate::commands::strings;
-use crate::session::{ThemeChoice, Unsaved};
+use crate::session::{TabState, ThemeChoice, Unsaved};
 use crate::view::cache::Lru;
 use mdedit_core::display::ChunkIndex;
 use mdedit_core::edit::{self, Outcome};
@@ -24,11 +24,14 @@ use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES};
 use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
 use mdedit_core::markdown;
+use mdedit_core::merge;
 use mdedit_core::multi::{self, MultiOp};
+use mdedit_core::multiline::{self, LineOp};
 use mdedit_core::prefs::Prefs;
 use mdedit_core::replace;
 use mdedit_core::save::{self, SaveError};
 use mdedit_core::selection::Selection;
+use mdedit_core::table;
 use mdedit_core::typing::{self, Assist};
 use mdedit_core::{Buffer, Change, FileInfo, History, Position};
 use mdedit_highlight::{Colored, DocId, HighlightService, Language, Span};
@@ -508,7 +511,7 @@ impl Ready {
         self.set_sels(list, primary);
     }
 
-    /// The column selection between two (line, display column) corners; the caret's is the
+    /// The column selection between two (line, visual column) corners; the caret's is the
     /// primary.
     pub fn select_column(&mut self, anchor: (usize, usize), caret: (usize, usize)) {
         let (list, primary) = multi::column(
@@ -530,11 +533,12 @@ impl Ready {
         ));
     }
 
-    /// The line and display column of an offset.
+    /// The line and visual column of an offset (a wide character is two columns), the corners a
+    /// column selection is made of. Lines are the document's, wrapped or not.
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
         (
             self.buffer.line_of(offset),
-            multi::display_col(&self.buffer, offset, crate::live::tab_width()),
+            multi::visual_col(&self.buffer, offset, crate::live::tab_width()),
         )
     }
 
@@ -604,6 +608,22 @@ impl Ready {
         self.history.seal();
         self.view.sel = Selection::at(0);
         self.detected = mdedit_core::indent::detect(&self.buffer);
+    }
+
+    /// Takes the encoding a recovery copy names, when it differs from the one the file was read
+    /// in and the text can be written in it. True when it changed (the tab is then modified).
+    pub fn recovered_encoding(&mut self, label: &str) -> bool {
+        let Some(encoding) = mdedit_core::recovery::encoding_from_label(label) else {
+            return false;
+        };
+        if self.info.lossy
+            || self.info.encoding == encoding
+            || save::first_unencodable(self.buffer.rope(), encoding).is_some()
+        {
+            return false;
+        }
+        self.info.encoding = encoding;
+        true
     }
 
     /// Keeps what hangs on the text in step with an edit.
@@ -878,12 +898,33 @@ impl Ready {
     }
 }
 
+/// The unsaved text a `restore` file holds: a backup is the text itself, a recovery copy has a
+/// header before it.
+fn read_restore(path: &Path) -> Option<String> {
+    if path
+        .extension()
+        .is_some_and(|e| e == mdedit_core::recovery::EXTENSION)
+    {
+        mdedit_core::recovery::read(path).map(|(_, text)| text)
+    } else {
+        std::fs::read_to_string(path).ok()
+    }
+}
+
 pub enum DocState {
     /// A restored tab not shown yet.
     Pending,
     Loading,
     Ready(Box<Ready>),
     Failed(String),
+}
+
+/// What a recovery copy says about the file it came from, kept until the text is put back.
+pub struct Recovered {
+    /// The file's size and time when the copy was made; the file now being different keeps both.
+    pub base: Option<FileStamp>,
+    /// The encoding the copy names.
+    pub encoding: String,
 }
 
 pub struct Doc {
@@ -910,6 +951,8 @@ pub struct Doc {
     /// The file holding the unsaved text this tab had when the window last closed; it replaces
     /// the file's text once that is read.
     pub restore: Option<PathBuf>,
+    /// Set with `restore` when that file is a recovery copy.
+    pub recovered: Option<Recovered>,
     /// The encoding the user chose to read the file as; every load of this tab uses it.
     pub forced: Option<Encoding>,
     /// The encoding to save in was changed since the file was read or written.
@@ -937,6 +980,7 @@ impl Doc {
             pending_select: None,
             pending_goto: None,
             restore: None,
+            recovered: None,
             forced: None,
             encoding_changed: false,
             lossy_toasted: false,
@@ -980,6 +1024,22 @@ impl Doc {
     /// The "deleted or moved, showing the text last read" banner: only over text that was read.
     pub fn shows_gone_banner(&self) -> bool {
         self.missing && self.ready().is_some()
+    }
+
+    /// The name of the session backup this tab still waits to put back, if it is one.
+    pub fn waiting_backup(&self) -> Option<String> {
+        let file = self.restore.as_ref()?.file_name()?.to_str()?.to_string();
+        Unsaved::is_file_name(&file).then_some(file)
+    }
+
+    /// What the session's pruning of stale backups needs to know of this tab.
+    pub fn tab_state(&self) -> TabState<'_> {
+        TabState {
+            path: self.path.as_deref(),
+            untitled: self.untitled,
+            modified: self.modified(),
+            waiting: self.waiting_backup(),
+        }
     }
 
     /// The text has changes that are not in the file (also unsaved text still to be put back).
@@ -1126,6 +1186,8 @@ pub enum EditOp<'a> {
     MdLink,
     /// Markdown: lines up the pipe table the caret is in.
     MdTable,
+    /// Markdown: a row or column command on the pipe table the caret is in.
+    MdTableOp(table::TableOp),
     /// The save options of the preferences (trailing spaces, final line break).
     SaveOptions(&'a Prefs),
     /// Makes every line break this one.
@@ -1135,6 +1197,9 @@ pub enum EditOp<'a> {
     ReplaceOne(&'a str),
     /// Replaces every match of the document's query by this template, as one undo step.
     ReplaceAll(&'a str),
+    /// Compare: puts the lines of the other side's block in place of this side's block, as one
+    /// undo step.
+    CopyLines(&'a merge::Splice),
 }
 
 /// The largest text Replace all takes. It runs on the UI thread at about 1.4 to 2.2 s per
@@ -1359,6 +1424,7 @@ impl Docs {
             pending_select: None,
             pending_goto: None,
             restore: None,
+            recovered: None,
             forced: None,
             encoding_changed: false,
             lossy_toasted: false,
@@ -1413,10 +1479,7 @@ impl Docs {
     pub fn write_backups(&self, dir: &Path) -> std::io::Result<Vec<Unsaved>> {
         use std::io::Write;
         let mut out = Vec::new();
-        let waiting = |d: &Doc| {
-            let file = d.restore.as_ref()?.file_name()?.to_str()?.to_string();
-            Unsaved::is_file_name(&file).then_some(file)
-        };
+        let waiting = Doc::waiting_backup;
         let kept: Vec<String> = self.tabs.iter().filter_map(waiting).collect();
         let mut number = 0u32;
         for d in self.tabs.iter().filter(|d| d.modified()) {
@@ -1874,12 +1937,21 @@ impl Docs {
                     r.twin = Some(Box::new(r.view.twin_of()));
                 }
                 // Unsaved text from the last run goes back over what was read.
-                if let Some(text) = doc
-                    .restore
-                    .take()
-                    .and_then(|p| std::fs::read_to_string(p).ok())
-                {
+                let recovered = doc.recovered.take();
+                let mut recovered_flags = (false, false);
+                if let Some(text) = doc.restore.take().and_then(|p| read_restore(&p)) {
                     r.put_back(&text);
+                    if let Some(rec) = &recovered {
+                        // The file is not the one the copy was made from: both are kept, the
+                        // text as modified with the changed-on-disk banner.
+                        if let Some(base) = rec.base.as_ref().filter(|b| **b != r.info.stamp) {
+                            // The stamp of the file the text grew from: Save sees the
+                            // difference and asks before it overwrites.
+                            r.info.stamp = *base;
+                            recovered_flags.0 = true;
+                        }
+                        recovered_flags.1 = r.recovered_encoding(&rec.encoding);
+                    }
                 }
                 if let (Some(lang), Some(s)) = (language, service)
                     && lang.limits().allows_file(r.buffer.len_bytes())
@@ -1897,7 +1969,8 @@ impl Docs {
                 doc.missing = false;
                 doc.changed_on_disk = false;
                 doc.discard = false;
-                doc.encoding_changed = false;
+                doc.encoding_changed = recovered_flags.1;
+                doc.changed_on_disk = recovered_flags.0;
                 if let Some(path) = doc.path.clone() {
                     self.recents.add(path);
                 }
@@ -2012,10 +2085,36 @@ impl Docs {
             {
                 Some(strings::TOO_LARGE_FOR_ALL_LINES)
             }
-            EditOp::MdWrap(_) | EditOp::MdHeading | EditOp::MdLink | EditOp::MdTable
+            EditOp::MdWrap(_)
+            | EditOp::MdHeading
+            | EditOp::MdLink
+            | EditOp::MdTable
+            | EditOp::MdTableOp(_)
                 if !r.assist.markdown =>
             {
                 Some(strings::NOT_MARKDOWN)
+            }
+            EditOp::MdTableOp(t) if !table::can(&r.buffer, r.view.sel, t) => {
+                if table::in_table(&r.buffer, r.view.sel) {
+                    Some(strings::NOT_HERE_IN_TABLE)
+                } else {
+                    Some(strings::NOT_IN_TABLE)
+                }
+            }
+            EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
+                if !r.view.extra.is_empty() =>
+            {
+                line_op(&op, "", 0, "")
+                    .filter(|o| {
+                        let (list, at) = selections(r);
+                        multiline::too_large(&r.buffer, &list, at, *o)
+                    })
+                    .map(|_| strings::BLOCK_TOO_LARGE)
+            }
+            EditOp::JoinLines if !r.view.extra.is_empty() => {
+                let (list, at) = selections(r);
+                multiline::too_large(&r.buffer, &list, at, LineOp::Join)
+                    .then_some(strings::BLOCK_TOO_LARGE)
             }
             EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
                 if lines::block_too_large(&r.buffer, r.view.sel, true) =>
@@ -2057,6 +2156,13 @@ impl Docs {
         let pieces: Vec<&str>;
         // Tab at several carets inserts one unit of the document's indentation at each.
         let unit_text = r.assist.indent.text();
+        // A column selection made by mouse or keys and not changed since.
+        let on_column = r
+            .view
+            .column
+            .is_some_and(|c| (c.4, c.5) == (r.view.sel, r.view.extra.len()));
+        let column_text =
+            on_column && (!r.view.sel.is_empty() || r.view.extra.iter().any(|s| !s.is_empty()));
         let multi_op = if r.view.extra.is_empty() {
             None
         } else {
@@ -2064,16 +2170,26 @@ impl Docs {
                 EditOp::Insert(text) => Some(MultiOp::Insert(text)),
                 EditOp::Newline => Some(MultiOp::Insert(eol)),
                 EditOp::Indent => Some(MultiOp::Insert(&unit_text)),
+                // On a column of text the rows that are only a caret (a short line) are left
+                // alone: Backspace and Delete remove what is selected.
+                EditOp::Backspace | EditOp::Delete if column_text => Some(MultiOp::Insert("")),
                 EditOp::Backspace => Some(MultiOp::Backspace),
                 EditOp::Delete => Some(MultiOp::Delete),
                 EditOp::Paste(text) => {
                     pasted = normalize_eols(text, eol);
                     // As many lines as carets: one line to each.
-                    pieces = pasted
-                        .strip_suffix(eol)
-                        .unwrap_or(&pasted)
-                        .split(eol)
-                        .collect();
+                    // After a column copy the last row may be empty: that is a line too.
+                    let carets = r.view.extra.len() + 1;
+                    let rows: Vec<&str> = pasted.split(eol).collect();
+                    pieces = if on_column && rows.len() == carets {
+                        rows
+                    } else {
+                        pasted
+                            .strip_suffix(eol)
+                            .unwrap_or(&pasted)
+                            .split(eol)
+                            .collect()
+                    };
                     if pieces.len() == r.view.extra.len() + 1 {
                         Some(MultiOp::InsertEach(&pieces))
                     } else {
@@ -2088,13 +2204,21 @@ impl Docs {
                 op,
                 EditOp::MdWrap(_) | EditOp::MdLink | EditOp::SaveOptions(_)
             )
+            && line_op(&op, "", 0, "").is_none()
         {
             r.view.extra.clear();
         }
         r.view.column = None;
         // The typing help goes first, for one character typed, Enter, Backspace and (in Markdown)
         // Tab and Shift+Tab; `None` is the plain edit below.
-        let typed = typing_edit(r, &op, eol).or_else(|| markdown_edit(r, &op));
+        let typed = if column_text && matches!(op, EditOp::Backspace) {
+            None
+        } else {
+            table_keys(r, &op, eol)
+                .or_else(|| typing_edit(r, &op, eol))
+                .or_else(|| markdown_edit(r, &op))
+                .or_else(|| line_edit(r, &op, eol, comment.unwrap_or_default()))
+        };
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.view.sel);
         let out = if let Some(out) = typed {
             out
@@ -2174,8 +2298,14 @@ impl Docs {
                 EditOp::ReverseLines => lines::reverse_lines(buf, hist, sel),
                 EditOp::UniqueLines => lines::unique_lines(buf, hist, sel),
                 EditOp::JoinLines => lines::join_lines(buf, hist, sel),
+                EditOp::CopyLines(s) => {
+                    merge::replace_lines(buf, hist, sel, s.target.clone(), &s.from, eol)
+                }
                 EditOp::MdHeading => markdown::cycle_heading(buf, hist, sel),
                 EditOp::MdTable => markdown::format_table(buf, hist, sel),
+                EditOp::MdTableOp(t) => {
+                    table::edit(buf, hist, sel, t, eol).unwrap_or(Outcome { sel, change: None })
+                }
                 // Done above, with every caret; reaching here is a selection it did not take.
                 EditOp::MdWrap(_) | EditOp::MdLink => Outcome { sel, change: None },
                 EditOp::SaveOptions(prefs) => {
@@ -2940,6 +3070,72 @@ fn typing_edit(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
     Some(Outcome { sel, ..out })
 }
 
+/// The selections of `r` in document order and where the primary is among them.
+fn selections(r: &Ready) -> (Vec<Selection>, usize) {
+    let at = r
+        .view
+        .extra
+        .partition_point(|s| s.range().start < r.view.sel.range().start);
+    let mut list = r.view.extra.clone();
+    list.insert(at, r.view.sel);
+    (list, at)
+}
+
+/// The line command `op` is, for [`multiline`]; `None` for any other op.
+fn line_op<'a>(op: &EditOp<'_>, eol: &'a str, tab: usize, comment: &'a str) -> Option<LineOp<'a>> {
+    Some(match op {
+        EditOp::DuplicateLines => LineOp::Duplicate(eol),
+        EditOp::MoveLines(down) => LineOp::Move(*down),
+        EditOp::DeleteLines => LineOp::Delete,
+        EditOp::ToggleComment => LineOp::Comment(comment),
+        EditOp::Case(upper) => LineOp::Case(*upper),
+        EditOp::TrimTrailing => LineOp::Trim,
+        EditOp::TabsToSpaces => LineOp::TabsToSpaces(tab),
+        EditOp::LineEndings(to) => LineOp::LineEndings(to),
+        EditOp::SortLines(order) => LineOp::Sort(*order),
+        EditOp::ReverseLines => LineOp::Reverse,
+        EditOp::UniqueLines => LineOp::Unique,
+        EditOp::JoinLines => LineOp::Join,
+        EditOp::MdHeading => LineOp::Heading,
+        EditOp::MdTable => LineOp::Table,
+        _ => return None,
+    })
+}
+
+/// The line commands with several carets: each acts on every selection, as one undo step (the
+/// rules are in `mdedit_core::multiline`). `None` with one caret, or for any other command.
+fn line_edit(r: &mut Ready, op: &EditOp, eol: &str, comment: &str) -> Option<Outcome> {
+    if r.view.extra.is_empty() {
+        return None;
+    }
+    let op = line_op(op, eol, crate::live::tab_width(), comment)?;
+    let (list, at) = selections(r);
+    let (out, mut list, primary) = multiline::run(&mut r.buffer, &mut r.history, &list, at, op);
+    let primary = primary.min(list.len().saturating_sub(1));
+    if list.is_empty() {
+        return None;
+    }
+    let sel = list.remove(primary);
+    r.view.extra = list;
+    Some(Outcome { sel, ..out })
+}
+
+/// Tab, Shift+Tab and Enter in a Markdown pipe table: to the next or previous cell, a new row.
+/// With one caret only, and `None` (the plain keys) where the caret is not in a table, a
+/// selection spans lines, or Enter is not at the end of a row.
+fn table_keys(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
+    if !r.assist.markdown || !r.view.extra.is_empty() {
+        return None;
+    }
+    let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.view.sel);
+    match op {
+        EditOp::Indent => table::next_cell(buf, hist, sel, false, eol),
+        EditOp::Outdent => table::next_cell(buf, hist, sel, true, eol),
+        EditOp::Newline => table::row_after(buf, hist, sel, eol),
+        _ => None,
+    }
+}
+
 /// Markdown's wrap and link commands, for every caret. `None` when they do nothing.
 fn markdown_edit(r: &mut Ready, op: &EditOp) -> Option<Outcome> {
     if !matches!(op, EditOp::MdWrap(_) | EditOp::MdLink) {
@@ -3441,6 +3637,58 @@ mod tests {
         r_sel_to_start(&mut d, i);
         assert!(d.edit(EditOp::MdTable, None));
         assert!(text_of(&d, i).starts_with("| a   | bb  |\n| --- | --- |\n| ccc | d   |\n"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn tab_enter_and_the_table_commands_work_in_a_markdown_table_only() {
+        let (mut d, i, _path, dir) =
+            file_docs("mdtable", b"| a | bb |\n|-|-|\n| 1 | 2 |\n\ntext\n");
+        // Not Markdown: Tab is the plain indent, the commands are refused.
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("\t| a | bb |"));
+        assert!(d.edit(EditOp::Undo, None));
+        assert!(!d.edit(EditOp::MdTableOp(table::TableOp::RowBelow), None));
+        assert_eq!(d.toast.as_ref().unwrap().0, strings::NOT_MARKDOWN);
+        d.tabs[i].ready_mut().unwrap().assist = Prefs::default().assist("Markdown");
+        let at =
+            |d: &mut Docs, p: usize| d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(p);
+        // Tab lines the table up and moves to the next cell; it is one undo step.
+        at(&mut d, 2);
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("| a   | bb  |\n| --- | --- |\n| 1   | 2   |\n"));
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.caret, 8);
+        assert!(d.edit(EditOp::Undo, None));
+        assert!(text_of(&d, i).starts_with("| a | bb |\n|-|-|"));
+        // Outside the table, and with a selection across lines, Tab indents as before.
+        let end = text_of(&d, i).len() - 2;
+        at(&mut d, end);
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).ends_with("tex\tt\n"));
+        assert!(d.edit(EditOp::Undo, None));
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
+            anchor: 2,
+            caret: 14,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("\t| a | bb |\n\t|-|-|"));
+        assert!(d.edit(EditOp::Undo, None));
+        // Enter at the end of the last row adds a row.
+        let row_end = text_of(&d, i).find("| 2 |").unwrap() + 5;
+        at(&mut d, row_end);
+        assert!(d.edit(EditOp::Newline, None));
+        assert!(text_of(&d, i).contains("| 1   | 2   |\n|     |     |\n\ntext"));
+        assert!(d.edit(EditOp::Undo, None));
+        // A command: delete the row, then a column moves.
+        at(&mut d, row_end - 2);
+        assert!(d.edit(EditOp::MdTableOp(table::TableOp::MoveColumnLeft), None));
+        assert!(text_of(&d, i).starts_with("| bb  | a   |"));
+        // Outside a table: refused with a toast.
+        let end = text_of(&d, i).len() - 2;
+        at(&mut d, end);
+        assert!(!d.edit(EditOp::MdTableOp(table::TableOp::DeleteRow), None));
+        assert_eq!(d.toast.as_ref().unwrap().0, strings::NOT_IN_TABLE);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -4226,10 +4474,85 @@ mod tests {
         assert_eq!(primary, 2);
         assert!(d.edit(EditOp::Insert("#"), None));
         assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n");
-        // A command that is not typing goes on with the primary alone.
+        // A line command acts at every caret, as one undo step, and the carets stay.
         assert!(d.edit(EditOp::DuplicateLines, None));
+        assert_eq!(d.tabs[i].ready().unwrap().view.extra.len(), 2);
+        assert_eq!(
+            text_of(&d, i),
+            "-#one\n-#one\n-#two\n-#two\n-#three\n-#three\n"
+        );
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn line_commands_act_at_every_caret_as_one_undo_step() {
+        let (mut d, i, _path, dir) = file_docs("multiline", b"b\na\nz\nd\nc\n");
+        let r = d.tabs[i].ready_mut().unwrap();
+        // Two carets, one on each of two lines far apart: delete both lines.
+        r.view.sel = Selection::at(0);
+        r.add_caret(8);
+        assert!(d.edit(EditOp::DeleteLines, None));
+        assert_eq!(text_of(&d, i), "a\nz\nd\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "b\na\nz\nd\nc\n");
+        // Two selections over separate blocks sort each block alone.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.view.sel = Selection {
+            anchor: 0,
+            caret: 4,
+            goal_col: None,
+        };
+        r.view.extra = vec![Selection {
+            anchor: 6,
+            caret: 10,
+            goal_col: None,
+        }];
+        assert!(d.edit(EditOp::SortLines(lines::SortOrder::Ascending), None));
+        assert_eq!(text_of(&d, i), "a\nb\nz\nc\nd\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "b\na\nz\nd\nc\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_column_selection_counts_wide_characters_and_short_lines() {
+        let src = "abcdef\n\u{6f22}\u{5b57}ef\nx\nabcdef\n";
+        let (mut d, i, _path, dir) = file_docs("column", src.as_bytes());
+        let r = d.tabs[i].ready_mut().unwrap();
+        // Columns 2 to 4: "cd"; the second wide character; the line's end (it is shorter);
+        // "cd".
+        r.select_column((0, 2), (3, 4));
+        let (list, primary) = r.all_sels();
+        let ranges: Vec<_> = list.iter().map(|s| s.range()).collect();
+        assert_eq!(ranges, [2..4, 10..13, 17..17, 20..22]);
+        assert_eq!(primary, 3);
+        assert!(d.edit(EditOp::Insert("X"), None));
+        assert_eq!(text_of(&d, i), "abXef\n\u{6f22}Xef\nxX\nabXef\n");
+        // One undo step brings all four lines back, and one caret is left.
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), src);
         assert!(d.tabs[i].ready().unwrap().view.extra.is_empty());
-        assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n-#three\n");
+        // Delete removes what is selected on every line.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((0, 2), (3, 4));
+        assert!(d.edit(EditOp::Backspace, None));
+        assert_eq!(text_of(&d, i), "abef\n\u{6f22}ef\nx\nabef\n");
+        // A short line is left alone.
+        assert!(d.edit(EditOp::Undo, None));
+        // A line for every row pastes one to each.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((0, 2), (3, 4));
+        assert!(d.edit(EditOp::Paste("1\n2\n3\n4"), None));
+        assert_eq!(text_of(&d, i), "ab1ef\n\u{6f22}2ef\nx3\nab4ef\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), src);
+        // The column copy of two carets on two lines ends with an empty row: it is a line.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((0, 1), (1, 1));
+        assert!(d.edit(EditOp::Paste("a\n"), None));
+        assert_eq!(text_of(&d, i), "aabcdef\n\u{6f22}\u{5b57}ef\nx\nabcdef\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

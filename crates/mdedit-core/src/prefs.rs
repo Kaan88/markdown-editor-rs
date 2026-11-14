@@ -373,7 +373,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 17);
+        assert_eq!(t.lines().count(), 18);
         let r = Prefs::parse(&t);
         assert_eq!(
             (r.font_pt, r.tab_width, r.font_family.as_str()),

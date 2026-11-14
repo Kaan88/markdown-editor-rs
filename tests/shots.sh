@@ -68,6 +68,9 @@ shot rs50k-goto --dark --goto 40000 "$data/50k.rs"
 shot big-goto --light --goto 1000000 "$data/100mb.txt"
 shot long-hscroll --light --hscroll 400000 "$data/1mb-line.txt"
 shot select --light --select 3:5-12:10 "$fx/sample.rs"
+shot column --light --select-column 3:5-12:14 "$fx/sample.rs"
+shot column-dark --dark --select-column 3:5-12:14 "$fx/sample.rs"
+shot column-cjk --light --select-column 1:3-5:9 "$fx/cjk.txt"
 shot find --light --find self "$fx/sample.rs"
 shot find-dark --dark --find ring "$fx/sample.rs"
 shot menu-main --light --menu main "$fx/sample.rs"
@@ -91,6 +94,10 @@ shot menu-text-markdown-left --light --select 3:1-3:30 --menu text-markdown --me
 shot menu-text-markdown-mid --light --select 3:1-3:30 --menu text-markdown --menu-at 0.45 "$fx/sample.md"
 shot menu-text-markdown-right --light --select 3:1-3:30 --menu text-markdown --menu-at 0.97 "$fx/sample.md"
 shot menu-text-md --light --select 3:1-3:30 --menu text "$fx/sample.md"
+shot table-md --light --goto 6:4 "$fx/table.md"
+shot table-md-dark --dark --goto 7:12 "$fx/table.md"
+shot menu-text-markdown-table --light --goto 6:4 --menu text-markdown "$fx/table.md"
+shot menu-text-markdown-table-dark --dark --goto 6:4 --menu text-markdown "$fx/table.md"
 shot menu-find --light --find ring --menu find "$fx/sample.rs"
 shot replace --light --find self --whole-word --replace this "$fx/sample.rs"
 shot replace-dark --dark --find '(\w+)_(\w+)' --regex --match-case --replace '$2_$1' "$fx/sample.rs"
@@ -144,6 +151,8 @@ shot tabs --dark "$fx/sample.md" "$fx/sample.rs" "$fx/sample.toml" "$fx/sample.p
     "$fx/turkish.txt" "$fx/cjk.txt" "$fx/crlf.txt"
 shot typed --light --goto 5:1 --type "edited " "$fx/sample.rs"
 shot dialog-unsaved --dark --goto 5:1 --type "edited " --dialog unsaved "$fx/sample.rs"
+shot recovered-light --light --goto 5:1 --type "edited " --demo-recovered 2 "$fx/sample.rs"
+shot recovered-dark --dark --goto 5:1 --type "edited " --demo-recovered 1 "$fx/sample.rs"
 shot update-available --light --update-bar available "$fx/sample.rs"
 shot update-installing --dark --update-bar installing "$fx/sample.rs"
 shot update-installed --dark --update-bar installed
@@ -214,6 +223,12 @@ shot compare-scrolled-dark --dark --minimap --next-difference 4 --compare "$fx/c
 shot compare-saved --dark --minimap --type "// edited " --compare-saved "$fx/compare-a.rs"
 shot compare-saved-light --light --type "// edited " --compare-saved "$fx/compare-a.rs"
 shot menu-view-compare --light --menu view "$fx/sample.rs" "$fx/sample.md"
+# Copy a change across: the caret in the first difference, then its lines go to the other side (or
+# come from it) and the comparison is made again; the View menu with the caret in a difference.
+shot compare-copied --light --next-difference 1 --copy-change across --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot compare-taken-dark --dark --next-difference 1 --copy-change take --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot menu-view-compared --light --menu view --next-difference 1 --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot menu-view-compared-dark --dark --menu view --next-difference 1 --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
 
 # Replace in files, in a folder made fresh for each shot (the report shot really replaces).
 rfolder() {
@@ -260,15 +275,15 @@ shot status-indent-tip --light --size 720x400 --hover 555,387 "$fx/sample.rs"
 shot status-indent-crowded --light --size 520x400 --zoom 150 --demo-link --select 1:1-30:1 --hover 340,387 "$fx/sample.md"
 
 # Word completion and snippets: the list under the caret (words of the file, then a Markdown
-# snippet beside its words), the first snippet taken with its stop selected, the text menu and
-# the main menu with their new rows, and the setting.
+# snippet beside its words), the first snippet taken with its stop selected, the list above the caret
+# when there is no room below, and the setting.
 shot complete-words --light --goto 8:4 --menu complete "$fx/complete.md"
 shot complete-words-dark --dark --goto 8:4 --menu complete "$fx/complete.md"
 shot complete-snippet --light --goto 10:4 --menu complete "$fx/complete.md"
 shot complete-snippet-dark --dark --goto 10:4 --menu complete "$fx/complete.md"
 shot complete-snippet-taken --light --goto 10:4 --menu complete-snippet "$fx/complete.md"
 shot complete-snippet-taken-dark --dark --goto 10:4 --menu complete-snippet "$fx/complete.md"
-shot complete-above --light --size 900x420 --goto 8:4 --menu complete "$fx/complete.md"
+shot complete-above --light --size 900x340 --goto 8:4 --menu complete "$fx/complete.md"
 shot settings-complete --light --dialog settings --settings-section Editing "$fx/sample.rs"
 
 ls "$out" | wc -l

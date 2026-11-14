@@ -1707,3 +1707,261 @@ still inserts the unit in front of every line.
 file" (or "from the settings"). Where the fields would not fit the strip (a long selection count,
 carets, Previewing, the narrowest window of 520 px) the field is left out and the same tooltip
 sits on the language field instead.
+
+## 57. Column selection (2026-11-15)
+
+Built on the multi-selection model: one selection per line from the first to the last line of the
+rectangle, the caret's line is the primary. Alt+drag and Alt+Shift+Arrows already existed; no new
+shortcuts.
+
+Columns are visual (`mdedit_core::vcol`): a tab counts to its next stop, a wide (East Asian wide
+or fullwidth) character 2, a combining character 0, everything else 1. A column inside a tab or a
+wide character is its start. Caret motions keep their own count; only this selection measures so.
+
+A line shorter than the column gets a caret (or a shorter selection) at its end; there is no
+virtual space. Dragging past a line's end keeps the rectangle's width over short lines. Typing
+replaces or inserts on every row. Backspace and Delete on a column with text remove the selected
+text and leave rows that are only a caret alone; with only carets they act as usual.
+
+Copy and cut join all rows (empty rows kept) with the document's line ending. Pasting text with as
+many lines as carets puts one line on each; a copied column pastes back row for row, including a
+last empty row. Otherwise the text goes in whole at each caret, as before. Undo is one step.
+Escape leaves one caret. Dragging outside the text scrolls it.
+
+Word wrap: rows are logical lines (not wrapped rows), columns are logical columns; dragging past
+the end of a wrapped line does not extend the width. On Linux many window managers take Alt+drag to
+move windows; Alt+Shift+Arrows is the keyboard way, kept the same on every platform.
+`--select-column <line:col>-<line:col>` (1-based visual columns) is for screenshots.
+
+## 58. Compare: copy a change across (2026-11-15)
+
+The caret of the active pane is in a difference block (or on the line right after the filler rows
+of a block this side has no lines of). "Copy this change to the other side" replaces the other
+document's lines of that block with this side's; "Take this change from the other side" does the
+reverse in this document.
+
+Only an editable document changes. In "Compare with saved" the saved copy (read-only) is never the
+target: Copy greys out with the working side active in the right pane, Take works. The commands
+are greyed (View menu, palette) when not compared, when the diff is out of date, when the caret is
+not in a difference, or when the target is read-only or lossy. Run by other paths (macro, test)
+they say why in a toast.
+
+One undo step in the changed document (`Kind::Other`). The target keeps its own line break; the
+break after the block, or the missing one at end of file, stays as it was. A block the source
+lacks removes the target's lines; a block the target lacks is inserted before the line named by
+the range. The source is unchanged; the diff refreshes by the normal edit path (worker, off the
+keystroke path). Only the block's lines are read, so large files cost nothing extra. Not
+recordable in macros. There are no gutter arrow buttons (the compare view has no gutter between
+panes and the panes are ordinary editors). Next and Previous difference (F7, Shift+F7) are also in
+the View menu now. `--copy-change across|take` is for screenshots.
+
+## 59. Multi-caret line commands (2026-11-15)
+
+Rules per command (full text in the header of `crates/mdedit-core/src/multiline.rs`). The lines a
+selection touches are as for one selection. Selections that share a line (for the commands marked
+"adjacent", also lines that follow one another) make one block; a command acts once on each block.
+
+- Duplicate: every block is copied below itself; selections move onto the copy.
+- Move up/down (adjacent): every block moves one line; a block at the document's edge stays, the
+  others still move.
+- Delete line (adjacent): all touched lines go; one caret per removed block, in the same column.
+- Toggle comment: the touched lines are one set: all commented means uncomment, otherwise comment
+  every non-blank line at the smallest indentation. Only blank lines: each caret's line.
+- Case: each non-empty selection; carets change nothing.
+- Trim, tabs to spaces, line endings: the whole document as with one caret; carets follow text.
+- Sort, reverse, remove duplicates (adjacent): each block alone (duplicates are looked for inside
+  a block, lines never move between blocks); only carets: the whole document, as with one caret.
+- Join: a block joins into its first line; a selection in one line joins it with the next.
+- Heading level: every block steps by its own first non-blank line. Align table: each table once.
+- The size limits (`BLOCK_TOO_LARGE`) apply to the blocks together.
+- Indent and Outdent are unchanged (Outdent with several carets still leaves one caret).
+
+The whole command is one undo step (`History::fuse_since`). With one caret nothing changes: one
+`is_empty` check.
+
+## 60. Markdown table editing (2026-11-15)
+
+A table is what `markdown::format_table` already finds (header, delimiter row, pipe lines; limits
+`TABLE_ROWS` 2000, `TABLE_COLS` 64). Extended: the prefix of a row is its spaces, tabs and `>`
+markers, and the table ends where the quote depth changes; a pipe in an escaped `\|` or in an
+inline code span does not separate cells (`markdown::bounds_of`).
+
+Tab and Shift+Tab (`table::next_cell`): only in a Markdown document, one caret, selection (if any)
+within one line, caret in a table; otherwise the ordinary indent runs. The table is lined up
+(display width, alignment row respected, minimum 3) and the caret goes to the start of the text
+of the next or previous cell. After a row's last cell: the first cell of the next row, the
+delimiter row skipped. Tab in the last cell of the last row adds an empty row. A short row gets
+the missing cell. Shift+Tab in the header's first cell stays (only lines up). Nothing is lined up
+while typing.
+
+Enter (`table::row_after`): no selection, caret after the last non-blank character of a table
+row: a new row of empty cells under it (from the header or delimiter row: the first body row),
+columns lined up, caret in its first cell. At the end of the last body row, when its cells are all
+empty, the row is emptied (its `>` markers stay) so the table ends and the caret is on a line of
+its own; in the middle of a table it adds a row. Enter elsewhere in a row is the normal Enter
+(list and quote continuation unchanged).
+
+Commands (`table::edit`, `TableOp`) act on the caret's row or column: Insert row below/above,
+Delete row, Insert column right/left, Delete column, Move column left/right. The header and
+delimiter rows are not deleted, there is no row above the header, the last column is not deleted,
+column moves and inserts keep the alignment row. New rows and columns are empty cells; a new
+column's delimiter is `---`. The table is lined up. They are refused with a toast ("This is for
+Markdown files.", "The caret is not in a table.", or that the row or column command is refused
+inside a table). Every operation is one undo step, one replacement of the part of the table that
+changed; line endings of the rows that stay are kept, new rows use the document's.
+
+The commands are enabled for any open document like the other Markdown commands. There is no
+setting: Tab in a table is taken only in Markdown documents. A table whose header begins with a
+list marker (`- | a |`) is not recognised.
+
+## 61. Crash recovery (2026-11-15)
+
+**Store.** The folder `recover` beside the session file (so `MDEDIT_SETTINGS` moves it; none with
+`--no-session` or in a shot). One file per modified document, `<run tag>-<document id>.rec`
+(`mdedit_core::recovery`): a header (magic line, `path`, `untitled`, `encoding`, `eol`, `disk` =
+size and modification time of the file when it was read, `bytes`) then `---` and the text. A copy
+is valid only when the text after the header has exactly `bytes` bytes. The header holds size and
+time and the length, not a content hash (the length catches a cut-short copy; a hash would need
+the text twice).
+
+**When written.** `Recovery::poll` (`bins/mdedit/src/recovery.rs`) runs once per pass of the
+event loop and compares each tab's buffer revision and encoding with what it last saw (integer
+compares; no work with no modified tab). A changed document is written 3 s after its last change
+(`RECOVERY_IDLE_MS`), and at the latest 30 s after the first change not yet written
+(`RECOVERY_MAX_MS`), so continuous typing writes about twice a minute. The write is on a thread
+that starts at the first write (none at launch): the UI thread takes an O(1) rope snapshot and a
+header and sends them; the thread writes `<name>.tmp`, syncs, renames over the old copy. Jobs for
+the same name that queue up are coalesced to the newest.
+
+**Removed** (by a job to the thread) when the tab is saved, undone to the file's text, closed
+(also "Don't save"), or discards its changes; all copies are removed on a normal exit
+(`Recovery::finish`, joined first so no write comes after), together with the folder when empty.
+Exception: a tab whose restored text was not yet put back keeps its copy (it is in no other
+place); the next start offers it again.
+
+**Limit.** A document over `RECOVERY_MAX_BYTES` (64 MiB) gets no copy (a copy it already had is
+removed): rewriting it every half minute would cost more than it is worth. Above it, a crash loses
+the unsaved text, as before; a normal close still keeps it through the session's backup.
+Read-only tabs (a comparison's saved side) and documents read lossily get none.
+
+**Normal exit and crash.** The session already keeps unsaved text on a normal close
+(`write_backups`, section 19). That is unchanged and is separate from the recovery store except
+that both are put back by the same path (`Doc::restore`, `put_back`). Because a normal exit
+deletes the recovery files, what is found at the start is from a run that did not exit normally.
+Recovery does not depend on "Restore tabs at start". There is no setting and no "autosave to the
+real file".
+
+**At start** (only when the folder has files; one directory listing otherwise): files that are
+not whole and `.tmp` files are deleted. For a copy whose file still exists the tab is added (or
+the session's tab for that path is used) with `restore` set to the copy, loaded at once like a
+session backup; when the file is read, the text goes over it as one edit (Undo gives the file's
+text), and the encoding the copy names is applied when the text can be written in it. A copy of a
+document without a file, or whose file is gone, opens as an untitled document with its text. The
+copy is renamed to this run's name for that tab at once, so a second crash before the next write
+loses nothing. One toast "Recovered N unsaved documents" (singular for 1).
+
+**A copy wins over a session backup.** A session backup is only replaced at the next normal exit,
+so after a crash the session file can still list the backup of an earlier run beside a newer
+recovery copy. `run()` scans the recovery folder first and skips a session `unsaved` entry that a
+copy covers (`recovery::covers`: same path, or both without a path and the same untitled number);
+`Recovery::restore` takes the scanned list and lets a copy replace a backup; a copy is never
+deleted in favour of a backup. Stale entries (text saved, discarded or closed during the run) are
+dropped from the session while it runs (`Unsaved::prune`, called from
+`App::persist_if_changed`; not once the exit has set the list).
+
+**File changed since.** If the file's size or time differs from the `disk` in the header, the text
+is put back as modified, the tab's stamp is set to the copy's (so Save ends in the existing "The
+file changed on disk" question) and the changed-on-disk banner shows; Reload drops the recovered
+text. The file on disk is never written by recovery.
+
+**Edge cases.** Two windows sharing a session folder are not possible (single instance). Header
+values with line breaks are escaped; a header over 64 KiB is refused. `--demo-recovered N` shows
+the toast for a screenshot.
+
+## 62. Paste an image into a Markdown file (2026-11-15)
+
+- Paste reads text first. Only when there is none (empty or not text) is the clipboard asked for an image.
+- Only for a document with a file whose language is Markdown, or an unsaved document. Other files: paste does
+  nothing, as before.
+- Unsaved document (and an image on the clipboard): toast "Save the document as a Markdown file first, then
+  paste the image"; nothing else happens.
+- The file is `<document name without extension>-image-<n>.png` in the document's folder, the first n from 1
+  that does not exist (created exclusively, so nothing is overwritten).
+- The inserted text is `![](name)` with a forward slash path and these characters written %XX: space, `%`,
+  `(`, `)`, `[`, `]`, `<`, `>`, `#`, `?`, `"`, control characters. Other characters (accented letters) stay.
+- It goes in as an ordinary paste: one undo step (with several carets it is inserted at each). The file stays
+  after undo; the toast says "Image saved as <name>".
+- Read-only or lossy documents: the paste is refused as for text and the new file is removed again.
+- Image data over 64 MB, or not a PNG on Linux, is ignored. Write errors: toast "Could not save the image: ...".
+- Windows: the registered "PNG" clipboard format (keeps transparency) first, else CF_DIB (24 and 32 bit,
+  alpha dropped) converted with the `png` crate. Linux: `wl-paste --type image/png` or
+  `xclip -selection clipboard -t image/png -o` (Wayland session tries wl-paste first), run only on such a
+  paste, stopped after 3 seconds.
+- Drops are not touched: dropping a file opens it today.
+
+**Image files copied in the file manager (Windows, 2026-11-15).** A copy in Explorer puts a file list on
+the clipboard (`CF_HDROP`), not pixels.
+
+- The file list is looked at before the pixels, under the same conditions (no text on the clipboard; a
+  Markdown file or an unsaved document; the unsaved document gets the same "Save the document" toast).
+- Every file in the list must be an image by its extension (png, jpg, jpeg, gif, webp, bmp, svg, avif, any
+  case). If one is not, the paste does nothing: no partial paste, and the pixels are not looked at.
+- A file is linked where it is, by its path from the document's folder with forward slashes
+  (`img/a.png`, `../pics/a.png`); names are compared without case. Nothing is copied and there is no toast.
+- A file with no such path (another drive, another network share) is copied beside the document under its
+  own name, `name-<n>.ext` when that is taken (created exclusively), and linked there. The toast names the
+  first copy. Inside one network share a file is linked by its path like on a drive.
+- Several files go in one to a line, as one paste (one undo step). If a copy fails, or the text is
+  refused (read-only), the copies already made are removed.
+- `platform::clipboard_formats` is the one place that opens the Windows clipboard for these formats;
+  `clipboard_png` and `clipboard_files` both go through it (64 MB limit for each format).
+- Not on Linux: a copied file is not looked for there (`clipboard_files` is empty).
+
+## 63. Word completion and snippets (2026-11-15)
+
+No language server: the words of the open documents, and snippets.
+
+- **Opening.** The command Complete word: Ctrl+Space, and Alt+/ (Ctrl+Space can belong to an input
+  method on Linux; Alt+/ needs a layout with a bare `/` key, so not the Turkish one). It is in the
+  text's right-click menu and the command palette. With the setting "Suggest words while typing"
+  (Settings, Editing; off by default; `complete_auto`) the list also opens after the third letter
+  of a word. Not while a macro is recorded; the command is not recordable.
+- **When there is no list.** A selection, several carets (the command says "Completion works with
+  one caret."), a read-only or lossily read document, another popup open, the word's start not on
+  screen. The command with nothing to offer says "Nothing to complete here."; the automatic list
+  says nothing, and does not read the text again for a longer form of the same word.
+- **The words.** A word is letters, digits and `_`, 3 to 64 bytes. They are read when the list
+  opens and not while typing on: 1 MiB of the active document around the caret (cut at line
+  breaks), then the other open documents from their start, 1 MiB each and 4 MiB together, at most
+  50,000 distinct words (`limits.rs`). Nothing is indexed, kept or watched between lists.
+- **Matching.** A candidate begins with the same letter as what is typed (any case) and holds
+  the typed letters in order; scored by the shared fuzzy matcher. Order: those that begin with
+  the typed letters, snippets before words, score, how often the word occurs, shorter, then by
+  name. The word equal to what is typed is left out; a snippet with that trigger stays.
+- **The list.** The shared popup menu, up to 8 rows, its labels starting where the word starts;
+  under the line, or above it when there is more room there. The first row is chosen. A snippet
+  row says "snippet" at its right.
+- **Keys while it is open.** Letters, digits and `_` are typed and narrow the list; Backspace
+  widens it; Up and Down move; Enter and Tab take the chosen row; Escape closes. Any other key
+  closes the list and does its own work. When nothing matches any more the list closes. Enter
+  and Tab are never taken when no list is open. A click on a row takes it.
+- **Taking a word** replaces the typed letters by the word: one undo step back to what was typed.
+- **Snippets.** Built in, for Markdown only: `table`, `code`, `link`. The user's are in
+  `snippets.toml` beside the settings file, read when a list opens and the file is new or changed
+  (at most 1 MiB, 1000 snippets, 64 KiB each). The format is a small part of TOML: `[[snippet]]`
+  tables with `trigger` (letters, digits, `_`), `text`, and optional `types` (language names;
+  none means every file type). A line that cannot be read is skipped. A snippet of the file
+  replaces a built-in one with the same trigger. "Open snippets file" (command palette only: the
+  main menu has no room for a row in an 800 px window) makes the file with its instructions as
+  comments when it is not there, and opens it.
+- **Snippet text.** `$1`, `$2`, `${1:default}` are stops in number order, `$0` is where the caret
+  ends (the end when there is none), `$$` is a dollar sign; a number used twice is a stop at its
+  first place only (no mirrored typing). Line breaks become the document's; later lines get the
+  indentation of the line the trigger was on, and a leading tab becomes one indent unit.
+- **Filling in.** The first stop is selected. Tab goes to the next stop and Shift+Tab back, as
+  long as the caret is inside the stop in use; the last stop ends it. A caret anywhere else ends
+  it and Tab is a Tab again. This Tab comes before the table keys, so the `table` snippet's
+  stops are walked first.
+- **Cost.** Nothing at start, and with the setting off nothing on a keystroke (one test of the
+  setting). Measured in a release build on the Windows PC: a list at every limit (5 MiB read,
+  50,000 words) takes 34 ms to open, once; typing on only narrows what was found.

@@ -330,6 +330,45 @@ impl History {
         self.enforce_cap();
     }
 
+    /// The id the next committed step will have: pass it to [`History::fuse_since`] after a
+    /// command that commits several steps.
+    pub(crate) fn next_step_id(&self) -> u64 {
+        self.next_id
+    }
+
+    /// Makes one step of every undo step committed since `id` (a value of
+    /// [`History::next_step_id`]): their records in the order they were made, the selection before
+    /// and after given. For commands that run several single-selection commands (one per caret
+    /// or block) and must undo as one.
+    pub(crate) fn fuse_since(&mut self, id: u64, sel_before: Selection, sel_after: Selection) {
+        let n = self.undo.iter().rev().take_while(|s| s.id >= id).count();
+        if n == 0 {
+            return;
+        }
+        let at = self.undo.len() - n;
+        let mut records = Vec::new();
+        let mut last_id = id;
+        for step in self.undo.drain(at..) {
+            self.bytes -= step.bytes;
+            last_id = step.id;
+            records.extend(step.records);
+        }
+        let mut step = Step {
+            records: Vec::new(),
+            sel_before,
+            sel_after,
+            kind: Kind::Other,
+            pos: records.last().map_or(0, |r| r.at),
+            ends_ws: false,
+            id: last_id,
+            bytes: 0,
+        };
+        step.set_records(records);
+        self.bytes += step.bytes;
+        self.undo.push_back(step);
+        self.open = false;
+    }
+
     fn clear_redo(&mut self) {
         for s in self.redo.drain(..) {
             self.bytes -= s.bytes;

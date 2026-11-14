@@ -120,3 +120,12 @@ pub const COMPLETE_ROWS: usize = 8;
 pub const SNIPPETS_FILE_BYTES: usize = 1 << 20;
 pub const SNIPPET_TEXT_MAX: usize = 64 * 1024;
 pub const SNIPPETS_MAX: usize = 1000;
+
+/// A document larger than this many bytes gets no recovery copy: writing it again every few
+/// seconds would cost more than the copy is worth. (A normal close still keeps its unsaved text,
+/// whatever its size.)
+pub const RECOVERY_MAX_BYTES: usize = 64 << 20;
+/// The recovery copy of a document is written after this many milliseconds without a change,
+/// and at the latest this many milliseconds after the first change not yet written.
+pub const RECOVERY_IDLE_MS: u64 = 3_000;
+pub const RECOVERY_MAX_MS: u64 = 30_000;

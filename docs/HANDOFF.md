@@ -5,6 +5,360 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## START HERE: work in progress after mdedit 0.5.1 (written 2026-11-14, branch table updated 2026-11-15)
+
+The released state is `main` (mdedit 0.5.1). Update 2026-11-15: five of the features below are
+merged together on the branch `merge/next-release` (see the table and the review results below);
+that branch is not merged into `main` and nothing is released. The rest of this paragraph is as
+written on 2026-11-14. A large batch of next-release work was started with many
+agents in parallel and then **paused by the owner** (the PC could not carry the load and the token
+cost was too high). Everything is pushed; nothing below is merged into `main`, nothing is released.
+The owner continues from a fresh clone on Windows. Read this section, then
+`docs/next-release/SPECS.md` (the rules every feature follows and one spec per feature).
+
+### How to continue
+
+- One agent at a time, two at most. The owner asked for fewer agents that keep their context and
+  take the next task, not a fresh agent per task, and no separate reviewer agents: the main session
+  reviews every diff and every screenshot critically before a merge ("app is really good, let's
+  not ruin it").
+- Local builds are allowed again (the earlier "do not build locally" was lifted on 2026-11-14).
+  Keep one shared `CARGO_TARGET_DIR` per repository if several worktrees are used: twenty worktrees
+  with their own `target` filled the disk.
+- CI: push the branch and run `gh workflow run ci.yml --ref <branch>`. Do not poll in a loop and do
+  not use `gh run watch` from many agents: the account's GitHub API quota was exhausted once.
+- Each feature branch carries `docs/next/<key>.md` (README text, DESIGN text, release note,
+  handoff notes) instead of edits to the real docs, so branches merge without doc conflicts. The
+  merge folds that file into README, DESIGN, PLAN, HANDOFF and `docs/release-notes/NEXT.md` and
+  deletes it. Branches whose state is WIP may not have it yet. The five files of the branches
+  merged into `merge/next-release` were folded on 2026-11-15 (DESIGN sections 57 to 61,
+  `docs/release-notes/NEXT.md`, the section "Five features merged on `merge/next-release`" below).
+- Merge order into `next`: shared branches into the shared repo's `next` first, then the app
+  branch; set every `mdshared-*` pin to the shared `next` head; keep third-party crates in
+  `Cargo.lock` as on `main`. Central tables (menus, commands, keys, strings, settings rows,
+  `tests/shots.sh`) conflict textually: take the union. Check shortcut clashes after each merge.
+- Reserved shortcuts: word completion Ctrl+Space; column selection Alt+Shift+arrows and Alt+drag;
+  find in folder (viewer) Ctrl+Shift+F; presentation (viewer) F5; history (viewer) Alt+Left/Right.
+- Before any release: the owner looks at the interface; a real update followed by a real Restart is
+  tried by hand on Windows and from an AppImage; budgets in `docs/PLAN.md` are measured (nothing in
+  this batch was measured).
+
+### State of every branch
+
+"CI green" means the `ci` workflow passed on Linux and Windows for that exact head. "WIP" means the
+last commit is an interrupted agent's uncommitted work, committed as it was: it may not compile.
+No branch below was reviewed by the main session unless it says so.
+
+| Branch | Feature | Head | State |
+|---|---|---|---|
+| `merge/next-release` | the six features marked "merged" below and `f/paste-image-files`, merged together | see `git log` | CI green at `95edf8d` on Linux and Windows, not read for the head; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
+| `f/paste-image-files` | paste image files copied in the file manager as links | see `git log` (finished in the second session of 2026-11-15) | finished on Windows: clippy clean, all tests pass, tried in a real window by script (see "Second session of 2026-11-15"); merged into `merge/next-release` on the owner's word ("Merge it", 2026-11-15) without a hand test by the owner; a CI run was started at `b5185e9` (run 43651515645) and its result was not read; Linux not done |
+| `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; left out of `merge/next-release` (see the review results below) |
+| `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged; waits for a hand test on Windows |
+| `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
+| `f/multicaret-line-commands` | multi-caret in the line commands | `aaba1fa` | CI green; reviewed; merged into `merge/next-release` |
+| `f/compare-copy-across` | copy a change across in compare | `4d4ff2b` | CI green; reviewed; merged into `merge/next-release` |
+| `f/paste-image` | paste an image into a Markdown file | `c14ebb3` | CI green; reviewed; tried on Windows by script; merged into `merge/next-release` |
+| `f/autosave-recovery` | autosave and crash recovery | `4750c39` | CI green; reviewed; merged into `merge/next-release` (with the data-loss fix `867f197`) |
+| `f/column-selection` | column (block) selection | `3785c7d` | CI green; reviewed; merged into `merge/next-release` |
+| `f/word-completion` | word completion and snippets | see `git log` (finished in the second session of 2026-11-15) | finished on Windows, holds all of `merge/next-release`, **not merged into it**: the owner has not looked at the list (see "Word completion, second session of 2026-11-15"); CI started once, result not read |
+| `f/live-preview-unsaved` | live preview of a never-saved file (both apps) | `8019a35` | **not started** (branch equals the plan commit) |
+| `f/finer-sync` | finer scroll sync inside long blocks (both apps) | `8019a35` | **not started** |
+
+"CI green" on a feature branch may be from an earlier interrupted agent's state of the feature:
+read the diff against the spec before trusting that the feature is complete.
+
+### Review results of `merge/next-release` (2026-11-15)
+
+The main session reviewed the diffs of the five branches before the merge.
+
+- Autosave had a data-loss bug: after a crash an older session backup beat the newer recovery
+  copy. Fixed in `867f197` (DESIGN section 61); the pruning of stale backups was then changed to
+  borrow what it reads of a tab (`9f07121`).
+- `next` (rounded corners) is left out. The shared test
+  `rounded_paint_touches_the_margin_and_the_corner_squares_only` fails on shared `next` `e3d381b`,
+  and the Round default would move KDE to the client-margin shadow route.
+- `feat/restart-after-update` waits for a hand test on Windows (`f/paste-image` had one by script, see below, and was then merged).
+- Three small review fixes were made in `e8dd045` (the merge of `f/table-editing`): in compare, a
+  copied change takes in the diff's freshness first, so a command run right after an edit cannot
+  work from line ranges of the older text; for tables, Enter at the end of an empty row ends the
+  table only on its last row (in the middle it adds a row), and a row or column command refused
+  inside a table says so, not that the caret is outside one.
+- Budgets, measured on this Windows PC on 2026-11-15 (release builds, `main` `5cd3dff` against
+  `merge/next-release` `9f07121`, 7 interleaved warm runs each, min / median): first frame of
+  `sample.rs` 74.5 / 74.8 ms against 74.2 / 75.6 ms; first frame of the 100 MB file 133.5 / 136.3 ms
+  against 130.8 / 135.8 ms; private memory 27.4 / 27.6 MiB against 27.2 / 27.8 MiB (small file) and
+  133 MiB both (100 MB file, over its 125 MiB as before); keystroke p50 0.52 against 0.49 ms; scroll
+  p50 0.45 against 0.40 ms; exe 6,121,984 against 6,228,992 bytes (+107,008). Nothing moved by more
+  than noise. A recovery copy was seen written and removed on a normal exit; its CPU cost was below
+  what the 15.6 ms clock of `--trace` shows. Not measured: the write of a large modified document.
+- Screenshots of the green run (Windows artifact) were looked at for every shot the five added:
+  nothing found. The View menu in a comparison now fills the whole height of an 800 px window
+  (`menu-view-compared`); the Markdown submenu has 15 rows. The owner has not looked at them.
+- `f/paste-image` was tried in a real window on Windows by script (clipboard set with PowerShell,
+  Ctrl+V and Ctrl+S sent): a bitmap and a PNG-format clipboard both saved a correct 40x30 PNG
+  beside the file and inserted the link; a non-Markdown file and an untitled document got nothing.
+  Not tried: an image from a browser or the Snipping Tool, Linux, a person's hand. The owner then
+  said to merge it: it is in `merge/next-release` (DESIGN section 62). Review notes: on Linux a
+  paste with no text on the clipboard runs `wl-paste` or `xclip` on the UI thread (up to 3 s
+  each); on Windows the saved PNG can carry a few padding bytes after its end. New direct
+  dependency `png` 0.18, already in the build through `mdshared-text`. No shot and no app-level
+  test (the only new visible state is a toast).
+- `feat/restart-after-update`: a real update and Restart could not be staged on one PC. The shared
+  updater refuses a download address that is not https (and then the whole manifest), and the
+  newer build needs a higher version number. By hand: an installed copy of this branch's build, a
+  second build with a higher version on an https host, a manifest naming it with its sha256,
+  `MDEDIT_UPDATE_MANIFEST` pointing at the manifest, then Install and Restart.
+- Rounded corners, a correction (owner, 2026-11-15): on Windows 11 the released window already
+  has the system's rounded corners (it is undecorated but resizable, and the system rounds such
+  windows). So on Windows the `next` branch only adds the setting (square, small); the work and
+  the two reasons it is left out are on Linux.
+- Tried by the owner on 2026-11-15: see the next section.
+
+### Where the session of 2026-11-15 stopped
+
+The owner stopped the session and asked for this handoff. Start from `merge/next-release`.
+
+**The owner tried a release build of `95edf8d` by hand on Windows** (scratch settings, copies of
+the fixtures) and reported, in these words: "tabbing creates new rows. right click markdown menu
+works. column works. line commands work. compare works, not sure about f7. paste image works, but
+not from a file browser. crash rec works."
+
+Open from that report:
+
+- **"not sure about f7"** was not followed up. F7 is Next difference (`App::compare_jump`, in
+  0.5.0 already): the caret goes to the start of the next difference, and a toast says when there
+  is none below. Nothing was found wrong in the code. Ask the owner what was seen: no movement, or
+  a movement that is hard to notice (only the caret moves when the difference is already on
+  screen). A thought, not agreed: show "3 of 7" in the status strip, or flash the block.
+- **"tabbing creates new rows"** was taken as the feature working (Tab in the last cell of the
+  last row adds a row). Not confirmed that it was meant so: if Tab adds a row from any other cell,
+  that is a fault.
+- **"not from a file browser":** copying an image file in Explorer puts a file list on the
+  clipboard, not pixels, and the merged feature left that out. Work on it was started and is
+  unfinished on the branch `f/paste-image-files` (`5c5af06`, one commit on top of
+  `merge/next-release`), not agreed in detail with the owner:
+  - Built: `platform::clipboard_files` (Windows, `CF_HDROP`, parsed by
+    `image_paste::parse_dropfiles`; empty elsewhere), `clipboard_formats` (the one place that
+    opens the clipboard, now also used by `clipboard_png`), `image_paste::is_image_file`,
+    `relative_path`, `link_to_file`, `App::paste_image_files`. The file list is looked at before
+    the pixels. Every file must be an image by its extension, else nothing happens.
+  - Decision taken without the owner: a file is linked where it is, by its path from the
+    document's folder; a file with no such path (another drive, a network path) is copied beside
+    the document under its own name and linked there. Several files go in one to a line.
+  - State: `cargo clippy -D warnings` clean and the editor's tests passed (232) on this PC; the
+    core tests and the release build were cut short by the stop; no CI; never tried with a real
+    clipboard; no docs. Linux is not done (a copied file is not looked for there).
+
+**Second session of 2026-11-15: `f/paste-image-files` finished and merged into
+`merge/next-release`.** The owner said only "resume"; the session took the one item that needed
+no answer, reported, and the owner answered "Merge it" (a fast-forward). The owner has not tried
+it by hand.
+
+- Review of `5c5af06` found one gap, fixed: a file on the same network share as the document was
+  copied instead of linked (`image_paste::Anchor`: a drive, a share, or the root). Nothing else
+  was changed in the code.
+- Run on this PC: `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test
+  --workspace` all pass (editor 232, core 446, the rest); release build 6,282,240 bytes.
+- Tried in a real window on Windows by script (the file list set with PowerShell `Set-Clipboard
+  -LiteralPath`, which writes `CF_HDROP` as Explorer does; Ctrl+End, Ctrl+V, Ctrl+S, Alt+F4 sent):
+  three files (a subfolder with a space in the name, a sibling folder, drive D:) gave
+  `![](img/my%20pic.png)`, `![](../pics/b.jpg)`, `![](far.png)` on three lines, with `far.png`
+  copied beside the document byte for byte; the same D: file again in a second document gave
+  `far-1.png`; an image together with a `.txt` did nothing; an image file into a `.txt` document
+  did nothing.
+- Not run: a copy made in Explorer by hand; the toast was not looked at; a network share (unit
+  test only); a read-only document; an unsaved document; CI; Linux (not built there, and the
+  feature is Windows only); budgets (the new code runs only on a paste with no text on the
+  clipboard).
+- Docs: README, DESIGN section 62 and `docs/release-notes/NEXT.md` are edited on the branch
+  itself (no `docs/next/` file).
+- Decisions still the owner's: a file is linked where it is, however far (`../../Pictures/a.png`),
+  and only a file on another drive or share is copied; a list with one non-image in it pastes
+  nothing and says nothing.
+- A leftover of the test: the folder `D:\mdedit-paste-test` (one 185-byte PNG). Its removal by
+  the session was refused by a safety check; the owner can delete it.
+
+**Word completion, second session of 2026-11-15 (branch `f/word-completion`, not merged).** The
+owner chose it as the next feature. The interrupted commit `0a09e78` turned out to be nearly
+whole: after merging `merge/next-release` into it (three textual conflicts, both sides kept) it
+compiled, clippy was clean and one test failed (a count of settings lines).
+
+- Reviewed by the main session: `mdedit_core::complete` and `snippets`, `app/completion.rs`,
+  `view/point.rs` and the wiring. Changed: the settings line count in the prefs test; "Open
+  snippets file" taken out of the main menu (with it the menu no longer fitted an 800 px window
+  and scrolled; the command stays in the palette); the shot `complete-above` given a window short
+  enough that the list really goes above; an ignored test that measures the cost of a list.
+- Run on this PC: clippy clean; all tests pass (editor 247, core 469). Budgets, release build,
+  five runs: first frame of `sample.rs` 70.5 to 73.3 ms, private memory 27.5 to 28.0 MiB,
+  keystroke p50 0.53 ms: as before the feature (not an interleaved comparison). Exe 6,341,632
+  bytes (+59,392). A list at every limit opens in 34 ms (DESIGN section 63).
+- Shots looked at by the session (light and dark where both exist): the word list, the snippet
+  row, the snippet taken, the list above the caret, the Settings row, the text menu. Nothing found.
+- Tried in a real window on Windows with sent keys: Ctrl+Space, Down, Enter took the second word;
+  Escape closed the list and Enter was then a plain Enter; the `table` snippet was filled in over
+  four stops with Tab; with `complete_auto` on, the list opened on the third letter and Tab and
+  Enter took words; with it off, Tab after three letters was a Tab.
+- Alt+/ did not open the list with sent keys: this PC's first layout is Turkish Q, where `/` is
+  Shift+7, so the chord cannot be pressed there. It is kept for layouts with a bare `/` key
+  (the reason for it is Linux, where an input method can own Ctrl+Space). The owner may want
+  another second shortcut, or none.
+- Not run: the owner's look at the list; a mouse click on a row in a real window (test only);
+  a split view; a real `snippets.toml` by hand (tests only); Linux; CI result.
+- Decisions taken without the owner: no list with several carets; the list reads the text each
+  time it opens and keeps no index; snippets ship for Markdown only; `snippets.toml` beside the
+  settings file; the docs are edited on the branch itself (README, DESIGN section 63, NEXT.md).
+
+**The owner's answers (2026-11-15, second session).** F7: "didn't enable compare", so F7 was
+pressed with no comparison open, where it does nothing and says nothing (`compare_jump` returns
+when there is no alignment). Not a fault; F7 inside a comparison was not reported on. Tab in
+tables adds a row only from the last cell of the last row: as designed. Both questions are closed.
+
+**Other things left as they are**
+
+- `test/hand`: a local, unpushed branch on the Windows PC (`merge/next-release` as of `9f07121`
+  plus `f/paste-image` and `feat/restart-after-update`), made for the hand tests. It can be deleted.
+- The release build shown to the owner is a copy outside the repository (a scratch folder of the
+  session); `target/release/mdedit.exe` is the same commit, `95edf8d`.
+- One shared `target` folder was used for a build of `main` in a second worktree; the release
+  build of the branch then failed on stale artifacts until `cargo clean --release -p mdedit-core
+  -p mdedit -p mdedit-highlight`. Do that after building another checkout into the same folder.
+- On the Windows PC the folder `Desktop\markdown-editor-rs` is an old checkout (0.4.1) with every
+  tracked file deleted in its working tree; the live clone is inside it,
+  `Desktop\markdown-editor-rs\markdown-editor-rs`.
+- Working-tree files are CRLF on this PC (autocrlf) and LF in git; git warns, nothing breaks.
+
+**What is left, in the order suggested to the owner**
+
+1. Read the CI result of `merge/next-release` (pasting image
+   files is in it now).
+2. The owner decides: merge `merge/next-release` into `main`, the version number, the release.
+   None of that was done or asked for.
+3. `feat/restart-after-update`: needs a real update and Restart staged by hand (above).
+4. Rounded corners: only Linux needs work (the failing shared test, the KDE shadow route).
+5. `f/word-completion`: the owner looks at the list, then it is merged into `merge/next-release`
+   or changed. `f/live-preview-unsaved` and `f/finer-sync` are not started; both need the viewer
+   and the shared crates.
+6. The frosted window (Mica, Acrylic, blur on Wayland): on the roadmap in `docs/PLAN.md`, starts
+   with a spike on Windows.
+
+Known small gaps in what is merged: two column-paste edge cases (a plain copied line into a
+two-row column; cut and paste-back with an empty last row); a backed-up file that was deleted and
+comes back as an untitled tab loses its session entry about 3 s before its recovery copy exists;
+on Linux an image paste runs `wl-paste` or `xclip` on the UI thread.
+
+### The shared repository (Kaan88/markdown-shared-rs)
+
+`main` is `ce1345d` (what mdedit 0.5.1 pins). Branches that hold work for the above:
+
+| Branch | Head | For | State |
+|---|---|---|---|
+| `next` | `e3d381b` | rounded corners (Corners setting, corner mask, client-route corner cut, DWM preference) | CI **failed** at this head; not looked into |
+| `feat/restart-after-update` | `30aaa8b` | Restart button (`relaunch.rs`, `single::wait_gone`, update bar button) | CI green; reviewed |
+| `feat/settings-single-page` | `ba9d342` | `Form::single_page()` for the viewer's Settings | CI green; reviewed |
+| `f/folder-search` | `bfd0aca` | viewer find-in-folder searcher/results | no CI seen; WIP on the viewer side |
+| `f/copy-rich-text` | `8298204` | HTML writer / clipboard formats | CI **failed** |
+| `f/export-print` | `fc1c559` | export helper | no CI seen |
+
+### Notes from the session
+
+- 0.5.1 / 0.3.1 fixed submenus closing before the pointer reached them (see the release section
+  below). The owner has not yet confirmed it by hand.
+- Restart button: built and reviewed, CI green, but **no real restart was ever performed**. When
+  merging, reword the installed-bar text when Restart is shown (it still says the new version
+  starts the next time the app is opened, next to a button that restarts now).
+- Viewer Settings on one page: reviewed on screenshots. Its `Cargo.lock` also moved `windows-sys`
+  and `base64`; do not carry that. The Linux-only "make default" row was in no screenshot.
+- Rounded corners: owner said "do rounded corners". Work is on `next` in both apps and shared; the
+  apps' `next` CI is green but shared `next` CI failed, and nobody reviewed the result.
+- The Linux worktrees (`~/src/md/wt/*`, `~/src/md/*-next`) and build caches are local to the Linux
+  machine and are not needed: every branch is on GitHub.
+
+## Five features merged on `merge/next-release` (2026-11-15, not in `main`, not published)
+
+The notes each branch left in `docs/next/<key>.md`, folded in here; the design text is in DESIGN
+sections 57 to 61, the release note in `docs/release-notes/NEXT.md`.
+
+### Column selection
+
+- Built: `vcol.rs` (visual columns), `multi::column` using it, `Ready::select_column/line_col`,
+  drag past line end (`View::columns_past_end`), autoscroll while dragging, column-aware copy and
+  Backspace/Delete/Paste in `Docs::edit`, `--select-column`, a Keyboard shortcuts row, shots
+  column, column-dark, column-cjk. Alt+drag and Alt+Shift+Arrows already existed; no new shortcuts.
+- Not verified: Windows and a real window with a mouse (drag, autoscroll, Alt+drag under a Linux
+  window manager); release-build budgets (nothing runs unless a column selection is made; the
+  keystroke path adds one comparison).
+- Left out: virtual space; wrapped-row columns.
+
+### Compare: copy a change across
+
+- Built: mdedit-core `merge` module (take_lines, replace_lines, unit tests),
+  `compare::pick`/`Align::change_at_line`/`enabled`, `App::compare_copy`, `EditOp::CopyLines`,
+  commands, strings, View menu entries, palette, `--copy-change across|take` for shots, app-level
+  tests, four shots (compare-copied, compare-taken-dark, menu-view-compared,
+  menu-view-compared-dark).
+- Decisions: no gutter arrow buttons (the compare view has no gutter between panes and the panes
+  are ordinary editors; adding one would change the look); no new shortcut; next and previous
+  difference already existed (F7, Shift+F7), only added to the menu.
+- Not verified: Windows (CI only); release-build budgets not measured (nothing runs at startup or
+  on keystroke or scroll; the code runs only on the commands, and `enabled` runs per menu or
+  palette build, a hunk lookup).
+- Left out: gutter arrows; copying part of a block (selection) or a single hunk inside a changed
+  block.
+
+### Multi-caret line commands
+
+- Built: `mdedit_core::multiline` (+ `multiline/tests.rs`, about 60 tests with two and three
+  carets, overlapping and adjacent selections), `*_range`/`*_pts` variants in
+  `lines.rs`/`markdown.rs`, `History::fuse_since` (one undo step), shell wiring in `Docs::edit`
+  (`line_edit`).
+- An old test that asserted "a command other than typing leaves one caret" was changed to the new
+  rule.
+- Not verified: Windows, a real window, release-build budgets (nothing runs with one caret: one
+  `is_empty` check).
+- Left out: Outdent with several carets; MdWrap and MdLink already worked on every caret.
+
+### Markdown table editing
+
+- Built: `crates/mdedit-core/src/table.rs` (new; 15 unit tests including a hostile-input run), the
+  refactor of the table finder in `markdown.rs` (`locate`, `lay_out`, `bounds_of`; quotes and code
+  spans), `EditOp::MdTableOp`, `table_keys` in `docs.rs` (Tab, Shift+Tab and Enter hook, runs
+  before the typing help), eight commands (`C::MdRowBelow` ... `MdMoveColumnRight`) in commands,
+  palette, Markdown submenu (existing glyphs PLUS, DELETE, BACK, FORWARD), `fixtures/table.md` and
+  four shots in `tests/shots.sh`.
+- Decisions: the caret goes to the cell start, no selection of cell text; Enter in an empty row
+  ends the table (otherwise a table at the end of a file could not be left with Enter); commands
+  are enabled for any open document like the other Markdown commands and refuse with a toast; no
+  setting (no Markdown group in Settings); a table whose header begins with a list marker
+  (`- | a |`) is not recognised.
+- Not verified: Windows and release-build budgets (nothing runs at startup and nothing on the
+  typing path: the new code runs only for Tab, Shift+Tab, Enter and the commands, and for Tab and
+  Enter only after `assist.markdown` is true; Enter in Markdown additionally locates the table
+  around the caret, which is bounded to 2000 rows and returns early on a line with no pipe).
+  Real-window behaviour was not tried.
+- Left out: tables inside list items whose first line is the table, moving rows, sorting.
+
+### Autosave and crash recovery
+
+- Built: `crates/mdedit-core/src/recovery.rs` (format, atomic write, read, tests),
+  `bins/mdedit/src/recovery.rs` (poll, thread, scan, restore, finish; 9 tests with real files),
+  limits in `limits.rs`, `Doc::recovered`/`read_restore`/`Ready::recovered_encoding` in `docs.rs`,
+  wiring in `app.rs` (start: restore and toast; `about_to_wait`: poll and timer; exit: finish),
+  `strings::recovered`, `--demo-recovered N` (shot only: the toast), two shots in `tests/shots.sh`
+  (recovered-light, recovered-dark).
+- Decisions: recovery is separate from the session backup (different folder and format, so the
+  session's code is untouched); the header holds size, time and the length, not a content hash;
+  no setting and no "autosave to the real file". The thread starts on the first write and is
+  joined at exit.
+- Fix (data loss), `867f197`: see DESIGN section 61, "A copy wins over a session backup".
+- Not verified: nothing ran on a real window or on Windows locally (CI only); an actual `kill -9`
+  or power loss was not tried (the tests simulate it by dropping the store after the thread
+  finished); the cost on release builds was not measured. Why it cannot move the budgets: nothing
+  runs at start except one `read_dir` of a folder that normally does not exist; per event-loop
+  pass the poll is a loop over the tabs comparing integers; a keystroke adds no work.
+- Left out: a copy for a document over 64 MiB; text put back is lost for a file read lossily (the
+  same limit the session backup has); a toast naming which documents; no content hash.
+
 ## 1. Where things are
 
 Three public repositories under `Kaan88`, all MIT, all pushed and clean on `main`:

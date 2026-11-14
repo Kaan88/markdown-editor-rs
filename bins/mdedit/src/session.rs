@@ -54,6 +54,16 @@ pub struct Unsaved {
     pub path: Option<PathBuf>,
 }
 
+/// What [`Unsaved::prune`] needs to know of an open tab (borrowed: it is asked on every pass of
+/// the event loop while a backup is listed).
+pub struct TabState<'a> {
+    pub path: Option<&'a Path>,
+    pub untitled: u32,
+    pub modified: bool,
+    /// The backup file the tab still waits to put back, by name.
+    pub waiting: Option<String>,
+}
+
 impl Unsaved {
     /// The backup's name for a number.
     pub fn file_name(n: u32) -> String {
@@ -64,6 +74,27 @@ impl Unsaved {
     pub fn is_file_name(file: &str) -> bool {
         file.strip_suffix(".txt")
             .is_some_and(|n| !n.is_empty() && n.len() <= 9 && n.bytes().all(|b| b.is_ascii_digit()))
+    }
+
+    /// The entries of `list` that are still needed while `tabs` are open. An entry goes once no
+    /// tab waits for its backup file and no modified tab stands for its document (the same
+    /// path, or for an entry without a path an untitled tab of that number): the text was saved,
+    /// discarded or closed since. While the text is still unsaved in a tab the entry stays, as a
+    /// fallback for a recovery copy that is missing.
+    pub fn prune(list: &[Unsaved], tabs: &[TabState<'_>]) -> Vec<Unsaved> {
+        list.iter()
+            .filter(|u| {
+                tabs.iter().any(|t| {
+                    t.waiting.as_deref() == Some(u.file.as_str())
+                        || t.modified
+                            && match &u.path {
+                                Some(p) => t.path == Some(p.as_path()),
+                                None => t.path.is_none() && t.untitled == u.untitled,
+                            }
+                })
+            })
+            .cloned()
+            .collect()
     }
 
     fn parse(value: &str) -> Option<Unsaved> {
@@ -409,6 +440,55 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry(file: &str, untitled: u32, path: Option<&str>) -> Unsaved {
+        Unsaved {
+            file: file.into(),
+            untitled,
+            path: path.map(PathBuf::from),
+        }
+    }
+
+    fn tab<'a>(
+        path: Option<&'a str>,
+        untitled: u32,
+        modified: bool,
+        waiting: Option<&str>,
+    ) -> TabState<'a> {
+        TabState {
+            path: path.map(Path::new),
+            untitled,
+            modified,
+            waiting: waiting.map(String::from),
+        }
+    }
+
+    #[test]
+    fn a_backup_stays_while_its_text_is_unsaved_and_goes_after() {
+        let list = [entry("1.txt", 0, Some("/a")), entry("2.txt", 3, None)];
+        // Nothing open: both are stale.
+        assert!(Unsaved::prune(&list, &[]).is_empty());
+        // A tab waits for its file, whether or not it is modified.
+        let waiting = [tab(Some("/a"), 0, false, Some("1.txt"))];
+        assert_eq!(Unsaved::prune(&list, &waiting), [list[0].clone()]);
+        // A modified tab stands for the document.
+        let open = [tab(Some("/a"), 0, true, None), tab(None, 3, true, None)];
+        assert_eq!(Unsaved::prune(&list, &open), list);
+        // Saved or closed: the tab is not modified, or is gone.
+        let saved = [tab(Some("/a"), 0, false, None), tab(None, 3, false, None)];
+        assert!(Unsaved::prune(&list, &saved).is_empty());
+        // Another path, another untitled number, or a titled tab does not stand for it.
+        let other = [
+            tab(Some("/b"), 0, true, None),
+            tab(None, 4, true, None),
+            tab(Some("/c"), 3, true, None),
+            tab(None, 0, true, Some("9.txt")),
+        ];
+        assert!(Unsaved::prune(&list, &other).is_empty());
+        // Only the discarded one goes.
+        let one = [tab(None, 3, true, None), tab(Some("/a"), 0, false, None)];
+        assert_eq!(Unsaved::prune(&list, &one), [list[1].clone()]);
+    }
 
     #[test]
     fn find_options_and_history_round_trip_and_are_bounded() {

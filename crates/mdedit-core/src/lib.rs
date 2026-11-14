@@ -22,17 +22,22 @@ pub mod limits;
 pub mod lines;
 pub mod load;
 pub mod markdown;
+pub mod merge;
 pub mod multi;
+pub mod multiline;
 pub mod prefs;
+pub mod recovery;
 pub mod replace;
 pub mod replace_files;
 pub mod save;
 pub mod search;
 pub mod selection;
 pub mod snippets;
+pub mod table;
 #[cfg(test)]
 mod testutil;
 pub mod typing;
+pub mod vcol;
 
 pub use buffer::{Buffer, Change, Position};
 pub use encoding::Encoding;

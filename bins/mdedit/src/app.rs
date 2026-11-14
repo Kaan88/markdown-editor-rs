@@ -21,7 +21,7 @@ use crate::minimap;
 use crate::overlays::{self, Bubble};
 use crate::panes;
 use crate::platform;
-use crate::session::{Session, ThemeChoice};
+use crate::session::{Session, TabState, ThemeChoice, Unsaved};
 use crate::status;
 use crate::trace::{FrameTimes, Trace, summary};
 use crate::ui::{
@@ -229,6 +229,9 @@ struct App {
     #[cfg(not(windows))]
     dialog_busy: bool,
     exit_due: Option<Instant>,
+    /// Recovery copies of unsaved documents, and when the next one is due.
+    recovery: crate::recovery::Recovery,
+    recover_due: Option<Instant>,
     /// `--run`: when its command runs.
     run_due: Option<Instant>,
     /// `--scroll-steps`: steps left, the direction, and the frame times taken.
@@ -363,6 +366,8 @@ impl App {
             #[cfg(not(windows))]
             dialog_busy: false,
             exit_due: None,
+            recovery: crate::recovery::Recovery::off(),
+            recover_due: None,
             run_due: None,
             step_down: true,
             step_times: Vec::new(),
@@ -1643,6 +1648,17 @@ impl App {
         if !self.save || self.session_path.is_none() || self.ui.drag.is_some() {
             return;
         }
+        // Backups of text that was saved, discarded or closed since the start are dropped. Not
+        // once the exit has set the list to keep (it is final then).
+        if !self.session.unsaved.is_empty() && !self.exit && self.docs.prefs.restore_session {
+            let tabs: Vec<TabState> = self.docs.tabs.iter().map(|d| d.tab_state()).collect();
+            let kept = Unsaved::prune(&self.session.unsaved, &tabs);
+            if kept.len() != self.session.unsaved.len() {
+                self.session.unsaved = kept;
+                self.save_session();
+                return;
+            }
+        }
         if self.session_sig() != self.saved_sig {
             self.save_session();
         }
@@ -1964,6 +1980,7 @@ impl ApplicationHandler<Wake> for App {
             self.docs.links.finish();
             self.save_size();
             self.save_session();
+            self.recovery.finish(&self.docs);
             self.trace.cpu("exit");
             event_loop.exit();
             return;
@@ -1976,6 +1993,7 @@ impl ApplicationHandler<Wake> for App {
             }
         }
         self.persist_if_changed();
+        self.recover_due = self.recovery.poll(&self.docs, Instant::now());
         self.link_due = self.docs.link_poll(Instant::now());
         if !self.settled && !self.first && self.is_settled() {
             self.settled = true;
@@ -2000,6 +2018,10 @@ impl ApplicationHandler<Wake> for App {
             return;
         }
         let next = self.timers(Instant::now());
+        let next = match (next, self.recover_due) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         if self.exit {
             return;
         }
@@ -2144,6 +2166,13 @@ impl App {
                     goal_col: None,
                 };
                 view::reveal(r, t, false);
+            }
+            if let Some((from, to)) = a.select_column {
+                r.select_column(
+                    (from.line.saturating_sub(1), from.col.saturating_sub(1)),
+                    (to.line.saturating_sub(1), to.col.saturating_sub(1)),
+                );
+                view::reveal(r, r.view.sel.caret, false);
             }
         }
         if a.replace.is_some() {
@@ -2424,7 +2453,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     // The caret in its visible phase, and no toast: a shot is the same on every run.
     app.ui.caret_on = true;
-    app.docs.clear_toast();
+    if app.args.demo_recovered.is_none() {
+        app.docs.clear_toast();
+    }
     app.full = true;
     app.compose();
     match app.screen.write_png(path) {
@@ -2551,10 +2582,22 @@ pub fn run() -> i32 {
             }
         }
     }
-    // Tabs that had unsaved text when the window last closed get it back.
+    // Text a run that did not end normally left behind: one listing of its folder.
+    let mut recovery = crate::recovery::Recovery::new(
+        session_path
+            .as_deref()
+            .filter(|_| args.shot.is_none())
+            .and_then(crate::recovery::dir_of),
+    );
+    let found = recovery.scan();
+    // Tabs that had unsaved text when the window last closed get it back, except where a
+    // recovery copy has newer text of the same document.
     let mut restored = Vec::new();
     if let Some(dir) = session_path.as_deref().and_then(backup_dir_of) {
         for u in session.unsaved.iter().filter(|_| restore) {
+            if crate::recovery::covers(&found, u) {
+                continue;
+            }
             let file = dir.join(&u.file);
             if !file.is_file() {
                 continue;
@@ -2574,6 +2617,9 @@ pub fn run() -> i32 {
             }
         }
     }
+    // The copies come back as modified tabs.
+    let recovered = recovery.restore(&mut docs, found);
+    restored.extend(recovered.load.iter().copied());
     if active.is_none() && !docs.tabs.is_empty() {
         active = Some(0);
     }
@@ -2599,6 +2645,12 @@ pub fn run() -> i32 {
     let service = HighlightService::spawn(move || w(Wake::Highlight));
     let mut app = App::new(args, docs, trace, session_path, session);
     app.compare_wait = compare_ids;
+    app.recovery = recovery;
+    let recovered_count = app.args.demo_recovered.unwrap_or(recovered.count);
+    if recovered_count > 0 {
+        app.docs
+            .set_toast(&crate::commands::strings::recovered(recovered_count));
+    }
     // Macros are read from here when first wanted, not now.
     app.macros.path = app
         .session_path
@@ -2650,6 +2702,7 @@ pub fn run() -> i32 {
         || a.type_text.is_some()
         || a.type_keys.is_some()
         || a.select.is_some()
+        || a.select_column.is_some()
         || a.find.is_some()
         || a.scroll.is_some()
         || a.hscroll.is_some();

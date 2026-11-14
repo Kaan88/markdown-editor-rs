@@ -121,6 +121,23 @@ impl App {
         self.view.hit(doc, region, self.scale, x, y)
     }
 
+    /// The line and visual column under the pointer for a column selection: the character's
+    /// column, or past a line's end the column the pointer is over, so the rectangle keeps its
+    /// width over short lines (a wrapped line counts in its own, logical, columns).
+    fn column_at(&mut self, x: f32, y: f32) -> Option<(usize, usize)> {
+        let offset = self.text_offset(x, y)?;
+        let region = self.areas.text;
+        let i = self.docs.active()?;
+        let doc = &mut self.docs.tabs[i];
+        let area = view::text_area(doc, region);
+        let x = x.clamp(area.x, area.right() - 1.0);
+        let extra = self
+            .view
+            .columns_past_end(doc, region, self.scale, x, offset);
+        let (line, col) = doc.ready()?.line_col(offset);
+        Some((line, col + extra))
+    }
+
     pub(super) fn drag_to(&mut self, drag: Drag, x: f32, y: f32) {
         match drag {
             Drag::Title { x: x0, y: y0 } => {
@@ -171,13 +188,22 @@ impl App {
             Drag::Thumb { target, grab } => self.thumb_to(target, x - grab, y - grab),
             Drag::Minimap { grab, doc, slot } => self.minimap_drag(doc, slot, y, grab),
             Drag::Column { line, col } => {
-                let Some(offset) = self.text_offset(x, y) else {
+                let Some((to_line, to_col)) = self.column_at(x, y) else {
                     return;
                 };
                 if let Some(r) = self.docs.active_ready_mut() {
-                    let to = r.line_col(offset);
-                    r.select_column((line, col), to);
+                    r.select_column((line, col), (to_line, to_col));
                     view::reveal_no_margin(r, r.view.sel.caret);
+                }
+                let area = self
+                    .docs
+                    .active_doc()
+                    .map_or(self.areas.text, |d| view::text_area(d, self.areas.text));
+                let outside = !area.contains(x, y);
+                if outside && self.ui.autoscroll_due.is_none() {
+                    self.ui.autoscroll_due = Some(Instant::now() + AUTOSCROLL_TICK);
+                } else if !outside {
+                    self.ui.autoscroll_due = None;
                 }
                 self.redraw();
             }
@@ -495,6 +521,14 @@ impl App {
         self.docs.seal();
         let shift = self.mods.shift;
         let (ctrl, alt) = (self.mods.ctrl, self.mods.alt);
+        // A column selection can start past a line's end.
+        let pressed_past_end = if clicks == 1 && alt && !ctrl {
+            self.column_at(x, y)
+                .zip(self.docs.active_ready().map(|r| r.line_col(offset)))
+                .map_or(0, |(at, own)| at.1.saturating_sub(own.1))
+        } else {
+            0
+        };
         let Some(r) = self.docs.active_ready_mut() else {
             return;
         };
@@ -503,7 +537,10 @@ impl App {
             let (line, col) = r.line_col(offset);
             r.view.extra.clear();
             r.view.sel = mdedit_core::Selection::at(offset);
-            self.ui.drag = Some(Drag::Column { line, col });
+            self.ui.drag = Some(Drag::Column {
+                line,
+                col: col + pressed_past_end,
+            });
             self.caret_reset();
             return;
         }

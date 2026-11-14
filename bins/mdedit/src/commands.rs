@@ -43,6 +43,14 @@ pub enum CommandId {
     MdHeading,
     MdLink,
     MdTable,
+    MdRowBelow,
+    MdRowAbove,
+    MdDeleteRow,
+    MdColumnRight,
+    MdColumnLeft,
+    MdDeleteColumn,
+    MdMoveColumnLeft,
+    MdMoveColumnRight,
     Find,
     FindNext,
     FindPrevious,
@@ -101,6 +109,10 @@ pub enum CommandId {
     StopCompare,
     NextDifference,
     PreviousDifference,
+    /// In a comparison, with the caret in a difference: this side's lines replace the other
+    /// side's, or the other side's replace this side's.
+    CopyChangeAcross,
+    TakeChangeAcross,
     /// Off Windows, from an AppImage: the default application for text files.
     MakeDefault,
     /// Show the file in mdview and keep it scrolled to the caret's line, or stop doing so; and
@@ -176,6 +188,14 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::MdHeading, "Heading level", &["Ctrl+Shift+H"]),
     cmd(C::MdLink, "Link", &[]),
     cmd(C::MdTable, "Align table", &[]),
+    cmd(C::MdRowBelow, "Insert row below", &[]),
+    cmd(C::MdRowAbove, "Insert row above", &[]),
+    cmd(C::MdDeleteRow, "Delete row", &[]),
+    cmd(C::MdColumnRight, "Insert column right", &[]),
+    cmd(C::MdColumnLeft, "Insert column left", &[]),
+    cmd(C::MdDeleteColumn, "Delete column", &[]),
+    cmd(C::MdMoveColumnLeft, "Move column left", &[]),
+    cmd(C::MdMoveColumnRight, "Move column right", &[]),
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
     cmd(C::FindPrevious, "Find previous", &["Shift+F3"]),
@@ -213,6 +233,16 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::StopCompare, "Stop comparing", &[]),
     cmd(C::NextDifference, "Next difference", &["F7"]),
     cmd(C::PreviousDifference, "Previous difference", &["Shift+F7"]),
+    cmd(
+        C::CopyChangeAcross,
+        "Copy this change to the other side",
+        &[],
+    ),
+    cmd(
+        C::TakeChangeAcross,
+        "Take this change from the other side",
+        &[],
+    ),
     cmd(
         C::PreviewInViewer,
         "Preview in mdview, or stop",
@@ -264,11 +294,14 @@ pub fn hint(id: CommandId) -> &'static str {
 
 /// Lines for the Keyboard shortcuts dialog: (keys joined by ", ", label).
 pub fn shortcut_help() -> Vec<(String, &'static str)> {
-    COMMANDS
+    let mut rows: Vec<(String, &'static str)> = COMMANDS
         .iter()
         .filter(|c| !c.keys.is_empty())
         .map(|c| (c.keys.join(", "), c.label))
-        .collect()
+        .collect();
+    // Not commands: made with the keys and the mouse in the text.
+    rows.push((strings::COLUMN_KEYS.to_string(), strings::COLUMN_LABEL));
+    rows
 }
 
 pub mod strings {
@@ -283,6 +316,8 @@ pub mod strings {
         "winit and softbuffer, with every pixel drawn by the shared renderer. No webview.";
     pub const MAKE_DEFAULT: &str = "Make mdedit the default for text files";
     pub const SHORTCUTS_TITLE: &str = "Keyboard shortcuts";
+    pub const COLUMN_LABEL: &str = "Select a column";
+    pub const COLUMN_KEYS: &str = "Alt+Shift+Arrows, Alt+Drag";
     pub const MANAGE_RECENT_TITLE: &str = "Manage recent files";
     pub const EMPTY_HINT: &str = "Open a file or drag one into this window.";
     pub const EMPTY_BUTTON: &str = "Open file…";
@@ -369,6 +404,12 @@ pub mod strings {
     pub const FIND_SEARCHING: &str = "Searching";
     pub const FILES_DOCK: &str = "FILES";
     pub const FILE_GONE: &str = "The file was deleted or moved. Showing the text last read.";
+    pub fn recovered(n: usize) -> String {
+        match n {
+            1 => "Recovered 1 unsaved document".to_string(),
+            n => format!("Recovered {n} unsaved documents"),
+        }
+    }
     pub const FILE_CHANGED: &str =
         "The file changed on disk. Saving asks before it overwrites; Reload drops your changes.";
     /// Before the name of a file with unsaved changes, on its tab and in the window title.
@@ -437,6 +478,8 @@ pub mod strings {
     pub const NO_PLACING: &str = "This desktop does not let a window be placed";
 
     pub const NOT_MARKDOWN: &str = "This is for Markdown files.";
+    pub const NOT_IN_TABLE: &str = "The caret is not in a table.";
+    pub const NOT_HERE_IN_TABLE: &str = "That cannot be done at this place in the table.";
     pub const BLOCK_TOO_LARGE: &str = "That block of lines is too large to change at once.";
     pub const NO_LINE_COMMENT: &str = "This kind of file has no line comment.";
     pub const TOO_LARGE_FOR_ALL_LINES: &str =
@@ -453,6 +496,10 @@ pub mod strings {
     pub const COMPARE_NOTHING_SAVED: &str = "Nothing to compare: the file has no unsaved changes.";
     pub const NO_NEXT_DIFFERENCE: &str = "No more differences below.";
     pub const NO_PREVIOUS_DIFFERENCE: &str = "No more differences above.";
+    pub const NOT_IN_A_DIFFERENCE: &str = "The caret is not in a difference.";
+    pub const COMPARE_STALE: &str = "Wait until the comparison is up to date.";
+    pub const COMPARE_TARGET_READ_ONLY: &str = "The other side cannot be changed.";
+    pub const TAKE_TARGET_READ_ONLY: &str = "This side cannot be changed.";
 
     pub fn saved_copy_name(name: &str) -> String {
         format!("{name} (saved)")
@@ -514,6 +561,10 @@ mod tests {
                 .any(|(k, l)| k == "Ctrl+C, Ctrl+Insert" && *l == "Copy")
         );
         assert!(help.iter().any(|(k, _)| k == "Ctrl+W, Ctrl+F4"));
+        assert!(
+            help.iter()
+                .any(|(k, l)| k == "Alt+Shift+Arrows, Alt+Drag" && *l == "Select a column")
+        );
         assert_eq!(hint(CommandId::FindNext), "F3");
         assert_eq!(hint(CommandId::About), "");
         for c in COMMANDS {

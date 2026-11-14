@@ -92,6 +92,9 @@ pub struct Args {
     pub goto: Option<LineCol>,
     /// `--select <line:col>-<line:col>`: select from the first position to the second.
     pub select: Option<(LineCol, LineCol)>,
+    /// `--select-column <line:col>-<line:col>`: a column selection between the two corners (visual
+    /// columns, from 1, a wide character is two).
+    pub select_column: Option<(LineCol, LineCol)>,
     /// `--menu main|recent|tab|text|find`.
     pub menu: Option<ShotMenu>,
     /// `--dialog about|shortcuts|recent`.
@@ -127,6 +130,8 @@ pub struct Args {
     pub other_scroll: Option<f32>,
     /// `--demo-macros`: three saved macros in memory, for a shot of the Macro menu and dialog.
     pub demo_macros: bool,
+    /// `--demo-recovered N`: the toast of a start that recovered N documents, for a shot.
+    pub demo_recovered: Option<usize>,
     /// `--pref key=value` (repeatable): a preference for this run, as the settings file has it.
     pub prefs: Vec<String>,
     /// `--macro-prompt <text>`: the box that asks a macro's name, with this text typed in it.
@@ -174,6 +179,9 @@ pub struct Args {
     pub compare_saved: bool,
     /// Step to the next difference this many times after comparing.
     pub next_difference: usize,
+    /// After that, copy the difference the caret is in across (`across`) or take it from the
+    /// other side (`take`), for a shot.
+    pub copy_change: Option<bool>,
     /// `--find-in-files`: search the folder for the find text now, and wait for the answer.
     pub find_in_files: bool,
     /// The results panel's replacement box starts with this text.
@@ -300,6 +308,10 @@ impl Args {
                 }
                 "--split-left" => out.split_left = true,
                 "--demo-macros" => out.demo_macros = true,
+                "--demo-recovered" => {
+                    out.demo_recovered =
+                        checked(&a, value(&a), |v| v.parse().ok().filter(|n| *n > 0))
+                }
                 "--pref" => out.prefs.extend(value(&a).filter(|v| v.contains('='))),
                 "--macro-prompt" => {
                     out.macro_prompt = checked(&a, value(&a), |v| Some(v.to_string()))
@@ -333,6 +345,13 @@ impl Args {
                 "--compare-saved" => out.compare_saved = true,
                 "--next-difference" => {
                     out.next_difference = checked(&a, value(&a), |v| v.parse().ok()).unwrap_or(0)
+                }
+                "--copy-change" => {
+                    out.copy_change = match value(&a).as_deref() {
+                        Some("across") => Some(true),
+                        Some("take") => Some(false),
+                        _ => None,
+                    }
                 }
                 "--find-in-files" => out.find_in_files = true,
                 "--results-replace" => out.results_replace = value(&a),
@@ -383,6 +402,12 @@ impl Args {
                 "--settings-section" => out.settings_section = value(&a),
                 "--select" => {
                     out.select = checked(&a, value(&a), |v| {
+                        let (from, to) = v.split_once('-')?;
+                        Some((LineCol::parse(from)?, LineCol::parse(to)?))
+                    })
+                }
+                "--select-column" => {
+                    out.select_column = checked(&a, value(&a), |v| {
                         let (from, to) = v.split_once('-')?;
                         Some((LineCol::parse(from)?, LineCol::parse(to)?))
                     })
@@ -488,6 +513,9 @@ mod tests {
         // A pair needs both files.
         assert_eq!(parse("--compare a.rs").compare, None);
         assert!(parse("--compare-saved a.rs").compare_saved);
+        assert_eq!(parse("--copy-change across a.rs").copy_change, Some(true));
+        assert_eq!(parse("--copy-change take a.rs").copy_change, Some(false));
+        assert_eq!(parse("--copy-change a.rs").copy_change, None);
         let a =
             parse("--find-in-files --results-replace new --replace-dialog --replace-report a.rs");
         assert!(a.find_in_files && a.replace_dialog && a.replace_report);
@@ -553,6 +581,11 @@ mod tests {
         assert_eq!(parse("--goto 3:0").goto, None);
         assert_eq!(parse("--goto x").goto, None);
         assert_eq!(parse("--select 3:1").select, None);
+        assert_eq!(
+            parse("--select-column 3:5-7:9").select_column,
+            Some((LineCol { line: 3, col: 5 }, LineCol { line: 7, col: 9 }))
+        );
+        assert_eq!(parse("--select-column 3:5").select_column, None);
     }
 
     #[test]
@@ -604,6 +637,9 @@ mod tests {
         );
         assert_eq!(parse("--run nonsense").run, None);
         assert!(parse("--demo-link").demo_link && !parse("a.md").demo_link);
+        assert_eq!(parse("--demo-recovered 2").demo_recovered, Some(2));
+        assert_eq!(parse("--demo-recovered 0").demo_recovered, None);
+        assert_eq!(parse("a.md").demo_recovered, None);
         assert_eq!(
             parse("--settings-section Preview")
                 .settings_section

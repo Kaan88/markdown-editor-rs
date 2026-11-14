@@ -304,6 +304,8 @@ fn icon(id: C) -> &'static str {
         C::PreviousDifference | C::FindPrevious => glyph::UP,
         C::MoveLineDown | C::NextTab | C::NextBookmark | C::NextResult => glyph::DOWN,
         C::NextDifference | C::FindNext => glyph::DOWN,
+        C::CopyChangeAcross => glyph::FORWARD,
+        C::TakeChangeAcross => glyph::BACK,
         C::DeleteLine => glyph::DELETE_LINE,
         C::ToggleComment => glyph::COMMENT,
         C::UpperCase => glyph::UPPERCASE,
@@ -350,6 +352,10 @@ fn icon(id: C) -> &'static str {
         C::MdBold | C::MdItalic | C::MdCode | C::MdStrike | C::MdHeading => glyph::WORD,
         C::MdLink => glyph::LINK,
         C::MdTable => glyph::TABS,
+        C::MdRowBelow | C::MdRowAbove | C::MdColumnRight | C::MdColumnLeft => glyph::PLUS,
+        C::MdDeleteRow | C::MdDeleteColumn => glyph::DELETE,
+        C::MdMoveColumnLeft => glyph::BACK,
+        C::MdMoveColumnRight => glyph::FORWARD,
         C::Settings => glyph::SLIDERS,
         C::CompleteWord => glyph::EDIT,
         C::OpenSnippets => glyph::DOC,
@@ -390,6 +396,14 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::MdLink
         | C::MdTable
         | C::CompleteWord
+        | C::MdRowBelow
+        | C::MdRowAbove
+        | C::MdDeleteRow
+        | C::MdColumnRight
+        | C::MdColumnLeft
+        | C::MdDeleteColumn
+        | C::MdMoveColumnLeft
+        | C::MdMoveColumnRight
         | C::GoToLine => ready.is_some(),
         C::Reload | C::CloseTab | C::CloseAllTabs => has_tab,
         C::Find
@@ -424,7 +438,9 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::CompareSaved
         | C::StopCompare
         | C::NextDifference
-        | C::PreviousDifference => crate::compare::enabled(id, docs),
+        | C::PreviousDifference
+        | C::CopyChangeAcross
+        | C::TakeChangeAcross => crate::compare::enabled(id, docs),
         _ => true,
     }
 }
