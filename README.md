@@ -8,10 +8,11 @@ alternative for personal use that opens any text file, with the same hand-drawn 
 viewer.
 
 **Status: version 0.5.0, for Windows and Linux. The owner has approved the icons and the minimap
-by looking; the rest of the interface has not been explicitly approved.** The Windows files were
-cross-built on Linux and checked under Wine only; the last builds made and run on Windows itself
-were 0.4.0 (mdview 0.2.2). The Linux AppImage has run on KDE Plasma 6 (Wayland) and, headless, on
-sway; GNOME and other desktops have not been tried.
+by looking; the rest of the interface has not been explicitly approved.** The release files are built by
+GitHub Actions, Windows natively on a Windows runner. On 2026-11-14 the full test suite and every
+screenshot state ran on a real Windows runner; nobody has yet used it by hand on a Windows desktop.
+Linux has run on KDE Plasma 6 (Wayland) and, headless, on sway; GNOME and other desktops have not
+been tried.
 
 It opens files in tabs, scrolls, selects, finds, highlights syntax, detects encodings and line
 endings, edits with undo and redo, and saves in the file's own encoding and line endings without
@@ -47,11 +48,27 @@ The painter, widgets, text engine and highlighting come from
 
 The [releases page](https://github.com/Kaan88/markdown-editor-rs/releases/latest) has:
 
-- **Windows:** `mdedit-setup-<version>.exe`, a per-user installer that offers mdedit under
-  "Open with" and never takes a default; or `mdedit-<version>-windows-x86_64.exe`, the bare
-  executable, which needs no installation. Neither is code-signed.
-- **Linux:** `mdedit-<version>-linux-x86_64.AppImage` (x86-64). Make it executable and run it:
-  `chmod +x mdedit-*.AppImage && ./mdedit-*.AppImage`. It updates itself.
+- **Windows:**
+  - `mdedit-setup-<version>.exe`: the installer, per user. It offers mdedit under "Open with" and
+    never takes a default. Pick this for a normal install.
+  - `mdedit-<version>-windows-x86_64.exe`: the bare executable, no installation needed.
+  - `mdedit-<version>-windows-x86_64.zip`: the same executable with LICENSE and README.md in a
+    folder, for a portable copy.
+  - None is code-signed.
+- **Linux** (x86-64):
+  - `mdedit-<version>-linux-x86_64.AppImage`: any distribution, no root. Make it executable and
+    run it: `chmod +x mdedit-*.AppImage && ./mdedit-*.AppImage`.
+  - `mdedit_<version>_amd64.deb` for Debian 11+, Ubuntu 20.04+ and derivatives, and
+    `mdedit-<version>-1.x86_64.rpm` for Fedora, openSUSE and RHEL: pick one with a package manager.
+  - `PKGBUILD` for Arch: in a folder holding it, `makepkg -si` installs the tar.gz as `mdedit-bin`.
+  - `mdedit-<version>-linux-x86_64.tar.gz`: `install.sh [PREFIX]` (default `~/.local`) and
+    `uninstall.sh`, on any distribution.
+- `mdedit-update.txt` is the manifest the updater reads.
+
+The Windows installed copy, the bare exe and the portable zip's exe update themselves (the folder
+must be writable), and so does the AppImage. The deb, rpm, tar.gz and Arch installs do not; the
+app says only the AppImage can update itself. They install a desktop file, so the taskbar icon
+and "Open with" work without the AppImage's first-run registration.
 
 The AppImage is built in an Ubuntu 20.04 container, so it needs glibc 2.31 or later. It needs the
 system's libc, fontconfig, freetype and the X11/xcb libraries, and loads libcurl and the Wayland
@@ -69,8 +86,9 @@ cargo test --release --workspace
 target\release\mdedit.exe README.md
 ```
 
-On Linux the same `cargo` commands work (the binary is `target/release/mdedit`); the release files
-for both systems are built from Linux as `docs/RELEASE.md` describes.
+On Linux the same `cargo` commands work (the binary is `target/release/mdedit`). Releases are cut
+by pushing a tag `v<version>`: GitHub Actions builds and publishes the files above. See
+`docs/CI.md`; `docs/RELEASE.md` has the local scripts for a dry run.
 
 `bash tests/shots.sh <dir>` renders the interface states to PNG without a window.
 

@@ -142,13 +142,14 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
 - Linux (2026-11-14, in 0.5.0): the editor builds and runs on CachyOS with KDE Plasma 6 on
   Wayland, and sway ran headless in a container; the AppImage is built in an Ubuntu 20.04
   container. File dialogs, the window identity (taskbar name and icon), downloads and the update
-  check use the shared Linux code; emoji draw in colour. What is still open on Linux: GNOME and
+  check use the shared Linux code; emoji draw in colour. File dialogs and the taskbar icon were
+  exercised in the driven real-window tests on KDE Plasma 6 Wayland on 2026-11-14. What is still open on Linux: GNOME and
   other desktops than those two, X11, fractional scales in a real window, two monitors with
-  different scales, input methods, and the file dialogs beside the window (they have no parent,
-  so they are not modal; not re-checked). "Show in file manager" opens the folder only
+  different scales, input methods, and the file dialogs' lack of a parent window (the window stayed responsive
+  while one was open, which was seen on KDE). "Show in file manager" opens the folder only
   (not re-checked). `tests/shots.sh` needs LF line endings (a Windows checkout with autocrlf
-  breaks it on Linux; `.gitattributes` covers only `fixtures/**`). Nothing in 0.5.0 has run on
-  Windows.
+  breaks it on Linux; `.gitattributes` covers only `fixtures/**`). The 0.5.0 test suite and
+  screenshots have run on a Windows runner; nothing by hand on Windows.
 - The editor's small-file first frame sits at the edge of its budget: about 60 ms of it is
   syntect start-up before the first colours.
 
@@ -257,14 +258,30 @@ files, replace in files, the same file in both panes, saved macros, fold by mous
 and indentation that follows the file, line commands, Markdown commands, "Preview in mdview" with
 live preview, the window shadow, and the Linux port.
 
-**The files.** Four assets: the AppImage, the Windows exe, the Windows setup and `mdedit-update.txt`
-(one manifest with a `windows-x86_64` and a `linux-x86_64` entry). The AppImage is x86-64, built in
+**How releases are built (updated 2026-11-14, later).** Published releases come from GitHub Actions:
+`.github/workflows/release.yml` runs on a tag `v<version>` (`docs/CI.md`). Windows is built natively
+on a Windows runner with the repository's PowerShell scripts, so the published Windows files are
+not the Wine cross-builds; the local cross path (`tools/release-all.sh`, "Releasing from Linux" in
+`docs/RELEASE.md`) remains for testing. Linux is built in an Ubuntu 20.04 container. `ci.yml` runs
+fmt, clippy with warnings as errors, the tests and the screenshot suite on Linux and on Windows for
+every push to `main`; no test is skipped.
+
+**The files.** Nine assets, each named `mdedit-<v>-...` below with `<v>` the version:
+`mdedit-<v>-windows-x86_64.exe`, `mdedit-setup-<v>.exe`, `mdedit-<v>-windows-x86_64.zip` (portable),
+`mdedit-<v>-linux-x86_64.AppImage`, `mdedit-<v>-linux-x86_64.tar.gz` (with `install.sh` and
+`uninstall.sh`), `mdedit_<v>_amd64.deb`, `mdedit-<v>-1.x86_64.rpm`, an Arch `PKGBUILD` (a `-bin`
+package of the tar.gz) and `mdedit-update.txt` (one manifest with a `windows-x86_64` and a
+`linux-x86_64` entry). The AppImage is x86-64, built in
 an Ubuntu 20.04 container, so it needs glibc 2.31 or later. It needs the system's libc,
 fontconfig, freetype and the X11/xcb libraries, and loads libcurl and the Wayland libraries at run
 time. It updates itself. On first run it writes its desktop entry and icon into the user's data
 folder and registers its file types without taking defaults; "Make mdedit the default" is a command
-in Settings. The Windows files were cross-compiled on Linux (cargo-xwin; Inno Setup under Wine)
-and checked under Wine only. How they are made: `docs/RELEASE.md`, "Releasing from Linux".
+in Settings. Which copies update themselves: the Windows installed copy and the bare exe (the zip's exe too, in
+a writable folder) and the AppImage. The deb, rpm, tar.gz and PKGBUILD installs do not (the app says
+only the AppImage can update itself); they install a desktop file, so the taskbar icon and "Open
+with" work without the AppImage's first-run registration. The local cross-builds (cargo-xwin; Inno
+Setup under Wine) were checked under Wine only; how they are made: `docs/RELEASE.md`, "Releasing
+from Linux".
 
 **Pins.** The shared crates are the branch `feat/linux` of `Kaan88/markdown-shared-rs` at `7cd6461`,
 to become its `main` (a push to the shared `main` is refused from here; the owner moves it).
@@ -272,8 +289,17 @@ Two forks are carried on Linux and resolved for all platforms through `[patch.cr
 `Kaan88/winit`, branch `md-0.30.13` (a content margin for the client-drawn shadow) and
 `Kaan88/softbuffer`, branch `md-0.4.8` (ARGB buffers on Wayland).
 
-**The last builds made and run on Windows itself** were mdedit 0.4.0 (and mdview 0.2.2). 0.4.1 was
-built on Windows but never published. Nothing in 0.5.0 has run on Windows.
+**Windows is reviewed (2026-11-14, the owner asked for it to be marked so).** The full test suite and
+every screenshot state (167 for mdedit; 70 for mdview) ran on a real Windows runner, with both apps
+built natively, and the native setups were checked for their files and icon. That review does not
+cover: the installer wizard clicked through by a person, taskbar and Explorer icons, SmartScreen
+with unsigned files, and interactive use on a Windows desktop. The last builds run by hand on Windows
+itself were mdedit 0.4.0 (and mdview 0.2.2). 0.4.1 was built on Windows but never published.
+
+**Found and fixed through that Windows run.** In the viewer on Windows a bare check mark and heart drew
+as empty boxes (the shared font fallbacks were applied only off Windows; now on every system, see
+the viewer's HANDOFF). Emoji with the variation selector are in colour on Windows (seen in the
+runner's shots), which was unverified before.
 
 ### Decisions taken without the owner
 
@@ -301,19 +327,25 @@ were taken that way, or agreed on that day where it says so.
 - **The AppImage keeps the default squashfs compression.** It adds about 18 ms to start-up; only
   an uncompressed image (2.5 times the size) was measurably faster (numbers in the viewer's
   HANDOFF, section 12).
-- **The Windows files are cross-built and Wine-checked.** This was the owner's choice ("find a way
-  to cross compile windows").
+- **The Windows files were first cross-built and Wine-checked** (the owner's choice, "find a way to
+  cross compile windows"). The published ones are now built natively by the release workflow.
 
 ### Not verified
 
-- A run on real Windows of anything in this release: the command palette, settings, compare,
-  split, the hand-off, live preview, the installer's wizard pages, Explorer icons, emoji with the
-  variation selector on Windows, and SmartScreen.
-- GNOME and other desktops than KDE Plasma 6 and sway (sway ran headless).
+- By hand on Windows: the installer wizard clicked through by a person, taskbar and Explorer icons,
+  SmartScreen with unsigned files, interactive use on a Windows desktop. (The test suite and the
+  screenshots ran on a Windows runner; see above.)
+- GNOME and other desktops than KDE Plasma 6 and sway (sway ran headless), and X11.
 - Fractional display scales in a real window on Linux.
 - Two monitors with different scales.
 - The toast when the editor closes during a live preview: the viewer's return to the file was
   seen, the toast was not.
+
+Verified in the driven real-window tests on KDE Plasma 6 Wayland, 2026-11-14: file dialogs (the
+window stayed responsive while one was open) and the taskbar icon (both apps showed their own icon
+in the panel). An AppImage updated itself end to end: the offer at launch, Update clicked, the file
+replaced with a matching hash, the newer version reported at the next start, the old copy cleaned
+up.
 
 ### Next release (agreed with the owner 2026-11-14)
 
@@ -321,8 +353,16 @@ were taken that way, or agreed on that day where it says so.
 - Finer sync with the viewer inside long paragraphs and code blocks.
 - Live preview for a document that has never been saved.
 - Multi-caret support in the line commands (sort, join, headings, table alignment).
-- Carried over: the speed-versus-size build comparison on Windows, and a native Windows run of this
-  release.
+- Carried over: the speed-versus-size build comparison on Windows, and a hand run on a Windows
+  desktop of this release.
+- For consideration, not agreed (owner, 2026-11-14): rounded window corners. Default radius 8
+  logical px, scaled with the display, square when maximised, tiled or fullscreen, with a setting
+  that includes 0. Reasons: 8 sits between KDE Breeze (about 5 px, from bug reports) and GNOME
+  libadwaita (about 12 px, from a 2021 commit and forum estimates), and matches the 8 px radius the
+  apps' own dialogs use. There is no standard way to ask a Linux desktop for its radius. On Windows
+  11, ask the system for its standard rounding (the DWM corner preference) instead of drawing. On
+  KDE it needs the client-margin shadow route, because KWin's shadow route leaves the window opaque
+  and square; that is why it was not squeezed into this release.
 
 The same list is in `docs/PLAN.md`.
 

@@ -1,6 +1,13 @@
 # Releasing mdedit
 
-## Cutting a release
+**The way to publish is the tag-driven workflow** (`.github/workflows/release.yml`): set the version,
+push, wait for the `ci` run, push the tag `v<version>`. What it builds, the asset names and the dry
+run are in `docs/CI.md`. The local scripts below (`tools\release.ps1` on Windows, `tools/release-all.sh`
+and "Releasing from Linux" on Linux) are the dry path: for trying a release and for testing, not
+what users download. Their Windows files are cross-built or built on one PC; the published ones are
+built natively by the workflow.
+
+## Cutting a release with the local scripts
 
 1. Set the version in `[workspace.package]` of `Cargo.toml`, commit, push.
 2. `tools\release.ps1 -Notes 'One short sentence.'` builds `cargo build --release -p mdedit`
