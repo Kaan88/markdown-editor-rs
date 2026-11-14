@@ -28,6 +28,7 @@ pub mod replace_files;
 pub mod save;
 pub mod search;
 pub mod selection;
+pub mod table;
 #[cfg(test)]
 mod testutil;
 pub mod typing;

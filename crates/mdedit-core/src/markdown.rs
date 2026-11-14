@@ -328,12 +328,45 @@ pub fn cycle_heading(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Ou
 
 // ---- tables
 
-/// The cells of a table row: (start, end) of each cell's trimmed text in the line. An optional
-/// pipe after the indent and one at the end are not cell separators; cells are cut at the other
-/// pipes that no backslash escapes.
-fn cells_of(line: &str) -> Vec<(usize, usize)> {
+/// Bytes of a line before its first content: spaces, tabs and block quote markers (`>`), so a
+/// table in a quote or under a list item keeps what stands in front of its rows.
+pub(crate) fn prefix_len(line: &str) -> usize {
+    line.bytes()
+        .take_while(|&c| matches!(c, b' ' | b'\t' | b'>'))
+        .count()
+}
+
+/// How many block quote markers a line prefix holds.
+fn quote_depth(prefix: &str) -> usize {
+    prefix.bytes().filter(|&c| c == b'>').count()
+}
+
+/// Where the code span whose opening run of `run` backticks ends at `from` is closed: just after
+/// the next run of exactly `run` backticks; `None` when there is none (the backticks are then
+/// plain text).
+fn code_span_end(b: &[u8], from: usize, run: usize) -> Option<usize> {
+    let mut i = from;
+    while i < b.len() {
+        if b[i] == b'`' {
+            let n = b[i..].iter().take_while(|&&c| c == b'`').count();
+            if n == run {
+                return Some(i + n);
+            }
+            i += n;
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+/// The cells of a table row as the text between separators: (start, end) of each, the end being
+/// the pipe that closes the cell (or the end of the line). An optional pipe after the prefix and
+/// one at the end are not separators; cells are cut at the other pipes that no backslash escapes
+/// and no code span holds.
+pub(crate) fn bounds_of(line: &str) -> Vec<(usize, usize)> {
     let b = line.as_bytes();
-    let mut from = b.iter().take_while(|&&c| c == b' ' || c == b'\t').count();
+    let mut from = prefix_len(line);
     if b.get(from) == Some(&b'|') {
         from += 1;
     }
@@ -342,6 +375,10 @@ fn cells_of(line: &str) -> Vec<(usize, usize)> {
     while i < b.len() {
         match b[i] {
             b'\\' => i += 2,
+            b'`' => {
+                let run = b[i..].iter().take_while(|&&c| c == b'`').count();
+                i = code_span_end(b, i + run, run).unwrap_or(i + run);
+            }
             b'|' => {
                 bounds.push((from, i));
                 from = i + 1;
@@ -358,12 +395,17 @@ fn cells_of(line: &str) -> Vec<(usize, usize)> {
         bounds.pop();
     }
     bounds
-        .into_iter()
-        .map(|(s, e)| {
+}
+
+/// The trimmed text of each of `bounds` in `line`: (start, end).
+pub(crate) fn trimmed(line: &str, bounds: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    bounds
+        .iter()
+        .map(|&(s, e)| {
             let t = &line[s..e];
             let lead = t.len() - t.trim_start_matches([' ', '\t']).len();
-            let trimmed = t.trim_matches([' ', '\t']);
-            (s + lead, s + lead + trimmed.len())
+            let text = t.trim_matches([' ', '\t']);
+            (s + lead, s + lead + text.len())
         })
         .collect()
 }
@@ -397,127 +439,142 @@ fn display_width(s: &str) -> usize {
 }
 
 /// A line of the table.
-struct Row {
+pub(crate) struct Row {
     /// The line's content range in the buffer.
-    range: Range<usize>,
-    text: String,
-    cells: Vec<(usize, usize)>,
+    pub range: Range<usize>,
+    pub text: String,
+    /// The text between the separators (see [`bounds_of`]) and the trimmed text of each cell.
+    pub bounds: Vec<(usize, usize)>,
+    pub cells: Vec<(usize, usize)>,
 }
 
-/// Lines up the pipe table the caret is in. A table is a header row, a delimiter row (every cell
-/// colons and dashes, as many cells as the header) and the pipe lines after it; a pipe line is
-/// one that, after optional spaces or tabs, contains a `|` (so the table ends at the first line
-/// without one, blank lines included). The caret (the selection's caret end) must be on one of
-/// its lines.
-///
-/// Every row is rewritten as `| cell | cell |`, each cell padded to the widest of its column
-/// (display width: wide characters count 2), by the column's alignment (left, none: text first;
-/// right: spaces first; center: spaces both sides); the delimiter row is dashes to that width with
-/// its colons (3 wide at least). Cell text is only trimmed, never changed; a row with fewer cells
-/// than the header keeps as many cells as it had; the header's indent (spaces and tabs) is used
-/// for every row; line endings are not touched. A selection end moves with the cell and the
-/// offset in the cell text it was at, or, when it was in the padding or at a pipe, to the
-/// nearest end of that cell's text. Nothing (the selection returned) outside a table, when the
-/// table is over [`TABLE_ROWS`] rows, [`TABLE_COLS`] columns, [`TABLE_LINE_BYTES`] bytes per
-/// line or [`TABLE_BYTES`] in all, or when it is already lined up.
-pub fn format_table(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
-    let len = buf.len_bytes();
-    let caret = buf.floor_char(sel.caret.min(len));
+/// A table found around a caret.
+pub(crate) struct Located {
+    /// The lines of the table, header first, the delimiter row second.
+    pub rows: Vec<Row>,
+    /// The alignment of each column (see [`alignment`]).
+    pub align: Vec<u8>,
+    /// The index in `rows` of the caret's line.
+    pub caret_row: usize,
+}
+
+/// The table the caret is in: see [`format_table`] for what a table is and the limits. `None`
+/// outside a table, over a limit, or with the caret above the header.
+pub(crate) fn locate(buf: &Buffer, caret: usize) -> Option<Located> {
     let line = buf.line_of(caret);
-    let is_pipe = |buf: &Buffer, l: usize| -> Option<bool> {
+    // Whether the line has a pipe after its prefix, and how many quote markers it has.
+    let info = |buf: &Buffer, l: usize| -> Option<(bool, usize)> {
         let r = buf.line_range(l);
         if r.len() > TABLE_LINE_BYTES {
             return None;
         }
-        Some(buf.chunks(r).any(|p| p.bytes().any(|c| c == b'|')))
+        let t = text_of(buf, r);
+        let p = prefix_len(&t);
+        Some((t[p..].contains('|'), quote_depth(&t[..p])))
     };
-    // The run of pipe lines around the caret's line.
-    if is_pipe(buf, line) != Some(true) {
-        return nothing(sel);
+    let (pipe, depth) = info(buf, line)?;
+    if !pipe {
+        return None;
     }
+    // The run of pipe lines around the caret's line, in the same quote.
+    let is_pipe =
+        |buf: &Buffer, l: usize| -> Option<bool> { info(buf, l).map(|(p, d)| p && d == depth) };
     let (mut r0, mut r1) = (line, line);
     while r0 > 0 {
-        match is_pipe(buf, r0 - 1) {
-            Some(true) => r0 -= 1,
-            Some(false) => break,
-            None => return nothing(sel),
+        if !is_pipe(buf, r0 - 1)? {
+            break;
         }
+        r0 -= 1;
         if line - r0 > TABLE_ROWS {
-            return nothing(sel);
+            return None;
         }
     }
     while r1 + 1 < buf.len_lines() {
-        match is_pipe(buf, r1 + 1) {
-            Some(true) => r1 += 1,
-            Some(false) => break,
-            None => return nothing(sel),
+        if !is_pipe(buf, r1 + 1)? {
+            break;
         }
+        r1 += 1;
         if r1 - line > TABLE_ROWS {
-            return nothing(sel);
+            return None;
         }
     }
     if r1 - r0 + 1 > TABLE_ROWS {
-        return nothing(sel);
+        return None;
     }
-    let rows_of = |first: usize, last: usize| -> Vec<Row> {
-        (first..=last)
-            .map(|l| {
-                let range = buf.line_range(l);
-                let text = text_of(buf, range.clone());
-                let cells = cells_of(&text);
-                Row { range, text, cells }
-            })
-            .collect()
-    };
-    let rows = rows_of(r0, r1);
+    let mut rows: Vec<Row> = (r0..=r1)
+        .map(|l| {
+            let range = buf.line_range(l);
+            let text = text_of(buf, range.clone());
+            let bounds = bounds_of(&text);
+            let cells = trimmed(&text, &bounds);
+            Row {
+                range,
+                text,
+                bounds,
+                cells,
+            }
+        })
+        .collect();
     if rows.iter().map(|r| r.text.len()).sum::<usize>() > TABLE_BYTES {
-        return nothing(sel);
+        return None;
     }
     // The first delimiter row that has a header above it with the same number of cells.
-    let delim_of = |row: &Row| -> Option<Vec<u8>> {
-        row.cells
-            .iter()
-            .map(|&(s, e)| alignment(&row.text[s..e]))
-            .collect()
-    };
-    let Some(d) = (1..rows.len()).find(|&i| {
+    let d = (1..rows.len()).find(|&i| {
         !rows[i].cells.is_empty()
             && rows[i].cells.len() == rows[i - 1].cells.len()
             && delim_of(&rows[i]).is_some()
-    }) else {
-        return nothing(sel);
-    };
+    })?;
     let start = d - 1;
     if line - r0 < start {
-        return nothing(sel);
+        return None;
     }
-    let table = &rows[start..];
+    let table = rows.split_off(start);
     let cols = table.iter().map(|r| r.cells.len()).max().unwrap_or(0);
     if cols > TABLE_COLS {
-        return nothing(sel);
+        return None;
     }
-    let align: Vec<u8> = delim_of(&table[1]).unwrap_or_default();
+    let align = delim_of(&table[1]).unwrap_or_default();
+    Some(Located {
+        rows: table,
+        align,
+        caret_row: line - r0 - start,
+    })
+}
+
+/// The alignments of a delimiter row's cells; `None` when one is not a delimiter cell.
+fn delim_of(row: &Row) -> Option<Vec<u8>> {
+    row.cells
+        .iter()
+        .map(|&(s, e)| alignment(&row.text[s..e]))
+        .collect()
+}
+
+/// The text of the table's rows, each with the byte in it where each cell's text starts. `rows`
+/// holds the cells of each row, the delimiter row (second) with any placeholders: only how many
+/// it has counts. Every row is `prefix`, `|`, then ` cell |` for each cell, each cell padded to
+/// the widest of its column (3 at least) by its alignment; the delimiter row is dashes and
+/// colons to that width.
+pub(crate) fn lay_out(
+    prefix: &str,
+    align: &[u8],
+    rows: &[Vec<String>],
+) -> Vec<(String, Vec<usize>)> {
+    let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
     let mut width = vec![3usize; cols];
-    for (i, row) in table.iter().enumerate() {
+    for (i, row) in rows.iter().enumerate() {
         if i == 1 {
             continue;
         }
-        for (c, &(s, e)) in row.cells.iter().enumerate() {
-            width[c] = width[c].max(display_width(&row.text[s..e]));
+        for (c, cell) in row.iter().enumerate() {
+            width[c] = width[c].max(display_width(cell));
         }
     }
-    let indent: String = table[0]
-        .text
-        .chars()
-        .take_while(|&c| c == ' ' || c == '\t')
-        .collect();
-    // The new text of each row and where each cell's text starts in it.
-    let mut made: Vec<(String, Vec<usize>)> = Vec::with_capacity(table.len());
-    for (i, row) in table.iter().enumerate() {
-        let mut out = indent.clone();
-        let mut starts = Vec::with_capacity(row.cells.len());
+    let mut made: Vec<(String, Vec<usize>)> = Vec::with_capacity(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+        let mut out = String::from(prefix);
+        let mut starts = Vec::with_capacity(row.len());
         out.push('|');
-        for (c, &(s, e)) in row.cells.iter().enumerate() {
+        for (c, cell) in row.iter().enumerate() {
             let a = align.get(c).copied().unwrap_or(0);
             let w = width[c];
             out.push(' ');
@@ -536,7 +593,6 @@ pub fn format_table(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Out
                     out.push(':');
                 }
             } else {
-                let cell = &row.text[s..e];
                 let pad = w - display_width(cell);
                 let (l, r) = match a {
                     2 => (pad, 0),
@@ -553,6 +609,47 @@ pub fn format_table(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Out
         }
         made.push((out, starts));
     }
+    made
+}
+
+/// Lines up the pipe table the caret is in. A table is a header row, a delimiter row (every cell
+/// colons and dashes, as many cells as the header) and the pipe lines after it; a pipe line is
+/// one that, after its prefix (spaces, tabs and block quote markers `>`), contains a `|` (so the
+/// table ends at the first line without one, blank lines included, or at one with another number
+/// of quote markers). A pipe that a backslash escapes or an inline code span holds does not
+/// separate cells. The caret (the selection's caret end) must be on one of its lines.
+///
+/// Every row is rewritten as `| cell | cell |`, each cell padded to the widest of its column
+/// (display width: wide characters count 2), by the column's alignment (left, none: text first;
+/// right: spaces first; center: spaces both sides); the delimiter row is dashes to that width with
+/// its colons (3 wide at least). Cell text is only trimmed, never changed; a row with fewer cells
+/// than the header keeps as many cells as it had; the header's prefix is used for every row;
+/// line endings are not touched. A selection end moves with the cell and the
+/// offset in the cell text it was at, or, when it was in the padding or at a pipe, to the
+/// nearest end of that cell's text. Nothing (the selection returned) outside a table, when the
+/// table is over [`TABLE_ROWS`] rows, [`TABLE_COLS`] columns, [`TABLE_LINE_BYTES`] bytes per
+/// line or [`TABLE_BYTES`] in all, or when it is already lined up.
+pub fn format_table(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
+    let len = buf.len_bytes();
+    let caret = buf.floor_char(sel.caret.min(len));
+    let Some(Located {
+        rows: table, align, ..
+    }) = locate(buf, caret)
+    else {
+        return nothing(sel);
+    };
+    let prefix = table[0].text[..prefix_len(&table[0].text)].to_string();
+    let cells: Vec<Vec<String>> = table
+        .iter()
+        .map(|r| {
+            r.cells
+                .iter()
+                .map(|&(s, e)| r.text[s..e].to_string())
+                .collect()
+        })
+        .collect();
+    // The new text of each row and where each cell's text starts in it.
+    let made = lay_out(&prefix, &align, &cells);
     // Rows that change, with the map of the selection ends through them.
     struct Change<'a> {
         row: &'a Row,
