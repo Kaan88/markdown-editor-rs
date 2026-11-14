@@ -340,6 +340,16 @@ fn icon(id: C) -> &'static str {
         C::ShowShortcuts => glyph::KEYBOARD,
         C::About => glyph::INFO,
         C::ShowInFileManager => glyph::FOLDER_OPEN,
+        C::SortLines
+        | C::SortLinesDescending
+        | C::SortLinesIgnoreCase
+        | C::ReverseLines
+        | C::UniqueLines
+        | C::JoinLines => glyph::EDIT,
+        C::MdBold | C::MdItalic | C::MdCode | C::MdStrike | C::MdHeading => glyph::WORD,
+        C::MdLink => glyph::LINK,
+        C::MdTable => glyph::TABS,
+        C::Settings => glyph::SLIDERS,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
 }
@@ -363,6 +373,19 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::TrimTrailing
         | C::TabsToSpaces
         | C::ToggleBookmark
+        | C::SortLines
+        | C::SortLinesDescending
+        | C::SortLinesIgnoreCase
+        | C::ReverseLines
+        | C::UniqueLines
+        | C::JoinLines
+        | C::MdBold
+        | C::MdItalic
+        | C::MdCode
+        | C::MdStrike
+        | C::MdHeading
+        | C::MdLink
+        | C::MdTable
         | C::GoToLine => ready.is_some(),
         C::Reload | C::CloseTab | C::CloseAllTabs => has_tab,
         C::Find

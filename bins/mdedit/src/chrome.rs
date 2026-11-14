@@ -223,7 +223,8 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         }
     };
     Some(match hit {
-        Hit::Fold(line) | Hit::FoldBox(line) => {
+        // The chevron needs no tooltip: it is self-evident and the bubble covers the text.
+        Hit::FoldBox(line) => {
             let folded = docs.active_ready()?.folds.headed(line).is_some();
             with(
                 if folded {
@@ -359,8 +360,8 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
 pub fn find_label(docs: &Docs) -> (String, bool) {
     match docs.active_ready() {
         Some(r) => (
-            r.find.label(),
-            !r.find.text.is_empty() && !r.find.searching && r.find.matches.is_empty(),
+            r.find_label(),
+            !r.find.text.is_empty() && !r.find.searching && r.match_window().is_empty(),
         ),
         None => (String::new(), false),
     }
@@ -443,7 +444,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let y = r.y;
     let has_matches = docs
         .active_ready()
-        .is_some_and(|r| !r.find.matches.is_empty() && !r.find.searching);
+        .is_some_and(|r| !r.match_window().is_empty() && !r.find.searching);
     let width = |c: &mut Ctx, label: &str| (c.p.measure(Face::Ui, 13.0, label) + 26.0).round();
     let (one_w, all_w) = (
         width(c, strings::REPLACE_ONE),
@@ -560,7 +561,7 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let has_tab = docs.active().is_some();
     let has_matches = docs
         .active_ready()
-        .is_some_and(|r| !r.find.matches.is_empty());
+        .is_some_and(|r| !r.match_window().is_empty());
     let button =
         |c: &mut Ctx, x: f32, item: BarItem, g: &str, label: Option<&str>, on: bool| -> f32 {
             // Reload needs a document and match stepping needs matches; without them they show

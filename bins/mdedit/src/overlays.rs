@@ -57,7 +57,8 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         theme(ThemeChoice::System, "System theme", glyph::SYSTEM).sep(),
         theme(ThemeChoice::Light, "Light theme", glyph::SUN),
         theme(ThemeChoice::Dark, "Dark theme", glyph::MOON),
-        cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD).sep(),
+        cmd(C::Settings, "Settings…", glyph::SLIDERS).sep(),
+        cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD),
     ];
     // Off Windows, from an AppImage (the desktop entry exists), until mdedit is the default.
     #[cfg(not(windows))]
@@ -246,6 +247,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         .active_ready()
         .and_then(|r| r.language)
         .is_some_and(|l| l.line_comment().is_some());
+    let markdown = docs.active_ready().is_some_and(|r| r.assist.markdown);
     let items = vec![
         cmd(C::Undo, "Undo", glyph::UNDO).enabled(history.is_some_and(|h| h.can_undo())),
         cmd(C::Redo, "Redo", glyph::REDO).enabled(history.is_some_and(|h| h.can_redo())),
@@ -259,23 +261,83 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
             .enabled(ready),
-        cmd(C::DuplicateLine, "Duplicate line", glyph::DUPLICATE_LINE)
-            .sep()
+        if markdown {
+            Item::new(Act::MarkdownMenu, "Markdown")
+                .icon(glyph::EDIT)
+                .hint("›")
+                .sep()
+        } else {
+            cmd(C::ToggleComment, "Toggle comment", glyph::COMMENT)
+                .sep()
+                .enabled(has_comment)
+        },
+        Item::new(Act::LinesMenu, "Lines")
+            .icon(glyph::DUPLICATE_LINE)
+            .hint("›")
             .enabled(ready),
-        cmd(C::DeleteLine, "Delete line", glyph::DELETE_LINE).enabled(ready),
-        cmd(C::ToggleComment, "Toggle comment", glyph::COMMENT).enabled(has_comment),
-        cmd(C::UpperCase, "UPPERCASE", glyph::UPPERCASE).enabled(has_selection),
-        cmd(C::LowerCase, "lowercase", glyph::LOWERCASE).enabled(has_selection),
-        cmd(C::TrimTrailing, "Trim trailing spaces", glyph::TRIM)
-            .sep()
+        Item::new(Act::ConvertMenu, "Convert")
+            .icon(glyph::UPPERCASE)
+            .hint("›")
             .enabled(ready),
-        cmd(C::TabsToSpaces, "Tabs to spaces", glyph::TABS).enabled(ready),
-        cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK).enabled(ready),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
         cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD),
     ];
     Menu::new(items, x, y, false)
+}
+
+/// The text menu's Lines submenu: the line commands, then the ones that sort and join them.
+pub fn lines_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    let ready = docs.active_ready().is_some();
+    let items = vec![
+        cmd(C::DuplicateLine, "Duplicate line", glyph::DUPLICATE_LINE).enabled(ready),
+        cmd(C::DeleteLine, "Delete line", glyph::DELETE_LINE).enabled(ready),
+        cmd(C::MoveLineUp, "Move line up", glyph::UP).enabled(ready),
+        cmd(C::MoveLineDown, "Move line down", glyph::DOWN).enabled(ready),
+        // No sort icon in the shared set: these have none rather than a borrowed one.
+        cmd(C::SortLines, "Sort lines", "").sep().enabled(ready),
+        cmd(C::SortLinesDescending, "Sort lines descending", "").enabled(ready),
+        cmd(C::SortLinesIgnoreCase, "Sort lines ignoring case", "").enabled(ready),
+        cmd(C::ReverseLines, "Reverse lines", "").enabled(ready),
+        cmd(C::UniqueLines, "Remove duplicate lines", "").enabled(ready),
+        cmd(C::JoinLines, "Join lines", "").enabled(ready),
+        cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK)
+            .sep()
+            .enabled(ready),
+    ];
+    Menu::new(items, x, y, align_right)
+}
+
+/// The text menu's Markdown submenu, for Markdown documents.
+pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    let ready = docs.active_ready().is_some();
+    let items = vec![
+        cmd(C::MdBold, "Bold", "").enabled(ready),
+        cmd(C::MdItalic, "Italic", "").enabled(ready),
+        cmd(C::MdCode, "Code", "").enabled(ready),
+        cmd(C::MdStrike, "Strikethrough", "").enabled(ready),
+        cmd(C::MdHeading, "Heading level", "").sep().enabled(ready),
+        cmd(C::MdLink, "Link", glyph::LINK).enabled(ready),
+        cmd(C::MdTable, "Align table", "").sep().enabled(ready),
+    ];
+    Menu::new(items, x, y, align_right)
+}
+
+/// The text menu's Convert submenu: case, tabs and trailing spaces.
+pub fn convert_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    let ready = docs.active_ready().is_some();
+    let has_selection = docs
+        .active_ready()
+        .is_some_and(|r| !r.sel.range().is_empty());
+    let items = vec![
+        cmd(C::UpperCase, "UPPERCASE", glyph::UPPERCASE).enabled(has_selection),
+        cmd(C::LowerCase, "lowercase", glyph::LOWERCASE).enabled(has_selection),
+        cmd(C::TabsToSpaces, "Tabs to spaces", glyph::TABS)
+            .sep()
+            .enabled(ready),
+        cmd(C::TrimTrailing, "Trim trailing spaces", glyph::TRIM).enabled(ready),
+    ];
+    Menu::new(items, x, y, align_right)
 }
 
 /// The menu of the bar's text boxes: the editing commands a text box has everywhere, and the
@@ -899,6 +961,52 @@ mod tests {
         ] {
             let r = card(kind, 30, 520.0, 360.0);
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.right() <= 520.0 && r.bottom() <= 360.0);
+        }
+    }
+}
+
+/// The widest a submenu is (its longest label plus the icon column), used to decide on which side
+/// of its parent it stands before it has been measured.
+pub const SUB_WIDTH: f32 = 260.0;
+
+/// Where a submenu stands beside its parent `parent` in a window `win_w` wide: to the right of it
+/// when there is room, otherwise to the left. Returns the menu's anchor x and whether that x is
+/// the menu's right edge. One rule for the main menu (which hangs at the window's right edge) and
+/// for a context menu anywhere in the window.
+pub fn sub_side(parent: Rect, win_w: f32) -> (f32, bool) {
+    if parent.right() + SUB_WIDTH + 4.0 <= win_w {
+        (parent.right(), false)
+    } else {
+        (parent.x, true)
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    #[test]
+    fn a_submenu_stands_beside_its_parent_on_the_side_with_room() {
+        let win = 1000.0;
+        // Parent near the left edge: the submenu goes to its right.
+        let (x, right) = sub_side(Rect::new(10.0, 50.0, 220.0, 300.0), win);
+        assert!(!right && x == 230.0);
+        // In the middle: still to the right.
+        let (x, right) = sub_side(Rect::new(400.0, 50.0, 220.0, 300.0), win);
+        assert!(!right && x == 620.0);
+        // Hugging the right edge (the main menu, or a context menu there): to the left,
+        // its right edge at the parent's left edge.
+        let (x, right) = sub_side(Rect::new(770.0, 50.0, 220.0, 300.0), win);
+        assert!(right && x == 770.0);
+        // Neither side overlaps the parent.
+        for px in [4.0, 100.0, 300.0, 500.0, 700.0, 776.0] {
+            let parent = Rect::new(px, 0.0, 220.0, 100.0);
+            let (x, right) = sub_side(parent, win);
+            if right {
+                assert!(x - SUB_WIDTH >= 0.0 && x == parent.x);
+            } else {
+                assert!(x == parent.right() && x + SUB_WIDTH <= win);
+            }
         }
     }
 }

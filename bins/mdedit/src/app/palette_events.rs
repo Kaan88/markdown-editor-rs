@@ -12,8 +12,8 @@ use mdshared_ui::palette::Outcome as Pick;
 impl App {
     /// Opens the command palette with `query` in its box.
     pub(super) fn open_palette(&mut self, query: &str) {
-        // A question on screen is answered first.
-        if self.ui.dialog.is_some() {
+        // A question or the settings on screen are answered first.
+        if self.ui.dialog.is_some() || self.ui.settings.is_some() {
             return;
         }
         self.ui.popup = None;

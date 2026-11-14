@@ -54,6 +54,7 @@ mod compare_events;
 #[cfg(test)]
 mod files_tests;
 mod input;
+pub(crate) mod modal;
 mod palette_events;
 mod replace_files;
 
@@ -161,6 +162,9 @@ struct App {
     service_doc: Option<DocId>,
     service_dark: Option<bool>,
     window: Option<Rc<Window>>,
+    /// The compositor's drop shadow (Linux, KWin on Wayland); `None` elsewhere. Dropping it
+    /// removes the shadow, so it lives as long as the window.
+    shadow: Option<mdshared_ui::shadow::Shadow>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     incoming: Option<Receiver<PathBuf>>,
     watcher: Option<FileWatcher>,
@@ -248,6 +252,16 @@ struct App {
 }
 
 impl App {
+    /// Hands the compositor the shadow for the window's scale, focus and maximised state; cheap
+    /// (returns at once when none changed) and nothing without a shadow. `focused` is the new
+    /// focus when the event says it, otherwise the window's own.
+    fn update_shadow(&mut self, focused: Option<bool>) {
+        if let (Some(shadow), Some(w)) = (self.shadow.as_mut(), self.window.as_ref()) {
+            let active = focused.unwrap_or_else(|| w.has_focus());
+            shadow.update(w.scale_factor(), active, w.is_maximized());
+        }
+    }
+
     fn new(
         args: Args,
         docs: Docs,
@@ -277,6 +291,7 @@ impl App {
             service_doc: None,
             service_dark: None,
             window: None,
+            shadow: None,
             surface: None,
             incoming: None,
             watcher: None,
@@ -785,7 +800,7 @@ impl App {
                         // What the column marks over the rows.
                         (r.sel.range(), r.sel.caret, pane == 0),
                         (!r.extra.is_empty()).then(|| sig(&r.extra)),
-                        (r.find.generation, r.find.current),
+                        (r.find.generation, r.find.current, r.scope()),
                         &r.bookmarks,
                         r.align.as_ref().map(|a| a.stamp),
                     ))
@@ -941,7 +956,7 @@ impl App {
                 bounds.push(s.menu.rect().inset(-20.0));
             }
         }
-        if self.ui.dialog.is_some() {
+        if self.ui.dialog.is_some() || self.ui.settings.is_some() {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
         if let Some(p) = self.palette.open.as_mut() {
@@ -974,6 +989,10 @@ impl App {
                         .map(|s| (s.kind, s.menu.hover, s.menu.scroll().to_bits())),
                 )
             }),
+            self.ui
+                .settings
+                .as_ref()
+                .map(|_| (self.ui.overlay_tick, self.ui.caret_on)),
             self.ui.dialog.as_ref().map(|d| {
                 (
                     d.kind,
@@ -1254,6 +1273,9 @@ impl App {
                         ),
                     }
                 }
+                if let Some(f) = self.ui.settings.as_mut() {
+                    f.draw(c.p, &pal, Rect::new(0.0, 0.0, w, h), self.ui.caret_on);
+                }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
                     popup.menu.draw_in(c.p, &pal, room);
@@ -1493,7 +1515,11 @@ impl App {
             self.ui.panes.files_w.round() as u32,
             &self.docs.folder,
             &self.session.geometry,
-            (self.docs.check_updates, self.session.update_checked),
+            (
+                self.docs.check_updates,
+                self.session.update_checked,
+                self.docs.prefs.serialize(),
+            ),
             (
                 (self.ui.match_case, self.ui.whole_word, self.ui.regex),
                 self.ui.find_recall.items(),
@@ -1652,6 +1678,7 @@ impl ApplicationHandler<Wake> for App {
         let size = window.inner_size();
         self.size = (size.width.max(1), size.height.max(1));
         self.maximized = window.is_maximized();
+        self.shadow = mdshared_ui::shadow::Shadow::attach(&window);
         #[cfg(windows)]
         style(&window, self.dark());
         let surface = softbuffer::Context::new(window.clone())
@@ -1724,11 +1751,13 @@ impl ApplicationHandler<Wake> for App {
                 if let Some(w) = &self.window {
                     self.maximized = w.is_maximized();
                 }
+                self.update_shadow(None);
                 self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
                 self.redraw();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor as f32;
+                self.update_shadow(None);
                 self.full = true;
                 self.redraw();
             }
@@ -1739,6 +1768,7 @@ impl ApplicationHandler<Wake> for App {
             }
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
+                self.update_shadow(Some(focused));
                 if focused && self.ui.tree.refresh() {
                     self.redraw();
                 }
@@ -1946,7 +1976,7 @@ impl App {
             for &n in &a.folds {
                 let line = n.clamp(1, r.buffer.len_lines().max(1)) - 1;
                 if let Some(end) =
-                    mdedit_core::fold::block_end(&r.buffer, line, mdedit_core::limits::TAB_WIDTH)
+                    mdedit_core::fold::block_end(&r.buffer, line, crate::live::tab_width())
                 {
                     r.folds.fold(line, end);
                 }
@@ -1972,6 +2002,17 @@ impl App {
         }
         if let Some(text) = &a.type_text {
             self.docs.edit(EditOp::Insert(text), self.service.as_ref());
+        }
+        if let Some(keys) = &a.type_keys {
+            for c in keys.chars() {
+                let mut buf = [0; 4];
+                let op = if c == '\n' {
+                    EditOp::Newline
+                } else {
+                    EditOp::Insert(c.encode_utf8(&mut buf))
+                };
+                self.docs.edit(op, self.service.as_ref());
+            }
         }
         if let Some(q) = &a.find {
             self.ui.find.set_text(q);
@@ -2095,8 +2136,28 @@ fn shot(mut app: App, path: &Path) -> i32 {
             }
         }
         Some(ShotMenu::Text) => {
-            app.ui.mouse = (text.x + text.w * 0.3, text.y + 160.0);
+            app.ui.mouse = (
+                text.x + text.w * app.args.menu_at.unwrap_or(0.3),
+                text.y + 160.0,
+            );
             app.right_press();
+        }
+        Some(m @ (ShotMenu::TextLines | ShotMenu::TextConvert | ShotMenu::TextMarkdown)) => {
+            app.ui.mouse = (
+                text.x + text.w * app.args.menu_at.unwrap_or(0.3),
+                text.y + 160.0,
+            );
+            app.right_press();
+            app.compose();
+            let (row, sub) = match m {
+                ShotMenu::TextLines => (7, PopupKind::Lines),
+                ShotMenu::TextConvert => (8, PopupKind::Convert),
+                _ => (6, PopupKind::Markdown),
+            };
+            if let Some(p) = app.ui.popup.as_mut() {
+                p.menu.hover = Some(row);
+            }
+            app.open_sub(PopupKind::Text, sub, true);
         }
         Some(ShotMenu::Find) => {
             if let Some(r) = app.hit_rect(Hit::Find) {
@@ -2111,6 +2172,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotDialog::Shortcuts) => app.open_dialog(DialogKind::Shortcuts),
         Some(ShotDialog::Recent) => app.open_dialog(DialogKind::Recent),
         Some(ShotDialog::Macros) => app.open_dialog(DialogKind::Macros),
+        Some(ShotDialog::Settings) => app.open_settings(),
         Some(ShotDialog::Unsaved) => {
             if let Some(id) = app.docs.active_doc().map(|d| d.id) {
                 app.ask(DialogKind::Unsaved, id, After::Nothing);
@@ -2203,6 +2265,14 @@ pub fn run() -> i32 {
         }
     });
     let mut docs = Docs::new(platform::code_page(), waker.clone());
+    // The preferences: the file's, with any `--pref` of this run over them.
+    let mut session = session;
+    if !args.prefs.is_empty() {
+        let text = format!("{}\n{}", session.prefs.serialize(), args.prefs.join("\n"));
+        session.prefs = mdedit_core::prefs::Prefs::parse(&text);
+    }
+    docs.prefs = session.prefs.clone();
+    crate::live::apply(&session.prefs);
     docs.recents = session.recent.clone();
     docs.check_updates = session.check_updates;
     if let Some(stage) = &args.update_bar {
@@ -2210,8 +2280,10 @@ pub fn run() -> i32 {
     }
     docs.zoom = args.zoom.unwrap_or(session.zoom);
     docs.whitespace = args.whitespace || session.whitespace;
-    docs.wrap = args.wrap || session.wrap;
-    docs.minimap = args.minimap || session.minimap;
+    // The preferences' minimap and wrap are the defaults of a new window and document: the view
+    // commands change them for this run only.
+    docs.wrap = args.wrap || session.wrap || session.prefs.word_wrap;
+    docs.minimap = args.minimap || session.minimap || session.prefs.minimap;
     docs.theme = match args.dark {
         Some(true) => ThemeChoice::Dark,
         Some(false) => ThemeChoice::Light,
@@ -2223,7 +2295,8 @@ pub fn run() -> i32 {
         .map(canonical_or_absolute)
         .or_else(|| session.folder.clone());
     let mut active = None;
-    for (i, path) in session.tabs.iter().enumerate() {
+    let restore = session.prefs.restore_session;
+    for (i, path) in session.tabs.iter().enumerate().filter(|_| restore) {
         if path.is_file() {
             let k = docs.add_pending(path);
             if i == session.active {
@@ -2234,7 +2307,7 @@ pub fn run() -> i32 {
     // Tabs that had unsaved text when the window last closed get it back.
     let mut restored = Vec::new();
     if let Some(dir) = session_path.as_deref().and_then(backup_dir_of) {
-        for u in &session.unsaved {
+        for u in session.unsaved.iter().filter(|_| restore) {
             let file = dir.join(&u.file);
             if !file.is_file() {
                 continue;
@@ -2327,6 +2400,7 @@ pub fn run() -> i32 {
     }
     let positions = a.goto.is_some()
         || a.type_text.is_some()
+        || a.type_keys.is_some()
         || a.select.is_some()
         || a.find.is_some()
         || a.scroll.is_some()
@@ -2360,4 +2434,85 @@ pub fn run() -> i32 {
     app.updates_at_launch();
     let _ = event_loop.run_app(&mut app);
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::Key;
+    use mdshared_ui::keys::KeyName;
+
+    fn app() -> App {
+        let args = Args::parse(["--no-session".to_string()]);
+        let mut docs = Docs::new(1254, Arc::new(|_| {}));
+        docs.new_untitled();
+        let trace = Trace {
+            on: false,
+            started: Instant::now(),
+        };
+        App::new(args, docs, trace, None, Session::default())
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        for c in text.chars() {
+            let (key, typed) = match c {
+                '\n' => (KeyName::Enter, None),
+                '\u{8}' => (KeyName::Backspace, None),
+                c => (KeyName::Char(c), Some(c.to_string())),
+            };
+            app.key_pressed(Key::Name(key), typed.as_deref());
+        }
+    }
+
+    fn text(app: &App) -> String {
+        let r = app.docs.active_ready().unwrap();
+        let mut s = String::new();
+        r.buffer.text(0..r.buffer.len_bytes(), &mut s);
+        s
+    }
+
+    #[test]
+    fn a_macro_replays_typing_help_to_the_same_result() {
+        let mut a = app();
+        // Record: a bracket (paired), a letter, then Enter between the pair.
+        a.macros.recording = Some(Vec::new());
+        type_text(&mut a, "{a");
+        a.key_pressed(Key::Name(KeyName::Right), None);
+        type_text(&mut a, "\n");
+        let recorded = text(&a);
+        assert_eq!(recorded, "{a}\n");
+        a.macros.finish();
+        assert!(!a.macros.steps.is_empty());
+        // Replay at the end of the text: the keys do what they did, help included.
+        a.docs.edit(crate::docs::EditOp::Insert("\n"), None);
+        let before = text(&a);
+        a.play_macro(false);
+        let after = text(&a);
+        assert_eq!(&after[before.len()..], "{a}\n");
+    }
+
+    #[test]
+    fn a_setting_applies_to_the_open_documents_and_is_kept_for_the_session_file() {
+        use crate::app::modal::{AUTO_PAIR, TRIM_ON_SAVE};
+        use mdshared_ui::settings::Value;
+        let mut a = app();
+        type_text(&mut a, "(");
+        assert_eq!(text(&a), "()");
+        a.apply_setting(AUTO_PAIR, Value::Bool(false));
+        assert!(!a.docs.prefs.auto_pair);
+        a.apply_setting(TRIM_ON_SAVE, Value::Bool(true));
+        // The open document follows at once: a bracket is a bracket now.
+        type_text(&mut a, "[");
+        assert_eq!(text(&a), "([)");
+        // The session file carries them, and the next start reads them back.
+        let file = a.session.serialize();
+        assert!(file.contains("[preferences]") && file.contains("auto_pair=0"));
+        let back = Session::parse(&file);
+        assert!(!back.prefs.auto_pair && back.prefs.trim_on_save);
+        // Opening the form builds its rows from them.
+        a.open_settings();
+        assert!(a.ui.settings.is_some());
+        a.close_settings();
+        assert!(a.ui.settings.is_none());
+    }
 }

@@ -210,7 +210,7 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 516 passed on 2026-11-14
+cargo test --release --workspace        # 525 passed on 2026-11-14
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 bash tests/shots.sh target/shots/a      # 72 PNGs, deterministic; first run generates target/data
@@ -238,12 +238,31 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Typing, Markdown, settings, shadow (2026-11-14, 0.5.0, not published)
+
+One machine (CachyOS, Wayland); nothing run on Windows, nothing driven by hand: tests, `--shot`
+and `--trace` only. Design: DESIGN.md sections 43 to 48. Commits: A `4149108`, line commands
+`a2fb6eb`, typing help `d24e906`, Markdown `2f23d38`, settings `76ffe89`, then shadow and 0.5.0.
+
+- Sent-back items: in-selection replace governs counter, current match, marks and minimap; fold
+  chevron without tooltip, centred in the gap; the fold-box tooltip clip is in the shared crate
+  (`Bubble::tip`/`Bubble::hint` in mdshared-ui overlay.rs size the box from a fractional width;
+  `w.ceil()` there is the proposed fix; not rebuilt or verified).
+- Keys: Ctrl+J, Ctrl+B, Ctrl+I, Ctrl+Shift+H, Ctrl+, were free; Link has none.
+- Not done: Tab with spaces for multi-line blocks (core `indent` is tab-only).
+- Timing (sample.rs, 300 keystrokes, noisy machine): before p50 0.51-0.62 ms, p95 0.76-1.52 ms;
+  after p50 0.54-0.90 ms, p95 1.09-1.30 ms; first frame 74-100 ms both; private 20.6 MiB.
+- Tests: 525 pass with `--release`; clippy and fmt clean. Shots in `~/.cache/md-linux-test/b4`.
+- Not run: anything interactive, Windows, Wayland shadow (KWin), the settings dialog by hand, the
+  AppImage "make default" row, "Check now".
+- Commit trailers from here on name Claude Sonnet 5.5 (the earlier ones in this series, Fable 5.2).
+
 ## Command palette, compare two files, replace in files: the interface (2026-11-14, branch `features-files`, not merged, not published)
 
 Wired three finished pieces of headless logic into the window, on the branch `features-files` (from
 `79e70ec`). Done on one machine (CachyOS, Wayland); nothing run on Windows; nothing driven by hand
-(only tests, `--shot`, and `--trace --exit-after-ms`/`--type-steps`/`--scroll-steps`). DESIGN 43
-(palette), 44 (compare in the window), 45 (replace in files in the window).
+(only tests, `--shot`, and `--trace --exit-after-ms`/`--type-steps`/`--scroll-steps`). DESIGN 49
+(palette), 50 (compare in the window), 51 (replace in files in the window).
 
 **Built**
 - **Command palette** (`Ctrl+P`): `palette.rs` (sources), `app/palette_events.rs` (the host).
@@ -310,6 +329,7 @@ nothing; the blocking dialog path for Compare with file… (`#[cfg(windows)]`) w
 Open files is and has not been built. A real replacement of many files, and a compare of two very
 different large files (the approximate case), were not timed in a window. The shots and the tests
 stand in for these only as far as they go; the owner has to look at the interface.
+
 
 ## Gaps closed: icons, chevrons, split, macros, find memory, title row (2026-11-14, still 0.4.1, not published)
 

@@ -30,6 +30,19 @@ pub enum CommandId {
     LowerCase,
     TrimTrailing,
     TabsToSpaces,
+    SortLines,
+    SortLinesDescending,
+    SortLinesIgnoreCase,
+    ReverseLines,
+    UniqueLines,
+    JoinLines,
+    MdBold,
+    MdItalic,
+    MdCode,
+    MdStrike,
+    MdHeading,
+    MdLink,
+    MdTable,
     Find,
     FindNext,
     FindPrevious,
@@ -72,6 +85,7 @@ pub enum CommandId {
     ThemeSystem,
     ThemeLight,
     ThemeDark,
+    Settings,
     ShowShortcuts,
     About,
     CloseOtherTabs,
@@ -140,6 +154,20 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::LowerCase, "lowercase", &["Ctrl+U"]),
     cmd(C::TrimTrailing, "Trim trailing spaces", &[]),
     cmd(C::TabsToSpaces, "Tabs to spaces", &[]),
+    cmd(C::SortLines, "Sort lines", &[]),
+    cmd(C::SortLinesDescending, "Sort lines descending", &[]),
+    cmd(C::SortLinesIgnoreCase, "Sort lines ignoring case", &[]),
+    cmd(C::ReverseLines, "Reverse lines", &[]),
+    cmd(C::UniqueLines, "Remove duplicate lines", &[]),
+    cmd(C::JoinLines, "Join lines", &["Ctrl+J"]),
+    // Markdown documents only. Ctrl+K is Toggle comment, so Link has no key.
+    cmd(C::MdBold, "Bold", &["Ctrl+B"]),
+    cmd(C::MdItalic, "Italic", &["Ctrl+I"]),
+    cmd(C::MdCode, "Code", &[]),
+    cmd(C::MdStrike, "Strikethrough", &[]),
+    cmd(C::MdHeading, "Heading level", &["Ctrl+Shift+H"]),
+    cmd(C::MdLink, "Link", &[]),
+    cmd(C::MdTable, "Align table", &[]),
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
     cmd(C::FindPrevious, "Find previous", &["Shift+F3"]),
@@ -195,6 +223,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ThemeSystem, "System theme", &[]),
     cmd(C::ThemeLight, "Light theme", &[]),
     cmd(C::ThemeDark, "Dark theme", &[]),
+    cmd(C::Settings, "Settings", &["Ctrl+,"]),
     cmd(C::ShowShortcuts, "Keyboard shortcuts", &[]),
     cmd(C::About, "About mdedit", &[]),
     cmd(C::CloseOtherTabs, "Close other tabs", &[]),
@@ -375,11 +404,15 @@ pub mod strings {
         }
     }
 
+    pub const FIND_NO_MATCHES_IN_SELECTION: &str = "No matches in selection";
+
     /// The toast for a file read with replacement characters.
     pub fn lossy_toast(name: &str) -> String {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
     }
 
+    pub const NOT_MARKDOWN: &str = "This is for Markdown files.";
+    pub const BLOCK_TOO_LARGE: &str = "That block of lines is too large to change at once.";
     pub const NO_LINE_COMMENT: &str = "This kind of file has no line comment.";
     pub const TOO_LARGE_FOR_ALL_LINES: &str =
         "This file is too large to change every line at once.";

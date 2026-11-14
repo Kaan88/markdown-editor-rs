@@ -1281,7 +1281,63 @@ which toggles maximise (`title_press`). Windows keeps the immediate drag
 (`DEFER_TITLE_DRAG = cfg!(not(windows))`). Unit tests cover the decision; the behaviour on Wayland
 was not run (it needs the mouse).
 
-## 43. Command palette (2026-11-14)
+## 43. Amendments to 37 and 41 (2026-11-14)
+
+In-selection replace governs everything the strip shows. `Ready::match_window()` is the indices of
+`find.matches` inside the scope; the counter ("k of N", or "No matches in selection"), the current
+match (`fit_current_to_scope`, run when matches arrive and when the toggle changes), the match
+marks in the text and the minimap marks all read it, so matches outside are neither counted nor
+marked. Turning the toggle off restores whole-file behaviour on the same frame (the minimap
+signature includes the scope).
+
+The fold chevron has no tooltip (the fold box keeps its own). It is centred in the gap from the
+number column's right edge to the text: centre 4 px inside the gutter edge, so at least 3 px clear
+each side; hover tint width `FOLD_HOVER_W` = 12 px. The gutter did not change width.
+
+## 44. Line commands (2026-11-14)
+
+Sort lines, Sort descending, Sort ignoring case, Reverse, Remove duplicates, Join (Ctrl+J), all
+`EditOp`s over `mdedit_core::lines`; one undo step each, every caret/selection block. A block over
+the core's limit is refused with a toast. The text menu's top level is 12 rows: Undo, Redo, Cut,
+Copy, Paste, Select all, Toggle comment (Markdown documents: `Markdown ›` in its place), `Lines ›`,
+`Convert ›`, Find, Replace, Reload. No sort icon.
+
+## 45. Typing help (2026-11-14)
+
+Each `Ready` holds a `typing::Assist` built from prefs and language. Typed char, Enter and
+Backspace (and Tab/Shift+Tab on a Markdown list line with one caret) go through the core first
+(`typing_edit`), for one or many carets; when it answers `None` the plain edit runs. One keystroke
+is one undo step; "(ab" then undo removes the run. Macros record the key and replay through the
+same path (test). The editor has no IME composition or overwrite mode, so there was nothing to
+route there; the find and replace boxes use their own `find_key` path and are untouched.
+
+## 46. Markdown commands (2026-11-14)
+
+Bold Ctrl+B, Italic Ctrl+I, Code, Strikethrough, Heading level Ctrl+Shift+H, Link (no key: Ctrl+K
+is Toggle comment), Align table, in a `Markdown ›` submenu of the text menu for Markdown
+documents; on any other document they toast "not a Markdown document". No existing key was taken.
+The function list already outlines Markdown headings (`mdedit-outline`, `Flavor::Markdown`).
+
+## 47. Settings (2026-11-14)
+
+`Settings…` (Ctrl+,, main menu, SLIDERS glyph) opens the shared `settings::Form` over rows from
+`mdedit_core::prefs::Prefs`: Editing, Saving, View, Session, Updates, and System (AppImage). A
+Font family row is a single string; an unknown family falls back to the monospace stack. Changes
+apply live: tab width, font size, line numbers and highlight-line through process-wide atomics in
+`live.rs` (caches are cleared in `relayout_all`), the others through `Docs::set_prefs`. They are
+saved under `[preferences]` in the session file; `--pref key=value` overrides for a run. Minimap and
+word wrap are defaults for new windows/documents (OR'd with the remembered state at start). The
+existing view toggles stay. `apply_on_save` (trim, final newline) runs in the save path as one undo
+step, nothing when nothing differs, and not when the text is lossy or has an unencodable char
+(checked in that order). Limit: Tab inserts spaces ("indent with spaces") only for a caret or a
+selection within one line; a block still gets the core's tabs.
+
+## 48. Window shadow (2026-11-14)
+
+`mdshared_ui::shadow::Shadow::attach(&window)` after window creation, kept in `App.shadow`;
+`update(scale, active, maximized)` on resize, scale change and focus change, as in the viewer.
+
+## 49. Command palette (2026-11-14)
 
 `Ctrl+P` opens the shared `mdshared_ui::palette::Palette` over the window (`palette.rs` holds the
 sources, `app/palette_events.rs` the hosting). It is modal like a dialog: drawn last, every key,
@@ -1305,7 +1361,7 @@ Decisions: a greyed command cannot be chosen (Enter does nothing); the file list
 the empty query (the tabs and recent files are), so opening the palette costs no walk; the macro
 commands are enabled by whether a macro can play, as in the Macro menu.
 
-## 44. Compare two files in the window (2026-11-14)
+## 50. Compare two files in the window (2026-11-14)
 
 The comparison is `mdedit-core::diff` (section 35); this is what the window does with it
 (`compare.rs` the data and the state, `app/compare_events.rs` the commands, the view's changes in
@@ -1363,7 +1419,7 @@ is at the left (what the file was against what it is); the colours are fixed per
 while the diff is stale; the options (`ignore_ws` and the others) are in the core but have no
 control yet.
 
-## 45. Replace in files in the window (2026-11-14)
+## 51. Replace in files in the window (2026-11-14)
 
 The core is `mdedit-core::replace_files` (section 36); this is the panel and the dialog
 (`replace_ui.rs` the state and the drawing, `app/replace_files.rs` the steps). After a folder

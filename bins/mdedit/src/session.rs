@@ -144,7 +144,7 @@ impl Split {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Session {
     pub tabs: Vec<PathBuf>,
     /// The tabs whose unsaved text was kept when the window last closed.
@@ -178,6 +178,8 @@ pub struct Session {
     pub check_updates: bool,
     /// When the last look finished, seconds since the Unix epoch; 0 for never.
     pub update_checked: u64,
+    /// The preferences (the `[preferences]` section, owned by the core).
+    pub prefs: mdedit_core::prefs::Prefs,
 }
 
 impl Default for Session {
@@ -202,6 +204,7 @@ impl Default for Session {
             folder: None,
             check_updates: true,
             update_checked: 0,
+            prefs: mdedit_core::prefs::Prefs::default(),
         }
     }
 }
@@ -283,6 +286,7 @@ impl Session {
             s.recent.add(p);
         }
         s.active = s.active.min(s.tabs.len().saturating_sub(1));
+        s.prefs = mdedit_core::prefs::Prefs::parse(text);
         s
     }
 
@@ -344,7 +348,8 @@ impl Session {
         }
         out.line("check_updates", if self.check_updates { "1" } else { "0" });
         out.line("update_checked", &self.update_checked.to_string());
-        out.finish()
+        // The core writes its own section after this one.
+        format!("{}\n{}", out.finish(), self.prefs.serialize())
     }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
@@ -491,7 +496,14 @@ mod tests {
         assert!(s.serialize().contains("minimap=1"));
         assert!(Session::parse(&s.serialize()).minimap);
         // Off is the default and is not written.
-        assert!(!Session::default().serialize().contains("minimap"));
+        // (The preferences section has a key of that name: only the session's own part counts.)
+        let own = Session::default().serialize();
+        assert!(
+            !own.split("[preferences]")
+                .next()
+                .unwrap()
+                .contains("minimap")
+        );
         assert!(
             !Session::parse(
                 "[mdedit]

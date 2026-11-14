@@ -4,7 +4,7 @@ members = ["crates/mdedit-core", "crates/mdedit-highlight", "crates/mdedit-outli
 exclude = ["spikes"]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 publish = false
 
@@ -27,11 +27,11 @@ unicode-width = { version = "0.2", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "nfa-pikevm", "nfa-backtrack", "dfa-onepass", "hybrid", "perf-literal", "unicode"] }
 parley = "=0.12.0"
 bytemuck = "1.25"
-mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d6e6cf192776a671c6493f15ddae4bb90846d80d" }
-mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d6e6cf192776a671c6493f15ddae4bb90846d80d" }
-mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d6e6cf192776a671c6493f15ddae4bb90846d80d" }
-mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d6e6cf192776a671c6493f15ddae4bb90846d80d" }
-mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d6e6cf192776a671c6493f15ddae4bb90846d80d" }
+mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "9c1290b15bba468d3c5c224d5821e7bec1b23f39" }
+mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "9c1290b15bba468d3c5c224d5821e7bec1b23f39" }
+mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "9c1290b15bba468d3c5c224d5821e7bec1b23f39" }
+mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "9c1290b15bba468d3c5c224d5821e7bec1b23f39" }
+mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "9c1290b15bba468d3c5c224d5821e7bec1b23f39" }
 
 [profile.release]
 opt-level = 3

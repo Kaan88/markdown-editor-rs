@@ -8,6 +8,7 @@ use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
 use mdedit_core::find::Query;
 use mdedit_core::limits::COPY_LIMIT;
+use mdedit_core::lines;
 use mdedit_core::save::SaveError;
 
 /// How long after the last edit the find marks are searched for again.
@@ -64,6 +65,7 @@ impl App {
             Hit::InSelection => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.scope_on = !r.scope_on;
+                    r.fit_current_to_scope();
                 }
             }
             Hit::FindOpt(opt) => {
@@ -292,6 +294,11 @@ impl App {
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
+            Act::LinesMenu | Act::ConvertMenu | Act::MarkdownMenu => {
+                if let (Some(kind), Some(sub)) = (self.ui.popup_kind(), act.submenu()) {
+                    self.open_sub(kind, sub, false);
+                }
+            }
             Act::PlaySaved(i) => {
                 if self.macros.use_saved(i) {
                     self.play_macro(false);
@@ -424,6 +431,7 @@ impl App {
             return false;
         };
         let name = self.docs.tabs[i].name();
+        self.docs.apply_save_options(i, self.service.as_ref());
         match self.docs.save(i, overwrite) {
             Ok(()) => true,
             Err(SaveFailed::Error(SaveError::ChangedOnDisk)) => {
@@ -497,6 +505,7 @@ impl App {
     /// Writes tab `i` to `to`; the toast says why when it fails. True when the file was written.
     fn save_to(&mut self, i: usize, to: &Path) -> bool {
         let dark = self.dark();
+        self.docs.apply_save_options(i, self.service.as_ref());
         match self.docs.save_as(i, to, self.service.as_ref(), dark) {
             Ok(()) => {
                 self.last_active = None;
@@ -800,6 +809,9 @@ impl App {
                     self.macros.saved().iter().map(|n| n.name.clone()).collect();
                 overlays::macro_menu(recording, any, &names, x, y, right)
             }
+            PopupKind::Lines => overlays::lines_menu(&self.docs, x, y, right),
+            PopupKind::Convert => overlays::convert_menu(&self.docs, x, y, right),
+            PopupKind::Markdown => overlays::markdown_menu(&self.docs, x, y, right),
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return None,
@@ -823,12 +835,8 @@ impl App {
         } else {
             mouse_y - 14.0
         };
-        // Beside the parent, on its left when there is room (the main menu hangs at the right).
-        let (x, right) = if r.x >= 200.0 {
-            (r.x, true)
-        } else {
-            (r.right(), false)
-        };
+        // Beside the parent: on its right when there is room, otherwise on its left.
+        let (x, right) = overlays::sub_side(r, self.logical().0);
         let Some(mut menu) = self.build_menu(sub, x, y, right) else {
             return;
         };
@@ -906,7 +914,7 @@ impl App {
         self.ui.outline.on = false;
     }
 
-    fn set_theme(&mut self, choice: ThemeChoice) {
+    pub(super) fn set_theme(&mut self, choice: ThemeChoice) {
         self.docs.theme = choice;
         self.theme_from_args = false;
     }
@@ -928,6 +936,19 @@ impl App {
                 | C::LowerCase
                 | C::TrimTrailing
                 | C::TabsToSpaces
+                | C::SortLines
+                | C::SortLinesDescending
+                | C::SortLinesIgnoreCase
+                | C::ReverseLines
+                | C::UniqueLines
+                | C::JoinLines
+                | C::MdBold
+                | C::MdItalic
+                | C::MdCode
+                | C::MdStrike
+                | C::MdHeading
+                | C::MdLink
+                | C::MdTable
         );
         if self.ui.find_focused && edits {
             return;
@@ -1042,6 +1063,45 @@ impl App {
             C::LowerCase => {
                 self.edit(EditOp::Case(false));
             }
+            C::SortLines => {
+                self.edit(EditOp::SortLines(lines::SortOrder::Ascending));
+            }
+            C::SortLinesDescending => {
+                self.edit(EditOp::SortLines(lines::SortOrder::Descending));
+            }
+            C::SortLinesIgnoreCase => {
+                self.edit(EditOp::SortLines(lines::SortOrder::IgnoreCase));
+            }
+            C::ReverseLines => {
+                self.edit(EditOp::ReverseLines);
+            }
+            C::UniqueLines => {
+                self.edit(EditOp::UniqueLines);
+            }
+            C::JoinLines => {
+                self.edit(EditOp::JoinLines);
+            }
+            C::MdBold => {
+                self.edit(EditOp::MdWrap("**"));
+            }
+            C::MdItalic => {
+                self.edit(EditOp::MdWrap("*"));
+            }
+            C::MdCode => {
+                self.edit(EditOp::MdWrap("`"));
+            }
+            C::MdStrike => {
+                self.edit(EditOp::MdWrap("~~"));
+            }
+            C::MdHeading => {
+                self.edit(EditOp::MdHeading);
+            }
+            C::MdLink => {
+                self.edit(EditOp::MdLink);
+            }
+            C::MdTable => {
+                self.edit(EditOp::MdTable);
+            }
             C::TrimTrailing => {
                 self.edit(EditOp::TrimTrailing);
             }
@@ -1104,7 +1164,7 @@ impl App {
                     self.command(C::Find);
                 } else {
                     self.remember_find();
-                    self.docs.find_step(id == C::FindNext);
+                    self.docs.find_step_scoped(id == C::FindNext);
                 }
             }
             C::ClearSearch => {
@@ -1244,6 +1304,7 @@ impl App {
             C::PlayMacroToEnd => self.play_macro(true),
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
+            C::Settings => self.open_settings(),
             C::NextTab => self.docs.step_tab(true),
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),
@@ -1275,7 +1336,7 @@ impl App {
     /// Plays the macro once, or again and again for as long as each run leaves the caret on
     /// a later line than the one before (a macro that ends with Down goes through the file).
     /// A question or a menu that a key opens ends it.
-    fn play_macro(&mut self, to_end: bool) {
+    pub(super) fn play_macro(&mut self, to_end: bool) {
         if self.macros.playing {
             return;
         }

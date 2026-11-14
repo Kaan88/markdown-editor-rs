@@ -26,11 +26,16 @@ pub enum ShotMenu {
     Minimap,
     /// The Macro menu while a macro is being recorded.
     MacroRec,
+    /// The text menu with its Lines, Convert (or Markdown) submenu open beside it.
+    TextLines,
+    TextConvert,
+    TextMarkdown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShotDialog {
     Macros,
+    Settings,
     About,
     Shortcuts,
     Recent,
@@ -87,6 +92,9 @@ pub struct Args {
     pub dialog: Option<ShotDialog>,
     /// `--hover x,y`: logical pointer position for `--shot`.
     pub hover: Option<(f32, f32)>,
+    /// `--menu-at F`: where across the text area (0 to 1) the right-click of the text menu shots
+    /// lands; 0.3 when not given.
+    pub menu_at: Option<f32>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
     /// `--wrap`: word wrap.
@@ -103,6 +111,8 @@ pub struct Args {
     pub split: bool,
     /// `--demo-macros`: three saved macros in memory, for a shot of the Macro menu and dialog.
     pub demo_macros: bool,
+    /// `--pref key=value` (repeatable): a preference for this run, as the settings file has it.
+    pub prefs: Vec<String>,
     /// `--macro-prompt <text>`: the box that asks a macro's name, with this text typed in it.
     pub macro_prompt: Option<String>,
     /// `--split-ratio <0.1..0.9>` and `--split-left`: the left pane's share of the width, and the
@@ -126,6 +136,8 @@ pub struct Args {
     /// `--type <text>`: type the text at the caret once the file has loaded (after `--goto` and
     /// `--select`), so a shot can show a file with unsaved changes.
     pub type_text: Option<String>,
+    /// Typed one key at a time through the typing help ("\n" is Enter), after `--type`.
+    pub type_keys: Option<String>,
     /// `--type-steps N`: after the first frame and the load, type N keystrokes at the caret
     /// (letters, with a line break and a Backspace now and then), one per frame, print the time
     /// from keystroke to pixels and exit without saving.
@@ -219,6 +231,7 @@ impl Args {
                 "--split" => out.split = true,
                 "--split-left" => out.split_left = true,
                 "--demo-macros" => out.demo_macros = true,
+                "--pref" => out.prefs.extend(value(&a).filter(|v| v.contains('='))),
                 "--macro-prompt" => {
                     out.macro_prompt = checked(&a, value(&a), |v| Some(v.to_string()))
                 }
@@ -261,6 +274,7 @@ impl Args {
                 "--shot" => out.shot = value(&a).map(PathBuf::from),
                 "--find" => out.find = value(&a).filter(|v| !v.is_empty()),
                 "--type" => out.type_text = value(&a).filter(|v| !v.is_empty()),
+                "--type-keys" => out.type_keys = value(&a).filter(|v| !v.is_empty()),
                 "--type-steps" => out.type_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--size" => {
                     out.size = checked(&a, value(&a), |v| {
@@ -291,6 +305,7 @@ impl Args {
                         Some((LineCol::parse(from)?, LineCol::parse(to)?))
                     })
                 }
+                "--menu-at" => out.menu_at = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),
@@ -316,6 +331,9 @@ impl Args {
                         "find" => Some(ShotMenu::Find),
                         "minimap" => Some(ShotMenu::Minimap),
                         "macro-rec" => Some(ShotMenu::MacroRec),
+                        "text-lines" => Some(ShotMenu::TextLines),
+                        "text-convert" => Some(ShotMenu::TextConvert),
+                        "text-markdown" => Some(ShotMenu::TextMarkdown),
                         _ => None,
                     })
                 }
@@ -325,6 +343,7 @@ impl Args {
                         "shortcuts" => Some(ShotDialog::Shortcuts),
                         "recent" => Some(ShotDialog::Recent),
                         "macros" => Some(ShotDialog::Macros),
+                        "settings" => Some(ShotDialog::Settings),
                         "unsaved" => Some(ShotDialog::Unsaved),
                         _ => None,
                     })

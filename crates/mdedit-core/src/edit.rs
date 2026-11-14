@@ -11,6 +11,7 @@ use crate::buffer::{Buffer, Change};
 use crate::history::{History, Kind, Record, Text};
 use crate::limits::TAB_WIDTH;
 use crate::selection::{self, Motion, Selection};
+use crate::typing::Indent;
 use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -239,9 +240,16 @@ pub(crate) fn touched_lines(buf: &Buffer, r: &Range<usize>) -> (usize, usize) {
 /// not empty; the selection keeps covering the same text, and the tabs on its lines. Otherwise
 /// the same as [`insert`] of a tab. `tab_width` is the editor's setting; a tab is always `\t`.
 pub fn indent(buf: &mut Buffer, hist: &mut History, sel: Selection, _tab_width: usize) -> Outcome {
+    indent_with(buf, hist, sel, Indent::Tab)
+}
+
+/// [`indent`] with the editor's indent unit: a tab, or that many spaces. A selection inside one
+/// line is [`insert`] of the unit; a block gets the unit in front of each non-empty line.
+pub fn indent_with(buf: &mut Buffer, hist: &mut History, sel: Selection, unit: Indent) -> Outcome {
+    let text = unit.text();
     let r = clamped(buf, sel);
     if buf.line_of(r.start) == buf.line_of(r.end) {
-        return insert(buf, hist, sel, "\t");
+        return insert(buf, hist, sel, &text);
     }
     let (first, last) = touched_lines(buf, &r);
     let starts: Vec<usize> = (first..=last)
@@ -250,11 +258,11 @@ pub fn indent(buf: &mut Buffer, hist: &mut History, sel: Selection, _tab_width: 
         .collect();
     let mut cmd = Cmd::new(buf);
     for &s in starts.iter().rev() {
-        cmd.replace(s..s, "\t");
+        cmd.replace(s..s, &text);
     }
-    // A position moves right by the tabs inserted before it; one at a line start stays in front
-    // of that line's tab.
-    let map = |p: usize| p + starts.partition_point(|&s| s < p);
+    // A position moves right by the units inserted before it; one at a line start stays in front
+    // of that line's unit.
+    let map = |p: usize| p + text.len() * starts.partition_point(|&s| s < p);
     let after = Selection {
         anchor: map(sel.anchor),
         caret: map(sel.caret),
@@ -281,6 +289,22 @@ fn outdent_len(buf: &Buffer, line: usize, tab_width: usize) -> usize {
 /// to the line start; the others move with their text. `change` is `None` when no line had
 /// whitespace to remove.
 pub fn outdent(buf: &mut Buffer, hist: &mut History, sel: Selection, tab_width: usize) -> Outcome {
+    outdent_with(buf, hist, sel, Indent::Tab, tab_width)
+}
+
+/// [`outdent`] for the editor's indent unit: one tab, or else up to one unit of spaces (the unit's
+/// size when it is spaces, else `tab_width`), whichever the line starts with.
+pub fn outdent_with(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    unit: Indent,
+    tab_width: usize,
+) -> Outcome {
+    let tab_width = match unit {
+        Indent::Tab => tab_width,
+        Indent::Spaces(n) => usize::from(n.clamp(1, 16)),
+    };
     let r = clamped(buf, sel);
     let (first, last) = touched_lines(buf, &r);
     let removals: Vec<(usize, usize)> = (first..=last)
@@ -735,6 +759,37 @@ mod tests {
         let o = indent(&mut buf, &mut hist, Selection::at(0), 4);
         assert_eq!(txt(&buf), "\ta\td");
         assert_eq!(o.sel, Selection::at(1));
+    }
+
+    #[test]
+    fn indent_and_outdent_with_a_unit_of_spaces_or_a_tab() {
+        // Spaces: a block gets the unit in front of each non-empty line, selection kept, one undo.
+        let (mut buf, mut hist) = setup("aa\nbb\n\ncc\ndd");
+        let o = indent_with(&mut buf, &mut hist, sel(1, 10), Indent::Spaces(2));
+        assert_eq!(txt(&buf), "  aa\n  bb\n\n  cc\ndd");
+        assert_eq!(o.sel, sel(3, 16));
+        undo(&mut buf, &mut hist);
+        assert_eq!(txt(&buf), "aa\nbb\n\ncc\ndd");
+        assert!(!hist.can_undo());
+        // Tab is what `indent` did.
+        indent_with(&mut buf, &mut hist, sel(1, 10), Indent::Tab);
+        assert_eq!(txt(&buf), "\taa\n\tbb\n\n\tcc\ndd");
+        // One line: an insert of the unit.
+        let (mut buf, mut hist) = setup("ab");
+        indent_with(&mut buf, &mut hist, Selection::at(1), Indent::Spaces(3));
+        assert_eq!(txt(&buf), "a   b");
+        // Outdent removes one unit of whichever the line starts with: a tab, or up to the unit's
+        // spaces (not the tab width), or up to the tab width when the unit is a tab.
+        let (mut buf, mut hist) = setup("\ta\n      b\n \tc\n    d");
+        outdent_with(&mut buf, &mut hist, sel(0, 20), Indent::Spaces(2), 8);
+        assert_eq!(txt(&buf), "a\n    b\n\tc\n  d");
+        let (mut buf, mut hist) = setup("\ta\n      b\n    d");
+        outdent_with(&mut buf, &mut hist, sel(0, 16), Indent::Tab, 4);
+        assert_eq!(txt(&buf), "a\n  b\nd");
+        // Nothing to remove: no change, no undo step.
+        let (mut buf, mut hist) = setup("a\nb");
+        let o = outdent_with(&mut buf, &mut hist, sel(0, 3), Indent::Spaces(4), 4);
+        assert!(o.change.is_none() && !hist.can_undo());
     }
 
     #[test]

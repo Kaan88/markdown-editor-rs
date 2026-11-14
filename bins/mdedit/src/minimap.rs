@@ -10,7 +10,6 @@
 
 use crate::chrome::Ctx;
 use crate::docs::Ready;
-use mdedit_core::limits::TAB_WIDTH;
 use mdedit_highlight::{Span, foreground};
 use mdshared_text::Bitmap;
 use mdshared_ui::gfx::{Rect, Rgb, mix};
@@ -495,8 +494,13 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
             let end = rope.char_to_byte(rope.byte_to_char(end));
             text.clear();
             text.extend(rope.byte_slice(range.start..end).chars());
-            let Some((from, to)) = sel_cols(&text, range.clone(), next, s.clone(), TAB_WIDTH)
-            else {
+            let Some((from, to)) = sel_cols(
+                &text,
+                range.clone(),
+                next,
+                s.clone(),
+                crate::live::tab_width(),
+            ) else {
                 continue;
             };
             let from = (from as i32).min(max_cols);
@@ -514,9 +518,10 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
         }
     }
     // Find matches: a mark at the row's right edge.
+    let window = r.match_window();
     let all = &r.find.matches;
-    let a = all.partition_point(|m| m.end <= ws);
-    let b = all.partition_point(|m| m.start < we);
+    let a = all.partition_point(|m| m.end <= ws).max(window.start);
+    let b = all.partition_point(|m| m.start < we).min(window.end);
     let mw = ((3.0 * scale).round() as i32).max(1);
     for (k, m) in all[a..b.max(a)].iter().enumerate().take(MATCHES_MAX) {
         let Some(y) = row_y(buf.line_of(m.start)) else {
@@ -581,7 +586,7 @@ fn paint(bmp: &mut Bitmap, r: &Ready, plan: &Plan, scale: f32, dark: bool, page:
             .or_else(|| r.colors.line(line, dark))
             .unwrap_or(&[]);
         segs.clear();
-        segments(chars, spans, TAB_WIDTH, max_cols, &mut segs);
+        segments(chars, spans, crate::live::tab_width(), max_cols, &mut segs);
         for s in &segs {
             let x = left + s.col as i32 * px.col;
             let c = ink(s.color.unwrap_or(plain));

@@ -7,7 +7,6 @@
 use super::metrics::KEEP_LINES;
 use crate::docs::Ready;
 use mdedit_core::display::{ChunkStart, Cols, wrap_rows};
-use mdedit_core::limits::TAB_WIDTH;
 use std::rc::Rc;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -52,7 +51,7 @@ pub fn rows(r: &mut Ready, line: usize) -> Rows {
     let v: Rows = wrap_rows(
         &text,
         range.start,
-        TAB_WIDTH,
+        crate::live::tab_width(),
         r.advance,
         r.wide_advance,
         max,
@@ -214,7 +213,7 @@ pub fn vertical(r: &mut Ready, caret: usize, goal: Option<usize>, n: isize) -> (
     let mut text = String::new();
     r.buffer
         .text(start.offset..caret.max(start.offset), &mut text);
-    let here = start.cols().after(&text, TAB_WIDTH).col - start.col;
+    let here = start.cols().after(&text, crate::live::tab_width()).col - start.col;
     let want = goal.unwrap_or(here);
     let q = step(r, p, n);
     if q == p {
@@ -229,7 +228,7 @@ pub fn vertical(r: &mut Ready, caret: usize, goal: Option<usize>, n: isize) -> (
     let mut at = end;
     let mut prev = 0;
     for (i, g) in text.grapheme_indices(true) {
-        let next = cols.after(g, TAB_WIDTH);
+        let next = cols.after(g, crate::live::tab_width());
         if next.col - s.col > want {
             at = s.offset + i;
             break;

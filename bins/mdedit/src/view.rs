@@ -20,7 +20,7 @@ use cache::Lru;
 use mdedit_core::display::{ChunkIndex, ChunkStart, Cols, DisplayLine};
 use mdedit_core::fold::heads_block;
 use mdedit_core::limits::TWIN_LINE_MAX;
-use mdedit_core::limits::{TAB_WIDTH, WHOLE_LINE_BYTES};
+use mdedit_core::limits::WHOLE_LINE_BYTES;
 use mdedit_highlight::{Span, foreground};
 use mdshared_text::{TextEngine, shared_fonts};
 use mdshared_ui::gfx::{Face, Rect, Rgb, mix};
@@ -475,7 +475,7 @@ fn whole(r: &Ready, line: usize) -> Chunk {
 fn chunk_at_offset(r: &mut Ready, line: usize, offset: usize) -> Chunk {
     let end = r.buffer.line_range(line).end;
     with_index(r, line, |index, buf| {
-        index.extend_to(buf, TAB_WIDTH, offset);
+        index.extend_to(buf, crate::live::tab_width(), offset);
         let k = metrics::chunk_at_offset(index.starts(), offset);
         chunk_k(index, k, end)
     })
@@ -487,10 +487,10 @@ fn chunk_at_x(r: &mut Ready, line: usize, x: f64, advance: f32, wide: f32) -> Ch
     let end = r.buffer.line_range(line).end;
     let cx = |c: &ChunkStart| cols_x(c.cols(), advance, wide);
     with_index(r, line, |index, buf| {
-        index.extend_while(buf, TAB_WIDTH, |last| cx(last) <= x);
+        index.extend_while(buf, crate::live::tab_width(), |last| cx(last) <= x);
         let k = chunk_at_x_in(index.starts(), x, cx);
         let mut extra = 0;
-        index.extend_while(buf, TAB_WIDTH, |_| {
+        index.extend_while(buf, crate::live::tab_width(), |_| {
             extra += 1;
             extra <= 1
         });
@@ -505,9 +505,9 @@ fn chunks_in_view(r: &mut Ready, line: usize, xs: Range<f64>, m: &Metrics) -> Ve
     let end = r.buffer.line_range(line).end;
     let cx = |c: &ChunkStart| m.chunk_x(c);
     with_index(r, line, |index, buf| {
-        index.extend_while(buf, TAB_WIDTH, |last| cx(last) <= xs.end);
+        index.extend_while(buf, crate::live::tab_width(), |last| cx(last) <= xs.end);
         let mut extra = 0;
-        index.extend_while(buf, TAB_WIDTH, |_| {
+        index.extend_while(buf, crate::live::tab_width(), |_| {
             extra += 1;
             extra <= 2
         });
@@ -525,7 +525,7 @@ pub fn x_of(r: &mut Ready, offset: usize) -> f64 {
     let mut text = String::new();
     r.buffer
         .text(c.start.offset..offset.max(c.start.offset), &mut text);
-    let cols: Cols = c.start.cols().after(&text, TAB_WIDTH);
+    let cols: Cols = c.start.cols().after(&text, crate::live::tab_width());
     cols_x(cols, r.advance, r.wide_advance)
 }
 
@@ -611,8 +611,9 @@ impl View {
         fg: Rgb,
         brushes: &[(Range<usize>, Rgb)],
     ) -> Layout<Brush> {
+        let stack = crate::live::font_stack();
         let mut b = self.lcx.ranged_builder(&mut self.fonts, text, 1.0, true);
-        b.push_default(StyleProperty::FontFamily(FontFamily::from(MONO)));
+        b.push_default(StyleProperty::FontFamily(FontFamily::from(stack.as_str())));
         b.push_default(StyleProperty::FontSize(size));
         b.push_default(StyleProperty::Brush([fg[0], fg[1], fg[2], 255]));
         for (r, c) in brushes {
@@ -630,7 +631,7 @@ impl View {
     pub fn metrics(&mut self, scale: f32) -> Metrics {
         if let Some(m) = self
             .metrics
-            .filter(|m| m.scale == scale && m.zoom == self.zoom)
+            .filter(|m| m.scale == scale && m.size == font_px(self.zoom) * scale)
         {
             return m;
         }
@@ -692,7 +693,7 @@ impl View {
         }
         let size = self.metrics.map_or(14.0, |m| m.size);
         let mut dl = DisplayLine::new();
-        dl.build(&source, 0, c.col, TAB_WIDTH);
+        dl.build(&source, 0, c.col, crate::live::tab_width());
         let mut brushes = Vec::new();
         for s in spans.unwrap_or(&[]) {
             // Spans are bytes in the line; stale ones (the line was just edited) may run past
@@ -813,6 +814,7 @@ impl View {
         let band_c = mix(pal.page, pal.text, 0.035);
         // The lines the replace strip limits Replace to: a faint tint while it is open.
         let scope_c = mix(pal.page, pal.accent, 0.07);
+        let window = r.match_window();
         let scope_lines = r.scope().map(|s| {
             let last =
                 if s.end > s.start && r.buffer.line_range(r.buffer.line_of(s.end)).start == s.end {
@@ -830,6 +832,8 @@ impl View {
             .is_some_and(|m| *m == sel);
         let caret_line = r.buffer.line_of(r.sel.caret);
         let band_line = s.band.then_some(caret_line);
+        // The tint of the caret's line is a preference; its number stays marked.
+        let band_fill = band_line.filter(|_| crate::live::highlight_line());
         // The other selections of several carets, in document order.
         let len = r.buffer.len_bytes();
         let extras: Vec<(Range<usize>, usize)> = r
@@ -936,7 +940,7 @@ impl View {
         }
         for shown_line in &shown_lines {
             let (i, y, h) = (shown_line.line, shown_line.y, shown_line.h);
-            if sel.is_empty() && alone && Some(i) == band_line {
+            if sel.is_empty() && alone && Some(i) == band_fill {
                 c.p.fill_dev(x0, y, x1, y + h, band_c, 1.0);
             } else if scope_lines.as_ref().is_some_and(|s| s.contains(&i)) {
                 c.p.fill_dev(x0, y, x1, y + h, scope_c, 1.0);
@@ -960,11 +964,19 @@ impl View {
             // Find marks overlapping the line.
             let marks: &[Range<usize>] = {
                 let all = &r.find.matches;
-                let a = all.partition_point(|m| m.end <= range.start);
-                let b = all.partition_point(|m| m.start < with_break.end.max(range.start + 1));
-                &all[a..b.max(a)]
+                let a = all
+                    .partition_point(|m| m.end <= range.start)
+                    .max(window.start);
+                let b = all
+                    .partition_point(|m| m.start < with_break.end.max(range.start + 1))
+                    .min(window.end);
+                &all[a.min(b)..b]
             };
-            let first_mark = r.find.matches.partition_point(|m| m.end <= range.start);
+            let first_mark = r
+                .find
+                .matches
+                .partition_point(|m| m.end <= range.start)
+                .max(window.start);
             let marks: Vec<(Range<usize>, bool)> = marks
                 .iter()
                 .enumerate()
@@ -1202,7 +1214,7 @@ impl View {
         let pad_r = (GUTTER_PAD_R * scale).round() as i32;
         for shown_line in &shown_lines {
             let (i, y) = (shown_line.line, shown_line.y);
-            let band = if sel.is_empty() && alone && Some(i) == band_line {
+            let band = if sel.is_empty() && alone && Some(i) == band_fill {
                 band_c
             } else {
                 pal.page
@@ -1237,7 +1249,9 @@ impl View {
             // visible lines are asked.
             let folded = r.folds.headed(i).is_some();
             if folded
-                || (gutter_hot && !r.folds.suspended() && heads_block(&r.buffer, i, TAB_WIDTH))
+                || (gutter_hot
+                    && !r.folds.suspended()
+                    && heads_block(&r.buffer, i, crate::live::tab_width()))
             {
                 let cell =
                     metrics::fold_cell(area.x, g.gutter_w, y as f32 / scale, lh as f32 / scale);
@@ -1245,7 +1259,12 @@ impl View {
                 let hovered = c.hover == Some(hit);
                 let (cx, cy) = metrics::fold_icon_centre(&cell);
                 if hovered && let Some(f) = c.fill_for(hit, false, false) {
-                    let b = Rect::new(cx - 7.0, cell.y + 1.0, 14.0, cell.h - 2.0);
+                    let b = Rect::new(
+                        cx - metrics::FOLD_HOVER_W / 2.0,
+                        cell.y + 1.0,
+                        metrics::FOLD_HOVER_W,
+                        cell.h - 2.0,
+                    );
                     c.p.rbox(b, 4.0, f);
                 }
                 let color = if hovered {
@@ -1260,6 +1279,9 @@ impl View {
                 if bands.is_none() {
                     c.hit(hit, cell);
                 }
+            }
+            if !crate::live::line_numbers() {
+                continue;
             }
             let color = if Some(i) == band_line {
                 pal.text
@@ -1372,7 +1394,12 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
     let scale = m.scale;
     let lines = r.buffer.len_lines().max(1);
     let adv_l = m.advance_l();
-    let gutter_w = gutter_width(lines, adv_l, GUTTER_PAD_L + GUTTER_PAD_R);
+    // With line numbers off the gutter keeps its padding: the fold chevrons and bookmarks live there.
+    let gutter_w = if crate::live::line_numbers() {
+        gutter_width(lines, adv_l, GUTTER_PAD_L + GUTTER_PAD_R)
+    } else {
+        GUTTER_PAD_L + GUTTER_PAD_R
+    };
     let (y0, y1) = ((area.y * scale).round(), (area.bottom() * scale).round());
     let vl = view_lines(y1 - y0, m.line_h);
     let view_w = (area.w - gutter_w - TEXT_PAD).max(0.0);

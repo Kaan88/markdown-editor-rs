@@ -276,6 +276,10 @@ pub enum Act {
     ViewMenu,
     /// Open the Macro menu beside the open one.
     MacroMenu,
+    /// Open the text menu's Lines, Convert and Markdown submenus beside it.
+    LinesMenu,
+    ConvertMenu,
+    MarkdownMenu,
     /// Play saved macro `n` of the Macro menu.
     PlaySaved(usize),
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").
@@ -298,6 +302,9 @@ impl Act {
             Act::RecentMenu => Some(PopupKind::Recent),
             Act::ViewMenu => Some(PopupKind::View),
             Act::MacroMenu => Some(PopupKind::Macro),
+            Act::LinesMenu => Some(PopupKind::Lines),
+            Act::ConvertMenu => Some(PopupKind::Convert),
+            Act::MarkdownMenu => Some(PopupKind::Markdown),
             _ => None,
         }
     }
@@ -325,6 +332,10 @@ pub enum PopupKind {
     Tab(usize),
     /// The text area's right-click menu.
     Text,
+    /// Its submenus: line commands, conversions, Markdown formatting.
+    Lines,
+    Convert,
+    Markdown,
     /// The find box's editing menu.
     Find,
 }
@@ -583,6 +594,10 @@ pub struct Ui {
     pub replace_recall: crate::recall::Recall,
     /// The Go to box is asking for a macro's name instead of a line.
     pub naming: bool,
+    /// The settings dialog, while it is open.
+    pub settings: Option<mdshared_ui::settings::Form>,
+    /// Counts what changed in the dialog, so the overlay is drawn again.
+    pub overlay_tick: u64,
     pub caret_on: bool,
     /// When the caret next blinks.
     pub caret_due: Option<Instant>,
@@ -631,6 +646,8 @@ impl Ui {
             find_recall: crate::recall::Recall::default(),
             replace_recall: crate::recall::Recall::default(),
             naming: false,
+            settings: None,
+            overlay_tick: 0,
             caret_on: true,
             caret_due: None,
             mouse: (-1.0, -1.0),
