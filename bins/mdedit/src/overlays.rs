@@ -371,13 +371,17 @@ pub fn lines_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
 pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let ready = docs.active_ready().is_some();
     let items = vec![
-        cmd(C::MdBold, "Bold", "").enabled(ready),
-        cmd(C::MdItalic, "Italic", "").enabled(ready),
-        cmd(C::MdCode, "Code", "").enabled(ready),
-        cmd(C::MdStrike, "Strikethrough", "").enabled(ready),
-        cmd(C::MdHeading, "Heading level", "").sep().enabled(ready),
+        cmd(C::MdBold, "Bold", glyph::BOLD).enabled(ready),
+        cmd(C::MdItalic, "Italic", glyph::ITALIC).enabled(ready),
+        cmd(C::MdCode, "Code", glyph::CODE).enabled(ready),
+        cmd(C::MdStrike, "Strikethrough", glyph::STRIKE).enabled(ready),
+        cmd(C::MdHeading, "Heading level", glyph::HEADING)
+            .sep()
+            .enabled(ready),
         cmd(C::MdLink, "Link", glyph::LINK).enabled(ready),
-        cmd(C::MdTable, "Align table", "").sep().enabled(ready),
+        cmd(C::MdTable, "Align table", glyph::TABLE)
+            .sep()
+            .enabled(ready),
     ];
     Menu::new(items, x, y, align_right)
 }
