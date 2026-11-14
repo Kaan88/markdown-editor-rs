@@ -57,7 +57,7 @@ No branch below was reviewed by the main session unless it says so.
 | `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
 | `f/multicaret-line-commands` | multi-caret in the line commands | `aaba1fa` | CI green; reviewed; merged into `merge/next-release` |
 | `f/compare-copy-across` | copy a change across in compare | `4d4ff2b` | CI green; reviewed; merged into `merge/next-release` |
-| `f/paste-image` | paste an image into a Markdown file | `c14ebb3` | CI green; not merged; waits for a hand test on Windows |
+| `f/paste-image` | paste an image into a Markdown file | `c14ebb3` | CI green; reviewed; tried on Windows by script; merged into `merge/next-release` |
 | `f/autosave-recovery` | autosave and crash recovery | `4750c39` | CI green; reviewed; merged into `merge/next-release` (with the data-loss fix `867f197`) |
 | `f/column-selection` | column (block) selection | `3785c7d` | CI green; reviewed; merged into `merge/next-release` |
 | `f/word-completion` | word completion and snippets | `0a09e78` | **WIP**, never built in this state, no CI |
@@ -77,7 +77,7 @@ The main session reviewed the diffs of the five branches before the merge.
 - `next` (rounded corners) is left out. The shared test
   `rounded_paint_touches_the_margin_and_the_corner_squares_only` fails on shared `next` `e3d381b`,
   and the Round default would move KDE to the client-margin shadow route.
-- `f/paste-image` and `feat/restart-after-update` wait for a hand test on Windows.
+- `feat/restart-after-update` waits for a hand test on Windows (`f/paste-image` had one by script, see below, and was then merged).
 - Three small review fixes were made in `e8dd045` (the merge of `f/table-editing`): in compare, a
   copied change takes in the diff's freshness first, so a command run right after an edit cannot
   work from line ranges of the older text; for tables, Enter at the end of an empty row ends the
@@ -97,8 +97,12 @@ The main session reviewed the diffs of the five branches before the merge.
 - `f/paste-image` was tried in a real window on Windows by script (clipboard set with PowerShell,
   Ctrl+V and Ctrl+S sent): a bitmap and a PNG-format clipboard both saved a correct 40x30 PNG
   beside the file and inserted the link; a non-Markdown file and an untitled document got nothing.
-  Not tried: an image from a browser or the Snipping Tool, Linux, a person's hand. It is merged
-  only on the local, unpushed branch `test/hand`.
+  Not tried: an image from a browser or the Snipping Tool, Linux, a person's hand. The owner then
+  said to merge it: it is in `merge/next-release` (DESIGN section 62). Review notes: on Linux a
+  paste with no text on the clipboard runs `wl-paste` or `xclip` on the UI thread (up to 3 s
+  each); on Windows the saved PNG can carry a few padding bytes after its end. New direct
+  dependency `png` 0.18, already in the build through `mdshared-text`. No shot and no app-level
+  test (the only new visible state is a toast).
 - `feat/restart-after-update`: a real update and Restart could not be staged on one PC. The shared
   updater refuses a download address that is not https (and then the whole manifest), and the
   newer build needs a higher version number. By hand: an installed copy of this branch's build, a

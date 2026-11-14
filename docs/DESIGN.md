@@ -1877,3 +1877,24 @@ text. The file on disk is never written by recovery.
 **Edge cases.** Two windows sharing a session folder are not possible (single instance). Header
 values with line breaks are escaped; a header over 64 KiB is refused. `--demo-recovered N` shows
 the toast for a screenshot.
+
+## 62. Paste an image into a Markdown file (2026-11-15)
+
+- Paste reads text first. Only when there is none (empty or not text) is the clipboard asked for an image.
+- Only for a document with a file whose language is Markdown, or an unsaved document. Other files: paste does
+  nothing, as before.
+- Unsaved document (and an image on the clipboard): toast "Save the document as a Markdown file first, then
+  paste the image"; nothing else happens.
+- The file is `<document name without extension>-image-<n>.png` in the document's folder, the first n from 1
+  that does not exist (created exclusively, so nothing is overwritten).
+- The inserted text is `![](name)` with a forward slash path and these characters written %XX: space, `%`,
+  `(`, `)`, `[`, `]`, `<`, `>`, `#`, `?`, `"`, control characters. Other characters (accented letters) stay.
+- It goes in as an ordinary paste: one undo step (with several carets it is inserted at each). The file stays
+  after undo; the toast says "Image saved as <name>".
+- Read-only or lossy documents: the paste is refused as for text and the new file is removed again.
+- Image data over 64 MB, or not a PNG on Linux, is ignored. Write errors: toast "Could not save the image: ...".
+- Windows: the registered "PNG" clipboard format (keeps transparency) first, else CF_DIB (24 and 32 bit,
+  alpha dropped) converted with the `png` crate. Linux: `wl-paste --type image/png` or
+  `xclip -selection clipboard -t image/png -o` (Wayland session tries wl-paste first), run only on such a
+  paste, stopped after 3 seconds.
+- Drops are not touched: dropping a file opens it today.

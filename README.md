@@ -30,6 +30,9 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   submenu (and the command palette) has Insert row below/above, Delete row, Insert column
   right/left, Delete column and Move column left/right, next to Align table. Tables in block
   quotes and indented tables keep their prefix.
+- **Paste an image:** Ctrl+V in a saved Markdown file with an image on the clipboard (and no text)
+  saves it as a PNG beside the file (`notes-image-1.png`) and inserts `![](notes-image-1.png)`.
+  Windows: a clipboard PNG or bitmap. Linux: needs `wl-paste` (Wayland) or `xclip` (X11).
 - **Finding:** find and replace with match case, whole word and regular expressions (Ctrl+F,
   Ctrl+H), replace in the selection, find in files and open tabs (Ctrl+Shift+F, F4), and replace in
   files with a confirmation, backups and an undo. A function and heading list (Ctrl+Shift+2),
