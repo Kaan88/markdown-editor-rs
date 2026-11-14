@@ -18,10 +18,13 @@ SHA-256, and run `mdedit --check-update`.
 - `mdedit-<version>-windows-x86_64.exe`: the executable, the only file the updater installs.
   There is no engine executable.
 - `mdedit-setup-<version>.exe` (from 0.3.1): the Inno Setup installer (`packaging\windows\mdedit.iss`,
-  built by `toolselease.ps1`), per-user, with file associations. Not code-signed. An extra asset;
+  built by `tools\release.ps1`), per-user, with file associations. Not code-signed. An extra asset;
   the manifest does not name it.
+- `mdedit-<version>-linux-x86_64.AppImage` (from 0.5.0): the Linux build, the only file the updater
+  installs on Linux (no engine). Made by `packaging/linux/build-appimage.sh`.
 - `mdedit-update.txt`: the manifest (`manifest: 1`, `version`, `notes`, and the three keys
-  `windows-x86_64.asset`, `.url`, `.sha256`; grammar in `mdshared-app`'s `update.rs`).
+  `windows-x86_64.asset`, `.url`, `.sha256`; from 0.5.0 also the same three under `linux-x86_64`;
+  grammar in `mdshared-app`'s `update.rs`).
 
 Manifest address (the latest release's, so it must not be a pre-release or draft):
 `https://github.com/Kaan88/markdown-editor-rs/releases/latest/download/mdedit-update.txt`
@@ -124,9 +127,11 @@ setup's wizard pages on screen (the 0.4.0 setup was run silently only); Linux.
 
 ## Releasing from Linux
 
-Added 2026-11-14. Both platforms' files can be built on a Linux PC with Docker, `appimagetool`,
-`wine`, and the Inno Setup folder from a Windows install. Nothing here replaces `tools\release.ps1`
-on Windows; the two make the same file names.
+Added 2026-11-14; checked against the scripts on the same day for 0.5.0. Both platforms' files can
+be built on a Linux PC with Docker, `appimagetool` (with `mksquashfs`), `curl`, `wine`, the Inno
+Setup folder from a Windows install, and `python3` with `pefile` for the installer's icon step
+below. Publishing needs `gh`. Nothing here replaces `tools\release.ps1` on Windows; the two make
+the same Windows file names.
 
 ### Commands
 
@@ -134,13 +139,18 @@ on Windows; the two make the same file names.
 packaging/linux/build-appimage.sh                  # target/dist-linux/mdedit-<ver>-linux-x86_64.AppImage
 tools/release-cross.sh --notes 'One sentence.'     # target/dist-cross/: the Windows exe, the setup, the manifest
 tools/write-manifest.sh --version V --notes N --out DIR --windows EXE --linux APPIMAGE
-tools/release-all.sh --notes 'One sentence.'       # everything into target/release-files-all/
+tools/release-all.sh --notes 'One sentence.'       # everything into target/release-files-all/ (default manifest line: "A new version of mdedit.")
 tools/release-all.sh --notes '...' --notes-file FILE --publish    # also: gh release create v<ver> ... --latest
 tools/wine-compare.sh NATIVE_EXE CROSS_EXE         # tests/shots.sh under Wine with both exes, cmp the PNGs
 ```
 
-`release-all.sh` refuses a dirty tree (changes under `tools/` and `docs/` excepted) and a HEAD no
-remote branch contains. `--notes` is the manifest's line, `--notes-file` the GitHub release text.
+`release-all.sh` reads the version from `[workspace.package]` of `Cargo.toml`, refuses a dirty tree
+(changes under `tools/` and `docs/` excepted) and a HEAD no remote branch contains (it runs
+`git fetch` first). It runs the AppImage script, then `tools/release-cross.sh`, copies the three
+files into `target/release-files-all/` (the intermediate outputs stay in `target/dist-linux/` and
+`target/dist-cross/`), and writes the one manifest there with `tools/write-manifest.sh`, which
+re-reads it and checks every hash against the file it names. `--notes` is the manifest's line (at
+most 1024 bytes, one line), `--notes-file` the GitHub release text.
 `--publish --dry-run` prints the `gh` command instead of running it. The release has four assets:
 the AppImage, the exe, the setup and the manifest (`windows-x86_64.*` and `linux-x86_64.*` keys in
 the one `mdedit-update.txt`; Linux has no engine keys, mdedit has no engine anyway).
@@ -152,7 +162,9 @@ the one `mdedit-update.txt`; Linux has no engine keys, mdedit has no engine anyw
   then checks that `objdump -T` needs no glibc symbol newer than 2.31 (0.4.1: 2.30), assembles
   `AppDir` (`usr/bin/mdedit`, `mdedit.desktop`, `mdedit.png`, `.DirIcon`, `AppRun` a symlink to
   `usr/bin/mdedit`) and runs the host's `appimagetool` with a pinned runtime
-  (`--runtime-file`, so it never downloads one). `SOURCE_DATE_EPOCH` is the commit time: two runs on
+  (`--runtime-file`; the script fetches that runtime once with `curl` and checks its SHA-256, so
+  `appimagetool` never downloads one). Squashfs compression is the default (see "Release 0.5.0"
+  in `docs/HANDOFF.md`). `SOURCE_DATE_EPOCH` is the commit time: two runs on
   one commit give the same AppImage (checked).
   Nothing is bundled; the AppImage needs from the host libc, fontconfig, freetype, libX11,
   libX11-xcb and libxcb (a bare `ubuntu:20.04` or `debian:11` container lacks the X11 ones, and
@@ -165,7 +177,14 @@ the one `mdedit-update.txt`; Linux has no engine keys, mdedit has no engine anyw
   embedded (the script sets `MD_LLVM_RC=/usr/bin/llvm-rc`).
 - **Installer.** `ISCC.exe` from the copied Inno Setup folder runs under Wine on the same
   `packaging\windows\mdedit.iss`, in a scratch tree (`target/cross-installer`) laid out the way
-  the script expects its inputs.
+  the script expects its inputs. Then `tools/fix-setup-icons.py` (needs `python3` with `pefile`)
+  rewrites the setup's resource tables to drop the stock Inno Setup icons that Wine's
+  `UpdateResource` leaves beside ours, so the setup carries only our icon, as one built on Windows
+  does. Without `pefile` the script prints a warning and leaves the setup as built (about 4.41 MB
+  instead of 4.29 MB).
+- **Manifest.** `tools/write-manifest.sh` writes `windows-x86_64.*` and `linux-x86_64.*` keys
+  (`asset`, `url`, `sha256`) for the files it is given; the URLs point at tag `v<version>`.
+  `release-cross.sh` alone writes a Windows-only manifest into `target/dist-cross/`.
 
 ### Licence
 
@@ -195,12 +214,16 @@ installs the same exe it was given.
 
 Not checked: any run on Windows. The cross exe is not byte-identical to the native one (a
 different linker and resource compiler) and has not been through the Windows-side checks
-(`docs/HANDOFF.md`) that the native files had. The cross-built setup differs from the native one
-in size (about 4.41 MB against 4.29 MB) because Wine's `UpdateResource` leaves Inno Setup's stock
-icons in `Setup.exe` when ISCC swaps in ours; that setup has never been clicked through, and
-every run makes a different file (Inno stamps the build time), unlike the exe and the AppImage.
+(`docs/HANDOFF.md`) that the native files had. The cross-built setup was about 4.41 MB against
+4.29 MB for the native one because Wine's `UpdateResource` leaves Inno Setup's stock icons in
+`Setup.exe` when ISCC swaps in ours; `tools/fix-setup-icons.py` now removes them (commit
+`0bdcba8`; its effect on a setup run under Windows was not checked). That setup has never been
+clicked through, and every run makes a different file (Inno stamps the build time), unlike the exe
+and the AppImage.
 Release builds meant for users are still best made, or at least tried, on Windows.
 
-On Linux: `--check-update` answers "the look failed: Unsupported" with the shared pin of 0.4.1,
-whose non-Windows transport is a stub; the Linux AppImage cannot look for updates or fetch
-remote images until the pin moves to a `markdown-shared-rs` with the libcurl transport.
+On Linux: with the shared pin of 0.4.1 `--check-update` answered "the look failed: Unsupported",
+because the non-Windows transport was a stub. With the libcurl transport of the shared branch
+`feat/linux` (pinned since 2026-11-14) it reaches GitHub from a Linux build ("nothing newer" while
+the live manifest named 0.4.0; an AppImage updating itself has not run). The release files of 0.5.0
+are made this way; Windows is covered only as far as the paragraph above says.

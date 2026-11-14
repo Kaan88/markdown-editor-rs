@@ -89,10 +89,23 @@ After editing (phase 2) and safe saving (phase 3), in this order:
 8. Find in files, on a worker. (Done 2026-11-13.)
 9. Code folding and a function list, only if typing stays as fast. (Done 2026-11-13; folding
    is by indentation.)
-10. Macro record and playback; split view. (Done 2026-11-13; the split shows two files, not
-    one file twice, and the user said to leave it so.)
+10. Macro record and playback; split view. (Done 2026-11-13; the split showed two files, not
+    one file twice, and the user said to leave it so. The same file in both panes was built on
+    2026-11-14, in 0.5.0.)
 
 Left out: plugins, the FTP and project panels, printing.
+
+## Next release (agreed with the owner 2026-11-14)
+
+Agreed after mdedit 0.5.0 and mdview 0.3.0 (Windows and Linux). Each item has to keep the budgets
+above, measured before and after.
+
+- Copy a change across in compare.
+- Finer sync with the viewer inside long paragraphs and code blocks.
+- Live preview for a document that has never been saved.
+- Multi-caret support in the line commands (sort, join, headings, table alignment).
+- Carried over: the speed-versus-size build comparison on Windows (a build compiled for speed
+  with unwinding against the current profile), and a native Windows run of 0.5.0.
 
 ## What it is
 
@@ -227,7 +240,7 @@ Each phase ends with a build the user runs. The user approves the interface by l
   it has run on Windows.
 - Commit and push as phases complete or when asked. No CI: run the tests yourself.
 - Spikes are throwaway code, kept for reference.
-- Linux after Windows.
+- Linux after Windows. (Linux was done for 0.5.0: an AppImage, run on KDE Plasma and sway.)
 
 ## Open decisions
 

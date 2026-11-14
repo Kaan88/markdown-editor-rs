@@ -1,6 +1,7 @@
 # Handoff: mdedit and the shared crates
 
-Written 2026-11-13, updated the same day after phases 2 and 3. Read this first, then
+Written 2026-11-13, updated the same day after phases 2 and 3; sections 4 to 7 had a truth pass for
+the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read this first, then
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
@@ -14,7 +15,7 @@ Three public repositories under `Kaan88`, all MIT, all pushed and clean on `main
 | `markdown-shared-rs` | The crates both applications use | `843b50f` |
 | `markdown-editor-rs` | `mdedit`, this repository | this commit |
 
-The editor pins the shared repository by `rev` in its root `Cargo.toml` (see "Linux in a real window" for the current one), earlier on 2026-11-13 at
+The editor pins the shared repository by `rev` in its root `Cargo.toml` (for 0.5.0: `7cd6461`, see "Release 0.5.0"), earlier on 2026-11-13 at
 `843b50f3cc025480ee06226be1247d38df7442a2`. Three shared commits were made from this repository's
 session on 2026-11-13: `a74aca4` (the updater's threads: `spawn_at_launch`, `spawn_check`,
 `spawn_install`, `unix_now`), `d0ec8b8` (`Language::line_comment`) and `843b50f` (`Menu::above`,
@@ -106,7 +107,8 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
   the submenus, see 0.3.2.)
 - Nothing interactive in the editor was tried by hand: selection, copy into another program, find,
   tabs (drag, middle click, menu), the Files pane, theme switch, reload when the file changes, a
-  second launch handing over to the first.
+  second launch handing over to the first (not re-checked; the owner has used the editor since,
+  see the next item and 0.3.2).
 - **2026-11-13, later:** the user tried the build and reported that everything worked. Three
   things they raised turned out not to be faults (Redo after Backspace, a file drop with a tab
   open, heavy shadows; the last is the About card in dark mode, which draws its shadow twice
@@ -114,9 +116,10 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
   main session drove a real window with synthetic keys, mouse and an OLE drag: typing, Backspace,
   Delete, undo, redo, the right-click menu's Undo, Save, a dropped file, New file and Save
   through the file dialog all behaved. That is not the user's approval of the interface.
-- Updates: 0.4.0 is published (and 0.3.1, 0.3.2 before it, with an installer since 0.3.1). The
-  bar and the About buttons were rendered with `--update-bar`; that an update was offered and
-  installed by a running mdedit through the bar (not re-checked).
+- Updates: 0.4.0 was the last release published before 0.5.0 (and 0.3.1, 0.3.2 before it, with an
+  installer since 0.3.1). The bar and the About buttons were rendered with `--update-bar`; that an
+  update was offered and installed by a running mdedit through the bar (not re-checked). An update
+  of an AppImage by itself has not run.
 - Editing basics (2026-11-13): each shortcut was pressed once by script in a real window on a
   small Rust file and gave the right text. The user has not seen the longer right-click menu.
   Move line and the two every-line commands on large or odd files ran only in the unit tests.
@@ -128,19 +131,24 @@ pixels in under 1 ms on the small and the 100 MB file, and the phase 1 budgets h
   changes, file changed on disk, reload and lose changes), Save as and its file dialog, closing
   the window with several modified tabs.
 - `ReplaceFileW`'s fallback for file systems that do not support it (network shares, FAT) has
-  not run. The code for other systems than Windows has not been built.
+  not run. The code for other systems than Windows was built and run on Linux from 2026-11-14
+  (see "Linux: the shared Linux code adopted").
 - Undo steps are capped by the text they hold (64 MiB), not by their number.
 - The first frame of a Markdown file was 125 ms in one run (`fixtures/sample.md`), over the
   100 ms budget set on `sample.rs`; whether phase 1 had that was not checked (not re-checked).
 - Idle CPU with the editor's window unfocused was not measured.
 - The input-method hand test (`spikes/ime/RESULTS.md`: Turkish Q dead keys and AltGr, a CJK IME)
   was not done. Phase 2 depends on what it shows.
-- Linux: it built and its tests passed on a Debian 13 VM (2026-11-13, "Linux in a real window"
-  below), but that is not the owner's test: **the owner will test Linux later.** Open there:
-  Wayland, file dialogs (nothing appeared on the VM without zenity or a portal), a double click
-  on the title row does not maximise, IME, clippy, and `tests/shots.sh` needs LF line endings
-  (a Windows checkout with autocrlf breaks it on Linux; `.gitattributes` covers only
-  `fixtures/**`). The Linux build was not re-run after the clean-up of 2026-11-13.
+- Linux (2026-11-14, in 0.5.0): the editor builds and runs on CachyOS with KDE Plasma 6 on
+  Wayland, and sway ran headless in a container; the AppImage is built in an Ubuntu 20.04
+  container. File dialogs, the window identity (taskbar name and icon), downloads and the update
+  check use the shared Linux code; emoji draw in colour. What is still open on Linux: GNOME and
+  other desktops than those two, X11, fractional scales in a real window, two monitors with
+  different scales, input methods, and the file dialogs beside the window (they have no parent,
+  so they are not modal; not re-checked). "Show in file manager" opens the folder only
+  (not re-checked). `tests/shots.sh` needs LF line endings (a Windows checkout with autocrlf
+  breaks it on Linux; `.gitattributes` covers only `fixtures/**`). Nothing in 0.5.0 has run on
+  Windows.
 - The editor's small-file first frame sits at the edge of its budget: about 60 ms of it is
   syntect start-up before the first colours.
 
@@ -156,12 +164,14 @@ These were made to keep moving and are easy to undo:
 2. **Crate names** `mdshared-*` (the shared plan called them placeholders).
 3. **Step 4 put off**, as above.
 4. **`mdshared-app` created** (open decision 1 of the shared plan, taken as it recommended).
-5. Open in `docs/PLAN.md` and untouched: the editor's name, word-wrap default, Markdown
-   conveniences (not re-checked). An installer exists since 0.3.1 beside the bare exe.
-6. Made on 2026-11-13 for phases 2 and 3: Tab inserts a tab character (no spaces option); the
-   unsaved mark is a bullet before the file name; a file with replaced bytes is read-only;
+5. Open in `docs/PLAN.md` and untouched: the editor's name and the word-wrap default (not
+   re-checked). Markdown conveniences were built for 0.5.0 (Markdown commands, list continuation
+   with Tab). An installer exists since 0.3.1 beside the bare exe.
+6. Made on 2026-11-13 for phases 2 and 3: Tab inserts a tab character (since 0.5.0 there is the
+   setting "Indent with spaces", and the indentation of the file is detected and followed, see
+   "Findings of the driven test of 0.5.0"); the unsaved mark is a bullet before the file name; a file with replaced bytes is read-only;
    saving runs on the UI thread; the layout cache is keyed by line content; the IME stays off
-   until phase 5.
+   until phase 5 (not re-checked).
 7. Made on 2026-11-13 for New file: Ctrl+N and the "+" beside the tabs make an "Untitled N" tab
    (the "+" opened the file dialog before); it is UTF-8 with the platform's line ending; Save
    on it is Save as, offering "Untitled N.txt"; it is not in the session, so an untitled tab
@@ -188,14 +198,14 @@ These were made to keep moving and are easy to undo:
    not explicitly. The hand checks listed in section 4 (typing on the Turkish layout, dead keys
    and AltGr, cut and paste with another program, the three questions, Save as, closing with
    several modified tabs) were not re-checked.
-2. **Linux is to be tested later by the owner** (section 4). Nothing on Linux has been run since
-   the clean-up of 2026-11-13.
-3. **Move the shared `main`.** The shared fixes live on branches (`fix/update-look-every-launch`
-   at `1c3710a` was pinned by 0.3.2 and 0.4.0; `chore/finalize` at `24865c5` is pinned after
-   the clean-up). A push to the shared `main` is refused from this PC; the owner moves it, then
-   the `rev`s here and in the viewer can name commits on `main`.
+2. **Linux is to be tested by the owner** (section 4; the owner will test it). It has been built
+   and run on KDE Plasma 6 and sway only, by agents.
+3. **Move the shared `main`.** The shared work lives on the branch `feat/linux` (`7cd6461` is
+   pinned by 0.5.0), to become the shared `main`. A push to the shared `main` is refused from
+   this PC; the owner moves it, then the `rev`s here and in the viewer can name commits on `main`.
 4. The feature roadmap in `docs/PLAN.md` is built to its end. What each item left unbuilt is
-   listed in its own dated section below.
+   listed in its own dated section below. The list for the next release is in `docs/PLAN.md`
+   ("Next release") and in "Release 0.5.0" below.
 5. The Files pane could follow changes in its folders with the shared watcher's `set_folders`
    and the tree's `watched_dirs` (shared commit `e93719b`) (not re-checked).
 6. Any change to shared code: edit it in `markdown-shared-rs`, run both applications'
@@ -210,10 +220,11 @@ These were made to keep moving and are easy to undo:
 # in this repository; on the PC, keep temp files off the system drive's temp folder
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp
 cargo build --release --workspace
-cargo test --release --workspace        # 525 passed on 2026-11-14
+cargo test --release --workspace        # 525 passed early on 2026-11-14; later sections give 596 (not re-run for the release)
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-bash tests/shots.sh target/shots/a      # 72 PNGs, deterministic; first run generates target/data
+bash tests/shots.sh target/shots/a      # deterministic; first run generates target/data. 72 PNGs when this was
+                                        # written; the dated sections give 158 on 2026-11-14, then 4 more
 # The script pins --scale 1.0 for shots that give none: without it the shots take the Windows
 # display scale, and a changed display scale changes every picture.
 ```
@@ -238,7 +249,84 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
-## Findings of the driven test of 0.5.0, fixed (2026-11-14, not published)
+## Release 0.5.0 (2026-11-14)
+
+mdedit 0.5.0, for Windows and, for the first time, Linux. Version 0.4.1 was never published, so 0.5.0
+holds everything dated 2026-11-13 and 2026-11-14 below: command palette, settings, compare two
+files, replace in files, the same file in both panes, saved macros, fold by mouse, auto-pairing
+and indentation that follows the file, line commands, Markdown commands, "Preview in mdview" with
+live preview, the window shadow, and the Linux port.
+
+**The files.** Four assets: the AppImage, the Windows exe, the Windows setup and `mdedit-update.txt`
+(one manifest with a `windows-x86_64` and a `linux-x86_64` entry). The AppImage is x86-64, built in
+an Ubuntu 20.04 container, so it needs glibc 2.31 or later. It needs the system's libc,
+fontconfig, freetype and the X11/xcb libraries, and loads libcurl and the Wayland libraries at run
+time. It updates itself. On first run it writes its desktop entry and icon into the user's data
+folder and registers its file types without taking defaults; "Make mdedit the default" is a command
+in Settings. The Windows files were cross-compiled on Linux (cargo-xwin; Inno Setup under Wine)
+and checked under Wine only. How they are made: `docs/RELEASE.md`, "Releasing from Linux".
+
+**Pins.** The shared crates are the branch `feat/linux` of `Kaan88/markdown-shared-rs` at `7cd6461`,
+to become its `main` (a push to the shared `main` is refused from here; the owner moves it).
+Two forks are carried on Linux and resolved for all platforms through `[patch.crates-io]`:
+`Kaan88/winit`, branch `md-0.30.13` (a content margin for the client-drawn shadow) and
+`Kaan88/softbuffer`, branch `md-0.4.8` (ARGB buffers on Wayland).
+
+**The last builds made and run on Windows itself** were mdedit 0.4.0 (and mdview 0.2.2). 0.4.1 was
+built on Windows but never published. Nothing in 0.5.0 has run on Windows.
+
+### Decisions taken without the owner
+
+The owner said on 2026-11-14: use your best judgement for open questions and make a note. These
+were taken that way, or agreed on that day where it says so.
+
+- **The exe size is reported, not a gate** (the owner agreed on 2026-11-14). Launch time is the
+  first budget. The build profile was left as it is until a build compiled for speed with
+  unwinding can be compared on real Windows.
+- **Window shadow.** On KDE the window uses KWin's own protocol. Other Wayland desktops get the
+  client-drawn margin (patched winit and softbuffer). X11 gets none by default, because a tiled
+  X11 window would draw its shadow over its neighbour.
+- **A second fork (softbuffer)** was made beside the approved winit fork, because stock softbuffer
+  cannot present a transparent margin on Wayland.
+- **Checked menu items have a check-mark column of their own** before the icons: a tinted icon
+  alone did not read as "on".
+- **Indentation is detected per file and followed.** A driven test found tabs being inserted into
+  space-indented files.
+- **Submenus stand beside their parent**, and a wheel turn over an open menu is swallowed (it
+  closed the whole menu before).
+- **Live preview.** The viewer returns to the saved file when the editor is gone (it checks every
+  5 s while a tab is live). Text is sent only while the document is modified. The cap is 2 MiB.
+- **Versions.** mdedit 0.5.0 and mdview 0.3.0, as feature releases; 0.4.1 and 0.2.3 were never
+  published.
+- **The AppImage keeps the default squashfs compression.** It adds about 18 ms to start-up; only
+  an uncompressed image (2.5 times the size) was measurably faster (numbers in the viewer's
+  HANDOFF, section 12).
+- **The Windows files are cross-built and Wine-checked.** This was the owner's choice ("find a way
+  to cross compile windows").
+
+### Not verified
+
+- A run on real Windows of anything in this release: the command palette, settings, compare,
+  split, the hand-off, live preview, the installer's wizard pages, Explorer icons, emoji with the
+  variation selector on Windows, and SmartScreen.
+- GNOME and other desktops than KDE Plasma 6 and sway (sway ran headless).
+- Fractional display scales in a real window on Linux.
+- Two monitors with different scales.
+- The toast when the editor closes during a live preview: the viewer's return to the file was
+  seen, the toast was not.
+
+### Next release (agreed with the owner 2026-11-14)
+
+- Copy a change across in compare.
+- Finer sync with the viewer inside long paragraphs and code blocks.
+- Live preview for a document that has never been saved.
+- Multi-caret support in the line commands (sort, join, headings, table alignment).
+- Carried over: the speed-versus-size build comparison on Windows, and a native Windows run of this
+  release.
+
+The same list is in `docs/PLAN.md`.
+
+## Findings of the driven test of 0.5.0, fixed (2026-11-14, not published; in 0.5.0)
 
 One commit per item. Design: DESIGN.md section 56 (indentation) and the notes below.
 
@@ -288,7 +376,10 @@ One commit per item. Design: DESIGN.md section 56 (indentation) and the notes be
 
 NOT run: Windows, X11, GNOME, anything interactive beyond the one screenshot above.
 
-## Emoji presentation, a stray column, the exe size (2026-11-14, after 0.5.0, not published)
+**Correction (2026-11-14).** The "unexplained modified tabs and stray newlines" seen in the driven
+test were the owner typing into the test window.
+
+## Emoji presentation, a stray column, the exe size (2026-11-14, after the first 0.5.0 work, not published; in 0.5.0)
 
 **Emoji.** Shared pin moved to `bbb1c7a`; `View::build` (`bins/mdedit/src/view.rs`, the one place
 that makes a layout: lines, long-line chunks, line numbers and the metrics samples all go through
@@ -327,7 +418,7 @@ zbus, x11rb or xkbcommon symbol, so nothing Linux-only reaches the Windows exe. 
 13.8 KB and compare 5 KB; the app's event code for the three +48 KB. That is about 3,500 new lines
 of non-test code at `opt-level = "s"`: honest code, no fix, the release profile untouched.
 
-## Window shadow routes, settings shots, DESIGN, timings (2026-11-14, after the hand-off work; not published)
+## Window shadow routes, settings shots, DESIGN, timings (2026-11-14, after the hand-off work; not published; in 0.5.0)
 
 Part A is commit `1d96351` (shadow), part B the commit after it. Design: `docs/DESIGN.md` sections
 54 (hand-off, live preview) and 55 (shadow). The shadow is the viewer's adoption copied
@@ -424,7 +515,7 @@ own route in a window (the KWin route is the old code and the shots show it unch
 scales, `--place` and side by side with the client route (no desktop to place on in sway; KDE's
 script not run). The owner has not looked at the shadow or the settings shots.
 
-## Hand-off with mdview (2026-11-14, parts 1-4; not published)
+## Hand-off with mdview (2026-11-14, parts 1-4; not published; in 0.5.0)
 
 Built: shared pin 1e39bc1; receiving (`--from`, `--follow`, `--place`, `--goto L[:C]`, `--run`, `--demo-link`; requests
 from a second launch go to the running window); "Preview in mdview" (Ctrl+Shift+V, View and tab menus, palette) and
@@ -443,7 +534,7 @@ NOT done: part 5 (window shadow adoption), timings (keystroke with a link, send 
 check, regenerating the shots (settings shots will differ after the new row), DESIGN.md section. NOT run: Windows,
 X11, GNOME, anything interactive.
 
-## One file in both panes of the split (2026-11-14, after 0.5.0, not published)
+## One file in both panes of the split (2026-11-14, after the first 0.5.0 work, not published; in 0.5.0)
 
 Design: `docs/DESIGN.md` section 53 (written before the code). Commits on `main`: `a778d7f` (the
 flaky test), `b115477` (the design), `2c306c3` (the refactor, no behaviour change), `eedd8be` (the
@@ -509,7 +600,7 @@ feature), `1938963` (tests); the docs commit after them.
   this ran there); the owner has not looked at it. Not built: a key for the command; the second
   view's caret drawn while unfocused; folds shared as an option.
 
-## Typing, Markdown, settings, shadow (2026-11-14, 0.5.0, not published)
+## Typing, Markdown, settings, shadow (2026-11-14, 0.5.0, not published; in 0.5.0)
 
 One machine (CachyOS, Wayland); nothing run on Windows, nothing driven by hand: tests, `--shot`
 and `--trace` only. Design: DESIGN.md sections 43 to 48. Commits: A `4149108`, line commands
@@ -528,7 +619,7 @@ and `--trace` only. Design: DESIGN.md sections 43 to 48. Commits: A `4149108`, l
   AppImage "make default" row, "Check now".
 - Commit trailers from here on name Claude Sonnet 5.5 (the earlier ones in this series, Fable 5.2).
 
-## Command palette, compare two files, replace in files: the interface (2026-11-14, branch `features-files`, not merged, not published)
+## Command palette, compare two files, replace in files: the interface (2026-11-14, branch `features-files`, not merged at the time, not published; in 0.5.0)
 
 Wired three finished pieces of headless logic into the window, on the branch `features-files` (from
 `79e70ec`). Done on one machine (CachyOS, Wayland); nothing run on Windows; nothing driven by hand
@@ -611,7 +702,7 @@ checkout it was rendered in). One test, `a_change_on_disk_does_not_replace_unsav
 once in the first full run and passed in five later runs; it was not looked into. Timings were
 measured before the merge, not again after it.
 
-## Gaps closed: icons, chevrons, split, macros, find memory, title row (2026-11-14, still 0.4.1, not published)
+## Gaps closed: icons, chevrons, split, macros, find memory, title row (2026-11-14, still 0.4.1, not published; in 0.5.0)
 
 Done on one machine (CachyOS, Wayland), nothing run on Windows, nothing driven by hand: only
 tests, `--shot`, and `--trace --exit-after-ms`. Merges first: `3daf35d` (core-edit) and `b4f26e7`
@@ -663,7 +754,7 @@ mouse; only the decision is unit tested). Nothing was built or run for Windows, 
 deferred title drag's `cfg`. The fold-box tooltip in `fold-box-hover` is cut ("Open the block
 (F...") by the shared bubble width; not investigated.
 
-## Linux: the shared Linux code adopted (2026-11-14, still 0.4.1, not published)
+## Linux: the shared Linux code adopted (2026-11-14, still 0.4.1, not published; in 0.5.0)
 
 Run on one machine: CachyOS, KDE Plasma on Wayland, cargo 1.99, build dir
 `~/.cache/md-linux-test/edit`. Shared pin moved to `84de734a1aaecc50cca80b23bacee127b6778ef3` (now `d6e6cf1`, see the 2026-11-14 icons section)
@@ -712,7 +803,7 @@ said; **nothing was built or run for Windows**. The Windows code paths are the o
   20.6 to 20.8 MiB (peak 49 MiB); 100 MB file: loaded 115 ms, window shown 190 ms, private
   124.5 MiB; keystroke p50 0.48 ms, p95 0.57 ms (300 keystrokes).
 
-## Menus taller than the window scroll (2026-11-13, 0.4.1, not published)
+## Menus taller than the window scroll (2026-11-13, 0.4.1, not published; in 0.5.0)
 
 Found in a real window 665 to 760 logical px tall: the main menu rose to the window's top edge
 over the caption buttons and lost "Exit". It depends on the window's height, not the scale.
