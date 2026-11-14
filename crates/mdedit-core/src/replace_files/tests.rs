@@ -148,12 +148,16 @@ fn literal_over_a_tree_in_find_in_files_order() {
     d.write("node_modules/m.js", b"needle\n");
     d.write("target/t.txt", b"needle\n");
     let p = plan_tree(&d, &lit("needle"), "pin");
-    let found: Vec<String> = p
+    let found: Vec<PathBuf> = p
         .files
         .iter()
-        .map(|f| f.path.strip_prefix(&d.0).unwrap().display().to_string())
+        .map(|f| f.path.strip_prefix(&d.0).unwrap().to_path_buf())
         .collect();
-    assert_eq!(found, ["a.txt", "b.txt", "sub/c.txt"]);
+    let expected: Vec<PathBuf> = ["a.txt", "b.txt", "sub/c.txt"]
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    assert_eq!(found, expected);
     assert_eq!(p.totals.files, 3);
     assert_eq!(p.totals.matches, 4);
     assert_eq!(p.totals.searched, 4);

@@ -3189,6 +3189,8 @@ mod tests {
     #[test]
     fn typing_help_pairs_undoes_in_one_step_and_works_at_every_caret() {
         let (mut d, i, _path, dir) = file_docs("typing", b"");
+        // An empty file takes the platform's line ending (CRLF on Windows), by design.
+        let eol = d.tabs[i].ready().unwrap().info.eol.dominant();
         let type_ = |d: &mut Docs, s: &str| {
             for c in s.chars() {
                 d.edit(EditOp::Insert(&c.to_string()), None);
@@ -3212,7 +3214,7 @@ mod tests {
         // Enter between braces opens a block: the caret on the middle line, the closer below.
         type_(&mut d, "{");
         assert!(d.edit(EditOp::Newline, None));
-        assert_eq!(text_of(&d, i), "{\n\t\n}");
+        assert_eq!(text_of(&d, i), format!("{{{eol}\t{eol}}}"));
         d.edit(EditOp::Undo, None);
         d.edit(EditOp::Undo, None);
         // Two carets: each gets its pair, in one step.
@@ -3220,12 +3222,12 @@ mod tests {
         {
             let r = d.tabs[i].ready_mut().unwrap();
             r.view.sel = Selection::at(1);
-            r.view.extra = vec![Selection::at(3)];
+            r.view.extra = vec![Selection::at(1 + eol.len() + 1)];
         }
         d.edit(EditOp::Insert("("), None);
-        assert_eq!(text_of(&d, i), "a()\nb()");
+        assert_eq!(text_of(&d, i), format!("a(){eol}b()"));
         assert!(d.edit(EditOp::Undo, None));
-        assert_eq!(text_of(&d, i), "a\nb");
+        assert_eq!(text_of(&d, i), format!("a{eol}b"));
         std::fs::remove_dir_all(dir).ok();
     }
 

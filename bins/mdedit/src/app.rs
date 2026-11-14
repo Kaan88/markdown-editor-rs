@@ -2845,7 +2845,16 @@ mod tests {
         a.key_pressed(Key::Name(KeyName::Right), None);
         type_text(&mut a, "\n");
         let recorded = text(&a);
-        assert_eq!(recorded, "{a}\n");
+        // A new document ends its lines with the platform's line ending (CRLF on Windows).
+        let eol = a
+            .docs
+            .active_ready()
+            .unwrap()
+            .info
+            .eol
+            .dominant()
+            .to_string();
+        assert_eq!(recorded, format!("{{a}}{eol}"));
         a.macros.finish();
         assert!(!a.macros.steps.is_empty());
         // Replay at the end of the text: the keys do what they did, help included.
@@ -2853,7 +2862,7 @@ mod tests {
         let before = text(&a);
         a.play_macro(false);
         let after = text(&a);
-        assert_eq!(&after[before.len()..], "{a}\n");
+        assert_eq!(&after[before.len()..], format!("{{a}}{eol}"));
     }
 
     #[test]
