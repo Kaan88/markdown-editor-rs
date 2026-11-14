@@ -104,6 +104,8 @@ above, measured before and after.
 - Finer sync with the viewer inside long paragraphs and code blocks.
 - Live preview for a document that has never been saved.
 - Multi-caret support in the line commands (sort, join, headings, table alignment).
+- Owner request 2026-11-14: a "Restart" button once an update is installed, both apps, only if it
+  is simple to do (the update bar now says the new version starts next time).
 - Carried over: the speed-versus-size build comparison on Windows (a build compiled for speed
   with unwinding against the current profile), and a hand run of 0.5.0 on a Windows desktop.
 - For consideration, not agreed (owner, 2026-11-14): rounded window corners. Default radius 8
