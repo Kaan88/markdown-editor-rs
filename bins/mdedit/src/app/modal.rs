@@ -29,6 +29,7 @@ pub const CHECK_AT_LAUNCH: u32 = 16;
 pub const CHECK_NOW: u32 = 17;
 pub const DEFAULT_APP: u32 = 18;
 pub const LIVE_PREVIEW: u32 = 19;
+pub const DETECT_INDENT: u32 = 20;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -89,6 +90,12 @@ pub fn rows(prefs: &Prefs, theme: ThemeChoice, check_updates: bool, look: &str) 
             TAB_WIDTH_MAX as i32,
         )
         .unit("columns"),
+        Row::toggle(
+            DETECT_INDENT,
+            "Detect indentation from the file",
+            prefs.detect_indent,
+        )
+        .help("The two rows below apply when a file has no clear style."),
         Row::toggle(
             INDENT_SPACES,
             "Indent with spaces",
@@ -284,6 +291,7 @@ impl App {
             (FONT_FAMILY, Value::Text(t)) => p.font_family = t,
             (FONT_SIZE, Value::Number(n)) => p.font_pt = n as f32,
             (TAB_WIDTH, Value::Number(n)) => p.tab_width = n.max(1) as usize,
+            (DETECT_INDENT, Value::Bool(on)) => p.detect_indent = on,
             (INDENT_SPACES, Value::Bool(on)) => p.indent_with_spaces = on,
             (INDENT_SIZE, Value::Number(n)) => p.indent_size = n.max(1) as usize,
             (AUTO_PAIR, Value::Bool(on)) => p.auto_pair = on,

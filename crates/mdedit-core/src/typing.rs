@@ -692,6 +692,19 @@ fn outdented(blanks: &str, cfg: &Assist) -> String {
     blanks[..blanks.len() - k].to_string()
 }
 
+/// The text of one unit to add to a line whose leading blanks are `base`: the configured unit,
+/// except that a line indented only with the other kind goes on in its own kind (a tab for tabs;
+/// for spaces the unit's width, or the tab width when the unit is a tab), so a line never gets
+/// mixed leading white space from here.
+fn unit_after(base: &str, cfg: &Assist) -> String {
+    let (tabs, spaces) = (base.contains('\t'), base.contains(' '));
+    match (cfg.indent, tabs, spaces) {
+        (Indent::Spaces(_), true, false) => "\t".to_string(),
+        (Indent::Tab, false, true) => " ".repeat(cfg.indent.cols(cfg.tab_width)),
+        (unit, ..) => unit.text(),
+    }
+}
+
 /// What Enter does on a Markdown list or quote line: the replacement of `range` and where the
 /// caret goes in it. `None` when the line is neither, or the caret is before its text.
 fn md_enter(
@@ -779,7 +792,6 @@ pub fn enter(
     if !cfg.auto_indent {
         return None;
     }
-    let unit = cfg.indent.text();
     run(buf, hist, sels, primary, |buf, s| {
         let len = buf.len_bytes();
         let r = buf.floor_char(s.range().start.min(len))..buf.floor_char(s.range().end.min(len));
@@ -801,7 +813,7 @@ pub fn enter(
         let mut text = String::from(eol);
         text.push_str(&base);
         if opens {
-            text.push_str(&unit);
+            text.push_str(&unit_after(&base, cfg));
         }
         let caret = text.len();
         if between {
@@ -839,9 +851,8 @@ pub fn list_indent(
     );
     let r = a.min(c)..a.max(c);
     let (first, last) = crate::edit::touched_lines(buf, &r);
-    let unit = cfg.indent.text();
     // (position, bytes removed, text inserted), ascending.
-    let mut edits: Vec<(usize, usize, &str)> = Vec::new();
+    let mut edits: Vec<(usize, usize, String)> = Vec::new();
     for line in first..=last {
         let (ls, head, _) = line_head(buf, buf.line_start(line));
         let md = parse_md(&head);
@@ -850,12 +861,13 @@ pub fn list_indent(
             continue;
         }
         if !outdent {
-            edits.push((ls + md.quote_end, 0, &unit));
+            let unit = unit_after(&head[md.quote_end..l.start], cfg);
+            edits.push((ls + md.quote_end, 0, unit));
         } else {
             let indent = &head[md.quote_end..l.start];
             let keep = outdented(indent, cfg).len();
             if keep < indent.len() {
-                edits.push((ls + md.quote_end + keep, indent.len() - keep, ""));
+                edits.push((ls + md.quote_end + keep, indent.len() - keep, String::new()));
             }
         }
     }
@@ -864,7 +876,7 @@ pub fn list_indent(
     }
     let map = |p: usize, grow_at: bool| {
         let mut q = p as isize;
-        for &(pos, rem, ins) in &edits {
+        for (pos, rem, ins) in edits.iter().map(|(a, b, c)| (*a, *b, c)) {
             if rem == 0 {
                 if p > pos || (p == pos && grow_at) {
                     q += ins.len() as isize;
@@ -884,8 +896,8 @@ pub fn list_indent(
         goal_col: None,
     };
     let mut cmd = Cmd::new(buf);
-    for &(pos, rem, ins) in edits.iter().rev() {
-        cmd.replace(pos..pos + rem, ins);
+    for (pos, rem, ins) in edits.iter().rev() {
+        cmd.replace(*pos..*pos + *rem, ins);
     }
     let out = cmd.finish(hist, Kind::Other, sel, after);
     if out.change.is_none() {
@@ -1102,7 +1114,6 @@ mod tests {
         assert_eq!(nl("fn f() {|", &c).unwrap(), "fn f() {\n    |");
         assert_eq!(nl("  if (a &&|", &c).unwrap(), "  if (a &&\n  |");
         assert_eq!(nl("  x = [  |", &c).unwrap(), "  x = [  \n      |");
-        assert_eq!(nl("\tf(|", &c).unwrap(), "\tf(\n\t    |");
         let t = Assist::for_language("rust", Indent::Tab, 4);
         assert_eq!(nl("\t{|", &t).unwrap(), "\t{\n\t\t|");
         // Between a pair: closer on its own line at the outer indent.
@@ -1114,6 +1125,36 @@ mod tests {
         assert_eq!(nl("{|a}", &c).unwrap(), "{\n    |a}");
         // Mismatched pair.
         assert_eq!(nl("{|)", &c).unwrap(), "{\n    |)");
+    }
+
+    #[test]
+    fn a_unit_added_to_a_line_continues_that_lines_own_kind() {
+        let spaces = cfg("rust");
+        let tabs = Assist::for_language("rust", Indent::Tab, 4);
+        // Tabs on the line, spaces configured: a tab. Spaces on the line, tabs configured: the
+        // tab width in spaces. No leading white space or a mixed run: the configured unit.
+        assert_eq!(nl("\tf(|", &spaces).unwrap(), "\tf(\n\t\t|");
+        assert_eq!(nl("\t{|}", &spaces).unwrap(), "\t{\n\t\t|\n\t}");
+        assert_eq!(nl("  f(|", &tabs).unwrap(), "  f(\n      |");
+        let t8 = Assist::for_language("rust", Indent::Tab, 8);
+        assert_eq!(
+            nl("  f(|", &t8).unwrap(),
+            "  f(\n  ".to_string() + &" ".repeat(8) + "|"
+        );
+        assert_eq!(nl("f(|", &tabs).unwrap(), "f(\n\t|");
+        assert_eq!(nl("f(|", &spaces).unwrap(), "f(\n    |");
+        assert_eq!(nl(" \tf(|", &spaces).unwrap(), " \tf(\n \t    |");
+        // No result mixes the two where the line was pure.
+        for line in ["\t", "\t\t", "  ", "    "] {
+            for c in [&spaces, &tabs] {
+                let out = nl(&format!("{line}f(|"), c).unwrap();
+                let ind = out.split('\n').nth(1).unwrap().trim_end_matches('|');
+                assert!(
+                    !(ind.contains('\t') && ind.contains(' ')),
+                    "{line:?}: {ind:?}"
+                );
+            }
+        }
     }
 
     #[test]

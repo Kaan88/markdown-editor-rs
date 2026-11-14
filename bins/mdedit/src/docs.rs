@@ -462,8 +462,12 @@ pub struct Ready {
     /// Bookmarked lines, sorted. They follow edits and a reload, and are gone when the tab
     /// closes.
     pub bookmarks: Vec<usize>,
-    /// The typing help for this document's language and the preferences.
+    /// The typing help for this document's language, the preferences and `detected`.
     pub assist: Assist,
+    /// The indentation the text shows ([`mdedit_core::indent::detect`]), found when the text was
+    /// loaded or put back, never while typing. `assist.indent` is this when the preferences ask
+    /// for detection, else their own unit.
+    pub detected: Option<typing::Indent>,
     /// Word wrap is on (`Docs::wrap`, copied here before each frame).
     pub wrap: bool,
     pub find: FindState,
@@ -599,6 +603,7 @@ impl Ready {
         }
         self.history.seal();
         self.view.sel = Selection::at(0);
+        self.detected = mdedit_core::indent::detect(&self.buffer);
     }
 
     /// Keeps what hangs on the text in step with an edit.
@@ -812,6 +817,7 @@ impl Ready {
     }
 
     fn new(loaded: Loaded, language: Option<Language>, revision: u64) -> Ready {
+        let detected = mdedit_core::indent::detect(&loaded.buffer);
         Ready {
             buffer: loaded.buffer,
             revision,
@@ -822,12 +828,19 @@ impl Ready {
             view: ViewState::new(),
             twin: None,
             bookmarks: Vec::new(),
-            assist: Prefs::default().assist(language.map_or("", Language::name)),
+            assist: Prefs::default().assist_for(language.map_or("", Language::name), detected),
+            detected,
             wrap: false,
             find: FindState::default(),
             chunks: Lru::new(crate::view::CHUNK_INDEXES),
             read_only: false,
         }
+    }
+
+    /// Makes the typing help from `prefs`, this language and the detected indentation.
+    fn set_assist(&mut self, prefs: &Prefs) {
+        let name = self.language.map_or("", Language::name);
+        self.assist = prefs.assist_for(name, self.detected);
     }
 
     /// Puts the caret at a line and column, both from 1 and clamped to the text, and shows it.
@@ -1335,7 +1348,11 @@ impl Docs {
             path: None,
             untitled: number,
             revision: 1,
-            state: DocState::Ready(Box::new(Ready::new(loaded, None, 1))),
+            state: DocState::Ready(Box::new({
+                let mut r = Ready::new(loaded, None, 1);
+                r.set_assist(&self.prefs);
+                r
+            })),
             missing: false,
             changed_on_disk: false,
             discard: false,
@@ -1365,6 +1382,7 @@ impl Docs {
         doc.untitled = 0;
         doc.title = Some(title);
         let mut r = Ready::new(loaded, language, doc.revision);
+        r.set_assist(&self.prefs);
         r.read_only = true;
         doc.state = DocState::Ready(Box::new(r));
         i
@@ -1384,6 +1402,7 @@ impl Docs {
         }
         if let Some(r) = doc.ready_mut() {
             r.put_back(text);
+            r.set_assist(&self.prefs);
         }
         i
     }
@@ -1831,7 +1850,7 @@ impl Docs {
         match done.result {
             Ok((loaded, language)) => {
                 let mut r = Ready::new(loaded, language, done.revision);
-                r.assist = self.prefs.assist(language.map_or("", Language::name));
+                r.set_assist(&self.prefs);
                 // A reload keeps the caret's line and column, the scroll and the find query, in
                 // each of the document's views.
                 let mut query = None;
@@ -2036,13 +2055,15 @@ impl Docs {
         // goes on with the primary alone.
         let pasted;
         let pieces: Vec<&str>;
+        // Tab at several carets inserts one unit of the document's indentation at each.
+        let unit_text = r.assist.indent.text();
         let multi_op = if r.view.extra.is_empty() {
             None
         } else {
             match op {
                 EditOp::Insert(text) => Some(MultiOp::Insert(text)),
                 EditOp::Newline => Some(MultiOp::Insert(eol)),
-                EditOp::Indent => Some(MultiOp::Insert("\t")),
+                EditOp::Indent => Some(MultiOp::Insert(&unit_text)),
                 EditOp::Backspace => Some(MultiOp::Backspace),
                 EditOp::Delete => Some(MultiOp::Delete),
                 EditOp::Paste(text) => {
@@ -2254,7 +2275,7 @@ impl Docs {
     pub fn set_prefs(&mut self, prefs: Prefs) {
         for doc in &mut self.tabs {
             if let Some(r) = doc.ready_mut() {
-                r.assist = prefs.assist(r.language.map_or("", Language::name));
+                r.set_assist(&prefs);
             }
         }
         self.prefs = prefs;
@@ -2438,6 +2459,7 @@ impl Docs {
         // The file may have been created just now: its real name is known only after that.
         let path = canonical_or_absolute(&path);
         r.language = language_of(&path, &r.buffer);
+        r.set_assist(&self.prefs);
         r.view.colors = LineColors::default();
         r.view.map_colors = LineColors::default();
         r.colourable = false;
@@ -3247,6 +3269,122 @@ mod tests {
         };
         assert!(d.edit(EditOp::Indent, None));
         assert_eq!(text_of(&d, i), "\ta a\n\tbb\n\n  cc\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    const FOUR: &[u8] = b"fn a() {\n    if x {\n        y();\n    }\n}\nfn b() {\n    z();\n}\n";
+    const TABBED: &[u8] = b"fn a() {\n\tif x {\n\t\ty();\n\t}\n}\nfn b() {\n\tz();\n}\n";
+
+    #[test]
+    fn indentation_follows_the_file_and_the_setting_applies_without_a_style() {
+        // A four-space file, the setting on its default (a tab): Enter after `{` gives eight
+        // spaces, Tab on a block gives spaces.
+        let (mut d, i, _path, dir) = file_docs("detect4", FOUR);
+        assert_eq!(
+            d.tabs[i].ready().unwrap().detected,
+            Some(typing::Indent::Spaces(4))
+        );
+        let end_of_if = FOUR.iter().position(|&b| b == b'{').unwrap();
+        let at = FOUR[end_of_if + 1..]
+            .iter()
+            .position(|&b| b == b'{')
+            .unwrap()
+            + end_of_if
+            + 1;
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(at + 1);
+        assert!(d.edit(EditOp::Newline, None));
+        assert!(text_of(&d, i).contains("    if x {\n        \n        y();"));
+        assert!(d.edit(EditOp::Undo, None));
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
+            anchor: 0,
+            caret: 10,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("    fn a() {\n        if x {"));
+        // Detection off: the setting (a tab) again.
+        assert!(d.edit(EditOp::Undo, None));
+        let mut p = d.prefs.clone();
+        p.detect_indent = false;
+        d.set_prefs(p.clone());
+        assert_eq!(
+            d.tabs[i].ready().unwrap().assist.indent,
+            typing::Indent::Tab
+        );
+        // (On the line that has no indent yet: where the line has one, it is continued.)
+        let b = text_of(&d, i).find("fn b() {").unwrap() + "fn b() {".len();
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(b);
+        assert!(d.edit(EditOp::Newline, None));
+        assert!(text_of(&d, i).contains("fn b() {\n\t\n    z();"));
+        assert!(d.edit(EditOp::Undo, None));
+        // On again: back to the file's, at once.
+        p.detect_indent = true;
+        d.set_prefs(p);
+        assert_eq!(
+            d.tabs[i].ready().unwrap().assist.indent,
+            typing::Indent::Spaces(4)
+        );
+        std::fs::remove_dir_all(dir).ok();
+
+        // A tab file, the setting on spaces: Tab on a block gives tabs.
+        let (mut d, i, _path, dir) = file_docs("detecttab", TABBED);
+        let mut p = d.prefs.clone();
+        p.indent_with_spaces = true;
+        d.set_prefs(p);
+        assert_eq!(
+            d.tabs[i].ready().unwrap().assist.indent,
+            typing::Indent::Tab
+        );
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
+            anchor: 0,
+            caret: 10,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("\tfn a() {\n\t\tif x {"));
+        std::fs::remove_dir_all(dir).ok();
+
+        // A file with no style: the setting applies.
+        let (d, i, _path, dir) = file_docs("detectnone", b"a\n  b\nc\n");
+        assert_eq!(d.tabs[i].ready().unwrap().detected, None);
+        assert_eq!(
+            d.tabs[i].ready().unwrap().assist.indent,
+            typing::Indent::Tab
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_document_made_after_the_settings_follows_them_and_restored_text_is_detected() {
+        let mut d = docs();
+        let mut p = d.prefs.clone();
+        p.indent_with_spaces = true;
+        p.indent_size = 3;
+        d.set_prefs(p);
+        let n = d.new_untitled();
+        assert_eq!(
+            d.tabs[n].ready().unwrap().assist.indent,
+            typing::Indent::Spaces(3)
+        );
+        let m = d.restore_untitled(0, "a {\n\tb;\n\tc;\n\td;\n}\n");
+        assert_eq!(
+            d.tabs[m].ready().unwrap().assist.indent,
+            typing::Indent::Tab
+        );
+    }
+
+    #[test]
+    fn a_markdown_list_item_in_a_tab_file_keeps_its_kind_when_indented() {
+        let (mut d, i, _path, dir) = file_docs("mdkind", b"- a\n    - b\n    - c\n    - d\n- e\n");
+        {
+            let r = d.tabs[i].ready_mut().unwrap();
+            r.assist = Prefs::default().assist("Markdown");
+            assert_eq!(r.assist.indent, typing::Indent::Tab);
+            // The line has spaces, the unit is a tab: the item goes in by spaces.
+            r.view.sel = Selection::at(5);
+        }
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("- a\n        - b\n"));
         std::fs::remove_dir_all(dir).ok();
     }
 

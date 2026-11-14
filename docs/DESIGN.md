@@ -1673,3 +1673,37 @@ region paints stays transparent. One shot (`compare-saved`, minimaps on both pan
 column, drawn black until now. `compose` therefore sets alpha to 255 when it allocates `screen`,
 which changes no colour; a test composes frames and checks every pixel. The black column itself is
 an existing drawing gap, left as it is.
+
+## 56. Indentation follows the file (2026-11-14)
+
+`mdedit-core::indent::detect(&Buffer) -> Option<Indent>`, pure, run when a document is read, when
+unsaved text is put back, never while typing (a keystroke costs nothing more). It looks at the
+first 2,000 lines and at most 64 KiB of their leading white space. A line with text counts when
+its leading white space is only tabs or only spaces (a run of both, as in a comment's tab and
+space, counts for neither). Fewer than three counted indented lines: `None`. More tab lines than
+space lines: `Tab`; fewer: spaces; equal: `None`. For spaces the unit is the width that most often
+is the step in from one counted line to the next (an unindented line is width 0; only steps in
+count, so dedents do not vote) among 2, 3, 4 and 8; tie: 4 if among them, else the smallest; no
+such step: `None`.
+
+`Ready.detected` keeps the result; `Prefs::assist_for(language, detected)` builds the `Assist`
+with the detected unit when the new setting "Detect indentation from the file" (`detect_indent`,
+on by default, Editing, above "Indent with spaces") is on, else with the settings' unit. So
+Tab, Shift+Tab, block indent, Enter after an opener, the Markdown list Tab and the several-caret
+Tab all use the file's unit; with no clear style, or the setting off, the two settings below
+apply as before. A document made empty or restored from a backup is detected from that text; Save
+As refreshes the typing help too (the language changes with the name). New and compared tabs now
+take the preferences too (they were made with the defaults until a setting changed).
+
+**A line keeps its own kind.** When Enter or the Markdown list Tab adds one unit to a line that
+already starts with the other kind (tabs on the line, spaces configured; or the reverse), the
+added unit is of the line's kind (a tab; or the unit's width in spaces, the tab width when the
+unit is a tab), so the editor never makes a mixed run of leading white space from a pure one. A
+line that is mixed already, or has no indent, gets the configured unit. Block Tab (`indent_with`)
+still inserts the unit in front of every line.
+
+**Status strip.** A field between the language and the line endings shows the unit in force:
+"Spaces: 4" or "Tabs". It has no action; hovering says "Indentation: 4 spaces, detected from the
+file" (or "from the settings"). Where the fields would not fit the strip (a long selection count,
+carets, Previewing, the narrowest window of 520 px) the field is left out and the same tooltip
+sits on the language field instead.

@@ -158,6 +158,8 @@ pub enum Hit {
     /// The status strip's line-ending and encoding fields: each opens a menu.
     StatusEol,
     StatusEncoding,
+    /// The indentation field (or, when it does not fit, the language field): a tooltip only.
+    StatusIndent,
     /// The results panel: a row of its list and its close button.
     ResultsRow(usize),
     ResultsClose,
@@ -214,7 +216,7 @@ impl Hit {
             | Hit::ReplaceClose
             | Hit::InSelection
             | Hit::FindOpt(_) => Region::Bar,
-            Hit::StatusEol | Hit::StatusEncoding => Region::Status,
+            Hit::StatusEol | Hit::StatusEncoding | Hit::StatusIndent => Region::Status,
             Hit::ResultsRow(_)
             | Hit::ResultsClose
             | Hit::ResultsReplace

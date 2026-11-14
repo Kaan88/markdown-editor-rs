@@ -40,6 +40,9 @@ pub struct Prefs {
     pub font_pt: f32,
     /// Columns of a tab stop, 1 to 16 (default [`TAB_WIDTH`]).
     pub tab_width: usize,
+    /// A file's own indentation ([`crate::indent::detect`]) wins over the two settings below when
+    /// it has a clear style.
+    pub detect_indent: bool,
     /// Tab inserts spaces rather than a tab character.
     pub indent_with_spaces: bool,
     /// Spaces of one indent level, 1 to 16 (default 4); used when `indent_with_spaces`, and as the
@@ -66,6 +69,7 @@ impl Default for Prefs {
             font_family: String::new(),
             font_pt: DEFAULT_FONT_PT,
             tab_width: TAB_WIDTH,
+            detect_indent: true,
             indent_with_spaces: false,
             indent_size: 4,
             auto_pair: true,
@@ -148,6 +152,7 @@ impl Prefs {
                     "tab_width" => {
                         p.tab_width = number(value, 1, TAB_WIDTH_MAX).unwrap_or(d.tab_width)
                     }
+                    "detect_indent" => p.detect_indent = flag(value).unwrap_or(d.detect_indent),
                     "indent_spaces" => {
                         p.indent_with_spaces = flag(value).unwrap_or(d.indent_with_spaces)
                     }
@@ -185,6 +190,7 @@ impl Prefs {
         w.line("font_family", &escape(&p.font_family));
         w.line("font_size", &p.font_pt.to_string());
         w.line("tab_width", &p.tab_width.to_string());
+        w.line("detect_indent", b(p.detect_indent));
         w.line("indent_spaces", b(p.indent_with_spaces));
         w.line("indent_size", &p.indent_size.to_string());
         w.line("auto_pair", b(p.auto_pair));
@@ -212,7 +218,14 @@ impl Prefs {
     /// The typing help for a language (`typing::Assist::for_language`) with these preferences'
     /// switches, indent unit and tab width.
     pub fn assist(&self, language: &str) -> Assist {
-        let mut a = Assist::for_language(language, self.indent(), self.tab_width);
+        self.assist_for(language, None)
+    }
+
+    /// [`Prefs::assist`] for a document whose indentation was detected (`detected`): with
+    /// `detect_indent` on, that unit is used instead of the settings'.
+    pub fn assist_for(&self, language: &str, detected: Option<Indent>) -> Assist {
+        let unit = detected.filter(|_| self.detect_indent);
+        let mut a = Assist::for_language(language, unit.unwrap_or(self.indent()), self.tab_width);
         a.auto_pair = self.auto_pair;
         a.auto_indent = self.auto_indent;
         a
@@ -326,6 +339,7 @@ mod tests {
             font_family: "Cascadia Code, %weird\\".into(),
             font_pt: 11.5,
             tab_width: 8,
+            detect_indent: false,
             indent_with_spaces: true,
             indent_size: 2,
             auto_pair: false,
@@ -353,7 +367,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 16);
+        assert_eq!(t.lines().count(), 17);
         let r = Prefs::parse(&t);
         assert_eq!(
             (r.font_pt, r.tab_width, r.font_family.as_str()),
@@ -409,6 +423,16 @@ mod tests {
         assert_eq!(a.indent, Indent::Spaces(2));
         assert_eq!(a.tab_width, 8);
         assert!(!a.auto_pair && a.auto_indent && a.colon_blocks);
+        // A detected unit wins while detection is on, and only then.
+        let a = p.assist_for("python", Some(Indent::Tab));
+        assert_eq!(a.indent, Indent::Tab);
+        p.detect_indent = false;
+        assert_eq!(
+            p.assist_for("python", Some(Indent::Tab)).indent,
+            Indent::Spaces(2)
+        );
+        p.detect_indent = true;
+        assert_eq!(p.assist_for("python", None).indent, Indent::Spaces(2));
     }
 
     fn save(text: &str, sel: Selection, trim: bool, nl: bool, eol: &str) -> (String, Outcome) {

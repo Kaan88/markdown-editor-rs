@@ -267,6 +267,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         Hit::InSelection => "Replace only in the selection from when this opened".into(),
         Hit::StatusEol => "Line endings (click to change)".into(),
         Hit::StatusEncoding => "Encoding (click to change)".into(),
+        Hit::StatusIndent => crate::status::indent_tip(docs)?,
         Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
         _ => return None,
     })

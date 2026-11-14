@@ -16,6 +16,7 @@ pub mod find;
 pub mod fold;
 mod hash;
 pub mod history;
+pub mod indent;
 pub mod limits;
 pub mod lines;
 pub mod load;

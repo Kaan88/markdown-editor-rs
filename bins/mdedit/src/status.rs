@@ -4,6 +4,7 @@
 use crate::chrome::{Ctx, glyph};
 use crate::docs::{DocState, Docs};
 use crate::ui::{Act, Hit};
+use mdedit_core::typing::Indent;
 use mdedit_core::{Encoding, LineEnding};
 use mdshared_ui::gfx::{Face, Rect};
 use mdshared_ui::menu::{Item, Menu};
@@ -69,6 +70,28 @@ pub fn encoding_text(encoding: Encoding, lossy: bool, nul: bool) -> String {
     } else {
         label
     }
+}
+
+/// "Tabs" or "Spaces: 4": the indentation unit in force for the document.
+pub fn indent_text(unit: Indent) -> String {
+    match unit {
+        Indent::Tab => "Tabs".to_string(),
+        Indent::Spaces(n) => format!("Spaces: {}", n.clamp(1, 16)),
+    }
+}
+
+/// The tooltip of the indentation field: the unit and where it comes from.
+pub fn indent_tip(docs: &Docs) -> Option<String> {
+    let r = docs.active_ready()?;
+    let from = if r.detected.is_some() && docs.prefs.detect_indent {
+        "detected from the file"
+    } else {
+        "from the settings"
+    };
+    Some(format!(
+        "Indentation: {}, {from}",
+        indent_text(r.assist.indent)
+    ))
 }
 
 pub fn eol_text(eol: LineEnding) -> &'static str {
@@ -137,6 +160,7 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
                     r.language.map(|l| l.name()),
                     r.language.is_some() && !r.colourable,
                 ),
+                indent_text(r.assist.indent),
                 eol_text(r.info.eol.style()).to_string(),
                 encoding_text(r.info.encoding, r.info.lossy, r.info.has_nul),
             ]);
@@ -210,7 +234,19 @@ pub fn draw(c: &mut Ctx, docs: &Docs, r: Rect) {
     c.p.fill(r, pal.bar);
     let px = c.p.px();
     c.p.fill(Rect::new(r.x, r.y, r.w, px), pal.line);
-    let (left, right) = fields(docs);
+    let (left, mut right) = fields(docs);
+    // The indentation field sits between the language and the line endings. Where the fields
+    // would crowd the strip (a long selection count, many carets, the narrowest window) it is
+    // left out, and its tooltip moves to the language field.
+    if right.len() >= 4 {
+        let total: f32 = right
+            .iter()
+            .map(|f| c.p.measure(Face::Ui, 12.0, f) + GAP)
+            .sum();
+        if total + 32.0 > r.w {
+            right.remove(right.len() - 3);
+        }
+    }
     let cy = r.y + r.h / 2.0 + 0.5;
     let mut x = r.right() - 16.0;
     let mut first = true;
@@ -220,6 +256,8 @@ pub fn draw(c: &mut Ctx, docs: &Docs, r: Rect) {
     let hits = [
         lossy.is_some().then_some(Hit::StatusEncoding),
         (lossy == Some(false)).then_some(Hit::StatusEol),
+        // The indentation field, or the language field when that one was left out.
+        (right.len() >= 4).then_some(Hit::StatusIndent),
     ];
     for (k, f) in right.iter().rev().enumerate() {
         if !first {
@@ -230,7 +268,10 @@ pub fn draw(c: &mut Ctx, docs: &Docs, r: Rect) {
         let w = c.p.measure(Face::Ui, 12.0, f);
         if let Some(hit) = hit {
             let b = Rect::new(x - w - 8.0, r.y + 3.0, w + 16.0, r.h - 5.0);
-            if let Some(fill) = c.fill_for(hit, false, false) {
+            // The indentation hit has no action: it only carries a tooltip.
+            if hit != Hit::StatusIndent
+                && let Some(fill) = c.fill_for(hit, false, false)
+            {
                 c.p.rbox(b, 4.0, fill);
             }
             c.hit(hit, b);
@@ -308,6 +349,13 @@ mod tests {
             encoding_text(Encoding::Utf8Bom, true, false),
             "UTF-8 with BOM, invalid bytes replaced"
         );
+    }
+
+    #[test]
+    fn the_indentation_unit() {
+        assert_eq!(indent_text(Indent::Tab), "Tabs");
+        assert_eq!(indent_text(Indent::Spaces(4)), "Spaces: 4");
+        assert_eq!(indent_text(Indent::Spaces(2)), "Spaces: 2");
     }
 
     #[test]

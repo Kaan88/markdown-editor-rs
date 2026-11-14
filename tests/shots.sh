@@ -254,4 +254,9 @@ shot emoji --light "$fx/emoji.txt"
 shot emoji-dark --dark "$fx/emoji.txt"
 shot emoji-caret --light --goto 3:11 "$fx/emoji.txt"
 
+# Indentation follows the file: the field in the status strip, its tooltip, and where the strip is
+# too crowded for it (the tooltip then sits on the language field).
+shot status-indent-tip --light --size 720x400 --hover 555,387 "$fx/sample.rs"
+shot status-indent-crowded --light --size 520x400 --zoom 150 --demo-link --select 1:1-30:1 --hover 340,387 "$fx/sample.md"
+
 ls "$out" | wc -l
