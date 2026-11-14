@@ -286,4 +286,16 @@ shot complete-snippet-taken-dark --dark --goto 10:4 --menu complete-snippet "$fx
 shot complete-above --light --size 900x340 --goto 8:4 --menu complete "$fx/complete.md"
 shot settings-complete --light --dialog settings --settings-section Editing "$fx/sample.rs"
 
+# The window as the client-drawn margin shows it (--frame): the shadow and the rounded corners over
+# a flat backdrop, at scale 1 and 2 in both themes, and the other two choices of Window corners.
+# The Settings dialog's View group has the row.
+shot frame-round-light --light --size 520x300 --frame round "$fx/sample.rs"
+shot frame-round-dark --dark --size 520x300 --frame round "$fx/sample.rs"
+shot frame-round-light-2x --light --size 520x300 --scale 2 --frame round "$fx/sample.rs"
+shot frame-round-dark-2x --dark --size 520x300 --scale 2 --frame round "$fx/sample.rs"
+shot frame-small-light --light --size 520x300 --frame small "$fx/sample.rs"
+shot frame-square-light --light --size 520x300 --frame square "$fx/sample.rs"
+shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
+shot settings-view-dark --dark --dialog settings --settings-section View "$fx/sample.rs"
+
 ls "$out" | wc -l
