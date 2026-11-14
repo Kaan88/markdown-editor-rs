@@ -363,11 +363,20 @@ impl App {
         };
         // Several selections go one to a line, in the order they are in the text.
         let (list, _) = r.all_sels();
-        let ranges: Vec<_> = list
+        // A column selection keeps its empty rows (a short line, an empty one), so that the
+        // text pasted back into as many carets lands on the same rows.
+        let column = r
+            .view
+            .column
+            .is_some_and(|c| (c.4, c.5) == (r.view.sel, r.view.extra.len()));
+        let mut ranges: Vec<_> = list
             .iter()
             .map(|s| s.range())
-            .filter(|r| !r.is_empty())
+            .filter(|r| column || !r.is_empty())
             .collect();
+        if ranges.iter().all(|r| r.is_empty()) {
+            ranges.clear();
+        }
         let eol = r.info.eol.dominant();
         let total: usize = ranges.iter().map(|r| r.len() + eol.len()).sum();
         if ranges.is_empty() {

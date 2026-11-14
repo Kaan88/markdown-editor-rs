@@ -1385,6 +1385,41 @@ impl View {
         }
         Some(offset.min(range.end))
     }
+
+    /// How many whole columns the pointer at logical `x` is past the end of the line, when
+    /// `offset` (what `hit` gave for it) is that line's end: a column selection dragged over short
+    /// lines keeps its width, the lines being cut short by their ends. 0 elsewhere, and when the
+    /// lines wrap (a row's end is not its line's).
+    pub fn columns_past_end(
+        &mut self,
+        doc: &mut Doc,
+        region: Rect,
+        scale: f32,
+        x: f32,
+        offset: usize,
+    ) -> usize {
+        let m = self.metrics(scale);
+        let area = text_area(doc, region);
+        let Some(r) = doc.ready_mut() else {
+            return 0;
+        };
+        let line = r.buffer.line_of(offset);
+        if offset != r.buffer.line_range(line).end {
+            return 0;
+        }
+        let g = geom(r, area, &m);
+        if g.wrapped {
+            return 0;
+        }
+        let rel = ((x * scale) as f64 - g.origin_x(scale, r.view.left)) / scale as f64;
+        let past = rel - x_of(r, offset);
+        let adv = m.advance_l() as f64;
+        if adv > 0.0 && past > 0.0 {
+            (past / adv).round() as usize
+        } else {
+            0
+        }
+    }
 }
 
 /// The region below the banner (file gone, or changed on disk under unsaved changes).

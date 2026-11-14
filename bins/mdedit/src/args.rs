@@ -88,6 +88,9 @@ pub struct Args {
     pub goto: Option<LineCol>,
     /// `--select <line:col>-<line:col>`: select from the first position to the second.
     pub select: Option<(LineCol, LineCol)>,
+    /// `--select-column <line:col>-<line:col>`: a column selection between the two corners (visual
+    /// columns, from 1, a wide character is two).
+    pub select_column: Option<(LineCol, LineCol)>,
     /// `--menu main|recent|tab|text|find`.
     pub menu: Option<ShotMenu>,
     /// `--dialog about|shortcuts|recent`.
@@ -383,6 +386,12 @@ impl Args {
                         Some((LineCol::parse(from)?, LineCol::parse(to)?))
                     })
                 }
+                "--select-column" => {
+                    out.select_column = checked(&a, value(&a), |v| {
+                        let (from, to) = v.split_once('-')?;
+                        Some((LineCol::parse(from)?, LineCol::parse(to)?))
+                    })
+                }
                 "--menu-at" => out.menu_at = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
@@ -545,6 +554,11 @@ mod tests {
         assert_eq!(parse("--goto 3:0").goto, None);
         assert_eq!(parse("--goto x").goto, None);
         assert_eq!(parse("--select 3:1").select, None);
+        assert_eq!(
+            parse("--select-column 3:5-7:9").select_column,
+            Some((LineCol { line: 3, col: 5 }, LineCol { line: 7, col: 9 }))
+        );
+        assert_eq!(parse("--select-column 3:5").select_column, None);
     }
 
     #[test]

@@ -258,11 +258,14 @@ pub fn hint(id: CommandId) -> &'static str {
 
 /// Lines for the Keyboard shortcuts dialog: (keys joined by ", ", label).
 pub fn shortcut_help() -> Vec<(String, &'static str)> {
-    COMMANDS
+    let mut rows: Vec<(String, &'static str)> = COMMANDS
         .iter()
         .filter(|c| !c.keys.is_empty())
         .map(|c| (c.keys.join(", "), c.label))
-        .collect()
+        .collect();
+    // Not commands: made with the keys and the mouse in the text.
+    rows.push((strings::COLUMN_KEYS.to_string(), strings::COLUMN_LABEL));
+    rows
 }
 
 pub mod strings {
@@ -277,6 +280,8 @@ pub mod strings {
         "winit and softbuffer, with every pixel drawn by the shared renderer. No webview.";
     pub const MAKE_DEFAULT: &str = "Make mdedit the default for text files";
     pub const SHORTCUTS_TITLE: &str = "Keyboard shortcuts";
+    pub const COLUMN_LABEL: &str = "Select a column";
+    pub const COLUMN_KEYS: &str = "Alt+Shift+Arrows, Alt+Drag";
     pub const MANAGE_RECENT_TITLE: &str = "Manage recent files";
     pub const EMPTY_HINT: &str = "Open a file or drag one into this window.";
     pub const EMPTY_BUTTON: &str = "Open file…";
@@ -508,6 +513,10 @@ mod tests {
                 .any(|(k, l)| k == "Ctrl+C, Ctrl+Insert" && *l == "Copy")
         );
         assert!(help.iter().any(|(k, _)| k == "Ctrl+W, Ctrl+F4"));
+        assert!(
+            help.iter()
+                .any(|(k, l)| k == "Alt+Shift+Arrows, Alt+Drag" && *l == "Select a column")
+        );
         assert_eq!(hint(CommandId::FindNext), "F3");
         assert_eq!(hint(CommandId::About), "");
         for c in COMMANDS {
