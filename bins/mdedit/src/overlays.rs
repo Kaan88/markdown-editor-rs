@@ -68,7 +68,7 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             mdshared_ui::desktop_entry::EDITOR_MIME_TYPES,
         )
     {
-        items.push(cmd(C::MakeDefault, strings::MAKE_DEFAULT, ""));
+        items.push(cmd(C::MakeDefault, strings::MAKE_DEFAULT, glyph::CHECK));
     }
     items.push(cmd(C::About, "About mdedit", glyph::INFO));
     items.push(cmd(C::Exit, "Exit", glyph::POWER).sep());
@@ -342,13 +342,24 @@ pub fn lines_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
         cmd(C::DeleteLine, "Delete line", glyph::DELETE_LINE).enabled(ready),
         cmd(C::MoveLineUp, "Move line up", glyph::UP).enabled(ready),
         cmd(C::MoveLineDown, "Move line down", glyph::DOWN).enabled(ready),
-        // No sort icon in the shared set: these have none rather than a borrowed one.
-        cmd(C::SortLines, "Sort lines", "").sep().enabled(ready),
-        cmd(C::SortLinesDescending, "Sort lines descending", "").enabled(ready),
-        cmd(C::SortLinesIgnoreCase, "Sort lines ignoring case", "").enabled(ready),
-        cmd(C::ReverseLines, "Reverse lines", "").enabled(ready),
-        cmd(C::UniqueLines, "Remove duplicate lines", "").enabled(ready),
-        cmd(C::JoinLines, "Join lines", "").enabled(ready),
+        cmd(C::SortLines, "Sort lines", glyph::SORT)
+            .sep()
+            .enabled(ready),
+        cmd(
+            C::SortLinesDescending,
+            "Sort lines descending",
+            glyph::SORT_DESC,
+        )
+        .enabled(ready),
+        cmd(
+            C::SortLinesIgnoreCase,
+            "Sort lines ignoring case",
+            glyph::SORT_CASE,
+        )
+        .enabled(ready),
+        cmd(C::ReverseLines, "Reverse lines", glyph::REVERSE).enabled(ready),
+        cmd(C::UniqueLines, "Remove duplicate lines", glyph::DEDUPE).enabled(ready),
+        cmd(C::JoinLines, "Join lines", glyph::JOIN).enabled(ready),
         cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK)
             .sep()
             .enabled(ready),
