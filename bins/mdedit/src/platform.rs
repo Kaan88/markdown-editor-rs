@@ -125,12 +125,55 @@ pub fn clipboard_line() -> Option<String> {
 /// bitmap, converted. Read only when a paste finds no text.
 #[cfg(windows)]
 pub fn clipboard_png() -> Option<Vec<u8>> {
-    use crate::image_paste::{MAX_BYTES, dib_to_png, is_png};
+    use crate::image_paste::{dib_to_png, is_png};
+    use windows_sys::Win32::System::DataExchange::RegisterClipboardFormatW;
+    const CF_DIB: u32 = 8;
+    clipboard_formats(|bytes_of| {
+        let name: [u16; 4] = [u16::from(b'P'), u16::from(b'N'), u16::from(b'G'), 0];
+        // SAFETY: name is NUL-terminated.
+        let png_format = unsafe { RegisterClipboardFormatW(name.as_ptr()) };
+        if png_format != 0
+            && let Some(bytes) = bytes_of(png_format)
+            && is_png(&bytes)
+        {
+            return Some(bytes);
+        }
+        dib_to_png(&bytes_of(CF_DIB)?)
+    })
+    .flatten()
+}
+
+/// The files the clipboard holds (copied in the file manager), or none. Windows only: elsewhere
+/// a copied file is not looked for.
+#[cfg(windows)]
+pub fn clipboard_files() -> Vec<PathBuf> {
+    const CF_HDROP: u32 = 15;
+    clipboard_formats(|bytes_of| bytes_of(CF_HDROP))
+        .flatten()
+        .map(|b| {
+            crate::image_paste::parse_dropfiles(&b)
+                .into_iter()
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+pub fn clipboard_files() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+/// Opens the clipboard and gives `read` a function that copies out the bytes of one format
+/// (`None` when the clipboard has none of it, or more than an image paste takes). `None` when
+/// the clipboard could not be opened.
+#[cfg(windows)]
+fn clipboard_formats<T>(read: impl FnOnce(&dyn Fn(u32) -> Option<Vec<u8>>) -> T) -> Option<T> {
+    use crate::image_paste::MAX_BYTES;
     use windows_sys::Win32::System::DataExchange::{
-        CloseClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
+        CloseClipboard, GetClipboardData, OpenClipboard,
     };
     use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
-    const CF_DIB: u32 = 8;
     let mut opened = false;
     for _ in 0..5 {
         // SAFETY: OpenClipboard with a null window associates the clipboard with this task.
@@ -166,22 +209,10 @@ pub fn clipboard_png() -> Option<Vec<u8>> {
         unsafe { GlobalUnlock(h) };
         Some(copy)
     };
-    let read = || {
-        let name: [u16; 4] = [u16::from(b'P'), u16::from(b'N'), u16::from(b'G'), 0];
-        // SAFETY: name is NUL-terminated.
-        let png_format = unsafe { RegisterClipboardFormatW(name.as_ptr()) };
-        if png_format != 0
-            && let Some(bytes) = bytes_of(png_format)
-            && is_png(&bytes)
-        {
-            return Some(bytes);
-        }
-        dib_to_png(&bytes_of(CF_DIB)?)
-    };
-    let png = read();
+    let out = read(&bytes_of);
     // SAFETY: the clipboard was opened by this thread above.
     unsafe { CloseClipboard() };
-    png
+    Some(out)
 }
 
 /// The clipboard's image as PNG file bytes, or `None`. The clipboard crate in use reads text only

@@ -446,6 +446,14 @@ impl App {
         if path.is_some() && !doc.is_markdown() {
             return;
         }
+        // Image files copied in the file manager: a link to each, not their pixels.
+        let files = platform::clipboard_files();
+        if !files.is_empty() {
+            if files.iter().all(|f| image_paste::is_image_file(f)) {
+                self.paste_image_files(path.as_deref(), &files);
+            }
+            return;
+        }
         let Some(png) = platform::clipboard_png() else {
             return;
         };
@@ -465,6 +473,42 @@ impl App {
             Err(e) => self
                 .docs
                 .set_toast(&format!("Could not save the image: {e}")),
+        }
+    }
+
+    /// Image files from the clipboard: a link to each goes in at the caret, one to a line, as
+    /// one undo step. A file with no path from the document's folder (another drive) is copied
+    /// beside the document first.
+    fn paste_image_files(&mut self, doc: Option<&Path>, files: &[PathBuf]) {
+        let Some(doc) = doc else {
+            self.docs.set_toast(image_paste::SAVE_FIRST);
+            return;
+        };
+        let mut links = Vec::with_capacity(files.len());
+        let mut copies = Vec::new();
+        for f in files {
+            match image_paste::link_to_file(doc, f) {
+                Ok((link, copy)) => {
+                    links.push(link);
+                    copies.extend(copy);
+                }
+                Err(e) => {
+                    for c in &copies {
+                        let _ = std::fs::remove_file(&c.path);
+                    }
+                    self.docs
+                        .set_toast(&format!("Could not copy the image: {e}"));
+                    return;
+                }
+            }
+        }
+        if !self.edit(EditOp::Paste(&links.join("\n"))) {
+            // The text could not go in (a read-only document): no stray files.
+            for c in &copies {
+                let _ = std::fs::remove_file(&c.path);
+            }
+        } else if let Some(c) = copies.first() {
+            self.docs.set_toast(&image_paste::saved_toast(&c.name));
         }
     }
 

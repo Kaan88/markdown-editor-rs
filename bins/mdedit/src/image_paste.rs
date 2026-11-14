@@ -100,6 +100,158 @@ pub fn save_png(doc: &Path, png: &[u8]) -> io::Result<Saved> {
     ))
 }
 
+/// Whether `path` names an image a Markdown page can show, by its extension.
+pub fn is_image_file(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif"]
+            .iter()
+            .any(|k| e.eq_ignore_ascii_case(k))
+    })
+}
+
+/// The parts of an absolute path after its drive or root, and the drive letter (upper case)
+/// when it has one. `None` for a relative path or a network path.
+fn anchored(path: &Path) -> Option<(Option<u8>, Vec<&std::ffi::OsStr>)> {
+    use std::path::{Component, Prefix};
+    let mut drive = None;
+    let mut rooted = false;
+    let mut parts = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::Prefix(p) => match p.kind() {
+                Prefix::Disk(d) | Prefix::VerbatimDisk(d) => drive = Some(d.to_ascii_uppercase()),
+                _ => return None,
+            },
+            Component::RootDir => rooted = true,
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::Normal(s) => parts.push(s),
+        }
+    }
+    rooted.then_some((drive, parts))
+}
+
+/// The path of `file` as seen from the folder `dir`, with forward slashes (`../img/a.png`).
+/// `None` when there is none: another drive, a network path, or a path that is not absolute.
+pub fn relative_path(dir: &Path, file: &Path) -> Option<String> {
+    let (dir_drive, dir_parts) = anchored(dir)?;
+    let (file_drive, file_parts) = anchored(file)?;
+    if dir_drive != file_drive {
+        return None;
+    }
+    // Windows names do not differ by case.
+    let same = |a: &std::ffi::OsStr, b: &std::ffi::OsStr| {
+        if cfg!(windows) {
+            a.eq_ignore_ascii_case(b)
+        } else {
+            a == b
+        }
+    };
+    let common = dir_parts
+        .iter()
+        .zip(&file_parts)
+        .take_while(|(a, b)| same(a, b))
+        .count();
+    let mut out: Vec<String> = vec!["..".to_string(); dir_parts.len() - common];
+    out.extend(
+        file_parts[common..]
+            .iter()
+            .map(|s| s.to_string_lossy().into_owned()),
+    );
+    (!out.is_empty()).then(|| out.join("/"))
+}
+
+/// The link for the image file `file` pasted into the document `doc`: to the file where it is,
+/// by its path from the document's folder, or, when there is no such path (another drive), to a
+/// copy made beside the document under the file's own name (numbered when that is taken; no
+/// file is overwritten). The copy comes back with the link when one was made.
+pub fn link_to_file(doc: &Path, file: &Path) -> io::Result<(String, Option<Saved>)> {
+    let dir = match doc.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    if let Some(rel) = relative_path(dir, file) {
+        return Ok((markdown_link(&rel), None));
+    }
+    let stem = file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "image".to_string());
+    let ext = file
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    let mut from = std::fs::File::open(file)?;
+    for n in 0..100_000 {
+        let name = if n == 0 {
+            format!("{stem}{ext}")
+        } else {
+            format!("{stem}-{n}{ext}")
+        };
+        let path = dir.join(&name);
+        let mut to = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        };
+        if let Err(e) = io::copy(&mut from, &mut to).and_then(|_| to.flush()) {
+            drop(to);
+            let _ = std::fs::remove_file(&path);
+            return Err(e);
+        }
+        let link = markdown_link(&name);
+        return Ok((link.clone(), Some(Saved { name, path, link })));
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "too many images with this name",
+    ))
+}
+
+/// The file names in a Windows clipboard file list (`CF_HDROP`: a DROPFILES header, then the
+/// names one after another, each ended by a zero and the list by one more). Nothing for data
+/// that is not one.
+#[cfg(any(windows, test))]
+pub fn parse_dropfiles(data: &[u8]) -> Vec<String> {
+    let u32_at = |o: usize| -> Option<u32> {
+        let b = data.get(o..o + 4)?;
+        Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    // DROPFILES: the offset of the names, a point, a flag, and whether the names are UTF-16.
+    let (Some(start), Some(wide)) = (u32_at(0), u32_at(16)) else {
+        return Vec::new();
+    };
+    let Some(names) = data.get(start as usize..).filter(|_| start >= 20) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if wide != 0 {
+        let units: Vec<u16> = names
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
+            .collect();
+        for name in units.split(|&u| u == 0) {
+            if name.is_empty() {
+                break;
+            }
+            out.push(String::from_utf16_lossy(name));
+        }
+    } else {
+        for name in names.split(|&b| b == 0) {
+            if name.is_empty() {
+                break;
+            }
+            out.push(String::from_utf8_lossy(name).into_owned());
+        }
+    }
+    out
+}
+
 /// A Windows clipboard bitmap (`CF_DIB`: a BITMAPINFOHEADER or a later header, then the pixels) as
 /// a PNG file. Only 24 and 32 bit colour with the usual channel order is understood; the alpha
 /// byte of 32 bit is not trusted (the clipboard's bitmap format leaves it zero), so the picture is
@@ -186,6 +338,87 @@ mod tests {
         assert_eq!(encode_path("100%.png"), "100%25.png");
         assert_eq!(encode_path("çay.png"), "çay.png");
         assert_eq!(encode_path("a\tb"), "a%09b");
+    }
+
+    #[test]
+    fn image_files_are_known_by_their_extension() {
+        assert!(is_image_file(Path::new("a.PNG")) && is_image_file(Path::new("b/c.jpeg")));
+        assert!(!is_image_file(Path::new("a.txt")) && !is_image_file(Path::new("png")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_file_is_linked_by_its_path_from_the_document() {
+        let dir = Path::new(r"C:\notes\work");
+        let rel = |f: &str| relative_path(dir, Path::new(f));
+        assert_eq!(rel(r"C:\notes\work\a.png").as_deref(), Some("a.png"));
+        assert_eq!(
+            rel(r"C:\notes\work\img\a b.png").as_deref(),
+            Some("img/a b.png")
+        );
+        assert_eq!(
+            rel(r"C:\notes\pics\a.png").as_deref(),
+            Some("../pics/a.png")
+        );
+        assert_eq!(rel(r"c:\Notes\WORK\a.png").as_deref(), Some("a.png"));
+        assert_eq!(rel(r"C:\a.png").as_deref(), Some("../../a.png"));
+        // The long form of a path names the same drive.
+        assert_eq!(rel(r"\\?\C:\notes\work\a.png").as_deref(), Some("a.png"));
+        // Another drive, a network path, a relative path: no path from here.
+        assert_eq!(rel(r"D:\notes\work\a.png"), None);
+        assert_eq!(rel(r"\\server\share\a.png"), None);
+        assert_eq!(rel("a.png"), None);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_file_is_linked_by_its_path_from_the_document() {
+        let dir = Path::new("/notes/work");
+        let rel = |f: &str| relative_path(dir, Path::new(f));
+        assert_eq!(rel("/notes/work/a.png").as_deref(), Some("a.png"));
+        assert_eq!(rel("/notes/pics/a.png").as_deref(), Some("../pics/a.png"));
+        assert_eq!(rel("/a.png").as_deref(), Some("../../a.png"));
+        assert_eq!(rel("a.png"), None);
+    }
+
+    #[test]
+    fn a_file_in_reach_is_linked_where_it_is() {
+        let dir = temp_dir("link");
+        std::fs::create_dir_all(dir.join("img")).unwrap();
+        let file = dir.join("img").join("my pic.png");
+        std::fs::write(&file, SIGNATURE).unwrap();
+        let (link, copy) = link_to_file(&dir.join("a.md"), &file).unwrap();
+        assert_eq!(link, "![](img/my%20pic.png)");
+        assert!(copy.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_clipboard_file_list_is_read() {
+        let names = [r"C:\a b.png", "D:\\\u{e7}ay.jpg"];
+        let mut data = Vec::new();
+        data.extend_from_slice(&20u32.to_le_bytes());
+        data.extend_from_slice(&[0; 12]);
+        data.extend_from_slice(&1u32.to_le_bytes());
+        for name in names {
+            for u in name.encode_utf16() {
+                data.extend_from_slice(&u.to_le_bytes());
+            }
+            data.extend_from_slice(&[0, 0]);
+        }
+        data.extend_from_slice(&[0, 0]);
+        assert_eq!(parse_dropfiles(&data), names);
+        // Not wide: bytes.
+        let mut narrow = Vec::new();
+        narrow.extend_from_slice(&20u32.to_le_bytes());
+        narrow.extend_from_slice(&[0; 16]);
+        narrow.extend_from_slice(b"C:\\a.png\0\0");
+        assert_eq!(parse_dropfiles(&narrow), [r"C:\a.png"]);
+        // Too short, or an offset outside the data.
+        assert!(parse_dropfiles(&[0; 8]).is_empty());
+        let mut bad = vec![0u8; 20];
+        bad[0] = 200;
+        assert!(parse_dropfiles(&bad).is_empty());
     }
 
     #[test]
