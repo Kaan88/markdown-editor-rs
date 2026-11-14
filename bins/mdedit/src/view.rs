@@ -592,12 +592,8 @@ impl View {
     pub fn new() -> View {
         let mut engine = TextEngine::new(4 << 20);
         engine.set_subpixel(crate::platform::subpixel_order());
-        // Off Windows `shared_fonts` already has the shared fallbacks; on Windows the editor adds
-        // them to its own copy so the chrome's text is unchanged.
-        #[cfg_attr(not(windows), allow(unused_mut))]
-        let mut fonts = shared_fonts();
-        #[cfg(windows)]
-        mdshared_text::add_fallbacks(&mut fonts);
+        // `shared_fonts` has the shared fallbacks applied on every system.
+        let fonts = shared_fonts();
         View {
             fonts,
             lcx: LayoutContext::new(),
