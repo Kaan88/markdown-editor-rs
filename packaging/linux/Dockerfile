@@ -20,6 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain ${RUST_TOOLCHAIN} \
     && chmod -R a+rX /opt/rustup /opt/cargo
 
+# Packaging tools: rpmbuild (make-rpm.sh), lintian (make-deb.sh runs it when present); dpkg-deb comes
+# with dpkg. Their own layer, so the layers above stay cached.
+RUN apt-get update && apt-get install -y --no-install-recommends rpm lintian xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 # The build runs as the caller's user; the registry and the target directory are mounted at /cache.
 ENV HOME=/tmp/home
 WORKDIR /src

@@ -1,0 +1,32 @@
+# Maintainer: Kaan88 <Kaan88@users.noreply.github.com>
+#
+# Installs the release tarball of mdedit (a prebuilt binary, linked against glibc 2.31 or newer).
+# This copy keeps sha256sums=('SKIP'): a PKGBUILD kept in the repository cannot know the sum of the
+# tarball of a release that does not exist yet. The release workflow uploads a PKGBUILD with the
+# real sum (packaging/arch/make-pkgbuild.sh); use that one, or fill the sum in yourself.
+#
+#   makepkg -si
+#
+# The package does not update itself; pacman (or the AUR helper) does.
+pkgname=mdedit-bin
+pkgver=0.5.0
+pkgrel=1
+pkgdesc="A light, fast text editor (prebuilt binary)"
+arch=('x86_64')
+url="https://github.com/Kaan88/markdown-editor-rs"
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'fontconfig' 'freetype2' 'libx11' 'libxcb')
+optdepends=('curl: HTTPS requests (libcurl, loaded when present)' 'wayland: native Wayland window' 'xdg-desktop-portal: file dialogs on Wayland')
+provides=("mdedit=$pkgver")
+conflicts=('mdedit')
+options=('!strip' '!debug')
+source=("mdedit-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/mdedit-$pkgver-linux-x86_64.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/mdedit-$pkgver-linux-x86_64"
+    install -Dm755 bin/mdedit "$pkgdir/usr/bin/mdedit"
+    install -Dm644 share/applications/mdedit.desktop "$pkgdir/usr/share/applications/mdedit.desktop"
+    install -Dm644 share/icons/hicolor/256x256/apps/mdedit.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/mdedit.png"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

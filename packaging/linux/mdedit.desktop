@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=mdedit
+GenericName=Text Editor
+Comment=A light text editor
+Exec=mdedit %F
+Icon=mdedit
+Terminal=false
+Categories=Utility;TextEditor;Development;
+MimeType=text/plain;text/markdown;text/x-markdown;text/x-rust;text/x-python;text/x-csrc;text/x-chdr;text/x-c++src;text/x-java;text/x-script.python;text/css;text/html;text/xml;text/csv;application/json;application/xml;application/toml;application/x-yaml;application/x-shellscript;
+StartupWMClass=mdedit

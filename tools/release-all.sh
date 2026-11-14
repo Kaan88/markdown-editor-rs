@@ -2,7 +2,9 @@
 # Builds every file of an mdedit release on Linux, the Windows and Linux files together, and with
 # --publish creates the GitHub release. Everything is written to target/release-files-all/:
 #
-#   mdedit-<version>-linux-x86_64.AppImage   packaging/linux/build-appimage.sh
+#   mdedit-<version>-linux-x86_64.AppImage   packaging/linux/build-packages.sh (also the .tar.gz, .deb, .rpm
+#   mdedit-<version>-linux-x86_64.tar.gz     and PKGBUILD below, all made from the one binary)
+#   mdedit_<version>_amd64.deb, mdedit-<version>-1.x86_64.rpm, PKGBUILD
 #   mdedit-<version>-windows-x86_64.exe      tools/release-cross.sh (cross-built, Wine for the installer)
 #   mdedit-setup-<version>.exe               tools/release-cross.sh
 #   mdedit-update.txt                        tools/write-manifest.sh, both platforms
@@ -14,7 +16,8 @@
 # --notes is the manifest's one line (what the in-app update bar shows); --notes-file holds the
 # GitHub release text. It refuses a dirty tree (changes under docs/ and tools/ do not count, the
 # files do not depend on them) and a HEAD that no remote branch contains. The release is created
-# on the current commit as `v<version>`, marked latest, with all four assets.
+# on the current commit as `v<version>`, marked latest, with all the assets (the Linux packages included;
+# a release from the CI workflow is the one meant for users, see docs/CI.md).
 set -euo pipefail
 
 app=mdedit
@@ -51,9 +54,11 @@ all="$root/target/release-files-all"
 rm -rf "$all"
 mkdir -p "$all"
 
-packaging/linux/build-appimage.sh
+packaging/linux/build-packages.sh
 tools/release-cross.sh --notes "$notes"
-cp "target/dist-linux/$app-$version-linux-x86_64.AppImage" "target/dist-cross/$app-$version-windows-x86_64.exe" \
+cp "target/dist-linux/$app-$version-linux-x86_64.AppImage" "target/dist-linux/$app-$version-linux-x86_64.tar.gz" \
+   "target/dist-linux/${app}_${version}_amd64.deb" "target/dist-linux/$app-$version-1.x86_64.rpm" target/dist-linux/PKGBUILD \
+   "target/dist-cross/$app-$version-windows-x86_64.exe" \
    "target/dist-cross/$app-setup-$version.exe" "$all/"
 tools/write-manifest.sh --version "$version" --notes "$notes" --out "$all" \
     --windows "$all/$app-$version-windows-x86_64.exe" --linux "$all/$app-$version-linux-x86_64.AppImage"
@@ -67,7 +72,8 @@ if [ "$publish" = 0 ]; then
     exit 0
 fi
 cmd=(gh release create "v$version" "$all/$app-$version-linux-x86_64.AppImage" "$all/$app-$version-windows-x86_64.exe"
-     "$all/$app-setup-$version.exe" "$all/$app-update.txt"
+     "$all/$app-setup-$version.exe" "$all/$app-update.txt" "$all/$app-$version-linux-x86_64.tar.gz"
+     "$all/${app}_${version}_amd64.deb" "$all/$app-$version-1.x86_64.rpm" "$all/PKGBUILD"
      --repo "$slug" --target "$sha" --title "$app $version" --notes-file "$notes_file" --latest)
 if [ "$dry" = 1 ]; then
     printf 'dry run, would run:'; printf ' %q' "${cmd[@]}"; echo

@@ -1,0 +1,210 @@
+# Builds the release files of mdedit and, for a pushed tag v<version> (or a manual run with
+# publish: true), creates the GitHub release with them. A manual run with the default publish:
+# false is a dry build: everything is built and checked, and uploaded as one artifact.
+# Windows files are built natively on a Windows runner, Linux files in the old-glibc image of
+# packaging/linux/Dockerfile. See docs/CI.md.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create the GitHub release (false is a dry build: the files are uploaded as an artifact)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_TOOLCHAIN: 1.99.1
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      publish: ${{ steps.meta.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: .github/scripts/meta.sh
+        env:
+          INPUT_PUBLISH: ${{ inputs.publish }}
+
+  windows:
+    needs: meta
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tools\release.ps1 asks which remote branch holds HEAD
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) { throw 'ISCC.exe not found after the install' }
+          "ISCC=$($iscc.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          & $iscc.FullName /? | Select-Object -First 2
+      - name: Release files (tools\release.ps1, no -Publish)
+        shell: pwsh
+        run: tools\release.ps1 -Notes "mdedit ${{ needs.meta.outputs.version }}"
+      - name: Portable zip
+        shell: pwsh
+        run: packaging\windows\build-zip.ps1
+      - name: Files
+        shell: bash
+        run: |
+          cd target/dist/${{ needs.meta.outputs.version }}
+          ls -l
+          sha256sum *.exe *.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-files
+          path: |
+            target/dist/${{ needs.meta.outputs.version }}/*.exe
+            target/dist/${{ needs.meta.outputs.version }}/*.zip
+          if-no-files-found: error
+
+  linux:
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host tools (appimagetool, squashfs, fonts for the smoke test)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools fonts-dejavu-core
+          curl -fsSL -o /tmp/appimagetool.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  /tmp/appimagetool.AppImage" | sha256sum -c -
+          chmod +x /tmp/appimagetool.AppImage
+          # No FUSE on the runner: unpack it once and put its AppRun on PATH.
+          (cd /tmp && ./appimagetool.AppImage --appimage-extract >/dev/null)
+          sudo ln -s /tmp/squashfs-root/AppRun /usr/local/bin/appimagetool
+          appimagetool --version | head -1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/md-build/mdedit/cargo
+            ~/.cache/md-build/mdedit/target-linux
+          key: linux-release-${{ hashFiles('Cargo.lock', 'packaging/linux/Dockerfile') }}
+          restore-keys: linux-release-
+      - name: AppImage, tar.gz, deb, rpm, PKGBUILD (packaging/linux/build-packages.sh)
+        run: RUST_TOOLCHAIN="$RUST_TOOLCHAIN" packaging/linux/build-packages.sh
+      - name: Smoke test of the tar.gz
+        run: |
+          v='${{ needs.meta.outputs.version }}'
+          d="$(mktemp -d)"
+          tar -xzf "target/dist-linux/mdedit-$v-linux-x86_64.tar.gz" -C "$d"
+          "$d/mdedit-$v-linux-x86_64/install.sh" "$d/prefix"
+          "$d/prefix/bin/mdedit" --no-session --scale 1.0 --shot "$d/shot.png" --light fixtures/sample.rs
+          test -s "$d/shot.png"
+          "$d/mdedit-$v-linux-x86_64/uninstall.sh" "$d/prefix"
+          test ! -e "$d/prefix/bin/mdedit"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-files
+          path: |
+            target/dist-linux/*.AppImage
+            target/dist-linux/*.tar.gz
+            target/dist-linux/*.deb
+            target/dist-linux/*.rpm
+            target/dist-linux/PKGBUILD
+            target/dist-linux/*.lintian.txt
+          if-no-files-found: error
+
+  publish:
+    needs: [meta, windows, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write   # gh release create, and only here
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages (the manifest test builds the app)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config \
+            libfontconfig1-dev libfreetype6-dev \
+            libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-publish
+      - uses: actions/download-artifact@v4
+        with:
+          path: parts
+      - name: Assemble target/release-files-all
+        run: |
+          all=target/release-files-all
+          mkdir -p "$all"
+          find parts -type f -exec cp {} "$all/" \;
+          .github/scripts/notes.sh "$VERSION" notes
+          ls -l "$all"
+      - name: Manifest (both platforms), every hash checked
+        run: |
+          all=target/release-files-all
+          # The Windows entry names the native exe the windows job built, the Linux entry the AppImage.
+          tools/write-manifest.sh --version "$VERSION" --notes "$(cat notes/notes-line.txt)" --out "$all" \
+            --windows "$all/mdedit-$VERSION-windows-x86_64.exe" \
+            --linux "$all/mdedit-$VERSION-linux-x86_64.AppImage"
+          cat "$all/mdedit-update.txt"
+          # Independently of the script: every sha256 line against the file it names.
+          while read -r key value; do
+            case "$key" in
+              *.url:) file="${value##*/}" ;;
+              *.sha256:) echo "$value  $all/$file" | sha256sum -c - ;;
+            esac
+          done < "$all/mdedit-update.txt"
+          # The packages that carry no manifest entry: the PKGBUILD names the tar.gz's hash.
+          tgz="$all/mdedit-$VERSION-linux-x86_64.tar.gz"
+          grep -q "sha256sums=('$(sha256sum "$tgz" | cut -d' ' -f1)')" "$all/PKGBUILD"
+      - name: The manifest test, run against the assembled folder
+        run: cargo test --release -p mdedit --test release_manifest -- --nocapture
+      - name: Create the GitHub release
+        if: needs.meta.outputs.publish == 'true'
+        run: |
+          all=target/release-files-all
+          cd "$all"
+          gh release create "v$VERSION" \
+            "mdedit-$VERSION-linux-x86_64.AppImage" "mdedit-$VERSION-linux-x86_64.tar.gz" \
+            "mdedit_${VERSION}_amd64.deb" "mdedit-$VERSION-1.x86_64.rpm" PKGBUILD \
+            "mdedit-$VERSION-windows-x86_64.exe" "mdedit-$VERSION-windows-x86_64.zip" \
+            "mdedit-setup-$VERSION.exe" "mdedit-update.txt" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "mdedit $VERSION" \
+            --notes-file "$GITHUB_WORKSPACE/notes/release-notes.md" --latest
+      - name: Dry run, everything as one artifact
+        if: needs.meta.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files-all
+          path: |
+            target/release-files-all/*
+            notes/*
+          if-no-files-found: error

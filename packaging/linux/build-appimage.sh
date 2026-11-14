@@ -3,7 +3,8 @@
 #
 #   packaging/linux/build-appimage.sh
 #
-# Output: target/dist-linux/mdedit-<version>-linux-x86_64.AppImage
+# Output: target/dist-linux/mdedit-<version>-linux-x86_64.AppImage, and the binary in
+# target/dist-linux/bin/. RUST_TOOLCHAIN (default stable) picks the toolchain the image installs.
 #
 # The binary is built inside packaging/linux/Dockerfile (Ubuntu 20.04, glibc 2.31) from the
 # repository mounted read-only, so it runs on distributions at least that old. Caches (kept between
@@ -29,7 +30,7 @@ version="$(awk '/^\[workspace\.package\]/{p=1;next} /^\[/{p=0} p&&/^version[ ]*=
 mkdir -p "$cache/$app/cargo" "$cache/$app/target-linux"
 
 # 1. The build image (a no-op when nothing changed).
-docker build -q -t "$image" packaging/linux >/dev/null
+docker build -q -t "$image" --build-arg "RUST_TOOLCHAIN=${RUST_TOOLCHAIN:-stable}" packaging/linux >/dev/null
 
 # 2. The release binary, built as the caller's user from the read-only repository.
 docker run --rm --user "$(id -u):$(id -g)" \
@@ -50,27 +51,17 @@ if [ "$(printf '%s\n2.31\n' "$need" | sort -V | tail -1)" != "2.31" ]; then
     exit 1
 fi
 
-# 4. The AppDir.
+# 4. The AppDir. The binary is also left in target/dist-linux/bin for build-packages.sh.
 dist="$root/target/dist-linux"
+mkdir -p "$dist/bin"
+install -m 755 "$bin" "$dist/bin/$app"
 appdir="$dist/AppDir"
 rm -rf "$appdir"
 mkdir -p "$appdir/usr/bin"
 install -m 755 "$bin" "$appdir/usr/bin/$app"
 install -m 644 assets/mdedit.png "$appdir/$app.png"
 install -m 644 assets/mdedit.png "$appdir/.DirIcon"
-cat > "$appdir/$app.desktop" <<DESKTOP
-[Desktop Entry]
-Type=Application
-Name=mdedit
-GenericName=Text Editor
-Comment=A light text editor
-Exec=mdedit %F
-Icon=mdedit
-Terminal=false
-Categories=Utility;TextEditor;Development;
-MimeType=text/plain;text/markdown;text/x-markdown;text/x-rust;text/x-python;text/x-csrc;text/x-chdr;text/x-c++src;text/x-java;text/x-script.python;text/css;text/html;text/xml;text/csv;application/json;application/xml;application/toml;application/x-yaml;application/x-shellscript;
-StartupWMClass=mdedit
-DESKTOP
+install -m 644 packaging/linux/$app.desktop "$appdir/$app.desktop"
 ln -s "usr/bin/$app" "$appdir/AppRun"
 
 # 5. The runtime appimagetool embeds, fetched once and checked, so appimagetool never downloads.

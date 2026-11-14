@@ -18,7 +18,9 @@ $m = [regex]::Match($toml, '(?ms)^\[workspace\.package\]\s*(?:(?!^\[).)*?^versio
 if (-not $m.Success) { Fail 'Could not read [workspace.package] version from Cargo.toml.' }
 $version = $m.Groups[1].Value
 
-$iscc = $null; $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue; if ($cmd) { $iscc = $cmd.Source }
+$iscc = $null
+if ($env:ISCC -and (Test-Path -LiteralPath $env:ISCC)) { $iscc = $env:ISCC }   # CI points this at the chocolatey install
+if (-not $iscc) { $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue; if ($cmd) { $iscc = $cmd.Source } }
 if (-not $iscc) {
   foreach ($c in "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
                  "$env:ProgramFiles\Inno Setup 7\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe") {
