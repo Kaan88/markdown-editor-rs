@@ -51,7 +51,8 @@ No branch below was reviewed by the main session unless it says so.
 
 | Branch | Feature | Head | State |
 |---|---|---|---|
-| `merge/next-release` | the five features marked "merged" below, merged together | `9f07121` (then docs commits) | CI green at `9f07121` on Linux and Windows; reviewed by the main session; not merged into `main`; nothing released |
+| `merge/next-release` | the six features marked "merged" below, merged together | `95edf8d` (then a handoff commit) | CI green at `95edf8d` on Linux and Windows; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
+| `f/paste-image-files` | paste image files copied in the file manager as links | `5c5af06` | **WIP**, branched from `merge/next-release`; no CI; never tried with a real clipboard |
 | `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; left out of `merge/next-release` (see the review results below) |
 | `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged; waits for a hand test on Windows |
 | `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
@@ -112,7 +113,73 @@ The main session reviewed the diffs of the five branches before the merge.
   has the system's rounded corners (it is undecorated but resizable, and the system rounds such
   windows). So on Windows the `next` branch only adds the setting (square, small); the work and
   the two reasons it is left out are on Linux.
-- Not done by a person: nothing of the five was tried by hand in a real window.
+- Tried by the owner on 2026-11-15: see the next section.
+
+### Where the session of 2026-11-15 stopped
+
+The owner stopped the session and asked for this handoff. Start from `merge/next-release`.
+
+**The owner tried a release build of `95edf8d` by hand on Windows** (scratch settings, copies of
+the fixtures) and reported, in these words: "tabbing creates new rows. right click markdown menu
+works. column works. line commands work. compare works, not sure about f7. paste image works, but
+not from a file browser. crash rec works."
+
+Open from that report:
+
+- **"not sure about f7"** was not followed up. F7 is Next difference (`App::compare_jump`, in
+  0.5.0 already): the caret goes to the start of the next difference, and a toast says when there
+  is none below. Nothing was found wrong in the code. Ask the owner what was seen: no movement, or
+  a movement that is hard to notice (only the caret moves when the difference is already on
+  screen). A thought, not agreed: show "3 of 7" in the status strip, or flash the block.
+- **"tabbing creates new rows"** was taken as the feature working (Tab in the last cell of the
+  last row adds a row). Not confirmed that it was meant so: if Tab adds a row from any other cell,
+  that is a fault.
+- **"not from a file browser":** copying an image file in Explorer puts a file list on the
+  clipboard, not pixels, and the merged feature left that out. Work on it was started and is
+  unfinished on the branch `f/paste-image-files` (`5c5af06`, one commit on top of
+  `merge/next-release`), not agreed in detail with the owner:
+  - Built: `platform::clipboard_files` (Windows, `CF_HDROP`, parsed by
+    `image_paste::parse_dropfiles`; empty elsewhere), `clipboard_formats` (the one place that
+    opens the clipboard, now also used by `clipboard_png`), `image_paste::is_image_file`,
+    `relative_path`, `link_to_file`, `App::paste_image_files`. The file list is looked at before
+    the pixels. Every file must be an image by its extension, else nothing happens.
+  - Decision taken without the owner: a file is linked where it is, by its path from the
+    document's folder; a file with no such path (another drive, a network path) is copied beside
+    the document under its own name and linked there. Several files go in one to a line.
+  - State: `cargo clippy -D warnings` clean and the editor's tests passed (232) on this PC; the
+    core tests and the release build were cut short by the stop; no CI; never tried with a real
+    clipboard; no docs. Linux is not done (a copied file is not looked for there).
+
+**Other things left as they are**
+
+- `test/hand`: a local, unpushed branch on the Windows PC (`merge/next-release` as of `9f07121`
+  plus `f/paste-image` and `feat/restart-after-update`), made for the hand tests. It can be deleted.
+- The release build shown to the owner is a copy outside the repository (a scratch folder of the
+  session); `target/release/mdedit.exe` is the same commit, `95edf8d`.
+- One shared `target` folder was used for a build of `main` in a second worktree; the release
+  build of the branch then failed on stale artifacts until `cargo clean --release -p mdedit-core
+  -p mdedit -p mdedit-highlight`. Do that after building another checkout into the same folder.
+- On the Windows PC the folder `Desktop\markdown-editor-rs` is an old checkout (0.4.1) with every
+  tracked file deleted in its working tree; the live clone is inside it,
+  `Desktop\markdown-editor-rs\markdown-editor-rs`.
+- Working-tree files are CRLF on this PC (autocrlf) and LF in git; git warns, nothing breaks.
+
+**What is left, in the order suggested to the owner**
+
+1. Ask about F7 and Tab (above); finish or drop `f/paste-image-files`.
+2. The owner decides: merge `merge/next-release` into `main`, the version number, the release.
+   None of that was done or asked for.
+3. `feat/restart-after-update`: needs a real update and Restart staged by hand (above).
+4. Rounded corners: only Linux needs work (the failing shared test, the KDE shadow route).
+5. `f/word-completion` (WIP, never built), `f/live-preview-unsaved` and `f/finer-sync` (not
+   started; both need the viewer and the shared crates).
+6. The frosted window (Mica, Acrylic, blur on Wayland): on the roadmap in `docs/PLAN.md`, starts
+   with a spike on Windows.
+
+Known small gaps in what is merged: two column-paste edge cases (a plain copied line into a
+two-row column; cut and paste-back with an empty last row); a backed-up file that was deleted and
+comes back as an untitled tab loses its session entry about 3 s before its recovery copy exists;
+on Linux an image paste runs `wl-paste` or `xclip` on the UI thread.
 
 ### The shared repository (Kaan88/markdown-shared-rs)
 
