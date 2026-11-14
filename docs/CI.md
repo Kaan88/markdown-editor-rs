@@ -107,20 +107,20 @@ that assume the machine they were written on.
 Windows (windows-latest, the MSVC toolchain):
 
 - `app::tests::a_macro_replays_typing_help_to_the_same_result` and
-  `docs::tests::typing_help_pairs_undoes_in_one_step_and_works_at_every_caret` type Enter into a
-  new document and compare with `"\n"`. A new document on Windows ends its lines with CRLF
-  (`mdedit-core`'s `eol` takes the platform's, by design), so the text is `"{a}\r\n"`. The tests
-  need the platform's line ending, as `docs.rs` line 3098 already does elsewhere.
-- `replace_files::tests::literal_over_a_tree_in_find_in_files_order` compares the found paths with
-  the literal `"sub/c.txt"`; Windows spells it `sub\c.txt`.
-- These three are skipped on Windows in `ci.yml` (`--skip`, with a comment) until the tests are
-  fixed; they pass on Linux. Everything else (all other tests, clippy with `-D warnings`, `cargo fmt`, the 167
-  screenshots) passes on Windows.
-- `%TEMP%` on the runner is the 8.3 short path `C:\Users\RUNNER~1\...`. Tests that compare a
-  canonical path with one built from the temp folder (three in mdedit, one in the shared crates)
-  expect the long form, so the Windows test step runs with `TEMP` set to the runner's long
-  `runner.temp`. A real user with a short-named profile folder would hit the same difference only
-  in those tests, not in the program.
+  `docs::tests::typing_help_pairs_undoes_in_one_step_and_works_at_every_caret` typed Enter into a
+  new document and compared with `"\n"`. A new document on Windows ends its lines with CRLF
+  (`mdedit-core`'s `eol` takes the platform's, by design). Fixed: both now build the expected text
+  from the document's own line ending.
+- `replace_files::tests::literal_over_a_tree_in_find_in_files_order` compared the found paths
+  with the string `"sub/c.txt"`; Windows spells it `sub\c.txt`. Fixed: it compares `Path`s.
+- `%TEMP%` on the runner is the 8.3 short path (`C:\Users\RUNNER~1\...`). A file that exists was
+  canonicalized to the long form and a missing one kept the short spelling, so one file had two
+  identities; `mdshared_app::paths::canonical_or_absolute` now canonicalizes the nearest existing
+  folder of a missing file (fixed in the shared crates), and the job needs no `TEMP` override.
+
+No test is skipped and no step may fail: `ci.yml` has no `--skip`, no `continue-on-error` and no
+`TEMP` override. (A few tests are `#[ignore]`d in the source: timing benchmarks and sheet
+generators that are run by hand with `-- --ignored`.)
 
 Linux (ubuntu-latest):
 
