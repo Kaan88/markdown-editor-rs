@@ -238,6 +238,45 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Emoji presentation, a stray column, the exe size (2026-11-14, after 0.5.0, not published)
+
+**Emoji.** Shared pin moved to `bbb1c7a`; `View::build` (`bins/mdedit/src/view.rs`, the one place
+that makes a layout: lines, long-line chunks, line numbers and the metrics samples all go through
+it) calls `mdshared_text::push_emoji_runs(&mut b, text, &stack)` after the default and run styles,
+with the same family string. Nothing changes on Windows (the helper is empty there). `fixtures/emoji.txt`
+(made by `make_fixtures.py`), shots `emoji`, `emoji-dark`, `emoji-caret` (caret after a keycap,
+`--goto 3:11`). Looked at: the first line in colour, the bare characters on the second as text
+glyphs, the caret right after the keycap. Cost (a scratch benchmark of `build`, 3000 runs, not
+committed): ASCII line 14.7-17 us with and 14.8-15.1 us without; a line with emoji about 29 us
+against 20 us. No window needed, so no keystroke trace in the sway container.
+
+**The black column.** Cause: with the second pane at the left and its minimap beside it, the minimap
+draws the dividing line at the right of the pane, but `split_inner` still cut the text by one pixel
+on that side (as if the region drew the line), and nothing painted that pixel (x=543, y 84..773 in
+`compare-saved`). Fix: `split_inner(rect, other_left, px, minimap)` keeps the whole region in that
+one case; the three callers pass `areas.minimap_other.is_some()`. Test
+`a_split_view_leaves_no_pixel_unpainted` paints the screen with a sentinel, composes in full and
+finds none left, over same file or two files, the second pane at either side, minimap on or off, the
+share 0.3/0.5/0.7 (a pane too narrow for a minimap goes without, so one side only), scale 1 and 1.5
+(it failed on exactly that column before the fix). Shots: only `compare-saved` changed (that column
+now the page colour, and the second pane's scrollbars one pixel further right). The alpha prefill in
+`compose` stays as a guard.
+
+**The exe size.** Built with the documented cross build at commits of the first-parent history
+(`dcf7c7d` is on the `main` side; `features-files` came in with the merge `afb3766`): dcf7c7d 5,892,096;
+afb3766 (merge: command palette, compare, replace in files) 6,058,496 (+166,400); eedd8be (one
+file in both panes) 6,072,832 (+14,336); 58d27ee (pin a3e2ef0: sister, place, shadow) 6,079,488
+(+6,656); 340c153 (hand-off with mdview) 6,107,648 (+28,160); e2aae5b (live preview) and d3d3643
+6,111,744 (+4,096, then 0). So three quarters of the 220 KB is the palette, compare and replace in
+files branch, not the hand-off. Cause checked: `Cargo.lock` and the dependency features are the same
+at dcf7c7d and d3d3643 apart from the shared pin; a link map of the unstripped build has no wayland,
+zbus, x11rb or xkbcommon symbol, so nothing Linux-only reaches the Windows exe. `.text` +155 KB,
+`.rdata` +10 KB. Symbol sizes (linker map, dcf7c7d against afb3766, `.text`): replace-in-files UI
+23 KB and its worker 10.5 KB; the palette 13.8 KB plus the shared palette 10.4 KB and fuzzy match
+6.3 KB (they were in the shared crate already but unused, so not linked before); the diff for compare
+13.8 KB and compare 5 KB; the app's event code for the three +48 KB. That is about 3,500 new lines
+of non-test code at `opt-level = "s"`: honest code, no fix, the release profile untouched.
+
 ## Window shadow routes, settings shots, DESIGN, timings (2026-11-14, after the hand-off work; not published)
 
 Part A is commit `1d96351` (shadow), part B the commit after it. Design: `docs/DESIGN.md` sections
