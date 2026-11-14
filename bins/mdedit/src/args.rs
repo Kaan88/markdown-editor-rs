@@ -123,6 +123,8 @@ pub struct Args {
     pub other_scroll: Option<f32>,
     /// `--demo-macros`: three saved macros in memory, for a shot of the Macro menu and dialog.
     pub demo_macros: bool,
+    /// `--demo-recovered N`: the toast of a start that recovered N documents, for a shot.
+    pub demo_recovered: Option<usize>,
     /// `--pref key=value` (repeatable): a preference for this run, as the settings file has it.
     pub prefs: Vec<String>,
     /// `--macro-prompt <text>`: the box that asks a macro's name, with this text typed in it.
@@ -296,6 +298,10 @@ impl Args {
                 }
                 "--split-left" => out.split_left = true,
                 "--demo-macros" => out.demo_macros = true,
+                "--demo-recovered" => {
+                    out.demo_recovered =
+                        checked(&a, value(&a), |v| v.parse().ok().filter(|n| *n > 0))
+                }
                 "--pref" => out.prefs.extend(value(&a).filter(|v| v.contains('='))),
                 "--macro-prompt" => {
                     out.macro_prompt = checked(&a, value(&a), |v| Some(v.to_string()))
@@ -596,6 +602,9 @@ mod tests {
         );
         assert_eq!(parse("--run nonsense").run, None);
         assert!(parse("--demo-link").demo_link && !parse("a.md").demo_link);
+        assert_eq!(parse("--demo-recovered 2").demo_recovered, Some(2));
+        assert_eq!(parse("--demo-recovered 0").demo_recovered, None);
+        assert_eq!(parse("a.md").demo_recovered, None);
         assert_eq!(
             parse("--settings-section Preview")
                 .settings_section

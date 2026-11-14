@@ -606,6 +606,22 @@ impl Ready {
         self.detected = mdedit_core::indent::detect(&self.buffer);
     }
 
+    /// Takes the encoding a recovery copy names, when it differs from the one the file was read
+    /// in and the text can be written in it. True when it changed (the tab is then modified).
+    pub fn recovered_encoding(&mut self, label: &str) -> bool {
+        let Some(encoding) = mdedit_core::recovery::encoding_from_label(label) else {
+            return false;
+        };
+        if self.info.lossy
+            || self.info.encoding == encoding
+            || save::first_unencodable(self.buffer.rope(), encoding).is_some()
+        {
+            return false;
+        }
+        self.info.encoding = encoding;
+        true
+    }
+
     /// Keeps what hangs on the text in step with an edit.
     fn changed(&mut self, change: &Change, twin_top: Option<usize>) {
         self.info.eol.apply(&change.eol_removed, &change.eol_added);
@@ -878,12 +894,33 @@ impl Ready {
     }
 }
 
+/// The unsaved text a `restore` file holds: a backup is the text itself, a recovery copy has a
+/// header before it.
+fn read_restore(path: &Path) -> Option<String> {
+    if path
+        .extension()
+        .is_some_and(|e| e == mdedit_core::recovery::EXTENSION)
+    {
+        mdedit_core::recovery::read(path).map(|(_, text)| text)
+    } else {
+        std::fs::read_to_string(path).ok()
+    }
+}
+
 pub enum DocState {
     /// A restored tab not shown yet.
     Pending,
     Loading,
     Ready(Box<Ready>),
     Failed(String),
+}
+
+/// What a recovery copy says about the file it came from, kept until the text is put back.
+pub struct Recovered {
+    /// The file's size and time when the copy was made; the file now being different keeps both.
+    pub base: Option<FileStamp>,
+    /// The encoding the copy names.
+    pub encoding: String,
 }
 
 pub struct Doc {
@@ -910,6 +947,8 @@ pub struct Doc {
     /// The file holding the unsaved text this tab had when the window last closed; it replaces
     /// the file's text once that is read.
     pub restore: Option<PathBuf>,
+    /// Set with `restore` when that file is a recovery copy.
+    pub recovered: Option<Recovered>,
     /// The encoding the user chose to read the file as; every load of this tab uses it.
     pub forced: Option<Encoding>,
     /// The encoding to save in was changed since the file was read or written.
@@ -937,6 +976,7 @@ impl Doc {
             pending_select: None,
             pending_goto: None,
             restore: None,
+            recovered: None,
             forced: None,
             encoding_changed: false,
             lossy_toasted: false,
@@ -1359,6 +1399,7 @@ impl Docs {
             pending_select: None,
             pending_goto: None,
             restore: None,
+            recovered: None,
             forced: None,
             encoding_changed: false,
             lossy_toasted: false,
@@ -1874,12 +1915,21 @@ impl Docs {
                     r.twin = Some(Box::new(r.view.twin_of()));
                 }
                 // Unsaved text from the last run goes back over what was read.
-                if let Some(text) = doc
-                    .restore
-                    .take()
-                    .and_then(|p| std::fs::read_to_string(p).ok())
-                {
+                let recovered = doc.recovered.take();
+                let mut recovered_flags = (false, false);
+                if let Some(text) = doc.restore.take().and_then(|p| read_restore(&p)) {
                     r.put_back(&text);
+                    if let Some(rec) = &recovered {
+                        // The file is not the one the copy was made from: both are kept, the
+                        // text as modified with the changed-on-disk banner.
+                        if let Some(base) = rec.base.as_ref().filter(|b| **b != r.info.stamp) {
+                            // The stamp of the file the text grew from: Save sees the
+                            // difference and asks before it overwrites.
+                            r.info.stamp = *base;
+                            recovered_flags.0 = true;
+                        }
+                        recovered_flags.1 = r.recovered_encoding(&rec.encoding);
+                    }
                 }
                 if let (Some(lang), Some(s)) = (language, service)
                     && lang.limits().allows_file(r.buffer.len_bytes())
@@ -1897,7 +1947,8 @@ impl Docs {
                 doc.missing = false;
                 doc.changed_on_disk = false;
                 doc.discard = false;
-                doc.encoding_changed = false;
+                doc.encoding_changed = recovered_flags.1;
+                doc.changed_on_disk = recovered_flags.0;
                 if let Some(path) = doc.path.clone() {
                     self.recents.add(path);
                 }

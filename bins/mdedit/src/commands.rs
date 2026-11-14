@@ -363,6 +363,12 @@ pub mod strings {
     pub const FIND_SEARCHING: &str = "Searching";
     pub const FILES_DOCK: &str = "FILES";
     pub const FILE_GONE: &str = "The file was deleted or moved. Showing the text last read.";
+    pub fn recovered(n: usize) -> String {
+        match n {
+            1 => "Recovered 1 unsaved document".to_string(),
+            n => format!("Recovered {n} unsaved documents"),
+        }
+    }
     pub const FILE_CHANGED: &str =
         "The file changed on disk. Saving asks before it overwrites; Reload drops your changes.";
     /// Before the name of a file with unsaved changes, on its tab and in the window title.

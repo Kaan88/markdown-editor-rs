@@ -101,3 +101,12 @@ pub const REPLACE_PREVIEW_PART: usize = 120;
 pub const REPLACE_REVERT_BYTES: u64 = 64 << 20;
 /// Backup names `name.bak`, `name.bak1` .. `name.bak99`; with all taken the file is not changed.
 pub const REPLACE_BACKUPS: usize = 99;
+
+/// A document larger than this many bytes gets no recovery copy: writing it again every few
+/// seconds would cost more than the copy is worth. (A normal close still keeps its unsaved text,
+/// whatever its size.)
+pub const RECOVERY_MAX_BYTES: usize = 64 << 20;
+/// The recovery copy of a document is written after this many milliseconds without a change,
+/// and at the latest this many milliseconds after the first change not yet written.
+pub const RECOVERY_IDLE_MS: u64 = 3_000;
+pub const RECOVERY_MAX_MS: u64 = 30_000;

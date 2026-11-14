@@ -228,6 +228,9 @@ struct App {
     #[cfg(not(windows))]
     dialog_busy: bool,
     exit_due: Option<Instant>,
+    /// Recovery copies of unsaved documents, and when the next one is due.
+    recovery: crate::recovery::Recovery,
+    recover_due: Option<Instant>,
     /// `--run`: when its command runs.
     run_due: Option<Instant>,
     /// `--scroll-steps`: steps left, the direction, and the frame times taken.
@@ -360,6 +363,8 @@ impl App {
             #[cfg(not(windows))]
             dialog_busy: false,
             exit_due: None,
+            recovery: crate::recovery::Recovery::off(),
+            recover_due: None,
             run_due: None,
             step_down: true,
             step_times: Vec::new(),
@@ -1960,6 +1965,7 @@ impl ApplicationHandler<Wake> for App {
             self.docs.links.finish();
             self.save_size();
             self.save_session();
+            self.recovery.finish(&self.docs);
             self.trace.cpu("exit");
             event_loop.exit();
             return;
@@ -1972,6 +1978,7 @@ impl ApplicationHandler<Wake> for App {
             }
         }
         self.persist_if_changed();
+        self.recover_due = self.recovery.poll(&self.docs, Instant::now());
         self.link_due = self.docs.link_poll(Instant::now());
         if !self.settled && !self.first && self.is_settled() {
             self.settled = true;
@@ -1996,6 +2003,10 @@ impl ApplicationHandler<Wake> for App {
             return;
         }
         let next = self.timers(Instant::now());
+        let next = match (next, self.recover_due) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         if self.exit {
             return;
         }
@@ -2415,7 +2426,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     // The caret in its visible phase, and no toast: a shot is the same on every run.
     app.ui.caret_on = true;
-    app.docs.clear_toast();
+    if app.args.demo_recovered.is_none() {
+        app.docs.clear_toast();
+    }
     app.full = true;
     app.compose();
     match app.screen.write_png(path) {
@@ -2565,6 +2578,15 @@ pub fn run() -> i32 {
             }
         }
     }
+    // Text a run that did not end normally left behind comes back as modified tabs.
+    let mut recovery = crate::recovery::Recovery::new(
+        session_path
+            .as_deref()
+            .filter(|_| args.shot.is_none())
+            .and_then(crate::recovery::dir_of),
+    );
+    let recovered = recovery.restore(&mut docs);
+    restored.extend(recovered.load.iter().copied());
     if active.is_none() && !docs.tabs.is_empty() {
         active = Some(0);
     }
@@ -2590,6 +2612,12 @@ pub fn run() -> i32 {
     let service = HighlightService::spawn(move || w(Wake::Highlight));
     let mut app = App::new(args, docs, trace, session_path, session);
     app.compare_wait = compare_ids;
+    app.recovery = recovery;
+    let recovered_count = app.args.demo_recovered.unwrap_or(recovered.count);
+    if recovered_count > 0 {
+        app.docs
+            .set_toast(&crate::commands::strings::recovered(recovered_count));
+    }
     // Macros are read from here when first wanted, not now.
     app.macros.path = app
         .session_path

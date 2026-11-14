@@ -144,6 +144,8 @@ shot tabs --dark "$fx/sample.md" "$fx/sample.rs" "$fx/sample.toml" "$fx/sample.p
     "$fx/turkish.txt" "$fx/cjk.txt" "$fx/crlf.txt"
 shot typed --light --goto 5:1 --type "edited " "$fx/sample.rs"
 shot dialog-unsaved --dark --goto 5:1 --type "edited " --dialog unsaved "$fx/sample.rs"
+shot recovered-light --light --goto 5:1 --type "edited " --demo-recovered 2 "$fx/sample.rs"
+shot recovered-dark --dark --goto 5:1 --type "edited " --demo-recovered 1 "$fx/sample.rs"
 shot update-available --light --update-bar available "$fx/sample.rs"
 shot update-installing --dark --update-bar installing "$fx/sample.rs"
 shot update-installed --dark --update-bar installed

@@ -23,6 +23,7 @@ pub mod load;
 pub mod markdown;
 pub mod multi;
 pub mod prefs;
+pub mod recovery;
 pub mod replace;
 pub mod replace_files;
 pub mod save;
