@@ -14,7 +14,7 @@ URL:            https://github.com/Kaan88/markdown-editor-rs
 ExclusiveArch:  x86_64
 Recommends:     libcurl
 Recommends:     libwayland-client
-Recommends:     xdg-desktop-portal
+Suggests:       xdg-desktop-portal
 
 %description
 mdedit is a light, fast native text editor with syntax highlighting, find and

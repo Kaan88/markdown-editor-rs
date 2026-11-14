@@ -66,7 +66,8 @@ Architecture: amd64
 Maintainer: $maintainer
 Installed-Size: $size_kb
 Depends: $depends
-Recommends: libcurl4, libwayland-client0, xdg-desktop-portal
+Recommends: libcurl4, libwayland-client0
+Suggests: xdg-desktop-portal
 Section: editors
 Priority: optional
 Homepage: $homepage
@@ -103,7 +104,7 @@ out="$OUT_DIR/${app}_${version}_amd64.deb"
 rm -f "$out"
 dpkg-deb --root-owner-group -Zxz -b "$pkg" "$out" >/dev/null
 ls -l "$out"
-dpkg-deb -I "$out" | sed -n '/Depends/p;/Recommends/p'
+dpkg-deb -I "$out" | sed -n '/Depends/p;/Recommends/p;/Suggests/p'
 if command -v lintian >/dev/null 2>&1; then
     echo "lintian:"
     lintian --no-tag-display-limit "$out" | tee "$OUT_DIR/${app}_${version}_amd64.lintian.txt" || true
