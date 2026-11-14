@@ -170,6 +170,9 @@ pub struct Args {
     pub compare_saved: bool,
     /// Step to the next difference this many times after comparing.
     pub next_difference: usize,
+    /// After that, copy the difference the caret is in across (`across`) or take it from the
+    /// other side (`take`), for a shot.
+    pub copy_change: Option<bool>,
     /// `--find-in-files`: search the folder for the find text now, and wait for the answer.
     pub find_in_files: bool,
     /// The results panel's replacement box starts with this text.
@@ -330,6 +333,13 @@ impl Args {
                 "--next-difference" => {
                     out.next_difference = checked(&a, value(&a), |v| v.parse().ok()).unwrap_or(0)
                 }
+                "--copy-change" => {
+                    out.copy_change = match value(&a).as_deref() {
+                        Some("across") => Some(true),
+                        Some("take") => Some(false),
+                        _ => None,
+                    }
+                }
                 "--find-in-files" => out.find_in_files = true,
                 "--results-replace" => out.results_replace = value(&a),
                 "--replace-dialog" => out.replace_dialog = true,
@@ -482,6 +492,9 @@ mod tests {
         // A pair needs both files.
         assert_eq!(parse("--compare a.rs").compare, None);
         assert!(parse("--compare-saved a.rs").compare_saved);
+        assert_eq!(parse("--copy-change across a.rs").copy_change, Some(true));
+        assert_eq!(parse("--copy-change take a.rs").copy_change, Some(false));
+        assert_eq!(parse("--copy-change a.rs").copy_change, None);
         let a =
             parse("--find-in-files --results-replace new --replace-dialog --replace-report a.rs");
         assert!(a.find_in_files && a.replace_dialog && a.replace_report);

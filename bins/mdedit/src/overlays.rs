@@ -207,6 +207,22 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
             .enabled(crate::compare::enabled(C::CompareFile, docs)),
         cmd(C::CompareSaved, "Compare with saved", glyph::SAVE)
             .enabled(crate::compare::enabled(C::CompareSaved, docs)),
+        cmd(C::NextDifference, "Next difference", glyph::DOWN)
+            .enabled(crate::compare::enabled(C::NextDifference, docs)),
+        cmd(C::PreviousDifference, "Previous difference", glyph::UP)
+            .enabled(crate::compare::enabled(C::PreviousDifference, docs)),
+        cmd(
+            C::CopyChangeAcross,
+            "Copy this change to the other side",
+            glyph::FORWARD,
+        )
+        .enabled(crate::compare::enabled(C::CopyChangeAcross, docs)),
+        cmd(
+            C::TakeChangeAcross,
+            "Take this change from the other side",
+            glyph::BACK,
+        )
+        .enabled(crate::compare::enabled(C::TakeChangeAcross, docs)),
         cmd(C::StopCompare, "Stop comparing", glyph::CLOSE)
             .enabled(crate::compare::enabled(C::StopCompare, docs)),
     ];

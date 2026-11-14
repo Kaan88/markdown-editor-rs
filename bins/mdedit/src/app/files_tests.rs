@@ -593,6 +593,96 @@ fn compare_with_saved_shows_the_file_on_disk_read_only_and_closes_with_the_compa
 }
 
 #[test]
+fn a_change_is_copied_to_the_other_side_or_taken_from_it_in_one_undo_step() {
+    let b_text = "1\nTWO\n3\n4\nx\ny\n5\n6\n7\n9\n10\n";
+    let (mut a, dir, ia, ib) = compared(TEN, b_text);
+    let text = |a: &App, i| tabs(a, i).buffer.rope().to_string();
+    // Not in a difference: nothing happens, and it is said.
+    assert!(!crate::compare::enabled(C::CopyChangeAcross, &a.docs));
+    a.command(C::CopyChangeAcross);
+    assert_eq!(text(&a, ib), b_text);
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .is_some_and(|t| t.contains("not in a difference"))
+    );
+    // The first difference: line 2 against TWO.
+    a.command(C::NextDifference);
+    assert!(crate::compare::enabled(C::CopyChangeAcross, &a.docs));
+    assert!(crate::compare::enabled(C::TakeChangeAcross, &a.docs));
+    a.command(C::CopyChangeAcross);
+    assert_eq!(text(&a, ib), "1\n2\n3\n4\nx\ny\n5\n6\n7\n9\n10\n");
+    assert_eq!(text(&a, ia), TEN, "the source stays as it was");
+    settle_compare(&mut a);
+    assert_eq!(
+        tabs(&a, ia).view.align.as_ref().unwrap().summary(),
+        "2 differences"
+    );
+    // One undo takes it back in the document that changed.
+    assert!(a.docs.edit_in(ib, EditOp::Undo, None));
+    assert_eq!(text(&a, ib), b_text);
+    assert!(!a.docs.edit_in(ib, EditOp::Undo, None));
+    // The next one is the lines x and y the left lacks: taking them brings them in.
+    settle_compare(&mut a);
+    a.command(C::NextDifference);
+    a.command(C::TakeChangeAcross);
+    assert_eq!(text(&a, ia), "1\n2\n3\n4\nx\ny\n5\n6\n7\n8\n9\n10\n");
+    assert!(a.docs.edit_in(ia, EditOp::Undo, None));
+    assert_eq!(text(&a, ia), TEN);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_block_one_side_lacks_is_brought_in_or_removed() {
+    let text = |a: &App, i| tabs(a, i).buffer.rope().to_string();
+    // The caret goes to "c", the line after the filler rows of the block.
+    let (mut a, dir, ia, _) = compared("a\nb\nc\n", "a\nb\nX\nY\nc\n");
+    a.command(C::NextDifference);
+    a.command(C::TakeChangeAcross);
+    assert_eq!(text(&a, ia), "a\nb\nX\nY\nc\n");
+    let _ = std::fs::remove_dir_all(&dir);
+    let (mut a, dir, ia, ib) = compared("a\nb\nc\n", "a\nb\nX\nY\nc\n");
+    a.command(C::NextDifference);
+    a.command(C::CopyChangeAcross);
+    assert_eq!(text(&a, ib), "a\nb\nc\n");
+    settle_compare(&mut a);
+    assert_eq!(
+        tabs(&a, ia).view.align.as_ref().unwrap().summary(),
+        "No differences"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_change_cannot_go_into_the_saved_copy_but_can_come_from_it() {
+    let dir = scratch("cmp-take");
+    let path = dir.join("a.txt");
+    std::fs::write(&path, TEN).unwrap();
+    let mut a = app();
+    let ia = open_now(&mut a, &path);
+    a.docs.edit(EditOp::Insert("edited "), None);
+    a.command(C::CompareSaved);
+    settle_compare(&mut a);
+    // The text as edited is at the right; the saved copy at the left cannot change.
+    assert!(!crate::compare::enabled(C::CopyChangeAcross, &a.docs));
+    assert!(crate::compare::enabled(C::TakeChangeAcross, &a.docs));
+    a.command(C::CopyChangeAcross);
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .is_some_and(|t| t.contains("cannot be changed"))
+    );
+    a.command(C::TakeChangeAcross);
+    assert_eq!(tabs(&a, ia).buffer.rope().to_string(), TEN);
+    assert!(a.docs.edit_in(ia, EditOp::Undo, None));
+    assert_eq!(
+        tabs(&a, ia).buffer.rope().to_string(),
+        format!("edited {TEN}")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn compare_commands_are_greyed_until_they_can_run() {
     let mut a = app();
     let dir = scratch("cmp-en");

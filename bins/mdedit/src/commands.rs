@@ -101,6 +101,10 @@ pub enum CommandId {
     StopCompare,
     NextDifference,
     PreviousDifference,
+    /// In a comparison, with the caret in a difference: this side's lines replace the other
+    /// side's, or the other side's replace this side's.
+    CopyChangeAcross,
+    TakeChangeAcross,
     /// Off Windows, from an AppImage: the default application for text files.
     MakeDefault,
     /// Show the file in mdview and keep it scrolled to the caret's line, or stop doing so; and
@@ -210,6 +214,16 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::StopCompare, "Stop comparing", &[]),
     cmd(C::NextDifference, "Next difference", &["F7"]),
     cmd(C::PreviousDifference, "Previous difference", &["Shift+F7"]),
+    cmd(
+        C::CopyChangeAcross,
+        "Copy this change to the other side",
+        &[],
+    ),
+    cmd(
+        C::TakeChangeAcross,
+        "Take this change from the other side",
+        &[],
+    ),
     cmd(
         C::PreviewInViewer,
         "Preview in mdview, or stop",
@@ -447,6 +461,10 @@ pub mod strings {
     pub const COMPARE_NOTHING_SAVED: &str = "Nothing to compare: the file has no unsaved changes.";
     pub const NO_NEXT_DIFFERENCE: &str = "No more differences below.";
     pub const NO_PREVIOUS_DIFFERENCE: &str = "No more differences above.";
+    pub const NOT_IN_A_DIFFERENCE: &str = "The caret is not in a difference.";
+    pub const COMPARE_STALE: &str = "Wait until the comparison is up to date.";
+    pub const COMPARE_TARGET_READ_ONLY: &str = "The other side cannot be changed.";
+    pub const TAKE_TARGET_READ_ONLY: &str = "This side cannot be changed.";
 
     pub fn saved_copy_name(name: &str) -> String {
         format!("{name} (saved)")

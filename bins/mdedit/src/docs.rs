@@ -24,6 +24,7 @@ use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES};
 use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
 use mdedit_core::markdown;
+use mdedit_core::merge;
 use mdedit_core::multi::{self, MultiOp};
 use mdedit_core::prefs::Prefs;
 use mdedit_core::replace;
@@ -1135,6 +1136,9 @@ pub enum EditOp<'a> {
     ReplaceOne(&'a str),
     /// Replaces every match of the document's query by this template, as one undo step.
     ReplaceAll(&'a str),
+    /// Compare: puts the lines of the other side's block in place of this side's block, as one
+    /// undo step.
+    CopyLines(&'a merge::Splice),
 }
 
 /// The largest text Replace all takes. It runs on the UI thread at about 1.4 to 2.2 s per
@@ -2174,6 +2178,9 @@ impl Docs {
                 EditOp::ReverseLines => lines::reverse_lines(buf, hist, sel),
                 EditOp::UniqueLines => lines::unique_lines(buf, hist, sel),
                 EditOp::JoinLines => lines::join_lines(buf, hist, sel),
+                EditOp::CopyLines(s) => {
+                    merge::replace_lines(buf, hist, sel, s.target.clone(), &s.from, eol)
+                }
                 EditOp::MdHeading => markdown::cycle_heading(buf, hist, sel),
                 EditOp::MdTable => markdown::format_table(buf, hist, sel),
                 // Done above, with every caret; reaching here is a selection it did not take.

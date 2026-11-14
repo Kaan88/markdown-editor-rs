@@ -1206,6 +1206,8 @@ impl App {
             C::StopCompare => self.compare_stop(),
             C::NextDifference => self.compare_jump(true),
             C::PreviousDifference => self.compare_jump(false),
+            C::CopyChangeAcross => self.compare_copy(true),
+            C::TakeChangeAcross => self.compare_copy(false),
             C::GoToLine => {
                 if self.docs.active_ready().is_some() {
                     self.ui.naming = false;
