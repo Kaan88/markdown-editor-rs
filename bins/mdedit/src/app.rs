@@ -2354,7 +2354,22 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotDialog::Shortcuts) => app.open_dialog(DialogKind::Shortcuts),
         Some(ShotDialog::Recent) => app.open_dialog(DialogKind::Recent),
         Some(ShotDialog::Macros) => app.open_dialog(DialogKind::Macros),
-        Some(ShotDialog::Settings) => app.open_settings(),
+        Some(ShotDialog::Settings) => {
+            app.open_settings();
+            if let Some(name) = app.args.settings_section.clone() {
+                // The form lays its rows out when it is drawn: once, then scroll to the section.
+                app.compose();
+                if let Some(f) = app.ui.settings.as_mut() {
+                    let at = f
+                        .categories()
+                        .iter()
+                        .position(|c| c.eq_ignore_ascii_case(&name));
+                    if let Some(at) = at {
+                        f.jump_to_category(at);
+                    }
+                }
+            }
+        }
         Some(ShotDialog::Unsaved) => {
             if let Some(id) = app.docs.active_doc().map(|d| d.id) {
                 app.ask(DialogKind::Unsaved, id, After::Nothing);

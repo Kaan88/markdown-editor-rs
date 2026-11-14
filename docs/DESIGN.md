@@ -1576,7 +1576,70 @@ and the second view's layout and paint, which a second pane already cost. Typing
 is in both panes does the acting view's work as before plus mapping the twin (a handful of
 offsets) and two colour windows' `edited`; measured in the HANDOFF section for this change.
 
-## 54. Window shadow routes (2026-11-14)
+## 54. Hand-off with mdview and the live preview (2026-11-14)
+
+The protocol (request, wire format, live text, finding the other application, placing windows) is
+`markdown-shared-rs/docs/SISTER.md`; this section is what the editor does with it. The code is
+`bins/mdedit/src/link.rs` (the links and the courier thread) and `bins/mdedit/src/app/handoff.rs`
+(receiving, the two commands, placing).
+
+**Receiving ("Edit in mdedit", from the viewer).** `--from`, `--follow`, `--place x,y,w,h` and
+`--goto L[:C]` are launch arguments; a second launch hands them to the running window as a
+`Request`. A request that is not `follow` opens the file (or its tab), puts the caret at the line
+and column, moves the window if it carries a place, and raises it. A `follow` request only moves the
+caret, and only in the file that is the active tab; it raises nothing and opens nothing. A place is
+applied with `mdshared_ui::place::set`, which takes the window-geometry rectangle (on Windows and
+X11 the outer one, on KDE Wayland `frameGeometry`), so the shadow's margin (section 55) does not
+change what the viewer asked for; where a desktop cannot place a window the toast says so.
+
+**Sending ("Preview in mdview", Ctrl+Shift+V, View menu, tab menu, palette).** On a saved file:
+`sister::open("mdview", ...)` at the caret's line, then the document is linked. The same command
+again ends the link; the menu entry is checked while it lasts and the status strip says
+"Previewing". "Preview side by side" always opens, and first puts this window on the left half of
+its screen (`place::halves` of `work_area`) and asks for the right half for the viewer; where
+placing is impossible it says so, sends no place, and the viewer opens where it would. A document
+without a file cannot be previewed (a toast says so): the viewer reads the disk.
+
+**What is sent, and when.** Nothing runs while no link exists: no thread, no timer, `link_poll`
+returns at once. While linked, each pass of the window loop (`Docs::link_poll`) compares the
+caret's line and the document's version (load and edit counters) with what the viewer has. A
+change is sent as `follow`: the line alone, or, when the live preview is on and the text changed,
+the whole text with the line. At most ten sends a second (`INTERVAL` 100 ms): inside the interval
+the pass asks the loop to come back when it is over, and of the changes meanwhile the newest goes.
+Switching to a linked tab tells the viewer again where that document is. The text is a rope
+snapshot (a clone that shares the nodes), so the UI thread's whole cost is the pass, a clone and a
+hand-over to a slot (a mutex and a condition variable): measured at 0.3 microseconds for a 200 KB
+document in the test in `app/handoff.rs` (HANDOFF, 2026-11-14 section on the shadow); the
+copy to bytes and the loopback write happen on the courier thread.
+
+**The courier.** One thread, one slot: a newer update replaces one that waits, so a slow or hung
+viewer never blocks the window and never gets a backlog. A send nobody answers is retried every
+250 ms for `GRACE` (5 s) after the viewer was started, since it is still starting; after that the
+viewer is gone and the link ends. A send with text that was not answered leaves the text out for
+`TEXT_RETRY` (5 s) and sends the line alone (an older viewer does not take text; section "Why
+older receivers are safe" of SISTER.md). On exit the courier is given 300 ms to tell the viewer
+the links are over.
+
+**The cap.** A document over `MAX_TEXT` (2 MiB) sends no text: the viewer shows the file (the
+save-driven preview), and one toast says so when the link starts. The line still follows.
+
+**What ends a link.** The user (the command again); the tab closing; the file being renamed or
+saved under another name (the link names a path, and the tab no longer has it); the viewer being
+gone (above); the process. Ending one tells the viewer to go back to the file (`live_off`), if it
+was sent text, except when the viewer is the one that is gone. Turning the setting off sends
+`live_off` for every linked document and keeps the line following; turning it on sends the text
+again at the next change. A save sends nothing: the viewer sees the file change and returns to the
+file itself (its rule in SISTER.md). The viewer, for its part, asks `sister::alive("mdedit")` every
+5 s while a tab is live, so an editor that crashed does not leave the preview frozen.
+
+**Setting.** "Live preview while typing" (`live_preview`, default on) under "Preview" in Settings;
+off: "mdview shows the file when you save". The settings form has a test that every help line fits
+in the default window, a narrow one and at scale 1.5, and that this row is there.
+
+**Not covered.** A viewer that is an older build takes the line and not the text; an editor that
+is not running when the viewer asks to edit is started by the viewer with the request's arguments.
+
+## 55. Window shadow routes (2026-11-14)
 
 Replaces section 48's "KWin only". The window is created and kept as the viewer's is
 (`markdown-shared-rs/docs/LINUX.md`, "Window shadow"): on KDE, KWin's own protocol with the window

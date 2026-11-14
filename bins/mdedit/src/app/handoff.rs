@@ -593,4 +593,78 @@ mod tests {
         };
         assert_eq!(crate::keys::command_for(&key, ctrl), Some(C::Paste));
     }
+
+    /// What one edit costs the UI thread while a live preview is on: the pass over the links
+    /// (`link_poll`), which takes a snapshot of the rope (a clone that shares its nodes) and puts
+    /// it in the courier's slot (a mutex and a condition variable). Not run with the others: it
+    /// sets the sister's settings variable and prints microseconds.
+    ///
+    ///   cargo test --release -p mdedit live_send_cost -- --ignored --nocapture --test-threads=1
+    #[test]
+    #[ignore = "timing; prints the cost of the live preview's send path"]
+    fn live_send_cost_on_the_ui_thread() {
+        let dir = scratch("hand-cost");
+        let path = dir.join("big.md");
+        // About 200 KB in 8,400 lines.
+        let text: String = (1..=8400)
+            .map(|n| format!("line number {n:05} ....\n"))
+            .collect();
+        assert!(text.len() > 190_000);
+        std::fs::write(&path, &text).unwrap();
+        // A listener stands in for the viewer, so the sends are real (and nothing reaches a real
+        // viewer). SAFETY: this test runs alone (ignored by default), nothing else reads the
+        // variable.
+        let viewer = dir.join("viewer.ini");
+        let rx = mdshared_app::single::listen_requests_waking("mdview", &viewer, || {}).unwrap();
+        unsafe { std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", &viewer) };
+        let mut a = app();
+        let i = open_now(&mut a, &path);
+        let id = a.docs.tabs[i].id;
+        a.docs.prefs.live_preview = true;
+        let t0 = Instant::now();
+        let canonical = canonical_or_absolute(&path);
+        a.docs.links.link(id, canonical, Some(1), None, t0);
+        a.docs.links.start(a.docs.waker());
+        let (mut edit, mut send, mut idle) = (vec![], vec![], vec![]);
+        for k in 0..300u64 {
+            let t = Instant::now();
+            a.docs.edit(crate::docs::EditOp::Insert("x"), None);
+            edit.push(t.elapsed());
+            // 200 ms after the last pass: the rate limit has run out, the update is sent.
+            let t = Instant::now();
+            a.docs.link_poll(t0 + Duration::from_millis(200 * (k + 1)));
+            send.push(t.elapsed());
+            // Straight after: the same text again, nothing to send.
+            let t = Instant::now();
+            a.docs
+                .link_poll(t0 + Duration::from_millis(200 * (k + 1) + 1));
+            idle.push(t.elapsed());
+        }
+        let us = |v: &mut Vec<Duration>| {
+            v.sort();
+            (
+                v[v.len() / 2].as_secs_f64() * 1e6,
+                v[v.len() * 95 / 100].as_secs_f64() * 1e6,
+                v[v.len() - 1].as_secs_f64() * 1e6,
+            )
+        };
+        let len = a.docs.active_ready().unwrap().buffer.len_bytes();
+        let (e, s, n) = (us(&mut edit), us(&mut send), us(&mut idle));
+        eprintln!(
+            "live preview, {len} bytes, 300 edits: edit alone p50 {:.1} us; link_poll with a send p50 {:.1} us, p95 {:.1} us, max {:.1} us; link_poll with nothing due p50 {:.2} us",
+            e.0, s.0, s.1, s.2, n.0
+        );
+        // The sends were real: the viewer's stand-in got updates with the whole text (the courier
+        // keeps only the newest of those that pile up, so fewer than 300 arrive).
+        let mut got = (0, 0);
+        while let Ok(r) = rx.recv_timeout(Duration::from_millis(500)) {
+            got = (got.0 + 1, got.1.max(r.text.as_ref().map_or(0, |t| t.len())));
+        }
+        eprintln!(
+            "the viewer's stand-in received {} updates, the longest text {} bytes",
+            got.0, got.1
+        );
+        assert!(got.0 > 0 && got.1 >= len);
+        a.docs.links.finish();
+    }
 }

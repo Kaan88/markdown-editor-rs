@@ -189,6 +189,9 @@ pub struct Args {
     /// `--demo-link`: the first document shows as previewed in mdview, with nothing started or
     /// sent, for a shot.
     pub demo_link: bool,
+    /// `--settings-section <name>`: with `--dialog settings`, the form scrolled to that section
+    /// (`Preview`), for a shot.
+    pub settings_section: Option<String>,
 }
 
 /// `a<sep>b` with both sides parsed.
@@ -373,6 +376,7 @@ impl Args {
                     })
                 }
                 "--demo-link" => out.demo_link = true,
+                "--settings-section" => out.settings_section = value(&a),
                 "--select" => {
                     out.select = checked(&a, value(&a), |v| {
                         let (from, to) = v.split_once('-')?;
@@ -592,6 +596,12 @@ mod tests {
         );
         assert_eq!(parse("--run nonsense").run, None);
         assert!(parse("--demo-link").demo_link && !parse("a.md").demo_link);
+        assert_eq!(
+            parse("--settings-section Preview")
+                .settings_section
+                .as_deref(),
+            Some("Preview")
+        );
     }
 
     #[test]

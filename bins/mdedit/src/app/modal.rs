@@ -378,6 +378,13 @@ mod tests {
             let mut gfx = Gfx::new();
             let mut p = Painter::new(&mut bmp, &mut gfx, scale);
             form.layout(&mut p, Rect::new(0.0, 0.0, w, h));
+            // The Preview section's row is among the rows checked below, with its help line.
+            let live = form
+                .rows()
+                .iter()
+                .position(|r| matches!(r, Row::Toggle { id, .. } if *id == LIVE_PREVIEW))
+                .expect("the live preview row");
+            assert!(!help_of(&form.rows()[live]).is_empty());
             for i in 0..form.rows().len() {
                 let help = help_of(&form.rows()[i]);
                 let (row, ctrl) = (form.rect_of_row(i), form.control_rect(i));

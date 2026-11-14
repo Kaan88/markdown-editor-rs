@@ -238,6 +238,103 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Window shadow routes, settings shots, DESIGN, timings (2026-11-14, after the hand-off work; not published)
+
+Part A is commit `1d96351` (shadow), part B the commit after it. Design: `docs/DESIGN.md` sections
+54 (hand-off, live preview) and 55 (shadow). The shadow is the viewer's adoption copied
+(`~/src/md/view` `7734d6a`, merge `5dad417`; `markdown-shared-rs/docs/LINUX.md` "Window shadow").
+Shared pin is now `99f810c` everywhere; winit and softbuffer come from the two patched forks
+(`[patch.crates-io]`), and `mdshared-ui` has `client-margin`.
+
+**What was built.** `Shadow::prepare`, `attach_mode(.., Mode::from_env())`,
+`set_premultiplied_alpha(true)` when `wants_alpha()`, `set_min_content_size`. `App.size` is the
+content size; `Resized`, `ScaleFactorChanged`, `CursorMoved` and the saved window size convert; the
+present path puts the content at the margin offset (rationale per line in the commit message and
+DESIGN 55). The edge test has no lower bound (shared `edge_at`; tests for x < 0). Placement
+(`--place`, side by side) hands `place::set` a window-geometry rectangle; on KDE that is KWin's
+`frameGeometry` on both routes, elsewhere on Wayland `set` returns false and the toast says so, so
+the margin cannot make it wrong there. Not handled: forced `MD_SHADOW=client` on X11, where
+`place::set` (shared) subtracts outer minus inner and the inner size includes the margin; Auto
+never picks that route.
+
+**Alpha finding.** Shared `Bitmap` fills, blends and blits keep or write 255, and the minimap's
+bitmap is cleared (255) before it is blitted. `Bitmap::new` is all zero, though, so a pixel no region
+paints stays at alpha 0. A temporary scan of all 158 shots found exactly one: `compare-saved`
+(minimaps on in a compare view), column x=543, y 84..773, black in the shot before and after. Cause
+(not fixed, left as drawn): the other pane's rectangle is cut by one device pixel on the divider
+side (`split_inner`) although its minimap, not the divider, is at that side. Fix made: `compose`
+sets alpha 255 when it allocates `screen` (colours unchanged); test `a_composed_frame_is_opaque`.
+Proposed for shared: `Bitmap::new` should initialise alpha to 255 as its doc comment says.
+
+**Proofs run (this machine, headless: no window on the host display, no pointer, no keys).**
+- `cargo test --release --workspace`: 596 passed, 13 ignored (593 before; new: saved size over five
+  restarts at six scales, resize band outside the content, opaque frame; plus the ignored cost
+  test below). Clippy `-D warnings` and `fmt --check` clean.
+- `tests/shots.sh`: the 158 shots of the build before part A and after it are byte-identical
+  (`cmp`); part B adds 4 (`settings-preview*`), the 158 are still identical.
+- Windows cross build (`tools/release-cross.sh --no-installer`, Docker, cargo-xwin): compiles with
+  `--locked`; exe 6,111,744 bytes after part A, and the same 6,111,744 at `d3d3643` (different
+  hashes, section padding). **That is over the 6,000,000-byte budget and was before this work**
+  (the 0.5.0 release exe was 5,892,096; the hand-off work in between grew it). Not run on Windows.
+- Live window, sway headless in Docker (image `mdedit-sway`, built in
+  `~/.cache/md-linux-test/edit-sway/` from archlinux with sway, swaybg, grim, imagemagick;
+  `WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman`, 1600x1000 output with a
+  light solid background, `--cap-add SYS_NICE` because the sway binary has file capabilities;
+  scripts `run.sh`, `inner.sh`, `steps.sh`; the release binary and `fixtures/` mounted read-only;
+  `mdedit --no-session sample.rs`; screenshots with `grim`, outputs in
+  `~/.cache/md-linux-test/edit-sway/out/`). Client route (Auto on sway) against `MD_SHADOW=none`:
+  | state | `swaymsg get_tree` rect, client | rect, none | content crop vs none (`compare -metric AE`) |
+  |---|---|---|---|
+  | start | 160,100 1280x800 | same | 0 differing pixels |
+  | `resize set 900 620` | 350,190 900x620 | same | 0 |
+  | fullscreen | 0,0 1600x1000 | same | 0 (the whole output) |
+  | fullscreen off | 350,190 900x620 | same | 32 px: the caret (2x19 at 61,84), blink phase |
+  The rectangle equals the content size, the shadow shows around it (e.g. 10 px left of the window
+  the background goes 224 to 214; none: 224), no stale margin after the resize, fullscreen has none.
+  Screenshots: `client-initial.png`, `client-resized.png`, `client-full.png`, `client-back.png`, and
+  the `none-*` set, in the same folder. Looked at: `client-initial.png`, `client-resized.png`,
+  `client-full.png`.
+
+**Part B.**
+- Shots looked at (`~/.cache/md-linux-test/edit-base/shots-b/`): `settings`, `settings-narrow`,
+  the new `settings-preview`, `-dark` (not opened), `-scale`, `-narrow` (the Preview section scrolled
+  into view with the new `--settings-section Preview` shot flag), `menu-view-md-linked-dark`,
+  `menu-view-rs-linked`, `menu-tab-md-linked-dark`, `previewing`. Nothing was off: the help line
+  of "Live preview while typing" fits whole in all four layouts, the nav marks Preview, the
+  entries and their checks are aligned, the status strip says "Previewing". The first screen of
+  the existing settings shots never shows the new row (it is below the fold), hence the new shots.
+  The help-line test already iterated every row; it now also asserts the live preview row exists with
+  a help line.
+- DESIGN 54 (hand-off, live preview) written against SISTER.md.
+- Timings, in the sway container (the only way to get a window headless); before-build (`d3d3643`)
+  and after-build interleaved, 8 rounds each, `sample.rs`, 300 keystrokes, 200 scroll steps; min /
+  median:
+  | | before | after (client shadow) | after, `MD_SHADOW=none` |
+  |---|---|---|---|
+  | window shown (ms) | 72.7 / 77.0 | 71.8 / 74.6 | 72.4 / 74.7 |
+  | private memory (MiB) | 19.1 / 19.3 | 19.2 / 19.25 | 19.1 / 19.1 |
+  | keystroke p50 (ms) | 0.55 / 0.56 | 0.49 / 0.50 | 0.48 / 0.49 |
+  | keystroke p95 (ms) | 0.63 / 0.75 | 0.54 / 0.86 | 0.51 / 0.53 |
+  | scroll p50 (ms) | 0.50 / 0.50 | 0.44 / 0.45 | 0.43 / 0.44 |
+  No regression; the after builds are a little faster on keystroke and scroll (the pinned shared
+  code and a changed link differ too, so it is not credited to the shadow). The Linux binary
+  grew 12,033,952 to 12,075,104 bytes. Numbers are from sway headless (pixman, no GPU), not
+  from the KDE session.
+- Cost of the live preview's send on the UI thread: test `live_send_cost_on_the_ui_thread`
+  (`app/handoff.rs`, ignored; run with `cargo test --release -p mdedit live_send_cost --
+  --ignored --nocapture --test-threads=1`). A 193,500-byte document in 8,400 lines, 300 edits, a
+  listener standing in for the viewer: `link_poll` with a send is 0.3 microseconds p50 and p95
+  (max 1.4 to 3), with nothing due 0.07 microseconds; the edit itself 1.6 microseconds. The
+  rope snapshot and the slot hand-over are what it does; the sends were real (the stand-in
+  received updates with the whole 193,500 bytes; the courier coalesces, 3 of 300 arrived).
+
+**NOT run.** Anything on the host display (nothing was opened there), the pointer or keyboard
+(so: the edge resize from the outer band, a click through the margin, `drag_resize_window`,
+focus changes with the real compositor), the Windows exe, GNOME (Mutter), X11 and Xwayland, KDE's
+own route in a window (the KWin route is the old code and the shots show it unchanged), fractional
+scales, `--place` and side by side with the client route (no desktop to place on in sway; KDE's
+script not run). The owner has not looked at the shadow or the settings shots.
+
 ## Hand-off with mdview (2026-11-14, parts 1-4; not published)
 
 Built: shared pin 1e39bc1; receiving (`--from`, `--follow`, `--place`, `--goto L[:C]`, `--run`, `--demo-link`; requests
