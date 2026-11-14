@@ -43,6 +43,14 @@ pub enum CommandId {
     MdHeading,
     MdLink,
     MdTable,
+    MdRowBelow,
+    MdRowAbove,
+    MdDeleteRow,
+    MdColumnRight,
+    MdColumnLeft,
+    MdDeleteColumn,
+    MdMoveColumnLeft,
+    MdMoveColumnRight,
     Find,
     FindNext,
     FindPrevious,
@@ -173,6 +181,14 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::MdHeading, "Heading level", &["Ctrl+Shift+H"]),
     cmd(C::MdLink, "Link", &[]),
     cmd(C::MdTable, "Align table", &[]),
+    cmd(C::MdRowBelow, "Insert row below", &[]),
+    cmd(C::MdRowAbove, "Insert row above", &[]),
+    cmd(C::MdDeleteRow, "Delete row", &[]),
+    cmd(C::MdColumnRight, "Insert column right", &[]),
+    cmd(C::MdColumnLeft, "Insert column left", &[]),
+    cmd(C::MdDeleteColumn, "Delete column", &[]),
+    cmd(C::MdMoveColumnLeft, "Move column left", &[]),
+    cmd(C::MdMoveColumnRight, "Move column right", &[]),
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
     cmd(C::FindPrevious, "Find previous", &["Shift+F3"]),
@@ -431,6 +447,7 @@ pub mod strings {
     pub const NO_PLACING: &str = "This desktop does not let a window be placed";
 
     pub const NOT_MARKDOWN: &str = "This is for Markdown files.";
+    pub const NOT_IN_TABLE: &str = "The caret is not in a table.";
     pub const BLOCK_TOO_LARGE: &str = "That block of lines is too large to change at once.";
     pub const NO_LINE_COMMENT: &str = "This kind of file has no line comment.";
     pub const TOO_LARGE_FOR_ALL_LINES: &str =

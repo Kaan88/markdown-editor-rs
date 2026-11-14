@@ -382,6 +382,16 @@ pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act
         cmd(C::MdTable, "Align table", glyph::TABLE)
             .sep()
             .enabled(ready),
+        cmd(C::MdRowBelow, "Insert row below", glyph::PLUS).enabled(ready),
+        cmd(C::MdRowAbove, "Insert row above", glyph::PLUS).enabled(ready),
+        cmd(C::MdDeleteRow, "Delete row", glyph::DELETE).enabled(ready),
+        cmd(C::MdColumnRight, "Insert column right", glyph::PLUS)
+            .sep()
+            .enabled(ready),
+        cmd(C::MdColumnLeft, "Insert column left", glyph::PLUS).enabled(ready),
+        cmd(C::MdDeleteColumn, "Delete column", glyph::DELETE).enabled(ready),
+        cmd(C::MdMoveColumnLeft, "Move column left", glyph::BACK).enabled(ready),
+        cmd(C::MdMoveColumnRight, "Move column right", glyph::FORWARD).enabled(ready),
     ];
     Menu::new(items, x, y, align_right)
 }

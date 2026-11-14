@@ -350,6 +350,10 @@ fn icon(id: C) -> &'static str {
         C::MdBold | C::MdItalic | C::MdCode | C::MdStrike | C::MdHeading => glyph::WORD,
         C::MdLink => glyph::LINK,
         C::MdTable => glyph::TABS,
+        C::MdRowBelow | C::MdRowAbove | C::MdColumnRight | C::MdColumnLeft => glyph::PLUS,
+        C::MdDeleteRow | C::MdDeleteColumn => glyph::DELETE,
+        C::MdMoveColumnLeft => glyph::BACK,
+        C::MdMoveColumnRight => glyph::FORWARD,
         C::Settings => glyph::SLIDERS,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
@@ -387,6 +391,14 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::MdHeading
         | C::MdLink
         | C::MdTable
+        | C::MdRowBelow
+        | C::MdRowAbove
+        | C::MdDeleteRow
+        | C::MdColumnRight
+        | C::MdColumnLeft
+        | C::MdDeleteColumn
+        | C::MdMoveColumnLeft
+        | C::MdMoveColumnRight
         | C::GoToLine => ready.is_some(),
         C::Reload | C::CloseTab | C::CloseAllTabs => has_tab,
         C::Find

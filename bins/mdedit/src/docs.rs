@@ -29,6 +29,7 @@ use mdedit_core::prefs::Prefs;
 use mdedit_core::replace;
 use mdedit_core::save::{self, SaveError};
 use mdedit_core::selection::Selection;
+use mdedit_core::table;
 use mdedit_core::typing::{self, Assist};
 use mdedit_core::{Buffer, Change, FileInfo, History, Position};
 use mdedit_highlight::{Colored, DocId, HighlightService, Language, Span};
@@ -1126,6 +1127,8 @@ pub enum EditOp<'a> {
     MdLink,
     /// Markdown: lines up the pipe table the caret is in.
     MdTable,
+    /// Markdown: a row or column command on the pipe table the caret is in.
+    MdTableOp(table::TableOp),
     /// The save options of the preferences (trailing spaces, final line break).
     SaveOptions(&'a Prefs),
     /// Makes every line break this one.
@@ -2012,10 +2015,17 @@ impl Docs {
             {
                 Some(strings::TOO_LARGE_FOR_ALL_LINES)
             }
-            EditOp::MdWrap(_) | EditOp::MdHeading | EditOp::MdLink | EditOp::MdTable
+            EditOp::MdWrap(_)
+            | EditOp::MdHeading
+            | EditOp::MdLink
+            | EditOp::MdTable
+            | EditOp::MdTableOp(_)
                 if !r.assist.markdown =>
             {
                 Some(strings::NOT_MARKDOWN)
+            }
+            EditOp::MdTableOp(t) if !table::can(&r.buffer, r.view.sel, t) => {
+                Some(strings::NOT_IN_TABLE)
             }
             EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
                 if lines::block_too_large(&r.buffer, r.view.sel, true) =>
@@ -2094,7 +2104,9 @@ impl Docs {
         r.view.column = None;
         // The typing help goes first, for one character typed, Enter, Backspace and (in Markdown)
         // Tab and Shift+Tab; `None` is the plain edit below.
-        let typed = typing_edit(r, &op, eol).or_else(|| markdown_edit(r, &op));
+        let typed = table_keys(r, &op, eol)
+            .or_else(|| typing_edit(r, &op, eol))
+            .or_else(|| markdown_edit(r, &op));
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.view.sel);
         let out = if let Some(out) = typed {
             out
@@ -2176,6 +2188,9 @@ impl Docs {
                 EditOp::JoinLines => lines::join_lines(buf, hist, sel),
                 EditOp::MdHeading => markdown::cycle_heading(buf, hist, sel),
                 EditOp::MdTable => markdown::format_table(buf, hist, sel),
+                EditOp::MdTableOp(t) => {
+                    table::edit(buf, hist, sel, t, eol).unwrap_or(Outcome { sel, change: None })
+                }
                 // Done above, with every caret; reaching here is a selection it did not take.
                 EditOp::MdWrap(_) | EditOp::MdLink => Outcome { sel, change: None },
                 EditOp::SaveOptions(prefs) => {
@@ -2940,6 +2955,22 @@ fn typing_edit(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
     Some(Outcome { sel, ..out })
 }
 
+/// Tab, Shift+Tab and Enter in a Markdown pipe table: to the next or previous cell, a new row.
+/// With one caret only, and `None` (the plain keys) where the caret is not in a table, a
+/// selection spans lines, or Enter is not at the end of a row.
+fn table_keys(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
+    if !r.assist.markdown || !r.view.extra.is_empty() {
+        return None;
+    }
+    let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.view.sel);
+    match op {
+        EditOp::Indent => table::next_cell(buf, hist, sel, false, eol),
+        EditOp::Outdent => table::next_cell(buf, hist, sel, true, eol),
+        EditOp::Newline => table::row_after(buf, hist, sel, eol),
+        _ => None,
+    }
+}
+
 /// Markdown's wrap and link commands, for every caret. `None` when they do nothing.
 fn markdown_edit(r: &mut Ready, op: &EditOp) -> Option<Outcome> {
     if !matches!(op, EditOp::MdWrap(_) | EditOp::MdLink) {
@@ -3441,6 +3472,58 @@ mod tests {
         r_sel_to_start(&mut d, i);
         assert!(d.edit(EditOp::MdTable, None));
         assert!(text_of(&d, i).starts_with("| a   | bb  |\n| --- | --- |\n| ccc | d   |\n"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn tab_enter_and_the_table_commands_work_in_a_markdown_table_only() {
+        let (mut d, i, _path, dir) =
+            file_docs("mdtable", b"| a | bb |\n|-|-|\n| 1 | 2 |\n\ntext\n");
+        // Not Markdown: Tab is the plain indent, the commands are refused.
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("\t| a | bb |"));
+        assert!(d.edit(EditOp::Undo, None));
+        assert!(!d.edit(EditOp::MdTableOp(table::TableOp::RowBelow), None));
+        assert_eq!(d.toast.as_ref().unwrap().0, strings::NOT_MARKDOWN);
+        d.tabs[i].ready_mut().unwrap().assist = Prefs::default().assist("Markdown");
+        let at =
+            |d: &mut Docs, p: usize| d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(p);
+        // Tab lines the table up and moves to the next cell; it is one undo step.
+        at(&mut d, 2);
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("| a   | bb  |\n| --- | --- |\n| 1   | 2   |\n"));
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.caret, 8);
+        assert!(d.edit(EditOp::Undo, None));
+        assert!(text_of(&d, i).starts_with("| a | bb |\n|-|-|"));
+        // Outside the table, and with a selection across lines, Tab indents as before.
+        let end = text_of(&d, i).len() - 2;
+        at(&mut d, end);
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).ends_with("tex\tt\n"));
+        assert!(d.edit(EditOp::Undo, None));
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
+            anchor: 2,
+            caret: 14,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::Indent, None));
+        assert!(text_of(&d, i).starts_with("\t| a | bb |\n\t|-|-|"));
+        assert!(d.edit(EditOp::Undo, None));
+        // Enter at the end of the last row adds a row.
+        let row_end = text_of(&d, i).find("| 2 |").unwrap() + 5;
+        at(&mut d, row_end);
+        assert!(d.edit(EditOp::Newline, None));
+        assert!(text_of(&d, i).contains("| 1   | 2   |\n|     |     |\n\ntext"));
+        assert!(d.edit(EditOp::Undo, None));
+        // A command: delete the row, then a column moves.
+        at(&mut d, row_end - 2);
+        assert!(d.edit(EditOp::MdTableOp(table::TableOp::MoveColumnLeft), None));
+        assert!(text_of(&d, i).starts_with("| bb  | a   |"));
+        // Outside a table: refused with a toast.
+        let end = text_of(&d, i).len() - 2;
+        at(&mut d, end);
+        assert!(!d.edit(EditOp::MdTableOp(table::TableOp::DeleteRow), None));
+        assert_eq!(d.toast.as_ref().unwrap().0, strings::NOT_IN_TABLE);
         std::fs::remove_dir_all(dir).ok();
     }
 

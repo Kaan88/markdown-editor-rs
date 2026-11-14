@@ -10,6 +10,7 @@ use mdedit_core::find::Query;
 use mdedit_core::limits::COPY_LIMIT;
 use mdedit_core::lines;
 use mdedit_core::save::SaveError;
+use mdedit_core::table::TableOp;
 
 /// How long after the last edit the find marks are searched for again.
 const REFIND_DELAY: Duration = Duration::from_millis(300);
@@ -954,6 +955,14 @@ impl App {
                 | C::MdHeading
                 | C::MdLink
                 | C::MdTable
+                | C::MdRowBelow
+                | C::MdRowAbove
+                | C::MdDeleteRow
+                | C::MdColumnRight
+                | C::MdColumnLeft
+                | C::MdDeleteColumn
+                | C::MdMoveColumnLeft
+                | C::MdMoveColumnRight
         );
         if self.ui.find_focused && edits {
             return;
@@ -1106,6 +1115,30 @@ impl App {
             }
             C::MdTable => {
                 self.edit(EditOp::MdTable);
+            }
+            C::MdRowBelow => {
+                self.edit(EditOp::MdTableOp(TableOp::RowBelow));
+            }
+            C::MdRowAbove => {
+                self.edit(EditOp::MdTableOp(TableOp::RowAbove));
+            }
+            C::MdDeleteRow => {
+                self.edit(EditOp::MdTableOp(TableOp::DeleteRow));
+            }
+            C::MdColumnRight => {
+                self.edit(EditOp::MdTableOp(TableOp::ColumnRight));
+            }
+            C::MdColumnLeft => {
+                self.edit(EditOp::MdTableOp(TableOp::ColumnLeft));
+            }
+            C::MdDeleteColumn => {
+                self.edit(EditOp::MdTableOp(TableOp::DeleteColumn));
+            }
+            C::MdMoveColumnLeft => {
+                self.edit(EditOp::MdTableOp(TableOp::MoveColumnLeft));
+            }
+            C::MdMoveColumnRight => {
+                self.edit(EditOp::MdTableOp(TableOp::MoveColumnRight));
             }
             C::TrimTrailing => {
                 self.edit(EditOp::TrimTrailing);
