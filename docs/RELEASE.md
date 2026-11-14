@@ -234,3 +234,24 @@ because the non-Windows transport was a stub. With the libcurl transport of the 
 `feat/linux` (pinned since 2026-11-14) it reaches GitHub from a Linux build ("nothing newer" while
 the live manifest named 0.4.0; an AppImage updating itself has not run). The release files of 0.5.0
 are made this way; Windows is covered only as far as the paragraph above says.
+
+## v0.5.0 (published 2026-11-14 by the release workflow, from the tag at commit d49a0de)
+
+Assets: `mdedit-0.5.0-windows-x86_64.exe` (6,124,544 bytes), `mdedit-setup-0.5.0.exe`,
+`mdedit-0.5.0-windows-x86_64.zip`, `mdedit-0.5.0-linux-x86_64.AppImage` (5,585,400 bytes),
+`mdedit-0.5.0-linux-x86_64.tar.gz`, `mdedit_0.5.0_amd64.deb`, `mdedit-0.5.0-1.x86_64.rpm`,
+`PKGBUILD` and `mdedit-update.txt`. The Windows files were built natively on a Windows runner.
+
+Verified against the live release: the manifest at the latest-download address names 0.5.0 with a
+`windows-x86_64` and a `linux-x86_64` entry; the downloaded exe has the manifest's SHA-256
+`cd59c3427f40c5b70c7cecf157cbf74eaf02c5234d4a4091a5a5c965b273e1df` and the AppImage
+`e2ef0185383df0fc43e9148f3afced5efbe8d2b60ee26bfaea30d3b50e191841`; the published AppImage's
+`--check-update` answered "nothing newer", exit 0.
+
+Before publishing: an AppImage built from the same code offered, installed and became a newer
+test build end to end on KDE Plasma 6 (see the driven-test section of `docs/HANDOFF.md`).
+
+Not verified: that the published 0.4.0 Windows exe is offered 0.5.0 (the look was tried under
+Wine and gave no output; the manifest grammar it reads is unchanged); the Windows files run by
+hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
+dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
