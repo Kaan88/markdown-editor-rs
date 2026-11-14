@@ -780,9 +780,9 @@ impl App {
                     self.macros.saved().iter().map(|n| n.name.clone()).collect();
                 overlays::macro_menu(recording, any, &names, x, y, right)
             }
-            PopupKind::Lines => overlays::lines_menu(&self.docs, x, y),
-            PopupKind::Convert => overlays::convert_menu(&self.docs, x, y),
-            PopupKind::Markdown => overlays::markdown_menu(&self.docs, x, y),
+            PopupKind::Lines => overlays::lines_menu(&self.docs, x, y, right),
+            PopupKind::Convert => overlays::convert_menu(&self.docs, x, y, right),
+            PopupKind::Markdown => overlays::markdown_menu(&self.docs, x, y, right),
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return None,
@@ -806,12 +806,8 @@ impl App {
         } else {
             mouse_y - 14.0
         };
-        // Beside the parent, on its left when there is room (the main menu hangs at the right).
-        let (x, right) = if r.x >= 200.0 {
-            (r.x, true)
-        } else {
-            (r.right(), false)
-        };
+        // Beside the parent: on its right when there is room, otherwise on its left.
+        let (x, right) = overlays::sub_side(r, self.logical().0);
         let Some(mut menu) = self.build_menu(sub, x, y, right) else {
             return;
         };

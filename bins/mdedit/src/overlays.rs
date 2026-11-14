@@ -260,7 +260,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
 }
 
 /// The text menu's Lines submenu: the line commands, then the ones that sort and join them.
-pub fn lines_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
+pub fn lines_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let ready = docs.active_ready().is_some();
     let items = vec![
         cmd(C::DuplicateLine, "Duplicate line", glyph::DUPLICATE_LINE).enabled(ready),
@@ -278,11 +278,11 @@ pub fn lines_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .sep()
             .enabled(ready),
     ];
-    Menu::new(items, x, y, false)
+    Menu::new(items, x, y, align_right)
 }
 
 /// The text menu's Markdown submenu, for Markdown documents.
-pub fn markdown_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
+pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let ready = docs.active_ready().is_some();
     let items = vec![
         cmd(C::MdBold, "Bold", "").enabled(ready),
@@ -293,11 +293,11 @@ pub fn markdown_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         cmd(C::MdLink, "Link", glyph::LINK).enabled(ready),
         cmd(C::MdTable, "Align table", "").sep().enabled(ready),
     ];
-    Menu::new(items, x, y, false)
+    Menu::new(items, x, y, align_right)
 }
 
 /// The text menu's Convert submenu: case, tabs and trailing spaces.
-pub fn convert_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
+pub fn convert_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let ready = docs.active_ready().is_some();
     let has_selection = docs
         .active_ready()
@@ -310,7 +310,7 @@ pub fn convert_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .enabled(ready),
         cmd(C::TrimTrailing, "Trim trailing spaces", glyph::TRIM).enabled(ready),
     ];
-    Menu::new(items, x, y, false)
+    Menu::new(items, x, y, align_right)
 }
 
 /// The menu of the bar's text boxes: the editing commands a text box has everywhere, and the
@@ -930,6 +930,52 @@ mod tests {
         ] {
             let r = card(kind, 30, 520.0, 360.0);
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.right() <= 520.0 && r.bottom() <= 360.0);
+        }
+    }
+}
+
+/// The widest a submenu is (its longest label plus the icon column), used to decide on which side
+/// of its parent it stands before it has been measured.
+pub const SUB_WIDTH: f32 = 260.0;
+
+/// Where a submenu stands beside its parent `parent` in a window `win_w` wide: to the right of it
+/// when there is room, otherwise to the left. Returns the menu's anchor x and whether that x is
+/// the menu's right edge. One rule for the main menu (which hangs at the window's right edge) and
+/// for a context menu anywhere in the window.
+pub fn sub_side(parent: Rect, win_w: f32) -> (f32, bool) {
+    if parent.right() + SUB_WIDTH + 4.0 <= win_w {
+        (parent.right(), false)
+    } else {
+        (parent.x, true)
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    #[test]
+    fn a_submenu_stands_beside_its_parent_on_the_side_with_room() {
+        let win = 1000.0;
+        // Parent near the left edge: the submenu goes to its right.
+        let (x, right) = sub_side(Rect::new(10.0, 50.0, 220.0, 300.0), win);
+        assert!(!right && x == 230.0);
+        // In the middle: still to the right.
+        let (x, right) = sub_side(Rect::new(400.0, 50.0, 220.0, 300.0), win);
+        assert!(!right && x == 620.0);
+        // Hugging the right edge (the main menu, or a context menu there): to the left,
+        // its right edge at the parent's left edge.
+        let (x, right) = sub_side(Rect::new(770.0, 50.0, 220.0, 300.0), win);
+        assert!(right && x == 770.0);
+        // Neither side overlaps the parent.
+        for px in [4.0, 100.0, 300.0, 500.0, 700.0, 776.0] {
+            let parent = Rect::new(px, 0.0, 220.0, 100.0);
+            let (x, right) = sub_side(parent, win);
+            if right {
+                assert!(x - SUB_WIDTH >= 0.0 && x == parent.x);
+            } else {
+                assert!(x == parent.right() && x + SUB_WIDTH <= win);
+            }
         }
     }
 }

@@ -92,6 +92,9 @@ pub struct Args {
     pub dialog: Option<ShotDialog>,
     /// `--hover x,y`: logical pointer position for `--shot`.
     pub hover: Option<(f32, f32)>,
+    /// `--menu-at F`: where across the text area (0 to 1) the right-click of the text menu shots
+    /// lands; 0.3 when not given.
+    pub menu_at: Option<f32>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
     /// `--wrap`: word wrap.
@@ -272,6 +275,7 @@ impl Args {
                         Some((LineCol::parse(from)?, LineCol::parse(to)?))
                     })
                 }
+                "--menu-at" => out.menu_at = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),

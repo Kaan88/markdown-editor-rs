@@ -2062,11 +2062,17 @@ fn shot(mut app: App, path: &Path) -> i32 {
             }
         }
         Some(ShotMenu::Text) => {
-            app.ui.mouse = (text.x + text.w * 0.3, text.y + 160.0);
+            app.ui.mouse = (
+                text.x + text.w * app.args.menu_at.unwrap_or(0.3),
+                text.y + 160.0,
+            );
             app.right_press();
         }
         Some(m @ (ShotMenu::TextLines | ShotMenu::TextConvert | ShotMenu::TextMarkdown)) => {
-            app.ui.mouse = (text.x + text.w * 0.3, text.y + 160.0);
+            app.ui.mouse = (
+                text.x + text.w * app.args.menu_at.unwrap_or(0.3),
+                text.y + 160.0,
+            );
             app.right_press();
             app.compose();
             let (row, sub) = match m {
