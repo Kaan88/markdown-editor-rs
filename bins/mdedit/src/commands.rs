@@ -103,6 +103,10 @@ pub enum CommandId {
     PreviousDifference,
     /// Off Windows, from an AppImage: the default application for text files.
     MakeDefault,
+    /// Show the file in mdview and keep it scrolled to the caret's line, or stop doing so; and
+    /// the same with the two windows placed side by side.
+    PreviewInViewer,
+    PreviewSideBySide,
 }
 
 pub struct Command {
@@ -206,6 +210,12 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::StopCompare, "Stop comparing", &[]),
     cmd(C::NextDifference, "Next difference", &["F7"]),
     cmd(C::PreviousDifference, "Previous difference", &["Shift+F7"]),
+    cmd(
+        C::PreviewInViewer,
+        "Preview in mdview, or stop",
+        &["Ctrl+Shift+V"],
+    ),
+    cmd(C::PreviewSideBySide, "Preview side by side", &[]),
     cmd(C::RecordMacro, "Record a macro, or stop", &["Ctrl+Shift+R"]),
     cmd(C::PlayMacro, "Play the macro", &["Ctrl+Shift+P"]),
     cmd(
@@ -412,6 +422,11 @@ pub mod strings {
     pub fn lossy_toast(name: &str) -> String {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
     }
+
+    pub const PREVIEW_NEEDS_FILE: &str = "Save the file first: mdview shows files.";
+    pub const PREVIEW_TILING: &str =
+        "Place the windows side by side with your desktop's tiling keys.";
+    pub const NO_PLACING: &str = "This desktop does not let a window be placed";
 
     pub const NOT_MARKDOWN: &str = "This is for Markdown files.";
     pub const BLOCK_TOO_LARGE: &str = "That block of lines is too large to change at once.";

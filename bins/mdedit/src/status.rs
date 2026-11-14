@@ -122,6 +122,9 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
             if docs.recording {
                 right.push("Recording".to_string());
             }
+            if docs.links.contains(doc.id) {
+                right.push("Previewing".to_string());
+            }
             if docs.zoom != 100 {
                 right.push(format!("{}%", docs.zoom));
             }

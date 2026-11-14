@@ -325,6 +325,7 @@ fn icon(id: C) -> &'static str {
         C::FoldAll => glyph::FOLD_ALL,
         C::UnfoldAll => glyph::UNFOLD,
         C::ToggleSplit | C::CompareOther | C::ShowInOtherPane => glyph::SPLIT,
+        C::PreviewInViewer | C::PreviewSideBySide => glyph::VIEW,
         C::FocusOther => glyph::OTHER_PANE,
         C::CompareFile => glyph::OPEN,
         C::CompareSaved => glyph::SAVE,
@@ -397,7 +398,9 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::ReplaceNext
         | C::ReplaceAll => has_tab,
         C::CloseOtherTabs | C::NextTab | C::PreviousTab => many,
-        C::CopyFilePath | C::ShowInFileManager => has_file,
+        C::CopyFilePath | C::ShowInFileManager | C::PreviewInViewer | C::PreviewSideBySide => {
+            has_file
+        }
         C::Undo => ready.is_some_and(|r| r.history.can_undo()),
         C::Redo => ready.is_some_and(|r| r.history.can_redo()),
         C::Cut | C::Copy | C::UpperCase | C::LowerCase => selected,

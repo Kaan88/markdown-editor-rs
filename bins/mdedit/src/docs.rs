@@ -830,6 +830,18 @@ impl Ready {
         }
     }
 
+    /// Puts the caret at a line and column, both from 1 and clamped to the text, and shows it.
+    pub fn go_to(&mut self, line: usize, col: usize) {
+        let line = line.clamp(1, self.buffer.len_lines().max(1)) - 1;
+        let range = self.buffer.line_range(line);
+        let at = (range.start + col.saturating_sub(1)).min(range.end);
+        let at = self.buffer.snap_to_grapheme(at).min(range.end);
+        self.history.seal();
+        self.view.extra.clear();
+        self.view.sel = Selection::at(at);
+        crate::view::reveal(self, at, true);
+    }
+
     /// Selects `range` as far as the text has it: a range found in the file as it was read
     /// some time ago, which the text may no longer reach.
     pub fn select_clamped(&mut self, range: Range<usize>) {
@@ -879,6 +891,9 @@ pub struct Doc {
     pub discard: bool,
     /// A range to select once the text is read: a result of "Find in files" was opened.
     pub pending_select: Option<Range<usize>>,
+    /// A line and column (from 1) to put the caret at once the text is read: a request from the
+    /// other application arrived before it was.
+    pub pending_goto: Option<(usize, usize)>,
     /// The file holding the unsaved text this tab had when the window last closed; it replaces
     /// the file's text once that is read.
     pub restore: Option<PathBuf>,
@@ -907,6 +922,7 @@ impl Doc {
             changed_on_disk: false,
             discard: false,
             pending_select: None,
+            pending_goto: None,
             restore: None,
             forced: None,
             encoding_changed: false,
@@ -941,6 +957,11 @@ impl Doc {
             DocState::Ready(r) => Some(r),
             _ => None,
         }
+    }
+
+    /// The text is read and its language is Markdown.
+    pub fn is_markdown(&self) -> bool {
+        self.ready().is_some_and(|r| r.assist.markdown)
     }
 
     /// The "deleted or moved, showing the text last read" banner: only over text that was read.
@@ -1172,6 +1193,8 @@ pub struct Docs {
     toast: Option<(String, Instant)>,
     /// The set of open files changed: the watcher needs the new list.
     pub watch_changed: bool,
+    /// The documents previewed in mdview, and what keeps the viewer scrolled to their carets.
+    pub links: crate::link::Links,
 }
 
 impl Docs {
@@ -1205,6 +1228,7 @@ impl Docs {
             check_updates: true,
             prefs: Prefs::default(),
             watch_changed: true,
+            links: crate::link::Links::default(),
         }
     }
 
@@ -1316,6 +1340,7 @@ impl Docs {
             changed_on_disk: false,
             discard: false,
             pending_select: None,
+            pending_goto: None,
             restore: None,
             forced: None,
             encoding_changed: false,
@@ -1846,6 +1871,9 @@ impl Docs {
                 if let Some(range) = doc.pending_select.take() {
                     r.select_clamped(range);
                 }
+                if let Some((line, col)) = doc.pending_goto.take() {
+                    r.go_to(line, col);
+                }
                 doc.state = DocState::Ready(Box::new(r));
                 doc.missing = false;
                 doc.changed_on_disk = false;
@@ -2309,15 +2337,18 @@ impl Docs {
         let Some(r) = self.active_ready_mut() else {
             return false;
         };
-        let line = line.clamp(1, r.buffer.len_lines().max(1)) - 1;
-        let range = r.buffer.line_range(line);
-        let at = (range.start + col.saturating_sub(1)).min(range.end);
-        let at = r.buffer.snap_to_grapheme(at).min(range.end);
-        r.history.seal();
-        r.view.extra.clear();
-        r.view.sel = Selection::at(at);
-        crate::view::reveal(r, at, true);
+        r.go_to(line, col);
         true
+    }
+
+    /// [`go_to`](Self::go_to) for a request from the other application: when the document's text
+    /// is not read yet, the caret goes there as soon as it is.
+    pub fn go_to_or_wait(&mut self, line: usize, col: usize) {
+        if !self.go_to(line, col)
+            && let Some(doc) = self.active_doc_mut()
+        {
+            doc.pending_goto = Some((line, col));
+        }
     }
 
     /// Goes to the next or the previous bookmark. False when the document has none.

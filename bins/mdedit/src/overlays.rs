@@ -154,9 +154,36 @@ pub fn macro_menu(
     Menu::new(items, x, y, align_right)
 }
 
+/// "Preview in mdview" (checked while the file is previewed) and "Preview side by side" for the
+/// active tab, or for tab `index`. Listed for Markdown files, which is what the viewer is for, and
+/// for a file that is being previewed so that it can be stopped; the commands work for any file
+/// that has a place on disk, from the shortcut and the palette.
+fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
+    let Some(doc) = index.or(docs.active()).and_then(|i| docs.tabs.get(i)) else {
+        return Vec::new();
+    };
+    let linked = docs.links.contains(doc.id);
+    if !doc.is_markdown() && !linked {
+        return Vec::new();
+    }
+    let item = |id: C, label: &str| {
+        let item = match index {
+            Some(i) => Item::new(Act::TabCmd(id, i), label),
+            None => Item::new(Act::Cmd(id), label).hint(hint(id)),
+        };
+        item.icon(glyph::VIEW).enabled(doc.path.is_some())
+    };
+    vec![
+        item(C::PreviewInViewer, "Preview in mdview")
+            .checked(linked)
+            .sep(),
+        item(C::PreviewSideBySide, "Preview side by side"),
+    ]
+}
+
 /// The View menu, opened from the main menu in its place.
 pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Menu<Act> {
-    let items = vec![
+    let mut items = vec![
         cmd(C::ToggleFiles, "Files pane", glyph::SIDEBAR).checked(ui.panes.files && !ui.outline.on),
         cmd(C::ToggleOutline, "Function list", glyph::FUNCTIONS)
             .checked(ui.panes.files && ui.outline.on),
@@ -182,6 +209,9 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
             .enabled(crate::compare::enabled(C::CompareSaved, docs)),
         cmd(C::StopCompare, "Stop comparing", glyph::CLOSE)
             .enabled(crate::compare::enabled(C::StopCompare, docs)),
+    ];
+    items.extend(preview_items(docs, None));
+    items.extend([
         cmd(C::ToggleFold, "Fold or open the block", glyph::FOLD).sep(),
         cmd(C::FoldAll, "Fold all blocks", glyph::FOLD_ALL),
         cmd(C::UnfoldAll, "Open all folds", glyph::UNFOLD).enabled(
@@ -191,7 +221,7 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
         cmd(C::ZoomIn, "Zoom in", glyph::ZOOM).sep(),
         cmd(C::ZoomOut, "Zoom out", glyph::ZOOM_OUT),
         cmd(C::ZoomReset, "Reset zoom", glyph::ZOOM_RESET).enabled(docs.zoom != 100),
-    ];
+    ]);
     Menu::new(items, x, y, align_right)
 }
 
@@ -209,7 +239,7 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     let many = docs.tabs.len() > 1;
     let has_file = docs.tabs.get(index).is_some_and(|d| d.path.is_some());
     let compared = docs.active_ready().is_some_and(|r| r.view.align.is_some());
-    let items = vec![
+    let mut items = vec![
         Item::new(Act::TabCmd(C::CloseTab, index), "Close tab").icon(glyph::CLOSE),
         Item::new(Act::TabCmd(C::CloseOtherTabs, index), "Close other tabs")
             .icon(glyph::CLOSE_OTHERS)
@@ -237,6 +267,9 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
                         .get(index)
                         .is_some_and(|d| d.path.is_some() && d.modified()),
             ),
+    ];
+    items.extend(preview_items(docs, Some(index)));
+    items.extend([
         Item::new(Act::TabCmd(C::CopyFilePath, index), "Copy file path")
             .icon(glyph::COPY)
             .sep()
@@ -247,7 +280,7 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
         )
         .icon(glyph::FOLDER_OPEN)
         .enabled(has_file),
-    ];
+    ]);
     Menu::new(items, x, y, false)
 }
 

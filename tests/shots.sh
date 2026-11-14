@@ -233,4 +233,14 @@ shot same-file-split-dark --dark --minimap --split-same --goto 3:1 --other-goto 
 shot same-file-split-left --light --split-same --split-left --split-ratio 0.55 --wrap --size 900x600 --other-goto 60:1 "$fx/sample.md"
 shot same-file-split-find --dark --minimap --split-same --find self --other-goto 60:1 "$fx/sample.rs"
 
+# Preview in mdview: the commands in the View menu and the tab menu of a Markdown file (a file of
+# another language lists them only while it is previewed), and the mark of a previewed document.
+shot menu-view-md --light --menu view "$fx/sample.md"
+shot menu-view-md-linked-dark --dark --demo-link --menu view "$fx/sample.md"
+shot menu-view-rs-linked --light --demo-link --menu view "$fx/sample.rs"
+shot menu-tab-md --light --menu tab "$fx/sample.md" "$fx/sample.rs"
+shot menu-tab-md-linked-dark --dark --demo-link --menu tab "$fx/sample.md" "$fx/sample.rs"
+shot previewing --light --demo-link --goto 12:3 "$fx/sample.md"
+shot previewing-dark --dark --demo-link --goto 12:3 "$fx/sample.md"
+
 ls "$out" | wc -l

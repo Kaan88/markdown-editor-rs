@@ -711,7 +711,12 @@ impl App {
             return;
         };
         match id {
-            C::CompareOther | C::CompareFile | C::CompareSaved | C::ShowInOtherPane => {
+            C::CompareOther
+            | C::CompareFile
+            | C::CompareSaved
+            | C::ShowInOtherPane
+            | C::PreviewInViewer
+            | C::PreviewSideBySide => {
                 self.docs.activate(index);
                 self.command(id);
             }
@@ -1276,6 +1281,8 @@ impl App {
                     self.docs.set_toast(strings::SPLIT_NEEDS_TWO);
                 }
             }
+            C::PreviewInViewer => self.preview(false),
+            C::PreviewSideBySide => self.preview(true),
             C::FocusOther => {
                 if self.docs.focus_other() {
                     self.ui.find_focused = false;
@@ -1441,18 +1448,16 @@ impl App {
     pub(super) fn woken(&mut self, wake: Wake) {
         match wake {
             Wake::Instance => {
-                let paths: Vec<PathBuf> = self
+                let requests: Vec<Request> = self
                     .incoming
                     .as_ref()
                     .map(|r| r.try_iter().collect())
                     .unwrap_or_default();
-                for p in paths {
-                    self.open(&p);
-                }
-                if let Some(w) = &self.window {
-                    w.set_minimized(false);
-                    w.focus_window();
-                }
+                self.handed_over(requests);
+            }
+            Wake::Link => {
+                // The links are over; the next frame no longer shows the mark.
+                self.docs.links.take_gone();
             }
             Wake::Files => {
                 if let Some(w) = &self.watcher {
@@ -1645,6 +1650,9 @@ impl App {
             } else {
                 at(due);
             }
+        }
+        if let Some(due) = self.link_due {
+            at(due);
         }
         if let Some(due) = self.exit_due {
             if now >= due {

@@ -2,6 +2,8 @@
 //! to a PNG without a window (`--shot`) or print timings (`--trace`, `--scroll-steps`). The flags
 //! and their meaning are fixed in `docs/DESIGN.md`, section "Command line".
 
+use crate::commands::CommandId;
+use mdshared_app::sister::{Rect, Request};
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,6 +177,18 @@ pub struct Args {
     /// Plan the replacement in files and show the confirmation, or apply it and show the report.
     pub replace_dialog: bool,
     pub replace_report: bool,
+    /// `--follow`, `--place x,y,w,h`, `--from NAME`: what the sister application asks with a
+    /// launch (docs/DESIGN.md, "The hand-off with mdview"). With `--goto` they make the launch a
+    /// request; see [`Args::requests`].
+    pub follow: bool,
+    pub place: Option<Rect>,
+    pub from: Option<String>,
+    /// `--run <command>`: run one command (its name as the code has it, `PreviewInViewer`) once
+    /// the first document is ready in a window, for tests and scripts.
+    pub run: Option<CommandId>,
+    /// `--demo-link`: the first document shows as previewed in mdview, with nothing started or
+    /// sent, for a shot.
+    pub demo_link: bool,
 }
 
 /// `a<sep>b` with both sides parsed.
@@ -195,6 +209,26 @@ impl LineCol {
 }
 
 impl Args {
+    /// What each file asks of a window that is already running, when the launch asked for more
+    /// than opening it: see [`Request`]. Empty for an ordinary launch.
+    pub fn requests(&self) -> Vec<Request> {
+        if self.goto.is_none() && !self.follow && self.place.is_none() && self.from.is_none() {
+            return Vec::new();
+        }
+        self.files
+            .iter()
+            .map(|path| Request {
+                path: path.clone(),
+                line: self.goto.map(|g| g.line as u32),
+                column: self.goto.map(|g| g.col as u32),
+                follow: self.follow,
+                place: self.place,
+                from: self.from.clone(),
+                ..Request::default()
+            })
+            .collect()
+    }
+
     /// Parses the arguments after the program name. Unknown flags and bad values are reported on
     /// stderr and ignored, so a stray flag never stops the editor from opening.
     pub fn parse(args: impl IntoIterator<Item = String>) -> Args {
@@ -327,6 +361,18 @@ impl Args {
                     })
                 }
                 "--goto" => out.goto = checked(&a, value(&a), LineCol::parse),
+                "--follow" => out.follow = true,
+                "--place" => out.place = checked(&a, value(&a), Rect::parse),
+                "--from" => out.from = value(&a).filter(|v| !v.is_empty()),
+                "--run" => {
+                    out.run = checked(&a, value(&a), |v| {
+                        crate::commands::COMMANDS
+                            .iter()
+                            .map(|c| c.id)
+                            .find(|id| format!("{id:?}").eq_ignore_ascii_case(v))
+                    })
+                }
+                "--demo-link" => out.demo_link = true,
                 "--select" => {
                     out.select = checked(&a, value(&a), |v| {
                         let (from, to) = v.split_once('-')?;
@@ -495,6 +541,57 @@ mod tests {
         assert_eq!(parse("--goto 3:0").goto, None);
         assert_eq!(parse("--goto x").goto, None);
         assert_eq!(parse("--select 3:1").select, None);
+    }
+
+    #[test]
+    fn the_hand_off_flags_make_a_launch_a_request() {
+        let a = parse("--goto 20:3 --from mdview --follow --place -10,20,960,1000 notes.md");
+        assert!(a.follow);
+        assert_eq!(a.from.as_deref(), Some("mdview"));
+        assert_eq!(
+            a.place,
+            Some(Rect {
+                x: -10,
+                y: 20,
+                w: 960,
+                h: 1000
+            })
+        );
+        assert_eq!(
+            a.requests(),
+            [Request {
+                line: Some(20),
+                column: Some(3),
+                follow: true,
+                place: a.place,
+                from: Some("mdview".into()),
+                ..Request::new("notes.md")
+            }]
+        );
+        // Each file is handed over with the same options.
+        assert_eq!(parse("--goto 7 a.md b.md").requests().len(), 2);
+        // An ordinary launch asks nothing: the paths go as they always did.
+        assert!(parse("a.md b.md").requests().is_empty());
+        assert!(parse("--goto 3").requests().is_empty());
+        assert_eq!(parse("--from mdview a.md").requests()[0].line, None);
+        // A bad value is dropped, not guessed at.
+        let bad = parse("--place 1,2,3 --place 1,2,0,4 a.md");
+        assert_eq!(bad.place, None);
+        assert_eq!(bad.files, [PathBuf::from("a.md")]);
+    }
+
+    #[test]
+    fn run_and_demo_link_are_for_tests_and_shots() {
+        assert_eq!(
+            parse("--run PreviewInViewer a.md").run,
+            Some(CommandId::PreviewInViewer)
+        );
+        assert_eq!(
+            parse("--run previewsidebyside").run,
+            Some(CommandId::PreviewSideBySide)
+        );
+        assert_eq!(parse("--run nonsense").run, None);
+        assert!(parse("--demo-link").demo_link && !parse("a.md").demo_link);
     }
 
     #[test]

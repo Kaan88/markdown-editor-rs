@@ -31,6 +31,7 @@ use crate::ui::{
 use crate::view::{self, DrawState, View, metrics};
 use mdedit_highlight::{DocId, HighlightService};
 use mdshared_app::paths::canonical_or_absolute;
+use mdshared_app::sister::Request;
 use mdshared_app::watch::FileWatcher;
 use mdshared_text::Bitmap;
 use mdshared_ui::gfx::{Gfx, Painter, Rect};
@@ -53,6 +54,7 @@ mod commands;
 mod compare_events;
 #[cfg(test)]
 mod files_tests;
+mod handoff;
 mod input;
 pub(crate) mod modal;
 mod palette_events;
@@ -75,8 +77,10 @@ const CLICK_SLOP: f32 = 4.0;
 /// Wakes the loop from other threads; the data travels on channels.
 #[derive(Debug)]
 pub enum Wake {
-    /// The single-instance listener queued paths.
+    /// The single-instance listener queued requests.
     Instance,
+    /// The viewer that a preview was following is gone.
+    Link,
     /// The file watcher saw a change.
     Files,
     /// A load made progress or finished.
@@ -166,7 +170,9 @@ struct App {
     /// removes the shadow, so it lives as long as the window.
     shadow: Option<mdshared_ui::shadow::Shadow>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
-    incoming: Option<Receiver<PathBuf>>,
+    incoming: Option<Receiver<Request>>,
+    /// When the viewer is next told the caret's line, if an update is held back.
+    link_due: Option<Instant>,
     watcher: Option<FileWatcher>,
     session_path: Option<PathBuf>,
     /// Write the session on exit (not in `--shot`).
@@ -294,6 +300,7 @@ impl App {
             shadow: None,
             surface: None,
             incoming: None,
+            link_due: None,
             watcher: None,
             session_path,
             session,
@@ -1736,6 +1743,10 @@ impl ApplicationHandler<Wake> for App {
             }
         }
         self.draw();
+        // `--place`, for the launch that opened this window.
+        if let Some(rect) = self.args.place {
+            self.place(rect);
+        }
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, wake: Wake) {
@@ -1855,6 +1866,7 @@ impl ApplicationHandler<Wake> for App {
             }
         }
         self.persist_if_changed();
+        self.link_due = self.docs.link_poll(Instant::now());
         if !self.settled && !self.first && self.is_settled() {
             self.settled = true;
             self.trace.stage("loading and colouring idle");
@@ -2066,6 +2078,10 @@ impl App {
         }
         self.apply_other_positions();
         self.compose_layout_only();
+        // In a window only: a shot starts nothing.
+        if let Some(id) = a.run.filter(|_| self.window.is_some()) {
+            self.command(id);
+        }
     }
 
     /// `--other-goto`, `--other-select`, `--other-fold` and `--other-scroll`: the second pane's
@@ -2133,6 +2149,15 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     app.compose_layout_only();
     app.apply_positions();
+    // The mark of a preview, with nothing started or sent.
+    if app.args.demo_link
+        && let Some((id, path)) = app
+            .docs
+            .active_doc()
+            .and_then(|d| Some((d.id, d.path.clone()?)))
+    {
+        app.docs.links.link(id, path, None, Instant::now());
+    }
     app.shot_compare();
     // Wait for the colours of the visible lines.
     let deadline = Instant::now() + SHOT_COLOUR_WAIT;
@@ -2308,10 +2333,23 @@ pub fn run() -> i32 {
         }
     };
     if let Some(settings) = session_path.as_ref().filter(|_| args.shot.is_none()) {
-        // A window is already open: hand it the files and quit, before any window work.
-        if mdshared_app::single::forward("mdedit", settings, &args.files) {
+        // A window is already open: hand it the files and quit, before any window work. A launch
+        // that asks for a line, a place or a follow hands each file over with that.
+        let requests = args.requests();
+        let handed = if requests.is_empty() {
+            mdshared_app::single::forward("mdedit", settings, &args.files)
+        } else {
+            requests
+                .iter()
+                .all(|r| mdshared_app::single::forward_request("mdedit", settings, r))
+        };
+        if handed {
             return 0;
         }
+    }
+    // A live update is for a window that shows the file already: with none, there is nothing to do.
+    if args.follow && args.shot.is_none() {
+        return 0;
     }
     let session = session_path
         .as_deref()
@@ -2470,7 +2508,8 @@ pub fn run() -> i32 {
         || a.select.is_some()
         || a.find.is_some()
         || a.scroll.is_some()
-        || a.hscroll.is_some();
+        || a.hscroll.is_some()
+        || a.run.is_some();
     if positions {
         app.positions_for = app.docs.active_doc().map(|d| d.id);
     }
@@ -2489,9 +2528,10 @@ pub fn run() -> i32 {
     trace.stage("event loop");
     if let Some(settings) = &app.session_path {
         let p = p.clone();
-        app.incoming = mdshared_app::single::listen_waking("mdedit", settings, move || {
-            let _ = p.send_event(Wake::Instance);
-        });
+        app.incoming =
+            mdshared_app::single::listen_requests_waking("mdedit", settings, move || {
+                let _ = p.send_event(Wake::Instance);
+            });
     }
     let pw = p.clone();
     app.watcher = FileWatcher::new(move || {

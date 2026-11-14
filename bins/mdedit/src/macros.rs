@@ -540,6 +540,8 @@ pub fn recordable(id: C) -> bool {
             | C::CommandPalette
             | C::CompareOther
             | C::ShowInOtherPane
+            | C::PreviewInViewer
+            | C::PreviewSideBySide
             | C::CompareFile
             | C::CompareSaved
             | C::StopCompare
