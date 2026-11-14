@@ -1033,9 +1033,9 @@ impl Doc {
     }
 
     /// What the session's pruning of stale backups needs to know of this tab.
-    pub fn tab_state(&self) -> TabState {
+    pub fn tab_state(&self) -> TabState<'_> {
         TabState {
-            path: self.path.clone(),
+            path: self.path.as_deref(),
             untitled: self.untitled,
             modified: self.modified(),
             waiting: self.waiting_backup(),

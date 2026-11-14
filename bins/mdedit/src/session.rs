@@ -54,9 +54,10 @@ pub struct Unsaved {
     pub path: Option<PathBuf>,
 }
 
-/// What [`Unsaved::prune`] needs to know of an open tab.
-pub struct TabState {
-    pub path: Option<PathBuf>,
+/// What [`Unsaved::prune`] needs to know of an open tab (borrowed: it is asked on every pass of
+/// the event loop while a backup is listed).
+pub struct TabState<'a> {
+    pub path: Option<&'a Path>,
     pub untitled: u32,
     pub modified: bool,
     /// The backup file the tab still waits to put back, by name.
@@ -80,14 +81,14 @@ impl Unsaved {
     /// path, or for an entry without a path an untitled tab of that number): the text was saved,
     /// discarded or closed since. While the text is still unsaved in a tab the entry stays, as a
     /// fallback for a recovery copy that is missing.
-    pub fn prune(list: &[Unsaved], tabs: &[TabState]) -> Vec<Unsaved> {
+    pub fn prune(list: &[Unsaved], tabs: &[TabState<'_>]) -> Vec<Unsaved> {
         list.iter()
             .filter(|u| {
                 tabs.iter().any(|t| {
                     t.waiting.as_deref() == Some(u.file.as_str())
                         || t.modified
                             && match &u.path {
-                                Some(p) => t.path.as_ref() == Some(p),
+                                Some(p) => t.path == Some(p.as_path()),
                                 None => t.path.is_none() && t.untitled == u.untitled,
                             }
                 })
@@ -448,9 +449,14 @@ mod tests {
         }
     }
 
-    fn tab(path: Option<&str>, untitled: u32, modified: bool, waiting: Option<&str>) -> TabState {
+    fn tab<'a>(
+        path: Option<&'a str>,
+        untitled: u32,
+        modified: bool,
+        waiting: Option<&str>,
+    ) -> TabState<'a> {
         TabState {
-            path: path.map(PathBuf::from),
+            path: path.map(Path::new),
             untitled,
             modified,
             waiting: waiting.map(String::from),
