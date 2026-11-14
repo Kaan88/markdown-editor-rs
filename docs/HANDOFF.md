@@ -331,6 +331,15 @@ different large files (the approximate case), were not timed in a window. The sh
 stand in for these only as far as they go; the owner has to look at the interface.
 
 
+After the merge of `origin/main` (dcf7c7d) into `features-files`: 554 tests pass in the workspace
+(153 mdedit, 335 core, 30, 14, 21 and 1 in the other crates), clippy `-D warnings` and `cargo fmt
+--check` clean; the shot set is 147 (128 on main plus 19 new). 13 of main's 128 differ: the six
+menu shots with the View and tab menus' Compare items (menu-main*, menu-view*, menu-tab, menu-tall-*),
+dialog-shortcuts (new keys), files-pane (the two new fixtures) and dialog-recent (the path of the
+checkout it was rendered in). One test, `a_change_on_disk_does_not_replace_unsaved_text`, failed
+once in the first full run and passed in five later runs; it was not looked into. Timings were
+measured before the merge, not again after it.
+
 ## Gaps closed: icons, chevrons, split, macros, find memory, title row (2026-11-14, still 0.4.1, not published)
 
 Done on one machine (CachyOS, Wayland), nothing run on Windows, nothing driven by hand: only
