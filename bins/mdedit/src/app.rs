@@ -2457,9 +2457,17 @@ pub fn run() -> i32 {
     if let Some(settings) = session_path.as_ref().filter(|_| args.shot.is_none()) {
         // A window is already open: hand it the files and quit, before any window work. A launch
         // that asks for a line, a place or a follow hands each file over with that.
-        let requests = args.requests();
+        let mut requests = args.requests();
+        // `--folder` goes over as one more path: the running window opens it as its folder.
+        let mut paths = args.files.clone();
+        if let Some(dir) = &args.folder {
+            paths.push(dir.clone());
+            if !requests.is_empty() {
+                requests.push(Request::new(dir));
+            }
+        }
         let handed = if requests.is_empty() {
-            mdshared_app::single::forward("mdedit", settings, &args.files)
+            mdshared_app::single::forward("mdedit", settings, &paths)
         } else {
             requests
                 .iter()
@@ -2515,9 +2523,13 @@ pub fn run() -> i32 {
         Some(false) => ThemeChoice::Light,
         None => session.theme,
     };
+    // A folder among the files is the Files pane's folder, as `--folder` is (and as the same
+    // argument is when it is handed to a running window); `--folder` wins.
+    let dir_arg = args.files.iter().find(|f| f.is_dir());
     docs.folder = args
         .folder
         .as_deref()
+        .or(dir_arg.map(PathBuf::as_path))
         .map(canonical_or_absolute)
         .or_else(|| session.folder.clone());
     let mut active = None;
@@ -2556,7 +2568,7 @@ pub fn run() -> i32 {
     if active.is_none() && !docs.tabs.is_empty() {
         active = Some(0);
     }
-    for (i, f) in args.files.iter().enumerate() {
+    for (i, f) in args.files.iter().filter(|f| !f.is_dir()).enumerate() {
         let k = docs.add_pending(f);
         if i == 0 {
             active = Some(k);
@@ -2614,7 +2626,8 @@ pub fn run() -> i32 {
             .restore_split(&split.path, split.left, split.ratio());
     }
     let a = app.args.clone();
-    app.ui.panes.files = a.files_pane.or(app.session.files).unwrap_or(false);
+    app.ui.panes.files = a.files_pane.or(app.session.files).unwrap_or(false)
+        || (a.folder.is_none() && a.files.iter().any(|f| f.is_dir()));
     if let Some(w) = app.session.files_w {
         app.ui.panes.files_w = (w as f32).clamp(PANE_MIN, PANE_MAX);
     }

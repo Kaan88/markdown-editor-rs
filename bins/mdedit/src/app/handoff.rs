@@ -359,6 +359,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn a_folder_handed_to_the_running_window_becomes_its_folder() {
+        let dir = scratch("hand-folder");
+        let sub = dir.join("proj");
+        std::fs::create_dir_all(&sub).unwrap();
+        let settings = dir.join("settings.ini");
+        let mut a = app();
+        a.incoming = mdshared_app::single::listen_requests_waking("mdedit", &settings, || {});
+        assert!(a.docs.folder.is_none() && !a.ui.panes.files);
+        // `mdedit proj`, and `mdedit --folder proj` (which goes over as one more path).
+        let launch = Args::parse(["proj"].map(|p| sub.join("..").join(p).display().to_string()));
+        assert!(mdshared_app::single::forward(
+            "mdedit",
+            &settings,
+            &launch.files
+        ));
+        let received: Vec<Request> = a.incoming.as_ref().unwrap().try_iter().collect();
+        assert_eq!(received.len(), 1);
+        a.handed_over(received);
+        assert_eq!(a.docs.folder, Some(canonical_or_absolute(&sub)));
+        assert!(a.ui.panes.files, "the Files pane shows it");
+        assert!(a.docs.tabs.is_empty(), "and no tab is made of the folder");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A stand-in for mdview: a script that writes the arguments it was started with.
     #[cfg(unix)]
     fn stand_in(dir: &Path) -> (PathBuf, PathBuf) {
@@ -456,6 +481,13 @@ mod tests {
         // Nothing is sent for a document that was not touched.
         assert_eq!(a.docs.link_poll(later(1)), None);
         assert!(quiet());
+        // Moving the caret in it sends the line alone: nothing is unsaved, so the viewer keeps
+        // showing the file (no live text, no live dot).
+        a.docs.go_to(5, 1);
+        a.docs.link_poll(later(1) + Duration::from_millis(500));
+        let r = got();
+        assert_eq!((r.text, r.line, r.live_off), (None, Some(5), false));
+        assert!(quiet());
         a.docs.edit(crate::docs::EditOp::Insert("EDITED "), None);
         a.docs.link_poll(later(2));
         let r = got();
@@ -478,9 +510,27 @@ mod tests {
         a.docs.edit(crate::docs::EditOp::Insert("AGAIN "), None);
         a.docs.link_poll(later(6));
         assert!(got().text.is_some_and(|t| t.contains("AGAIN line 10")));
-        // A tab that closes, like the command, ends the live text.
-        a.docs.close(i, None);
+        // Undoing back to the saved text ends the live text, once; the caret then moves with
+        // the line alone.
+        assert!(a.docs.edit(crate::docs::EditOp::Undo, None));
+        assert!(a.docs.edit(crate::docs::EditOp::Undo, None));
+        assert!(!a.docs.active_doc().unwrap().modified());
+        a.docs.link_poll(later(7) - Duration::from_millis(500));
+        assert!(got().live_off);
+        assert!(got().follow);
         a.docs.link_poll(later(7));
+        assert!(quiet());
+        a.docs.go_to(12, 1);
+        a.docs.link_poll(later(7) + Duration::from_millis(500));
+        let r = got();
+        assert_eq!((r.text, r.line, r.live_off), (None, Some(12), false));
+        // A tab that closes, like the command, ends the live text (none is live now: nothing
+        // is sent but the end of the link).
+        a.docs.edit(crate::docs::EditOp::Insert("Z"), None);
+        a.docs.link_poll(later(8));
+        assert!(got().text.is_some());
+        a.docs.close(i, None);
+        a.docs.link_poll(later(9));
         assert!(got().live_off);
         assert!(a.docs.links.is_empty());
         // A document over the cap is previewed from the file: said once, and no text is sent.
