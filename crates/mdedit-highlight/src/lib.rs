@@ -71,6 +71,9 @@ pub struct Colored {
     pub lines: Vec<Vec<Span>>,
     /// The answer to a [`HighlightService::map`] request, not to a view or a peek.
     pub map: bool,
+    /// The request key the answer is for (see [`HighlightService::view_slot`]); 0 unless the
+    /// shell shows the document in two views.
+    pub slot: u8,
 }
 
 enum Command {
@@ -83,18 +86,21 @@ enum Command {
     },
     View {
         doc: DocId,
+        slot: u8,
         revision: u64,
         range: Range<usize>,
     },
     /// A request like `View` for a document that is not the one worked on in the background.
     Peek {
         doc: DocId,
+        slot: u8,
         revision: u64,
         range: Range<usize>,
     },
     /// The minimap's window of lines of a document: a second request slot beside `View`.
     Map {
         doc: DocId,
+        slot: u8,
         revision: u64,
         range: Range<usize>,
     },
@@ -154,8 +160,16 @@ impl HighlightService {
     /// them as soon as its parse has reached them. A request whose `revision` is not the one the
     /// document was opened with gets no answer.
     pub fn view(&self, doc: DocId, revision: u64, lines: Range<usize>) {
+        self.view_slot(doc, 0, revision, lines);
+    }
+
+    /// [`view`](Self::view) for one of a document's views: a document shown twice has a request
+    /// of its own per `slot` (0 or 1; any other value is taken as 1), and the answer says which
+    /// it is for. Slot 0 is what `view` uses.
+    pub fn view_slot(&self, doc: DocId, slot: u8, revision: u64, lines: Range<usize>) {
         let _ = self.commands.send(Command::View {
             doc,
+            slot,
             revision,
             range: lines,
         });
@@ -165,8 +179,14 @@ impl HighlightService {
     /// it is answered the same way, but the document `view` named last stays the one whose
     /// parse runs on in the background.
     pub fn peek(&self, doc: DocId, revision: u64, lines: Range<usize>) {
+        self.peek_slot(doc, 0, revision, lines);
+    }
+
+    /// [`peek`](Self::peek) for one of a document's views, as [`view_slot`](Self::view_slot).
+    pub fn peek_slot(&self, doc: DocId, slot: u8, revision: u64, lines: Range<usize>) {
         let _ = self.commands.send(Command::Peek {
             doc,
+            slot,
             revision,
             range: lines,
         });
@@ -176,8 +196,14 @@ impl HighlightService {
     /// touched). Replaces the previous map request. It is answered after any view or peek request
     /// is, and before the background parse runs on, in a [`Colored`] with `map` set.
     pub fn map(&self, doc: DocId, revision: u64, lines: Range<usize>) {
+        self.map_slot(doc, 0, revision, lines);
+    }
+
+    /// [`map`](Self::map) for one of a document's views, as [`view_slot`](Self::view_slot).
+    pub fn map_slot(&self, doc: DocId, slot: u8, revision: u64, lines: Range<usize>) {
         let _ = self.commands.send(Command::Map {
             doc,
+            slot,
             revision,
             range: lines,
         });
@@ -240,10 +266,12 @@ impl Drop for HighlightService {
     }
 }
 
-struct Doc {
-    revision: u64,
-    rope: Rope,
-    highlighter: LineHighlighter,
+/// How many views of one document the worker keeps requests for.
+const SLOTS: usize = 2;
+
+/// The requests of one view of a document: the lines its pane shows and the lines its minimap
+/// shows.
+struct Slot {
     /// The lines last asked for.
     view: Option<Range<usize>>,
     /// The request in `view` has not been answered.
@@ -256,6 +284,41 @@ struct Doc {
     map: Option<Range<usize>>,
     map_pending: bool,
     map_slice: Duration,
+}
+
+impl Slot {
+    fn new() -> Slot {
+        Slot {
+            view: None,
+            pending: false,
+            slice: VIEW_SLICE,
+            map: None,
+            map_pending: false,
+            map_slice: MAP_SLICE,
+        }
+    }
+}
+
+struct Doc {
+    revision: u64,
+    rope: Rope,
+    highlighter: LineHighlighter,
+    /// One parse serves every view; each has its own requests.
+    slots: [Slot; SLOTS],
+}
+
+impl Doc {
+    fn slot_mut(&mut self, slot: u8) -> &mut Slot {
+        &mut self.slots[usize::from(slot).min(SLOTS - 1)]
+    }
+
+    fn view_waiting(&self) -> Option<usize> {
+        self.slots.iter().position(|s| s.pending)
+    }
+
+    fn map_waiting(&self) -> Option<usize> {
+        self.slots.iter().position(|s| s.map_pending)
+    }
 }
 
 /// What one round of work did.
@@ -331,12 +394,7 @@ impl Worker {
                         revision,
                         rope,
                         highlighter,
-                        view: None,
-                        pending: false,
-                        slice: VIEW_SLICE,
-                        map: None,
-                        map_pending: false,
-                        map_slice: MAP_SLICE,
+                        slots: [Slot::new(), Slot::new()],
                     },
                 );
                 if self.active.is_none() {
@@ -345,36 +403,42 @@ impl Worker {
             }
             Command::View {
                 doc,
+                slot,
                 revision,
                 range,
             } => {
                 if let Some(entry) = self.docs.get_mut(&doc).filter(|d| d.revision == revision) {
-                    entry.view = Some(range);
-                    entry.pending = true;
-                    entry.slice = VIEW_SLICE;
+                    let s = entry.slot_mut(slot);
+                    s.view = Some(range);
+                    s.pending = true;
+                    s.slice = VIEW_SLICE;
                     self.active = Some(doc);
                 }
             }
             Command::Peek {
                 doc,
+                slot,
                 revision,
                 range,
             } => {
                 if let Some(entry) = self.docs.get_mut(&doc).filter(|d| d.revision == revision) {
-                    entry.view = Some(range);
-                    entry.pending = true;
-                    entry.slice = VIEW_SLICE;
+                    let s = entry.slot_mut(slot);
+                    s.view = Some(range);
+                    s.pending = true;
+                    s.slice = VIEW_SLICE;
                 }
             }
             Command::Map {
                 doc,
+                slot,
                 revision,
                 range,
             } => {
                 if let Some(entry) = self.docs.get_mut(&doc).filter(|d| d.revision == revision) {
-                    entry.map = Some(range);
-                    entry.map_pending = true;
-                    entry.map_slice = MAP_SLICE;
+                    let s = entry.slot_mut(slot);
+                    s.map = Some(range);
+                    s.map_pending = true;
+                    s.map_slice = MAP_SLICE;
                 }
             }
             Command::Edit {
@@ -391,8 +455,10 @@ impl Worker {
                     entry.rope = rope;
                     entry.revision = revision;
                     // The lines asked for belong to the old text.
-                    entry.pending = false;
-                    entry.map_pending = false;
+                    for s in &mut entry.slots {
+                        s.pending = false;
+                        s.map_pending = false;
+                    }
                 }
             }
             Command::SetDark(dark) => {
@@ -400,10 +466,14 @@ impl Worker {
                     entry.highlighter.set_dark(dark);
                 }
                 if let Some(entry) = self.active.and_then(|id| self.docs.get_mut(&id)) {
-                    entry.pending = entry.view.is_some();
+                    for s in &mut entry.slots {
+                        s.pending = s.view.is_some();
+                    }
                 }
                 for entry in self.docs.values_mut() {
-                    entry.map_pending = entry.map.is_some();
+                    for s in &mut entry.slots {
+                        s.map_pending = s.map.is_some();
+                    }
                 }
             }
             Command::Close(doc) => {
@@ -420,15 +490,17 @@ impl Worker {
     fn work(&mut self) -> Work {
         // The active document's request first, then any other document's, then the active
         // document's parse.
-        let waiting =
-            |docs: &HashMap<DocId, Doc>, id: &DocId| docs.get(id).is_some_and(|d| d.pending);
+        let waiting = |docs: &HashMap<DocId, Doc>, id: &DocId| {
+            docs.get(id).is_some_and(|d| d.view_waiting().is_some())
+        };
         let id = match self.active {
             Some(id) if waiting(&self.docs, &id) => Some(id),
-            active => match self.docs.iter().find(|(_, d)| d.pending) {
+            active => match self.docs.iter().find(|(_, d)| d.view_waiting().is_some()) {
                 Some((id, _)) => Some(*id),
                 None => {
                     // No view or peek waits: the minimap's window, before the parse runs on.
-                    if let Some((id, _)) = self.docs.iter().find(|(_, d)| d.map_pending) {
+                    if let Some((id, _)) = self.docs.iter().find(|(_, d)| d.map_waiting().is_some())
+                    {
                         let id = *id;
                         return self.work_map(id);
                     }
@@ -443,11 +515,12 @@ impl Worker {
             return Work::Idle;
         };
         let src = RopeLines(&doc.rope);
-        if doc.pending {
-            let range = doc.view.clone().unwrap_or(0..0);
+        if let Some(k) = doc.view_waiting() {
+            let slot = &mut doc.slots[k];
+            let range = slot.view.clone().unwrap_or(0..0);
             let total = doc.rope.len_lines();
             let first_line = range.start.min(total);
-            let deadline = Instant::now() + doc.slice;
+            let deadline = Instant::now() + slot.slice;
             if doc.highlighter.frontier() < first_line {
                 // The parse has not reached the first requested line: run it on.
                 doc.highlighter.advance(&src, deadline);
@@ -455,7 +528,7 @@ impl Worker {
             }
             return match doc.highlighter.spans(&src, range, deadline) {
                 Some(lines) => {
-                    doc.pending = false;
+                    slot.pending = false;
                     let _ = self.results.send(Colored {
                         doc: id,
                         revision: doc.revision,
@@ -463,11 +536,12 @@ impl Worker {
                         first_line,
                         lines,
                         map: false,
+                        slot: k as u8,
                     });
                     Work::Sent
                 }
                 None => {
-                    doc.slice = (doc.slice * 2).min(VIEW_SLICE_MAX);
+                    slot.slice = (slot.slice * 2).min(VIEW_SLICE_MAX);
                     Work::Ran
                 }
             };
@@ -487,17 +561,21 @@ impl Worker {
         let Some(doc) = self.docs.get_mut(&id) else {
             return Work::Idle;
         };
+        let Some(k) = doc.map_waiting() else {
+            return Work::Idle;
+        };
         let src = RopeLines(&doc.rope);
-        let range = doc.map.clone().unwrap_or(0..0);
+        let slot = &mut doc.slots[k];
+        let range = slot.map.clone().unwrap_or(0..0);
         let first_line = range.start.min(doc.rope.len_lines());
-        let deadline = Instant::now() + doc.map_slice;
+        let deadline = Instant::now() + slot.map_slice;
         if doc.highlighter.frontier() < first_line {
             doc.highlighter.advance(&src, deadline);
             return Work::Ran;
         }
         match doc.highlighter.spans(&src, range, deadline) {
             Some(lines) => {
-                doc.map_pending = false;
+                slot.map_pending = false;
                 let _ = self.results.send(Colored {
                     doc: id,
                     revision: doc.revision,
@@ -505,11 +583,12 @@ impl Worker {
                     first_line,
                     lines,
                     map: true,
+                    slot: k as u8,
                 });
                 Work::Sent
             }
             None => {
-                doc.map_slice = (doc.map_slice * 2).min(VIEW_SLICE_MAX);
+                slot.map_slice = (slot.map_slice * 2).min(VIEW_SLICE_MAX);
                 Work::Ran
             }
         }
@@ -596,6 +675,44 @@ mod tests {
         let mut out = String::from("stale");
         RopeLines(&Rope::from_str("a")).line(5, &mut out);
         assert_eq!(out, "");
+    }
+
+    #[test]
+    fn two_views_of_one_document_have_requests_of_their_own() {
+        let f = fixture();
+        let rope = Rope::from_str(&generated_rust(2000));
+        f.service.open(1, 0, rope, rust(), false);
+        // Both views, and both minimaps, ask at once: none replaces another's request.
+        f.service.view_slot(1, 0, 0, 100..140);
+        f.service.peek_slot(1, 1, 0, 1500..1560);
+        f.service.map_slot(1, 0, 0, 0..300);
+        f.service.map_slot(1, 1, 0, 1000..1400);
+        let mut got = Vec::new();
+        let deadline = within(10);
+        while got.len() < 4 && Instant::now() < deadline {
+            got.extend(f.service.wait(within(1)));
+        }
+        let find = |map: bool, slot: u8| {
+            got.iter()
+                .find(|c| c.map == map && c.slot == slot)
+                .unwrap_or_else(|| panic!("no answer for map={map} slot={slot}"))
+        };
+        assert_eq!(got.len(), 4);
+        assert_eq!(
+            (find(false, 0).first_line, find(false, 0).lines.len()),
+            (100, 40)
+        );
+        assert_eq!(
+            (find(false, 1).first_line, find(false, 1).lines.len()),
+            (1500, 60)
+        );
+        assert_eq!(find(true, 0).first_line, 0);
+        assert_eq!(find(true, 1).first_line, 1000);
+        // An edit clears the requests of both slots: nothing is answered for the old text.
+        f.service
+            .edit(1, 1, Rope::from_str(&generated_rust(2000)), 0, 0);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(f.service.take().is_empty());
     }
 
     #[test]

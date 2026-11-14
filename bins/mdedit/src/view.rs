@@ -224,25 +224,27 @@ const SHOWN_LINES_MAX: usize = 10_000;
 /// what colours are asked for. Past [`SHOWN_LINES_MAX`] lines it stops, so the text below a
 /// larger fold stays plain while the fold is on screen.
 pub fn shown_lines(r: &Ready) -> Range<usize> {
-    let lines = r.buffer.len_lines();
-    if let Some(al) = &r.view.align {
+    shown_lines_in(&r.buffer, &r.view)
+}
+
+/// [`shown_lines`] for any of a document's views.
+pub fn shown_lines_in(buffer: &mdedit_core::Buffer, v: &crate::docs::ViewState) -> Range<usize> {
+    let lines = buffer.len_lines();
+    if let Some(al) = &v.align {
         // Compare mode: the top is a row, and fillers have no line.
-        let rows = visible(r.view.top, r.view.view_lines, al.rows(lines));
+        let rows = visible(v.top, v.view_lines, al.rows(lines));
         if rows.is_empty() {
             return 0..0;
         }
         let last = al.line_near(rows.end - 1, lines);
         return al.line_near(rows.start, lines)..(last + 1).min(lines);
     }
-    let vis = visible(r.view.top, r.view.view_lines, lines);
-    if r.view.folds.is_empty() {
+    let vis = visible(v.top, v.view_lines, lines);
+    if v.folds.is_empty() {
         return vis;
     }
-    let rows = r.view.view_lines.ceil().max(1.0) as usize + 1;
-    let end = r
-        .view
-        .folds
-        .line_at_row(r.view.folds.row_of(vis.start) + rows);
+    let rows = v.view_lines.ceil().max(1.0) as usize + 1;
+    let end = v.folds.line_at_row(v.folds.row_of(vis.start) + rows);
     vis.start..end.clamp(vis.start, lines.min(vis.start + SHOWN_LINES_MAX))
 }
 

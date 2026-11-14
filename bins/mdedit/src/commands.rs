@@ -95,6 +95,7 @@ pub enum CommandId {
     /// Compare the two panes of the split view, the active file with another, or the text with
     /// the file on disk; leave the comparison; step through the differences.
     CompareOther,
+    ShowInOtherPane,
     CompareFile,
     CompareSaved,
     StopCompare,
@@ -198,6 +199,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::UnfoldAll, "Open all folds", &["Ctrl+F9"]),
     cmd(C::ToggleSplit, "Two files side by side", &["Shift+F8"]),
     cmd(C::FocusOther, "Go to the other pane", &["F8"]),
+    cmd(C::ShowInOtherPane, "Show this file in the other pane", &[]),
     cmd(C::CompareOther, "Compare with the other pane", &[]),
     cmd(C::CompareFile, "Compare with file", &[]),
     cmd(C::CompareSaved, "Compare with saved", &[]),

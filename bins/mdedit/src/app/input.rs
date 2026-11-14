@@ -169,7 +169,7 @@ impl App {
                 }
             }
             Drag::Thumb { target, grab } => self.thumb_to(target, x - grab, y - grab),
-            Drag::Minimap { grab, doc } => self.minimap_drag(doc, y, grab),
+            Drag::Minimap { grab, doc, slot } => self.minimap_drag(doc, slot, y, grab),
             Drag::Column { line, col } => {
                 let Some(offset) = self.text_offset(x, y) else {
                     return;
@@ -270,11 +270,14 @@ impl App {
     /// view lines, extent, view width).
     fn text_bars(&mut self, pane: usize) -> Option<TextBars> {
         let region = self.pane_region(pane)?;
-        let i = self.pane_doc(pane)?;
-        let doc = &mut self.docs.tabs[i];
-        let g = self.view.layout(doc, region, self.scale)?;
-        let r = doc.ready()?;
-        Some((g.vbar(), g.hbar(r.view.left), g))
+        let (view, scale) = (&mut self.view, self.scale);
+        self.docs
+            .with_pane(pane, |doc| {
+                let g = view.layout(doc, region, scale)?;
+                let r = doc.ready()?;
+                Some((g.vbar(), g.hbar(r.view.left), g))
+            })
+            .flatten()
     }
 
     /// The text region of pane 0 (the one with the keyboard) or 1 (the second pane).
@@ -288,18 +291,15 @@ impl App {
         }
     }
 
-    /// The tab shown in pane 0 or 1.
-    pub(super) fn pane_doc(&self, pane: usize) -> Option<usize> {
-        if pane == 0 {
-            self.docs.active()
-        } else {
-            self.docs.other()
-        }
-    }
-
-    pub(super) fn pane_ready_mut(&mut self, pane: usize) -> Option<&mut crate::docs::Ready> {
-        let i = self.pane_doc(pane)?;
-        self.docs.tabs[i].ready_mut()
+    /// Runs `f` on the ready document of pane 0 or 1, with the view that pane shows.
+    pub(super) fn with_pane_ready<T>(
+        &mut self,
+        pane: usize,
+        f: impl FnOnce(&mut crate::docs::Ready) -> T,
+    ) -> Option<T> {
+        self.docs
+            .with_pane(pane, |doc| doc.ready_mut().map(f))
+            .flatten()
     }
 
     /// A thumb dragged so its start is at `thumb_x` (horizontal) or `thumb_y`.
@@ -312,9 +312,7 @@ impl App {
                 };
                 let (content, page) = g.vscroll();
                 let top = offset_for_thumb(track, thumb.h, thumb_y, content, page);
-                if let Some(r) = self.pane_ready_mut(pane) {
-                    view::scroll_to(r, &g, top as f64);
-                }
+                self.with_pane_ready(pane, |r| view::scroll_to(r, &g, top as f64));
             }
             Scroller::TextH | Scroller::OtherTextH => {
                 let pane = usize::from(target == Scroller::OtherTextH);
@@ -322,9 +320,9 @@ impl App {
                     return;
                 };
                 let left = offset_for_hthumb(track, thumb.w, thumb_x, g.extent, g.view_w);
-                if let Some(r) = self.pane_ready_mut(pane) {
+                self.with_pane_ready(pane, |r| {
                     r.view.left = metrics::clamp_left(left as f64, g.extent, g.view_w);
-                }
+                });
             }
             _ => {
                 let Some((area, content, view, offset)) = self.scroll_geom(target) else {
@@ -339,14 +337,29 @@ impl App {
         }
     }
 
-    /// The column's top, the window and the view's geometry now, for the minimap of document
-    /// `doc`. Both panes' columns have the same top and height, so a drag that outlives the
-    /// roles of the panes changing still finds its column.
+    /// The pane that shows view `slot` of document `doc`: 0 for the one with the keyboard.
+    fn minimap_pane(&self, doc: mdedit_highlight::DocId, slot: u8) -> usize {
+        let active = self.docs.active_doc();
+        if active.map(|d| d.id) != Some(doc) {
+            return 1;
+        }
+        // The active document is in pane 0, unless both panes show it and the view asked about
+        // is the one in the second.
+        match active.and_then(|d| d.ready()) {
+            Some(r) if self.docs.same_file && r.view.slot != slot => 1,
+            _ => 0,
+        }
+    }
+
+    /// The column's top, the window and the view's geometry now, for the minimap of view `slot`
+    /// of document `doc`. Both panes' columns have the same top and height, so a drag that
+    /// outlives the roles of the panes changing still finds its column.
     fn minimap_now(
         &mut self,
         doc: mdedit_highlight::DocId,
+        slot: u8,
     ) -> Option<(f32, minimap::Plan, view::Geom)> {
-        let pane = usize::from(self.docs.active_doc().map(|d| d.id) != Some(doc));
+        let pane = self.minimap_pane(doc, slot);
         let rect = self
             .minimap_rect(pane)
             .or_else(|| self.minimap_rect(1 - pane))?;
@@ -355,34 +368,27 @@ impl App {
             _ => self.areas.text,
         };
         let scale = self.scale;
-        let i = if pane == 0 {
-            self.docs.active()
-        } else {
-            self.docs.other()
-        }?;
-        let d = &mut self.docs.tabs[i];
-        let g = self.view.layout(d, region, scale)?;
-        let plan = make_plan(d.ready_mut()?, &g, rect, scale);
+        let view = &mut self.view;
+        let (g, plan) = self
+            .docs
+            .with_pane(pane, |d| {
+                let g = view.layout(d, region, scale)?;
+                let plan = make_plan(d.ready_mut()?, &g, rect, scale);
+                Some((g, plan))
+            })
+            .flatten()?;
         Some((rect.y, plan, g))
     }
 
-    fn minimap_scroll(&mut self, doc: mdedit_highlight::DocId, g: &view::Geom, first: f64) {
-        if let Some(r) = self
-            .docs
-            .tabs
-            .iter_mut()
-            .find(|d| d.id == doc)
-            .and_then(|d| d.ready_mut())
-        {
-            view::map_scroll(r, g, first);
-        }
+    fn minimap_scroll(&mut self, pane: usize, g: &view::Geom, first: f64) {
+        self.with_pane_ready(pane, |r| view::map_scroll(r, g, first));
     }
 
-    /// A press on the minimap of document `doc`. Inside the band it grabs the band where it was
-    /// pressed; outside it centres the view on the line pressed and then holds the band as it
-    /// stands after that.
-    fn minimap_press(&mut self, doc: mdedit_highlight::DocId, y: f32) {
-        let Some((top, plan, g)) = self.minimap_now(doc) else {
+    /// A press on the minimap of view `slot` of document `doc`. Inside the band it grabs the
+    /// band where it was pressed; outside it centres the view on the line pressed and then holds
+    /// the band as it stands after that.
+    fn minimap_press(&mut self, doc: mdedit_highlight::DocId, slot: u8, y: f32) {
+        let Some((top, plan, g)) = self.minimap_now(doc, slot) else {
             return;
         };
         let yd = ((y - top) * self.scale) as f64;
@@ -391,8 +397,9 @@ impl App {
             yd - b0 as f64
         } else {
             let first = plan.first_to_centre_on(yd);
-            self.minimap_scroll(doc, &g, first);
-            match self.minimap_now(doc) {
+            let pane = self.minimap_pane(doc, slot);
+            self.minimap_scroll(pane, &g, first);
+            match self.minimap_now(doc, slot) {
                 Some((_, after, _)) => yd - after.band().0 as f64,
                 None => return,
             }
@@ -400,17 +407,25 @@ impl App {
         self.ui.drag = Some(Drag::Minimap {
             grab: grab as f32,
             doc,
+            slot,
         });
     }
 
     /// The pointer at `y` with the band held `grab` device px below its top.
-    pub(super) fn minimap_drag(&mut self, doc: mdedit_highlight::DocId, y: f32, grab: f32) {
-        let Some((top, plan, g)) = self.minimap_now(doc) else {
+    pub(super) fn minimap_drag(
+        &mut self,
+        doc: mdedit_highlight::DocId,
+        slot: u8,
+        y: f32,
+        grab: f32,
+    ) {
+        let Some((top, plan, g)) = self.minimap_now(doc, slot) else {
             return;
         };
         let yd = ((y - top) * self.scale) as f64;
         let first = plan.first_for_band_top(yd - grab as f64);
-        self.minimap_scroll(doc, &g, first);
+        let pane = self.minimap_pane(doc, slot);
+        self.minimap_scroll(pane, &g, first);
     }
 
     /// A press on a scrollbar: grabs the thumb, or pages towards the press.
@@ -426,9 +441,9 @@ impl App {
                         target,
                         grab: y - thumb.y,
                     });
-                } else if let Some(r) = self.pane_ready_mut(pane) {
+                } else {
                     let step = (g.view_lines - 1.0).max(1.0) * if y < thumb.y { -1.0 } else { 1.0 };
-                    view::scroll_rows(r, step);
+                    self.with_pane_ready(pane, |r| view::scroll_rows(r, step));
                 }
             }
             Scroller::TextH | Scroller::OtherTextH => {
@@ -441,9 +456,11 @@ impl App {
                         target,
                         grab: x - thumb.x,
                     });
-                } else if let Some(r) = self.pane_ready_mut(pane) {
+                } else {
                     let step = g.view_w as f64 * 0.9 * if x < thumb.x { -1.0 } else { 1.0 };
-                    r.view.left = metrics::clamp_left(r.view.left + step, g.extent, g.view_w);
+                    self.with_pane_ready(pane, |r| {
+                        r.view.left = metrics::clamp_left(r.view.left + step, g.extent, g.view_w);
+                    });
                 }
             }
             _ => {
@@ -590,14 +607,16 @@ impl App {
             }
             Hit::ScrollBar(target) => self.scrollbar_press(target, x, y),
             Hit::Minimap => {
-                if let Some(id) = self.docs.active_doc().map(|d| d.id) {
-                    self.minimap_press(id, y);
+                if let Some((doc, _, v)) = self.docs.pane_view(0) {
+                    let (id, slot) = (doc.id, v.slot);
+                    self.minimap_press(id, slot, y);
                 }
             }
             Hit::MinimapOther => {
                 // The press acts on the second pane's document, which then has the keyboard.
-                if let Some(id) = self.docs.other().map(|i| self.docs.tabs[i].id) {
-                    self.minimap_press(id, y);
+                if let Some((doc, _, v)) = self.docs.pane_view(1) {
+                    let (id, slot) = (doc.id, v.slot);
+                    self.minimap_press(id, slot, y);
                     self.docs.seal();
                     if self.docs.focus_other() {
                         self.ui.find_focused = false;
@@ -893,13 +912,10 @@ impl App {
         let line_h = self.view.metrics(self.scale).line_h as f64;
         let scale = self.scale as f64;
         let shift = self.mods.shift;
-        let Some(i) = self.pane_doc(usize::from(over_other)) else {
+        let pane = usize::from(over_other);
+        let Some(adv) = self.docs.pane_view(pane).map(|(_, _, v)| v.advance as f64) else {
             return;
         };
-        let Some(r) = self.docs.tabs[i].ready_mut() else {
-            return;
-        };
-        let adv = r.view.advance as f64;
         // (lines down, logical px right)
         let (down, right) = match pixels {
             Some((px, py)) => {
@@ -915,8 +931,10 @@ impl App {
             None if shift && nx == 0.0 => (0.0, -ny * metrics::WHEEL_COLS * adv),
             None => (-ny * metrics::WHEEL_LINES, -nx * metrics::WHEEL_COLS * adv),
         };
-        view::scroll_rows(r, down);
-        r.view.left = (r.view.left + right).max(0.0);
+        self.with_pane_ready(pane, |r| {
+            view::scroll_rows(r, down);
+            r.view.left = (r.view.left + right).max(0.0);
+        });
         // The layout pass of the next frame clamps both.
         if !over_other && let Some(Drag::Select { .. } | Drag::Column { .. }) = self.ui.drag {
             let drag = self.ui.drag.unwrap();

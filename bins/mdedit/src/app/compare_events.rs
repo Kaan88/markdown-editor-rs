@@ -82,8 +82,8 @@ impl App {
             self.docs.set_toast(strings::COMPARE_SAME_FILE);
             return;
         }
-        self.docs.other = Some(self.docs.tabs[k].id);
-        self.docs.other_left = false;
+        let kid = self.docs.tabs[k].id;
+        self.docs.set_other(kid, false);
         if matches!(self.docs.tabs[k].state, crate::docs::DocState::Pending) {
             self.docs.start_load(k);
         }
@@ -120,8 +120,7 @@ impl App {
             .docs
             .open_copy(strings::saved_copy_name(&name), &bytes, language);
         let id = self.docs.tabs[k].id;
-        self.docs.other = Some(id);
-        self.docs.other_left = true;
+        self.docs.set_other(id, true);
         self.compare_begin(id, mine, Some(id));
     }
 

@@ -173,9 +173,9 @@ pub struct FindState {
 }
 
 impl FindState {
-    /// Moves the matches with an edit: those the edit touches go, later ones shift. `current` is
-    /// a view's current match (an index into `matches`); it moves with them.
-    fn edited(&mut self, change: &Change, current: &mut Option<usize>) {
+    /// Moves the matches with an edit: those the edit touches go, later ones shift. `current` and
+    /// `other` are two views' current matches (indexes into `matches`); they move with them.
+    fn edited(&mut self, change: &Change, current: &mut Option<usize>, other: &mut Option<usize>) {
         self.cancel();
         self.searching = false;
         if self.text.is_empty() {
@@ -195,15 +195,23 @@ impl FindState {
                 m.clone()
             }
         };
-        let kept_current = current
-            .and_then(|k| self.matches.get(k))
-            .filter(|m| kept(m))
-            .map(moved);
+        let survivor = |cur: &Option<usize>, matches: &[Range<usize>]| {
+            cur.and_then(|k| matches.get(k))
+                .filter(|m| kept(m))
+                .map(moved)
+        };
+        let (a, b) = (
+            survivor(current, &self.matches),
+            survivor(other, &self.matches),
+        );
         self.matches.retain(kept);
         for m in &mut self.matches {
             *m = moved(m);
         }
-        *current = kept_current.and_then(|c| self.matches.iter().position(|m| *m == c));
+        let index =
+            |c: Option<Range<usize>>| c.and_then(|c| self.matches.iter().position(|m| *m == c));
+        *current = index(a);
+        *other = index(b);
     }
 
     fn cancel(&mut self) {
@@ -237,6 +245,10 @@ type BracketAt = (u64, usize, Option<(usize, usize)>);
 /// document owns the one it shows in a single pane; see `docs/DESIGN.md`, "Two views of one
 /// document".
 pub struct ViewState {
+    /// The key of this view's colour requests to the highlight worker (0 or 1): a document shown
+    /// twice has two views and they must not answer each other's requests. It stays with the view
+    /// when the panes swap.
+    pub slot: u8,
     pub sel: Selection,
     /// The other selections when there are several carets, in document order. `sel` is the
     /// primary: the one the view follows and Undo puts back.
@@ -283,8 +295,128 @@ pub struct ViewState {
 }
 
 impl ViewState {
+    /// A second view that starts where this one is: the same carets, scroll and folds, no
+    /// colours yet, and the other request key.
+    pub fn twin_of(&self) -> ViewState {
+        ViewState {
+            slot: 1 - self.slot.min(1),
+            sel: self.sel,
+            extra: self.extra.clone(),
+            folds: self.folds.clone(),
+            top: self.top,
+            top_row: self.top_row,
+            row_rest: self.row_rest,
+            left: self.left,
+            find_current: self.find_current,
+            replace_scope: self.replace_scope.clone(),
+            scope_on: self.scope_on,
+            view_lines: self.view_lines,
+            view_w: self.view_w,
+            advance: self.advance,
+            wide_advance: self.wide_advance,
+            ..ViewState::new()
+        }
+    }
+
+    /// A view for the text read again: it keeps the caret's line and column, the scroll and the
+    /// geometry of `old`, which was a view of `old_buf`; selections, folds and the rest start
+    /// over. `align` is taken from `old`.
+    fn carried(old: &mut ViewState, old_buf: &Buffer, new_buf: &Buffer) -> ViewState {
+        let pos: Position = old_buf.position(old.sel.caret);
+        let caret = new_buf.snap_to_grapheme(new_buf.offset(pos));
+        ViewState {
+            slot: old.slot,
+            sel: Selection::at(caret),
+            top: old.top,
+            top_row: old.top_row,
+            align: old.align.take(),
+            left: old.left,
+            view_lines: old.view_lines,
+            view_w: old.view_w,
+            advance: old.advance,
+            wide_advance: old.wide_advance,
+            ..ViewState::new()
+        }
+    }
+
+    /// The bracket at the caret and its partner, as byte offsets, when nothing is selected;
+    /// `revision` is the text's.
+    pub fn brackets(&self, buf: &Buffer, revision: u64) -> Option<(usize, usize)> {
+        if !self.sel.range().is_empty() {
+            return None;
+        }
+        let caret = self.sel.caret;
+        if let Some((r, c, found)) = self.bracket.get()
+            && (r, c) == (revision, caret)
+        {
+            return found;
+        }
+        let found =
+            mdedit_core::bracket::matching(buf.rope(), caret, mdedit_core::limits::BRACKET_SCAN);
+        self.bracket.set(Some((revision, caret, found)));
+        found
+    }
+
+    /// The range Replace is limited to now: the kept selection while its toggle is on.
+    pub fn scope(&self) -> Option<Range<usize>> {
+        self.replace_scope.clone().filter(|_| self.scope_on)
+    }
+
+    /// Opens the folds a caret is in: a caret is never on a line that does not show.
+    fn unfold_carets(&mut self, buf: &Buffer) {
+        if self.folds.is_empty() {
+            return;
+        }
+        let len = buf.len_bytes();
+        for k in 0..=self.extra.len() {
+            let caret = self.extra.get(k).map_or(self.sel.caret, |s| s.caret);
+            let line = buf.line_of(caret.min(len));
+            self.folds.reveal(line);
+        }
+    }
+
+    /// Takes this view, which is not the one that was edited, through `change`: its carets and
+    /// selections, the line at its top (`top_at` is that line's start in the old text), its
+    /// replace range, folds and colours follow the text; it does not scroll to show anything.
+    /// `buf` is the text after the edit.
+    fn follow(&mut self, change: &Change, buf: &Buffer, top_at: Option<usize>) {
+        let len = buf.len_bytes();
+        let map = |p: usize| buf.snap_to_grapheme(change.map_offset(p).min(len));
+        let goal = self.sel.goal_col;
+        self.sel = Selection {
+            anchor: map(self.sel.anchor),
+            caret: map(self.sel.caret),
+            goal_col: goal,
+        };
+        for e in &mut self.extra {
+            *e = Selection {
+                anchor: map(e.anchor),
+                caret: map(e.caret),
+                goal_col: e.goal_col,
+            };
+        }
+        // The column selection under way is of the old text.
+        self.column = None;
+        if let Some(at) = top_at
+            && self.top.is_finite()
+            && self.top >= 0.0
+        {
+            let line = buf.line_of(change.map_offset(at).min(len));
+            self.top = line as f64 + (self.top - self.top.floor());
+        }
+        let rel = change.at.saturating_sub(buf.line_start(change.first_line));
+        self.colors.edited(change, rel);
+        self.map_colors.edited(change, rel);
+        self.folds.shift(change);
+        if let Some(scope) = self.replace_scope.take() {
+            self.replace_scope = Some(map_scope(scope, change));
+        }
+        self.unfold_carets(buf);
+    }
+
     fn new() -> ViewState {
         ViewState {
+            slot: 0,
             sel: Selection::at(0),
             extra: Vec::new(),
             column: None,
@@ -324,6 +456,9 @@ pub struct Ready {
     pub colourable: bool,
     /// The view of the pane that has the keyboard (or the only one).
     pub view: ViewState,
+    /// The view of the pane without the keyboard, when the document is shown in both panes.
+    /// Moving the keyboard to that pane swaps the two.
+    pub twin: Option<Box<ViewState>>,
     /// Bookmarked lines, sorted. They follow edits and a reload, and are gone when the tab
     /// closes.
     pub bookmarks: Vec<usize>,
@@ -429,22 +564,7 @@ impl Ready {
 
     /// The bracket at the caret and its partner, as byte offsets, when nothing is selected.
     pub fn brackets(&self) -> Option<(usize, usize)> {
-        if !self.view.sel.range().is_empty() {
-            return None;
-        }
-        let (revision, caret) = (self.revision, self.view.sel.caret);
-        if let Some((r, c, found)) = self.view.bracket.get()
-            && (r, c) == (revision, caret)
-        {
-            return found;
-        }
-        let found = mdedit_core::bracket::matching(
-            self.buffer.rope(),
-            caret,
-            mdedit_core::limits::BRACKET_SCAN,
-        );
-        self.view.bracket.set(Some((revision, caret, found)));
-        found
+        self.view.brackets(&self.buffer, self.revision)
     }
 
     /// The selection when it is one whole word on one line: its other occurrences are marked.
@@ -482,19 +602,48 @@ impl Ready {
     }
 
     /// Keeps what hangs on the text in step with an edit.
-    fn changed(&mut self, change: &Change) {
+    fn changed(&mut self, change: &Change, twin_top: Option<usize>) {
         self.info.eol.apply(&change.eol_removed, &change.eol_added);
         let rel = change
             .at
             .saturating_sub(self.buffer.line_start(change.first_line));
         self.view.colors.edited(change, rel);
         self.view.map_colors.edited(change, rel);
-        self.find.edited(change, &mut self.view.find_current);
+        let mut none = None;
+        let twin_current = self
+            .twin
+            .as_deref_mut()
+            .map_or(&mut none, |t| &mut t.find_current);
+        self.find
+            .edited(change, &mut self.view.find_current, twin_current);
         self.chunks.clear();
         lines::shift_marks(&mut self.bookmarks, change);
         self.view.folds.shift(change);
         if let Some(scope) = self.view.replace_scope.take() {
             self.view.replace_scope = Some(map_scope(scope, change));
+        }
+        // The other view only follows: its carets, its top line and what hangs on them move
+        // with the text.
+        if let Some(twin) = self.twin.as_deref_mut() {
+            twin.follow(change, &self.buffer, twin_top);
+        }
+    }
+
+    /// Where the other view's top line starts in the text as it is now, before an edit.
+    fn twin_top_offset(&self) -> Option<usize> {
+        let t = self.twin.as_deref()?;
+        Some(self.buffer.line_start(t.top.max(0.0).floor() as usize))
+    }
+
+    /// Swaps the view of the pane that has the keyboard with the other pane's, when there is one.
+    /// True when it did. Anything that works on the other pane swaps before and after.
+    pub fn swap_views(&mut self) -> bool {
+        match self.twin.as_deref_mut() {
+            Some(twin) => {
+                std::mem::swap(&mut self.view, twin);
+                true
+            }
+            None => false,
         }
     }
 
@@ -555,27 +704,12 @@ impl Ready {
 
     /// The range Replace is limited to now: the kept selection while its toggle is on.
     pub fn scope(&self) -> Option<Range<usize>> {
-        self.view
-            .replace_scope
-            .clone()
-            .filter(|_| self.view.scope_on)
+        self.view.scope()
     }
 
     /// Opens the folds a caret is in: a caret is never on a line that does not show.
     pub fn unfold_carets(&mut self) {
-        if self.view.folds.is_empty() {
-            return;
-        }
-        let len = self.buffer.len_bytes();
-        for k in 0..=self.view.extra.len() {
-            let caret = self
-                .view
-                .extra
-                .get(k)
-                .map_or(self.view.sel.caret, |s| s.caret);
-            let line = self.buffer.line_of(caret.min(len));
-            self.view.folds.reveal(line);
-        }
+        self.view.unfold_carets(&self.buffer);
     }
 
     /// After folding: one caret, on a line that shows (the end of the fold's first line when
@@ -686,6 +820,7 @@ impl Ready {
             language,
             colourable: false,
             view: ViewState::new(),
+            twin: None,
             bookmarks: Vec::new(),
             assist: Prefs::default().assist(language.map_or("", Language::name)),
             wrap: false,
@@ -1017,6 +1152,9 @@ pub struct Docs {
     /// one. The active tab shows in the other pane and has the keyboard.
     pub other: Option<DocId>,
     pub other_left: bool,
+    /// Both panes show the active document (`other` is its id): it has a second view, its
+    /// `Ready::twin`. `other()` is `None` then, as for any tab that is not a second tab.
+    pub same_file: bool,
     /// The left pane's share of the text's width in a split view (0.5 = halves).
     pub split_ratio: f32,
     /// A macro is being recorded (the status strip says so).
@@ -1050,6 +1188,7 @@ impl Docs {
             minimap: false,
             other: None,
             other_left: false,
+            same_file: false,
             split_ratio: 0.5,
             recording: false,
             wrap: false,
@@ -1284,7 +1423,6 @@ impl Docs {
         i
     }
 
-    /// Makes tab `i` active; its first activation starts its load.
     /// The tab in the second pane of a split view: one that is still open and is not the
     /// active one.
     pub fn other(&self) -> Option<usize> {
@@ -1292,10 +1430,64 @@ impl Docs {
         (Some(i) != self.active).then_some(i)
     }
 
+    /// The tab shown in the second pane, the active one itself when both panes show it.
+    pub fn pane1(&self) -> Option<usize> {
+        if self.same_file {
+            self.active
+        } else {
+            self.other()
+        }
+    }
+
+    /// Runs `f` on the tab shown in pane 0 (the one with the keyboard) or pane 1 (the second).
+    /// For the second pane of a document shown in both, the document's second view is in place
+    /// of the first for the length of the call.
+    pub fn with_pane<T>(&mut self, pane: usize, f: impl FnOnce(&mut Doc) -> T) -> Option<T> {
+        let i = if pane == 0 { self.active } else { self.pane1() }?;
+        let swap = pane != 0 && self.same_file;
+        let doc = self.tabs.get_mut(i)?;
+        let swapped = swap && doc.ready_mut().is_some_and(Ready::swap_views);
+        let out = f(doc);
+        if swapped && let Some(r) = doc.ready_mut() {
+            r.swap_views();
+        }
+        Some(out)
+    }
+
+    /// The document of pane 0 or 1 with the view that pane shows, to look at.
+    pub fn pane_view(&self, pane: usize) -> Option<(&Doc, &Ready, &ViewState)> {
+        let i = if pane == 0 { self.active } else { self.pane1() }?;
+        let doc = self.tabs.get(i)?;
+        let r = doc.ready()?;
+        let v = match (pane != 0 && self.same_file, r.twin.as_deref()) {
+            (true, Some(t)) => t,
+            _ => &r.view,
+        };
+        Some((doc, r, v))
+    }
+
+    /// Ends the same-file split's second view, keeping the one that has the keyboard as the
+    /// document's.
+    fn drop_twin(&mut self) {
+        if std::mem::take(&mut self.same_file)
+            && let Some(r) = self.active_ready_mut()
+        {
+            r.twin = None;
+        }
+    }
+
+    /// Puts tab `id` in the second pane, at the left when `left`.
+    pub fn set_other(&mut self, id: DocId, left: bool) {
+        self.drop_twin();
+        self.other = Some(id);
+        self.other_left = left;
+    }
+
     /// Splits the view, with the tab after the active one in the second pane at the right, or
     /// ends the split. False when there is no second tab to show.
     pub fn toggle_split(&mut self) -> bool {
         if self.other.take().is_some() {
+            self.drop_twin();
             return true;
         }
         let Some(a) = self.active.filter(|_| self.tabs.len() > 1) else {
@@ -1310,15 +1502,44 @@ impl Docs {
         true
     }
 
-    /// Puts the tab of `path` in the second pane (at the left when `left`) with the left pane's
-    /// share of the width `ratio`, for a restored session. False when no tab has the file or it
-    /// is the active one.
-    pub fn restore_split(&mut self, path: &Path, left: bool, ratio: f32) -> bool {
-        let Some(i) = self.index_of(path).filter(|&i| Some(i) != self.active) else {
+    /// Shows the active document in both panes: opens the split on it, or, with a split open on
+    /// another tab, puts it in the second pane too. The second view starts where the first is.
+    /// False when the active document is not read yet.
+    pub fn show_in_other_pane(&mut self) -> bool {
+        let Some(i) = self.active else { return false };
+        let doc = &mut self.tabs[i];
+        let id = doc.id;
+        let Some(r) = doc.ready_mut() else {
             return false;
         };
+        if self.same_file {
+            return true;
+        }
+        r.twin = Some(Box::new(r.view.twin_of()));
+        if self.other.is_none() {
+            self.other_left = false;
+        }
+        self.other = Some(id);
+        self.same_file = true;
+        true
+    }
+
+    /// Puts the tab of `path` in the second pane (at the left when `left`) with the left pane's
+    /// share of the width `ratio`, for a restored session. The active tab's own file makes a
+    /// split of one document in both panes. False when no tab has the file.
+    pub fn restore_split(&mut self, path: &Path, left: bool, ratio: f32) -> bool {
+        let Some(i) = self.index_of(path) else {
+            return false;
+        };
+        self.drop_twin();
         self.other = Some(self.tabs[i].id);
         self.other_left = left;
+        self.same_file = Some(i) == self.active;
+        if self.same_file
+            && let Some(r) = self.tabs[i].ready_mut()
+        {
+            r.twin = Some(Box::new(r.view.twin_of()));
+        }
         self.split_ratio = if ratio.is_finite() {
             ratio.clamp(0.1, 0.9)
         } else {
@@ -1332,6 +1553,15 @@ impl Docs {
 
     /// Gives the keyboard to the second pane. False without one.
     pub fn focus_other(&mut self) -> bool {
+        if self.same_file {
+            // One document in both panes: the views change places, and the panes' sides with
+            // them, as for two tabs.
+            if let Some(r) = self.active_ready_mut() {
+                r.swap_views();
+            }
+            self.other_left = !self.other_left;
+            return true;
+        }
         let Some(i) = self.other() else {
             return false;
         };
@@ -1339,9 +1569,20 @@ impl Docs {
         true
     }
 
+    /// Makes tab `i` active; its first activation starts its load.
     pub fn activate(&mut self, i: usize) {
         if i >= self.tabs.len() {
             return;
+        }
+        // Another tab for the pane with the keyboard while both panes show one document: that
+        // document stays in the other pane, with that pane's view.
+        if self.same_file && self.other != Some(self.tabs[i].id) {
+            if let Some(r) = self.active_ready_mut()
+                && let Some(twin) = r.twin.take()
+            {
+                r.view = *twin;
+            }
+            self.same_file = false;
         }
         // The tab of the second pane: the panes change roles, each keeping its tab.
         if self.other == Some(self.tabs[i].id)
@@ -1360,6 +1601,11 @@ impl Docs {
     pub fn close(&mut self, i: usize, service: Option<&HighlightService>) {
         if i >= self.tabs.len() {
             return;
+        }
+        // Closing the document shown in both panes closes both views.
+        if self.same_file && self.other == Some(self.tabs[i].id) {
+            self.same_file = false;
+            self.other = None;
         }
         let mut doc = self.tabs.remove(i);
         doc.cancel_load();
@@ -1561,29 +1807,27 @@ impl Docs {
             Ok((loaded, language)) => {
                 let mut r = Ready::new(loaded, language, done.revision);
                 r.assist = self.prefs.assist(language.map_or("", Language::name));
-                // A reload keeps the caret's line and column, the scroll and the find query.
+                // A reload keeps the caret's line and column, the scroll and the find query, in
+                // each of the document's views.
                 let mut query = None;
                 if let Some(old) = doc.ready_mut() {
-                    let pos: Position = old.buffer.position(old.view.sel.caret);
-                    let caret = r.buffer.snap_to_grapheme(r.buffer.offset(pos));
-                    r.view.sel = Selection::at(caret);
+                    r.view = ViewState::carried(&mut old.view, &old.buffer, &r.buffer);
+                    r.twin = old
+                        .twin
+                        .as_deref_mut()
+                        .map(|t| Box::new(ViewState::carried(t, &old.buffer, &r.buffer)));
                     let last = r.buffer.len_lines().saturating_sub(1);
                     r.bookmarks = old.bookmarks.iter().map(|&m| m.min(last)).collect();
                     r.bookmarks.dedup();
-                    r.view.top = old.view.top;
-                    r.view.top_row = old.view.top_row;
                     r.wrap = old.wrap;
-                    r.view.align = old.view.align.take();
                     r.read_only = old.read_only;
-                    r.view.left = old.view.left;
-                    r.view.view_lines = old.view.view_lines;
-                    r.view.view_w = old.view.view_w;
-                    r.view.advance = old.view.advance;
-                    r.view.wide_advance = old.view.wide_advance;
                     old.find.cancel();
                     if !old.find.text.is_empty() {
                         query = Some((old.find.text.clone(), old.find.options));
                     }
+                }
+                if r.twin.is_none() && self.same_file && self.other == Some(doc.id) {
+                    r.twin = Some(Box::new(r.view.twin_of()));
                 }
                 // Unsaved text from the last run goes back over what was read.
                 if let Some(text) = doc
@@ -1745,6 +1989,7 @@ impl Docs {
             self.set_toast(text);
             return false;
         }
+        let twin_top = r.twin_top_offset();
         let eol = r.info.eol.dominant();
         let query = match op {
             EditOp::ReplaceOne(_) | EditOp::ReplaceAll(_) => {
@@ -1936,7 +2181,7 @@ impl Docs {
             *revision += 1;
             *discard = false;
             r.revision = *revision;
-            r.changed(&change);
+            r.changed(&change, twin_top);
             if had_scope {
                 r.view.replace_scope = new_scope.take();
             }
@@ -1990,8 +2235,19 @@ impl Docs {
     /// Gives every open document the word-wrap setting. Called before each frame, so a
     /// document that has just been read has it too.
     pub fn sync_wrap(&mut self) {
-        for doc in &mut self.tabs {
+        // A document shown in both panes has its second view as long as the split says so.
+        let (same, active) = (self.same_file, self.active);
+        if same && self.active_doc().map(|d| d.id) != self.other {
+            self.same_file = false;
+        }
+        for (k, doc) in self.tabs.iter_mut().enumerate() {
             let Some(r) = doc.ready_mut() else { continue };
+            let twinned = self.same_file && active == Some(k);
+            if twinned && r.twin.is_none() {
+                r.twin = Some(Box::new(r.view.twin_of()));
+            } else if !twinned && r.twin.is_some() {
+                r.twin = None;
+            }
             // A compared document shows every line, unwrapped; its folds wait.
             let compared = r.view.align.is_some();
             if r.view.folds.suspended() != compared {
@@ -2000,11 +2256,19 @@ impl Docs {
             let wrap = self.wrap && !compared;
             if r.wrap != wrap {
                 r.wrap = wrap;
-                r.view.top_row = 0;
-                r.view.left = 0.0;
-                // The caret's line stays in view across the change.
-                let caret = r.view.sel.caret;
-                crate::view::reveal(r, caret, false);
+                // Each of the document's views starts its rows over, with its caret's line in
+                // view.
+                let start_over = |r: &mut Ready| {
+                    r.view.top_row = 0;
+                    r.view.left = 0.0;
+                    let caret = r.view.sel.caret;
+                    crate::view::reveal(r, caret, false);
+                };
+                start_over(r);
+                if r.swap_views() {
+                    start_over(r);
+                    r.swap_views();
+                }
             }
         }
     }
@@ -2238,11 +2502,20 @@ impl Docs {
             }
             let id = doc.id;
             if let Some(r) = doc.ready_mut().filter(|r| r.colourable) {
+                // The answer is for the view that asked: a document shown twice has two.
+                let view = if r.view.slot == c.slot {
+                    &mut r.view
+                } else {
+                    match r.twin.as_deref_mut().filter(|t| t.slot == c.slot) {
+                        Some(t) => t,
+                        None => continue,
+                    }
+                };
                 // The minimap's window has its own store: it is not what the text view shows.
                 let store = if c.map {
-                    &mut r.view.map_colors
+                    &mut view.map_colors
                 } else {
-                    &mut r.view.colors
+                    &mut view.colors
                 };
                 store.first = c.first_line;
                 store.lines = c.lines;
@@ -2295,6 +2568,9 @@ impl Docs {
         r.find.matches.clear();
         r.find.capped = false;
         r.view.find_current = None;
+        if let Some(t) = r.twin.as_deref_mut() {
+            t.find_current = None;
+        }
         r.find.searching = false;
         r.find.stale = false;
         r.find.generation += 1;
@@ -2348,6 +2624,10 @@ impl Docs {
             if let Some(r) = d.ready_mut() {
                 r.view.replace_scope = None;
                 r.view.scope_on = false;
+                if let Some(t) = r.twin.as_deref_mut() {
+                    t.replace_scope = None;
+                    t.scope_on = false;
+                }
             }
         }
     }
@@ -2511,12 +2791,25 @@ fn take_matches(r: &mut Ready, m: Matches, go: bool) {
     r.find.generation += 1;
     if r.find.matches.is_empty() {
         r.view.find_current = None;
+        if let Some(t) = r.twin.as_deref_mut() {
+            t.find_current = None;
+        }
         return;
     }
-    let k = find::first_at_or_after(&r.find.matches, r.view.sel.range().start);
-    let k = if k >= r.find.matches.len() { 0 } else { k };
-    r.view.find_current = Some(k);
+    // Each view's current match is the first from its own caret.
+    let first_from = |matches: &[Range<usize>], from: usize| {
+        let k = find::first_at_or_after(matches, from);
+        if k >= matches.len() { 0 } else { k }
+    };
+    r.view.find_current = Some(first_from(&r.find.matches, r.view.sel.range().start));
+    if let Some(t) = r.twin.as_deref_mut() {
+        t.find_current = Some(first_from(&r.find.matches, t.sel.range().start));
+    }
     r.fit_current_to_scope();
+    if r.swap_views() {
+        r.fit_current_to_scope();
+        r.swap_views();
+    }
     if go && let Some(k) = r.view.find_current {
         let range = r.find.matches[k].clone();
         r.select_and_reveal(range);
@@ -3307,8 +3600,14 @@ mod tests {
         assert_eq!(d.split_ratio, 0.5);
         assert!(d.restore_split(&other, false, 77.0));
         assert_eq!(d.split_ratio, 0.9);
-        // The active tab cannot be its own second pane; an unknown file is no split.
-        assert!(!d.restore_split(&path, false, 0.5));
+        // The active tab's own file is a split of one document in both panes; an unknown file
+        // is no split.
+        assert!(d.restore_split(&path, false, 0.5));
+        assert!(d.same_file && d.other().is_none() && d.pane1() == Some(i));
+        assert!(d.active_ready().unwrap().twin.is_some());
+        // A split on another tab takes it back, and the second view goes.
+        assert!(d.restore_split(&other, false, 0.5));
+        assert!(!d.same_file && d.active_ready().unwrap().twin.is_none());
         assert!(!d.restore_split(&dir.join("gone.txt"), false, 0.5));
         let _ = std::fs::remove_dir_all(&dir);
     }

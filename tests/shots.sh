@@ -227,4 +227,10 @@ rfolder
 shot replace-files-report --light --folder "$data/rfolder" --find self --find-in-files --results-replace this --replace-report "$data/rfolder/sample.rs"
 rm -rf "$data/rfolder"
 
+# One file in both panes: each pane its own caret, selection, scroll, folds and minimap.
+shot same-file-split --light --minimap --split-same --select 9:1-14:3 --other-fold 16 --other-goto 70:1 "$fx/sample.rs"
+shot same-file-split-dark --dark --minimap --split-same --goto 3:1 --other-goto 40:1 --other-scroll 120 "$fx/sample.rs"
+shot same-file-split-left --light --split-same --split-left --split-ratio 0.55 --wrap --size 900x600 --other-goto 60:1 "$fx/sample.md"
+shot same-file-split-find --dark --minimap --split-same --find self --other-goto 60:1 "$fx/sample.rs"
+
 ls "$out" | wc -l

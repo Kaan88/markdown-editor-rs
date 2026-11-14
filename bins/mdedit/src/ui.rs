@@ -525,10 +525,12 @@ pub enum Drag {
     },
     /// Selecting in the focused box of the bar.
     FindSelect,
-    /// The band of the minimap of document `doc`, held `grab` device px below its top.
+    /// The band of the minimap of document `doc`'s view `slot`, held `grab` device px below its
+    /// top.
     Minimap {
         grab: f32,
         doc: mdedit_highlight::DocId,
+        slot: u8,
     },
 }
 

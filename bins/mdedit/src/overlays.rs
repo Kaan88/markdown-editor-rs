@@ -163,9 +163,16 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
         cmd(C::ToggleWhitespace, "Show whitespace", glyph::WHITESPACE).checked(docs.whitespace),
         cmd(C::ToggleWrap, "Word wrap", glyph::WRAP).checked(docs.wrap),
         cmd(C::ToggleMinimap, "Minimap", glyph::MINIMAP).checked(docs.minimap),
-        cmd(C::ToggleSplit, "Two files side by side", glyph::SPLIT).checked(docs.other().is_some()),
+        cmd(C::ToggleSplit, "Two files side by side", glyph::SPLIT)
+            .checked(docs.other().is_some() || docs.same_file),
         cmd(C::FocusOther, "Go to the other pane", glyph::OTHER_PANE)
-            .enabled(docs.other().is_some()),
+            .enabled(docs.other().is_some() || docs.same_file),
+        cmd(
+            C::ShowInOtherPane,
+            "Show this file in the other pane",
+            glyph::SPLIT,
+        )
+        .enabled(docs.active_ready().is_some()),
         cmd(C::CompareOther, "Compare with the other pane", glyph::SPLIT)
             .sep()
             .enabled(crate::compare::enabled(C::CompareOther, docs)),
@@ -209,11 +216,17 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
             .enabled(many),
         Item::new(Act::TabCmd(C::CloseAllTabs, index), "Close all tabs").icon(glyph::CLOSE_ALL),
         Item::new(
+            Act::TabCmd(C::ShowInOtherPane, index),
+            "Show in the other pane",
+        )
+        .icon(glyph::SPLIT)
+        .sep()
+        .enabled(docs.tabs.get(index).is_some_and(|d| d.ready().is_some())),
+        Item::new(
             Act::TabCmd(C::CompareFile, index),
             "Compare with file\u{2026}",
         )
         .icon(glyph::SPLIT)
-        .sep()
         .enabled(docs.tabs.get(index).is_some_and(|d| d.ready().is_some()) && !compared),
         Item::new(Act::TabCmd(C::CompareSaved, index), "Compare with saved")
             .icon(glyph::SAVE)

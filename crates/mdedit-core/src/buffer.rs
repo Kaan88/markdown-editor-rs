@@ -43,9 +43,38 @@ pub struct Change {
     /// The same window of the new text. `EolCounts::apply(eol_removed, eol_added)` takes the old
     /// text's counts to the new text's.
     pub eol_added: EolCounts,
+    /// The replacements this change is made of, as `(at, removed, inserted)`, in the order they
+    /// were made, each in the coordinates of the text the ones before it produced. Empty for the
+    /// usual change of one replacement (`at`, `removed`, `inserted` say it); filled by
+    /// [`Change::merge`], so a multi-caret edit, Replace all or an undo of one still says where
+    /// each replacement was. [`Change::map_offset`] carries an offset through them.
+    pub pieces: Vec<(usize, usize, usize)>,
+}
+
+/// Where `p` goes when `removed` bytes at `at` become `inserted` bytes: before the place it stays
+/// (also at it, so an insertion at a caret leaves the caret before the new text), inside the
+/// removed bytes it goes to the start, after them it moves by the difference.
+fn map_through(p: usize, at: usize, removed: usize, inserted: usize) -> usize {
+    if p <= at {
+        p
+    } else if p >= at + removed {
+        p - removed + inserted
+    } else {
+        at
+    }
 }
 
 impl Change {
+    /// Where the offset `p` of the old text is in the new text.
+    pub fn map_offset(&self, p: usize) -> usize {
+        if self.pieces.is_empty() {
+            return map_through(p, self.at, self.removed, self.inserted);
+        }
+        self.pieces.iter().fold(p, |p, &(at, removed, inserted)| {
+            map_through(p, at, removed, inserted)
+        })
+    }
+
     /// New line count minus old: `lines_after - lines_before`.
     pub fn line_delta(&self) -> isize {
         self.lines_after as isize - self.lines_before as isize
@@ -68,6 +97,14 @@ impl Change {
         if self.is_noop() {
             *self = later.clone();
             return;
+        }
+        if self.pieces.is_empty() {
+            self.pieces.push((self.at, self.removed, self.inserted));
+        }
+        if later.pieces.is_empty() {
+            self.pieces.push((later.at, later.removed, later.inserted));
+        } else {
+            self.pieces.extend_from_slice(&later.pieces);
         }
         let first = self.first_line.min(later.first_line);
         // The end, in the middle text, of what either edit touched.
@@ -213,6 +250,7 @@ impl Buffer {
             lines_after,
             eol_removed,
             eol_added,
+            pieces: Vec::new(),
         }
     }
 
@@ -952,6 +990,64 @@ mod tests {
             let mut counts = start_counts;
             check_eols(&mut counts, &model, &m);
         }
+    }
+
+    #[test]
+    fn map_offset_follows_untouched_text_through_merged_edits() {
+        // Marker characters stand for the offsets to follow. An edit never reaches into one
+        // (it may touch its two sides), so after any run of merged edits the end of every
+        // marker is where `map_offset` says.
+        const M: char = '\u{E000}';
+        let mut rng = Rng::new(23);
+        for round in 0..400 {
+            let mut model = String::new();
+            for _ in 0..1 + rng.below(6) {
+                model.push_str(&random_text(&mut rng, 6));
+                model.push(M);
+            }
+            model.push_str(&random_text(&mut rng, 6));
+            let ends =
+                |t: &str| -> Vec<usize> { t.match_indices(M).map(|(i, m)| i + m.len()).collect() };
+            let before = ends(&model);
+            let mut buf = b(&model);
+            let mut merged: Option<Change> = None;
+            for _ in 0..1 + rng.below(5) {
+                // A range with no marker inside it.
+                let (r1, r2) = (
+                    random_offset(&mut rng, &model),
+                    random_offset(&mut rng, &model),
+                );
+                let at = floor(&model, r1.min(r2));
+                let end = floor(&model, r1.max(r2)).max(at);
+                if model[at..end].contains(M) {
+                    continue;
+                }
+                let text = random_text(&mut rng, 4);
+                model_replace(&mut model, at..end, &text);
+                let c = buf.replace(at..end, &text);
+                match merged.as_mut() {
+                    Some(m) => m.merge(&c),
+                    None => merged = Some(c),
+                }
+            }
+            let Some(m) = merged else { continue };
+            assert_eq!(buf.rope().to_string(), model, "round {round}");
+            let mapped: Vec<usize> = before.iter().map(|&p| m.map_offset(p)).collect();
+            assert_eq!(mapped, ends(&model), "round {round}: {m:?}");
+        }
+    }
+
+    #[test]
+    fn map_offset_of_a_single_replacement() {
+        let mut buf = b("abcdefgh");
+        // "cde" becomes "XY": 2..5 -> 2..4.
+        let c = buf.replace(2..5, "XY");
+        assert!(c.pieces.is_empty());
+        let mapped: Vec<usize> = (0..=8).map(|p| c.map_offset(p)).collect();
+        assert_eq!(mapped, [0, 1, 2, 2, 2, 4, 5, 6, 7]);
+        // An insertion leaves a position at its place before the new text.
+        let c = buf.replace(1..1, "__");
+        assert_eq!((c.map_offset(1), c.map_offset(2)), (1, 4));
     }
 
     #[test]

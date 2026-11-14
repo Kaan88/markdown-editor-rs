@@ -493,7 +493,7 @@ impl App {
             return;
         }
         let want = vis.start.saturating_sub(screen)..(vis.end + screen).min(lines);
-        service.view(id, revision, want.clone());
+        service.view_slot(id, r.view.slot, revision, want.clone());
         r.view.colors.requested = Some((want, dark));
         self.service_doc = Some(id);
     }
@@ -501,35 +501,26 @@ impl App {
     /// The colours of the second pane's lines: asked for beside the active document's.
     fn request_colours_other(&mut self) {
         let dark = self.dark();
-        let (Some(service), Some(i)) = (&self.service, self.docs.other()) else {
+        let Some(service) = &self.service else {
             return;
         };
-        let doc = &mut self.docs.tabs[i];
-        let (id, revision) = (doc.id, doc.revision);
-        let Some(r) = doc.ready_mut().filter(|r| r.colourable) else {
-            return;
-        };
-        let lines = r.buffer.len_lines();
-        let vis = view::shown_lines(r);
-        let screen = (r.view.view_lines.ceil() as usize).max(1);
-        let ok = matches!(&r.view.colors.requested, Some((req, d))
-            if *d == dark && vis.start >= req.start && vis.end <= req.end);
-        if ok {
-            return;
-        }
-        let want = vis.start.saturating_sub(screen)..(vis.end + screen).min(lines);
-        service.peek(id, revision, want.clone());
-        r.view.colors.requested = Some((want, dark));
-    }
-
-    /// The document of a pane: 0 is the one with the keyboard, 1 the second pane's.
-    fn pane_doc_mut(&mut self, pane: usize) -> Option<&mut crate::docs::Doc> {
-        if pane == 0 {
-            self.docs.active_doc_mut()
-        } else {
-            let i = self.docs.other()?;
-            Some(&mut self.docs.tabs[i])
-        }
+        self.docs.with_pane(1, |doc| {
+            let (id, revision) = (doc.id, doc.revision);
+            let Some(r) = doc.ready_mut().filter(|r| r.colourable) else {
+                return;
+            };
+            let lines = r.buffer.len_lines();
+            let vis = view::shown_lines(r);
+            let screen = (r.view.view_lines.ceil() as usize).max(1);
+            let ok = matches!(&r.view.colors.requested, Some((req, d))
+                if *d == dark && vis.start >= req.start && vis.end <= req.end);
+            if ok {
+                return;
+            }
+            let want = vis.start.saturating_sub(screen)..(vis.end + screen).min(lines);
+            service.peek_slot(id, r.view.slot, revision, want.clone());
+            r.view.colors.requested = Some((want, dark));
+        });
     }
 
     fn minimap_rect(&self, pane: usize) -> Option<Rect> {
@@ -545,8 +536,9 @@ impl App {
         let rect = self.minimap_rect(pane)?;
         let g = geom?;
         let scale = self.scale;
-        let r = self.pane_doc_mut(pane)?.ready_mut()?;
-        Some(make_plan(r, &g, rect, scale))
+        self.docs.with_pane(pane, |doc| {
+            Some(make_plan(doc.ready_mut()?, &g, rect, scale))
+        })?
     }
 
     /// The colours of a pane's minimap window: asked for apart from the view's, with half a
@@ -558,29 +550,25 @@ impl App {
         let Some(plan) = self.map_plan[pane] else {
             return;
         };
-        if self.service.is_none() {
-            return;
-        }
-        let Some(doc) = self.pane_doc_mut(pane) else {
+        let Some(service) = &self.service else {
             return;
         };
-        let (id, revision) = (doc.id, doc.revision);
-        let Some(r) = doc.ready_mut().filter(|r| r.colourable) else {
-            return;
-        };
-        let (first, n) = (plan.first_row(), plan.row_count());
-        let win = minimap::lines_of_rows(first..first + n, |row| r.line_at_row(row));
-        let ok = matches!(&r.view.map_colors.requested, Some((req, d))
-            if *d == dark && win.start >= req.start && win.end <= req.end);
-        let want =
-            (!ok).then(|| minimap::lines_of_rows(plan.colour_rows(), |row| r.line_at_row(row)));
-        if let Some(want) = &want {
-            r.view.map_colors.requested = Some((want.clone(), dark));
-        }
-        self.map_lines[pane] = Some(win);
-        if let (Some(want), Some(service)) = (want, &self.service) {
-            service.map(id, revision, want);
-        }
+        let asked = self.docs.with_pane(pane, |doc| {
+            let (id, revision) = (doc.id, doc.revision);
+            let r = doc.ready_mut().filter(|r| r.colourable)?;
+            let (first, n) = (plan.first_row(), plan.row_count());
+            let win = minimap::lines_of_rows(first..first + n, |row| r.line_at_row(row));
+            let ok = matches!(&r.view.map_colors.requested, Some((req, d))
+                if *d == dark && win.start >= req.start && win.end <= req.end);
+            let want =
+                (!ok).then(|| minimap::lines_of_rows(plan.colour_rows(), |row| r.line_at_row(row)));
+            if let Some(want) = &want {
+                r.view.map_colors.requested = Some((want.clone(), dark));
+                service.map_slot(id, r.view.slot, revision, want.clone());
+            }
+            Some(win)
+        });
+        self.map_lines[pane] = asked.flatten();
     }
 
     /// Loading, colouring and searching have nothing left for the active document.
@@ -606,27 +594,65 @@ impl App {
                     return true;
                 }
                 // The second pane's colours too.
-                let other = self.docs.other().and_then(|i| self.docs.tabs[i].ready());
+                let other = self.docs.pane_view(1);
                 // The minimaps' windows too, once they have been laid out.
                 let dark = self.dark();
-                let mapped = |pane: usize, r: &crate::docs::Ready| {
+                let mapped = |pane: usize, v: &crate::docs::ViewState| {
                     !minimap
                         || self.map_lines[pane]
                             .as_ref()
-                            .is_none_or(|w| r.view.map_colors.covers(w, dark))
+                            .is_none_or(|w| v.map_colors.covers(w, dark))
                 };
-                mapped(0, r)
+                mapped(0, &r.view)
                     && r.view.colors.covers(&view::shown_lines(r), self.dark())
-                    && other.is_none_or(|o| {
+                    && other.is_none_or(|(_, o, v)| {
                         !o.colourable
-                            || (o.view.colors.covers(&view::shown_lines(o), self.dark())
-                                && mapped(1, o))
+                            || (v
+                                .colors
+                                .covers(&view::shown_lines_in(&o.buffer, v), self.dark())
+                                && mapped(1, v))
                     })
             }
         }
     }
 
     // ---- frame -----------------------------------------------------------------------------
+
+    /// The signature of a pane's minimap: what it draws from the document and the pane's view.
+    fn minimap_sig(
+        &self,
+        common: impl Hash,
+        pane: usize,
+        doc: &crate::docs::Doc,
+        shown: Option<(&crate::docs::Ready, &crate::docs::ViewState)>,
+    ) -> u64 {
+        let state = shown.map(|(r, v)| {
+            sig((
+                v.map_colors.generation,
+                v.colors.generation,
+                v.folds.ranges(),
+                r.buffer.len_lines(),
+                // What the column marks over the rows.
+                (v.sel.range(), v.sel.caret, pane == 0),
+                (!v.extra.is_empty()).then(|| sig(&v.extra)),
+                (r.find.generation, v.find_current, v.scope()),
+                &r.bookmarks,
+                v.align.as_ref().map(|a| a.stamp),
+            ))
+        });
+        let plan = self.map_plan[pane].map(|p| {
+            (
+                p.top_px,
+                p.rows,
+                p.col_h,
+                p.band_first.to_bits(),
+                p.band_rows.to_bits(),
+            )
+        });
+        let slot = shown.map_or(0, |(_, v)| v.slot);
+        let drag = matches!(self.ui.drag, Some(Drag::Minimap { doc: d, slot: s, .. }) if d == doc.id && s == slot);
+        sig((common, doc.id, doc.revision, plan, state, self.dark(), drag))
+    }
 
     fn region_sig(&self, r: Region, rect: Option<Rect>) -> u64 {
         let ui = &self.ui;
@@ -732,10 +758,11 @@ impl App {
                 ))
             }
             Region::Text | Region::Other => {
-                let shown = if r == Region::Text {
+                let second = r == Region::Other;
+                let shown = if !second {
                     self.docs.active()
                 } else {
-                    self.docs.other()
+                    self.docs.pane1()
                 };
                 let Some(doc) = shown.map(|i| &self.docs.tabs[i]) else {
                     return sig((common, "empty", self.docs.recents.paths()));
@@ -752,20 +779,26 @@ impl App {
                     }
                     DocState::Failed(e) => sig((2u8, e)),
                     DocState::Ready(r) => {
-                        let sel = r.view.sel.range();
+                        // The view this pane shows: the document's second one in the second
+                        // pane of a document shown twice.
+                        let v = match (second && self.docs.same_file, r.twin.as_deref()) {
+                            (true, Some(t)) => t,
+                            _ => &r.view,
+                        };
+                        let sel = v.sel.range();
                         sig((
                             3u8,
-                            (r.view.top.to_bits(), r.view.top_row, r.wrap),
-                            r.view.left.to_bits(),
+                            (v.top.to_bits(), v.top_row, r.wrap),
+                            v.left.to_bits(),
                             (!sel.is_empty()).then_some((sel.start, sel.end)),
-                            (!r.view.extra.is_empty()).then(|| sig(&r.view.extra)),
+                            (!v.extra.is_empty()).then(|| sig(&v.extra)),
                             (!r.bookmarks.is_empty()).then(|| sig(&r.bookmarks)),
-                            (!r.view.folds.is_empty()).then(|| sig(r.view.folds.ranges())),
+                            (!v.folds.is_empty()).then(|| sig(v.folds.ranges())),
                             r.find.generation,
-                            r.view.colors.generation,
-                            (r.view.widest.to_bits(), r.buffer.len_lines()),
-                            (r.brackets(), r.scope()),
-                            r.view.align.as_ref().map(|a| (a.stamp, a.fresh)),
+                            v.colors.generation,
+                            (v.widest.to_bits(), r.buffer.len_lines()),
+                            (v.brackets(&r.buffer, r.revision), v.scope()),
+                            v.align.as_ref().map(|a| (a.stamp, a.fresh)),
                         ))
                     }
                 };
@@ -784,39 +817,18 @@ impl App {
             }
             Region::Minimap | Region::MinimapOther => {
                 let pane = usize::from(r == Region::MinimapOther);
-                let shown = if pane == 0 {
-                    self.docs.active()
-                } else {
-                    self.docs.other()
+                let Some((doc, ready, v)) = self.docs.pane_view(pane) else {
+                    let Some(doc) = if pane == 0 {
+                        self.docs.active()
+                    } else {
+                        self.docs.pane1()
+                    }
+                    .map(|i| &self.docs.tabs[i]) else {
+                        return sig((common, "empty"));
+                    };
+                    return self.minimap_sig(common, pane, doc, None);
                 };
-                let Some(doc) = shown.map(|i| &self.docs.tabs[i]) else {
-                    return sig((common, "empty"));
-                };
-                let state = doc.ready().map(|r| {
-                    sig((
-                        r.view.map_colors.generation,
-                        r.view.colors.generation,
-                        r.view.folds.ranges(),
-                        r.buffer.len_lines(),
-                        // What the column marks over the rows.
-                        (r.view.sel.range(), r.view.sel.caret, pane == 0),
-                        (!r.view.extra.is_empty()).then(|| sig(&r.view.extra)),
-                        (r.find.generation, r.view.find_current, r.scope()),
-                        &r.bookmarks,
-                        r.view.align.as_ref().map(|a| a.stamp),
-                    ))
-                });
-                let plan = self.map_plan[pane].map(|p| {
-                    (
-                        p.top_px,
-                        p.rows,
-                        p.col_h,
-                        p.band_first.to_bits(),
-                        p.band_rows.to_bits(),
-                    )
-                });
-                let drag = matches!(ui.drag, Some(Drag::Minimap { doc: d, .. }) if d == doc.id);
-                sig((common, doc.id, doc.revision, plan, state, self.dark(), drag))
+                self.minimap_sig(common, pane, doc, Some((ready, v)))
             }
             Region::Status => sig((common, status::fields(&self.docs), self.dark())),
             Region::Results => {
@@ -876,9 +888,13 @@ impl App {
             geom = self.view.layout(doc, text, self.scale);
         }
         let mut geom_other = None;
-        if let (Some(rect), Some(i)) = (self.areas.other, self.docs.other()) {
+        if let Some(rect) = self.areas.other {
             let inner = crate::ui::split_inner(rect, self.docs.other_left, 1.0 / self.scale);
-            geom_other = self.view.layout(&mut self.docs.tabs[i], inner, self.scale);
+            let (view, scale) = (&mut self.view, self.scale);
+            geom_other = self
+                .docs
+                .with_pane(1, |doc| view.layout(doc, inner, scale))
+                .flatten();
         }
         self.request_colours();
         self.request_colours_other();
@@ -1134,40 +1150,38 @@ impl App {
                     },
                     Region::Minimap | Region::MinimapOther => {
                         let pane = usize::from(r == Region::MinimapOther);
-                        let shown = if pane == 0 {
-                            self.docs.active()
-                        } else {
-                            self.docs.other()
-                        };
-                        let doc = shown.map(|i| &self.docs.tabs[i]);
                         let hit = if pane == 0 {
                             Hit::Minimap
                         } else {
                             Hit::MinimapOther
                         };
-                        let hot = hover == Some(hit)
-                            || matches!(self.ui.drag, Some(Drag::Minimap { doc: d, .. })
-                                if Some(d) == doc.map(|d| d.id));
-                        let ready = doc.and_then(|d| d.ready().map(|r| (r, d.id, d.revision)));
-                        let look = minimap::Look {
+                        let other_left = self.docs.other_left;
+                        let (map_cache, plan) = (&mut self.map_cache[pane], &self.map_plan[pane]);
+                        let drag = self.ui.drag;
+                        let look = |hot: bool| minimap::Look {
                             hot,
                             keyboard: pane == 0,
-                            right_line: pane == 1 && self.docs.other_left,
+                            right_line: pane == 1 && other_left,
                             hit,
                         };
-                        minimap::draw(
-                            &mut c,
-                            &mut self.map_cache[pane],
-                            ready,
-                            self.map_plan[pane].as_ref(),
-                            rect,
-                            look,
-                        );
+                        // The second pane of a document shown twice draws from its second view.
+                        let drawn = self.docs.with_pane(pane, |doc| {
+                            let hot = hover == Some(hit)
+                                || matches!(drag, Some(Drag::Minimap { doc: d, slot, .. })
+                                    if d == doc.id
+                                        && doc.ready().is_some_and(|r| r.view.slot == slot));
+                            let ready = doc.ready().map(|r| (r, doc.id, doc.revision));
+                            minimap::draw(&mut c, map_cache, ready, plan.as_ref(), rect, look(hot));
+                        });
+                        if drawn.is_none() {
+                            let hot = hover == Some(hit);
+                            minimap::draw(&mut c, map_cache, None, plan.as_ref(), rect, look(hot));
+                        }
                     }
                     Region::Status => status::draw(&mut c, &self.docs, rect),
                     Region::Results => crate::results::draw(&mut c, &mut self.ui, rect),
                     Region::Other => {
-                        if let Some(i) = self.docs.other() {
+                        if self.docs.pane1().is_some() {
                             // The pane without the keyboard: no caret, and one hit for all
                             // of it instead of the text's own.
                             let (px, left) = (c.p.px(), self.docs.other_left);
@@ -1194,8 +1208,9 @@ impl App {
                                 other: true,
                                 ..ds
                             };
-                            let doc = &mut self.docs.tabs[i];
-                            self.view.draw(&mut c, doc, inner, &quiet, None);
+                            let view = &mut self.view;
+                            self.docs
+                                .with_pane(1, |doc| view.draw(&mut c, doc, inner, &quiet, None));
                             let x = if left { rect.right() - px } else { rect.x };
                             // With a minimap beside it that draws the line, where the panes
                             // part, itself.
@@ -1534,7 +1549,7 @@ impl App {
     /// The split view as the session keeps it: the second pane's file (a document without a
     /// file is not kept), its side and the share of the width.
     fn split_state(&self) -> Option<crate::session::Split> {
-        let path = self.docs.tabs[self.docs.other()?].path.clone()?;
+        let path = self.docs.tabs[self.docs.pane1()?].path.clone()?;
         Some(crate::session::Split::new(
             path,
             self.docs.other_left,
@@ -1909,7 +1924,7 @@ impl App {
         )
         .with_results(self.ui.results.open);
         // A split whose second tab was closed, or became the active one, is over.
-        if self.docs.other.is_some() && self.docs.other().is_none() {
+        if self.docs.other.is_some() && self.docs.pane1().is_none() {
             self.docs.other = None;
         }
         let areas = areas
@@ -1945,9 +1960,10 @@ impl App {
         if let Some(doc) = self.docs.active_doc_mut() {
             geom = self.view.layout(doc, text, self.scale);
         }
-        if let (Some(rect), Some(i)) = (self.areas.other, self.docs.other()) {
+        if let Some(rect) = self.areas.other {
             let inner = crate::ui::split_inner(rect, self.docs.other_left, 1.0 / self.scale);
-            self.view.layout(&mut self.docs.tabs[i], inner, self.scale);
+            let (view, scale) = (&mut self.view, self.scale);
+            self.docs.with_pane(1, |doc| view.layout(doc, inner, scale));
         }
         self.request_colours();
         self.request_colours_other();
@@ -1962,6 +1978,10 @@ impl App {
         let a = self.args.clone();
         let line_h = self.view.metrics(self.scale).line_h;
         let scale = self.scale;
+        if a.split_same && self.docs.show_in_other_pane() {
+            self.docs.other_left = a.split_left;
+            self.docs.split_ratio = a.split_ratio.unwrap_or(0.5);
+        }
         if let Some(r) = self.docs.active_ready_mut() {
             let at = |r: &crate::docs::Ready, lc: crate::args::LineCol| {
                 let pos = mdedit_core::Position {
@@ -2044,7 +2064,50 @@ impl App {
                 r.view.left = px as f64;
             }
         }
+        self.apply_other_positions();
         self.compose_layout_only();
+    }
+
+    /// `--other-goto`, `--other-select`, `--other-fold` and `--other-scroll`: the second pane's
+    /// view of the document, placed as the first's flags place the first.
+    fn apply_other_positions(&mut self) {
+        let a = self.args.clone();
+        let (line_h, scale) = (self.view.metrics(self.scale).line_h, self.scale);
+        self.docs.with_pane(1, |doc| {
+            let Some(r) = doc.ready_mut() else { return };
+            let at = |r: &crate::docs::Ready, lc: crate::args::LineCol| {
+                let pos = mdedit_core::Position {
+                    line: lc.line - 1,
+                    col: lc.col - 1,
+                };
+                r.buffer.snap_to_grapheme(r.buffer.offset(pos))
+            };
+            for &n in &a.other_folds {
+                let line = n.clamp(1, r.buffer.len_lines().max(1)) - 1;
+                if let Some(end) =
+                    mdedit_core::fold::block_end(&r.buffer, line, crate::live::tab_width())
+                {
+                    r.view.folds.fold(line, end);
+                }
+            }
+            if let Some(lc) = a.other_goto {
+                let o = at(r, lc);
+                r.view.sel = mdedit_core::Selection::at(o);
+                view::reveal(r, o, true);
+            }
+            if let Some((from, to)) = a.other_select {
+                let (f, t) = (at(r, from), at(r, to));
+                r.view.sel = mdedit_core::Selection {
+                    anchor: f,
+                    caret: t,
+                    goal_col: None,
+                };
+                view::reveal(r, t, false);
+            }
+            if let Some(px) = a.other_scroll {
+                view::scroll_rows(r, (px * scale) as f64 / line_h as f64);
+            }
+        });
     }
 }
 

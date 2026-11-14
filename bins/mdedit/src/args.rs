@@ -109,6 +109,16 @@ pub struct Args {
     pub bookmarks: Vec<usize>,
     /// `--split`: two files side by side, the tab after the active one in the second pane.
     pub split: bool,
+    /// `--split-same`: the first file in both panes (the second view starts as a copy of the
+    /// first; the `--other-*` flags then place it).
+    pub split_same: bool,
+    /// `--other-goto <line[:col]>`, `--other-select <a-b>`, `--other-fold <line>` (repeatable) and
+    /// `--other-scroll <px>`: the second pane's view, as `--goto`, `--select`, `--fold` and
+    /// `--scroll` do the first's.
+    pub other_goto: Option<LineCol>,
+    pub other_select: Option<(LineCol, LineCol)>,
+    pub other_folds: Vec<usize>,
+    pub other_scroll: Option<f32>,
     /// `--demo-macros`: three saved macros in memory, for a shot of the Macro menu and dialog.
     pub demo_macros: bool,
     /// `--pref key=value` (repeatable): a preference for this run, as the settings file has it.
@@ -229,6 +239,24 @@ impl Args {
                     }
                 }
                 "--split" => out.split = true,
+                "--split-same" => out.split_same = true,
+                "--other-goto" => out.other_goto = checked(&a, value(&a), LineCol::parse),
+                "--other-select" => {
+                    out.other_select = checked(&a, value(&a), |v| {
+                        let (from, to) = v.split_once('-')?;
+                        Some((LineCol::parse(from)?, LineCol::parse(to)?))
+                    })
+                }
+                "--other-fold" => {
+                    if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
+                        out.other_folds.push(n);
+                    }
+                }
+                "--other-scroll" => {
+                    out.other_scroll = checked(&a, value(&a), |v| {
+                        v.parse::<f32>().ok().filter(|s| s.is_finite())
+                    })
+                }
                 "--split-left" => out.split_left = true,
                 "--demo-macros" => out.demo_macros = true,
                 "--pref" => out.prefs.extend(value(&a).filter(|v| v.contains('='))),

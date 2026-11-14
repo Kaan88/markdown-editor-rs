@@ -711,7 +711,7 @@ impl App {
             return;
         };
         match id {
-            C::CompareOther | C::CompareFile | C::CompareSaved => {
+            C::CompareOther | C::CompareFile | C::CompareSaved | C::ShowInOtherPane => {
                 self.docs.activate(index);
                 self.command(id);
             }
@@ -1265,6 +1265,14 @@ impl App {
                 // The split is what a comparison stands on.
                 self.compare_stop();
                 if !self.docs.toggle_split() {
+                    self.docs.set_toast(strings::SPLIT_NEEDS_TWO);
+                }
+            }
+            C::ShowInOtherPane => {
+                self.compare_stop();
+                if self.docs.show_in_other_pane() {
+                    self.ui.find_focused = false;
+                } else {
                     self.docs.set_toast(strings::SPLIT_NEEDS_TWO);
                 }
             }
