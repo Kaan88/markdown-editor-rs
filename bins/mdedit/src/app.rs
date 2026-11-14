@@ -2042,7 +2042,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             let (row, sub) = match m {
                 ShotMenu::TextLines => (7, PopupKind::Lines),
                 ShotMenu::TextConvert => (8, PopupKind::Convert),
-                _ => (7, PopupKind::Convert),
+                _ => (6, PopupKind::Markdown),
             };
             if let Some(p) = app.ui.popup.as_mut() {
                 p.menu.hover = Some(row);

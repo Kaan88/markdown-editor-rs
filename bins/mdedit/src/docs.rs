@@ -23,6 +23,7 @@ use mdedit_core::fold::{self, Folds};
 use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
 use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
+use mdedit_core::markdown;
 use mdedit_core::multi::{self, MultiOp};
 use mdedit_core::prefs::Prefs;
 use mdedit_core::replace;
@@ -905,6 +906,14 @@ pub enum EditOp<'a> {
     ReverseLines,
     UniqueLines,
     JoinLines,
+    /// Markdown: wraps the selection in this marker, or takes it off.
+    MdWrap(&'static str),
+    /// Markdown: one heading level up (none, 1 to 6, none) for the lines.
+    MdHeading,
+    /// Markdown: `[text](url)` from the selection.
+    MdLink,
+    /// Markdown: lines up the pipe table the caret is in.
+    MdTable,
     /// Makes every line break this one.
     LineEndings(&'static str),
     /// Replaces the selection by this template when the selection is a match of the document's
@@ -1627,6 +1636,11 @@ impl Docs {
             {
                 Some(strings::TOO_LARGE_FOR_ALL_LINES)
             }
+            EditOp::MdWrap(_) | EditOp::MdHeading | EditOp::MdLink | EditOp::MdTable
+                if !r.assist.markdown =>
+            {
+                Some(strings::NOT_MARKDOWN)
+            }
             EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
                 if lines::block_too_large(&r.buffer, r.sel, true) =>
             {
@@ -1690,13 +1704,13 @@ impl Docs {
                 _ => None,
             }
         };
-        if multi_op.is_none() {
+        if multi_op.is_none() && !matches!(op, EditOp::MdWrap(_) | EditOp::MdLink) {
             r.extra.clear();
         }
         r.column = None;
         // The typing help goes first, for one character typed, Enter, Backspace and (in Markdown)
         // Tab and Shift+Tab; `None` is the plain edit below.
-        let typed = typing_edit(r, &op, eol);
+        let typed = typing_edit(r, &op, eol).or_else(|| markdown_edit(r, &op));
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.sel);
         let out = if let Some(out) = typed {
             out
@@ -1772,6 +1786,10 @@ impl Docs {
                 EditOp::ReverseLines => lines::reverse_lines(buf, hist, sel),
                 EditOp::UniqueLines => lines::unique_lines(buf, hist, sel),
                 EditOp::JoinLines => lines::join_lines(buf, hist, sel),
+                EditOp::MdHeading => markdown::cycle_heading(buf, hist, sel),
+                EditOp::MdTable => markdown::format_table(buf, hist, sel),
+                // Done above, with every caret; reaching here is a selection it did not take.
+                EditOp::MdWrap(_) | EditOp::MdLink => Outcome { sel, change: None },
                 EditOp::LineEndings(to) => lines::convert_line_endings(buf, hist, sel, to),
                 EditOp::Insert(text) => edit::insert(buf, hist, sel, text),
                 EditOp::Paste(text) => {
@@ -2421,6 +2439,31 @@ fn typing_edit(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
     Some(Outcome { sel, ..out })
 }
 
+/// Markdown's wrap and link commands, for every caret. `None` when they do nothing.
+fn markdown_edit(r: &mut Ready, op: &EditOp) -> Option<Outcome> {
+    if !matches!(op, EditOp::MdWrap(_) | EditOp::MdLink) {
+        return None;
+    }
+    let at = r
+        .extra
+        .partition_point(|s| s.range().start < r.sel.range().start);
+    let mut list = r.extra.clone();
+    list.insert(at, r.sel);
+    let typed = match op {
+        EditOp::MdWrap(marker) => {
+            markdown::toggle_wrap(&mut r.buffer, &mut r.history, &list, at, marker)
+        }
+        _ => markdown::link_from_selection(&mut r.buffer, &mut r.history, &list, at),
+    };
+    let (out, mut list, primary) = typed?;
+    if list.is_empty() {
+        return None;
+    }
+    let sel = list.remove(primary.min(list.len() - 1));
+    r.extra = list;
+    Some(Outcome { sel, ..out })
+}
+
 /// A range of the text after `change` replaced `at..at + removed` with `inserted` bytes: what
 /// is before it stays, what is after it moves, a start inside the replaced text goes to its
 /// start and an end inside it to the end of what replaced it.
@@ -2695,6 +2738,52 @@ mod tests {
         }
         d.edit(EditOp::Insert("("), None);
         assert_eq!(text_of(&d, i), "(");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn r_sel_to_start(d: &mut Docs, i: usize) {
+        d.tabs[i].ready_mut().unwrap().sel = Selection::at(0);
+    }
+
+    #[test]
+    fn markdown_commands_wrap_heading_link_and_table_only_for_markdown() {
+        let (mut d, i, _path, dir) = file_docs("mdcmds", b"hello\n");
+        // Not a Markdown document: refused with a toast, text untouched.
+        assert!(!d.edit(EditOp::MdWrap("**"), None));
+        assert_eq!(d.toast.as_ref().unwrap().0, strings::NOT_MARKDOWN);
+        d.tabs[i].ready_mut().unwrap().assist = Prefs::default().assist("Markdown");
+        d.tabs[i].ready_mut().unwrap().sel = Selection {
+            anchor: 0,
+            caret: 5,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::MdWrap("**"), None));
+        assert_eq!(text_of(&d, i), "**hello**\n");
+        // The same command takes it off again; each is one Undo.
+        assert!(d.edit(EditOp::MdWrap("**"), None));
+        assert_eq!(text_of(&d, i), "hello\n");
+        assert!(d.edit(EditOp::MdHeading, None));
+        assert_eq!(text_of(&d, i), "# hello\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "hello\n");
+        // A table is lined up; Enter on a list item continues it, Tab indents it.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.sel = Selection::at(0);
+        d.edit(EditOp::Insert("- a"), None);
+        assert!(d.edit(EditOp::Newline, None));
+        assert_eq!(text_of(&d, i), "- a\n- hello\n");
+        // Tab on the new item moves it in one level; Shift+Tab brings it back.
+        assert!(d.edit(EditOp::Indent, None));
+        assert_eq!(text_of(&d, i), "- a\n\t- hello\n");
+        assert!(d.edit(EditOp::Outdent, None));
+        assert_eq!(text_of(&d, i), "- a\n- hello\n");
+        // A pipe table lines up.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.sel = Selection::at(0);
+        d.edit(EditOp::Insert("| a | bb |\n|-|-|\n| ccc | d |\n\n"), None);
+        r_sel_to_start(&mut d, i);
+        assert!(d.edit(EditOp::MdTable, None));
+        assert!(text_of(&d, i).starts_with("| a   | bb  |\n| --- | --- |\n| ccc | d   |\n"));
         std::fs::remove_dir_all(dir).ok();
     }
 

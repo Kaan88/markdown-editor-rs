@@ -274,7 +274,7 @@ impl App {
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
-            Act::LinesMenu | Act::ConvertMenu => {
+            Act::LinesMenu | Act::ConvertMenu | Act::MarkdownMenu => {
                 if let (Some(kind), Some(sub)) = (self.ui.popup_kind(), act.submenu()) {
                     self.open_sub(kind, sub, false);
                 }
@@ -780,6 +780,7 @@ impl App {
             }
             PopupKind::Lines => overlays::lines_menu(&self.docs, x, y),
             PopupKind::Convert => overlays::convert_menu(&self.docs, x, y),
+            PopupKind::Markdown => overlays::markdown_menu(&self.docs, x, y),
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return None,
@@ -901,6 +902,13 @@ impl App {
                 | C::ReverseLines
                 | C::UniqueLines
                 | C::JoinLines
+                | C::MdBold
+                | C::MdItalic
+                | C::MdCode
+                | C::MdStrike
+                | C::MdHeading
+                | C::MdLink
+                | C::MdTable
         );
         if self.ui.find_focused && edits {
             return;
@@ -1032,6 +1040,27 @@ impl App {
             }
             C::JoinLines => {
                 self.edit(EditOp::JoinLines);
+            }
+            C::MdBold => {
+                self.edit(EditOp::MdWrap("**"));
+            }
+            C::MdItalic => {
+                self.edit(EditOp::MdWrap("*"));
+            }
+            C::MdCode => {
+                self.edit(EditOp::MdWrap("`"));
+            }
+            C::MdStrike => {
+                self.edit(EditOp::MdWrap("~~"));
+            }
+            C::MdHeading => {
+                self.edit(EditOp::MdHeading);
+            }
+            C::MdLink => {
+                self.edit(EditOp::MdLink);
+            }
+            C::MdTable => {
+                self.edit(EditOp::MdTable);
             }
             C::TrimTrailing => {
                 self.edit(EditOp::TrimTrailing);

@@ -36,6 +36,13 @@ pub enum CommandId {
     ReverseLines,
     UniqueLines,
     JoinLines,
+    MdBold,
+    MdItalic,
+    MdCode,
+    MdStrike,
+    MdHeading,
+    MdLink,
+    MdTable,
     Find,
     FindNext,
     FindPrevious,
@@ -143,6 +150,14 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ReverseLines, "Reverse lines", &[]),
     cmd(C::UniqueLines, "Remove duplicate lines", &[]),
     cmd(C::JoinLines, "Join lines", &["Ctrl+J"]),
+    // Markdown documents only. Ctrl+K is Toggle comment, so Link has no key.
+    cmd(C::MdBold, "Bold", &["Ctrl+B"]),
+    cmd(C::MdItalic, "Italic", &["Ctrl+I"]),
+    cmd(C::MdCode, "Code", &[]),
+    cmd(C::MdStrike, "Strikethrough", &[]),
+    cmd(C::MdHeading, "Heading level", &["Ctrl+Shift+H"]),
+    cmd(C::MdLink, "Link", &[]),
+    cmd(C::MdTable, "Align table", &[]),
     cmd(C::Find, "Find", &["Ctrl+F"]),
     cmd(C::FindNext, "Find next", &["F3"]),
     cmd(C::FindPrevious, "Find previous", &["Shift+F3"]),
@@ -369,6 +384,7 @@ pub mod strings {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
     }
 
+    pub const NOT_MARKDOWN: &str = "This is for Markdown files.";
     pub const BLOCK_TOO_LARGE: &str = "That block of lines is too large to change at once.";
     pub const NO_LINE_COMMENT: &str = "This kind of file has no line comment.";
     pub const TOO_LARGE_FOR_ALL_LINES: &str =

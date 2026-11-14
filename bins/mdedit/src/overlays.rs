@@ -219,6 +219,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         .active_ready()
         .and_then(|r| r.language)
         .is_some_and(|l| l.line_comment().is_some());
+    let markdown = docs.active_ready().is_some_and(|r| r.assist.markdown);
     let items = vec![
         cmd(C::Undo, "Undo", glyph::UNDO).enabled(history.is_some_and(|h| h.can_undo())),
         cmd(C::Redo, "Redo", glyph::REDO).enabled(history.is_some_and(|h| h.can_redo())),
@@ -232,9 +233,16 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
             .enabled(ready),
-        cmd(C::ToggleComment, "Toggle comment", glyph::COMMENT)
-            .sep()
-            .enabled(has_comment),
+        if markdown {
+            Item::new(Act::MarkdownMenu, "Markdown")
+                .icon(glyph::EDIT)
+                .hint("›")
+                .sep()
+        } else {
+            cmd(C::ToggleComment, "Toggle comment", glyph::COMMENT)
+                .sep()
+                .enabled(has_comment)
+        },
         Item::new(Act::LinesMenu, "Lines")
             .icon(glyph::DUPLICATE_LINE)
             .hint("›")
@@ -268,6 +276,21 @@ pub fn lines_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK)
             .sep()
             .enabled(ready),
+    ];
+    Menu::new(items, x, y, false)
+}
+
+/// The text menu's Markdown submenu, for Markdown documents.
+pub fn markdown_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
+    let ready = docs.active_ready().is_some();
+    let items = vec![
+        cmd(C::MdBold, "Bold", "").enabled(ready),
+        cmd(C::MdItalic, "Italic", "").enabled(ready),
+        cmd(C::MdCode, "Code", "").enabled(ready),
+        cmd(C::MdStrike, "Strikethrough", "").enabled(ready),
+        cmd(C::MdHeading, "Heading level", "").sep().enabled(ready),
+        cmd(C::MdLink, "Link", glyph::LINK).enabled(ready),
+        cmd(C::MdTable, "Align table", "").sep().enabled(ready),
     ];
     Menu::new(items, x, y, false)
 }
