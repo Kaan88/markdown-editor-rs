@@ -21,6 +21,7 @@ pub mod limits;
 pub mod lines;
 pub mod load;
 pub mod markdown;
+pub mod merge;
 pub mod multi;
 pub mod prefs;
 pub mod replace;

@@ -8,7 +8,7 @@
 //! There are no merge arrows: both panes are ordinary editors.
 
 use super::*;
-use crate::compare::{Align, Compare};
+use crate::compare::{Align, Compare, Refusal};
 use mdedit_highlight::DocId;
 
 impl App {
@@ -201,6 +201,50 @@ impl App {
         self.redraw();
     }
 
+    /// "Copy this change to the other side" (`across`) and "Take this change from the other
+    /// side": the lines of the difference the caret is in replace the other side's, in the
+    /// document that changes, as one undo step. The comparison follows the edit by itself.
+    pub(super) fn compare_copy(&mut self, across: bool) {
+        let pick = match crate::compare::pick(&self.docs, across) {
+            Ok(p) => p,
+            Err(why) => {
+                let text = match why {
+                    Refusal::NotCompared => return,
+                    Refusal::Stale => strings::COMPARE_STALE,
+                    Refusal::NoChange => strings::NOT_IN_A_DIFFERENCE,
+                    Refusal::ReadOnly if across => strings::COMPARE_TARGET_READ_ONLY,
+                    Refusal::ReadOnly => strings::TAKE_TARGET_READ_ONLY,
+                };
+                self.docs.set_toast(text);
+                return;
+            }
+        };
+        let Some(eol) = self.docs.tabs[pick.target]
+            .ready()
+            .map(|r| r.info.eol.dominant())
+        else {
+            return;
+        };
+        let Some(from) = self.docs.tabs[pick.source]
+            .ready()
+            .map(|r| mdedit_core::merge::take_lines(&r.buffer, pick.from.clone(), eol))
+        else {
+            return;
+        };
+        let splice = mdedit_core::merge::Splice {
+            target: pick.to,
+            from,
+        };
+        self.docs.seal();
+        self.docs.edit_in(
+            pick.target,
+            EditOp::CopyLines(&splice),
+            self.service.as_ref(),
+        );
+        self.caret_reset();
+        self.redraw();
+    }
+
     /// Before each frame: starts a comparison that waited for its files, ends one whose files or
     /// split are gone, and keeps the two panes at the same row.
     pub(super) fn compare_sync(&mut self) {
@@ -269,6 +313,19 @@ impl App {
         self.compose_layout_only();
         for _ in 0..a.next_difference {
             self.compare_jump(true);
+            self.compose_layout_only();
+        }
+        // The change the caret is in goes across, and the diff is made again.
+        if let Some(across) = a.copy_change {
+            self.compare_copy(across);
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < deadline {
+                self.compare_timer(Instant::now());
+                if self.compare.as_ref().is_some_and(Compare::settled) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
             self.compose_layout_only();
         }
         // The other pane follows the active one.

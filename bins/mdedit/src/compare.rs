@@ -157,6 +157,27 @@ impl Align {
         Some(d.diff.hunk_rows(h).start)
     }
 
+    /// The block of differences line `line` is in, as the line ranges of the first and the second
+    /// file; a line right after the filler rows of a block this side has no lines of counts as in
+    /// it. `lines` is the document's line count. `None` unless the diff is current.
+    pub fn change_at_line(
+        &self,
+        line: usize,
+        lines: usize,
+    ) -> Option<(Range<usize>, Range<usize>)> {
+        if !self.fresh {
+            return None;
+        }
+        let d = self.data.as_ref()?;
+        let row = self.row_of(line);
+        let mut hunk = d.diff.hunk_at(row);
+        if hunk.is_none() && row > 0 && self.line_at(row - 1, lines).is_none() {
+            hunk = d.diff.hunk_at(row - 1);
+        }
+        let h = &d.diff.hunks()[hunk?];
+        Some((h.a.clone(), h.b.clone()))
+    }
+
     /// The status strip's words: "3 differences", "No differences", "Comparing…".
     pub fn summary(&self) -> String {
         let Some(d) = self.data.as_ref().filter(|_| self.fresh) else {
@@ -211,6 +232,65 @@ impl Tints {
     }
 }
 
+/// Why a change cannot be copied now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    NotCompared,
+    /// The diff on screen is not of the text as it is.
+    Stale,
+    /// The caret is not in a difference.
+    NoChange,
+    /// The document that would change cannot be edited.
+    ReadOnly,
+}
+
+/// A change to copy: from the lines `from` of the tab `source` to the lines `to` of the tab
+/// `target` (tab indexes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pick {
+    pub source: usize,
+    pub target: usize,
+    pub from: Range<usize>,
+    pub to: Range<usize>,
+}
+
+/// The difference the caret of the active document is in. With `across` this document's lines go
+/// to the other pane's document, else the other's come here.
+pub fn pick(docs: &Docs, across: bool) -> Result<Pick, Refusal> {
+    let (Some(me), Some(other)) = (docs.active(), docs.other()) else {
+        return Err(Refusal::NotCompared);
+    };
+    let r = docs.tabs[me].ready().ok_or(Refusal::NotCompared)?;
+    let al = r.view.align.as_ref().ok_or(Refusal::NotCompared)?;
+    let o = docs.tabs[other].ready().ok_or(Refusal::NotCompared)?;
+    if o.view.align.is_none() {
+        return Err(Refusal::NotCompared);
+    }
+    if !al.fresh {
+        return Err(Refusal::Stale);
+    }
+    let line = r.buffer.line_of(r.view.sel.caret);
+    let (a, b) = al
+        .change_at_line(line, r.buffer.len_lines())
+        .ok_or(Refusal::NoChange)?;
+    let (mine, theirs) = if al.right { (b, a) } else { (a, b) };
+    let (source, target, from, to) = if across {
+        (me, other, mine, theirs)
+    } else {
+        (other, me, theirs, mine)
+    };
+    let t = docs.tabs[target].ready().ok_or(Refusal::NotCompared)?;
+    if t.read_only || t.info.lossy {
+        return Err(Refusal::ReadOnly);
+    }
+    Ok(Pick {
+        source,
+        target,
+        from,
+        to,
+    })
+}
+
 /// Which compare commands can run now.
 pub fn enabled(id: C, docs: &Docs) -> bool {
     let compared = docs.active_ready().is_some_and(|r| r.view.align.is_some());
@@ -224,6 +304,8 @@ pub fn enabled(id: C, docs: &Docs) -> bool {
                     .is_some_and(|d| d.path.is_some() && d.modified())
         }
         C::StopCompare | C::NextDifference | C::PreviousDifference => compared,
+        C::CopyChangeAcross => pick(docs, true).is_ok(),
+        C::TakeChangeAcross => pick(docs, false).is_ok(),
         _ => true,
     }
 }
@@ -560,6 +642,27 @@ mod tests {
             (p.rows(7), p.line_at(3, 7), p.line_at(7, 7), p.row_of(4)),
             (7, Some(3), None, 4)
         );
+    }
+
+    #[test]
+    fn a_block_is_found_from_a_line_in_it_or_right_after_its_filler_rows() {
+        // b has x and y inserted after "two".
+        let (l, r, na, nb) = pair("one\ntwo\nthree\n", "one\ntwo\nx\ny\nthree\n");
+        assert_eq!(l.change_at_line(0, na), None);
+        // The left has filler rows there; "three" follows them.
+        assert_eq!(l.change_at_line(2, na), Some((2..2, 2..4)));
+        assert_eq!(r.change_at_line(2, nb), Some((2..2, 2..4)));
+        assert_eq!(r.change_at_line(3, nb), Some((2..2, 2..4)));
+        assert_eq!(r.change_at_line(4, nb), None);
+        // A block that ends the file: the empty line after the break sits after the filler.
+        let (l, _, na, _) = pair("a\n", "a\nb\n");
+        assert_eq!(na, 2);
+        assert_eq!(l.change_at_line(1, na), Some((1..1, 1..2)));
+        // Not while the diff is out of date.
+        let (mut l, _, na, _) = pair("a\nb\n", "a\nc\n");
+        assert_eq!(l.change_at_line(1, na), Some((1..2, 1..2)));
+        l.fresh = false;
+        assert_eq!(l.change_at_line(1, na), None);
     }
 
     #[test]
