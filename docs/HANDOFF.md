@@ -53,7 +53,8 @@ No branch below was reviewed by the main session unless it says so.
 |---|---|---|---|
 | `merge/next-release` | the six features marked "merged" below and `f/paste-image-files`, merged together | see `git log` | CI green at `95edf8d` on Linux and Windows, not read for the head; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
 | `f/paste-image-files` | paste image files copied in the file manager as links | see `git log` (finished in the second session of 2026-11-15) | finished on Windows: clippy clean, all tests pass, tried in a real window by script (see "Second session of 2026-11-15"); merged into `merge/next-release` on the owner's word ("Merge it", 2026-11-15) without a hand test by the owner; a CI run was started at `b5185e9` (run 43651515645) and its result was not read; Linux not done |
-| `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; left out of `merge/next-release` (see the review results below) |
+| `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; superseded by `f/rounded-corners` |
+| `f/rounded-corners` | rounded corners on top of `merge/next-release`, pins shared `f/rounded-corners` | see `git log` | second session of 2026-11-15: all tests pass on Windows, CI started, **not merged**; see "Rounded corners, second session" |
 | `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged; waits for a hand test on Windows |
 | `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
 | `f/multicaret-line-commands` | multi-caret in the line commands | `aaba1fa` | CI green; reviewed; merged into `merge/next-release` |
@@ -179,6 +180,33 @@ it by hand.
 - A leftover of the test: the folder `D:\mdedit-paste-test` (one 185-byte PNG). Its removal by
   the session was refused by a safety check; the owner can delete it.
 
+**Rounded corners, second session of 2026-11-15 (branch `f/rounded-corners` in the editor and in
+the shared repository; not merged).** The owner said: "test rounded corners with ci for now."
+
+- The editor's `next` (two commits) is merged onto `merge/next-release` as `f/rounded-corners`;
+  three docs conflicted and both sides were kept (the corners are DESIGN section 64 now, 63 is
+  word completion on its own branch).
+- Shared `f/rounded-corners` = shared `next` (`e3d381b`) plus two commits, pinned here by rev:
+  1. The test that failed CI was wrong, not the drawing: it wanted an alpha above 20 at the
+     outermost pixel of each corner, and the top corners sit over the faint side of a dropped
+     shadow (15 at scale 1). It now checks partial alpha, no colour, no step from the margin
+     pixel outside it, and the bottom stronger than the top. Shared CI green on Linux and Windows
+     at `8e75bff`.
+  2. A fault found in the `--frame` pictures, in 0.5.0 already and not from the rounding: the
+     client-drawn shadow's edge bands kept their full strength up to the window's corners and
+     met the corner tiles with a visible step (alpha 37 beside 9, 60 beside 25). The ends of each
+     band now take the other edge's coverage (`shadow::client::Ends`, `c8b7d97`); a test checks
+     every band against its corner tiles at each depth. The eight tiles themselves, and so the
+     KWin route, are unchanged: KWin stretches the same edge tiles between the same corner
+     tiles, so the step is probably there on KDE's own route too. Not looked at.
+- Run on this PC: shared and editor clippy clean, all tests pass; the `--frame` shots (light,
+  dark, scale 2, square) and the Settings row looked at by the session before and after the fix.
+- Not run: any Linux desktop (the client route only draws there); Windows 11 with the three
+  choices in a real window; the CI results of the second shared commit and of this branch.
+- Still open, the owner's: with Round as the default, `Auto` takes the client-margin route on KDE
+  instead of KWin's (the corners need an alpha channel there). The viewer has no branch for this
+  yet.
+
 **The owner's answers (2026-11-15, second session).** F7: "didn't enable compare", so F7 was
 pressed with no comparison open, where it does nothing and says nothing (`compare_jump` returns
 when there is no alignment). Not a fault; F7 inside a comparison was not reported on. Tab in
@@ -205,7 +233,8 @@ tables adds a row only from the last cell of the last row: as designed. Both que
 2. The owner decides: merge `merge/next-release` into `main`, the version number, the release.
    None of that was done or asked for.
 3. `feat/restart-after-update`: needs a real update and Restart staged by hand (above).
-4. Rounded corners: only Linux needs work (the failing shared test, the KDE shadow route).
+4. Rounded corners: read the CI of `f/rounded-corners` (editor and shared); the owner decides
+   the KDE shadow route and looks at it on Linux.
 5. `f/word-completion` (WIP, never built), `f/live-preview-unsaved` and `f/finer-sync` (not
    started; both need the viewer and the shared crates).
 6. The frosted window (Mica, Acrylic, blur on Wayland): on the roadmap in `docs/PLAN.md`, starts
@@ -2043,3 +2072,32 @@ regular expressions, `replace.rs`); the shell part was written in the main sessi
 - Not built: "find in all open tabs" waits for the results panel of find in files (item 8);
   replace within the selection (the core takes `within`, the shell always passes the whole
   document); Undo with a box of the bar focused still does nothing.
+
+## Next release work (branch next)
+
+### Rounded window corners (base `8019a35`)
+
+Built in `mdshared_ui::corners` and `shadow` (shared branch `next`) and wired here; DESIGN section
+57 is the specification.
+
+- Built: the "Window corners" setting (Square, Small, Round; default Round), kept as `corners=` in
+  the session; Windows: the DWM preference, applied at creation and on a change; Wayland client
+  margin: the anti-aliased corner cut in `present` (only the touched corner squares), the shadow
+  under the cut; `--frame` shots; tests for the setting, the args, the mask and painter (shared)
+  and the frame picture.
+- Decisions: radii 0, 4, 8 only (they are exact on Windows too: do not round, small, round; a 12
+  would have been drawn as 8 there); on KDE the default (Round) now uses the client margin instead
+  of KWin's protocol, because KWin's route is opaque (the plan's own note); Square keeps KWin's
+  route. A change from Square to Round on KDE applies at the next start (the help line says so).
+  The row is hidden where nothing can round (X11 without the margin). The shadow tiles were not
+  re-rendered for the rounded shape: the difference is about one alpha step (computed, not seen).
+  The Windows 11 preference used to be set to Round unconditionally in `style_window`; that call
+  is now the setting's.
+- NOT verified (no local builds by the owner's rule; CI only): any real window on any desktop.
+  Not seen: the corner in a real Wayland window, on KDE with the route change, the shadow under the
+  corner, a tiled or maximized window, switching the setting at run time, Windows 11 DWM rounding
+  or Windows 10 staying square, fractional scales other than in the unit tests. The startup and
+  keystroke budgets were not measured: the change adds a `Shadow::rounds()` check to `present`
+  and nothing else on the keystroke and scroll path; with Square or without a margin nothing runs.
+  The KDE route change does move the default KDE window from KWin's shadow to the client-drawn one
+  (bigger buffer by the 36 px margin each side), which was not timed.
