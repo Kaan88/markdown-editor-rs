@@ -10,7 +10,6 @@
 
 use crate::chrome::Ctx;
 use crate::docs::Ready;
-use mdedit_core::limits::TAB_WIDTH;
 use mdedit_highlight::{Span, foreground};
 use mdshared_text::Bitmap;
 use mdshared_ui::gfx::{Rect, Rgb, mix};
@@ -485,8 +484,13 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
             let end = rope.char_to_byte(rope.byte_to_char(end));
             text.clear();
             text.extend(rope.byte_slice(range.start..end).chars());
-            let Some((from, to)) = sel_cols(&text, range.clone(), next, s.clone(), TAB_WIDTH)
-            else {
+            let Some((from, to)) = sel_cols(
+                &text,
+                range.clone(),
+                next,
+                s.clone(),
+                crate::live::tab_width(),
+            ) else {
                 continue;
             };
             let from = (from as i32).min(max_cols);
@@ -569,7 +573,7 @@ fn paint(bmp: &mut Bitmap, r: &Ready, plan: &Plan, scale: f32, dark: bool, page:
             .or_else(|| r.colors.line(line, dark))
             .unwrap_or(&[]);
         segs.clear();
-        segments(chars, spans, TAB_WIDTH, max_cols, &mut segs);
+        segments(chars, spans, crate::live::tab_width(), max_cols, &mut segs);
         for s in &segs {
             let x = left + s.col as i32 * px.col;
             let c = ink(s.color.unwrap_or(plain));

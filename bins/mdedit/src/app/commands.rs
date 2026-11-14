@@ -411,6 +411,7 @@ impl App {
             return false;
         };
         let name = self.docs.tabs[i].name();
+        self.docs.apply_save_options(i, self.service.as_ref());
         match self.docs.save(i, overwrite) {
             Ok(()) => true,
             Err(SaveFailed::Error(SaveError::ChangedOnDisk)) => {
@@ -484,6 +485,7 @@ impl App {
     /// Writes tab `i` to `to`; the toast says why when it fails. True when the file was written.
     fn save_to(&mut self, i: usize, to: &Path) -> bool {
         let dark = self.dark();
+        self.docs.apply_save_options(i, self.service.as_ref());
         match self.docs.save_as(i, to, self.service.as_ref(), dark) {
             Ok(()) => {
                 self.last_active = None;
@@ -874,7 +876,7 @@ impl App {
         self.ui.outline.on = false;
     }
 
-    fn set_theme(&mut self, choice: ThemeChoice) {
+    pub(super) fn set_theme(&mut self, choice: ThemeChoice) {
         self.docs.theme = choice;
         self.theme_from_args = false;
     }
@@ -1249,6 +1251,7 @@ impl App {
             C::PlayMacroToEnd => self.play_macro(true),
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
+            C::Settings => self.open_settings(),
             C::NextTab => self.docs.step_tab(true),
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),

@@ -35,6 +35,7 @@ pub enum ShotMenu {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShotDialog {
     Macros,
+    Settings,
     About,
     Shortcuts,
     Recent,
@@ -107,6 +108,8 @@ pub struct Args {
     pub split: bool,
     /// `--demo-macros`: three saved macros in memory, for a shot of the Macro menu and dialog.
     pub demo_macros: bool,
+    /// `--pref key=value` (repeatable): a preference for this run, as the settings file has it.
+    pub prefs: Vec<String>,
     /// `--macro-prompt <text>`: the box that asks a macro's name, with this text typed in it.
     pub macro_prompt: Option<String>,
     /// `--split-ratio <0.1..0.9>` and `--split-left`: the left pane's share of the width, and the
@@ -210,6 +213,7 @@ impl Args {
                 "--split" => out.split = true,
                 "--split-left" => out.split_left = true,
                 "--demo-macros" => out.demo_macros = true,
+                "--pref" => out.prefs.extend(value(&a).filter(|v| v.contains('='))),
                 "--macro-prompt" => {
                     out.macro_prompt = checked(&a, value(&a), |v| Some(v.to_string()))
                 }
@@ -305,6 +309,7 @@ impl Args {
                         "shortcuts" => Some(ShotDialog::Shortcuts),
                         "recent" => Some(ShotDialog::Recent),
                         "macros" => Some(ShotDialog::Macros),
+                        "settings" => Some(ShotDialog::Settings),
                         "unsaved" => Some(ShotDialog::Unsaved),
                         _ => None,
                     })

@@ -51,6 +51,7 @@ use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, Wind
 
 mod commands;
 mod input;
+pub(crate) mod modal;
 
 const TIP_DELAY: Duration = Duration::from_millis(500);
 const AUTOSCROLL_TICK: Duration = Duration::from_millis(16);
@@ -911,7 +912,7 @@ impl App {
                 bounds.push(s.menu.rect().inset(-20.0));
             }
         }
-        if self.ui.dialog.is_some() {
+        if self.ui.dialog.is_some() || self.ui.settings.is_some() {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
         let osig = sig((
@@ -936,6 +937,10 @@ impl App {
                         .map(|s| (s.kind, s.menu.hover, s.menu.scroll().to_bits())),
                 )
             }),
+            self.ui
+                .settings
+                .as_ref()
+                .map(|_| (self.ui.overlay_tick, self.ui.caret_on)),
             self.ui.dialog.as_ref().map(|d| {
                 (
                     d.kind,
@@ -1192,6 +1197,9 @@ impl App {
                         self.ui.dlg_hover_row,
                     );
                 }
+                if let Some(f) = self.ui.settings.as_mut() {
+                    f.draw(c.p, &pal, Rect::new(0.0, 0.0, w, h), self.ui.caret_on);
+                }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
                     popup.menu.draw_in(c.p, &pal, room);
@@ -1421,7 +1429,11 @@ impl App {
             self.ui.panes.files_w.round() as u32,
             &self.docs.folder,
             &self.session.geometry,
-            (self.docs.check_updates, self.session.update_checked),
+            (
+                self.docs.check_updates,
+                self.session.update_checked,
+                self.docs.prefs.serialize(),
+            ),
             (
                 (self.ui.match_case, self.ui.whole_word, self.ui.regex),
                 self.ui.find_recall.items(),
@@ -1873,7 +1885,7 @@ impl App {
             for &n in &a.folds {
                 let line = n.clamp(1, r.buffer.len_lines().max(1)) - 1;
                 if let Some(end) =
-                    mdedit_core::fold::block_end(&r.buffer, line, mdedit_core::limits::TAB_WIDTH)
+                    mdedit_core::fold::block_end(&r.buffer, line, crate::live::tab_width())
                 {
                     r.folds.fold(line, end);
                 }
@@ -2062,6 +2074,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotDialog::Shortcuts) => app.open_dialog(DialogKind::Shortcuts),
         Some(ShotDialog::Recent) => app.open_dialog(DialogKind::Recent),
         Some(ShotDialog::Macros) => app.open_dialog(DialogKind::Macros),
+        Some(ShotDialog::Settings) => app.open_settings(),
         Some(ShotDialog::Unsaved) => {
             if let Some(id) = app.docs.active_doc().map(|d| d.id) {
                 app.ask(DialogKind::Unsaved, id, After::Nothing);
@@ -2149,6 +2162,14 @@ pub fn run() -> i32 {
         }
     });
     let mut docs = Docs::new(platform::code_page(), waker.clone());
+    // The preferences: the file's, with any `--pref` of this run over them.
+    let mut session = session;
+    if !args.prefs.is_empty() {
+        let text = format!("{}\n{}", session.prefs.serialize(), args.prefs.join("\n"));
+        session.prefs = mdedit_core::prefs::Prefs::parse(&text);
+    }
+    docs.prefs = session.prefs.clone();
+    crate::live::apply(&session.prefs);
     docs.recents = session.recent.clone();
     docs.check_updates = session.check_updates;
     if let Some(stage) = &args.update_bar {
@@ -2156,8 +2177,10 @@ pub fn run() -> i32 {
     }
     docs.zoom = args.zoom.unwrap_or(session.zoom);
     docs.whitespace = args.whitespace || session.whitespace;
-    docs.wrap = args.wrap || session.wrap;
-    docs.minimap = args.minimap || session.minimap;
+    // The preferences' minimap and wrap are the defaults of a new window and document: the view
+    // commands change them for this run only.
+    docs.wrap = args.wrap || session.wrap || session.prefs.word_wrap;
+    docs.minimap = args.minimap || session.minimap || session.prefs.minimap;
     docs.theme = match args.dark {
         Some(true) => ThemeChoice::Dark,
         Some(false) => ThemeChoice::Light,
@@ -2169,7 +2192,8 @@ pub fn run() -> i32 {
         .map(canonical_or_absolute)
         .or_else(|| session.folder.clone());
     let mut active = None;
-    for (i, path) in session.tabs.iter().enumerate() {
+    let restore = session.prefs.restore_session;
+    for (i, path) in session.tabs.iter().enumerate().filter(|_| restore) {
         if path.is_file() {
             let k = docs.add_pending(path);
             if i == session.active {
@@ -2180,7 +2204,7 @@ pub fn run() -> i32 {
     // Tabs that had unsaved text when the window last closed get it back.
     let mut restored = Vec::new();
     if let Some(dir) = session_path.as_deref().and_then(backup_dir_of) {
-        for u in &session.unsaved {
+        for u in session.unsaved.iter().filter(|_| restore) {
             let file = dir.join(&u.file);
             if !file.is_file() {
                 continue;
@@ -2349,5 +2373,30 @@ mod tests {
         a.play_macro(false);
         let after = text(&a);
         assert_eq!(&after[before.len()..], "{a}\n");
+    }
+
+    #[test]
+    fn a_setting_applies_to_the_open_documents_and_is_kept_for_the_session_file() {
+        use crate::app::modal::{AUTO_PAIR, TRIM_ON_SAVE};
+        use mdshared_ui::settings::Value;
+        let mut a = app();
+        type_text(&mut a, "(");
+        assert_eq!(text(&a), "()");
+        a.apply_setting(AUTO_PAIR, Value::Bool(false));
+        assert!(!a.docs.prefs.auto_pair);
+        a.apply_setting(TRIM_ON_SAVE, Value::Bool(true));
+        // The open document follows at once: a bracket is a bracket now.
+        type_text(&mut a, "[");
+        assert_eq!(text(&a), "([)");
+        // The session file carries them, and the next start reads them back.
+        let file = a.session.serialize();
+        assert!(file.contains("[preferences]") && file.contains("auto_pair=0"));
+        let back = Session::parse(&file);
+        assert!(!back.prefs.auto_pair && back.prefs.trim_on_save);
+        // Opening the form builds its rows from them.
+        a.open_settings();
+        assert!(a.ui.settings.is_some());
+        a.close_settings();
+        assert!(a.ui.settings.is_none());
     }
 }

@@ -56,7 +56,8 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         theme(ThemeChoice::System, "System theme", glyph::SYSTEM).sep(),
         theme(ThemeChoice::Light, "Light theme", glyph::SUN),
         theme(ThemeChoice::Dark, "Dark theme", glyph::MOON),
-        cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD).sep(),
+        cmd(C::Settings, "Settings…", glyph::SLIDERS).sep(),
+        cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD),
     ];
     // Off Windows, from an AppImage (the desktop entry exists), until mdedit is the default.
     #[cfg(not(windows))]

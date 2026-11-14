@@ -6,8 +6,6 @@
 use mdedit_core::display::{ChunkStart, Cols};
 use std::ops::Range;
 
-/// The text size at zoom 100, logical px.
-pub const FONT_PX: f32 = 14.0;
 /// Gutter padding left and right of the numbers, and the gap before the text, logical px.
 pub const GUTTER_PAD_L: f32 = 16.0;
 pub const GUTTER_PAD_R: f32 = 14.0;
@@ -54,7 +52,7 @@ pub fn zoom_stepped(zoom: u32, steps: i32) -> u32 {
 
 /// The text size in logical px at a zoom percentage.
 pub fn font_px(zoom: u32) -> f32 {
-    FONT_PX * zoom as f32 / 100.0
+    crate::live::font_pt() * zoom as f32 / 100.0
 }
 
 /// The line pitch in device px for a font of `size` device px: an integer.

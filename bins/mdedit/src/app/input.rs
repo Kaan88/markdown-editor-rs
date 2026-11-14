@@ -6,7 +6,6 @@ use crate::docs::EditOp;
 use crate::keys::{self, KeyName};
 use crate::ui::{BarField, BarItem, Popup, SelectUnit, Tip};
 use crate::view::offset_for_hthumb;
-use mdedit_core::limits::TAB_WIDTH;
 use mdedit_core::selection::{self, Motion, Unit};
 use mdshared_ui::gfx::Face;
 use mdshared_ui::scroll::{offset_for_thumb, scrollbar};
@@ -29,6 +28,10 @@ impl App {
 
     pub(super) fn pointer_moved(&mut self, x: f32, y: f32) {
         self.ui.mouse = (x, y);
+        if self.ui.settings.is_some() {
+            self.settings_pointer(x, y);
+            return;
+        }
         if let Some(drag) = self.ui.drag {
             self.drag_to(drag, x, y);
             self.redraw();
@@ -512,6 +515,10 @@ impl App {
             }
             return;
         }
+        if self.ui.settings.is_some() {
+            self.settings_press();
+            return;
+        }
         if let Some(p) = &self.ui.popup {
             if p.contains(x, y) {
                 return;
@@ -645,6 +652,10 @@ impl App {
     }
 
     pub(super) fn left_release(&mut self) {
+        if self.ui.settings.is_some() {
+            self.settings_release();
+            return;
+        }
         let (x, y) = self.ui.mouse;
         self.ui.autoscroll_due = None;
         if let Some(drag) = self.ui.drag.take() {
@@ -675,7 +686,7 @@ impl App {
     pub(super) fn right_press(&mut self) {
         let (x, y) = self.ui.mouse;
         self.ui.tip = None;
-        if self.ui.dialog.is_some() {
+        if self.ui.dialog.is_some() || self.ui.settings.is_some() {
             return;
         }
         self.ui.popup = None;
@@ -738,7 +749,7 @@ impl App {
 
     pub(super) fn middle_press(&mut self) {
         let (x, y) = self.ui.mouse;
-        if self.ui.dialog.is_some() || self.ui.popup.is_some() {
+        if self.ui.dialog.is_some() || self.ui.popup.is_some() || self.ui.settings.is_some() {
             return;
         }
         if let Some(Hit::Tab(i) | Hit::TabClose(i)) = self.hit_at(x, y) {
@@ -754,6 +765,14 @@ impl App {
             MouseScrollDelta::LineDelta(dx, dy) => (dx as f64, dy as f64, None),
             MouseScrollDelta::PixelDelta(p) => (0.0, 0.0, Some((p.x, p.y))),
         };
+        if self.ui.settings.is_some() {
+            let dy = match pixels {
+                Some((_, py)) => -(py as f32) / self.scale,
+                None => -(ny as f32) * PANE_WHEEL,
+            };
+            self.settings_wheel(dy);
+            return;
+        }
         if let Some(p) = self.ui.popup.as_mut() {
             // Over a menu the wheel scrolls it (if it is taller than its room); elsewhere it
             // closes the menus, as it always did.
@@ -919,6 +938,12 @@ impl App {
             keys::Key::Name(n) => Some(n.clone()),
             keys::Key::Insert => None,
         };
+        if self.ui.settings.is_some() {
+            if let Some(n) = &name {
+                self.settings_key(n, mods, typed);
+            }
+            return;
+        }
 
         // A menu takes the keyboard; an open submenu has it first.
         if let Some(p) = self.ui.popup.as_mut() {
@@ -1085,7 +1110,12 @@ impl App {
             _ if !r.extra.is_empty() => {
                 let (list, primary) = r.all_sels();
                 let (list, primary) = mdedit_core::multi::move_all(
-                    &r.buffer, &list, primary, motion, mods.shift, TAB_WIDTH,
+                    &r.buffer,
+                    &list,
+                    primary,
+                    motion,
+                    mods.shift,
+                    crate::live::tab_width(),
                 );
                 r.set_sels(list, primary);
             }
@@ -1121,9 +1151,23 @@ impl App {
                     std::cmp::Ordering::Greater => Motion::Down(to - line),
                     std::cmp::Ordering::Equal => motion,
                 };
-                r.sel = selection::apply(&r.buffer, r.sel, motion, mods.shift, TAB_WIDTH);
+                r.sel = selection::apply(
+                    &r.buffer,
+                    r.sel,
+                    motion,
+                    mods.shift,
+                    crate::live::tab_width(),
+                );
             }
-            _ => r.sel = selection::apply(&r.buffer, r.sel, motion, mods.shift, TAB_WIDTH),
+            _ => {
+                r.sel = selection::apply(
+                    &r.buffer,
+                    r.sel,
+                    motion,
+                    mods.shift,
+                    crate::live::tab_width(),
+                )
+            }
         }
         if matches!(motion, Motion::Up(n) | Motion::Down(n) if n > 1) {
             // Page keys move the view with the caret.

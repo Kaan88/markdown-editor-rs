@@ -20,7 +20,7 @@ use mdedit_core::encoding::Encoding;
 use mdedit_core::eol::normalize_eols;
 use mdedit_core::find::{self, FindOptions, Matches, Query};
 use mdedit_core::fold::{self, Folds};
-use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES, TAB_WIDTH};
+use mdedit_core::limits::{FIND_CAP, MAX_FILE_BYTES, SYNC_FIND_BYTES};
 use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
 use mdedit_core::markdown;
@@ -333,7 +333,7 @@ impl Ready {
             anchor.1,
             caret.0,
             caret.1,
-            TAB_WIDTH,
+            crate::live::tab_width(),
         );
         self.set_sels(list, primary);
         self.column = Some((
@@ -350,7 +350,7 @@ impl Ready {
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
         (
             self.buffer.line_of(offset),
-            multi::display_col(&self.buffer, offset, TAB_WIDTH),
+            multi::display_col(&self.buffer, offset, crate::live::tab_width()),
         )
     }
 
@@ -549,7 +549,8 @@ impl Ready {
         if self.folds.unfold(line) {
             return true;
         }
-        let Some((header, end)) = fold::block_at(&self.buffer, line, TAB_WIDTH) else {
+        let Some((header, end)) = fold::block_at(&self.buffer, line, crate::live::tab_width())
+        else {
             return false;
         };
         if !self.folds.fold(header, end) {
@@ -568,7 +569,7 @@ impl Ready {
         if self.folds.unfold(line) {
             return true;
         }
-        let Some(end) = fold::block_end(&self.buffer, line, TAB_WIDTH) else {
+        let Some(end) = fold::block_end(&self.buffer, line, crate::live::tab_width()) else {
             return false;
         };
         if !self.folds.fold(line, end) {
@@ -581,7 +582,7 @@ impl Ready {
     /// Folds every block that starts at the left margin. The number folded, and whether the
     /// document has more lines than were looked at.
     pub fn fold_all(&mut self) -> (usize, bool) {
-        let (blocks, more) = fold::top_blocks(&self.buffer, TAB_WIDTH);
+        let (blocks, more) = fold::top_blocks(&self.buffer, crate::live::tab_width());
         let mut n = 0;
         for (header, end) in blocks {
             n += self.folds.fold(header, end) as usize;
@@ -877,7 +878,7 @@ fn run_load(
 }
 
 /// One editing command for [`Docs::edit`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EditOp<'a> {
     /// Replaces the selection (typing; empty text deletes the selection).
     Insert(&'a str),
@@ -914,6 +915,8 @@ pub enum EditOp<'a> {
     MdLink,
     /// Markdown: lines up the pipe table the caret is in.
     MdTable,
+    /// The save options of the preferences (trailing spaces, final line break).
+    SaveOptions(&'a Prefs),
     /// Makes every line break this one.
     LineEndings(&'static str),
     /// Replaces the selection by this template when the selection is a match of the document's
@@ -1608,6 +1611,11 @@ impl Docs {
     /// Applies an editing command to the active document. True when the text changed.
     pub fn edit(&mut self, op: EditOp, service: Option<&HighlightService>) -> bool {
         let Some(i) = self.active else { return false };
+        self.edit_in(i, op, service)
+    }
+
+    /// Applies an editing command to tab `i`.
+    pub fn edit_in(&mut self, i: usize, op: EditOp, service: Option<&HighlightService>) -> bool {
         let doc = &mut self.tabs[i];
         // A reload in flight would replace the text the edit went into.
         if doc.is_loading() {
@@ -1704,7 +1712,12 @@ impl Docs {
                 _ => None,
             }
         };
-        if multi_op.is_none() && !matches!(op, EditOp::MdWrap(_) | EditOp::MdLink) {
+        if multi_op.is_none()
+            && !matches!(
+                op,
+                EditOp::MdWrap(_) | EditOp::MdLink | EditOp::SaveOptions(_)
+            )
+        {
             r.extra.clear();
         }
         r.column = None;
@@ -1781,7 +1794,9 @@ impl Docs {
                 }
                 EditOp::Case(upper) => lines::change_case(buf, hist, sel, upper),
                 EditOp::TrimTrailing => lines::trim_trailing_whitespace(buf, hist, sel),
-                EditOp::TabsToSpaces => lines::tabs_to_spaces(buf, hist, sel, TAB_WIDTH),
+                EditOp::TabsToSpaces => {
+                    lines::tabs_to_spaces(buf, hist, sel, crate::live::tab_width())
+                }
                 EditOp::SortLines(order) => lines::sort_lines(buf, hist, sel, order),
                 EditOp::ReverseLines => lines::reverse_lines(buf, hist, sel),
                 EditOp::UniqueLines => lines::unique_lines(buf, hist, sel),
@@ -1790,6 +1805,9 @@ impl Docs {
                 EditOp::MdTable => markdown::format_table(buf, hist, sel),
                 // Done above, with every caret; reaching here is a selection it did not take.
                 EditOp::MdWrap(_) | EditOp::MdLink => Outcome { sel, change: None },
+                EditOp::SaveOptions(prefs) => {
+                    mdedit_core::prefs::apply_on_save(buf, hist, sel, prefs, eol)
+                }
                 EditOp::LineEndings(to) => lines::convert_line_endings(buf, hist, sel, to),
                 EditOp::Insert(text) => edit::insert(buf, hist, sel, text),
                 EditOp::Paste(text) => {
@@ -1801,8 +1819,20 @@ impl Docs {
                 EditOp::Delete => edit::delete(buf, hist, sel),
                 EditOp::WordLeft => edit::delete_word_left(buf, hist, sel),
                 EditOp::WordRight => edit::delete_word_right(buf, hist, sel),
-                EditOp::Indent => edit::indent(buf, hist, sel, TAB_WIDTH),
-                EditOp::Outdent => edit::outdent(buf, hist, sel, TAB_WIDTH),
+                EditOp::Indent => match r.assist.indent {
+                    // Spaces to the next multiple of the indent size, for a caret or a selection
+                    // inside one line; a block of lines gets the core's tabs.
+                    typing::Indent::Spaces(n)
+                        if buf.line_of(sel.range().start) == buf.line_of(sel.range().end) =>
+                    {
+                        let n = usize::from(n.max(1));
+                        let col =
+                            multi::display_col(buf, sel.range().start, crate::live::tab_width());
+                        edit::insert(buf, hist, sel, &" ".repeat(n - col % n))
+                    }
+                    _ => edit::indent(buf, hist, sel, crate::live::tab_width()),
+                },
+                EditOp::Outdent => edit::outdent(buf, hist, sel, crate::live::tab_width()),
                 EditOp::Undo => match edit::undo(buf, hist) {
                     Some(out) => out,
                     None => return false,
@@ -1816,6 +1846,10 @@ impl Docs {
         let Outcome { sel, change } = out;
         r.sel = sel;
         let changed = change.is_some();
+        // The extra carets were not moved by the save options: they go when the text changed.
+        if changed && matches!(op, EditOp::SaveOptions(_)) {
+            r.extra.clear();
+        }
         let had_scope = new_scope.is_some();
         if let Some(change) = change {
             *revision += 1;
@@ -1842,6 +1876,34 @@ impl Docs {
             None => {}
         }
         changed
+    }
+
+    /// The save options of the preferences, applied to tab `i` before it is written: one undo
+    /// step, nothing when nothing differs. Not when the document's encoding cannot hold the text
+    /// as it is (the save is refused then and the text must stay as the user left it), and not
+    /// for a read-only (lossy) document.
+    pub fn apply_save_options(&mut self, i: usize, service: Option<&HighlightService>) {
+        let prefs = self.prefs.clone();
+        if !prefs.trim_on_save && !prefs.final_newline_on_save {
+            return;
+        }
+        let Some(r) = self.tabs.get(i).and_then(Doc::ready) else {
+            return;
+        };
+        if r.info.lossy || save::first_unencodable(r.buffer.rope(), r.info.encoding).is_some() {
+            return;
+        }
+        self.edit_in(i, EditOp::SaveOptions(&prefs), service);
+    }
+
+    /// Takes new preferences: the typing help of every document follows at once.
+    pub fn set_prefs(&mut self, prefs: Prefs) {
+        for doc in &mut self.tabs {
+            if let Some(r) = doc.ready_mut() {
+                r.assist = prefs.assist(r.language.map_or("", Language::name));
+            }
+        }
+        self.prefs = prefs;
     }
 
     /// Gives every open document the word-wrap setting. Called before each frame, so a
@@ -2788,6 +2850,31 @@ mod tests {
     }
 
     #[test]
+    fn the_save_options_are_one_undo_step_and_do_nothing_when_nothing_differs() {
+        let (mut d, i, _path, dir) = file_docs("saveopts", b"a  \nb\t\nc");
+        // Off by default: nothing changes.
+        d.apply_save_options(i, None);
+        assert_eq!(text_of(&d, i), "a  \nb\t\nc");
+        d.prefs.trim_on_save = true;
+        d.prefs.final_newline_on_save = true;
+        d.apply_save_options(i, None);
+        assert_eq!(text_of(&d, i), "a\nb\nc\n");
+        // A second save has nothing to do and adds no history entry; one Undo undoes the first.
+        d.apply_save_options(i, None);
+        assert!(d.edit_in(i, EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "a  \nb\t\nc");
+        assert!(!d.edit_in(i, EditOp::Undo, None));
+        // A document whose encoding cannot hold its text is left as the user wrote it.
+        let legacy = d.legacy();
+        d.tabs[i].ready_mut().unwrap().info.encoding = legacy;
+        d.edit_in(i, EditOp::Insert("\u{6f22}"), None);
+        let before = text_of(&d, i);
+        d.apply_save_options(i, None);
+        assert_eq!(text_of(&d, i), before);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn replace_in_the_selection_stays_inside_it_and_follows_edits() {
         let (mut d, i, _path, dir) = file_docs("scope", b"a\na\na\na\n");
         // Lines 2 and 3 selected: the range is kept when the strip opens, with its toggle on.
@@ -3122,8 +3209,8 @@ mod tests {
         // The cheap test the gutter uses agrees with what a click would do.
         for line in 0..r.buffer.len_lines() {
             assert_eq!(
-                fold::heads_block(&r.buffer, line, TAB_WIDTH),
-                fold::block_end(&r.buffer, line, TAB_WIDTH).is_some()
+                fold::heads_block(&r.buffer, line, crate::live::tab_width()),
+                fold::block_end(&r.buffer, line, crate::live::tab_width()).is_some()
             );
         }
         let _ = std::fs::remove_dir_all(&dir);

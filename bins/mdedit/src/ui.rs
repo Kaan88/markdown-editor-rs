@@ -579,6 +579,10 @@ pub struct Ui {
     pub replace_recall: crate::recall::Recall,
     /// The Go to box is asking for a macro's name instead of a line.
     pub naming: bool,
+    /// The settings dialog, while it is open.
+    pub settings: Option<mdshared_ui::settings::Form>,
+    /// Counts what changed in the dialog, so the overlay is drawn again.
+    pub overlay_tick: u64,
     pub caret_on: bool,
     /// When the caret next blinks.
     pub caret_due: Option<Instant>,
@@ -627,6 +631,8 @@ impl Ui {
             find_recall: crate::recall::Recall::default(),
             replace_recall: crate::recall::Recall::default(),
             naming: false,
+            settings: None,
+            overlay_tick: 0,
             caret_on: true,
             caret_due: None,
             mouse: (-1.0, -1.0),

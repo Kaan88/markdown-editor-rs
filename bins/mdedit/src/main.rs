@@ -8,6 +8,7 @@ mod chrome;
 mod commands;
 mod docs;
 mod keys;
+mod live;
 mod macros;
 mod minimap;
 mod outline;
