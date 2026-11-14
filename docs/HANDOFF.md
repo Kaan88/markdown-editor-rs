@@ -51,8 +51,8 @@ No branch below was reviewed by the main session unless it says so.
 
 | Branch | Feature | Head | State |
 |---|---|---|---|
-| `merge/next-release` | the six features marked "merged" below, merged together | `95edf8d` (then a handoff commit) | CI green at `95edf8d` on Linux and Windows; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
-| `f/paste-image-files` | paste image files copied in the file manager as links | see `git log` (finished in the second session of 2026-11-15) | finished on Windows: clippy clean, all tests pass, tried in a real window by script (see "Second session of 2026-11-15"); no CI run; holds all of `merge/next-release` but is **not merged into it** (waits for the owner's hand test and word); Linux not done |
+| `merge/next-release` | the six features marked "merged" below and `f/paste-image-files`, merged together | see `git log` | CI green at `95edf8d` on Linux and Windows, not read for the head; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
+| `f/paste-image-files` | paste image files copied in the file manager as links | see `git log` (finished in the second session of 2026-11-15) | finished on Windows: clippy clean, all tests pass, tried in a real window by script (see "Second session of 2026-11-15"); merged into `merge/next-release` on the owner's word ("Merge it", 2026-11-15) without a hand test by the owner; a CI run was started at `b5185e9` (run 43651515645) and its result was not read; Linux not done |
 | `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; left out of `merge/next-release` (see the review results below) |
 | `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged; waits for a hand test on Windows |
 | `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
@@ -150,9 +150,10 @@ Open from that report:
     core tests and the release build were cut short by the stop; no CI; never tried with a real
     clipboard; no docs. Linux is not done (a copied file is not looked for there).
 
-**Second session of 2026-11-15: `f/paste-image-files` finished, not merged.** The owner said only
-"resume"; the session took the one item that needed no answer. This text is on the branch
-`f/paste-image-files` only.
+**Second session of 2026-11-15: `f/paste-image-files` finished and merged into
+`merge/next-release`.** The owner said only "resume"; the session took the one item that needed
+no answer, reported, and the owner answered "Merge it" (a fast-forward). The owner has not tried
+it by hand.
 
 - Review of `5c5af06` found one gap, fixed: a file on the same network share as the document was
   copied instead of linked (`image_paste::Anchor`: a drive, a share, or the root). Nothing else
@@ -194,8 +195,8 @@ Open from that report:
 
 **What is left, in the order suggested to the owner**
 
-1. Ask about F7 and Tab (above); the owner tries `f/paste-image-files` by hand and says whether
-   it goes into `merge/next-release`.
+1. Ask about F7 and Tab (above). Read the CI result of `merge/next-release` (pasting image
+   files is in it now).
 2. The owner decides: merge `merge/next-release` into `main`, the version number, the release.
    None of that was done or asked for.
 3. `feat/restart-after-update`: needs a real update and Restart staged by hand (above).
