@@ -238,6 +238,56 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Findings of the driven test of 0.5.0, fixed (2026-11-14, not published)
+
+One commit per item. Design: DESIGN.md section 56 (indentation) and the notes below.
+
+1. **Indentation follows the file.** `mdedit-core::indent::detect` (pure, tested), run when a
+   document is read, restored or saved under a new name, never while typing; `Prefs::assist_for`;
+   setting "Detect indentation from the file"; status field "Spaces: 4" / "Tabs" (dropped when the
+   strip is crowded, the tooltip then sits on the language field). Enter and the Markdown list Tab
+   continue a line's own kind. New and compared tabs now take the preferences (they were made with
+   the defaults until a setting changed).
+2. **Icons.** Shared pin 090d4da: the Lines submenu has SORT, SORT_DESC, SORT_CASE, REVERSE,
+   DEDUPE, JOIN; "Make mdedit the default" has CHECK (not visible in a shot: it is listed only
+   from an AppImage). Every `--menu` shot was looked at: the only items left without an icon are
+   the Markdown submenu's Bold, Italic, Code, Strikethrough, Heading level and Align table (no
+   shared glyph fits; they stay empty rather than borrow one).
+3. **Wheel.** While a menu, submenu or the palette is open a wheel turn over a menu that does not
+   scroll, or outside all of them, does nothing; over one that scrolls it scrolls it. The palette
+   takes the wheel only over its card. Same rule in the viewer.
+4. **In selection after Escape.** Escape in the find box only takes the keyboard out of it, the
+   replace strip stays open, so Ctrl+H found `replace_open` set and skipped capturing the
+   selection. `capture_replace_scope(already_open)` now captures a multi-line selection every time
+   Replace is asked; a caret or one-line selection with the strip open leaves the range alone.
+5. **Palette footer.** Shared `d44bc14`: no count while a message row ("Go to line 25") stands in
+   for results and there are no entries.
+6. **Folder to a second launch.** The shared request listener dropped anything that was not a file
+   (shared `9222f96` lets requests name folders; the paths-only receivers still get files only).
+   `mdedit <dir>` and `--folder` go over; `App::open` already made a folder the Files pane's. A first
+   launch with a directory argument made a (failed) tab of it; it now takes it as its folder,
+   `--folder` winning, and shows the Files pane.
+7. **Live dot without an edit.** Text is sent only while the document is modified; the link is no
+   longer seeded with a version; going back to the saved text (undo) sends `live_off` once.
+8. **Edit in mdedit opening a second window.** Not a bug: `--no-session` neither listens on nor
+   forwards to the instance channel (`app.rs`, `session_path` is `None`), so a test window started
+   that way takes no request. A normal window listens (`listen_requests_waking`, keyed by the settings
+   path: a window started with another `MDEDIT_SETTINGS` than the viewer's launch is another
+   instance). Test: `a_request_arrives_over_the_instance_port` (goto, from, place).
+9. **Window shadow on KDE.** Measured on this machine (KDE Wayland, release binary,
+   `MDEDIT_SETTINGS` scratch, `--no-session`, over the shared `shadow` example's white backdrop,
+   one `spectacle` shot): grey 248 of the backdrop darkens to 212 5 px outside the editor's left edge
+   (225 at 10 px, 241 at 20 px, 247 at 30 px, 248 at 35 px) and to 229 at 5 px above the top edge; the viewer binary over
+   the same backdrop gives the same curve. The KWin route attaches. Only left and top edges were
+   over the backdrop, right and bottom were not measured.
+10. **Report-only.** (a) `Resized` sets `self.maximized = window.is_maximized()` every time, so a
+    window-manager unmaximise updates the glyph. (b) The 6 px band: winit's `RESIZE_BAND` (6) widens
+    the input region, shared `edge_at` has no lower bound (`x < EDGE`), so 4 px outside is inside
+    both; nothing in code limits it to 1 px. On the default KDE route there is no client margin and
+    no band at all (KWin owns the area outside). Not reproduced without input.
+
+NOT run: Windows, X11, GNOME, anything interactive beyond the one screenshot above.
+
 ## Emoji presentation, a stray column, the exe size (2026-11-14, after 0.5.0, not published)
 
 **Emoji.** Shared pin moved to `bbb1c7a`; `View::build` (`bins/mdedit/src/view.rs`, the one place
