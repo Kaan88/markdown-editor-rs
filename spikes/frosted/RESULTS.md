@@ -49,7 +49,7 @@ The owner judges the look on the screen.
 
 ## The program
 
-`src/main.rs`, about 480 lines. A mock editor: a title row with three tabs and caption boxes, a
+`src/main.rs`, about 540 lines. A mock editor: a title row with three tabs and caption boxes, a
 side column with rows, a status strip (these three are the "chrome"), and an opaque page of pseudo
 text. Pixels are written as premultiplied ARGB.
 
