@@ -1337,7 +1337,20 @@ selection within one line; a block still gets the core's tabs.
 `mdshared_ui::shadow::Shadow::attach(&window)` after window creation, kept in `App.shadow`;
 `update(scale, active, maximized)` on resize, scale change and focus change, as in the viewer.
 
-## 49. Command palette (2026-11-14)
+## 49. Review fixes (2026-11-14)
+
+Submenus: one rule, `overlays::sub_side(parent, window_w)`: right of the parent when `SUB_WIDTH`
+(260 px) fits, otherwise left of it with the submenu's right edge on the parent's left edge. The
+cause of the overlap was that the Lines, Convert and Markdown menus ignored the `align_right` flag
+the cascade passed (the old rule chose "left" for any parent at x >= 200), so a context menu in the
+middle of the window put the submenu on its parent. Settings: every help and label line is measured
+against the room the form gives it in a test (default, 560x640, scale 1.5). Replace strip:
+`chrome::find_frame` is the one rectangle the find row and the strip use (same x, width, height
+and text inset; the strip's box has a REPLACE icon where the find box has SEARCH); options left of
+it, Replace, Replace all (padding shrinks down to 12 px, then the widths scale) and Close right of
+it, Close under the menu button. `--menu-at F` places the text-menu shots' right-click.
+
+## 50. Command palette (2026-11-14)
 
 `Ctrl+P` opens the shared `mdshared_ui::palette::Palette` over the window (`palette.rs` holds the
 sources, `app/palette_events.rs` the hosting). It is modal like a dialog: drawn last, every key,
@@ -1361,7 +1374,7 @@ Decisions: a greyed command cannot be chosen (Enter does nothing); the file list
 the empty query (the tabs and recent files are), so opening the palette costs no walk; the macro
 commands are enabled by whether a macro can play, as in the Macro menu.
 
-## 50. Compare two files in the window (2026-11-14)
+## 51. Compare two files in the window (2026-11-14)
 
 The comparison is `mdedit-core::diff` (section 35); this is what the window does with it
 (`compare.rs` the data and the state, `app/compare_events.rs` the commands, the view's changes in
@@ -1419,7 +1432,7 @@ is at the left (what the file was against what it is); the colours are fixed per
 while the diff is stale; the options (`ignore_ws` and the others) are in the core but have no
 control yet.
 
-## 51. Replace in files in the window (2026-11-14)
+## 52. Replace in files in the window (2026-11-14)
 
 The core is `mdedit-core::replace_files` (section 36); this is the panel and the dialog
 (`replace_ui.rs` the state and the drawing, `app/replace_files.rs` the steps). After a folder

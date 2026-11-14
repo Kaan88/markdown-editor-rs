@@ -249,7 +249,7 @@ and `--trace` only. Design: DESIGN.md sections 43 to 48. Commits: A `4149108`, l
   (`Bubble::tip`/`Bubble::hint` in mdshared-ui overlay.rs size the box from a fractional width;
   `w.ceil()` there is the proposed fix; not rebuilt or verified).
 - Keys: Ctrl+J, Ctrl+B, Ctrl+I, Ctrl+Shift+H, Ctrl+, were free; Link has none.
-- Not done: Tab with spaces for multi-line blocks (core `indent` is tab-only).
+- Review round (same day): submenu placement (`sub_side`), indent with spaces for blocks (`indent_with`/`outdent_with`), settings help lines fitted, shared pin `9c1290b`, replace box aligned with the find box (DESIGN 49).
 - Timing (sample.rs, 300 keystrokes, noisy machine): before p50 0.51-0.62 ms, p95 0.76-1.52 ms;
   after p50 0.54-0.90 ms, p95 1.09-1.30 ms; first frame 74-100 ms both; private 20.6 MiB.
 - Tests: 525 pass with `--release`; clippy and fmt clean. Shots in `~/.cache/md-linux-test/b4`.
@@ -261,8 +261,8 @@ and `--trace` only. Design: DESIGN.md sections 43 to 48. Commits: A `4149108`, l
 
 Wired three finished pieces of headless logic into the window, on the branch `features-files` (from
 `79e70ec`). Done on one machine (CachyOS, Wayland); nothing run on Windows; nothing driven by hand
-(only tests, `--shot`, and `--trace --exit-after-ms`/`--type-steps`/`--scroll-steps`). DESIGN 49
-(palette), 50 (compare in the window), 51 (replace in files in the window).
+(only tests, `--shot`, and `--trace --exit-after-ms`/`--type-steps`/`--scroll-steps`). DESIGN 50
+(palette), 51 (compare in the window), 52 (replace in files in the window).
 
 **Built**
 - **Command palette** (`Ctrl+P`): `palette.rs` (sources), `app/palette_events.rs` (the host).
@@ -335,7 +335,7 @@ stand in for these only as far as they go; the owner has to look at the interfac
 
 Done on one machine (CachyOS, Wayland), nothing run on Windows, nothing driven by hand: only
 tests, `--shot`, and `--trace --exit-after-ms`. Merges first: `3daf35d` (core-edit) and `b4f26e7`
-(core-files, with the core's `fuzzy.rs` removed). Shared pin `d6e6cf1`.
+(core-files, with the core's `fuzzy.rs` removed). Shared pin `d6e6cf1` (later `9c1290b`).
 
 - **Icons**: every menu item has its glyph, the replace strip's toggles are icons, shots for the
   menus that had none (`--menu` names added; see `tests/shots.sh`). DESIGN 11.
