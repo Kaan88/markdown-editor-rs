@@ -119,8 +119,9 @@ above, measured before and after.
   logical px, scaled with the display, square when maximised, tiled or fullscreen, with a setting
   that includes 0. It sits between KDE Breeze (about 5 px, from bug reports) and GNOME libadwaita
   (about 12 px, from a 2021 commit and forum estimates) and matches the 8 px radius of the apps'
-  own dialogs. There is no standard way to ask a Linux desktop for its radius. On Windows 11, ask
-  the system for its standard rounding (the DWM corner preference) instead of drawing. On KDE it
+  own dialogs. There is no standard way to ask a Linux desktop for its radius. On Windows 11 the
+  window already has the system's rounding (owner, 2026-11-15); the DWM corner preference is only
+  needed for the setting's other choices. On KDE it
   needs the client-margin shadow route, because KWin's shadow route leaves the window opaque and
   square.
 

@@ -83,8 +83,32 @@ The main session reviewed the diffs of the five branches before the merge.
   work from line ranges of the older text; for tables, Enter at the end of an empty row ends the
   table only on its last row (in the middle it adds a row), and a row or column command refused
   inside a table says so, not that the caret is outside one.
-- Not done: nothing of the five was measured against the budgets or tried by hand in a real
-  window on Windows; CI is the only Windows run (green at `9f07121`).
+- Budgets, measured on this Windows PC on 2026-11-15 (release builds, `main` `5cd3dff` against
+  `merge/next-release` `9f07121`, 7 interleaved warm runs each, min / median): first frame of
+  `sample.rs` 74.5 / 74.8 ms against 74.2 / 75.6 ms; first frame of the 100 MB file 133.5 / 136.3 ms
+  against 130.8 / 135.8 ms; private memory 27.4 / 27.6 MiB against 27.2 / 27.8 MiB (small file) and
+  133 MiB both (100 MB file, over its 125 MiB as before); keystroke p50 0.52 against 0.49 ms; scroll
+  p50 0.45 against 0.40 ms; exe 6,121,984 against 6,228,992 bytes (+107,008). Nothing moved by more
+  than noise. A recovery copy was seen written and removed on a normal exit; its CPU cost was below
+  what the 15.6 ms clock of `--trace` shows. Not measured: the write of a large modified document.
+- Screenshots of the green run (Windows artifact) were looked at for every shot the five added:
+  nothing found. The View menu in a comparison now fills the whole height of an 800 px window
+  (`menu-view-compared`); the Markdown submenu has 15 rows. The owner has not looked at them.
+- `f/paste-image` was tried in a real window on Windows by script (clipboard set with PowerShell,
+  Ctrl+V and Ctrl+S sent): a bitmap and a PNG-format clipboard both saved a correct 40x30 PNG
+  beside the file and inserted the link; a non-Markdown file and an untitled document got nothing.
+  Not tried: an image from a browser or the Snipping Tool, Linux, a person's hand. It is merged
+  only on the local, unpushed branch `test/hand`.
+- `feat/restart-after-update`: a real update and Restart could not be staged on one PC. The shared
+  updater refuses a download address that is not https (and then the whole manifest), and the
+  newer build needs a higher version number. By hand: an installed copy of this branch's build, a
+  second build with a higher version on an https host, a manifest naming it with its sha256,
+  `MDEDIT_UPDATE_MANIFEST` pointing at the manifest, then Install and Restart.
+- Rounded corners, a correction (owner, 2026-11-15): on Windows 11 the released window already
+  has the system's rounded corners (it is undecorated but resizable, and the system rounds such
+  windows). So on Windows the `next` branch only adds the setting (square, small); the work and
+  the two reasons it is left out are on Linux.
+- Not done by a person: nothing of the five was tried by hand in a real window.
 
 ### The shared repository (Kaan88/markdown-shared-rs)
 
