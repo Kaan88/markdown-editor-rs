@@ -1315,7 +1315,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "mdedit"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "bytemuck",
  "mdedit-core",
@@ -1336,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -1351,7 +1351,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-highlight"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "mdshared-highlight",
  "ropey",
@@ -1359,7 +1359,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-outline"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "ropey",
 ]

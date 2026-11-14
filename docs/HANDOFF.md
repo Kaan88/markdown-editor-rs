@@ -250,6 +250,18 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Release 0.5.1 (2026-11-14)
+
+One fix, reported by the owner with a screen recording of 0.5.0: a submenu closed as soon as the
+pointer left its item, so nothing in it could be chosen with the mouse. The pointer crossed the
+menu's 5 px padding (no row hovered there) and `Popup::pointer` took that for another item. Now the
+submenu stays while the pointer is off the rows, and another row closes or swaps it only after a
+rest of `SUBMENU_DWELL` (`Popup::rested`, called from the timers). The earlier driven tests missed
+it because the driver jumps the pointer between points; the new unit tests walk it px by px.
+
+Verified by the unit tests on CI (Linux and Windows) only: the owner asked for no local builds, so
+no real window was driven. The owner checks it in the released build.
+
 ## Release 0.5.0 (2026-11-14)
 
 mdedit 0.5.0, for Windows and, for the first time, Linux. Version 0.4.1 was never published, so 0.5.0
