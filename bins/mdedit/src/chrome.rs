@@ -408,7 +408,10 @@ pub fn find_parts(frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
 pub fn field_parts(which: BarField, frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
     match which {
         BarField::Find => find_parts(frame, has_text),
-        BarField::Replace | BarField::Goto => (
+        // The replacement's box has the find box's left inset (its icon is in the same place) and
+        // no clear button.
+        BarField::Replace => (find_parts(frame, false).0, None),
+        BarField::Goto => (
             Rect::new(
                 frame.x + 10.0,
                 frame.y + 1.0,
@@ -420,24 +423,74 @@ pub fn field_parts(which: BarField, frame: Rect, has_text: bool) -> (Rect, Optio
     }
 }
 
-/// What the replace strip shows at a width: the box's width and whether the option toggles fit
-/// (they are in the find box's menu too).
-pub fn replace_plan(avail: f32, buttons: f32, scoped: bool) -> (f32, bool) {
-    let fixed = MARGIN * 2.0 + ICON_BTN + buttons + 16.0;
-    let toggles = (3.0 + f32::from(u8::from(scoped))) * (TOGGLE_W + GAP) + 8.0;
-    if avail >= fixed + toggles + FIND_W {
-        (FIND_W, true)
-    } else if avail >= fixed + toggles + 140.0 {
-        (avail - fixed - toggles, true)
-    } else {
-        ((avail - fixed).clamp(60.0, FIND_W), false)
+/// The find box's frame in a bar `bar` wide, on the row at `y`: from the right, the menu button,
+/// the theme button, a rule, the two arrows, then the box. The replace strip's box is this same
+/// rectangle (same x and width), so the two cannot drift apart.
+pub fn find_frame(bar: Rect, t: &BarText, plan: &BarPlan, y: f32) -> Rect {
+    let x = bar.right()
+        - MARGIN
+        - ICON_BTN
+        - (GAP + labelled(t.theme, plan.labels))
+        - SEP
+        - 2.0 * (ICON_BTN + GAP)
+        - (plan.find_w + 4.0);
+    Rect::new(x, y, plan.find_w, 32.0)
+}
+
+/// Where the replace strip puts its parts, all from the find row's own geometry: the replacement's
+/// box is the find box's frame moved down a row; the option toggles stay to its left; Replace,
+/// Replace all and Close sit to its right, in the room the find row's arrows, theme button and
+/// menu button take, Close under the menu button.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ReplaceLayout {
+    pub frame: Rect,
+    pub close: Rect,
+    pub all: Rect,
+    pub one: Rect,
+    /// Whether the option toggles fit to the left of the box.
+    pub toggles: bool,
+}
+
+/// `one_text` and `all_text` are the two buttons' label widths; a button is its label plus
+/// padding, the padding shrinking (to 12 px, then the label's own width scaled) when the room to
+/// the right of the box is short, as the narrow bar's does.
+pub fn replace_layout(
+    strip: Rect,
+    t: &BarText,
+    plan: &BarPlan,
+    one_text: f32,
+    all_text: f32,
+    scoped: bool,
+) -> ReplaceLayout {
+    let y = strip.y;
+    let frame = find_frame(strip, t, plan, y);
+    let close = Rect::new(strip.right() - MARGIN - ICON_BTN, y, ICON_BTN, 32.0);
+    let right = close.x - 8.0;
+    let room = (right - (frame.right() + 8.0) - 6.0).max(40.0);
+    let pad = [26.0, 20.0, 16.0, 12.0]
+        .into_iter()
+        .find(|pad| one_text + all_text + 2.0 * pad <= room)
+        .unwrap_or(12.0);
+    let scale = ((one_text + all_text + 2.0 * pad) / room).max(1.0);
+    let one_w = ((one_text + pad) / scale).round();
+    let all_w = ((all_text + pad) / scale).round();
+    let all = Rect::new(right - all_w, y, all_w, 32.0);
+    let one = Rect::new(all.x - 6.0 - one_w, y, one_w, 32.0);
+    let n = 3.0 + f32::from(u8::from(scoped));
+    let toggles = frame.x - 8.0 - n * (TOGGLE_W + GAP) >= strip.x + MARGIN;
+    ReplaceLayout {
+        frame,
+        close,
+        all,
+        one,
+        toggles,
     }
 }
 
 const TOGGLE_W: f32 = 32.0;
 
-/// Draws the replace strip into `r`: from the right, Close, Replace all, Replace, the
-/// replacement's box, and the three search options.
+/// Draws the replace strip into `r`: the replacement's box exactly under the find box, the search
+/// options to its left, Replace, Replace all and Close to its right (see [`replace_layout`]).
 pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);
@@ -445,28 +498,24 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let has_matches = docs
         .active_ready()
         .is_some_and(|r| !r.match_window().is_empty() && !r.find.searching);
-    let width = |c: &mut Ctx, label: &str| (c.p.measure(Face::Ui, 13.0, label) + 26.0).round();
-    let (one_w, all_w) = (
-        width(c, strings::REPLACE_ONE),
-        width(c, strings::REPLACE_ALL),
-    );
+    let text = |c: &mut Ctx, label: &str| c.p.measure(Face::Ui, 13.0, label).round();
+    let (one_t, all_t) = (text(c, strings::REPLACE_ONE), text(c, strings::REPLACE_ALL));
     let scope = docs.active_ready().filter(|r| r.replace_scope.is_some());
-    let (field_w, toggles) = replace_plan(r.w, one_w + all_w + 6.0, scope.is_some());
+    let t = bar_text(c.p, docs);
+    let plan = bar_plan(r.w, &t);
+    let lay = replace_layout(r, &t, &plan, one_t, all_t, scope.is_some());
 
-    let mut right = r.right() - MARGIN;
-    let close = Rect::new(right - ICON_BTN, y, ICON_BTN, 32.0);
+    let close = lay.close;
     if let Some(f) = c.fill_for(Hit::ReplaceClose, false, false) {
         c.p.rbox(close, 6.0, f);
     }
     c.p.icon(glyph::CLOSE, 10.0, close.cx(), close.cy(), pal.muted);
     c.hit(Hit::ReplaceClose, close);
-    right = close.x - 8.0;
 
-    for (hit, label, w) in [
-        (Hit::ReplaceAll, strings::REPLACE_ALL, all_w),
-        (Hit::ReplaceOne, strings::REPLACE_ONE, one_w),
+    for (hit, label, b) in [
+        (Hit::ReplaceAll, strings::REPLACE_ALL, lay.all),
+        (Hit::ReplaceOne, strings::REPLACE_ONE, lay.one),
     ] {
-        let b = Rect::new(right - w, y, w, 32.0);
         let fill = c
             .fill_for(hit, false, false)
             .filter(|_| has_matches)
@@ -477,11 +526,9 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         if has_matches {
             c.hit(hit, b);
         }
-        right = b.x - 6.0;
     }
-    right -= 2.0;
 
-    let frame = Rect::new(right - field_w, y, field_w, 32.0);
+    let frame = lay.frame;
     let focused = ui.find_focused && ui.field == BarField::Replace;
     draw_field(
         c,
@@ -492,7 +539,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         BarField::Replace,
         false,
     );
-    if !toggles {
+    if !lay.toggles {
         return;
     }
     let mut x = frame.x - 8.0;
@@ -649,8 +696,7 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     button(c, rx, BarItem::FindNext, glyph::DOWN, None, false);
     rx -= ICON_BTN + GAP;
     button(c, rx, BarItem::FindPrev, glyph::UP, None, false);
-    rx -= plan.find_w + 4.0;
-    let frame = Rect::new(rx, y, plan.find_w, 32.0);
+    let frame = find_frame(r, &t, &plan, y);
     if ui.going_to() {
         draw_field(
             c,
@@ -718,9 +764,9 @@ fn draw_field(
         c.p.rbox(frame, 6.0, pal.accent);
         c.p.restore(old);
     }
-    if find {
+    if find || which == BarField::Replace {
         c.p.icon(
-            glyph::SEARCH,
+            if find { glyph::SEARCH } else { glyph::REPLACE },
             12.0,
             frame.x + 17.0,
             frame.cy(),
@@ -764,21 +810,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_replace_strip_gives_way() {
-        // Wide: the full box and the toggles.
-        assert_eq!(replace_plan(1280.0, 180.0, false), (FIND_W, true));
-        // Narrower: the box shrinks first.
-        let (w, toggles) = replace_plan(560.0, 180.0, false);
-        assert!(toggles && (140.0..FIND_W).contains(&w));
-        // Narrow: the toggles go (the find box's menu has them) and the box keeps a minimum.
-        let (w, toggles) = replace_plan(400.0, 180.0, false);
-        assert!(!toggles && w >= 60.0);
-        let (w, _) = replace_plan(200.0, 180.0, false);
-        assert_eq!(w, 60.0);
-        // The replacement's text starts at the frame's padding; it has no clear button.
+    fn the_replace_box_is_the_find_box_one_row_down() {
+        let t = BarText {
+            open: 30.0,
+            recent: 40.0,
+            files: 30.0,
+            theme: 32.0,
+            count: 0.0,
+        };
+        for scoped in [false, true] {
+            for w in (360..=2000).step_by(20) {
+                let bar = Rect::new(0.0, 0.0, w as f32, 40.0);
+                let strip = Rect::new(0.0, 40.0, w as f32, 40.0);
+                let plan = bar_plan(bar.w, &t);
+                let find = find_frame(bar, &t, &plan, 4.0);
+                let lay = replace_layout(strip, &t, &plan, 55.0, 80.0, scoped);
+                // The same left edge, right edge and height; only the row differs.
+                assert_eq!(
+                    (lay.frame.x, lay.frame.w, lay.frame.h),
+                    (find.x, find.w, find.h),
+                    "bar {w}"
+                );
+                // The text inset is the find box's too.
+                let (a, _) = field_parts(BarField::Replace, lay.frame, true);
+                let (b, _) = field_parts(BarField::Find, find, false);
+                assert_eq!(a.x - lay.frame.x, b.x - find.x);
+                assert_eq!(a.w, b.w);
+                // Nothing overlaps: buttons right of the box, in order, inside the bar.
+                assert!(lay.one.x >= lay.frame.right() + 8.0 - 0.5 || lay.one.w < 41.0);
+                assert!(lay.one.right() <= lay.all.x && lay.all.right() <= lay.close.x);
+                assert!(lay.close.right() <= bar.right());
+                if lay.toggles {
+                    assert!(lay.frame.x - 8.0 - 3.0 * (TOGGLE_W + GAP) >= MARGIN);
+                }
+            }
+        }
+        // The find box changing width (a narrower bar plan) moves both together.
+        let wide = bar_plan(1280.0, &t);
+        let narrow = bar_plan(560.0, &t);
+        assert_ne!(wide.find_w, narrow.find_w);
+        // Close sits under the menu button.
+        let strip = Rect::new(0.0, 40.0, 1280.0, 40.0);
+        let lay = replace_layout(strip, &t, &wide, 55.0, 80.0, false);
+        assert_eq!(lay.close.right(), 1280.0 - MARGIN);
+        // The replacement's text starts where the find box's does, and has no clear button.
         let frame = Rect::new(100.0, 10.0, 200.0, 32.0);
         let (area, clear) = field_parts(BarField::Replace, frame, true);
-        assert_eq!((area.x, area.w, clear), (110.0, 180.0, None));
+        assert_eq!((area.x, area.w, clear), (132.0, 158.0, None));
         assert_eq!(
             field_parts(BarField::Find, frame, true),
             find_parts(frame, true)
