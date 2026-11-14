@@ -8,6 +8,7 @@
 //! event loop (a handful of integer comparisons), and the first write starts the thread.
 
 use crate::docs::{Docs, Recovered};
+use crate::session::Unsaved;
 use mdedit_core::Encoding;
 use mdedit_core::limits::{RECOVERY_IDLE_MS, RECOVERY_MAX_BYTES, RECOVERY_MAX_MS};
 use mdedit_core::recovery::{self, Header};
@@ -95,6 +96,16 @@ pub struct Found {
     pub file: PathBuf,
 }
 
+/// True when a recovery copy holds the newer text of the document a session backup is for: the
+/// same file, or for documents without a file the same untitled number.
+pub fn covers(found: &[Found], u: &Unsaved) -> bool {
+    found.iter().any(|f| match (&f.header.path, &u.path) {
+        (Some(a), Some(b)) => a == b,
+        (None, None) => f.header.untitled == u.untitled,
+        _ => false,
+    })
+}
+
 /// What [`Recovery::restore`] did.
 #[derive(Default)]
 pub struct Restored {
@@ -164,21 +175,19 @@ impl Recovery {
         out
     }
 
-    /// Puts what an earlier run left back into `docs` as modified tabs. A file that is still
-    /// there gets a tab that puts the text back once the file is read; a document without a
-    /// file, or whose file is gone, opens with its text as an untitled one.
-    pub fn restore(&mut self, docs: &mut Docs) -> Restored {
+    /// Puts the copies `found` (from `scan`, left by an earlier run) back into `docs` as modified
+    /// tabs. A file that is still there gets a tab that puts the text back once the file is
+    /// read; a document without a file, or whose file is gone, opens with its text as an
+    /// untitled one.
+    pub fn restore(&mut self, docs: &mut Docs, found: Vec<Found>) -> Restored {
         let mut out = Restored::default();
-        for found in self.scan() {
+        for found in found {
             let h = &found.header;
             match h.path.as_ref().filter(|p| p.is_file()) {
                 Some(path) => {
                     let k = docs.add_pending(path);
-                    // The session's own backup of this tab is as new: it stays the only one.
-                    if docs.tabs[k].restore.is_some() {
-                        let _ = std::fs::remove_file(&found.file);
-                        continue;
-                    }
+                    // A session backup this tab has is older than the copy, which a later run
+                    // wrote: the copy replaces it and is never deleted for it.
                     let id = docs.tabs[k].id;
                     docs.tabs[k].restore = Some(self.adopt(&found, id));
                     docs.tabs[k].recovered = Some(Recovered {
@@ -512,7 +521,7 @@ mod tests {
         // The next start.
         let mut rec = Recovery::new(Some(dir.join("recover")));
         let mut e = docs();
-        let got = rec.restore(&mut e);
+        let got = rec.restore(&mut e, rec.scan());
         assert_eq!((got.count, got.load.len()), (2, 1));
         assert_eq!(e.tabs.len(), 2);
         let k = got.load[0];
@@ -562,7 +571,7 @@ mod tests {
 
         let mut rec = Recovery::new(Some(dir.join("recover")));
         let mut e = docs();
-        let got = rec.restore(&mut e);
+        let got = rec.restore(&mut e, rec.scan());
         let k = got.load[0];
         e.load_now(k, None, false);
         assert_eq!(text_of(&e, k), "mine one\n");
@@ -597,7 +606,7 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         let mut rec = Recovery::new(Some(dir.join("recover")));
         let mut e = docs();
-        let got = rec.restore(&mut e);
+        let got = rec.restore(&mut e, rec.scan());
         assert_eq!((got.count, got.load.len()), (1, 0));
         assert_eq!(text_of(&e, 0), "mine one\n");
         assert!(e.tabs[0].path.is_none() && e.tabs[0].modified());
@@ -605,8 +614,8 @@ mod tests {
     }
 
     #[test]
-    fn damaged_and_foreign_files_are_dropped_and_the_session_backup_wins() {
-        let (dir, path, rec) = setup("damaged", b"one\n");
+    fn damaged_and_foreign_files_are_dropped() {
+        let (dir, _path, rec) = setup("damaged", b"one\n");
         let r = dir.join("recover");
         std::fs::create_dir_all(&r).unwrap();
         std::fs::write(r.join("1-1.rec"), b"junk").unwrap();
@@ -614,8 +623,15 @@ mod tests {
         std::fs::write(r.join("notes.txt"), b"mine").unwrap();
         assert!(rec.scan().is_empty());
         assert_eq!(files(&dir), ["notes.txt"], "only what is not ours stays");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
-        // A whole copy of a tab whose text the session's backup already holds is not taken twice.
+    /// A tab that has the session's backup as its text to put back takes the recovery copy
+    /// instead (it is from a later run), and the copy stays.
+    #[test]
+    fn a_recovery_copy_replaces_the_session_backup() {
+        let (dir, path, mut rec) = setup("replaces", b"one\n");
+        let r = dir.join("recover");
         let h = Header {
             path: Some(path.clone()),
             untitled: 0,
@@ -625,15 +641,51 @@ mod tests {
             bytes: 0,
         };
         recovery::write(&r, "9-9.rec", &h, &Rope::from_str("copy")).unwrap();
-        let mut rec = rec;
         let mut d = docs();
         let k = d.add_pending(&path);
         d.tabs[k].restore = Some(dir.join("backup").join("1.txt"));
-        let got = rec.restore(&mut d);
-        assert_eq!(got.count, 0);
-        assert_eq!(d.tabs[k].restore, Some(dir.join("backup").join("1.txt")));
-        assert_eq!(files(&dir), ["notes.txt"]);
+        let got = rec.restore(&mut d, rec.scan());
+        assert_eq!((got.count, got.load.clone()), (1, vec![k]));
+        let now = d.tabs[k].restore.clone().unwrap();
+        assert_eq!(now.parent(), Some(r.as_path()));
+        assert!(now.is_file() && d.tabs[k].recovered.is_some());
+        assert_eq!(files(&dir).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_copy_covers_the_backup_of_its_document() {
+        let header = |path: Option<&str>, untitled| Header {
+            path: path.map(PathBuf::from),
+            untitled,
+            encoding: "UTF-8".into(),
+            eol: "Unix (LF)".into(),
+            disk: None,
+            bytes: 0,
+        };
+        let found = vec![
+            Found {
+                header: header(Some("/a/f.txt"), 0),
+                file: PathBuf::from("1-1.rec"),
+            },
+            Found {
+                header: header(None, 2),
+                file: PathBuf::from("1-2.rec"),
+            },
+        ];
+        let entry = |untitled, path: Option<&str>| Unsaved {
+            file: "1.txt".into(),
+            untitled,
+            path: path.map(PathBuf::from),
+        };
+        assert!(covers(&found, &entry(0, Some("/a/f.txt"))));
+        assert!(covers(&found, &entry(2, None)));
+        assert!(!covers(&found, &entry(0, Some("/a/g.txt"))));
+        assert!(!covers(&found, &entry(3, None)));
+        // A file's copy does not cover a document without one, nor the other way round.
+        assert!(!covers(&found, &entry(2, Some("/a/other.txt"))));
+        assert!(!covers(&found[..1], &entry(2, None)));
+        assert!(!covers(&[], &entry(2, None)));
     }
 
     #[test]
@@ -650,7 +702,7 @@ mod tests {
         drop(rec);
         let mut rec = Recovery::new(Some(dir.join("recover")));
         let mut e = docs();
-        rec.restore(&mut e);
+        rec.restore(&mut e, rec.scan());
         // Closed before the file was read: the copy is the only place the text is.
         rec.finish(&e);
         assert_eq!(files(&dir).len(), 1);
@@ -690,7 +742,7 @@ mod tests {
         drop(rec);
         let mut rec = Recovery::new(Some(dir.join("recover")));
         let mut e = docs();
-        rec.restore(&mut e);
+        rec.restore(&mut e, rec.scan());
         let r = e.tabs[0].ready().unwrap();
         assert_eq!(r.info.encoding, e.legacy());
         assert_eq!(text_of(&e, 0), "caf\u{e9}");

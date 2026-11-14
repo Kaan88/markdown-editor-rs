@@ -21,7 +21,7 @@ use crate::minimap;
 use crate::overlays::{self, Bubble};
 use crate::panes;
 use crate::platform;
-use crate::session::{Session, ThemeChoice};
+use crate::session::{Session, TabState, ThemeChoice, Unsaved};
 use crate::status;
 use crate::trace::{FrameTimes, Trace, summary};
 use crate::ui::{
@@ -1644,6 +1644,17 @@ impl App {
         if !self.save || self.session_path.is_none() || self.ui.drag.is_some() {
             return;
         }
+        // Backups of text that was saved, discarded or closed since the start are dropped. Not
+        // once the exit has set the list to keep (it is final then).
+        if !self.session.unsaved.is_empty() && !self.exit && self.docs.prefs.restore_session {
+            let tabs: Vec<TabState> = self.docs.tabs.iter().map(|d| d.tab_state()).collect();
+            let kept = Unsaved::prune(&self.session.unsaved, &tabs);
+            if kept.len() != self.session.unsaved.len() {
+                self.session.unsaved = kept;
+                self.save_session();
+                return;
+            }
+        }
         if self.session_sig() != self.saved_sig {
             self.save_session();
         }
@@ -2562,10 +2573,22 @@ pub fn run() -> i32 {
             }
         }
     }
-    // Tabs that had unsaved text when the window last closed get it back.
+    // Text a run that did not end normally left behind: one listing of its folder.
+    let mut recovery = crate::recovery::Recovery::new(
+        session_path
+            .as_deref()
+            .filter(|_| args.shot.is_none())
+            .and_then(crate::recovery::dir_of),
+    );
+    let found = recovery.scan();
+    // Tabs that had unsaved text when the window last closed get it back, except where a
+    // recovery copy has newer text of the same document.
     let mut restored = Vec::new();
     if let Some(dir) = session_path.as_deref().and_then(backup_dir_of) {
         for u in session.unsaved.iter().filter(|_| restore) {
+            if crate::recovery::covers(&found, u) {
+                continue;
+            }
             let file = dir.join(&u.file);
             if !file.is_file() {
                 continue;
@@ -2585,14 +2608,8 @@ pub fn run() -> i32 {
             }
         }
     }
-    // Text a run that did not end normally left behind comes back as modified tabs.
-    let mut recovery = crate::recovery::Recovery::new(
-        session_path
-            .as_deref()
-            .filter(|_| args.shot.is_none())
-            .and_then(crate::recovery::dir_of),
-    );
-    let recovered = recovery.restore(&mut docs);
+    // The copies come back as modified tabs.
+    let recovered = recovery.restore(&mut docs, found);
     restored.extend(recovered.load.iter().copied());
     if active.is_none() && !docs.tabs.is_empty() {
         active = Some(0);

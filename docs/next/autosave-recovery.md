@@ -47,7 +47,7 @@ the session's tab for that path is used) with `restore` set to the copy, loaded 
 session backup; when the file is read, the text goes over it as one edit (Undo gives the file's
 text), and the encoding the copy names is applied when the text can be written in it. A copy of
 a document without a file, or whose file is gone, opens as an untitled document with its text.
-If the tab already has a session backup, the backup stays the only one and the copy is deleted.
+If the tab already has a session backup, the copy replaces it (the copy is from a later run, so it is newer); a copy is never deleted in favour of a backup.
 The copy is renamed to this run's name for that tab at once, so a second crash before the next
 write loses nothing. One toast "Recovered N unsaved documents" (singular for 1).
 
@@ -57,7 +57,7 @@ text is put back as modified, the tab's stamp is set to the copy's (so Save ends
 recovered text. The file on disk is never written by recovery.
 
 **Edge cases.** Two windows sharing a session folder are not possible (single instance); a
-crash during the exit's cleanup can leave a copy beside a session backup (handled: backup wins).
+crash during the exit's cleanup can leave a copy beside a session backup (handled: the copy wins).
 Header values with line breaks are escaped; a header over 64 KiB is refused.
 
 ## Release note
@@ -87,3 +87,11 @@ the poll is a loop over the tabs comparing integers; a keystroke adds no work.
 
 Left out: a copy for a document over 64 MiB; text put back is lost for a file read lossily (the
 same limit the session backup has); a toast naming which documents; no content hash.
+
+Fix (data loss): a session backup is only replaced at the next normal exit, so after a crash
+the session file still listed the backup of an earlier run beside a newer recovery copy, and
+the backup won. Now `run()` scans the recovery folder first and skips a session `unsaved` entry
+that a copy covers (`recovery::covers`: same path, or both without a path and the same untitled
+number); `Recovery::restore` takes the scanned list and lets a copy replace a backup. Stale
+entries (text saved, discarded or closed during the run) are dropped from the session while it
+runs (`Unsaved::prune`, called from `App::persist_if_changed`; not once the exit has set the list).

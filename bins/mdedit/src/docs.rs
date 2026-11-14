@@ -12,7 +12,7 @@
 
 use crate::app::Wake;
 use crate::commands::strings;
-use crate::session::{ThemeChoice, Unsaved};
+use crate::session::{TabState, ThemeChoice, Unsaved};
 use crate::view::cache::Lru;
 use mdedit_core::display::ChunkIndex;
 use mdedit_core::edit::{self, Outcome};
@@ -1026,6 +1026,22 @@ impl Doc {
         self.missing && self.ready().is_some()
     }
 
+    /// The name of the session backup this tab still waits to put back, if it is one.
+    pub fn waiting_backup(&self) -> Option<String> {
+        let file = self.restore.as_ref()?.file_name()?.to_str()?.to_string();
+        Unsaved::is_file_name(&file).then_some(file)
+    }
+
+    /// What the session's pruning of stale backups needs to know of this tab.
+    pub fn tab_state(&self) -> TabState {
+        TabState {
+            path: self.path.clone(),
+            untitled: self.untitled,
+            modified: self.modified(),
+            waiting: self.waiting_backup(),
+        }
+    }
+
     /// The text has changes that are not in the file (also unsaved text still to be put back).
     pub fn modified(&self) -> bool {
         !self.discard
@@ -1463,10 +1479,7 @@ impl Docs {
     pub fn write_backups(&self, dir: &Path) -> std::io::Result<Vec<Unsaved>> {
         use std::io::Write;
         let mut out = Vec::new();
-        let waiting = |d: &Doc| {
-            let file = d.restore.as_ref()?.file_name()?.to_str()?.to_string();
-            Unsaved::is_file_name(&file).then_some(file)
-        };
+        let waiting = Doc::waiting_backup;
         let kept: Vec<String> = self.tabs.iter().filter_map(waiting).collect();
         let mut number = 0u32;
         for d in self.tabs.iter().filter(|d| d.modified()) {
