@@ -280,8 +280,8 @@ Wired three finished pieces of headless logic into the window, on the branch `fe
   folder for the replace shots (the report shot really replaces).
 
 **Checks run**: `cargo test --release --workspace` 517 passed before (the branch point), 542 after
-(25 new: 10 in `app/files_tests.rs` for the palette and replace in files, 7 there for compare, 5 in
-`compare.rs`, 1 in `fold.rs`, 1 in `args.rs`, 1 other); clippy `-D warnings` and `fmt --check`
+(25 new: 17 in `app/files_tests.rs`, of them 9 for the palette, 1 for replace in files and 7 for
+compare; 5 in `compare.rs`; 1 each in `fold.rs`, `args.rs` and `replace_ui.rs`); clippy `-D warnings` and `fmt --check`
 clean. `tests/shots.sh`: 98 shots before, 117 after; the 19 new ones were looked at (palette x8,
 compare x7, replace in files x4). Of the 98, 86 are byte-identical and 12 differ, all because of
 what was added: `menu-main`, `-dark`, `menu-main-view`, `menu-main-macro-dark`, `menu-tall-main`,
