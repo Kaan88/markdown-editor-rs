@@ -3612,6 +3612,210 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A document in both panes: the focused view and the other, as (caret, caret).
+    fn carets(d: &Docs) -> (usize, usize) {
+        let r = d.active_ready().unwrap();
+        (r.view.sel.caret, r.twin.as_ref().unwrap().sel.caret)
+    }
+
+    fn twinned(name: &str, text: &[u8]) -> (Docs, usize, PathBuf) {
+        let (mut d, i, _path, dir) = file_docs(name, text);
+        assert!(d.show_in_other_pane());
+        (d, i, dir)
+    }
+
+    #[test]
+    fn both_views_have_their_own_caret_and_follow_each_others_edits_through_undo_and_redo() {
+        let (mut d, i, dir) = twinned("twin-map", b"line0\nline1\nline2\nline3\n");
+        assert!(d.same_file && d.other().is_none() && d.pane1() == Some(i));
+        // Focused view at line 3, the other at line 1 column 2.
+        d.active_ready_mut().unwrap().view.sel = Selection::at(18);
+        d.active_ready_mut().unwrap().twin.as_mut().unwrap().sel = Selection::at(8);
+        assert_eq!(carets(&d), (18, 8));
+        // The focused view types at the top: both move down by what was typed.
+        d.active_ready_mut().unwrap().view.sel = Selection::at(0);
+        assert!(d.edit(EditOp::Insert("ZZ\n"), None));
+        assert_eq!(carets(&d), (3, 11));
+        // The other view takes the keyboard (the views change places) and undoes it.
+        assert!(d.focus_other());
+        assert_eq!(carets(&d), (11, 3));
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "line0\nline1\nline2\nline3\n");
+        // The one that undid has the caret the edit was made from; the other's moved back.
+        assert_eq!(carets(&d), (0, 0));
+        // Redo from the first view again.
+        assert!(d.focus_other());
+        assert!(d.edit(EditOp::Redo, None));
+        assert_eq!(text_of(&d, i), "ZZ\nline0\nline1\nline2\nline3\n");
+        // Redo puts the caret after the typing; the other view's, at the very place of it, stays.
+        assert_eq!(carets(&d), (3, 0));
+        // A caret inside what an edit removed goes to where it was cut.
+        d.active_ready_mut().unwrap().twin.as_mut().unwrap().sel = Selection::at(6);
+        d.active_ready_mut().unwrap().view.sel = Selection {
+            anchor: 3,
+            caret: 9,
+            goal_col: None,
+        };
+        assert!(d.edit(EditOp::Insert("-"), None));
+        assert_eq!(carets(&d).1, 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn replace_all_and_several_carets_in_one_view_move_the_other_views_carets() {
+        let (mut d, i, dir) = twinned("twin-multi", b"ab ab\nab\ncd\n");
+        d.active_ready_mut().unwrap().twin.as_mut().unwrap().sel = Selection::at(12);
+        d.find_set("ab", FindOptions::default());
+        assert!(d.edit(EditOp::ReplaceAll("xyz"), None));
+        assert_eq!(text_of(&d, i), "xyz xyz\nxyz\ncd\n");
+        // Three matches grew by one each; the other view's caret was after all of them.
+        assert_eq!(
+            d.active_ready().unwrap().twin.as_ref().unwrap().sel.caret,
+            15
+        );
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(
+            d.active_ready().unwrap().twin.as_ref().unwrap().sel.caret,
+            12
+        );
+        // Several carets in the other view are all kept in step.
+        {
+            let r = d.active_ready_mut().unwrap();
+            let t = r.twin.as_mut().unwrap();
+            t.sel = Selection::at(3);
+            t.extra = vec![Selection::at(6), Selection::at(9)];
+            r.view.sel = Selection::at(0);
+        }
+        assert!(d.edit(EditOp::Insert("++"), None));
+        let t = d.active_ready().unwrap().twin.as_ref().unwrap();
+        assert_eq!(
+            (
+                t.sel.caret,
+                t.extra.iter().map(|e| e.caret).collect::<Vec<_>>()
+            ),
+            (5, vec![8, 11])
+        );
+        // Several carets in the focused view type once each, and the other view follows all.
+        {
+            let r = d.active_ready_mut().unwrap();
+            r.view.sel = Selection::at(2);
+            r.add_caret(8);
+        }
+        assert!(d.edit(EditOp::Insert("#"), None));
+        assert_eq!(text_of(&d, i), "++#ab ab\n#ab\ncd\n");
+        let t = d.active_ready().unwrap().twin.as_ref().unwrap();
+        // Carets at 5, 8, 11 before; the typing at 2 and 8 moved them by 1, 1 and 2.
+        assert_eq!(
+            (
+                t.sel.caret,
+                t.extra.iter().map(|e| e.caret).collect::<Vec<_>>()
+            ),
+            (6, vec![9, 13])
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folds_belong_to_a_view_and_follow_edits_made_in_the_other() {
+        let (mut d, i, dir) = twinned("twin-fold", b"top\na {\n  b\n  c\n}\ne\n");
+        {
+            let r = d.active_ready_mut().unwrap();
+            assert!(r.toggle_fold_at(1));
+            assert_eq!(r.view.folds.ranges(), [(1, 3)]);
+            // The other view has no fold.
+            assert!(r.twin.as_ref().unwrap().folds.is_empty());
+            r.view.sel = Selection::at(r.buffer.len_bytes());
+        }
+        // The other view takes the keyboard and adds a line at the top.
+        assert!(d.focus_other());
+        assert!(d.active_ready().unwrap().view.folds.is_empty());
+        d.active_ready_mut().unwrap().view.sel = Selection::at(0);
+        assert!(d.edit(EditOp::Insert("new\n"), None));
+        assert_eq!(text_of(&d, i), "new\ntop\na {\n  b\n  c\n}\ne\n");
+        // The fold in the other view moved down with its text, and the first still has none.
+        let r = d.active_ready().unwrap();
+        assert!(r.view.folds.is_empty());
+        assert_eq!(r.twin.as_ref().unwrap().folds.ranges(), [(2, 4)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_view_steps_through_the_finds_matches_from_its_own_place() {
+        let (mut d, i, dir) = twinned("twin-find", b"x\nfoo\nx\nfoo\nx\nfoo\n");
+        d.active_ready_mut().unwrap().twin.as_mut().unwrap().sel = Selection::at(8);
+        d.active_ready_mut().unwrap().view.sel = Selection::at(0);
+        d.find_set("foo", FindOptions::default());
+        let current = |d: &Docs| {
+            let r = d.active_ready().unwrap();
+            (r.view.find_current, r.twin.as_ref().unwrap().find_current)
+        };
+        assert_eq!(d.active_ready().unwrap().find.matches.len(), 3);
+        assert_eq!(current(&d), (Some(0), Some(1)));
+        // Next in the focused view leaves the other where it was.
+        d.find_step(true);
+        assert_eq!(current(&d), (Some(1), Some(1)));
+        d.find_step(true);
+        assert_eq!(current(&d), (Some(2), Some(1)));
+        // The other view takes the keyboard and steps from its own match.
+        assert!(d.focus_other());
+        assert_eq!(current(&d), (Some(1), Some(2)));
+        d.find_step(true);
+        assert_eq!(current(&d), (Some(2), Some(2)));
+        d.find_step(false);
+        d.find_step(false);
+        assert_eq!(current(&d), (Some(0), Some(2)));
+        assert!(d.active_ready().unwrap().view.sel.range() == (2..5));
+        // An edit that moves the matches moves each view's mark with them.
+        d.active_ready_mut().unwrap().view.sel = Selection::at(0);
+        assert!(d.edit(EditOp::Insert("yy"), None));
+        assert_eq!(text_of(&d, i), "yyx\nfoo\nx\nfoo\nx\nfoo\n");
+        assert_eq!(current(&d), (Some(0), Some(2)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn closing_the_tab_closes_both_views_and_unsplitting_keeps_the_view_with_the_keyboard() {
+        let (mut d, i, dir) = twinned("twin-close", b"one\ntwo\nthree\n");
+        d.active_ready_mut().unwrap().view.sel = Selection::at(2);
+        d.active_ready_mut().unwrap().twin.as_mut().unwrap().sel = Selection::at(9);
+        // Unsplit with the first view focused: its caret stays.
+        assert!(d.toggle_split());
+        assert!(!d.same_file && d.other.is_none() && d.pane1().is_none());
+        let r = d.active_ready().unwrap();
+        assert!(r.twin.is_none() && r.view.sel.caret == 2);
+        // Again, but with the keyboard in the other view: that view stays.
+        assert!(d.show_in_other_pane());
+        d.active_ready_mut().unwrap().twin.as_mut().unwrap().sel = Selection::at(9);
+        assert!(d.focus_other());
+        assert!(d.toggle_split());
+        let r = d.active_ready().unwrap();
+        assert!(r.twin.is_none() && r.view.sel.caret == 9);
+        // Showing it twice is idempotent, and closing the tab takes both views.
+        assert!(d.show_in_other_pane() && d.show_in_other_pane());
+        d.close(i, None);
+        assert!(d.tabs.is_empty() && !d.same_file && d.other.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn another_tab_for_the_keyboard_leaves_the_document_in_the_other_pane_with_its_view() {
+        let (mut d, i, _path, dir) = file_docs("twin-other", b"one\ntwo\n");
+        let other = dir.join("b.txt");
+        std::fs::write(&other, b"b\n").unwrap();
+        let j = d.open(&other);
+        d.load_now(j, None, false);
+        d.activate(i);
+        assert!(d.show_in_other_pane());
+        d.active_ready_mut().unwrap().twin.as_mut().unwrap().sel = Selection::at(5);
+        d.activate(j);
+        // The document of the second pane is now an ordinary split with the view it showed.
+        assert!(!d.same_file);
+        assert_eq!(d.other(), Some(i));
+        let r = d.tabs[i].ready().unwrap();
+        assert!(r.twin.is_none() && r.view.sel.caret == 5);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_click_on_a_chevron_folds_the_block_that_line_heads_and_opens_it_again() {
         let text = b"a {\n  b\n  c {\n    d\n  }\n}\ne\n";

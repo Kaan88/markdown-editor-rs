@@ -5,6 +5,7 @@ use super::*;
 use crate::commands::CommandId as C;
 use crate::keys::{Key, KeyName};
 use crate::palette::{Mode, Target, mode_of};
+use mdedit_core::Selection;
 use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 
 static NEXT: AtomicU32 = AtomicU32::new(0);
@@ -606,5 +607,121 @@ fn compare_commands_are_greyed_until_they_can_run() {
     assert!(!crate::compare::enabled(C::CompareOther, &a.docs));
     assert!(crate::compare::enabled(C::StopCompare, &a.docs));
     assert!(crate::compare::enabled(C::NextDifference, &a.docs));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn twinned_app(tag: &str, text: &str) -> (App, PathBuf, usize) {
+    let dir = scratch(tag);
+    std::fs::write(dir.join("a.txt"), text).unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &dir.join("a.txt"));
+    a.command(C::ShowInOtherPane);
+    assert!(a.docs.same_file);
+    (a, dir, i)
+}
+
+#[test]
+fn showing_a_file_in_the_other_pane_greys_compare_and_the_command_works_from_the_tab_menu() {
+    let (mut a, dir, i) = twinned_app("twin-cmds", "one\ntwo\n");
+    // One tab, shown twice: no other tab to compare with, and the pane can be focused.
+    assert_eq!(a.docs.tabs.len(), 1);
+    assert!(!crate::compare::enabled(C::CompareOther, &a.docs));
+    assert!(crate::palette::enabled(
+        C::FocusOther,
+        &a.docs,
+        &a.ui,
+        false
+    ));
+    assert!(crate::palette::enabled(
+        C::ShowInOtherPane,
+        &a.docs,
+        &a.ui,
+        false
+    ));
+    // The command is in the View menu (on) and in the tab's menu (on).
+    let view = crate::overlays::view_menu(&a.docs, &a.ui, 0.0, 0.0, false);
+    let item = view
+        .items
+        .iter()
+        .find(|it| it.id == Act::Cmd(C::ShowInOtherPane))
+        .expect("in the View menu");
+    assert!(item.enabled && item.label == "Show this file in the other pane");
+    let tab = crate::overlays::tab_menu(&a.docs, i, 0.0, 0.0);
+    assert!(
+        tab.items
+            .iter()
+            .any(|it| it.id == Act::TabCmd(C::ShowInOtherPane, i) && it.enabled)
+    );
+    // Ending the split goes back to one view; the tab menu's entry makes it again.
+    a.command(C::ToggleSplit);
+    assert!(!a.docs.same_file && a.docs.active_ready().unwrap().twin.is_none());
+    a.tab_command(C::ShowInOtherPane, i);
+    assert!(a.docs.same_file);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_macro_recorded_in_one_view_plays_in_the_other_where_its_caret_is() {
+    let (mut a, dir, i) = twinned_app("twin-macro", "hello\nworld\n");
+    // Record typing "Q" at the top of the first view.
+    a.command(C::RecordMacro);
+    type_text(&mut a, "Q");
+    a.command(C::RecordMacro);
+    assert_eq!(a.docs.tabs[i].ready().unwrap().buffer.len_bytes(), 13);
+    // The other view has its caret in "world"; the keyboard goes there and the macro plays.
+    a.docs
+        .active_ready_mut()
+        .unwrap()
+        .twin
+        .as_mut()
+        .unwrap()
+        .sel = Selection::at(9);
+    a.command(C::FocusOther);
+    a.command(C::PlayMacro);
+    let r = a.docs.tabs[i].ready().unwrap();
+    let mut text = String::new();
+    r.buffer.text(0..r.buffer.len_bytes(), &mut text);
+    assert_eq!(text, "Qhello\nwoQrld\n");
+    // The first view's caret (after its own "Q") is where it was, in the text that moved.
+    assert_eq!(r.twin.as_ref().unwrap().sel.caret, 1);
+    assert_eq!(r.view.sel.caret, 10);
+    // One undo from either view takes the macro's typing back.
+    a.command(C::Undo);
+    assert!(a.docs.active_ready().unwrap().buffer.len_bytes() == 13);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_split_of_one_file_is_kept_in_the_session_and_comes_back() {
+    let (mut a, dir, _) = twinned_app("twin-session", "one\ntwo\n");
+    a.docs.other_left = true;
+    a.docs.split_ratio = 0.4;
+    let split = a.split_state().expect("a split to keep");
+    assert_eq!(split.path, dir.join("a.txt"));
+    // The line is the same one a two-file split writes, and it reads back.
+    let kept = crate::session::Session {
+        tabs: vec![dir.join("a.txt")],
+        split: Some(split.clone()),
+        ..Default::default()
+    };
+    let back = crate::session::Session::parse(&kept.serialize());
+    assert_eq!(back.split, Some(split.clone()));
+    // A fresh run: the file is open and active, the split comes back with both views.
+    let mut b = app();
+    open_now(&mut b, &dir.join("a.txt"));
+    assert!(b.docs.restore_split(&split.path, split.left, split.ratio()));
+    assert!(b.docs.same_file && b.docs.other_left);
+    assert!((b.docs.split_ratio - 0.4).abs() < 0.01);
+    assert!(b.docs.active_ready().unwrap().twin.is_some());
+    assert_eq!(b.split_state(), Some(split));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn closing_the_tab_of_a_file_shown_twice_ends_the_split_and_the_comparison_commands_stay_off() {
+    let (mut a, dir, i) = twinned_app("twin-closing", "one\n");
+    a.docs.close(i, None);
+    assert!(a.docs.tabs.is_empty() && !a.docs.same_file && a.docs.other.is_none());
+    assert!(a.split_state().is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
