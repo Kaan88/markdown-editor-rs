@@ -1898,3 +1898,21 @@ the toast for a screenshot.
   `xclip -selection clipboard -t image/png -o` (Wayland session tries wl-paste first), run only on such a
   paste, stopped after 3 seconds.
 - Drops are not touched: dropping a file opens it today.
+
+**Image files copied in the file manager (Windows, 2026-11-15).** A copy in Explorer puts a file list on
+the clipboard (`CF_HDROP`), not pixels.
+
+- The file list is looked at before the pixels, under the same conditions (no text on the clipboard; a
+  Markdown file or an unsaved document; the unsaved document gets the same "Save the document" toast).
+- Every file in the list must be an image by its extension (png, jpg, jpeg, gif, webp, bmp, svg, avif, any
+  case). If one is not, the paste does nothing: no partial paste, and the pixels are not looked at.
+- A file is linked where it is, by its path from the document's folder with forward slashes
+  (`img/a.png`, `../pics/a.png`); names are compared without case. Nothing is copied and there is no toast.
+- A file with no such path (another drive, another network share) is copied beside the document under its
+  own name, `name-<n>.ext` when that is taken (created exclusively), and linked there. The toast names the
+  first copy. Inside one network share a file is linked by its path like on a drive.
+- Several files go in one to a line, as one paste (one undo step). If a copy fails, or the text is
+  refused (read-only), the copies already made are removed.
+- `platform::clipboard_formats` is the one place that opens the Windows clipboard for these formats;
+  `clipboard_png` and `clipboard_files` both go through it (64 MB limit for each format).
+- Not on Linux: a copied file is not looked for there (`clipboard_files` is empty).

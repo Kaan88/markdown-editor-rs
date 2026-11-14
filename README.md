@@ -33,6 +33,8 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
 - **Paste an image:** Ctrl+V in a saved Markdown file with an image on the clipboard (and no text)
   saves it as a PNG beside the file (`notes-image-1.png`) and inserts `![](notes-image-1.png)`.
   Windows: a clipboard PNG or bitmap. Linux: needs `wl-paste` (Wayland) or `xclip` (X11).
+  Image files copied in Explorer (Windows) are pasted as links to the files where they are
+  (`![](img/photo.jpg)`); a file on another drive is copied beside the document first.
 - **Finding:** find and replace with match case, whole word and regular expressions (Ctrl+F,
   Ctrl+H), replace in the selection, find in files and open tabs (Ctrl+Shift+F, F4), and replace in
   files with a confirmation, backups and an undo. A function and heading list (Ctrl+Shift+2),

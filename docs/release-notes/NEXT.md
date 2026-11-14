@@ -13,7 +13,7 @@ Editing
 - Markdown tables: Tab and Shift+Tab move between cells and line the columns up, Enter at the end
   of a row adds a row, and the Markdown menu has row and column commands (insert, delete, move).
 - Paste an image into a saved Markdown file: Ctrl+V saves it beside the file as a PNG and inserts
-  the link.
+  the link. Image files copied in Explorer are pasted as links to the files (Windows).
 
 Compare
 

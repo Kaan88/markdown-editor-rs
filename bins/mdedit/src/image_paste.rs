@@ -109,17 +109,34 @@ pub fn is_image_file(path: &Path) -> bool {
     })
 }
 
-/// The parts of an absolute path after its drive or root, and the drive letter (upper case)
-/// when it has one. `None` for a relative path or a network path.
-fn anchored(path: &Path) -> Option<(Option<u8>, Vec<&std::ffi::OsStr>)> {
+/// Where an absolute path starts: a drive (its letter in upper case), a network share (server
+/// and share in lower case), or the one root of a system without drives.
+#[derive(PartialEq)]
+enum Anchor {
+    Root,
+    Drive(u8),
+    Share(String, String),
+}
+
+/// Where an absolute path starts and its parts after that. `None` for a path that is not
+/// absolute, or one that starts some other way (a device).
+fn anchored(path: &Path) -> Option<(Anchor, Vec<&std::ffi::OsStr>)> {
     use std::path::{Component, Prefix};
-    let mut drive = None;
+    let mut drive = Anchor::Root;
     let mut rooted = false;
     let mut parts = Vec::new();
     for c in path.components() {
         match c {
             Component::Prefix(p) => match p.kind() {
-                Prefix::Disk(d) | Prefix::VerbatimDisk(d) => drive = Some(d.to_ascii_uppercase()),
+                Prefix::Disk(d) | Prefix::VerbatimDisk(d) => {
+                    drive = Anchor::Drive(d.to_ascii_uppercase());
+                }
+                Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
+                    drive = Anchor::Share(
+                        server.to_string_lossy().to_lowercase(),
+                        share.to_string_lossy().to_lowercase(),
+                    );
+                }
                 _ => return None,
             },
             Component::RootDir => rooted = true,
@@ -134,7 +151,7 @@ fn anchored(path: &Path) -> Option<(Option<u8>, Vec<&std::ffi::OsStr>)> {
 }
 
 /// The path of `file` as seen from the folder `dir`, with forward slashes (`../img/a.png`).
-/// `None` when there is none: another drive, a network path, or a path that is not absolute.
+/// `None` when there is none: another drive or network share, or a path that is not absolute.
 pub fn relative_path(dir: &Path, file: &Path) -> Option<String> {
     let (dir_drive, dir_parts) = anchored(dir)?;
     let (file_drive, file_parts) = anchored(file)?;
@@ -368,6 +385,14 @@ mod tests {
         assert_eq!(rel(r"D:\notes\work\a.png"), None);
         assert_eq!(rel(r"\\server\share\a.png"), None);
         assert_eq!(rel("a.png"), None);
+        // Inside one network share there is a path; from one share to another there is none.
+        let share = |f: &str| relative_path(Path::new(r"\\Server\docs\work"), Path::new(f));
+        assert_eq!(
+            share(r"\\server\Docs\img\a.png").as_deref(),
+            Some("../img/a.png")
+        );
+        assert_eq!(share(r"\\server\other\a.png"), None);
+        assert_eq!(share(r"C:\a.png"), None);
     }
 
     #[cfg(not(windows))]
