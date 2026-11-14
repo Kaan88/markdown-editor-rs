@@ -716,8 +716,16 @@ mdedit updates itself with the code mdview uses, all of it in `markdown-shared-r
 | `app/commands.rs` ("updates") | `updates_at_launch`, `check_for_updates`, `install_update`: each starts a shared thread that posts `Wake::Update` |
 
 The look at launch runs only with a session file and for a copy outside a cargo output folder
-(`release`, `debug`, `deps`). `--update-bar available|installing|installed` shows the bar with a
+(`release`, `debug`, `deps`). `--update-bar available|installing|installed|installed-plain` shows the bar with a
 made-up version for a shot.
+
+Once installed, the bar (and the About dialog's update button) offers Restart when the updater has a
+file to start (`mdshared_app::relaunch::target`: the installed exe on Windows, `$APPIMAGE` on Linux).
+Restart is `After::Restart`: it goes through `request` exactly as Exit does (unsaved text is kept
+for the session, or the Save changes question is asked and a cancel aborts it), then sets
+`App::restart`; `run()` spawns the file with `--restarted` after the window is dropped. The new
+process waits in `relaunch::wait_for_predecessor` until the old instance's port and lock are gone,
+before the single-instance hand-over, so it never hands its files to the dying window.
 
 New file: a document's path is optional. `Docs::new_untitled` makes a ready, empty "Untitled N"
 document (UTF-8, the platform's line ending, no language until it has a name). It is left out of

@@ -217,6 +217,8 @@ struct App {
     expose: bool,
     first: bool,
     exit: bool,
+    /// The file to start once the window is closed: set by a Restart that was carried out.
+    restart: Option<PathBuf>,
     mods: Mods,
     cursor: CursorIcon,
     last_title: String,
@@ -351,6 +353,7 @@ impl App {
             expose: false,
             first: true,
             exit: false,
+            restart: None,
             mods: Mods::default(),
             cursor: CursorIcon::Default,
             last_title: String::new(),
@@ -2455,6 +2458,9 @@ pub fn run() -> i32 {
         }
     };
     if let Some(settings) = session_path.as_ref().filter(|_| args.shot.is_none()) {
+        // Started by a restart: the window that started it is still closing; wait it out, or the
+        // hand-over below would go to it and leave no window.
+        mdshared_app::relaunch::wait_for_predecessor(std::env::args().skip(1), settings);
         // A window is already open: hand it the files and quit, before any window work. A launch
         // that asks for a line, a place or a follow hands each file over with that.
         let mut requests = args.requests();
@@ -2673,6 +2679,15 @@ pub fn run() -> i32 {
     });
     app.updates_at_launch();
     let _ = event_loop.run_app(&mut app);
+    // A restart starts the new version last, with the window gone and the session written. The
+    // new process waits for this one to end before it looks for a running instance.
+    let restart = app.restart.take();
+    drop(app);
+    if let Some(target) = restart
+        && let Err(e) = mdshared_app::relaunch::spawn(&target)
+    {
+        eprintln!("mdedit: could not start {}: {e}", target.display());
+    }
     0
 }
 
@@ -2698,6 +2713,73 @@ mod tests {
             started: Instant::now(),
         };
         App::new(args, docs, trace, None, Session::default())
+    }
+
+    /// The update bar offers Restart in the installed state only, and only with a file to start.
+    #[test]
+    fn the_bar_shows_restart_only_when_installed_with_a_file_to_start() {
+        let mut app = app();
+        app.size = (900, 600);
+        for (stage, restart) in [
+            ("available", false),
+            ("installing", false),
+            ("installed-plain", false),
+            ("installed", true),
+        ] {
+            app.docs.updates.preview(stage);
+            app.compose();
+            assert_eq!(
+                app.hit_rect(Hit::UpdateRestart).is_some(),
+                restart,
+                "{stage}"
+            );
+            assert_eq!(
+                app.hit_rect(Hit::UpdateGo).is_some(),
+                stage == "available",
+                "{stage}"
+            );
+        }
+    }
+
+    /// Restart is Exit that then starts the new version: with nothing unsaved it closes at once.
+    #[test]
+    fn restart_closes_like_exit_and_remembers_what_to_start() {
+        let mut app = app();
+        app.docs.updates.preview("installed");
+        app.activate(Hit::UpdateRestart);
+        assert!(app.exit);
+        assert_eq!(app.restart, Some(PathBuf::from("/preview/app")));
+        // Exit itself starts nothing.
+        let mut plain = self::app();
+        plain.docs.updates.preview("installed");
+        plain.request(After::Exit);
+        assert!(plain.exit);
+        assert_eq!(plain.restart, None);
+    }
+
+    /// With unsaved changes and no session to keep them in, Restart asks what Exit asks, and
+    /// cancelling it aborts the restart: nothing closes and nothing is remembered to start.
+    #[test]
+    fn restart_asks_about_unsaved_changes_and_a_cancel_aborts_it() {
+        let mut app = app();
+        app.docs.updates.preview("installed");
+        assert!(app.docs.edit(EditOp::Insert("x"), None));
+        app.activate(Hit::UpdateRestart);
+        assert!(!app.exit, "asked first");
+        assert_eq!(
+            app.ui.dialog.as_ref().map(|d| d.kind),
+            Some(DialogKind::Unsaved)
+        );
+        assert_eq!(app.ui.pending.map(|p| p.after), Some(After::Restart));
+        // Cancel (the third button).
+        app.answer(2);
+        assert!(!app.exit && app.restart.is_none());
+        assert!(app.ui.pending.is_none());
+        // Discard goes on to the restart.
+        app.activate(Hit::UpdateRestart);
+        app.answer(1);
+        assert!(app.exit);
+        assert_eq!(app.restart, Some(PathBuf::from("/preview/app")));
     }
 
     /// The saved window size is the content size: a window started at the saved size, grown by

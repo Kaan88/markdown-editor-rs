@@ -40,6 +40,7 @@ impl App {
             Hit::NewTab => self.command(C::NewFile),
             Hit::TabClose(i) => self.close_tab(i),
             Hit::UpdateGo => self.install_update(),
+            Hit::UpdateRestart => self.request(After::Restart),
             Hit::UpdateClose => self.docs.updates.dismiss(),
             Hit::StatusEol => self.open_popup(PopupKind::Eol),
             Hit::StatusEncoding => self.open_popup(PopupKind::Encoding),
@@ -112,6 +113,8 @@ impl App {
                     self.close_dialog();
                     if matches!(self.docs.updates.stage(), updater::Stage::Available(_)) {
                         self.install_update();
+                    } else if self.docs.updates.relaunch_target().is_some() {
+                        self.request(After::Restart);
                     } else {
                         self.check_for_updates();
                     }
@@ -572,15 +575,16 @@ impl App {
     /// Does `after`, once no unsaved changes are in its way: while a document it would lose has
     /// some, that document is shown and the user is asked about it.
     pub(super) fn request(&mut self, after: After) {
-        // Closing the window keeps unsaved text for the next start instead of asking.
-        if after == After::Exit && self.keep_unsaved() {
+        // Closing the window keeps unsaved text for the next start instead of asking; a restart is
+        // the same close, and the next start is the new version.
+        if matches!(after, After::Exit | After::Restart) && self.keep_unsaved() {
             self.perform(after);
             return;
         }
         let in_scope = |id: DocId| match after {
             After::CloseTab(t) | After::Reload(t) | After::ReadAs(t, _) => id == t,
             After::CloseOthers(keep) => id != keep,
-            After::CloseAll | After::Exit => true,
+            After::CloseAll | After::Exit | After::Restart => true,
             After::Nothing => false,
         };
         let next = self
@@ -653,6 +657,11 @@ impl App {
             }
             After::CloseAll => self.docs.close_all(service),
             After::Exit => self.exit = true,
+            After::Restart => {
+                // The file is looked at again now: it must still be there to be started.
+                self.restart = self.docs.updates.relaunch_target().map(Path::to_path_buf);
+                self.exit = true;
+            }
             After::Reload(id) | After::ReadAs(id, _) => {
                 if let Some(i) = index(&self.docs, id)
                     && !matches!(self.docs.tabs[i].state, DocState::Pending)
@@ -1542,6 +1551,9 @@ impl App {
         let Some(offer) = self.docs.updates.begin() else {
             return;
         };
+        self.docs
+            .updates
+            .set_relaunch(mdshared_app::relaunch::target(Some(&files)));
         let wake = self.docs.waker();
         updater::spawn_install(updater::APP, offer, files, updater::fetch, move |e| {
             wake(Wake::Update(e))

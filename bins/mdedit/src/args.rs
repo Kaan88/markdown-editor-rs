@@ -390,7 +390,11 @@ impl Args {
                 "--check-update" => out.check_update = true,
                 "--update-bar" => {
                     out.update_bar = checked(&a, value(&a), |v| {
-                        matches!(v, "available" | "installing" | "installed").then(|| v.to_string())
+                        matches!(
+                            v,
+                            "available" | "installing" | "installed" | "installed-plain"
+                        )
+                        .then(|| v.to_string())
                     })
                 }
                 "--menu" => {
@@ -426,6 +430,8 @@ impl Args {
                         _ => None,
                     })
                 }
+                // The mark of a restart after an update, read before this (`relaunch::FLAG`).
+                mdshared_app::relaunch::FLAG => {}
                 f if f.starts_with("--") => eprintln!("mdedit: ignoring {f}"),
                 _ => out.files.push(PathBuf::from(a)),
             }
@@ -450,6 +456,13 @@ mod tests {
         let a = parse("--minimap --trace --type-steps 5 --scroll-steps 7 a.rs");
         assert!(a.minimap && a.trace);
         assert_eq!((a.type_steps, a.scroll_steps), (Some(5), Some(7)));
+    }
+
+    #[test]
+    fn the_restart_mark_is_not_a_file() {
+        let a = parse("--restarted");
+        assert!(a.files.is_empty());
+        assert_eq!(a, parse(""));
     }
 
     #[test]

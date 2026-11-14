@@ -154,6 +154,8 @@ pub enum Hit {
     FindOpt(FindOpt),
     /// The update bar's button and its close button.
     UpdateGo,
+    /// The update bar's Restart button, once the new version is installed.
+    UpdateRestart,
     UpdateClose,
     /// The status strip's line-ending and encoding fields: each opens a menu.
     StatusEol,
@@ -207,9 +209,12 @@ impl Hit {
         Some(match self {
             Hit::Tab(_) | Hit::TabClose(_) | Hit::NewTab | Hit::TitleDrag => Region::Title,
             Hit::WinMin | Hit::WinMax | Hit::WinClose => Region::Title,
-            Hit::Bar(_) | Hit::Find | Hit::FindClear | Hit::UpdateGo | Hit::UpdateClose => {
-                Region::Bar
-            }
+            Hit::Bar(_)
+            | Hit::Find
+            | Hit::FindClear
+            | Hit::UpdateGo
+            | Hit::UpdateRestart
+            | Hit::UpdateClose => Region::Bar,
             Hit::Replace
             | Hit::ReplaceOne
             | Hit::ReplaceAll
@@ -486,6 +491,8 @@ pub enum After {
     CloseOthers(DocId),
     CloseAll,
     Exit,
+    /// Exit, then start the version the update installed (see `mdshared_app::relaunch`).
+    Restart,
     Reload(DocId),
     /// Read the file again as this encoding, or as its bytes suggest.
     ReadAs(DocId, Option<Encoding>),
