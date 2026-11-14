@@ -281,6 +281,14 @@ def main():
     write("utf16le.txt", b"\xff\xfe" + UTF16_TEXT.encode("utf-16-le"))
     write("utf16be.txt", b"\xfe\xff" + UTF16_TEXT.encode("utf-16-be"))
     write("cp1254.txt", ("Windows-1254 metin, BOM yok.\n" + TURKISH).encode("cp1254"))
+    # Emoji presentation: the first line is colour clusters, the second the same bare characters.
+    write(
+        "emoji.txt",
+        "\u2764\ufe0f \u26a0\ufe0f \u2714\ufe0f \u2600\ufe0f \u2728 \u260e\ufe0f 1\ufe0f\u20e3 "
+        "\U0001f3f3\ufe0f\u200d\U0001f308 \U0001f469\u200d\U0001f4bb \U0001f44d\U0001f3fd \U0001f680\n"
+        "\u2714 \u00a9 \u2122 \u2600 \u2764\n"
+        "abcdef 1\ufe0f\u20e3 x\n".encode("utf-8"),
+    )
     write("crlf.txt", b"Windows line endings.\r\nSecond line.\r\nThird line.\r\n")
     write("lf.txt", b"Unix line endings.\nSecond line.\nThird line.\n")
     write("cr.txt", b"Classic Mac line endings.\rSecond line.\rThird line.\r")

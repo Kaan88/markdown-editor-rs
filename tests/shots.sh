@@ -248,4 +248,10 @@ shot menu-tab-md-linked-dark --dark --demo-link --menu tab "$fx/sample.md" "$fx/
 shot previewing --light --demo-link --goto 12:3 "$fx/sample.md"
 shot previewing-dark --dark --demo-link --goto 12:3 "$fx/sample.md"
 
+# Emoji presentation: the first line is colour clusters, the second the bare characters (text
+# glyphs); the caret after the keycap on line 3 must sit right after it.
+shot emoji --light "$fx/emoji.txt"
+shot emoji-dark --dark "$fx/emoji.txt"
+shot emoji-caret --light --goto 3:11 "$fx/emoji.txt"
+
 ls "$out" | wc -l

@@ -633,6 +633,8 @@ impl View {
                 b.push(StyleProperty::Brush([c[0], c[1], c[2], 255]), r.clone());
             }
         }
+        // After every default and run style: it must win for the clusters that need emoji.
+        mdshared_text::push_emoji_runs(&mut b, text, &stack);
         let mut layout = b.build(text);
         layout.break_all_lines(None);
         layout.align(Alignment::Start, AlignmentOptions::default());
