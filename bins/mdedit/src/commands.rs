@@ -424,6 +424,8 @@ pub mod strings {
     }
 
     pub const PREVIEW_NEEDS_FILE: &str = "Save the file first: mdview shows files.";
+    pub const PREVIEW_TOO_LARGE: &str =
+        "This file is too large to preview as you type: mdview shows it when you save.";
     pub const PREVIEW_TILING: &str =
         "Place the windows side by side with your desktop's tiling keys.";
     pub const NO_PLACING: &str = "This desktop does not let a window be placed";

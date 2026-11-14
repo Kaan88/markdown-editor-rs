@@ -56,6 +56,8 @@ pub struct Prefs {
     /// Whether a new window wraps long lines.
     pub word_wrap: bool,
     pub restore_session: bool,
+    /// mdview shows the text of a previewed document as it is typed, not only when it is saved.
+    pub live_preview: bool,
 }
 
 impl Default for Prefs {
@@ -75,6 +77,7 @@ impl Default for Prefs {
             minimap: false,
             word_wrap: false,
             restore_session: true,
+            live_preview: true,
         }
     }
 }
@@ -164,6 +167,7 @@ impl Prefs {
                     "restore_session" => {
                         p.restore_session = flag(value).unwrap_or(d.restore_session)
                     }
+                    "live_preview" => p.live_preview = flag(value).unwrap_or(d.live_preview),
                     _ => {}
                 }
             }
@@ -192,6 +196,7 @@ impl Prefs {
         w.line("minimap", b(p.minimap));
         w.line("word_wrap", b(p.word_wrap));
         w.line("restore_session", b(p.restore_session));
+        w.line("live_preview", b(p.live_preview));
         w.finish()
     }
 
@@ -332,6 +337,7 @@ mod tests {
             minimap: true,
             word_wrap: true,
             restore_session: false,
+            live_preview: false,
         };
         let t = p.serialize();
         assert_eq!(Prefs::parse(&t), p);
@@ -347,7 +353,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 15);
+        assert_eq!(t.lines().count(), 16);
         let r = Prefs::parse(&t);
         assert_eq!(
             (r.font_pt, r.tab_width, r.font_family.as_str()),

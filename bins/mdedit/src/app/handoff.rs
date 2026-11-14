@@ -78,10 +78,14 @@ impl App {
             self.docs.links.unlink(id);
             return;
         }
-        let line = self
-            .docs
-            .active_ready()
-            .map(|r| r.buffer.line_of(r.view.sel.caret) as u32 + 1);
+        let ready = self.docs.active_ready();
+        let line = ready.map(|r| r.buffer.line_of(r.view.sel.caret) as u32 + 1);
+        let too_large = ready.is_some_and(|r| r.buffer.len_bytes() > sister::MAX_TEXT);
+        // The viewer reads the file: its text is the document's when nothing is unsaved.
+        let version = ready
+            .zip(self.docs.active_doc())
+            .filter(|(_, d)| !d.modified())
+            .map(|(r, d)| (d.revision, r.buffer.revision()));
         let mut request = Request {
             line,
             from: Some(link::FROM.into()),
@@ -92,8 +96,13 @@ impl App {
         }
         match sister::open(link::VIEWER, &request) {
             Ok(()) => {
-                self.docs.links.link(id, path, line, Instant::now());
+                self.docs
+                    .links
+                    .link(id, path, line, version, Instant::now());
                 self.docs.links.start(self.docs.waker());
+                if too_large && self.docs.prefs.live_preview {
+                    self.docs.set_toast(strings::PREVIEW_TOO_LARGE);
+                }
             }
             Err(text) => self.docs.set_toast(&text),
         }
@@ -430,6 +439,67 @@ mod tests {
         a.docs.close(i, None);
         assert_eq!(a.docs.link_poll(Instant::now()), None);
         assert!(a.docs.links.is_empty());
+        // A viewer that listens: the text follows the edits, the line alone follows the caret,
+        // and ending the link tells the viewer to go back to the file.
+        let viewer = dir.join("viewer.ini");
+        let rx = mdshared_app::single::listen_requests_waking("mdview", &viewer, || {}).unwrap();
+        // SAFETY: as above.
+        unsafe { std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", &viewer) };
+        let i = open_now(&mut a, &path);
+        let id = a.docs.tabs[i].id;
+        a.command(C::PreviewInViewer);
+        assert!(a.docs.links.contains(id));
+        let t0 = Instant::now();
+        let later = |s: u64| t0 + Duration::from_secs(s);
+        let got = || rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let quiet = || rx.recv_timeout(Duration::from_millis(300)).is_err();
+        // Nothing is sent for a document that was not touched.
+        assert_eq!(a.docs.link_poll(later(1)), None);
+        assert!(quiet());
+        a.docs.edit(crate::docs::EditOp::Insert("EDITED "), None);
+        a.docs.link_poll(later(2));
+        let r = got();
+        let now_text = a.docs.active_ready().unwrap().buffer.rope().to_string();
+        assert!(r.follow && r.text.as_deref() == Some(now_text.as_str()));
+        assert!(now_text.starts_with("EDITED line 1") && r.line == Some(1));
+        // Looking again at the same text sends nothing; a caret move sends the line alone.
+        a.docs.link_poll(later(3));
+        assert!(quiet());
+        a.docs.go_to(10, 1);
+        a.docs.link_poll(later(4));
+        let r = got();
+        assert_eq!((r.text, r.line), (None, Some(10)));
+        // The setting off ends the live text; on again, the next change brings it back.
+        a.docs.prefs.live_preview = false;
+        a.docs.link_poll(later(5));
+        assert!(got().live_off);
+        assert_eq!(got().line, Some(10));
+        a.docs.prefs.live_preview = true;
+        a.docs.edit(crate::docs::EditOp::Insert("AGAIN "), None);
+        a.docs.link_poll(later(6));
+        assert!(got().text.is_some_and(|t| t.contains("AGAIN line 10")));
+        // A tab that closes, like the command, ends the live text.
+        a.docs.close(i, None);
+        a.docs.link_poll(later(7));
+        assert!(got().live_off);
+        assert!(a.docs.links.is_empty());
+        // A document over the cap is previewed from the file: said once, and no text is sent.
+        let big = dir.join("big.md");
+        std::fs::write(&big, "word\n".repeat(sister::MAX_TEXT / 5 + 10)).unwrap();
+        let i = open_now(&mut a, &big);
+        a.command(C::PreviewInViewer);
+        assert_eq!(
+            a.docs.toast(Instant::now()),
+            Some(strings::PREVIEW_TOO_LARGE)
+        );
+        a.docs.edit(crate::docs::EditOp::Insert("x"), None);
+        a.docs.go_to(5, 1);
+        a.docs.link_poll(later(8));
+        let r = got();
+        assert_eq!((r.text, r.line), (None, Some(5)));
+        a.command(C::PreviewInViewer);
+        assert!(quiet(), "nothing was live, so nothing to end");
+        a.docs.close(i, None);
         // No viewer installed: the reason is the toast, and nothing is linked.
         let bare = dir.join("bare");
         std::fs::create_dir_all(&bare).unwrap();
@@ -484,7 +554,9 @@ mod tests {
         ));
         // Linked, a file of any language lists it, so that it can be stopped.
         let id = a.docs.tabs[r].id;
-        a.docs.links.link(id, rs.clone(), None, Instant::now());
+        a.docs
+            .links
+            .link(id, rs.clone(), None, None, Instant::now());
         assert!(listed(&a, r));
         // A document that has no file cannot be previewed: the command says why.
         a.docs.new_untitled();

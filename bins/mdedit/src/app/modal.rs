@@ -28,6 +28,7 @@ pub const RESTORE_TABS: u32 = 15;
 pub const CHECK_AT_LAUNCH: u32 = 16;
 pub const CHECK_NOW: u32 = 17;
 pub const DEFAULT_APP: u32 = 18;
+pub const LIVE_PREVIEW: u32 = 19;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -129,6 +130,13 @@ pub fn rows(prefs: &Prefs, theme: ThemeChoice, check_updates: bool, look: &str) 
         Row::toggle(WORD_WRAP, "Word wrap for new documents", prefs.word_wrap)
             .help("Alt+Z changes the document you are in."),
         Row::choice(THEME, "Theme", &THEMES, theme_index(theme)),
+        Row::header("Preview"),
+        Row::toggle(
+            LIVE_PREVIEW,
+            "Live preview while typing",
+            prefs.live_preview,
+        )
+        .help("mdview shows the text as you type it. Off: it shows the file when you save."),
         Row::header("Session"),
         Row::toggle(RESTORE_TABS, "Restore tabs at start", prefs.restore_session),
         Row::header("Updates"),
@@ -287,6 +295,7 @@ impl App {
             (MINIMAP, Value::Bool(on)) => p.minimap = on,
             (WORD_WRAP, Value::Bool(on)) => p.word_wrap = on,
             (RESTORE_TABS, Value::Bool(on)) => p.restore_session = on,
+            (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
             (THEME, Value::Choice(i)) => {
                 self.set_theme(theme_of(i));
                 return;

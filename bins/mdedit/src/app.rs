@@ -1861,6 +1861,8 @@ impl ApplicationHandler<Wake> for App {
             self.redraw();
         }
         if self.exit {
+            // The viewer goes back to the files it was showing the text of.
+            self.docs.links.finish();
             self.save_size();
             self.save_session();
             self.trace.cpu("exit");
@@ -2161,7 +2163,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             .active_doc()
             .and_then(|d| Some((d.id, d.path.clone()?)))
     {
-        app.docs.links.link(id, path, None, Instant::now());
+        app.docs.links.link(id, path, None, None, Instant::now());
     }
     app.shot_compare();
     // Wait for the colours of the visible lines.
