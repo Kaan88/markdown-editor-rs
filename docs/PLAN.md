@@ -117,6 +117,30 @@ above, measured before and after.
   needs the client-margin shadow route, because KWin's shadow route leaves the window opaque and
   square.
 
+## Later (owner request 2026-11-15): a frosted window (Mica, Acrylic, blur on Wayland)
+
+On the roadmap, after the next release, for both apps (the code goes in the shared crates). Nothing
+is built and nothing below was tried in this code: it is what the platforms offer.
+
+- **Windows 11:** the system draws it. One DWM call (`DWMWA_SYSTEMBACKDROP_TYPE`, Windows 11 22H2
+  and later) chooses Mica, Mica Alt or Acrylic. It shows only where the window's own pixels are
+  transparent, and softbuffer presents through GDI, which does not reliably carry an alpha channel.
+  That is the open question: either GDI carries it, or the Windows present path needs what the
+  softbuffer fork already does for Wayland (ARGB buffers). Windows 10 has no supported way: flat
+  colour there.
+- **Linux, Wayland:** KDE has a blur-behind protocol, and the window already has an ARGB surface
+  where the client-drawn margin is used (the same route question as the rounded corners). GNOME
+  offers applications no blur: flat colour there. Other compositors: only where a blur protocol
+  exists. X11: under KWin only.
+- **Where:** behind the chrome only (title row, tab strip, Files pane, status strip). The text area
+  stays opaque: text is blended against a known colour and reads worse over a shifting backdrop.
+- **Rules:** a setting that includes "off"; every surface keeps its flat colour as the fallback
+  (Mica is flat when the window is inactive, on battery saver, or with transparency effects off);
+  the budgets hold (the system does the blur, the app pays nothing per frame).
+- **First step:** a spike on Windows: one window, the DWM call and a transparent title row. It
+  answers the GDI alpha question and says whether this is a small feature or a change to how the
+  window is presented. Then the same on KDE Wayland.
+
 ## What it is
 
 From the viewer's plan (section E, 2026-11-11): the user wants, for personal use, "an editor as
