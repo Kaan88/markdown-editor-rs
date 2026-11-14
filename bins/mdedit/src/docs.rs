@@ -25,6 +25,7 @@ use mdedit_core::lines;
 use mdedit_core::load::{self, LoadError, LoadOptions, Loaded};
 use mdedit_core::markdown;
 use mdedit_core::multi::{self, MultiOp};
+use mdedit_core::multiline::{self, LineOp};
 use mdedit_core::prefs::Prefs;
 use mdedit_core::replace;
 use mdedit_core::save::{self, SaveError};
@@ -2018,6 +2019,21 @@ impl Docs {
                 Some(strings::NOT_MARKDOWN)
             }
             EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
+                if !r.view.extra.is_empty() =>
+            {
+                line_op(&op, "", 0, "")
+                    .filter(|o| {
+                        let (list, at) = selections(r);
+                        multiline::too_large(&r.buffer, &list, at, *o)
+                    })
+                    .map(|_| strings::BLOCK_TOO_LARGE)
+            }
+            EditOp::JoinLines if !r.view.extra.is_empty() => {
+                let (list, at) = selections(r);
+                multiline::too_large(&r.buffer, &list, at, LineOp::Join)
+                    .then_some(strings::BLOCK_TOO_LARGE)
+            }
+            EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
                 if lines::block_too_large(&r.buffer, r.view.sel, true) =>
             {
                 Some(strings::BLOCK_TOO_LARGE)
@@ -2088,13 +2104,16 @@ impl Docs {
                 op,
                 EditOp::MdWrap(_) | EditOp::MdLink | EditOp::SaveOptions(_)
             )
+            && line_op(&op, "", 0, "").is_none()
         {
             r.view.extra.clear();
         }
         r.view.column = None;
         // The typing help goes first, for one character typed, Enter, Backspace and (in Markdown)
         // Tab and Shift+Tab; `None` is the plain edit below.
-        let typed = typing_edit(r, &op, eol).or_else(|| markdown_edit(r, &op));
+        let typed = typing_edit(r, &op, eol)
+            .or_else(|| markdown_edit(r, &op))
+            .or_else(|| line_edit(r, &op, eol, comment.unwrap_or_default()));
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.view.sel);
         let out = if let Some(out) = typed {
             out
@@ -2935,6 +2954,56 @@ fn typing_edit(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
         return None;
     }
     let primary = primary.min(list.len() - 1);
+    let sel = list.remove(primary);
+    r.view.extra = list;
+    Some(Outcome { sel, ..out })
+}
+
+/// The selections of `r` in document order and where the primary is among them.
+fn selections(r: &Ready) -> (Vec<Selection>, usize) {
+    let at = r
+        .view
+        .extra
+        .partition_point(|s| s.range().start < r.view.sel.range().start);
+    let mut list = r.view.extra.clone();
+    list.insert(at, r.view.sel);
+    (list, at)
+}
+
+/// The line command `op` is, for [`multiline`]; `None` for any other op.
+fn line_op<'a>(op: &EditOp<'_>, eol: &'a str, tab: usize, comment: &'a str) -> Option<LineOp<'a>> {
+    Some(match op {
+        EditOp::DuplicateLines => LineOp::Duplicate(eol),
+        EditOp::MoveLines(down) => LineOp::Move(*down),
+        EditOp::DeleteLines => LineOp::Delete,
+        EditOp::ToggleComment => LineOp::Comment(comment),
+        EditOp::Case(upper) => LineOp::Case(*upper),
+        EditOp::TrimTrailing => LineOp::Trim,
+        EditOp::TabsToSpaces => LineOp::TabsToSpaces(tab),
+        EditOp::LineEndings(to) => LineOp::LineEndings(to),
+        EditOp::SortLines(order) => LineOp::Sort(*order),
+        EditOp::ReverseLines => LineOp::Reverse,
+        EditOp::UniqueLines => LineOp::Unique,
+        EditOp::JoinLines => LineOp::Join,
+        EditOp::MdHeading => LineOp::Heading,
+        EditOp::MdTable => LineOp::Table,
+        _ => return None,
+    })
+}
+
+/// The line commands with several carets: each acts on every selection, as one undo step (the
+/// rules are in `mdedit_core::multiline`). `None` with one caret, or for any other command.
+fn line_edit(r: &mut Ready, op: &EditOp, eol: &str, comment: &str) -> Option<Outcome> {
+    if r.view.extra.is_empty() {
+        return None;
+    }
+    let op = line_op(op, eol, crate::live::tab_width(), comment)?;
+    let (list, at) = selections(r);
+    let (out, mut list, primary) = multiline::run(&mut r.buffer, &mut r.history, &list, at, op);
+    let primary = primary.min(list.len().saturating_sub(1));
+    if list.is_empty() {
+        return None;
+    }
     let sel = list.remove(primary);
     r.view.extra = list;
     Some(Outcome { sel, ..out })
@@ -4226,10 +4295,45 @@ mod tests {
         assert_eq!(primary, 2);
         assert!(d.edit(EditOp::Insert("#"), None));
         assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n");
-        // A command that is not typing goes on with the primary alone.
+        // A line command acts at every caret, as one undo step, and the carets stay.
         assert!(d.edit(EditOp::DuplicateLines, None));
-        assert!(d.tabs[i].ready().unwrap().view.extra.is_empty());
-        assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n-#three\n");
+        assert_eq!(d.tabs[i].ready().unwrap().view.extra.len(), 2);
+        assert_eq!(
+            text_of(&d, i),
+            "-#one\n-#one\n-#two\n-#two\n-#three\n-#three\n"
+        );
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn line_commands_act_at_every_caret_as_one_undo_step() {
+        let (mut d, i, _path, dir) = file_docs("multiline", b"b\na\nz\nd\nc\n");
+        let r = d.tabs[i].ready_mut().unwrap();
+        // Two carets, one on each of two lines far apart: delete both lines.
+        r.view.sel = Selection::at(0);
+        r.add_caret(8);
+        assert!(d.edit(EditOp::DeleteLines, None));
+        assert_eq!(text_of(&d, i), "a\nz\nd\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "b\na\nz\nd\nc\n");
+        // Two selections over separate blocks sort each block alone.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.view.sel = Selection {
+            anchor: 0,
+            caret: 4,
+            goal_col: None,
+        };
+        r.view.extra = vec![Selection {
+            anchor: 6,
+            caret: 10,
+            goal_col: None,
+        }];
+        assert!(d.edit(EditOp::SortLines(lines::SortOrder::Ascending), None));
+        assert_eq!(text_of(&d, i), "a\nb\nz\nc\nd\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "b\na\nz\nd\nc\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

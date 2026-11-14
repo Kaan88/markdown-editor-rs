@@ -236,6 +236,19 @@ fn head_lines(buf: &Buffer, first: usize, last: usize) -> Vec<HeadLine> {
 fn set_heading(buf: &mut Buffer, hist: &mut History, sel: Selection, level: usize) -> Outcome {
     let r = clamped(buf, sel);
     let (first, last) = touched_lines(buf, &r);
+    set_heading_pts(buf, hist, sel, level, (first, last), &mut [])
+}
+
+/// [`set_heading`], also moving `pts` (offset, whether an insertion at the offset pushes it
+/// along) as the text of the lines changes: the other selections' ends, for [`crate::multiline`].
+fn set_heading_pts(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    level: usize,
+    (first, last): (usize, usize),
+    pts: &mut [(usize, bool)],
+) -> Outcome {
     let lines = head_lines(buf, first, last);
     let want = "#".repeat(level);
     // (position, bytes removed, text inserted), ascending.
@@ -284,6 +297,9 @@ fn set_heading(buf: &mut Buffer, hist: &mut History, sel: Selection, level: usiz
         caret: map(sel.caret, sel.is_empty() || sel.caret == high),
         goal_col: None,
     };
+    for p in pts.iter_mut() {
+        p.0 = map(p.0, p.1);
+    }
     let mut cmd = Cmd::new(buf);
     for (pos, rem, text) in edits.iter().rev() {
         cmd.replace(*pos..pos + rem, text);
@@ -317,13 +333,24 @@ pub fn toggle_heading(buf: &mut Buffer, hist: &mut History, sel: Selection, leve
 /// alike).
 pub fn cycle_heading(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
     let r = clamped(buf, sel);
-    let (first, last) = touched_lines(buf, &r);
+    let lines = touched_lines(buf, &r);
+    cycle_heading_pts(buf, hist, sel, lines, &mut [])
+}
+
+/// [`cycle_heading`] that also moves `pts` (see `set_heading_pts`).
+pub(crate) fn cycle_heading_pts(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    (first, last): (usize, usize),
+    pts: &mut [(usize, bool)],
+) -> Outcome {
     let lines = head_lines(buf, first, last);
     let Some(l) = lines.iter().find(|l| !l.blank) else {
         return nothing(sel);
     };
     let now = l.head.map_or(0, |(_, h, _)| h);
-    set_heading(buf, hist, sel, (now + 1) % 7)
+    set_heading_pts(buf, hist, sel, (now + 1) % 7, (first, last), pts)
 }
 
 // ---- tables
@@ -421,6 +448,17 @@ struct Row {
 /// table is over [`TABLE_ROWS`] rows, [`TABLE_COLS`] columns, [`TABLE_LINE_BYTES`] bytes per
 /// line or [`TABLE_BYTES`] in all, or when it is already lined up.
 pub fn format_table(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
+    format_table_pts(buf, hist, sel, &mut [])
+}
+
+/// [`format_table`] that also moves `pts` (offsets) as the table's rows change, like a selection
+/// end: the other selections' ends, for [`crate::multiline`].
+pub(crate) fn format_table_pts(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    pts: &mut [usize],
+) -> Outcome {
     let len = buf.len_bytes();
     let caret = buf.floor_char(sel.caret.min(len));
     let line = buf.line_of(caret);
@@ -594,6 +632,9 @@ pub fn format_table(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Out
         caret: map(sel.caret.min(len)),
         goal_col: None,
     };
+    for p in pts.iter_mut() {
+        *p = map((*p).min(len));
+    }
     let mut cmd = Cmd::new(buf);
     for c in changes.iter().rev() {
         cmd.replace(c.row.range.clone(), c.new);

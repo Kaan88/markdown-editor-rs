@@ -22,6 +22,7 @@ pub mod lines;
 pub mod load;
 pub mod markdown;
 pub mod multi;
+pub mod multiline;
 pub mod prefs;
 pub mod replace;
 pub mod replace_files;

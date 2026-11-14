@@ -46,6 +46,18 @@ fn text_of(buf: &Buffer, range: Range<usize>) -> String {
 pub fn duplicate_lines(buf: &mut Buffer, hist: &mut History, sel: Selection, eol: &str) -> Outcome {
     let r = clamped(buf, sel);
     let (first, last) = touched_lines(buf, &r);
+    duplicate_range(buf, hist, sel, first, last, eol)
+}
+
+/// [`duplicate_lines`] for the lines `first..=last`; `sel` is moved by the copy's distance.
+pub(crate) fn duplicate_range(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    first: usize,
+    last: usize,
+    eol: &str,
+) -> Outcome {
     let start = buf.line_start(first);
     let end = buf.line_range_with_break(last).end;
     let mut text = String::new();
@@ -82,6 +94,19 @@ pub fn move_lines(
 ) -> Outcome {
     let r = clamped(buf, sel);
     let (first, last) = touched_lines(buf, &r);
+    move_range(buf, hist, sel, first, last, down)
+}
+
+/// [`move_lines`] for the lines `first..=last`; `sel` is carried with them.
+pub(crate) fn move_range(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    first: usize,
+    last: usize,
+    down: bool,
+) -> Outcome {
+    let r = clamped(buf, sel);
     // The region: the block and the one line it swaps with.
     let (r0, r1) = if down {
         if last + 1 >= buf.len_lines() {
@@ -164,6 +189,17 @@ pub fn move_lines(
 pub fn delete_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
     let r = clamped(buf, sel);
     let (first, last) = touched_lines(buf, &r);
+    delete_range(buf, hist, sel, first, last)
+}
+
+/// [`delete_lines`] for the lines `first..=last`; the caret's column is that of `sel.caret`.
+pub(crate) fn delete_range(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    first: usize,
+    last: usize,
+) -> Outcome {
     let start = buf.line_start(first);
     let end = buf.line_range_with_break(last).end;
     let caret = buf.floor_char(sel.caret);
@@ -227,6 +263,79 @@ fn line_info(buf: &Buffer, line: usize, prefix: &str) -> LineInfo {
     info
 }
 
+/// What a line comment toggle does to some lines: ascending (position, bytes removed) edits,
+/// inserting being `removed == 0`, and how a selection end maps through them.
+pub(crate) struct CommentPlan {
+    edits: Vec<(usize, usize)>,
+    stay: bool,
+    inserted: String,
+}
+
+impl CommentPlan {
+    /// Where the offset `p` of the text before the edits is after them.
+    pub(crate) fn map(&self, p: usize) -> usize {
+        let mut q = p;
+        for &(pos, rem) in &self.edits {
+            if rem == 0 {
+                if p > pos || (p == pos && !self.stay) {
+                    q += self.inserted.len();
+                }
+            } else if p >= pos + rem {
+                q -= rem;
+            } else if p > pos {
+                q -= p - pos;
+            }
+        }
+        q
+    }
+
+    /// Makes the edits, back to front.
+    pub(crate) fn apply(&self, cmd: &mut Cmd<'_>) {
+        for &(pos, rem) in self.edits.iter().rev() {
+            cmd.replace(pos..pos + rem, if rem == 0 { &self.inserted } else { "" });
+        }
+    }
+}
+
+/// The toggle of `prefix` over `lines` (ascending, no repeats): see [`toggle_comment`]. When every
+/// line is blank, `caret_lines` (inside `lines`) are the ones commented, each at the end of its
+/// indentation, the caret after the comment. `None` when `prefix` or `lines` is empty.
+pub(crate) fn comment_plan(
+    buf: &Buffer,
+    lines: &[usize],
+    caret_lines: &[usize],
+    prefix: &str,
+) -> Option<CommentPlan> {
+    if prefix.is_empty() || lines.is_empty() {
+        return None;
+    }
+    let infos: Vec<LineInfo> = lines.iter().map(|&l| line_info(buf, l, prefix)).collect();
+    let inserted = format!("{prefix} ");
+    let mut edits: Vec<(usize, usize)> = Vec::new();
+    let mut stay = true;
+    let solid: Vec<&LineInfo> = infos.iter().filter(|i| !i.blank).collect();
+    if solid.is_empty() {
+        for &line in caret_lines {
+            if let Ok(k) = lines.binary_search(&line) {
+                edits.push((infos[k].start + infos[k].indent, 0));
+            }
+        }
+        stay = false;
+    } else if solid.iter().all(|i| i.commented) {
+        for i in &solid {
+            edits.push((i.start + i.indent, prefix.len() + usize::from(i.space)));
+        }
+    } else {
+        let col = solid.iter().map(|i| i.indent).min().unwrap_or(0);
+        edits.extend(solid.iter().map(|i| (i.start + col, 0)));
+    }
+    Some(CommentPlan {
+        edits,
+        stay,
+        inserted,
+    })
+}
+
 /// Line comments over the lines of the selection, blank lines ignored. When every other line
 /// starts (after its indentation) with `prefix`, removes it and one space after it, if there is
 /// one, from each. Otherwise inserts `prefix` and a space at the smallest indentation of those
@@ -242,51 +351,17 @@ pub fn toggle_comment(
     sel: Selection,
     prefix: &str,
 ) -> Outcome {
-    if prefix.is_empty() {
-        return nothing(sel);
-    }
     let r = clamped(buf, sel);
     let (first, last) = touched_lines(buf, &r);
-    let infos: Vec<LineInfo> = (first..=last).map(|l| line_info(buf, l, prefix)).collect();
-    let inserted = format!("{prefix} ");
-    // Ascending (position, bytes removed); inserting is `removed == 0`.
-    let mut edits: Vec<(usize, usize)> = Vec::new();
-    let mut stay = true;
-    let solid: Vec<&LineInfo> = infos.iter().filter(|i| !i.blank).collect();
-    if solid.is_empty() {
-        let caret = buf.floor_char(sel.caret);
-        let line = buf.line_of(caret).clamp(first, last);
-        let i = &infos[line - first];
-        edits.push((i.start + i.indent, 0));
-        stay = false;
-    } else if solid.iter().all(|i| i.commented) {
-        for i in &solid {
-            edits.push((i.start + i.indent, prefix.len() + usize::from(i.space)));
-        }
-    } else {
-        let col = solid.iter().map(|i| i.indent).min().unwrap_or(0);
-        edits.extend(solid.iter().map(|i| (i.start + col, 0)));
-    }
-    let map = |p: usize| {
-        let mut q = p;
-        for &(pos, rem) in &edits {
-            if rem == 0 {
-                if p > pos || (p == pos && !stay) {
-                    q += inserted.len();
-                }
-            } else if p >= pos + rem {
-                q -= rem;
-            } else if p > pos {
-                q -= p - pos;
-            }
-        }
-        q
+    let lines: Vec<usize> = (first..=last).collect();
+    let caret = buf.floor_char(sel.caret);
+    let caret_line = buf.line_of(caret).clamp(first, last);
+    let Some(plan) = comment_plan(buf, &lines, &[caret_line], prefix) else {
+        return nothing(sel);
     };
-    let after = sel_of(map(sel.anchor), map(sel.caret));
+    let after = sel_of(plan.map(sel.anchor), plan.map(sel.caret));
     let mut cmd = Cmd::new(buf);
-    for &(pos, rem) in edits.iter().rev() {
-        cmd.replace(pos..pos + rem, if rem == 0 { &inserted } else { "" });
-    }
+    plan.apply(&mut cmd);
     cmd.finish(hist, Kind::Other, sel, after)
 }
 
@@ -582,15 +657,26 @@ pub enum SortOrder {
 /// final break.
 fn block_lines(buf: &Buffer, sel: Selection, whole_if_empty: bool) -> (usize, usize) {
     let r = clamped(buf, sel);
-    let (first, mut last) = if r.is_empty() && whole_if_empty {
+    let (first, last) = if r.is_empty() && whole_if_empty {
         (0, buf.len_lines() - 1)
     } else {
         touched_lines(buf, &r)
     };
+    block_range(buf, first, last)
+}
+
+/// The block of `first..=last` for the whole-block commands: a last line that is empty and has
+/// no break is left out when other lines remain.
+pub(crate) fn block_range(buf: &Buffer, first: usize, mut last: usize) -> (usize, usize) {
     if last > first && buf.line_range_with_break(last).is_empty() {
         last -= 1;
     }
     (first, last)
+}
+
+/// The block `first..=last` is over [`LINE_BLOCK_BYTES`].
+pub(crate) fn range_too_large(buf: &Buffer, first: usize, last: usize) -> bool {
+    buf.line_range_with_break(last).end - buf.line_start(first) > LINE_BLOCK_BYTES
 }
 
 /// Whether the block `sort_lines`, `unique_lines`, `reverse_lines` or `join_lines` would work on
@@ -599,7 +685,7 @@ fn block_lines(buf: &Buffer, sel: Selection, whole_if_empty: bool) -> (usize, us
 /// alone.
 pub fn block_too_large(buf: &Buffer, sel: Selection, whole_if_empty: bool) -> bool {
     let (first, last) = block_lines(buf, sel, whole_if_empty);
-    buf.line_range_with_break(last).end - buf.line_start(first) > LINE_BLOCK_BYTES
+    range_too_large(buf, first, last)
 }
 
 /// The lines `first..=last` as their texts (without breaks) and their breaks.
@@ -672,7 +758,19 @@ pub fn sort_lines(
     order: SortOrder,
 ) -> Outcome {
     let (first, last) = block_lines(buf, sel, true);
-    if first == last || block_too_large(buf, sel, true) {
+    sort_range(buf, hist, sel, first, last, order)
+}
+
+/// [`sort_lines`] for the block `first..=last` (as [`block_lines`] gives it).
+pub(crate) fn sort_range(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    first: usize,
+    last: usize,
+    order: SortOrder,
+) -> Outcome {
+    if first == last || range_too_large(buf, first, last) {
         return nothing(sel);
     }
     let (texts, breaks) = read_block(buf, first, last);
@@ -709,7 +807,18 @@ fn fold_case(s: &str) -> String {
 /// [`LINE_BLOCK_BYTES`].
 pub fn reverse_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
     let (first, last) = block_lines(buf, sel, true);
-    if first == last || block_too_large(buf, sel, true) {
+    reverse_range(buf, hist, sel, first, last)
+}
+
+/// [`reverse_lines`] for the block `first..=last`.
+pub(crate) fn reverse_range(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    first: usize,
+    last: usize,
+) -> Outcome {
+    if first == last || range_too_large(buf, first, last) {
         return nothing(sel);
     }
     let (mut texts, breaks) = read_block(buf, first, last);
@@ -727,7 +836,18 @@ pub fn reverse_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Ou
 /// Nothing when there is no duplicate, or the block is over [`LINE_BLOCK_BYTES`].
 pub fn unique_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outcome {
     let (first, last) = block_lines(buf, sel, true);
-    if first == last || block_too_large(buf, sel, true) {
+    unique_range(buf, hist, sel, first, last)
+}
+
+/// [`unique_lines`] for the block `first..=last`.
+pub(crate) fn unique_range(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    first: usize,
+    last: usize,
+) -> Outcome {
+    if first == last || range_too_large(buf, first, last) {
         return nothing(sel);
     }
     let (texts, breaks) = read_block(buf, first, last);
@@ -773,6 +893,19 @@ pub fn join_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outco
     if first == last {
         last = first + 1;
     }
+    join_range(buf, hist, sel, first, last, r.is_empty())
+}
+
+/// [`join_lines`] for the lines `first..=last` (`last` after `first`): with `caret` the caret
+/// goes to the first join point, else the selection covers the joined line.
+pub(crate) fn join_range(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    first: usize,
+    last: usize,
+    caret: bool,
+) -> Outcome {
     if last >= buf.len_lines()
         || buf.line_range_with_break(last).end - buf.line_start(first) > LINE_BLOCK_BYTES
     {
@@ -792,7 +925,7 @@ pub fn join_lines(buf: &mut Buffer, hist: &mut History, sel: Selection) -> Outco
     }
     let start = buf.line_start(first);
     let end = start + (from - start) + joined.len();
-    let after = if r.is_empty() {
+    let after = if caret {
         Selection::at(from)
     } else {
         sel_of(start, end)
