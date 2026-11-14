@@ -832,3 +832,47 @@ fn the_wheel_never_reaches_the_text_while_the_palette_is_open() {
     assert_eq!(top(&a), 0.0);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn replace_over_several_lines_offers_the_selection_after_escape_or_the_close_button() {
+    let dir = scratch("replscope");
+    std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+    let mut a = app();
+    open_now(&mut a, &dir.join("a.txt"));
+    let select = |a: &mut App, from: usize, to: usize| {
+        a.docs.active_ready_mut().unwrap().view.sel = Selection {
+            anchor: from,
+            caret: to,
+            goal_col: None,
+        };
+    };
+    let scope = |a: &App| {
+        let r = a.docs.active_ready().unwrap();
+        (r.view.replace_scope.clone(), r.view.scope_on)
+    };
+    // Order one: open the strip over a caret, Escape in the find box (the strip stays open, the
+    // keyboard goes to the text), select several lines, Ctrl+H again.
+    a.command(C::Replace);
+    assert!(a.ui.replace_open && scope(&a).0.is_none());
+    press(&mut a, KeyName::Escape, None);
+    assert!(a.ui.replace_open && !a.ui.find_focused);
+    select(&mut a, 1, 10);
+    a.command(C::Replace);
+    assert_eq!(scope(&a), (Some(1..10), true));
+    // Pressed again over a caret-only change of selection, the range is kept.
+    select(&mut a, 2, 2);
+    a.command(C::Replace);
+    assert_eq!(scope(&a), (Some(1..10), true));
+    // Order two: close with the button first, then open over the selection.
+    a.close_replace();
+    assert_eq!(scope(&a), (None, false));
+    select(&mut a, 1, 10);
+    a.command(C::Replace);
+    assert_eq!(scope(&a), (Some(1..10), true));
+    // Ctrl+H with the find box focused and the strip closed behaves the same.
+    a.close_replace();
+    a.command(C::Find);
+    a.command(C::Replace);
+    assert_eq!(scope(&a), (Some(1..10), true));
+    let _ = std::fs::remove_dir_all(&dir);
+}

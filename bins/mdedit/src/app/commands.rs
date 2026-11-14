@@ -1127,9 +1127,7 @@ impl App {
             C::Replace => {
                 // A selection over several lines is what Replace is limited to, until the
                 // strip closes.
-                if !self.ui.replace_open {
-                    self.docs.capture_replace_scope();
-                }
+                self.docs.capture_replace_scope(self.ui.replace_open);
                 // With a query already there, the next thing to type is what replaces it.
                 self.ui.replace_open = true;
                 self.ui.focus_field(if self.ui.find.is_empty() {

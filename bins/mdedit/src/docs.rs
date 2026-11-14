@@ -2660,12 +2660,19 @@ impl Docs {
     /// search, `find_next` looks further from the caret.
     /// When the replace strip opens: a selection over more than one line becomes the range
     /// Replace is limited to, with its toggle on; any other leaves no range.
-    pub fn capture_replace_scope(&mut self) {
+    ///
+    /// `already_open`: the strip was open (Escape only takes the keyboard out of the find box,
+    /// it does not close the strip) and Replace is asked again: a selection over several lines
+    /// then becomes the range, as on opening; any other leaves what the strip has as it is.
+    pub fn capture_replace_scope(&mut self, already_open: bool) {
         let Some(r) = self.active_ready_mut() else {
             return;
         };
         let range = r.view.sel.range();
         let multi = r.buffer.line_of(range.start) != r.buffer.line_of(range.end);
+        if already_open && !multi {
+            return;
+        }
         r.view.replace_scope = multi.then_some(range);
         r.view.scope_on = multi;
         r.fit_current_to_scope();
@@ -3468,7 +3475,7 @@ mod tests {
             caret: 6,
             goal_col: None,
         };
-        d.capture_replace_scope();
+        d.capture_replace_scope(false);
         let r = d.tabs[i].ready().unwrap();
         assert_eq!(
             (r.view.replace_scope.clone(), r.view.scope_on),
@@ -3492,14 +3499,14 @@ mod tests {
             caret: 1,
             goal_col: None,
         };
-        d.capture_replace_scope();
+        d.capture_replace_scope(false);
         assert_eq!(d.tabs[i].ready().unwrap().view.replace_scope, None);
         d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 0,
             caret: 4,
             goal_col: None,
         };
-        d.capture_replace_scope();
+        d.capture_replace_scope(false);
         d.clear_replace_scope();
         assert_eq!(d.tabs[i].ready().unwrap().view.replace_scope, None);
         std::fs::remove_dir_all(dir).ok();
@@ -3515,7 +3522,7 @@ mod tests {
             caret: 6,
             goal_col: None,
         };
-        d.capture_replace_scope();
+        d.capture_replace_scope(false);
         let r = d.tabs[i].ready().unwrap();
         assert_eq!(r.find.matches.len(), 5);
         assert_eq!(r.match_window(), 1..3);

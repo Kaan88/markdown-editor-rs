@@ -2144,7 +2144,7 @@ impl App {
         }
         if a.replace.is_some() {
             // The strip opens over the selection, as the Replace command would have it.
-            self.docs.capture_replace_scope();
+            self.docs.capture_replace_scope(false);
         }
         if let Some(text) = &a.type_text {
             self.docs.edit(EditOp::Insert(text), self.service.as_ref());
