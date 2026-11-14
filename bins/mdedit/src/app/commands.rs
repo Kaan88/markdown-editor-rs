@@ -4,6 +4,7 @@
 use super::*;
 use crate::commands::CommandId as C;
 use crate::docs::{EditOp, SaveFailed};
+use crate::image_paste;
 use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
 use mdedit_core::find::Query;
@@ -419,6 +420,41 @@ impl App {
     fn paste(&mut self) {
         if let Some(text) = platform::clipboard_text().filter(|t| !t.is_empty()) {
             self.edit(EditOp::Paste(&text));
+        } else {
+            self.paste_image();
+        }
+    }
+
+    /// A paste with no text on the clipboard: an image goes beside a saved Markdown document as
+    /// a PNG and its link goes in at the caret, as one undo step (the file stays). An unsaved
+    /// document has no folder yet, so it only says so. Anything else is left as it was.
+    fn paste_image(&mut self) {
+        let Some(doc) = self.docs.active_doc() else {
+            return;
+        };
+        let path = doc.path.clone();
+        if path.is_some() && !doc.is_markdown() {
+            return;
+        }
+        let Some(png) = platform::clipboard_png() else {
+            return;
+        };
+        let Some(path) = path else {
+            self.docs.set_toast(image_paste::SAVE_FIRST);
+            return;
+        };
+        match image_paste::save_png(&path, &png) {
+            Ok(saved) => {
+                if self.edit(EditOp::Paste(&saved.link)) {
+                    self.docs.set_toast(&image_paste::saved_toast(&saved.name));
+                } else {
+                    // The text could not go in (a read-only document): no stray file.
+                    let _ = std::fs::remove_file(&saved.path);
+                }
+            }
+            Err(e) => self
+                .docs
+                .set_toast(&format!("Could not save the image: {e}")),
         }
     }
 

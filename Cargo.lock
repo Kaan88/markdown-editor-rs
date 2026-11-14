@@ -1326,6 +1326,7 @@ dependencies = [
  "mdshared-text",
  "mdshared-ui",
  "parley",
+ "png",
  "rfd",
  "ropey",
  "softbuffer",

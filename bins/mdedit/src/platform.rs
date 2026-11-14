@@ -120,6 +120,120 @@ pub fn clipboard_line() -> Option<String> {
     })
 }
 
+/// The clipboard's image as PNG file bytes, or `None` when it holds no image (or one that is not
+/// understood). Windows: the "PNG" format that browsers and screenshot tools offer, else the
+/// bitmap, converted. Read only when a paste finds no text.
+#[cfg(windows)]
+pub fn clipboard_png() -> Option<Vec<u8>> {
+    use crate::image_paste::{MAX_BYTES, dib_to_png, is_png};
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
+    };
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    const CF_DIB: u32 = 8;
+    let mut opened = false;
+    for _ in 0..5 {
+        // SAFETY: OpenClipboard with a null window associates the clipboard with this task.
+        if unsafe { OpenClipboard(std::ptr::null_mut()) } != 0 {
+            opened = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if !opened {
+        return None;
+    }
+    // The bytes of one clipboard format, copied out.
+    let bytes_of = |format: u32| -> Option<Vec<u8>> {
+        // SAFETY: the clipboard is open; the handle stays owned by the system.
+        let h = unsafe { GetClipboardData(format) };
+        if h.is_null() {
+            return None;
+        }
+        // SAFETY: h is a global memory handle from the clipboard.
+        let size = unsafe { GlobalSize(h) };
+        if size == 0 || size > MAX_BYTES {
+            return None;
+        }
+        // SAFETY: as above; the lock is released below.
+        let ptr = unsafe { GlobalLock(h) } as *const u8;
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: ptr points to `size` readable bytes while the lock is held.
+        let copy = unsafe { std::slice::from_raw_parts(ptr, size) }.to_vec();
+        // SAFETY: matches the GlobalLock above.
+        unsafe { GlobalUnlock(h) };
+        Some(copy)
+    };
+    let read = || {
+        let name: [u16; 4] = [u16::from(b'P'), u16::from(b'N'), u16::from(b'G'), 0];
+        // SAFETY: name is NUL-terminated.
+        let png_format = unsafe { RegisterClipboardFormatW(name.as_ptr()) };
+        if png_format != 0
+            && let Some(bytes) = bytes_of(png_format)
+            && is_png(&bytes)
+        {
+            return Some(bytes);
+        }
+        dib_to_png(&bytes_of(CF_DIB)?)
+    };
+    let png = read();
+    // SAFETY: the clipboard was opened by this thread above.
+    unsafe { CloseClipboard() };
+    png
+}
+
+/// The clipboard's image as PNG file bytes, or `None`. The clipboard crate in use reads text only
+/// (its image support pulls in an image library), so this asks the desktop's own tool for the
+/// PNG: `wl-paste` on Wayland, `xclip` on X11, whichever is installed. Neither installed means
+/// no image paste, which is what a paste then does: nothing.
+#[cfg(not(windows))]
+pub fn clipboard_png() -> Option<Vec<u8>> {
+    const WL: (&str, &[&str]) = ("wl-paste", &["--no-newline", "--type", "image/png"]);
+    const X11: (&str, &[&str]) = (
+        "xclip",
+        &["-selection", "clipboard", "-t", "image/png", "-o"],
+    );
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty());
+    let order = if wayland { [WL, X11] } else { [X11, WL] };
+    order
+        .iter()
+        .find_map(|(program, args)| capture_png(program, args))
+}
+
+/// Runs `program` and returns its output when it is a PNG of a sensible size within three
+/// seconds; a tool that hangs on a clipboard owner that does not answer is stopped.
+#[cfg(not(windows))]
+fn capture_png(program: &str, args: &[&str]) -> Option<Vec<u8>> {
+    use crate::image_paste::{MAX_BYTES, is_png};
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stdout.take(MAX_BYTES as u64 + 1).read_to_end(&mut bytes);
+        let _ = tx.send(bytes);
+    });
+    let got = rx.recv_timeout(Duration::from_secs(3)).ok();
+    // Finished or not, nothing more is wanted from it.
+    let _ = child.kill();
+    let _ = child.wait();
+    got.filter(|b| b.len() <= MAX_BYTES && is_png(b))
+}
+
 /// The system's ANSI code page (`GetACP`), for files that are neither UTF-8 nor marked.
 #[cfg(windows)]
 pub fn code_page() -> u32 {
