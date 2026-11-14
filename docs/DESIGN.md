@@ -1462,3 +1462,116 @@ a diff of the whole file, and a low window gives it up before it squeezes the li
 button is greyed and does nothing with no file ticked; replacing with an empty text is allowed (it
 deletes the matches); the panel's find results are cleared when a replacement is made (they are
 out of date) and a new search ends the report and the undo.
+
+## 53. Two views of one document (2026-11-14)
+
+Written before the code. The split view (section 38) shows two tabs; this lets both panes show the
+same tab. Until now a document's caret, scroll, folds, find mark and cached colours were fields of
+`docs.rs` `Ready`, so two panes on one document would have fought over them.
+
+**Shape.** `Ready` keeps what is the text's: the buffer, history, encoding and line endings (`info`
+with the stamps), language, bookmarks, the find query with its match list, the long-line chunk
+indexes, the typing help, the word-wrap flag. `ViewState` holds what is one way of looking at it:
+
+| `ViewState` (per view) | stays in `Ready` (per document) |
+|---|---|
+| `sel`, `extra` (all carets), `column`, the preferred column (`Selection::goal_col`) | `buffer`, `history`, `info`, `revision`, `language`, `colourable`, `assist` |
+| `top`, `top_row`, `row_rest`, `left` | `bookmarks` (lines; shown in both views) |
+| `folds` | `find`: query, options, matches, capped, stale, searching, generation |
+| `rows`, `rows_stamp` (the wrap cache) | `chunks` (indexes of long lines: a function of the text) |
+| `colors`, `map_colors` (and the service request key `slot`) | `wrap` (the setting, copied before each frame) |
+| `find_current` (index of the current match) | `read_only` |
+| `replace_scope`, `scope_on` | |
+| the bracket-pair cache, `widest`, `view_lines`, `view_w`, `advance`, `wide_advance` | |
+| `align` (compare mode's filler rows) | |
+
+Hover and what is pressed live in `ui`, per window; the minimap's plan, its picture cache and its
+window are `App::map_plan`, `map_cache`, `map_lines`, already per pane.
+
+`Ready.view` is always the view of the pane that has the keyboard, so every existing caller
+(`r.view.sel`, `r.view.top`, and the single-pane code paths generally) reads the same fields it
+read as `r.sel`. A document shown in both panes has a second one, `Ready.twin`, the view of the
+pane without the keyboard. Moving the keyboard to the other pane swaps the two (`mem::swap`, no
+copying) and the panes swap sides in `Docs` as they already do for two tabs (`other_left` flips).
+Code that works on the other pane (layout, drawing, its scroll bars, its minimap, its colour
+requests) swaps the twin in for the length of the call and out again (`Docs::with_pane`); it never
+sees a half-state because nothing else runs between. This costs the single-pane case nothing: the
+fields are inline in `Ready` as before and there is no indirection.
+
+`Docs.other` stays "the document in the second pane"; when it is the active document and
+`Docs.same_file` is set, both panes show it. `Docs::other()` (the tab index that is not the active
+one) is `None` then, so everything written for two tabs (compare, "End the split" on close) keeps
+its meaning, and `Docs::pane1()` is the new "the document of the second pane, whichever".
+
+**Folds are per view.** A fold is "these lines are not what I am looking at"; the reason to open a
+second pane is to look at two places, and one of them folded away from the other is a normal use.
+Sharing them would also make a fold in one pane hide the lines under the other's caret and scroll
+position. Each view's folds follow edits by `Folds::shift`, as today; an edit that adds or removes
+lines inside a fold opens it in that view, and `unfold_carets` keeps a caret off hidden lines. The
+fold commands (F9, Shift+F9, Ctrl+F9) and the chevron clicks act on the view that has the keyboard.
+
+**An edit in one view, the other view.** Every edit goes through `Docs::edit_in` and so does Undo
+and Redo; the view that has the keyboard (the acting one) is handled as it is today, including the
+selection a step restores (Undo puts back the step's `sel_before` in the acting view). The twin is
+only mapped through the change: the core's `Change` now also lists its replacements in order
+(`Change::pieces`, empty for the usual single replacement, filled by `Change::merge`), and
+`Change::map_offset` carries an offset through them. That is what multi-caret editing and Replace
+all already do to find where the carets end up, now available for any offset, so a caret between
+two replaced matches stays between them instead of being thrown to the edge of the merged span.
+Mapped: the twin's selections and extra carets (an offset before a replacement stays, inside one
+goes to its start, after one moves by the difference; an insertion at the caret leaves it before
+the inserted text), the scroll line (its start offset is taken before the edit and mapped, the
+fraction and `top_row` kept, so text inserted above keeps the same line on top), the replace
+range, the fold list, the current match, the colour windows (`LineColors::edited`) and nothing
+else: `left` and the geometry stay. The column selection under way is dropped (it only goes on
+while the selections are the ones it made). The twin never reveals its caret: the other view must
+not jump. A reload keeps both views' caret line and column and scroll, as it keeps the one now.
+
+**Highlighting.** The worker holds one parse per document and answered one visible range (`view`
+or `peek`, the same slot) and one minimap range (`map`) for it. Two views of one document need two
+of each, so the requests get a key, `slot` (0 or 1, carried by the `ViewState`, so it follows the
+view when the panes swap), and `Colored` returns it. Per document the worker keeps a request
+record per slot; it still parses the text once, the frontier is shared, and with one slot in use
+it works exactly as before. `view` still names the document whose parse runs on in the
+background; the twin's requests are `peek`s. An edit clears every slot's pending request, as it
+cleared the one.
+
+**Find and replace.** The query, its options and its match list are the document's, so the marks
+show in both panes and the counter ("3 of 12") is the one of the pane that has the keyboard. Next
+and Previous start from the acting view's current match or caret and move it; the other view's
+current match stays until it is used or its match is edited away. A new search puts each view's
+current match at the first match from its own caret. "In selection" is per view: the range is
+taken when the strip opens, from the view that has the keyboard, follows edits in both views, and
+goes when the strip closes. Replace one and Replace all act through the acting view's selection
+and range and are one undo step; the twin is mapped through them.
+
+**Other commands.** Go to line, bookmarks (set and next), fold commands, select all, the clipboard
+commands and everything typed act on the pane that has the keyboard; bookmarks are the document's
+and are drawn in both. A macro plays into the pane that has the keyboard (it records keys, and the
+panes' focus keys are not recordable), so the other pane only follows by mapping. Compare is not
+offered for one document against itself: "Compare with the other pane" is greyed (as it is with no
+split), and "Compare with file…" or "with saved" end the same-file split first. A running
+comparison ends before the same-file split starts. Each pane has its own minimap, with its own
+band, find marks and caret mark.
+
+**Panes and tabs.** "Show this file in the other pane" (View menu, tab menu, palette; no key)
+opens the split with the active document in both panes, or, with a split open on another tab, puts
+the active document in the second pane too (the other tab stays open, not shown). The new view
+starts where the first is: the same caret, scroll and folds. The tab row shows the document once;
+its second-pane underline (section 38) is drawn as two short lines with a gap, one under each half
+of the tab. Closing the tab closes both views. Turning the split off keeps the view that has the
+keyboard as the document's and drops the other. Choosing another tab while the panes show one
+document puts that tab in the pane that has the keyboard, and the document stays in the other
+pane with that pane's view (its caret and scroll are what it keeps), as the second pane's tab did
+before. A click in the other pane, F8, or its minimap give it the keyboard and swap the views.
+
+**Session.** `split=<L|R>|<permille>|<path>` keeps its form. A path that is the active tab's own
+file is a same-file split; an old file never had that, so it loads as before, and a build that
+does not know this reads a new file as "no split" (its `restore_split` refuses the active tab). A
+document without a file is not kept in a split, as before. The second view's caret and scroll are
+not saved, no more than the first's are: it starts as a copy of the first.
+
+**Budgets.** A twin costs one more `ViewState` (the wrap cache and two colour windows, a few kB)
+and the second view's layout and paint, which a second pane already cost. Typing in a document that
+is in both panes does the acting view's work as before plus mapping the twin (a handful of
+offsets) and two colour windows' `edited`; measured in the HANDOFF section for this change.
