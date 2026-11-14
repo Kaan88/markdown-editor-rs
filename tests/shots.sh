@@ -214,6 +214,12 @@ shot compare-scrolled-dark --dark --minimap --next-difference 4 --compare "$fx/c
 shot compare-saved --dark --minimap --type "// edited " --compare-saved "$fx/compare-a.rs"
 shot compare-saved-light --light --type "// edited " --compare-saved "$fx/compare-a.rs"
 shot menu-view-compare --light --menu view "$fx/sample.rs" "$fx/sample.md"
+# Copy a change across: the caret in the first difference, then its lines go to the other side (or
+# come from it) and the comparison is made again; the View menu with the caret in a difference.
+shot compare-copied --light --next-difference 1 --copy-change across --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot compare-taken-dark --dark --next-difference 1 --copy-change take --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot menu-view-compared --light --menu view --next-difference 1 --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot menu-view-compared-dark --dark --menu view --next-difference 1 --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
 
 # Replace in files, in a folder made fresh for each shot (the report shot really replaces).
 rfolder() {

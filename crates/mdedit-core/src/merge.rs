@@ -73,8 +73,7 @@ pub fn replace_lines(
     let start_line = target.start.min(n);
     let end_line = target.end.min(n).max(start_line);
     let mut cmd = Cmd::new(buf);
-    let at;
-    if from.count == 0 {
+    let at = if from.count == 0 {
         if start_line == end_line {
             return nothing(sel);
         }
@@ -86,12 +85,12 @@ pub fn replace_lines(
         }
         let end = cmd.buf.line_range_with_break(end_line - 1).end;
         cmd.replace(start..end, "");
-        at = start;
+        start
     } else if start_line < end_line {
         let start = cmd.buf.line_start(start_line);
         let end = cmd.buf.line_range(end_line - 1).end;
         cmd.replace(start..end, &from.text);
-        at = start;
+        start
     } else {
         let pos = cmd.buf.line_start(start_line);
         let len = cmd.buf.len_bytes();
@@ -112,8 +111,8 @@ pub fn replace_lines(
             ins.push_str(eol);
         }
         cmd.replace(pos..pos, &ins);
-        at = caret;
-    }
+        caret
+    };
     cmd.finish(hist, Kind::Other, sel, Selection::at(at))
 }
 
