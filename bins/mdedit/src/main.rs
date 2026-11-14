@@ -8,6 +8,7 @@ mod chrome;
 mod commands;
 mod compare;
 mod docs;
+mod image_paste;
 mod keys;
 mod link;
 mod live;

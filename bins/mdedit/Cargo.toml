@@ -22,6 +22,8 @@ mdshared-ui.workspace = true
 parley.workspace = true
 # Views softbuffer's u32 pixels as bytes, so presenting is a row memcpy.
 bytemuck.workspace = true
+# The PNG a Windows clipboard bitmap is saved as; already in the build through mdshared-text.
+png = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
