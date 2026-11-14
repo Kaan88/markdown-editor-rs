@@ -5,6 +5,89 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## START HERE: work in progress after mdedit 0.5.1 (written 2026-11-14)
+
+The released state is `main` (mdedit 0.5.1). A large batch of next-release work was started with many
+agents in parallel and then **paused by the owner** (the PC could not carry the load and the token
+cost was too high). Everything is pushed; nothing below is merged into `main`, nothing is released.
+The owner continues from a fresh clone on Windows. Read this section, then
+`docs/next-release/SPECS.md` (the rules every feature follows and one spec per feature).
+
+### How to continue
+
+- One agent at a time, two at most. The owner asked for fewer agents that keep their context and
+  take the next task, not a fresh agent per task, and no separate reviewer agents: the main session
+  reviews every diff and every screenshot critically before a merge ("app is really good, let's
+  not ruin it").
+- Local builds are allowed again (the earlier "do not build locally" was lifted on 2026-11-14).
+  Keep one shared `CARGO_TARGET_DIR` per repository if several worktrees are used: twenty worktrees
+  with their own `target` filled the disk.
+- CI: push the branch and run `gh workflow run ci.yml --ref <branch>`. Do not poll in a loop and do
+  not use `gh run watch` from many agents: the account's GitHub API quota was exhausted once.
+- Each feature branch carries `docs/next/<key>.md` (README text, DESIGN text, release note,
+  handoff notes) instead of edits to the real docs, so branches merge without doc conflicts. The
+  merge folds that file into README, DESIGN, PLAN, HANDOFF and `docs/release-notes/NEXT.md` and
+  deletes it. Branches whose state is WIP may not have it yet.
+- Merge order into `next`: shared branches into the shared repo's `next` first, then the app
+  branch; set every `mdshared-*` pin to the shared `next` head; keep third-party crates in
+  `Cargo.lock` as on `main`. Central tables (menus, commands, keys, strings, settings rows,
+  `tests/shots.sh`) conflict textually: take the union. Check shortcut clashes after each merge.
+- Reserved shortcuts: word completion Ctrl+Space; column selection Alt+Shift+arrows and Alt+drag;
+  find in folder (viewer) Ctrl+Shift+F; presentation (viewer) F5; history (viewer) Alt+Left/Right.
+- Before any release: the owner looks at the interface; a real update followed by a real Restart is
+  tried by hand on Windows and from an AppImage; budgets in `docs/PLAN.md` are measured (nothing in
+  this batch was measured).
+
+### State of every branch
+
+"CI green" means the `ci` workflow passed on Linux and Windows for that exact head. "WIP" means the
+last commit is an interrupted agent's uncommitted work, committed as it was: it may not compile.
+No branch below was reviewed by the main session unless it says so.
+
+| Branch | Feature | Head | State |
+|---|---|---|---|
+| `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; not reviewed; see shared `next` |
+| `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged |
+| `f/table-editing` | Markdown table editing help | `88d5503` | CI green; agent said it passed locally; not reviewed |
+| `f/multicaret-line-commands` | multi-caret in the line commands | `aaba1fa` | CI green; not reviewed |
+| `f/compare-copy-across` | copy a change across in compare | `4d4ff2b` | CI green; not reviewed |
+| `f/paste-image` | paste an image into a Markdown file | `c14ebb3` | CI green; not reviewed |
+| `f/autosave-recovery` | autosave and crash recovery | `4750c39` | CI green; not reviewed |
+| `f/column-selection` | column (block) selection | `3785c7d` | CI green; not reviewed |
+| `f/word-completion` | word completion and snippets | `0a09e78` | **WIP**, never built in this state, no CI |
+| `f/live-preview-unsaved` | live preview of a never-saved file (both apps) | `8019a35` | **not started** (branch equals the plan commit) |
+| `f/finer-sync` | finer scroll sync inside long blocks (both apps) | `8019a35` | **not started** |
+
+"CI green" on a feature branch may be from an earlier interrupted agent's state of the feature:
+read the diff against the spec before trusting that the feature is complete.
+
+### The shared repository (Kaan88/markdown-shared-rs)
+
+`main` is `ce1345d` (what mdedit 0.5.1 pins). Branches that hold work for the above:
+
+| Branch | Head | For | State |
+|---|---|---|---|
+| `next` | `e3d381b` | rounded corners (Corners setting, corner mask, client-route corner cut, DWM preference) | CI **failed** at this head; not looked into |
+| `feat/restart-after-update` | `30aaa8b` | Restart button (`relaunch.rs`, `single::wait_gone`, update bar button) | CI green; reviewed |
+| `feat/settings-single-page` | `ba9d342` | `Form::single_page()` for the viewer's Settings | CI green; reviewed |
+| `f/folder-search` | `bfd0aca` | viewer find-in-folder searcher/results | no CI seen; WIP on the viewer side |
+| `f/copy-rich-text` | `8298204` | HTML writer / clipboard formats | CI **failed** |
+| `f/export-print` | `fc1c559` | export helper | no CI seen |
+
+### Notes from the session
+
+- 0.5.1 / 0.3.1 fixed submenus closing before the pointer reached them (see the release section
+  below). The owner has not yet confirmed it by hand.
+- Restart button: built and reviewed, CI green, but **no real restart was ever performed**. When
+  merging, reword the installed-bar text when Restart is shown (it still says the new version
+  starts the next time the app is opened, next to a button that restarts now).
+- Viewer Settings on one page: reviewed on screenshots. Its `Cargo.lock` also moved `windows-sys`
+  and `base64`; do not carry that. The Linux-only "make default" row was in no screenshot.
+- Rounded corners: owner said "do rounded corners". Work is on `next` in both apps and shared; the
+  apps' `next` CI is green but shared `next` CI failed, and nobody reviewed the result.
+- The Linux worktrees (`~/src/md/wt/*`, `~/src/md/*-next`) and build caches are local to the Linux
+  machine and are not needed: every branch is on GitHub.
+
 ## 1. Where things are
 
 Three public repositories under `Kaan88`, all MIT, all pushed and clean on `main`:
