@@ -382,34 +382,72 @@ impl Popup {
         self.menu.contains(x, y) || self.sub.as_ref().is_some_and(|s| s.menu.contains(x, y))
     }
 
+    /// The parent's item that opened the submenu standing beside it.
+    fn opener(&self) -> Option<usize> {
+        let kind = self.sub.as_ref()?.kind;
+        self.menu
+            .items
+            .iter()
+            .position(|it| it.id.submenu() == Some(kind))
+    }
+
     /// The pointer moved to `(x, y)`; `now` starts the dwell. Returns true if anything changed.
+    ///
+    /// An open submenu is never closed by the move itself, or the pointer could not reach it:
+    /// on its way there it crosses the menu's padding, a separator, or the corner of another
+    /// row. Off the rows the submenu stays; on another row it stays until the pointer has rested
+    /// there for the dwell ([`rested`](Self::rested)).
     pub fn pointer(&mut self, x: f32, y: f32, now: Instant) -> bool {
+        let opener = self.opener();
+        let before = self.menu.hover;
         if let Some(s) = self.sub.as_mut().filter(|s| s.menu.contains(x, y)) {
             // In the submenu: the parent keeps its item lit and nothing is pending.
             self.dwell = None;
-            return s.menu.pointer(x, y);
+            let moved = s.menu.pointer(x, y);
+            self.menu.hover = opener;
+            return moved || before != opener;
         }
         if self.sub.is_some() && !self.menu.contains(x, y) {
             // Outside both menus: the cascade stays as it is.
-            return false;
+            self.dwell = None;
+            self.menu.hover = opener;
+            return before != opener;
         }
-        let mut changed = self.menu.pointer(x, y);
-        let hovered = self.menu.hover;
-        let sub_of_hovered = hovered.and_then(|i| self.menu.items[i].id.submenu());
-        if let Some(s) = &self.sub
-            && sub_of_hovered != Some(s.kind)
-        {
+        self.menu.pointer(x, y);
+        match self.menu.hover {
+            // Between the rows of a menu with a submenu open: its item stays lit.
+            None => {
+                self.dwell = None;
+                if opener.is_some() {
+                    self.menu.hover = opener;
+                }
+            }
+            Some(i) => {
+                let wanted = self.menu.items[i].id.submenu();
+                let open = self.sub.as_ref().map(|s| s.kind);
+                // Something happens after a rest here only if it would change what is open.
+                self.dwell = if wanted == open {
+                    None
+                } else {
+                    match self.dwell {
+                        Some((j, due)) if j == i => Some((j, due)),
+                        _ => Some((i, now + SUBMENU_DWELL)),
+                    }
+                };
+            }
+        }
+        self.menu.hover != before
+    }
+
+    /// The pointer has rested on the dwell's item: returns the submenu to open, or closes the
+    /// open one when the item has none.
+    pub fn rested(&mut self) -> Option<PopupKind> {
+        let (i, _) = self.dwell.take()?;
+        let wanted = self.menu.items.get(i).and_then(|it| it.id.submenu());
+        if wanted.is_none() {
             self.sub = None;
-            changed = true;
         }
-        self.dwell = match hovered {
-            Some(i) if self.sub.is_none() && sub_of_hovered.is_some() => match self.dwell {
-                Some((j, due)) if j == i => Some((j, due)),
-                _ => Some((i, now + SUBMENU_DWELL)),
-            },
-            _ => None,
-        };
-        changed
+        wanted
     }
 }
 
@@ -1149,13 +1187,14 @@ mod popup_tests {
     use mdshared_ui::menu::Item;
     use std::time::Duration;
 
-    /// A parent with a submenu item in its second row, and the two-item submenu that goes
+    /// A parent with submenu items in its second and fourth rows, and the two-item submenu that goes
     /// beside it, both placed in a 600x400 window.
     fn cascade() -> (Popup, Popup) {
         let items = vec![
             Item::new(Act::Theme(ThemeChoice::Dark), "Dark"),
             Item::new(Act::ViewMenu, "View").hint("›"),
             Item::new(Act::Theme(ThemeChoice::Light), "Light"),
+            Item::new(Act::MacroMenu, "Macro").hint("›"),
         ];
         let mut parent = Popup::new(PopupKind::Main, Menu::new(items, 400.0, 20.0, true));
         let mut bm = Bitmap::new(600, 400);
@@ -1209,7 +1248,7 @@ mod popup_tests {
     }
 
     #[test]
-    fn another_item_closes_the_submenu_and_the_submenu_keeps_the_parent_lit() {
+    fn the_submenu_keeps_the_parent_lit_and_another_item_closes_it_after_a_rest() {
         let (mut parent, sub) = cascade();
         let s = sub.menu.rect();
         parent.sub = Some(Box::new(sub));
@@ -1226,10 +1265,68 @@ mod popup_tests {
         parent.pointer(2.0, 390.0, t0);
         assert!(parent.sub.is_some());
         assert_eq!(parent.menu.hover, Some(1));
-        // Another item of the parent closes it.
+        // Another item of the parent does not close it at once, only after a rest there.
         let (x2, y2) = row(&parent, 2);
         assert!(parent.pointer(x2, y2, t0));
-        assert!(parent.sub.is_none());
+        assert!(
+            parent.sub.is_some(),
+            "crossing another row keeps the submenu"
+        );
+        assert_eq!(parent.dwell, Some((2, t0 + SUBMENU_DWELL)));
+        assert_eq!(parent.rested(), None);
+        assert!(parent.sub.is_none(), "resting on a plain item closes it");
+        assert_eq!(parent.dwell, None);
+    }
+
+    /// The bug of 0.5.0: the pointer leaving the opener row sideways crosses the menu's padding,
+    /// where no row is hovered, and that closed the submenu before the pointer reached it.
+    #[test]
+    fn the_pointer_reaches_the_submenu_across_the_padding_and_another_row() {
+        let (mut parent, sub) = cascade();
+        let s = sub.menu.rect();
+        parent.sub = Some(Box::new(sub));
+        let t0 = Instant::now();
+        let (x, y) = row(&parent, 1);
+        parent.pointer(x, y, t0);
+        let m = parent.menu.rect();
+        // Every px from the row's middle to the submenu, along the row and then into the strip
+        // between the rows and the menu's edge.
+        let mut px = x;
+        while px >= m.x {
+            parent.pointer(px, y, t0);
+            assert!(parent.sub.is_some(), "closed at x = {px}");
+            assert_eq!(
+                parent.menu.hover,
+                Some(1),
+                "the opener stays lit at x = {px}"
+            );
+            assert_eq!(parent.dwell, None);
+            px -= 1.0;
+        }
+        // Diagonally, over the next row, and then into the submenu before the dwell is up.
+        let (_, y2) = row(&parent, 2);
+        parent.pointer(m.x + 8.0, y2, t0);
+        assert!(parent.sub.is_some());
+        assert!(parent.dwell.is_some());
+        parent.pointer(s.x + s.w / 2.0, s.y + 12.0, t0 + Duration::from_millis(50));
+        assert!(parent.sub.is_some());
+        assert_eq!(parent.dwell, None, "in the submenu nothing is pending");
+        assert_eq!(parent.menu.hover, Some(1));
+        assert_eq!(parent.rested(), None);
+        assert!(parent.sub.is_some(), "no rest, no close");
+    }
+
+    #[test]
+    fn resting_on_another_submenu_item_swaps_the_submenu() {
+        let (mut parent, sub) = cascade();
+        parent.sub = Some(Box::new(sub));
+        let t0 = Instant::now();
+        let other = 3;
+        let (x, y) = row(&parent, other);
+        parent.pointer(x, y, t0);
+        assert!(parent.sub.is_some());
+        assert_eq!(parent.dwell, Some((other, t0 + SUBMENU_DWELL)));
+        assert_eq!(parent.rested(), Some(PopupKind::Macro));
     }
 
     #[test]

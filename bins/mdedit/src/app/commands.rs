@@ -1582,20 +1582,14 @@ impl App {
             }
         }
         // The pointer resting on a menu item with a submenu; no menu, no timer.
-        if let Some((i, due)) = self.ui.popup.as_ref().and_then(|p| p.dwell) {
+        if let Some((_, due)) = self.ui.popup.as_ref().and_then(|p| p.dwell) {
             if now >= due {
                 let kind = self.ui.popup_kind();
-                let sub = self
-                    .ui
-                    .popup
-                    .as_mut()
-                    .and_then(|p| {
-                        p.dwell = None;
-                        p.menu.items.get(i).and_then(|it| it.id.submenu())
-                    })
-                    .zip(kind);
-                if let Some((sub, kind)) = sub {
-                    self.open_sub(kind, sub, false);
+                let sub = self.ui.popup.as_mut().and_then(Popup::rested);
+                match sub.zip(kind) {
+                    Some((sub, kind)) => self.open_sub(kind, sub, false),
+                    // A rest on a plain item closed the submenu.
+                    None => self.redraw(),
                 }
             } else {
                 at(due);
