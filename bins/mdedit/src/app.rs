@@ -741,10 +741,13 @@ impl App {
                     ui.popup_kind(),
                     self.docs.active().is_some(),
                     has_matches,
-                    self.docs
-                        .updates
-                        .bar()
-                        .map(|s| crate::updater::Updates::bar_label(&crate::updater::APP, s)),
+                    (
+                        self.docs
+                            .updates
+                            .bar()
+                            .map(|s| crate::updater::Updates::bar_label(&crate::updater::APP, s)),
+                        self.docs.updates.relaunch_target().is_some(),
+                    ),
                 ))
             }
             Region::Files if ui.outline.on => {
