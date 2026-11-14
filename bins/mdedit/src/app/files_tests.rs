@@ -16,7 +16,8 @@ static NEXT: AtomicU32 = AtomicU32::new(0);
 /// A fresh scratch folder.
 pub(super) fn scratch(tag: &str) -> PathBuf {
     let n = NEXT.fetch_add(1, AtomicOrdering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("mdedit-{tag}-{}-{n}", std::process::id()));
+    let dir = mdshared_app::paths::canonical_or_absolute(&std::env::temp_dir())
+        .join(format!("mdedit-{tag}-{}-{n}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir

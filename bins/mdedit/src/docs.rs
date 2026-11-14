@@ -3049,7 +3049,8 @@ mod tests {
     }
 
     fn file_docs(name: &str, text: &[u8]) -> (Docs, usize, PathBuf, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("mdedit-{name}-{}", std::process::id()));
+        let dir = mdshared_app::paths::canonical_or_absolute(&std::env::temp_dir())
+            .join(format!("mdedit-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("file.txt");
         std::fs::write(&path, text).unwrap();
@@ -3218,7 +3219,7 @@ mod tests {
         d.edit(EditOp::Undo, None);
         d.edit(EditOp::Undo, None);
         // Two carets: each gets its pair, in one step.
-        d.edit(EditOp::Insert("a\nb"), None);
+        d.edit(EditOp::Insert(&format!("a{eol}b")), None);
         {
             let r = d.tabs[i].ready_mut().unwrap();
             r.view.sel = Selection::at(1);
@@ -4354,7 +4355,8 @@ mod tests {
         // `open` starts a load on a thread, and `load_now` (as a busy machine lets it come
         // late) replaces it after that thread has finished: its result for the old revision is
         // still queued. The wait for a later reload must not return on it.
-        let dir = std::env::temp_dir().join(format!("mdedit-stale-{}", std::process::id()));
+        let dir = mdshared_app::paths::canonical_or_absolute(&std::env::temp_dir())
+            .join(format!("mdedit-stale-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("file.txt");
         std::fs::write(&path, b"one\n").unwrap();
@@ -4504,7 +4506,8 @@ mod tests {
 
     #[test]
     fn a_file_that_never_existed_has_no_gone_banner() {
-        let dir = std::env::temp_dir().join(format!("mdedit-gone-{}", std::process::id()));
+        let dir = mdshared_app::paths::canonical_or_absolute(&std::env::temp_dir())
+            .join(format!("mdedit-gone-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut d = docs();
         let i = d.open(&dir.join("never-there.txt"));
@@ -4529,7 +4532,8 @@ mod tests {
     fn layouts_follow_the_text_not_the_reload() {
         // A reload bumps the document's revision while the old text stays; the text's own
         // revision changes only when the new text is taken in.
-        let dir = std::env::temp_dir().join(format!("mdedit-rev-{}", std::process::id()));
+        let dir = mdshared_app::paths::canonical_or_absolute(&std::env::temp_dir())
+            .join(format!("mdedit-rev-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("notes.txt");
         std::fs::write(&path, "one\ntwo\n").unwrap();
@@ -4574,7 +4578,8 @@ mod tests {
 
     #[test]
     fn tabs_open_close_move() {
-        let dir = std::env::temp_dir().join(format!("mdedit-docs-{}", std::process::id()));
+        let dir = mdshared_app::paths::canonical_or_absolute(&std::env::temp_dir())
+            .join(format!("mdedit-docs-{}", std::process::id()));
         let mut d = docs();
         let a = d.add_pending(&dir.join("a.txt"));
         let b = d.add_pending(&dir.join("b.txt"));
