@@ -131,9 +131,9 @@ impl App {
             if let Some(i) = self.docs.index_of_id(id)
                 && let Some(r) = self.docs.tabs[i].ready_mut()
             {
-                r.align = Some(Align::pending(right));
-                r.top_row = 0;
-                r.left = 0.0;
+                r.view.align = Some(Align::pending(right));
+                r.view.top_row = 0;
+                r.view.left = 0.0;
             }
         }
         let mut c = Compare::new(a, b, saved);
@@ -142,7 +142,7 @@ impl App {
             self.docs
                 .index_of_id(id)
                 .and_then(|i| self.docs.tabs[i].ready())
-                .map_or(0.0, |r| r.top)
+                .map_or(0.0, |r| r.view.top)
         };
         c.synced = (top(a), top(b));
         self.compare = Some(c);
@@ -175,11 +175,11 @@ impl App {
         let Some(r) = self.docs.active_ready_mut() else {
             return;
         };
-        let Some(al) = r.align.clone() else {
+        let Some(al) = r.view.align.clone() else {
             return;
         };
         let lines = r.buffer.len_lines();
-        let row = al.row_of(r.buffer.line_of(r.sel.caret));
+        let row = al.row_of(r.buffer.line_of(r.view.sel.caret));
         let to = if forward {
             al.next_change(row)
         } else {
@@ -195,8 +195,8 @@ impl App {
             return;
         };
         let at = r.buffer.line_range(al.line_near(to, lines)).start;
-        r.sel = mdedit_core::Selection::at(at);
-        r.extra.clear();
+        r.view.sel = mdedit_core::Selection::at(at);
+        r.view.extra.clear();
         view::reveal(r, at, true);
         self.caret_reset();
         self.redraw();

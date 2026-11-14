@@ -161,11 +161,10 @@ pub struct FindState {
     pub error: Option<String>,
     pub matches: Vec<Range<usize>>,
     pub capped: bool,
-    /// Index into `matches` of the current match.
-    pub current: Option<usize>,
     /// A search thread is running for `text`.
     pub searching: bool,
-    /// Bumped whenever the marks or the current match change, for the text region's signature.
+    /// Bumped whenever the marks or a view's current match change, for the text region's
+    /// signature.
     pub generation: u64,
     /// The text changed since the matches were found: they were moved with it, and a new search
     /// is due once typing pauses.
@@ -174,8 +173,9 @@ pub struct FindState {
 }
 
 impl FindState {
-    /// Moves the matches with an edit: those the edit touches go, later ones shift.
-    fn edited(&mut self, change: &Change) {
+    /// Moves the matches with an edit: those the edit touches go, later ones shift. `current` is
+    /// a view's current match (an index into `matches`); it moves with them.
+    fn edited(&mut self, change: &Change, current: &mut Option<usize>) {
         self.cancel();
         self.searching = false;
         if self.text.is_empty() {
@@ -195,8 +195,7 @@ impl FindState {
                 m.clone()
             }
         };
-        let current = self
-            .current
+        let kept_current = current
             .and_then(|k| self.matches.get(k))
             .filter(|m| kept(m))
             .map(moved);
@@ -204,7 +203,7 @@ impl FindState {
         for m in &mut self.matches {
             *m = moved(m);
         }
-        self.current = current.and_then(|c| self.matches.iter().position(|m| *m == c));
+        *current = kept_current.and_then(|c| self.matches.iter().position(|m| *m == c));
     }
 
     fn cancel(&mut self) {
@@ -213,8 +212,8 @@ impl FindState {
         }
     }
 
-    /// The counter beside the find box.
-    pub fn label(&self) -> String {
+    /// The counter beside the find box; `current` is the view's current match.
+    pub fn label(&self, current: Option<usize>) -> String {
         if self.error.is_some() {
             return strings::BAD_PATTERN.to_string();
         }
@@ -223,7 +222,7 @@ impl FindState {
         }
         strings::find_label(
             self.text.is_empty(),
-            self.current.map_or(0, |i| i + 1),
+            current.map_or(0, |i| i + 1),
             self.matches.len(),
             self.capped,
         )
@@ -232,6 +231,85 @@ impl FindState {
 
 /// A revision and caret, and the bracket pair found there.
 type BracketAt = (u64, usize, Option<(usize, usize)>);
+
+/// What belongs to one view of a document: where the carets are, what is scrolled into view,
+/// which blocks are folded, the colours of the lines it shows and what it laid out last. A
+/// document owns the one it shows in a single pane; see `docs/DESIGN.md`, "Two views of one
+/// document".
+pub struct ViewState {
+    pub sel: Selection,
+    /// The other selections when there are several carets, in document order. `sel` is the
+    /// primary: the one the view follows and Undo puts back.
+    pub extra: Vec<Selection>,
+    /// The column selection being extended by keys: anchor line and column, caret line and
+    /// column, and the selections it made (it goes on only while they are still the ones).
+    pub column: Option<(usize, usize, usize, usize, Selection, usize)>,
+    /// The folded blocks. They follow edits; a reload opens them all.
+    pub folds: Folds,
+    /// First visible line, fractional. With word wrap a whole number: the line whose row
+    /// `top_row` is at the view's top.
+    pub top: f64,
+    pub top_row: usize,
+    /// The part of a row a scroll left over (word wrap scrolls by whole rows).
+    pub row_rest: f64,
+    /// Horizontal scroll, logical px.
+    pub left: f64,
+    /// The rows of wrapped lines and what they were found for: revision, view width, advances.
+    pub rows: Lru<usize, crate::view::wrap::Rows>,
+    pub rows_stamp: (u64, u32, u32, u32),
+    pub colors: LineColors,
+    /// The colours of the minimap's window, asked for apart from `colors`.
+    pub map_colors: LineColors,
+    /// Index into the document's `find.matches` of this view's current match.
+    pub find_current: Option<usize>,
+    /// The selection that was there, over more than one line, when the replace strip opened:
+    /// Replace and Replace all stay inside it while `scope_on`. It follows edits, and goes when
+    /// the strip closes.
+    pub replace_scope: Option<Range<usize>>,
+    pub scope_on: bool,
+    /// The bracket pair at the caret, kept for the revision and caret it was found at.
+    bracket: std::cell::Cell<Option<BracketAt>>,
+    /// The right end of the widest line or chunk shaped so far, logical px.
+    pub widest: f32,
+    /// The view as last drawn, for keeping the caret in view between frames: lines that fit,
+    /// text width, and the advances of a narrow and a wide glyph, in logical px.
+    pub view_lines: f64,
+    pub view_w: f32,
+    pub advance: f32,
+    pub wide_advance: f32,
+    /// Compare mode: how this document's lines sit in the aligned rows of the comparison, with
+    /// filler rows opposite the other side's extra lines. `None` otherwise (nearly always).
+    pub align: Option<crate::compare::Align>,
+}
+
+impl ViewState {
+    fn new() -> ViewState {
+        ViewState {
+            sel: Selection::at(0),
+            extra: Vec::new(),
+            column: None,
+            folds: Folds::default(),
+            top: 0.0,
+            top_row: 0,
+            row_rest: 0.0,
+            left: 0.0,
+            rows: Lru::new(crate::view::wrap::ROW_CACHE),
+            rows_stamp: (0, 0, 0, 0),
+            colors: LineColors::default(),
+            map_colors: LineColors::default(),
+            find_current: None,
+            replace_scope: None,
+            scope_on: false,
+            bracket: std::cell::Cell::new(None),
+            widest: 0.0,
+            view_lines: 30.0,
+            view_w: 800.0,
+            advance: 7.7,
+            wide_advance: 14.0,
+            align: None,
+        }
+    }
+}
 
 pub struct Ready {
     pub buffer: Buffer,
@@ -244,59 +322,20 @@ pub struct Ready {
     pub language: Option<Language>,
     /// The language exists and the file is within its limits: the service colours it.
     pub colourable: bool,
-    pub sel: Selection,
+    /// The view of the pane that has the keyboard (or the only one).
+    pub view: ViewState,
     /// Bookmarked lines, sorted. They follow edits and a reload, and are gone when the tab
     /// closes.
     pub bookmarks: Vec<usize>,
-    /// The folded blocks. They follow edits; a reload opens them all.
-    pub folds: Folds,
-    /// The other selections when there are several carets, in document order. `sel` is the
-    /// primary: the one the view follows and Undo puts back.
-    pub extra: Vec<Selection>,
-    /// The selection that was there, over more than one line, when the replace strip opened:
-    /// Replace and Replace all stay inside it while `scope_on`. It follows edits, and goes when
-    /// the strip closes.
-    pub replace_scope: Option<Range<usize>>,
-    pub scope_on: bool,
     /// The typing help for this document's language and the preferences.
     pub assist: Assist,
-    /// The column selection being extended by keys: anchor line and column, caret line and
-    /// column, and the selections it made (it goes on only while they are still the ones).
-    pub column: Option<(usize, usize, usize, usize, Selection, usize)>,
-    /// First visible line, fractional. With word wrap a whole number: the line whose row
-    /// `top_row` is at the view's top.
-    pub top: f64,
-    pub top_row: usize,
-    /// The part of a row a scroll left over (word wrap scrolls by whole rows).
-    pub row_rest: f64,
     /// Word wrap is on (`Docs::wrap`, copied here before each frame).
     pub wrap: bool,
-    /// The rows of wrapped lines and what they were found for: revision, view width, advances.
-    pub rows: Lru<usize, crate::view::wrap::Rows>,
-    pub rows_stamp: (u64, u32, u32, u32),
-    /// Horizontal scroll, logical px.
-    pub left: f64,
-    pub colors: LineColors,
-    /// The colours of the minimap's window, asked for apart from `colors`.
-    pub map_colors: LineColors,
     pub find: FindState,
-    /// The bracket pair at the caret, kept for the revision and caret it was found at.
-    bracket: std::cell::Cell<Option<BracketAt>>,
     /// Chunk indexes of long lines, per line, the most recently used
     /// [`CHUNK_INDEXES`](crate::view::CHUNK_INDEXES). A reload makes a new `Ready`, so they are
     /// per revision.
     pub chunks: Lru<usize, ChunkIndex>,
-    /// The right end of the widest line or chunk shaped so far, logical px.
-    pub widest: f32,
-    /// The view as last drawn, for keeping the caret in view between frames: lines that fit,
-    /// text width, and the advances of a narrow and a wide glyph, in logical px.
-    pub view_lines: f64,
-    pub view_w: f32,
-    pub advance: f32,
-    pub wide_advance: f32,
-    /// Compare mode: how this document's lines sit in the aligned rows of the comparison, with
-    /// filler rows opposite the other side's extra lines. `None` otherwise (nearly always).
-    pub align: Option<crate::compare::Align>,
     /// The text cannot be edited (the saved copy of a comparison).
     pub read_only: bool,
 }
@@ -305,10 +344,11 @@ impl Ready {
     /// Every selection in document order, and which of them is the primary.
     pub fn all_sels(&self) -> (Vec<Selection>, usize) {
         let at = self
+            .view
             .extra
-            .partition_point(|s| s.range().start < self.sel.range().start);
-        let mut v = self.extra.clone();
-        v.insert(at, self.sel);
+            .partition_point(|s| s.range().start < self.view.sel.range().start);
+        let mut v = self.view.extra.clone();
+        v.insert(at, self.view.sel);
         (v, at)
     }
 
@@ -317,8 +357,8 @@ impl Ready {
         if list.is_empty() {
             return;
         }
-        self.sel = list.remove(primary.min(list.len() - 1));
-        self.extra = list;
+        self.view.sel = list.remove(primary.min(list.len() - 1));
+        self.view.extra = list;
     }
 
     /// Adds a caret at `offset`, which becomes the primary.
@@ -341,13 +381,13 @@ impl Ready {
             crate::live::tab_width(),
         );
         self.set_sels(list, primary);
-        self.column = Some((
+        self.view.column = Some((
             anchor.0,
             anchor.1,
             caret.0,
             caret.1,
-            self.sel,
-            self.extra.len(),
+            self.view.sel,
+            self.view.extra.len(),
         ));
     }
 
@@ -363,14 +403,15 @@ impl Ready {
     /// primary selection when no column selection is being made.
     pub fn extend_column(&mut self, lines: isize, cols: isize) {
         let going = self
+            .view
             .column
-            .filter(|c| (c.4, c.5) == (self.sel, self.extra.len()));
+            .filter(|c| (c.4, c.5) == (self.view.sel, self.view.extra.len()));
         let (al, ac, cl, cc) = match going {
             Some(c) => (c.0, c.1, c.2, c.3),
             None => {
                 let (a, c) = (
-                    self.line_col(self.sel.anchor),
-                    self.line_col(self.sel.caret),
+                    self.line_col(self.view.sel.anchor),
+                    self.line_col(self.view.sel.caret),
                 );
                 (a.0, a.1, c.0, c.1)
             }
@@ -388,11 +429,11 @@ impl Ready {
 
     /// The bracket at the caret and its partner, as byte offsets, when nothing is selected.
     pub fn brackets(&self) -> Option<(usize, usize)> {
-        if !self.sel.range().is_empty() {
+        if !self.view.sel.range().is_empty() {
             return None;
         }
-        let (revision, caret) = (self.revision, self.sel.caret);
-        if let Some((r, c, found)) = self.bracket.get()
+        let (revision, caret) = (self.revision, self.view.sel.caret);
+        if let Some((r, c, found)) = self.view.bracket.get()
             && (r, c) == (revision, caret)
         {
             return found;
@@ -402,13 +443,13 @@ impl Ready {
             caret,
             mdedit_core::limits::BRACKET_SCAN,
         );
-        self.bracket.set(Some((revision, caret, found)));
+        self.view.bracket.set(Some((revision, caret, found)));
         found
     }
 
     /// The selection when it is one whole word on one line: its other occurrences are marked.
     pub fn twin_word(&self) -> Option<String> {
-        let sel = self.sel.range();
+        let sel = self.view.sel.range();
         if sel.is_empty() || sel.len() > mdedit_core::limits::TWIN_WORD_MAX {
             return None;
         }
@@ -437,7 +478,7 @@ impl Ready {
             self.info.eol.apply(&change.eol_removed, &change.eol_added);
         }
         self.history.seal();
-        self.sel = Selection::at(0);
+        self.view.sel = Selection::at(0);
     }
 
     /// Keeps what hangs on the text in step with an edit.
@@ -446,14 +487,14 @@ impl Ready {
         let rel = change
             .at
             .saturating_sub(self.buffer.line_start(change.first_line));
-        self.colors.edited(change, rel);
-        self.map_colors.edited(change, rel);
-        self.find.edited(change);
+        self.view.colors.edited(change, rel);
+        self.view.map_colors.edited(change, rel);
+        self.find.edited(change, &mut self.view.find_current);
         self.chunks.clear();
         lines::shift_marks(&mut self.bookmarks, change);
-        self.folds.shift(change);
-        if let Some(scope) = self.replace_scope.take() {
-            self.replace_scope = Some(map_scope(scope, change));
+        self.view.folds.shift(change);
+        if let Some(scope) = self.view.replace_scope.take() {
+            self.view.replace_scope = Some(map_scope(scope, change));
         }
     }
 
@@ -476,14 +517,15 @@ impl Ready {
     pub fn find_label(&self) -> String {
         let f = &self.find;
         if self.scope().is_none() || f.text.is_empty() || f.error.is_some() || f.searching {
-            return f.label();
+            return f.label(self.view.find_current);
         }
         let w = self.match_window();
         if w.is_empty() {
             return strings::FIND_NO_MATCHES_IN_SELECTION.to_string();
         }
-        let at = f
-            .current
+        let at = self
+            .view
+            .find_current
             .filter(|k| w.contains(k))
             .map_or(0, |k| k - w.start + 1);
         strings::find_label(false, at, w.len(), f.capped)
@@ -496,12 +538,12 @@ impl Ready {
             return;
         }
         let w = self.match_window();
-        if self.find.current.is_some_and(|k| w.contains(&k)) {
+        if self.view.find_current.is_some_and(|k| w.contains(&k)) {
             return;
         }
-        let from = self.sel.range().start;
+        let from = self.view.sel.range().start;
         let k = find::first_at_or_after(&self.find.matches, from);
-        self.find.current = if w.is_empty() {
+        self.view.find_current = if w.is_empty() {
             None
         } else if w.contains(&k) {
             Some(k)
@@ -513,52 +555,59 @@ impl Ready {
 
     /// The range Replace is limited to now: the kept selection while its toggle is on.
     pub fn scope(&self) -> Option<Range<usize>> {
-        self.replace_scope.clone().filter(|_| self.scope_on)
+        self.view
+            .replace_scope
+            .clone()
+            .filter(|_| self.view.scope_on)
     }
 
     /// Opens the folds a caret is in: a caret is never on a line that does not show.
     pub fn unfold_carets(&mut self) {
-        if self.folds.is_empty() {
+        if self.view.folds.is_empty() {
             return;
         }
         let len = self.buffer.len_bytes();
-        for k in 0..=self.extra.len() {
-            let caret = self.extra.get(k).map_or(self.sel.caret, |s| s.caret);
+        for k in 0..=self.view.extra.len() {
+            let caret = self
+                .view
+                .extra
+                .get(k)
+                .map_or(self.view.sel.caret, |s| s.caret);
             let line = self.buffer.line_of(caret.min(len));
-            self.folds.reveal(line);
+            self.view.folds.reveal(line);
         }
     }
 
     /// After folding: one caret, on a line that shows (the end of the fold's first line when
     /// it was inside), and in view.
     fn caret_out_of_folds(&mut self) {
-        let line = self.buffer.line_of(self.sel.caret);
-        let inside = self.folds.is_hidden(line);
-        if inside || !self.extra.is_empty() {
+        let line = self.buffer.line_of(self.view.sel.caret);
+        let inside = self.view.folds.is_hidden(line);
+        if inside || !self.view.extra.is_empty() {
             self.history.seal();
-            self.extra.clear();
-            self.column = None;
+            self.view.extra.clear();
+            self.view.column = None;
         }
         if inside {
-            let at = self.buffer.line_range(self.folds.shown(line)).end;
-            self.sel = Selection::at(at);
+            let at = self.buffer.line_range(self.view.folds.shown(line)).end;
+            self.view.sel = Selection::at(at);
         }
-        let caret = self.sel.caret;
+        let caret = self.view.sel.caret;
         crate::view::reveal(self, caret, false);
     }
 
     /// Opens the fold the caret's line heads, or else folds the block the line heads or is
     /// in. False when the line is in no block.
     pub fn toggle_fold(&mut self) -> bool {
-        let line = self.buffer.line_of(self.sel.caret);
-        if self.folds.unfold(line) {
+        let line = self.buffer.line_of(self.view.sel.caret);
+        if self.view.folds.unfold(line) {
             return true;
         }
         let Some((header, end)) = fold::block_at(&self.buffer, line, crate::live::tab_width())
         else {
             return false;
         };
-        if !self.folds.fold(header, end) {
+        if !self.view.folds.fold(header, end) {
             return false;
         }
         self.caret_out_of_folds();
@@ -571,13 +620,13 @@ impl Ready {
         if line >= self.buffer.len_lines() {
             return false;
         }
-        if self.folds.unfold(line) {
+        if self.view.folds.unfold(line) {
             return true;
         }
         let Some(end) = fold::block_end(&self.buffer, line, crate::live::tab_width()) else {
             return false;
         };
-        if !self.folds.fold(line, end) {
+        if !self.view.folds.fold(line, end) {
             return false;
         }
         self.caret_out_of_folds();
@@ -590,7 +639,7 @@ impl Ready {
         let (blocks, more) = fold::top_blocks(&self.buffer, crate::live::tab_width());
         let mut n = 0;
         for (header, end) in blocks {
-            n += self.folds.fold(header, end) as usize;
+            n += self.view.folds.fold(header, end) as usize;
         }
         self.caret_out_of_folds();
         (n, more)
@@ -598,14 +647,14 @@ impl Ready {
 
     /// Opens every fold, keeping the caret in view.
     pub fn unfold_all(&mut self) {
-        self.folds.clear();
-        let caret = self.sel.caret;
+        self.view.folds.clear();
+        let caret = self.view.sel.caret;
         crate::view::reveal(self, caret, false);
     }
 
     /// Sets or removes the bookmark of the caret's line.
     pub fn toggle_bookmark(&mut self) {
-        let line = self.buffer.line_of(self.sel.caret);
+        let line = self.buffer.line_of(self.view.sel.caret);
         match self.bookmarks.binary_search(&line) {
             Ok(k) => {
                 self.bookmarks.remove(k);
@@ -617,7 +666,7 @@ impl Ready {
     /// The bookmarked line after the caret's (before it when not `forward`), going round at
     /// the document's ends.
     pub fn bookmark_from_caret(&self, forward: bool) -> Option<usize> {
-        let line = self.buffer.line_of(self.sel.caret);
+        let line = self.buffer.line_of(self.view.sel.caret);
         let marks = &self.bookmarks;
         if forward {
             let k = marks.partition_point(|&m| m <= line);
@@ -636,32 +685,12 @@ impl Ready {
             history: History::new(),
             language,
             colourable: false,
-            sel: Selection::at(0),
+            view: ViewState::new(),
             bookmarks: Vec::new(),
-            folds: Folds::default(),
-            extra: Vec::new(),
-            replace_scope: None,
-            scope_on: false,
             assist: Prefs::default().assist(language.map_or("", Language::name)),
-            column: None,
-            top: 0.0,
-            top_row: 0,
-            row_rest: 0.0,
             wrap: false,
-            rows: Lru::new(crate::view::wrap::ROW_CACHE),
-            rows_stamp: (0, 0, 0, 0),
-            left: 0.0,
-            colors: LineColors::default(),
-            map_colors: LineColors::default(),
             find: FindState::default(),
-            bracket: std::cell::Cell::new(None),
             chunks: Lru::new(crate::view::CHUNK_INDEXES),
-            widest: 0.0,
-            view_lines: 30.0,
-            view_w: 800.0,
-            advance: 7.7,
-            wide_advance: 14.0,
-            align: None,
             read_only: false,
         }
     }
@@ -678,8 +707,8 @@ impl Ready {
 
     /// Selects `range` (caret at its end) and brings it into view, centred if it was off screen.
     pub fn select_and_reveal(&mut self, range: Range<usize>) {
-        self.extra.clear();
-        self.sel = Selection {
+        self.view.extra.clear();
+        self.view.sel = Selection {
             anchor: range.start,
             caret: range.end,
             goal_col: None,
@@ -1535,22 +1564,22 @@ impl Docs {
                 // A reload keeps the caret's line and column, the scroll and the find query.
                 let mut query = None;
                 if let Some(old) = doc.ready_mut() {
-                    let pos: Position = old.buffer.position(old.sel.caret);
+                    let pos: Position = old.buffer.position(old.view.sel.caret);
                     let caret = r.buffer.snap_to_grapheme(r.buffer.offset(pos));
-                    r.sel = Selection::at(caret);
+                    r.view.sel = Selection::at(caret);
                     let last = r.buffer.len_lines().saturating_sub(1);
                     r.bookmarks = old.bookmarks.iter().map(|&m| m.min(last)).collect();
                     r.bookmarks.dedup();
-                    r.top = old.top;
-                    r.top_row = old.top_row;
+                    r.view.top = old.view.top;
+                    r.view.top_row = old.view.top_row;
                     r.wrap = old.wrap;
-                    r.align = old.align.take();
+                    r.view.align = old.view.align.take();
                     r.read_only = old.read_only;
-                    r.left = old.left;
-                    r.view_lines = old.view_lines;
-                    r.view_w = old.view_w;
-                    r.advance = old.advance;
-                    r.wide_advance = old.wide_advance;
+                    r.view.left = old.view.left;
+                    r.view.view_lines = old.view.view_lines;
+                    r.view.view_w = old.view.view_w;
+                    r.view.advance = old.view.advance;
+                    r.view.wide_advance = old.view.wide_advance;
                     old.find.cancel();
                     if !old.find.text.is_empty() {
                         query = Some((old.find.text.clone(), old.find.options));
@@ -1698,11 +1727,11 @@ impl Docs {
                 Some(strings::NOT_MARKDOWN)
             }
             EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
-                if lines::block_too_large(&r.buffer, r.sel, true) =>
+                if lines::block_too_large(&r.buffer, r.view.sel, true) =>
             {
                 Some(strings::BLOCK_TOO_LARGE)
             }
-            EditOp::JoinLines if lines::block_too_large(&r.buffer, r.sel, false) => {
+            EditOp::JoinLines if lines::block_too_large(&r.buffer, r.view.sel, false) => {
                 Some(strings::BLOCK_TOO_LARGE)
             }
             EditOp::ReplaceAll(_)
@@ -1734,7 +1763,7 @@ impl Docs {
         // goes on with the primary alone.
         let pasted;
         let pieces: Vec<&str>;
-        let multi_op = if r.extra.is_empty() {
+        let multi_op = if r.view.extra.is_empty() {
             None
         } else {
             match op {
@@ -1751,7 +1780,7 @@ impl Docs {
                         .unwrap_or(&pasted)
                         .split(eol)
                         .collect();
-                    if pieces.len() == r.extra.len() + 1 {
+                    if pieces.len() == r.view.extra.len() + 1 {
                         Some(MultiOp::InsertEach(&pieces))
                     } else {
                         Some(MultiOp::Insert(&pasted))
@@ -1766,27 +1795,28 @@ impl Docs {
                 EditOp::MdWrap(_) | EditOp::MdLink | EditOp::SaveOptions(_)
             )
         {
-            r.extra.clear();
+            r.view.extra.clear();
         }
-        r.column = None;
+        r.view.column = None;
         // The typing help goes first, for one character typed, Enter, Backspace and (in Markdown)
         // Tab and Shift+Tab; `None` is the plain edit below.
         let typed = typing_edit(r, &op, eol).or_else(|| markdown_edit(r, &op));
-        let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.sel);
+        let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.view.sel);
         let out = if let Some(out) = typed {
             out
         } else if let Some(multi_op) = multi_op {
             let at = r
+                .view
                 .extra
                 .partition_point(|s| s.range().start < sel.range().start);
-            let mut list = std::mem::take(&mut r.extra);
+            let mut list = std::mem::take(&mut r.view.extra);
             list.insert(at, sel);
             let (out, list, primary) = multi::edit(buf, hist, &list, at, multi_op);
             let mut list = list;
             if !list.is_empty() {
                 list.remove(primary.min(list.len() - 1));
             }
-            r.extra = list;
+            r.view.extra = list;
             out
         } else {
             match op {
@@ -1796,9 +1826,10 @@ impl Docs {
                     };
                     // In the range, only a match inside it is replaced.
                     if range.is_empty()
-                        || r.replace_scope
+                        || r.view
+                            .replace_scope
                             .as_ref()
-                            .filter(|_| r.scope_on)
+                            .filter(|_| r.view.scope_on)
                             .is_some_and(|s| range.start < s.start || range.end > s.end)
                     {
                         return false;
@@ -1808,7 +1839,7 @@ impl Docs {
                 EditOp::ReplaceAll(with) => {
                     let Some(q) = &query else { return false };
                     let never = AtomicBool::new(false);
-                    let scope = r.replace_scope.clone().filter(|_| r.scope_on);
+                    let scope = r.view.replace_scope.clone().filter(|_| r.view.scope_on);
                     match scope {
                         Some(range) => {
                             let (out, n, kept) = replace::replace_all_in(
@@ -1894,11 +1925,11 @@ impl Docs {
             }
         };
         let Outcome { sel, change } = out;
-        r.sel = sel;
+        r.view.sel = sel;
         let changed = change.is_some();
         // The extra carets were not moved by the save options: they go when the text changed.
         if changed && matches!(op, EditOp::SaveOptions(_)) {
-            r.extra.clear();
+            r.view.extra.clear();
         }
         let had_scope = new_scope.is_some();
         if let Some(change) = change {
@@ -1907,7 +1938,7 @@ impl Docs {
             r.revision = *revision;
             r.changed(&change);
             if had_scope {
-                r.replace_scope = new_scope.take();
+                r.view.replace_scope = new_scope.take();
             }
             if let Some(s) = service.filter(|_| r.colourable) {
                 s.edit(
@@ -1919,7 +1950,7 @@ impl Docs {
                 );
             }
         }
-        crate::view::reveal(r, r.sel.caret, false);
+        crate::view::reveal(r, r.view.sel.caret, false);
         match replaced {
             Some(0) => self.set_toast(strings::NOTHING_TO_REPLACE),
             Some(n) => self.set_toast(&strings::replaced(n)),
@@ -1962,17 +1993,17 @@ impl Docs {
         for doc in &mut self.tabs {
             let Some(r) = doc.ready_mut() else { continue };
             // A compared document shows every line, unwrapped; its folds wait.
-            let compared = r.align.is_some();
-            if r.folds.suspended() != compared {
-                r.folds.suspend(compared);
+            let compared = r.view.align.is_some();
+            if r.view.folds.suspended() != compared {
+                r.view.folds.suspend(compared);
             }
             let wrap = self.wrap && !compared;
             if r.wrap != wrap {
                 r.wrap = wrap;
-                r.top_row = 0;
-                r.left = 0.0;
+                r.view.top_row = 0;
+                r.view.left = 0.0;
                 // The caret's line stays in view across the change.
-                let caret = r.sel.caret;
+                let caret = r.view.sel.caret;
                 crate::view::reveal(r, caret, false);
             }
         }
@@ -2019,8 +2050,8 @@ impl Docs {
         let at = (range.start + col.saturating_sub(1)).min(range.end);
         let at = r.buffer.snap_to_grapheme(at).min(range.end);
         r.history.seal();
-        r.extra.clear();
-        r.sel = Selection::at(at);
+        r.view.extra.clear();
+        r.view.sel = Selection::at(at);
         crate::view::reveal(r, at, true);
         true
     }
@@ -2112,8 +2143,8 @@ impl Docs {
         // The file may have been created just now: its real name is known only after that.
         let path = canonical_or_absolute(&path);
         r.language = language_of(&path, &r.buffer);
-        r.colors = LineColors::default();
-        r.map_colors = LineColors::default();
+        r.view.colors = LineColors::default();
+        r.view.map_colors = LineColors::default();
         r.colourable = false;
         doc.revision += 1;
         let (id, revision) = (doc.id, doc.revision);
@@ -2209,9 +2240,9 @@ impl Docs {
             if let Some(r) = doc.ready_mut().filter(|r| r.colourable) {
                 // The minimap's window has its own store: it is not what the text view shows.
                 let store = if c.map {
-                    &mut r.map_colors
+                    &mut r.view.map_colors
                 } else {
-                    &mut r.colors
+                    &mut r.view.colors
                 };
                 store.first = c.first_line;
                 store.lines = c.lines;
@@ -2263,7 +2294,7 @@ impl Docs {
         r.find.error = Query::check(text, options).err();
         r.find.matches.clear();
         r.find.capped = false;
-        r.find.current = None;
+        r.view.find_current = None;
         r.find.searching = false;
         r.find.stale = false;
         r.find.generation += 1;
@@ -2304,10 +2335,10 @@ impl Docs {
         let Some(r) = self.active_ready_mut() else {
             return;
         };
-        let range = r.sel.range();
+        let range = r.view.sel.range();
         let multi = r.buffer.line_of(range.start) != r.buffer.line_of(range.end);
-        r.replace_scope = multi.then_some(range);
-        r.scope_on = multi;
+        r.view.replace_scope = multi.then_some(range);
+        r.view.scope_on = multi;
         r.fit_current_to_scope();
     }
 
@@ -2315,8 +2346,8 @@ impl Docs {
     pub fn clear_replace_scope(&mut self) {
         for d in &mut self.tabs {
             if let Some(r) = d.ready_mut() {
-                r.replace_scope = None;
-                r.scope_on = false;
+                r.view.replace_scope = None;
+                r.view.scope_on = false;
             }
         }
     }
@@ -2335,7 +2366,7 @@ impl Docs {
         if r.find.text.is_empty() || lo == hi {
             return;
         }
-        let sel = r.sel.range();
+        let sel = r.view.sel.range();
         let k = if forward {
             let k = find::first_at_or_after(m, sel.end);
             if (lo..hi).contains(&k) { k } else { lo }
@@ -2343,7 +2374,7 @@ impl Docs {
             let k = find::first_at_or_after(m, sel.start);
             if k > lo && k <= hi { k - 1 } else { hi - 1 }
         };
-        r.find.current = Some(k);
+        r.view.find_current = Some(k);
         r.find.generation += 1;
         let range = m[k].clone();
         r.select_and_reveal(range);
@@ -2361,9 +2392,9 @@ impl Docs {
             return;
         }
         let n = f.matches.len();
-        let sel = r.sel.range();
+        let sel = r.view.sel.range();
         // The index to go to, or None to look past the kept matches from `from`.
-        let (next, from) = match (f.current, forward) {
+        let (next, from) = match (r.view.find_current, forward) {
             (Some(i), true) if i + 1 < n => (Some(i + 1), 0),
             (Some(i), true) => ((!f.capped).then_some(0), f.matches[i].end),
             (Some(0), false) => ((!f.capped).then_some(n - 1), f.matches[0].start),
@@ -2386,7 +2417,7 @@ impl Docs {
             }
         };
         if let Some(k) = next {
-            r.find.current = Some(k);
+            r.view.find_current = Some(k);
             r.find.generation += 1;
             let range = r.find.matches[k].clone();
             r.select_and_reveal(range);
@@ -2479,14 +2510,14 @@ fn take_matches(r: &mut Ready, m: Matches, go: bool) {
     r.find.capped = m.capped;
     r.find.generation += 1;
     if r.find.matches.is_empty() {
-        r.find.current = None;
+        r.view.find_current = None;
         return;
     }
-    let k = find::first_at_or_after(&r.find.matches, r.sel.range().start);
+    let k = find::first_at_or_after(&r.find.matches, r.view.sel.range().start);
     let k = if k >= r.find.matches.len() { 0 } else { k };
-    r.find.current = Some(k);
+    r.view.find_current = Some(k);
     r.fit_current_to_scope();
-    if go && let Some(k) = r.find.current {
+    if go && let Some(k) = r.view.find_current {
         let range = r.find.matches[k].clone();
         r.select_and_reveal(range);
     }
@@ -2496,7 +2527,7 @@ fn take_next(r: &mut Ready, found: Option<Range<usize>>) {
     r.find.searching = false;
     r.find.generation += 1;
     let Some(range) = found else { return };
-    r.find.current = r.find.matches.iter().position(|m| *m == range);
+    r.view.find_current = r.find.matches.iter().position(|m| *m == range);
     r.select_and_reveal(range);
 }
 
@@ -2525,20 +2556,21 @@ fn typing_edit(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
         EditOp::Newline => Key::Enter,
         EditOp::Backspace => Key::Backspace,
         // Tab is a list's only with one caret, and only in Markdown.
-        EditOp::Indent if r.extra.is_empty() => Key::Tab(false),
-        EditOp::Outdent if r.extra.is_empty() => Key::Tab(true),
+        EditOp::Indent if r.view.extra.is_empty() => Key::Tab(false),
+        EditOp::Outdent if r.view.extra.is_empty() => Key::Tab(true),
         _ => return None,
     };
     if let Key::Tab(outdent) = key {
-        let out = typing::list_indent(&mut r.buffer, &mut r.history, r.sel, outdent, &cfg)?;
+        let out = typing::list_indent(&mut r.buffer, &mut r.history, r.view.sel, outdent, &cfg)?;
         return Some(out);
     }
     // The selections in document order, and where the primary is among them.
     let at = r
+        .view
         .extra
-        .partition_point(|s| s.range().start < r.sel.range().start);
-    let mut list = r.extra.clone();
-    list.insert(at, r.sel);
+        .partition_point(|s| s.range().start < r.view.sel.range().start);
+    let mut list = r.view.extra.clone();
+    list.insert(at, r.view.sel);
     let typed = match key {
         Key::Char(c) => typing::type_char(&mut r.buffer, &mut r.history, &list, at, c, &cfg),
         Key::Enter => typing::enter(&mut r.buffer, &mut r.history, &list, at, eol, &cfg),
@@ -2551,7 +2583,7 @@ fn typing_edit(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
     }
     let primary = primary.min(list.len() - 1);
     let sel = list.remove(primary);
-    r.extra = list;
+    r.view.extra = list;
     Some(Outcome { sel, ..out })
 }
 
@@ -2561,10 +2593,11 @@ fn markdown_edit(r: &mut Ready, op: &EditOp) -> Option<Outcome> {
         return None;
     }
     let at = r
+        .view
         .extra
-        .partition_point(|s| s.range().start < r.sel.range().start);
-    let mut list = r.extra.clone();
-    list.insert(at, r.sel);
+        .partition_point(|s| s.range().start < r.view.sel.range().start);
+    let mut list = r.view.extra.clone();
+    list.insert(at, r.view.sel);
     let typed = match op {
         EditOp::MdWrap(marker) => {
             markdown::toggle_wrap(&mut r.buffer, &mut r.history, &list, at, marker)
@@ -2576,7 +2609,7 @@ fn markdown_edit(r: &mut Ready, op: &EditOp) -> Option<Outcome> {
         return None;
     }
     let sel = list.remove(primary.min(list.len() - 1));
-    r.extra = list;
+    r.view.extra = list;
     Some(Outcome { sel, ..out })
 }
 
@@ -2729,7 +2762,7 @@ mod tests {
     fn line_commands_go_through_the_document() {
         let (mut d, i, _path, dir) = file_docs("lines", b"one\r\n  two  \r\n\tthree\r\n");
         let caret = |d: &mut Docs, at: usize| {
-            d.tabs[i].ready_mut().unwrap().sel = Selection::at(at);
+            d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(at);
         };
         // A plain text file has no line comment: nothing changes and a toast says so.
         assert!(!d.edit(EditOp::ToggleComment, None));
@@ -2747,7 +2780,7 @@ mod tests {
         // Case needs a selection.
         caret(&mut d, 0);
         assert!(!d.edit(EditOp::Case(true), None));
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 0,
             caret: 3,
             goal_col: None,
@@ -2789,7 +2822,7 @@ mod tests {
         assert!(d.edit(EditOp::SortLines(lines::SortOrder::Descending), None));
         assert_eq!(text_of(&d, i), "c\nb\nA\n");
         // Join: the caret's line with the next; one Undo takes each back.
-        d.tabs[i].ready_mut().unwrap().sel = Selection::at(0);
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(0);
         assert!(d.edit(EditOp::JoinLines, None));
         assert_eq!(text_of(&d, i), "c b\nA\n");
         assert!(d.edit(EditOp::Undo, None));
@@ -2816,7 +2849,7 @@ mod tests {
         // Typing the closer steps over it; Backspace between an empty pair takes both.
         type_(&mut d, "(a)");
         assert_eq!(text_of(&d, i), "(a)");
-        assert_eq!(d.tabs[i].ready().unwrap().sel.caret, 3);
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.caret, 3);
         d.edit(EditOp::Undo, None);
         d.edit(EditOp::Undo, None);
         type_(&mut d, "[");
@@ -2833,8 +2866,8 @@ mod tests {
         d.edit(EditOp::Insert("a\nb"), None);
         {
             let r = d.tabs[i].ready_mut().unwrap();
-            r.sel = Selection::at(1);
-            r.extra = vec![Selection::at(3)];
+            r.view.sel = Selection::at(1);
+            r.view.extra = vec![Selection::at(3)];
         }
         d.edit(EditOp::Insert("("), None);
         assert_eq!(text_of(&d, i), "a()\nb()");
@@ -2861,7 +2894,7 @@ mod tests {
     fn indent_with_spaces_applies_to_a_block_and_outdent_takes_one_unit() {
         let (mut d, i, _path, dir) = file_docs("indentspaces", b"aa\nbb\n\ncc\n");
         d.tabs[i].ready_mut().unwrap().assist.indent = typing::Indent::Spaces(2);
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 0,
             caret: 8,
             goal_col: None,
@@ -2870,11 +2903,11 @@ mod tests {
         assert!(d.edit(EditOp::Indent, None));
         assert_eq!(text_of(&d, i), "  aa\n  bb\n\n  cc\n");
         // One line: to the next multiple of the size.
-        d.tabs[i].ready_mut().unwrap().sel = Selection::at(3);
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(3);
         assert!(d.edit(EditOp::Indent, None));
         assert_eq!(text_of(&d, i), "  a a\n  bb\n\n  cc\n");
         // Shift+Tab: one unit (2 spaces) from every touched line, whatever the tab width is.
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 0,
             caret: 12,
             goal_col: None,
@@ -2883,7 +2916,7 @@ mod tests {
         assert_eq!(text_of(&d, i), "a a\nbb\n\n  cc\n");
         // With tabs as the unit, a block gets tabs again.
         d.tabs[i].ready_mut().unwrap().assist.indent = typing::Indent::Tab;
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 0,
             caret: 8,
             goal_col: None,
@@ -2894,7 +2927,7 @@ mod tests {
     }
 
     fn r_sel_to_start(d: &mut Docs, i: usize) {
-        d.tabs[i].ready_mut().unwrap().sel = Selection::at(0);
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(0);
     }
 
     #[test]
@@ -2904,7 +2937,7 @@ mod tests {
         assert!(!d.edit(EditOp::MdWrap("**"), None));
         assert_eq!(d.toast.as_ref().unwrap().0, strings::NOT_MARKDOWN);
         d.tabs[i].ready_mut().unwrap().assist = Prefs::default().assist("Markdown");
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 0,
             caret: 5,
             goal_col: None,
@@ -2920,7 +2953,7 @@ mod tests {
         assert_eq!(text_of(&d, i), "hello\n");
         // A table is lined up; Enter on a list item continues it, Tab indents it.
         let r = d.tabs[i].ready_mut().unwrap();
-        r.sel = Selection::at(0);
+        r.view.sel = Selection::at(0);
         d.edit(EditOp::Insert("- a"), None);
         assert!(d.edit(EditOp::Newline, None));
         assert_eq!(text_of(&d, i), "- a\n- hello\n");
@@ -2931,7 +2964,7 @@ mod tests {
         assert_eq!(text_of(&d, i), "- a\n- hello\n");
         // A pipe table lines up.
         let r = d.tabs[i].ready_mut().unwrap();
-        r.sel = Selection::at(0);
+        r.view.sel = Selection::at(0);
         d.edit(EditOp::Insert("| a | bb |\n|-|-|\n| ccc | d |\n\n"), None);
         r_sel_to_start(&mut d, i);
         assert!(d.edit(EditOp::MdTable, None));
@@ -2968,42 +3001,45 @@ mod tests {
     fn replace_in_the_selection_stays_inside_it_and_follows_edits() {
         let (mut d, i, _path, dir) = file_docs("scope", b"a\na\na\na\n");
         // Lines 2 and 3 selected: the range is kept when the strip opens, with its toggle on.
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 2,
             caret: 6,
             goal_col: None,
         };
         d.capture_replace_scope();
         let r = d.tabs[i].ready().unwrap();
-        assert_eq!((r.replace_scope.clone(), r.scope_on), (Some(2..6), true));
+        assert_eq!(
+            (r.view.replace_scope.clone(), r.view.scope_on),
+            (Some(2..6), true)
+        );
         d.find_set("a", FindOptions::default());
         assert!(d.edit(EditOp::ReplaceAll("bb"), None));
         assert_eq!(text_of(&d, i), "a\nbb\nbb\na\n");
         assert_eq!(d.toast.as_ref().unwrap().0, "Replaced 2 matches.");
         // The range grew with the replacement; one undo puts it all back.
-        assert_eq!(d.tabs[i].ready().unwrap().replace_scope, Some(2..8));
+        assert_eq!(d.tabs[i].ready().unwrap().view.replace_scope, Some(2..8));
         assert!(d.edit(EditOp::Undo, None));
         assert_eq!(text_of(&d, i), "a\na\na\na\n");
         // Toggled off, every match goes.
-        d.tabs[i].ready_mut().unwrap().scope_on = false;
+        d.tabs[i].ready_mut().unwrap().view.scope_on = false;
         assert!(d.edit(EditOp::ReplaceAll("c"), None));
         assert_eq!(text_of(&d, i), "c\nc\nc\nc\n");
         // A selection within one line keeps no range; closing the strip drops it.
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 0,
             caret: 1,
             goal_col: None,
         };
         d.capture_replace_scope();
-        assert_eq!(d.tabs[i].ready().unwrap().replace_scope, None);
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        assert_eq!(d.tabs[i].ready().unwrap().view.replace_scope, None);
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 0,
             caret: 4,
             goal_col: None,
         };
         d.capture_replace_scope();
         d.clear_replace_scope();
-        assert_eq!(d.tabs[i].ready().unwrap().replace_scope, None);
+        assert_eq!(d.tabs[i].ready().unwrap().view.replace_scope, None);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -3012,7 +3048,7 @@ mod tests {
         let (mut d, i, _path, dir) = file_docs("scopecount", b"a\na\na\na\na\n");
         d.find_set("a", FindOptions::default());
         // Lines 2 and 3 selected (bytes 2..6) as the strip opens.
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 2,
             caret: 6,
             goal_col: None,
@@ -3025,14 +3061,14 @@ mod tests {
         assert_eq!(r.find_label(), "1 of 2");
         // Next and Previous wrap inside the range: from past its end, back to its first.
         d.find_step_scoped(true);
-        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 2..3);
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.range(), 2..3);
         d.find_step_scoped(true);
-        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 4..5);
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.range(), 4..5);
         assert_eq!(d.tabs[i].ready().unwrap().find_label(), "2 of 2");
         d.find_step_scoped(true);
-        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 2..3);
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.range(), 2..3);
         d.find_step_scoped(false);
-        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 4..5);
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.range(), 4..5);
         // A query with no match inside says so; the toggle off is the whole file again.
         d.find_set("zz", FindOptions::default());
         assert_eq!(
@@ -3042,11 +3078,11 @@ mod tests {
         d.find_set("a", FindOptions::default());
         {
             let r = d.tabs[i].ready_mut().unwrap();
-            r.replace_scope = Some(0..1);
+            r.view.replace_scope = Some(0..1);
             r.find.matches = std::iter::once(2..3).collect();
-            r.find.current = Some(0);
+            r.view.find_current = Some(0);
             assert_eq!(r.find_label(), "No matches in selection");
-            r.scope_on = false;
+            r.view.scope_on = false;
             r.fit_current_to_scope();
             assert_eq!(r.find_label(), "1 of 1");
         }
@@ -3084,9 +3120,9 @@ mod tests {
         assert_eq!(text_of(&d, i), "dog Cat concat\r\ncat\r\n");
         // The marks moved with the edit, so the next step selects the next match.
         d.find_step(true);
-        assert_eq!(d.tabs[i].ready().unwrap().sel.range(), 4..7);
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.range(), 4..7);
         // A selection that is not a match is left alone.
-        d.tabs[i].ready_mut().unwrap().sel = Selection {
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection {
             anchor: 8,
             caret: 11,
             goal_col: None,
@@ -3109,7 +3145,7 @@ mod tests {
         d.find_set("(", regex);
         let r = d.tabs[i].ready().unwrap();
         assert!(r.find.error.is_some() && r.find.matches.is_empty());
-        assert_eq!(r.find.label(), strings::BAD_PATTERN);
+        assert_eq!(r.find.label(None), strings::BAD_PATTERN);
         assert!(!d.edit(EditOp::ReplaceAll("x"), None));
         // No match: nothing changes and a toast says so.
         d.find_set("zebra", FindOptions::default());
@@ -3128,7 +3164,7 @@ mod tests {
         assert!(d.write_backups(&backup).unwrap().is_empty());
         assert!(!backup.join("9.txt").exists());
         // An edited file and an edited new document are both kept.
-        d.tabs[i].ready_mut().unwrap().sel = Selection::at(0);
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(0);
         assert!(d.edit(EditOp::Insert("zero\n"), None));
         let n = d.new_untitled();
         d.new_untitled();
@@ -3176,7 +3212,7 @@ mod tests {
     fn brackets_and_twin_words_come_from_the_selection() {
         let (mut d, i, _path, dir) = file_docs("aids", b"foo(bar) foo_bar foo\n");
         let set = |d: &mut Docs, a: usize, c: usize| {
-            d.tabs[i].ready_mut().unwrap().sel = Selection {
+            d.tabs[i].ready_mut().unwrap().view.sel = Selection {
                 anchor: a,
                 caret: c,
                 goal_col: None,
@@ -3284,18 +3320,18 @@ mod tests {
         let r = d.tabs[i].ready_mut().unwrap();
         // A line that heads no block does nothing, even inside one (unlike F9).
         assert!(!r.toggle_fold_at(1) && !r.toggle_fold_at(6) && !r.toggle_fold_at(99));
-        assert!(r.folds.is_empty());
+        assert!(r.view.folds.is_empty());
         // The inner block first, then the outer one takes it in.
         assert!(r.toggle_fold_at(2));
-        assert_eq!(r.folds.ranges(), [(2, 3)]);
-        r.sel = Selection::at(r.buffer.line_start(1));
+        assert_eq!(r.view.folds.ranges(), [(2, 3)]);
+        r.view.sel = Selection::at(r.buffer.line_start(1));
         assert!(r.toggle_fold_at(0));
-        assert_eq!(r.folds.ranges(), [(0, 4)]);
+        assert_eq!(r.view.folds.ranges(), [(0, 4)]);
         // The caret was inside: it is at the end of the header, in view.
-        assert_eq!(r.sel, Selection::at(3));
+        assert_eq!(r.view.sel, Selection::at(3));
         // The same click opens it; the inner fold went with the outer one.
         assert!(r.toggle_fold_at(0));
-        assert!(r.folds.is_empty());
+        assert!(r.view.folds.is_empty());
         // The cheap test the gutter uses agrees with what a click would do.
         for line in 0..r.buffer.len_lines() {
             assert_eq!(
@@ -3312,26 +3348,31 @@ mod tests {
         let text = b"a {\n  b\n  c {\n    d\n  }\n}\ne\nf\ng\nh\n";
         let (mut d, i, _path, dir) = file_docs("fold", text);
         let r = d.tabs[i].ready_mut().unwrap();
-        (r.advance, r.wide_advance, r.view_w, r.view_lines) = (10.0, 20.0, 400.0, 3.0);
+        (
+            r.view.advance,
+            r.view.wide_advance,
+            r.view.view_w,
+            r.view.view_lines,
+        ) = (10.0, 20.0, 400.0, 3.0);
         // On a line in no block nothing folds.
-        r.sel = Selection::at(r.buffer.line_start(6));
+        r.view.sel = Selection::at(r.buffer.line_start(6));
         assert!(!r.toggle_fold());
         // Inside the outer block, on a line that heads none: the block around it folds and
         // the caret goes to the end of its first line.
-        r.sel = Selection::at(r.buffer.line_start(1));
+        r.view.sel = Selection::at(r.buffer.line_start(1));
         assert!(r.toggle_fold());
-        assert_eq!(r.folds.ranges(), [(0, 4)]);
-        assert_eq!(r.sel, Selection::at(3));
+        assert_eq!(r.view.folds.ranges(), [(0, 4)]);
+        assert_eq!(r.view.sel, Selection::at(3));
         // Six rows are left: lines 0, 5, 6, 7, 8, 9 (the last is empty).
         assert_eq!(crate::view::shown_lines(r), 0..8);
         crate::view::scroll_rows(r, 2.0);
-        assert_eq!(r.top, 6.0);
+        assert_eq!(r.view.top, 6.0);
         crate::view::scroll_rows(r, -1.5);
-        assert_eq!(r.top, 0.5);
-        r.top = 0.0;
+        assert_eq!(r.view.top, 0.5);
+        r.view.top = 0.0;
         crate::view::reveal(r, r.buffer.line_start(8), false);
         // Line 8 is row 4: with a row of margin, row 3 (line 7) is at the top.
-        assert_eq!(r.top, 7.0);
+        assert_eq!(r.view.top, 7.0);
         // With word wrap the rows of hidden lines are not walked.
         r.wrap = true;
         let at = |line, row| Pos { line, row };
@@ -3343,22 +3384,22 @@ mod tests {
         r.wrap = false;
         // The fold's own line opens it again; a fold inside is taken in by one around it.
         assert!(r.toggle_fold());
-        assert!(r.folds.is_empty());
-        r.sel = Selection::at(r.buffer.line_start(2));
+        assert!(r.view.folds.is_empty());
+        r.view.sel = Selection::at(r.buffer.line_start(2));
         assert!(r.toggle_fold());
-        assert_eq!(r.folds.ranges(), [(2, 3)]);
+        assert_eq!(r.view.folds.ranges(), [(2, 3)]);
         assert_eq!(r.fold_all(), (1, false));
-        assert_eq!(r.folds.ranges(), [(0, 4)]);
-        assert_eq!(r.sel, Selection::at(3));
+        assert_eq!(r.view.folds.ranges(), [(0, 4)]);
+        assert_eq!(r.view.sel, Selection::at(3));
         // Bringing a hidden place into view opens its fold, and so does a caret put there.
         crate::view::reveal(r, r.buffer.line_start(3), false);
-        assert!(r.folds.is_empty());
+        assert!(r.view.folds.is_empty());
         r.fold_all();
-        r.sel = Selection::at(r.buffer.line_start(4));
+        r.view.sel = Selection::at(r.buffer.line_start(4));
         r.unfold_carets();
-        assert!(r.folds.is_empty());
+        assert!(r.view.folds.is_empty());
         // A line typed below leaves the fold; a line break in its first line opens it.
-        r.sel = Selection::at(r.buffer.line_start(6));
+        r.view.sel = Selection::at(r.buffer.line_start(6));
         r.fold_all();
         d.edit(
             EditOp::Insert(
@@ -3368,8 +3409,8 @@ mod tests {
             None,
         );
         let r = d.tabs[i].ready_mut().unwrap();
-        assert_eq!(r.folds.ranges(), [(0, 4)]);
-        r.sel = Selection::at(0);
+        assert_eq!(r.view.folds.ranges(), [(0, 4)]);
+        r.view.sel = Selection::at(0);
         d.edit(
             EditOp::Insert(
                 "x
@@ -3378,12 +3419,12 @@ mod tests {
             None,
         );
         let r = d.tabs[i].ready_mut().unwrap();
-        assert!(r.folds.is_empty());
+        assert!(r.view.folds.is_empty());
         // A fold below an edit moves with its lines.
-        r.sel = Selection::at(r.buffer.line_start(7));
+        r.view.sel = Selection::at(r.buffer.line_start(7));
         assert_eq!(r.fold_all(), (1, false));
-        assert_eq!(r.folds.ranges(), [(1, 5)]);
-        r.sel = Selection::at(0);
+        assert_eq!(r.view.folds.ranges(), [(1, 5)]);
+        r.view.sel = Selection::at(0);
         d.edit(
             EditOp::Insert(
                 "y
@@ -3392,7 +3433,7 @@ mod tests {
             None,
         );
         let r = d.tabs[i].ready_mut().unwrap();
-        assert_eq!(r.folds.ranges(), [(2, 6)]);
+        assert_eq!(r.view.folds.ranges(), [(2, 6)]);
         r.unfold_all();
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -3405,7 +3446,12 @@ mod tests {
         let r = d.tabs[i].ready_mut().unwrap();
         // Ten columns of 10 px fit beside the pad; four rows show.
         r.wrap = true;
-        (r.advance, r.wide_advance, r.view_w, r.view_lines) = (10.0, 20.0, 116.0, 4.0);
+        (
+            r.view.advance,
+            r.view.wide_advance,
+            r.view.view_w,
+            r.view.view_lines,
+        ) = (10.0, 20.0, 116.0, 4.0);
         assert!(r.wrapped());
         let at = |line, row| Pos { line, row };
         let starts = |r: &mut Ready, line| -> Vec<usize> {
@@ -3442,19 +3488,19 @@ mod tests {
         assert_eq!(wrap::vertical(r, 42, None, -1), (31, 10));
         // Keeping an offset in view scrolls by rows, with a row of margin in a view of four.
         crate::view::reveal(r, 43, false);
-        assert_eq!((r.top, r.top_row), (2.0, 0));
+        assert_eq!((r.view.top, r.view.top_row), (2.0, 0));
         crate::view::reveal(r, 12, false);
-        assert_eq!((r.top, r.top_row), (0.0, 0));
+        assert_eq!((r.view.top, r.view.top_row), (0.0, 0));
         crate::view::reveal(r, 35, false);
-        assert_eq!((r.top, r.top_row), (1.0, 0));
+        assert_eq!((r.view.top, r.view.top_row), (1.0, 0));
         // Parts of a row add up.
         wrap::set_top(r, at(0, 0));
         crate::view::scroll_rows(r, 0.5);
-        assert_eq!((r.top, r.top_row), (0.0, 0));
+        assert_eq!((r.view.top, r.view.top_row), (0.0, 0));
         crate::view::scroll_rows(r, 0.5);
-        assert_eq!((r.top, r.top_row), (0.0, 1));
+        assert_eq!((r.view.top, r.view.top_row), (0.0, 1));
         crate::view::scroll_rows(r, -5.0);
-        assert_eq!((r.top, r.top_row), (0.0, 0));
+        assert_eq!((r.view.top, r.view.top_row), (0.0, 0));
         // An edit makes the rows anew.
         assert!(d.edit(EditOp::Insert("zz "), None));
         let r = d.tabs[i].ready_mut().unwrap();
@@ -3467,15 +3513,15 @@ mod tests {
         let (mut d, i, _path, dir) = file_docs("multi", b"one\ntwo\nthree\n");
         let r = d.tabs[i].ready_mut().unwrap();
         // A caret at the start of each of the three lines; the last added is the primary.
-        r.sel = Selection::at(0);
+        r.view.sel = Selection::at(0);
         r.add_caret(4);
         r.add_caret(8);
-        assert_eq!((r.sel.caret, r.extra.len()), (8, 2));
+        assert_eq!((r.view.sel.caret, r.view.extra.len()), (8, 2));
         assert_eq!(r.all_sels().1, 2);
         assert!(d.edit(EditOp::Insert("- "), None));
         assert_eq!(text_of(&d, i), "- one\n- two\n- three\n");
         let r = d.tabs[i].ready().unwrap();
-        assert_eq!((r.sel.caret, r.extra.len()), (14, 2));
+        assert_eq!((r.view.sel.caret, r.view.extra.len()), (14, 2));
         assert!(d.edit(EditOp::Backspace, None));
         assert_eq!(text_of(&d, i), "-one\n-two\n-three\n");
         // As many pasted lines as carets: one each. Otherwise the whole text at each.
@@ -3486,10 +3532,10 @@ mod tests {
         // One undo step each, and Undo leaves one caret.
         assert!(d.edit(EditOp::Undo, None));
         assert_eq!(text_of(&d, i), "-1one\n-2two\n-3three\n");
-        assert!(d.tabs[i].ready().unwrap().extra.is_empty());
+        assert!(d.tabs[i].ready().unwrap().view.extra.is_empty());
         // A column selection by keys: two lines down, three columns right, then typed over.
         let r = d.tabs[i].ready_mut().unwrap();
-        r.sel = Selection::at(1);
+        r.view.sel = Selection::at(1);
         r.extend_column(2, 0);
         r.extend_column(0, 1);
         let (list, primary) = r.all_sels();
@@ -3500,7 +3546,7 @@ mod tests {
         assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n");
         // A command that is not typing goes on with the primary alone.
         assert!(d.edit(EditOp::DuplicateLines, None));
-        assert!(d.tabs[i].ready().unwrap().extra.is_empty());
+        assert!(d.tabs[i].ready().unwrap().view.extra.is_empty());
         assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n-#three\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3516,7 +3562,7 @@ mod tests {
         assert_eq!(d.tabs[i].ready().unwrap().bookmarks, [1, 3]);
         let caret_line = |d: &Docs| {
             let r = d.tabs[i].ready().unwrap();
-            r.buffer.line_of(r.sel.caret)
+            r.buffer.line_of(r.view.sel.caret)
         };
         assert!(d.go_to_bookmark(true));
         assert_eq!(caret_line(&d), 1);
@@ -3541,7 +3587,7 @@ mod tests {
     #[test]
     fn go_to_clamps_to_the_text() {
         let (mut d, i, _path, dir) = file_docs("goto", "one\nçay two\nthree".as_bytes());
-        let caret = |d: &Docs| d.tabs[i].ready().unwrap().sel.caret;
+        let caret = |d: &Docs| d.tabs[i].ready().unwrap().view.sel.caret;
         assert!(d.go_to(2, 1));
         assert_eq!(caret(&d), 4);
         // A column inside a character goes to its start; one past the end, to the line's end.
@@ -3684,15 +3730,15 @@ mod tests {
         let marks = |d: &Docs| d.tabs[i].ready().unwrap().find.matches.clone();
         assert_eq!(marks(&d), [0..2, 3..5, 6..8, 9..11]);
         // find_set selected the first match; put the caret inside the second and type.
-        d.tabs[i].ready_mut().unwrap().sel = Selection::at(4);
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(4);
         d.edit(EditOp::Insert("X"), None);
         assert_eq!(marks(&d), [0..2, 7..9, 10..12]);
         assert!(d.find_stale());
         // Typing right before a match moves it; right after one leaves it.
-        d.tabs[i].ready_mut().unwrap().sel = Selection::at(7);
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(7);
         d.edit(EditOp::Insert("Y"), None);
         assert_eq!(marks(&d), [0..2, 8..10, 11..13]);
-        d.tabs[i].ready_mut().unwrap().sel = Selection::at(2);
+        d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(2);
         d.edit(EditOp::Insert("Z"), None);
         assert_eq!(marks(&d), [0..2, 9..11, 12..14]);
         // The new search finds what the text now holds.
@@ -3760,16 +3806,15 @@ mod tests {
     #[test]
     fn find_labels() {
         let mut f = FindState::default();
-        assert_eq!(f.label(), "");
+        assert_eq!(f.label(None), "");
         f.text = "x".into();
-        assert_eq!(f.label(), "No matches");
+        assert_eq!(f.label(None), "No matches");
         f.searching = true;
-        assert_eq!(f.label(), "Searching");
+        assert_eq!(f.label(None), "Searching");
         f.searching = false;
         f.matches = vec![0..1, 4..5];
-        assert_eq!(f.label(), "2 matches");
-        f.current = Some(1);
-        assert_eq!(f.label(), "2 of 2");
+        assert_eq!(f.label(None), "2 matches");
+        assert_eq!(f.label(Some(1)), "2 of 2");
     }
 
     fn docs() -> Docs {

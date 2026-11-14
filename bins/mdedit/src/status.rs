@@ -95,8 +95,8 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
         DocState::Failed(_) => (String::new(), Vec::new()),
         DocState::Ready(r) => {
             let buf = &r.buffer;
-            let pos = buf.position(r.sel.caret);
-            let range = r.sel.range();
+            let pos = buf.position(r.view.sel.caret);
+            let range = r.view.sel.range();
             let selected = (!range.is_empty()).then(|| {
                 if range.len() <= COUNT_CHARS_UP_TO {
                     let mut n = 0;
@@ -112,7 +112,11 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
                 let (done, total) = doc.progress();
                 loading_text(done, total)
             } else {
-                r.align.as_ref().map(|a| a.summary()).unwrap_or_default()
+                r.view
+                    .align
+                    .as_ref()
+                    .map(|a| a.summary())
+                    .unwrap_or_default()
             };
             let mut right = Vec::new();
             if docs.recording {
@@ -121,8 +125,8 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
             if docs.zoom != 100 {
                 right.push(format!("{}%", docs.zoom));
             }
-            if !r.extra.is_empty() {
-                right.push(format!("{} carets", r.extra.len() + 1));
+            if !r.view.extra.is_empty() {
+                right.push(format!("{} carets", r.view.extra.len() + 1));
             }
             right.extend([
                 position_text(pos.line + 1, pos.col + 1, selected),

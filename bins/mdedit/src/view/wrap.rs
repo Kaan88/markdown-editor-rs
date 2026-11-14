@@ -33,31 +33,31 @@ pub struct Pos {
 pub fn rows(r: &mut Ready, line: usize) -> Rows {
     let stamp = (
         r.revision,
-        r.view_w.to_bits(),
-        r.advance.to_bits(),
-        r.wide_advance.to_bits(),
+        r.view.view_w.to_bits(),
+        r.view.advance.to_bits(),
+        r.view.wide_advance.to_bits(),
     );
-    if r.rows_stamp != stamp {
-        r.rows.clear();
-        r.rows_stamp = stamp;
+    if r.view.rows_stamp != stamp {
+        r.view.rows.clear();
+        r.view.rows_stamp = stamp;
     }
-    if let Some(v) = r.rows.get(&line) {
+    if let Some(v) = r.view.rows.get(&line) {
         return v.clone();
     }
     let range = r.buffer.line_range(line);
     let mut text = String::new();
     r.buffer.text(range.clone(), &mut text);
-    let max = (r.view_w - WRAP_PAD).max(0.0);
+    let max = (r.view.view_w - WRAP_PAD).max(0.0);
     let v: Rows = wrap_rows(
         &text,
         range.start,
         crate::live::tab_width(),
-        r.advance,
-        r.wide_advance,
+        r.view.advance,
+        r.view.wide_advance,
         max,
     )
     .into();
-    r.rows.insert(line, v.clone());
+    r.view.rows.insert(line, v.clone());
     v
 }
 
@@ -83,7 +83,7 @@ pub fn pos_of(r: &mut Ready, offset: usize) -> Pos {
 pub fn step(r: &mut Ready, p: Pos, n: isize) -> Pos {
     let last = r.buffer.len_lines().saturating_sub(1);
     let mut p = Pos {
-        line: r.folds.shown(p.line.min(last)),
+        line: r.view.folds.shown(p.line.min(last)),
         row: p.row,
     };
     p.row = p.row.min(rows(r, p.line).len() - 1);
@@ -96,7 +96,7 @@ pub fn step(r: &mut Ready, p: Pos, n: isize) -> Pos {
                 return p;
             }
             // Lines inside a fold have no rows.
-            let next = r.folds.next(p.line);
+            let next = r.view.folds.next(p.line);
             if next > last {
                 p.row = len - 1;
                 return p;
@@ -110,7 +110,7 @@ pub fn step(r: &mut Ready, p: Pos, n: isize) -> Pos {
             p.row -= left;
             return p;
         }
-        let Some(prev) = r.folds.prev(p.line) else {
+        let Some(prev) = r.view.folds.prev(p.line) else {
             p.row = 0;
             return p;
         };
@@ -132,7 +132,7 @@ pub fn rows_between(r: &mut Ready, from: Pos, to: Pos, limit: usize) -> Option<u
             return None;
         }
         cur = Pos {
-            line: r.folds.next(cur.line),
+            line: r.view.folds.next(cur.line),
             row: 0,
         };
     }
@@ -143,26 +143,26 @@ pub fn rows_between(r: &mut Ready, from: Pos, to: Pos, limit: usize) -> Option<u
 /// The row at the view's top.
 pub fn top(r: &mut Ready) -> Pos {
     let last = r.buffer.len_lines().saturating_sub(1);
-    let line = if r.top.is_finite() && r.top > 0.0 {
-        (r.top as usize).min(last)
+    let line = if r.view.top.is_finite() && r.view.top > 0.0 {
+        (r.view.top as usize).min(last)
     } else {
         0
     };
     // A top line that a fold has since hidden: the fold's first line.
-    let shown = r.folds.shown(line);
+    let shown = r.view.folds.shown(line);
     if shown != line {
         return Pos {
             line: shown,
             row: 0,
         };
     }
-    let row = r.top_row.min(rows(r, line).len() - 1);
+    let row = r.view.top_row.min(rows(r, line).len() - 1);
     Pos { line, row }
 }
 
 pub fn set_top(r: &mut Ready, p: Pos) {
-    r.top = p.line as f64;
-    r.top_row = p.row;
+    r.view.top = p.line as f64;
+    r.view.top_row = p.row;
 }
 
 /// Scrolls by rows, down when positive. Parts of a row add up between calls.
@@ -170,9 +170,9 @@ pub fn scroll(r: &mut Ready, by: f64) {
     if !by.is_finite() {
         return;
     }
-    r.row_rest += by;
-    let n = r.row_rest.trunc();
-    r.row_rest -= n;
+    r.view.row_rest += by;
+    let n = r.view.row_rest.trunc();
+    r.view.row_rest -= n;
     if n != 0.0 {
         let from = top(r);
         let to = step(r, from, n as isize);
@@ -182,7 +182,7 @@ pub fn scroll(r: &mut Ready, by: f64) {
 
 /// Keeps the row of `offset` in view, as `view::reveal` does for a line.
 pub fn reveal(r: &mut Ready, offset: usize, center: bool, margin: bool) {
-    let view = (r.view_lines.floor() as usize).max(1);
+    let view = (r.view.view_lines.floor() as usize).max(1);
     let keep = if margin { KEEP_LINES as usize } else { 0 }.min((view - 1) / 2);
     let (t, target) = (top(r), pos_of(r, offset));
     let below = rows_between(r, t, target, view + keep);
@@ -201,7 +201,7 @@ pub fn reveal(r: &mut Ready, offset: usize, center: bool, margin: bool) {
         }
     };
     set_top(r, next);
-    r.left = 0.0;
+    r.view.left = 0.0;
 }
 
 /// The caret moved `n` rows down (up when negative), keeping its column in the row: the new

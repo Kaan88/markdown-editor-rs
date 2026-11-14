@@ -64,7 +64,7 @@ impl App {
             Hit::ReplaceClose => self.close_replace(),
             Hit::InSelection => {
                 if let Some(r) = self.docs.active_ready_mut() {
-                    r.scope_on = !r.scope_on;
+                    r.view.scope_on = !r.view.scope_on;
                     r.fit_current_to_scope();
                 }
             }
@@ -1110,8 +1110,8 @@ impl App {
             }
             C::SelectAll => {
                 if let Some(r) = self.docs.active_ready_mut() {
-                    r.extra.clear();
-                    r.sel = mdedit_core::selection::select_all(&r.buffer);
+                    r.view.extra.clear();
+                    r.view.sel = mdedit_core::selection::select_all(&r.buffer);
                 }
             }
             C::Find => {
@@ -1247,7 +1247,9 @@ impl App {
             C::FoldAll => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     match r.fold_all() {
-                        (0, _) if r.folds.is_empty() => self.docs.set_toast(strings::NO_BLOCKS),
+                        (0, _) if r.view.folds.is_empty() => {
+                            self.docs.set_toast(strings::NO_BLOCKS)
+                        }
                         (_, true) => self.docs.set_toast(strings::FOLD_ALL_PART),
                         _ => {}
                     }
@@ -1354,7 +1356,7 @@ impl App {
         let line = |app: &Self| {
             app.docs
                 .active_ready()
-                .map(|r| r.buffer.line_of(r.sel.caret))
+                .map(|r| r.buffer.line_of(r.view.sel.caret))
         };
         let mut runs = 0;
         'runs: loop {
@@ -1376,7 +1378,7 @@ impl App {
             // The empty line after the file's last line break is not one more line to do.
             if self.docs.active_ready().is_some_and(|r| {
                 let last = r.buffer.len_lines().saturating_sub(1);
-                r.buffer.line_of(r.sel.caret) == last && r.buffer.line_range(last).is_empty()
+                r.buffer.line_of(r.view.sel.caret) == last && r.buffer.line_range(last).is_empty()
             }) {
                 break;
             }
@@ -1422,7 +1424,7 @@ impl App {
             return;
         }
         if let Some(r) = self.docs.active_ready_mut() {
-            r.sel = mdedit_core::Selection::at(r.sel.caret);
+            r.view.sel = mdedit_core::Selection::at(r.view.sel.caret);
         }
     }
 
@@ -1737,23 +1739,23 @@ impl App {
             let d = if self.step_down { 1.0 } else { -1.0 };
             if r.wrapped() {
                 // Turn where a step moves nothing: an end of the document.
-                let before = (r.top, r.top_row);
+                let before = (r.view.top, r.view.top_row);
                 view::scroll_rows(r, d * metrics::WHEEL_LINES);
-                if (r.top, r.top_row) == before {
+                if (r.view.top, r.view.top_row) == before {
                     self.step_down = !self.step_down;
                 }
             } else {
-                let max = metrics::max_top(r.buffer.len_lines(), r.view_lines);
-                if self.step_down && r.top >= max {
+                let max = metrics::max_top(r.buffer.len_lines(), r.view.view_lines);
+                if self.step_down && r.view.top >= max {
                     self.step_down = false;
-                } else if !self.step_down && r.top <= 0.0 {
+                } else if !self.step_down && r.view.top <= 0.0 {
                     self.step_down = true;
                 }
                 let d = if self.step_down { 1.0 } else { -1.0 };
-                r.top = metrics::clamp_top(
-                    r.top + d * metrics::WHEEL_LINES,
+                r.view.top = metrics::clamp_top(
+                    r.view.top + d * metrics::WHEEL_LINES,
                     r.buffer.len_lines(),
-                    r.view_lines,
+                    r.view.view_lines,
                 );
             }
         }

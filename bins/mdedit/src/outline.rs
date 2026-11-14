@@ -230,7 +230,7 @@ pub fn list(r: Rect) -> Rect {
 /// The row of the active document's caret.
 pub fn caret_row(docs: &Docs, outline: &Outline) -> Option<usize> {
     let r = docs.active_ready()?;
-    outline.row_of(r.buffer.line_of(r.sel.caret))
+    outline.row_of(r.buffer.line_of(r.view.sel.caret))
 }
 
 pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {

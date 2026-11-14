@@ -318,8 +318,8 @@ impl App {
         for doc in &mut self.docs.tabs {
             if let Some(r) = doc.ready_mut() {
                 r.chunks = crate::view::cache::Lru::new(crate::view::CHUNK_INDEXES);
-                r.widest = 0.0;
-                r.rows_stamp = (u64::MAX, 0, 0, 0);
+                r.view.widest = 0.0;
+                r.view.rows_stamp = (u64::MAX, 0, 0, 0);
             }
         }
         self.full = true;

@@ -186,13 +186,13 @@ fn go_to_line_jumps_on_enter_and_names_the_line() {
     press(&mut a, KeyName::Enter, None);
     assert!(a.palette.open.is_none());
     let r = a.docs.active_ready().unwrap();
-    assert_eq!(r.buffer.line_of(r.sel.caret), 11);
+    assert_eq!(r.buffer.line_of(r.view.sel.caret), 11);
     // Line and column.
     a.open_palette(":3:4");
     assert_eq!(a.palette.open.as_ref().unwrap().line_query(), Some((3, 4)));
     press(&mut a, KeyName::Enter, None);
     let r = a.docs.active_ready().unwrap();
-    assert_eq!(r.line_col(r.sel.caret), (2, 3));
+    assert_eq!(r.line_col(r.view.sel.caret), (2, 3));
     // Not a number: Enter does nothing and the palette stays.
     a.open_palette(":x");
     assert_eq!(a.palette.open.as_ref().unwrap().line_query(), None);
@@ -222,7 +222,7 @@ fn symbols_come_from_a_worker_and_choosing_one_jumps() {
     press(&mut a, KeyName::Enter, None);
     assert!(a.palette.open.is_none());
     let r = a.docs.active_ready().unwrap();
-    assert_eq!(r.buffer.line_of(r.sel.caret), 2);
+    assert_eq!(r.buffer.line_of(r.view.sel.caret), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -433,7 +433,10 @@ const TEN: &str = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
 fn comparing_the_two_panes_aligns_their_rows_and_stop_gives_everything_back() {
     let (mut a, dir, ia, ib) = compared(TEN, "1\n2\nx\ny\n3\n4\n5\n6\n8\n9\n10\n");
     let (ra, rb) = (tabs(&a, ia), tabs(&a, ib));
-    let (la, lb) = (ra.align.as_ref().unwrap(), rb.align.as_ref().unwrap());
+    let (la, lb) = (
+        ra.view.align.as_ref().unwrap(),
+        rb.view.align.as_ref().unwrap(),
+    );
     assert!(!la.right && lb.right && la.fresh && lb.fresh);
     // Same rows on both sides: the inserted "x", "y" have fillers opposite, "7" has one in b.
     assert_eq!(
@@ -443,19 +446,19 @@ fn comparing_the_two_panes_aligns_their_rows_and_stop_gives_everything_back() {
     assert_eq!(la.summary(), "2 differences");
     assert_eq!(crate::status::fields(&a.docs).0, "2 differences");
     // The panes scroll together by row, whichever moves.
-    a.docs.tabs[ib].ready_mut().unwrap().top = 3.0;
+    a.docs.tabs[ib].ready_mut().unwrap().view.top = 3.0;
     a.compare_sync();
-    assert_eq!(tabs(&a, ia).top, 3.0);
-    a.docs.tabs[ia].ready_mut().unwrap().top = 1.0;
+    assert_eq!(tabs(&a, ia).view.top, 3.0);
+    a.docs.tabs[ia].ready_mut().unwrap().view.top = 1.0;
     a.compare_sync();
-    assert_eq!(tabs(&a, ib).top, 1.0);
+    assert_eq!(tabs(&a, ib).view.top, 1.0);
     // Escape stops it: the rows are lines again and the top is a line.
-    a.docs.tabs[ia].ready_mut().unwrap().top = 4.0;
+    a.docs.tabs[ia].ready_mut().unwrap().view.top = 4.0;
     a.compare_sync();
     a.escape();
     assert!(a.compare.is_none());
-    assert!(tabs(&a, ia).align.is_none() && tabs(&a, ib).align.is_none());
-    assert_eq!(tabs(&a, ia).top, 2.0);
+    assert!(tabs(&a, ia).view.align.is_none() && tabs(&a, ib).view.align.is_none());
+    assert_eq!(tabs(&a, ia).view.top, 2.0);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -467,17 +470,22 @@ fn word_wrap_and_folds_wait_while_comparing() {
     a.docs.wrap = true;
     a.docs.sync_wrap();
     assert!(!tabs(&a, ia).wrap);
-    a.docs.tabs[ia].ready_mut().unwrap().folds.suspend(false);
-    assert!(a.docs.tabs[ia].ready_mut().unwrap().folds.fold(0, 2));
+    a.docs.tabs[ia]
+        .ready_mut()
+        .unwrap()
+        .view
+        .folds
+        .suspend(false);
+    assert!(a.docs.tabs[ia].ready_mut().unwrap().view.folds.fold(0, 2));
     a.docs.sync_wrap();
-    assert!(tabs(&a, ia).folds.is_empty() && tabs(&a, ia).folds.suspended());
-    assert_eq!(tabs(&a, ia).folds.hidden(), 0);
+    assert!(tabs(&a, ia).view.folds.is_empty() && tabs(&a, ia).view.folds.suspended());
+    assert_eq!(tabs(&a, ia).view.folds.hidden(), 0);
     a.command(C::StopCompare);
     a.docs.sync_wrap();
     // Wrap is back, and so is the fold.
     assert!(tabs(&a, ia).wrap);
-    assert_eq!(tabs(&a, ia).folds.ranges(), &[(0, 2)]);
-    assert!(!tabs(&a, ia).folds.suspended());
+    assert_eq!(tabs(&a, ia).view.folds.ranges(), &[(0, 2)]);
+    assert!(!tabs(&a, ia).view.folds.suspended());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -485,20 +493,20 @@ fn word_wrap_and_folds_wait_while_comparing() {
 fn editing_either_pane_makes_the_comparison_again_after_a_rest() {
     let (mut a, dir, ia, ib) = compared(TEN, TEN);
     assert_eq!(
-        tabs(&a, ia).align.as_ref().unwrap().summary(),
+        tabs(&a, ia).view.align.as_ref().unwrap().summary(),
         "No differences"
     );
     a.docs.activate(ib);
     a.docs.edit(EditOp::Insert("z"), None);
     // At once the diff on screen is stale: no marks inside lines, and "Comparing…" in the strip.
     a.compare_timer(Instant::now());
-    assert!(!tabs(&a, ib).align.as_ref().unwrap().fresh);
+    assert!(!tabs(&a, ib).view.align.as_ref().unwrap().fresh);
     assert_eq!(crate::status::fields(&a.docs).0, "Comparing\u{2026}");
     assert!(!a.compare.as_ref().unwrap().settled());
     settle_compare(&mut a);
-    assert!(tabs(&a, ib).align.as_ref().unwrap().fresh);
+    assert!(tabs(&a, ib).view.align.as_ref().unwrap().fresh);
     assert_eq!(
-        tabs(&a, ib).align.as_ref().unwrap().summary(),
+        tabs(&a, ib).view.align.as_ref().unwrap().summary(),
         "1 difference"
     );
     // Both panes are ordinary editors: the other one takes an edit too.
@@ -513,12 +521,12 @@ fn closing_a_compared_tab_or_ending_the_split_ends_the_comparison() {
     a.docs.close(ib, None);
     a.compare_sync();
     assert!(a.compare.is_none());
-    assert!(tabs(&a, ia).align.is_none());
+    assert!(tabs(&a, ia).view.align.is_none());
     let _ = std::fs::remove_dir_all(&dir);
     let (mut a, dir, ia, ib) = compared(TEN, "1\n2\n");
     a.command(C::ToggleSplit);
     assert!(a.compare.is_none() && a.docs.other().is_none());
-    assert!(tabs(&a, ia).align.is_none() && tabs(&a, ib).align.is_none());
+    assert!(tabs(&a, ia).view.align.is_none() && tabs(&a, ib).view.align.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -527,7 +535,7 @@ fn next_and_previous_difference_move_the_caret_and_say_when_there_are_no_more() 
     let (mut a, dir, ia, _) = compared(TEN, "1\nTWO\n3\n4\n5\n6\n7\n8\nNINE\n10\n");
     let line = |a: &App| {
         let r = tabs(a, ia);
-        r.buffer.line_of(r.sel.caret)
+        r.buffer.line_of(r.view.sel.caret)
     };
     a.command(C::NextDifference);
     assert_eq!(line(&a), 1);
@@ -563,7 +571,7 @@ fn compare_with_saved_shows_the_file_on_disk_read_only_and_closes_with_the_compa
     assert!(a.docs.other_left && a.docs.other() == Some(saved));
     settle_compare(&mut a);
     assert_eq!(
-        tabs(&a, ia).align.as_ref().unwrap().summary(),
+        tabs(&a, ia).view.align.as_ref().unwrap().summary(),
         "1 difference"
     );
     // The copy cannot be edited, and the file on disk is untouched.

@@ -360,7 +360,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
     let has_tab = docs.active().is_some();
     let many = docs.tabs.len() > 1;
     let has_file = docs.active_doc().is_some_and(|d| d.path.is_some());
-    let selected = ready.is_some_and(|r| !r.sel.range().is_empty());
+    let selected = ready.is_some_and(|r| !r.view.sel.range().is_empty());
     match id {
         C::Save => docs.active_doc().is_some_and(|d| d.modified()),
         C::SaveAs
@@ -406,7 +406,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
             .is_some_and(|l| l.line_comment().is_some()),
         C::ClearRecent | C::OpenRecent | C::ManageRecent => !docs.recents.is_empty(),
         C::FocusOther => docs.other().is_some(),
-        C::UnfoldAll => ready.is_some_and(|r| !r.folds.is_empty()),
+        C::UnfoldAll => ready.is_some_and(|r| !r.view.folds.is_empty()),
         C::ZoomReset => docs.zoom != 100,
         C::PlayMacro | C::PlayMacroToEnd | C::SaveMacroAs => macro_idle,
         C::NextResult | C::PreviousResult | C::CloseResults => ui.results.open,

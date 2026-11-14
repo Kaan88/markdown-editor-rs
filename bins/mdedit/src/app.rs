@@ -454,7 +454,7 @@ impl App {
             || !self
                 .docs
                 .active_ready()
-                .is_some_and(|r| r.colors.generation > 0)
+                .is_some_and(|r| r.view.colors.generation > 0)
         {
             return;
         }
@@ -480,8 +480,8 @@ impl App {
         }
         let lines = r.buffer.len_lines();
         let vis = view::shown_lines(r);
-        let screen = (r.view_lines.ceil() as usize).max(1);
-        let ok = match &r.colors.requested {
+        let screen = (r.view.view_lines.ceil() as usize).max(1);
+        let ok = match &r.view.colors.requested {
             Some((req, d)) if *d == dark && asked == Some(id) => {
                 let lo = if req.start == 0 { 0 } else { screen / 2 };
                 let hi = if req.end >= lines { 0 } else { screen / 2 };
@@ -494,7 +494,7 @@ impl App {
         }
         let want = vis.start.saturating_sub(screen)..(vis.end + screen).min(lines);
         service.view(id, revision, want.clone());
-        r.colors.requested = Some((want, dark));
+        r.view.colors.requested = Some((want, dark));
         self.service_doc = Some(id);
     }
 
@@ -511,15 +511,15 @@ impl App {
         };
         let lines = r.buffer.len_lines();
         let vis = view::shown_lines(r);
-        let screen = (r.view_lines.ceil() as usize).max(1);
-        let ok = matches!(&r.colors.requested, Some((req, d))
+        let screen = (r.view.view_lines.ceil() as usize).max(1);
+        let ok = matches!(&r.view.colors.requested, Some((req, d))
             if *d == dark && vis.start >= req.start && vis.end <= req.end);
         if ok {
             return;
         }
         let want = vis.start.saturating_sub(screen)..(vis.end + screen).min(lines);
         service.peek(id, revision, want.clone());
-        r.colors.requested = Some((want, dark));
+        r.view.colors.requested = Some((want, dark));
     }
 
     /// The document of a pane: 0 is the one with the keyboard, 1 the second pane's.
@@ -570,12 +570,12 @@ impl App {
         };
         let (first, n) = (plan.first_row(), plan.row_count());
         let win = minimap::lines_of_rows(first..first + n, |row| r.line_at_row(row));
-        let ok = matches!(&r.map_colors.requested, Some((req, d))
+        let ok = matches!(&r.view.map_colors.requested, Some((req, d))
             if *d == dark && win.start >= req.start && win.end <= req.end);
         let want =
             (!ok).then(|| minimap::lines_of_rows(plan.colour_rows(), |row| r.line_at_row(row)));
         if let Some(want) = &want {
-            r.map_colors.requested = Some((want.clone(), dark));
+            r.view.map_colors.requested = Some((want.clone(), dark));
         }
         self.map_lines[pane] = Some(win);
         if let (Some(want), Some(service)) = (want, &self.service) {
@@ -613,13 +613,14 @@ impl App {
                     !minimap
                         || self.map_lines[pane]
                             .as_ref()
-                            .is_none_or(|w| r.map_colors.covers(w, dark))
+                            .is_none_or(|w| r.view.map_colors.covers(w, dark))
                 };
                 mapped(0, r)
-                    && r.colors.covers(&view::shown_lines(r), self.dark())
+                    && r.view.colors.covers(&view::shown_lines(r), self.dark())
                     && other.is_none_or(|o| {
                         !o.colourable
-                            || (o.colors.covers(&view::shown_lines(o), self.dark()) && mapped(1, o))
+                            || (o.view.colors.covers(&view::shown_lines(o), self.dark())
+                                && mapped(1, o))
                     })
             }
         }
@@ -672,7 +673,7 @@ impl App {
                             ui.replace.caret(),
                             self.docs
                                 .active_ready()
-                                .map(|r| (r.replace_scope.clone(), r.scope_on)),
+                                .map(|r| (r.view.replace_scope.clone(), r.view.scope_on)),
                         ),
                         (ui.goto.text(), ui.goto.caret(), ui.naming),
                     ),
@@ -751,20 +752,20 @@ impl App {
                     }
                     DocState::Failed(e) => sig((2u8, e)),
                     DocState::Ready(r) => {
-                        let sel = r.sel.range();
+                        let sel = r.view.sel.range();
                         sig((
                             3u8,
-                            (r.top.to_bits(), r.top_row, r.wrap),
-                            r.left.to_bits(),
+                            (r.view.top.to_bits(), r.view.top_row, r.wrap),
+                            r.view.left.to_bits(),
                             (!sel.is_empty()).then_some((sel.start, sel.end)),
-                            (!r.extra.is_empty()).then(|| sig(&r.extra)),
+                            (!r.view.extra.is_empty()).then(|| sig(&r.view.extra)),
                             (!r.bookmarks.is_empty()).then(|| sig(&r.bookmarks)),
-                            (!r.folds.is_empty()).then(|| sig(r.folds.ranges())),
+                            (!r.view.folds.is_empty()).then(|| sig(r.view.folds.ranges())),
                             r.find.generation,
-                            r.colors.generation,
-                            (r.widest.to_bits(), r.buffer.len_lines()),
+                            r.view.colors.generation,
+                            (r.view.widest.to_bits(), r.buffer.len_lines()),
                             (r.brackets(), r.scope()),
-                            r.align.as_ref().map(|a| (a.stamp, a.fresh)),
+                            r.view.align.as_ref().map(|a| (a.stamp, a.fresh)),
                         ))
                     }
                 };
@@ -793,16 +794,16 @@ impl App {
                 };
                 let state = doc.ready().map(|r| {
                     sig((
-                        r.map_colors.generation,
-                        r.colors.generation,
-                        r.folds.ranges(),
+                        r.view.map_colors.generation,
+                        r.view.colors.generation,
+                        r.view.folds.ranges(),
                         r.buffer.len_lines(),
                         // What the column marks over the rows.
-                        (r.sel.range(), r.sel.caret, pane == 0),
-                        (!r.extra.is_empty()).then(|| sig(&r.extra)),
-                        (r.find.generation, r.find.current, r.scope()),
+                        (r.view.sel.range(), r.view.sel.caret, pane == 0),
+                        (!r.view.extra.is_empty()).then(|| sig(&r.view.extra)),
+                        (r.find.generation, r.view.find_current, r.scope()),
                         &r.bookmarks,
-                        r.align.as_ref().map(|a| a.stamp),
+                        r.view.align.as_ref().map(|a| a.stamp),
                     ))
                 });
                 let plan = self.map_plan[pane].map(|p| {
@@ -847,8 +848,11 @@ impl App {
             return (0, None);
         };
         let visible = self.text_focused() && self.focused && self.ui.caret_on;
-        let line = r.buffer.line_of(r.sel.caret);
-        (sig((r.sel.caret, visible, r.extra.len())), Some(line))
+        let line = r.buffer.line_of(r.view.sel.caret);
+        (
+            sig((r.view.sel.caret, visible, r.view.extra.len())),
+            Some(line),
+        )
     }
 
     /// Composes one frame into `screen` and returns the device-px rectangles changed.
@@ -915,10 +919,9 @@ impl App {
             // painted.
             // Several carets are on several lines, and folds move the lines below them: the
             // same.
-            let wrapped = self
-                .docs
-                .active_ready()
-                .is_some_and(|r| r.wrapped() || !r.extra.is_empty() || !r.folds.is_empty());
+            let wrapped = self.docs.active_ready().is_some_and(|r| {
+                r.wrapped() || !r.view.extra.is_empty() || !r.view.folds.is_empty()
+            });
             if lines.is_empty() || wrapped {
                 dirty[ti] = true;
             } else {
@@ -1211,7 +1214,7 @@ impl App {
                 let doc = &mut self.docs.tabs[i];
                 let area = view::text_area(doc, rect);
                 let m = self.view.metrics(self.scale);
-                let top = doc.ready().map_or(0.0, |r| r.top);
+                let top = doc.ready().map_or(0.0, |r| r.view.top);
                 for &line in lines {
                     let y0 = (area.y * self.scale).round()
                         + metrics::line_y(line, top, m.line_h).round() as f32;
@@ -1978,17 +1981,17 @@ impl App {
                 if let Some(end) =
                     mdedit_core::fold::block_end(&r.buffer, line, crate::live::tab_width())
                 {
-                    r.folds.fold(line, end);
+                    r.view.folds.fold(line, end);
                 }
             }
             if let Some(lc) = a.goto {
                 let o = at(r, lc);
-                r.sel = mdedit_core::Selection::at(o);
+                r.view.sel = mdedit_core::Selection::at(o);
                 view::reveal(r, o, true);
             }
             if let Some((from, to)) = a.select {
                 let (f, t) = (at(r, from), at(r, to));
-                r.sel = mdedit_core::Selection {
+                r.view.sel = mdedit_core::Selection {
                     anchor: f,
                     caret: t,
                     goal_col: None,
@@ -2038,7 +2041,7 @@ impl App {
                 view::scroll_rows(r, (px * scale) as f64 / line_h as f64);
             }
             if let Some(px) = a.hscroll {
-                r.left = px as f64;
+                r.view.left = px as f64;
             }
         }
         self.compose_layout_only();

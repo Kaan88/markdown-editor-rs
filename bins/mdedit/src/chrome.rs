@@ -225,7 +225,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
     Some(match hit {
         // The chevron needs no tooltip: it is self-evident and the bubble covers the text.
         Hit::FoldBox(line) => {
-            let folded = docs.active_ready()?.folds.headed(line).is_some();
+            let folded = docs.active_ready()?.view.folds.headed(line).is_some();
             with(
                 if folded {
                     "Open the block"
@@ -500,7 +500,9 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         .is_some_and(|r| !r.match_window().is_empty() && !r.find.searching);
     let text = |c: &mut Ctx, label: &str| c.p.measure(Face::Ui, 13.0, label).round();
     let (one_t, all_t) = (text(c, strings::REPLACE_ONE), text(c, strings::REPLACE_ALL));
-    let scope = docs.active_ready().filter(|r| r.replace_scope.is_some());
+    let scope = docs
+        .active_ready()
+        .filter(|r| r.view.replace_scope.is_some());
     let t = bar_text(c.p, docs);
     let plan = bar_plan(r.w, &t);
     let lay = replace_layout(r, &t, &plan, one_t, all_t, scope.is_some());
@@ -564,7 +566,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     if let Some(r) = scope {
         x -= TOGGLE_W;
         let b = Rect::new(x, y, TOGGLE_W, 32.0);
-        let on = r.scope_on;
+        let on = r.view.scope_on;
         if let Some(f) = c.fill_for(Hit::InSelection, on, false) {
             c.p.rbox(b, 6.0, f);
         }

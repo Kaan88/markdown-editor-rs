@@ -177,7 +177,7 @@ impl App {
                 if let Some(r) = self.docs.active_ready_mut() {
                     let to = r.line_col(offset);
                     r.select_column((line, col), to);
-                    view::reveal_no_margin(r, r.sel.caret);
+                    view::reveal_no_margin(r, r.view.sel.caret);
                 }
                 self.redraw();
             }
@@ -186,11 +186,11 @@ impl App {
                     return;
                 };
                 if let Some(r) = self.docs.active_ready_mut() {
-                    r.sel =
+                    r.view.sel =
                         selection::drag_to(&r.buffer, origin.0..origin.1, unit_of(unit), offset);
                     // No margin: a pointer inside the text must not scroll it; outside it, the
                     // auto-scroll timer does.
-                    view::reveal_no_margin(r, r.sel.caret);
+                    view::reveal_no_margin(r, r.view.sel.caret);
                 }
                 let area = self
                     .docs
@@ -274,7 +274,7 @@ impl App {
         let doc = &mut self.docs.tabs[i];
         let g = self.view.layout(doc, region, self.scale)?;
         let r = doc.ready()?;
-        Some((g.vbar(), g.hbar(r.left), g))
+        Some((g.vbar(), g.hbar(r.view.left), g))
     }
 
     /// The text region of pane 0 (the one with the keyboard) or 1 (the second pane).
@@ -323,7 +323,7 @@ impl App {
                 };
                 let left = offset_for_hthumb(track, thumb.w, thumb_x, g.extent, g.view_w);
                 if let Some(r) = self.pane_ready_mut(pane) {
-                    r.left = metrics::clamp_left(left as f64, g.extent, g.view_w);
+                    r.view.left = metrics::clamp_left(left as f64, g.extent, g.view_w);
                 }
             }
             _ => {
@@ -443,7 +443,7 @@ impl App {
                     });
                 } else if let Some(r) = self.pane_ready_mut(pane) {
                     let step = g.view_w as f64 * 0.9 * if x < thumb.x { -1.0 } else { 1.0 };
-                    r.left = metrics::clamp_left(r.left + step, g.extent, g.view_w);
+                    r.view.left = metrics::clamp_left(r.view.left + step, g.extent, g.view_w);
                 }
             }
             _ => {
@@ -481,8 +481,8 @@ impl App {
         // Alt and a drag select a column; Ctrl and a click add a caret.
         if clicks == 1 && alt && !ctrl {
             let (line, col) = r.line_col(offset);
-            r.extra.clear();
-            r.sel = mdedit_core::Selection::at(offset);
+            r.view.extra.clear();
+            r.view.sel = mdedit_core::Selection::at(offset);
             self.ui.drag = Some(Drag::Column { line, col });
             self.caret_reset();
             return;
@@ -492,17 +492,17 @@ impl App {
             self.caret_reset();
             return;
         }
-        r.extra.clear();
+        r.view.extra.clear();
         let (unit, origin) = match clicks {
             2 => (SelectUnit::Word, selection::word_at(&r.buffer, offset)),
             3 => (SelectUnit::Line, selection::line_at(&r.buffer, offset)),
             _ if shift => {
-                let a = r.sel.anchor;
+                let a = r.view.sel.anchor;
                 (SelectUnit::Grapheme, a..a)
             }
             _ => (SelectUnit::Grapheme, offset..offset),
         };
-        r.sel = if clicks == 1 && !shift {
+        r.view.sel = if clicks == 1 && !shift {
             mdedit_core::Selection::at(offset)
         } else if clicks == 1 {
             selection::drag_to(&r.buffer, origin.clone(), Unit::Grapheme, offset)
@@ -743,9 +743,9 @@ impl App {
                 if let Some(offset) = self.text_offset(x, y)
                     && let Some(r) = self.docs.active_ready_mut()
                 {
-                    let sel = r.sel.range();
+                    let sel = r.view.sel.range();
                     if sel.is_empty() || offset < sel.start || offset > sel.end {
-                        r.sel = mdedit_core::Selection::at(offset);
+                        r.view.sel = mdedit_core::Selection::at(offset);
                     }
                 }
                 self.ui.find_focused = false;
@@ -899,7 +899,7 @@ impl App {
         let Some(r) = self.docs.tabs[i].ready_mut() else {
             return;
         };
-        let adv = r.advance as f64;
+        let adv = r.view.advance as f64;
         // (lines down, logical px right)
         let (down, right) = match pixels {
             Some((px, py)) => {
@@ -916,7 +916,7 @@ impl App {
             None => (-ny * metrics::WHEEL_LINES, -nx * metrics::WHEEL_COLS * adv),
         };
         view::scroll_rows(r, down);
-        r.left = (r.left + right).max(0.0);
+        r.view.left = (r.view.left + right).max(0.0);
         // The layout pass of the next frame clamps both.
         if !over_other && let Some(Drag::Select { .. } | Drag::Column { .. }) = self.ui.drag {
             let drag = self.ui.drag.unwrap();
@@ -1105,8 +1105,8 @@ impl App {
             return false;
         };
         // Escape leaves one caret of several.
-        if *name == KeyName::Escape && !r.extra.is_empty() {
-            r.extra.clear();
+        if *name == KeyName::Escape && !r.view.extra.is_empty() {
+            r.view.extra.clear();
             self.caret_reset();
             self.redraw();
             return true;
@@ -1122,12 +1122,12 @@ impl App {
             };
             r.history.seal();
             r.extend_column(lines, cols);
-            view::reveal(r, r.sel.caret, false);
+            view::reveal(r, r.view.sel.caret, false);
             self.caret_reset();
             self.redraw();
             return true;
         }
-        let page = ((r.view_lines.floor() as usize).saturating_sub(1)).max(1);
+        let page = ((r.view.view_lines.floor() as usize).saturating_sub(1)).max(1);
         let motion = match (name, mods.ctrl) {
             (KeyName::Left, false) => Motion::Left,
             (KeyName::Right, false) => Motion::Right,
@@ -1155,10 +1155,10 @@ impl App {
         r.history.seal();
         // The page keys leave one caret; any other motion moves every caret.
         if matches!(motion, Motion::Up(n) | Motion::Down(n) if n > 1) {
-            r.extra.clear();
+            r.view.extra.clear();
         }
         match motion {
-            _ if !r.extra.is_empty() => {
+            _ if !r.view.extra.is_empty() => {
                 let (list, primary) = r.all_sels();
                 let (list, primary) = mdedit_core::multi::move_all(
                     &r.buffer,
@@ -1178,21 +1178,22 @@ impl App {
                     } else {
                         1
                     };
-                let (caret, goal) = view::wrap::vertical(r, r.sel.caret, r.sel.goal_col, n);
-                r.sel = mdedit_core::Selection {
-                    anchor: if mods.shift { r.sel.anchor } else { caret },
+                let (caret, goal) =
+                    view::wrap::vertical(r, r.view.sel.caret, r.view.sel.goal_col, n);
+                r.view.sel = mdedit_core::Selection {
+                    anchor: if mods.shift { r.view.sel.anchor } else { caret },
                     caret,
                     goal_col: Some(goal),
                 };
             }
             // Up and Down go over folded lines: the motion is made as long as the lines
             // between are many. At the document's ends it is left as it is.
-            Motion::Up(n) | Motion::Down(n) if !r.folds.is_empty() => {
+            Motion::Up(n) | Motion::Down(n) if !r.view.folds.is_empty() => {
                 let up = matches!(motion, Motion::Up(_));
-                let line = r.buffer.line_of(r.sel.caret);
-                let row = r.folds.row_of(line);
-                let last = r.folds.row_of(r.buffer.len_lines().saturating_sub(1));
-                let to = r.folds.line_at_row(if up {
+                let line = r.buffer.line_of(r.view.sel.caret);
+                let row = r.view.folds.row_of(line);
+                let last = r.view.folds.row_of(r.buffer.len_lines().saturating_sub(1));
+                let to = r.view.folds.line_at_row(if up {
                     row.saturating_sub(n)
                 } else {
                     (row + n).min(last)
@@ -1202,18 +1203,18 @@ impl App {
                     std::cmp::Ordering::Greater => Motion::Down(to - line),
                     std::cmp::Ordering::Equal => motion,
                 };
-                r.sel = selection::apply(
+                r.view.sel = selection::apply(
                     &r.buffer,
-                    r.sel,
+                    r.view.sel,
                     motion,
                     mods.shift,
                     crate::live::tab_width(),
                 );
             }
             _ => {
-                r.sel = selection::apply(
+                r.view.sel = selection::apply(
                     &r.buffer,
-                    r.sel,
+                    r.view.sel,
                     motion,
                     mods.shift,
                     crate::live::tab_width(),
@@ -1230,7 +1231,7 @@ impl App {
                 };
             view::scroll_rows(r, d);
         }
-        view::reveal(r, r.sel.caret, false);
+        view::reveal(r, r.view.sel.caret, false);
         self.caret_reset();
         true
     }
@@ -1412,7 +1413,7 @@ impl App {
         let (down, right) = autoscroll_step(dx, dy);
         if let Some(r) = self.docs.active_ready_mut() {
             view::scroll_rows(r, down);
-            r.left = (r.left + right).max(0.0);
+            r.view.left = (r.view.left + right).max(0.0);
         }
         // Clamp through a layout pass, then extend the selection to the pointer.
         let region = self.areas.text;

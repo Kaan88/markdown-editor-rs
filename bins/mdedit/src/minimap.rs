@@ -338,13 +338,13 @@ pub fn draw(
         plan.top_px,
         plan.rows,
         plan.col_h,
-        r.map_colors.generation,
-        r.colors.generation,
+        r.view.map_colors.generation,
+        r.view.colors.generation,
         dark,
         scale.to_bits(),
         (w, h),
-        r.folds.ranges(),
-        r.align.as_ref().map(|a| a.stamp),
+        r.view.folds.ranges(),
+        r.view.align.as_ref().map(|a| a.stamp),
     )
         .hash(&mut hasher);
     let key = hasher.finish();
@@ -454,7 +454,7 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
     );
     // The top of a line's row, if the line is in the window.
     let row_y = |line: usize| -> Option<i32> {
-        if line < first_line || line > last_line || r.folds.is_hidden(line) {
+        if line < first_line || line > last_line || r.view.folds.is_hidden(line) {
             return None;
         }
         let k = r.row_of_line(line).checked_sub(first)?;
@@ -464,7 +464,7 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
         c.p.fill_dev(x, y, x + w, y + h, col, a);
     };
     // Compare mode: the changed rows are tinted across the column.
-    if let Some(al) = &r.align {
+    if let Some(al) = &r.view.align {
         let t = crate::compare::tints(pal.dark, pal.page, pal.text);
         for k in 0..count {
             if let Some(col) = al.kind(first + k).and_then(|kind| t.of(kind, al.right)) {
@@ -473,12 +473,12 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
             }
         }
     }
-    if keyboard && let Some(y) = row_y(buf.line_of(r.sel.caret)) {
+    if keyboard && let Some(y) = row_y(buf.line_of(r.view.sel.caret)) {
         fill(x0 + hair, y, x1 - x0 - hair, px.ink, pal.text, CARET_A);
     }
     // Selections: the primary one and the others of several carets, those in the window.
-    let mut sels: Vec<Range<usize>> = std::iter::once(r.sel.range())
-        .chain(r.extra.iter().map(|s| s.range()))
+    let mut sels: Vec<Range<usize>> = std::iter::once(r.view.sel.range())
+        .chain(r.view.extra.iter().map(|s| s.range()))
         .filter(|s| s.start < we && s.end > ws && s.start < s.end)
         .collect();
     sels.sort_by_key(|s| s.start);
@@ -527,7 +527,7 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
         let Some(y) = row_y(buf.line_of(m.start)) else {
             continue;
         };
-        let col = if r.find.current == Some(a + k) {
+        let col = if r.view.find_current == Some(a + k) {
             pal.find_current
         } else {
             pal.find_mark
@@ -581,9 +581,10 @@ fn paint(bmp: &mut Bitmap, r: &Ready, plan: &Plan, scale: f32, dark: bool, page:
         let end = rope.char_to_byte(rope.byte_to_char(end));
         let chars = rope.byte_slice(range.start..end).chars();
         let spans = r
+            .view
             .map_colors
             .line(line, dark)
-            .or_else(|| r.colors.line(line, dark))
+            .or_else(|| r.view.colors.line(line, dark))
             .unwrap_or(&[]);
         segs.clear();
         segments(chars, spans, crate::live::tab_width(), max_cols, &mut segs);

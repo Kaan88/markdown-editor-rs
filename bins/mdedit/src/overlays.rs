@@ -177,8 +177,10 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
             .enabled(crate::compare::enabled(C::StopCompare, docs)),
         cmd(C::ToggleFold, "Fold or open the block", glyph::FOLD).sep(),
         cmd(C::FoldAll, "Fold all blocks", glyph::FOLD_ALL),
-        cmd(C::UnfoldAll, "Open all folds", glyph::UNFOLD)
-            .enabled(docs.active_ready().is_some_and(|r| !r.folds.is_empty())),
+        cmd(C::UnfoldAll, "Open all folds", glyph::UNFOLD).enabled(
+            docs.active_ready()
+                .is_some_and(|r| !r.view.folds.is_empty()),
+        ),
         cmd(C::ZoomIn, "Zoom in", glyph::ZOOM).sep(),
         cmd(C::ZoomOut, "Zoom out", glyph::ZOOM_OUT),
         cmd(C::ZoomReset, "Reset zoom", glyph::ZOOM_RESET).enabled(docs.zoom != 100),
@@ -199,7 +201,7 @@ pub fn minimap_menu(x: f32, y: f32) -> Menu<Act> {
 pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     let many = docs.tabs.len() > 1;
     let has_file = docs.tabs.get(index).is_some_and(|d| d.path.is_some());
-    let compared = docs.active_ready().is_some_and(|r| r.align.is_some());
+    let compared = docs.active_ready().is_some_and(|r| r.view.align.is_some());
     let items = vec![
         Item::new(Act::TabCmd(C::CloseTab, index), "Close tab").icon(glyph::CLOSE),
         Item::new(Act::TabCmd(C::CloseOtherTabs, index), "Close other tabs")
@@ -240,7 +242,7 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
 pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     let has_selection = docs
         .active_ready()
-        .is_some_and(|r| !r.sel.range().is_empty());
+        .is_some_and(|r| !r.view.sel.range().is_empty());
     let ready = docs.active_ready().is_some();
     let history = docs.active_ready().map(|r| &r.history);
     let has_comment = docs
@@ -328,7 +330,7 @@ pub fn convert_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act>
     let ready = docs.active_ready().is_some();
     let has_selection = docs
         .active_ready()
-        .is_some_and(|r| !r.sel.range().is_empty());
+        .is_some_and(|r| !r.view.sel.range().is_empty());
     let items = vec![
         cmd(C::UpperCase, "UPPERCASE", glyph::UPPERCASE).enabled(has_selection),
         cmd(C::LowerCase, "lowercase", glyph::LOWERCASE).enabled(has_selection),

@@ -213,7 +213,7 @@ impl Tints {
 
 /// Which compare commands can run now.
 pub fn enabled(id: C, docs: &Docs) -> bool {
-    let compared = docs.active_ready().is_some_and(|r| r.align.is_some());
+    let compared = docs.active_ready().is_some_and(|r| r.view.align.is_some());
     match id {
         C::CompareOther => !compared && docs.other().is_some() && docs.active_ready().is_some(),
         C::CompareFile => docs.active_ready().is_some() && !compared,
@@ -372,17 +372,17 @@ impl Compare {
             };
             if let Some(r) = docs.tabs[i].ready_mut() {
                 let lines = r.buffer.len_lines();
-                let old = r.align.take();
-                let top = if r.top.is_finite() {
-                    r.top.max(0.0)
+                let old = r.view.align.take();
+                let top = if r.view.top.is_finite() {
+                    r.view.top.max(0.0)
                 } else {
                     0.0
                 };
                 let row = top.floor() as usize;
                 let line = old.as_ref().map_or(row, |o| o.line_near(row, lines));
                 let new = Align::with(data.clone(), right);
-                r.top = new.row_of(line) as f64 + (top - row as f64);
-                r.align = Some(new);
+                r.view.top = new.row_of(line) as f64 + (top - row as f64);
+                r.view.align = Some(new);
             }
         }
         // Both panes at the same row: the active one leads.
@@ -394,7 +394,7 @@ impl Compare {
         let top = docs
             .index_of_id(lead)
             .and_then(|i| docs.tabs[i].ready())
-            .map_or(0.0, |r| r.top);
+            .map_or(0.0, |r| r.view.top);
         self.set_tops(docs, top);
     }
 
@@ -403,7 +403,7 @@ impl Compare {
             if let Some(i) = docs.index_of_id(id)
                 && let Some(r) = docs.tabs[i].ready_mut()
             {
-                r.top = v;
+                r.view.top = v;
             }
         }
         self.synced = (v, v);
@@ -415,7 +415,7 @@ impl Compare {
         for id in [self.a, self.b] {
             if let Some(i) = docs.index_of_id(id)
                 && let Some(r) = docs.tabs[i].ready_mut()
-                && let Some(al) = r.align.as_mut()
+                && let Some(al) = r.view.align.as_mut()
                 && al.fresh != fresh
             {
                 al.fresh = fresh;
@@ -430,7 +430,7 @@ impl Compare {
     pub fn sync_scroll(&mut self, docs: &mut Docs) {
         let top = |id| {
             let i = docs.index_of_id(id)?;
-            Some(docs.tabs[i].ready()?.top)
+            Some(docs.tabs[i].ready()?.view.top)
         };
         let (Some(ta), Some(tb)) = (top(self.a), top(self.b)) else {
             return;
@@ -458,17 +458,17 @@ impl Compare {
                 continue;
             };
             if let Some(r) = docs.tabs[i].ready_mut() {
-                if let Some(al) = r.align.take() {
+                if let Some(al) = r.view.align.take() {
                     let lines = r.buffer.len_lines();
-                    let top = if r.top.is_finite() {
-                        r.top.max(0.0)
+                    let top = if r.view.top.is_finite() {
+                        r.view.top.max(0.0)
                     } else {
                         0.0
                     };
                     let row = top.floor() as usize;
-                    r.top = al.line_near(row, lines) as f64 + (top - row as f64);
+                    r.view.top = al.line_near(row, lines) as f64 + (top - row as f64);
                 }
-                r.folds.suspend(false);
+                r.view.folds.suspend(false);
             }
         }
     }
@@ -478,25 +478,25 @@ impl crate::docs::Ready {
     /// The row of line `line`: the line's place among the lines that show (folds) or among the
     /// rows of a comparison.
     pub fn row_of_line(&self, line: usize) -> usize {
-        match &self.align {
+        match &self.view.align {
             Some(al) => al.row_of(line),
-            None => self.folds.row_of(line),
+            None => self.view.folds.row_of(line),
         }
     }
 
     /// The line on row `row`, or the line that follows a filler row.
     pub fn line_at_row(&self, row: usize) -> usize {
-        match &self.align {
+        match &self.view.align {
             Some(al) => al.line_near(row, self.buffer.len_lines()),
-            None => self.folds.line_at_row(row),
+            None => self.view.folds.line_at_row(row),
         }
     }
 
     /// The line on row `row`; `None` for a filler row of a comparison.
     pub fn line_on_row(&self, row: usize) -> Option<usize> {
-        match &self.align {
+        match &self.view.align {
             Some(al) => al.line_at(row, self.buffer.len_lines()),
-            None => Some(self.folds.line_at_row(row)),
+            None => Some(self.view.folds.line_at_row(row)),
         }
     }
 }

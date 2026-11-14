@@ -170,8 +170,8 @@ struct ShownLine {
 pub fn scroll_rows(r: &mut Ready, by: f64) {
     if r.wrapped() {
         wrap::scroll(r, by);
-    } else if r.folds.is_empty() {
-        r.top += by;
+    } else if r.view.folds.is_empty() {
+        r.view.top += by;
     } else {
         let v = top_rows(r) + by;
         set_top_rows(r, v);
@@ -181,35 +181,35 @@ pub fn scroll_rows(r: &mut Ready, by: f64) {
 /// The view's top as a row among the lines that show. `Ready::top` is a line of the document,
 /// so that it means the same when folds open and close; without folds the two are one.
 fn top_rows(r: &Ready) -> f64 {
-    if r.folds.is_empty() || !r.top.is_finite() || r.top <= 0.0 {
-        return r.top;
+    if r.view.folds.is_empty() || !r.view.top.is_finite() || r.view.top <= 0.0 {
+        return r.view.top;
     }
-    let line = r.top.floor();
-    let shown = r.folds.shown(line as usize);
+    let line = r.view.top.floor();
+    let shown = r.view.folds.shown(line as usize);
     let part = if shown == line as usize {
-        r.top - line
+        r.view.top - line
     } else {
         0.0
     };
-    r.folds.row_of(shown) as f64 + part
+    r.view.folds.row_of(shown) as f64 + part
 }
 
 fn set_top_rows(r: &mut Ready, v: f64) {
-    if r.folds.is_empty() || !v.is_finite() || v <= 0.0 {
-        r.top = v;
+    if r.view.folds.is_empty() || !v.is_finite() || v <= 0.0 {
+        r.view.top = v;
         return;
     }
     let row = v.floor();
-    r.top = r.folds.line_at_row(row as usize) as f64 + (v - row);
+    r.view.top = r.view.folds.line_at_row(row as usize) as f64 + (v - row);
 }
 
 /// Lines that show: all but those inside folds.
 fn shown_rows(r: &Ready) -> usize {
     let lines = r.buffer.len_lines().max(1);
-    if let Some(al) = &r.align {
+    if let Some(al) = &r.view.align {
         return al.rows(lines);
     }
-    lines - r.folds.hidden().min(lines - 1)
+    lines - r.view.folds.hidden().min(lines - 1)
 }
 
 /// How strongly a changed row is tinted, and the part of it that differs.
@@ -225,21 +225,24 @@ const SHOWN_LINES_MAX: usize = 10_000;
 /// larger fold stays plain while the fold is on screen.
 pub fn shown_lines(r: &Ready) -> Range<usize> {
     let lines = r.buffer.len_lines();
-    if let Some(al) = &r.align {
+    if let Some(al) = &r.view.align {
         // Compare mode: the top is a row, and fillers have no line.
-        let rows = visible(r.top, r.view_lines, al.rows(lines));
+        let rows = visible(r.view.top, r.view.view_lines, al.rows(lines));
         if rows.is_empty() {
             return 0..0;
         }
         let last = al.line_near(rows.end - 1, lines);
         return al.line_near(rows.start, lines)..(last + 1).min(lines);
     }
-    let vis = visible(r.top, r.view_lines, lines);
-    if r.folds.is_empty() {
+    let vis = visible(r.view.top, r.view.view_lines, lines);
+    if r.view.folds.is_empty() {
         return vis;
     }
-    let rows = r.view_lines.ceil().max(1.0) as usize + 1;
-    let end = r.folds.line_at_row(r.folds.row_of(vis.start) + rows);
+    let rows = r.view.view_lines.ceil().max(1.0) as usize + 1;
+    let end = r
+        .view
+        .folds
+        .line_at_row(r.view.folds.row_of(vis.start) + rows);
     vis.start..end.clamp(vis.start, lines.min(vis.start + SHOWN_LINES_MAX))
 }
 
@@ -272,7 +275,7 @@ pub fn map_scene(r: &mut Ready, g: &Geom) -> MapScene {
     let at = |r: &mut Ready, p: wrap::Pos, after: bool| {
         let n = wrap::rows(r, p.line).len().max(1) as f64;
         let part = (p.row + usize::from(after)) as f64 / n;
-        r.folds.row_of(r.folds.shown(p.line)) as f64 + part
+        r.view.folds.row_of(r.view.folds.shown(p.line)) as f64 + part
     };
     let top = wrap::top(r);
     let first = at(r, top, false);
@@ -297,12 +300,12 @@ pub fn map_scroll(r: &mut Ready, g: &Geom, first: f64) {
             0.0
         };
         let row = (f.floor() as usize).min(g.rows.saturating_sub(1));
-        let line = r.folds.line_at_row(row);
+        let line = r.view.folds.line_at_row(row);
         let n = wrap::rows(r, line).len().max(1);
         let part = (f - row as f64).clamp(0.0, 1.0);
-        r.top = line as f64;
-        r.top_row = ((part * n as f64) as usize).min(n - 1);
-        r.row_rest = 0.0;
+        r.view.top = line as f64;
+        r.view.top_row = ((part * n as f64) as usize).min(n - 1);
+        r.view.row_rest = 0.0;
     } else {
         scroll_to(r, g, first);
     }
@@ -317,9 +320,9 @@ pub fn scroll_to(r: &mut Ready, g: &Geom, top: f64) {
         } else {
             0.0
         };
-        r.top = r.folds.shown(line as usize) as f64;
-        r.top_row = 0;
-        r.row_rest = 0.0;
+        r.view.top = r.view.folds.shown(line as usize) as f64;
+        r.view.top_row = 0;
+        r.view.row_rest = 0.0;
     } else {
         set_top_rows(r, clamp_top(top, g.rows, g.view_lines));
     }
@@ -526,7 +529,7 @@ pub fn x_of(r: &mut Ready, offset: usize) -> f64 {
     r.buffer
         .text(c.start.offset..offset.max(c.start.offset), &mut text);
     let cols: Cols = c.start.cols().after(&text, crate::live::tab_width());
-    cols_x(cols, r.advance, r.wide_advance)
+    cols_x(cols, r.view.advance, r.view.wide_advance)
 }
 
 /// Keeps `offset` in view (with the margin), or centres it when `center` and it is off screen.
@@ -544,7 +547,7 @@ pub fn reveal_no_margin(r: &mut Ready, offset: usize) {
 fn reveal_with(r: &mut Ready, offset: usize, center: bool, margin: bool) {
     // What is brought into view is not left inside a fold.
     let line = r.buffer.line_of(offset);
-    r.folds.reveal(line);
+    r.view.folds.reveal(line);
     if r.wrapped() {
         wrap::reveal(r, offset, center, margin);
         return;
@@ -552,14 +555,21 @@ fn reveal_with(r: &mut Ready, offset: usize, center: bool, margin: bool) {
     let v = reveal_top(
         top_rows(r),
         r.row_of_line(line),
-        r.view_lines,
+        r.view.view_lines,
         shown_rows(r),
         center,
         margin,
     );
     set_top_rows(r, v);
     let x = x_of(r, offset);
-    r.left = reveal_left(r.left, x, r.view_w, r.advance, center, margin);
+    r.view.left = reveal_left(
+        r.view.left,
+        x,
+        r.view.view_w,
+        r.view.advance,
+        center,
+        margin,
+    );
 }
 
 /// A shaped line number and its width.
@@ -674,7 +684,7 @@ impl View {
     fn shaped(&mut self, r: &mut Ready, line: usize, ch: Chunk, dark: bool) -> Rc<Shaped> {
         let range = r.buffer.line_range(line);
         let (c, end) = (ch.start, ch.end);
-        let spans = r.colors.line(line, dark).filter(|s| !s.is_empty());
+        let spans = r.view.colors.line(line, dark).filter(|s| !s.is_empty());
         let mut source = std::mem::take(&mut self.scratch);
         source.clear();
         r.buffer.text(c.offset..end, &mut source);
@@ -808,7 +818,7 @@ impl View {
         let gutter_r = ((area.x + g.gutter_w) * scale).round() as i32;
         let base = current_clip(c.p);
         let text_clip = intersect((gutter_r, y0, x1, y1), base);
-        let origin = g.origin_x(scale, r.left);
+        let origin = g.origin_x(scale, r.view.left);
         let adv = m.advance as f64;
         let lh = m.line_h;
         let band_c = mix(pal.page, pal.text, 0.035);
@@ -824,19 +834,20 @@ impl View {
                 };
             r.buffer.line_of(s.start)..=r.buffer.line_of(last)
         });
-        let sel = r.sel.range();
+        let sel = r.view.sel.range();
         let sel_is_current = r
-            .find
-            .current
+            .view
+            .find_current
             .and_then(|k| r.find.matches.get(k))
             .is_some_and(|m| *m == sel);
-        let caret_line = r.buffer.line_of(r.sel.caret);
+        let caret_line = r.buffer.line_of(r.view.sel.caret);
         let band_line = s.band.then_some(caret_line);
         // The tint of the caret's line is a preference; its number stays marked.
         let band_fill = band_line.filter(|_| crate::live::highlight_line());
         // The other selections of several carets, in document order.
         let len = r.buffer.len_bytes();
         let extras: Vec<(Range<usize>, usize)> = r
+            .view
             .extra
             .iter()
             .map(|s| {
@@ -857,14 +868,14 @@ impl View {
         // The horizontal view, device px from column 0.
         let xs = {
             let s = scale as f64;
-            (r.left * s).max(0.0)..(r.left + g.view_w as f64) * s + adv
+            (r.view.left * s).max(0.0)..(r.view.left + g.view_w as f64) * s + adv
         };
         let mark_a = if pal.dark { 0.38 } else { 0.45 };
         let fold_c = mix(pal.page, pal.text, 0.5);
         let wanted = |i: usize| bands.is_none_or(|b| b.contains(&i));
         let mut shown_lines: Vec<ShownLine> = Vec::new();
         // Compare mode: the diff, its colours, and the filler rows in view.
-        let align = r.align.clone();
+        let align = r.view.align.clone();
         let tints = align
             .as_ref()
             .map(|_| crate::compare::tints(pal.dark, pal.page, pal.text));
@@ -902,7 +913,7 @@ impl View {
                     parts,
                 });
                 p = wrap::Pos {
-                    line: r.folds.next(p.line),
+                    line: r.view.folds.next(p.line),
                     row: 0,
                 };
             }
@@ -960,7 +971,7 @@ impl View {
             });
             let range = r.buffer.line_range(i);
             let with_break = r.buffer.line_range_with_break(i);
-            let folded = r.folds.headed(i).is_some();
+            let folded = r.view.folds.headed(i).is_some();
             // Find marks overlapping the line.
             let marks: &[Range<usize>] = {
                 let all = &r.find.matches;
@@ -980,7 +991,7 @@ impl View {
             let marks: Vec<(Range<usize>, bool)> = marks
                 .iter()
                 .enumerate()
-                .map(|(k, m)| (m.clone(), r.find.current == Some(first_mark + k)))
+                .map(|(k, m)| (m.clone(), r.view.find_current == Some(first_mark + k)))
                 .collect();
             // Other occurrences of the selected word on this line, as whole words.
             let mut twins: Vec<Range<usize>> = Vec::new();
@@ -1003,7 +1014,8 @@ impl View {
                 let x = origin + cx;
                 let last = end == range.end;
                 if !g.wrapped {
-                    r.widest = r
+                    r.view.widest = r
+                        .view
                         .widest
                         .max(((cx + shaped.width as f64) / scale as f64) as f32);
                 }
@@ -1187,7 +1199,7 @@ impl View {
             }
         }
         // The caret.
-        let caret = r.sel.caret;
+        let caret = r.view.sel.caret;
         let caret_part = shown_lines
             .iter()
             .find(|l| l.line == caret_line)
@@ -1247,10 +1259,10 @@ impl View {
             // A line that starts a block, or is folded: a chevron right of the number, shown
             // faintly while the pointer is in the gutter and always for a folded one. Only the
             // visible lines are asked.
-            let folded = r.folds.headed(i).is_some();
+            let folded = r.view.folds.headed(i).is_some();
             if folded
                 || (gutter_hot
-                    && !r.folds.suspended()
+                    && !r.view.folds.suspended()
                     && heads_block(&r.buffer, i, crate::live::tab_width()))
             {
                 let cell =
@@ -1309,7 +1321,7 @@ impl View {
                 c.hit(crate::ui::Hit::ScrollBar(vscroller), track);
             }
         }
-        if let Some((track, thumb)) = g.hbar(r.left) {
+        if let Some((track, thumb)) = g.hbar(r.view.left) {
             draw_hscrollbar(c, track, thumb, s.hbar_active);
             if bands.is_none() {
                 c.hit(crate::ui::Hit::ScrollBar(hscroller), track);
@@ -1338,7 +1350,7 @@ impl View {
         let r = doc.ready_mut()?;
         let g = geom(r, area, &m);
         let dy = ((y - area.y) * scale) as f64;
-        let rel = (x * scale) as f64 - g.origin_x(scale, r.left);
+        let rel = (x * scale) as f64 - g.origin_x(scale, r.view.left);
         let (line, chunk, cx) = if g.wrapped {
             // The row under y, counted from the one at the top.
             let n = (dy.max(0.0) / m.line_h.max(1) as f64).floor() as isize;
@@ -1351,7 +1363,7 @@ impl View {
             let chunk = chunk_at_x(r, line, rel.max(0.0), m.advance, m.wide);
             (line, chunk, m.chunk_x(&chunk.start))
         };
-        let dark = r.colors.dark;
+        let dark = r.view.colors.dark;
         let shaped = self.shaped(r, line, chunk, dark);
         let local = (rel - cx) as f32;
         let range = r.buffer.line_range(line);
@@ -1409,22 +1421,22 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
     let extent = if wrapped {
         0.0
     } else {
-        extent(r.info.longest_line_chars, adv_l, r.widest)
+        extent(r.info.longest_line_chars, adv_l, r.view.widest)
     };
-    r.view_lines = vl;
-    r.view_w = view_w;
-    r.advance = adv_l;
-    r.wide_advance = m.wide / scale;
+    r.view.view_lines = vl;
+    r.view.view_w = view_w;
+    r.view.advance = adv_l;
+    r.view.wide_advance = m.wide / scale;
     if wrapped {
         let p = wrap::top(r);
         wrap::set_top(r, p);
-        r.left = 0.0;
+        r.view.left = 0.0;
     } else {
         let v = clamp_top(top_rows(r), rows, vl);
         set_top_rows(r, v);
-        r.left = clamp_left(r.left, extent, view_w);
+        r.view.left = clamp_left(r.view.left, extent, view_w);
     }
-    let top = if wrapped { r.top } else { top_rows(r) };
+    let top = if wrapped { r.view.top } else { top_rows(r) };
     Geom {
         area,
         gutter_w,
