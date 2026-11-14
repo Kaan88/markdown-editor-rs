@@ -205,6 +205,9 @@ impl App {
     /// side": the lines of the difference the caret is in replace the other side's, in the
     /// document that changes, as one undo step. The comparison follows the edit by itself.
     pub(super) fn compare_copy(&mut self, across: bool) {
+        // The diff's freshness is otherwise marked before a frame: a command run right after an
+        // edit (a macro, a second copy) must not work from line ranges of the older text.
+        self.compare_timer(Instant::now());
         let pick = match crate::compare::pick(&self.docs, across) {
             Ok(p) => p,
             Err(why) => {
