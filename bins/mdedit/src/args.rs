@@ -183,8 +183,8 @@ pub struct Args {
     pub follow: bool,
     pub place: Option<Rect>,
     pub from: Option<String>,
-    /// `--run <command>`: run one command (its name as the code has it, `PreviewInViewer`) once
-    /// the first document is ready in a window, for tests and scripts.
+    /// `--run <command>`: run one command (its name as the code has it, `PreviewInViewer`) half
+    /// a second after the first frame of a window, for tests and scripts.
     pub run: Option<CommandId>,
     /// `--demo-link`: the first document shows as previewed in mdview, with nothing started or
     /// sent, for a shot.

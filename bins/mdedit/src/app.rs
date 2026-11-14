@@ -67,6 +67,8 @@ const SIZE_SAVE_DELAY: Duration = Duration::from_millis(800);
 const LOAD_WAIT: Duration = Duration::from_millis(400);
 /// And for the first screen's colours until this long after launch.
 const COLOUR_WAIT: Duration = Duration::from_millis(80);
+/// `--run` waits this long after the first frame, for the window to be on a screen.
+const RUN_DELAY: Duration = Duration::from_millis(500);
 /// `--shot` waits this long for colours.
 const SHOT_COLOUR_WAIT: Duration = Duration::from_secs(10);
 /// Pane wheel step, logical px per notch.
@@ -224,6 +226,8 @@ struct App {
     #[cfg(not(windows))]
     dialog_busy: bool,
     exit_due: Option<Instant>,
+    /// `--run`: when its command runs.
+    run_due: Option<Instant>,
     /// `--scroll-steps`: steps left, the direction, and the frame times taken.
     steps: Option<u32>,
     step_down: bool,
@@ -338,6 +342,7 @@ impl App {
             #[cfg(not(windows))]
             dialog_busy: false,
             exit_due: None,
+            run_due: None,
             step_down: true,
             step_times: Vec::new(),
             macros: crate::macros::Macros::default(),
@@ -1393,6 +1398,10 @@ impl App {
             if let Some(ms) = self.args.exit_after_ms {
                 self.exit_due = Some(Instant::now() + Duration::from_millis(ms));
             }
+            // Later than the first frame: the desktop has not told the window its screen yet.
+            if self.args.run.is_some() {
+                self.run_due = Some(Instant::now() + RUN_DELAY);
+            }
         }
     }
 
@@ -2078,10 +2087,6 @@ impl App {
         }
         self.apply_other_positions();
         self.compose_layout_only();
-        // In a window only: a shot starts nothing.
-        if let Some(id) = a.run.filter(|_| self.window.is_some()) {
-            self.command(id);
-        }
     }
 
     /// `--other-goto`, `--other-select`, `--other-fold` and `--other-scroll`: the second pane's
@@ -2508,8 +2513,7 @@ pub fn run() -> i32 {
         || a.select.is_some()
         || a.find.is_some()
         || a.scroll.is_some()
-        || a.hscroll.is_some()
-        || a.run.is_some();
+        || a.hscroll.is_some();
     if positions {
         app.positions_for = app.docs.active_doc().map(|d| d.id);
     }

@@ -1654,6 +1654,16 @@ impl App {
         if let Some(due) = self.link_due {
             at(due);
         }
+        if let Some(due) = self.run_due {
+            if now >= due {
+                self.run_due = None;
+                if let Some(id) = self.args.run {
+                    self.command(id);
+                }
+            } else {
+                at(due);
+            }
+        }
         if let Some(due) = self.exit_due {
             if now >= due {
                 self.exit_due = None;
