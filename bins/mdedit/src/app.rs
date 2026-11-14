@@ -151,6 +151,9 @@ struct App {
     service_doc: Option<DocId>,
     service_dark: Option<bool>,
     window: Option<Rc<Window>>,
+    /// The compositor's drop shadow (Linux, KWin on Wayland); `None` elsewhere. Dropping it
+    /// removes the shadow, so it lives as long as the window.
+    shadow: Option<mdshared_ui::shadow::Shadow>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     incoming: Option<Receiver<PathBuf>>,
     watcher: Option<FileWatcher>,
@@ -232,6 +235,16 @@ struct App {
 }
 
 impl App {
+    /// Hands the compositor the shadow for the window's scale, focus and maximised state; cheap
+    /// (returns at once when none changed) and nothing without a shadow. `focused` is the new
+    /// focus when the event says it, otherwise the window's own.
+    fn update_shadow(&mut self, focused: Option<bool>) {
+        if let (Some(shadow), Some(w)) = (self.shadow.as_mut(), self.window.as_ref()) {
+            let active = focused.unwrap_or_else(|| w.has_focus());
+            shadow.update(w.scale_factor(), active, w.is_maximized());
+        }
+    }
+
     fn new(
         args: Args,
         docs: Docs,
@@ -259,6 +272,7 @@ impl App {
             service_doc: None,
             service_dark: None,
             window: None,
+            shadow: None,
             surface: None,
             incoming: None,
             watcher: None,
@@ -1592,6 +1606,7 @@ impl ApplicationHandler<Wake> for App {
         let size = window.inner_size();
         self.size = (size.width.max(1), size.height.max(1));
         self.maximized = window.is_maximized();
+        self.shadow = mdshared_ui::shadow::Shadow::attach(&window);
         #[cfg(windows)]
         style(&window, self.dark());
         let surface = softbuffer::Context::new(window.clone())
@@ -1664,11 +1679,13 @@ impl ApplicationHandler<Wake> for App {
                 if let Some(w) = &self.window {
                     self.maximized = w.is_maximized();
                 }
+                self.update_shadow(None);
                 self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
                 self.redraw();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor as f32;
+                self.update_shadow(None);
                 self.full = true;
                 self.redraw();
             }
@@ -1679,6 +1696,7 @@ impl ApplicationHandler<Wake> for App {
             }
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
+                self.update_shadow(Some(focused));
                 if focused && self.ui.tree.refresh() {
                     self.redraw();
                 }
