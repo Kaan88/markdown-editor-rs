@@ -81,11 +81,6 @@ impl App {
         let ready = self.docs.active_ready();
         let line = ready.map(|r| r.buffer.line_of(r.view.sel.caret) as u32 + 1);
         let too_large = ready.is_some_and(|r| r.buffer.len_bytes() > sister::MAX_TEXT);
-        // The viewer reads the file: its text is the document's when nothing is unsaved.
-        let version = ready
-            .zip(self.docs.active_doc())
-            .filter(|(_, d)| !d.modified())
-            .map(|(r, d)| (d.revision, r.buffer.revision()));
         let mut request = Request {
             line,
             from: Some(link::FROM.into()),
@@ -96,9 +91,7 @@ impl App {
         }
         match sister::open(link::VIEWER, &request) {
             Ok(()) => {
-                self.docs
-                    .links
-                    .link(id, path, line, version, Instant::now());
+                self.docs.links.link(id, path, line, None, Instant::now());
                 self.docs.links.start(self.docs.waker());
                 if too_large && self.docs.prefs.live_preview {
                     self.docs.set_toast(strings::PREVIEW_TOO_LARGE);
@@ -488,6 +481,9 @@ mod tests {
         let r = got();
         assert_eq!((r.text, r.line, r.live_off), (None, Some(5), false));
         assert!(quiet());
+        a.docs.go_to(1, 1);
+        a.docs.link_poll(later(1) + Duration::from_millis(800));
+        assert_eq!(got().line, Some(1));
         a.docs.edit(crate::docs::EditOp::Insert("EDITED "), None);
         a.docs.link_poll(later(2));
         let r = got();

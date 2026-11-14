@@ -89,7 +89,9 @@ pub struct Active {
     /// The caret's line, from 1.
     pub line: u32,
     pub version: Version,
-    /// Its text is to be sent: the setting is on and it is within the cap.
+    /// Its text is to be sent: the setting is on, it is within the cap, and the document differs
+    /// from its saved state (otherwise the viewer shows the file, and is told to go back to it
+    /// once the text is the file's again).
     pub live: bool,
 }
 
@@ -134,9 +136,9 @@ impl Links {
     }
 
     /// Links document `id`, whose file `path` the viewer was just asked to show at `line`. The
-    /// viewer reads the file, so `version` is the text's when it is the file's (not modified): the
-    /// first text goes with the first edit. For a modified document it is `None` and the text
-    /// goes at the next pass.
+    /// viewer reads the file, so `version` is the text's when the viewer has it (the shell passes
+    /// `None`: a document that is not modified is never sent, and a modified one goes at the next
+    /// pass).
     pub fn link(
         &mut self,
         id: DocId,
@@ -284,7 +286,7 @@ impl Docs {
                 id: d.id,
                 line: r.buffer.line_of(r.view.sel.caret) as u32 + 1,
                 version: (d.revision, r.buffer.revision()),
-                live: live && r.buffer.len_bytes() <= MAX_TEXT,
+                live: live && r.buffer.len_bytes() <= MAX_TEXT && d.modified(),
             })
         });
         let poll = self.links.poll(now, active);

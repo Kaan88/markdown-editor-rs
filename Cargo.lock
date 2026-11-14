@@ -1367,7 +1367,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=090d4da2c6196746ab5630110713f14d61217fb7#090d4da2c6196746ab5630110713f14d61217fb7"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9222f966eae23e498b5f598116665d0018294899#9222f966eae23e498b5f598116665d0018294899"
 dependencies = [
  "notify",
 ]
@@ -1375,7 +1375,7 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=090d4da2c6196746ab5630110713f14d61217fb7#090d4da2c6196746ab5630110713f14d61217fb7"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9222f966eae23e498b5f598116665d0018294899#9222f966eae23e498b5f598116665d0018294899"
 dependencies = [
  "libloading",
  "windows-sys 0.59.0",
@@ -1384,7 +1384,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=090d4da2c6196746ab5630110713f14d61217fb7#090d4da2c6196746ab5630110713f14d61217fb7"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9222f966eae23e498b5f598116665d0018294899#9222f966eae23e498b5f598116665d0018294899"
 dependencies = [
  "syntect",
 ]
@@ -1392,7 +1392,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=090d4da2c6196746ab5630110713f14d61217fb7#090d4da2c6196746ab5630110713f14d61217fb7"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9222f966eae23e498b5f598116665d0018294899#9222f966eae23e498b5f598116665d0018294899"
 dependencies = [
  "parley",
  "png",
@@ -1402,7 +1402,7 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=090d4da2c6196746ab5630110713f14d61217fb7#090d4da2c6196746ab5630110713f14d61217fb7"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9222f966eae23e498b5f598116665d0018294899#9222f966eae23e498b5f598116665d0018294899"
 dependencies = [
  "arboard",
  "mdshared-app",
