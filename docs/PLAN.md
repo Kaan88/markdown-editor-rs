@@ -100,15 +100,22 @@ Left out: plugins, the FTP and project panels, printing.
 Agreed after mdedit 0.5.0 and mdview 0.3.0 (Windows and Linux). Each item has to keep the budgets
 above, measured before and after.
 
-- Copy a change across in compare.
-- Finer sync with the viewer inside long paragraphs and code blocks.
-- Live preview for a document that has never been saved.
-- Multi-caret support in the line commands (sort, join, headings, table alignment).
+- Copy a change across in compare. Done on `merge/next-release` (not in `main`).
+- Finer sync with the viewer inside long paragraphs and code blocks. Not started.
+- Live preview for a document that has never been saved. Not started.
+- Multi-caret support in the line commands (sort, join, headings, table alignment). Done on
+  `merge/next-release`.
 - Owner request 2026-11-14: a "Restart" button once an update is installed, both apps, only if it
-  is simple to do (the update bar now says the new version starts next time).
+  is simple to do (the update bar now says the new version starts next time). Built on
+  `feat/restart-after-update`, not merged: it waits for a hand test on Windows.
+- Also done on `merge/next-release`, not on this list before: column selection (DESIGN section
+  57), Markdown table editing (section 60), and autosave and crash recovery (section 61).
+- Budgets for the five features on `merge/next-release` were not measured yet (2026-11-15).
 - Carried over: the speed-versus-size build comparison on Windows (a build compiled for speed
   with unwinding against the current profile), and a hand run of 0.5.0 on a Windows desktop.
-- For consideration, not agreed (owner, 2026-11-14): rounded window corners. Default radius 8
+- For consideration, not agreed (owner, 2026-11-14; left out of `merge/next-release` because the
+  shared test `rounded_paint_touches_the_margin_and_the_corner_squares_only` fails on shared `next`
+  `e3d381b`): rounded window corners. Default radius 8
   logical px, scaled with the display, square when maximised, tiled or fullscreen, with a setting
   that includes 0. It sits between KDE Breeze (about 5 px, from bug reports) and GNOME libadwaita
   (about 12 px, from a 2021 commit and forum estimates) and matches the 8 px radius of the apps'

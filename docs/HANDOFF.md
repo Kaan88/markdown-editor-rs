@@ -5,9 +5,12 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## START HERE: work in progress after mdedit 0.5.1 (written 2026-11-14)
+## START HERE: work in progress after mdedit 0.5.1 (written 2026-11-14, branch table updated 2026-11-15)
 
-The released state is `main` (mdedit 0.5.1). A large batch of next-release work was started with many
+The released state is `main` (mdedit 0.5.1). Update 2026-11-15: five of the features below are
+merged together on the branch `merge/next-release` (see the table and the review results below);
+that branch is not merged into `main` and nothing is released. The rest of this paragraph is as
+written on 2026-11-14. A large batch of next-release work was started with many
 agents in parallel and then **paused by the owner** (the PC could not carry the load and the token
 cost was too high). Everything is pushed; nothing below is merged into `main`, nothing is released.
 The owner continues from a fresh clone on Windows. Read this section, then
@@ -27,7 +30,9 @@ The owner continues from a fresh clone on Windows. Read this section, then
 - Each feature branch carries `docs/next/<key>.md` (README text, DESIGN text, release note,
   handoff notes) instead of edits to the real docs, so branches merge without doc conflicts. The
   merge folds that file into README, DESIGN, PLAN, HANDOFF and `docs/release-notes/NEXT.md` and
-  deletes it. Branches whose state is WIP may not have it yet.
+  deletes it. Branches whose state is WIP may not have it yet. The five files of the branches
+  merged into `merge/next-release` were folded on 2026-11-15 (DESIGN sections 57 to 61,
+  `docs/release-notes/NEXT.md`, the section "Five features merged on `merge/next-release`" below).
 - Merge order into `next`: shared branches into the shared repo's `next` first, then the app
   branch; set every `mdshared-*` pin to the shared `next` head; keep third-party crates in
   `Cargo.lock` as on `main`. Central tables (menus, commands, keys, strings, settings rows,
@@ -46,20 +51,40 @@ No branch below was reviewed by the main session unless it says so.
 
 | Branch | Feature | Head | State |
 |---|---|---|---|
-| `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; not reviewed; see shared `next` |
-| `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged |
-| `f/table-editing` | Markdown table editing help | `88d5503` | CI green; agent said it passed locally; not reviewed |
-| `f/multicaret-line-commands` | multi-caret in the line commands | `aaba1fa` | CI green; not reviewed |
-| `f/compare-copy-across` | copy a change across in compare | `4d4ff2b` | CI green; not reviewed |
-| `f/paste-image` | paste an image into a Markdown file | `c14ebb3` | CI green; not reviewed |
-| `f/autosave-recovery` | autosave and crash recovery | `4750c39` | CI green; not reviewed |
-| `f/column-selection` | column (block) selection | `3785c7d` | CI green; not reviewed |
+| `merge/next-release` | the five features marked "merged" below, merged together | `9f07121` (then docs commits) | CI green at `9f07121` on Linux and Windows; reviewed by the main session; not merged into `main`; nothing released |
+| `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; left out of `merge/next-release` (see the review results below) |
+| `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged; waits for a hand test on Windows |
+| `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
+| `f/multicaret-line-commands` | multi-caret in the line commands | `aaba1fa` | CI green; reviewed; merged into `merge/next-release` |
+| `f/compare-copy-across` | copy a change across in compare | `4d4ff2b` | CI green; reviewed; merged into `merge/next-release` |
+| `f/paste-image` | paste an image into a Markdown file | `c14ebb3` | CI green; not merged; waits for a hand test on Windows |
+| `f/autosave-recovery` | autosave and crash recovery | `4750c39` | CI green; reviewed; merged into `merge/next-release` (with the data-loss fix `867f197`) |
+| `f/column-selection` | column (block) selection | `3785c7d` | CI green; reviewed; merged into `merge/next-release` |
 | `f/word-completion` | word completion and snippets | `0a09e78` | **WIP**, never built in this state, no CI |
 | `f/live-preview-unsaved` | live preview of a never-saved file (both apps) | `8019a35` | **not started** (branch equals the plan commit) |
 | `f/finer-sync` | finer scroll sync inside long blocks (both apps) | `8019a35` | **not started** |
 
 "CI green" on a feature branch may be from an earlier interrupted agent's state of the feature:
 read the diff against the spec before trusting that the feature is complete.
+
+### Review results of `merge/next-release` (2026-11-15)
+
+The main session reviewed the diffs of the five branches before the merge.
+
+- Autosave had a data-loss bug: after a crash an older session backup beat the newer recovery
+  copy. Fixed in `867f197` (DESIGN section 61); the pruning of stale backups was then changed to
+  borrow what it reads of a tab (`9f07121`).
+- `next` (rounded corners) is left out. The shared test
+  `rounded_paint_touches_the_margin_and_the_corner_squares_only` fails on shared `next` `e3d381b`,
+  and the Round default would move KDE to the client-margin shadow route.
+- `f/paste-image` and `feat/restart-after-update` wait for a hand test on Windows.
+- Three small review fixes were made in `e8dd045` (the merge of `f/table-editing`): in compare, a
+  copied change takes in the diff's freshness first, so a command run right after an edit cannot
+  work from line ranges of the older text; for tables, Enter at the end of an empty row ends the
+  table only on its last row (in the middle it adds a row), and a row or column command refused
+  inside a table says so, not that the caret is outside one.
+- Not done: nothing of the five was measured against the budgets or tried by hand in a real
+  window on Windows; CI is the only Windows run (green at `9f07121`).
 
 ### The shared repository (Kaan88/markdown-shared-rs)
 
@@ -87,6 +112,91 @@ read the diff against the spec before trusting that the feature is complete.
   apps' `next` CI is green but shared `next` CI failed, and nobody reviewed the result.
 - The Linux worktrees (`~/src/md/wt/*`, `~/src/md/*-next`) and build caches are local to the Linux
   machine and are not needed: every branch is on GitHub.
+
+## Five features merged on `merge/next-release` (2026-11-15, not in `main`, not published)
+
+The notes each branch left in `docs/next/<key>.md`, folded in here; the design text is in DESIGN
+sections 57 to 61, the release note in `docs/release-notes/NEXT.md`.
+
+### Column selection
+
+- Built: `vcol.rs` (visual columns), `multi::column` using it, `Ready::select_column/line_col`,
+  drag past line end (`View::columns_past_end`), autoscroll while dragging, column-aware copy and
+  Backspace/Delete/Paste in `Docs::edit`, `--select-column`, a Keyboard shortcuts row, shots
+  column, column-dark, column-cjk. Alt+drag and Alt+Shift+Arrows already existed; no new shortcuts.
+- Not verified: Windows and a real window with a mouse (drag, autoscroll, Alt+drag under a Linux
+  window manager); release-build budgets (nothing runs unless a column selection is made; the
+  keystroke path adds one comparison).
+- Left out: virtual space; wrapped-row columns.
+
+### Compare: copy a change across
+
+- Built: mdedit-core `merge` module (take_lines, replace_lines, unit tests),
+  `compare::pick`/`Align::change_at_line`/`enabled`, `App::compare_copy`, `EditOp::CopyLines`,
+  commands, strings, View menu entries, palette, `--copy-change across|take` for shots, app-level
+  tests, four shots (compare-copied, compare-taken-dark, menu-view-compared,
+  menu-view-compared-dark).
+- Decisions: no gutter arrow buttons (the compare view has no gutter between panes and the panes
+  are ordinary editors; adding one would change the look); no new shortcut; next and previous
+  difference already existed (F7, Shift+F7), only added to the menu.
+- Not verified: Windows (CI only); release-build budgets not measured (nothing runs at startup or
+  on keystroke or scroll; the code runs only on the commands, and `enabled` runs per menu or
+  palette build, a hunk lookup).
+- Left out: gutter arrows; copying part of a block (selection) or a single hunk inside a changed
+  block.
+
+### Multi-caret line commands
+
+- Built: `mdedit_core::multiline` (+ `multiline/tests.rs`, about 60 tests with two and three
+  carets, overlapping and adjacent selections), `*_range`/`*_pts` variants in
+  `lines.rs`/`markdown.rs`, `History::fuse_since` (one undo step), shell wiring in `Docs::edit`
+  (`line_edit`).
+- An old test that asserted "a command other than typing leaves one caret" was changed to the new
+  rule.
+- Not verified: Windows, a real window, release-build budgets (nothing runs with one caret: one
+  `is_empty` check).
+- Left out: Outdent with several carets; MdWrap and MdLink already worked on every caret.
+
+### Markdown table editing
+
+- Built: `crates/mdedit-core/src/table.rs` (new; 15 unit tests including a hostile-input run), the
+  refactor of the table finder in `markdown.rs` (`locate`, `lay_out`, `bounds_of`; quotes and code
+  spans), `EditOp::MdTableOp`, `table_keys` in `docs.rs` (Tab, Shift+Tab and Enter hook, runs
+  before the typing help), eight commands (`C::MdRowBelow` ... `MdMoveColumnRight`) in commands,
+  palette, Markdown submenu (existing glyphs PLUS, DELETE, BACK, FORWARD), `fixtures/table.md` and
+  four shots in `tests/shots.sh`.
+- Decisions: the caret goes to the cell start, no selection of cell text; Enter in an empty row
+  ends the table (otherwise a table at the end of a file could not be left with Enter); commands
+  are enabled for any open document like the other Markdown commands and refuse with a toast; no
+  setting (no Markdown group in Settings); a table whose header begins with a list marker
+  (`- | a |`) is not recognised.
+- Not verified: Windows and release-build budgets (nothing runs at startup and nothing on the
+  typing path: the new code runs only for Tab, Shift+Tab, Enter and the commands, and for Tab and
+  Enter only after `assist.markdown` is true; Enter in Markdown additionally locates the table
+  around the caret, which is bounded to 2000 rows and returns early on a line with no pipe).
+  Real-window behaviour was not tried.
+- Left out: tables inside list items whose first line is the table, moving rows, sorting.
+
+### Autosave and crash recovery
+
+- Built: `crates/mdedit-core/src/recovery.rs` (format, atomic write, read, tests),
+  `bins/mdedit/src/recovery.rs` (poll, thread, scan, restore, finish; 9 tests with real files),
+  limits in `limits.rs`, `Doc::recovered`/`read_restore`/`Ready::recovered_encoding` in `docs.rs`,
+  wiring in `app.rs` (start: restore and toast; `about_to_wait`: poll and timer; exit: finish),
+  `strings::recovered`, `--demo-recovered N` (shot only: the toast), two shots in `tests/shots.sh`
+  (recovered-light, recovered-dark).
+- Decisions: recovery is separate from the session backup (different folder and format, so the
+  session's code is untouched); the header holds size, time and the length, not a content hash;
+  no setting and no "autosave to the real file". The thread starts on the first write and is
+  joined at exit.
+- Fix (data loss), `867f197`: see DESIGN section 61, "A copy wins over a session backup".
+- Not verified: nothing ran on a real window or on Windows locally (CI only); an actual `kill -9`
+  or power loss was not tried (the tests simulate it by dropping the store after the thread
+  finished); the cost on release builds was not measured. Why it cannot move the budgets: nothing
+  runs at start except one `read_dir` of a folder that normally does not exist; per event-loop
+  pass the poll is a loop over the tabs comparing integers; a keystroke adds no work.
+- Left out: a copy for a document over 64 MiB; text put back is lost for a file read lossily (the
+  same limit the session backup has); a toast naming which documents; no content hash.
 
 ## 1. Where things are
 

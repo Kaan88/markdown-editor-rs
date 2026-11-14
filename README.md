@@ -19,22 +19,33 @@ endings, edits with undo and redo, and saves in the file's own encoding and line
 touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks a name for.
 
 - **Editing:** line commands (duplicate, move, delete, toggle comment, change case, sort, reverse,
-  remove duplicates, join, trim, tabs to spaces), Markdown commands (bold, italic, code,
-  strikethrough, heading level, link, align table), auto-pairing, and indentation that follows
-  the file (tabs or spaces, detected per file). Several carets (Ctrl+click) and column selections
-  (Alt+drag, Alt+Shift+arrows). Saved macros (Ctrl+Shift+R records, Ctrl+Shift+P plays).
+  remove duplicates, join, trim, tabs to spaces), which act at every caret or selection as one
+  undo step, Markdown commands (bold, italic, code, strikethrough, heading level, link, align
+  table), auto-pairing, and indentation that follows the file (tabs or spaces, detected per
+  file). Several carets (Ctrl+click) and column selections (Alt+drag, Alt+Shift+arrows): one
+  selection per line over a rectangle of columns, and typing, deleting, copying, cutting, pasting
+  and undo work on all lines at once. Saved macros (Ctrl+Shift+R records, Ctrl+Shift+P plays).
+- **Markdown tables:** in a pipe table, Tab and Shift+Tab move between cells and line the columns
+  up (Tab in the last cell adds a row), Enter at the end of a row adds a row, and the Markdown
+  submenu (and the command palette) has Insert row below/above, Delete row, Insert column
+  right/left, Delete column and Move column left/right, next to Align table. Tables in block
+  quotes and indented tables keep their prefix.
 - **Finding:** find and replace with match case, whole word and regular expressions (Ctrl+F,
   Ctrl+H), replace in the selection, find in files and open tabs (Ctrl+Shift+F, F4), and replace in
   files with a confirmation, backups and an undo. A function and heading list (Ctrl+Shift+2),
   bookmarks (Ctrl+F2, F2), folding by mouse or key (F9), a minimap (Ctrl+Shift+M).
 - **Two files:** side by side (Shift+F8), compare two files or a file with its saved copy (F7 for
-  the next difference), and the same file in both panes.
+  the next difference), and the same file in both panes. With the caret in a difference, put this
+  side's lines in place of the other side's, or take the other side's lines, as one undo step.
 - **Command palette (Ctrl+P)** for tabs, files, commands, line numbers and symbols, and
   **Settings (Ctrl+,)** for the preferences.
 - **With mdview:** Preview in mdview (Ctrl+Shift+V) opens the file in the viewer at the caret's
   line, and keeps the viewer on your unsaved text while you type (live preview, up to 2 MiB).
 - Changes a file's line endings and encoding from the status bar, wraps long lines (Alt+Z),
-  keeps unsaved text when the window closes and puts it back at the next start, and updates itself
+  keeps unsaved text when the window closes and puts it back at the next start, keeps a copy of
+  every changed document in the background so unsaved text also survives a crash, a kill or a
+  power loss (the next start puts it back as modified tabs; nothing is written to your files),
+  and updates itself
   in place like mdview. There is no input-method support yet.
 
 [docs/PLAN.md](docs/PLAN.md) holds the goals, the budgets, the phases and the feature roadmap;
