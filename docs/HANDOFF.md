@@ -52,7 +52,7 @@ No branch below was reviewed by the main session unless it says so.
 | Branch | Feature | Head | State |
 |---|---|---|---|
 | `merge/next-release` | the six features marked "merged" below, merged together | `95edf8d` (then a handoff commit) | CI green at `95edf8d` on Linux and Windows; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
-| `f/paste-image-files` | paste image files copied in the file manager as links | `5c5af06` | **WIP**, branched from `merge/next-release`; no CI; never tried with a real clipboard |
+| `f/paste-image-files` | paste image files copied in the file manager as links | see `git log` (finished in the second session of 2026-11-15) | finished on Windows: clippy clean, all tests pass, tried in a real window by script (see "Second session of 2026-11-15"); no CI run; holds all of `merge/next-release` but is **not merged into it** (waits for the owner's hand test and word); Linux not done |
 | `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; left out of `merge/next-release` (see the review results below) |
 | `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged; waits for a hand test on Windows |
 | `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
@@ -150,6 +150,34 @@ Open from that report:
     core tests and the release build were cut short by the stop; no CI; never tried with a real
     clipboard; no docs. Linux is not done (a copied file is not looked for there).
 
+**Second session of 2026-11-15: `f/paste-image-files` finished, not merged.** The owner said only
+"resume"; the session took the one item that needed no answer. This text is on the branch
+`f/paste-image-files` only.
+
+- Review of `5c5af06` found one gap, fixed: a file on the same network share as the document was
+  copied instead of linked (`image_paste::Anchor`: a drive, a share, or the root). Nothing else
+  was changed in the code.
+- Run on this PC: `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test
+  --workspace` all pass (editor 232, core 446, the rest); release build 6,282,240 bytes.
+- Tried in a real window on Windows by script (the file list set with PowerShell `Set-Clipboard
+  -LiteralPath`, which writes `CF_HDROP` as Explorer does; Ctrl+End, Ctrl+V, Ctrl+S, Alt+F4 sent):
+  three files (a subfolder with a space in the name, a sibling folder, drive D:) gave
+  `![](img/my%20pic.png)`, `![](../pics/b.jpg)`, `![](far.png)` on three lines, with `far.png`
+  copied beside the document byte for byte; the same D: file again in a second document gave
+  `far-1.png`; an image together with a `.txt` did nothing; an image file into a `.txt` document
+  did nothing.
+- Not run: a copy made in Explorer by hand; the toast was not looked at; a network share (unit
+  test only); a read-only document; an unsaved document; CI; Linux (not built there, and the
+  feature is Windows only); budgets (the new code runs only on a paste with no text on the
+  clipboard).
+- Docs: README, DESIGN section 62 and `docs/release-notes/NEXT.md` are edited on the branch
+  itself (no `docs/next/` file).
+- Decisions still the owner's: a file is linked where it is, however far (`../../Pictures/a.png`),
+  and only a file on another drive or share is copied; a list with one non-image in it pastes
+  nothing and says nothing.
+- A leftover of the test: the folder `D:\mdedit-paste-test` (one 185-byte PNG). Its removal by
+  the session was refused by a safety check; the owner can delete it.
+
 **Other things left as they are**
 
 - `test/hand`: a local, unpushed branch on the Windows PC (`merge/next-release` as of `9f07121`
@@ -166,7 +194,8 @@ Open from that report:
 
 **What is left, in the order suggested to the owner**
 
-1. Ask about F7 and Tab (above); finish or drop `f/paste-image-files`.
+1. Ask about F7 and Tab (above); the owner tries `f/paste-image-files` by hand and says whether
+   it goes into `merge/next-release`.
 2. The owner decides: merge `merge/next-release` into `main`, the version number, the release.
    None of that was done or asked for.
 3. `feat/restart-after-update`: needs a real update and Restart staged by hand (above).
