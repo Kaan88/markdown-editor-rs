@@ -1,0 +1,46 @@
+== opaque
+  first frame presented, ms:   median 31.57  min 28.49  max 41.75  mean 32.81  (n=20)
+  + one DWM composition, ms:   median 35.88  min 30.38  max 48.80  mean 37.11  (n=20)
+  private at first frame, MiB: median 5.23  min 5.21  max 5.30  mean 5.24  (n=20)
+  private after 1.2 s, MiB:    median 5.23  min 5.21  max 5.30  mean 5.24  (n=20)
+  working set after 1.2 s, MiB:median 16.87  min 16.77  max 16.92  mean 16.86  (n=20)
+== mica
+  first frame presented, ms:   median 31.34  min 28.43  max 41.36  mean 32.50  (n=20)
+  + one DWM composition, ms:   median 37.59  min 33.57  max 51.28  mean 38.92  (n=20)
+  private at first frame, MiB: median 5.23  min 5.21  max 5.29  mean 5.23  (n=20)
+  private after 1.2 s, MiB:    median 5.23  min 5.21  max 5.29  mean 5.23  (n=20)
+  working set after 1.2 s, MiB:median 16.87  min 16.77  max 16.91  mean 16.87  (n=20)
+== alt
+  first frame presented, ms:   median 31.10  min 28.75  max 43.37  mean 33.88  (n=20)
+  + one DWM composition, ms:   median 37.54  min 33.66  max 52.39  mean 39.81  (n=20)
+  private at first frame, MiB: median 5.23  min 5.20  max 5.28  mean 5.23  (n=20)
+  private after 1.2 s, MiB:    median 5.23  min 5.20  max 5.28  mean 5.23  (n=20)
+  working set after 1.2 s, MiB:median 16.87  min 16.84  max 16.93  mean 16.87  (n=20)
+== acrylic
+  first frame presented, ms:   median 30.60  min 28.68  max 63.95  mean 34.07  (n=20)
+  + one DWM composition, ms:   median 36.06  min 33.73  max 66.87  mean 39.38  (n=20)
+  private at first frame, MiB: median 5.22  min 5.21  max 5.30  mean 5.23  (n=20)
+  private after 1.2 s, MiB:    median 5.22  min 5.21  max 5.30  mean 5.23  (n=20)
+  working set after 1.2 s, MiB:median 16.87  min 16.85  max 16.94  mean 16.87  (n=20)
+== mica-extend
+  first frame presented, ms:   median 31.07  min 28.81  max 45.06  mean 33.52  (n=20)
+  + one DWM composition, ms:   median 37.40  min 33.15  max 57.49  mean 39.53  (n=20)
+  private at first frame, MiB: median 5.23  min 5.20  max 5.29  mean 5.23  (n=20)
+  private after 1.2 s, MiB:    median 5.23  min 5.20  max 5.29  mean 5.23  (n=20)
+  working set after 1.2 s, MiB:median 16.87  min 16.77  max 16.93  mean 16.87  (n=20)
+== resize test (60 programmatic size changes, 3 runs each)
+  opaque: 59 frames; draw+present mean 0.57 ms max 2.87 ms; with DwmFlush mean 6.11 ms max 7.66 ms
+  opaque: 59 frames; draw+present mean 0.54 ms max 0.74 ms; with DwmFlush mean 5.81 ms max 7.47 ms
+  opaque: 59 frames; draw+present mean 0.59 ms max 2.20 ms; with DwmFlush mean 5.67 ms max 7.66 ms
+  mica: 59 frames; draw+present mean 0.57 ms max 1.96 ms; with DwmFlush mean 5.80 ms max 8.20 ms
+  mica: 59 frames; draw+present mean 0.55 ms max 1.32 ms; with DwmFlush mean 5.78 ms max 7.90 ms
+  mica: 59 frames; draw+present mean 0.53 ms max 0.66 ms; with DwmFlush mean 5.66 ms max 7.63 ms
+  alt: 59 frames; draw+present mean 0.59 ms max 2.83 ms; with DwmFlush mean 5.74 ms max 7.57 ms
+  alt: 59 frames; draw+present mean 0.59 ms max 2.08 ms; with DwmFlush mean 5.89 ms max 9.42 ms
+  alt: 59 frames; draw+present mean 0.63 ms max 0.86 ms; with DwmFlush mean 5.64 ms max 7.42 ms
+  acrylic: 59 frames; draw+present mean 0.55 ms max 0.75 ms; with DwmFlush mean 5.92 ms max 9.45 ms
+  acrylic: 59 frames; draw+present mean 0.56 ms max 1.55 ms; with DwmFlush mean 5.93 ms max 8.81 ms
+  acrylic: 59 frames; draw+present mean 0.56 ms max 1.29 ms; with DwmFlush mean 5.93 ms max 7.67 ms
+  mica-extend: 59 frames; draw+present mean 0.53 ms max 0.76 ms; with DwmFlush mean 5.92 ms max 7.55 ms
+  mica-extend: 59 frames; draw+present mean 0.55 ms max 1.32 ms; with DwmFlush mean 5.85 ms max 7.75 ms
+  mica-extend: 59 frames; draw+present mean 0.59 ms max 2.63 ms; with DwmFlush mean 5.78 ms max 7.42 ms

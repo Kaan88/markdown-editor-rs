@@ -1,0 +1,15 @@
+[    0.167 ms] args: --top --pos 240,170 --auto-exit-ms 2500 --log C:\Users\kaank\Desktop\md-wt\edit-frosted\spikes\frosted\logs\b-nobackdrop-dark.txt --dark --backdrop none --blur
+[    0.322 ms] power: AC line 1 battery flag 0x80 battery saver 0
+[   20.772 ms] window created
+[   20.899 ms] corner preference hr 0x0
+[   20.961 ms] DWMWA_SYSTEMBACKDROP_TYPE=1 hr 0x0
+[   21.189 ms] surface
+[   21.605 ms] first frame presented hidden
+[   31.906 ms] first frame (window shown, frame presented)
+[   35.702 ms] DwmFlush returned (one composition after the first frame)
+[   35.823 ms] memory at first frame: private 5.23 MiB, working set 16.88 MiB
+[   35.972 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 1 (hr 0x0)  foreground true
+[   36.477 ms] Focused(true)
+[  364.847 ms] Focused(false)
+[ 2536.220 ms] memory at exit: private 5.23 MiB, working set 16.88 MiB
+[ 2536.434 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 1 (hr 0x0)  foreground false

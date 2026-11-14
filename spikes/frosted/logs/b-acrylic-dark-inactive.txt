@@ -1,0 +1,13 @@
+[    0.114 ms] args: --top --pos 240,170 --auto-exit-ms 2500 --log C:\Users\kaank\Desktop\md-wt\edit-frosted\spikes\frosted\logs\b-acrylic-dark-inactive.txt --dark --backdrop acrylic --blur --inactive
+[    0.240 ms] power: AC line 1 battery flag 0x80 battery saver 0
+[   19.437 ms] window created
+[   19.568 ms] corner preference hr 0x0
+[   19.628 ms] DWMWA_SYSTEMBACKDROP_TYPE=3 hr 0x0
+[   19.788 ms] surface
+[   20.178 ms] first frame presented hidden
+[   21.973 ms] first frame (window shown, frame presented)
+[   25.662 ms] DwmFlush returned (one composition after the first frame)
+[   26.333 ms] memory at first frame: private 4.84 MiB, working set 15.45 MiB
+[   26.649 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 3 (hr 0x0)  foreground false
+[ 2526.768 ms] memory at exit: private 4.84 MiB, working set 15.48 MiB
+[ 2526.875 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 3 (hr 0x0)  foreground false

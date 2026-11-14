@@ -1,0 +1,14 @@
+[    0.122 ms] args: --top --pos 240,170 --auto-exit-ms 2500 --log C:\Users\kaank\Desktop\md-wt\edit-frosted\spikes\frosted\logs\b-alt-light.txt --light --backdrop alt --blur
+[    0.296 ms] power: AC line 1 battery flag 0x80 battery saver 0
+[   20.564 ms] window created
+[   20.697 ms] corner preference hr 0x0
+[   20.756 ms] DWMWA_SYSTEMBACKDROP_TYPE=4 hr 0x0
+[   21.009 ms] surface
+[   21.511 ms] first frame presented hidden
+[   34.567 ms] first frame (window shown, frame presented)
+[   39.391 ms] DwmFlush returned (one composition after the first frame)
+[   45.308 ms] memory at first frame: private 5.21 MiB, working set 16.85 MiB
+[   45.677 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 4 (hr 0x0)  foreground true
+[   46.216 ms] Focused(true)
+[ 2545.787 ms] memory at exit: private 5.21 MiB, working set 16.86 MiB
+[ 2545.928 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 4 (hr 0x0)  foreground true

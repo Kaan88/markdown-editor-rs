@@ -1,0 +1,14 @@
+[    0.135 ms] args: --top --pos 240,170 --auto-exit-ms 2500 --log C:\Users\kaank\Desktop\md-wt\edit-frosted\spikes\frosted\logs\a-opaque-dark.txt --dark --opaque
+[    0.273 ms] power: AC line 1 battery flag 0x80 battery saver 0
+[   19.401 ms] window created
+[   19.507 ms] corner preference hr 0x0
+[   19.662 ms] surface
+[   20.063 ms] first frame presented hidden
+[   30.625 ms] first frame (window shown, frame presented)
+[   36.968 ms] DwmFlush returned (one composition after the first frame)
+[   37.098 ms] memory at first frame: private 5.26 MiB, working set 16.88 MiB
+[   37.199 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 0 (hr 0x0)  foreground true
+[   41.751 ms] Focused(true)
+[ 1882.605 ms] Focused(false)
+[ 2541.627 ms] memory at exit: private 5.26 MiB, working set 16.89 MiB
+[ 2541.747 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 0 (hr 0x0)  foreground false

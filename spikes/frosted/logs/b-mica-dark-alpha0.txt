@@ -1,0 +1,15 @@
+[    0.133 ms] args: --top --pos 240,170 --auto-exit-ms 2500 --log C:\Users\kaank\Desktop\md-wt\edit-frosted\spikes\frosted\logs\b-mica-dark-alpha0.txt --dark --backdrop mica --blur --alpha0
+[    0.282 ms] power: AC line 1 battery flag 0x80 battery saver 0
+[   18.963 ms] window created
+[   19.059 ms] corner preference hr 0x0
+[   19.114 ms] DWMWA_SYSTEMBACKDROP_TYPE=2 hr 0x0
+[   19.261 ms] surface
+[   19.693 ms] first frame presented hidden
+[   31.313 ms] first frame (window shown, frame presented)
+[   35.412 ms] DwmFlush returned (one composition after the first frame)
+[   35.619 ms] memory at first frame: private 5.23 MiB, working set 16.88 MiB
+[   35.780 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 2 (hr 0x0)  foreground true
+[   36.292 ms] Focused(true)
+[ 1261.860 ms] Focused(false)
+[ 2536.312 ms] memory at exit: private 5.23 MiB, working set 16.93 MiB
+[ 2536.458 ms] window rect 240,170,1140,730  frame bounds 240,170,1140,730 (hr 0x0)  style 0x16cf0000 ex 0x00040118  scale 1  backdrop read back 2 (hr 0x0)  foreground false
