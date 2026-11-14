@@ -71,8 +71,8 @@ Section: editors
 Priority: optional
 Homepage: $homepage
 Description: $summary
- $app is a light, fast native text editor with syntax colouring, find and
- replace, split view and tabs. This package installs the program, its
+ $app is a light, fast native text editor with syntax highlighting, find
+ and replace, split view and tabs. This package installs the program, its
  desktop entry and its icon. It does not update itself; use the package
  manager, or the AppImage if you want the built-in updater.
 CONTROL

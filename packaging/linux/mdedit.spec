@@ -17,7 +17,7 @@ Recommends:     libwayland-client
 Recommends:     xdg-desktop-portal
 
 %description
-mdedit is a light, fast native text editor with syntax colouring, find and
+mdedit is a light, fast native text editor with syntax highlighting, find and
 replace, split view and tabs. This package installs the program, its desktop
 entry and its icon. It does not update itself; use the package manager, or the
 AppImage if you want the built-in updater.
