@@ -289,6 +289,11 @@ pub struct Ready {
     pub view_w: f32,
     pub advance: f32,
     pub wide_advance: f32,
+    /// Compare mode: how this document's lines sit in the aligned rows of the comparison, with
+    /// filler rows opposite the other side's extra lines. `None` otherwise (nearly always).
+    pub align: Option<crate::compare::Align>,
+    /// The text cannot be edited (the saved copy of a comparison).
+    pub read_only: bool,
 }
 
 impl Ready {
@@ -595,6 +600,8 @@ impl Ready {
             view_w: 800.0,
             advance: 7.7,
             wide_advance: 14.0,
+            align: None,
+            read_only: false,
         }
     }
 
@@ -659,6 +666,8 @@ pub struct Doc {
     /// Bytes read and total, written by the load thread.
     progress: Arc<(AtomicU64, AtomicU64)>,
     cancel: Option<Arc<AtomicBool>>,
+    /// A name that stands for the file's (a read-only copy made for a comparison).
+    pub title: Option<String>,
 }
 
 impl Doc {
@@ -679,6 +688,7 @@ impl Doc {
             lossy_toasted: false,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
+            title: None,
         }
     }
 
@@ -742,6 +752,9 @@ impl Doc {
     }
 
     pub fn name(&self) -> String {
+        if let Some(title) = &self.title {
+            return title.clone();
+        }
         let Some(path) = &self.path else {
             return strings::untitled(self.untitled);
         };
@@ -1063,9 +1076,26 @@ impl Docs {
             lossy_toasted: false,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
+            title: None,
         });
         let i = self.tabs.len() - 1;
         self.active = Some(i);
+        i
+    }
+
+    /// Adds a read-only tab called `title` holding `bytes` read as a file would be, without
+    /// making it the active one: the saved text of a file that has unsaved changes, to compare.
+    pub fn open_copy(&mut self, title: String, bytes: &[u8], language: Option<Language>) -> usize {
+        let before = self.active;
+        let i = self.new_untitled();
+        self.active = before;
+        let loaded = load::load_bytes(bytes, &self.load_options());
+        let doc = &mut self.tabs[i];
+        doc.untitled = 0;
+        doc.title = Some(title);
+        let mut r = Ready::new(loaded, language, doc.revision);
+        r.read_only = true;
+        doc.state = DocState::Ready(Box::new(r));
         i
     }
 
@@ -1423,6 +1453,8 @@ impl Docs {
                     r.top = old.top;
                     r.top_row = old.top_row;
                     r.wrap = old.wrap;
+                    r.align = old.align.take();
+                    r.read_only = old.read_only;
                     r.left = old.left;
                     r.view_lines = old.view_lines;
                     r.view_w = old.view_w;
@@ -1550,6 +1582,10 @@ impl Docs {
         };
         if r.info.lossy {
             self.set_toast(&strings::read_only_toast(&name));
+            return false;
+        }
+        if r.read_only {
+            self.set_toast(&strings::read_only_copy_toast(&name));
             return false;
         }
         let comment = r.language.and_then(Language::line_comment);
@@ -1745,8 +1781,13 @@ impl Docs {
     /// Gives every open document the word-wrap setting. Called before each frame, so a
     /// document that has just been read has it too.
     pub fn sync_wrap(&mut self) {
-        let wrap = self.wrap;
         for doc in &mut self.tabs {
+            // A compared document shows every line, unwrapped; its folds wait.
+            let compared = doc.ready().is_some_and(|r| r.align.is_some());
+            let wrap = self.wrap && !compared;
+            if let Some(r) = doc.ready_mut() {
+                r.folds.suspend(compared);
+            }
             if let Some(r) = doc.ready_mut()
                 && r.wrap != wrap
             {

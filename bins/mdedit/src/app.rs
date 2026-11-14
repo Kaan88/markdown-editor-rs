@@ -53,6 +53,7 @@ mod commands;
 #[cfg(test)]
 mod files_tests;
 mod input;
+mod compare_events;
 mod palette_events;
 mod replace_files;
 
@@ -87,6 +88,8 @@ pub enum Wake {
     Outline,
     /// The palette's list of the folder's files, or of a document's symbols, is made.
     Palette,
+    /// The comparison of two files is made.
+    Compare,
     /// The highlight worker queued colours.
     Highlight,
     /// An updater thread has an answer.
@@ -103,6 +106,8 @@ pub enum Wake {
 pub enum Picked {
     Files(Vec<PathBuf>),
     Folder(Option<PathBuf>),
+    /// The file to compare the active one with.
+    CompareFile(Vec<PathBuf>),
     /// Save as for document `doc`; `after` is what waits for the save (`After::Nothing` for the
     /// plain command).
     Save {
@@ -224,6 +229,10 @@ struct App {
     type_edit_ms: f64,
     /// When the find marks are searched for again after an edit.
     find_due: Option<Instant>,
+    /// Two files compared side by side; `None` unless a comparison is on.
+    compare: Option<crate::compare::Compare>,
+    /// The two files of `--compare`, to be compared once both are read.
+    compare_wait: Option<(DocId, DocId)>,
     /// Loading and colouring have gone idle once; `--trace` printed the idle figures.
     settled: bool,
     load_traced: bool,
@@ -255,6 +264,8 @@ impl App {
             type_times: Vec::new(),
             type_edit_ms: 0.0,
             find_due: None,
+            compare: None,
+            compare_wait: None,
             theme_from_args: args.dark.is_some(),
             save: args.shot.is_none(),
             args,
@@ -543,11 +554,11 @@ impl App {
             return;
         };
         let (first, n) = (plan.first_row(), plan.row_count());
-        let win = minimap::lines_of_rows(first..first + n, |row| r.folds.line_at_row(row));
+        let win = minimap::lines_of_rows(first..first + n, |row| r.line_at_row(row));
         let ok = matches!(&r.map_colors.requested, Some((req, d))
             if *d == dark && win.start >= req.start && win.end <= req.end);
         let want = (!ok)
-            .then(|| minimap::lines_of_rows(plan.colour_rows(), |row| r.folds.line_at_row(row)));
+            .then(|| minimap::lines_of_rows(plan.colour_rows(), |row| r.line_at_row(row)));
         if let Some(want) = &want {
             r.map_colors.requested = Some((want.clone(), dark));
         }
@@ -738,6 +749,7 @@ impl App {
                             r.colors.generation,
                             (r.widest.to_bits(), r.buffer.len_lines()),
                             (r.brackets(), r.scope()),
+                            r.align.as_ref().map(|a| (a.stamp, a.fresh)),
                         ))
                     }
                 };
@@ -775,6 +787,7 @@ impl App {
                         (!r.extra.is_empty()).then(|| sig(&r.extra)),
                         (r.find.generation, r.find.current),
                         &r.bookmarks,
+                        r.align.as_ref().map(|a| a.stamp),
                     ))
                 });
                 let plan = self.map_plan[pane].map(|p| {
@@ -833,6 +846,7 @@ impl App {
             self.full = true;
         }
         self.sync_theme();
+        self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
         self.relayout_areas();
@@ -1878,6 +1892,7 @@ impl App {
     /// The layout pass of a frame without drawing: areas, scroll clamping, colour requests.
     fn compose_layout_only(&mut self) {
         self.sync_theme();
+        self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
         self.areas = Areas::compute(
@@ -2008,6 +2023,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     app.compose_layout_only();
     app.apply_positions();
+    app.shot_compare();
     // Wait for the colours of the visible lines.
     let deadline = Instant::now() + SHOT_COLOUR_WAIT;
     loop {
@@ -2244,9 +2260,22 @@ pub fn run() -> i32 {
             active = Some(k);
         }
     }
+    // `--compare A B`: both files are tabs, the first active; the comparison starts once they
+    // are read.
+    let mut compare_ids = None;
+    if let Some((x, y)) = &args.compare {
+        let (a, b) = (docs.add_pending(x), docs.add_pending(y));
+        active = Some(a);
+        if a != b {
+            compare_ids = Some((docs.tabs[a].id, docs.tabs[b].id));
+            docs.other = Some(docs.tabs[b].id);
+            docs.other_left = false;
+        }
+    }
     let w = waker.clone();
     let service = HighlightService::spawn(move || w(Wake::Highlight));
     let mut app = App::new(args, docs, trace, session_path, session);
+    app.compare_wait = compare_ids;
     // Macros are read from here when first wanted, not now.
     app.macros.path = app
         .session_path

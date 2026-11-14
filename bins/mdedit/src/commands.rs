@@ -388,6 +388,26 @@ pub mod strings {
         format!("{name} has bytes that could not be read, so it is open read-only.")
     }
 
+    pub const COMPARE_NEEDS_SPLIT: &str =
+        "Open two files side by side first (Shift+F8), or use Compare with file.";
+    pub const COMPARE_NOT_READ: &str = "Wait until both files are read.";
+    pub const COMPARE_SAME_FILE: &str = "That is the file already open here. Choose another.";
+    pub const COMPARE_NOTHING_SAVED: &str = "Nothing to compare: the file has no unsaved changes.";
+    pub const NO_NEXT_DIFFERENCE: &str = "No more differences below.";
+    pub const NO_PREVIOUS_DIFFERENCE: &str = "No more differences above.";
+
+    pub fn saved_copy_name(name: &str) -> String {
+        format!("{name} (saved)")
+    }
+
+    pub fn compare_unreadable(name: &str, why: &str) -> String {
+        format!("Could not read {name} from disk: {why}")
+    }
+
+    pub fn read_only_copy_toast(name: &str) -> String {
+        format!("{name} is a read-only copy.")
+    }
+
     pub fn binary_toast(name: &str) -> String {
         format!("{name} contains NUL characters and may not be a text file.")
     }

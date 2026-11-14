@@ -113,11 +113,23 @@ pub struct Folds {
     ranges: Vec<(usize, usize)>,
     /// For each fold, the lines hidden by the folds before it; then the total.
     cum: Vec<usize>,
+    /// The folds are kept and follow edits, but nothing is hidden (compare mode shows every
+    /// line). Every question below answers as if there were no folds.
+    suspended: bool,
 }
 
 impl Folds {
     pub fn is_empty(&self) -> bool {
-        self.ranges.is_empty()
+        self.ranges.is_empty() || self.suspended
+    }
+
+    /// Hides no line while `on`, keeping the folds (they still follow edits).
+    pub fn suspend(&mut self, on: bool) {
+        self.suspended = on;
+    }
+
+    pub fn suspended(&self) -> bool {
+        self.suspended
     }
 
     pub fn ranges(&self) -> &[(usize, usize)] {
@@ -143,12 +155,18 @@ impl Folds {
 
     /// How many lines the folds hide.
     pub fn hidden(&self) -> usize {
+        if self.suspended {
+            return 0;
+        }
         self.cum.last().copied().unwrap_or(0)
     }
 
     /// The row of `line` among the lines that show, counted from 0; a hidden line has its
     /// fold's header's row.
     pub fn row_of(&self, line: usize) -> usize {
+        if self.suspended {
+            return line;
+        }
         let line = self.shown(line);
         let k = self.ranges.partition_point(|r| r.0 < line);
         line - self.cum.get(k).copied().unwrap_or(0)
@@ -156,6 +174,9 @@ impl Folds {
 
     /// The line that shows as row `row`. Rows past the last give lines past the last.
     pub fn line_at_row(&self, row: usize) -> usize {
+        if self.suspended {
+            return row;
+        }
         // The folds whose header is above `row`: a header's row is its line less what is
         // hidden above it.
         let (mut lo, mut hi) = (0, self.ranges.len());
@@ -172,6 +193,9 @@ impl Folds {
 
     /// The fold that hides `line`.
     pub fn hiding(&self, line: usize) -> Option<(usize, usize)> {
+        if self.suspended {
+            return None;
+        }
         let k = self.ranges.partition_point(|r| r.0 < line);
         let r = *self.ranges.get(k.checked_sub(1)?)?;
         (line <= r.1).then_some(r)
@@ -183,6 +207,9 @@ impl Folds {
 
     /// The fold `line` heads.
     pub fn headed(&self, line: usize) -> Option<(usize, usize)> {
+        if self.suspended {
+            return None;
+        }
         let k = self.ranges.binary_search_by_key(&line, |r| r.0).ok()?;
         Some(self.ranges[k])
     }
@@ -205,7 +232,7 @@ impl Folds {
     /// Folds the block from `header` to `end`. Folds inside it become part of it; inside a
     /// fold, nothing happens. False when nothing was folded.
     pub fn fold(&mut self, header: usize, end: usize) -> bool {
-        if end <= header || self.is_hidden(header) {
+        if end <= header || self.suspended || self.is_hidden(header) {
             return false;
         }
         let a = self.ranges.partition_point(|r| r.0 < header);
@@ -218,6 +245,9 @@ impl Folds {
 
     /// Opens the fold `header` heads. False when it heads none.
     pub fn unfold(&mut self, header: usize) -> bool {
+        if self.suspended {
+            return false;
+        }
         match self.ranges.binary_search_by_key(&header, |r| r.0) {
             Ok(k) => {
                 self.ranges.remove(k);
@@ -408,5 +438,22 @@ fn b() {}
         let out = crate::edit::undo(&mut b, &mut hist).unwrap();
         f.shift(out.change.as_ref().unwrap());
         assert_eq!(f.ranges(), [(9, 10)]);
+    }
+
+    #[test]
+    fn suspended_folds_hide_nothing_and_keep_following_edits() {
+        let mut f = Folds::default();
+        assert!(f.fold(2, 5));
+        assert_eq!((f.hidden(), f.row_of(7), f.line_at_row(3)), (3, 4, 6));
+        f.suspend(true);
+        assert!(f.is_empty() && f.suspended());
+        assert_eq!((f.hidden(), f.row_of(7), f.line_at_row(3)), (0, 7, 3));
+        assert!(f.hiding(3).is_none() && f.headed(2).is_none());
+        assert_eq!((f.shown(3), f.next(2)), (3, 3));
+        assert!(!f.fold(8, 9) && !f.unfold(2));
+        // The fold is still there, and goes on again.
+        f.suspend(false);
+        assert_eq!(f.ranges(), &[(2, 5)]);
+        assert_eq!(f.hidden(), 3);
     }
 }

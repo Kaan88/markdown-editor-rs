@@ -533,6 +533,11 @@ impl App {
                     self.set_folder(dir);
                 }
             }
+            Picked::CompareFile(paths) => {
+                if let Some(path) = paths.first() {
+                    self.compare_with(path);
+                }
+            }
             Picked::Save { doc, to, after } => {
                 let saved = match (to, self.docs.index_of_id(doc)) {
                     (Some(to), Some(i)) => self.save_to(i, &to),
@@ -697,6 +702,10 @@ impl App {
             return;
         };
         match id {
+            C::CompareOther | C::CompareFile | C::CompareSaved => {
+                self.docs.activate(index);
+                self.command(id);
+            }
             C::CloseTab => self.request(After::CloseTab(doc)),
             C::CloseOtherTabs => self.request(After::CloseOthers(doc)),
             C::CloseAllTabs => self.request(After::CloseAll),
@@ -1128,12 +1137,12 @@ impl App {
                     self.open_palette("");
                 }
             }
-            C::CompareOther
-            | C::CompareFile
-            | C::CompareSaved
-            | C::StopCompare
-            | C::NextDifference
-            | C::PreviousDifference => {}
+            C::CompareOther => self.compare_other(),
+            C::CompareFile => self.compare_file(),
+            C::CompareSaved => self.compare_saved(),
+            C::StopCompare => self.compare_stop(),
+            C::NextDifference => self.compare_jump(true),
+            C::PreviousDifference => self.compare_jump(false),
             C::GoToLine => {
                 if self.docs.active_ready().is_some() {
                     self.ui.naming = false;
@@ -1191,6 +1200,8 @@ impl App {
                 }
             }
             C::ToggleSplit => {
+                // The split is what a comparison stands on.
+                self.compare_stop();
                 if !self.docs.toggle_split() {
                     self.docs.set_toast(strings::SPLIT_NEEDS_TWO);
                 }
@@ -1345,6 +1356,10 @@ impl App {
             self.docs.find_clear();
             return;
         }
+        if self.compare.is_some() {
+            self.compare_stop();
+            return;
+        }
         if let Some(r) = self.docs.active_ready_mut() {
             r.sel = mdedit_core::Selection::at(r.sel.caret);
         }
@@ -1384,6 +1399,9 @@ impl App {
             }
             Wake::Outline => {
                 self.ui.outline.poll();
+            }
+            Wake::Compare => {
+                self.compare_timer(Instant::now());
             }
             Wake::Palette => {
                 if self.palette.poll() {
@@ -1533,6 +1551,11 @@ impl App {
             if let Some(d) = self.ui.autoscroll_due {
                 at(d);
             }
+        }
+        if self.compare.is_some()
+            && let Some(due) = self.compare_timer(now)
+        {
+            at(due);
         }
         if let Some(due) = self.find_due {
             if now >= due {

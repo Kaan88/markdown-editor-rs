@@ -157,6 +157,8 @@ pub struct Geom {
 /// with it they are the line's rows in view, one below the other.
 struct ShownLine {
     line: usize,
+    /// The row it is on (the line's own number unless compare mode has fillers).
+    row: usize,
     y: i32,
     h: i32,
     /// The line's start is among the parts (the line number goes beside it).
@@ -204,8 +206,16 @@ fn set_top_rows(r: &mut Ready, v: f64) {
 /// Lines that show: all but those inside folds.
 fn shown_rows(r: &Ready) -> usize {
     let lines = r.buffer.len_lines().max(1);
+    if let Some(al) = &r.align {
+        return al.rows(lines);
+    }
     lines - r.folds.hidden().min(lines - 1)
 }
+
+/// How strongly a changed row is tinted, and the part of it that differs.
+const ROW_TINT: f32 = 0.13;
+const ROW_TINT_DARK: f32 = 0.2;
+const INTRA_TINT: f32 = 0.32;
 
 /// Most lines a view asks colours for when folds are on screen.
 const SHOWN_LINES_MAX: usize = 10_000;
@@ -215,6 +225,15 @@ const SHOWN_LINES_MAX: usize = 10_000;
 /// larger fold stays plain while the fold is on screen.
 pub fn shown_lines(r: &Ready) -> Range<usize> {
     let lines = r.buffer.len_lines();
+    if let Some(al) = &r.align {
+        // Compare mode: the top is a row, and fillers have no line.
+        let rows = visible(r.top, r.view_lines, al.rows(lines));
+        if rows.is_empty() {
+            return 0..0;
+        }
+        let last = al.line_near(rows.end - 1, lines);
+        return al.line_near(rows.start, lines)..(last + 1).min(lines);
+    }
     let vis = visible(r.top, r.view_lines, lines);
     if r.folds.is_empty() {
         return vis;
@@ -532,7 +551,7 @@ fn reveal_with(r: &mut Ready, offset: usize, center: bool, margin: bool) {
     }
     let v = reveal_top(
         top_rows(r),
-        r.folds.row_of(line),
+        r.row_of_line(line),
         r.view_lines,
         shown_rows(r),
         center,
@@ -840,6 +859,17 @@ impl View {
         let fold_c = mix(pal.page, pal.text, 0.5);
         let wanted = |i: usize| bands.is_none_or(|b| b.contains(&i));
         let mut shown_lines: Vec<ShownLine> = Vec::new();
+        // Compare mode: the diff, its colours, and the filler rows in view.
+        let align = r.align.clone();
+        let tints = align
+            .as_ref()
+            .map(|_| crate::compare::tints(pal.dark, pal.page, pal.text));
+        let tint_of = |row: usize| {
+            let (al, t) = (align.as_ref()?, tints.as_ref()?);
+            t.of(al.kind(row)?, al.right)
+        };
+        let mut fillers: Vec<i32> = Vec::new();
+        let row_tint = if pal.dark { ROW_TINT_DARK } else { ROW_TINT };
         if g.wrapped {
             let mut p = wrap::top(r);
             let mut y = y0;
@@ -861,6 +891,7 @@ impl View {
                 }
                 shown_lines.push(ShownLine {
                     line: p.line,
+                    row: p.line,
                     y: line_y,
                     h: y - line_y,
                     first: p.row == 0,
@@ -873,22 +904,34 @@ impl View {
             }
         } else {
             for row in visible(g.top, g.view_lines, g.rows) {
-                let i = r.folds.line_at_row(row);
+                let y = y0 + line_y(row, g.top, lh).round() as i32;
+                let Some(i) = r.line_on_row(row) else {
+                    // A filler row: nothing on this side, opposite lines on the other.
+                    if bands.is_none() {
+                        fillers.push(y);
+                    }
+                    continue;
+                };
                 if !wanted(i) {
                     continue;
                 }
-                let y = y0 + line_y(row, g.top, lh).round() as i32;
                 let parts = chunks_in_view(r, i, xs.clone(), &m)
                     .into_iter()
                     .map(|ch| (ch, m.chunk_x(&ch.start), y))
                     .collect();
                 shown_lines.push(ShownLine {
                     line: i,
+                    row,
                     y,
                     h: lh,
                     first: true,
                     parts,
                 });
+            }
+        }
+        if let Some(t) = &tints {
+            for &y in &fillers {
+                c.p.fill_dev(x0, y, x1, y + lh, t.filler, 1.0);
             }
         }
         for shown_line in &shown_lines {
@@ -900,6 +943,17 @@ impl View {
             } else if bands.is_some() {
                 c.p.fill_dev(x0, y, x1, y + h, pal.page, 1.0);
             }
+            let tint = tint_of(shown_line.row);
+            if let Some(col) = tint {
+                c.p.fill_dev(x0, y, x1, y + h, col, row_tint);
+            }
+            let intra = tint.and_then(|col| {
+                align
+                    .as_ref()?
+                    .intra(shown_line.row)
+                    .filter(|m| !m.is_empty())
+                    .map(|m| (m, col))
+            });
             let range = r.buffer.line_range(i);
             let with_break = r.buffer.line_range_with_break(i);
             let folded = r.folds.headed(i).is_some();
@@ -964,6 +1018,11 @@ impl View {
                         };
                         fill_clipped(c, (a, y, b, y + lh), text_clip, col, alpha);
                     }
+                }
+                if let Some((m, col)) = &intra
+                    && let Some((a, b)) = span(range.start + m.start, range.start + m.end)
+                {
+                    fill_clipped(c, (a, y, b, y + lh), text_clip, *col, INTRA_TINT);
                 }
                 for t in &twins {
                     if let Some((a, b)) = span(t.start, t.end) {
@@ -1149,6 +1208,9 @@ impl View {
                 pal.page
             };
             fill_clipped(c, (x0, y, gutter_r, y + shown_line.h), gutter, band, 1.0);
+            if let Some(col) = tint_of(shown_line.row) {
+                fill_clipped(c, (x0, y, gutter_r, y + shown_line.h), gutter, col, row_tint);
+            }
             if !shown_line.first {
                 continue;
             }
@@ -1168,7 +1230,8 @@ impl View {
             // faintly while the pointer is in the gutter and always for a folded one. Only the
             // visible lines are asked.
             let folded = r.folds.headed(i).is_some();
-            if folded || (gutter_hot && heads_block(&r.buffer, i, TAB_WIDTH)) {
+            if folded || (gutter_hot && !r.folds.suspended() && heads_block(&r.buffer, i, TAB_WIDTH))
+            {
                 let cell =
                     metrics::fold_cell(area.x, g.gutter_w, y as f32 / scale, lh as f32 / scale);
                 let hit = crate::ui::Hit::Fold(i);
@@ -1255,7 +1318,7 @@ impl View {
             let (start, end) = wrap::row(r, p);
             (p.line, Chunk { start, end }, 0.0)
         } else {
-            let line = r.folds.line_at_row(line_at(dy, g.top, m.line_h, g.rows));
+            let line = r.line_at_row(line_at(dy, g.top, m.line_h, g.rows));
             let chunk = chunk_at_x(r, line, rel.max(0.0), m.advance, m.wide);
             (line, chunk, m.chunk_x(&chunk.start))
         };

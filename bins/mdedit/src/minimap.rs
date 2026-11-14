@@ -31,6 +31,8 @@ const BAND_HOT_A: f32 = 0.14;
 const LINE_BYTES: usize = 512;
 /// The caret's row: the text colour at this alpha over the full width.
 const CARET_A: f32 = 0.22;
+/// A changed row of a comparison across the column.
+const DIFF_A: f32 = 0.45;
 /// The selection's colour over the rows.
 const SEL_A: f32 = 0.55;
 /// Find matches marked at most per drawing.
@@ -343,6 +345,7 @@ pub fn draw(
         scale.to_bits(),
         (w, h),
         r.folds.ranges(),
+        r.align.as_ref().map(|a| a.stamp),
     )
         .hash(&mut hasher);
     let key = hasher.finish();
@@ -445,8 +448,8 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
     let max_cols = ((x1 - left - pad) / px.col).max(0);
     let first = plan.first_row();
     let (first_line, last_line) = (
-        r.folds.line_at_row(first),
-        r.folds.line_at_row(first + count - 1),
+        r.line_at_row(first),
+        r.line_at_row(first + count - 1),
     );
     let buf = &r.buffer;
     let (ws, we) = (
@@ -458,12 +461,22 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
         if line < first_line || line > last_line || r.folds.is_hidden(line) {
             return None;
         }
-        let k = r.folds.row_of(line).checked_sub(first)?;
+        let k = r.row_of_line(line).checked_sub(first)?;
         (k < count).then(|| y0 + k as i32 * plan.rh - plan.offset())
     };
     let mut fill = |x: i32, y: i32, w: i32, h: i32, col: Rgb, a: f32| {
         c.p.fill_dev(x, y, x + w, y + h, col, a);
     };
+    // Compare mode: the changed rows are tinted across the column.
+    if let Some(al) = &r.align {
+        let t = crate::compare::tints(pal.dark, pal.page, pal.text);
+        for k in 0..count {
+            if let Some(col) = al.kind(first + k).and_then(|kind| t.of(kind, al.right)) {
+                let y = y0 + k as i32 * plan.rh - plan.offset();
+                fill(x0 + hair, y, x1 - x0 - hair, plan.rh.max(1), col, DIFF_A);
+            }
+        }
+    }
     if keyboard && let Some(y) = row_y(buf.line_of(r.sel.caret)) {
         fill(x0 + hair, y, x1 - x0 - hair, px.ink, pal.text, CARET_A);
     }
@@ -555,7 +568,10 @@ fn paint(bmp: &mut Bitmap, r: &Ready, plan: &Plan, scale: f32, dark: bool, page:
     let first = plan.first_row();
     let mut segs = Vec::new();
     for k in 0..plan.row_count() {
-        let line = r.folds.line_at_row(first + k);
+        // A filler row of a comparison is blank.
+        let Some(line) = r.line_on_row(first + k) else {
+            continue;
+        };
         let y = k as i32 * plan.rh - plan.offset();
         let range = r.buffer.line_range(line);
         let end = (range.start + LINE_BYTES).min(range.end);

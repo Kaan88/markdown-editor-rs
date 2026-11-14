@@ -112,7 +112,7 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
                 let (done, total) = doc.progress();
                 loading_text(done, total)
             } else {
-                String::new()
+                r.align.as_ref().map(|a| a.summary()).unwrap_or_default()
             };
             let mut right = Vec::new();
             if docs.recording {
