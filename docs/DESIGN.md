@@ -1575,3 +1575,38 @@ not saved, no more than the first's are: it starts as a copy of the first.
 and the second view's layout and paint, which a second pane already cost. Typing in a document that
 is in both panes does the acting view's work as before plus mapping the twin (a handful of
 offsets) and two colour windows' `edited`; measured in the HANDOFF section for this change.
+
+## 54. Window shadow routes (2026-11-14)
+
+Replaces section 48's "KWin only". The window is created and kept as the viewer's is
+(`markdown-shared-rs/docs/LINUX.md`, "Window shadow"): on KDE, KWin's own protocol with the window
+as it was; on any other Wayland compositor a transparent window with a client-drawn margin of 36
+logical px on every side (patched winit and softbuffer; `[patch.crates-io]` in the root
+`Cargo.toml`, feature `client-margin`); on X11 none; on Windows the shadow `with_undecorated_shadow`
+gives. `MD_SHADOW=client|kwin|none` forces a route for tests.
+
+**The app's size is the content size.** `App.size`, the bitmap `screen`, layout and hit testing
+are all in content pixels. Only `present` and three events know the surface: `Resized` and
+`ScaleFactorChanged` turn the window's size into the content size (`content_size`, after
+`Shadow::update` has re-read the margin: it is 0 when maximized, fullscreen or tiled), and
+`CursorMoved` turns surface coordinates into content coordinates (`to_content`). The edge test
+for resizing is `x < EDGE` with no lower bound, so the outer band (negative content coordinates)
+starts a resize too. The saved window size is the content size (`logical_size`), so it does not
+grow by the margin at each start (a test goes through five restarts at six scales). The minimum
+size goes through `set_min_content_size`.
+
+**Present.** The softbuffer surface has the surface size. `paint_frame` paints the margin when the
+buffer's one is stale (a new size, scale, focus or margin; both buffers, one frame each) and then
+the whole surface is damaged. Otherwise the damage rectangles are the content's, moved by the
+margin, and the content is copied to `(margin, margin)` row by row; an old buffer (`age != 1`)
+gets all of the content. A focus change that only changes the shadow's look still produces a
+present (`expose`). With margin 0 every line reduces to the old code: the surface is the content,
+the offsets are 0, `paint_frame` returns false (nothing painted), so `whole` is `age != 1` as
+before and the damage is the same rectangles.
+
+**Alpha.** The client route's surface honours alpha, so every content pixel must have alpha 255. The
+shared `Bitmap` fills, blends and blits write or keep 255, but `Bitmap::new` is all zero: a pixel no
+region paints stays transparent. One shot (`compare-saved`, minimaps on both panes) has such a
+column, drawn black until now. `compose` therefore sets alpha to 255 when it allocates `screen`,
+which changes no colour; a test composes frames and checks every pixel. The black column itself is
+an existing drawing gap, left as it is.

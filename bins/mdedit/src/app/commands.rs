@@ -1680,12 +1680,12 @@ impl App {
         if w.is_minimized() == Some(true) {
             return;
         }
-        let size = w.inner_size().to_logical::<f64>(w.scale_factor());
-        self.session.set_window_size(
-            size.width.round() as u32,
-            size.height.round() as u32,
-            w.is_maximized(),
-        );
+        // The CONTENT size (the window reports the surface, margin included, with the client-drawn
+        // shadow), so the saved size does not grow by the margin on every start.
+        let surface = w.inner_size();
+        let content = self.content_size(surface.width, surface.height);
+        let (lw, lh) = logical_size(content, w.scale_factor());
+        self.session.set_window_size(lw, lh, w.is_maximized());
     }
 
     /// `--type-steps`: one keystroke per frame at the caret, then a summary of the time from

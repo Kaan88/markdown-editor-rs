@@ -27,11 +27,19 @@ unicode-width = { version = "0.2", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "nfa-pikevm", "nfa-backtrack", "dfa-onepass", "hybrid", "perf-literal", "unicode"] }
 parley = "=0.12.0"
 bytemuck = "1.25"
-mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e39bc19766216e515a1fcdabca3440a088250f1" }
-mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e39bc19766216e515a1fcdabca3440a088250f1" }
-mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e39bc19766216e515a1fcdabca3440a088250f1" }
-mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e39bc19766216e515a1fcdabca3440a088250f1" }
-mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "1e39bc19766216e515a1fcdabca3440a088250f1" }
+mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "99f810c1852e2233a6d9348b846b262df3fb7faf" }
+mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "99f810c1852e2233a6d9348b846b262df3fb7faf" }
+mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "99f810c1852e2233a6d9348b846b262df3fb7faf" }
+mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "99f810c1852e2233a6d9348b846b262df3fb7faf", features = ["client-margin"] }
+mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "99f810c1852e2233a6d9348b846b262df3fb7faf" }
+
+# The Wayland client-drawn window shadow (mdshared-ui's `client-margin`): winit gets a content margin
+# and softbuffer honours alpha on Wayland. Both are the stock 0.30.13 / 0.4.8 plus one patch; see
+# markdown-shared-rs docs/LINUX.md. Drop these two and the feature to build against stock crates:
+# the window then uses KWin's shadow protocol or none.
+[patch.crates-io]
+winit = { git = "https://github.com/Kaan88/winit", rev = "89ace86e65387b44cec55730e5691e894b451722" }
+softbuffer = { git = "https://github.com/Kaan88/softbuffer", rev = "dd18fec9d08e2f466c42d4c2cece62aa0ee1eba9" }
 
 [profile.release]
 opt-level = 3

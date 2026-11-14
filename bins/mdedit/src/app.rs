@@ -168,8 +168,10 @@ struct App {
     service_doc: Option<DocId>,
     service_dark: Option<bool>,
     window: Option<Rc<Window>>,
-    /// The compositor's drop shadow (Linux, KWin on Wayland); `None` elsewhere. Dropping it
-    /// removes the shadow, so it lives as long as the window.
+    /// The window's drop shadow (Linux: KWin's protocol, or the client-drawn margin where the
+    /// compositor has none); `None` elsewhere. With the margin, `size` is the CONTENT size (the
+    /// surface minus the margin on every side) and `present` puts the content inside the surface.
+    /// Dropping it would remove the KWin shadow, so it lives as long as the window.
     shadow: Option<mdshared_ui::shadow::Shadow>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     incoming: Option<Receiver<Request>>,
@@ -262,14 +264,30 @@ struct App {
 }
 
 impl App {
-    /// Hands the compositor the shadow for the window's scale, focus and maximised state; cheap
-    /// (returns at once when none changed) and nothing without a shadow. `focused` is the new
-    /// focus when the event says it, otherwise the window's own.
+    /// Brings the shadow in line with the window's scale, focus and the margin in force (0 when
+    /// maximized, fullscreen or tiled); cheap (returns at once when none changed) and nothing
+    /// without a shadow. `focused` is the new focus when the event says it, otherwise the window's
+    /// own. A change of the look is drawn by the next `present` (the margin is repainted for two
+    /// frames); it also forces a present even if the content has nothing to redraw.
     fn update_shadow(&mut self, focused: Option<bool>) {
+        let mut changed = false;
         if let (Some(shadow), Some(w)) = (self.shadow.as_mut(), self.window.as_ref()) {
             let active = focused.unwrap_or_else(|| w.has_focus());
-            shadow.update(w, w.scale_factor(), active);
+            changed = shadow.update(w, w.scale_factor(), active);
         }
+        if changed {
+            self.expose = true;
+            self.wants_frame = true;
+        }
+    }
+
+    /// The content size inside a surface of `w` x `h` device px: the whole of it without a margin.
+    fn content_size(&self, w: u32, h: u32) -> (u32, u32) {
+        let (w, h) = match &self.shadow {
+            Some(s) => s.content_size(w, h),
+            None => (w, h),
+        };
+        (w.max(1), h.max(1))
     }
 
     fn new(
@@ -886,6 +904,13 @@ impl App {
         let (pw, ph) = (self.size.0.max(1), self.size.1.max(1));
         if self.screen.width != pw || self.screen.height != ph {
             self.screen = Bitmap::new(pw, ph);
+            // `Bitmap::new` is all zero, alpha included; a pixel no region paints would stay
+            // transparent. The window's blit ignores alpha, the client-drawn shadow's surface
+            // does not (the compare view with minimaps leaves one column unpainted, as black).
+            // The colour stays black, as it always was.
+            for px in self.screen.pixels.as_chunks_mut::<4>().0 {
+                px[3] = 255;
+            }
             self.full = true;
         }
         self.sync_theme();
@@ -1411,8 +1436,12 @@ impl App {
             return Duration::ZERO;
         };
         let (w, h) = (self.screen.width, self.screen.height);
+        // The surface is the content plus the shadow's margin on every side (0 without one:
+        // everything below is then as it always was).
+        let m = self.shadow.as_ref().map_or(0, |s| s.margin());
+        let (sw, sh) = (w + 2 * m, h + 2 * m);
         if surface
-            .resize(NonZeroU32::new(w).unwrap(), NonZeroU32::new(h).unwrap())
+            .resize(NonZeroU32::new(sw).unwrap(), NonZeroU32::new(sh).unwrap())
             .is_err()
         {
             return Duration::ZERO;
@@ -1425,7 +1454,14 @@ impl App {
         // Wayland backend swaps two buffers (age 2 in steady state) and a resized buffer keeps
         // its age, so any other age means stale pixels: copy and present the whole frame. On
         // Windows the age is only 0 or 1, so nothing changes there.
-        let whole = buffer.age() != 1;
+        let age = buffer.age();
+        let mut whole = age != 1;
+        // The margin is painted when this buffer's one is stale (a new size, scale, focus or
+        // margin: both buffers, one frame each); the compositor then gets the whole surface.
+        let margin_painted = self
+            .shadow
+            .as_mut()
+            .is_some_and(|s| s.paint_frame(&mut buffer, sw, sh, age));
         let clamp = |d: &(i32, i32, i32, i32)| {
             let x0 = d.0.clamp(0, w as i32) as usize;
             let x1 = d.2.clamp(0, w as i32) as usize;
@@ -1434,22 +1470,35 @@ impl App {
             (x0, y0, x1, y1)
         };
         let stride = w as usize;
-        // Both are BGRX in memory; the alpha byte is ignored by the blit to the window.
+        let (surface_stride, m) = (sw as usize, m as usize);
+        // Both are BGRX in memory. The content's alpha byte is always 255 (the blit to a plain
+        // window ignores it; the client-drawn margin needs it). A content row lands `m` rows down
+        // and `m` columns in.
         let screen = &self.screen;
         let copy = |buffer: &mut [u32], (x0, y0, x1, y1): (usize, usize, usize, usize)| {
             let bytes: &mut [u8] = bytemuck::cast_slice_mut(buffer);
             for y in y0..y1 {
                 let (a, b) = ((y * stride + x0) * 4, (y * stride + x1) * 4);
-                bytes[a..b].copy_from_slice(&screen.pixels[a..b]);
+                let to = ((y + m) * surface_stride + x0 + m) * 4;
+                bytes[to..to + (b - a)].copy_from_slice(&screen.pixels[a..b]);
             }
         };
+        whole |= margin_painted;
         let rects: Vec<softbuffer::Rect> = if whole {
-            copy(&mut buffer, (0, 0, w as usize, h as usize));
+            // Content: the whole bitmap when the buffer is stale, else only the damage (the buffer
+            // holds the last frame); the margin changes only when it was just painted.
+            if age != 1 {
+                copy(&mut buffer, (0, 0, w as usize, h as usize));
+            } else {
+                for d in damage {
+                    copy(&mut buffer, clamp(d));
+                }
+            }
             vec![softbuffer::Rect {
                 x: 0,
                 y: 0,
-                width: NonZeroU32::new(w).unwrap(),
-                height: NonZeroU32::new(h).unwrap(),
+                width: NonZeroU32::new(sw).unwrap(),
+                height: NonZeroU32::new(sh).unwrap(),
             }]
         } else {
             damage
@@ -1458,8 +1507,8 @@ impl App {
                     let r = clamp(d);
                     copy(&mut buffer, r);
                     Some(softbuffer::Rect {
-                        x: r.0 as u32,
-                        y: r.1 as u32,
+                        x: (r.0 + m) as u32,
+                        y: (r.1 + m) as u32,
                         width: NonZeroU32::new((r.2 - r.0) as u32)?,
                         height: NonZeroU32::new((r.3 - r.1) as u32)?,
                     })
@@ -1670,7 +1719,6 @@ impl ApplicationHandler<Wake> for App {
             .with_title(title)
             .with_decorations(false)
             .with_visible(false)
-            .with_min_inner_size(LogicalSize::new(520.0, 360.0))
             .with_inner_size(LogicalSize::new(w.max(520) as f64, h.max(360) as f64))
             .with_maximized(max || self.args.maximize);
         // The window class and icon: off Linux this returns the attributes unchanged.
@@ -1699,6 +1747,14 @@ impl ApplicationHandler<Wake> for App {
             use winit::platform::windows::WindowAttributesExtWindows;
             attributes = attributes.with_undecorated_shadow(true);
         }
+        // Transparent, and `with_inner_size` (the content size) grown by the margin, only where
+        // the client-drawn shadow will be used (not on KDE, not on Windows): the attributes come
+        // back unchanged there.
+        let attributes = mdshared_ui::shadow::Shadow::prepare(
+            attributes,
+            mdshared_ui::shadow::Mode::from_env(),
+            event_loop,
+        );
         let window = match event_loop.create_window(attributes) {
             Ok(w) => Rc::new(w),
             Err(e) => {
@@ -1709,16 +1765,32 @@ impl ApplicationHandler<Wake> for App {
         };
         self.trace.stage("window created");
         self.scale = window.scale_factor() as f32;
-        let size = window.inner_size();
-        self.size = (size.width.max(1), size.height.max(1));
         self.maximized = window.is_maximized();
-        self.shadow = mdshared_ui::shadow::Shadow::attach(&window);
+        self.shadow = mdshared_ui::shadow::Shadow::attach_mode(
+            &window,
+            mdshared_ui::shadow::Mode::from_env(),
+        );
+        // The minimum is a content size whatever the route.
+        let min = LogicalSize::new(520.0, 360.0);
+        match &self.shadow {
+            Some(s) => s.set_min_content_size(&window, min),
+            None => window.set_min_inner_size(Some(min)),
+        }
+        let size = window.inner_size();
+        self.size = self.content_size(size.width, size.height);
         #[cfg(windows)]
         style(&window, self.dark());
         let surface = softbuffer::Context::new(window.clone())
             .and_then(|context| softbuffer::Surface::new(&context, window.clone()));
         match surface {
-            Ok(s) => self.surface = Some(s),
+            Ok(mut s) => {
+                // The client-drawn margin is transparent: Wayland buffers must carry alpha (the
+                // content bitmap's alpha is always 255). A no-op elsewhere.
+                if self.shadow.as_ref().is_some_and(|s| s.wants_alpha()) {
+                    s.set_premultiplied_alpha(true);
+                }
+                self.surface = Some(s);
+            }
             Err(e) => {
                 eprintln!("mdedit: no surface: {e}");
                 event_loop.exit();
@@ -1785,17 +1857,23 @@ impl ApplicationHandler<Wake> for App {
                 }
             }
             WindowEvent::Resized(size) => {
-                self.size = (size.width.max(1), size.height.max(1));
                 if let Some(w) = &self.window {
                     self.maximized = w.is_maximized();
                 }
                 self.update_shadow(None);
+                // The window reports the surface; the app lives in the content inside the margin
+                // (the margin in force was just re-read by `update_shadow`).
+                self.size = self.content_size(size.width, size.height);
                 self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
                 self.redraw();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor as f32;
                 self.update_shadow(None);
+                if let Some(w) = &self.window {
+                    let s = w.inner_size();
+                    self.size = self.content_size(s.width, s.height);
+                }
                 self.full = true;
                 self.redraw();
             }
@@ -1824,6 +1902,12 @@ impl ApplicationHandler<Wake> for App {
                 position: PhysicalPosition { x, y },
                 ..
             } => {
+                // Surface coordinates to content coordinates (the margin is 0 without the
+                // client-drawn shadow): negative or past the content in the outer resize band.
+                let (x, y) = match &self.shadow {
+                    Some(s) => s.to_content(x, y),
+                    None => (x, y),
+                };
                 self.pointer_moved(x as f32 / self.scale, y as f32 / self.scale);
             }
             WindowEvent::CursorLeft { .. } => {
@@ -2548,6 +2632,13 @@ pub fn run() -> i32 {
     0
 }
 
+/// A content size in device px as the logical size the session keeps (and `with_inner_size`
+/// takes back, before `Shadow::prepare` adds the margin).
+fn logical_size((w, h): (u32, u32), scale: f64) -> (u32, u32) {
+    let size = winit::dpi::PhysicalSize::new(w, h).to_logical::<f64>(scale);
+    (size.width.round() as u32, size.height.round() as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2563,6 +2654,65 @@ mod tests {
             started: Instant::now(),
         };
         App::new(args, docs, trace, None, Session::default())
+    }
+
+    /// The saved window size is the content size: a window started at the saved size, grown by
+    /// the shadow's margin as `Shadow::prepare` does (logical `EXTENT` each side) and read back
+    /// through the margin (device `ceil(EXTENT * scale)` each side), saves the same size, at every
+    /// scale and however often it is restarted.
+    #[test]
+    fn the_saved_size_does_not_grow_by_the_margin() {
+        use mdshared_ui::shadow::EXTENT;
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0, 3.0] {
+            let mut saved = (1100u32, 700u32);
+            for _ in 0..5 {
+                let surface = |l: u32| ((l as f64 + 2.0 * EXTENT) * scale).round() as u32;
+                let margin = (EXTENT * scale).ceil() as u32;
+                let content = (surface(saved.0) - 2 * margin, surface(saved.1) - 2 * margin);
+                saved = logical_size(content, scale);
+            }
+            assert_eq!(saved, (1100, 700), "scale {scale}");
+        }
+        // Without a margin (Windows, KWin) the content is the surface and nothing changes.
+        assert_eq!(logical_size((1650, 1050), 1.5), (1100, 700));
+        assert_eq!(app().content_size(1234, 567), (1234, 567));
+        assert_eq!(app().content_size(0, 0), (1, 1));
+    }
+
+    /// The edge hit test has no lower bound: in the outer band (negative content coordinates with
+    /// the client-drawn margin) a resize still starts, on every edge and corner.
+    #[test]
+    fn the_resize_band_reaches_outside_the_content() {
+        use winit::window::ResizeDirection as D;
+        let edge = mdshared_ui::window::edge_at;
+        assert_eq!(edge(-4.0, 300.0, 800.0, 600.0), Some(D::West));
+        assert_eq!(edge(400.0, -5.0, 800.0, 600.0), Some(D::North));
+        assert_eq!(edge(-5.0, -5.0, 800.0, 600.0), Some(D::NorthWest));
+        assert_eq!(edge(804.0, 603.0, 800.0, 600.0), Some(D::SouthEast));
+        assert_eq!(edge(400.0, 300.0, 800.0, 600.0), None);
+    }
+
+    /// Every pixel of a composed frame has alpha 255: the client-drawn shadow's surface honours
+    /// alpha, so a content pixel below it would show the desktop through the window.
+    #[test]
+    fn a_composed_frame_is_opaque() {
+        let mut app = app();
+        app.size = (900, 600);
+        app.compose();
+        let bad = |a: &App| {
+            a.screen
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[3] != 255)
+                .count()
+        };
+        assert_eq!(bad(&app), 0);
+        app.size = (700, 500);
+        app.scale = 1.5;
+        app.compose();
+        assert_eq!(bad(&app), 0);
     }
 
     fn type_text(app: &mut App, text: &str) {
