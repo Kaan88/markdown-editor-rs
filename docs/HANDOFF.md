@@ -238,6 +238,25 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Hand-off with mdview (2026-11-14, parts 1-4; not published)
+
+Built: shared pin 1e39bc1; receiving (`--from`, `--follow`, `--place`, `--goto L[:C]`, `--run`, `--demo-link`; requests
+from a second launch go to the running window); "Preview in mdview" (Ctrl+Shift+V, View and tab menus, palette) and
+"Preview side by side"; linked mode (`bins/mdedit/src/link.rs`: at most 10 updates a second, newest wins, a courier
+thread so a hung viewer never blocks the window, nothing runs unless a link exists); live preview of unsaved text
+(setting "Live preview while typing", on by default; the whole text and caret line, never over 2 MiB, one toast).
+Ctrl+Shift+V still pastes in the find box. Tests: 593 pass, clippy and fmt clean.
+
+Ran for real (KDE Wayland, DP-2, both apps running): side by side placement (editor 0,0 1720x1396, viewer beside it);
+a scripted edit shows in the viewer unsaved with the live dot in its tab. When running two apps on one machine for
+this, each needs its own settings folder and BOTH variables for the other app: `MDVIEW_SETTINGS` and
+`MD_SISTER_MDVIEW_SETTINGS` for the viewer, `MDEDIT_SETTINGS` and `MD_SISTER_MDEDIT_SETTINGS` for the editor (the viewer's
+liveness check looks the editor up by the second one and otherwise ends the link after 5 s).
+
+NOT done: part 5 (window shadow adoption), timings (keystroke with a link, send cost), the `--goto 20` second-launch
+check, regenerating the shots (settings shots will differ after the new row), DESIGN.md section. NOT run: Windows,
+X11, GNOME, anything interactive.
+
 ## One file in both panes of the split (2026-11-14, after 0.5.0, not published)
 
 Design: `docs/DESIGN.md` section 53 (written before the code). Commits on `main`: `a778d7f` (the
