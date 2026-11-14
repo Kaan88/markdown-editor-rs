@@ -179,6 +179,11 @@ it by hand.
 - A leftover of the test: the folder `D:\mdedit-paste-test` (one 185-byte PNG). Its removal by
   the session was refused by a safety check; the owner can delete it.
 
+**The owner's answers (2026-11-15, second session).** F7: "didn't enable compare", so F7 was
+pressed with no comparison open, where it does nothing and says nothing (`compare_jump` returns
+when there is no alignment). Not a fault; F7 inside a comparison was not reported on. Tab in
+tables adds a row only from the last cell of the last row: as designed. Both questions are closed.
+
 **Other things left as they are**
 
 - `test/hand`: a local, unpushed branch on the Windows PC (`merge/next-release` as of `9f07121`
@@ -195,7 +200,7 @@ it by hand.
 
 **What is left, in the order suggested to the owner**
 
-1. Ask about F7 and Tab (above). Read the CI result of `merge/next-release` (pasting image
+1. Read the CI result of `merge/next-release` (pasting image
    files is in it now).
 2. The owner decides: merge `merge/next-release` into `main`, the version number, the release.
    None of that was done or asked for.
