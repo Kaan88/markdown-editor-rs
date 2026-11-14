@@ -61,7 +61,7 @@ No branch below was reviewed by the main session unless it says so.
 | `f/paste-image` | paste an image into a Markdown file | `c14ebb3` | CI green; reviewed; tried on Windows by script; merged into `merge/next-release` |
 | `f/autosave-recovery` | autosave and crash recovery | `4750c39` | CI green; reviewed; merged into `merge/next-release` (with the data-loss fix `867f197`) |
 | `f/column-selection` | column (block) selection | `3785c7d` | CI green; reviewed; merged into `merge/next-release` |
-| `f/word-completion` | word completion and snippets | see `git log` (finished in the second session of 2026-11-15) | finished on Windows, holds all of `merge/next-release`, **not merged into it**: the owner has not looked at the list (see "Word completion, second session of 2026-11-15"); CI started once, result not read |
+| `f/word-completion` | word completion and snippets | see `git log` (finished in the second session of 2026-11-15) | CI green on Linux and Windows at `7b91273` (run 43652712584); merged into `merge/next-release` on the owner's word ("Merge it", 2026-11-15); the owner has not looked at the list (see "Word completion, second session of 2026-11-15") |
 | `f/live-preview-unsaved` | live preview of a never-saved file (both apps) | `8019a35` | **not started** (branch equals the plan commit) |
 | `f/finer-sync` | finer scroll sync inside long blocks (both apps) | `8019a35` | **not started** |
 
@@ -179,8 +179,9 @@ it by hand.
 - A leftover of the test: the folder `D:\mdedit-paste-test` (one 185-byte PNG). Its removal by
   the session was refused by a safety check; the owner can delete it.
 
-**Word completion, second session of 2026-11-15 (branch `f/word-completion`, not merged).** The
-owner chose it as the next feature. The interrupted commit `0a09e78` turned out to be nearly
+**Word completion, second session of 2026-11-15 (branch `f/word-completion`, merged into
+`merge/next-release` by a fast-forward on the owner's word).** The owner chose it as the next
+feature. The interrupted commit `0a09e78` turned out to be nearly
 whole: after merging `merge/next-release` into it (three textual conflicts, both sides kept) it
 compiled, clippy was clean and one test failed (a count of settings lines).
 
@@ -236,9 +237,9 @@ tables adds a row only from the last cell of the last row: as designed. Both que
    None of that was done or asked for.
 3. `feat/restart-after-update`: needs a real update and Restart staged by hand (above).
 4. Rounded corners: only Linux needs work (the failing shared test, the KDE shadow route).
-5. `f/word-completion`: the owner looks at the list, then it is merged into `merge/next-release`
-   or changed. `f/live-preview-unsaved` and `f/finer-sync` are not started; both need the viewer
-   and the shared crates.
+5. `f/live-preview-unsaved`, then `f/finer-sync`, and a Windows spike for the frosted window
+   (`spike/frosted-window`) were given to two other sessions on 2026-11-15 (worktrees under
+   `Desktop\md-wt`); their results are not in this file yet.
 6. The frosted window (Mica, Acrylic, blur on Wayland): on the roadmap in `docs/PLAN.md`, starts
    with a spike on Windows.
 
