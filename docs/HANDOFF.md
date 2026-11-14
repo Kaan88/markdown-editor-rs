@@ -238,6 +238,79 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Command palette, compare two files, replace in files: the interface (2026-11-14, branch `features-files`, not merged, not published)
+
+Wired three finished pieces of headless logic into the window, on the branch `features-files` (from
+`79e70ec`). Done on one machine (CachyOS, Wayland); nothing run on Windows; nothing driven by hand
+(only tests, `--shot`, and `--trace --exit-after-ms`/`--type-steps`/`--scroll-steps`). DESIGN 43
+(palette), 44 (compare in the window), 45 (replace in files in the window).
+
+**Built**
+- **Command palette** (`Ctrl+P`): `palette.rs` (sources), `app/palette_events.rs` (the host).
+  Open tabs, recent and the folder's files (worker, 5,000 cap, kept until the folder changes), `>`
+  commands with hints and greyed ones, `:` go to line, `@` symbols, `?` the prefixes.
+  `--palette <query>`.
+- **Compare two files**: `compare.rs` (`Align`, `Compare`, the worker with a 150 ms debounce),
+  `app/compare_events.rs` (commands, F7/Shift+F7, the per-frame checks), changes in `view.rs`
+  (filler rows, tints, marks inside lines), `minimap.rs` (tints, no text on fillers), `docs.rs`
+  (`Ready::align`, `read_only`, `Doc::title`, `Docs::open_copy`), core `fold.rs` (`Folds::suspend`).
+  Compare with the other pane, with a file, with saved (a read-only "name (saved)" tab at the left);
+  in the View menu, the tab menu and the palette. `--compare A B`, `--compare-saved`,
+  `--next-difference N`. No merge arrows.
+- **Replace in files**: `replace_ui.rs` (state, workers, dialog and report drawing),
+  `app/replace_files.rs` (the steps); a replacement box and "Replace all…" in the results panel, the
+  confirmation dialog (tick boxes, preview, backups, skipped files), a progress line with Cancel, the
+  report and "Undo replace". `--results-replace`, `--replace-dialog`, `--replace-report` for shots.
+
+**Decisions made without the owner**
+- F7 and Shift+F7 for next and previous difference; no existing binding used them. `Ctrl+P` for the
+  palette (it was unbound).
+- The saved copy is at the left, the edited text at the right. The View menu has the three start
+  commands and Stop comparing; the difference keys are in the palette and on F7 only. The tab menu
+  has Compare with file… and Compare with saved.
+- While comparing, the Word wrap item still flips the setting but does nothing until the comparison
+  ends; fold commands do nothing (folds are kept and follow edits, and come back).
+- The marks inside a line are not drawn while the diff is out of date; the strip says "Comparing…".
+- Difference colours are fixed per theme in `compare.rs` (the shared palette has none).
+- A greyed command in the palette cannot be chosen; the file list is not built for the empty query.
+- Replace in files: Enter replaces and Escape cancels in the dialog; replacing with an empty text
+  is allowed; the preview shows the first lines of the file, not a diff of all of it; a new search
+  or a replace ends the previous report and its undo.
+- A fixture pair, `fixtures/compare-a.rs` and `compare-b.rs` (shots), and `shots.sh` makes a fresh
+  folder for the replace shots (the report shot really replaces).
+
+**Checks run**: `cargo test --release --workspace` 517 passed before (the branch point), 542 after
+(25 new: 10 in `app/files_tests.rs` for the palette and replace in files, 7 there for compare, 5 in
+`compare.rs`, 1 in `fold.rs`, 1 in `args.rs`, 1 other); clippy `-D warnings` and `fmt --check`
+clean. `tests/shots.sh`: 98 shots before, 117 after; the 19 new ones were looked at (palette x8,
+compare x7, replace in files x4). Of the 98, 86 are byte-identical and 12 differ, all because of
+what was added: `menu-main`, `-dark`, `menu-main-view`, `menu-main-macro-dark`, `menu-tall-main`,
+`menu-tall-main-end` (the main menu has "Command palette…"), `menu-view`, `menu-view-checked`,
+`-dark` (the Compare items), `menu-tab` (the two compare items), `dialog-shortcuts` (new commands),
+`files-pane` (the fixtures folder holds two more files).
+
+**Measured on Linux (window shown, `sample.rs`, 10 interleaved runs of each, branch point against
+the branch)**: window shown median 73.6 ms before and 72.8 ms after (range 68.5 to 100.2 and 67.5
+to 99.3); private memory 20.6 to 20.8 MiB both; idle CPU 80 ms both; keystroke p50 0.47 ms both;
+scroll step p50 0.42 ms both (6 runs each); the exe grew 11,476,744 to 11,683,112 bytes. With
+compare on (two 63 and 72 line files): keystroke p50 0.41 to 0.42 ms, scroll p50 0.34 to 0.35 ms;
+two 50,000 line files with 27 differences: keystroke p50 0.42 to 0.43 ms (p95 up to 0.71),
+scroll p50 0.40 ms. A first build of the compare work scrolled 0.07 ms slower (paint 0.27 to 0.34):
+bisected to `Docs::sync_wrap` taking `ready_mut()` and writing the fold flag on every frame;
+it now writes only when the value changes and the figures are the same as before. Not confirmed
+from the trace that the compare was on while the `--type-steps` keystrokes were made (it starts
+when both files are read, before the steps, but I did not print it).
+
+**Not run**: anything interactive. Nothing was clicked or typed by hand: the palette (opening,
+keys, clicking a row, the wheel), the compare commands from the menus and the file dialog
+(Compare with file…), F7, scrolling and typing in a compared pane by hand, the minimap click in
+compare mode, dragging the divider while comparing, the replace dialog's clicks, tick boxes and
+preview under the pointer, Cancel while a large replacement runs, Undo replace by click. Windows:
+nothing; the blocking dialog path for Compare with file… (`#[cfg(windows)]`) was written the way
+Open files is and has not been built. A real replacement of many files, and a compare of two very
+different large files (the approximate case), were not timed in a window. The shots and the tests
+stand in for these only as far as they go; the owner has to look at the interface.
+
 ## Gaps closed: icons, chevrons, split, macros, find memory, title row (2026-11-14, still 0.4.1, not published)
 
 Done on one machine (CachyOS, Wayland), nothing run on Windows, nothing driven by hand: only

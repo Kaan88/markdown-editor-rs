@@ -1782,15 +1782,14 @@ impl Docs {
     /// document that has just been read has it too.
     pub fn sync_wrap(&mut self) {
         for doc in &mut self.tabs {
+            let Some(r) = doc.ready_mut() else { continue };
             // A compared document shows every line, unwrapped; its folds wait.
-            let compared = doc.ready().is_some_and(|r| r.align.is_some());
-            let wrap = self.wrap && !compared;
-            if let Some(r) = doc.ready_mut() {
+            let compared = r.align.is_some();
+            if r.folds.suspended() != compared {
                 r.folds.suspend(compared);
             }
-            if let Some(r) = doc.ready_mut()
-                && r.wrap != wrap
-            {
+            let wrap = self.wrap && !compared;
+            if r.wrap != wrap {
                 r.wrap = wrap;
                 r.top_row = 0;
                 r.left = 0.0;
