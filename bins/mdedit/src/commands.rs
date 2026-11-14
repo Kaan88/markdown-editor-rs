@@ -244,6 +244,10 @@ pub mod strings {
     pub const RECENT_DONE: &str = "Done";
     pub const FIND_PLACEHOLDER: &str = "Find in file";
     pub const REPLACE_PLACEHOLDER: &str = "Replace with";
+    pub const RESULTS_REPLACE_PLACEHOLDER: &str = "Replace with, in these files";
+    pub const REPLACE_BUSY: &str = "Wait for the replacement to finish, or Cancel it.";
+    pub const REPLACE_NOTHING: &str = "Nothing to replace in those files.";
+    pub const REPLACE_BLOCKED: &str = "Another dialog is open: press Replace all… again.";
     pub const GOTO_PLACEHOLDER: &str = "Go to line, or line:column";
 
     /// The line and column "12", "12:5" or "12,5" names, both from 1.

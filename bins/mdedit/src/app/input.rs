@@ -56,7 +56,12 @@ impl App {
             self.redraw();
         }
         if let Some(d) = self.ui.dialog.as_ref() {
-            let row = overlays::dialog_row_at(d, x, y);
+            let row = match &self.ui.results.replace.confirm {
+                Some(cf) if crate::replace_ui::is_confirm(d.kind) => {
+                    cf.row_at(d.list, d.scroll, x, y)
+                }
+                _ => overlays::dialog_row_at(d, x, y),
+            };
             if row != self.ui.dlg_hover_row {
                 self.ui.dlg_hover_row = row;
                 self.redraw();
@@ -64,7 +69,9 @@ impl App {
         }
         let cursor = match (edge, hit) {
             (Some(dir), _) => CursorIcon::from(dir),
-            (None, Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace)) => CursorIcon::Text,
+            (None, Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace | Hit::ResultsReplace)) => {
+                CursorIcon::Text
+            }
             (None, Some(Hit::Splitter | Hit::Divider)) => CursorIcon::ColResize,
             (None, Some(Hit::Fold(_) | Hit::FoldBox(_))) => CursorIcon::Pointer,
             _ => CursorIcon::Default,
@@ -78,7 +85,10 @@ impl App {
         }
         let text = hit
             .filter(|h| Some(*h) != self.ui.tip_blocked)
-            .and_then(|h| chrome::tooltip(h, &self.docs, self.maximized));
+            .and_then(|h| {
+                chrome::tooltip(h, &self.docs, self.maximized)
+                    .or_else(|| self.ui.results.replace.tip(h))
+            });
         self.ui.tip = match (hit, text) {
             (Some(h), Some(text)) => {
                 // Moving between neighbouring buttons while a tip shows keeps tips immediate.
@@ -537,6 +547,7 @@ impl App {
                 | Hit::FindClear
                 | Hit::Bar(BarItem::FindNext | BarItem::FindPrev)
                 | Hit::Replace
+                | Hit::ResultsReplace
                 | Hit::ReplaceOne
                 | Hit::ReplaceAll
                 | Hit::InSelection
@@ -612,8 +623,10 @@ impl App {
                 self.caret_reset();
             }
             Hit::Text | Hit::Gutter => self.text_press(x, y, clicks),
-            Hit::Find | Hit::Replace => {
-                self.ui.focus_field(if hit == Hit::Replace {
+            Hit::Find | Hit::Replace | Hit::ResultsReplace => {
+                self.ui.focus_field(if hit == Hit::ResultsReplace {
+                    BarField::ResultsReplace
+                } else if hit == Hit::Replace {
                     BarField::Replace
                 } else if self.ui.going_to() {
                     BarField::Goto
@@ -993,6 +1006,10 @@ impl App {
         // A dialog too.
         if let Some(d) = self.ui.dialog.as_ref() {
             let (scroll, kind) = (d.scroll, d.kind);
+            if crate::replace_ui::is_confirm(kind) {
+                self.replace_dialog_key(name);
+                return;
+            }
             if kind.is_confirm() {
                 match name {
                     Some(KeyName::Enter) => self.answer(0),
@@ -1183,6 +1200,11 @@ impl App {
         let f = self.ui.field_mut();
         let (word, extend) = (mods.ctrl, mods.shift);
         let changed = match (name, mods.ctrl) {
+            // The panel's box: Enter plans the replacement in the files it searched.
+            (KeyName::Enter, _) if which == BarField::ResultsReplace => {
+                self.replace_all_in_files();
+                return true;
+            }
             (KeyName::Enter, true) if mods.shift && !mods.alt => {
                 self.command(C::ReplaceAll);
                 return true;
@@ -1232,7 +1254,9 @@ impl App {
                 self.docs.find_step(!mods.shift);
                 return true;
             }
-            (KeyName::Tab, false) if replace_open && which != BarField::Goto => {
+            (KeyName::Tab, false)
+                if replace_open && !matches!(which, BarField::Goto | BarField::ResultsReplace) =>
+            {
                 // Between the two boxes.
                 self.ui.field = match which {
                     BarField::Find => BarField::Replace,

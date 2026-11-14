@@ -318,6 +318,7 @@ pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
         DialogKind::Recent => (600.0, list(RECENT_ROW, 80.0).min(560.0)),
         DialogKind::Macros => (480.0, list(MACRO_ROW, 80.0).min(560.0)),
         DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => (460.0, 196.0),
+        DialogKind::ReplaceFiles => return crate::replace_ui::card(w, h),
     };
     dialog_card(cw, ch, w, h)
 }
@@ -372,6 +373,8 @@ pub fn draw_dialog(
     draw_backdrop(c.p, &pal, w, h);
     let rows = match d.kind {
         DialogKind::About | DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => 0,
+        // Drawn by `replace_ui::draw_confirm`, which has the plan.
+        DialogKind::ReplaceFiles => return,
         DialogKind::Shortcuts => shortcut_help().len(),
         DialogKind::Recent => docs.recents.paths().len(),
         DialogKind::Macros => macros.len(),
@@ -445,6 +448,7 @@ pub fn draw_dialog(
                 false,
             );
         }
+        DialogKind::ReplaceFiles => {}
         DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => {
             let (heading, body, buttons): (&str, String, &[&str]) = match d.kind {
                 DialogKind::Unsaved => (

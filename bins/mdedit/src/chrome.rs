@@ -407,7 +407,7 @@ pub fn find_parts(frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
 pub fn field_parts(which: BarField, frame: Rect, has_text: bool) -> (Rect, Option<Rect>) {
     match which {
         BarField::Find => find_parts(frame, has_text),
-        BarField::Replace | BarField::Goto => (
+        BarField::Replace | BarField::Goto | BarField::ResultsReplace => (
             Rect::new(
                 frame.x + 10.0,
                 frame.y + 1.0,
@@ -687,7 +687,7 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
 
 /// One of the bar's two text boxes: the find box with its icon and clear button, or the
 /// replacement's.
-fn draw_field(
+pub(crate) fn draw_field(
     c: &mut Ctx,
     field: &mut TextField,
     focused: bool,
@@ -742,6 +742,7 @@ fn draw_field(
         match which {
             BarField::Find => strings::FIND_PLACEHOLDER,
             BarField::Replace => strings::REPLACE_PLACEHOLDER,
+            BarField::ResultsReplace => strings::RESULTS_REPLACE_PLACEHOLDER,
             BarField::Goto if naming => strings::MACRO_NAME_PLACEHOLDER,
             BarField::Goto => strings::GOTO_PLACEHOLDER,
         },

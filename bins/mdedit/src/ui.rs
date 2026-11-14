@@ -38,6 +38,8 @@ pub enum BarField {
     Replace,
     /// The line to go to, typed in the find box's place while it has the keyboard.
     Goto,
+    /// The results panel's replacement box.
+    ResultsReplace,
 }
 
 impl BarField {
@@ -45,6 +47,7 @@ impl BarField {
         match self {
             BarField::Find | BarField::Goto => Hit::Find,
             BarField::Replace => Hit::Replace,
+            BarField::ResultsReplace => Hit::ResultsReplace,
         }
     }
 }
@@ -153,6 +156,11 @@ pub enum Hit {
     /// The results panel: a row of its list and its close button.
     ResultsRow(usize),
     ResultsClose,
+    /// The panel's replacement box and its buttons (replace in files).
+    ResultsReplace,
+    ResultsReplaceAll,
+    ResultsUndo,
+    ResultsCancel,
     /// The function list in the left pane: a row, and the button that brings the Files tree
     /// back.
     OutlineRow(usize),
@@ -202,9 +210,13 @@ impl Hit {
             | Hit::InSelection
             | Hit::FindOpt(_) => Region::Bar,
             Hit::StatusEol | Hit::StatusEncoding => Region::Status,
-            Hit::ResultsRow(_) | Hit::ResultsClose | Hit::ScrollBar(Scroller::Results) => {
-                Region::Results
-            }
+            Hit::ResultsRow(_)
+            | Hit::ResultsClose
+            | Hit::ResultsReplace
+            | Hit::ResultsReplaceAll
+            | Hit::ResultsUndo
+            | Hit::ResultsCancel
+            | Hit::ScrollBar(Scroller::Results) => Region::Results,
             Hit::FilesRow(_)
             | Hit::OutlineRow(_)
             | Hit::OutlineFiles
@@ -244,6 +256,7 @@ impl Hit {
                 | Hit::ScrollBar(_)
                 | Hit::Find
                 | Hit::Replace
+                | Hit::ResultsReplace
                 | Hit::Tab(_)
                 | Hit::DlgCard
         )
@@ -395,6 +408,8 @@ pub enum DialogKind {
     Overwrite,
     /// A reload would drop unsaved changes: Reload, Cancel.
     Discard,
+    /// Replace in files: the files to change, ticked, before anything is written.
+    ReplaceFiles,
 }
 
 impl DialogKind {
@@ -639,6 +654,7 @@ impl Ui {
             BarField::Find => &self.find,
             BarField::Replace => &self.replace,
             BarField::Goto => &self.goto,
+            BarField::ResultsReplace => &self.results.replace.field,
         }
     }
 
@@ -652,6 +668,7 @@ impl Ui {
             BarField::Find => &self.find,
             BarField::Replace => &self.replace,
             BarField::Goto => &self.goto,
+            BarField::ResultsReplace => &self.results.replace.field,
         }
     }
 
@@ -675,6 +692,7 @@ impl Ui {
             BarField::Find => &mut self.find,
             BarField::Replace => &mut self.replace,
             BarField::Goto => &mut self.goto,
+            BarField::ResultsReplace => &mut self.results.replace.field,
         }
     }
 

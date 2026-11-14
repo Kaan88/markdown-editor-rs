@@ -17,6 +17,7 @@ mod palette;
 mod panes;
 mod platform;
 mod recall;
+mod replace_ui;
 mod results;
 mod session;
 mod status;

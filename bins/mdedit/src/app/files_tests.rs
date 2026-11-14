@@ -283,3 +283,102 @@ fn the_question_mark_lists_the_prefixes_and_a_row_puts_one_in_the_box() {
     assert_eq!(p.palette.query(), ">");
     assert!(p.palette.len() > 20);
 }
+
+/// Runs what the event loop's wakes would run, until `until` holds (at most ten seconds).
+fn pump(app: &mut App, until: fn(&App) -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !until(app) && Instant::now() < deadline {
+        app.ui.results.poll();
+        app.replace_poll();
+        app.docs
+            .wait_load(Instant::now() + Duration::from_millis(5), None, false);
+    }
+    assert!(until(app), "timed out");
+}
+
+fn read(dir: &Path, name: &str) -> String {
+    std::fs::read_to_string(dir.join(name)).unwrap()
+}
+
+#[test]
+fn replace_in_files_plans_asks_applies_reports_and_undoes() {
+    let dir = scratch("rep");
+    for n in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+        std::fs::write(dir.join(n), "one foo two\nfoo\n").unwrap();
+    }
+    std::fs::write(dir.join("none.txt"), "nothing here\n").unwrap();
+    let mut a = app();
+    a.set_folder(dir.clone());
+    let ia = open_now(&mut a, &dir.join("a.txt"));
+    let ic = open_now(&mut a, &dir.join("c.txt"));
+    // c.txt has unsaved changes: it is left out. a.txt is open and unchanged: it reloads.
+    a.docs.activate(ic);
+    a.docs.edit(EditOp::Insert("X"), None);
+    assert!(a.docs.tabs[ic].modified());
+    a.docs.activate(ia);
+    a.ui.find.set_text("foo");
+    a.docs.find_set("foo", a.ui.options());
+    a.find_in_files();
+    pump(&mut a, |a| {
+        matches!(a.ui.results.state, crate::results::State::Done { .. })
+    });
+    assert_eq!(a.ui.results.files, 4);
+    // Nothing is planned until "Replace all…", and nothing is written.
+    assert!(a.ui.dialog.is_none());
+    a.ui.results.replace.field.set_text("bar");
+    a.replace_all_in_files();
+    pump(&mut a, |a| a.ui.results.replace.confirm.is_some());
+    assert!(matches!(
+        a.ui.dialog.as_ref().map(|d| d.kind),
+        Some(DialogKind::ReplaceFiles)
+    ));
+    assert_eq!(read(&dir, "a.txt"), "one foo two\nfoo\n");
+    {
+        let c = a.ui.results.replace.confirm.as_mut().unwrap();
+        // The unsaved tab's file is not in the plan; the others are, all ticked.
+        assert_eq!(c.plan.files.len(), 3);
+        assert_eq!(c.plan.totals.matches, 6);
+        assert_eq!(c.chosen().len(), 3);
+        assert!(c.title().starts_with("Replace 6 occurrences in 3 files"));
+        // Untick b.txt.
+        let b = c.names.iter().position(|n| n == "b.txt").unwrap();
+        c.toggle(b);
+        assert_eq!(c.chosen().len(), 2);
+    }
+    // Cancel writes nothing and keeps the plan out of the way.
+    a.replace_dialog_button(1);
+    assert!(a.ui.dialog.is_none());
+    assert_eq!(read(&dir, "a.txt"), "one foo two\nfoo\n");
+    a.replace_all_in_files();
+    pump(&mut a, |a| a.ui.results.replace.confirm.is_some());
+    {
+        let c = a.ui.results.replace.confirm.as_mut().unwrap();
+        let b = c.names.iter().position(|n| n == "b.txt").unwrap();
+        c.toggle(b);
+    }
+    a.replace_dialog_button(0);
+    pump(&mut a, |a| a.ui.results.replace.outcome.is_some());
+    assert_eq!(read(&dir, "a.txt"), "one bar two\nbar\n");
+    assert_eq!(read(&dir, "b.txt"), "one foo two\nfoo\n");
+    assert_eq!(read(&dir, "c.txt"), "one foo two\nfoo\n");
+    assert_eq!(read(&dir, "d.txt"), "one bar two\nbar\n");
+    assert!(!dir.join("a.txt.bak").exists());
+    let o = a.ui.results.replace.outcome.as_ref().unwrap();
+    assert_eq!(o.report.as_ref().unwrap().replacements, 4);
+    assert!(o.undo_help().contains('2'));
+    // The unchanged open tab reloads by itself; the one with unsaved changes keeps its text.
+    pump(&mut a, |a| !a.docs.tabs[0].is_loading());
+    let mut line = String::new();
+    a.docs.tabs[ia].ready().unwrap().buffer.line_text(0, &mut line);
+    assert_eq!(line, "one bar two");
+    assert!(a.docs.tabs[ic].modified());
+    // Undo replace puts the files back.
+    a.replace_undo();
+    pump(&mut a, |a| {
+        let r = &a.ui.results.replace;
+        !r.busy() && r.outcome.as_ref().is_some_and(|o| o.report.is_none())
+    });
+    assert_eq!(read(&dir, "a.txt"), "one foo two\nfoo\n");
+    assert_eq!(read(&dir, "d.txt"), "one foo two\nfoo\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}

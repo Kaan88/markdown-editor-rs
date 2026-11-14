@@ -25,7 +25,7 @@ use crate::session::{Session, ThemeChoice};
 use crate::status;
 use crate::trace::{FrameTimes, Trace, summary};
 use crate::ui::{
-    Act, After, Areas, Dialog, DialogKind, Drag, Hit, PANE_MAX, PANE_MIN, PopupKind, REGIONS,
+    Act, After, BarField, Areas, Dialog, DialogKind, Drag, Hit, PANE_MAX, PANE_MIN, PopupKind, REGIONS,
     Region, Scroller, Ui,
 };
 use crate::view::{self, DrawState, View, metrics};
@@ -54,6 +54,7 @@ mod commands;
 mod files_tests;
 mod input;
 mod palette_events;
+mod replace_files;
 
 const TIP_DELAY: Duration = Duration::from_millis(500);
 const AUTOSCROLL_TICK: Duration = Duration::from_millis(16);
@@ -803,6 +804,10 @@ impl App {
                     ui.results.scroll.to_bits(),
                     drag,
                     self.dark(),
+                    ui.results.replace.sig(),
+                    (ui.find_focused && ui.field == BarField::ResultsReplace)
+                        .then_some(ui.caret_on),
+                    ui.results.replace.field.caret(),
                 ))
             }
         }
@@ -963,6 +968,9 @@ impl App {
                     self.docs.recents.paths().len(),
                     self.docs.updates.about_label(),
                     self.docs.check_updates,
+                    self.ui.results.replace.confirm.as_ref().map(|c| {
+                        (c.ticks.clone(), c.backup, c.show_skipped, c.cursor)
+                    }),
                 )
             }),
             self.ui
@@ -1207,15 +1215,27 @@ impl App {
                 };
                 c.hits.clear();
                 if let Some(d) = self.ui.dialog.as_mut() {
-                    overlays::draw_dialog(
-                        &mut c,
-                        &self.docs,
-                        &self.macros.named,
-                        d,
-                        w,
-                        h,
-                        self.ui.dlg_hover_row,
-                    );
+                    match &self.ui.results.replace.confirm {
+                        Some(cf) if crate::replace_ui::is_confirm(d.kind) => {
+                            crate::replace_ui::draw_confirm(
+                                &mut c,
+                                cf,
+                                d,
+                                w,
+                                h,
+                                self.ui.dlg_hover_row,
+                            )
+                        }
+                        _ => overlays::draw_dialog(
+                            &mut c,
+                            &self.docs,
+                            &self.macros.named,
+                            d,
+                            w,
+                            h,
+                            self.ui.dlg_hover_row,
+                        ),
+                    }
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
@@ -2083,6 +2103,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         app.open_palette(&q);
         app.settle_palette();
     }
+    app.shot_replace();
     if app.ui.dialog.is_some() || app.ui.popup.is_some() || app.palette_open() {
         app.compose();
     }

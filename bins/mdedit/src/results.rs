@@ -82,6 +82,8 @@ pub struct Results {
     /// Counts every change of what the panel shows.
     pub generation: u64,
     root: PathBuf,
+    /// Replace in files: the box, the steps and the report of the panel.
+    pub replace: crate::replace_ui::Replacing,
     /// What the worker has found and the window has not taken in yet. A list under a lock, not
     /// a channel, which costs the exe some 15 KB for each type sent.
     rx: Option<Arc<Mutex<Vec<Event>>>>,
@@ -104,6 +106,7 @@ impl Default for Results {
             selected: None,
             generation: 0,
             root: PathBuf::new(),
+            replace: Default::default(),
             rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
         }
@@ -137,6 +140,7 @@ impl Results {
     /// Starts a search of `root` on a worker thread.
     pub fn start_tree(&mut self, root: &Path, query: Query, load: LoadOptions, waker: Waker) {
         self.reset(query.text(), format!("in {}", short(root)));
+        self.replace.searched(root, query.clone(), load);
         self.root = root.to_path_buf();
         self.state = State::Running { files: 0 };
         let tx = Arc::new(Mutex::new(Vec::new()));
@@ -160,6 +164,7 @@ impl Results {
     /// Shows what was found in the open tabs: for each, its id, name, file and matches.
     pub fn set_tabs(&mut self, what: &str, tabs: Vec<TabHits>, left_out: bool) {
         self.reset(what, "in the open tabs".into());
+        self.replace.clear();
         let mut truncated = left_out;
         for (id, name, path, hits, more) in tabs {
             if hits.is_empty() {
@@ -239,8 +244,13 @@ impl Results {
         changed
     }
 
-    /// Closes the panel and stops a search still running.
+    /// Closes the panel and stops a search still running. A replacement being written keeps the
+    /// panel open: it shows the progress and the Cancel button.
     pub fn close(&mut self) {
+        if self.replace.busy() {
+            return;
+        }
+        self.replace.clear();
         self.cancel.store(true, Ordering::Relaxed);
         self.rx = None;
         if matches!(self.state, State::Running { .. }) {
@@ -300,6 +310,9 @@ impl Results {
 
     /// The title row's text.
     fn title(&self) -> String {
+        if let Some(o) = &self.replace.outcome {
+            return o.title.clone();
+        }
         let count = |n: usize, one: &str, many: &str| {
             if n == 1 {
                 format!("1 {one}")
@@ -352,6 +365,8 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
     c.p.fill(r, pal.pane);
     let px = c.p.px();
     c.p.fill(Rect::new(r.x, r.y, r.w, px), pal.line);
+    let search_done = matches!(ui.results.state, State::Done { .. }) && ui.results.files > 0;
+    let controls = crate::replace_ui::draw_head(c, ui, r, search_done);
     let res = &mut ui.results;
     let title = res.title();
     c.p.text(
@@ -361,7 +376,7 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
         r.y + HEAD / 2.0 + 1.0,
         &title,
         pal.text,
-        r.w - 64.0,
+        (controls - 12.0 - (r.x + 16.0)).min(r.w - 64.0),
     );
     let b = Rect::new(r.right() - 36.0, r.y + 4.0, 26.0, 26.0);
     if let Some(fill) = c.fill_for(Hit::ResultsClose, false, false) {
@@ -371,11 +386,18 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
     c.hit(Hit::ResultsClose, b);
 
     let area = list(r);
-    res.content = res.rows.len() as f32 * ROW + 6.0;
+    let shown_rows = res
+        .replace
+        .outcome
+        .as_ref()
+        .map_or(res.rows.len(), |o| o.rows.len());
+    res.content = shown_rows as f32 * ROW + 6.0;
     res.view = area.h;
     res.scroll = res.scroll.clamp(0.0, (res.content - area.h).max(0.0));
     let scroll = res.scroll;
-    if res.rows.is_empty() {
+    if let Some(o) = &res.replace.outcome {
+        crate::replace_ui::draw_outcome(c, o, r, area, scroll);
+    } else if res.rows.is_empty() {
         let text = match res.state {
             State::Running { .. } => "Searching\u{2026}",
             _ => "Nothing found.",

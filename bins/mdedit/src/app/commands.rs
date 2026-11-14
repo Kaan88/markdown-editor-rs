@@ -91,6 +91,9 @@ impl App {
             Hit::OutlineFiles => self.command(C::ToggleFiles),
             Hit::ResultsRow(i) => self.go_to_result(i),
             Hit::ResultsClose => self.ui.results.close(),
+            Hit::ResultsReplaceAll => self.replace_all_in_files(),
+            Hit::ResultsUndo => self.replace_undo(),
+            Hit::ResultsCancel => self.ui.results.replace.cancel(),
             Hit::EmptyOpen => self.command(C::OpenFiles),
             Hit::EmptyRecent(i) => {
                 if let Some(p) = self.docs.recents.paths().get(i).cloned() {
@@ -99,6 +102,7 @@ impl App {
             }
             Hit::DlgButton(n) => match self.ui.dialog.as_ref().map(|d| d.kind) {
                 Some(kind) if kind.is_confirm() => self.answer(n),
+                Some(DialogKind::ReplaceFiles) => self.replace_dialog_button(n),
                 Some(DialogKind::Recent) if n == 1 => self.docs.recents.clear(),
                 Some(DialogKind::Macros) if n == 1 => self.macros.delete_all_saved(),
                 Some(DialogKind::About) if n == 1 => {
@@ -115,6 +119,14 @@ impl App {
                 }
                 _ => self.close_dialog(),
             },
+            Hit::DlgOpen(i)
+                if self.ui.dialog.as_ref().map(|d| d.kind) == Some(DialogKind::ReplaceFiles) =>
+            {
+                if let Some(c) = self.ui.results.replace.confirm.as_mut() {
+                    c.toggle(i);
+                    c.cursor = i;
+                }
+            }
             Hit::DlgOpen(i)
                 if self.ui.dialog.as_ref().map(|d| d.kind) == Some(DialogKind::Macros) =>
             {
@@ -175,7 +187,11 @@ impl App {
 
     /// Looks for the find box's text in the files of the Files pane's folder, or of the active
     /// file's folder when no folder is open, on a worker thread.
-    fn find_in_files(&mut self) {
+    pub(super) fn find_in_files(&mut self) {
+        if self.ui.results.replace.busy() {
+            self.docs.set_toast(strings::REPLACE_BUSY);
+            return;
+        }
         let Some(query) = self.search_query() else {
             return;
         };
@@ -193,6 +209,10 @@ impl App {
 
     /// Looks for the find box's text in every open tab, in the text as it is now.
     pub(super) fn find_in_tabs(&mut self) {
+        if self.ui.results.replace.busy() {
+            self.docs.set_toast(strings::REPLACE_BUSY);
+            return;
+        }
         let Some(query) = self.search_query() else {
             return;
         };
@@ -840,6 +860,15 @@ impl App {
         if self.ui.pending.is_some() {
             self.cancel_pending();
         }
+        // A confirmation closed without "Replace": nothing was written, the plan is dropped.
+        if self
+            .ui
+            .dialog
+            .as_ref()
+            .is_some_and(|d| d.kind == DialogKind::ReplaceFiles)
+        {
+            self.ui.results.replace.confirm = None;
+        }
         self.ui.dialog = None;
         self.ui.pressed = None;
         self.ui.dlg_hover_row = None;
@@ -857,6 +886,10 @@ impl App {
     pub(super) fn set_folder(&mut self, dir: PathBuf) {
         let dir = canonical_or_absolute(&dir);
         self.docs.folder = Some(dir.clone());
+        // What was searched, and any replacement's report, belonged to the old folder.
+        if !self.ui.results.replace.busy() {
+            self.ui.results.replace.clear();
+        }
         self.ui.tree.set_root(Some(dir));
         self.ui.panes.files_scroll = 0.0;
         self.last_active = None;
@@ -1347,6 +1380,7 @@ impl App {
             }
             Wake::Results => {
                 self.ui.results.poll();
+                self.replace_poll();
             }
             Wake::Outline => {
                 self.ui.outline.poll();
