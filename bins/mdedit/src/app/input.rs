@@ -1019,6 +1019,10 @@ impl App {
             self.palette_key(name, typed);
             return;
         }
+        // The completion list lets typing through to the text; any other key closes it.
+        if self.completion_showing() && self.completion_key(name.clone(), mods, typed) {
+            return;
+        }
         // A menu takes the keyboard; an open submenu has it first.
         if let Some(p) = self.ui.popup.as_mut() {
             let kind = p.kind;
@@ -1092,6 +1096,14 @@ impl App {
         {
             return;
         }
+        if name == Some(KeyName::Tab)
+            && !mods.ctrl
+            && !mods.alt
+            && self.text_focused()
+            && self.snippet_tab(mods.shift)
+        {
+            return;
+        }
         if let Some(id) = keys::command_for(&key, mods) {
             self.command(id);
             return;
@@ -1107,6 +1119,7 @@ impl App {
             && let Some(text) = typed.filter(|t| !t.is_empty() && !t.chars().any(char::is_control))
         {
             self.edit(EditOp::Insert(text));
+            self.completion_typed(text);
         }
     }
 

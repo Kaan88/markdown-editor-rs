@@ -318,6 +318,7 @@ impl App {
                 }
             }
             Act::Theme(choice) => self.set_theme(choice),
+            Act::Complete(n) => self.accept_completion(n),
             Act::Opt(opt) => {
                 self.ui.toggle_option(opt);
                 self.find_changed();
@@ -1320,6 +1321,8 @@ impl App {
             C::ShowShortcuts => self.open_dialog(DialogKind::Shortcuts),
             C::About => self.open_dialog(DialogKind::About),
             C::Settings => self.open_settings(),
+            C::CompleteWord => self.open_completion(true),
+            C::OpenSnippets => self.open_snippets_file(),
             C::NextTab => self.docs.step_tab(true),
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),

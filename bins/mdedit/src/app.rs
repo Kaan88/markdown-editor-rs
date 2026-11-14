@@ -52,6 +52,7 @@ use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, Wind
 
 mod commands;
 mod compare_events;
+mod completion;
 #[cfg(test)]
 mod files_tests;
 mod handoff;
@@ -261,6 +262,8 @@ struct App {
     /// `--goto`, `--select`, `--find`, `--scroll` or `--hscroll` wait for this document to be
     /// ready in a windowed run.
     positions_for: Option<DocId>,
+    /// Word completion and snippets; empty until first used.
+    completion: completion::State,
 }
 
 impl App {
@@ -371,6 +374,7 @@ impl App {
             wheel_rest: (0.0, 0.0),
             saved_sig: 0,
             positions_for: None,
+            completion: Default::default(),
         }
     }
 
@@ -2324,6 +2328,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 app.ui.mouse = (r.x + r.w * 0.5, r.y + 120.0);
                 app.right_press();
             }
+        }
+        Some(ShotMenu::Complete) => app.open_completion(true),
+        Some(ShotMenu::CompleteSnippet) => {
+            app.open_completion(true);
+            app.completion_accept_first();
         }
         Some(ShotMenu::Eol) => app.open_popup(PopupKind::Eol),
         Some(ShotMenu::Encoding) => app.open_popup(PopupKind::Encoding),

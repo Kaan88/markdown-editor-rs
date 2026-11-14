@@ -12,6 +12,7 @@
 
 pub mod cache;
 pub mod metrics;
+mod point;
 pub mod wrap;
 
 use crate::chrome::Ctx;

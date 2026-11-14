@@ -351,6 +351,8 @@ fn icon(id: C) -> &'static str {
         C::MdLink => glyph::LINK,
         C::MdTable => glyph::TABS,
         C::Settings => glyph::SLIDERS,
+        C::CompleteWord => glyph::EDIT,
+        C::OpenSnippets => glyph::DOC,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
 }
@@ -387,6 +389,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::MdHeading
         | C::MdLink
         | C::MdTable
+        | C::CompleteWord
         | C::GoToLine => ready.is_some(),
         C::Reload | C::CloseTab | C::CloseAllTabs => has_tab,
         C::Find

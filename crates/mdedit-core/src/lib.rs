@@ -7,6 +7,7 @@
 
 pub mod bracket;
 pub mod buffer;
+pub mod complete;
 pub mod diff;
 pub mod display;
 pub mod edit;
@@ -28,6 +29,7 @@ pub mod replace_files;
 pub mod save;
 pub mod search;
 pub mod selection;
+pub mod snippets;
 #[cfg(test)]
 mod testutil;
 pub mod typing;

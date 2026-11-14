@@ -101,3 +101,22 @@ pub const REPLACE_PREVIEW_PART: usize = 120;
 pub const REPLACE_REVERT_BYTES: u64 = 64 << 20;
 /// Backup names `name.bak`, `name.bak1` .. `name.bak99`; with all taken the file is not changed.
 pub const REPLACE_BACKUPS: usize = 99;
+
+/// Word completion reads at most this many bytes of the active document (around the caret, cut
+/// at line breaks) and of each other open document (from its start), and at most
+/// [`COMPLETE_OTHER_BYTES`] of all the others together, when its list is made (the shortcut or
+/// the third typed letter), never while typing on.
+pub const COMPLETE_SCAN_BYTES: usize = 1 << 20;
+pub const COMPLETE_OTHER_BYTES: usize = 4 << 20;
+/// The most distinct words one list holds, and the longest word kept (in bytes).
+pub const COMPLETE_WORDS: usize = 50_000;
+pub const COMPLETE_WORD_MAX: usize = 64;
+/// The most letters before the caret that make the word being completed.
+pub const COMPLETE_PREFIX_MAX: usize = 64;
+/// Rows of the completion list.
+pub const COMPLETE_ROWS: usize = 8;
+/// The snippets file is read up to this many bytes; a snippet's text up to
+/// [`SNIPPET_TEXT_MAX`] bytes; at most [`SNIPPETS_MAX`] snippets are kept.
+pub const SNIPPETS_FILE_BYTES: usize = 1 << 20;
+pub const SNIPPET_TEXT_MAX: usize = 64 * 1024;
+pub const SNIPPETS_MAX: usize = 1000;

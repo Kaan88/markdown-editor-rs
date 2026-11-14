@@ -259,4 +259,16 @@ shot emoji-caret --light --goto 3:11 "$fx/emoji.txt"
 shot status-indent-tip --light --size 720x400 --hover 555,387 "$fx/sample.rs"
 shot status-indent-crowded --light --size 520x400 --zoom 150 --demo-link --select 1:1-30:1 --hover 340,387 "$fx/sample.md"
 
+# Word completion and snippets: the list under the caret (words of the file, then a Markdown
+# snippet beside its words), the first snippet taken with its stop selected, the text menu and
+# the main menu with their new rows, and the setting.
+shot complete-words --light --goto 8:4 --menu complete "$fx/complete.md"
+shot complete-words-dark --dark --goto 8:4 --menu complete "$fx/complete.md"
+shot complete-snippet --light --goto 10:4 --menu complete "$fx/complete.md"
+shot complete-snippet-dark --dark --goto 10:4 --menu complete "$fx/complete.md"
+shot complete-snippet-taken --light --goto 10:4 --menu complete-snippet "$fx/complete.md"
+shot complete-snippet-taken-dark --dark --goto 10:4 --menu complete-snippet "$fx/complete.md"
+shot complete-above --light --size 900x420 --goto 8:4 --menu complete "$fx/complete.md"
+shot settings-complete --light --dialog settings --settings-section Editing "$fx/sample.rs"
+
 ls "$out" | wc -l

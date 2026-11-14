@@ -28,6 +28,10 @@ pub enum ShotMenu {
     Minimap,
     /// The Macro menu while a macro is being recorded.
     MacroRec,
+    /// The completion list at the caret (`--goto` puts the caret after the letters typed).
+    Complete,
+    /// The same, with its first snippet taken: the text it made, its first stop selected.
+    CompleteSnippet,
     /// The text menu with its Lines, Convert (or Markdown) submenu open beside it.
     TextLines,
     TextConvert,
@@ -409,6 +413,8 @@ impl Args {
                         "find" => Some(ShotMenu::Find),
                         "minimap" => Some(ShotMenu::Minimap),
                         "macro-rec" => Some(ShotMenu::MacroRec),
+                        "complete" => Some(ShotMenu::Complete),
+                        "complete-snippet" => Some(ShotMenu::CompleteSnippet),
                         "text-lines" => Some(ShotMenu::TextLines),
                         "text-convert" => Some(ShotMenu::TextConvert),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
@@ -515,6 +521,8 @@ mod tests {
             ("find", ShotMenu::Find),
             ("minimap", ShotMenu::Minimap),
             ("macro-rec", ShotMenu::MacroRec),
+            ("complete", ShotMenu::Complete),
+            ("complete-snippet", ShotMenu::CompleteSnippet),
         ] {
             assert_eq!(parse(&format!("--menu {name}")).menu, Some(m));
         }

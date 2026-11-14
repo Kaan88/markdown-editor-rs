@@ -58,6 +58,7 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         theme(ThemeChoice::Light, "Light theme", glyph::SUN),
         theme(ThemeChoice::Dark, "Dark theme", glyph::MOON),
         cmd(C::Settings, "Settings…", glyph::SLIDERS).sep(),
+        cmd(C::OpenSnippets, "Open snippets file", glyph::DOC),
         cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD),
     ];
     // Off Windows, from an AppImage (the desktop entry exists), until mdedit is the default.
@@ -327,6 +328,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .icon(glyph::UPPERCASE)
             .hint("›")
             .enabled(ready),
+        cmd(C::CompleteWord, "Complete word", glyph::EDIT).enabled(ready),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
         cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD),

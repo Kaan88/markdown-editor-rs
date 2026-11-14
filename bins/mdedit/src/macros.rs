@@ -552,6 +552,8 @@ pub fn recordable(id: C) -> bool {
             | C::ToggleOutline
             | C::FindInFiles
             | C::FindInTabs
+            | C::CompleteWord
+            | C::OpenSnippets
     )
 }
 

@@ -61,6 +61,8 @@ pub struct Prefs {
     pub restore_session: bool,
     /// mdview shows the text of a previewed document as it is typed, not only when it is saved.
     pub live_preview: bool,
+    /// The word list opens by itself after three letters (Ctrl+Space opens it either way).
+    pub complete_auto: bool,
 }
 
 impl Default for Prefs {
@@ -82,6 +84,7 @@ impl Default for Prefs {
             word_wrap: false,
             restore_session: true,
             live_preview: true,
+            complete_auto: false,
         }
     }
 }
@@ -173,6 +176,7 @@ impl Prefs {
                         p.restore_session = flag(value).unwrap_or(d.restore_session)
                     }
                     "live_preview" => p.live_preview = flag(value).unwrap_or(d.live_preview),
+                    "complete_auto" => p.complete_auto = flag(value).unwrap_or(d.complete_auto),
                     _ => {}
                 }
             }
@@ -203,6 +207,7 @@ impl Prefs {
         w.line("word_wrap", b(p.word_wrap));
         w.line("restore_session", b(p.restore_session));
         w.line("live_preview", b(p.live_preview));
+        w.line("complete_auto", b(p.complete_auto));
         w.finish()
     }
 
@@ -352,6 +357,7 @@ mod tests {
             word_wrap: true,
             restore_session: false,
             live_preview: false,
+            complete_auto: true,
         };
         let t = p.serialize();
         assert_eq!(Prefs::parse(&t), p);

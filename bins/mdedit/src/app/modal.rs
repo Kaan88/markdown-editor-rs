@@ -30,6 +30,7 @@ pub const CHECK_NOW: u32 = 17;
 pub const DEFAULT_APP: u32 = 18;
 pub const LIVE_PREVIEW: u32 = 19;
 pub const DETECT_INDENT: u32 = 20;
+pub const COMPLETE_AUTO: u32 = 70;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -114,6 +115,12 @@ pub fn rows(prefs: &Prefs, theme: ThemeChoice, check_updates: bool, look: &str) 
             .help("Typing ( or \" adds the other half."),
         Row::toggle(AUTO_INDENT, "Automatic indent", prefs.auto_indent)
             .help("Enter keeps the indent and opens a block after a bracket."),
+        Row::toggle(
+            COMPLETE_AUTO,
+            "Suggest words while typing",
+            prefs.complete_auto,
+        )
+        .help("A list of words opens after three letters. Ctrl+Space opens it anyway."),
         Row::header("Saving"),
         Row::toggle(
             TRIM_ON_SAVE,
@@ -304,6 +311,7 @@ impl App {
             (WORD_WRAP, Value::Bool(on)) => p.word_wrap = on,
             (RESTORE_TABS, Value::Bool(on)) => p.restore_session = on,
             (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
+            (COMPLETE_AUTO, Value::Bool(on)) => p.complete_auto = on,
             (THEME, Value::Choice(i)) => {
                 self.set_theme(theme_of(i));
                 return;

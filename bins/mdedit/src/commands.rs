@@ -107,6 +107,9 @@ pub enum CommandId {
     /// the same with the two windows placed side by side.
     PreviewInViewer,
     PreviewSideBySide,
+    /// The word and snippet list at the caret; the snippets file.
+    CompleteWord,
+    OpenSnippets,
 }
 
 pub struct Command {
@@ -242,6 +245,9 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::CopyFilePath, "Copy file path", &[]),
     cmd(C::ShowInFileManager, SHOW_IN_FILE_MANAGER, &[]),
     cmd(C::MakeDefault, strings::MAKE_DEFAULT, &[]),
+    // Ctrl+Space can be taken by an input method on Linux (switching layouts), so Alt+/ too.
+    cmd(C::CompleteWord, "Complete word", &["Ctrl+Space", "Alt+/"]),
+    cmd(C::OpenSnippets, "Open snippets file", &[]),
 ];
 
 pub fn command(id: CommandId) -> &'static Command {
