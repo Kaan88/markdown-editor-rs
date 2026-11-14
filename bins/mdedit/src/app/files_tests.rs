@@ -5,8 +5,11 @@ use super::*;
 use crate::commands::CommandId as C;
 use crate::keys::{Key, KeyName};
 use crate::palette::{Mode, Target, mode_of};
+use crate::ui::PopupKind;
 use mdedit_core::Selection;
+use mdshared_ui::gfx::{Gfx, Painter};
 use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+use winit::event::MouseScrollDelta;
 
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
@@ -723,5 +726,109 @@ fn closing_the_tab_of_a_file_shown_twice_ends_the_split_and_the_comparison_comma
     a.docs.close(i, None);
     assert!(a.docs.tabs.is_empty() && !a.docs.same_file && a.docs.other.is_none());
     assert!(a.split_state().is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Opens `kind` for the wheel tests and places its menu in a window of `h` px (a short one makes
+/// a tall menu scroll).
+fn placed_menu(a: &mut App, kind: PopupKind, h: f32) -> Rect {
+    a.open_popup(kind);
+    let mut bm = Bitmap::new(1280, 800);
+    let mut gfx = Gfx::new();
+    let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+    let popup = a.ui.popup.as_mut().expect("the menu opened");
+    popup.menu.place(&mut p, 1280.0, h);
+    popup.menu.rect()
+}
+
+#[test]
+fn the_wheel_while_a_menu_is_open_belongs_to_the_menus() {
+    let dir = scratch("wheelmenu");
+    let text: String = (0..300).map(|n| format!("line {n}\n")).collect();
+    std::fs::write(dir.join("a.txt"), text).unwrap();
+    let mut a = app();
+    open_now(&mut a, &dir.join("a.txt"));
+    a.areas.text = Rect::new(0.0, 80.0, 1280.0, 600.0);
+    let notch = MouseScrollDelta::LineDelta(0.0, -3.0);
+    let top = |a: &App| a.docs.active_ready().unwrap().view.top;
+    // No menu: the wheel over the text scrolls it.
+    a.ui.mouse = (100.0, 300.0);
+    a.wheel(notch);
+    let scrolled = top(&a);
+    assert!(scrolled > 0.0, "the control: the wheel scrolls the text");
+
+    // A menu that fits: over it, and beside it, the wheel does nothing at all.
+    let r = placed_menu(&mut a, PopupKind::View, 800.0);
+    assert!(!a.ui.popup.as_mut().unwrap().menu.scrolls());
+    a.ui.mouse = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+    a.wheel(notch);
+    assert!(a.ui.popup.is_some(), "over a menu that does not scroll");
+    assert_eq!(top(&a), scrolled);
+    a.ui.mouse = (100.0, 300.0);
+    a.wheel(notch);
+    assert!(a.ui.popup.is_some(), "outside all the menus");
+    assert_eq!(top(&a), scrolled);
+
+    // A submenu open as well: outside both, nothing; over the one that fits, nothing.
+    a.ui.popup = None;
+    let r = placed_menu(&mut a, PopupKind::Main, 800.0);
+    a.open_popup(PopupKind::View);
+    assert!(
+        a.ui.popup
+            .as_ref()
+            .is_some_and(|p| p.kind == PopupKind::View)
+    );
+    a.ui.mouse = (5.0, 300.0);
+    a.wheel(notch);
+    assert!(a.ui.popup.is_some() && top(&a) == scrolled);
+    let _ = r;
+
+    // A menu taller than its room scrolls under the wheel, and only that.
+    a.ui.popup = None;
+    let r = placed_menu(&mut a, PopupKind::Main, 200.0);
+    assert!(a.ui.popup.as_mut().unwrap().menu.scrolls());
+    a.ui.mouse = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+    a.wheel(notch);
+    assert!(a.ui.popup.as_mut().unwrap().menu.scroll() > 0.0);
+    assert_eq!(top(&a), scrolled);
+    a.ui.mouse = (5.0, 300.0);
+    let before = a.ui.popup.as_mut().unwrap().menu.scroll();
+    a.wheel(notch);
+    assert!(a.ui.popup.is_some());
+    assert_eq!(a.ui.popup.as_mut().unwrap().menu.scroll(), before);
+    assert_eq!(top(&a), scrolled);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_wheel_never_reaches_the_text_while_the_palette_is_open() {
+    let dir = scratch("wheelpalette");
+    let text: String = (0..300).map(|n| format!("line {n}\n")).collect();
+    std::fs::write(dir.join("a.txt"), text).unwrap();
+    let mut a = app();
+    open_now(&mut a, &dir.join("a.txt"));
+    a.areas.text = Rect::new(0.0, 80.0, 1280.0, 600.0);
+    ctrl_p(&mut a);
+    assert!(a.palette_open());
+    let card = {
+        let p = a.palette.open.as_mut().unwrap();
+        p.palette.layout(Rect::new(0.0, 0.0, 1280.0, 800.0), 40.0);
+        p.palette.rect()
+    };
+    let scroll = |a: &App| a.palette.open.as_ref().unwrap().palette.scroll();
+    let top = |a: &App| a.docs.active_ready().unwrap().view.top;
+    let notch = MouseScrollDelta::LineDelta(0.0, -3.0);
+    // Beside the card (over the text below it): nothing moves.
+    a.ui.mouse = (2.0, 790.0);
+    assert!(!card.contains(2.0, 790.0));
+    a.wheel(notch);
+    assert!(a.palette_open());
+    assert_eq!((scroll(&a), top(&a)), (0.0, 0.0));
+    // Over it: the text beneath does not move (the list's own range is known only once drawn,
+    // so how far it scrolls is the shared palette's test).
+    a.ui.mouse = (card.x + card.w / 2.0, card.y + card.h / 2.0);
+    a.wheel(notch);
+    assert!(a.palette_open());
+    assert_eq!(top(&a), 0.0);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -831,29 +831,35 @@ impl App {
                 None => -(ny as f32) * PANE_WHEEL,
             };
             if self.palette_open() {
-                self.palette_wheel(dy);
+                // Over the palette it scrolls the list; anywhere else it does nothing (and never
+                // reaches the page below).
+                if self
+                    .palette
+                    .open
+                    .as_ref()
+                    .is_some_and(|p| p.palette.contains(x, y))
+                {
+                    self.palette_wheel(dy);
+                }
             } else {
                 self.settings_wheel(dy);
             }
             return;
         }
         if let Some(p) = self.ui.popup.as_mut() {
-            // Over a menu the wheel scrolls it (if it is taller than its room); elsewhere it
-            // closes the menus, as it always did.
+            // While a menu is open the wheel belongs to the menus: over one that is taller than
+            // its room it scrolls that menu; over one that is not, or outside all of them, it
+            // does nothing (a click outside closes the menus, the wheel does not).
             let scale = self.scale;
-            match p.menu_at(x, y) {
-                Some(m) if m.scrolls() => {
-                    let dy = match pixels {
-                        Some((_, py)) => -(py as f32) / scale,
-                        None => -(ny as f32) * PANE_WHEEL,
-                    };
-                    if m.scroll_by(dy) {
-                        p.pointer(x, y, Instant::now());
-                        self.redraw();
-                    }
-                }
-                _ => {
-                    self.ui.popup = None;
+            if let Some(m) = p.menu_at(x, y)
+                && m.scrolls()
+            {
+                let dy = match pixels {
+                    Some((_, py)) => -(py as f32) / scale,
+                    None => -(ny as f32) * PANE_WHEEL,
+                };
+                if m.scroll_by(dy) {
+                    p.pointer(x, y, Instant::now());
                     self.redraw();
                 }
             }
