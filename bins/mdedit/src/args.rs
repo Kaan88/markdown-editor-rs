@@ -4,6 +4,7 @@
 
 use crate::commands::CommandId;
 use mdshared_app::sister::{Rect, Request};
+use mdshared_ui::corners::Corners;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +71,10 @@ pub struct Args {
     pub size: Option<(u32, u32)>,
     /// `--scale <0.5..4>` for `--shot` (default the system's).
     pub scale: Option<f32>,
+    /// `--frame square|small|round`: the shot shows the window as the client-drawn shadow margin
+    /// puts it on screen (its shadow and corners, over a flat backdrop) instead of the content
+    /// alone.
+    pub frame: Option<Corners>,
     /// `--find <text>`: put the text in the find box and go to the first match.
     pub find: Option<String>,
     /// `--match-case`: the find box's Match case option on.
@@ -348,6 +353,7 @@ impl Args {
                         })
                     })
                 }
+                "--frame" => out.frame = checked(&a, value(&a), Corners::from_name),
                 "--scale" => {
                     out.scale = checked(&a, value(&a), |v| {
                         v.parse::<f32>().ok().filter(|s| (0.5..=4.0).contains(s))
@@ -582,6 +588,15 @@ mod tests {
         let bad = parse("--place 1,2,3 --place 1,2,0,4 a.md");
         assert_eq!(bad.place, None);
         assert_eq!(bad.files, [PathBuf::from("a.md")]);
+    }
+
+    #[test]
+    fn frame_names_the_corners_of_a_window_shot() {
+        assert_eq!(parse("--frame round").frame, Some(Corners::Round));
+        assert_eq!(parse("--frame Square").frame, Some(Corners::Square));
+        assert_eq!(parse("--frame 4").frame, Some(Corners::Small));
+        assert_eq!(parse("--frame pointy").frame, None);
+        assert_eq!(parse("a.md").frame, None);
     }
 
     #[test]

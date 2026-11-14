@@ -7,6 +7,7 @@ use super::*;
 use crate::commands::CommandId as C;
 use crate::{keys, updater};
 use mdedit_core::prefs::{FONT_PT_MAX, FONT_PT_MIN, INDENT_SIZE_MAX, Prefs, TAB_WIDTH_MAX};
+use mdshared_ui::corners::{self, Corners};
 use mdshared_ui::keys::{KeyName, Mods};
 use mdshared_ui::settings::{Form, Outcome as Out, Row, Value};
 
@@ -30,6 +31,7 @@ pub const CHECK_NOW: u32 = 17;
 pub const DEFAULT_APP: u32 = 18;
 pub const LIVE_PREVIEW: u32 = 19;
 pub const DETECT_INDENT: u32 = 20;
+pub const WINDOW_CORNERS: u32 = 21;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -66,8 +68,15 @@ fn can_offer_default_app() -> bool {
     }
 }
 
-/// The rows, from the preferences and what else the window knows.
-pub fn rows(prefs: &Prefs, theme: ThemeChoice, check_updates: bool, look: &str) -> Vec<Row> {
+/// The rows, from the preferences and what else the window knows. `corners` is the window's corner
+/// setting, or `None` where the system gives the window no way to round them (the row is left out).
+pub fn rows(
+    prefs: &Prefs,
+    theme: ThemeChoice,
+    corners: Option<Corners>,
+    check_updates: bool,
+    look: &str,
+) -> Vec<Row> {
     let mut rows = vec![
         Row::header("Editing"),
         Row::text(FONT_FAMILY, "Font", prefs.font_family.clone())
@@ -154,6 +163,23 @@ pub fn rows(prefs: &Prefs, theme: ThemeChoice, check_updates: bool, look: &str) 
         ),
         Row::action(CHECK_NOW, "Look for a newer version", look),
     ];
+    if let Some(c) = corners {
+        // After Theme, in the View group.
+        let at = rows
+            .iter()
+            .position(|r| matches!(r, Row::Choice { id, .. } if *id == THEME))
+            .map_or(rows.len(), |i| i + 1);
+        rows.insert(
+            at,
+            Row::choice(
+                WINDOW_CORNERS,
+                Corners::SETTING_LABEL,
+                &Corners::LABELS,
+                c.index(),
+            )
+            .help(corners::setting_help()),
+        );
+    }
     if can_offer_default_app() {
         rows.push(Row::header("System"));
         rows.push(Row::action(
@@ -180,6 +206,7 @@ impl App {
         let rows = rows(
             &self.docs.prefs,
             self.docs.theme,
+            self.corners_offered().then_some(self.session.corners),
             self.docs.check_updates,
             &look,
         );
@@ -308,6 +335,10 @@ impl App {
                 self.set_theme(theme_of(i));
                 return;
             }
+            (WINDOW_CORNERS, Value::Choice(i)) => {
+                self.set_corners(Corners::from_index(i));
+                return;
+            }
             (CHECK_AT_LAUNCH, Value::Bool(on)) => {
                 self.docs.check_updates = on;
                 return;
@@ -316,6 +347,32 @@ impl App {
         }
         p.clamp();
         self.set_prefs(p);
+    }
+
+    /// Whether the window can be rounded here, so the setting is offered: Windows (11 rounds it,
+    /// 10 ignores the call), or a Linux window with a shadow route (Wayland; X11 has none unless
+    /// forced and its window is opaque). A shot has no window and shows the row.
+    pub(super) fn corners_offered(&self) -> bool {
+        cfg!(windows) || self.shadow.is_some() || self.args.shot.is_some()
+    }
+
+    /// Takes a new corner setting: Windows is told its preference; with the client-drawn margin
+    /// the whole window is drawn again. It is kept for the next start (KDE chooses its route
+    /// from it then).
+    pub(super) fn set_corners(&mut self, c: Corners) {
+        if self.session.corners == c {
+            return;
+        }
+        self.session.corners = c;
+        #[cfg(windows)]
+        if let Some(w) = &self.window {
+            style(w, self.dark(), c);
+        }
+        if self.shadow.as_mut().is_some_and(|s| s.set_corners(c)) {
+            self.full = true;
+            self.expose = true;
+            self.wants_frame = true;
+        }
     }
 
     /// Takes new preferences: typing help, the drawing, and the session file follow.
@@ -381,7 +438,16 @@ mod tests {
             (560.0, 640.0, 1.0),
             (1280.0 / 1.5, 800.0 / 1.5, 1.5),
         ] {
-            let mut form = Form::new("Settings", rows(&prefs, ThemeChoice::System, true, "Check"));
+            let mut form = Form::new(
+                "Settings",
+                rows(
+                    &prefs,
+                    ThemeChoice::System,
+                    Some(Corners::Round),
+                    true,
+                    "Check",
+                ),
+            );
             let mut bmp = Bitmap::new(100, 100);
             let mut gfx = Gfx::new();
             let mut p = Painter::new(&mut bmp, &mut gfx, scale);

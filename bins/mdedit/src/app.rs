@@ -34,6 +34,7 @@ use mdshared_app::paths::canonical_or_absolute;
 use mdshared_app::sister::Request;
 use mdshared_app::watch::FileWatcher;
 use mdshared_text::Bitmap;
+use mdshared_ui::corners::Corners;
 use mdshared_ui::gfx::{Gfx, Painter, Rect};
 use mdshared_ui::theme::{self, Palette};
 use std::hash::{Hash, Hasher};
@@ -398,7 +399,7 @@ impl App {
             self.view.clear();
             #[cfg(windows)]
             if let Some(w) = &self.window {
-                style(w, dark);
+                style(w, dark, self.session.corners);
             }
         }
         if self.service_dark != Some(dark) {
@@ -1526,6 +1527,21 @@ impl App {
                 })
                 .collect()
         };
+        // The rounded corners are cut out of the content just copied: only the corner squares the
+        // copied rectangles touch are redone (all four after a whole copy). Nothing without
+        // rounding.
+        if let Some(s) = self.shadow.as_ref().filter(|s| s.rounds()) {
+            let touched: Vec<_> = damage.iter().map(&clamp).collect();
+            // A margin painted again (focus, scale) changed the shadow under the corners too.
+            let all = age != 1 || margin_painted;
+            s.paint_corners(
+                &mut buffer,
+                sw,
+                sh,
+                &self.screen.pixels,
+                (!all).then_some(&touched[..]),
+            );
+        }
         let copied = t.elapsed();
         let _ = buffer.present_with_damage(&rects);
         copied
@@ -1613,6 +1629,7 @@ impl App {
                 self.docs.check_updates,
                 self.session.update_checked,
                 self.docs.prefs.serialize(),
+                self.session.corners.to_setting(),
             ),
             (
                 (self.ui.match_case, self.ui.whole_word, self.ui.regex),
@@ -1707,10 +1724,12 @@ fn hwnd(w: &Window) -> Option<isize> {
     }
 }
 
+/// The dark title bar and the corner rounding (Windows 11 draws it; Windows 10 stays square).
 #[cfg(windows)]
-fn style(w: &Window, dark: bool) {
+fn style(w: &Window, dark: bool, corners: mdshared_ui::corners::Corners) {
     if let Some(h) = hwnd(w) {
         platform::style_window(h, dark);
+        mdshared_ui::corners::set_window_corners(h, corners);
     }
 }
 
@@ -1761,9 +1780,12 @@ impl ApplicationHandler<Wake> for App {
         // Transparent, and `with_inner_size` (the content size) grown by the margin, only where
         // the client-drawn shadow will be used (not on KDE, not on Windows): the attributes come
         // back unchanged there.
-        let attributes = mdshared_ui::shadow::Shadow::prepare(
+        // Rounded corners need the margin on KDE too (KWin's route is opaque).
+        let corners = self.session.corners;
+        let attributes = mdshared_ui::shadow::Shadow::prepare_corners(
             attributes,
             mdshared_ui::shadow::Mode::from_env(),
+            corners,
             event_loop,
         );
         let window = match event_loop.create_window(attributes) {
@@ -1777,9 +1799,10 @@ impl ApplicationHandler<Wake> for App {
         self.trace.stage("window created");
         self.scale = window.scale_factor() as f32;
         self.maximized = window.is_maximized();
-        self.shadow = mdshared_ui::shadow::Shadow::attach_mode(
+        self.shadow = mdshared_ui::shadow::Shadow::attach_corners(
             &window,
             mdshared_ui::shadow::Mode::from_env(),
+            corners,
         );
         // The minimum is a content size whatever the route.
         let min = LogicalSize::new(520.0, 360.0);
@@ -1790,7 +1813,7 @@ impl ApplicationHandler<Wake> for App {
         let size = window.inner_size();
         self.size = self.content_size(size.width, size.height);
         #[cfg(windows)]
-        style(&window, self.dark());
+        style(&window, self.dark(), corners);
         let surface = softbuffer::Context::new(window.clone())
             .and_then(|context| softbuffer::Surface::new(&context, window.clone()));
         match surface {
@@ -2418,12 +2441,36 @@ fn shot(mut app: App, path: &Path) -> i32 {
     app.docs.clear_toast();
     app.full = true;
     app.compose();
-    match app.screen.write_png(path) {
+    // `--frame`: the window as the client-drawn margin puts it on screen.
+    let framed = app
+        .args
+        .frame
+        .map(|c| frame_of(&app.screen, c, app.scale as f64, dark));
+    match framed.as_ref().unwrap_or(&app.screen).write_png(path) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("mdedit: could not write {}: {e}", path.display());
             1
         }
+    }
+}
+
+/// What `--frame` renders: `content` with the shadow margin and `corners`, composited over a flat
+/// backdrop (a mid grey, lighter for a dark window so its shadow shows), by the same code the
+/// client-drawn window uses (`shadow::Frame`). The picture is larger than the content by the margin.
+fn frame_of(content: &Bitmap, corners: Corners, scale: f64, dark: bool) -> Bitmap {
+    let frame = mdshared_ui::shadow::Frame::with_radius(scale, true, corners.px(scale));
+    let backdrop = if dark {
+        [0x5a, 0x5a, 0x5f]
+    } else {
+        [0xc8, 0xc8, 0xcd]
+    };
+    let (width, height, pixels) =
+        frame.preview(&content.pixels, content.width, content.height, backdrop);
+    Bitmap {
+        width,
+        height,
+        pixels,
     }
 }
 
@@ -2721,6 +2768,49 @@ mod tests {
         assert_eq!(logical_size((1650, 1050), 1.5), (1100, 700));
         assert_eq!(app().content_size(1234, 567), (1234, 567));
         assert_eq!(app().content_size(0, 0), (1, 1));
+    }
+
+    /// `--frame` puts the shadow margin around the composed content and cuts its corners: the
+    /// corner pixel is the backdrop with a shadow, the middle is the content, and the picture is
+    /// larger by the margin on each side. Square corners keep the content's corner.
+    #[test]
+    fn a_frame_shot_cuts_the_corners() {
+        let mut content = Bitmap::new(400, 240);
+        content.clear([0x20, 0x40, 0x60]);
+        for px in content.pixels.as_chunks_mut::<4>().0 {
+            px[3] = 255;
+        }
+        for scale in [1.0, 2.0] {
+            let content = if scale == 1.0 {
+                content.clone()
+            } else {
+                let mut c = Bitmap::new(800, 480);
+                c.clear([0x20, 0x40, 0x60]);
+                c
+            };
+            let m = (mdshared_ui::shadow::EXTENT * scale).ceil() as u32;
+            for dark in [false, true] {
+                let round = frame_of(&content, Corners::Round, scale, dark);
+                let square = frame_of(&content, Corners::Square, scale, dark);
+                assert_eq!(
+                    (round.width, round.height),
+                    (content.width + 2 * m, content.height + 2 * m)
+                );
+                let at = |b: &Bitmap, x: u32, y: u32| {
+                    let o = ((y * b.width + x) * 4) as usize;
+                    [b.pixels[o + 2], b.pixels[o + 1], b.pixels[o]]
+                };
+                let own = [0x20, 0x40, 0x60];
+                // The middle is the content either way; the content's corner pixel is its colour
+                // when square and not when round.
+                assert_eq!(at(&round, round.width / 2, round.height / 2), own);
+                assert_eq!(at(&square, m, m), own);
+                assert_ne!(at(&round, m, m), own, "dark {dark} scale {scale}");
+                // The straight edge is not touched by the rounding.
+                assert_eq!(at(&round, m + 60, m), own);
+                assert_eq!(at(&round, m, m + 60), own);
+            }
+        }
     }
 
     /// The edge hit test has no lower bound: in the outer band (negative content coordinates with

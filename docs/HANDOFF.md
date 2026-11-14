@@ -1720,3 +1720,32 @@ regular expressions, `replace.rs`); the shell part was written in the main sessi
 - Not built: "find in all open tabs" waits for the results panel of find in files (item 8);
   replace within the selection (the core takes `within`, the shell always passes the whole
   document); Undo with a box of the bar focused still does nothing.
+
+## Next release work (branch next)
+
+### Rounded window corners (base `8019a35`)
+
+Built in `mdshared_ui::corners` and `shadow` (shared branch `next`) and wired here; DESIGN section
+57 is the specification.
+
+- Built: the "Window corners" setting (Square, Small, Round; default Round), kept as `corners=` in
+  the session; Windows: the DWM preference, applied at creation and on a change; Wayland client
+  margin: the anti-aliased corner cut in `present` (only the touched corner squares), the shadow
+  under the cut; `--frame` shots; tests for the setting, the args, the mask and painter (shared)
+  and the frame picture.
+- Decisions: radii 0, 4, 8 only (they are exact on Windows too: do not round, small, round; a 12
+  would have been drawn as 8 there); on KDE the default (Round) now uses the client margin instead
+  of KWin's protocol, because KWin's route is opaque (the plan's own note); Square keeps KWin's
+  route. A change from Square to Round on KDE applies at the next start (the help line says so).
+  The row is hidden where nothing can round (X11 without the margin). The shadow tiles were not
+  re-rendered for the rounded shape: the difference is about one alpha step (computed, not seen).
+  The Windows 11 preference used to be set to Round unconditionally in `style_window`; that call
+  is now the setting's.
+- NOT verified (no local builds by the owner's rule; CI only): any real window on any desktop.
+  Not seen: the corner in a real Wayland window, on KDE with the route change, the shadow under the
+  corner, a tiled or maximized window, switching the setting at run time, Windows 11 DWM rounding
+  or Windows 10 staying square, fractional scales other than in the unit tests. The startup and
+  keystroke budgets were not measured: the change adds a `Shadow::rounds()` check to `present`
+  and nothing else on the keystroke and scroll path; with Square or without a margin nothing runs.
+  The KDE route change does move the default KDE window from KWin's shadow to the client-drawn one
+  (bigger buffer by the 36 px margin each side), which was not timed.

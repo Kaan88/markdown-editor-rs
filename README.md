@@ -33,6 +33,9 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   **Settings (Ctrl+,)** for the preferences.
 - **With mdview:** Preview in mdview (Ctrl+Shift+V) opens the file in the viewer at the caret's
   line, and keeps the viewer on your unsaved text while you type (live preview, up to 2 MiB).
+- **Window:** rounded corners (Settings > Window corners: Square, Small or Round; Round, 8 px at
+  100 %, is the default). Windows 11 draws them itself; on Wayland the window draws its own shape
+  and shadow; where the window is opaque (X11, KDE with a square setting) it stays square.
 - Changes a file's line endings and encoding from the status bar, wraps long lines (Alt+Z),
   keeps unsaved text when the window closes and puts it back at the next start, and updates itself
   in place like mdview. There is no input-method support yet.

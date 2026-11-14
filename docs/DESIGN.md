@@ -1707,3 +1707,38 @@ still inserts the unit in front of every line.
 file" (or "from the settings"). Where the fields would not fit the strip (a long selection count,
 carets, Previewing, the narrowest window of 520 px) the field is left out and the same tooltip
 sits on the language field instead.
+
+## 57. Rounded window corners (2026-11-14, branch `next`)
+
+Setting "Window corners" (View group of Settings, under Theme): Square, Small (4 logical px),
+Round (8, the default; the radius of the apps' dialogs). Kept in the session file as `corners=`
+(the logical radius; written only when not 8), in `Session.corners`. The code is shared
+(`mdshared_ui::corners`, `shadow::Frame`, docs/LINUX.md in the shared repository).
+
+| Where | Result |
+|---|---|
+| Windows 11 | `corners::set_window_corners` sets `DWMWA_WINDOW_CORNER_PREFERENCE` (do not round, small, round) at window creation and on a change; the system draws it and squares a maximized window. Nothing is drawn by the app. |
+| Windows 10 | The attribute is unknown, the call fails and is ignored: square, no message. |
+| Wayland, client margin | Content corner squares (radius r device px, `radius * scale` rounded) are cut anti-aliased into the ARGB buffer; the shadow under them is the window's own. Square when the margin is 0 (maximized, tiled, fullscreen). |
+| KDE Wayland | With a radius above 0 `Auto` uses the client margin instead of KWin's protocol (`shadow::decide(.., round)`), because KWin's route is opaque. Square keeps KWin's route. |
+| X11 | Opaque window (no margin by default): square. `MD_SHADOW=client` rounds like Wayland and squares while maximized or fullscreen. |
+
+**Drawing.** `present` copies the damaged rectangles into the surface buffer as before; when
+`Shadow::rounds()` it then calls `Shadow::paint_corners(buffer, sw, sh, &screen.pixels, damage)`:
+only the corner squares a copied rectangle touches (all four after a whole copy: buffer age not
+1) are rebuilt, from the app's bitmap, as content at its coverage over the shadow beneath
+(premultiplied). At most `4 * r^2` pixels, none when square or maximized; a corner not copied again
+keeps its cut, so partial repaints stay correct. A change of the setting redraws the whole window
+(`full`) and repaints the margin for two frames (the gate). The shadow's margin tiles are
+unchanged (a rounded rectangle's blurred shadow differs from the plain one by about one alpha
+step); the shadow beneath the uncovered pixels is a small table beside the tiles.
+
+**Row.** Offered where it can work: Windows, or a window with a shadow route (Wayland); hidden on
+X11 without the margin. Help line from `corners::setting_help()` (Linux: "Some desktops need a
+restart to apply": on KDE, switching on from Square needs a restart because the window was
+created opaque; switching to Square applies at once).
+
+**Shots.** `--frame square|small|round` with `--shot` renders the window as the margin route shows
+it (content, shadow margin, corners) over a flat backdrop; the existing shots are unchanged.
+`tests/shots.sh` takes `frame-*` at scale 1 and 2 in both themes. The Windows runner draws the
+same Wayland-style picture (it is the shared pixel code, not the DWM result).

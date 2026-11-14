@@ -4,6 +4,7 @@
 
 use mdshared_app::recents::Recents;
 use mdshared_app::settings::{self, Writer, decode_path, encode_path, escape, unescape};
+use mdshared_ui::corners::Corners;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -159,6 +160,8 @@ pub struct Session {
     pub replace_history: Vec<String>,
     pub recent: Recents,
     pub theme: ThemeChoice,
+    /// The rounding of the window's corners (Settings, "Window corners").
+    pub corners: Corners,
     /// The text size, percent.
     pub zoom: u32,
     /// Show whitespace and line endings.
@@ -194,6 +197,7 @@ impl Default for Session {
             replace_history: Vec::new(),
             recent: Recents::default(),
             theme: ThemeChoice::default(),
+            corners: Corners::default(),
             zoom: 100,
             whitespace: false,
             wrap: false,
@@ -247,6 +251,9 @@ impl Session {
                     "active" => s.active = value.trim().parse().unwrap_or(0),
                     "theme" => {
                         s.theme = ThemeChoice::from_setting(value.trim().parse().unwrap_or(0))
+                    }
+                    "corners" => {
+                        s.corners = Corners::from_setting(value.trim().parse().unwrap_or(8))
                     }
                     "zoom" => {
                         s.zoom = value
@@ -322,6 +329,9 @@ impl Session {
             out.line("recent", &encode_path(r));
         }
         out.line("theme", &self.theme.to_setting().to_string());
+        if self.corners != Corners::default() {
+            out.line("corners", &self.corners.to_setting().to_string());
+        }
         if self.zoom != 100 {
             out.line("zoom", &self.zoom.to_string());
         }
@@ -485,6 +495,34 @@ mod tests {
         assert_eq!(back.recent.paths()[0], PathBuf::from("C:/new.txt"));
         assert_eq!(back.window_size(), Some((1100, 700, false)));
         assert_eq!(back.window_position(), Some((-8, 40)));
+    }
+
+    #[test]
+    fn the_window_corners_are_remembered() {
+        // Round (8) is the default and is not written; the other choices are.
+        assert!(!Session::default().serialize().contains("corners"));
+        for c in [Corners::Square, Corners::Small] {
+            let s = Session {
+                corners: c,
+                ..Session::default()
+            };
+            let text = s.serialize();
+            assert!(
+                text.contains(&format!("corners={}", c.to_setting())),
+                "{text}"
+            );
+            assert_eq!(Session::parse(&text).corners, c);
+        }
+        // A missing, unreadable or unknown value is the default.
+        assert_eq!(
+            Session::parse("[mdedit]\ncorners=x\n").corners,
+            Corners::Round
+        );
+        assert_eq!(
+            Session::parse("[mdedit]\ncorners=99\n").corners,
+            Corners::Round
+        );
+        assert_eq!(Session::parse("[mdedit]\n").corners, Corners::Round);
     }
 
     #[test]

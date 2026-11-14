@@ -259,4 +259,16 @@ shot emoji-caret --light --goto 3:11 "$fx/emoji.txt"
 shot status-indent-tip --light --size 720x400 --hover 555,387 "$fx/sample.rs"
 shot status-indent-crowded --light --size 520x400 --zoom 150 --demo-link --select 1:1-30:1 --hover 340,387 "$fx/sample.md"
 
+# The window as the client-drawn margin shows it (--frame): the shadow and the rounded corners over
+# a flat backdrop, at scale 1 and 2 in both themes, and the other two choices of Window corners.
+# The Settings dialog's View group has the row.
+shot frame-round-light --light --size 520x300 --frame round "$fx/sample.rs"
+shot frame-round-dark --dark --size 520x300 --frame round "$fx/sample.rs"
+shot frame-round-light-2x --light --size 520x300 --scale 2 --frame round "$fx/sample.rs"
+shot frame-round-dark-2x --dark --size 520x300 --scale 2 --frame round "$fx/sample.rs"
+shot frame-small-light --light --size 520x300 --frame small "$fx/sample.rs"
+shot frame-square-light --light --size 520x300 --frame square "$fx/sample.rs"
+shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
+shot settings-view-dark --dark --dialog settings --settings-section View "$fx/sample.rs"
+
 ls "$out" | wc -l
