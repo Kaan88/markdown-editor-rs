@@ -114,8 +114,13 @@ pub const REGIONS: [Region; 9] = [
 /// A text pane of a split view is at least this wide; a narrower window shows one pane.
 pub const SPLIT_MIN: f32 = 260.0;
 
-/// The second pane's text inside its region: all but the line that parts it from the first.
-pub fn split_inner(rect: Rect, other_left: bool, px: f32) -> Rect {
+/// The second pane's text inside its region: all but the line that parts it from the first,
+/// which the region draws itself. At the left of the first pane, with a minimap at the pane's
+/// right edge (`minimap`), the minimap draws that line and the text keeps the whole region.
+pub fn split_inner(rect: Rect, other_left: bool, px: f32, minimap: bool) -> Rect {
+    if other_left && minimap {
+        return rect;
+    }
     let x = if other_left { rect.x } else { rect.x + px };
     Rect::new(x, rect.y, (rect.w - px).max(0.0), rect.h)
 }

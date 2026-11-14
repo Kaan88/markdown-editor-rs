@@ -906,7 +906,8 @@ impl App {
             self.screen = Bitmap::new(pw, ph);
             // `Bitmap::new` is all zero, alpha included; a pixel no region paints would stay
             // transparent. The window's blit ignores alpha, the client-drawn shadow's surface
-            // does not (the compare view with minimaps leaves one column unpainted, as black).
+            // does not (the compare view with minimaps once left one column unpainted, as black;
+            // the layouts tile now, see `a_split_view_leaves_no_pixel_unpainted`).
             // The colour stays black, as it always was.
             for px in self.screen.pixels.as_chunks_mut::<4>().0 {
                 px[3] = 255;
@@ -926,7 +927,12 @@ impl App {
         }
         let mut geom_other = None;
         if let Some(rect) = self.areas.other {
-            let inner = crate::ui::split_inner(rect, self.docs.other_left, 1.0 / self.scale);
+            let inner = crate::ui::split_inner(
+                rect,
+                self.docs.other_left,
+                1.0 / self.scale,
+                self.areas.minimap_other.is_some(),
+            );
             let (view, scale) = (&mut self.view, self.scale);
             geom_other = self
                 .docs
@@ -1222,7 +1228,12 @@ impl App {
                             // The pane without the keyboard: no caret, and one hit for all
                             // of it instead of the text's own.
                             let (px, left) = (c.p.px(), self.docs.other_left);
-                            let inner = crate::ui::split_inner(rect, left, px);
+                            let inner = crate::ui::split_inner(
+                                rect,
+                                left,
+                                px,
+                                self.areas.minimap_other.is_some(),
+                            );
                             let quiet = view::DrawState {
                                 caret: false,
                                 band: false,
@@ -2068,7 +2079,12 @@ impl App {
             geom = self.view.layout(doc, text, self.scale);
         }
         if let Some(rect) = self.areas.other {
-            let inner = crate::ui::split_inner(rect, self.docs.other_left, 1.0 / self.scale);
+            let inner = crate::ui::split_inner(
+                rect,
+                self.docs.other_left,
+                1.0 / self.scale,
+                self.areas.minimap_other.is_some(),
+            );
             let (view, scale) = (&mut self.view, self.scale);
             self.docs.with_pane(1, |doc| view.layout(doc, inner, scale));
         }
@@ -2728,6 +2744,65 @@ mod tests {
         app.scale = 1.5;
         app.compose();
         assert_eq!(bad(&app), 0);
+    }
+
+    /// Every layout of a split view tiles the window: with the screen painted in a colour no
+    /// region uses first, nothing of it is left after a full compose. The second pane at the
+    /// left and at the right, with and without a minimap beside either pane (a pane too narrow
+    /// for one goes without), two files and one file in both panes.
+    #[test]
+    fn a_split_view_leaves_no_pixel_unpainted() {
+        const SENTINEL: [u8; 4] = [0xFE, 0x01, 0xFD, 0xFF];
+        for same_file in [false, true] {
+            for other_left in [false, true] {
+                for minimap in [false, true] {
+                    for ratio in [0.3, 0.5, 0.7] {
+                        for (size, scale) in [((1280, 800), 1.0), ((1000, 700), 1.5)] {
+                            let mut app = app();
+                            app.docs.new_untitled();
+                            let other = app.docs.tabs[0].id;
+                            app.docs.minimap = minimap;
+                            if same_file {
+                                assert!(app.docs.show_in_other_pane());
+                            } else {
+                                app.docs.set_other(other, other_left);
+                            }
+                            app.docs.other_left = other_left;
+                            app.docs.split_ratio = ratio;
+                            app.size = size;
+                            app.scale = scale;
+                            app.compose();
+                            assert!(app.areas.other.is_some());
+                            for px in app.screen.pixels.as_chunks_mut::<4>().0 {
+                                *px = SENTINEL;
+                            }
+                            app.full = true;
+                            app.compose();
+                            let left = app
+                                .screen
+                                .pixels
+                                .as_chunks::<4>()
+                                .0
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, p)| **p == SENTINEL)
+                                .map(|(i, _)| {
+                                    (i % app.screen.width as usize, i / app.screen.width as usize)
+                                })
+                                .collect::<Vec<_>>();
+                            assert!(
+                                left.is_empty(),
+                                "same_file {same_file}, other_left {other_left}, minimap {minimap}, \
+                                 ratio {ratio}, scale {scale}: {} unpainted, from {:?} to {:?}",
+                                left.len(),
+                                left.first(),
+                                left.last()
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn type_text(app: &mut App, text: &str) {

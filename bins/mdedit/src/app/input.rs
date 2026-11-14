@@ -284,10 +284,10 @@ impl App {
     pub(super) fn pane_region(&self, pane: usize) -> Option<Rect> {
         match pane {
             0 => Some(self.areas.text),
-            _ => self
-                .areas
-                .other
-                .map(|o| crate::ui::split_inner(o, self.docs.other_left, 1.0 / self.scale)),
+            _ => self.areas.other.map(|o| {
+                let minimap = self.areas.minimap_other.is_some();
+                crate::ui::split_inner(o, self.docs.other_left, 1.0 / self.scale, minimap)
+            }),
         }
     }
 
@@ -364,7 +364,10 @@ impl App {
             .minimap_rect(pane)
             .or_else(|| self.minimap_rect(1 - pane))?;
         let region = match (pane, self.areas.other) {
-            (1, Some(o)) => crate::ui::split_inner(o, self.docs.other_left, 1.0 / self.scale),
+            (1, Some(o)) => {
+                let minimap = self.areas.minimap_other.is_some();
+                crate::ui::split_inner(o, self.docs.other_left, 1.0 / self.scale, minimap)
+            }
             _ => self.areas.text,
         };
         let scale = self.scale;
