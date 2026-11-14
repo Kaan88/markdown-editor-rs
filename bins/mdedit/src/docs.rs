@@ -508,7 +508,7 @@ impl Ready {
         self.set_sels(list, primary);
     }
 
-    /// The column selection between two (line, display column) corners; the caret's is the
+    /// The column selection between two (line, visual column) corners; the caret's is the
     /// primary.
     pub fn select_column(&mut self, anchor: (usize, usize), caret: (usize, usize)) {
         let (list, primary) = multi::column(
@@ -530,11 +530,12 @@ impl Ready {
         ));
     }
 
-    /// The line and display column of an offset.
+    /// The line and visual column of an offset (a wide character is two columns), the corners a
+    /// column selection is made of. Lines are the document's, wrapped or not.
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
         (
             self.buffer.line_of(offset),
-            multi::display_col(&self.buffer, offset, crate::live::tab_width()),
+            multi::visual_col(&self.buffer, offset, crate::live::tab_width()),
         )
     }
 
@@ -2057,6 +2058,13 @@ impl Docs {
         let pieces: Vec<&str>;
         // Tab at several carets inserts one unit of the document's indentation at each.
         let unit_text = r.assist.indent.text();
+        // A column selection made by mouse or keys and not changed since.
+        let on_column = r
+            .view
+            .column
+            .is_some_and(|c| (c.4, c.5) == (r.view.sel, r.view.extra.len()));
+        let column_text =
+            on_column && (!r.view.sel.is_empty() || r.view.extra.iter().any(|s| !s.is_empty()));
         let multi_op = if r.view.extra.is_empty() {
             None
         } else {
@@ -2064,16 +2072,26 @@ impl Docs {
                 EditOp::Insert(text) => Some(MultiOp::Insert(text)),
                 EditOp::Newline => Some(MultiOp::Insert(eol)),
                 EditOp::Indent => Some(MultiOp::Insert(&unit_text)),
+                // On a column of text the rows that are only a caret (a short line) are left
+                // alone: Backspace and Delete remove what is selected.
+                EditOp::Backspace | EditOp::Delete if column_text => Some(MultiOp::Insert("")),
                 EditOp::Backspace => Some(MultiOp::Backspace),
                 EditOp::Delete => Some(MultiOp::Delete),
                 EditOp::Paste(text) => {
                     pasted = normalize_eols(text, eol);
                     // As many lines as carets: one line to each.
-                    pieces = pasted
-                        .strip_suffix(eol)
-                        .unwrap_or(&pasted)
-                        .split(eol)
-                        .collect();
+                    // After a column copy the last row may be empty: that is a line too.
+                    let carets = r.view.extra.len() + 1;
+                    let rows: Vec<&str> = pasted.split(eol).collect();
+                    pieces = if on_column && rows.len() == carets {
+                        rows
+                    } else {
+                        pasted
+                            .strip_suffix(eol)
+                            .unwrap_or(&pasted)
+                            .split(eol)
+                            .collect()
+                    };
                     if pieces.len() == r.view.extra.len() + 1 {
                         Some(MultiOp::InsertEach(&pieces))
                     } else {
@@ -2094,7 +2112,11 @@ impl Docs {
         r.view.column = None;
         // The typing help goes first, for one character typed, Enter, Backspace and (in Markdown)
         // Tab and Shift+Tab; `None` is the plain edit below.
-        let typed = typing_edit(r, &op, eol).or_else(|| markdown_edit(r, &op));
+        let typed = if column_text && matches!(op, EditOp::Backspace) {
+            None
+        } else {
+            typing_edit(r, &op, eol).or_else(|| markdown_edit(r, &op))
+        };
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.view.sel);
         let out = if let Some(out) = typed {
             out
@@ -4230,6 +4252,46 @@ mod tests {
         assert!(d.edit(EditOp::DuplicateLines, None));
         assert!(d.tabs[i].ready().unwrap().view.extra.is_empty());
         assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n-#three\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_column_selection_counts_wide_characters_and_short_lines() {
+        let src = "abcdef\n\u{6f22}\u{5b57}ef\nx\nabcdef\n";
+        let (mut d, i, _path, dir) = file_docs("column", src.as_bytes());
+        let r = d.tabs[i].ready_mut().unwrap();
+        // Columns 2 to 4: "cd"; the second wide character; the line's end (it is shorter);
+        // "cd".
+        r.select_column((0, 2), (3, 4));
+        let (list, primary) = r.all_sels();
+        let ranges: Vec<_> = list.iter().map(|s| s.range()).collect();
+        assert_eq!(ranges, [2..4, 10..13, 17..17, 20..22]);
+        assert_eq!(primary, 3);
+        assert!(d.edit(EditOp::Insert("X"), None));
+        assert_eq!(text_of(&d, i), "abXef\n\u{6f22}Xef\nxX\nabXef\n");
+        // One undo step brings all four lines back, and one caret is left.
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), src);
+        assert!(d.tabs[i].ready().unwrap().view.extra.is_empty());
+        // Delete removes what is selected on every line.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((0, 2), (3, 4));
+        assert!(d.edit(EditOp::Backspace, None));
+        assert_eq!(text_of(&d, i), "abef\n\u{6f22}ef\nx\nabef\n");
+        // A short line is left alone.
+        assert!(d.edit(EditOp::Undo, None));
+        // A line for every row pastes one to each.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((0, 2), (3, 4));
+        assert!(d.edit(EditOp::Paste("1\n2\n3\n4"), None));
+        assert_eq!(text_of(&d, i), "ab1ef\n\u{6f22}2ef\nx3\nab4ef\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), src);
+        // The column copy of two carets on two lines ends with an empty row: it is a line.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((0, 1), (1, 1));
+        assert!(d.edit(EditOp::Paste("a\n"), None));
+        assert_eq!(text_of(&d, i), "aabcdef\n\u{6f22}\u{5b57}ef\nx\nabcdef\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

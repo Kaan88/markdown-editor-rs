@@ -11,6 +11,7 @@ use crate::buffer::Buffer;
 use crate::edit::{Cmd, Outcome, nothing};
 use crate::history::{History, Kind};
 use crate::selection::{self, Motion, Selection};
+use crate::vcol;
 use std::ops::Range;
 
 /// What every selection does in one multi-caret edit.
@@ -231,10 +232,10 @@ pub fn move_all(
 }
 
 /// A column selection: on every line from `anchor_line` to `caret_line` (either may be the
-/// larger; both clamped to the buffer), a selection from display column `anchor_col` to display
-/// column `caret_col` (anchor at `anchor_col`, caret at `caret_col`; a column past a line's end
-/// is the line's end, so short lines get shorter or empty selections; a column inside a tab is
-/// the tab's start, as `offset_at_display_col` gives). Returns them in document order and the
+/// larger; both clamped to the buffer), a selection from visual column `anchor_col` to visual
+/// column `caret_col` (anchor at `anchor_col`, caret at `caret_col`; a tab counts to its stop and
+/// a wide character 2, see `vcol`; a column past a line's end is the line's end, so short lines
+/// get shorter or empty selections; a column inside a tab or a wide character is its start). Returns them in document order and the
 /// index of the one on `caret_line` (the primary). `goal_col` is `None`.
 pub fn column(
     buf: &Buffer,
@@ -249,12 +250,18 @@ pub fn column(
     let (lo, hi) = (a.min(c), a.max(c));
     let list = (lo..=hi)
         .map(|line| Selection {
-            anchor: selection::offset_at_display_col(buf, line, anchor_col, tab_width),
-            caret: selection::offset_at_display_col(buf, line, caret_col, tab_width),
+            anchor: vcol::offset_at_visual_col(buf, line, anchor_col, tab_width),
+            caret: vcol::offset_at_visual_col(buf, line, caret_col, tab_width),
             goal_col: None,
         })
         .collect();
     (list, c - lo)
+}
+
+/// The visual column of `offset` on its line, as `column` counts (a wide character is two
+/// columns), for the shell.
+pub fn visual_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
+    vcol::visual_col(buf, offset, tab_width)
 }
 
 /// The display column of `offset` on its line (re-exported from `selection`, for the shell).
@@ -771,10 +778,14 @@ mod tests {
         assert_eq!(v, vec![at(0), at(7)]);
         let (v, _) = col(t, 0, 2, 0, 5);
         assert_eq!(v, vec![s(0, 2)]);
-        // Wide and combining characters count one column per char, as the motions do.
+        // A wide character is two columns: columns 2 to 4 are the second character and "a" on
+        // the first line, "cd" on the second.
         let t = "漢字ab\nabcde";
+        let (v, _) = col(t, 0, 2, 1, 4);
+        assert_eq!(v, vec![s(3, 6), s(11, 13)]);
+        // A column inside a wide character is its start.
         let (v, _) = col(t, 0, 1, 1, 3);
-        assert_eq!(v, vec![s(3, 7), s(10, 12)]);
+        assert_eq!(v, vec![s(0, 3), s(10, 12)]);
     }
 
     // ---- display_col

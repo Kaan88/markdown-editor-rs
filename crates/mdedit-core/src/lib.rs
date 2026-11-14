@@ -31,6 +31,7 @@ pub mod selection;
 #[cfg(test)]
 mod testutil;
 pub mod typing;
+pub mod vcol;
 
 pub use buffer::{Buffer, Change, Position};
 pub use encoding::Encoding;

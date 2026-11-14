@@ -2141,6 +2141,13 @@ impl App {
                 };
                 view::reveal(r, t, false);
             }
+            if let Some((from, to)) = a.select_column {
+                r.select_column(
+                    (from.line.saturating_sub(1), from.col.saturating_sub(1)),
+                    (to.line.saturating_sub(1), to.col.saturating_sub(1)),
+                );
+                view::reveal(r, r.view.sel.caret, false);
+            }
         }
         if a.replace.is_some() {
             // The strip opens over the selection, as the Replace command would have it.
@@ -2641,6 +2648,7 @@ pub fn run() -> i32 {
         || a.type_text.is_some()
         || a.type_keys.is_some()
         || a.select.is_some()
+        || a.select_column.is_some()
         || a.find.is_some()
         || a.scroll.is_some()
         || a.hscroll.is_some();
