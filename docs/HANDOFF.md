@@ -238,6 +238,72 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## One file in both panes of the split (2026-11-14, after 0.5.0, not published)
+
+Design: `docs/DESIGN.md` section 53 (written before the code). Commits on `main`: `a778d7f` (the
+flaky test), `b115477` (the design), `2c306c3` (the refactor, no behaviour change), `eedd8be` (the
+feature), `1938963` (tests); the docs commit after them.
+
+- **The flaky test** `a_change_on_disk_does_not_replace_unsaved_text`: `open()` starts a load on a
+  thread and `load_now()` replaces it. When the first thread had finished, its result sat in the
+  queue, and `wait_load` woke on it although `apply_load` then dropped it (old revision), so the
+  test went on before the real load had finished. `wait_load` now drops results of replaced loads
+  and closed tabs before it decides to wait. A new test reproduces it deterministically; the old
+  one passed 200 runs twice under a full `cargo build` load.
+- **Refactor (`2c306c3`)**: `ViewState` holds what one way of looking at a document is (carets,
+  scroll, folds, colours, find mark, wrap cache); `Ready.view` is the pane with the keyboard,
+  `Ready.twin` the other. Proof: 147 of 147 shots byte-identical to the build of `f6c92d5`, 555
+  tests, clippy and fmt clean.
+- **The feature**: "Show this file in the other pane" (View menu, tab menu, palette; no key: none
+  was obviously free). Both panes keep their own caret, selection(s), scroll, folds and minimap;
+  an edit, Undo, Redo, Replace all or a macro in either is mapped through in the other
+  (`Change::pieces`, `Change::map_offset` in core); the tab appears once, with the second-pane
+  line under it running the width of the tab; closing the tab closes both views; unsplitting (or
+  opening another tab for the keyboard) keeps the view that has the keyboard (or leaves the
+  document in the other pane with its view); "Compare with the other pane" is greyed for one
+  file; the session keeps a same-file split as the existing `split=` line (the path is the active
+  file's) and restores it with a second view. Highlight requests carry a `slot`, so the two views
+  of one document get their own colours from the one parse.
+- **Decisions made without the owner**: folds per view (not shared); find marks and the match list
+  shared, the current match per view; bookmarks shared; the unfocused view's caret is not drawn;
+  the focus keys swap the two views and the panes' sides, as for two tabs; "Compare with file" or
+  "with saved" end the same-file split first; flags for shots: `--split-same`, `--other-goto`,
+  `--other-select`, `--other-fold`, `--other-scroll`; the three-way difference of the view-menu
+  and tab-menu shots is the new row only.
+- **Tests**: 568 pass, 12 ignored (554 before this work; 14 new: 2 core `Change` mapping, 1
+  highlight slots, 1 `wait_load`, 5 in `docs.rs` (mapping through undo/redo, replace all and
+  several carets, folds, find per view, closing/unsplitting) plus 1 for another tab taking the
+  keyboard, 4 in `files_tests.rs` (commands and menus, a macro, the session, closing), and an
+  extended session test).
+- **Shots**: 151 now. The 147 earlier ones are byte-identical to the baseline except the six that
+  list the new command (`menu-view`, `menu-view-checked`, `menu-view-checked-dark`,
+  `menu-view-compare`, `menu-main-view`, `menu-tab`). New: `same-file-split` (selection in the
+  left pane, a fold and another place in the right, minimaps, light), `same-file-split-dark`
+  (scrolled differently, minimaps), `same-file-split-left` (second pane at the left, word wrap,
+  Markdown, 900x600), `same-file-split-find` (find marks in both, dark, minimaps). I looked at
+  all four and the two menu shots.
+- **Measured** (this machine was loaded by other work: load average 16 to 29, so medians are
+  noisy and the minima are the fairer comparison; 10 interleaved runs, base = `f6c92d5` build):
+  | | base min / median | now min / median |
+  |---|---|---|
+  | `sample.rs` window shown (ms) | 88 / 95 | 82 / 97 |
+  | `sample.rs` private memory (MiB) | 20.6 / 20.7 | 20.6 / 20.65 |
+  | `sample.rs` keystroke p50 (ms) | 0.54 / 0.57 | 0.51 / 1.04 (one pair of noisy runs) |
+  | `sample.rs` scroll p50 (ms) | 0.47 / 0.55 | 0.46 / 0.49 |
+  | `50k.rs` (quieter second batch) shown | 70 / 90 | 76 / 86 |
+  | `50k.rs` keystroke p50 / p95 | 0.47 / 0.51 and 0.49 / 0.94 | 0.47 / 0.50 and 0.49 / 0.65 |
+  | `50k.rs` scroll p50 | 0.45 / 0.46 | 0.45 / 0.46 |
+  | `100mb.txt` shown / private / keystroke p50 / scroll p50 | 182 / 124.4 MiB / 0.63 / 0.65 | 181 / 124.4 MiB / 0.69 / 0.74 |
+  50,000-line file in both panes with the second at line 25,000, typing in the first (300
+  keystrokes): p50 0.66 min / 0.69 median, p95 0.71 / 1.14, private 23.1 MiB (one pane: 22.1);
+  with both minimaps: p50 1.10 / 1.12, p95 1.14 / 1.53, scroll p50 0.65 / 0.68. All far under
+  the 8 ms budget. Colouring the second pane's far position costs the parse up to there (about 1.8
+  s of CPU to line 40,000), the same as `--goto 40000` already did in one pane.
+- **Not run**: everything interactive (no mouse, no keyboard in a real window: the menu and tab
+  entries were clicked by no one, the tab underline was seen only in shots); Windows (nothing of
+  this ran there); the owner has not looked at it. Not built: a key for the command; the second
+  view's caret drawn while unfocused; folds shared as an option.
+
 ## Typing, Markdown, settings, shadow (2026-11-14, 0.5.0, not published)
 
 One machine (CachyOS, Wayland); nothing run on Windows, nothing driven by hand: tests, `--shot`
