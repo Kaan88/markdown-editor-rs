@@ -69,9 +69,10 @@ impl App {
         }
         let cursor = match (edge, hit) {
             (Some(dir), _) => CursorIcon::from(dir),
-            (None, Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace | Hit::ResultsReplace)) => {
-                CursorIcon::Text
-            }
+            (
+                None,
+                Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace | Hit::ResultsReplace),
+            ) => CursorIcon::Text,
             (None, Some(Hit::Splitter | Hit::Divider)) => CursorIcon::ColResize,
             (None, Some(Hit::Fold(_) | Hit::FoldBox(_))) => CursorIcon::Pointer,
             _ => CursorIcon::Default,

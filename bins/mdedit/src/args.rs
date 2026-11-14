@@ -370,6 +370,28 @@ mod tests {
     }
 
     #[test]
+    fn palette_compare_and_replace_flags() {
+        assert_eq!(
+            parse("--palette >fold a.rs").palette.as_deref(),
+            Some(">fold")
+        );
+        assert!(parse("a.rs").palette.is_none());
+        let a = parse("--compare a.rs b.rs --next-difference 3");
+        assert_eq!(
+            a.compare,
+            Some((PathBuf::from("a.rs"), PathBuf::from("b.rs")))
+        );
+        assert_eq!(a.next_difference, 3);
+        // A pair needs both files.
+        assert_eq!(parse("--compare a.rs").compare, None);
+        assert!(parse("--compare-saved a.rs").compare_saved);
+        let a =
+            parse("--find-in-files --results-replace new --replace-dialog --replace-report a.rs");
+        assert!(a.find_in_files && a.replace_dialog && a.replace_report);
+        assert_eq!(a.results_replace.as_deref(), Some("new"));
+    }
+
+    #[test]
     fn shot_flags() {
         let a = parse(
             "--shot x.png --size 700x500 --scale 1.5 --hover 10,20 --menu recent --dialog about \

@@ -1209,7 +1209,13 @@ impl View {
             };
             fill_clipped(c, (x0, y, gutter_r, y + shown_line.h), gutter, band, 1.0);
             if let Some(col) = tint_of(shown_line.row) {
-                fill_clipped(c, (x0, y, gutter_r, y + shown_line.h), gutter, col, row_tint);
+                fill_clipped(
+                    c,
+                    (x0, y, gutter_r, y + shown_line.h),
+                    gutter,
+                    col,
+                    row_tint,
+                );
             }
             if !shown_line.first {
                 continue;
@@ -1230,7 +1236,8 @@ impl View {
             // faintly while the pointer is in the gutter and always for a folded one. Only the
             // visible lines are asked.
             let folded = r.folds.headed(i).is_some();
-            if folded || (gutter_hot && !r.folds.suspended() && heads_block(&r.buffer, i, TAB_WIDTH))
+            if folded
+                || (gutter_hot && !r.folds.suspended() && heads_block(&r.buffer, i, TAB_WIDTH))
             {
                 let cell =
                     metrics::fold_cell(area.x, g.gutter_w, y as f32 / scale, lh as f32 / scale);

@@ -160,4 +160,41 @@ shot fold-box-hover --light --fold 10 --hover 230,263 "$fx/sample.rs"
 shot menu-tall-main --light --size 1000x520 --menu main "$fx/sample.rs"
 shot menu-tall-main-end --light --size 1000x520 --menu main-end "$fx/sample.rs"
 
+# The command palette: empty (open tabs), commands, go to line, symbols, both themes.
+shot palette-empty --light --palette "" "$fx/sample.rs" "$fx/sample.md"
+shot palette-empty-dark --dark --palette "" "$fx/sample.rs" "$fx/sample.md"
+shot palette-commands --light --palette ">fold" "$fx/sample.rs"
+shot palette-commands-dark --dark --palette ">fold" "$fx/sample.rs"
+shot palette-line --light --palette ":120" "$fx/sample.rs"
+shot palette-line-dark --dark --palette ":120" "$fx/sample.rs"
+shot palette-symbols --light --palette "@" "$fx/sample.rs"
+shot palette-symbols-dark --dark --palette "@" "$fx/sample.rs"
+
+# Compare two files: the two versions of compare-*.rs, scrolled to a change, with the minimap, and
+# a file against its saved text.
+shot compare --light --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot compare-dark --dark --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot compare-scrolled --light --minimap --next-difference 5 --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot compare-scrolled-dark --dark --minimap --next-difference 4 --compare "$fx/compare-a.rs" "$fx/compare-b.rs"
+shot compare-saved --dark --minimap --type "// edited " --compare-saved "$fx/compare-a.rs"
+shot compare-saved-light --light --type "// edited " --compare-saved "$fx/compare-a.rs"
+shot menu-view-compare --light --menu view "$fx/sample.rs" "$fx/sample.md"
+
+# Replace in files, in a folder made fresh for each shot (the report shot really replaces).
+rfolder() {
+    rm -rf "$data/rfolder"
+    mkdir -p "$data/rfolder/sub"
+    cp "$fx/sample.rs" "$fx/sample.py" "$fx/sample.md" "$data/rfolder/"
+    cp "$fx/sample.rs" "$data/rfolder/sub/ring.rs"
+}
+rfolder
+shot replace-files-panel --light --folder "$data/rfolder" --find self --find-in-files --results-replace this "$data/rfolder/sample.rs"
+rfolder
+shot replace-files-dialog --light --folder "$data/rfolder" --find self --find-in-files --results-replace this --replace-dialog "$data/rfolder/sample.rs"
+rfolder
+shot replace-files-dialog-dark --dark --folder "$data/rfolder" --find self --find-in-files --results-replace this --replace-dialog "$data/rfolder/sample.rs"
+rfolder
+shot replace-files-report --light --folder "$data/rfolder" --find self --find-in-files --results-replace this --replace-report "$data/rfolder/sample.rs"
+rm -rf "$data/rfolder"
+
 ls "$out" | wc -l

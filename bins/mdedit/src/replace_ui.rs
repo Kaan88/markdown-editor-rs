@@ -207,11 +207,18 @@ impl Outcome {
                     plural(report.changed.len(), "file", "files")
                 )
             },
-            tail(report.skipped.len(), report.failures.len(), report.cancelled)
+            tail(
+                report.skipped.len(),
+                report.failures.len(),
+                report.cancelled
+            )
         );
         let mut rows = Vec::new();
         if !report.changed.is_empty() {
-            rows.push(OutRow::Heading(format!("Changed ({})", report.changed.len())));
+            rows.push(OutRow::Heading(format!(
+                "Changed ({})",
+                report.changed.len()
+            )));
         }
         rows.extend(report.changed.iter().map(|c| OutRow::Changed {
             name: rel(root, &c.path),
@@ -238,7 +245,10 @@ impl Outcome {
         );
         let mut rows = Vec::new();
         if !done.restored.is_empty() {
-            rows.push(OutRow::Heading(format!("Restored ({})", done.restored.len())));
+            rows.push(OutRow::Heading(format!(
+                "Restored ({})",
+                done.restored.len()
+            )));
         }
         rows.extend(done.restored.iter().map(|p| OutRow::Changed {
             name: rel(root, p),
@@ -270,15 +280,25 @@ impl Outcome {
             .filter(|r| r.original.is_none() && r.backup.is_some())
             .count();
         let mut s = if ok == changed {
-            format!("Put {} back as {} before", plural(ok, "file", "files"), if ok == 1 { "it was" } else { "they were" })
+            format!(
+                "Put {} back as {} before",
+                plural(ok, "file", "files"),
+                if ok == 1 { "it was" } else { "they were" }
+            )
         } else {
-            format!("Put back {ok} of the {changed} changed files; the others were too large to keep and have no backup copy")
+            format!(
+                "Put back {ok} of the {changed} changed files; the others were too large to keep and have no backup copy"
+            )
         };
         if from_backup > 0 {
             s.push_str(&format!(
                 ". {} can only come from {}",
                 plural(from_backup, "file", "files"),
-                if from_backup == 1 { "its backup copy" } else { "their backup copies" }
+                if from_backup == 1 {
+                    "its backup copy"
+                } else {
+                    "their backup copies"
+                }
             ));
         }
         s.push_str(". A file edited since is left as it is.");
@@ -732,8 +752,17 @@ pub fn parts(r: Rect) -> Parts {
     let room = options.y - top - 8.0;
     // A low window gives up the preview before it squeezes the list.
     let preview_h = (room - 90.0).clamp(0.0, PREVIEW_H);
-    let preview = Rect::new(r.x + pad, options.y - 6.0 - preview_h, r.w - 2.0 * pad, preview_h);
-    let list_bottom = if preview_h > 0.0 { preview.y - 8.0 } else { options.y - 6.0 };
+    let preview = Rect::new(
+        r.x + pad,
+        options.y - 6.0 - preview_h,
+        r.w - 2.0 * pad,
+        preview_h,
+    );
+    let list_bottom = if preview_h > 0.0 {
+        preview.y - 8.0
+    } else {
+        options.y - 6.0
+    };
     Parts {
         list: Rect::new(r.x + 8.0, top, r.w - 16.0, (list_bottom - top).max(0.0)),
         preview,
@@ -755,7 +784,15 @@ fn dialog_button(c: &mut Ctx, r: Rect, hit: Hit, label: &str, primary: bool, ena
     let pal = *c.pal;
     if enabled {
         let hovered = c.hover == Some(hit);
-        draw_dialog_button(c.p, &pal, r, label, primary, hovered, c.pressed == Some(hit));
+        draw_dialog_button(
+            c.p,
+            &pal,
+            r,
+            label,
+            primary,
+            hovered,
+            c.pressed == Some(hit),
+        );
         c.hit(hit, r);
     } else {
         c.p.frame(r, 6.0, pal.field, pal.line);
@@ -809,7 +846,11 @@ pub fn draw_confirm(
         pal.muted,
         r.w - 2.0 * pad,
     );
-    let Parts { list, preview, options } = parts(r);
+    let Parts {
+        list,
+        preview,
+        options,
+    } = parts(r);
 
     // The files.
     d.list = list;
@@ -839,7 +880,14 @@ pub fn draw_confirm(
             } else {
                 f.matches.to_string()
             };
-            let cw = c.p.text_right(Face::Ui, 12.5, row.right() - 12.0, row.cy(), &count, pal.faint);
+            let cw = c.p.text_right(
+                Face::Ui,
+                12.5,
+                row.right() - 12.0,
+                row.cy(),
+                &count,
+                pal.faint,
+            );
             c.p.text(
                 Face::Semibold,
                 13.0,
@@ -880,7 +928,15 @@ pub fn draw_confirm(
                 (row.w - 60.0) * 0.45,
             );
             let x = row.x + 38.0 + nw + 12.0;
-            c.p.text(Face::Ui, 12.0, x, row.cy(), why, pal.faint, row.right() - x - 12.0);
+            c.p.text(
+                Face::Ui,
+                12.0,
+                x,
+                row.cy(),
+                why,
+                pal.faint,
+                row.right() - x - 12.0,
+            );
         }
     }
     c.p.restore(old);
@@ -896,20 +952,59 @@ pub fn draw_confirm(
         if let Some(f) = cf.plan.files.get(shown) {
             let x = preview.x + 12.0;
             let mut y = preview.y + 15.0;
-            c.p.text(Face::Ui, 11.5, x, y, &cf.names[shown], pal.faint, preview.w - 24.0);
+            c.p.text(
+                Face::Ui,
+                11.5,
+                x,
+                y,
+                &cf.names[shown],
+                pal.faint,
+                preview.w - 24.0,
+            );
             let half = ((preview.w - 24.0 - 60.0) / 2.0).max(40.0);
             let mid = x + 54.0 + half;
             for p in f.preview.iter().take(3) {
                 y += 21.0;
-                c.p.text_right(Face::Ui, 11.5, x + 40.0, y, &(p.line + 1).to_string(), pal.faint);
-                c.p.text(Face::Ui, 12.5, x + 54.0, y, &p.before, pal.muted, half - 8.0);
+                c.p.text_right(
+                    Face::Ui,
+                    11.5,
+                    x + 40.0,
+                    y,
+                    &(p.line + 1).to_string(),
+                    pal.faint,
+                );
+                c.p.text(
+                    Face::Ui,
+                    12.5,
+                    x + 54.0,
+                    y,
+                    &p.before,
+                    pal.muted,
+                    half - 8.0,
+                );
                 c.p.icon(glyph::RIGHT, 11.0, mid, y, pal.faint);
-                c.p.text(Face::Ui, 12.5, mid + 14.0, y, &p.after, pal.text, half - 8.0);
+                c.p.text(
+                    Face::Ui,
+                    12.5,
+                    mid + 14.0,
+                    y,
+                    &p.after,
+                    pal.text,
+                    half - 8.0,
+                );
             }
             let more = f.matches.saturating_sub(f.preview.len().min(3));
             if more > 0 {
                 y += 21.0;
-                c.p.text(Face::Ui, 11.5, x + 54.0, y, &format!("and {more} more"), pal.faint, half);
+                c.p.text(
+                    Face::Ui,
+                    11.5,
+                    x + 54.0,
+                    y,
+                    &format!("and {more} more"),
+                    pal.faint,
+                    half,
+                );
             }
         }
     }
@@ -918,7 +1013,15 @@ pub fn draw_confirm(
     let tick = Rect::new(options.x + 2.0, options.cy() - 8.0, 16.0, 16.0);
     tick_box(c, tick, cf.backup);
     let label = "Keep backup copies (.bak)";
-    let lw = c.p.text(Face::Ui, 13.0, tick.right() + 10.0, options.cy(), label, pal.text, 300.0);
+    let lw = c.p.text(
+        Face::Ui,
+        13.0,
+        tick.right() + 10.0,
+        options.cy(),
+        label,
+        pal.text,
+        300.0,
+    );
     c.hit(
         Hit::DlgButton(2),
         Rect::new(options.x, options.y, tick.w + 10.0 + lw + 8.0, options.h),
@@ -931,7 +1034,11 @@ pub fn draw_confirm(
         );
         let tw = c.p.measure(Face::Ui, 12.5, &text);
         let b = Rect::new(options.right() - tw - 12.0, options.y, tw + 12.0, options.h);
-        let color = if c.hover == Some(Hit::DlgButton(3)) { pal.accent } else { pal.muted };
+        let color = if c.hover == Some(Hit::DlgButton(3)) {
+            pal.accent
+        } else {
+            pal.muted
+        };
         c.p.text(Face::Ui, 12.5, b.x + 6.0, b.cy(), &text, color, tw + 2.0);
         c.hit(Hit::DlgButton(3), b);
     }
@@ -943,7 +1050,14 @@ pub fn draw_confirm(
         let bw = dialog_button_w(c.p, label);
         x -= bw;
         let on = n == 1 || !cf.chosen().is_empty();
-        dialog_button(c, Rect::new(x, by, bw, 32.0), Hit::DlgButton(n), label, n == 0, on);
+        dialog_button(
+            c,
+            Rect::new(x, by, bw, 32.0),
+            Hit::DlgButton(n),
+            label,
+            n == 0,
+            on,
+        );
         x -= 8.0;
     }
 }
@@ -962,6 +1076,9 @@ mod tests {
         assert_eq!(plural(1, "file", "files"), "1 file");
         assert_eq!(plural(0, "file", "files"), "0 files");
         assert_eq!(tail(0, 0, false), "");
-        assert_eq!(tail(2, 1, true), " \u{00B7} 2 skipped \u{00B7} 1 failed \u{00B7} stopped");
+        assert_eq!(
+            tail(2, 1, true),
+            " \u{00B7} 2 skipped \u{00B7} 1 failed \u{00B7} stopped"
+        );
     }
 }

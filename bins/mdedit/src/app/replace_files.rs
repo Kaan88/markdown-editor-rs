@@ -194,7 +194,9 @@ impl App {
             // The open tab reloads from the changed file; the picture waits for it.
             let dark = self.dark();
             let deadline = Instant::now() + Duration::from_secs(10);
-            while self.docs.active_doc().is_some_and(|d| d.is_loading()) && Instant::now() < deadline {
+            while self.docs.active_doc().is_some_and(|d| d.is_loading())
+                && Instant::now() < deadline
+            {
                 let until = Instant::now() + Duration::from_millis(50);
                 self.docs.wait_load(until, self.service.as_ref(), dark);
             }

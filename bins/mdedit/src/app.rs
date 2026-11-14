@@ -25,8 +25,8 @@ use crate::session::{Session, ThemeChoice};
 use crate::status;
 use crate::trace::{FrameTimes, Trace, summary};
 use crate::ui::{
-    Act, After, BarField, Areas, Dialog, DialogKind, Drag, Hit, PANE_MAX, PANE_MIN, PopupKind, REGIONS,
-    Region, Scroller, Ui,
+    Act, After, Areas, BarField, Dialog, DialogKind, Drag, Hit, PANE_MAX, PANE_MIN, PopupKind,
+    REGIONS, Region, Scroller, Ui,
 };
 use crate::view::{self, DrawState, View, metrics};
 use mdedit_highlight::{DocId, HighlightService};
@@ -50,10 +50,10 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, WindowId};
 
 mod commands;
+mod compare_events;
 #[cfg(test)]
 mod files_tests;
 mod input;
-mod compare_events;
 mod palette_events;
 mod replace_files;
 
@@ -557,8 +557,8 @@ impl App {
         let win = minimap::lines_of_rows(first..first + n, |row| r.line_at_row(row));
         let ok = matches!(&r.map_colors.requested, Some((req, d))
             if *d == dark && win.start >= req.start && win.end <= req.end);
-        let want = (!ok)
-            .then(|| minimap::lines_of_rows(plan.colour_rows(), |row| r.line_at_row(row)));
+        let want =
+            (!ok).then(|| minimap::lines_of_rows(plan.colour_rows(), |row| r.line_at_row(row)));
         if let Some(want) = &want {
             r.map_colors.requested = Some((want.clone(), dark));
         }
@@ -982,9 +982,12 @@ impl App {
                     self.docs.recents.paths().len(),
                     self.docs.updates.about_label(),
                     self.docs.check_updates,
-                    self.ui.results.replace.confirm.as_ref().map(|c| {
-                        (c.ticks.clone(), c.backup, c.show_skipped, c.cursor)
-                    }),
+                    self.ui
+                        .results
+                        .replace
+                        .confirm
+                        .as_ref()
+                        .map(|c| (c.ticks.clone(), c.backup, c.show_skipped, c.cursor)),
                 )
             }),
             self.ui

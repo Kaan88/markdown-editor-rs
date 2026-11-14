@@ -447,10 +447,7 @@ fn marks(c: &mut Ctx, r: &Ready, plan: &Plan, at: (i32, i32, i32), keyboard: boo
     let left = x0 + hair + pad;
     let max_cols = ((x1 - left - pad) / px.col).max(0);
     let first = plan.first_row();
-    let (first_line, last_line) = (
-        r.line_at_row(first),
-        r.line_at_row(first + count - 1),
-    );
+    let (first_line, last_line) = (r.line_at_row(first), r.line_at_row(first + count - 1));
     let buf = &r.buffer;
     let (ws, we) = (
         buf.line_range(first_line).start,

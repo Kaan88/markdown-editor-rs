@@ -1280,3 +1280,116 @@ called when the pointer has gone more than 4 px on either axis with the button d
 which toggles maximise (`title_press`). Windows keeps the immediate drag
 (`DEFER_TITLE_DRAG = cfg!(not(windows))`). Unit tests cover the decision; the behaviour on Wayland
 was not run (it needs the mouse).
+
+## 43. Command palette (2026-11-14)
+
+`Ctrl+P` opens the shared `mdshared_ui::palette::Palette` over the window (`palette.rs` holds the
+sources, `app/palette_events.rs` the hosting). It is modal like a dialog: drawn last, every key,
+pointer and wheel event goes to it, Escape or `Ctrl+P` again closes it, and choosing closes it first
+and then acts, so what the choice starts (a dialog, the find box) begins clean. The caret blink
+timer runs only while it is open. Nothing exists before the first `Ctrl+P`: `App::palette` is an
+empty host.
+
+The first character picks the source. No prefix: open tabs ("Open tabs"), then recent files
+("Recent"), then the folder's files ("Files", relative names, at most 5,000, listed by a worker with
+`search::walk_files` the first time the box has text and kept until the folder changes). `>`:
+commands, each with its icon and first shortcut as the hint, the ones that cannot run now greyed
+(the same conditions as the menus, `palette::enabled`); the palette itself, Escape and the theme
+cycle are left out. `:`: go to line, a message row ("Line 120" or why not), Enter jumps (it uses the
+Go to line parser). `@`: the symbols of the active file from `mdedit-outline` (a worker, made when
+first asked, per document revision). `?`: the prefixes; choosing one puts it in the box. Placeholder:
+"Type a file name, > for commands, : for a line, @ for symbols". `--palette <query>` opens it for a
+shot.
+
+Decisions: a greyed command cannot be chosen (Enter does nothing); the file list is not shown for
+the empty query (the tabs and recent files are), so opening the palette costs no walk; the macro
+commands are enabled by whether a macro can play, as in the Macro menu.
+
+## 44. Compare two files in the window (2026-11-14)
+
+The comparison is `mdedit-core::diff` (section 35); this is what the window does with it
+(`compare.rs` the data and the state, `app/compare_events.rs` the commands, the view's changes in
+`view.rs` and `minimap.rs`). A comparison stands on the split view: the file in the left pane
+against the one in the right. There are no merge arrows: both panes are ordinary editors and the
+difference is only shown.
+
+**Starting.** "Compare with the other pane" (enabled when the split shows two files), "Compare with
+file…" (a file dialog, non-blocking off Windows and blocking on Windows exactly as Open files; the
+file opens at the right, the active file stays at the left) and "Compare with saved" (enabled when
+the active file has a path and unsaved changes: the file as it is on disk opens as a read-only tab
+"name (saved)" at the left and the text as edited is at the right). They are in the View menu, the
+tab's right-click menu (the last two) and the palette. `--compare A B` opens both files and
+compares them; `--compare-saved` and `--next-difference N` are for shots.
+
+**Rows.** Each compared document holds an `Align` (`Ready::align`): which line is on which row,
+from `Diff::rows`, with filler rows opposite the other side's extra lines. In compare mode
+`Ready::top` is a row, `shown_rows` is the row count, and the places that went from line to row
+through the folds (`line_at_row`, `row_of`) go through `Ready::line_at_row` / `row_of_line` /
+`line_on_row`, which use the align when there is one. A filler row is a flat tint; a click on it
+puts the caret on the line that follows it. Word wrap is off and folds are ignored during a
+comparison: `Folds::suspend` makes every question answer as if there were no folds while the folds
+still follow edits, and `Docs::sync_wrap` gives a compared document no wrap; both come back when it
+ends (the Word wrap item still toggles the setting, which shows when the comparison ends).
+
+**Marks.** Changed rows are tinted (red on the left for a deleted block, green on the right for an
+inserted one, amber for changed lines on both sides), the gutter too; inside a changed line the
+part that differs (`intra_line`) is tinted more. The minimap tints the changed rows across its
+column and skips filler rows. The status strip says "N differences" (", approximate" when a bound
+was hit), "No differences", or "Comparing…" while the diff is out of date.
+
+**Scrolling.** The panes scroll together by row: before each frame whichever pane's top moved since
+the last frame leads (the active one if both did) and the other takes its top; the minimap, the
+scroll bar, the wheel and keys all move the same field, so all of them are covered. After a new diff
+each pane keeps the line that was at its top.
+
+**Work and cost.** `Compare::step`, run by the timers and by a `Wake::Compare` from the worker,
+watches the two revisions: when either changes it waits 150 ms (the debounce restarts on each
+edit), then starts a worker on copies of the two buffers (a rope clone) that calls `diff::diff`
+with a cancel flag; a result for revisions that are no longer current is dropped. Typing never
+waits for it. While the diff is out of date the old one stays on screen (a line it has no row for
+goes after its last row, the marks inside lines are left out and the strip says "Comparing…").
+Nothing exists, runs or wakes the loop when no comparison is on; when it is on and settled there is
+no timer.
+
+**Keys and ending.** F7 and Shift+F7: the caret goes to the start of the next or previous
+difference (a toast says when there is none). Stop comparing, Escape (after the find box, the
+replace strip and the find marks have had theirs), closing either tab, ending the split, or an
+other tab taking a pane ends it; the saved copy closes with it. Ending gives back the rows as lines
+(each top is the line that was at the top), wrap and folds.
+
+Decisions without the owner: F7 and Shift+F7 are the keys (nothing else used them); the saved copy
+is at the left (what the file was against what it is); the colours are fixed per theme in
+`compare.rs` (the shared palette has none for differences); the intra-line marks are not drawn
+while the diff is stale; the options (`ignore_ws` and the others) are in the core but have no
+control yet.
+
+## 45. Replace in files in the window (2026-11-14)
+
+The core is `mdedit-core::replace_files` (section 36); this is the panel and the dialog
+(`replace_ui.rs` the state and the drawing, `app/replace_files.rs` the steps). After a folder
+search the results panel has a box for the replacement and "Replace all…" at the right of its
+title row.
+
+**Steps.** "Replace all…" plans on a worker (`replace_files::plan`, with the files of tabs that
+have unsaved changes given as `skip`; nothing is read from the tabs' text, nothing is written).
+When the plan is made the confirmation dialog opens: "Replace N occurrences in M files?", the
+`"find" → "replacement"` line, a scrollable list of the files with a tick box each (all ticked, a
+click toggles) and their counts, the preview of the row under the pointer or the selected one
+(three lines, before and after side by side, "and N more"), "Keep backup copies (.bak)" (off by
+default), "K files skipped: show" (a collapsed line that lists them and why) and the buttons
+"Replace" and "Cancel". Nothing is written before "Replace". Replace applies the ticked files on
+a worker (`replace_files::apply`): the panel's title row shows "Replacing… 120 of 800" with a
+Cancel button, which stops between files (the files written stay written and are in the report).
+Then the panel shows the report: changed files with their counts, replaced, skipped and failed
+with the reasons. "Undo replace" is enabled until the next search or replace, the folder closes,
+or the program ends; its tip says how many files can still be undone. Tabs whose files changed
+reload by the existing reload-on-change path (`Docs::check_changed`); a tab with unsaved changes
+was left out of the plan and keeps its text.
+
+Decisions without the owner: the dialog is one more `DialogKind` with the dialogs' own
+conventions (Enter replaces, Escape cancels; Up, Down, Home, End and Space move and tick in the
+list); the preview shows the first few lines of the file under the pointer (or the cursor row), not
+a diff of the whole file, and a low window gives it up before it squeezes the list; the Replace
+button is greyed and does nothing with no file ticked; replacing with an empty text is allowed (it
+deletes the matches); the panel's find results are cleared when a replacement is made (they are
+out of date) and a new search ends the report and the undo.

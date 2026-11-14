@@ -2,6 +2,7 @@
 //! files: an `App` built without a window, driven by the same functions the events call.
 
 use super::*;
+use crate::commands::CommandId as C;
 use crate::keys::{Key, KeyName};
 use crate::palette::{Mode, Target, mode_of};
 use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
@@ -369,7 +370,11 @@ fn replace_in_files_plans_asks_applies_reports_and_undoes() {
     // The unchanged open tab reloads by itself; the one with unsaved changes keeps its text.
     pump(&mut a, |a| !a.docs.tabs[0].is_loading());
     let mut line = String::new();
-    a.docs.tabs[ia].ready().unwrap().buffer.line_text(0, &mut line);
+    a.docs.tabs[ia]
+        .ready()
+        .unwrap()
+        .buffer
+        .line_text(0, &mut line);
     assert_eq!(line, "one bar two");
     assert!(a.docs.tabs[ic].modified());
     // Undo replace puts the files back.
@@ -380,5 +385,218 @@ fn replace_in_files_plans_asks_applies_reports_and_undoes() {
     });
     assert_eq!(read(&dir, "a.txt"), "one foo two\nfoo\n");
     assert_eq!(read(&dir, "d.txt"), "one foo two\nfoo\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- compare ---------------------------------------------------------------------------------
+
+/// Two files in a split, the first at the left and active, and the comparison running.
+fn compared(a_text: &str, b_text: &str) -> (App, PathBuf, usize, usize) {
+    let dir = scratch("cmp");
+    std::fs::write(dir.join("a.txt"), a_text).unwrap();
+    std::fs::write(dir.join("b.txt"), b_text).unwrap();
+    let mut a = app();
+    let ia = open_now(&mut a, &dir.join("a.txt"));
+    let ib = open_now(&mut a, &dir.join("b.txt"));
+    a.docs.activate(ia);
+    a.docs.other = Some(a.docs.tabs[ib].id);
+    a.docs.other_left = false;
+    a.command(C::CompareOther);
+    assert!(a.compare.is_some());
+    settle_compare(&mut a);
+    (a, dir, ia, ib)
+}
+
+fn settle_compare(a: &mut App) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        a.compare_timer(Instant::now());
+        if a.compare
+            .as_ref()
+            .is_none_or(crate::compare::Compare::settled)
+            || Instant::now() > deadline
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    a.compare_sync();
+}
+
+fn tabs(a: &App, i: usize) -> &crate::docs::Ready {
+    a.docs.tabs[i].ready().unwrap()
+}
+
+const TEN: &str = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+
+#[test]
+fn comparing_the_two_panes_aligns_their_rows_and_stop_gives_everything_back() {
+    let (mut a, dir, ia, ib) = compared(TEN, "1\n2\nx\ny\n3\n4\n5\n6\n8\n9\n10\n");
+    let (ra, rb) = (tabs(&a, ia), tabs(&a, ib));
+    let (la, lb) = (ra.align.as_ref().unwrap(), rb.align.as_ref().unwrap());
+    assert!(!la.right && lb.right && la.fresh && lb.fresh);
+    // Same rows on both sides: the inserted "x", "y" have fillers opposite, "7" has one in b.
+    assert_eq!(
+        la.rows(ra.buffer.len_lines()),
+        lb.rows(rb.buffer.len_lines())
+    );
+    assert_eq!(la.summary(), "2 differences");
+    assert_eq!(crate::status::fields(&a.docs).0, "2 differences");
+    // The panes scroll together by row, whichever moves.
+    a.docs.tabs[ib].ready_mut().unwrap().top = 3.0;
+    a.compare_sync();
+    assert_eq!(tabs(&a, ia).top, 3.0);
+    a.docs.tabs[ia].ready_mut().unwrap().top = 1.0;
+    a.compare_sync();
+    assert_eq!(tabs(&a, ib).top, 1.0);
+    // Escape stops it: the rows are lines again and the top is a line.
+    a.docs.tabs[ia].ready_mut().unwrap().top = 4.0;
+    a.compare_sync();
+    a.escape();
+    assert!(a.compare.is_none());
+    assert!(tabs(&a, ia).align.is_none() && tabs(&a, ib).align.is_none());
+    assert_eq!(tabs(&a, ia).top, 2.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn word_wrap_and_folds_wait_while_comparing() {
+    let code = "fn a() {\n    one();\n    two();\n}\nfn b() {\n    three();\n}\n";
+    let (mut a, dir, ia, _) =
+        compared(code, "fn a() {\n    one();\n}\nfn b() {\n    three();\n}\n");
+    a.docs.wrap = true;
+    a.docs.sync_wrap();
+    assert!(!tabs(&a, ia).wrap);
+    a.docs.tabs[ia].ready_mut().unwrap().folds.suspend(false);
+    assert!(a.docs.tabs[ia].ready_mut().unwrap().folds.fold(0, 2));
+    a.docs.sync_wrap();
+    assert!(tabs(&a, ia).folds.is_empty() && tabs(&a, ia).folds.suspended());
+    assert_eq!(tabs(&a, ia).folds.hidden(), 0);
+    a.command(C::StopCompare);
+    a.docs.sync_wrap();
+    // Wrap is back, and so is the fold.
+    assert!(tabs(&a, ia).wrap);
+    assert_eq!(tabs(&a, ia).folds.ranges(), &[(0, 2)]);
+    assert!(!tabs(&a, ia).folds.suspended());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn editing_either_pane_makes_the_comparison_again_after_a_rest() {
+    let (mut a, dir, ia, ib) = compared(TEN, TEN);
+    assert_eq!(
+        tabs(&a, ia).align.as_ref().unwrap().summary(),
+        "No differences"
+    );
+    a.docs.activate(ib);
+    a.docs.edit(EditOp::Insert("z"), None);
+    // At once the diff on screen is stale: no marks inside lines, and "Comparing…" in the strip.
+    a.compare_timer(Instant::now());
+    assert!(!tabs(&a, ib).align.as_ref().unwrap().fresh);
+    assert_eq!(crate::status::fields(&a.docs).0, "Comparing\u{2026}");
+    assert!(!a.compare.as_ref().unwrap().settled());
+    settle_compare(&mut a);
+    assert!(tabs(&a, ib).align.as_ref().unwrap().fresh);
+    assert_eq!(
+        tabs(&a, ib).align.as_ref().unwrap().summary(),
+        "1 difference"
+    );
+    // Both panes are ordinary editors: the other one takes an edit too.
+    a.docs.activate(ia);
+    assert!(a.docs.edit(EditOp::Insert("q"), None));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn closing_a_compared_tab_or_ending_the_split_ends_the_comparison() {
+    let (mut a, dir, ia, ib) = compared(TEN, "1\n2\n");
+    a.docs.close(ib, None);
+    a.compare_sync();
+    assert!(a.compare.is_none());
+    assert!(tabs(&a, ia).align.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+    let (mut a, dir, ia, ib) = compared(TEN, "1\n2\n");
+    a.command(C::ToggleSplit);
+    assert!(a.compare.is_none() && a.docs.other().is_none());
+    assert!(tabs(&a, ia).align.is_none() && tabs(&a, ib).align.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn next_and_previous_difference_move_the_caret_and_say_when_there_are_no_more() {
+    let (mut a, dir, ia, _) = compared(TEN, "1\nTWO\n3\n4\n5\n6\n7\n8\nNINE\n10\n");
+    let line = |a: &App| {
+        let r = tabs(a, ia);
+        r.buffer.line_of(r.sel.caret)
+    };
+    a.command(C::NextDifference);
+    assert_eq!(line(&a), 1);
+    a.command(C::NextDifference);
+    assert_eq!(line(&a), 8);
+    a.command(C::NextDifference);
+    assert_eq!(line(&a), 8);
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .is_some_and(|t| t.contains("No more"))
+    );
+    a.command(C::PreviousDifference);
+    assert_eq!(line(&a), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn compare_with_saved_shows_the_file_on_disk_read_only_and_closes_with_the_comparison() {
+    let dir = scratch("cmp-saved");
+    let path = dir.join("a.txt");
+    std::fs::write(&path, TEN).unwrap();
+    let mut a = app();
+    let ia = open_now(&mut a, &path);
+    // Unchanged: nothing to compare.
+    assert!(!crate::compare::enabled(C::CompareSaved, &a.docs));
+    a.docs.edit(EditOp::Insert("edited "), None);
+    assert!(crate::compare::enabled(C::CompareSaved, &a.docs));
+    a.command(C::CompareSaved);
+    assert_eq!(a.docs.tabs.len(), 2);
+    let saved = a.docs.tabs.iter().position(|d| d.title.is_some()).unwrap();
+    assert_eq!(a.docs.tabs[saved].name(), "a.txt (saved)");
+    assert!(a.docs.other_left && a.docs.other() == Some(saved));
+    settle_compare(&mut a);
+    assert_eq!(
+        tabs(&a, ia).align.as_ref().unwrap().summary(),
+        "1 difference"
+    );
+    // The copy cannot be edited, and the file on disk is untouched.
+    a.docs.activate(saved);
+    assert!(!a.docs.edit(EditOp::Insert("no"), None));
+    a.docs.activate(ia);
+    a.command(C::StopCompare);
+    assert_eq!(a.docs.tabs.len(), 1);
+    assert!(a.docs.other.is_none());
+    assert_eq!(read(&dir, "a.txt"), TEN);
+    // The text still has its unsaved edit.
+    assert!(a.docs.tabs[0].modified());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn compare_commands_are_greyed_until_they_can_run() {
+    let mut a = app();
+    let dir = scratch("cmp-en");
+    std::fs::write(dir.join("a.txt"), "a\n").unwrap();
+    std::fs::write(dir.join("b.txt"), "b\n").unwrap();
+    let ia = open_now(&mut a, &dir.join("a.txt"));
+    assert!(!crate::compare::enabled(C::CompareOther, &a.docs));
+    assert!(crate::compare::enabled(C::CompareFile, &a.docs));
+    assert!(!crate::compare::enabled(C::StopCompare, &a.docs));
+    assert!(!crate::compare::enabled(C::NextDifference, &a.docs));
+    let ib = open_now(&mut a, &dir.join("b.txt"));
+    a.docs.activate(ia);
+    a.docs.other = Some(a.docs.tabs[ib].id);
+    assert!(crate::compare::enabled(C::CompareOther, &a.docs));
+    a.command(C::CompareOther);
+    assert!(!crate::compare::enabled(C::CompareOther, &a.docs));
+    assert!(crate::compare::enabled(C::StopCompare, &a.docs));
+    assert!(crate::compare::enabled(C::NextDifference, &a.docs));
     let _ = std::fs::remove_dir_all(&dir);
 }

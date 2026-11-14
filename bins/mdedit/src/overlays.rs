@@ -165,6 +165,15 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
         cmd(C::ToggleSplit, "Two files side by side", glyph::SPLIT).checked(docs.other().is_some()),
         cmd(C::FocusOther, "Go to the other pane", glyph::OTHER_PANE)
             .enabled(docs.other().is_some()),
+        cmd(C::CompareOther, "Compare with the other pane", glyph::SPLIT)
+            .sep()
+            .enabled(crate::compare::enabled(C::CompareOther, docs)),
+        cmd(C::CompareFile, "Compare with file\u{2026}", glyph::OPEN)
+            .enabled(crate::compare::enabled(C::CompareFile, docs)),
+        cmd(C::CompareSaved, "Compare with saved", glyph::SAVE)
+            .enabled(crate::compare::enabled(C::CompareSaved, docs)),
+        cmd(C::StopCompare, "Stop comparing", glyph::CLOSE)
+            .enabled(crate::compare::enabled(C::StopCompare, docs)),
         cmd(C::ToggleFold, "Fold or open the block", glyph::FOLD).sep(),
         cmd(C::FoldAll, "Fold all blocks", glyph::FOLD_ALL),
         cmd(C::UnfoldAll, "Open all folds", glyph::UNFOLD)
@@ -189,12 +198,29 @@ pub fn minimap_menu(x: f32, y: f32) -> Menu<Act> {
 pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     let many = docs.tabs.len() > 1;
     let has_file = docs.tabs.get(index).is_some_and(|d| d.path.is_some());
+    let compared = docs.active_ready().is_some_and(|r| r.align.is_some());
     let items = vec![
         Item::new(Act::TabCmd(C::CloseTab, index), "Close tab").icon(glyph::CLOSE),
         Item::new(Act::TabCmd(C::CloseOtherTabs, index), "Close other tabs")
             .icon(glyph::CLOSE_OTHERS)
             .enabled(many),
         Item::new(Act::TabCmd(C::CloseAllTabs, index), "Close all tabs").icon(glyph::CLOSE_ALL),
+        Item::new(
+            Act::TabCmd(C::CompareFile, index),
+            "Compare with file\u{2026}",
+        )
+        .icon(glyph::SPLIT)
+        .sep()
+        .enabled(docs.tabs.get(index).is_some_and(|d| d.ready().is_some()) && !compared),
+        Item::new(Act::TabCmd(C::CompareSaved, index), "Compare with saved")
+            .icon(glyph::SAVE)
+            .enabled(
+                !compared
+                    && docs
+                        .tabs
+                        .get(index)
+                        .is_some_and(|d| d.path.is_some() && d.modified()),
+            ),
         Item::new(Act::TabCmd(C::CopyFilePath, index), "Copy file path")
             .icon(glyph::COPY)
             .sep()

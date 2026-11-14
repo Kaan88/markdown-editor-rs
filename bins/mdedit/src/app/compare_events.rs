@@ -51,7 +51,9 @@ impl App {
         }
         #[cfg(windows)]
         {
-            if let Some(path) = platform::pick_files(self.start_dir().as_deref()).into_iter().next()
+            if let Some(path) = platform::pick_files(self.start_dir().as_deref())
+                .into_iter()
+                .next()
             {
                 self.compare_with(&path);
             }
@@ -85,7 +87,8 @@ impl App {
         if matches!(self.docs.tabs[k].state, crate::docs::DocState::Pending) {
             self.docs.start_load(k);
         }
-        self.docs.activate(self.docs.index_of_id(a).unwrap_or(a_index));
+        self.docs
+            .activate(self.docs.index_of_id(a).unwrap_or(a_index));
         // Started once the file is read.
         self.compare_wait = Some((a, self.docs.tabs[k].id));
         self.redraw();
@@ -104,15 +107,12 @@ impl App {
             self.docs.set_toast(strings::COMPARE_NOTHING_SAVED);
             return;
         };
-        let (name, language, mine) = (
-            doc.name(),
-            doc.ready().and_then(|r| r.language),
-            doc.id,
-        );
+        let (name, language, mine) = (doc.name(), doc.ready().and_then(|r| r.language), doc.id);
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) => {
-                self.docs.set_toast(&strings::compare_unreadable(&name, &e.to_string()));
+                self.docs
+                    .set_toast(&strings::compare_unreadable(&name, &e.to_string()));
                 return;
             }
         };

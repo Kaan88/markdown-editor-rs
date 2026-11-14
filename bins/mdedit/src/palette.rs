@@ -75,12 +75,15 @@ pub fn mode_of(query: &str) -> (Mode, usize) {
     }
 }
 
+/// A worker's answer: the folder's files, each with its relative name.
+type Shared = Arc<Mutex<Option<Vec<(PathBuf, String)>>>>;
+
 /// The files of a folder, listed on a worker thread.
 struct FolderFiles {
     root: PathBuf,
     /// `None` while the worker is still listing.
     done: Option<Vec<(PathBuf, String)>>,
-    shared: Arc<Mutex<Option<Vec<(PathBuf, String)>>>>,
+    shared: Shared,
     cancel: Arc<AtomicBool>,
 }
 

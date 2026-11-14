@@ -15,9 +15,9 @@
 use crate::app::Wake;
 use crate::commands::CommandId as C;
 use crate::docs::{Docs, Waker};
-use mdedit_highlight::DocId;
 use mdedit_core::buffer::Buffer;
 use mdedit_core::diff::{self, Diff, DiffOptions, HunkKind};
+use mdedit_highlight::DocId;
 use mdshared_ui::gfx::{Rgb, mix, rgb};
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -373,7 +373,11 @@ impl Compare {
             if let Some(r) = docs.tabs[i].ready_mut() {
                 let lines = r.buffer.len_lines();
                 let old = r.align.take();
-                let top = if r.top.is_finite() { r.top.max(0.0) } else { 0.0 };
+                let top = if r.top.is_finite() {
+                    r.top.max(0.0)
+                } else {
+                    0.0
+                };
                 let row = top.floor() as usize;
                 let line = old.as_ref().map_or(row, |o| o.line_near(row, lines));
                 let new = Align::with(data.clone(), right);
@@ -456,12 +460,43 @@ impl Compare {
             if let Some(r) = docs.tabs[i].ready_mut() {
                 if let Some(al) = r.align.take() {
                     let lines = r.buffer.len_lines();
-                    let top = if r.top.is_finite() { r.top.max(0.0) } else { 0.0 };
+                    let top = if r.top.is_finite() {
+                        r.top.max(0.0)
+                    } else {
+                        0.0
+                    };
                     let row = top.floor() as usize;
                     r.top = al.line_near(row, lines) as f64 + (top - row as f64);
                 }
                 r.folds.suspend(false);
             }
+        }
+    }
+}
+
+impl crate::docs::Ready {
+    /// The row of line `line`: the line's place among the lines that show (folds) or among the
+    /// rows of a comparison.
+    pub fn row_of_line(&self, line: usize) -> usize {
+        match &self.align {
+            Some(al) => al.row_of(line),
+            None => self.folds.row_of(line),
+        }
+    }
+
+    /// The line on row `row`, or the line that follows a filler row.
+    pub fn line_at_row(&self, row: usize) -> usize {
+        match &self.align {
+            Some(al) => al.line_near(row, self.buffer.len_lines()),
+            None => self.folds.line_at_row(row),
+        }
+    }
+
+    /// The line on row `row`; `None` for a filler row of a comparison.
+    pub fn line_on_row(&self, row: usize) -> Option<usize> {
+        match &self.align {
+            Some(al) => al.line_at(row, self.buffer.len_lines()),
+            None => Some(self.folds.line_at_row(row)),
         }
     }
 }
@@ -509,10 +544,7 @@ mod tests {
 
     #[test]
     fn differences_are_counted_and_found_from_a_row() {
-        let (l, _, _, _) = pair(
-            "a\nb\nc\nd\ne\nf\n",
-            "a\nB\nc\nd\ne\nF\n",
-        );
+        let (l, _, _, _) = pair("a\nb\nc\nd\ne\nf\n", "a\nB\nc\nd\ne\nF\n");
         assert_eq!(l.summary(), "2 differences");
         assert_eq!(l.next_change(0), Some(1));
         assert_eq!(l.next_change(1), Some(5));
@@ -524,7 +556,10 @@ mod tests {
         let mut p = Align::pending(false);
         assert_eq!(p.summary(), "Comparing\u{2026}");
         p.fresh = true;
-        assert_eq!((p.rows(7), p.line_at(3, 7), p.line_at(7, 7), p.row_of(4)), (7, Some(3), None, 4));
+        assert_eq!(
+            (p.rows(7), p.line_at(3, 7), p.line_at(7, 7), p.row_of(4)),
+            (7, Some(3), None, 4)
+        );
     }
 
     #[test]
@@ -557,32 +592,5 @@ mod tests {
         assert_eq!(t.of(HunkKind::Insert, false), None);
         assert_eq!(t.of(HunkKind::Change, true), Some(t.changed));
         assert_eq!(t.of(HunkKind::Equal, false), None);
-    }
-}
-
-impl crate::docs::Ready {
-    /// The row of line `line`: the line's place among the lines that show (folds) or among the
-    /// rows of a comparison.
-    pub fn row_of_line(&self, line: usize) -> usize {
-        match &self.align {
-            Some(al) => al.row_of(line),
-            None => self.folds.row_of(line),
-        }
-    }
-
-    /// The line on row `row`, or the line that follows a filler row.
-    pub fn line_at_row(&self, row: usize) -> usize {
-        match &self.align {
-            Some(al) => al.line_near(row, self.buffer.len_lines()),
-            None => self.folds.line_at_row(row),
-        }
-    }
-
-    /// The line on row `row`; `None` for a filler row of a comparison.
-    pub fn line_on_row(&self, row: usize) -> Option<usize> {
-        match &self.align {
-            Some(al) => al.line_at(row, self.buffer.len_lines()),
-            None => Some(self.folds.line_at_row(row)),
-        }
     }
 }
