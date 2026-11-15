@@ -262,6 +262,12 @@ shot menu-tab-md --light --menu tab "$fx/sample.md" "$fx/sample.rs"
 shot menu-tab-md-linked-dark --dark --demo-link --menu tab "$fx/sample.md" "$fx/sample.rs"
 shot previewing --light --demo-link --goto 12:3 "$fx/sample.md"
 shot previewing-dark --dark --demo-link --goto 12:3 "$fx/sample.md"
+# A document that has no file is previewed too: the commands are listed for it, and it carries
+# the mark while mdview shows its text.
+shot menu-view-untitled --light --new --menu view
+shot menu-tab-untitled-linked-dark --dark --new --demo-link --menu tab "$fx/sample.md"
+shot previewing-untitled --light --new --demo-link --type $'# Draft\n\nNot saved yet.\n'
+shot previewing-untitled-dark --dark --new --demo-link --type $'# Draft\n\nNot saved yet.\n'
 
 # Emoji presentation: the first line is colour clusters, the second the bare characters (text
 # glyphs); the caret after the keycap on line 3 must sit right after it.

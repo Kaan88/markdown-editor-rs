@@ -1583,6 +1583,10 @@ impl App {
             Wake::Link => {
                 // The links are over; the next frame no longer shows the mark.
                 self.docs.links.take_gone();
+                // Or the viewer is one that cannot show a document without a file.
+                if self.docs.links.take_older() {
+                    self.docs.set_toast(strings::PREVIEW_VIEWER_OLDER);
+                }
             }
             Wake::Files => {
                 if let Some(w) = &self.watcher {
