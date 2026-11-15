@@ -1,0 +1,11 @@
+Fixes found by hands-on testing.
+
+## Fixed
+
+- Menus opened with a right-click (tab, text and its submenus, find box, minimap) no longer show the underlined access keys until you press a key in them.
+- The vertical scrollbar at the right edge of a window that is not maximized can be grabbed again. The window can still be resized from the right edge, a few pixels wide there.
+- Find in files: when a match disappears from an open document and later comes back (Undo, or typing the word again), the document's row comes back too.
+- Find in files: after you close a changed document with Don't save, the panel shows what the file on disk holds again.
+- Undo after Cut or Delete bookmarked lines brings the bookmarks back with the lines.
+- Typing at several carets is undone a run at a time, as it is with one caret, not one character per Ctrl+Z.
+- Characters sent as Unicode input by an on-screen keyboard, an emoji picker or a remapping tool are typed into the text and the boxes instead of being ignored.

@@ -715,10 +715,8 @@ impl Ready {
                     self.bookmarks.retain(|&m| m <= last);
                 }
             }
-            EditOp::Redo => {
-                if self.bookmark_undo.iter().any(|(id, _)| *id == now) {
-                    self.bookmarks.clear();
-                }
+            EditOp::Redo if self.bookmark_undo.iter().any(|(id, _)| *id == now) => {
+                self.bookmarks.clear();
             }
             _ => {}
         }
