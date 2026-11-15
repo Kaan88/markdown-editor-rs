@@ -75,6 +75,11 @@ pub enum CommandId {
     NextBookmark,
     PreviousBookmark,
     ClearBookmarks,
+    /// The bookmarked lines to the clipboard, or to the clipboard and out of the text, or out of
+    /// the text.
+    CopyBookmarkedLines,
+    CutBookmarkedLines,
+    DeleteBookmarkedLines,
     ToggleFold,
     FoldAll,
     UnfoldAll,
@@ -228,6 +233,9 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::NextBookmark, "Next bookmark", &["F2"]),
     cmd(C::PreviousBookmark, "Previous bookmark", &["Shift+F2"]),
     cmd(C::ClearBookmarks, "Clear bookmarks", &[]),
+    cmd(C::CutBookmarkedLines, "Cut bookmarked lines", &[]),
+    cmd(C::CopyBookmarkedLines, "Copy bookmarked lines", &[]),
+    cmd(C::DeleteBookmarkedLines, "Delete bookmarked lines", &[]),
     cmd(C::ToggleFold, "Fold or open the block", &["F9"]),
     cmd(C::FoldAll, "Fold all blocks", &["Shift+F9"]),
     cmd(C::UnfoldAll, "Open all folds", &["Ctrl+F9"]),

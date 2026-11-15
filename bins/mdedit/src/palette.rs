@@ -288,7 +288,11 @@ fn icon(id: C) -> &'static str {
         C::SaveAs => glyph::SAVE_AS,
         C::Reload => glyph::RELOAD,
         C::OpenRecent | C::ManageRecent => glyph::RECENT,
-        C::ClearRecent | C::DeleteMacros | C::ClearBookmarks => glyph::DELETE,
+        C::ClearRecent | C::DeleteMacros | C::ClearBookmarks | C::DeleteBookmarkedLines => {
+            glyph::DELETE
+        }
+        C::CutBookmarkedLines => glyph::CUT,
+        C::CopyBookmarkedLines => glyph::COPY,
         C::CloseTab | C::CloseResults | C::ClearSearch | C::StopCompare => glyph::CLOSE,
         C::CloseAllTabs => glyph::CLOSE_ALL,
         C::CloseOtherTabs => glyph::CLOSE_OTHERS,
@@ -432,7 +436,10 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::ZoomReset => docs.zoom != 100,
         C::PlayMacro | C::PlayMacroToEnd | C::SaveMacroAs => macro_idle,
         C::NextResult | C::PreviousResult | C::CloseResults => ui.results.open,
-        C::ClearBookmarks => ready.is_some_and(|r| !r.bookmarks.is_empty()),
+        C::ClearBookmarks
+        | C::CutBookmarkedLines
+        | C::CopyBookmarkedLines
+        | C::DeleteBookmarkedLines => ready.is_some_and(|r| !r.bookmarks.is_empty()),
         C::NextBookmark | C::PreviousBookmark => ready.is_some_and(|r| !r.bookmarks.is_empty()),
         C::CompareOther
         | C::CompareFile

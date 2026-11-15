@@ -967,3 +967,36 @@ fn replace_over_several_lines_offers_the_selection_after_escape_or_the_close_but
     assert_eq!(scope(&a), (Some(1..10), true));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn bookmarked_lines_can_be_deleted_in_one_step_and_the_commands_grey_without_marks() {
+    use crate::commands::CommandId as C;
+    let dir = scratch("marked-lines");
+    std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+    let mut a = app();
+    open_now(&mut a, &dir.join("a.txt"));
+    let on = |a: &App, c: C| crate::palette::enabled(c, &a.docs, &a.ui, false);
+    for c in [
+        C::CutBookmarkedLines,
+        C::CopyBookmarkedLines,
+        C::DeleteBookmarkedLines,
+    ] {
+        assert!(!on(&a, c));
+    }
+    let text = |a: &App| a.docs.active_ready().unwrap().buffer.rope().to_string();
+    a.docs.active_ready_mut().unwrap().bookmarks = vec![0, 2];
+    for c in [
+        C::CutBookmarkedLines,
+        C::CopyBookmarkedLines,
+        C::DeleteBookmarkedLines,
+    ] {
+        assert!(on(&a, c));
+    }
+    // Delete does not touch the clipboard; Cut and Copy do and are not run here.
+    a.command(C::DeleteBookmarkedLines);
+    assert_eq!(text(&a), "two\nfour\n");
+    assert!(a.docs.active_ready().unwrap().bookmarks.is_empty());
+    a.command(C::Undo);
+    assert_eq!(text(&a), "one\ntwo\nthree\nfour\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}

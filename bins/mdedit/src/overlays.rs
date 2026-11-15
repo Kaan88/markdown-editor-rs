@@ -361,6 +361,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
 /// The text menu's Lines submenu: the line commands, then the ones that sort and join them.
 pub fn lines_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let ready = docs.active_ready().is_some();
+    let marked = docs.active_ready().is_some_and(|r| !r.bookmarks.is_empty());
     let items = vec![
         cmd(C::DuplicateLine, "Duplicate line", glyph::DUPLICATE_LINE).enabled(ready),
         cmd(C::DeleteLine, "Delete line", glyph::DELETE_LINE).enabled(ready),
@@ -387,6 +388,14 @@ pub fn lines_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
         cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK)
             .sep()
             .enabled(ready),
+        cmd(C::CutBookmarkedLines, "Cut bookmarked lines", glyph::CUT).enabled(marked),
+        cmd(C::CopyBookmarkedLines, "Copy bookmarked lines", glyph::COPY).enabled(marked),
+        cmd(
+            C::DeleteBookmarkedLines,
+            "Delete bookmarked lines",
+            glyph::DELETE,
+        )
+        .enabled(marked),
     ];
     Menu::new(items, x, y, align_right)
 }

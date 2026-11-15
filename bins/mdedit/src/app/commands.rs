@@ -363,6 +363,30 @@ impl App {
     }
 
     /// Copies the selection as it is in the buffer. True when it is on the clipboard.
+    /// The bookmarked lines to the clipboard, one per line. `false` (with a toast) when there
+    /// are none, they are too large, or the clipboard did not take them.
+    fn copy_bookmarked(&mut self) -> bool {
+        let Some(r) = self.docs.active_ready() else {
+            return false;
+        };
+        let eol = r.info.eol.dominant();
+        let text = lines::marked_lines_text(&r.buffer, &r.bookmarks, eol, COPY_LIMIT);
+        let Some(text) = text else {
+            let none = r.bookmarks.is_empty();
+            self.docs.set_toast(if none {
+                strings::NO_BOOKMARKS
+            } else {
+                strings::COPY_TOO_LARGE
+            });
+            return false;
+        };
+        if !platform::set_clipboard_text(&text) {
+            self.docs.set_toast("Could not copy to the clipboard");
+            return false;
+        }
+        true
+    }
+
     pub(super) fn copy(&mut self) -> bool {
         let Some(r) = self.docs.active_ready() else {
             return false;
@@ -1037,6 +1061,8 @@ impl App {
                 | C::MoveLineUp
                 | C::MoveLineDown
                 | C::DeleteLine
+                | C::CutBookmarkedLines
+                | C::DeleteBookmarkedLines
                 | C::ToggleComment
                 | C::UpperCase
                 | C::LowerCase
@@ -1378,6 +1404,19 @@ impl App {
                     self.docs.set_toast(strings::NO_BOOKMARKS);
                 }
                 self.caret_reset();
+            }
+            C::CopyBookmarkedLines => {
+                self.copy_bookmarked();
+            }
+            C::CutBookmarkedLines | C::DeleteBookmarkedLines => {
+                if (id == C::DeleteBookmarkedLines || self.copy_bookmarked())
+                    && self.edit(EditOp::DeleteBookmarked)
+                {
+                    // The lines the marks stood on are gone; Undo does not bring the marks back.
+                    if let Some(r) = self.docs.active_ready_mut() {
+                        r.bookmarks.clear();
+                    }
+                }
             }
             C::ClearBookmarks => {
                 if let Some(r) = self.docs.active_ready_mut() {

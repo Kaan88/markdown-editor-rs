@@ -221,6 +221,89 @@ pub(crate) fn delete_range(
     cmd.finish(hist, Kind::Other, sel, Selection::at(pos))
 }
 
+/// The lines of `marks` (sorted line numbers, such as bookmarks; any past the last line are
+/// left out), each with `eol` after it, for the clipboard. `None` when there are none, or the
+/// text would be over `limit` bytes.
+pub fn marked_lines_text(buf: &Buffer, marks: &[usize], eol: &str, limit: usize) -> Option<String> {
+    let lines: Vec<usize> = marks
+        .iter()
+        .copied()
+        .filter(|&l| l < buf.len_lines())
+        .collect();
+    let total: usize = lines
+        .iter()
+        .map(|&l| buf.line_range(l).len() + eol.len())
+        .sum();
+    if lines.is_empty() || total > limit {
+        return None;
+    }
+    let mut out = String::with_capacity(total);
+    for l in lines {
+        for piece in buf.chunks(buf.line_range(l)) {
+            out.push_str(piece);
+        }
+        out.push_str(eol);
+    }
+    Some(out)
+}
+
+/// Removes the lines of `marks` (sorted line numbers) with their line breaks, as one change. The
+/// last line, when it has no break, takes the break before it along (as Delete line does).
+/// The caret keeps its place in the text that stays, or goes to where its line was. `change` is
+/// `None` when no mark names a line that has something to remove.
+pub fn delete_marked_lines(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    marks: &[usize],
+) -> Outcome {
+    // Following marked lines are one block, cut as `delete_range` cuts it.
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    let mut at = 0;
+    let marks: Vec<usize> = marks
+        .iter()
+        .copied()
+        .filter(|&l| l < buf.len_lines())
+        .collect();
+    while at < marks.len() {
+        let first = marks[at];
+        let mut last = first;
+        at += 1;
+        while at < marks.len() && marks[at] <= last + 1 {
+            last = last.max(marks[at]);
+            at += 1;
+        }
+        let end = buf.line_range_with_break(last).end;
+        let start = if has_break(buf, last) {
+            buf.line_start(first)
+        } else if first > 0 {
+            buf.line_range(first - 1).end
+        } else {
+            0
+        };
+        if start < end {
+            merged.push(start..end);
+        }
+    }
+    if merged.is_empty() {
+        return nothing(sel);
+    }
+    let map = |p: usize| {
+        let cut: usize = merged
+            .iter()
+            .take_while(|c| c.start < p)
+            .map(|c| c.end.min(p) - c.start)
+            .sum();
+        p - cut
+    };
+    let after = Selection::at(map(buf.floor_char(sel.caret)));
+    let mut cmd = Cmd::new(buf);
+    for c in merged.iter().rev() {
+        cmd.replace(c.clone(), "");
+    }
+    cmd.finish(hist, Kind::Other, sel, after)
+}
+
 /// What `toggle_comment` needs to know of a line.
 struct LineInfo {
     start: usize,
@@ -949,6 +1032,46 @@ mod tests {
 
     fn sel(anchor: usize, caret: usize) -> Selection {
         sel_of(anchor, caret)
+    }
+
+    // ---- bookmarked lines
+
+    #[test]
+    fn marked_lines_are_copied_with_the_given_break() {
+        let buf = Buffer::from_text("a\r\nb\r\nc");
+        assert_eq!(
+            marked_lines_text(&buf, &[0, 2, 9], "\r\n", 100).as_deref(),
+            Some("a\r\nc\r\n")
+        );
+        assert_eq!(marked_lines_text(&buf, &[], "\n", 100), None);
+        assert_eq!(marked_lines_text(&buf, &[0, 1], "\n", 3), None);
+    }
+
+    #[test]
+    fn marked_lines_are_deleted_in_one_step() {
+        let run = |text: &str, marks: &[usize], caret: usize| {
+            go(text, Selection::at(caret), |b, h, s| {
+                delete_marked_lines(b, h, s, marks)
+            })
+        };
+        let (t, o) = run("a\nb\nc\nd\ne\n", &[1, 3], 8);
+        assert_eq!((t.as_str(), o.sel.caret), ("a\nc\ne\n", 4));
+        // Following lines, the first line, a caret on a deleted line.
+        let (t, o) = run("a\nb\nc\nd\n", &[0, 1], 2);
+        assert_eq!((t.as_str(), o.sel.caret), ("c\nd\n", 0));
+        // The last line has no break: the one before gives its break up.
+        let (t, _) = run("a\nb\nc", &[2], 0);
+        assert_eq!(t, "a\nb");
+        let (t, _) = run("a\nb\nc", &[1, 2], 0);
+        assert_eq!(t, "a");
+        let (t, o) = run("only", &[0], 2);
+        assert_eq!((t.as_str(), o.sel.caret), ("", 0));
+        // Marks past the end change nothing.
+        let (t, o) = run("a\nb\n", &[7], 0);
+        assert_eq!(t, "a\nb\n");
+        assert!(o.change.is_none());
+        let (t, _) = run("a\r\nb\r\nc\r\n", &[1], 0);
+        assert_eq!(t, "a\r\nc\r\n");
     }
 
     fn grapheme_bounds(t: &str) -> Vec<usize> {

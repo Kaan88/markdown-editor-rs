@@ -1197,6 +1197,8 @@ pub enum EditOp<'a> {
     /// Down when true.
     MoveLines(bool),
     DeleteLines,
+    /// Removes the bookmarked lines.
+    DeleteBookmarked,
     /// With the language's line comment.
     ToggleComment,
     /// Upper case when true.
@@ -2321,6 +2323,9 @@ impl Docs {
                 EditOp::DuplicateLines => lines::duplicate_lines(buf, hist, sel, eol),
                 EditOp::MoveLines(down) => lines::move_lines(buf, hist, sel, down, eol),
                 EditOp::DeleteLines => lines::delete_lines(buf, hist, sel),
+                EditOp::DeleteBookmarked => {
+                    lines::delete_marked_lines(buf, hist, sel, &r.bookmarks)
+                }
                 EditOp::ToggleComment => {
                     lines::toggle_comment(buf, hist, sel, comment.unwrap_or_default())
                 }
