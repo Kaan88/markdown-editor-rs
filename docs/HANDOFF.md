@@ -889,6 +889,16 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
+## Release 0.6.0 (2026-11-15)
+
+The next-release batch, released on the owner's word ("merge everything and make a release")
+together with mdview 0.4.0; the two need each other for the preview of an unsaved document and
+for the finer follow. What it holds is in `docs/release-notes/0.6.0.md` and in the sections
+above. All `mdshared-*` pins name shared `main` (`11563a3`). Checked before the tag:
+`cargo test --release --workspace` on the Windows PC and the `ci` run on `main` (Linux and
+Windows). The owner had not looked at the interface when it was tagged; a real update followed
+by Restart had not been performed.
+
 ## Release 0.5.1 (2026-11-14)
 
 One fix, reported by the owner with a screen recording of 0.5.0: a submenu closed as soon as the
