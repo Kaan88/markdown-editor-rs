@@ -273,7 +273,7 @@ pub fn indent_with(buf: &mut Buffer, hist: &mut History, sel: Selection, unit: I
 
 /// How many bytes of leading whitespace `outdent` removes from `line`: one tab, or else up to
 /// `tab_width` spaces.
-fn outdent_len(buf: &Buffer, line: usize, tab_width: usize) -> usize {
+pub(crate) fn outdent_len(buf: &Buffer, line: usize, tab_width: usize) -> usize {
     let r = buf.line_range(line);
     let limit = r.end.min(r.start + tab_width.max(1));
     let mut bytes = buf.chunks(r.start..limit).flat_map(str::bytes);

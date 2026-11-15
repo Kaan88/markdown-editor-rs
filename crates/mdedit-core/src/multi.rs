@@ -132,7 +132,6 @@ fn text_for<'a>(op: MultiOp<'a>, k: usize) -> &'a str {
         MultiOp::Insert(t) => t,
         MultiOp::InsertEach(texts) => texts[k],
         MultiOp::Backspace | MultiOp::Delete | MultiOp::WordLeft | MultiOp::WordRight => "",
-        MultiOp::Delete => "",
     }
 }
 

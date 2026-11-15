@@ -2128,7 +2128,7 @@ impl Docs {
             EditOp::SortLines(_) | EditOp::ReverseLines | EditOp::UniqueLines
                 if !r.view.extra.is_empty() =>
             {
-                line_op(&op, "", 0, "")
+                line_op(&op, "", 0, "", typing::Indent::Tab)
                     .filter(|o| {
                         let (list, at) = selections(r);
                         multiline::too_large(&r.buffer, &list, at, *o)
@@ -2234,7 +2234,7 @@ impl Docs {
                 op,
                 EditOp::MdWrap(_) | EditOp::MdLink | EditOp::SaveOptions(_)
             )
-            && line_op(&op, "", 0, "").is_none()
+            && line_op(&op, "", 0, "", typing::Indent::Tab).is_none()
         {
             r.view.extra.clear();
         }
@@ -3112,7 +3112,13 @@ fn selections(r: &Ready) -> (Vec<Selection>, usize) {
 }
 
 /// The line command `op` is, for [`multiline`]; `None` for any other op.
-fn line_op<'a>(op: &EditOp<'_>, eol: &'a str, tab: usize, comment: &'a str) -> Option<LineOp<'a>> {
+fn line_op<'a>(
+    op: &EditOp<'_>,
+    eol: &'a str,
+    tab: usize,
+    comment: &'a str,
+    indent: typing::Indent,
+) -> Option<LineOp<'a>> {
     Some(match op {
         EditOp::DuplicateLines => LineOp::Duplicate(eol),
         EditOp::MoveLines(down) => LineOp::Move(*down),
@@ -3126,6 +3132,7 @@ fn line_op<'a>(op: &EditOp<'_>, eol: &'a str, tab: usize, comment: &'a str) -> O
         EditOp::ReverseLines => LineOp::Reverse,
         EditOp::UniqueLines => LineOp::Unique,
         EditOp::JoinLines => LineOp::Join,
+        EditOp::Outdent => LineOp::Outdent(indent, tab),
         EditOp::MdHeading => LineOp::Heading,
         EditOp::MdTable => LineOp::Table,
         _ => return None,
@@ -3138,7 +3145,7 @@ fn line_edit(r: &mut Ready, op: &EditOp, eol: &str, comment: &str) -> Option<Out
     if r.view.extra.is_empty() {
         return None;
     }
-    let op = line_op(op, eol, crate::live::tab_width(), comment)?;
+    let op = line_op(op, eol, crate::live::tab_width(), comment, r.assist.indent)?;
     let (list, at) = selections(r);
     let (out, mut list, primary) = multiline::run(&mut r.buffer, &mut r.history, &list, at, op);
     let primary = primary.min(list.len().saturating_sub(1));
@@ -4534,6 +4541,23 @@ mod tests {
         assert_eq!(text_of(&d, i), "x bar x\nx\n");
         assert!(d.edit(EditOp::Undo, None));
         assert_eq!(text_of(&d, i), "foo bar foo\nfoo\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn outdent_acts_at_every_caret_as_one_undo_step() {
+        let (mut d, i, _path, dir) = file_docs("multioutdent", b"\ta\n\tb\nc\n\t\td\n");
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.view.sel = Selection::at(2);
+        r.add_caret(11);
+        assert!(d.edit(EditOp::Outdent, None));
+        assert_eq!(text_of(&d, i), "a\n\tb\nc\n\td\n");
+        // Both carets stay, on their lines.
+        let r = d.tabs[i].ready().unwrap();
+        let (list, _) = r.all_sels();
+        assert_eq!(list.iter().map(|s| s.caret).collect::<Vec<_>>(), [1, 9]);
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "\ta\n\tb\nc\n\t\td\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

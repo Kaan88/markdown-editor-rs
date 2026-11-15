@@ -37,6 +37,8 @@
 //! * Heading level: every block steps through none, 1 to 6 by its own first non-blank line, as
 //!   the single command does.
 //! * Align table: every table with a selection in it, once.
+//! * Outdent: the touched lines of all selections are one set; each loses one indent unit, once.
+//!   Selection ends in the removed whitespace go to the line start, the others move with text.
 //!
 //! Cost is one single command per block (or per selection) plus a pass over the selections to
 //! move them, so a column selection down a large file is as fast as the single command times the
@@ -49,6 +51,7 @@ use crate::lines::{self, SortOrder};
 use crate::markdown;
 use crate::multi;
 use crate::selection::Selection;
+use crate::typing::Indent;
 use std::ops::Range;
 
 /// A line command to run at every selection.
@@ -76,6 +79,9 @@ pub enum LineOp<'a> {
     Heading,
     /// Markdown: line up the table.
     Table,
+    /// Shift+Tab: one tab or one unit of spaces off the front of every touched line; with the
+    /// tab width for a tab-unit document.
+    Outdent(Indent, usize),
 }
 
 /// The selections whose touched lines make one block: `first..=last` and the indexes of its
@@ -380,6 +386,59 @@ pub fn run(
                     s.caret = ends[1].0;
                     s.goal_col = None;
                 }
+                add(out.change);
+            }
+        }
+        LineOp::Outdent(unit, tab_width) => {
+            let tab_width = match unit {
+                Indent::Tab => tab_width,
+                Indent::Spaces(n) => usize::from(n.clamp(1, 16)),
+            };
+            let mut set: Vec<usize> = Vec::new();
+            for s in &norm {
+                let (f, l) = touched_lines(buf, &clamped(buf, *s));
+                set.extend(f..=l);
+            }
+            set.sort_unstable();
+            set.dedup();
+            // (line start, bytes removed) in document order, and the bytes removed up to and
+            // including each, for moving the selections.
+            let removals: Vec<(usize, usize)> = set
+                .iter()
+                .filter_map(|&l| {
+                    let n = crate::edit::outdent_len(buf, l, tab_width);
+                    (n > 0).then(|| (buf.line_start(l), n))
+                })
+                .collect();
+            if !removals.is_empty() {
+                let mut running = 0;
+                let upto: Vec<usize> = removals
+                    .iter()
+                    .map(|&(_, n)| {
+                        running += n;
+                        running
+                    })
+                    .collect();
+                // Removals do not overlap: only the last one that starts before `p` can have
+                // `p` inside it.
+                let map = |p: usize| {
+                    let k = removals.partition_point(|&(s, _)| s < p);
+                    if k == 0 {
+                        return p;
+                    }
+                    let (s, n) = removals[k - 1];
+                    p - (upto[k - 1] - n + n.min(p - s))
+                };
+                for s in &mut cur {
+                    s.anchor = map(s.anchor);
+                    s.caret = map(s.caret);
+                    s.goal_col = None;
+                }
+                let mut cmd = Cmd::new(buf);
+                for &(s, n) in removals.iter().rev() {
+                    cmd.replace(s..s + n, "");
+                }
+                let out = cmd.finish(hist, Kind::Other, before, cur[p]);
                 add(out.change);
             }
         }

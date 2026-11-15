@@ -698,3 +698,48 @@ fn too_large_looks_at_each_block() {
     ));
     assert!(too_large(&buf, &sels, 0, LineOp::Join));
 }
+
+// ---- outdent
+
+#[test]
+fn outdent_two_carets_take_a_tab_off_each_line() {
+    assert_eq!(
+        go("\ta^\nx\n\t\tb^", LineOp::Outdent(Indent::Tab, 4)),
+        "a^\nx\n\tb^"
+    );
+}
+
+#[test]
+fn outdent_selections_share_lines_and_remove_once() {
+    // Both selections touch line 1: it loses one unit, not two.
+    assert_eq!(
+        go("  [a\n  b] [c]\n  d", LineOp::Outdent(Indent::Spaces(2), 4)),
+        "[a\nb] [c]\n  d"
+    );
+}
+
+#[test]
+fn outdent_a_caret_inside_the_removed_spaces_goes_to_the_line_start() {
+    assert_eq!(
+        go("  ^  x\n    y^", LineOp::Outdent(Indent::Spaces(4), 4)),
+        "^x\ny^"
+    );
+    // Spaces up to the unit only.
+    assert_eq!(
+        go("      ^x\n  ^y", LineOp::Outdent(Indent::Spaces(4), 4)),
+        "  ^x\n^y"
+    );
+}
+
+#[test]
+fn outdent_with_nothing_to_remove_changes_nothing() {
+    assert_eq!(go("a^\nb^", LineOp::Outdent(Indent::Tab, 4)), "a^\nb^");
+}
+
+#[test]
+fn outdent_a_column_of_carets_and_lines_without_indent_are_left() {
+    assert_eq!(
+        go("\t^a\nb\n\t^c", LineOp::Outdent(Indent::Tab, 4)),
+        "^a\nb\n^c"
+    );
+}
