@@ -491,6 +491,9 @@ fn display_width(s: &str) -> usize {
         .sum()
 }
 
+/// Byte ranges in a line.
+type Spans = Vec<(usize, usize)>;
+
 /// A line of the table.
 pub(crate) struct Row {
     /// The line's content range in the buffer.
@@ -505,7 +508,7 @@ pub(crate) struct Row {
     pub lead: usize,
     /// For a line that starts like a list item before a pipe: how it reads as the header of a
     /// table that starts a list item (`- | a |`): its separators, its cells and its `lead`.
-    pub marked: Option<(Vec<(usize, usize)>, Vec<(usize, usize)>, usize)>,
+    pub marked: Option<(Spans, Spans, usize)>,
 }
 
 /// A table found around a caret.
