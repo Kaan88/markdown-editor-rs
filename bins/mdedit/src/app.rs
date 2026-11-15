@@ -81,6 +81,8 @@ const SHOT_COLOUR_WAIT: Duration = Duration::from_secs(10);
 const PANE_WHEEL: f32 = 90.0;
 /// Pointer travel that still counts as the same spot for a double click.
 const CLICK_SLOP: f32 = 4.0;
+/// How wide the east resize band stays over a vertical scrollbar at the right edge, in logical px.
+const SCROLLBAR_EDGE: f32 = 3.0;
 
 /// Wakes the loop from other threads; the data travels on channels.
 #[derive(Debug)]
@@ -1753,8 +1755,31 @@ impl App {
         if self.maximized || self.window.is_none() {
             return None;
         }
+        self.resize_band(x, y)
+    }
+
+    /// The resize direction at the point for a restored window, without asking the window.
+    ///
+    /// The band is 8 px wide, and a vertical scrollbar at the window's right edge (the text, the
+    /// second pane or the results panel with no minimap beside it) has its thumb 3 to 11 px from
+    /// that edge: the east band over such a track shrinks to the outermost [`SCROLLBAR_EDGE`] px,
+    /// which the thumb never covers, so the bar can be grabbed and the edge still resizes. The
+    /// corners keep their full band.
+    fn resize_band(&self, x: f32, y: f32) -> Option<ResizeDirection> {
         let (w, h) = self.logical();
-        mdshared_ui::window::edge_at(x, y, w, h)
+        let dir = mdshared_ui::window::edge_at(x, y, w, h);
+        if dir == Some(ResizeDirection::East)
+            && x < w - SCROLLBAR_EDGE
+            && matches!(
+                self.hit_at(x, y),
+                Some(Hit::ScrollBar(
+                    Scroller::Text | Scroller::OtherText | Scroller::Results
+                ))
+            )
+        {
+            return None;
+        }
+        dir
     }
 
     fn set_cursor(&mut self, c: CursorIcon) {
@@ -3165,6 +3190,44 @@ mod tests {
         assert_eq!(edge(-5.0, -5.0, 800.0, 600.0), Some(D::NorthWest));
         assert_eq!(edge(804.0, 603.0, 800.0, 600.0), Some(D::SouthEast));
         assert_eq!(edge(400.0, 300.0, 800.0, 600.0), None);
+    }
+
+    /// In a restored window the vertical scrollbar at the right edge can be grabbed: the resize
+    /// band over its track is only the outermost pixels, which the thumb does not cover, and the
+    /// rest of the right edge, the corners and the other edges still resize.
+    #[test]
+    fn the_scrollbar_at_the_right_edge_is_not_covered_by_the_resize_band() {
+        use super::files_tests::{app, open_now, scratch};
+        use winit::window::ResizeDirection as D;
+        let dir = scratch("band");
+        let long: String = (0..400).map(|i| format!("line {i}
+")).collect();
+        std::fs::write(dir.join("long.txt"), long).unwrap();
+        let mut a = app();
+        open_now(&mut a, &dir.join("long.txt"));
+        a.compose();
+        let (w, h) = a.logical();
+        let (_, track) = {
+            let r = a.areas.text;
+            (r, a.hit_rect(Hit::ScrollBar(Scroller::Text)).expect("a scrollbar"))
+        };
+        assert!((track.right() - w).abs() < 0.5, "the bar is at the window's edge");
+        let y = track.cy();
+        // Where the thumb is drawn (3 to 11 px from the edge) the press goes to the bar.
+        for dx in [4.0, 6.0, 7.5, 11.0] {
+            assert_eq!(a.resize_band(w - dx, y), None, "{dx} px from the edge");
+            assert_eq!(a.hit_at(w - dx, y), Some(Hit::ScrollBar(Scroller::Text)));
+        }
+        // The outermost pixels still resize, and so do the corners and the other edges.
+        assert_eq!(a.resize_band(w - 1.0, y), Some(D::East));
+        assert_eq!(a.resize_band(w - 6.0, h - 4.0), Some(D::SouthEast));
+        assert_eq!(a.resize_band(w - 6.0, 2.0), Some(D::NorthEast));
+        assert_eq!(a.resize_band(2.0, y), Some(D::West));
+        assert_eq!(a.resize_band(w / 2.0, h - 2.0), Some(D::South));
+        // With no scrollbar beside the point the old band stands.
+        let above = a.areas.title.cy();
+        assert_eq!(a.resize_band(w - 6.0, above.max(14.0)), Some(D::East));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Every pixel of a composed frame has alpha 255: the client-drawn shadow's surface honours
