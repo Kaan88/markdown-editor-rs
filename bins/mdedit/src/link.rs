@@ -50,6 +50,10 @@ pub const GRACE: Duration = Duration::from_secs(5);
 pub const TEXT_RETRY: Duration = Duration::from_secs(5);
 /// Between two tries during the grace time.
 const RETRY: Duration = Duration::from_millis(250);
+/// How far along its line the caret moves before the viewer is told again, in bytes: a line
+/// that is longer than this wraps to several rows in the viewer, and the viewer shows the row
+/// the caret is in. Moving inside a shorter stretch sends nothing.
+pub const COLUMN_STEP: u32 = 32;
 /// How long the exit waits for the courier to tell the viewer the links are over.
 const FINISH_WAIT: Duration = Duration::from_millis(300);
 
@@ -104,6 +108,9 @@ pub struct Opening {
 pub struct Update {
     pub target: Target,
     pub line: u32,
+    /// The caret's byte in that line, from 1: where along a line that wraps the viewer is to
+    /// be. A viewer that predates it shows the line's beginning.
+    pub column: u32,
     /// Until when a send nobody answers is tried again.
     pub retry_until: Instant,
     /// The text, when the preview is live: its version and a snapshot. `None` when it is not.
@@ -121,6 +128,7 @@ impl Update {
             open: self.open.is_some(),
             place: self.open.and_then(|o| o.place),
             line: Some(self.line),
+            column: Some(self.column),
             from: Some(FROM.into()),
             ..self.target.request()
         }
@@ -152,6 +160,8 @@ pub struct Active {
     pub id: DocId,
     /// The caret's line, from 1.
     pub line: u32,
+    /// The caret's byte in that line, from 1.
+    pub column: u32,
     pub version: Version,
     /// Its text is to be sent: the setting is on, it is within the cap, and the document differs
     /// from its saved state (otherwise the viewer shows the file, and is told to go back to it
@@ -167,8 +177,8 @@ struct Linked {
     target: Target,
     /// The viewer has not been asked to show it yet (a document without a file).
     open: Option<Opening>,
-    /// The line the viewer was last told.
-    sent: Option<u32>,
+    /// The line the viewer was last told, and how many [`COLUMN_STEP`]s along it.
+    sent: Option<(u32, u32)>,
     /// The version of the text last handed to the courier; `None` when none was, or not live.
     sent_version: Option<Version>,
     retry_until: Instant,
@@ -220,7 +230,8 @@ impl Links {
             id,
             target,
             open: None,
-            sent: line,
+            // The opening names the line alone: a caret further along it is told next.
+            sent: line.map(|line| (line, 0)),
             sent_version: version,
             retry_until: now + GRACE,
         });
@@ -347,7 +358,8 @@ impl Links {
         } else {
             link.sent_version.is_some()
         };
-        if link.sent == Some(active.line) && !text_due && link.open.is_none() {
+        let at = (active.line, active.column.saturating_sub(1) / COLUMN_STEP);
+        if link.sent == Some(at) && !text_due && link.open.is_none() {
             return Poll::default();
         }
         let ready = self.sent_at.map(|t| t + INTERVAL);
@@ -358,12 +370,13 @@ impl Links {
             };
         }
         self.sent_at = Some(now);
-        link.sent = Some(active.line);
+        link.sent = Some(at);
         link.sent_version = active.live.then_some(active.version);
         Poll {
             send: Some(Update {
                 target: link.target.clone(),
                 line: active.line,
+                column: active.column,
                 retry_until: link.retry_until,
                 text: None,
                 open: link.open.take(),
@@ -414,9 +427,12 @@ impl Docs {
         let active = doc.and_then(|d| {
             let r = d.ready()?;
             let no_file = d.path.is_none();
+            let caret = r.view.sel.caret;
+            let line = r.buffer.line_of(caret);
             Some(Active {
                 id: d.id,
-                line: r.buffer.line_of(r.view.sel.caret) as u32 + 1,
+                line: line as u32 + 1,
+                column: (caret - r.buffer.line_range(line).start) as u32 + 1,
                 version: (d.revision, r.buffer.revision()),
                 live: (live || no_file)
                     && r.buffer.len_bytes() <= MAX_TEXT
@@ -717,6 +733,7 @@ mod tests {
         Some(Active {
             id: 1,
             line,
+            column: 1,
             version: (1, edit),
             live,
         })
@@ -762,6 +779,65 @@ mod tests {
             count += links.poll(at(base, ms), doc(line, 0, false)).send.is_some() as u32;
         }
         assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn a_caret_moving_along_a_long_line_tells_the_viewer_every_stretch() {
+        let base = Instant::now();
+        let mut links = linked(base);
+        let along = |column| {
+            Some(Active {
+                column,
+                ..doc(5, 0, true).unwrap()
+            })
+        };
+        // Inside the first stretch of the line the viewer was opened at: nothing.
+        assert_eq!(
+            links.poll(at(base, 200), along(COLUMN_STEP)),
+            Poll::default()
+        );
+        // Past it: the line again, with the caret's byte in it.
+        let sent = links
+            .poll(at(base, 200), along(COLUMN_STEP + 1))
+            .send
+            .unwrap();
+        assert_eq!((sent.line, sent.column), (5, COLUMN_STEP + 1));
+        let r = sent.request();
+        assert_eq!((r.line, r.column), (Some(5), Some(COLUMN_STEP + 1)));
+        assert!(r.follow && r.text.is_none());
+        // Within that stretch nothing more, and the pace is the usual one.
+        assert_eq!(
+            links.poll(at(base, 400), along(2 * COLUMN_STEP)),
+            Poll::default()
+        );
+        let held = links.poll(at(base, 250), along(900));
+        assert_eq!((held.send, held.due), (None, Some(at(base, 300))));
+        let sent = links.poll(at(base, 300), along(900)).send.unwrap();
+        assert_eq!(sent.column, 900);
+        // Back to the start of the line is a move too; another line counts from its start.
+        assert!(links.poll(at(base, 500), along(1)).send.is_some());
+        let other = Some(Active {
+            column: 3,
+            ..doc(6, 0, true).unwrap()
+        });
+        assert_eq!(
+            links
+                .poll(at(base, 700), other)
+                .send
+                .map(|u| (u.line, u.column)),
+            Some((6, 3))
+        );
+        // The wire carries it as `?col=`, which a viewer that predates it skips.
+        let wire = String::from_utf8(r.to_wire(VIEWER)).unwrap();
+        assert!(
+            wire.contains(&format!(
+                "?line=5
+?col={}
+",
+                COLUMN_STEP + 1
+            )),
+            "{wire}"
+        );
     }
 
     #[test]
@@ -864,6 +940,7 @@ mod tests {
         Update {
             target: "/a.md".into(),
             line,
+            column: 1,
             retry_until,
             text: None,
             open: None,
