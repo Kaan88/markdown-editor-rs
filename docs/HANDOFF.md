@@ -15,8 +15,8 @@ merged, plus a taller single-page settings form for the viewer); mdview's `merge
 pins the same commit and holds the viewer side of live preview of unsaved documents, finer sync,
 the window backdrop and Restart. At this head on the Windows PC: fmt and clippy `-D warnings`
 clean, 806 tests pass, release build made; a system close request (`WM_CLOSE`) closed the window
-in 0.3 s. CI was started for the head; read it with
-`gh run list --workflow ci.yml --branch merge/next-release --limit 1`. Left to the owner: looking
+in 0.3 s. CI passed on Linux and Windows at this head
+(editor run 43686313531, shared run 43686315745, viewer run 43689394395). Left to the owner: looking
 at the interface, a real update followed by Restart, Linux, then merging `merge/next-release`
 into `main` in the three repositories, the version numbers and the tags. Nothing was merged into
 `main`, bumped, tagged or published.
