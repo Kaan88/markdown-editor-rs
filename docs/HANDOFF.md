@@ -32,7 +32,9 @@ The owner continues from a fresh clone on Windows. Read this section, then
   merge folds that file into README, DESIGN, PLAN, HANDOFF and `docs/release-notes/NEXT.md` and
   deletes it. Branches whose state is WIP may not have it yet. The five files of the branches
   merged into `merge/next-release` were folded on 2026-11-15 (DESIGN sections 57 to 61,
-  `docs/release-notes/NEXT.md`, the section "Five features merged on `merge/next-release`" below).
+  `docs/release-notes/NEXT.md`, the section "Five features merged on `merge/next-release`" below);
+  those of the four merged in the third session were folded the same day (DESIGN sections 65
+  to 67, "Four more features merged").
 - Merge order into `next`: shared branches into the shared repo's `next` first, then the app
   branch; set every `mdshared-*` pin to the shared `next` head; keep third-party crates in
   `Cargo.lock` as on `main`. Central tables (menus, commands, keys, strings, settings rows,
@@ -51,11 +53,11 @@ No branch below was reviewed by the main session unless it says so.
 
 | Branch | Feature | Head | State |
 |---|---|---|---|
-| `merge/next-release` | the six features marked "merged" below and `f/paste-image-files`, merged together | see `git log` | CI green at `95edf8d` on Linux and Windows, not read for the head; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
+| `merge/next-release` | the six features marked "merged" below, `f/paste-image-files`, and (third session of 2026-11-15, not seen by CI or the owner) `f/live-preview-unsaved`, `feat/restart-after-update`, `f/frosted-window`, `f/finer-sync`, merged together | see `git log` | CI green at `95edf8d` on Linux and Windows, not read for the head; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
 | `f/paste-image-files` | paste image files copied in the file manager as links | see `git log` (finished in the second session of 2026-11-15) | finished on Windows: clippy clean, all tests pass, tried in a real window by script (see "Second session of 2026-11-15"); merged into `merge/next-release` on the owner's word ("Merge it", 2026-11-15) without a hand test by the owner; a CI run was started at `b5185e9` (run 43651515645) and its result was not read; Linux not done |
 | `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; superseded by `f/rounded-corners` |
 | `f/rounded-corners` | rounded corners on top of `merge/next-release`, pins shared `f/rounded-corners` | see `git log` | CI green on Linux and Windows; merged into `merge/next-release` on the owner's word (2026-11-15); never seen on a Linux desktop; see "Rounded corners, second session" |
-| `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged; waits for a hand test on Windows |
+| `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; merged into `merge/next-release` in the third session of 2026-11-15 with the bar reworded; the relaunch was tried by script, a real update and Restart never (see "Four more features") |
 | `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
 | `f/multicaret-line-commands` | multi-caret in the line commands | `aaba1fa` | CI green; reviewed; merged into `merge/next-release` |
 | `f/compare-copy-across` | copy a change across in compare | `4d4ff2b` | CI green; reviewed; merged into `merge/next-release` |
@@ -63,8 +65,9 @@ No branch below was reviewed by the main session unless it says so.
 | `f/autosave-recovery` | autosave and crash recovery | `4750c39` | CI green; reviewed; merged into `merge/next-release` (with the data-loss fix `867f197`) |
 | `f/column-selection` | column (block) selection | `3785c7d` | CI green; reviewed; merged into `merge/next-release` |
 | `f/word-completion` | word completion and snippets | see `git log` (finished in the second session of 2026-11-15) | CI green on Linux and Windows at `7b91273` (run 43652712584); merged into `merge/next-release` on the owner's word ("Merge it", 2026-11-15); the owner has not looked at the list (see "Word completion, second session of 2026-11-15") |
-| `f/live-preview-unsaved` | live preview of a never-saved file (both apps) | `8019a35` | **not started** (branch equals the plan commit) |
-| `f/finer-sync` | finer scroll sync inside long blocks (both apps) | `8019a35` | **not started** |
+| `f/live-preview-unsaved` | live preview of a never-saved file (both apps) | see `git log` | finished on Windows; merged into `merge/next-release` in the third session of 2026-11-15; the viewer's side is on its branch of the same name, **not merged there** |
+| `f/finer-sync` | finer scroll sync inside long blocks (both apps) | see `git log` | finished on Windows; merged into `merge/next-release` in the third session of 2026-11-15; the viewer's side (most of the work) is on its branch of the same name, **not merged there** |
+| `f/frosted-window` | Window backdrop setting (Mica, Acrylic; Windows 11; off by default) | see `git log` | finished on Windows; merged into `merge/next-release` in the third session of 2026-11-15; the owner has not looked at it |
 
 "CI green" on a feature branch may be from an earlier interrupted agent's state of the feature:
 read the diff against the spec before trusting that the feature is complete.
@@ -264,16 +267,23 @@ tables adds a row only from the last cell of the last row: as designed. Both que
    files is in it now).
 2. The owner decides: merge `merge/next-release` into `main`, the version number, the release.
    None of that was done or asked for.
-3. `feat/restart-after-update`: needs a real update and Restart staged by hand (above).
+3. `feat/restart-after-update` is merged (third session); a real update and Restart staged by
+   hand (above) is still to do before a release.
 4. Rounded corners are merged; the owner looks at them on a Linux desktop and decides the KDE
    shadow route. The shared branch `f/rounded-corners` (`c8b7d97`) is pinned by rev and is not
    the shared `main`; the viewer has no branch for the corners.
-5. `f/live-preview-unsaved`, then `f/finer-sync`, and the frosted window (a spike on
-   `spike/frosted-window`, then the feature on `f/frosted-window`) were given to two other
-   sessions on 2026-11-15 (worktrees under `Desktop\md-wt`); their results are not in this
-   file yet.
-6. The frosted window (Mica, Acrylic, blur on Wayland): on the roadmap in `docs/PLAN.md`, starts
-   with a spike on Windows.
+5. `f/live-preview-unsaved`, `f/finer-sync` and `f/frosted-window` are merged (third session,
+   see "Four more features merged on `merge/next-release`" below). They need the mdview of the
+   same release: the viewer's sides are on the viewer's branches `f/live-preview-unsaved`,
+   `f/finer-sync` and `f/frosted-window` (the last with the backdrop wired into mdview and the
+   Restart button merged), prepared and pushed but **not merged** into the viewer's
+   `merge/next-release`, which another session was finishing at the time.
+6. The owner looks at the Window backdrop in a real window (both themes, Mica and Acrylic) and
+   decides the points listed under "Four more features"; blur on Wayland is not started.
+7. The shared pin is the branch `merge/editor-next` of markdown-shared-rs (`f/rounded-corners`
+   with the four features' shared branches merged), not the shared `main`. The viewer's
+   `merge/next-release` pins another shared branch (`merge/viewer-next`); before a release the
+   two have to become one.
 
 Known small gaps in what is merged: two column-paste edge cases (a plain copied line into a
 two-row column; cut and paste-back with an empty last row); a backed-up file that was deleted and
@@ -297,15 +307,240 @@ on Linux an image paste runs `wl-paste` or `xclip` on the UI thread.
 
 - 0.5.1 / 0.3.1 fixed submenus closing before the pointer reached them (see the release section
   below). The owner has not yet confirmed it by hand.
-- Restart button: built and reviewed, CI green, but **no real restart was ever performed**. When
-  merging, reword the installed-bar text when Restart is shown (it still says the new version
-  starts the next time the app is opened, next to a button that restarts now).
+- Restart button: built and reviewed, CI green, but **no real restart was ever performed**. The
+  installed-bar text was reworded when it was merged (third session of 2026-11-15).
 - Viewer Settings on one page: reviewed on screenshots. Its `Cargo.lock` also moved `windows-sys`
   and `base64`; do not carry that. The Linux-only "make default" row was in no screenshot.
 - Rounded corners: owner said "do rounded corners". Work is on `next` in both apps and shared; the
   apps' `next` CI is green but shared `next` CI failed, and nobody reviewed the result.
 - The Linux worktrees (`~/src/md/wt/*`, `~/src/md/*-next`) and build caches are local to the Linux
   machine and are not needed: every branch is on GitHub.
+
+## Four more features merged on `merge/next-release` (2026-11-15, third session; not in `main`, not published, not seen by CI or by the owner)
+
+Merged in this order, one `--no-ff` merge each: `f/live-preview-unsaved`,
+`feat/restart-after-update`, `f/frosted-window`, `f/finer-sync`. The notes of
+`docs/next/<key>.md` are folded in: the design text is DESIGN sections 65 to 67 (the Restart
+button is in the section on updates), the release notes are in `docs/release-notes/NEXT.md`.
+All `mdshared-*` pins are the head of the shared branch `merge/editor-next` (`c9ba573`): shared
+`f/rounded-corners` with `f/live-preview-unsaved`, `f/finer-sync`, `f/frosted-window` and
+`feat/restart-after-update` merged, plus two commits made there (the bar's wording, the
+backdrop's state moved in from the editor). No third-party crate moved in `Cargo.lock`.
+
+Checked at the head on Windows 11: `cargo fmt --all --check`, `cargo clippy --workspace
+--all-targets -- -D warnings`, `cargo test --workspace` (270 passed in mdedit's own suite, 536
+in the other crates; none failed). `tests/shots.sh` against the set of the branch before
+these merges (`2f4fcd0`): 184 of 196 byte-identical. The 12 that differ are the eleven Settings
+shots (one more row, "Window backdrop", so the list is longer and the thumb shorter) and
+`update-installed` (the bar's new sentence). Six are new: `settings-view-backdrop`,
+`update-installed-plain`, `menu-view-untitled`, `menu-tab-untitled-linked-dark`,
+`previewing-untitled`, `previewing-untitled-dark`. No shortcut was added by any of the four, so
+there is no clash to check.
+
+### Preview of a document that has no file (`f/live-preview-unsaved`)
+
+Built:
+
+- `bins/mdedit/src/link.rs`: `Target::{File, Untitled}`, `doc_name`, `Opening`, `Links::
+  link_untitled`, `Links::saved`, `Links::take_older`; the courier's send returns the shared
+  `Delivery`; `Docs::link_poll` turns the link of a saved document into a link to its file and
+  always sends the text of a document without a file.
+- `bins/mdedit/src/app/handoff.rs`: `preview_untitled`, `handed_untitled`.
+- Strings: `PREVIEW_UNSAVED_TOO_LARGE`, `PREVIEW_VIEWER_OLDER`; `PREVIEW_NEEDS_FILE` is gone
+  (nothing says it any more).
+- Arguments for shots and scripts: `--new` (start with an untitled document in front);
+  `--demo-link` now also marks an untitled document as previewed.
+- Shots: `menu-view-untitled`, `menu-tab-untitled-linked-dark`, `previewing-untitled`,
+  `previewing-untitled-dark`.
+
+Decisions taken, for the owner to confirm:
+
+- The text of an unsaved document is sent live even with "Live preview while typing" off.
+- The preview commands are listed for every document without a file, not only once its language
+  is set to Markdown.
+- Over 2 MiB such a document is not previewed at all (a toast).
+- With an older mdview the editor says so and ends the link; the viewer was started bare by then
+  and stays open, empty.
+- `--new` was added as a launch argument.
+
+Tried in real windows on Windows 11 (release builds, scratch settings, driven by script): Preview
+side by side on a new document started mdview and tiled the two windows; typing updated the
+viewer; a relative image and link showed as missing; Save As through the real dialog turned the
+viewer's tab into the file's with no second tab; typing after the save was live again; a second
+untitled document was previewed beside it and its preview stopped.
+
+Budgets, measured on this PC with `--trace` on release builds of the base (`5ccd143`) and of
+this branch, run in turn: first frame of `fixtures/sample.md` 111 to 124 ms before and 112 to
+124 ms after (the machine was busier than when the PLAN's figures were taken); keystroke to
+pixels p50 0.73 ms, p95 0.84 to 0.88 ms before and p50 0.72 ms, p95 0.86 to 0.98 ms after;
+scroll frame p50 0.61 ms before and 0.62 ms after. Nothing runs for the feature until a
+document is previewed. Not measured: memory, the 100 MB file (no code on those paths changed).
+
+Not verified:
+
+- Linux in real windows (CI runs the tests and shots there; the unix-only test
+  `preview_of_a_document_without_a_file_starts_the_viewer_bare` runs only on CI).
+- A really older mdview binary: the case is covered by a test with a receiver that answers as
+  the old code does, and by a shared test, not by running mdview 0.3.1.
+- "Edit in mdedit" from the viewer's untitled tab in real windows (app-level tests on both sides
+  only).
+
+### The preview follows the caret inside long blocks (`f/finer-sync`)
+
+Built:
+
+- `bins/mdedit/src/link.rs`: `Active::column`, `Update::column`, `COLUMN_STEP`; `Linked::sent`
+  is the line and the stretch of it; `Docs::link_poll` reads the caret's byte in its line.
+- Tests: `link::tests::a_caret_moving_along_a_long_line_tells_the_viewer_every_stretch`,
+  `app::handoff::tests::the_caret_in_a_long_line_tells_the_viewer_how_far_along_it_is` (through
+  a stand-in for the viewer's window: the column on the wire, in bytes for two-byte letters, the
+  text with it, and the caret put at a column the viewer names).
+
+Decisions taken, for the owner to confirm:
+
+- The column is a byte offset, not a character or a visual column: it is what `--goto` already
+  meant, and the viewer maps bytes of the file.
+- 32 bytes is the stretch: about a third of a row of the preview at its usual width.
+- No shot: nothing new is visible in the editor.
+
+Budgets, measured on this PC (Windows 11, release builds, three runs each of
+`--trace --type-steps 200` and `--trace --scroll-steps 120` on the 610-line test document, no
+preview running): keystroke to pixels p50 0.58 to 0.59 ms before (`merge/next-release` at
+`2f4fcd0`) and 0.58 ms after, p95 0.62 to 0.64 and 0.63 to 0.66; a scroll step's own work p50
+0.39 to 0.40 ms before, 0.40 ms after. No difference beyond the runs' own spread.
+Nothing runs for it while no document is previewed; while one is, a pass of the loop reads one
+more number from the buffer (the start of the caret's line).
+
+Tried in real windows on Windows 11: a script started this mdedit on a 610-line
+test document with `--run PreviewSideBySide`, which started the mdview of the same branch beside
+it (both with scratch settings), posted arrow, Home and End keys to the editor's window and saved
+each window's own picture after each. Seen: the preview follows the caret through a 300-line code
+block and a 300-line paragraph, and along a 27000-byte one-line paragraph (byte 9000, End, Home);
+the first update after the hand-over carries the column. Not tried in a real window: the viewer's
+"Edit in mdedit" with a column (tested headless), typing with live text on a long line, and
+anything by hand.
+
+Not verified: Linux in real windows; a person's judgement of how the following feels.
+
+### Window backdrop (`f/frosted-window`)
+
+**Built.** As above. Shared commits `74a2273`, `9aab56b` and, on `merge/editor-next`, `c9ba573`
+(the state moved to the shared crate); the editor pinned `9aab56b` on this branch before the merge (only the
+`mdshared-*` entries of `Cargo.lock` changed; one new windows-sys feature, `Win32_System_Power`,
+no new crate). Unit tests: the type and its keys, the key-out arithmetic (exact over the key,
+opaque stays opaque, premultiplied), `backdrop_allowed`, the state machine in `frost.rs`, and four
+app-level tests on composed frames (chrome marked and text not, at scale 1 and 1.5; a menu over
+the chrome opaque and its shadow not; a dialog; unfocused or off: every pixel opaque).
+
+**Setting off is unchanged.** `tests/shots.sh` before and after, compared byte for byte: 179 of
+188 identical. The 9 that differ are all Settings shots and differ only because of the new row:
+`settings`, `settings-dark`, `settings-narrow`, `settings-scale`, `settings-complete` (the
+scrollbar thumb is a few pixels shorter) and `settings-preview`, `-dark`, `-narrow`, `-scale`
+(the list is one row longer). In a real window, a capture of the new build with the setting off is
+identical to a capture of the build before the feature, in both themes (window area, 0 differing
+pixels).
+
+**Numbers** (release builds, this PC: Windows 11 build 26300, 3440x1440, scale 1; `measure.sh` in
+`docs/captures/frosted-window/`, 15 interleaved starts, 3 x 300 keystrokes, 3 x 300 scroll steps on a
+50,000-line file; "before" is the base commit's build):
+
+| | before | off | Mica | Acrylic |
+|---|---|---|---|---|
+| first frame, ms (median; min-max) | 81.7 (79.2-98.1) | 81.9 (79.6-88.2) | 83.9 (82.1-90.9) | 84.3 (80.8-94.3) |
+| private memory, MiB (median) | 27.6 | 27.6 | 27.7 | 27.8 |
+| keystroke to pixels, ms (p50 / p95) | 0.45 / 0.51-0.63 | 0.45-0.47 / 0.54-0.60 | 0.65 / 0.78-0.83 | 0.66 / 0.81-0.83 |
+| scroll step, own work, ms (p50 / p95) | 0.42 / 0.57-0.60 | 0.41-0.42 / 0.49-0.55 | 0.41 / 0.53-0.58 | 0.41-0.42 / 0.49-0.61 |
+
+Off is the same as before within the noise. On: about 2 ms on the first frame (the two system
+calls and one more full frame), about 0.2 ms on a keystroke, nothing on scrolling. Where the
+0.2 ms on a keystroke goes was not traced further; it is the cost of keying out the chrome that a
+keystroke repaints. It can be looked at if the owner keeps the feature.
+
+**Captures** (`docs/captures/frosted-window/`, taken by `capture.sh` over a striped pattern window;
+screen grabs, so what the compositor put out, not what the eye judges):
+`{dark,light}-{off,mica,acrylic}-{active,inactive}.png`, `dark-{mica,acrylic}-{settings,palette,menu}.png`,
+`light-acrylic-menu.png`, and `before-{dark,light}-active.png` from the base build. The inactive
+captures are identical to the base build's except where the small window that took the keyboard
+overlaps them (the checkered rectangle at the right edge).
+
+**For the owner to decide.**
+
+1. The look itself, by eye, in both themes: Mica is subtle (a tint of the wallpaper; over the
+   striped pattern it reads as almost flat), Acrylic is the visible one.
+2. The Acrylic veil (150 of 255): lower shows more of what is behind and costs legibility.
+3. Frosted only while the window is active. This follows the system, which removes the material
+   from inactive windows; the chrome then switches to the flat colours.
+4. The row is shown only in Windows builds, and on Windows 10 it is shown but does nothing (the
+   help line says "Windows 11"). Hiding it there is a small change if wanted.
+5. Mica Alt left out.
+6. Nine existing Settings shots change because of the row.
+
+**Not run.**
+
+- Transparency effects off, battery saver, high contrast, Windows 10, Windows 11 before 22H2: no
+  system setting was changed and no other machine was used. Covered only by `backdrop_allowed`'s
+  unit tests and the documented behaviour of the calls. On Windows 10 the two calls are never made
+  because the build check fails first.
+- Maximized, snapped, full-screen, minimized and restored, a second monitor, scale factors other
+  than 1 in a real window (scale 1.5 is covered headless).
+- Dragging and resizing the window by hand; the spike measured resizing with route 4 and found no
+  cost, the feature was not driven that way.
+- Changing the setting in the dialog by hand in a real window (the captures start with the
+  setting already chosen; the change path is covered by the unit tests of `Frost::sync`).
+- Remote desktop and software-rendered sessions.
+- Linux: nothing changes there (the row is absent, the platform calls return false); checked by CI
+  only.
+- The viewer: wired on the viewer's branch `f/frosted-window` (same shared code and setting row),
+  not merged there; see "What is left".
+
+### Restart after an update (`feat/restart-after-update`)
+
+- Built on its branch earlier (reviewed then); merged here. Next to the Restart button the bar
+  now reads "mdedit X is installed. Restart to use it." (shared `Updates::bar_label_with`);
+  where there is no file to start (a copy that cannot update itself) it keeps "It starts the
+  next time you open mdedit." and has no button. Shots `update-installed` and
+  `update-installed-plain` show the two.
+- Tried by script on Windows 11 with a release build and scratch settings: a window was open; a
+  second process without the mark handed its file to that window and returned in 0.1 s; a second
+  process started with `--restarted` (what Restart starts) waited the 5 s until the first
+  window had closed, then opened its own window with the session's tabs and its file. So the new
+  process does not hand its files to the window that is closing.
+- **Not tried**: a real update followed by a click on Restart (it needs a second build with a
+  higher version on an https host, see "Review results" above); the click itself in a real
+  window (with `--update-bar installed` there is no installed file to start); Restart with
+  unsaved changes and a cancelled Save question (tested headless on the branch); an AppImage.
+
+### Decisions taken without the owner (third session)
+
+- The order of the merges: live preview, Restart, frosted window, finer sync. The frosted branch
+  could only be built against a shared head that has the Restart button's bar, so Restart went
+  in before it; finer sync was finished last.
+- The shared branch `merge/editor-next` was built up merge by merge while the editor's merges
+  were made, and each editor merge pinned its head at the time; the final pin is `c9ba573`.
+- The installed bar's sentence beside the button: "mdedit X is installed. Restart to use it."
+- The backdrop's state (`Frost`: when the chrome is frosted, what the system was asked) was
+  moved from the editor into the shared crate (`mdshared_ui::frost`), so mdview uses the same
+  code; the editor keeps only the list of its frosted regions.
+- finer sync: the column sent to the viewer is a byte in the line (what `--goto line:column`
+  already meant); an update is due every 32 bytes along a line (`link::COLUMN_STEP`); on the
+  viewer's side the follow step stays 48 px in both directions (an earlier session's smaller
+  step upwards broke an existing test and was taken out) and the places of lines are noted at
+  every parse (about 3 % of a parse, 12 bytes for a line of the file).
+- The captures of the frosted window were kept, moved from `docs/next/frosted-shots/` to
+  `docs/captures/frosted-window/` (3.7 MB of PNGs with the two scripts that made them). Delete
+  the folder if they are not wanted in the repository.
+- The viewer's sides were prepared on branches and not merged (the brief said so): see "What is
+  left".
+
+### Not verified (third session)
+
+- Nothing was looked at by the owner. Every real-window run was a script's: posted keys and the
+  windows' own pictures, a few seconds each, with scratch settings.
+- CI was not started for the head; Linux was not run at all in this session.
+- The three features that involve mdview were tried in real windows only with the viewer's
+  feature branches' builds, never with the viewer's `merge/next-release`.
+- A real update and Restart; the frosted window's list under "Not run" above; "Edit in mdedit"
+  with a column in real windows.
 
 ## Five features merged on `merge/next-release` (2026-11-15, not in `main`, not published)
 

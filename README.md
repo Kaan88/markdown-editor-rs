@@ -50,10 +50,17 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
 - **Command palette (Ctrl+P)** for tabs, files, commands, line numbers and symbols, and
   **Settings (Ctrl+,)** for the preferences.
 - **With mdview:** Preview in mdview (Ctrl+Shift+V) opens the file in the viewer at the caret's
-  line, and keeps the viewer on your unsaved text while you type (live preview, up to 2 MiB).
+  line, and keeps the viewer on your unsaved text while you type (live preview, up to 2 MiB);
+  Preview side by side also puts the two windows next to each other. The preview follows the
+  caret line by line inside long paragraphs, lists, code blocks and tables, and along a paragraph
+  written as one long line. A document that was never saved is previewed too: mdview shows its
+  text under the tab's name, and when you save it the preview becomes the file's.
 - **Window:** rounded corners (Settings > Window corners: Square, Small or Round; Round, 8 px at
   100 %, is the default). Windows 11 draws them itself; on Wayland the window draws its own shape
   and shadow; where the window is opaque (X11, KDE with a square setting) it stays square.
+- **Window backdrop** (Windows 11, off by default): Settings > View > Window backdrop lets the
+  system's Mica or Acrylic material show through the title row and tab strip, the bar, the side
+  pane and the status strip. The text, menus and dialogs stay solid.
 - Changes a file's line endings and encoding from the status bar, wraps long lines (Alt+Z),
   keeps unsaved text when the window closes and puts it back at the next start, keeps a copy of
   every changed document in the background so unsaved text also survives a crash, a kill or a

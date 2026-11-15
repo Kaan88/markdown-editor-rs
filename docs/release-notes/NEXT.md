@@ -1,6 +1,7 @@
 The next release, not yet versioned or released: column selection, copy a change across in
-compare, line commands at every caret, Markdown table editing, pasting an image, and crash
-recovery.
+compare, line commands at every caret, Markdown table editing, pasting an image, crash
+recovery, a preview that needs no file and follows the caret closely, an optional frosted
+window, and a Restart button after an update.
 
 ## What is new
 
@@ -33,3 +34,18 @@ Window
 - Rounded window corners, 8 px by default (Settings > Window corners: Square, Small or Round).
   Windows 11 draws them itself; on Wayland the window draws its own corners and shadow. Windows 10
   and windows the desktop draws opaque stay square.
+- Windows 11: an optional frosted window. Settings > View > Window backdrop (Mica or Acrylic) lets
+  the system material show through the bars and the side pane. Off by default.
+
+With mdview
+
+- Preview in mdview and Preview side by side now work on a document that was never saved: mdview
+  shows its text as you type, and saving turns the preview into the file's. Needs the mdview of
+  the same release.
+- The side-by-side preview follows the caret inside long paragraphs, lists, code blocks and
+  tables, not only from block to block. Needs the mdview of the same release.
+
+Updates
+
+- After an update is installed, the bar has a Restart button that closes mdedit (asking about
+  unsaved changes as always) and starts the new version.

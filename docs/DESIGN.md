@@ -2010,3 +2010,122 @@ created opaque; switching to Square applies at once).
 it (content, shadow margin, corners) over a flat backdrop; the existing shots are unchanged.
 `tests/shots.sh` takes `frame-*` at scale 1 and 2 in both themes. The Windows runner draws the
 same Wayland-style picture (it is the shared pixel code, not the DWM result).
+
+## 65. Preview of a document that has no file (2026-11-15)
+
+**A document that has no file.** "Preview in mdview" and "Preview side by side" work on an
+untitled document. Nothing is written to disk for it: the text travels in the message.
+
+- The document goes by a name, `mdedit-<process id>-<document number>` (`link::doc_name`), which
+  is the same for as long as the tab lives and belongs to no other tab or editor. The message
+  carries `?doc=<name>`, `?title=<the tab's name>` and, the first time, `?open` (see "A document
+  that has no file" in the shared `docs/SISTER.md`). No path is sent.
+- The viewer is started bare when none runs (it could not be given a path), and the first message
+  asks it to show the document; with "Preview side by side" that message also carries the
+  viewer's place. The first message is tried for the same 5 s as an opening of a file.
+- The text is always sent, whatever "Live preview while typing" says: there is no file the viewer
+  could read instead. Typing sends it again at the usual pace (at most every 100 ms, the newest
+  wins); a caret move alone sends the line.
+- A document over the protocol's cap (2 MiB) is not previewed: a toast says "This document is too
+  large to preview before it is saved."
+- A viewer that does not know such documents answers the plain `ok`. The editor then ends the
+  link and says "This mdview cannot preview a document that has no file: save it, or update
+  mdview." Nothing is opened in that viewer.
+- Saving the document (Save or Save As) tells the viewer once that the document is that file now
+  (`?doc=<name>` with the path). The link carries on as a link to the file, with the rules of a
+  saved file: the text is sent only while it differs from the file and "Live preview while
+  typing" is on.
+- Closing the tab, "Preview in mdview" again, or leaving the editor ends the preview as for a
+  file. The viewer keeps the last text it was given.
+- The viewer's "Edit in mdedit" on such a tab asks the running editor for the document by its
+  name; the editor switches to that tab and goes to the line. A name that is not a tab of this
+  editor is ignored.
+- Menus: the two commands are listed in the View menu and the tab menu for a document that has no
+  file, whatever its language (it has no name to tell its kind by), and are no longer disabled
+  there. The palette lists them whenever a tab is open.
+
+## 66. The preview follows the caret inside long blocks (2026-11-15)
+
+**The caret's place, not only its line.** While a document is previewed, each update to the
+viewer carries the caret's line and now also its byte in that line, from 1 (`?col=`, the same
+number `--goto line:column` takes). The viewer shows the row of the page that holds that place:
+the line inside a long paragraph, list item or code block, the row of a table, and for a
+paragraph written as one long line the row the caret is in (the viewer's notes on its branch `f/finer-sync`,
+`docs/next/finer-sync.md`, have the mapping).
+
+- An update is due when the caret is on another line, as before, or has moved to another
+  stretch of 32 bytes of the same line (`link::COLUMN_STEP`). Moving inside a stretch sends
+  nothing, so a short line never sends more than it did; a long line sends at most the usual
+  ten updates a second while the caret travels along it.
+- An update that goes anyway (a new line, typed text) carries the exact byte.
+- The first hand-over (`Preview in mdview`) starts the viewer with the line alone, as before
+  (`--line`); when the caret is further along a long line, the first update says so.
+- The viewer's "Edit in mdedit" now names a column when the row at the top of its page is
+  inside a line that wraps; the caret goes to that byte (`go_to`, which always took one).
+
+**Older builds.** Nothing new on the wire: `?col=` was always part of a request and an mdview
+that predates this skips it, showing the block's first line as before. An older mdedit sends no
+column and this release's mdview shows the line's beginning.
+
+## 67. Window backdrop: a frosted window on Windows 11 (2026-11-15)
+
+**The setting.** `backdrop = off | mica | acrylic` in the settings file (`Prefs::backdrop`,
+default `off`); the row "Window backdrop" sits under Theme in Settings > View and exists only in a
+Windows build. `--pref backdrop=mica` works like every other preference.
+
+**What is frosted.** The regions Title (title row and tab strip), Bar, Files (the side pane) and
+Status. The text area, the minimap, the results panel, menus, the command palette, tooltips and
+dialog cards stay opaque. A dialog's dimming and the soft shadows of menus fall on the frosted
+chrome and darken it, as they do on the flat chrome.
+
+**When it is frosted.** All of these must hold, otherwise the chrome is today's flat colours:
+
+- the setting is Mica or Acrylic;
+- Windows build 22621 or later (22H2: the first with `DWMWA_SYSTEMBACKDROP_TYPE`);
+- "Transparency effects" is on (`HKCU\...\Themes\Personalize\EnableTransparency`, missing counts
+  as on);
+- high contrast is off (`SPI_GETHIGHCONTRAST`);
+- battery saver is off (`GetSystemPowerStatus`);
+- the system accepted the backdrop calls;
+- the window has the keyboard. The system shows no material behind an inactive window, so an
+  inactive window paints its flat chrome itself: pixel for pixel what it shows with the setting
+  off.
+
+These are read when the setting changes and each time the window gains the keyboard, so turning
+transparency effects off takes hold the next time the window is activated. With the setting off
+the cost is one comparison per frame: no system call, and the window is never made transparent.
+
+**How.** Route 4 of the spike (`spikes/frosted/RESULTS.md` on `spike/frosted-window`):
+`DwmEnableBlurBehindWindow` with an empty region makes the window's alpha channel count, and
+`DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)` puts Mica (2) or Acrylic (3) behind it. Both are
+called on the live window when the setting is first turned on; nothing changes at window creation.
+
+The Painter is unchanged and the chrome is drawn opaque exactly as today. After a frosted region is
+drawn, the alpha byte of its pixels is set to a mark (254). Everything drawn later with opaque
+spans (menu, palette, dialog card, tooltip) writes alpha 255 and so clears the mark pixel by pixel;
+blended spans (shadows, dimming) leave it. When a frame is copied to the window, marked pixels (and
+only in the copy) are "keyed out": the key colour, the palette's plainest chrome colour (the
+darkest of title/bar/pane in the dark theme, the lightest in the light one), becomes transparent,
+and every other colour gets the smallest alpha that still reproduces it over the key, premultiplied.
+Over a backdrop equal to the key the result is exactly today's pixels; over another backdrop each
+pixel moves by `keep * (backdrop - key)`, so text keeps its subpixel rendering and its contrast
+against its surroundings.
+
+**Veil.** Mica is close to a flat colour, so the key is fully transparent (veil 0). Acrylic shows
+what is behind the window, so the chrome keeps a veil of its own colour over it (150 of 255);
+without it text over a busy window behind does not read well.
+
+**Mica Alt is left out**: in the dark theme it is close to black and makes the chrome heavier than
+the text area; it adds nothing the other two do not.
+
+**Where the code is.** Shared: `mdshared_app::backdrop` (the type, keys, row texts),
+`mdshared_ui::frost` (mark, key colour, veil, key-out, and the state `Frost`, tested against a
+stand-in system: moved there from the editor when the branch was merged, so that mdview uses the
+same one), `mdshared_ui::platform::backdrop_available` / `backdrop_allowed` / `set_backdrop`.
+Editor: `bins/mdedit/src/frost.rs` (which regions), `App::sync_frost`, the mark in the region loop
+of `compose`, the key-out in `present`.
+
+**Shots.** A `--shot` has no window, so it never shows the material. `tests/shots.sh` gained
+`settings-view` and `settings-view-dark` (the View section, which had no shot, with the new row
+under Theme on Windows) and `settings-view-backdrop` (the row set to Mica; the chrome in it is flat,
+which is the point: no window, no frost). On Linux these three show the section without the row.
