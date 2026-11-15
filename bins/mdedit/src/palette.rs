@@ -298,7 +298,7 @@ fn icon(id: C) -> &'static str {
         C::Cut => glyph::CUT,
         C::Copy | C::CopyFilePath => glyph::COPY,
         C::Paste => glyph::PASTE,
-        C::SelectAll => glyph::SELECT_ALL,
+        C::SelectAll | C::SelectNextOccurrence => glyph::SELECT_ALL,
         C::DuplicateLine => glyph::DUPLICATE_LINE,
         C::MoveLineUp | C::PreviousTab | C::PreviousBookmark | C::PreviousResult => glyph::UP,
         C::PreviousDifference | C::FindPrevious => glyph::UP,
@@ -375,6 +375,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::SaveAs
         | C::Paste
         | C::SelectAll
+        | C::SelectNextOccurrence
         | C::DuplicateLine
         | C::MoveLineUp
         | C::MoveLineDown

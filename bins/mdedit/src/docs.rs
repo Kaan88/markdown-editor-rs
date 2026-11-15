@@ -511,6 +511,18 @@ impl Ready {
         self.set_sels(list, primary);
     }
 
+    /// "Select next occurrence": see [`multi::select_next`]. `false` when there is nothing to select.
+    pub fn select_next(&mut self) -> bool {
+        let (list, at) = self.all_sels();
+        let Some((list, primary)) = multi::select_next(&self.buffer, &list, at) else {
+            return false;
+        };
+        self.set_sels(list, primary);
+        self.view.column = None;
+        crate::view::reveal(self, self.view.sel.caret, false);
+        true
+    }
+
     /// The column selection between two (line, visual column) corners; the caret's is the
     /// primary.
     pub fn select_column(&mut self, anchor: (usize, usize), caret: (usize, usize)) {
@@ -4483,6 +4495,27 @@ mod tests {
         );
         assert!(d.edit(EditOp::Undo, None));
         assert_eq!(text_of(&d, i), "-#one\n-#two\n-#three\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn select_next_occurrence_grows_the_selections_and_typing_follows() {
+        let (mut d, i, _path, dir) = file_docs("selnext", b"foo bar foo\nfoo\n");
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.view.sel = Selection::at(1);
+        // A caret first selects its word, then each call adds the next match.
+        assert!(r.select_next());
+        assert_eq!(r.view.sel.range(), 0..3);
+        assert!(r.select_next());
+        assert_eq!((r.view.sel.range(), r.view.extra.len()), (8..11, 1));
+        assert!(r.select_next());
+        assert_eq!((r.view.sel.range(), r.view.extra.len()), (12..15, 2));
+        // All three are selected: nothing more to add.
+        assert!(!r.select_next());
+        assert!(d.edit(EditOp::Insert("x"), None));
+        assert_eq!(text_of(&d, i), "x bar x\nx\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "foo bar foo\nfoo\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

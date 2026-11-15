@@ -1032,6 +1032,7 @@ impl App {
                 | C::Redo
                 | C::Cut
                 | C::Paste
+                | C::SelectNextOccurrence
                 | C::DuplicateLine
                 | C::MoveLineUp
                 | C::MoveLineDown
@@ -1250,6 +1251,16 @@ impl App {
                     r.view.extra.clear();
                     r.view.sel = mdedit_core::selection::select_all(&r.buffer);
                 }
+            }
+            C::SelectNextOccurrence => {
+                let found = self
+                    .docs
+                    .active_ready_mut()
+                    .is_some_and(|r| r.select_next());
+                if !found {
+                    self.docs.set_toast(strings::NO_NEXT_OCCURRENCE);
+                }
+                self.caret_reset();
             }
             C::Find => {
                 self.ui.focus_field(BarField::Find);

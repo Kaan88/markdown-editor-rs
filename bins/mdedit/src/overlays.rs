@@ -328,6 +328,10 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
             .enabled(ready),
+        Item::new(Act::Cmd(C::SelectNextOccurrence), "Select next occurrence")
+            .hint(hint(C::SelectNextOccurrence))
+            .icon(glyph::SELECT_ALL)
+            .enabled(ready),
         if markdown {
             Item::new(Act::MarkdownMenu, "Markdown")
                 .icon(glyph::EDIT)

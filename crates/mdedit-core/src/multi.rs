@@ -9,10 +9,12 @@
 
 use crate::buffer::Buffer;
 use crate::edit::{Cmd, Outcome, nothing};
+use crate::find::{self, FindOptions, Query};
 use crate::history::{History, Kind};
 use crate::selection::{self, Motion, Selection};
 use crate::vcol;
 use std::ops::Range;
+use std::sync::atomic::AtomicBool;
 
 /// What every selection does in one multi-caret edit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -267,6 +269,82 @@ pub fn visual_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
 /// The display column of `offset` on its line (re-exported from `selection`, for the shell).
 pub fn display_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
     selection::display_col(buf, offset, tab_width)
+}
+
+/// The longest selected text "select next occurrence" looks for again.
+const NEXT_MAX_BYTES: usize = 4096;
+
+/// "Select next occurrence". When the primary selection is only a caret, every caret that is
+/// inside or at the end of a word selects that word (none does: `None`). Otherwise the text of
+/// the primary selection is looked for after it, wrapping round the end of the buffer (exact
+/// case, no whole-word test), and the first match that is not selected already is added as a
+/// selection, caret at its end, which becomes the primary. `None` when there is nothing to
+/// select: no other match, the text too long to look for ([`NEXT_MAX_BYTES`]), or a selection
+/// that is not text to look for. Returns the list in document order and the primary's index.
+pub fn select_next(
+    buf: &Buffer,
+    sels: &[Selection],
+    primary: usize,
+) -> Option<(Vec<Selection>, usize)> {
+    let (norm, p) = normalize(buf, sels, primary);
+    if norm.is_empty() {
+        return None;
+    }
+    if norm[p].is_empty() {
+        let mut changed = false;
+        let words: Vec<Selection> = norm
+            .iter()
+            .map(|s| {
+                if !s.is_empty() {
+                    return *s;
+                }
+                let w = selection::word_at(buf, s.caret);
+                let mut word = String::new();
+                buf.text(w.clone(), &mut word);
+                if word.chars().all(char::is_whitespace) {
+                    return *s;
+                }
+                changed = true;
+                Selection {
+                    anchor: w.start,
+                    caret: w.end,
+                    goal_col: None,
+                }
+            })
+            .collect();
+        return changed.then(|| normalize(buf, &words, p));
+    }
+    let range = norm[p].range();
+    if range.len() > NEXT_MAX_BYTES {
+        return None;
+    }
+    let mut text = String::new();
+    buf.text(range.clone(), &mut text);
+    let query = Query::new(
+        &text,
+        FindOptions {
+            match_case: true,
+            ..FindOptions::default()
+        },
+    )?;
+    let never = AtomicBool::new(false);
+    let mut from = range.end;
+    // A match that is selected already is stepped over; after as many steps as there are
+    // selections one of the matches must be new, or all are selected.
+    for _ in 0..=norm.len() {
+        let hit = find::find_next(buf.rope(), &query, from, true, true, &never)?;
+        if !norm.iter().any(|s| s.range() == hit) {
+            let mut all = norm.clone();
+            all.push(Selection {
+                anchor: hit.start,
+                caret: hit.end,
+                goal_col: None,
+            });
+            return Some(normalize(buf, &all, all.len() - 1));
+        }
+        from = hit.end;
+    }
+    None
 }
 
 #[cfg(test)]
@@ -786,6 +864,40 @@ mod tests {
         // A column inside a wide character is its start.
         let (v, _) = col(t, 0, 1, 1, 3);
         assert_eq!(v, vec![s(0, 3), s(10, 12)]);
+    }
+
+    // ---- select_next
+
+    #[test]
+    fn select_next_with_a_caret_selects_the_word() {
+        let buf = Buffer::from_text("foo bar foo");
+        let (v, p) = select_next(&buf, &[at(5)], 0).unwrap();
+        assert_eq!((v, p), (vec![s(4, 7)], 0));
+        // On whitespace only: nothing.
+        assert!(select_next(&Buffer::from_text("a   b"), &[at(2)], 0).is_none());
+    }
+
+    #[test]
+    fn select_next_adds_the_next_match_and_wraps() {
+        let buf = Buffer::from_text("foo bar foo x foo");
+        let (v, p) = select_next(&buf, &[s(0, 3)], 0).unwrap();
+        assert_eq!((v.clone(), p), (vec![s(0, 3), s(8, 11)], 1));
+        let (v, p) = select_next(&buf, &v, p).unwrap();
+        assert_eq!((v.clone(), p), (vec![s(0, 3), s(8, 11), s(14, 17)], 2));
+        // All are selected now.
+        assert!(select_next(&buf, &v, p).is_none());
+        // With the last one primary and the middle one missing, it is found.
+        let (v, p) = select_next(&buf, &[s(0, 3), s(14, 17)], 1).unwrap();
+        assert_eq!((v, p), (vec![s(0, 3), s(8, 11), s(14, 17)], 1));
+    }
+
+    #[test]
+    fn select_next_is_exact_and_needs_another_match() {
+        let buf = Buffer::from_text("Foo foo FOO");
+        assert!(select_next(&buf, &[s(0, 3)], 0).is_none());
+        let buf = Buffer::from_text("é\u{301}x é\u{301}x");
+        let (v, _) = select_next(&buf, &[s(0, 5)], 0).unwrap();
+        assert_eq!(v, vec![s(0, 5), s(6, 11)]);
     }
 
     // ---- display_col

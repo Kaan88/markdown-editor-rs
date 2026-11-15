@@ -21,6 +21,8 @@ pub enum CommandId {
     Copy,
     Paste,
     SelectAll,
+    /// With several carets: adds the next match of the selected text (the word at a caret).
+    SelectNextOccurrence,
     DuplicateLine,
     MoveLineUp,
     MoveLineDown,
@@ -164,6 +166,11 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::Copy, "Copy", &["Ctrl+C", "Ctrl+Insert"]),
     cmd(C::Paste, "Paste", &["Ctrl+V", "Shift+Insert"]),
     cmd(C::SelectAll, "Select all", &["Ctrl+A"]),
+    cmd(
+        C::SelectNextOccurrence,
+        "Select next occurrence",
+        &["Ctrl+Shift+D"],
+    ),
     cmd(C::DuplicateLine, "Duplicate line", &["Ctrl+D"]),
     cmd(C::MoveLineUp, "Move line up", &["Alt+Up"]),
     cmd(C::MoveLineDown, "Move line down", &["Alt+Down"]),
@@ -349,6 +356,7 @@ pub mod strings {
     pub const NO_SEARCH_FOLDER: &str = "Open a folder or a file first: its folder is searched.";
     pub const NO_RESULTS: &str = "No results. Ctrl+Shift+F finds in files.";
     pub const RESULT_TAB_CLOSED: &str = "That tab is closed.";
+    pub const NO_NEXT_OCCURRENCE: &str = "There is no other place with that text to select.";
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
     pub const NO_BLOCK: &str = "Nothing to fold here: no lines below are indented more.";
     pub const SPLIT_NEEDS_TWO: &str = "Open a second file to show two side by side.";
