@@ -124,6 +124,29 @@ above, measured before and after.
   leaves the window opaque and square: with rounding wanted, `Auto` takes the margin there too
   (docs/DESIGN.md section 64).
 
+## After 0.6.0 and 0.4.0 (written 2026-11-15; item 1 asked for by the owner, the rest proposed, nothing built)
+
+mdedit 0.6.0 and mdview 0.4.0 are released and every item of "Next release" above is in them
+(the status words in that list were written while the work was in progress). The full list of
+what is left, for both apps, is in the viewer's `docs/PLAN.md`, section "After 0.4.0 and 0.6.0".
+The editor's part of it:
+
+1. **Windows return to where they were when a side-by-side preview ends** (owner request
+   2026-11-15, both apps). mdedit remembers its window's place when `tile_left` moves it and
+   goes back there when the preview ends: the preview is turned off, the previewed document is
+   closed, or the viewer or its live tab is gone. A window the user has moved or resized since
+   stays where it is. Exiting while tiled saves the remembered place, not the left half. The
+   code goes beside `mdshared_ui::place`, for both apps. Details and open questions: the
+   viewer's plan.
+2. **Frosted window on Linux** (KDE blur): the section "Later" below, of which only the
+   Windows 11 part is built.
+3. **Owed checks:** the owner's look at 0.6.0, a real update followed by Restart, startup time
+   and memory of 0.6.0 against the budgets, the speed-versus-size build comparison, the
+   AppImage by hand on Linux.
+
+"Find in open tabs" (roadmap item 2) is built: it came with the results panel.
+
+
 ## Later (owner request 2026-11-15): a frosted window (Mica, Acrylic, blur on Wayland)
 
 On the roadmap, after the next release, for both apps (the code goes in the shared crates). Nothing
