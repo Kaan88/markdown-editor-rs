@@ -187,6 +187,7 @@ shot settings-scale --light --scale 1.5 --dialog settings "$fx/sample.rs"
 shot settings-narrow --light --size 560x640 --dialog settings "$fx/sample.rs"
 # The Preview section (the live preview row and its help line), scrolled into view.
 shot settings-preview --light --dialog settings --settings-section Preview "$fx/sample.rs"
+shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
 shot settings-preview-dark --dark --dialog settings --settings-section Preview "$fx/sample.rs"
 shot settings-preview-scale --light --scale 1.5 --dialog settings --settings-section Preview "$fx/sample.rs"
 shot settings-preview-narrow --light --size 560x640 --dialog settings --settings-section Preview "$fx/sample.rs"

@@ -11,6 +11,7 @@ static FONT_PT: AtomicU32 = AtomicU32::new(0x4160_0000); // 14.0
 static NUMBERS: AtomicBool = AtomicBool::new(true);
 static FAMILY: Mutex<String> = Mutex::new(String::new());
 static LINE_BAND: AtomicBool = AtomicBool::new(true);
+static MINIMAP_W: AtomicU32 = AtomicU32::new(mdedit_core::prefs::MINIMAP_WIDTH_DEFAULT as u32);
 
 /// Columns of a tab.
 pub fn tab_width() -> usize {
@@ -28,6 +29,11 @@ pub fn line_numbers() -> bool {
 
 pub fn highlight_line() -> bool {
     LINE_BAND.load(Ordering::Relaxed)
+}
+
+/// The minimap column's width, logical px.
+pub fn minimap_width() -> f32 {
+    MINIMAP_W.load(Ordering::Relaxed) as f32
 }
 
 /// The family list the text is drawn with: the preference's family first, then the built-in list,
@@ -49,6 +55,7 @@ pub fn apply(prefs: &mdedit_core::prefs::Prefs) -> bool {
         line_numbers(),
         highlight_line(),
         font_stack(),
+        minimap_width().to_bits(),
     );
     if let Ok(mut f) = FAMILY.lock() {
         *f = prefs.font_family.trim().to_string();
@@ -57,6 +64,7 @@ pub fn apply(prefs: &mdedit_core::prefs::Prefs) -> bool {
     FONT_PT.store(prefs.font_pt.to_bits(), Ordering::Relaxed);
     NUMBERS.store(prefs.line_numbers, Ordering::Relaxed);
     LINE_BAND.store(prefs.highlight_line, Ordering::Relaxed);
+    MINIMAP_W.store(prefs.minimap_width as u32, Ordering::Relaxed);
     before
         != (
             tab_width(),
@@ -64,5 +72,6 @@ pub fn apply(prefs: &mdedit_core::prefs::Prefs) -> bool {
             line_numbers(),
             highlight_line(),
             font_stack(),
+            minimap_width().to_bits(),
         )
 }

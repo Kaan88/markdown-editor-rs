@@ -30,6 +30,10 @@ pub const FONT_PT_MIN: f32 = 7.0;
 pub const FONT_PT_MAX: f32 = 32.0;
 pub const TAB_WIDTH_MAX: usize = 16;
 pub const INDENT_SIZE_MAX: usize = 16;
+/// The minimap's width, logical px: the default and the range the setting takes.
+pub const MINIMAP_WIDTH_DEFAULT: usize = 96;
+pub const MINIMAP_WIDTH_MIN: usize = 48;
+pub const MINIMAP_WIDTH_MAX: usize = 240;
 /// A font family name longer than this many bytes is not a name: the default is used.
 pub const FONT_FAMILY_MAX: usize = 256;
 
@@ -57,6 +61,8 @@ pub struct Prefs {
     pub highlight_line: bool,
     /// Whether a new window shows the minimap.
     pub minimap: bool,
+    /// The minimap column's width, logical px, 48 to 240 (default 96).
+    pub minimap_width: usize,
     /// Whether a new window wraps long lines.
     pub word_wrap: bool,
     pub restore_session: bool,
@@ -84,6 +90,7 @@ impl Default for Prefs {
             line_numbers: true,
             highlight_line: true,
             minimap: false,
+            minimap_width: MINIMAP_WIDTH_DEFAULT,
             word_wrap: false,
             restore_session: true,
             live_preview: true,
@@ -118,6 +125,9 @@ impl Prefs {
         self.font_pt = self.font_pt.clamp(FONT_PT_MIN, FONT_PT_MAX);
         self.tab_width = self.tab_width.clamp(1, TAB_WIDTH_MAX);
         self.indent_size = self.indent_size.clamp(1, INDENT_SIZE_MAX);
+        self.minimap_width = self
+            .minimap_width
+            .clamp(MINIMAP_WIDTH_MIN, MINIMAP_WIDTH_MAX);
         if self.font_family.len() > FONT_FAMILY_MAX || self.font_family.contains(['\n', '\r']) {
             self.font_family.clear();
         }
@@ -175,6 +185,10 @@ impl Prefs {
                     "line_numbers" => p.line_numbers = flag(value).unwrap_or(d.line_numbers),
                     "highlight_line" => p.highlight_line = flag(value).unwrap_or(d.highlight_line),
                     "minimap" => p.minimap = flag(value).unwrap_or(d.minimap),
+                    "minimap_width" => {
+                        p.minimap_width = number(value, MINIMAP_WIDTH_MIN, MINIMAP_WIDTH_MAX)
+                            .unwrap_or(d.minimap_width)
+                    }
                     "word_wrap" => p.word_wrap = flag(value).unwrap_or(d.word_wrap),
                     "restore_session" => {
                         p.restore_session = flag(value).unwrap_or(d.restore_session)
@@ -209,6 +223,7 @@ impl Prefs {
         w.line("line_numbers", b(p.line_numbers));
         w.line("highlight_line", b(p.highlight_line));
         w.line("minimap", b(p.minimap));
+        w.line("minimap_width", &p.minimap_width.to_string());
         w.line("word_wrap", b(p.word_wrap));
         w.line("restore_session", b(p.restore_session));
         w.line("live_preview", b(p.live_preview));
@@ -360,6 +375,7 @@ mod tests {
             line_numbers: false,
             highlight_line: false,
             minimap: true,
+            minimap_width: 150,
             word_wrap: true,
             restore_session: false,
             live_preview: false,
@@ -376,15 +392,25 @@ mod tests {
         let wild = Prefs {
             font_pt: f32::NAN,
             tab_width: 99,
+            minimap_width: 5,
             font_family: "a\nb".into(),
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 19);
+        assert_eq!(t.lines().count(), 20);
         let r = Prefs::parse(&t);
         assert_eq!(
             (r.font_pt, r.tab_width, r.font_family.as_str()),
             (14.0, 16, "")
+        );
+        assert_eq!(r.minimap_width, MINIMAP_WIDTH_MIN);
+        assert_eq!(
+            Prefs::parse("[preferences]\nminimap_width=9999\n").minimap_width,
+            MINIMAP_WIDTH_MAX
+        );
+        assert_eq!(
+            Prefs::parse("[preferences]\nminimap_width=120\n").minimap_width,
+            120
         );
         // Random fractions survive.
         let mut rng = Rng::new(9);

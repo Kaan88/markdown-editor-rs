@@ -920,21 +920,26 @@ impl Areas {
 
     /// Gives the right edge of each text pane to a minimap, when the pane keeps `TEXT_MIN`
     /// beside it (the second pane's rectangle includes the line that parts it from the first).
-    pub fn with_minimap(mut self, on: bool) -> Areas {
-        use crate::minimap::{TEXT_MIN, WIDTH};
+    pub fn with_minimap(self, on: bool) -> Areas {
+        self.with_minimap_width(on, crate::live::minimap_width())
+    }
+
+    /// `with_minimap` for a column `width` logical px wide.
+    pub fn with_minimap_width(mut self, on: bool, width: f32) -> Areas {
+        use crate::minimap::TEXT_MIN;
         if !on {
             return self;
         }
-        if self.text.w - WIDTH >= TEXT_MIN {
+        if self.text.w - width >= TEXT_MIN {
             let t = self.text;
-            self.minimap = Some(Rect::new(t.right() - WIDTH, t.y, WIDTH, t.h));
-            self.text.w -= WIDTH;
+            self.minimap = Some(Rect::new(t.right() - width, t.y, width, t.h));
+            self.text.w -= width;
         }
         if let Some(o) = self.other
-            && o.w - WIDTH >= TEXT_MIN
+            && o.w - width >= TEXT_MIN
         {
-            self.minimap_other = Some(Rect::new(o.right() - WIDTH, o.y, WIDTH, o.h));
-            self.other = Some(Rect::new(o.x, o.y, o.w - WIDTH, o.h));
+            self.minimap_other = Some(Rect::new(o.right() - width, o.y, width, o.h));
+            self.other = Some(Rect::new(o.x, o.y, o.w - width, o.h));
         }
         self
     }
@@ -1020,7 +1025,7 @@ mod tests {
     fn the_minimap_takes_its_width_from_the_text_and_hides_when_that_leaves_too_little() {
         use crate::minimap::{TEXT_MIN, WIDTH};
         let a = Areas::compute(1280.0, 800.0, false, 250.0, 0.0);
-        let m = a.with_minimap(true);
+        let m = a.with_minimap_width(true, WIDTH);
         let t = m.minimap.unwrap();
         assert_eq!(t.w, WIDTH);
         assert_eq!(m.text.w, a.text.w - WIDTH);
@@ -1029,24 +1034,24 @@ mod tests {
         assert_eq!(m.text.right(), t.x);
         assert_eq!(m.region(Region::Minimap), Some(t));
         // Off, nothing changes.
-        assert_eq!(a.with_minimap(false), a);
+        assert_eq!(a.with_minimap_width(false, WIDTH), a);
         // Just enough room keeps it; one px less hides it.
         let w = TEXT_MIN + WIDTH;
         assert!(
             Areas::compute(w, 600.0, false, 250.0, 0.0)
-                .with_minimap(true)
+                .with_minimap_width(true, WIDTH)
                 .minimap
                 .is_some()
         );
         assert!(
             Areas::compute(w - 1.0, 600.0, false, 250.0, 0.0)
-                .with_minimap(true)
+                .with_minimap_width(true, WIDTH)
                 .minimap
                 .is_none()
         );
         // With the split each pane has its own, at its right edge.
         let plain = a.with_split(true, false, 0.5);
-        let s = plain.with_minimap(true);
+        let s = plain.with_minimap_width(true, WIDTH);
         assert_eq!(s.other.unwrap().w, plain.other.unwrap().w - WIDTH);
         assert_eq!(s.minimap.unwrap().right(), plain.text.right());
         let mo = s.minimap_other.unwrap();
@@ -1054,20 +1059,37 @@ mod tests {
         assert_eq!(s.other.unwrap().right(), mo.x);
         assert_eq!(s.region(Region::MinimapOther), Some(mo));
         let lp = a.with_split(true, true, 0.5);
-        let l = lp.with_minimap(true);
+        let l = lp.with_minimap_width(true, WIDTH);
         assert_eq!(l.minimap.unwrap().right(), lp.text.right());
         assert_eq!(l.minimap_other.unwrap().right(), lp.other.unwrap().right());
         // A pane too narrow for the column and the text goes without it.
         let narrow = Areas::compute(900.0, 600.0, false, 250.0, 0.0).with_split(true, false, 0.5);
         assert_eq!(narrow.text.w, 450.0);
-        assert!(narrow.with_minimap(true).minimap.is_some());
+        assert!(narrow.with_minimap_width(true, WIDTH).minimap.is_some());
         let narrow = Areas::compute(800.0, 600.0, false, 250.0, 0.0).with_split(true, false, 0.5);
-        assert!(narrow.with_minimap(true).minimap.is_none());
+        assert!(narrow.with_minimap_width(true, WIDTH).minimap.is_none());
         // The results panel takes the text's height first and the column follows.
         let r = a
             .with_results(true, crate::results::RESULTS_H)
-            .with_minimap(true);
+            .with_minimap_width(true, WIDTH);
         assert_eq!(r.minimap.unwrap().h, r.text.h);
+        // A wider or narrower column (the setting) takes that much, in both panes, and the text
+        // keeps what the same rule leaves it.
+        for width in [48.0, 150.0, 240.0] {
+            let m = a.with_minimap_width(true, width);
+            assert_eq!(m.minimap.unwrap().w, width);
+            assert_eq!(m.text.w, a.text.w - width);
+            let s = plain.with_minimap_width(true, width);
+            assert_eq!(s.minimap_other.unwrap().w, width);
+            assert_eq!(s.other.unwrap().w, plain.other.unwrap().w - width);
+        }
+        let w = TEXT_MIN + 200.0;
+        let one = |width| {
+            Areas::compute(w, 600.0, false, 250.0, 0.0)
+                .with_minimap_width(true, width)
+                .minimap
+        };
+        assert!(one(200.0).is_some() && one(201.0).is_none());
     }
 
     #[test]

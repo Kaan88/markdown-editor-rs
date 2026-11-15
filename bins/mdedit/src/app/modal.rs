@@ -6,7 +6,10 @@
 use super::*;
 use crate::commands::CommandId as C;
 use crate::{keys, updater};
-use mdedit_core::prefs::{FONT_PT_MAX, FONT_PT_MIN, INDENT_SIZE_MAX, Prefs, TAB_WIDTH_MAX};
+use mdedit_core::prefs::{
+    FONT_PT_MAX, FONT_PT_MIN, INDENT_SIZE_MAX, MINIMAP_WIDTH_MAX, MINIMAP_WIDTH_MIN, Prefs,
+    TAB_WIDTH_MAX,
+};
 use mdshared_ui::corners::{self, Corners};
 use mdshared_ui::keys::{KeyName, Mods};
 use mdshared_ui::settings::{Form, Outcome as Out, Row, Value};
@@ -32,6 +35,7 @@ pub const DEFAULT_APP: u32 = 18;
 pub const LIVE_PREVIEW: u32 = 19;
 pub const DETECT_INDENT: u32 = 20;
 pub const WINDOW_CORNERS: u32 = 21;
+pub const MINIMAP_WIDTH: u32 = 22;
 pub const COMPLETE_AUTO: u32 = 70;
 pub const BACKDROP: u32 = 80;
 
@@ -151,6 +155,14 @@ pub fn rows(
         ),
         Row::toggle(MINIMAP, "Minimap for new windows", prefs.minimap)
             .help("View > Minimap changes the window you are in."),
+        Row::number(
+            MINIMAP_WIDTH,
+            "Minimap width",
+            prefs.minimap_width as i32,
+            MINIMAP_WIDTH_MIN as i32,
+            MINIMAP_WIDTH_MAX as i32,
+        )
+        .unit("px"),
         Row::toggle(WORD_WRAP, "Word wrap for new documents", prefs.word_wrap)
             .help("Alt+Z changes the document you are in."),
         Row::choice(THEME, "Theme", &THEMES, theme_index(theme)),
@@ -351,6 +363,7 @@ impl App {
             (LINE_NUMBERS, Value::Bool(on)) => p.line_numbers = on,
             (HIGHLIGHT_LINE, Value::Bool(on)) => p.highlight_line = on,
             (MINIMAP, Value::Bool(on)) => p.minimap = on,
+            (MINIMAP_WIDTH, Value::Number(n)) => p.minimap_width = n.max(0) as usize,
             (WORD_WRAP, Value::Bool(on)) => p.word_wrap = on,
             (RESTORE_TABS, Value::Bool(on)) => p.restore_session = on,
             (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
