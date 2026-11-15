@@ -77,6 +77,7 @@ impl App {
                 Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace | Hit::ResultsReplace),
             ) => CursorIcon::Text,
             (None, Some(Hit::Splitter | Hit::Divider)) => CursorIcon::ColResize,
+            (None, Some(Hit::ResultsEdge)) => CursorIcon::RowResize,
             (None, Some(Hit::Fold(_) | Hit::FoldBox(_) | Hit::Bookmark(_))) => CursorIcon::Pointer,
             _ => CursorIcon::Default,
         };
@@ -184,6 +185,11 @@ impl App {
                 if let Some(d) = self.areas.divider {
                     self.docs.split_ratio = d.ratio_at(x);
                 }
+            }
+            Drag::ResultsEdge { y: start, h } => {
+                // Up makes the panel taller; the text keeps what RESULTS_TEXT_MIN leaves it.
+                let room = self.areas.text.h + self.areas.results.map_or(0.0, |r| r.h);
+                self.ui.results.height = crate::results::dragged_height(h + (start - y), room);
             }
             Drag::Thumb { target, grab } => self.thumb_to(target, x - grab, y - grab),
             Drag::Minimap { grab, doc, slot } => self.minimap_drag(doc, slot, y, grab),
@@ -644,6 +650,10 @@ impl App {
                     moving: false,
                 });
             }
+            Hit::ResultsEdge => {
+                let h = self.areas.results.map_or(self.ui.results.height, |r| r.h);
+                self.ui.drag = Some(Drag::ResultsEdge { y, h });
+            }
             Hit::Splitter => {
                 let width = self.areas.files.map_or(self.ui.panes.files_w, |r| r.w);
                 self.ui.drag = Some(Drag::Splitter { x, width });
@@ -764,6 +774,9 @@ impl App {
         if let Some(drag) = self.ui.drag.take() {
             if matches!(drag, Drag::Splitter { .. }) {
                 self.session.files_w = Some(self.ui.panes.files_w.round() as u32);
+            }
+            if matches!(drag, Drag::ResultsEdge { .. }) {
+                self.session.results_h = Some(self.ui.results.height.round() as u32);
             }
             self.redraw();
             return;

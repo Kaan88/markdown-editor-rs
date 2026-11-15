@@ -165,6 +165,8 @@ pub enum Hit {
     /// The results panel: a row of its list and its close button.
     ResultsRow(usize),
     ResultsClose,
+    /// The panel's top edge: drag to change its height.
+    ResultsEdge,
     /// The panel's replacement box and its buttons (replace in files).
     ResultsReplace,
     ResultsReplaceAll,
@@ -267,6 +269,7 @@ impl Hit {
                 | Hit::Bookmark(_)
                 | Hit::Other
                 | Hit::Divider
+                | Hit::ResultsEdge
                 | Hit::Minimap
                 | Hit::MinimapOther
                 | Hit::Splitter
@@ -563,6 +566,11 @@ pub enum Drag {
     },
     /// The divider of a split view, dragged.
     Divider,
+    /// The results panel's top edge, dragged: the pointer's y and the height at the press.
+    ResultsEdge {
+        y: f32,
+        h: f32,
+    },
     /// The title row pressed: the window moves once the pointer has gone a few px, so that a
     /// press and release without moving can still be half of a double click.
     Title {
@@ -940,9 +948,9 @@ impl Areas {
 
     /// Gives the bottom of the text to the results panel when it is open and the text keeps
     /// enough height.
-    pub fn with_results(mut self, open: bool) -> Areas {
-        use crate::results::{RESULTS_H, RESULTS_TEXT_MIN};
-        let h = RESULTS_H.min(self.text.h - RESULTS_TEXT_MIN);
+    pub fn with_results(mut self, open: bool, want: f32) -> Areas {
+        use crate::results::RESULTS_TEXT_MIN;
+        let h = want.min(self.text.h - RESULTS_TEXT_MIN);
         if open && h >= 90.0 {
             self.text.h -= h;
             self.results = Some(Rect::new(self.text.x, self.text.bottom(), self.text.w, h));
@@ -1038,7 +1046,9 @@ mod tests {
         let narrow = Areas::compute(800.0, 600.0, false, 250.0, 0.0).with_split(true, false, 0.5);
         assert!(narrow.with_minimap(true).minimap.is_none());
         // The results panel takes the text's height first and the column follows.
-        let r = a.with_results(true).with_minimap(true);
+        let r = a
+            .with_results(true, crate::results::RESULTS_H)
+            .with_minimap(true);
         assert_eq!(r.minimap.unwrap().h, r.text.h);
     }
 
@@ -1115,19 +1125,28 @@ mod tests {
     #[test]
     fn results_panel_takes_the_bottom_of_the_text() {
         let a = Areas::compute(1280.0, 800.0, true, 250.0, 0.0);
-        assert_eq!(a.with_results(false), a);
-        let b = a.with_results(true);
+        use crate::results::RESULTS_H;
+        assert_eq!(a.with_results(false, RESULTS_H), a);
+        let b = a.with_results(true, RESULTS_H);
         let p = b.results.unwrap();
         assert_eq!((p.x, p.w), (a.text.x, a.text.w));
         assert_eq!(p.h, crate::results::RESULTS_H);
         assert_eq!(b.text.bottom(), p.y);
         assert_eq!(p.bottom(), a.status.y);
         assert_eq!(b.files, a.files);
+        // The dragged height is the panel's; the text keeps its minimum.
+        let tall = a.with_results(true, 300.0);
+        assert_eq!(tall.results.unwrap().h, 300.0);
+        assert_eq!(tall.text.h, a.text.h - 300.0);
+        let huge = a.with_results(true, 5000.0);
+        assert_eq!(huge.text.h, crate::results::RESULTS_TEXT_MIN);
         // A low window gives the panel less, then none.
-        let low = Areas::compute(1280.0, 420.0, false, 0.0, 0.0).with_results(true);
+        let low = Areas::compute(1280.0, 420.0, false, 0.0, 0.0)
+            .with_results(true, crate::results::RESULTS_H);
         assert_eq!(low.text.h, crate::results::RESULTS_TEXT_MIN);
         assert!(low.results.unwrap().h < crate::results::RESULTS_H);
-        let lower = Areas::compute(1280.0, 300.0, false, 0.0, 0.0).with_results(true);
+        let lower = Areas::compute(1280.0, 300.0, false, 0.0, 0.0)
+            .with_results(true, crate::results::RESULTS_H);
         assert!(lower.results.is_none());
         assert_eq!(Hit::ResultsRow(3).region(), Some(Region::Results));
         assert_eq!(

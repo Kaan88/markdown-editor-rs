@@ -207,6 +207,8 @@ pub struct Session {
     pub files: Option<bool>,
     /// The Files pane's width, logical px, once the user dragged it.
     pub files_w: Option<u32>,
+    /// The results panel's height, logical px, once the user dragged it.
+    pub results_h: Option<u32>,
     pub folder: Option<PathBuf>,
     /// Look for a newer version at launch, at every launch.
     pub check_updates: bool,
@@ -236,6 +238,7 @@ impl Default for Session {
             geometry: String::new(),
             files: None,
             files_w: None,
+            results_h: None,
             folder: None,
             check_updates: true,
             update_checked: 0,
@@ -312,6 +315,13 @@ impl Session {
                             .ok()
                             .filter(|w| (40..=4000).contains(w))
                     }
+                    "results_h" => {
+                        s.results_h = value
+                            .trim()
+                            .parse()
+                            .ok()
+                            .filter(|h| (40..=4000).contains(h))
+                    }
                     "folder" if !value.is_empty() => s.folder = Some(decode_path(value)),
                     "check_updates" => s.check_updates = value.trim() != "0",
                     "update_checked" => s.update_checked = value.trim().parse().unwrap_or(0),
@@ -383,6 +393,9 @@ impl Session {
         }
         if let Some(w) = self.files_w {
             out.line("files_w", &w.to_string());
+        }
+        if let Some(h) = self.results_h {
+            out.line("results_h", &h.to_string());
         }
         if let Some(f) = &self.folder {
             out.line("folder", &encode_path(f));
@@ -561,6 +574,7 @@ mod tests {
             theme: ThemeChoice::Dark,
             files: Some(true),
             files_w: Some(300),
+            results_h: Some(180),
             folder: Some(PathBuf::from("C:/proj")),
             ..Session::default()
         };
@@ -678,6 +692,11 @@ minimap=0
         assert_eq!(s.active, 0);
         assert_eq!(Session::parse("[mdedit]\nfiles_w=5\n").files_w, None);
         assert_eq!(Session::parse("[mdedit]\nfiles=2\n").files, None);
+        assert_eq!(Session::parse("[mdedit]\nresults_h=5\n").results_h, None);
+        assert_eq!(
+            Session::parse("[mdedit]\nresults_h=200\n").results_h,
+            Some(200)
+        );
     }
 
     #[test]

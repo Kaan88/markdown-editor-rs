@@ -22,6 +22,8 @@ use std::time::{Duration, Instant};
 
 /// The panel's height, logical px, and what it leaves the text at least.
 pub const RESULTS_H: f32 = 230.0;
+/// The least the panel can be dragged to.
+pub const RESULTS_MIN_H: f32 = 110.0;
 pub const RESULTS_TEXT_MIN: f32 = 140.0;
 /// The panel's title row.
 const HEAD: f32 = 34.0;
@@ -74,6 +76,8 @@ pub struct Results {
     /// What was looked for and where, for the title row.
     pub what: String,
     pub place: String,
+    /// The panel's height the user dragged it to, logical px.
+    pub height: f32,
     pub scroll: f32,
     pub content: f32,
     pub view: f32,
@@ -100,6 +104,7 @@ impl Default for Results {
             state: State::Idle,
             what: String::new(),
             place: String::new(),
+            height: RESULTS_H,
             scroll: 0.0,
             content: 0.0,
             view: 0.0,
@@ -355,6 +360,13 @@ impl Results {
     }
 }
 
+/// The height a drag of the top edge asks for, kept between the least and what leaves the text
+/// its minimum out of `room` (the text and the panel together).
+pub fn dragged_height(want: f32, room: f32) -> f32 {
+    let max = (room - RESULTS_TEXT_MIN).max(RESULTS_MIN_H);
+    want.clamp(RESULTS_MIN_H, max).round()
+}
+
 /// The list below the panel's title row.
 pub fn list(r: Rect) -> Rect {
     Rect::new(r.x, r.y + HEAD, r.w, (r.h - HEAD).max(0.0))
@@ -547,6 +559,16 @@ mod tests {
         assert!(res.title().contains("3 matches in 2 files"));
         res.close();
         assert!(!res.open);
+    }
+
+    #[test]
+    fn the_height_is_dragged_within_its_limits() {
+        assert_eq!(dragged_height(300.4, 700.0), 300.0);
+        assert_eq!(dragged_height(20.0, 700.0), RESULTS_MIN_H);
+        assert_eq!(dragged_height(900.0, 700.0), 700.0 - RESULTS_TEXT_MIN);
+        // A window too low for both limits keeps the least.
+        assert_eq!(dragged_height(500.0, 200.0), RESULTS_MIN_H);
+        assert_eq!(Results::default().height, RESULTS_H);
     }
 
     #[test]

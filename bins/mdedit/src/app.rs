@@ -1649,6 +1649,15 @@ impl App {
                 .find(|(_, r)| r.contains(x, y))
                 .map(|(h, _)| *h);
         }
+        // The panel's top edge is a strip across the seam between the text and the panel.
+        if let Some(r) = self.areas.results
+            && x >= r.x
+            && x < r.right()
+            && y >= r.y - 2.0
+            && y < r.y + 3.0
+        {
+            return Some(Hit::ResultsEdge);
+        }
         // The line between two panes is not drawn by a region: it is where the layout says.
         if let (Some(d), Some(_)) = (self.areas.divider, self.areas.other)
             && d.grab(self.areas.text.y, self.areas.text.h).contains(x, y)
@@ -1709,7 +1718,7 @@ impl App {
                 self.docs.minimap || self.args.minimap,
             ),
             self.ui.panes.files,
-            self.ui.panes.files_w.round() as u32,
+            (self.ui.panes.files_w.round() as u32, self.session.results_h),
             &self.docs.folder,
             &self.session.geometry,
             (
@@ -2185,7 +2194,7 @@ impl App {
             self.ui.panes.files_w,
             self.notice_h(),
         )
-        .with_results(self.ui.results.open);
+        .with_results(self.ui.results.open, self.ui.results.height);
         // A split whose second tab was closed, or became the active one, is over.
         if self.docs.other.is_some() && self.docs.pane1().is_none() {
             self.docs.other = None;
@@ -2216,7 +2225,7 @@ impl App {
             self.ui.panes.files_w,
             self.notice_h(),
         )
-        .with_results(self.ui.results.open)
+        .with_results(self.ui.results.open, self.ui.results.height)
         .with_minimap(self.docs.minimap && self.docs.active().is_some());
         let text = self.areas.text;
         let mut geom = None;
@@ -2845,6 +2854,9 @@ pub fn run() -> i32 {
         || (a.folder.is_none() && a.files.iter().any(|f| f.is_dir()));
     if let Some(w) = app.session.files_w {
         app.ui.panes.files_w = (w as f32).clamp(PANE_MIN, PANE_MAX);
+    }
+    if let Some(h) = app.session.results_h {
+        app.ui.results.height = (h as f32).max(crate::results::RESULTS_MIN_H);
     }
     app.ui.tree.set_root(app.docs.folder.clone());
 
