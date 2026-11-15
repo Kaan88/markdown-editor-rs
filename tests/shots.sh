@@ -285,5 +285,10 @@ shot complete-snippet-taken --light --goto 10:4 --menu complete-snippet "$fx/com
 shot complete-snippet-taken-dark --dark --goto 10:4 --menu complete-snippet "$fx/complete.md"
 shot complete-above --light --size 900x340 --goto 8:4 --menu complete "$fx/complete.md"
 shot settings-complete --light --dialog settings --settings-section Editing "$fx/sample.rs"
+# The Window backdrop row (offered on Windows). A shot has no window, so there is no backdrop to
+# show: the chrome is flat whatever the setting says, which the third shot shows.
+shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
+shot settings-view-dark --dark --dialog settings --settings-section View "$fx/sample.rs"
+shot settings-view-backdrop --dark --pref backdrop=mica --dialog settings --settings-section View "$fx/sample.rs"
 
 ls "$out" | wc -l
