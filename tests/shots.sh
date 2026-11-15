@@ -156,6 +156,7 @@ shot recovered-dark --dark --goto 5:1 --type "edited " --demo-recovered 1 "$fx/s
 shot update-available --light --update-bar available "$fx/sample.rs"
 shot update-installing --dark --update-bar installing "$fx/sample.rs"
 shot update-installed --dark --update-bar installed
+shot update-installed-plain --light --update-bar installed-plain
 
 # Menus with their icons, both themes, checked items.
 shot menu-main-dark --dark --menu main "$fx/sample.rs"
