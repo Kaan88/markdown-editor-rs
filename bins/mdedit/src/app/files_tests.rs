@@ -739,7 +739,7 @@ fn showing_a_file_in_the_other_pane_greys_compare_and_the_command_works_from_the
         .iter()
         .find(|it| it.id == Act::Cmd(C::ShowInOtherPane))
         .expect("in the View menu");
-    assert!(item.enabled && item.label == "Show this file in the other pane");
+    assert!(item.enabled && item.label == "Show this file &in the other pane");
     let tab = crate::overlays::tab_menu(&a.docs, i, 0.0, 0.0);
     assert!(
         tab.items

@@ -51,6 +51,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, WindowId};
 
+#[cfg(test)]
+mod access_tests;
 mod commands;
 mod compare_events;
 mod completion;
@@ -1493,8 +1495,7 @@ impl App {
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        let covered =
-            self.ui.dialog.is_some() || self.palette_open() || self.ui.settings.is_some();
+        let covered = self.ui.dialog.is_some() || self.palette_open() || self.ui.settings.is_some();
         let margin = self.shadow.as_ref().map_or(0, |s| s.margin()) as f32 / self.scale;
         let rect = chrome::snap_button_rect(self.areas.title, margin, self.maximized, covered);
         let key = rect.map(|r| {

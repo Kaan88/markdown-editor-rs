@@ -595,6 +595,7 @@ impl App {
     }
 
     pub(super) fn left_press(&mut self) {
+        self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
         self.ui.tip = None;
         self.ui.tip_blocked = self.ui.hover;
@@ -827,6 +828,7 @@ impl App {
     }
 
     pub(super) fn right_press(&mut self) {
+        self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
         self.ui.tip = None;
         if self.ui.dialog.is_some() || self.palette_open() || self.ui.settings.is_some() {
@@ -891,6 +893,7 @@ impl App {
     }
 
     pub(super) fn middle_press(&mut self) {
+        self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
         if self.ui.dialog.is_some()
             || self.ui.popup.is_some()
@@ -1089,6 +1092,7 @@ impl App {
     pub(super) fn key_pressed(&mut self, key: keys::Key, typed: Option<&str>) {
         let mods = self.mods;
         self.ui.tip = None;
+        self.ui.keyboard = true;
         self.redraw();
         let name = match &key {
             keys::Key::Name(n) => Some(n.clone()),
@@ -1143,7 +1147,23 @@ impl App {
                 }
                 Some(KeyName::Escape) if open => p.sub = None,
                 Some(KeyName::Escape) => self.ui.popup = None,
-                _ => {}
+                // A letter picks the item marked with it, as Enter would. Nothing else a typed
+                // character did in an open menu is lost: it did nothing.
+                _ => {
+                    if let Some(ch) = access_char(&name, typed, mods) {
+                        let act = match p.sub.as_mut() {
+                            Some(s) => s.menu.access_key(ch),
+                            None => p.menu.access_key(ch),
+                        };
+                        if let Some(act) = act {
+                            self.choose(act, true);
+                        }
+                    }
+                }
+            }
+            // The keyboard is in use: the underlines show from now on (the Windows convention).
+            if let Some(p) = self.ui.popup.as_mut() {
+                p.show_cues();
             }
             return;
         }
@@ -1602,6 +1622,28 @@ enum TitlePress {
     DragOnMove,
 }
 
+/// The character an open menu reads as an access key: a printable one typed without Ctrl or Alt
+/// (the text the key produced, else the bare key). Space, Enter, Tab and the other named keys are
+/// not letters.
+fn access_char(name: &Option<KeyName>, typed: Option<&str>, mods: Mods) -> Option<char> {
+    if mods.ctrl || mods.alt {
+        return None;
+    }
+    let printable = |c: &char| !c.is_control() && !c.is_whitespace();
+    if let Some(t) = typed {
+        let mut chars = t.chars();
+        if let (Some(c), None) = (chars.next(), chars.next())
+            && printable(&c)
+        {
+            return Some(c);
+        }
+    }
+    match name {
+        Some(KeyName::Char(c)) if printable(c) => Some(*c),
+        _ => None,
+    }
+}
+
 fn title_press(clicks: u32, deferred: bool) -> TitlePress {
     if clicks == 2 {
         TitlePress::Maximize
@@ -1635,7 +1677,29 @@ fn autoscroll_step(dx: f32, dy: f32) -> (f64, f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{TitlePress, autoscroll_step, title_moved, title_press};
+    use super::{TitlePress, access_char, autoscroll_step, title_moved, title_press};
+    use crate::keys::{KeyName, Mods};
+
+    #[test]
+    fn a_menu_reads_printable_keys_without_ctrl_or_alt_as_access_keys() {
+        let none = Mods::default();
+        let ch = |c| Some(KeyName::Char(c));
+        assert_eq!(access_char(&ch('f'), Some("f"), none), Some('f'));
+        // The produced text wins (shift, a layout), the bare key stands in without it.
+        assert_eq!(access_char(&ch('f'), Some("F"), none), Some('F'));
+        assert_eq!(access_char(&ch('f'), None, none), Some('f'));
+        assert_eq!(access_char(&ch('é'), Some("é"), none), Some('é'));
+        // Not letters: named keys, space, text of several characters.
+        assert_eq!(access_char(&Some(KeyName::Space), Some(" "), none), None);
+        assert_eq!(access_char(&Some(KeyName::Enter), None, none), None);
+        assert_eq!(access_char(&Some(KeyName::Down), None, none), None);
+        assert_eq!(access_char(&None, Some("ab"), none), None);
+        // Ctrl and Alt are shortcuts.
+        let ctrl = Mods { ctrl: true, ..none };
+        let alt = Mods { alt: true, ..none };
+        assert_eq!(access_char(&ch('f'), Some("f"), ctrl), None);
+        assert_eq!(access_char(&ch('f'), Some("f"), alt), None);
+    }
 
     #[test]
     fn a_title_press_drags_only_after_the_pointer_moves_where_that_is_deferred() {

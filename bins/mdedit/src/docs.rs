@@ -5030,10 +5030,12 @@ mod tests {
     #[test]
     fn vue_and_svelte_files_open_with_their_language() {
         for (name, want) in [("App.vue", "Vue"), ("page.svelte", "Svelte")] {
-            let buf = Buffer::from_text("<script>
+            let buf = Buffer::from_text(
+                "<script>
 let a = 1;
 </script>
-");
+",
+            );
             let lang = language_of(Path::new(name), &buf);
             assert_eq!(lang.map(Language::name), Some(want), "{name}");
         }
