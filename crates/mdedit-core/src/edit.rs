@@ -103,7 +103,7 @@ pub(crate) fn clamped(buf: &Buffer, sel: Selection) -> Range<usize> {
 }
 
 /// `text` is one grapheme and not a line break.
-fn is_typed_char(text: &str) -> bool {
+pub(crate) fn is_typed_char(text: &str) -> bool {
     let mut g = text.graphemes(true);
     match (g.next(), g.next()) {
         (Some(first), None) => !first.starts_with(['\r', '\n']),

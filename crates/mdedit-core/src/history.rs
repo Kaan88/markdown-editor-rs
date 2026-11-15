@@ -24,6 +24,9 @@ pub enum Kind {
     Backspace,
     /// Delete over one grapheme.
     Delete,
+    /// One typed character at every one of several carets (`multi::edit`): the step has a
+    /// record for each caret, and the next character at the same carets joins it.
+    MultiTyping,
     /// Anything else: always its own step.
     Other,
 }
@@ -161,8 +164,40 @@ impl Step {
                 self.pos = at;
                 self.bytes += len;
             }
-            Kind::Other => return false,
+            Kind::Other | Kind::MultiTyping => return false,
         }
+        self.sel_after = sel_after;
+        true
+    }
+
+    /// Merges the records of a character typed at every caret again into this step, when this
+    /// step is the same kind with a record for each caret, every caret is where the typing left
+    /// it, and the characters are of one run (the same rule as for one caret: a run ends after
+    /// whitespace). The records come in the order they were made, last caret first, with the
+    /// offsets of the text before each, so caret `k` of the first step typed at its `at` and
+    /// the next character lands after what the carets before it and it typed.
+    fn try_merge_multi(&mut self, records: &[Record], sel_after: Selection) -> bool {
+        if self.kind != Kind::MultiTyping
+            || self.records.len() != records.len()
+            || records.iter().any(|r| !r.removed.is_empty())
+            || self.records.iter().any(|r| !r.removed.is_empty())
+            || (self.ends_ws && !records.last().is_some_and(|r| r.ws))
+        {
+            return false;
+        }
+        // Walk from the first caret (the last record) forward, counting what the carets before
+        // have typed in all.
+        let mut typed = 0;
+        for (old, new) in self.records.iter().zip(records).rev() {
+            typed += old.inserted;
+            if new.at != old.at + typed {
+                return false;
+            }
+        }
+        for (old, new) in self.records.iter_mut().zip(records) {
+            old.inserted += new.inserted;
+        }
+        self.ends_ws = records.last().is_some_and(|r| r.ws);
         self.sel_after = sel_after;
         true
     }
@@ -295,7 +330,15 @@ impl History {
         }
         self.clear_redo();
         if self.open
+            && kind == Kind::MultiTyping
+            && let Some(top) = self.undo.back_mut()
+            && top.try_merge_multi(&records, sel_after)
+        {
+            return;
+        }
+        if self.open
             && kind != Kind::Other
+            && kind != Kind::MultiTyping
             && records.len() == 1
             && let Some(top) = self.undo.back_mut()
         {
@@ -310,6 +353,7 @@ impl History {
         }
         let (pos, ends_ws) = match (kind, records.last()) {
             (Kind::Typing, Some(r)) => (typing_pos(r.at, r.inserted, sel_after), r.ws),
+            (Kind::MultiTyping, Some(r)) => (r.at, r.ws),
             (_, Some(r)) => (r.at, false),
             _ => (0, false),
         };

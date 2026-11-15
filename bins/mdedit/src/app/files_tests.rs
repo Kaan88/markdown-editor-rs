@@ -1311,6 +1311,30 @@ fn undoing_cut_or_delete_bookmarked_lines_brings_the_bookmarks_back() {
 }
 
 #[test]
+fn typing_at_two_carets_is_undone_as_one_run_like_typing_at_one() {
+    let dir = scratch("multi-undo");
+    std::fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
+    let mut a = app();
+    open_now(&mut a, &dir.join("a.txt"));
+    a.docs
+        .active_ready_mut()
+        .unwrap()
+        .select_column((0, 0), (1, 0));
+    assert_eq!(a.docs.active_ready().unwrap().view.extra.len(), 1);
+    type_text(&mut a, "XY");
+    let text = |a: &App| a.docs.active_ready().unwrap().buffer.rope().to_string();
+    assert_eq!(text(&a), "XYone\nXYtwo\n");
+    a.mods = Mods {
+        ctrl: true,
+        ..Mods::default()
+    };
+    press(&mut a, KeyName::Char('z'), None);
+    a.mods = Mods::default();
+    assert_eq!(text(&a), "one\ntwo\n", "one Ctrl+Z takes the whole run");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_results_panel_searches_the_folder_and_kinds_typed_in_its_boxes() {
     let dir = scratch("results-scope");
     std::fs::create_dir_all(dir.join("sub")).unwrap();

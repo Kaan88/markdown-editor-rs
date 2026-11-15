@@ -157,7 +157,8 @@ fn range_for(buf: &Buffer, op: MultiOp<'_>, sel: Selection) -> Range<usize> {
     }
 }
 
-/// Applies `op` at every selection as one undo step (`Kind::Other`). `sels` need not be
+/// Applies `op` at every selection as one undo step (`Kind::Other`; one typed character at
+/// carets only is `Kind::MultiTyping` and merges with the characters typed before it). `sels` need not be
 /// normalised: this normalises first (with `primary`). Ranges to remove are worked out on the
 /// text as it is before the edit; where two of them overlap (two carets backspacing over the
 /// same grapheme) they are merged and the text is removed once. Returns the outcome (its `sel`
@@ -226,7 +227,17 @@ pub fn edit(
     for &(s, e, t, _) in groups.iter().rev() {
         cmd.replace(s..e, t);
     }
-    let out = cmd.finish(hist, Kind::Other, before, Selection::at(after[p]));
+    // One typed character at carets only, one record for each: a run of them is one undo step,
+    // as it is for one caret.
+    let typing = matches!(op, MultiOp::Insert(t) if crate::edit::is_typed_char(t))
+        && groups.len() == norm.len()
+        && norm.iter().all(|s| s.is_empty());
+    let kind = if typing {
+        Kind::MultiTyping
+    } else {
+        Kind::Other
+    };
+    let out = cmd.finish(hist, kind, before, Selection::at(after[p]));
     if out.change.is_none() {
         return (out, norm, p);
     }
@@ -801,6 +812,71 @@ mod tests {
         let r = redo(&mut buf, &mut hist).unwrap();
         assert_eq!(txt(&buf), "# one\n# two\n# three");
         assert_eq!(r.sel, at(8));
+    }
+
+    #[test]
+    fn characters_typed_at_several_carets_are_one_undo_step_like_one_caret() {
+        let text = "one\ntwo\nthree";
+        let mut buf = Buffer::from_text(text);
+        let mut hist = History::new();
+        let mut list = vec![at(0), at(4), at(8)];
+        let mut p = 1;
+        for (i, ch) in ["X", "Y", "Z"].into_iter().enumerate() {
+            let (_, l, pi) = edit(&mut buf, &mut hist, &list, p, MultiOp::Insert(ch));
+            (list, p) = (l, pi);
+            assert_eq!(hist.steps(), (1, 0), "after {} characters", i + 1);
+        }
+        assert_eq!(txt(&buf), "XYZone\nXYZtwo\nXYZthree");
+        assert_eq!(carets(&list), vec![3, 10, 17]);
+        // The run is whitespace-bounded as for one caret: a space after letters joins them,
+        // a letter after the space starts a new step.
+        let (_, l, pi) = edit(&mut buf, &mut hist, &list, p, MultiOp::Insert(" "));
+        assert_eq!(hist.steps(), (1, 0));
+        let (_, l, pi) = edit(&mut buf, &mut hist, &l, pi, MultiOp::Insert("q"));
+        (list, p) = (l, pi);
+        assert_eq!(hist.steps(), (2, 0));
+        assert_eq!(txt(&buf), "XYZ qone\nXYZ qtwo\nXYZ qthree");
+        // One undo takes the letter after the space, the next the rest; redo does the same.
+        let u = undo(&mut buf, &mut hist).unwrap();
+        assert_eq!(txt(&buf), "XYZ one\nXYZ two\nXYZ three");
+        check_change(
+            "XYZ qone\nXYZ qtwo\nXYZ qthree",
+            &txt(&buf),
+            u.change.as_ref().unwrap(),
+        );
+        undo(&mut buf, &mut hist).unwrap();
+        assert_eq!(txt(&buf), text);
+        assert!(!hist.can_undo() && !hist.is_modified());
+        redo(&mut buf, &mut hist).unwrap();
+        redo(&mut buf, &mut hist).unwrap();
+        assert_eq!(txt(&buf), "XYZ qone\nXYZ qtwo\nXYZ qthree");
+        let _ = (list, p);
+        // A different set of carets, a selection, or a caret that moved does not join.
+        let mut buf = Buffer::from_text("ab\ncd");
+        let mut hist = History::new();
+        let (_, l, pi) = edit(
+            &mut buf,
+            &mut hist,
+            &[at(0), at(3)],
+            0,
+            MultiOp::Insert("X"),
+        );
+        edit(
+            &mut buf,
+            &mut hist,
+            &[at(l[0].caret), at(l[1].caret + 1)],
+            pi,
+            MultiOp::Insert("Y"),
+        );
+        assert_eq!(hist.steps(), (2, 0));
+        edit(
+            &mut buf,
+            &mut hist,
+            &[at(0), at(3)],
+            0,
+            MultiOp::Insert("Z"),
+        );
+        assert_eq!(hist.steps(), (3, 0));
     }
 
     // ---- move_all
