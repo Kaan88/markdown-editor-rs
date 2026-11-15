@@ -11,6 +11,7 @@ use crate::buffer::Buffer;
 use crate::edit::{Cmd, Outcome, nothing};
 use crate::find::{self, FindOptions, Query};
 use crate::history::{History, Kind};
+use crate::limits::TAB_WIDTH;
 use crate::selection::{self, Motion, Selection};
 use crate::vcol;
 use std::ops::Range;
@@ -29,6 +30,11 @@ pub enum MultiOp<'a> {
     Backspace,
     /// Remove each selection, or the grapheme after each caret that has none.
     Delete,
+    /// Remove each selection, or from the start of the word before each caret that has none to
+    /// the caret (as `edit::delete_word_left` does for one).
+    WordLeft,
+    /// Remove each selection, or from each caret to the end of the word after it.
+    WordRight,
 }
 
 /// Sorts selections by position and merges those that overlap or touch at a caret
@@ -125,7 +131,8 @@ fn text_for<'a>(op: MultiOp<'a>, k: usize) -> &'a str {
     match op {
         MultiOp::Insert(t) => t,
         MultiOp::InsertEach(texts) => texts[k],
-        MultiOp::Backspace | MultiOp::Delete => "",
+        MultiOp::Backspace | MultiOp::Delete | MultiOp::WordLeft | MultiOp::WordRight => "",
+        MultiOp::Delete => "",
     }
 }
 
@@ -138,6 +145,15 @@ fn range_for(buf: &Buffer, op: MultiOp<'_>, sel: Selection) -> Range<usize> {
     match op {
         MultiOp::Backspace => buf.prev_grapheme(at)..at,
         MultiOp::Delete => at..buf.next_grapheme(at),
+        MultiOp::WordLeft | MultiOp::WordRight => {
+            let motion = if op == MultiOp::WordLeft {
+                Motion::WordLeft
+            } else {
+                Motion::WordRight
+            };
+            let to = selection::apply(buf, Selection::at(at), motion, false, TAB_WIDTH).caret;
+            to.min(at)..to.max(at)
+        }
         MultiOp::Insert(_) | MultiOp::InsertEach(_) => at..at,
     }
 }
@@ -170,34 +186,45 @@ pub fn edit(
     {
         return (nothing(before), norm, p);
     }
-    // The replacements in document order, merged where removals overlap, and for every selection
-    // where its caret ends up in the new text.
-    let mut groups: Vec<(usize, usize, &str)> = Vec::with_capacity(norm.len());
-    let mut after: Vec<usize> = Vec::with_capacity(norm.len());
-    // The new text's offsets are the old ones plus this, for what lies after the groups before
-    // the last one.
-    let mut delta: isize = 0;
+    // The replacements in document order (start, end, text, first selection that made it),
+    // merged where removals overlap (a word removed to the left can reach back over earlier
+    // removals), and for every selection where its caret ends up in the new text.
+    let mut groups: Vec<(usize, usize, &str, usize)> = Vec::with_capacity(norm.len());
     for (k, sel) in norm.iter().enumerate() {
-        let r = range_for(buf, op, *sel);
+        let mut r = range_for(buf, op, *sel);
         let t = text_for(op, k);
-        if let Some(g) = groups.last_mut()
-            && t.is_empty()
-            && g.2.is_empty()
-            && r.start < g.1
-        {
-            g.1 = g.1.max(r.end);
-            after.push((g.0 as isize + delta) as usize);
-            continue;
+        let mut first = k;
+        if t.is_empty() {
+            while let Some(g) = groups.last()
+                && g.2.is_empty()
+                && r.start < g.1
+            {
+                r = r.start.min(g.0)..r.end.max(g.1);
+                first = g.3;
+                groups.pop();
+            }
         }
-        if let Some(g) = groups.last() {
-            delta += g.2.len() as isize - (g.1 - g.0) as isize;
+        groups.push((r.start, r.end, t, first));
+    }
+    // The new text's offsets are the old ones plus `delta`, for what lies after the groups
+    // before: where each group's text ends in the new text.
+    let mut ends: Vec<usize> = Vec::with_capacity(groups.len());
+    let mut delta: isize = 0;
+    for g in &groups {
+        ends.push((g.0 as isize + delta) as usize + g.2.len());
+        delta += g.2.len() as isize - (g.1 - g.0) as isize;
+    }
+    let mut after: Vec<usize> = Vec::with_capacity(norm.len());
+    let mut gi = 0;
+    for k in 0..norm.len() {
+        while gi + 1 < groups.len() && groups[gi + 1].3 <= k {
+            gi += 1;
         }
-        groups.push((r.start, r.end, t));
-        after.push((r.start as isize + delta) as usize + t.len());
+        after.push(ends[gi]);
     }
     let mut cmd = Cmd::new(buf);
     // Back to front, so the offsets of the text before the edit stay valid.
-    for &(s, e, t) in groups.iter().rev() {
+    for &(s, e, t, _) in groups.iter().rev() {
         cmd.replace(s..e, t);
     }
     let out = cmd.finish(hist, Kind::Other, before, Selection::at(after[p]));
@@ -942,6 +969,49 @@ mod tests {
         // Not on one, or the only one.
         assert_eq!(remove_at(&v, 0, 5), None);
         assert_eq!(remove_at(&[at(4)], 0, 4), None);
+    }
+
+    // ---- word removal
+
+    #[test]
+    fn word_left_removes_a_word_at_every_caret() {
+        let (t, v, p) = go("foo bar\nbaz qux", &[at(7), at(15)], 1, MultiOp::WordLeft);
+        assert_eq!(t, "foo \nbaz ");
+        assert_eq!((carets(&v), p), (vec![4, 9], 1));
+    }
+
+    #[test]
+    fn word_right_removes_a_word_at_every_caret() {
+        let (t, v, p) = go("foo bar\nbaz qux", &[at(0), at(8)], 0, MultiOp::WordRight);
+        assert_eq!(t, " bar\n qux");
+        assert_eq!((carets(&v), p), (vec![0, 5], 0));
+    }
+
+    #[test]
+    fn word_removal_over_a_selection_removes_the_selection() {
+        let (t, v, _) = go("ab cd ef", &[s(0, 2), at(8)], 0, MultiOp::WordLeft);
+        assert_eq!(t, " cd ");
+        assert_eq!(carets(&v), vec![0, 4]);
+    }
+
+    #[test]
+    fn word_left_reaching_back_over_earlier_removals_merges_them() {
+        // The selections [2,4) and [6,8) lie inside the word the last caret removes.
+        let (t, v, p) = go(
+            "abcdefghijkl x",
+            &[s(2, 4), s(6, 8), at(12)],
+            2,
+            MultiOp::WordLeft,
+        );
+        assert_eq!(t, " x");
+        assert_eq!((carets(&v), p), (vec![0], 0));
+    }
+
+    #[test]
+    fn word_removal_where_two_carets_share_a_word_removes_it_once() {
+        let (t, v, _) = go("one two", &[at(5), at(7)], 0, MultiOp::WordLeft);
+        assert_eq!(t, "one ");
+        assert_eq!(carets(&v), vec![4]);
     }
 
     // ---- display_col

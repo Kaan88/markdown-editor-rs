@@ -2196,9 +2196,15 @@ impl Docs {
                 EditOp::Indent => Some(MultiOp::Insert(&unit_text)),
                 // On a column of text the rows that are only a caret (a short line) are left
                 // alone: Backspace and Delete remove what is selected.
-                EditOp::Backspace | EditOp::Delete if column_text => Some(MultiOp::Insert("")),
+                EditOp::Backspace | EditOp::Delete | EditOp::WordLeft | EditOp::WordRight
+                    if column_text =>
+                {
+                    Some(MultiOp::Insert(""))
+                }
                 EditOp::Backspace => Some(MultiOp::Backspace),
                 EditOp::Delete => Some(MultiOp::Delete),
+                EditOp::WordLeft => Some(MultiOp::WordLeft),
+                EditOp::WordRight => Some(MultiOp::WordRight),
                 EditOp::Paste(text) => {
                     pasted = normalize_eols(text, eol);
                     // As many lines as carets: one line to each.
@@ -4528,6 +4534,28 @@ mod tests {
         assert_eq!(text_of(&d, i), "x bar x\nx\n");
         assert!(d.edit(EditOp::Undo, None));
         assert_eq!(text_of(&d, i), "foo bar foo\nfoo\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn word_removal_acts_at_every_caret_as_one_undo_step() {
+        let (mut d, i, _path, dir) = file_docs("multiword", b"one two\nthree four\n");
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.view.sel = Selection::at(7);
+        r.add_caret(18);
+        assert!(d.edit(EditOp::WordLeft, None));
+        assert_eq!(text_of(&d, i), "one \nthree \n");
+        assert_eq!(d.tabs[i].ready().unwrap().view.extra.len(), 1);
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "one two\nthree four\n");
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.view.sel = Selection::at(4);
+        r.view.extra = vec![Selection::at(8)];
+        assert!(d.edit(EditOp::WordRight, None));
+        assert_eq!(text_of(&d, i), "one \n four\n");
+        assert_eq!(d.tabs[i].ready().unwrap().view.extra.len(), 1);
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), "one two\nthree four\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
