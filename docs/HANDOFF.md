@@ -5,7 +5,12 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## START HERE: work in progress after mdedit 0.5.1 (written 2026-11-14, branch table updated 2026-11-15)
+## START HERE: mdedit 0.6.0 is released (2026-11-15)
+
+**The released state is `main`, mdedit 0.6.0, tag `v0.6.0` at `c9d05b1`, published with mdview
+0.4.0 on the owner's word; see "Release 0.6.0" below and `docs/RELEASE.md`.** The text that
+follows was written while the work was in progress: nothing is in progress now, and every
+branch it names is merged.
 
 **State at the end of 2026-11-15 (read this first).** Every feature of the next-release batch is
 finished and merged on `merge/next-release`, here, in the viewer and in the shared crates; the
