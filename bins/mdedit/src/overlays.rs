@@ -430,6 +430,8 @@ pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act
         cmd(C::MdRowBelow, "Insert row below", glyph::PLUS).enabled(ready),
         cmd(C::MdRowAbove, "Insert row above", glyph::PLUS).enabled(ready),
         cmd(C::MdDeleteRow, "Delete row", glyph::DELETE).enabled(ready),
+        cmd(C::MdMoveRowUp, "Move row up", glyph::UP).enabled(ready),
+        cmd(C::MdMoveRowDown, "Move row down", glyph::DOWN).enabled(ready),
         cmd(C::MdColumnRight, "Insert column right", glyph::PLUS)
             .sep()
             .enabled(ready),
@@ -437,6 +439,9 @@ pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act
         cmd(C::MdDeleteColumn, "Delete column", glyph::DELETE).enabled(ready),
         cmd(C::MdMoveColumnLeft, "Move column left", glyph::BACK).enabled(ready),
         cmd(C::MdMoveColumnRight, "Move column right", glyph::FORWARD).enabled(ready),
+        cmd(C::MdSortColumn, "Sort table by this column", glyph::EDIT)
+            .sep()
+            .enabled(ready),
     ];
     Menu::new(items, x, y, align_right)
 }

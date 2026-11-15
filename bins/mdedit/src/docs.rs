@@ -3771,6 +3771,44 @@ mod tests {
     }
 
     #[test]
+    fn a_table_in_a_list_item_and_the_row_commands_work_through_the_editor() {
+        let src = "- | n | s |\n  |-|-|\n  | 10 | b |\n  | 9 | a |\n\ntext\n";
+        let (mut d, i, _path, dir) = file_docs("mdlisttable", src.as_bytes());
+        d.tabs[i].ready_mut().unwrap().assist = Prefs::default().assist("Markdown");
+        let at =
+            |d: &mut Docs, p: usize| d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(p);
+        // Align table keeps the marker and the indentation.
+        at(&mut d, 4);
+        assert!(d.edit(EditOp::MdTable, None));
+        assert_eq!(
+            text_of(&d, i),
+            "- | n   | s   |\n  | --- | --- |\n  | 10  | b   |\n  | 9   | a   |\n\ntext\n"
+        );
+        assert!(d.edit(EditOp::Undo, None));
+        // Tab goes to the next cell.
+        at(&mut d, 4);
+        assert!(d.edit(EditOp::Indent, None));
+        assert_eq!(d.tabs[i].ready().unwrap().view.sel.caret, 10);
+        assert!(d.edit(EditOp::Undo, None));
+        // Sort by the first column: numbers, ascending; again, descending. One step each.
+        at(&mut d, 4);
+        assert!(d.edit(EditOp::MdTableOp(table::TableOp::SortColumn), None));
+        assert!(text_of(&d, i).contains("  | 9   | a   |\n  | 10  | b   |\n"));
+        assert!(d.edit(EditOp::MdTableOp(table::TableOp::SortColumn), None));
+        assert!(text_of(&d, i).contains("  | 10  | b   |\n  | 9   | a   |\n"));
+        assert!(d.edit(EditOp::Undo, None));
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), src);
+        // Move a row down from the first body row.
+        let row = text_of(&d, i).find("| 10").unwrap();
+        at(&mut d, row + 3);
+        assert!(d.edit(EditOp::MdTableOp(table::TableOp::MoveRowDown), None));
+        assert!(text_of(&d, i).contains("  | 9   | a   |\n  | 10  | b   |\n"));
+        assert!(!d.edit(EditOp::MdTableOp(table::TableOp::MoveRowDown), None));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn the_save_options_are_one_undo_step_and_do_nothing_when_nothing_differs() {
         let (mut d, i, _path, dir) = file_docs("saveopts", b"a  \nb\t\nc");
         // Off by default: nothing changes.

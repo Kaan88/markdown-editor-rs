@@ -363,6 +363,32 @@ pub(crate) fn prefix_len(line: &str) -> usize {
         .count()
 }
 
+/// Bytes of a line before its first content when the line is the first of a table inside a list
+/// item: [`prefix_len`] plus a list marker (`-`, `+`, `*`, or digits and `.` or `)`) and the white
+/// space after it, when what follows is a pipe (`- | a | b |`). Otherwise [`prefix_len`].
+pub(crate) fn lead_len(line: &str) -> usize {
+    let p = prefix_len(line);
+    let b = line.as_bytes();
+    let mut i = p;
+    if matches!(b.get(i), Some(b'-' | b'+' | b'*')) {
+        i += 1;
+    } else {
+        let digits = b[i..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 || digits > 9 || !matches!(b.get(i + digits), Some(b'.' | b')')) {
+            return p;
+        }
+        i += digits + 1;
+    }
+    let spaces = b[i..]
+        .iter()
+        .take_while(|&&c| matches!(c, b' ' | b'\t'))
+        .count();
+    if spaces == 0 || b.get(i + spaces) != Some(&b'|') {
+        return p;
+    }
+    i + spaces
+}
+
 /// How many block quote markers a line prefix holds.
 fn quote_depth(prefix: &str) -> usize {
     prefix.bytes().filter(|&c| c == b'>').count()
@@ -391,9 +417,9 @@ fn code_span_end(b: &[u8], from: usize, run: usize) -> Option<usize> {
 /// the pipe that closes the cell (or the end of the line). An optional pipe after the prefix and
 /// one at the end are not separators; cells are cut at the other pipes that no backslash escapes
 /// and no code span holds.
-pub(crate) fn bounds_of(line: &str) -> Vec<(usize, usize)> {
+pub(crate) fn bounds_of(line: &str, start: usize) -> Vec<(usize, usize)> {
     let b = line.as_bytes();
-    let mut from = prefix_len(line);
+    let mut from = start;
     if b.get(from) == Some(&b'|') {
         from += 1;
     }
@@ -473,6 +499,13 @@ pub(crate) struct Row {
     /// The text between the separators (see [`bounds_of`]) and the trimmed text of each cell.
     pub bounds: Vec<(usize, usize)>,
     pub cells: Vec<(usize, usize)>,
+    /// Bytes before the content: indentation and quote markers (`indent`), and with a list marker
+    /// the marker too (`lead`, the same as `indent` for a row without one).
+    pub indent: usize,
+    pub lead: usize,
+    /// For a line that starts like a list item before a pipe: how it reads as the header of a
+    /// table that starts a list item (`- | a |`): its separators, its cells and its `lead`.
+    pub marked: Option<(Vec<(usize, usize)>, Vec<(usize, usize)>, usize)>,
 }
 
 /// A table found around a caret.
@@ -483,6 +516,11 @@ pub(crate) struct Located {
     pub align: Vec<u8>,
     /// The index in `rows` of the caret's line.
     pub caret_row: usize,
+    /// What stands before the header row, and before every other row: the quote markers and the
+    /// indentation of the header; for a table that starts a list item (`- | a |`) the marker is
+    /// in the first and the other rows are indented to line up with the text after it.
+    pub first: String,
+    pub rest: String,
 }
 
 /// The table the caret is in: see [`format_table`] for what a table is and the limits. `None`
@@ -532,10 +570,19 @@ pub(crate) fn locate(buf: &Buffer, caret: usize) -> Option<Located> {
         .map(|l| {
             let range = buf.line_range(l);
             let text = text_of(buf, range.clone());
-            let bounds = bounds_of(&text);
+            let bounds = bounds_of(&text, prefix_len(&text));
             let cells = trimmed(&text, &bounds);
+            let (indent, lead) = (prefix_len(&text), lead_len(&text));
+            let marked = (lead > indent).then(|| {
+                let b = bounds_of(&text, lead);
+                let c = trimmed(&text, &b);
+                (b, c, lead)
+            });
             Row {
                 range,
+                indent,
+                lead: indent,
+                marked,
                 text,
                 bounds,
                 cells,
@@ -546,16 +593,36 @@ pub(crate) fn locate(buf: &Buffer, caret: usize) -> Option<Located> {
         return None;
     }
     // The first delimiter row that has a header above it with the same number of cells.
+    // A header that starts a list item (`- | a |`) counts when read plain it does not fit.
     let d = (1..rows.len()).find(|&i| {
-        !rows[i].cells.is_empty()
-            && rows[i].cells.len() == rows[i - 1].cells.len()
+        let n = rows[i].cells.len();
+        n > 0
             && delim_of(&rows[i]).is_some()
+            && (rows[i - 1].cells.len() == n
+                || rows[i - 1].marked.as_ref().is_some_and(|m| m.1.len() == n))
     })?;
     let start = d - 1;
     if line - r0 < start {
         return None;
     }
-    let table = rows.split_off(start);
+    let mut table = rows.split_off(start);
+    // Read as the header of a table that starts a list item when it does not fit plain; a later
+    // line that starts a list item then ends the table.
+    if table[0].cells.len() != table[1].cells.len()
+        && let Some((bounds, cells, lead)) = table[0].marked.take()
+    {
+        table[0].bounds = bounds;
+        table[0].cells = cells;
+        table[0].lead = lead;
+        if let Some(k) = table.iter().skip(1).position(|r| r.marked.is_some()) {
+            table.truncate(k + 1);
+        }
+    }
+    let caret_row = line - r0 - start;
+    if caret_row >= table.len() {
+        return None;
+    }
+    let (first, rest) = prefixes(&table);
     let cols = table.iter().map(|r| r.cells.len()).max().unwrap_or(0);
     if cols > TABLE_COLS {
         return None;
@@ -564,8 +631,29 @@ pub(crate) fn locate(buf: &Buffer, caret: usize) -> Option<Located> {
     Some(Located {
         rows: table,
         align,
-        caret_row: line - r0 - start,
+        caret_row,
+        first,
+        rest,
     })
+}
+
+/// The text before the header row and before the others (see [`Located::first`]).
+fn prefixes(table: &[Row]) -> (String, String) {
+    let head = &table[0];
+    let first = head.text[..head.lead].to_string();
+    if head.lead == head.indent {
+        return (first.clone(), first);
+    }
+    // The text after the list marker lines up with what the delimiter row already has, when that
+    // reaches as far, else with spaces under the marker.
+    let delim = &table[1];
+    let width = head.text[head.indent..head.lead].chars().count();
+    let rest = if delim.indent >= head.indent + width {
+        delim.text[..delim.indent].to_string()
+    } else {
+        format!("{}{}", &head.text[..head.indent], " ".repeat(width))
+    };
+    (first, rest)
 }
 
 /// The alignments of a delimiter row's cells; `None` when one is not a delimiter cell.
@@ -578,11 +666,11 @@ fn delim_of(row: &Row) -> Option<Vec<u8>> {
 
 /// The text of the table's rows, each with the byte in it where each cell's text starts. `rows`
 /// holds the cells of each row, the delimiter row (second) with any placeholders: only how many
-/// it has counts. Every row is `prefix`, `|`, then ` cell |` for each cell, each cell padded to
-/// the widest of its column (3 at least) by its alignment; the delimiter row is dashes and
-/// colons to that width.
+/// it has counts. Every row is its prefix (`first` for the header, `rest` for the others), `|`,
+/// then ` cell |` for each cell, each cell padded to the widest of its column (3 at least) by its
+/// alignment; the delimiter row is dashes and colons to that width.
 pub(crate) fn lay_out(
-    prefix: &str,
+    (first, rest): (&str, &str),
     align: &[u8],
     rows: &[Vec<String>],
 ) -> Vec<(String, Vec<usize>)> {
@@ -598,7 +686,7 @@ pub(crate) fn lay_out(
     }
     let mut made: Vec<(String, Vec<usize>)> = Vec::with_capacity(rows.len());
     for (i, row) in rows.iter().enumerate() {
-        let mut out = String::from(prefix);
+        let mut out = String::from(if i == 0 { first } else { rest });
         let mut starts = Vec::with_capacity(row.len());
         out.push('|');
         for (c, cell) in row.iter().enumerate() {
@@ -676,7 +764,7 @@ pub(crate) fn format_table_pts(
     else {
         return nothing(sel);
     };
-    let prefix = table[0].text[..prefix_len(&table[0].text)].to_string();
+    let (first, rest) = prefixes(&table);
     let cells: Vec<Vec<String>> = table
         .iter()
         .map(|r| {
@@ -687,7 +775,7 @@ pub(crate) fn format_table_pts(
         })
         .collect();
     // The new text of each row and where each cell's text starts in it.
-    let made = lay_out(&prefix, &align, &cells);
+    let made = lay_out((&first, &rest), &align, &cells);
     // Rows that change, with the map of the selection ends through them.
     struct Change<'a> {
         row: &'a Row,

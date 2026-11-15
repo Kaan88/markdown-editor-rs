@@ -1212,6 +1212,9 @@ impl App {
                 | C::MdDeleteColumn
                 | C::MdMoveColumnLeft
                 | C::MdMoveColumnRight
+                | C::MdMoveRowUp
+                | C::MdMoveRowDown
+                | C::MdSortColumn
         );
         if self.ui.find_focused && edits {
             return;
@@ -1388,6 +1391,15 @@ impl App {
             }
             C::MdMoveColumnRight => {
                 self.edit(EditOp::MdTableOp(TableOp::MoveColumnRight));
+            }
+            C::MdMoveRowUp => {
+                self.edit(EditOp::MdTableOp(TableOp::MoveRowUp));
+            }
+            C::MdMoveRowDown => {
+                self.edit(EditOp::MdTableOp(TableOp::MoveRowDown));
+            }
+            C::MdSortColumn => {
+                self.edit(EditOp::MdTableOp(TableOp::SortColumn));
             }
             C::TrimTrailing => {
                 self.edit(EditOp::TrimTrailing);

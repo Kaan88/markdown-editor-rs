@@ -15,7 +15,7 @@
 use crate::buffer::Buffer;
 use crate::edit::{Cmd, Outcome};
 use crate::history::{History, Kind};
-use crate::markdown::{Located, TABLE_COLS, TABLE_ROWS, lay_out, locate, prefix_len};
+use crate::markdown::{Located, Row, TABLE_COLS, TABLE_ROWS, lay_out, locate};
 use crate::selection::Selection;
 
 /// A command on the table the caret is in.
@@ -37,6 +37,15 @@ pub enum TableOp {
     MoveColumnLeft,
     /// The caret's column swaps places with the one on its right.
     MoveColumnRight,
+    /// The caret's row, which must be a body row, swaps places with the body row above it.
+    MoveRowUp,
+    /// The caret's row, which must be a body row, swaps places with the body row below it.
+    MoveRowDown,
+    /// The body rows are sorted by the caret's column: ascending, or descending when they are
+    /// already in ascending order (so a second use reverses the first). A column whose cells
+    /// all are numbers is compared as numbers, else as text without regard to case. Equal rows
+    /// keep their order.
+    SortColumn,
 }
 
 /// One row of the table being changed: the old row it came from and its cells' text.
@@ -47,7 +56,9 @@ struct GridRow {
 
 /// The table as cells, with the alignment of each column.
 struct Grid {
-    prefix: String,
+    /// The text before the header row and before the others.
+    first: String,
+    rest: String,
     align: Vec<u8>,
     rows: Vec<GridRow>,
 }
@@ -76,7 +87,8 @@ impl Grid {
             })
             .collect();
         Grid {
-            prefix: t.rows[0].text[..prefix_len(&t.rows[0].text)].to_string(),
+            first: t.first.clone(),
+            rest: t.rest.clone(),
             align: t.align.clone(),
             rows,
         }
@@ -144,7 +156,7 @@ fn apply(
 ) -> Outcome {
     let n = t.rows.len();
     let cells: Vec<Vec<String>> = grid.rows.iter().map(|r| r.cells.clone()).collect();
-    let made = lay_out(&grid.prefix, &grid.align, &cells);
+    let made = lay_out((&grid.first, &grid.rest), &grid.align, &cells);
     // The old text, and the new, each row followed by the line break that followed it.
     let term = |i: usize| -> String {
         let mut s = String::new();
@@ -215,8 +227,9 @@ fn apply(
 }
 
 /// Whether the text of `row` from `col` on is only white space, with something before it.
-fn at_end(text: &str, col: usize) -> bool {
-    col > prefix_len(text) && text[col.min(text.len())..].trim().is_empty()
+fn at_end(row: &Row, col: usize) -> bool {
+    let text = &row.text;
+    col > row.lead && text[col.min(text.len())..].trim().is_empty()
 }
 
 /// Tab (or Shift+Tab with `back`) in a table: lines the table up and puts the caret at the start
@@ -308,7 +321,7 @@ pub fn row_after(
     let caret = buf.floor_char(sel.caret.min(len));
     let t = locate(buf, caret)?;
     let row = &t.rows[t.caret_row];
-    if !at_end(&row.text, caret - row.range.start) {
+    if !at_end(row, caret - row.range.start) {
         return None;
     }
     let r = t.caret_row;
@@ -316,7 +329,7 @@ pub fn row_after(
     // Enter never cuts a table in two.
     if r >= 2 && r + 1 == t.rows.len() && row.cells.iter().all(|&(s, e)| s == e) {
         // The row goes; its quote markers stay.
-        let prefix = &row.text[..prefix_len(&row.text)];
+        let prefix = &row.text[..row.indent];
         let keep = if prefix.contains('>') { prefix } else { "" };
         let mut cmd = Cmd::new(buf);
         cmd.replace(row.range.clone(), keep);
@@ -356,6 +369,9 @@ pub fn can(buf: &Buffer, sel: Selection, op: TableOp) -> bool {
         TableOp::DeleteColumn => cols >= 2,
         TableOp::MoveColumnLeft => c >= 1,
         TableOp::MoveColumnRight => c + 1 < cols,
+        TableOp::MoveRowUp => at.row >= 3,
+        TableOp::MoveRowDown => at.row >= 2 && at.row + 1 < t.rows.len(),
+        TableOp::SortColumn => t.rows.len() >= 4,
     }
 }
 
@@ -469,8 +485,64 @@ pub fn edit(
             };
             Target { cell, ..keep }
         }
+        TableOp::MoveRowUp | TableOp::MoveRowDown => {
+            let to = if op == TableOp::MoveRowUp {
+                r - 1
+            } else {
+                r + 1
+            };
+            g.rows.swap(r, to);
+            Target { row: to, ..keep }
+        }
+        TableOp::SortColumn => {
+            let row = sort_body(&mut g, c, r);
+            Target { row, ..keep }
+        }
     };
     Some(apply(buf, hist, sel, &t, &g, to, eol))
+}
+
+/// A cell as a number: trimmed, finite, and a number for Rust's float parser.
+fn number(cell: &str) -> Option<f64> {
+    let t = cell.trim();
+    if !t.starts_with(|c: char| c.is_ascii_digit() || matches!(c, '-' | '+' | '.')) {
+        return None;
+    }
+    t.parse::<f64>().ok().filter(|n| n.is_finite())
+}
+
+/// Sorts the body rows of `g` (from the third) by column `col` as [`TableOp::SortColumn`] says;
+/// returns where the row that was at `caret_row` is now (the same when it is not a body row).
+fn sort_body(g: &mut Grid, col: usize, caret_row: usize) -> usize {
+    use std::cmp::Ordering;
+    let cell = |row: &GridRow| row.cells.get(col).map_or("", String::as_str).to_string();
+    let nums: Option<Vec<f64>> = g.rows[2..].iter().map(|r| number(&cell(r))).collect();
+    let keys: Vec<String> = g.rows[2..].iter().map(|r| cell(r).to_lowercase()).collect();
+    let mut order: Vec<usize> = (0..keys.len()).collect();
+    let cmp = |a: usize, b: usize| -> Ordering {
+        match &nums {
+            Some(n) => n[a].total_cmp(&n[b]),
+            None => keys[a].cmp(&keys[b]),
+        }
+    };
+    let sorted = order
+        .windows(2)
+        .all(|w| cmp(w[0], w[1]) != Ordering::Greater);
+    if sorted {
+        order.sort_by(|&a, &b| cmp(b, a));
+    } else {
+        order.sort_by(|&a, &b| cmp(a, b));
+    }
+    let mut body: Vec<Option<GridRow>> = g.rows.drain(2..).map(Some).collect();
+    g.rows.extend(
+        order
+            .iter()
+            .map(|&i| body[i].take().expect("each row once")),
+    );
+    if caret_row < 2 {
+        return caret_row;
+    }
+    2 + order.iter().position(|&i| i + 2 == caret_row).unwrap_or(0)
 }
 
 /// What the caret is in, for the shell: `Nothing` outside a table.
@@ -790,6 +862,135 @@ mod tests {
     }
 
     #[test]
+    fn a_table_starting_a_list_item_keeps_its_marker_and_indentation() {
+        // Tab lines the table up under the marker and moves on.
+        assert_eq!(
+            tab("- | a¦ | bb |\n  | - | - |\n  | 1 | 2 |", false).unwrap(),
+            "- | a   | ¦bb  |\n  | --- | --- |\n  | 1   | 2   |"
+        );
+        // Tab in the last cell of the last row adds a row indented like the others.
+        assert_eq!(
+            tab("- | a | b |\n  | --- | --- |\n  | 1 | 2¦ |", false).unwrap(),
+            "- | a   | b   |\n  | --- | --- |\n  | 1   | 2   |\n  | ¦    |     |"
+        );
+        // Enter at the end of the header gives the first body row.
+        assert_eq!(
+            enter("1. | a | b |¦\n   | --- | --- |").unwrap(),
+            "1. | a   | b   |\n   | --- | --- |\n   | ¦    |     |"
+        );
+        // Shift+Tab back from the first body cell goes to the header's last cell.
+        assert_eq!(
+            tab("- | a | b |\n  | --- | --- |\n  | ¦1 | 2 |", true).unwrap(),
+            "- | a   | ¦b   |\n  | --- | --- |\n  | 1   | 2   |"
+        );
+        // Row and column commands, in a quote too.
+        assert_eq!(
+            op(
+                "> * | a | b |\n>   | --- | --- |\n>   | 1¦ | 2 |",
+                TableOp::ColumnRight
+            )
+            .unwrap(),
+            "> * | a   |     | b   |\n>   | --- | --- | --- |\n>   | 1   | ¦    | 2   |"
+        );
+        assert_eq!(
+            op("- | a¦ | b |\n  | --- | --- |", TableOp::RowBelow).unwrap(),
+            "- | a   | b   |\n  | --- | --- |\n  | ¦    |     |"
+        );
+        // A table whose rows are indented further than the marker keeps that indentation.
+        assert_eq!(
+            tab("- | a¦ | b |\n    | --- | --- |", false).unwrap(),
+            "- | a   | ¦b   |\n    | --- | --- |"
+        );
+        // A second list item is not part of the table.
+        assert!(
+            op(
+                "- | a | b |\n  | --- | --- |\n  | 1 | 2 |\n- | x¦ | y |",
+                TableOp::RowBelow
+            )
+            .is_none()
+        );
+        // Without a delimiter row it is only a list item.
+        assert!(tab("- | a¦ | b |\n  | 1 | 2 |", false).is_none());
+    }
+
+    #[test]
+    fn align_table_works_in_a_list_item() {
+        let (text, sels) = marked_parse("- | a¦ | bb |\n  | - | - |\n  | 1 | 2 |\n", C);
+        let mut buf = Buffer::from_text(&text);
+        let mut hist = History::new();
+        let out = crate::markdown::format_table(&mut buf, &mut hist, sels[0]);
+        assert_eq!(
+            marked_show(&buf.rope().to_string(), &[out.sel], C),
+            "- | a¦   | bb  |\n  | --- | --- |\n  | 1   | 2   |\n"
+        );
+        assert_eq!(hist.steps(), (1, 0));
+    }
+
+    #[test]
+    fn body_rows_move_up_and_down_but_not_past_the_header() {
+        let t = "| h |\n| - |\n| a |\n| b¦ |\n| c |";
+        assert_eq!(
+            op(t, TableOp::MoveRowUp).unwrap(),
+            "| h   |\n| --- |\n| b¦   |\n| a   |\n| c   |"
+        );
+        assert_eq!(
+            op(t, TableOp::MoveRowDown).unwrap(),
+            "| h   |\n| --- |\n| a   |\n| c   |\n| b¦   |"
+        );
+        // The first body row cannot go up, the last cannot go down, the header cannot move.
+        assert!(op("| h |\n| - |\n| a¦ |\n| b |", TableOp::MoveRowUp).is_none());
+        assert!(op("| h |\n| - |\n| a |\n| b¦ |", TableOp::MoveRowDown).is_none());
+        assert!(op("| h¦ |\n| - |\n| a |", TableOp::MoveRowDown).is_none());
+        // The last row has no line break: the row that comes to be last has none either.
+        assert_eq!(
+            op("| h |\n| - |\n| a |\n| b¦ |", TableOp::MoveRowUp).unwrap(),
+            "| h   |\n| --- |\n| b¦   |\n| a   |"
+        );
+    }
+
+    #[test]
+    fn sorting_a_column_goes_up_then_down_and_compares_numbers_as_numbers() {
+        // Numbers: 9, 10, 100 (as text it would be 10, 100, 9).
+        let up = op(
+            "| n | s |\n| - | - |\n| 10¦ | b |\n| 9 | C |\n| 100 | a |",
+            TableOp::SortColumn,
+        )
+        .unwrap();
+        assert_eq!(
+            up,
+            "| n   | s   |\n| --- | --- |\n| 9   | C   |\n| 10¦  | b   |\n| 100 | a   |"
+        );
+        // Once ascending, the same command sorts descending.
+        let down = op(
+            "| n | s |\n| - | - |\n| 9 | C |\n| 10¦ | b |\n| 100 | a |",
+            TableOp::SortColumn,
+        )
+        .unwrap();
+        assert_eq!(
+            down,
+            "| n   | s   |\n| --- | --- |\n| 100 | a   |\n| 10¦  | b   |\n| 9   | C   |"
+        );
+        // Text compares without regard to case, and equal rows keep their order.
+        let text = op(
+            "| n | s¦ |\n| - | - |\n| 1 | b |\n| 2 | C |\n| 3 | a |\n| 4 | B |",
+            TableOp::SortColumn,
+        )
+        .unwrap();
+        assert_eq!(
+            text,
+            "| n   | s¦   |\n| --- | --- |\n| 3   | a   |\n| 1   | b   |\n| 4   | B   |\n| 2   | C   |"
+        );
+        // One cell that is not a number makes the column text: "10" before "9".
+        let mixed = op("| n |\n| - |\n| 9¦ |\n| 10 |\n| x |", TableOp::SortColumn).unwrap();
+        assert_eq!(mixed, "| n   |\n| --- |\n| 10  |\n| 9¦   |\n| x   |");
+        // With a header only, or one body row, there is nothing to sort.
+        assert!(op("| n¦ |\n| - |\n| 1 |", TableOp::SortColumn).is_none());
+        // In a table in a list item the marker stays.
+        let list = op("- | n¦ |\n  | - |\n  | 2 |\n  | 1 |", TableOp::SortColumn).unwrap();
+        assert_eq!(list, "- | n¦   |\n  | --- |\n  | 1   |\n  | 2   |");
+    }
+
+    #[test]
     fn limits_are_kept() {
         let cols = TABLE_COLS;
         let row = |c: &str| format!("|{}\n", format!("{c}|").repeat(cols));
@@ -805,7 +1006,8 @@ mod tests {
     fn hostile_input_never_panics_and_one_step_each() {
         let mut rng = Rng::new(7);
         let bits = [
-            "|", "a", " ", "-", ":", "\n", "\\|", "`", "> ", "\u{6f22}", "  ", "\t", "||", "\r\n",
+            "|", "a", " ", "-", ":", "\n", "\\|", "`", "> ", "\u{6f22}", "  ", "\t", "||", "- ",
+            "1. ", "* | ", "\r\n",
         ];
         for _ in 0..3000 {
             let mut s = String::new();
@@ -825,6 +1027,9 @@ mod tests {
                 TableOp::DeleteColumn,
                 TableOp::MoveColumnLeft,
                 TableOp::MoveColumnRight,
+                TableOp::MoveRowUp,
+                TableOp::MoveRowDown,
+                TableOp::SortColumn,
             ];
             let which = *rng.pick(&ops);
             let before = buf.rope().to_string();
