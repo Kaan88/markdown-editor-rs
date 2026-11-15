@@ -7,7 +7,7 @@
 alternative for personal use that opens any text file, with the same hand-drawn interface as the
 viewer.
 
-**Status: version 0.7.0, for Windows and Linux. The owner has approved the icons and the minimap
+**Status: version 0.7.1, for Windows and Linux. The owner has approved the icons and the minimap
 by looking; the rest of the interface has not been explicitly approved.** The release files are built by
 GitHub Actions, Windows natively on a Windows runner. On 2026-11-14 the full test suite and every
 screenshot state ran on a real Windows runner; nobody has yet used it by hand on a Windows desktop.
