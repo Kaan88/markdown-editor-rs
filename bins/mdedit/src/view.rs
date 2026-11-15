@@ -813,7 +813,9 @@ impl View {
         let gutter_hot = s.band
             && matches!(
                 c.hover,
-                Some(crate::ui::Hit::Gutter | crate::ui::Hit::Fold(_))
+                Some(
+                    crate::ui::Hit::Gutter | crate::ui::Hit::Fold(_) | crate::ui::Hit::Bookmark(_)
+                )
             );
         let (x0, y0, x1, y1) = c.p.dev_rect(area);
         let gutter_r = ((area.x + g.gutter_w) * scale).round() as i32;
@@ -1244,6 +1246,17 @@ impl View {
             }
             if !shown_line.first {
                 continue;
+            }
+            // The cell a click on sets or removes the bookmark; the fold cell, added after, wins
+            // where they meet. Not in the second pane, whose gutter acts on the other document.
+            if bands.is_none() && !s.other {
+                let cell = Rect::new(
+                    area.x,
+                    y as f32 / scale,
+                    metrics::BOOKMARK_CELL_W.min(g.gutter_w),
+                    lh as f32 / scale,
+                );
+                c.hit(crate::ui::Hit::Bookmark(i), cell);
             }
             // A bookmark: a dot left of the number.
             if r.bookmarks.binary_search(&i).is_ok() {

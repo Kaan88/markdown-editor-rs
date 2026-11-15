@@ -13,6 +13,9 @@ pub const TEXT_PAD: f32 = 6.0;
 /// The fold chevron's cell: this wide at the right end of the gutter, one row high. The chevron
 /// sits in its middle; the numbers keep the rest of the gutter.
 pub const FOLD_CELL_W: f32 = 24.0;
+/// The bookmark cell: this wide at the left end of the gutter, one row high; the dot sits in it.
+/// The fold cell wins where the two meet (a gutter without numbers).
+pub const BOOKMARK_CELL_W: f32 = 14.0;
 /// The chevron's size, logical px.
 pub const FOLD_ICON: f32 = 12.0;
 

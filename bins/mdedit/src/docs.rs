@@ -838,6 +838,11 @@ impl Ready {
     /// Sets or removes the bookmark of the caret's line.
     pub fn toggle_bookmark(&mut self) {
         let line = self.buffer.line_of(self.view.sel.caret);
+        self.toggle_bookmark_at(line);
+    }
+
+    /// Sets or removes the bookmark of `line` (a click in the gutter).
+    pub fn toggle_bookmark_at(&mut self, line: usize) {
         match self.bookmarks.binary_search(&line) {
             Ok(k) => {
                 self.bookmarks.remove(k);
@@ -4706,6 +4711,12 @@ mod tests {
         d.go_to(2, 1);
         d.tabs[i].ready_mut().unwrap().toggle_bookmark();
         assert_eq!(d.tabs[i].ready().unwrap().bookmarks, [3]);
+        // A click in the gutter's bookmark cell names the line, whatever the caret is on.
+        let r = d.tabs[i].ready_mut().unwrap();
+        let caret = r.view.sel;
+        r.toggle_bookmark_at(0);
+        r.toggle_bookmark_at(3);
+        assert_eq!((r.bookmarks.clone(), r.view.sel), (vec![0], caret));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

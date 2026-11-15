@@ -77,7 +77,7 @@ impl App {
                 Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace | Hit::ResultsReplace),
             ) => CursorIcon::Text,
             (None, Some(Hit::Splitter | Hit::Divider)) => CursorIcon::ColResize,
-            (None, Some(Hit::Fold(_) | Hit::FoldBox(_))) => CursorIcon::Pointer,
+            (None, Some(Hit::Fold(_) | Hit::FoldBox(_) | Hit::Bookmark(_))) => CursorIcon::Pointer,
             _ => CursorIcon::Default,
         };
         self.set_cursor(cursor);
@@ -689,6 +689,13 @@ impl App {
                 self.docs.seal();
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.toggle_fold_at(line);
+                }
+                self.caret_reset();
+            }
+            Hit::Bookmark(line) => {
+                self.docs.seal();
+                if let Some(r) = self.docs.active_ready_mut() {
+                    r.toggle_bookmark_at(line);
                 }
                 self.caret_reset();
             }

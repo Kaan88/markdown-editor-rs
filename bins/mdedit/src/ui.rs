@@ -187,6 +187,9 @@ pub enum Hit {
     Fold(usize),
     /// The box after a folded line: a press opens that fold.
     FoldBox(usize),
+    /// The bookmark cell at the left end of a line's gutter: a press sets or removes the
+    /// bookmark of that line.
+    Bookmark(usize),
     /// The line that parts the two panes of a split view: drag to resize, double click to halve.
     Divider,
     EmptyOpen,
@@ -242,6 +245,7 @@ impl Hit {
             | Hit::Gutter
             | Hit::Fold(_)
             | Hit::FoldBox(_)
+            | Hit::Bookmark(_)
             | Hit::EmptyOpen
             | Hit::EmptyRecent(_) => Region::Text,
             Hit::Other => Region::Other,
@@ -260,6 +264,7 @@ impl Hit {
                 | Hit::Gutter
                 | Hit::Fold(_)
                 | Hit::FoldBox(_)
+                | Hit::Bookmark(_)
                 | Hit::Other
                 | Hit::Divider
                 | Hit::Minimap
@@ -1183,7 +1188,7 @@ mod tests {
         assert_eq!(Hit::Backdrop.region(), None);
         assert!(Hit::Bar(BarItem::Open).is_button());
         assert!(!Hit::Text.is_button());
-        for h in [Hit::Gutter, Hit::Fold(3), Hit::FoldBox(3)] {
+        for h in [Hit::Gutter, Hit::Fold(3), Hit::FoldBox(3), Hit::Bookmark(3)] {
             assert_eq!(h.region(), Some(Region::Text));
             assert!(!h.is_button());
         }
