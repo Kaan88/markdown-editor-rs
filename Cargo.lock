@@ -1325,6 +1325,8 @@ dependencies = [
  "mdshared-fetch",
  "mdshared-text",
  "mdshared-ui",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "parley",
  "png",
  "rfd",
@@ -1368,7 +1370,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d955a48812b048728bf6f4de5827c982cfcee392#d955a48812b048728bf6f4de5827c982cfcee392"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e63941832d1abdfff08fc48c11c169e650fc1104#e63941832d1abdfff08fc48c11c169e650fc1104"
 dependencies = [
  "notify",
 ]
@@ -1376,7 +1378,7 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d955a48812b048728bf6f4de5827c982cfcee392#d955a48812b048728bf6f4de5827c982cfcee392"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e63941832d1abdfff08fc48c11c169e650fc1104#e63941832d1abdfff08fc48c11c169e650fc1104"
 dependencies = [
  "libloading",
  "windows-sys 0.59.0",
@@ -1385,7 +1387,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d955a48812b048728bf6f4de5827c982cfcee392#d955a48812b048728bf6f4de5827c982cfcee392"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e63941832d1abdfff08fc48c11c169e650fc1104#e63941832d1abdfff08fc48c11c169e650fc1104"
 dependencies = [
  "syntect",
 ]
@@ -1393,7 +1395,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d955a48812b048728bf6f4de5827c982cfcee392#d955a48812b048728bf6f4de5827c982cfcee392"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e63941832d1abdfff08fc48c11c169e650fc1104#e63941832d1abdfff08fc48c11c169e650fc1104"
 dependencies = [
  "parley",
  "png",
@@ -1403,11 +1405,12 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d955a48812b048728bf6f4de5827c982cfcee392#d955a48812b048728bf6f4de5827c982cfcee392"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e63941832d1abdfff08fc48c11c169e650fc1104#e63941832d1abdfff08fc48c11c169e650fc1104"
 dependencies = [
  "arboard",
  "mdshared-app",
  "mdshared-text",
+ "objc2-foundation 0.3.2",
  "parley",
  "rfd",
  "rustix 1.1.6",
@@ -1535,6 +1538,8 @@ dependencies = [
  "log",
  "mio",
  "notify-types",
+ "objc2-core-foundation",
+ "objc2-core-services",
  "walkdir",
  "windows-sys 0.61.2",
 ]
@@ -1712,6 +1717,16 @@ dependencies = [
  "objc2 0.5.3",
  "objc2-contacts",
  "objc2-foundation 0.2.2",
+]
+
+[[package]]
+name = "objc2-core-services"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "583300ad934cba24ff5292aee751ecc070f7ca6b39a574cc21b7b5e588e06a0b"
+dependencies = [
+ "libc",
+ "objc2-core-foundation",
 ]
 
 [[package]]

@@ -1086,12 +1086,12 @@ impl App {
         if event.state != ElementState::Pressed {
             return;
         }
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         let bare = {
             use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
             event.key_without_modifiers()
         };
-        #[cfg(not(any(windows, target_os = "linux")))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         let bare = event.logical_key.clone();
         let Some(key) = event_key(&bare, &event.logical_key, event.text.as_deref(), self.mods)
         else {

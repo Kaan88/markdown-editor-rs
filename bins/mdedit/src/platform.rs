@@ -160,7 +160,7 @@ pub fn clipboard_files() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "macos")))]
 pub fn clipboard_files() -> Vec<PathBuf> {
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty());
     for mime in ["text/uri-list", "x-special/gnome-copied-files"] {
@@ -235,7 +235,7 @@ fn clipboard_formats<T>(read: impl FnOnce(&dyn Fn(u32) -> Option<Vec<u8>>) -> T)
 /// (its image support pulls in an image library), so this asks the desktop's own tool for the
 /// PNG: `wl-paste` on Wayland, `xclip` on X11, whichever is installed. Neither installed means
 /// no image paste, which is what a paste then does: nothing.
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "macos")))]
 pub fn clipboard_png() -> Option<Vec<u8>> {
     const WL: (&str, &[&str]) = ("wl-paste", &["--no-newline", "--type", "image/png"]);
     const X11: (&str, &[&str]) = (
@@ -251,14 +251,14 @@ pub fn clipboard_png() -> Option<Vec<u8>> {
 
 /// Runs `program` and returns its output when it is a PNG of a sensible size within three
 /// seconds; a tool that hangs on a clipboard owner that does not answer is stopped.
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn capture_png(program: &str, args: &[&str]) -> Option<Vec<u8>> {
     capture(program, args).filter(|b| crate::image_paste::is_png(b))
 }
 
 /// Runs `program` and returns what it printed when that is of a sensible size, within three
 /// seconds (see [`capture_png`]).
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn capture(program: &str, args: &[&str]) -> Option<Vec<u8>> {
     use crate::image_paste::MAX_BYTES;
     use std::io::Read;
@@ -286,6 +286,60 @@ fn capture(program: &str, args: &[&str]) -> Option<Vec<u8>> {
     let _ = child.kill();
     let _ = child.wait();
     got.filter(|b| b.len() <= MAX_BYTES)
+}
+
+/// The files Finder copied (each pasteboard item's `public.file-url`), through the same
+/// `file://` parsing as an X11 or Wayland URI list.
+#[cfg(target_os = "macos")]
+pub fn clipboard_files() -> Vec<PathBuf> {
+    use objc2_app_kit::{NSPasteboard, NSPasteboardTypeFileURL};
+    let board = NSPasteboard::generalPasteboard();
+    let Some(items) = board.pasteboardItems() else {
+        return Vec::new();
+    };
+    // SAFETY: the type constant is an immutable string AppKit defines.
+    let file_url = unsafe { NSPasteboardTypeFileURL };
+    let list: String = items
+        .iter()
+        .filter_map(|item| item.stringForType(file_url))
+        .map(|url| format!("{url}\n"))
+        .collect();
+    crate::image_paste::parse_uri_list(&list)
+}
+
+/// The pasteboard's picture as PNG file bytes: its PNG if it has one, else its TIFF (what most
+/// Mac apps copy) converted to PNG. `None` when it holds no picture or one larger than a paste
+/// takes.
+#[cfg(target_os = "macos")]
+pub fn clipboard_png() -> Option<Vec<u8>> {
+    use crate::image_paste::MAX_BYTES;
+    use objc2_app_kit::{
+        NSBitmapImageFileType, NSBitmapImageRep, NSPasteboard, NSPasteboardTypePNG,
+        NSPasteboardTypeTIFF,
+    };
+    use objc2_foundation::NSDictionary;
+    let board = NSPasteboard::generalPasteboard();
+    // SAFETY: the type constants are immutable strings AppKit defines.
+    let (png, tiff) = unsafe { (NSPasteboardTypePNG, NSPasteboardTypeTIFF) };
+    let bytes = match board.dataForType(png) {
+        Some(data) => data.to_vec(),
+        None => {
+            let tiff = board.dataForType(tiff)?;
+            if tiff.len() > MAX_BYTES {
+                return None;
+            }
+            let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
+            // SAFETY: an empty property dictionary is valid for every file type.
+            let data = unsafe {
+                rep.representationUsingType_properties(
+                    NSBitmapImageFileType::PNG,
+                    &NSDictionary::new(),
+                )
+            }?;
+            data.to_vec()
+        }
+    };
+    (bytes.len() <= MAX_BYTES && crate::image_paste::is_png(&bytes)).then_some(bytes)
 }
 
 /// The system's ANSI code page (`GetACP`), for files that are neither UTF-8 nor marked.

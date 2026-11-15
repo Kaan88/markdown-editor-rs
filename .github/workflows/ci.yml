@@ -1,11 +1,12 @@
-# Checks on every push to main and every pull request: formatting, clippy (warnings are errors),
-# the tests, and the headless screenshot suite as a smoke test, on Linux and on real Windows.
+# Checks on every push to main or f/macos and every pull request: formatting, clippy (warnings
+# are errors), the tests, and the headless screenshot suite as a smoke test, on Linux, on real
+# Windows and on real Macs (Apple Silicon and Intel).
 # See docs/CI.md.
 name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, f/macos]
   pull_request:
   workflow_dispatch:
 
@@ -86,6 +87,43 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: shots-windows
+          path: target/shots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: aarch64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ matrix.arch }}
+      - run: cargo fmt --all --check
+      - run: cargo clippy --release --workspace --all-targets -- -D warnings
+      - run: cargo test --release --workspace --no-fail-fast
+      - name: Screenshot suite (smoke test)
+        if: ${{ !cancelled() }}
+        run: |
+          cargo build --release -p mdedit
+          bash tests/shots.sh target/shots
+          bash tests/shots-check.sh target/shots
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: shots-macos-${{ matrix.arch }}
           path: target/shots/*.png
           if-no-files-found: warn
           retention-days: 14

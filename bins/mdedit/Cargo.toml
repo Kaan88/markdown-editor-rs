@@ -41,7 +41,14 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Threading",
 ] }
 
-# Linux is not built or run yet; these are the features it will need.
-[target.'cfg(not(windows))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
 softbuffer = { version = "=0.4.8", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
+
+# macOS: AppKit through winit, and the pasteboard for pasting a picture or copied files. The
+# objc2 crates are the versions arboard already brings in.
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
+softbuffer = { version = "=0.4.8", default-features = false }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSBitmapImageRep", "NSImageRep"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSString"] }
