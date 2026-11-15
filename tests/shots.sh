@@ -156,6 +156,7 @@ shot recovered-dark --dark --goto 5:1 --type "edited " --demo-recovered 1 "$fx/s
 shot update-available --light --update-bar available "$fx/sample.rs"
 shot update-installing --dark --update-bar installing "$fx/sample.rs"
 shot update-installed --dark --update-bar installed
+shot update-installed-plain --light --update-bar installed-plain
 
 # Menus with their icons, both themes, checked items.
 shot menu-main-dark --dark --menu main "$fx/sample.rs"
@@ -262,6 +263,12 @@ shot menu-tab-md --light --menu tab "$fx/sample.md" "$fx/sample.rs"
 shot menu-tab-md-linked-dark --dark --demo-link --menu tab "$fx/sample.md" "$fx/sample.rs"
 shot previewing --light --demo-link --goto 12:3 "$fx/sample.md"
 shot previewing-dark --dark --demo-link --goto 12:3 "$fx/sample.md"
+# A document that has no file is previewed too: the commands are listed for it, and it carries
+# the mark while mdview shows its text.
+shot menu-view-untitled --light --new --menu view
+shot menu-tab-untitled-linked-dark --dark --new --demo-link --menu tab "$fx/sample.md"
+shot previewing-untitled --light --new --demo-link --type $'# Draft\n\nNot saved yet.\n'
+shot previewing-untitled-dark --dark --new --demo-link --type $'# Draft\n\nNot saved yet.\n'
 
 # Emoji presentation: the first line is colour clusters, the second the bare characters (text
 # glyphs); the caret after the keycap on line 3 must sit right after it.
@@ -290,5 +297,17 @@ shot settings-complete --light --dialog settings --settings-section Editing "$fx
 shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
 shot settings-view-dark --dark --dialog settings --settings-section View "$fx/sample.rs"
 shot settings-view-backdrop --dark --pref backdrop=mica --dialog settings --settings-section View "$fx/sample.rs"
+
+# The window as the client-drawn margin shows it (--frame): the shadow and the rounded corners over
+# a flat backdrop, at scale 1 and 2 in both themes, and the other two choices of Window corners.
+# The Settings dialog's View group has the row.
+shot frame-round-light --light --size 520x300 --frame round "$fx/sample.rs"
+shot frame-round-dark --dark --size 520x300 --frame round "$fx/sample.rs"
+shot frame-round-light-2x --light --size 520x300 --scale 2 --frame round "$fx/sample.rs"
+shot frame-round-dark-2x --dark --size 520x300 --scale 2 --frame round "$fx/sample.rs"
+shot frame-small-light --light --size 520x300 --frame small "$fx/sample.rs"
+shot frame-square-light --light --size 520x300 --frame square "$fx/sample.rs"
+shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
+shot settings-view-dark --dark --dialog settings --settings-section View "$fx/sample.rs"
 
 ls "$out" | wc -l

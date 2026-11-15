@@ -4,6 +4,7 @@
 
 use crate::commands::CommandId;
 use mdshared_app::sister::{Rect, Request};
+use mdshared_ui::corners::Corners;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,6 +75,10 @@ pub struct Args {
     pub size: Option<(u32, u32)>,
     /// `--scale <0.5..4>` for `--shot` (default the system's).
     pub scale: Option<f32>,
+    /// `--frame square|small|round`: the shot shows the window as the client-drawn shadow margin
+    /// puts it on screen (its shadow and corners, over a flat backdrop) instead of the content
+    /// alone.
+    pub frame: Option<Corners>,
     /// `--find <text>`: put the text in the find box and go to the first match.
     pub find: Option<String>,
     /// `--match-case`: the find box's Match case option on.
@@ -204,6 +209,9 @@ pub struct Args {
     /// `--settings-section <name>`: with `--dialog settings`, the form scrolled to that section
     /// (`Preview`), for a shot.
     pub settings_section: Option<String>,
+    /// `--new`: start with a new document that has no file, as File > New makes one, after
+    /// the files named; for a shot or a script (`--type` then types into it).
+    pub new_document: bool,
 }
 
 /// `a<sep>b` with both sides parsed.
@@ -371,6 +379,7 @@ impl Args {
                         })
                     })
                 }
+                "--frame" => out.frame = checked(&a, value(&a), Corners::from_name),
                 "--scale" => {
                     out.scale = checked(&a, value(&a), |v| {
                         v.parse::<f32>().ok().filter(|s| (0.5..=4.0).contains(s))
@@ -399,6 +408,7 @@ impl Args {
                     })
                 }
                 "--demo-link" => out.demo_link = true,
+                "--new" => out.new_document = true,
                 "--settings-section" => out.settings_section = value(&a),
                 "--select" => {
                     out.select = checked(&a, value(&a), |v| {
@@ -419,7 +429,11 @@ impl Args {
                 "--check-update" => out.check_update = true,
                 "--update-bar" => {
                     out.update_bar = checked(&a, value(&a), |v| {
-                        matches!(v, "available" | "installing" | "installed").then(|| v.to_string())
+                        matches!(
+                            v,
+                            "available" | "installing" | "installed" | "installed-plain"
+                        )
+                        .then(|| v.to_string())
                     })
                 }
                 "--menu" => {
@@ -457,6 +471,8 @@ impl Args {
                         _ => None,
                     })
                 }
+                // The mark of a restart after an update, read before this (`relaunch::FLAG`).
+                mdshared_app::relaunch::FLAG => {}
                 f if f.starts_with("--") => eprintln!("mdedit: ignoring {f}"),
                 _ => out.files.push(PathBuf::from(a)),
             }
@@ -481,6 +497,13 @@ mod tests {
         let a = parse("--minimap --trace --type-steps 5 --scroll-steps 7 a.rs");
         assert!(a.minimap && a.trace);
         assert_eq!((a.type_steps, a.scroll_steps), (Some(5), Some(7)));
+    }
+
+    #[test]
+    fn the_restart_mark_is_not_a_file() {
+        let a = parse("--restarted");
+        assert!(a.files.is_empty());
+        assert_eq!(a, parse(""));
     }
 
     #[test]
@@ -626,6 +649,15 @@ mod tests {
     }
 
     #[test]
+    fn frame_names_the_corners_of_a_window_shot() {
+        assert_eq!(parse("--frame round").frame, Some(Corners::Round));
+        assert_eq!(parse("--frame Square").frame, Some(Corners::Square));
+        assert_eq!(parse("--frame 4").frame, Some(Corners::Small));
+        assert_eq!(parse("--frame pointy").frame, None);
+        assert_eq!(parse("a.md").frame, None);
+    }
+
+    #[test]
     fn run_and_demo_link_are_for_tests_and_shots() {
         assert_eq!(
             parse("--run PreviewInViewer a.md").run,
@@ -637,6 +669,7 @@ mod tests {
         );
         assert_eq!(parse("--run nonsense").run, None);
         assert!(parse("--demo-link").demo_link && !parse("a.md").demo_link);
+        assert!(parse("--new").new_document && !parse("a.md").new_document);
         assert_eq!(parse("--demo-recovered 2").demo_recovered, Some(2));
         assert_eq!(parse("--demo-recovered 0").demo_recovered, None);
         assert_eq!(parse("a.md").demo_recovered, None);

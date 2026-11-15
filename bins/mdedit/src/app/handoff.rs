@@ -27,7 +27,10 @@ impl App {
                 request.line.map(|l| l as usize),
                 request.column.map_or(1, |c| c as usize),
             );
-            if !request.follow {
+            if request.path.as_os_str().is_empty() {
+                // A document that has no file: the viewer asks for the one it previews.
+                self.handed_untitled(request);
+            } else if !request.follow {
                 self.open(&request.path);
                 self.ui.find_focused = false;
                 if let Some(line) = line {
@@ -52,6 +55,30 @@ impl App {
         self.caret_reset();
     }
 
+    /// "Edit in mdedit" on the viewer's tab of a document that has no file: its tab here is
+    /// shown, with the caret at the line. Nothing happens when no such document is open (it
+    /// was closed, or it was another run's).
+    fn handed_untitled(&mut self, request: &Request) {
+        let Some(doc) = request.doc.as_deref() else {
+            return;
+        };
+        let tabs = &self.docs.tabs;
+        let found = (tabs.iter()).position(|d| d.path.is_none() && link::doc_name(d.id) == doc);
+        let Some(index) = found else {
+            return;
+        };
+        if !request.follow {
+            self.docs.activate(index);
+            self.ui.find_focused = false;
+        }
+        if let Some(line) = request.line
+            && self.docs.active() == Some(index)
+        {
+            self.docs
+                .go_to(line as usize, request.column.map_or(1, |c| c as usize));
+        }
+    }
+
     /// Moves and resizes the window to `rect` (physical screen px), or says it cannot be done.
     pub(super) fn place(&mut self, rect: Rect) {
         if let Some(w) = &self.window
@@ -64,16 +91,13 @@ impl App {
     /// "Preview in mdview": shows the active file in the viewer at the caret's line and links the
     /// document, so the viewer follows the caret; or, for a linked document, ends the link.
     /// `side_by_side` also puts this window on the left half of its screen and the viewer's on the
-    /// right, and always opens (the viewer comes to the file again).
+    /// right, and always opens (the viewer comes to the file again). A document that has no file
+    /// yet is shown from its text: see [`preview_untitled`](Self::preview_untitled).
     pub(super) fn preview(&mut self, side_by_side: bool) {
         let Some(doc) = self.docs.active_doc() else {
             return;
         };
         let (id, path) = (doc.id, doc.path.clone());
-        let Some(path) = path else {
-            self.docs.set_toast(strings::PREVIEW_NEEDS_FILE);
-            return;
-        };
         if !side_by_side && self.docs.links.contains(id) {
             self.docs.links.unlink(id);
             return;
@@ -81,6 +105,10 @@ impl App {
         let ready = self.docs.active_ready();
         let line = ready.map(|r| r.buffer.line_of(r.view.sel.caret) as u32 + 1);
         let too_large = ready.is_some_and(|r| r.buffer.len_bytes() > sister::MAX_TEXT);
+        let Some(path) = path else {
+            self.preview_untitled(id, too_large, side_by_side);
+            return;
+        };
         let mut request = Request {
             line,
             from: Some(link::FROM.into()),
@@ -91,11 +119,40 @@ impl App {
         }
         match sister::open(link::VIEWER, &request) {
             Ok(()) => {
-                self.docs.links.link(id, path, line, None, Instant::now());
+                (self.docs.links).link(id, path.into(), line, None, Instant::now());
                 self.docs.links.start(self.docs.waker());
                 if too_large && self.docs.prefs.live_preview {
                     self.docs.set_toast(strings::PREVIEW_TOO_LARGE);
                 }
+            }
+            Err(text) => self.docs.set_toast(&text),
+        }
+    }
+
+    /// "Preview in mdview" for the active document `id`, which has no file. The viewer cannot
+    /// read it, so it is started bare (or, running, comes to the front) and the link's first
+    /// update hands it the text and asks for a tab named like this one, placed on the right half
+    /// when `side_by_side`. The text then goes at every change whatever "Live preview while
+    /// typing" says, since there is no saved file to show instead. A document over the cap is
+    /// not previewed until it is saved.
+    fn preview_untitled(&mut self, id: DocId, too_large: bool, side_by_side: bool) {
+        if too_large {
+            self.docs.set_toast(strings::PREVIEW_UNSAVED_TOO_LARGE);
+            return;
+        }
+        let Some(title) = self.docs.active_doc().map(|d| d.name()) else {
+            return;
+        };
+        let start = Request {
+            from: Some(link::FROM.into()),
+            ..Request::default()
+        };
+        match sister::open(link::VIEWER, &start) {
+            Ok(()) => {
+                let place = side_by_side.then(|| self.tile_left()).flatten();
+                let opening = link::Opening { place };
+                (self.docs.links).link_untitled(id, title, opening, Instant::now());
+                self.docs.links.start(self.docs.waker());
             }
             Err(text) => self.docs.set_toast(&text),
         }
@@ -410,6 +467,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn preview_starts_the_viewer_at_the_caret_and_links_the_document() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = scratch("hand-preview");
         let path = file(&dir, "a.md");
         let (script, record) = stand_in(&dir);
@@ -579,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn the_preview_commands_need_a_file_and_are_listed_for_markdown() {
+    fn the_preview_commands_are_listed_for_markdown_and_work_without_a_file() {
         let dir = scratch("hand-menus");
         let (md, rs) = (file(&dir, "a.md"), file(&dir, "b.rs"));
         let mut a = app();
@@ -602,21 +660,169 @@ mod tests {
         let id = a.docs.tabs[r].id;
         a.docs
             .links
-            .link(id, rs.clone(), None, None, Instant::now());
+            .link(id, rs.clone().into(), None, None, Instant::now());
         assert!(listed(&a, r));
-        // A document that has no file cannot be previewed: the command says why.
-        a.docs.new_untitled();
-        assert!(!crate::palette::enabled(
+        // A document that has no file can be previewed too (its text is sent), and the menus
+        // list the commands for it: it has no name to tell its kind by.
+        let u = a.docs.new_untitled();
+        assert!(crate::palette::enabled(
             C::PreviewInViewer,
             &a.docs,
             &a.ui,
             false
         ));
-        a.command(C::PreviewInViewer);
-        assert_eq!(
-            a.docs.toast(Instant::now()),
-            Some(strings::PREVIEW_NEEDS_FILE)
+        assert!(listed(&a, u));
+        let id = a.docs.tabs[u].id;
+        (a.docs.links).link_untitled(
+            id,
+            "Untitled 1".into(),
+            link::Opening::default(),
+            Instant::now(),
         );
+        let item = crate::overlays::tab_menu(&a.docs, u, 0.0, 0.0)
+            .items
+            .into_iter()
+            .find(|it| it.id == Act::TabCmd(C::PreviewInViewer, u));
+        assert!(item.is_some_and(|it| it.enabled && it.checked));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A stand-in for the viewer's window: its settings file, and what it is sent.
+    fn viewer(dir: &Path) -> std::sync::mpsc::Receiver<Request> {
+        let settings = dir.join("viewer.ini");
+        let rx = mdshared_app::single::listen_requests_waking("mdview", &settings, || {}).unwrap();
+        // SAFETY: the tests that set these variables do not run at the same time (one at a time
+        // by `SISTER_ENV`), and nothing else reads them.
+        unsafe { std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", &settings) };
+        rx
+    }
+
+    /// The tests that point the sister variables somewhere take this first.
+    static SISTER_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn a_document_without_a_file_is_previewed_from_its_text_and_becomes_its_file() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("hand-untitled");
+        let rx = viewer(&dir);
+        let got = || rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let quiet = || rx.recv_timeout(Duration::from_millis(300)).is_err();
+        let mut a = app();
+        let u = a.docs.new_untitled();
+        let id = a.docs.tabs[u].id;
+        a.docs
+            .edit(crate::docs::EditOp::Insert("# Notes\n\ntext"), None);
+        // The link itself, as the command makes it once the viewer was started (starting it
+        // is `preview_starts_the_viewer...`'s to show, where a stand-in can be run).
+        let t0 = Instant::now();
+        let later = |ms: u64| t0 + Duration::from_millis(ms);
+        (a.docs.links).link_untitled(id, "Untitled 1".into(), link::Opening::default(), t0);
+        a.docs.links.start(a.docs.waker());
+        assert!(
+            crate::status::fields(&a.docs)
+                .1
+                .contains(&"Previewing".to_string())
+        );
+        // The first pass shows it: the text, the name, the caret's line, and no path.
+        assert_eq!(a.docs.link_poll(t0), None);
+        let r = got();
+        assert!(r.open && !r.follow && r.path.as_os_str().is_empty());
+        assert_eq!(r.doc, Some(link::doc_name(id)));
+        assert_eq!(r.title.as_deref(), Some("Untitled 1"));
+        assert_eq!(
+            (r.text.as_deref(), r.line),
+            (Some("# Notes\n\ntext"), Some(3))
+        );
+        // Typing sends the text, with the setting off as well: there is no file to show.
+        a.docs.prefs.live_preview = false;
+        a.docs.edit(crate::docs::EditOp::Insert(" more"), None);
+        a.docs.link_poll(later(500));
+        let r = got();
+        assert!(r.follow && !r.open && r.doc.is_some());
+        assert_eq!(r.text.as_deref(), Some("# Notes\n\ntext more"));
+        // The caret alone sends the line alone.
+        a.docs.go_to(1, 1);
+        a.docs.link_poll(later(1000));
+        let r = got();
+        assert_eq!((r.text, r.line, r.doc.is_some()), (None, Some(1), true));
+        // Undone to empty it is still sent: an empty document is what the viewer shows.
+        while a.docs.edit(crate::docs::EditOp::Undo, None) {}
+        assert!(!a.docs.active_doc().unwrap().modified());
+        a.docs.link_poll(later(1500));
+        assert_eq!(got().text.as_deref(), Some(""));
+        a.docs.edit(crate::docs::EditOp::Insert("# Saved\n"), None);
+        a.docs.link_poll(later(2000));
+        assert_eq!(got().text.as_deref(), Some("# Saved\n"));
+        // Saved: the viewer is told which file the document is now, and the link is the
+        // file's, so the caret's line follows without text (nothing is unsaved).
+        let path = dir.join("saved.md");
+        a.docs.save_as(u, &path, None, false).unwrap();
+        let path = canonical_or_absolute(&path);
+        a.docs.link_poll(later(2500));
+        let r = got();
+        assert_eq!(
+            (r.path.clone(), r.doc),
+            (path.clone(), Some(link::doc_name(id)))
+        );
+        assert!(r.follow && r.text.is_none() && !r.live_off);
+        let r = got();
+        assert_eq!((r.path, r.doc, r.text, r.line), (path, None, None, Some(2)));
+        assert!(a.docs.links.contains(id) && quiet());
+        // The link of a file ends as it always did: nothing is live, nothing is said.
+        a.command(C::PreviewInViewer);
+        assert!(a.docs.links.is_empty() && quiet());
+        // A second document, closed without saving: the viewer is told its text is over.
+        let v = a.docs.new_untitled();
+        let id = a.docs.tabs[v].id;
+        (a.docs.links).link_untitled(
+            id,
+            "Untitled 1".into(),
+            link::Opening::default(),
+            later(3000),
+        );
+        a.docs.links.start(a.docs.waker());
+        a.docs.link_poll(later(3000));
+        assert!(got().open);
+        a.docs.close(v, None);
+        a.docs.link_poll(later(3500));
+        let r = got();
+        assert!(r.live_off && r.doc == Some(link::doc_name(id)));
+        assert!(a.docs.links.is_empty());
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_viewer_asks_for_the_document_without_a_file_by_its_name() {
+        let mut a = app();
+        let dir = scratch("hand-doc");
+        let file = file(&dir, "a.md");
+        let u = a.docs.new_untitled();
+        let id = a.docs.tabs[u].id;
+        a.docs
+            .edit(crate::docs::EditOp::Insert("one\ntwo\nthree\n"), None);
+        let f = open_now(&mut a, &file);
+        assert_eq!(a.docs.active(), Some(f));
+        // "Edit in mdedit" on the viewer's tab of it: the tab is shown, the caret is there.
+        let ask = Request {
+            line: Some(2),
+            from: Some("mdview".into()),
+            ..Request::document(link::doc_name(id), "Untitled 1")
+        };
+        a.handed_over(vec![ask.clone()]);
+        assert_eq!(a.docs.active(), Some(u));
+        assert_eq!(caret(&a).line, 1);
+        // A document that is not open here (closed, or another run's) opens nothing.
+        a.docs.activate(f);
+        let other = Request::document(link::doc_name(id + 1000), "Untitled 9");
+        a.handed_over(vec![other]);
+        assert_eq!((a.docs.active(), a.docs.tabs.len()), (Some(f), 2));
+        // Once it has a file its old name is nobody's.
+        let path = dir.join("saved.md");
+        a.docs.save_as(u, &path, None, false).unwrap();
+        a.handed_over(vec![ask]);
+        assert_eq!(a.docs.active(), Some(f));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -669,7 +875,7 @@ mod tests {
         a.docs.prefs.live_preview = true;
         let t0 = Instant::now();
         let canonical = canonical_or_absolute(&path);
-        a.docs.links.link(id, canonical, Some(1), None, t0);
+        (a.docs.links).link(id, canonical.into(), Some(1), None, t0);
         a.docs.links.start(a.docs.waker());
         let (mut edit, mut send, mut idle) = (vec![], vec![], vec![]);
         for k in 0..300u64 {
@@ -712,5 +918,118 @@ mod tests {
         );
         assert!(got.0 > 0 && got.1 >= len);
         a.docs.links.finish();
+    }
+
+    /// A viewer of before documents without a file: it answers `ok` to whatever it is sent and
+    /// does nothing. The guard keeps what makes it count as running.
+    fn old_viewer(dir: &Path) -> impl Sized {
+        use std::io::{BufRead, BufReader, Write};
+        let settings = dir.join("old").join("viewer.ini");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::fs::write(mdshared_app::single::port_file(&settings), port.to_string()).unwrap();
+        let mut lock = std::fs::OpenOptions::new();
+        lock.write(true).create(true).truncate(false);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            lock.share_mode(0);
+        }
+        let lock = lock.open(settings.with_file_name("instance.lock")).unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let lines = BufReader::new(&stream).lines().map_while(Result::ok);
+                let _ = lines.take_while(|l| !l.is_empty()).count();
+                _ = (&stream).write_all(b"ok\n");
+            }
+        });
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", &settings) };
+        lock
+    }
+
+    #[test]
+    fn a_viewer_too_old_for_a_document_without_a_file_is_said_so() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("hand-older");
+        let _running = old_viewer(&dir);
+        let mut a = app();
+        let u = a.docs.new_untitled();
+        let id = a.docs.tabs[u].id;
+        a.docs.edit(crate::docs::EditOp::Insert("# Notes\n"), None);
+        let now = Instant::now();
+        (a.docs.links).link_untitled(id, "Untitled 1".into(), link::Opening::default(), now);
+        a.docs.links.start(a.docs.waker());
+        a.docs.link_poll(now);
+        // The courier learns it from the answer and wakes the window, which ends the link.
+        let end = Instant::now() + Duration::from_secs(5);
+        while !a.docs.links.is_empty() && Instant::now() < end {
+            a.woken(Wake::Link);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(a.docs.links.is_empty());
+        assert_eq!(
+            a.docs.toast(Instant::now()),
+            Some(strings::PREVIEW_VIEWER_OLDER)
+        );
+        assert!(
+            !crate::status::fields(&a.docs)
+                .1
+                .contains(&"Previewing".to_string())
+        );
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preview_of_a_document_without_a_file_starts_the_viewer_bare() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("hand-bare");
+        let (script, record) = stand_in(&dir);
+        // SAFETY: as in `viewer`.
+        unsafe {
+            std::env::set_var("MD_SISTER_MDVIEW", &script);
+            std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", dir.join("none.ini"));
+        }
+        let mut a = app();
+        let u = a.docs.new_untitled();
+        let id = a.docs.tabs[u].id;
+        a.docs.edit(crate::docs::EditOp::Insert("# Notes\n"), None);
+        // No path, no line: the viewer is only started (or raised); the text goes by the link.
+        a.command(C::PreviewInViewer);
+        assert_eq!(recorded(&record, 2), ["--from", "mdedit"]);
+        assert!(a.docs.links.contains(id));
+        assert_eq!(a.docs.toast(Instant::now()), None);
+        // The same command again stops the link and starts nothing.
+        a.command(C::PreviewInViewer);
+        assert!(a.docs.links.is_empty());
+        // Side by side with no window to measure: started all the same, with the hint.
+        a.command(C::PreviewSideBySide);
+        assert_eq!(recorded(&record, 4).len(), 4);
+        assert!(a.docs.links.contains(id));
+        assert_eq!(a.docs.toast(Instant::now()), Some(strings::PREVIEW_TILING));
+        a.docs.links.unlink(id);
+        // Over the cap there is nothing the viewer could be sent: said, and not linked.
+        a.docs.edit(
+            crate::docs::EditOp::Insert(&"word\n".repeat(sister::MAX_TEXT / 5 + 10)),
+            None,
+        );
+        a.command(C::PreviewInViewer);
+        assert!(a.docs.links.is_empty());
+        assert_eq!(
+            a.docs.toast(Instant::now()),
+            Some(strings::PREVIEW_UNSAVED_TOO_LARGE)
+        );
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(recorded(&record, 4).len(), 4);
+        // SAFETY: as in `viewer`.
+        unsafe {
+            std::env::remove_var("MD_SISTER_MDVIEW");
+            std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

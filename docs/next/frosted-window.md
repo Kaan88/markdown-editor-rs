@@ -65,10 +65,11 @@ without it text over a busy window behind does not read well.
 the text area; it adds nothing the other two do not.
 
 **Where the code is.** Shared: `mdshared_app::backdrop` (the type, keys, row texts),
-`mdshared_ui::frost` (mark, key colour, veil, key-out), `mdshared_ui::platform::backdrop_available`
-/ `backdrop_allowed` / `set_backdrop`. Editor: `bins/mdedit/src/frost.rs` (which regions; the state
-`Frost`, tested against a stand-in system), `App::sync_frost`, the mark in the region loop of
-`compose`, the key-out in `present`.
+`mdshared_ui::frost` (mark, key colour, veil, key-out, and the state `Frost`, tested against a
+stand-in system: moved there from the editor when the branch was merged, so that mdview uses the
+same one), `mdshared_ui::platform::backdrop_available` / `backdrop_allowed` / `set_backdrop`.
+Editor: `bins/mdedit/src/frost.rs` (which regions), `App::sync_frost`, the mark in the region loop
+of `compose`, the key-out in `present`.
 
 **Shots.** A `--shot` has no window, so it never shows the material. `tests/shots.sh` gained
 `settings-view` and `settings-view-dark` (the View section, which had no shot, with the new row
@@ -82,7 +83,8 @@ which is the point: no window, no frost). On Linux these three show the section 
 
 ## Handoff
 
-**Built.** As above. Shared commits `74a2273`, `9aab56b`; the editor pins `9aab56b` (only the
+**Built.** As above. Shared commits `74a2273`, `9aab56b` and, on `merge/editor-next`, `c9ba573`
+(the state moved to the shared crate); the editor pinned `9aab56b` on this branch before the merge (only the
 `mdshared-*` entries of `Cargo.lock` changed; one new windows-sys feature, `Win32_System_Power`,
 no new crate). Unit tests: the type and its keys, the key-out arithmetic (exact over the key,
 opaque stays opaque, premultiplied), `backdrop_allowed`, the state machine in `frost.rs`, and four

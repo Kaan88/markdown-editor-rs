@@ -155,15 +155,17 @@ pub fn macro_menu(
 }
 
 /// "Preview in mdview" (checked while the file is previewed) and "Preview side by side" for the
-/// active tab, or for tab `index`. Listed for Markdown files, which is what the viewer is for, and
-/// for a file that is being previewed so that it can be stopped; the commands work for any file
-/// that has a place on disk, from the shortcut and the palette.
+/// active tab, or for tab `index`. Listed for Markdown files, which is what the viewer is for,
+/// for a document that has no file yet (it has no name to tell its kind by, and a note begun
+/// in a new tab is the common case), and
+/// for a file that is being previewed so that it can be stopped; the commands work for any
+/// document, with a file or without one yet, from the shortcut and the palette.
 fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
     let Some(doc) = index.or(docs.active()).and_then(|i| docs.tabs.get(i)) else {
         return Vec::new();
     };
     let linked = docs.links.contains(doc.id);
-    if !doc.is_markdown() && !linked {
+    if !doc.is_markdown() && !linked && doc.path.is_some() {
         return Vec::new();
     }
     let item = |id: C, label: &str| {
@@ -171,7 +173,7 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
             Some(i) => Item::new(Act::TabCmd(id, i), label),
             None => Item::new(Act::Cmd(id), label).hint(hint(id)),
         };
-        item.icon(glyph::VIEW).enabled(doc.path.is_some())
+        item.icon(glyph::VIEW)
     };
     vec![
         item(C::PreviewInViewer, "Preview in mdview")

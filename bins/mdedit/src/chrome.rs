@@ -597,10 +597,16 @@ pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect) {
         go_hovered: c.hover == Some(Hit::UpdateGo),
         go_pressed: c.pressed == Some(Hit::UpdateGo),
         close_hovered: c.hover == Some(Hit::UpdateClose),
+        restart: docs.updates.relaunch_target().is_some(),
+        restart_hovered: c.hover == Some(Hit::UpdateRestart),
+        restart_pressed: c.pressed == Some(Hit::UpdateRestart),
     };
     let hits = notice::draw_update_bar(c.p, c.pal, bar, &crate::updater::APP, stage, state);
     if let Some(r) = hits.go {
         c.hit(Hit::UpdateGo, r);
+    }
+    if let Some(r) = hits.restart {
+        c.hit(Hit::UpdateRestart, r);
     }
     if let Some(r) = hits.close {
         c.hit(Hit::UpdateClose, r);

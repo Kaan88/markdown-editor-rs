@@ -716,8 +716,18 @@ mdedit updates itself with the code mdview uses, all of it in `markdown-shared-r
 | `app/commands.rs` ("updates") | `updates_at_launch`, `check_for_updates`, `install_update`: each starts a shared thread that posts `Wake::Update` |
 
 The look at launch runs only with a session file and for a copy outside a cargo output folder
-(`release`, `debug`, `deps`). `--update-bar available|installing|installed` shows the bar with a
+(`release`, `debug`, `deps`). `--update-bar available|installing|installed|installed-plain` shows the bar with a
 made-up version for a shot.
+
+Once installed, the bar (and the About dialog's update button) offers Restart when the updater has a
+file to start (`mdshared_app::relaunch::target`: the installed exe on Windows, `$APPIMAGE` on Linux).
+Restart is `After::Restart`: it goes through `request` exactly as Exit does (unsaved text is kept
+for the session, or the Save changes question is asked and a cancel aborts it), then sets
+`App::restart`; `run()` spawns the file with `--restarted` after the window is dropped. The new
+process waits in `relaunch::wait_for_predecessor` until the old instance's port and lock are gone,
+before the single-instance hand-over, so it never hands its files to the dying window. Beside the
+button the bar reads "mdedit X is installed. Restart to use it." (`Updates::bar_label_with`); without
+a file to start it keeps "It starts the next time you open mdedit."
 
 New file: a document's path is optional. `Docs::new_untitled` makes a ready, empty "Untitled N"
 document (UTF-8, the platform's line ending, no language until it has a name). It is left out of
@@ -1965,3 +1975,38 @@ No language server: the words of the open documents, and snippets.
 - **Cost.** Nothing at start, and with the setting off nothing on a keystroke (one test of the
   setting). Measured in a release build on the Windows PC: a list at every limit (5 MiB read,
   50,000 words) takes 34 ms to open, once; typing on only narrows what was found.
+
+## 64. Rounded window corners (2026-11-14, branch `next`)
+
+Setting "Window corners" (View group of Settings, under Theme): Square, Small (4 logical px),
+Round (8, the default; the radius of the apps' dialogs). Kept in the session file as `corners=`
+(the logical radius; written only when not 8), in `Session.corners`. The code is shared
+(`mdshared_ui::corners`, `shadow::Frame`, docs/LINUX.md in the shared repository).
+
+| Where | Result |
+|---|---|
+| Windows 11 | `corners::set_window_corners` sets `DWMWA_WINDOW_CORNER_PREFERENCE` (do not round, small, round) at window creation and on a change; the system draws it and squares a maximized window. Nothing is drawn by the app. |
+| Windows 10 | The attribute is unknown, the call fails and is ignored: square, no message. |
+| Wayland, client margin | Content corner squares (radius r device px, `radius * scale` rounded) are cut anti-aliased into the ARGB buffer; the shadow under them is the window's own. Square when the margin is 0 (maximized, tiled, fullscreen). |
+| KDE Wayland | With a radius above 0 `Auto` uses the client margin instead of KWin's protocol (`shadow::decide(.., round)`), because KWin's route is opaque. Square keeps KWin's route. |
+| X11 | Opaque window (no margin by default): square. `MD_SHADOW=client` rounds like Wayland and squares while maximized or fullscreen. |
+
+**Drawing.** `present` copies the damaged rectangles into the surface buffer as before; when
+`Shadow::rounds()` it then calls `Shadow::paint_corners(buffer, sw, sh, &screen.pixels, damage)`:
+only the corner squares a copied rectangle touches (all four after a whole copy: buffer age not
+1) are rebuilt, from the app's bitmap, as content at its coverage over the shadow beneath
+(premultiplied). At most `4 * r^2` pixels, none when square or maximized; a corner not copied again
+keeps its cut, so partial repaints stay correct. A change of the setting redraws the whole window
+(`full`) and repaints the margin for two frames (the gate). The shadow's margin tiles are
+unchanged (a rounded rectangle's blurred shadow differs from the plain one by about one alpha
+step); the shadow beneath the uncovered pixels is a small table beside the tiles.
+
+**Row.** Offered where it can work: Windows, or a window with a shadow route (Wayland); hidden on
+X11 without the margin. Help line from `corners::setting_help()` (Linux: "Some desktops need a
+restart to apply": on KDE, switching on from Square needs a restart because the window was
+created opaque; switching to Square applies at once).
+
+**Shots.** `--frame square|small|round` with `--shot` renders the window as the margin route shows
+it (content, shadow margin, corners) over a flat backdrop; the existing shots are unchanged.
+`tests/shots.sh` takes `frame-*` at scale 1 and 2 in both themes. The Windows runner draws the
+same Wayland-style picture (it is the shared pixel code, not the DWM result).

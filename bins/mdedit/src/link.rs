@@ -21,11 +21,17 @@
 //! is gone (a send that nobody answers more than [`GRACE`] after the viewer was started), and with
 //! the process. Ending one, but the viewer being gone, tells the viewer to go back to the file
 //! (`live_off`) if it was sent text.
+//!
+//! A document that has no file yet is linked too ([`Target::Untitled`]): the viewer has nothing
+//! to read, so it is shown by the first update, which carries the text and asks for a tab
+//! (`open`), and its text goes at every change whatever the setting says. When it is saved the
+//! link becomes the file's and the viewer is told which file its tab now is. A viewer too old to
+//! know such documents answers so ([`Delivery::Older`]); the link ends and a toast says why.
 
 use crate::app::Wake;
 use crate::docs::{Docs, Waker};
 use mdedit_highlight::DocId;
-use mdshared_app::sister::{self, MAX_TEXT, Request};
+use mdshared_app::sister::{self, Delivery, MAX_TEXT, Rect, Request};
 use ropey::Rope;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,33 +56,91 @@ const FINISH_WAIT: Duration = Duration::from_millis(300);
 /// A document's text as it is: the load it came from and the edits since.
 pub type Version = (u64, u64);
 
-/// What to tell the viewer: this file is at this line, and (live) this is its text.
+/// What the viewer shows for a linked document.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// A file: the viewer reads it, and is sent the text only while that differs from it.
+    File(PathBuf),
+    /// A document that has no file yet: the viewer has only what it is sent, under `title`.
+    /// `doc` is the name the document goes by between the two applications ([`doc_name`]).
+    Untitled { doc: String, title: String },
+}
+
+impl Target {
+    pub fn is_untitled(&self) -> bool {
+        matches!(self, Target::Untitled { .. })
+    }
+
+    /// A request about this document, with nothing asked yet.
+    fn request(&self) -> Request {
+        match self {
+            Target::File(path) => Request::new(path),
+            Target::Untitled { doc, title } => Request::document(doc, title),
+        }
+    }
+}
+
+impl From<PathBuf> for Target {
+    fn from(path: PathBuf) -> Target {
+        Target::File(path)
+    }
+}
+
+/// The name a document without a file goes by in requests: this process and the document's
+/// number in it, so it is the same for as long as the tab lives and no other tab's.
+pub fn doc_name(id: DocId) -> String {
+    format!("{FROM}-{}-{id}", std::process::id())
+}
+
+/// The first update of a document without a file asks the viewer to show it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Opening {
+    /// Where the viewer's window is to go ("Preview side by side").
+    pub place: Option<Rect>,
+}
+
+/// What to tell the viewer: this document is at this line, and (live) this is its text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Update {
-    pub path: PathBuf,
+    pub target: Target,
     pub line: u32,
     /// Until when a send nobody answers is tried again.
     pub retry_until: Instant,
     /// The text, when the preview is live: its version and a snapshot. `None` when it is not.
     pub text: Option<(Version, Rope)>,
+    /// The viewer is to show the document: only a document without a file is opened this way.
+    pub open: Option<Opening>,
 }
 
 impl Update {
-    /// The live update: no raising, no opening, no placing.
+    /// The live update: no raising, no opening, no placing. The one that opens a document
+    /// without a file does all three.
     fn request(&self) -> Request {
         Request {
-            follow: true,
+            follow: self.open.is_none(),
+            open: self.open.is_some(),
+            place: self.open.and_then(|o| o.place),
             line: Some(self.line),
             from: Some(FROM.into()),
-            ..Request::new(&self.path)
+            ..self.target.request()
         }
     }
 }
 
-/// The request that ends the viewer's live text for `path`.
-fn off_request(path: &Path) -> Request {
+/// The request that ends the viewer's live text for `target`.
+fn off_request(target: &Target) -> Request {
     Request {
         live_off: true,
+        from: Some(FROM.into()),
+        ..target.request()
+    }
+}
+
+/// The request that tells the viewer the document it knew as `doc` is the file `path` now.
+fn saved_request(doc: &str, path: &Path) -> Request {
+    Request {
+        follow: true,
+        doc: Some(doc.to_string()),
         from: Some(FROM.into()),
         ..Request::new(path)
     }
@@ -91,14 +155,18 @@ pub struct Active {
     pub version: Version,
     /// Its text is to be sent: the setting is on, it is within the cap, and the document differs
     /// from its saved state (otherwise the viewer shows the file, and is told to go back to it
-    /// once the text is the file's again).
+    /// once the text is the file's again). A document without a file is always sent while it is
+    /// within the cap: the viewer has nothing else to show.
     pub live: bool,
 }
 
 struct Linked {
     id: DocId,
-    /// The file the viewer was given; a document that is saved under another name is not it.
-    path: PathBuf,
+    /// The file the viewer was given; a document that is saved under another name is not it. Or
+    /// the document without a file, until it is saved.
+    target: Target,
+    /// The viewer has not been asked to show it yet (a document without a file).
+    open: Option<Opening>,
     /// The line the viewer was last told.
     sent: Option<u32>,
     /// The version of the text last handed to the courier; `None` when none was, or not live.
@@ -142,7 +210,7 @@ impl Links {
     pub fn link(
         &mut self,
         id: DocId,
-        path: PathBuf,
+        target: Target,
         line: Option<u32>,
         version: Option<Version>,
         now: Instant,
@@ -150,7 +218,8 @@ impl Links {
         self.linked.retain(|l| l.id != id);
         self.linked.push(Linked {
             id,
-            path,
+            target,
+            open: None,
             sent: line,
             sent_version: version,
             retry_until: now + GRACE,
@@ -159,11 +228,56 @@ impl Links {
         self.sent_at = Some(now);
     }
 
+    /// Links document `id`, which has no file: the next pass sends the viewer its text and asks
+    /// it to show a tab named `title`, at `opening.place` if that is given. The viewer was
+    /// started just now if none ran, so the update is tried again for [`GRACE`].
+    pub fn link_untitled(&mut self, id: DocId, title: String, opening: Opening, now: Instant) {
+        self.linked.retain(|l| l.id != id);
+        self.linked.push(Linked {
+            id,
+            target: Target::Untitled {
+                doc: doc_name(id),
+                title,
+            },
+            open: Some(opening),
+            sent: None,
+            sent_version: None,
+            retry_until: now + GRACE,
+        });
+        self.active = Some(id);
+    }
+
+    /// Document `id`, linked while it had no file, was saved as `path`: the link is the file's
+    /// from now on, and the viewer is told that its tab is that file's.
+    fn saved(&mut self, id: DocId, path: PathBuf) {
+        let Some(link) = self.linked.iter_mut().find(|l| l.id == id) else {
+            return;
+        };
+        let was = std::mem::replace(&mut link.target, Target::File(path.clone()));
+        (link.open, link.sent, link.sent_version) = (None, None, None);
+        if let Some(courier) = &self.courier {
+            courier.saved(was, path);
+        }
+    }
+
+    /// Whether the viewer said, since the last call, that it does not know documents without a
+    /// file (an older build); the links of such documents are over then.
+    pub fn take_older(&mut self) -> bool {
+        let older = self.courier.as_ref().is_some_and(Courier::take_older);
+        if older {
+            self.linked.retain(|l| !l.target.is_untitled());
+            if self.linked.is_empty() {
+                self.courier = None;
+            }
+        }
+        older
+    }
+
     /// Starts what sends the updates; `waker` is called when the viewer turns out to be gone.
     pub fn start(&mut self, waker: Waker) {
         self.courier.get_or_insert_with(|| {
             Courier::spawn(
-                |request| sister::send(VIEWER, request),
+                |request| sister::deliver(VIEWER, request),
                 Timing {
                     retry: RETRY,
                     text_retry: TEXT_RETRY,
@@ -183,7 +297,7 @@ impl Links {
         self.linked.retain(|l| {
             let kept = keep(l);
             if let Some(c) = courier.as_ref().filter(|_| !kept) {
-                c.off(&l.path);
+                c.off(&l.target);
             }
             kept
         });
@@ -196,7 +310,7 @@ impl Links {
     pub fn finish(&mut self) {
         if let Some(courier) = self.courier.take() {
             for l in &self.linked {
-                courier.off(&l.path);
+                courier.off(&l.target);
             }
             courier.finish(FINISH_WAIT);
         }
@@ -233,7 +347,7 @@ impl Links {
         } else {
             link.sent_version.is_some()
         };
-        if link.sent == Some(active.line) && !text_due {
+        if link.sent == Some(active.line) && !text_due && link.open.is_none() {
             return Poll::default();
         }
         let ready = self.sent_at.map(|t| t + INTERVAL);
@@ -248,10 +362,11 @@ impl Links {
         link.sent_version = active.live.then_some(active.version);
         Poll {
             send: Some(Update {
-                path: link.path.clone(),
+                target: link.target.clone(),
                 line: active.line,
                 retry_until: link.retry_until,
                 text: None,
+                open: link.open.take(),
             }),
             due: None,
         }
@@ -274,19 +389,38 @@ impl Docs {
             return None;
         }
         let tabs = &self.tabs;
+        // A document that had no file and has one now was saved.
+        let saved: Vec<(DocId, PathBuf)> = (self.links.linked.iter())
+            .filter(|l| l.target.is_untitled())
+            .filter_map(|l| {
+                let path = tabs.iter().find(|d| d.id == l.id)?.path.clone()?;
+                Some((l.id, path))
+            })
+            .collect();
+        for (id, path) in saved {
+            self.links.saved(id, path);
+        }
         self.links.keep(|l| {
-            tabs.iter()
-                .any(|d| d.id == l.id && d.path.as_deref() == Some(l.path.as_path()))
+            tabs.iter().any(|d| {
+                d.id == l.id
+                    && match &l.target {
+                        Target::File(path) => d.path.as_deref() == Some(path.as_path()),
+                        Target::Untitled { .. } => d.path.is_none(),
+                    }
+            })
         });
         let live = self.prefs.live_preview;
         let doc = self.active_doc();
         let active = doc.and_then(|d| {
             let r = d.ready()?;
+            let no_file = d.path.is_none();
             Some(Active {
                 id: d.id,
                 line: r.buffer.line_of(r.view.sel.caret) as u32 + 1,
                 version: (d.revision, r.buffer.revision()),
-                live: live && r.buffer.len_bytes() <= MAX_TEXT && d.modified(),
+                live: (live || no_file)
+                    && r.buffer.len_bytes() <= MAX_TEXT
+                    && (no_file || d.modified()),
             })
         });
         let poll = self.links.poll(now, active);
@@ -315,6 +449,8 @@ struct Timing {
 struct Courier {
     slot: Arc<Slot>,
     gone: Arc<AtomicBool>,
+    /// The viewer answered that it does not know documents without a file.
+    older: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -326,30 +462,34 @@ struct Slot {
 #[derive(Default)]
 struct State {
     next: Option<Update>,
-    /// Files whose live text is to end; the courier skips those it sent none for.
-    offs: Vec<PathBuf>,
+    /// Documents whose live text is to end; the courier skips those it sent none for.
+    offs: Vec<Target>,
+    /// Documents without a file that were saved, and the file each is now.
+    saved: Vec<(Target, PathBuf)>,
     closed: bool,
     /// The thread has done all it was asked and returned.
     ended: bool,
 }
 
 impl Courier {
-    /// `send` hands a request to the viewer's window and says whether one answered; `ended` is
-    /// called once when the viewer is found gone.
+    /// `send` hands a request to the viewer's window and says how it was received; `ended` is
+    /// called once when the viewer is found gone, and each time it turns out to be too old for a
+    /// document without a file.
     fn spawn(
-        send: impl Fn(&Request) -> bool + Send + 'static,
+        send: impl Fn(&Request) -> Delivery + Send + 'static,
         timing: Timing,
         ended: impl Fn() + Send + 'static,
     ) -> Courier {
         let slot = Arc::new(Slot::default());
         let gone = Arc::new(AtomicBool::new(false));
-        let (s, g) = (slot.clone(), gone.clone());
+        let older = Arc::new(AtomicBool::new(false));
+        let (s, g, o) = (slot.clone(), gone.clone(), older.clone());
         std::thread::spawn(move || {
-            run(&s, &g, send, timing, ended);
+            run(&s, (&g, &o), send, timing, ended);
             s.state.lock().unwrap().ended = true;
             s.wake.notify_all();
         });
-        Courier { slot, gone }
+        Courier { slot, gone, older }
     }
 
     /// Replaces what waits in the slot: of several updates the newest counts.
@@ -358,18 +498,34 @@ impl Courier {
         self.slot.wake.notify_all();
     }
 
-    /// The viewer is to show `path` as the file again; an update that waits for it is dropped.
-    fn off(&self, path: &Path) {
+    /// The viewer is to show `target` as the file again (a document without a file: as it was
+    /// last sent); an update that waits for it is dropped.
+    fn off(&self, target: &Target) {
         let mut state = self.slot.state.lock().unwrap();
-        if state.next.as_ref().is_some_and(|u| u.path == path) {
+        if state.next.as_ref().is_some_and(|u| u.target == *target) {
             state.next = None;
         }
-        state.offs.push(path.to_path_buf());
+        state.offs.push(target.clone());
+        self.slot.wake.notify_all();
+    }
+
+    /// The document without a file `was` is the file `path` now; an update that waits for it
+    /// as it was is dropped.
+    fn saved(&self, was: Target, path: PathBuf) {
+        let mut state = self.slot.state.lock().unwrap();
+        if state.next.as_ref().is_some_and(|u| u.target == was) {
+            state.next = None;
+        }
+        state.saved.push((was, path));
         self.slot.wake.notify_all();
     }
 
     fn is_gone(&self) -> bool {
         self.gone.load(Ordering::Acquire)
+    }
+
+    fn take_older(&self) -> bool {
+        self.older.swap(false, Ordering::AcqRel)
     }
 }
 
@@ -396,26 +552,36 @@ impl Drop for Courier {
     }
 }
 
+/// What the courier takes from its slot.
+enum Job {
+    Off(Target),
+    Saved(Target, PathBuf),
+    Update(Update),
+}
+
 fn run(
     slot: &Slot,
-    gone: &AtomicBool,
-    send: impl Fn(&Request) -> bool,
+    (gone, older): (&AtomicBool, &AtomicBool),
+    send: impl Fn(&Request) -> Delivery,
     timing: Timing,
     ended: impl Fn(),
 ) {
-    // The files the viewer was sent text for, and the version of it.
-    let mut live: Vec<(PathBuf, Version)> = Vec::new();
+    // The documents the viewer was sent text for, and the version of it.
+    let mut live: Vec<(Target, Version)> = Vec::new();
     // Until when text is left out: the viewer did not take the last.
     let mut text_after: Option<Instant> = None;
     loop {
-        let (off, update) = {
+        let job = {
             let mut state = slot.state.lock().unwrap();
             loop {
-                if let Some(path) = state.offs.pop() {
-                    break (Some(path), None);
+                if let Some(target) = state.offs.pop() {
+                    break Job::Off(target);
+                }
+                if let Some((was, path)) = state.saved.pop() {
+                    break Job::Saved(was, path);
                 }
                 if let Some(update) = state.next.take() {
-                    break (None, Some(update));
+                    break Job::Update(update);
                 }
                 if state.closed {
                     return;
@@ -423,16 +589,34 @@ fn run(
                 state = slot.wake.wait(state).unwrap();
             }
         };
-        if let Some(path) = off {
-            if let Some(i) = live.iter().position(|(p, _)| *p == path) {
-                live.swap_remove(i);
-                send(&off_request(&path));
+        let update = match job {
+            Job::Off(target) => {
+                if let Some(i) = live.iter().position(|(t, _)| *t == target) {
+                    live.swap_remove(i);
+                    send(&off_request(&target));
+                }
+                continue;
             }
-            continue;
-        }
-        let Some(update) = update else { continue };
-        if deliver(&update, &mut live, &mut text_after, &send, timing) {
-            continue;
+            Job::Saved(was, path) => {
+                // The viewer reads the file from here on: nothing of it is live any more.
+                live.retain(|(t, _)| *t != was);
+                if let Target::Untitled { doc, .. } = &was {
+                    send(&saved_request(doc, &path));
+                }
+                continue;
+            }
+            Job::Update(update) => update,
+        };
+        match deliver(&update, &mut live, &mut text_after, &send, timing) {
+            Delivery::Taken => continue,
+            Delivery::Older => {
+                // The viewer runs and will never show this document: say so, and go on for the
+                // files that are linked.
+                older.store(true, Ordering::Release);
+                ended();
+                continue;
+            }
+            Delivery::Nobody => {}
         }
         if Instant::now() < update.retry_until {
             // The viewer is still starting. A newer update takes this one's place.
@@ -449,37 +633,58 @@ fn run(
 
 /// Sends `update`: with the text when it is live, differs from what the viewer has and the viewer
 /// is not known to refuse text; the line alone otherwise. A document that is not live any more
-/// goes back to its file first. False when not even the line was answered.
+/// goes back to its file first. `Nobody` when not even the line was answered.
+///
+/// A document without a file has no line to fall back on: the viewer shows its text or nothing.
+/// So its text goes whenever it is new or the viewer is asked to show the document, and when
+/// nobody takes it, the same request without the text is asked once, only to learn whether a
+/// viewer is there that is too old for it (an older one drops a large text unanswered).
 fn deliver(
     update: &Update,
-    live: &mut Vec<(PathBuf, Version)>,
+    live: &mut Vec<(Target, Version)>,
     text_after: &mut Option<Instant>,
-    send: &impl Fn(&Request) -> bool,
+    send: &impl Fn(&Request) -> Delivery,
     timing: Timing,
-) -> bool {
+) -> Delivery {
     let mut request = update.request();
-    let known = live.iter().position(|(p, _)| *p == update.path);
+    let known = live.iter().position(|(t, _)| *t == update.target);
+    let untitled = update.target.is_untitled();
     match &update.text {
         None => {
             if let Some(i) = known {
                 live.swap_remove(i);
-                send(&off_request(&update.path));
+                send(&off_request(&update.target));
             }
         }
         Some((version, rope)) => {
-            let fresh = known.map(|i| live[i].1) != Some(*version);
-            if fresh && text_after.is_none_or(|t| Instant::now() >= t) {
+            let fresh = known.map(|i| live[i].1) != Some(*version) || update.open.is_some();
+            if fresh && (untitled || text_after.is_none_or(|t| Instant::now() >= t)) {
                 request.text = Some(rope.to_string());
-                if send(&request) {
-                    match known {
-                        Some(i) => live[i].1 = *version,
-                        None => live.push((update.path.clone(), *version)),
+                match send(&request) {
+                    Delivery::Taken => {
+                        match known {
+                            Some(i) => live[i].1 = *version,
+                            None => live.push((update.target.clone(), *version)),
+                        }
+                        return Delivery::Taken;
                     }
-                    return true;
+                    Delivery::Older if untitled => return Delivery::Older,
+                    _ => {}
+                }
+                request.text = None;
+                if untitled {
+                    // Asked once more without the text, to tell a viewer too old for such a
+                    // document from none at all. It shows, raises and moves nothing.
+                    request.open = false;
+                    request.follow = true;
+                    request.place = None;
+                    return match send(&request) {
+                        Delivery::Older => Delivery::Older,
+                        _ => Delivery::Nobody,
+                    };
                 }
                 // No live link for now (an older viewer, or none): the line goes alone.
                 *text_after = Some(Instant::now() + timing.text_retry);
-                request.text = None;
             }
         }
     }
@@ -493,6 +698,12 @@ mod tests {
 
     fn at(base: Instant, ms: u64) -> Instant {
         base + Duration::from_millis(ms)
+    }
+
+    impl From<&str> for Target {
+        fn from(path: &str) -> Target {
+            Target::File(path.into())
+        }
     }
 
     fn linked(base: Instant) -> Links {
@@ -536,7 +747,7 @@ mod tests {
         assert_eq!((held.send, held.due), (None, Some(at(base, 100))));
         let sent = links.poll(at(base, 100), doc(9, 0, false));
         assert_eq!(
-            sent.send.map(|u| (u.path, u.line)),
+            sent.send.map(|u| (u.target, u.line)),
             Some(("/a.md".into(), 9))
         );
         assert_eq!(sent.due, None);
@@ -638,7 +849,10 @@ mod tests {
                         && (r.follow || r.live_off)
                 );
                 _ = sent_tx.send((r.clone(), ok));
-                ok
+                match ok {
+                    true => Delivery::Taken,
+                    false => Delivery::Nobody,
+                }
             },
             timing,
             move || _ = ended_tx.send(()),
@@ -648,10 +862,11 @@ mod tests {
 
     fn update(line: u32, retry_until: Instant) -> Update {
         Update {
-            path: "/a.md".into(),
+            target: "/a.md".into(),
             line,
             retry_until,
             text: None,
+            open: None,
         }
     }
 
@@ -745,7 +960,7 @@ mod tests {
                 if let Some(rx) = hold.lock().unwrap().take() {
                     rx.recv_timeout(WAIT).unwrap();
                 }
-                true
+                Delivery::Taken
             },
             FAST,
             || {},
@@ -788,8 +1003,8 @@ mod tests {
         let (c, sent, _ended) = courier(vec![], true, FAST);
         c.put(with_text(2, 1, "one"));
         next(&sent);
-        c.off(Path::new("/b.md"));
-        c.off(Path::new("/a.md"));
+        c.off(&"/b.md".into());
+        c.off(&"/a.md".into());
         let (r, _) = next(&sent);
         assert!(r.live_off && r.path == Path::new("/a.md") && r.line.is_none());
         // The other file never had text: nothing was sent for it.
@@ -815,7 +1030,7 @@ mod tests {
         assert!(next(&sent).0.live_off);
         // The last one, at exit: the courier has sent it by the time `finish` returns.
         links.hand(Update {
-            path: "/b.md".into(),
+            target: "/b.md".into(),
             ..with_text(1, 1, "b")
         });
         assert_eq!(next(&sent).0.text.as_deref(), Some("b"));
@@ -837,5 +1052,207 @@ mod tests {
         }
         assert_eq!(Arc::strong_count(&slot), 1);
         assert!(sent.try_recv().is_err());
+    }
+
+    // ---- a document that has no file ----------------------------------------------------------
+
+    fn untitled() -> Target {
+        Target::Untitled {
+            doc: doc_name(1),
+            title: "Untitled 1".into(),
+        }
+    }
+
+    /// A courier whose sends answer from `answers` (then `Taken`), and report to a channel.
+    fn courier_answering(answers: Vec<Delivery>) -> (Courier, Receiver<Request>, Receiver<()>) {
+        let (sent_tx, sent_rx) = channel();
+        let (ended_tx, ended_rx) = channel();
+        let answers = Mutex::new(answers.into_iter());
+        let c = Courier::spawn(
+            move |r| {
+                _ = sent_tx.send(r.clone());
+                answers.lock().unwrap().next().unwrap_or(Delivery::Taken)
+            },
+            FAST,
+            move || _ = ended_tx.send(()),
+        );
+        (c, sent_rx, ended_rx)
+    }
+
+    fn opening(line: u32, edit: u64, text: &str) -> Update {
+        Update {
+            target: untitled(),
+            open: Some(Opening::default()),
+            ..with_text(line, edit, text)
+        }
+    }
+
+    #[test]
+    fn a_document_name_is_one_the_protocol_takes() {
+        assert_eq!(sister::doc_id(&doc_name(7)), Some(doc_name(7).as_str()));
+        assert_ne!(doc_name(7), doc_name(8));
+    }
+
+    #[test]
+    fn a_document_without_a_file_is_opened_by_its_first_update_and_then_followed() {
+        let base = Instant::now();
+        let mut links = Links::default();
+        let place = Rect {
+            x: 960,
+            y: 0,
+            w: 960,
+            h: 1000,
+        };
+        let asked = Opening { place: Some(place) };
+        links.link_untitled(1, "Untitled 1".into(), asked, base);
+        assert!(links.contains(1));
+        // The first pass sends at once, whatever the caret and the text are: the viewer has
+        // nothing yet. It asks for the tab and carries the place.
+        let first = links.poll(base, doc(1, 0, true)).send.unwrap();
+        assert_eq!(
+            (first.target.clone(), first.open),
+            (untitled(), Some(asked))
+        );
+        let r = first.request();
+        assert!(r.open && !r.follow && r.place == Some(place) && r.path.as_os_str().is_empty());
+        assert_eq!(r.doc, Some(doc_name(1)));
+        assert_eq!(r.title.as_deref(), Some("Untitled 1"));
+        // Nothing more until something changes; then ordinary updates, ten a second.
+        assert_eq!(links.poll(at(base, 500), doc(1, 0, true)), Poll::default());
+        let next = links.poll(at(base, 600), doc(1, 1, true)).send.unwrap();
+        assert_eq!(next.open, None);
+        let r = next.request();
+        assert!(r.follow && !r.open && r.place.is_none() && r.doc.is_some());
+        let held = links.poll(at(base, 650), doc(2, 2, true));
+        assert_eq!((held.send, held.due), (None, Some(at(base, 700))));
+        // Asking for it again (side by side) opens it again.
+        links.link_untitled(1, "Untitled 1".into(), Opening::default(), at(base, 800));
+        let again = links.poll(at(base, 800), doc(2, 2, true)).send.unwrap();
+        assert_eq!(again.open, Some(Opening::default()));
+    }
+
+    #[test]
+    fn the_opening_update_carries_the_text_even_when_the_viewer_has_it() {
+        let (c, sent, _ended) = courier_answering(vec![]);
+        c.put(opening(1, 1, "# one\n"));
+        let r = sent.recv_timeout(WAIT).unwrap();
+        assert!(r.open && r.text.as_deref() == Some("# one\n"));
+        // The same text at another line: the line alone, as for a file.
+        c.put(Update {
+            target: untitled(),
+            ..with_text(2, 1, "# one\n")
+        });
+        let r = sent.recv_timeout(WAIT).unwrap();
+        assert!(r.follow && r.text.is_none() && r.line == Some(2) && r.doc.is_some());
+        // Opened again with nothing changed (the reader closed the viewer's tab): the text goes.
+        c.put(opening(2, 1, "# one\n"));
+        let r = sent.recv_timeout(WAIT).unwrap();
+        assert!(r.open && r.text.as_deref() == Some("# one\n"));
+        // The end of the link tells the viewer, by the document's name.
+        c.off(&untitled());
+        let r = sent.recv_timeout(WAIT).unwrap();
+        assert!(r.live_off && r.doc == Some(doc_name(1)) && r.path.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn a_viewer_that_is_starting_gets_the_whole_text_once_it_answers() {
+        // Nobody answers the text, nor the question without it; then the viewer is up.
+        let nobody = Delivery::Nobody;
+        let (c, sent, _ended) = courier_answering(vec![nobody, nobody, nobody, nobody]);
+        c.put(opening(1, 1, "# one\n"));
+        let tries: Vec<Request> = (0..5).map(|_| sent.recv_timeout(WAIT).unwrap()).collect();
+        let texts: Vec<bool> = tries.iter().map(|r| r.text.is_some()).collect();
+        assert_eq!(texts, [true, false, true, false, true]);
+        // Only the text opens: the question without it shows, raises and moves nothing.
+        assert!(tries.iter().all(|r| r.open == r.text.is_some()));
+        assert!(tries.iter().all(|r| r.follow != r.open));
+        assert!(!c.is_gone() && !c.take_older());
+        assert!(sent.recv_timeout(Duration::from_millis(200)).is_err());
+    }
+
+    #[test]
+    fn a_viewer_too_old_for_such_a_document_ends_its_link_and_keeps_the_files() {
+        // The old viewer answers `ok` to what it did not understand. A large text it drops
+        // unanswered, so the question without the text is what tells.
+        for answers in [
+            vec![Delivery::Older],
+            vec![Delivery::Nobody, Delivery::Older],
+        ] {
+            let (c, sent, ended) = courier_answering(answers.clone());
+            let mut links = linked(Instant::now());
+            links.link_untitled(2, "Untitled 1".into(), Opening::default(), Instant::now());
+            links.courier = Some(c);
+            links.hand(opening(1, 1, "# one\n"));
+            for _ in &answers {
+                sent.recv_timeout(WAIT).unwrap();
+            }
+            ended.recv_timeout(WAIT).unwrap();
+            assert!(!links.take_gone());
+            assert!(links.take_older() && !links.take_older());
+            assert!(links.contains(1) && !links.contains(2));
+            // The courier lives on for the file.
+            links.hand(update(4, Instant::now()));
+            assert_eq!(sent.recv_timeout(WAIT).unwrap().line, Some(4));
+        }
+        // With nothing else linked the courier ends too.
+        let (c, _sent, ended) = courier_answering(vec![Delivery::Older]);
+        let mut links = Links::default();
+        links.link_untitled(2, "Untitled 1".into(), Opening::default(), Instant::now());
+        links.courier = Some(c);
+        links.hand(opening(1, 1, "x"));
+        ended.recv_timeout(WAIT).unwrap();
+        assert!(links.take_older() && links.is_empty() && links.courier.is_none());
+    }
+
+    #[test]
+    fn a_saved_document_hands_its_tab_to_the_file() {
+        let (c, sent, _ended) = courier_answering(vec![]);
+        let base = Instant::now();
+        let mut links = Links::default();
+        links.link_untitled(1, "Untitled 1".into(), Opening::default(), base);
+        links.courier = Some(c);
+        links.hand(opening(3, 1, "# one\n"));
+        assert!(sent.recv_timeout(WAIT).unwrap().open);
+        links.saved(1, "/notes/one.md".into());
+        let r = sent.recv_timeout(WAIT).unwrap();
+        assert_eq!(r.path, Path::new("/notes/one.md"));
+        assert!(r.follow && r.doc == Some(doc_name(1)) && r.text.is_none() && !r.open);
+        // The link is the file's now: the line goes again, with no text for a saved file, and
+        // no word about the document it was (the viewer was never sent the file's text).
+        let next = links.poll(at(base, 500), doc(3, 1, false)).send.unwrap();
+        assert_eq!(
+            (next.target.clone(), next.open),
+            ("/notes/one.md".into(), None)
+        );
+        links.hand(next);
+        let r = sent.recv_timeout(WAIT).unwrap();
+        assert!(r.follow && r.doc.is_none() && r.line == Some(3) && !r.live_off);
+        assert!(sent.recv_timeout(Duration::from_millis(200)).is_err());
+        // An update that waited for the document as it was is dropped by the save.
+        let (hold_tx, hold_rx) = channel::<()>();
+        let (sent_tx, sent_rx) = channel();
+        let hold = Mutex::new(Some(hold_rx));
+        let c = Courier::spawn(
+            move |r| {
+                _ = sent_tx.send(r.clone());
+                if let Some(rx) = hold.lock().unwrap().take() {
+                    rx.recv_timeout(WAIT).unwrap();
+                }
+                Delivery::Taken
+            },
+            FAST,
+            || {},
+        );
+        c.put(opening(1, 1, "a"));
+        sent_rx.recv_timeout(WAIT).unwrap();
+        c.put(Update {
+            target: untitled(),
+            ..with_text(1, 2, "ab")
+        });
+        c.saved(untitled(), "/notes/one.md".into());
+        hold_tx.send(()).unwrap();
+        let r = sent_rx.recv_timeout(WAIT).unwrap();
+        assert_eq!(r.path, Path::new("/notes/one.md"));
+        assert!(sent_rx.recv_timeout(Duration::from_millis(200)).is_err());
     }
 }

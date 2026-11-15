@@ -3,10 +3,10 @@
 
 use super::files_tests::app;
 use super::*;
-use crate::frost::{System, frosted};
+use crate::frost::frosted;
 use crate::ui::PopupKind;
 use mdshared_app::backdrop::Backdrop;
-use mdshared_ui::frost::MARK;
+use mdshared_ui::frost::{MARK, System};
 
 struct Yes;
 
