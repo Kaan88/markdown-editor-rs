@@ -5,7 +5,237 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## After 0.6.0: gaps closed (2026-11-15, branch merge/next, not released)
+
+**State: the branch `merge/next` holds everything below, on top of 0.6.0 (`main`). It is not
+released and not in `main`. The owner has not looked at any of it.** Nothing here was seen or
+used by a person: every "Not verified" line below stands. Four workers each built a set of gaps on
+their own branch (`f/multicaret-more`, `f/panels-more`, `f/edit-more`, `f/adopt-shared`); the
+branches were merged into `merge/next` (the access letters of the new compare and table items were
+added at the last merge). Their notes lived in `docs/next/`; they are folded in here and the
+folder is gone. The release notes for it are `docs/release-notes/NEXT.md`.
+
+**Linux parts: never run.** Two pieces are in code that Windows does not compile: pasting image
+files copied in a Linux file manager (`platform::clipboard_files`, `wl-paste` or `xclip`; not
+compiled on the worker's PC, only by CI) and the KDE blur behind the frosted window (`sync_frost`
+and `sync_surface_alpha` in `app.rs`; compiled by CI on Linux, whose Linux tests passed). Nothing
+about KWin, the blur, the look, the focus rule or the paste was ever run or seen on Linux.
+
+**Snap-layouts flyout: checked by window messages only, not by a real pointer** (see 2 below).
+
+What was run on the Windows PC (release, `CARGO_TARGET_DIR` outside the checkout): `cargo fmt
+--all --check`, `cargo clippy --locked --release --workspace --all-targets -- -D warnings`
+(clean) and `cargo test --locked --release --workspace` at the merged head (304 passed and 1
+ignored in the mdedit bin, 492 passed and 10 ignored in mdedit-core, the rest unchanged; no
+failures). The workers ran the same on their branches. No worker or session drove a real window by
+mouse or keyboard for any item below unless a line says so. Interface shots were rendered by hand
+and looked at (listed per item).
+
+### Menu fit and access letters, looked at in shots (this pass)
+`--menu view` with `--compare` (the View menu while two files are compared) and `--menu
+text-markdown` on `fixtures/table.md`, 1280 x 800, scale 1, light: both menus fit the 800 px
+window (the View menu ends at about y 760, the Markdown menu at about y 795, 5 px to spare, so it
+has no room for another item). Every item of each has its own underlined letter. View: F, l, h, W,
+M, d, G, i, x (Next), u (Previous), y (Copy this change), k (Take), C (Copy this line), S, n, b, a,
+Z, o, R. Markdown: B, I, C, S, H, L, A, r, n, D, u, w, g, f, e, M, v, y. This was one shot each, light
+only, not a real window.
+
+### Measurements owed by the plan (2026-11-15, this pass)
+Release `mdedit.exe` from the merged head plus the one fix below, started from Git Bash with
+`MDEDIT_SETTINGS` in a new empty folder per run (with `check_updates=0` in it), a PowerShell script
+polling for a visible top-level window of the process (wider than 300 px); the time is from the
+process's start time to that window; working set and private bytes 3.0 s after start; 5 runs each.
+The same figures cross-checked with `--trace` ("first frame after"). The PC was otherwise idle.
+
+| | Window shown (median of 5, runs) | Working set | Private bytes | Budget (docs/PLAN.md) |
+|---|---|---|---|---|
+| Empty document, after the fix | 50 ms (48 to 53) | 27.8 MiB | 12.5 MiB | none set for empty |
+| Empty document, before the fix | about 435 ms (`--trace`, 5 runs 431 to 437) | 27.8 MiB | 12.5 MiB | none set for empty |
+| `fixtures/sample.rs` (small file) | 85 ms (84 to 88) | 44.7 MiB | 27.8 MiB (27.5 to 27.9) | first frame under 100 ms: met; private under 30 MiB: met, 2 MiB to spare |
+| 5 MB text file (`gen lines 5`) | 61 ms (61 to 66) | 38.8 MiB | 21.4 MiB | no budget for this size |
+| Exe size | 6,481,408 bytes (6.18 MiB) | | | not a gate since 2026-11-14; was 5.8 MB at phase 3, so 0.7 MB more since |
+
+Not measured: keystroke and scroll timings, idle CPU, the 100 MB file, memory after typing, any
+run on a second machine, the effect of Defender or a cold disk cache (the runs are warm). The
+numbers are from this one PC.
+
+**A fault found and fixed here (one change, `Docs::wait_load` in `bins/mdedit/src/docs.rs`):**
+when mdedit starts with no file and no restored tab, the hidden first frame waited the whole
+`LOAD_WAIT` (400 ms) for a load that was never going to come, so the window appeared at about 435
+ms. It has been so since phase 1. Now the wait ends at once when no tab is loading (4 lines); the
+empty start shows at about 50 ms. A start with a file or a restored session is unchanged (a tab is
+loading, so the wait is as before). The full tests were run after it, not a real hand start.
+
+### Speed against size build comparison (2026-11-15)
+The plan's carried-over item: the current profile (`opt-level = 3`, fat LTO, `panic = "abort"`,
+the `mdedit` and `mdedit-outline` crates at `opt-level = "s"`) against `mdedit` and `mdedit-outline`
+at `opt-level = 3` and `panic = "unwind"`. Built with `--config` flags into
+`target-edit-size`, `Cargo.toml` unchanged. Results (same PC, same method as above, 5 runs each, medians): exe 8,759,296 bytes against 6,481,408 (2,277,888 bytes, 35 % larger). Window shown: empty document 57 ms against 50, `sample.rs` 89 ms against 85 (88 to 100 against 84 to 88), 5 MB file 60 ms against 61. Working set and private bytes the same within 1 MiB (sample.rs 45.2 / 27.7 MiB against 44.7 / 27.8). Keystroke to pixels on `sample.rs` (`--type-steps 300`, three runs each): p50 0.50 to 0.51 ms for both, p95 0.55 to 0.67 ms against 0.54 to 0.59. Scroll was not compared. The speed build is no faster in anything measured and is slower to start by a few ms, and it is 2.3 MB bigger. **Recommendation: leave the profile as it is** (the `mdedit` crates at `opt-level = "s"`, `panic = "abort"`); nothing measured argues for the change. The `Cargo.toml` profile was not changed. Not compared: the 100 MB file, scroll, idle CPU, a second machine.
+
+### What was built, where it lives, what is not verified
+
+**Multiple carets and bookmarks (`f/multicaret-more`).** Typing path: nothing added for a single
+caret (every new branch is behind `view.extra` being non-empty or runs on its own command or
+click). Looked at: the text menu and its Lines submenu (light; Lines dark rendered, not looked at).
+- Select next occurrence, Ctrl+Shift+D (`multi::select_next` in core, `Ready::select_next`, command
+  `SelectNextOccurrence`; text menu after Select all, palette). A caret selects the word at every
+  caret; a selection adds the next exact-case match after the primary, wrapping, skipping selected
+  ones; over 4096 bytes of selected text it does nothing; a toast when there is nothing to add.
+  Case sensitive, not whole word. Ctrl+D stays Duplicate line. Not verified: the key in a real
+  window, Turkish layout; the menu entry was seen in a shot only.
+- Ctrl+click removes a caret (`multi::remove_at`, `Ready::remove_caret`, `input.rs`): a click in or
+  touching a caret or selection removes it when there are two or more. Not verified: the mouse
+  click itself (only the functions are tested).
+- Ctrl+Backspace and Ctrl+Delete at every caret (`MultiOp::WordLeft/WordRight` in `multi::edit`):
+  one undo step; `multi::edit` now merges any run of overlapping removals; the random test against
+  a model passes. Short-row carets of a column selection are left alone. Not verified: in a real
+  window.
+- Outdent (Shift+Tab) at every caret (`LineOp::Outdent` in `multiline`): one undo step. Not
+  verified: in a real window; Markdown tables with several carets (Shift+Tab in a table moves
+  between cells only with one caret, as before).
+- Click in the gutter toggles a bookmark (`Hit::Bookmark(line)`, the left 14 px of each shown
+  line's gutter; the fold cell wins where they overlap; not registered for the second pane nor in
+  band repaints). Not verified: the click in a real window (`toggle_bookmark_at` is tested), the
+  cell over wrapped continuation rows, a second pane.
+- Cut, copy, delete bookmarked lines (`lines::marked_lines_text`, `lines::delete_marked_lines`,
+  `EditOp::DeleteBookmarked`; palette and the end of the Lines submenu, no keys; greyed with no
+  bookmarks). Bookmarks are cleared after Cut or Delete; Undo brings the text back, not the
+  bookmarks. Not verified: Cut and Copy against the real clipboard, the menu clicked.
+- Bookmarks kept across closing a file and across runs: see `marks.rs` below (built by the panels
+  worker; the multicaret worker skipped it, as a design decision of its own).
+
+**Results panel, minimap, bookmarks (`f/panels-more`).** Cost: with the panel closed
+`results_sync` returns at its first line; with it open one pass over the open tabs runs after each
+event, and a search on a worker only after a tab with listed matches has been left alone 300 ms.
+The session signature gained a few small values. Looked at: the panel with the keyboard in it, at a
+dragged height, the folder and kinds boxes (light and dark), the minimap at 160 px, the Settings
+View page. Not run: the whole `tests/shots.sh` set (its large inputs need Python, which that PC
+only had as the Store alias), CPU, memory and keystroke timings.
+- Keyboard in the results panel (`Results::focused`): F6 ("Go to the results"), the key that
+  searched, or a click; Up, Down, Home, End, PageUp, PageDown, Enter (opens the row, keyboard back
+  to the text), Escape (back to the text, panel stays open); the panel's top line is in the accent
+  colour while it has the keyboard. `--results-focus` renders it. Not verified: keys and click in a
+  real window; Turkish layout.
+- Resizable panel: the top edge (a 5 px strip) is dragged; 110 px at least, the text keeps 140 px;
+  kept in the session as `results_h` (`Areas::with_results`, `dragged_height`). Not verified: the
+  drag in a real window (only compiled; the limit function is tested); a window resized while the
+  panel is dragged tall.
+- Results follow edits: rows of an edited document go faint ("updating..." in the title; a click or
+  Enter says the document changed), and 300 ms after the last change it is searched again on a
+  worker from a cheap snapshot. For Find in open tabs and for folder-search rows whose file is open.
+  Stale rows are not adjusted; a file that lost all its matches gets no row back (search again).
+  Replace in files still plans from disk. Not verified: in a real window; many tabs with thousands
+  of matches.
+- Folder and kinds for Find in files: two boxes in a 34 px row under the title after a folder
+  search (folder, empty is the open folder, a relative path counts from it; kinds such as
+  `*.md;*.txt`, `*` and `?`, case blind, `.md` means `*.md`, `!*.min.js` leaves names out); Enter
+  searches again, Tab moves between them; kept in the session (`find_folder`, `find_kinds`).
+  A missing folder gives a toast and keeps the old rows. Core: `search::NameFilter`,
+  `search::in_tree_named`. No folder picker dialog. Not verified: typing in the boxes in a real
+  window; a folder on a network drive; the `replace-files-*` shots changed by the extra row and
+  were not compared with the earlier set.
+- Minimap: already had marks (selections, find matches, bookmarks, caret row) and a column per
+  split pane. New: width setting, Settings > View > "Minimap width" (48 to 240 px, default 96,
+  `Prefs::minimap_width`, `live::minimap_width`, `Areas::with_minimap_width`). Not verified: the
+  setting changed in a real window; an odd width at scale 1.5.
+- Bookmarks across closing and runs (`marks.rs`): the lines (0-based) of the 50 latest files, at
+  most 100 each, in the session as `mark=1,4;path`; put in the list when a tab closes and when the
+  session is written, handed to a file the first time it is read in a window (not to a reload),
+  keeping only lines that still exist. A crash loses bookmarks set since the file was opened;
+  lines are not moved if the file changed on disk; they apply by path. Not verified: a real close
+  and restart; Windows path case differences beyond `same_path`.
+
+**Compare, column selection, tables, Linux file paste (`f/edit-more`).** Typing path: a
+`view.column` check per edit and a pad computation only when a column selection is typed on;
+compare arrows are found per visible row only while two files are compared. Looked at (light, the
+dark Markdown menu too): compare with arrows, the View menu while comparing, the Markdown
+submenu, a column typed past short lines. Not run: a real mouse or keyboard session, Linux.
+- Compare copy arrows in the gutter (`Hit::CopyChange { other, hunk }`, the leftmost 14 px of the
+  gutter at the first row of each difference; `compare::pick_hunk`, `App::compare_copy_hunk`, the
+  same `EditOp::CopyLines`, one undo step; `Align::hunk_starting_at`, `hunk_ranges`). Only while
+  the diff is current, not with word wrap on; the arrow hides that line's bookmark dot and a press
+  on the cell copies instead of toggling it. The View menu shows the commands that start a
+  comparison when nothing is compared and the ones that work on one (next, previous, copy, take,
+  copy line, stop) while one runs: with the new item it was 8 px too high for 800 px. Not
+  verified: the click with a real mouse (the function behind it is tested), wrapped text, a second
+  pane on the left (the direction there is by `other_left`, seen in no shot).
+- Copy this line to the other side (`CopyLineAcross`, `Align::partner_of`, `compare::pick_line`;
+  palette and View menu while comparing, no key): the caret's line replaces its partner in a
+  changed block; surplus lines and inserted or deleted blocks have no partner (greyed, a toast
+  says to copy the whole change). Not verified: in a real window.
+- Column selection, virtual space (`multi::column_pads`): typing on a column selection that is
+  still the one made pads short rows with spaces up to the rectangle's left column, one undo step;
+  only typing pads (not paste, not Enter); the caret of a short row is still drawn at the line's
+  end. The test that expected `xX` on the short line `x` now expects `x X`. With word wrap the
+  selection already worked on logical lines and columns (no code); a mouse drag past the end of a
+  wrapped line does not extend the width, the keys do (DESIGN section 57). Not verified: with the
+  mouse (the shot used `--select-column` and `--type`).
+- Tables in list items (`markdown::locate`, `Row::marked`): a table whose header is `- | a | b |`
+  (also `*`, `+`, `1.`, `1)`, inside a quote too) is edited with the marker and indentation kept
+  by Tab, Shift+Tab, Enter, Align table and the row and column commands; a later `- | x |` line
+  ends the table. Not verified: in a real window; a table in a list item nested in a deeper one
+  (only the delimiter row's indentation is followed).
+- Sort table by this column (`TableOp::SortColumn`; Markdown submenu and palette, no key):
+  ascending, descending when already ascending; numbers when all cells parse as numbers, else text
+  without regard to case; equal rows keep order; one undo step; needs two body rows. Numbers with
+  thousands separators or units compare as text. Not verified: in a real window.
+- Move row up and down (`TableOp::MoveRowUp`, `MoveRowDown`; Markdown submenu after Delete row,
+  palette): body rows only. Not verified: in a real window.
+- Pasting image files copied in a Linux file manager (`platform::clipboard_files`,
+  `image_paste::parse_uri_list`; `text/uri-list`, then `x-special/gnome-copied-files`; `arboard`'s
+  file list was not used because it would need a new dependency). **Not compiled and not run on
+  Linux by the worker**; `parse_uri_list` is tested on Windows; with neither tool installed nothing
+  is found. CI compiled it (see CI below).
+
+**Adopting the shared crates (`f/adopt-shared`).** The shared crates are repinned from `6249cd1`
+to `065cbdcc19226ecb77dd85f85ca922f53f2d3aee` (the shared branch `f/linux-frost`, with `681baf8`);
+only the rev changed in `Cargo.toml` and the lock; `cargo build --locked` works.
+- Vue and Svelte: `.vue` and `.svelte` open highlighted with no code of ours
+  (`Language::for_path`); `OPEN_FILTER` in `bins/mdedit/src/platform.rs` gained them; the function
+  list has no rule for them and stays empty. Test: `docs::tests::vue_and_svelte_files_open_with_their_language`.
+  Not verified: how a real component looks; the dialog's filter in a real dialog.
+- Snap-layouts flyout (`App::sync_snap` in `app.rs`, after every composed frame; `chrome::snap_button_rect`:
+  the maximize button plus the shadow margin, minus the top resize band unless maximized; `None`
+  while a dialog, the palette or the settings form is open). Run in a real window (Windows 11 build
+  26300, 96 dpi, started from Git Bash with `MDEDIT_SETTINGS` in a new folder): `WM_NCHITTEST` at
+  the maximize button answers 9 (`HTMAXBUTTON`), and 1 (`HTCLIENT`) at the close and minimize
+  buttons, in the tab strip and in the top band above the button; posted client mouse messages
+  (move, press, release) on the button maximize the window; posted non-client messages
+  (`WM_NCMOUSEMOVE`, `WM_NCLBUTTONDOWN`, `WM_NCLBUTTONUP` with `HTMAXBUTTON`) restore and maximize
+  it again. **Not verified: the flyout itself and snapping (needs a real pointer); other scales;
+  touch; that the dialog case really answers `HTCLIENT` in a window.**
+- Menu access keys: the main menu and its View, Macro and Recent submenus, the tab, text (Lines,
+  Markdown, Convert), find-box and minimap menus read `&` marks (`.access_keys(true)`), one letter
+  per item within a menu (found by a small search, preferring word starts); the Recent menu's file
+  names and saved macros' names go through `escape_access` (no letter picks them). The completion,
+  line-ending and encoding menus are not opted in. In `key_pressed`'s open-menu branch (after Up,
+  Down, Tab, Enter, Space, Left, Right and Escape) a printable character without Ctrl or Alt picks
+  the item (`access_key`, `choose(act, true)` as Enter does; a submenu opens with the keyboard on
+  it); the completion list still takes typing first. Underlines show when a popup is opened by
+  keyboard and are hidden when opened by mouse (`Ui::keyboard`, `Popup::cues`); any key used in an
+  open menu shows them. Tests in `app/access_tests.rs` and `app/input.rs` (marks unique and
+  complete for every fixed menu; the Recent menu with `R&D notes.md`; a capital works; Ctrl or Alt
+  does nothing). Looked at: `docs/captures/access-keys/main-view-menu.png` (dark), and in this pass
+  the View menu while comparing and the Markdown menu (above). Not verified: the menus in a real
+  window by keyboard and mouse; the light theme in every menu; Windows' habit of showing underlines
+  only after Alt (here: after any key).
+- Frosted chrome on KDE Plasma (Wayland), non-Windows code only: `sync_frost` passes
+  `mdshared_ui::frost::BlurSystem(&window)` off Windows; `sync_surface_alpha` calls
+  `surface.set_premultiplied_alpha(frost.wants_alpha() || shadow.wants_alpha())` when the frost
+  changes and once after the surface is made. Nothing else was needed (the app has one frame copy
+  for every system and already keys out the marked pixels). **Never run or seen on Linux; only
+  compiled, by CI.**
+- CI of the adopt-shared branch (`gh workflow run ci.yml --ref f/adopt-shared`, run 43732981608):
+  the windows and linux jobs both passed.
+
+**Decided not to build.** Bookmarks "SKIPPED" by the multicaret worker were built by the panels
+worker (above). Syntax-aware folding is not planned (folding stays by indentation). Crash
+reporting, accessibility, input methods (IME), plugins, FTP and project panels and printing were
+set aside by the owner earlier and are not planned.
+
 ## START HERE: mdedit 0.6.0 is released (2026-11-15)
+
+(Since this was written, `merge/next` has gone on past it: see "After 0.6.0: gaps closed" above.)
 
 **The released state is `main`, mdedit 0.6.0, tag `v0.6.0` at `c9d05b1`, published with mdview
 0.4.0 on the owner's word; see "Release 0.6.0" below and `docs/RELEASE.md`.** The text that

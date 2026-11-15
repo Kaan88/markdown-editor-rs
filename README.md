@@ -7,7 +7,7 @@
 alternative for personal use that opens any text file, with the same hand-drawn interface as the
 viewer.
 
-**Status: version 0.5.0, for Windows and Linux. The owner has approved the icons and the minimap
+**Status: version 0.6.0, for Windows and Linux (the branch `merge/next` holds more, not yet released). The owner has approved the icons and the minimap
 by looking; the rest of the interface has not been explicitly approved.** The release files are built by
 GitHub Actions, Windows natively on a Windows runner. On 2026-11-14 the full test suite and every
 screenshot state ran on a real Windows runner; nobody has yet used it by hand on a Windows desktop.
@@ -24,12 +24,16 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   table), auto-pairing, and indentation that follows the file (tabs or spaces, detected per
   file). Several carets (Ctrl+click) and column selections (Alt+drag, Alt+Shift+arrows): one
   selection per line over a rectangle of columns, and typing, deleting, copying, cutting, pasting
-  and undo work on all lines at once. Saved macros (Ctrl+Shift+R records, Ctrl+Shift+P plays).
+  and undo work on all lines at once; typing on a column selection pads short lines with spaces.
+  Ctrl+Shift+D adds a caret at the next occurrence of the selected text, Ctrl+click on a caret
+  removes it, and Ctrl+Backspace, Ctrl+Delete and Shift+Tab act at every caret. Saved macros
+  (Ctrl+Shift+R records, Ctrl+Shift+P plays).
 - **Markdown tables:** in a pipe table, Tab and Shift+Tab move between cells and line the columns
   up (Tab in the last cell adds a row), Enter at the end of a row adds a row, and the Markdown
   submenu (and the command palette) has Insert row below/above, Delete row, Insert column
-  right/left, Delete column and Move column left/right, next to Align table. Tables in block
-  quotes and indented tables keep their prefix.
+  right/left, Delete column and Move column left/right, Move row up/down and Sort table by this
+  column, next to Align table. Tables in block quotes, indented tables and tables that start a
+  list item (`- | a | b |`) keep their prefix.
 - **Word completion and snippets:** Ctrl+Space (or Alt+/) lists the words of the open files that
   match what is typed; Up and Down choose, Enter or Tab takes one, Escape closes. A setting
   (off at first) opens the list by itself after three letters. In Markdown files `table`, `code`
@@ -39,14 +43,21 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   saves it as a PNG beside the file (`notes-image-1.png`) and inserts `![](notes-image-1.png)`.
   Windows: a clipboard PNG or bitmap. Linux: needs `wl-paste` (Wayland) or `xclip` (X11).
   Image files copied in Explorer (Windows) are pasted as links to the files where they are
-  (`![](img/photo.jpg)`); a file on another drive is copied beside the document first.
+  (`![](img/photo.jpg)`); a file on another drive is copied beside the document first. On Linux
+  files copied in the file manager are pasted the same way (needs `wl-paste` or `xclip`).
 - **Finding:** find and replace with match case, whole word and regular expressions (Ctrl+F,
   Ctrl+H), replace in the selection, find in files and open tabs (Ctrl+Shift+F, F4), and replace in
-  files with a confirmation, backups and an undo. A function and heading list (Ctrl+Shift+2),
-  bookmarks (Ctrl+F2, F2), folding by mouse or key (F9), a minimap (Ctrl+Shift+M).
+  files with a confirmation, backups and an undo. The results panel takes the keyboard (F6, or
+  right after a search), is dragged taller or shorter, follows your edits, and a folder search can
+  be limited to a folder and to kinds of file (`*.md;*.txt`). A function and heading list
+  (Ctrl+Shift+2), bookmarks (Ctrl+F2, F2, or a click at the left edge of the gutter; cut, copy
+  and delete the bookmarked lines; remembered across closing a file and across runs), folding by
+  mouse or key (F9), a minimap (Ctrl+Shift+M; its width is a setting).
 - **Two files:** side by side (Shift+F8), compare two files or a file with its saved copy (F7 for
   the next difference), and the same file in both panes. With the caret in a difference, put this
-  side's lines in place of the other side's, or take the other side's lines, as one undo step.
+  side's lines in place of the other side's, or take the other side's lines, as one undo step; a
+  small arrow in the gutter at each difference does the same with the mouse, and "Copy this line
+  to the other side" copies one line of a changed block.
 - **Command palette (Ctrl+P)** for tabs, files, commands, line numbers and symbols, and
   **Settings (Ctrl+,)** for the preferences.
 - **With mdview:** Preview in mdview (Ctrl+Shift+V) opens the file in the viewer at the caret's
@@ -60,7 +71,11 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   and shadow; where the window is opaque (X11, KDE with a square setting) it stays square.
 - **Window backdrop** (Windows 11, off by default): Settings > View > Window backdrop lets the
   system's Mica or Acrylic material show through the title row and tab strip, the bar, the side
-  pane and the status strip. The text, menus and dialogs stay solid.
+  pane and the status strip. The text, menus and dialogs stay solid. On KDE Plasma (Wayland) the
+  same setting asks the compositor to blur the desktop behind the chrome (not yet run on Linux).
+- **Menus:** access keys: the main menu, its submenus and the text menus underline one letter per
+  item, and pressing it picks the item. On Windows 11 hovering the maximize button shows the
+  snap-layouts flyout. Vue and Svelte files are highlighted.
 - Changes a file's line endings and encoding from the status bar, wraps long lines (Alt+Z),
   keeps unsaved text when the window closes and puts it back at the next start, keeps a copy of
   every changed document in the background so unsaved text also survives a crash, a kill or a

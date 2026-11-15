@@ -93,29 +93,32 @@ After editing (phase 2) and safe saving (phase 3), in this order:
     one file twice, and the user said to leave it so. The same file in both panes was built on
     2026-11-14, in 0.5.0.)
 
-Left out: plugins, the FTP and project panels, printing.
+Left out: plugins, the FTP and project panels, printing. Syntax-aware folding was considered and
+is not planned: folding stays by indentation (decision 2026-11-15).
 
 ## Next release (agreed with the owner 2026-11-14)
 
 Agreed after mdedit 0.5.0 and mdview 0.3.0 (Windows and Linux). Each item has to keep the budgets
 above, measured before and after.
 
-- Copy a change across in compare. Done on `merge/next-release` (not in `main`).
-- Finer sync with the viewer inside long paragraphs and code blocks. Not started.
-- Live preview for a document that has never been saved. Not started.
-- Multi-caret support in the line commands (sort, join, headings, table alignment). Done on
-  `merge/next-release`.
+Status (2026-11-15): every item below was built and is in mdedit 0.6.0 (the status words in the
+list were written while the work was in progress and are corrected here).
+
+- Copy a change across in compare. Done, in 0.6.0.
+- Finer sync with the viewer inside long paragraphs and code blocks. Done, in 0.6.0.
+- Live preview for a document that has never been saved. Done, in 0.6.0.
+- Multi-caret support in the line commands (sort, join, headings, table alignment). Done, in 0.6.0.
 - Owner request 2026-11-14: a "Restart" button once an update is installed, both apps, only if it
-  is simple to do (the update bar now says the new version starts next time). Built on
-  `feat/restart-after-update`, not merged: it waits for a hand test on Windows.
-- Also done on `merge/next-release`, not on this list before: column selection (DESIGN section
-  57), Markdown table editing (section 60), and autosave and crash recovery (section 61).
-- Budgets for the five features on `merge/next-release` were not measured yet (2026-11-15).
-- Carried over: the speed-versus-size build comparison on Windows (a build compiled for speed
-  with unwinding against the current profile), and a hand run of 0.5.0 on a Windows desktop.
-- Rounded window corners (owner request 2026-11-14, agreed 2026-11-14): **built, on the branch
-  `f/rounded-corners` (2026-11-15: `next` brought onto `merge/next-release`), not merged, not
-  released.** Default radius 8 logical px, scaled with the display, square when maximised,
+  is simple to do. Done, in 0.6.0. A real update followed by Restart has not been run.
+- Also done, not on this list before: column selection (DESIGN section 57), Markdown table
+  editing (section 60), and autosave and crash recovery (section 61).
+- Budgets for the five features: measured on 2026-11-15 on the merged head after 0.6.0 (see
+  `docs/HANDOFF.md`, "After 0.6.0: gaps closed"): first frame with `sample.rs` 85 ms (budget under
+  100 ms), private memory 27.8 MiB (budget under 30 MiB); both met.
+- Carried over, now done: the speed-versus-size build comparison on Windows (exe 8.76 MB against 6.48 MB, no faster in start or keystroke: the profile stays).
+  Still owed: a hand run of 0.5.0 and 0.6.0 on a Windows desktop.
+- Rounded window corners (owner request 2026-11-14, agreed 2026-11-14): **built and in 0.6.0.**
+  Default radius 8 logical px, scaled with the display, square when maximised,
   tiled or fullscreen, with a setting (Square, Small = 4, Round = 8). It sits between KDE Breeze
   (about 5 px, from bug reports) and GNOME libadwaita (about 12 px, from a 2021 commit and forum
   estimates) and matches the 8 px radius of the apps' own dialogs. There is no standard way to ask
@@ -124,12 +127,13 @@ above, measured before and after.
   leaves the window opaque and square: with rounding wanted, `Auto` takes the margin there too
   (docs/DESIGN.md section 64).
 
-## After 0.6.0 and 0.4.0 (written 2026-11-15; item 1 asked for by the owner, the rest proposed, nothing built)
+## After 0.6.0 and 0.4.0 (written 2026-11-15; item 1 asked for by the owner, the rest proposed)
 
-mdedit 0.6.0 and mdview 0.4.0 are released and every item of "Next release" above is in them
-(the status words in that list were written while the work was in progress). The full list of
-what is left, for both apps, is in the viewer's `docs/PLAN.md`, section "After 0.4.0 and 0.6.0".
-The editor's part of it:
+mdedit 0.6.0 and mdview 0.4.0 are released and every item of "Next release" above is in them.
+The full list of what was left, for both apps, is in the viewer's `docs/PLAN.md`, section "After
+0.4.0 and 0.6.0". The editor's part of it, with the state on 2026-11-15 (branch `merge/next`, not
+released, the owner has not looked at any of it; details in `docs/HANDOFF.md`, "After 0.6.0: gaps
+closed"):
 
 1. **Windows return to where they were when a side-by-side preview ends** (owner request
    2026-11-15, both apps). mdedit remembers its window's place when `tile_left` moves it and
@@ -137,20 +141,38 @@ The editor's part of it:
    closed, or the viewer or its live tab is gone. A window the user has moved or resized since
    stays where it is. Exiting while tiled saves the remembered place, not the left half. The
    code goes beside `mdshared_ui::place`, for both apps. Details and open questions: the
-   viewer's plan.
-2. **Frosted window on Linux** (KDE blur): the section "Later" below, of which only the
-   Windows 11 part is built.
-3. **Owed checks:** the owner's look at 0.6.0, a real update followed by Restart, startup time
-   and memory of 0.6.0 against the budgets, the speed-versus-size build comparison, the
-   AppImage by hand on Linux.
+   viewer's plan. **Done**, merged into `main`, not released.
+2. **Frosted window on Linux** (KDE blur): the section "Later" below. **Built on `merge/next`
+   (non-Windows code only), compiled by CI on Linux, never run on Linux.**
+3. **Owed checks:** the owner's look at 0.6.0 and at `merge/next`, a real update followed by
+   Restart, the AppImage by hand on Linux. Done on 2026-11-15: startup time and memory against the
+   budgets (met; an empty start took 435 ms instead of about 50 ms, fixed) and the
+   speed-versus-size build comparison (numbers in the handoff).
+4. **The small gaps of the roadmap items, closed on `merge/next` (2026-11-15, not released):**
+   - Multiple carets: select next occurrence (Ctrl+Shift+D), Ctrl+click removes a caret, delete
+     word and outdent at every caret. Done.
+   - Bookmarks: click in the gutter, cut, copy and delete bookmarked lines, kept across closing a
+     file and across runs. Done.
+   - Results panel: keyboard (F6), resizable, follows edits, folder and kinds of file. Done.
+   - Minimap: width setting. Done (its marks were built before).
+   - Compare: copy arrows in the gutter, copy a single line across. Done.
+   - Column selection: virtual space when typing (word wrap needed no change). Done.
+   - Markdown tables: tables in list items, sort by column, move row up and down. Done.
+   - Paste of image files copied in a Linux file manager. Built, only compiled by CI, never run.
+   - Vue and Svelte highlighting, menu access keys, the snap-layouts flyout (Windows 11): taken
+     from the shared crates. Done; the flyout was checked by window messages, not a real pointer.
+   - **Not planned, by decision:** syntax-aware folding (folding stays by indentation).
+     Crash reporting, accessibility, input methods (IME), plugins, the FTP and project panels and
+     printing were set aside by the owner earlier.
 
 "Find in open tabs" (roadmap item 2) is built: it came with the results panel.
 
 
 ## Later (owner request 2026-11-15): a frosted window (Mica, Acrylic, blur on Wayland)
 
-On the roadmap, after the next release, for both apps (the code goes in the shared crates). Nothing
-is built and nothing below was tried in this code: it is what the platforms offer.
+For both apps (the code goes in the shared crates). Status 2026-11-15: the Windows 11 part is in
+0.6.0; the KDE Wayland part is built on `merge/next` and was only compiled by CI, never run. The
+text below was written before either was built: it is what the platforms offer.
 
 - **Windows 11:** the system draws it. One DWM call (`DWMWA_SYSTEMBACKDROP_TYPE`, Windows 11 22H2
   and later) chooses Mica, Mica Alt or Acrylic. It shows only where the window's own pixels are
@@ -186,9 +208,11 @@ opens any text file and shares the shell, text and highlighting code with the vi
 
 ## What it is not
 
-- Not an IDE: no language servers, no completion, no build or debug, no plugins, no terminal.
+- Not an IDE: no language servers, no build or debug, no plugins, no terminal. (Word completion
+  from the open files was added in 0.6.0.)
 - Not a WYSIWYG Markdown editor. Markdown is edited as text; the rendered page is the viewer's job.
-- No multiple cursors, split views, minimap or code folding in the first version.
+- No multiple cursors, split views, minimap or code folding in the first version (all built
+  since; see the roadmap above).
 - No network use, except looking for and downloading its own updates (added 2026-11-13 with
   the shared updater; a small manifest from GitHub at most once a day, off with one setting).
 
@@ -296,7 +320,9 @@ Each phase ends with a build the user runs. The user approves the interface by l
 - **Fidelity on save** is where an editor loses trust. Phase 3's byte-exact round-trip tests come
   before any convenience.
 - **Accessibility.** A hand-drawn interface has no screen-reader support. The viewer set this
-  aside; it matters more for an editor and is not planned here.
+  aside; it matters more for an editor and is not planned here (confirmed as set aside by the
+  owner, 2026-11-15, with crash reporting, input methods, plugins, FTP and project panels and
+  printing).
 
 ## Rules carried over from the viewer
 

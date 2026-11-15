@@ -1913,6 +1913,10 @@ impl Docs {
                 if !done.is_empty() {
                     break;
                 }
+                // No load running (a start with no file): nothing to wait for.
+                if !self.tabs.iter().any(|t| t.is_loading()) {
+                    break;
+                }
                 let now = Instant::now();
                 if deadline <= now {
                     break;

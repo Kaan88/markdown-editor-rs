@@ -1729,8 +1729,11 @@ or fullwidth) character 2, a combining character 0, everything else 1. A column 
 wide character is its start. Caret motions keep their own count; only this selection measures so.
 
 A line shorter than the column gets a caret (or a shorter selection) at its end; there is no
-virtual space. Dragging past a line's end keeps the rectangle's width over short lines. Typing
-replaces or inserts on every row. Backspace and Delete on a column with text remove the selected
+virtual space drawn. Dragging past a line's end keeps the rectangle's width over short lines.
+Typing replaces or inserts on every row; on a column selection that is still the one made, a row
+that is only a caret at the end of a line narrower than the rectangle's left column is first
+padded with spaces up to that column (`multi::column_pads`, one undo step; not for paste or
+Enter). Backspace and Delete on a column with text remove the selected
 text and leave rows that are only a caret alone; with only carets they act as usual.
 
 Copy and cut join all rows (empty rows kept) with the document's line ending. Pasting text with as
