@@ -3200,8 +3200,14 @@ mod tests {
         use super::files_tests::{app, open_now, scratch};
         use winit::window::ResizeDirection as D;
         let dir = scratch("band");
-        let long: String = (0..400).map(|i| format!("line {i}
-")).collect();
+        let long: String = (0..400)
+            .map(|i| {
+                format!(
+                    "line {i}
+"
+                )
+            })
+            .collect();
         std::fs::write(dir.join("long.txt"), long).unwrap();
         let mut a = app();
         open_now(&mut a, &dir.join("long.txt"));
@@ -3209,9 +3215,16 @@ mod tests {
         let (w, h) = a.logical();
         let (_, track) = {
             let r = a.areas.text;
-            (r, a.hit_rect(Hit::ScrollBar(Scroller::Text)).expect("a scrollbar"))
+            (
+                r,
+                a.hit_rect(Hit::ScrollBar(Scroller::Text))
+                    .expect("a scrollbar"),
+            )
         };
-        assert!((track.right() - w).abs() < 0.5, "the bar is at the window's edge");
+        assert!(
+            (track.right() - w).abs() < 0.5,
+            "the bar is at the window's edge"
+        );
         let y = track.cy();
         // Where the thumb is drawn (3 to 11 px from the edge) the press goes to the bar.
         for dx in [4.0, 6.0, 7.5, 11.0] {

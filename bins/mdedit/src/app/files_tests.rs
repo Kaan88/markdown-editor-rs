@@ -1180,6 +1180,104 @@ fn results_of_an_edited_tab_are_stale_at_once_and_true_again_after_a_search() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Lets the results panel catch up with the tabs: syncs after the refresh pause and takes in the
+/// answers of the workers until `until` holds.
+fn results_catch_up(a: &mut App, until: impl Fn(&App) -> bool) {
+    let mut now = Instant::now() + Duration::from_millis(400);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !until(a) && Instant::now() < deadline {
+        a.results_sync(now);
+        a.ui.results.poll();
+        std::thread::sleep(Duration::from_millis(5));
+        now += Duration::from_millis(400);
+    }
+    assert!(
+        until(a),
+        "the panel did not settle: hits {} files {} tabs {}",
+        a.ui.results.hits,
+        a.ui.results.files,
+        a.docs.tabs.len()
+    );
+}
+
+fn result_files(a: &App) -> usize {
+    a.ui.results.files
+}
+
+#[test]
+fn a_document_whose_last_match_went_gets_its_row_back_when_the_match_returns() {
+    let dir = scratch("results-return");
+    std::fs::write(dir.join("a.txt"), "foo\nbar\nfoo\n").unwrap();
+    std::fs::write(dir.join("b.txt"), "foo\n").unwrap();
+    let mut a = app();
+    a.set_folder(dir.clone());
+    open_now(&mut a, &dir.join("b.txt"));
+    open_now(&mut a, &dir.join("a.txt"));
+    for tabs in [true, false] {
+        a.ui.find.set_text("foo");
+        if tabs {
+            a.command(C::FindInTabs);
+        } else {
+            a.find_in_files();
+            pump(&mut a, |a| {
+                matches!(a.ui.results.state, crate::results::State::Done { .. })
+            });
+        }
+        assert_eq!(result_files(&a), 2, "tabs: {tabs}");
+        // The active document (a.txt) loses its matches: its row goes.
+        a.command(C::SelectAll);
+        a.docs.edit(EditOp::Insert("none\n"), None);
+        results_catch_up(&mut a, |a| result_files(a) == 1);
+        // Undo brings the matches back: so does its row, among the others.
+        a.command(C::Undo);
+        results_catch_up(&mut a, |a| result_files(a) == 2);
+        assert_eq!(a.ui.results.hits, 3, "tabs: {tabs}");
+        // Typing the word again does the same.
+        a.command(C::SelectAll);
+        a.docs.edit(EditOp::Insert("none\n"), None);
+        results_catch_up(&mut a, |a| result_files(a) == 1);
+        a.docs.edit(EditOp::Insert("foo"), None);
+        results_catch_up(&mut a, |a| result_files(a) == 2);
+        assert_eq!(a.ui.results.hits, 2, "tabs: {tabs}");
+        a.command(C::Undo);
+        a.command(C::Undo);
+        a.command(C::Undo);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn closing_a_document_without_saving_takes_its_discarded_matches_off_the_panel() {
+    let dir = scratch("results-discard");
+    std::fs::write(dir.join("a.txt"), "foo\nbar\n").unwrap();
+    for tabs in [true, false] {
+        let mut a = app();
+        a.set_folder(dir.clone());
+        open_now(&mut a, &dir.join("a.txt"));
+        a.ui.find.set_text("foo");
+        if tabs {
+            a.command(C::FindInTabs);
+        } else {
+            a.find_in_files();
+            pump(&mut a, |a| {
+                matches!(a.ui.results.state, crate::results::State::Done { .. })
+            });
+        }
+        assert_eq!(a.ui.results.hits, 1);
+        // Two more matches typed, the panel follows them.
+        a.docs.edit(EditOp::Insert("foo foo\n"), None);
+        results_catch_up(&mut a, |a| a.ui.results.hits == 3);
+        // Closed with "Don't save": the panel shows what the file holds.
+        let id = a.docs.tabs[0].id;
+        a.docs.tabs[0].discard = true;
+        a.request(After::CloseTab(id));
+        assert!(a.docs.tabs.is_empty());
+        results_catch_up(&mut a, |a| a.ui.results.hits == 1);
+        assert_eq!((a.ui.results.files, a.ui.results.is_stale(1)), (1, false));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn the_results_panel_searches_the_folder_and_kinds_typed_in_its_boxes() {
     let dir = scratch("results-scope");

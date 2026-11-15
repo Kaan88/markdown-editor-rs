@@ -266,6 +266,8 @@ impl App {
         }
         self.ui.results.set_tabs(query.text(), tabs, left_out);
         self.ui.results.set_tab_search(query, &revisions);
+        let load = self.docs.load_options();
+        self.ui.results.set_load(load);
     }
 
     /// Keeps the results panel true to the tabs it lists matches of; nothing at all while the
@@ -286,7 +288,7 @@ impl App {
         });
         let snapshot = |id: mdedit_highlight::DocId| {
             let d = docs.tabs.iter().find(|d| d.id == id)?;
-            Some(d.ready()?.buffer.clone())
+            Some((d.ready()?.buffer.clone(), d.name()))
         };
         let waker = docs.waker();
         self.ui.results.sync(tabs, now, &snapshot, &waker)
