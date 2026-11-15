@@ -18,8 +18,10 @@ clean, 806 tests pass, release build made; a system close request (`WM_CLOSE`) c
 in 0.3 s. CI passed on Linux and Windows at this head
 (editor run 43686313531, shared run 43686315745, viewer run 43689394395). Left to the owner: looking
 at the interface, a real update followed by Restart, Linux, then merging `merge/next-release`
-into `main` in the three repositories, the version numbers and the tags. Nothing was merged into
-`main`, bumped, tagged or published.
+into `main` in the three repositories, the version numbers and the tags. Later on 2026-11-15 the owner asked
+for the merge: `main` was fast-forwarded to `merge/next-release` in the three repositories
+(shared `11563a3`, viewer `14aedec`, editor `d56c4ee`) and pushed. Nothing was bumped, tagged or
+published.
 
 
 The released state is `main` (mdedit 0.5.1). Update 2026-11-15: five of the features below are
