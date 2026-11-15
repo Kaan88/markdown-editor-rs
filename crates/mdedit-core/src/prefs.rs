@@ -17,6 +17,7 @@ use crate::limits::TAB_WIDTH;
 use crate::lines::trim_into;
 use crate::selection::Selection;
 use crate::typing::{Assist, Indent};
+use mdshared_app::backdrop::Backdrop;
 use mdshared_app::settings::{self, Writer, escape, unescape};
 
 /// The section of the settings file.
@@ -63,6 +64,8 @@ pub struct Prefs {
     pub live_preview: bool,
     /// The word list opens by itself after three letters (Ctrl+Space opens it either way).
     pub complete_auto: bool,
+    /// A system backdrop behind the chrome (Windows 11); off is the flat colours.
+    pub backdrop: Backdrop,
 }
 
 impl Default for Prefs {
@@ -85,6 +88,7 @@ impl Default for Prefs {
             restore_session: true,
             live_preview: true,
             complete_auto: false,
+            backdrop: Backdrop::Off,
         }
     }
 }
@@ -177,6 +181,7 @@ impl Prefs {
                     }
                     "live_preview" => p.live_preview = flag(value).unwrap_or(d.live_preview),
                     "complete_auto" => p.complete_auto = flag(value).unwrap_or(d.complete_auto),
+                    "backdrop" => p.backdrop = Backdrop::parse(value).unwrap_or(d.backdrop),
                     _ => {}
                 }
             }
@@ -208,6 +213,7 @@ impl Prefs {
         w.line("restore_session", b(p.restore_session));
         w.line("live_preview", b(p.live_preview));
         w.line("complete_auto", b(p.complete_auto));
+        w.line("backdrop", p.backdrop.key());
         w.finish()
     }
 
@@ -358,6 +364,7 @@ mod tests {
             restore_session: false,
             live_preview: false,
             complete_auto: true,
+            backdrop: Backdrop::Acrylic,
         };
         let t = p.serialize();
         assert_eq!(Prefs::parse(&t), p);
@@ -373,7 +380,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 18);
+        assert_eq!(t.lines().count(), 19);
         let r = Prefs::parse(&t);
         assert_eq!(
             (r.font_pt, r.tab_width, r.font_family.as_str()),

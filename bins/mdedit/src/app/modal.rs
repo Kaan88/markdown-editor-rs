@@ -33,6 +33,7 @@ pub const LIVE_PREVIEW: u32 = 19;
 pub const DETECT_INDENT: u32 = 20;
 pub const WINDOW_CORNERS: u32 = 21;
 pub const COMPLETE_AUTO: u32 = 70;
+pub const BACKDROP: u32 = 80;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -170,6 +171,21 @@ pub fn rows(
         ),
         Row::action(CHECK_NOW, "Look for a newer version", look),
     ];
+    // The backdrop is Windows 11's: the row is offered, under the theme, where it can do something.
+    #[cfg(windows)]
+    if let Some(at) = rows.iter().position(|r| r.id() == Some(THEME)) {
+        use mdshared_app::backdrop::Backdrop;
+        rows.insert(
+            at + 1,
+            Row::choice(
+                BACKDROP,
+                Backdrop::TITLE,
+                &Backdrop::LABELS,
+                prefs.backdrop.index(),
+            )
+            .help(Backdrop::HELP),
+        );
+    }
     if let Some(c) = corners {
         // After Theme, in the View group.
         let at = rows
@@ -339,6 +355,9 @@ impl App {
             (RESTORE_TABS, Value::Bool(on)) => p.restore_session = on,
             (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
             (COMPLETE_AUTO, Value::Bool(on)) => p.complete_auto = on,
+            (BACKDROP, Value::Choice(i)) => {
+                p.backdrop = mdshared_app::backdrop::Backdrop::from_index(i)
+            }
             (THEME, Value::Choice(i)) => {
                 self.set_theme(theme_of(i));
                 return;
