@@ -2287,12 +2287,16 @@ fn shot(mut app: App, path: &Path) -> i32 {
     app.apply_positions();
     // The mark of a preview, with nothing started or sent.
     if app.args.demo_link
-        && let Some((id, path)) = app
+        && let Some((id, path, name)) = app
             .docs
             .active_doc()
-            .and_then(|d| Some((d.id, d.path.clone()?)))
+            .map(|d| (d.id, d.path.clone(), d.name()))
     {
-        app.docs.links.link(id, path, None, None, Instant::now());
+        let now = Instant::now();
+        match path {
+            Some(path) => app.docs.links.link(id, path.into(), None, None, now),
+            None => (app.docs.links).link_untitled(id, name, crate::link::Opening::default(), now),
+        }
     }
     app.shot_compare();
     // Wait for the colours of the visible lines.
@@ -2619,6 +2623,10 @@ pub fn run() -> i32 {
         if i == 0 {
             active = Some(k);
         }
+    }
+    // `--new`: a document that has no file, in front.
+    if args.new_document {
+        active = Some(docs.new_untitled());
     }
     // `--compare A B`: both files are tabs, the first active; the comparison starts once they
     // are read.

@@ -464,7 +464,10 @@ pub mod strings {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
     }
 
-    pub const PREVIEW_NEEDS_FILE: &str = "Save the file first: mdview shows files.";
+    pub const PREVIEW_UNSAVED_TOO_LARGE: &str =
+        "This document is too large to preview before it is saved.";
+    pub const PREVIEW_VIEWER_OLDER: &str =
+        "This mdview cannot preview a document that has no file: save it, or update mdview.";
     pub const PREVIEW_TOO_LARGE: &str =
         "This file is too large to preview as you type: mdview shows it when you save.";
     pub const PREVIEW_TILING: &str =

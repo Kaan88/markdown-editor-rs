@@ -200,6 +200,9 @@ pub struct Args {
     /// `--settings-section <name>`: with `--dialog settings`, the form scrolled to that section
     /// (`Preview`), for a shot.
     pub settings_section: Option<String>,
+    /// `--new`: start with a new document that has no file, as File > New makes one, after
+    /// the files named; for a shot or a script (`--type` then types into it).
+    pub new_document: bool,
 }
 
 /// `a<sep>b` with both sides parsed.
@@ -395,6 +398,7 @@ impl Args {
                     })
                 }
                 "--demo-link" => out.demo_link = true,
+                "--new" => out.new_document = true,
                 "--settings-section" => out.settings_section = value(&a),
                 "--select" => {
                     out.select = checked(&a, value(&a), |v| {
@@ -629,6 +633,7 @@ mod tests {
         );
         assert_eq!(parse("--run nonsense").run, None);
         assert!(parse("--demo-link").demo_link && !parse("a.md").demo_link);
+        assert!(parse("--new").new_document && !parse("a.md").new_document);
         assert_eq!(parse("--demo-recovered 2").demo_recovered, Some(2));
         assert_eq!(parse("--demo-recovered 0").demo_recovered, None);
         assert_eq!(parse("a.md").demo_recovered, None);
