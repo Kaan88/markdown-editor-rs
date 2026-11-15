@@ -82,3 +82,4 @@ does not compile, so they were written without a compiler and checked only by CI
   look or the focus rule is verified.
 - Release note: On KDE Plasma (Wayland) the "Window backdrop" setting blurs the desktop behind the
   chrome.
+- CI (`gh workflow run ci.yml --ref f/adopt-shared`, run 43732981608): the windows and linux jobs both passed, so the non-Windows code compiled and the Linux tests passed. Nothing was run or seen in a Linux window.
