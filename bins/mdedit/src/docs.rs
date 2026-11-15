@@ -511,6 +511,18 @@ impl Ready {
         self.set_sels(list, primary);
     }
 
+    /// Removes the caret or selection at `offset` ([`multi::remove_at`]). `false` when there is
+    /// none there or it is the only one.
+    pub fn remove_caret(&mut self, offset: usize) -> bool {
+        let (list, at) = self.all_sels();
+        let Some((list, primary)) = multi::remove_at(&list, at, offset) else {
+            return false;
+        };
+        self.set_sels(list, primary);
+        self.view.column = None;
+        true
+    }
+
     /// "Select next occurrence": see [`multi::select_next`]. `false` when there is nothing to select.
     pub fn select_next(&mut self) -> bool {
         let (list, at) = self.all_sels();
@@ -4516,6 +4528,29 @@ mod tests {
         assert_eq!(text_of(&d, i), "x bar x\nx\n");
         assert!(d.edit(EditOp::Undo, None));
         assert_eq!(text_of(&d, i), "foo bar foo\nfoo\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_caret_is_removed_unless_it_is_the_last() {
+        let (mut d, i, _path, dir) = file_docs("rmcaret", b"one\ntwo\nthree\n");
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.view.sel = Selection::at(0);
+        r.add_caret(4);
+        r.add_caret(8);
+        assert!(r.remove_caret(4));
+        assert_eq!(
+            r.all_sels().0.iter().map(|s| s.caret).collect::<Vec<_>>(),
+            [0, 8]
+        );
+        // Not on a caret: nothing; the primary is the one removed: the one before takes over.
+        assert!(!r.remove_caret(5));
+        assert!(r.remove_caret(8));
+        assert_eq!((r.view.sel.caret, r.view.extra.len()), (0, 0));
+        // The last one stays.
+        assert!(!r.remove_caret(0));
+        assert!(d.edit(EditOp::Insert("#"), None));
+        assert_eq!(text_of(&d, i), "#one\ntwo\nthree\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

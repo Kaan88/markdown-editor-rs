@@ -545,7 +545,10 @@ impl App {
             return;
         }
         if clicks == 1 && ctrl && !alt && !shift {
-            r.add_caret(offset);
+            // Ctrl+click on a caret that is there takes it away (when it is not the only one).
+            if !r.remove_caret(offset) {
+                r.add_caret(offset);
+            }
             self.caret_reset();
             return;
         }

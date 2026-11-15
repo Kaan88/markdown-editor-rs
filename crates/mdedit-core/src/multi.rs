@@ -271,6 +271,33 @@ pub fn display_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
     selection::display_col(buf, offset, tab_width)
 }
 
+/// Ctrl+click on a caret: removes the selection of `sels` (in document order) that `offset` is in
+/// or touches, when there are at least two. The primary stays, or when it is the one removed the
+/// one before it (the first when none) becomes the primary. `None` when there is one selection
+/// only or `offset` is in none of them. Returns the list and the primary's index.
+pub fn remove_at(
+    sels: &[Selection],
+    primary: usize,
+    offset: usize,
+) -> Option<(Vec<Selection>, usize)> {
+    if sels.len() < 2 {
+        return None;
+    }
+    let k = sels.iter().position(|s| {
+        let r = s.range();
+        r.start <= offset && offset <= r.end
+    })?;
+    let mut list = sels.to_vec();
+    list.remove(k);
+    let primary = match primary.cmp(&k) {
+        std::cmp::Ordering::Less => primary,
+        std::cmp::Ordering::Equal => k.saturating_sub(1),
+        std::cmp::Ordering::Greater => primary - 1,
+    };
+    let last = list.len() - 1;
+    Some((list, primary.min(last)))
+}
+
 /// The longest selected text "select next occurrence" looks for again.
 const NEXT_MAX_BYTES: usize = 4096;
 
@@ -898,6 +925,23 @@ mod tests {
         let buf = Buffer::from_text("é\u{301}x é\u{301}x");
         let (v, _) = select_next(&buf, &[s(0, 5)], 0).unwrap();
         assert_eq!(v, vec![s(0, 5), s(6, 11)]);
+    }
+
+    // ---- remove_at
+
+    #[test]
+    fn remove_at_takes_out_the_caret_clicked() {
+        let v = [at(1), at(4), s(6, 9)];
+        assert_eq!(remove_at(&v, 2, 4), Some((vec![at(1), s(6, 9)], 1)));
+        // The primary is the one removed: the one before takes over; the first has none before.
+        assert_eq!(remove_at(&v, 1, 4), Some((vec![at(1), s(6, 9)], 0)));
+        assert_eq!(remove_at(&v, 0, 1), Some((vec![at(4), s(6, 9)], 0)));
+        // Inside or at the edge of a selection.
+        assert_eq!(remove_at(&v, 0, 7), Some((vec![at(1), at(4)], 0)));
+        assert_eq!(remove_at(&v, 0, 9), Some((vec![at(1), at(4)], 0)));
+        // Not on one, or the only one.
+        assert_eq!(remove_at(&v, 0, 5), None);
+        assert_eq!(remove_at(&[at(4)], 0, 4), None);
     }
 
     // ---- display_col
