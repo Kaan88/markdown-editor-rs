@@ -5,6 +5,23 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## START HERE: mdedit 0.7.0 is released (2026-11-15)
+
+**The released state is `main`, mdedit 0.7.0, tag `v0.7.0` at `11c8d36`, published with mdview
+0.5.0 the same day (the owner's instruction: finish the remaining items, then release). Shared
+crates: `main` of markdown-shared-rs at `065cbdc`. What 0.7.0 added is in "After 0.6.0: gaps
+closed" (its heading still says "not released": it was written before the release) and in
+`docs/release-notes/0.7.0.md`; the release record is in `docs/RELEASE.md`. The owner has not
+looked at any of the new interface work.** The text under the next heading describes 0.6.0 and
+is kept for its detail.
+
+Known open points: the line-ending and encoding menus have no access keys; the function list is
+empty for Vue and Svelte; a column selection pads short lines on typing only, not on paste or
+Enter; the compare arrows are not drawn with word wrap on; the Markdown menu ends at about 795 px
+of an 800 px window, so it has no room for another item; the Linux copied-files paste and the KDE
+blur were never run; the snap-layouts flyout was checked by window messages only. Not planned by
+decision of the session, the owner may overrule: syntax-aware folding.
+
 ## After 0.6.0: gaps closed (2026-11-15, branch merge/next, not released)
 
 **State: the branch `merge/next` holds everything below, on top of 0.6.0 (`main`). It is not
