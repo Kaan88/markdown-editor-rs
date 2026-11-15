@@ -256,6 +256,21 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v0.7.1 (published 2026-11-15 by the release workflow, from the tag at commit fbb3ac7)
+
+Run 43761807215; the `ci` run on the same commit (43760998757) had passed on Linux and Windows.
+Assets: `mdedit-0.7.1-windows-x86_64.exe` (6,498,304 bytes), `mdedit-setup-0.7.1.exe`,
+`mdedit-0.7.1-windows-x86_64.zip`, `mdedit-0.7.1-linux-x86_64.AppImage` (5,741,048 bytes),
+`mdedit-0.7.1-linux-x86_64.tar.gz`, `mdedit_0.7.1_amd64.deb`, `mdedit-0.7.1-1.x86_64.rpm`,
+`PKGBUILD` and `mdedit-update.txt`.
+
+Verified against the live release: the manifest at the latest-download address names 0.7.1 with
+a Windows and a Linux entry; the downloaded exe and AppImage have the manifest's two SHA-256
+values.
+
+Not verified: any published file run on any desktop (the hands-on tests ran local builds of the
+same source); an installed 0.7.0 updating itself to 0.7.1; the deb, rpm, tar.gz and PKGBUILD.
+
 ## v0.7.0 (published 2026-11-15 by the release workflow, from the tag at commit 11c8d36)
 
 Run 43739188755; the `ci` run on the same commit (43737712582) had passed on Linux and Windows.

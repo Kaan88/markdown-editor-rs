@@ -5,6 +5,51 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## START HERE: mdedit 0.7.1 is released (2026-11-15)
+
+**The released state is `main`, mdedit 0.7.1, tag `v0.7.1` at `fbb3ac7`, published with mdview
+0.5.1 on the owner's word. Shared crates: `main` of markdown-shared-rs at `d955a48`. 0.7.1 holds
+the fixes from a hands-on test of 0.7.0 (`docs/release-notes/0.7.1.md`); the release record is in
+`docs/RELEASE.md`. A plan for a macOS version of both applications is in the viewer's
+`docs/MACOS.md`; the owner has given that work to someone else.** The sections below describe
+0.7.0 and 0.6.0 and are kept for their detail.
+
+Hands-on test of 0.7.0 on the Windows PC, 2026-11-15, with real mouse and keyboard (about 40
+checks passed). Faults found and fixed in 0.7.1, each seen working in a real window afterwards:
+- Menus opened by a right-click showed the access-key underlines at once: `right_press` built
+  them with `Popup::new`; now `Popup::with_cues(.., ui.keyboard)`.
+- The resize band (8 px) lay over the text's vertical scrollbar at the right edge of a window
+  that is not maximized: `App::resize_band`, 3 px over a scrollbar track (`SCROLLBAR_EDGE`).
+- Find in files: a document whose last match went never got its row back, and rows of edits
+  discarded with "Don't save" stayed. The panel now remembers its scope and searches a tab in
+  scope again, and re-reads a closed document from the disk (`results.rs`).
+- Undo after Cut or Delete bookmarked lines did not bring the bookmarks back
+  (`Ready::bookmark_undo`). A bookmark set after the command is lost by Redo and Undo again.
+- Typing at several carets was one undo step per character (`Kind::MultiTyping` in the core).
+- Text without a key name (KEYEVENTF_UNICODE) was dropped: `event_key` in `app/input.rs`.
+- From the shared crates: the snap-layouts flyout on a window that is not maximized, and the
+  normal size of a maximized window after side by side (see the viewer's handoff).
+The test of Cut bookmarked lines with Undo leaves Cut out off Windows: the Linux CI machine has
+no clipboard.
+
+Passed in real windows: multi-caret commands, bookmarks across a restart, tables (also in a list
+item), compare with the gutter arrows, column selection with padding, Vue and Svelte, find in
+files with the results panel, crash recovery, a 5 MB file, and the basics. Not tested: "Compare
+with file", the Files pane with an opened folder, find in open tabs, the light theme in every
+menu, scales above 100 %. For the owner to judge, not changed: the bookmark click zone in the
+gutter is about 5 px wide.
+
+How the hands-on tests were done, for the next one: Sonnet workers drove the release builds
+under `Desktop\md-wt` with real mouse and keyboard input from a PowerShell helper (SetCursorPos,
+mouse_event, keybd_event, captures of the application's own window only), one worker at a time
+because pointer and keyboard are shared. Lessons: computer use must not be used (a real Escape
+key aborts the whole Claude session, twice; its open_application started the owner's installed
+mdview), so Escape is posted to the window; the PC has a Turkish Q layout, so characters are
+mapped with VkKeyScanEx; a click 60 ms after a pointer jump is ignored by menus, hover first;
+every key and click checks that the foreground window is the build under test. The logs, the
+captures and the helpers are local files in `C:\Users\kaank\Desktop\md-wt\control-tests\`
+(not in any repository).
+
 ## START HERE: mdedit 0.7.0 is released (2026-11-15)
 
 **The released state is `main`, mdedit 0.7.0, tag `v0.7.0` at `11c8d36`, published with mdview
