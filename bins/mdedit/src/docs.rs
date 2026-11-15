@@ -1267,6 +1267,8 @@ pub struct Docs {
     /// The preferences: the typing help, the save options and what new documents start with.
     pub prefs: Prefs,
     pub tabs: Vec<Doc>,
+    /// The bookmarks closed files left, and the session's.
+    pub marks: crate::marks::Marks,
     active: Option<usize>,
     next_id: DocId,
     pub recents: Recents,
@@ -1310,6 +1312,7 @@ impl Docs {
     pub fn new(code_page: u32, waker: Waker) -> Docs {
         Docs {
             tabs: Vec::new(),
+            marks: Default::default(),
             active: None,
             next_id: 1,
             recents: Recents::default(),
@@ -1746,6 +1749,10 @@ impl Docs {
             self.other = None;
         }
         let mut doc = self.tabs.remove(i);
+        // A file read and closed leaves its bookmarks for the next time it is opened.
+        if let (Some(path), Some(r)) = (&doc.path, doc.ready()) {
+            self.marks.put(path, &r.bookmarks);
+        }
         doc.cancel_load();
         if let Some(r) = doc.ready_mut() {
             r.find.cancel();
@@ -1963,6 +1970,10 @@ impl Docs {
                     if !old.find.text.is_empty() {
                         query = Some((old.find.text.clone(), old.find.options));
                     }
+                } else if let Some(lines) = doc.path.as_deref().and_then(|p| self.marks.lines(p)) {
+                    // Read for the first time in this window: the bookmarks the file had when
+                    // it was last open, those that are still lines of it.
+                    r.bookmarks = crate::marks::applied(lines, r.buffer.len_lines());
                 }
                 if r.twin.is_none() && self.same_file && self.other == Some(doc.id) {
                     r.twin = Some(Box::new(r.view.twin_of()));

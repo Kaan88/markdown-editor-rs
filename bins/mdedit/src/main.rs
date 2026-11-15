@@ -14,6 +14,7 @@ mod keys;
 mod link;
 mod live;
 mod macros;
+mod marks;
 mod minimap;
 mod outline;
 mod overlays;

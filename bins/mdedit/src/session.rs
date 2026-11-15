@@ -213,6 +213,8 @@ pub struct Session {
     /// nothing typed.
     pub find_folder: String,
     pub find_kinds: String,
+    /// Bookmarked lines of the files used most recently (`mark=1,5;path`), most recent first.
+    pub marks: Vec<(PathBuf, Vec<usize>)>,
     pub folder: Option<PathBuf>,
     /// Look for a newer version at launch, at every launch.
     pub check_updates: bool,
@@ -245,6 +247,7 @@ impl Default for Session {
             results_h: None,
             find_folder: String::new(),
             find_kinds: String::new(),
+            marks: Vec::new(),
             folder: None,
             check_updates: true,
             update_checked: 0,
@@ -328,6 +331,21 @@ impl Session {
                             .ok()
                             .filter(|h| (40..=4000).contains(h))
                     }
+                    "mark" => {
+                        // Lines, then the path after the first `;`.
+                        if let Some((lines, path)) = value.split_once(';') {
+                            let lines: Vec<usize> = lines
+                                .split(',')
+                                .filter_map(|l| l.trim().parse().ok())
+                                .collect();
+                            if !lines.is_empty()
+                                && !path.is_empty()
+                                && s.marks.len() < crate::marks::FILES_MAX
+                            {
+                                s.marks.push((decode_path(path), lines));
+                            }
+                        }
+                    }
                     "find_folder" => s.find_folder = unescape(value),
                     "find_kinds" => s.find_kinds = unescape(value),
                     "folder" if !value.is_empty() => s.folder = Some(decode_path(value)),
@@ -404,6 +422,13 @@ impl Session {
         }
         if let Some(h) = self.results_h {
             out.line("results_h", &h.to_string());
+        }
+        for (path, lines) in &self.marks {
+            let lines: Vec<String> = lines.iter().map(usize::to_string).collect();
+            out.line(
+                "mark",
+                &format!("{};{}", lines.join(","), encode_path(path)),
+            );
         }
         if !self.find_folder.is_empty() {
             out.line("find_folder", &escape(&self.find_folder));
@@ -591,6 +616,10 @@ mod tests {
             results_h: Some(180),
             find_folder: "C:/some dir/x=y".into(),
             find_kinds: "*.md;*.txt;!a%b".into(),
+            marks: vec![
+                (PathBuf::from("C:/a b/x;y.rs"), vec![0, 7, 100]),
+                (PathBuf::from("C:/z.md"), vec![3]),
+            ],
             folder: Some(PathBuf::from("C:/proj")),
             ..Session::default()
         };

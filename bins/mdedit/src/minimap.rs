@@ -16,7 +16,8 @@ use mdshared_ui::gfx::{Rect, Rgb, mix};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
-/// The column's width, logical px.
+/// The column's default width, logical px (the setting changes it: `live::minimap_width`).
+#[cfg(test)]
 pub const WIDTH: f32 = 96.0;
 /// The text area keeps at least this width (logical px) beside the minimap, or the minimap hides.
 pub const TEXT_MIN: f32 = 320.0;

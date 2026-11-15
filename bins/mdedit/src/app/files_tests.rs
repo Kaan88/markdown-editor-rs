@@ -1159,3 +1159,58 @@ fn the_results_panel_searches_the_folder_and_kinds_typed_in_its_boxes() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn bookmarks_come_back_when_a_closed_file_is_opened_again_and_across_runs() {
+    let dir = scratch("marks-back");
+    let file = dir.join("a.txt");
+    std::fs::write(&file, "0\n1\n2\n3\n4\n5\n").unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &file);
+    a.docs.active_ready_mut().unwrap().bookmarks = vec![1, 4];
+    let (sig, version) = (a.session_sig(), a.docs.marks.version);
+    // While it is open the session would keep them, but nothing changed the signature: they are
+    // written at exit, or when a file closes.
+    let open = |a: &App| {
+        a.docs.marks.snapshot(
+            a.docs
+                .tabs
+                .iter()
+                .filter_map(|d| Some((d.path.as_deref()?, d.ready()?.bookmarks.as_slice()))),
+        )
+    };
+    assert_eq!(open(&a).len(), 1);
+    assert_eq!(a.session_sig(), sig);
+    a.docs.close(i, None);
+    assert!(a.docs.marks.version > version);
+    assert_ne!(
+        a.session_sig(),
+        sig,
+        "closing a file with bookmarks is a change to save"
+    );
+    // Opened again: they are back.
+    let j = open_now(&mut a, &file);
+    assert_eq!(a.docs.tabs[j].ready().unwrap().bookmarks, [1, 4]);
+    // Through the session file and into another run.
+    let mut session = Session::default();
+    session.marks = open(&a);
+    let text = session.serialize();
+    assert!(text.contains("mark=1,4;"));
+    let back = Session::parse(&text);
+    assert_eq!(back.marks, session.marks);
+    let mut b = app();
+    b.docs.marks = crate::marks::Marks::from_session(&back.marks);
+    let k = open_now(&mut b, &file);
+    assert_eq!(b.docs.tabs[k].ready().unwrap().bookmarks, [1, 4]);
+    // The file got shorter meanwhile: the bookmarks past its end are dropped.
+    b.docs.close(k, None);
+    std::fs::write(&file, "0\n1\n2\n").unwrap();
+    let k = open_now(&mut b, &file);
+    assert_eq!(b.docs.tabs[k].ready().unwrap().bookmarks, [1]);
+    // A file closed with none forgets the old ones.
+    b.docs.tabs[k].ready_mut().unwrap().bookmarks.clear();
+    b.docs.close(k, None);
+    let k = open_now(&mut b, &file);
+    assert!(b.docs.tabs[k].ready().unwrap().bookmarks.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -1735,7 +1735,7 @@ impl App {
             ),
             self.ui.panes.files,
             (self.ui.panes.files_w.round() as u32, self.session.results_h),
-            &self.docs.folder,
+            (&self.docs.folder, self.docs.marks.version),
             &self.session.geometry,
             (
                 self.docs.check_updates,
@@ -1825,6 +1825,12 @@ impl App {
         s.files_w = Some(self.ui.panes.files_w.round() as u32);
         s.find_folder = self.ui.results.folder.text().to_string();
         s.find_kinds = self.ui.results.kinds.text().to_string();
+        s.marks = self.docs.marks.snapshot(
+            self.docs
+                .tabs
+                .iter()
+                .filter_map(|d| Some((d.path.as_deref()?, d.ready()?.bookmarks.as_slice()))),
+        );
         s.folder = self.docs.folder.clone();
         if let Err(e) = s.save(&path) {
             eprintln!("mdedit: could not save the session: {e}");
@@ -2755,6 +2761,7 @@ pub fn run() -> i32 {
         .or(dir_arg.map(PathBuf::as_path))
         .map(canonical_or_absolute)
         .or_else(|| session.folder.clone());
+    docs.marks = crate::marks::Marks::from_session(&session.marks);
     let mut active = None;
     let restore = session.prefs.restore_session;
     for (i, path) in session.tabs.iter().enumerate().filter(|_| restore) {
