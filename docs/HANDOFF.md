@@ -894,11 +894,11 @@ file, then run the workspace tests (which include the four goldens) and `cargo f
 Fixtures are written with exact bytes by `fixtures/make_fixtures.py`; `.gitattributes` keeps git
 from converting them.
 
-## Windows return when a side-by-side preview ends (2026-11-15, branch `f/window-return`, not merged)
+## Windows return when a side-by-side preview ends (2026-11-15, merged into `main` on the owner's word, not released)
 
 Owner request of 2026-11-15 (docs/PLAN.md, "After 0.6.0 and 0.4.0", item 1). Built on the branch
-`f/window-return` here, in the viewer and in the shared crates (pins: shared `6249cd1`). **Not
-merged, not released; the owner has not looked at it.** The shared part and the viewer's are in
+`f/window-return` here, in the viewer and in the shared crates (pins: shared `6249cd1`, now shared `main`). **In `main` since 2026-11-15, CI green; not
+released; the owner had not looked at it when it was merged.** The shared part and the viewer's are in
 the viewer's handoff, same heading.
 
 - `App::tiling` (`mdshared_ui::place::Tiling`) remembers where the window was when `tile_left`
