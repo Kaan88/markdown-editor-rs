@@ -204,6 +204,9 @@ struct App {
     /// Device px.
     size: (u32, u32),
     maximized: bool,
+    /// The rectangle last given to the snap-layouts flyout, in device px; `None` when it was
+    /// withdrawn. Only to skip the call when nothing changed.
+    snap_sent: Option<Option<(i32, i32, i32, i32)>>,
     focused: bool,
     areas: Areas,
     hits: [Vec<(Hit, Rect)>; 9],
@@ -356,6 +359,7 @@ impl App {
             scale: 1.0,
             size: (1, 1),
             maximized: false,
+            snap_sent: None,
             focused: true,
             areas: Areas::default(),
             hits: Default::default(),
@@ -1481,8 +1485,35 @@ impl App {
         }
     }
 
+    /// Tells the window where the maximize button is, so that Windows 11 shows the snap-layouts
+    /// flyout over it (`None` while a dialog, the palette or the settings cover the title row).
+    /// Called after every frame: after a resize, a maximize or restore and a change of scale the
+    /// next frame lays the title out again, and nothing is sent when the rectangle is the same.
+    fn sync_snap(&mut self) {
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let covered =
+            self.ui.dialog.is_some() || self.palette_open() || self.ui.settings.is_some();
+        let margin = self.shadow.as_ref().map_or(0, |s| s.margin()) as f32 / self.scale;
+        let rect = chrome::snap_button_rect(self.areas.title, margin, self.maximized, covered);
+        let key = rect.map(|r| {
+            (
+                (r.x * self.scale).round() as i32,
+                (r.y * self.scale).round() as i32,
+                (r.w * self.scale).round() as i32,
+                (r.h * self.scale).round() as i32,
+            )
+        });
+        if self.snap_sent != Some(key) {
+            self.snap_sent = Some(key);
+            mdshared_ui::snap::set_maximize_button_rect(window, rect);
+        }
+    }
+
     fn draw(&mut self) {
         let (mut damage, mut times) = self.compose();
+        self.sync_snap();
         if std::mem::take(&mut self.expose) {
             damage = vec![(0, 0, self.screen.width as i32, self.screen.height as i32)];
         }

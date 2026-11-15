@@ -275,6 +275,29 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
 
 // ---- title row -------------------------------------------------------------------------------
 
+/// Where the maximize button is for the snap-layouts flyout (`mdshared_ui::snap`), in logical px
+/// from the window's client origin, or `None` when the flyout must not answer: something covers
+/// the title row (`covered`: a dialog, the palette, the settings form). `title` is the title
+/// row's rectangle in content coordinates and `margin` the client-drawn shadow margin around the
+/// content (0 on Windows). Unless the window is maximized the rectangle starts below the top
+/// resize band, so that band keeps resizing and its cursor keeps showing.
+pub fn snap_button_rect(title: Rect, margin: f32, maximized: bool, covered: bool) -> Option<Rect> {
+    if covered || title.w <= 0.0 {
+        return None;
+    }
+    let b = win_button_rect(title.right(), 1);
+    let (x, mut y) = (b.x + margin, b.y + margin);
+    let mut h = b.h;
+    if !maximized {
+        let top = margin + mdshared_ui::window::EDGE;
+        if y < top {
+            h -= top - y;
+            y = top;
+        }
+    }
+    (h > 0.0 && b.x >= 0.0).then(|| Rect::new(x, y, b.w, h))
+}
+
 /// Draws the title row into `r` (the full window width, `TITLE_H` tall).
 pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
     let pal = *c.pal;
@@ -831,6 +854,31 @@ pub(crate) fn draw_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_snap_rect_is_the_maximize_button_below_the_resize_band() {
+        let title = Rect::new(0.0, 0.0, 900.0, TITLE_H);
+        let max = win_button_rect(title.right(), 1);
+        // The close button is the rightmost, the minimize one the left neighbour.
+        assert!(win_button_rect(title.right(), 0).x >= max.right() - 0.01);
+        let r = snap_button_rect(title, 0.0, true, false).unwrap();
+        assert_eq!((r.x, r.y, r.w, r.h), (max.x, max.y, max.w, max.h));
+        let r = snap_button_rect(title, 0.0, false, false).unwrap();
+        let edge = mdshared_ui::window::EDGE;
+        assert_eq!((r.x, r.w), (max.x, max.w));
+        assert_eq!(r.y, edge);
+        assert_eq!(r.bottom(), max.bottom());
+        // The margin moves it into client coordinates.
+        let r = snap_button_rect(title, 10.0, false, false).unwrap();
+        assert_eq!((r.x, r.y), (max.x + 10.0, 10.0 + edge));
+        // Covered: nothing answers.
+        assert_eq!(snap_button_rect(title, 0.0, false, true), None);
+        // A window too narrow for the buttons.
+        assert_eq!(
+            snap_button_rect(Rect::new(0.0, 0.0, 50.0, TITLE_H), 0.0, false, false),
+            None
+        );
+    }
 
     #[test]
     fn the_replace_box_is_the_find_box_one_row_down() {
