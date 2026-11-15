@@ -1562,7 +1562,7 @@ impl App {
                 if (id == C::DeleteBookmarkedLines || self.copy_bookmarked())
                     && self.edit(EditOp::DeleteBookmarked)
                 {
-                    // The lines the marks stood on are gone; Undo does not bring the marks back.
+                    // The lines the marks stood on are gone; Undo brings the marks back (`bookmark_undo`).
                     if let Some(r) = self.docs.active_ready_mut() {
                         r.bookmarks.clear();
                     }
