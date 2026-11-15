@@ -1192,8 +1192,10 @@ fn bookmarks_come_back_when_a_closed_file_is_opened_again_and_across_runs() {
     let j = open_now(&mut a, &file);
     assert_eq!(a.docs.tabs[j].ready().unwrap().bookmarks, [1, 4]);
     // Through the session file and into another run.
-    let mut session = Session::default();
-    session.marks = open(&a);
+    let session = Session {
+        marks: open(&a),
+        ..Session::default()
+    };
     let text = session.serialize();
     assert!(text.contains("mark=1,4;"));
     let back = Session::parse(&text);
