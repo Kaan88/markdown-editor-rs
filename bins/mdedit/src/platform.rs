@@ -9,7 +9,7 @@ use std::time::Duration;
 const OPEN_FILTER: &[&str] = &[
     "txt", "md", "markdown", "rs", "toml", "py", "json", "js", "ts", "c", "h", "cpp", "hpp", "cs",
     "java", "go", "ini", "cfg", "log", "csv", "xml", "html", "css", "yaml", "yml", "sh", "ps1",
-    "bat", "sql",
+    "bat", "sql", "vue", "svelte",
 ];
 
 #[cfg(windows)]
