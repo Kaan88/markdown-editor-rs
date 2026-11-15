@@ -5210,11 +5210,12 @@ let a = 1;
         let a = d.add_pending(&dir.join("a.txt"));
         let b = d.add_pending(&dir.join("b.txt"));
         assert_eq!((a, b), (0, 1));
-        // File names compare without case on Windows only: there "A.txt" is the tab "a.txt".
+        // File names compare without case on Windows and macOS: there "A.txt" is the tab "a.txt".
+        let one = mdshared_app::paths::NAMES_IGNORE_CASE;
         let upper = d.add_pending(&dir.join("A.txt"));
-        assert_eq!(upper, if cfg!(windows) { 0 } else { 2 });
+        assert_eq!(upper, if one { 0 } else { 2 });
         let c = d.add_pending(&dir.join("c.txt"));
-        assert_eq!(c, if cfg!(windows) { 2 } else { 3 });
+        assert_eq!(c, if one { 2 } else { 3 });
         d.active = Some(c);
         assert!(d.move_tab(c, 0));
         assert_eq!(d.active(), Some(0));
