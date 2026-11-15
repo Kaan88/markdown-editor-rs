@@ -208,3 +208,41 @@ fn underlines_show_when_the_menu_was_opened_by_keyboard_and_not_by_mouse() {
     assert!(a.ui.keyboard);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Right-clicks at the middle of `hit`'s rectangle, as the mouse does (it clears the keyboard
+/// flag first).
+fn right_click(a: &mut App, hit: Hit) {
+    a.compose();
+    let r = a.hit_rect(hit).expect("the control is on screen");
+    a.ui.mouse = (r.cx(), r.cy());
+    a.right_press();
+}
+
+fn cues_of(a: &App) -> bool {
+    a.ui.popup.as_ref().expect("a menu is open").cues
+}
+
+#[test]
+fn menus_opened_by_a_right_click_hide_the_underlines_until_a_key() {
+    let (mut a, dir) = open_app("acc-right");
+    a.docs.minimap = true;
+    for hit in [Hit::Tab(0), Hit::Text, Hit::Minimap, Hit::Find] {
+        a.ui.popup = None;
+        a.ui.keyboard = true;
+        right_click(&mut a, hit);
+        assert!(a.ui.popup.is_some(), "{hit:?} opened no menu");
+        assert!(!cues_of(&a), "{hit:?}: underlines show after a mouse click");
+        assert!(!a.ui.keyboard);
+        // A key used in the open menu shows them.
+        press(&mut a, KeyName::Down, None);
+        assert!(cues_of(&a), "{hit:?}: still hidden after a key");
+    }
+    // The text menu's submenus follow: hidden when the pointer opens them, shown by keyboard.
+    a.ui.popup = None;
+    right_click(&mut a, Hit::Text);
+    a.open_sub(PopupKind::Text, PopupKind::Lines, false);
+    assert!(!a.ui.popup.as_ref().unwrap().sub.as_ref().unwrap().cues);
+    press(&mut a, KeyName::Down, None);
+    assert!(a.ui.popup.as_ref().unwrap().sub.as_ref().unwrap().cues);
+    let _ = std::fs::remove_dir_all(&dir);
+}

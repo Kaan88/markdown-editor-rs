@@ -839,18 +839,22 @@ impl App {
             return;
         }
         self.ui.popup = None;
+        // Opened by the pointer, so the access-key underlines stay hidden until a key is used.
+        let cues = self.ui.keyboard;
         match self.hit_at(x, y) {
             Some(Hit::Tab(i) | Hit::TabClose(i)) => {
-                self.ui.popup = Some(Popup::new(
+                self.ui.popup = Some(Popup::with_cues(
                     PopupKind::Tab(i),
                     overlays::tab_menu(&self.docs, i, x, y + 2.0),
+                    cues,
                 ));
             }
             Some(Hit::Minimap | Hit::MinimapOther) => {
                 self.ui.find_focused = false;
-                self.ui.popup = Some(Popup::new(
+                self.ui.popup = Some(Popup::with_cues(
                     PopupKind::Text,
                     overlays::minimap_menu(x + 2.0, y + 2.0),
+                    cues,
                 ));
             }
             Some(Hit::Text | Hit::Gutter) => {
@@ -864,9 +868,10 @@ impl App {
                     }
                 }
                 self.ui.find_focused = false;
-                self.ui.popup = Some(Popup::new(
+                self.ui.popup = Some(Popup::with_cues(
                     PopupKind::Text,
                     overlays::text_menu(&self.docs, x + 2.0, y + 2.0),
+                    cues,
                 ));
             }
             Some(h @ (Hit::Find | Hit::FindClear | Hit::Replace)) => {
@@ -880,7 +885,7 @@ impl App {
                 });
                 self.caret_reset();
                 let field = self.ui.field();
-                self.ui.popup = Some(Popup::new(
+                self.ui.popup = Some(Popup::with_cues(
                     PopupKind::Find,
                     overlays::find_menu(
                         !field.is_empty(),
@@ -889,6 +894,7 @@ impl App {
                         x + 2.0,
                         y + 2.0,
                     ),
+                    cues,
                 ));
             }
             _ => {}
