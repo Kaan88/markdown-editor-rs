@@ -85,6 +85,13 @@ viewer; a relative image and link showed as missing; Save As through the real di
 viewer's tab into the file's with no second tab; typing after the save was live again; a second
 untitled document was previewed beside it and its preview stopped.
 
+Budgets, measured on this PC with `--trace` on release builds of the base (`5ccd143`) and of
+this branch, run in turn: first frame of `fixtures/sample.md` 111 to 124 ms before and 112 to
+124 ms after (the machine was busier than when the PLAN's figures were taken); keystroke to
+pixels p50 0.73 ms, p95 0.84 to 0.88 ms before and p50 0.72 ms, p95 0.86 to 0.98 ms after;
+scroll frame p50 0.61 ms before and 0.62 ms after. Nothing runs for the feature until a
+document is previewed. Not measured: memory, the 100 MB file (no code on those paths changed).
+
 Not verified:
 
 - Linux in real windows (CI runs the tests and shots there; the unix-only test
