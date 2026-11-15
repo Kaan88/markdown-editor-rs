@@ -392,18 +392,40 @@ pub struct Popup {
     pub sub: Option<Box<Popup>>,
     /// The item with a submenu the pointer rests on, and when its submenu opens.
     pub dwell: Option<(usize, Instant)>,
+    /// Whether the access-key underlines show (the menu was opened by keyboard, or a key has
+    /// been used in it since). The shared menu cannot be asked, so it is kept here.
+    pub cues: bool,
 }
 
 /// How long the pointer rests on an item with a submenu before the submenu opens.
 pub const SUBMENU_DWELL: std::time::Duration = std::time::Duration::from_millis(300);
 
 impl Popup {
+    /// A popup whose access-key underlines show when `cues` (it was opened by keyboard).
+    pub fn with_cues(kind: PopupKind, mut menu: Menu<Act>, cues: bool) -> Popup {
+        menu.set_access_visible(cues);
+        Popup {
+            cues,
+            ..Popup::new(kind, menu)
+        }
+    }
+
+    /// Shows the underlines of this menu and of its submenu: a key was used in it.
+    pub fn show_cues(&mut self) {
+        self.cues = true;
+        self.menu.set_access_visible(true);
+        if let Some(s) = self.sub.as_mut() {
+            s.show_cues();
+        }
+    }
+
     pub fn new(kind: PopupKind, menu: Menu<Act>) -> Popup {
         Popup {
             kind,
             menu,
             sub: None,
             dwell: None,
+            cues: true,
         }
     }
 
@@ -695,6 +717,10 @@ pub struct Ui {
     pub caret_due: Option<Instant>,
     /// Logical pointer position.
     pub mouse: (f32, f32),
+    /// The last thing the user did was press a key, not a mouse button: a menu opened now shows
+    /// its access-key underlines (the Windows convention). True before any input, so that the
+    /// menus of a `--shot` show them.
+    pub keyboard: bool,
     pub hover: Option<Hit>,
     pub pressed: Option<Hit>,
     pub drag: Option<Drag>,
@@ -743,6 +769,7 @@ impl Ui {
             caret_on: true,
             caret_due: None,
             mouse: (-1.0, -1.0),
+            keyboard: true,
             hover: None,
             pressed: None,
             drag: None,

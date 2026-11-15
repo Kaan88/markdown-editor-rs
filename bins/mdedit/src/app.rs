@@ -51,6 +51,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, WindowId};
 
+#[cfg(test)]
+mod access_tests;
 mod commands;
 mod compare_events;
 mod completion;
@@ -204,6 +206,9 @@ struct App {
     /// Device px.
     size: (u32, u32),
     maximized: bool,
+    /// The rectangle last given to the snap-layouts flyout, in device px; `None` when it was
+    /// withdrawn. Only to skip the call when nothing changed.
+    snap_sent: Option<Option<(i32, i32, i32, i32)>>,
     focused: bool,
     areas: Areas,
     hits: [Vec<(Hit, Rect)>; 9],
@@ -356,6 +361,7 @@ impl App {
             scale: 1.0,
             size: (1, 1),
             maximized: false,
+            snap_sent: None,
             focused: true,
             areas: Areas::default(),
             hits: Default::default(),
@@ -451,12 +457,16 @@ impl App {
             return;
         };
         #[cfg(windows)]
-        let handle = hwnd(&window);
+        let mut sys = mdshared_ui::frost::WindowSystem(hwnd(&window));
+        // KDE Plasma (Wayland): the blur protocol on the window's own connection; elsewhere it
+        // says no and the chrome stays flat.
         #[cfg(not(windows))]
-        let handle = None;
-        let _ = &window;
-        let mut sys = mdshared_ui::frost::WindowSystem(handle);
+        let mut sys = mdshared_ui::frost::BlurSystem(&window);
         if self.frost.sync(want, self.focused, &self.pal, &mut sys) {
+            // The buffers carry alpha while the chrome is frosted (or the shadow's margin needs
+            // it); a no-op where the surface cannot.
+            #[cfg(not(windows))]
+            self.sync_surface_alpha();
             // Every mark goes: the regions put theirs back when they are drawn frosted.
             for px in self.screen.pixels.as_chunks_mut::<4>().0 {
                 px[3] = 255;
@@ -470,6 +480,16 @@ impl App {
             };
             self.trace
                 .line(&format!("backdrop {}: chrome {state}", want.key()));
+        }
+    }
+
+    /// Wayland buffers must carry alpha for a frosted chrome or the client-drawn margin.
+    #[cfg(not(windows))]
+    fn sync_surface_alpha(&mut self) {
+        let alpha =
+            self.frost.wants_alpha() || self.shadow.as_ref().is_some_and(|s| s.wants_alpha());
+        if let Some(s) = self.surface.as_mut() {
+            s.set_premultiplied_alpha(alpha);
         }
     }
 
@@ -1483,8 +1503,34 @@ impl App {
         }
     }
 
+    /// Tells the window where the maximize button is, so that Windows 11 shows the snap-layouts
+    /// flyout over it (`None` while a dialog, the palette or the settings cover the title row).
+    /// Called after every frame: after a resize, a maximize or restore and a change of scale the
+    /// next frame lays the title out again, and nothing is sent when the rectangle is the same.
+    fn sync_snap(&mut self) {
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let covered = self.ui.dialog.is_some() || self.palette_open() || self.ui.settings.is_some();
+        let margin = self.shadow.as_ref().map_or(0, |s| s.margin()) as f32 / self.scale;
+        let rect = chrome::snap_button_rect(self.areas.title, margin, self.maximized, covered);
+        let key = rect.map(|r| {
+            (
+                (r.x * self.scale).round() as i32,
+                (r.y * self.scale).round() as i32,
+                (r.w * self.scale).round() as i32,
+                (r.h * self.scale).round() as i32,
+            )
+        });
+        if self.snap_sent != Some(key) {
+            self.snap_sent = Some(key);
+            mdshared_ui::snap::set_maximize_button_rect(window, rect);
+        }
+    }
+
     fn draw(&mut self) {
         let (mut damage, mut times) = self.compose();
+        self.sync_snap();
         if std::mem::take(&mut self.expose) {
             damage = vec![(0, 0, self.screen.width as i32, self.screen.height as i32)];
         }
@@ -1958,6 +2004,9 @@ impl ApplicationHandler<Wake> for App {
                     s.set_premultiplied_alpha(true);
                 }
                 self.surface = Some(s);
+                // The frost may already be on (a first frame with the setting set).
+                #[cfg(not(windows))]
+                self.sync_surface_alpha();
             }
             Err(e) => {
                 eprintln!("mdedit: no surface: {e}");

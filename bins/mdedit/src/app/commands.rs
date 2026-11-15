@@ -1039,7 +1039,7 @@ impl App {
         let Some(menu) = self.build_menu(kind, x, y, right) else {
             return;
         };
-        self.ui.popup = Some(Popup::new(kind, menu));
+        self.ui.popup = Some(Popup::with_cues(kind, menu, self.ui.keyboard));
         self.ui.tip = None;
     }
 
@@ -1096,7 +1096,8 @@ impl App {
             menu.step(true);
         }
         if let Some(p) = self.ui.popup.as_mut() {
-            p.sub = Some(Box::new(Popup::new(sub, menu)));
+            let cues = keys || self.ui.keyboard;
+            p.sub = Some(Box::new(Popup::with_cues(sub, menu, cues)));
             p.dwell = None;
         }
         self.ui.tip = None;

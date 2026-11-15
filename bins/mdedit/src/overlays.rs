@@ -8,7 +8,7 @@ use crate::session::ThemeChoice;
 use crate::ui::{Act, Dialog, DialogKind, EditAct, FindOpt, Hit, Scroller, Ui};
 use mdedit_core::find::FindOptions;
 use mdshared_ui::gfx::{Face, Rect, mix};
-use mdshared_ui::menu::{Item, Menu};
+use mdshared_ui::menu::{Item, Menu, escape_access};
 pub use mdshared_ui::overlay::Bubble;
 use mdshared_ui::overlay::{
     DIALOG_FOOTER, DIALOG_PAD, dialog_button_w, dialog_card, draw_backdrop, draw_dialog_button,
@@ -34,31 +34,33 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     };
     #[cfg_attr(windows, allow(unused_mut))]
     let mut items = vec![
-        cmd(C::NewFile, "New file", glyph::NEW_FILE),
-        cmd(C::OpenFiles, "Open files…", glyph::OPEN),
-        cmd(C::OpenFolder, "Open folder…", glyph::FOLDER_OPEN),
-        Item::new(Act::RecentMenu, "Open recent")
+        cmd(C::NewFile, "Ne&w file", glyph::NEW_FILE),
+        cmd(C::OpenFiles, "&Open files…", glyph::OPEN),
+        cmd(C::OpenFolder, "Open fo&lder…", glyph::FOLDER_OPEN),
+        Item::new(Act::RecentMenu, "Ope&n recent")
             .icon(glyph::RECENT)
             .hint("›")
             .enabled(!docs.recents.is_empty()),
-        cmd(C::Save, "Save", glyph::SAVE).sep().enabled(modified),
-        cmd(C::SaveAs, "Save as…", glyph::SAVE_AS).enabled(ready),
-        cmd(C::Reload, "Reload", glyph::RELOAD).enabled(has_tab),
-        cmd(C::CloseTab, "Close tab", glyph::CLOSE).enabled(has_tab),
-        cmd(C::CloseAllTabs, "Close all tabs", glyph::CLOSE_ALL).enabled(has_tab),
-        cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(has_tab),
-        cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(has_tab),
-        cmd(C::GoToLine, "Go to line…", glyph::GO_TO_LINE).enabled(has_tab),
-        cmd(C::CommandPalette, "Command palette…", glyph::SEARCH),
-        Item::new(Act::ViewMenu, "View").icon(glyph::VIEW).hint("›"),
-        Item::new(Act::MacroMenu, "Macro")
+        cmd(C::Save, "&Save", glyph::SAVE).sep().enabled(modified),
+        cmd(C::SaveAs, "Save &as…", glyph::SAVE_AS).enabled(ready),
+        cmd(C::Reload, "&Reload", glyph::RELOAD).enabled(has_tab),
+        cmd(C::CloseTab, "&Close tab", glyph::CLOSE).enabled(has_tab),
+        cmd(C::CloseAllTabs, "Close all ta&bs", glyph::CLOSE_ALL).enabled(has_tab),
+        cmd(C::Find, "&Find…", glyph::SEARCH).sep().enabled(has_tab),
+        cmd(C::Replace, "Re&place…", glyph::REPLACE).enabled(has_tab),
+        cmd(C::GoToLine, "&Go to line…", glyph::GO_TO_LINE).enabled(has_tab),
+        cmd(C::CommandPalette, "Comman&d palette…", glyph::SEARCH),
+        Item::new(Act::ViewMenu, "&View")
+            .icon(glyph::VIEW)
+            .hint("›"),
+        Item::new(Act::MacroMenu, "&Macro")
             .icon(glyph::MACRO)
             .hint("›"),
-        theme(ThemeChoice::System, "System theme", glyph::SYSTEM).sep(),
-        theme(ThemeChoice::Light, "Light theme", glyph::SUN),
-        theme(ThemeChoice::Dark, "Dark theme", glyph::MOON),
-        cmd(C::Settings, "Settings…", glyph::SLIDERS).sep(),
-        cmd(C::ShowShortcuts, "Keyboard shortcuts", glyph::KEYBOARD),
+        theme(ThemeChoice::System, "S&ystem theme", glyph::SYSTEM).sep(),
+        theme(ThemeChoice::Light, "Lig&ht theme", glyph::SUN),
+        theme(ThemeChoice::Dark, "Dar&k theme", glyph::MOON),
+        cmd(C::Settings, "Se&ttings…", glyph::SLIDERS).sep(),
+        cmd(C::ShowShortcuts, "Keyboard shortc&uts", glyph::KEYBOARD),
     ];
     // Off Windows, from an AppImage (the desktop entry exists), until mdedit is the default.
     #[cfg(not(windows))]
@@ -70,9 +72,9 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     {
         items.push(cmd(C::MakeDefault, strings::MAKE_DEFAULT, glyph::CHECK));
     }
-    items.push(cmd(C::About, "About mdedit", glyph::INFO));
-    items.push(cmd(C::Exit, "Exit", glyph::POWER).sep());
-    Menu::new(items, x, y, true)
+    items.push(cmd(C::About, "About mded&it", glyph::INFO));
+    items.push(cmd(C::Exit, "&Exit", glyph::POWER).sep());
+    Menu::new(items, x, y, true).access_keys(true)
 }
 
 pub fn recent_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
@@ -90,23 +92,23 @@ pub fn recent_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> 
             .unwrap_or_default();
         let icon = if e.missing { glyph::WARN } else { glyph::DOC };
         items.push(
-            Item::new(Act::Recent(e.path.clone()), e.label)
+            Item::new(Act::Recent(e.path.clone()), escape_access(&e.label))
                 .hint(folder)
                 .icon(icon),
         );
     }
     let any = !docs.recents.is_empty();
     items.push(
-        Item::new(Act::Cmd(C::ManageRecent), "Manage recent files…")
+        Item::new(Act::Cmd(C::ManageRecent), "&Manage recent files…")
             .icon(glyph::SLIDERS)
             .sep(),
     );
     items.push(
-        Item::new(Act::Cmd(C::ClearRecent), "Clear recent files")
+        Item::new(Act::Cmd(C::ClearRecent), "&Clear recent files")
             .icon(glyph::DELETE)
             .enabled(any),
     );
-    Menu::new(items, x, y, align_right)
+    Menu::new(items, x, y, align_right).access_keys(true)
 }
 
 /// The Macro menu, opened from the main menu in its place: record, play, save the macro, then
@@ -120,9 +122,9 @@ pub fn macro_menu(
     align_right: bool,
 ) -> Menu<Act> {
     let record = if recording {
-        "Stop recording"
+        "Stop &recording"
     } else {
-        "Record a macro"
+        "&Record a macro"
     };
     let record_icon = if recording {
         glyph::STOP
@@ -131,27 +133,27 @@ pub fn macro_menu(
     };
     let mut items = vec![
         cmd(C::RecordMacro, record, record_icon),
-        cmd(C::PlayMacro, "Play the macro", glyph::PLAY).enabled(any && !recording),
+        cmd(C::PlayMacro, "&Play the macro", glyph::PLAY).enabled(any && !recording),
         cmd(
             C::PlayMacroToEnd,
-            "Play it to the end of the file",
+            "Play &it to the end of the file",
             glyph::PLAY_END,
         )
         .enabled(any && !recording),
-        cmd(C::SaveMacroAs, "Save the macro as…", glyph::SAVE_AS)
+        cmd(C::SaveMacroAs, "&Save the macro as…", glyph::SAVE_AS)
             .sep()
             .enabled(any && !recording),
     ];
     for (i, name) in saved.iter().enumerate() {
-        let item = Item::new(Act::PlaySaved(i), name.as_str())
+        let item = Item::new(Act::PlaySaved(i), escape_access(name))
             .icon(glyph::PLAY)
             .enabled(!recording);
         items.push(if i == 0 { item.sep() } else { item });
     }
     if !saved.is_empty() {
-        items.push(cmd(C::DeleteMacros, "Delete saved macros…", glyph::DELETE).sep());
+        items.push(cmd(C::DeleteMacros, "&Delete saved macros…", glyph::DELETE).sep());
     }
-    Menu::new(items, x, y, align_right)
+    Menu::new(items, x, y, align_right).access_keys(true)
 }
 
 /// "Preview in mdview" (checked while the file is previewed) and "Preview side by side" for the
@@ -168,6 +170,11 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
     if !doc.is_markdown() && !linked && doc.path.is_some() {
         return Vec::new();
     }
+    // Different letters in the View menu and the tab menu, where the other items take the rest.
+    let (preview, side) = match index {
+        Some(_) => ("&Preview in mdview", "Preview side &by side"),
+        None => ("&Preview in mdview", "Pre&view side by side"),
+    };
     let item = |id: C, label: &str| {
         let item = match index {
             Some(i) => Item::new(Act::TabCmd(id, i), label),
@@ -176,30 +183,28 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
         item.icon(glyph::VIEW)
     };
     vec![
-        item(C::PreviewInViewer, "Preview in mdview")
-            .checked(linked)
-            .sep(),
-        item(C::PreviewSideBySide, "Preview side by side")
-            .checked(linked && docs.links.side_by_side),
+        item(C::PreviewInViewer, preview).checked(linked).sep(),
+        item(C::PreviewSideBySide, side).checked(linked && docs.links.side_by_side),
     ]
 }
 
 /// The View menu, opened from the main menu in its place.
 pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let mut items = vec![
-        cmd(C::ToggleFiles, "Files pane", glyph::SIDEBAR).checked(ui.panes.files && !ui.outline.on),
-        cmd(C::ToggleOutline, "Function list", glyph::FUNCTIONS)
+        cmd(C::ToggleFiles, "&Files pane", glyph::SIDEBAR)
+            .checked(ui.panes.files && !ui.outline.on),
+        cmd(C::ToggleOutline, "Function &list", glyph::FUNCTIONS)
             .checked(ui.panes.files && ui.outline.on),
-        cmd(C::ToggleWhitespace, "Show whitespace", glyph::WHITESPACE).checked(docs.whitespace),
-        cmd(C::ToggleWrap, "Word wrap", glyph::WRAP).checked(docs.wrap),
-        cmd(C::ToggleMinimap, "Minimap", glyph::MINIMAP).checked(docs.minimap),
-        cmd(C::ToggleSplit, "Two files side by side", glyph::SPLIT)
+        cmd(C::ToggleWhitespace, "S&how whitespace", glyph::WHITESPACE).checked(docs.whitespace),
+        cmd(C::ToggleWrap, "&Word wrap", glyph::WRAP).checked(docs.wrap),
+        cmd(C::ToggleMinimap, "&Minimap", glyph::MINIMAP).checked(docs.minimap),
+        cmd(C::ToggleSplit, "Two files si&de by side", glyph::SPLIT)
             .checked(docs.other().is_some() || docs.same_file),
-        cmd(C::FocusOther, "Go to the other pane", glyph::OTHER_PANE)
+        cmd(C::FocusOther, "&Go to the other pane", glyph::OTHER_PANE)
             .enabled(docs.other().is_some() || docs.same_file),
         cmd(
             C::ShowInOtherPane,
-            "Show this file in the other pane",
+            "Show this file &in the other pane",
             glyph::SPLIT,
         )
         .enabled(docs.active_ready().is_some()),
@@ -208,62 +213,67 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
     // greyed); the ones that work on it take their place, so the menu stays short.
     if docs.active_ready().is_some_and(|r| r.view.align.is_some()) {
         items.extend([
-            cmd(C::NextDifference, "Next difference", glyph::DOWN).sep(),
-            cmd(C::PreviousDifference, "Previous difference", glyph::UP),
+            cmd(C::NextDifference, "Ne&xt difference", glyph::DOWN).sep(),
+            cmd(C::PreviousDifference, "Previo&us difference", glyph::UP),
             cmd(
                 C::CopyChangeAcross,
-                "Copy this change to the other side",
+                "Cop&y this change to the other side",
                 glyph::FORWARD,
             )
             .enabled(crate::compare::enabled(C::CopyChangeAcross, docs)),
             cmd(
                 C::TakeChangeAcross,
-                "Take this change from the other side",
+                "Ta&ke this change from the other side",
                 glyph::BACK,
             )
             .enabled(crate::compare::enabled(C::TakeChangeAcross, docs)),
             cmd(
                 C::CopyLineAcross,
-                "Copy this line to the other side",
+                "&Copy this line to the other side",
                 glyph::FORWARD,
             )
             .enabled(crate::compare::enabled(C::CopyLineAcross, docs)),
-            cmd(C::StopCompare, "Stop comparing", glyph::CLOSE),
+            cmd(C::StopCompare, "&Stop comparing", glyph::CLOSE),
         ]);
     } else {
         items.extend([
-            cmd(C::CompareOther, "Compare with the other pane", glyph::SPLIT)
-                .sep()
-                .enabled(crate::compare::enabled(C::CompareOther, docs)),
-            cmd(C::CompareFile, "Compare with file\u{2026}", glyph::OPEN)
+            cmd(
+                C::CompareOther,
+                "Compar&e with the other pane",
+                glyph::SPLIT,
+            )
+            .sep()
+            .enabled(crate::compare::enabled(C::CompareOther, docs)),
+            cmd(C::CompareFile, "&Compare with file\u{2026}", glyph::OPEN)
                 .enabled(crate::compare::enabled(C::CompareFile, docs)),
-            cmd(C::CompareSaved, "Compare with saved", glyph::SAVE)
+            cmd(C::CompareSaved, "Compare wi&th saved", glyph::SAVE)
                 .enabled(crate::compare::enabled(C::CompareSaved, docs)),
         ]);
     }
     items.extend(preview_items(docs, None));
     items.extend([
-        cmd(C::ToggleFold, "Fold or open the block", glyph::FOLD).sep(),
-        cmd(C::FoldAll, "Fold all blocks", glyph::FOLD_ALL),
-        cmd(C::UnfoldAll, "Open all folds", glyph::UNFOLD).enabled(
+        cmd(C::ToggleFold, "Fold or ope&n the block", glyph::FOLD).sep(),
+        cmd(C::FoldAll, "Fold all &blocks", glyph::FOLD_ALL),
+        cmd(C::UnfoldAll, "Open &all folds", glyph::UNFOLD).enabled(
             docs.active_ready()
                 .is_some_and(|r| !r.view.folds.is_empty()),
         ),
-        cmd(C::ZoomIn, "Zoom in", glyph::ZOOM).sep(),
-        cmd(C::ZoomOut, "Zoom out", glyph::ZOOM_OUT),
-        cmd(C::ZoomReset, "Reset zoom", glyph::ZOOM_RESET).enabled(docs.zoom != 100),
+        cmd(C::ZoomIn, "&Zoom in", glyph::ZOOM).sep(),
+        cmd(C::ZoomOut, "Zoom &out", glyph::ZOOM_OUT),
+        cmd(C::ZoomReset, "&Reset zoom", glyph::ZOOM_RESET).enabled(docs.zoom != 100),
     ]);
-    Menu::new(items, x, y, align_right)
+    Menu::new(items, x, y, align_right).access_keys(true)
 }
 
 /// The minimap's right-click menu: one item.
 pub fn minimap_menu(x: f32, y: f32) -> Menu<Act> {
     Menu::new(
-        vec![cmd(C::ToggleMinimap, "Hide minimap", glyph::MINIMAP)],
+        vec![cmd(C::ToggleMinimap, "&Hide minimap", glyph::MINIMAP)],
         x,
         y,
         false,
     )
+    .access_keys(true)
 }
 
 pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
@@ -271,25 +281,25 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     let has_file = docs.tabs.get(index).is_some_and(|d| d.path.is_some());
     let compared = docs.active_ready().is_some_and(|r| r.view.align.is_some());
     let mut items = vec![
-        Item::new(Act::TabCmd(C::CloseTab, index), "Close tab").icon(glyph::CLOSE),
-        Item::new(Act::TabCmd(C::CloseOtherTabs, index), "Close other tabs")
+        Item::new(Act::TabCmd(C::CloseTab, index), "&Close tab").icon(glyph::CLOSE),
+        Item::new(Act::TabCmd(C::CloseOtherTabs, index), "Close &other tabs")
             .icon(glyph::CLOSE_OTHERS)
             .enabled(many),
-        Item::new(Act::TabCmd(C::CloseAllTabs, index), "Close all tabs").icon(glyph::CLOSE_ALL),
+        Item::new(Act::TabCmd(C::CloseAllTabs, index), "Close &all tabs").icon(glyph::CLOSE_ALL),
         Item::new(
             Act::TabCmd(C::ShowInOtherPane, index),
-            "Show in the other pane",
+            "Show &in the other pane",
         )
         .icon(glyph::SPLIT)
         .sep()
         .enabled(docs.tabs.get(index).is_some_and(|d| d.ready().is_some())),
         Item::new(
             Act::TabCmd(C::CompareFile, index),
-            "Compare with file\u{2026}",
+            "Compare &with file\u{2026}",
         )
         .icon(glyph::SPLIT)
         .enabled(docs.tabs.get(index).is_some_and(|d| d.ready().is_some()) && !compared),
-        Item::new(Act::TabCmd(C::CompareSaved, index), "Compare with saved")
+        Item::new(Act::TabCmd(C::CompareSaved, index), "Compare with &saved")
             .icon(glyph::SAVE)
             .enabled(
                 !compared
@@ -301,18 +311,21 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     ];
     items.extend(preview_items(docs, Some(index)));
     items.extend([
-        Item::new(Act::TabCmd(C::CopyFilePath, index), "Copy file path")
+        Item::new(Act::TabCmd(C::CopyFilePath, index), "Copy &file path")
             .icon(glyph::COPY)
             .sep()
             .enabled(has_file),
         Item::new(
             Act::TabCmd(C::ShowInFileManager, index),
-            command(C::ShowInFileManager).label,
+            command(C::ShowInFileManager)
+                .label
+                .replace("Explorer", "&Explorer")
+                .replace("manager", "&manager"),
         )
         .icon(glyph::FOLDER_OPEN)
         .enabled(has_file),
     ]);
-    Menu::new(items, x, y, false)
+    Menu::new(items, x, y, false).access_keys(true)
 }
 
 /// The text area's right-click menu.
@@ -328,46 +341,46 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         .is_some_and(|l| l.line_comment().is_some());
     let markdown = docs.active_ready().is_some_and(|r| r.assist.markdown);
     let items = vec![
-        cmd(C::Undo, "Undo", glyph::UNDO).enabled(history.is_some_and(|h| h.can_undo())),
-        cmd(C::Redo, "Redo", glyph::REDO).enabled(history.is_some_and(|h| h.can_redo())),
-        cmd(C::Cut, "Cut", glyph::CUT).sep().enabled(has_selection),
-        Item::new(Act::Cmd(C::Copy), "Copy")
+        cmd(C::Undo, "&Undo", glyph::UNDO).enabled(history.is_some_and(|h| h.can_undo())),
+        cmd(C::Redo, "&Redo", glyph::REDO).enabled(history.is_some_and(|h| h.can_redo())),
+        cmd(C::Cut, "&Cut", glyph::CUT).sep().enabled(has_selection),
+        Item::new(Act::Cmd(C::Copy), "Co&py")
             .hint(hint(C::Copy))
             .icon(glyph::COPY)
             .enabled(has_selection),
-        cmd(C::Paste, "Paste", glyph::PASTE).enabled(ready),
-        Item::new(Act::Cmd(C::SelectAll), "Select all")
+        cmd(C::Paste, "Pa&ste", glyph::PASTE).enabled(ready),
+        Item::new(Act::Cmd(C::SelectAll), "Select &all")
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
             .enabled(ready),
-        Item::new(Act::Cmd(C::SelectNextOccurrence), "Select next occurrence")
+        Item::new(Act::Cmd(C::SelectNextOccurrence), "Select next &occurrence")
             .hint(hint(C::SelectNextOccurrence))
             .icon(glyph::SELECT_ALL)
             .enabled(ready),
         if markdown {
-            Item::new(Act::MarkdownMenu, "Markdown")
+            Item::new(Act::MarkdownMenu, "&Markdown")
                 .icon(glyph::EDIT)
                 .hint("›")
                 .sep()
         } else {
-            cmd(C::ToggleComment, "Toggle comment", glyph::COMMENT)
+            cmd(C::ToggleComment, "&Toggle comment", glyph::COMMENT)
                 .sep()
                 .enabled(has_comment)
         },
-        Item::new(Act::LinesMenu, "Lines")
+        Item::new(Act::LinesMenu, "&Lines")
             .icon(glyph::DUPLICATE_LINE)
             .hint("›")
             .enabled(ready),
-        Item::new(Act::ConvertMenu, "Convert")
+        Item::new(Act::ConvertMenu, "Co&nvert")
             .icon(glyph::UPPERCASE)
             .hint("›")
             .enabled(ready),
-        cmd(C::CompleteWord, "Complete word", glyph::EDIT).enabled(ready),
-        cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
-        cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(ready),
-        cmd(C::Reload, "Reload", glyph::RELOAD),
+        cmd(C::CompleteWord, "Complete &word", glyph::EDIT).enabled(ready),
+        cmd(C::Find, "&Find…", glyph::SEARCH).sep().enabled(ready),
+        cmd(C::Replace, "R&eplace…", glyph::REPLACE).enabled(ready),
+        cmd(C::Reload, "Reloa&d", glyph::RELOAD),
     ];
-    Menu::new(items, x, y, false)
+    Menu::new(items, x, y, false).access_keys(true)
 }
 
 /// The text menu's Lines submenu: the line commands, then the ones that sort and join them.
@@ -375,75 +388,80 @@ pub fn lines_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let ready = docs.active_ready().is_some();
     let marked = docs.active_ready().is_some_and(|r| !r.bookmarks.is_empty());
     let items = vec![
-        cmd(C::DuplicateLine, "Duplicate line", glyph::DUPLICATE_LINE).enabled(ready),
-        cmd(C::DeleteLine, "Delete line", glyph::DELETE_LINE).enabled(ready),
-        cmd(C::MoveLineUp, "Move line up", glyph::UP).enabled(ready),
-        cmd(C::MoveLineDown, "Move line down", glyph::DOWN).enabled(ready),
-        cmd(C::SortLines, "Sort lines", glyph::SORT)
+        cmd(C::DuplicateLine, "Du&plicate line", glyph::DUPLICATE_LINE).enabled(ready),
+        cmd(C::DeleteLine, "&Delete line", glyph::DELETE_LINE).enabled(ready),
+        cmd(C::MoveLineUp, "&Move line up", glyph::UP).enabled(ready),
+        cmd(C::MoveLineDown, "Move &line down", glyph::DOWN).enabled(ready),
+        cmd(C::SortLines, "&Sort lines", glyph::SORT)
             .sep()
             .enabled(ready),
         cmd(
             C::SortLinesDescending,
-            "Sort lines descending",
+            "Sort li&nes descending",
             glyph::SORT_DESC,
         )
         .enabled(ready),
         cmd(
             C::SortLinesIgnoreCase,
-            "Sort lines ignoring case",
+            "Sort lines &ignoring case",
             glyph::SORT_CASE,
         )
         .enabled(ready),
-        cmd(C::ReverseLines, "Reverse lines", glyph::REVERSE).enabled(ready),
-        cmd(C::UniqueLines, "Remove duplicate lines", glyph::DEDUPE).enabled(ready),
-        cmd(C::JoinLines, "Join lines", glyph::JOIN).enabled(ready),
-        cmd(C::ToggleBookmark, "Toggle bookmark", glyph::BOOKMARK)
+        cmd(C::ReverseLines, "&Reverse lines", glyph::REVERSE).enabled(ready),
+        cmd(C::UniqueLines, "Remo&ve duplicate lines", glyph::DEDUPE).enabled(ready),
+        cmd(C::JoinLines, "&Join lines", glyph::JOIN).enabled(ready),
+        cmd(C::ToggleBookmark, "&Toggle bookmark", glyph::BOOKMARK)
             .sep()
             .enabled(ready),
-        cmd(C::CutBookmarkedLines, "Cut bookmarked lines", glyph::CUT).enabled(marked),
-        cmd(C::CopyBookmarkedLines, "Copy bookmarked lines", glyph::COPY).enabled(marked),
+        cmd(C::CutBookmarkedLines, "&Cut bookmarked lines", glyph::CUT).enabled(marked),
+        cmd(
+            C::CopyBookmarkedLines,
+            "Copy &bookmarked lines",
+            glyph::COPY,
+        )
+        .enabled(marked),
         cmd(
             C::DeleteBookmarkedLines,
-            "Delete bookmarked lines",
+            "Delete boo&kmarked lines",
             glyph::DELETE,
         )
         .enabled(marked),
     ];
-    Menu::new(items, x, y, align_right)
+    Menu::new(items, x, y, align_right).access_keys(true)
 }
 
 /// The text menu's Markdown submenu, for Markdown documents.
 pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let ready = docs.active_ready().is_some();
     let items = vec![
-        cmd(C::MdBold, "Bold", glyph::BOLD).enabled(ready),
-        cmd(C::MdItalic, "Italic", glyph::ITALIC).enabled(ready),
-        cmd(C::MdCode, "Code", glyph::CODE).enabled(ready),
-        cmd(C::MdStrike, "Strikethrough", glyph::STRIKE).enabled(ready),
-        cmd(C::MdHeading, "Heading level", glyph::HEADING)
+        cmd(C::MdBold, "&Bold", glyph::BOLD).enabled(ready),
+        cmd(C::MdItalic, "&Italic", glyph::ITALIC).enabled(ready),
+        cmd(C::MdCode, "&Code", glyph::CODE).enabled(ready),
+        cmd(C::MdStrike, "&Strikethrough", glyph::STRIKE).enabled(ready),
+        cmd(C::MdHeading, "&Heading level", glyph::HEADING)
             .sep()
             .enabled(ready),
-        cmd(C::MdLink, "Link", glyph::LINK).enabled(ready),
-        cmd(C::MdTable, "Align table", glyph::TABLE)
+        cmd(C::MdLink, "&Link", glyph::LINK).enabled(ready),
+        cmd(C::MdTable, "&Align table", glyph::TABLE)
             .sep()
             .enabled(ready),
-        cmd(C::MdRowBelow, "Insert row below", glyph::PLUS).enabled(ready),
-        cmd(C::MdRowAbove, "Insert row above", glyph::PLUS).enabled(ready),
-        cmd(C::MdDeleteRow, "Delete row", glyph::DELETE).enabled(ready),
-        cmd(C::MdMoveRowUp, "Move row up", glyph::UP).enabled(ready),
-        cmd(C::MdMoveRowDown, "Move row down", glyph::DOWN).enabled(ready),
-        cmd(C::MdColumnRight, "Insert column right", glyph::PLUS)
+        cmd(C::MdRowBelow, "Insert &row below", glyph::PLUS).enabled(ready),
+        cmd(C::MdRowAbove, "I&nsert row above", glyph::PLUS).enabled(ready),
+        cmd(C::MdDeleteRow, "&Delete row", glyph::DELETE).enabled(ready),
+        cmd(C::MdMoveRowUp, "Move row &up", glyph::UP).enabled(ready),
+        cmd(C::MdMoveRowDown, "Move row do&wn", glyph::DOWN).enabled(ready),
+        cmd(C::MdColumnRight, "Insert column ri&ght", glyph::PLUS)
             .sep()
             .enabled(ready),
-        cmd(C::MdColumnLeft, "Insert column left", glyph::PLUS).enabled(ready),
-        cmd(C::MdDeleteColumn, "Delete column", glyph::DELETE).enabled(ready),
-        cmd(C::MdMoveColumnLeft, "Move column left", glyph::BACK).enabled(ready),
-        cmd(C::MdMoveColumnRight, "Move column right", glyph::FORWARD).enabled(ready),
-        cmd(C::MdSortColumn, "Sort table by this column", glyph::EDIT)
+        cmd(C::MdColumnLeft, "Insert column le&ft", glyph::PLUS).enabled(ready),
+        cmd(C::MdDeleteColumn, "Dele&te column", glyph::DELETE).enabled(ready),
+        cmd(C::MdMoveColumnLeft, "&Move column left", glyph::BACK).enabled(ready),
+        cmd(C::MdMoveColumnRight, "Mo&ve column right", glyph::FORWARD).enabled(ready),
+        cmd(C::MdSortColumn, "Sort table b&y this column", glyph::EDIT)
             .sep()
             .enabled(ready),
     ];
-    Menu::new(items, x, y, align_right)
+    Menu::new(items, x, y, align_right).access_keys(true)
 }
 
 /// The text menu's Convert submenu: case, tabs and trailing spaces.
@@ -453,14 +471,14 @@ pub fn convert_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act>
         .active_ready()
         .is_some_and(|r| !r.view.sel.range().is_empty());
     let items = vec![
-        cmd(C::UpperCase, "UPPERCASE", glyph::UPPERCASE).enabled(has_selection),
-        cmd(C::LowerCase, "lowercase", glyph::LOWERCASE).enabled(has_selection),
-        cmd(C::TabsToSpaces, "Tabs to spaces", glyph::TABS)
+        cmd(C::UpperCase, "&UPPERCASE", glyph::UPPERCASE).enabled(has_selection),
+        cmd(C::LowerCase, "&lowercase", glyph::LOWERCASE).enabled(has_selection),
+        cmd(C::TabsToSpaces, "&Tabs to spaces", glyph::TABS)
             .sep()
             .enabled(ready),
-        cmd(C::TrimTrailing, "Trim trailing spaces", glyph::TRIM).enabled(ready),
+        cmd(C::TrimTrailing, "Trim trailing &spaces", glyph::TRIM).enabled(ready),
     ];
-    Menu::new(items, x, y, align_right)
+    Menu::new(items, x, y, align_right).access_keys(true)
 }
 
 /// The menu of the bar's text boxes: the editing commands a text box has everywhere, and the
@@ -473,42 +491,42 @@ pub fn find_menu(
     y: f32,
 ) -> Menu<Act> {
     let items = vec![
-        Item::new(Act::Edit(EditAct::Cut), "Cut")
+        Item::new(Act::Edit(EditAct::Cut), "&Cut")
             .hint("Ctrl+X")
             .icon(glyph::CUT)
             .enabled(has_selection),
-        Item::new(Act::Edit(EditAct::Copy), "Copy")
+        Item::new(Act::Edit(EditAct::Copy), "Co&py")
             .hint("Ctrl+C")
             .icon(glyph::COPY)
             .enabled(has_selection),
-        Item::new(Act::Edit(EditAct::Paste), "Paste")
+        Item::new(Act::Edit(EditAct::Paste), "Pa&ste")
             .hint("Ctrl+V")
             .icon(glyph::PASTE),
-        Item::new(Act::Edit(EditAct::SelectAll), "Select all")
+        Item::new(Act::Edit(EditAct::SelectAll), "Select &all")
             .hint("Ctrl+A")
             .icon(glyph::SELECT_ALL)
             .enabled(has_text)
             .sep(),
-        Item::new(Act::Opt(FindOpt::Case), "Match case")
+        Item::new(Act::Opt(FindOpt::Case), "&Match case")
             .icon(glyph::CASE)
             .checked(options.match_case)
             .sep(),
-        Item::new(Act::Opt(FindOpt::Word), "Whole word")
+        Item::new(Act::Opt(FindOpt::Word), "&Whole word")
             .icon(glyph::WORD)
             .checked(options.whole_word),
-        Item::new(Act::Opt(FindOpt::Regex), "Regular expression")
+        Item::new(Act::Opt(FindOpt::Regex), "&Regular expression")
             .icon(glyph::REGEX)
             .checked(options.regex),
-        Item::new(Act::Cmd(C::FindInFiles), "Find in files")
+        Item::new(Act::Cmd(C::FindInFiles), "&Find in files")
             .hint("Ctrl+Shift+F")
             .icon(glyph::SEARCH)
             .enabled(has_text)
             .sep(),
-        Item::new(Act::Cmd(C::FindInTabs), "Find in open tabs")
+        Item::new(Act::Cmd(C::FindInTabs), "Find &in open tabs")
             .icon(glyph::FIND_TABS)
             .enabled(has_text),
     ];
-    Menu::new(items, x, y, false)
+    Menu::new(items, x, y, false).access_keys(true)
 }
 
 // ---- dialogs ---------------------------------------------------------------------------------
