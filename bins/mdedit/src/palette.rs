@@ -332,7 +332,7 @@ fn icon(id: C) -> &'static str {
         C::UnfoldAll => glyph::UNFOLD,
         C::ToggleSplit | C::CompareOther | C::ShowInOtherPane => glyph::SPLIT,
         C::PreviewInViewer | C::PreviewSideBySide => glyph::VIEW,
-        C::FocusOther => glyph::OTHER_PANE,
+        C::FocusOther | C::FocusResults => glyph::OTHER_PANE,
         C::CompareFile => glyph::OPEN,
         C::CompareSaved => glyph::SAVE,
         C::RecordMacro => glyph::RECORD,
@@ -435,7 +435,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::UnfoldAll => ready.is_some_and(|r| !r.view.folds.is_empty()),
         C::ZoomReset => docs.zoom != 100,
         C::PlayMacro | C::PlayMacroToEnd | C::SaveMacroAs => macro_idle,
-        C::NextResult | C::PreviousResult | C::CloseResults => ui.results.open,
+        C::NextResult | C::PreviousResult | C::CloseResults | C::FocusResults => ui.results.open,
         C::ClearBookmarks
         | C::CutBookmarkedLines
         | C::CopyBookmarkedLines

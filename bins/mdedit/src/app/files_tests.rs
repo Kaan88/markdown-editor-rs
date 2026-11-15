@@ -1000,3 +1000,64 @@ fn bookmarked_lines_can_be_deleted_in_one_step_and_the_commands_grey_without_mar
     assert_eq!(text(&a), "one\ntwo\nthree\nfour\n");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_results_panel_takes_the_keyboard_moves_its_row_and_gives_it_back() {
+    let dir = scratch("results-keys");
+    std::fs::write(dir.join("a.txt"), "foo\nbar\nfoo\nbaz\nfoo\n").unwrap();
+    let mut a = app();
+    open_now(&mut a, &dir.join("a.txt"));
+    // Nothing to go to while the panel is closed.
+    a.command(C::FocusResults);
+    assert!(!a.ui.results.focused && a.text_focused());
+    a.ui.find.set_text("foo");
+    a.command(C::FindInTabs);
+    // The key that searched gave the panel the keyboard, on the first match.
+    assert!(a.ui.results.open && a.ui.results.focused && !a.text_focused());
+    assert_eq!(a.ui.results.selected, Some(1));
+    // A letter goes nowhere; Down and Up move by match rows and stop at the ends.
+    let before = a.docs.active_ready().unwrap().buffer.rope().to_string();
+    press(&mut a, KeyName::Char('x'), Some("x"));
+    assert_eq!(
+        a.docs.active_ready().unwrap().buffer.rope().to_string(),
+        before
+    );
+    press(&mut a, KeyName::Down, None);
+    assert_eq!(a.ui.results.selected, Some(2));
+    press(&mut a, KeyName::Down, None);
+    press(&mut a, KeyName::Down, None);
+    assert_eq!(a.ui.results.selected, Some(3));
+    press(&mut a, KeyName::Up, None);
+    press(&mut a, KeyName::Home, None);
+    assert_eq!(a.ui.results.selected, Some(1));
+    press(&mut a, KeyName::End, None);
+    assert_eq!(a.ui.results.selected, Some(3));
+    // The panel has no height here, so a page is one row.
+    press(&mut a, KeyName::PageUp, None);
+    assert_eq!(a.ui.results.selected, Some(2));
+    press(&mut a, KeyName::PageDown, None);
+    assert_eq!(a.ui.results.selected, Some(3));
+    // Moving only highlights: the text's caret has not moved.
+    assert_eq!(a.docs.active_ready().unwrap().view.sel.caret, 0);
+    // Enter opens the match (the third "foo", line 5) and the keyboard goes to the text.
+    press(&mut a, KeyName::Up, None);
+    press(&mut a, KeyName::Enter, None);
+    let r = a.docs.active_ready().unwrap();
+    assert_eq!((r.view.sel.anchor, r.view.sel.caret), (8, 11));
+    assert!(!a.ui.results.focused && a.text_focused());
+    // F6 brings the keyboard back to the row last gone to; Escape returns it to the text and
+    // leaves the panel open.
+    a.command(C::FocusResults);
+    assert!(a.ui.results.focused && a.ui.results.selected == Some(2));
+    press(&mut a, KeyName::Escape, None);
+    assert!(a.ui.results.open && !a.ui.results.focused && a.text_focused());
+    // Typing in the find box takes the keyboard from the panel, and a closed panel loses it.
+    a.command(C::FocusResults);
+    a.command(C::Find);
+    assert!(a.ui.find_focused && !a.ui.results.focused);
+    a.command(C::FocusResults);
+    assert!(a.ui.results.focused && !a.ui.find_focused);
+    a.command(C::CloseResults);
+    assert!(!a.ui.results.focused && a.text_focused());
+    let _ = std::fs::remove_dir_all(&dir);
+}

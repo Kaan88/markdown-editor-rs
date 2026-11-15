@@ -28,7 +28,7 @@ pub const RESULTS_TEXT_MIN: f32 = 140.0;
 /// The panel's title row.
 const HEAD: f32 = 34.0;
 /// A row of the list and the part of it that is filled.
-const ROW: f32 = 25.0;
+pub const ROW: f32 = 25.0;
 const ROW_H: f32 = 23.0;
 /// Matches kept of one open tab.
 pub const TAB_HITS_MAX: usize = 2000;
@@ -41,6 +41,18 @@ const WAKE_EVERY: Duration = Duration::from_millis(40);
 /// What was found in one open tab: its id, name and file, the matches, and whether there were
 /// more.
 pub type TabHits = (DocId, String, Option<PathBuf>, Vec<Found>, bool);
+
+/// A key that moves the row the keyboard is on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Nav {
+    Up,
+    Down,
+    Home,
+    End,
+    /// A page, in rows.
+    PageUp(usize),
+    PageDown(usize),
+}
 
 pub enum Row {
     /// A file with matches: where it is, or the open tab it is (a new document has no file).
@@ -81,8 +93,10 @@ pub struct Results {
     pub scroll: f32,
     pub content: f32,
     pub view: f32,
-    /// The row last gone to.
+    /// The row last gone to, or the one the keyboard is on.
     pub selected: Option<usize>,
+    /// The panel has the keyboard: Up, Down, Enter and Escape act on its rows.
+    pub focused: bool,
     /// Counts every change of what the panel shows.
     pub generation: u64,
     root: PathBuf,
@@ -109,6 +123,7 @@ impl Default for Results {
             content: 0.0,
             view: 0.0,
             selected: None,
+            focused: false,
             generation: 0,
             root: PathBuf::new(),
             replace: Default::default(),
@@ -266,7 +281,46 @@ impl Results {
             };
         }
         self.open = false;
+        self.focused = false;
         self.generation += 1;
+    }
+
+    /// Gives the panel the keyboard, or takes it away.
+    pub fn set_focus(&mut self, on: bool) {
+        if self.focused != on {
+            self.focused = on;
+            self.generation += 1;
+        }
+    }
+
+    /// The match row a navigation key leads to from the selected row (none selected: the key
+    /// leads from before the first for the forward keys and after the last for the others),
+    /// without going round. None when there is no match row in that direction.
+    pub fn nav(&self, nav: Nav) -> Option<usize> {
+        let n = self.rows.len();
+        let is_hit = |i: &usize| matches!(self.rows[*i], Row::Hit(_));
+        let from = self.selected.filter(|s| *s < n);
+        let down = |start: usize| (start..n).find(is_hit);
+        let up = |end: usize| (0..end.min(n)).rev().find(is_hit);
+        match (nav, from) {
+            (Nav::Home, _) => down(0),
+            (Nav::End, _) => up(n),
+            (Nav::Down, Some(s)) => down(s + 1).or(Some(s).filter(is_hit)),
+            (Nav::Down, None) => down(0),
+            (Nav::Up, Some(s)) => up(s).or(Some(s).filter(is_hit)),
+            (Nav::Up, None) => up(n),
+            // A page moves that many rows (file rows count), then lands on the nearest match.
+            (Nav::PageDown(k), s) => {
+                let t = s
+                    .map_or(k.saturating_sub(1), |s| s + k)
+                    .min(n.saturating_sub(1));
+                down(t).or_else(|| up(n))
+            }
+            (Nav::PageUp(k), s) => {
+                let t = s.map_or(n, |s| s.saturating_sub(k));
+                up(t + 1).or_else(|| down(0))
+            }
+        }
     }
 
     /// The match row after the selected one (before it when not `forward`), going round.
@@ -376,7 +430,13 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
     let px = c.p.px();
-    c.p.fill(Rect::new(r.x, r.y, r.w, px), pal.line);
+    // The panel's top line shows who has the keyboard.
+    let top = if ui.results.focused {
+        pal.accent
+    } else {
+        pal.line
+    };
+    c.p.fill(Rect::new(r.x, r.y, r.w, px), top);
     let search_done = matches!(ui.results.state, State::Done { .. }) && ui.results.files > 0;
     let controls = crate::replace_ui::draw_head(c, ui, r, search_done);
     let res = &mut ui.results;
@@ -559,6 +619,51 @@ mod tests {
         assert!(res.title().contains("3 matches in 2 files"));
         res.close();
         assert!(!res.open);
+    }
+
+    #[test]
+    fn navigation_keys_land_on_match_rows_and_stop_at_the_ends() {
+        let mut res = Results::default();
+        assert_eq!(res.nav(Nav::Down), None);
+        res.set_tabs(
+            "x",
+            vec![
+                (
+                    1,
+                    "a".into(),
+                    None,
+                    found(
+                        "x
+.x
+", "x",
+                    ),
+                    false,
+                ),
+                (3, "b".into(), None, found("..x", "x"), false),
+            ],
+            false,
+        );
+        // Rows: 0 file, 1 hit, 2 hit, 3 file, 4 hit.
+        assert_eq!(res.nav(Nav::Down), Some(1));
+        assert_eq!(res.nav(Nav::Up), Some(4));
+        assert_eq!(res.nav(Nav::Home), Some(1));
+        assert_eq!(res.nav(Nav::End), Some(4));
+        res.selected = Some(2);
+        assert_eq!(res.nav(Nav::Down), Some(4));
+        assert_eq!(res.nav(Nav::Up), Some(1));
+        res.selected = Some(4);
+        assert_eq!(res.nav(Nav::Down), Some(4));
+        res.selected = Some(1);
+        assert_eq!(res.nav(Nav::Up), Some(1));
+        assert_eq!(res.nav(Nav::PageDown(1)), Some(2));
+        assert_eq!(res.nav(Nav::PageDown(2)), Some(4));
+        assert_eq!(res.nav(Nav::PageDown(50)), Some(4));
+        res.selected = Some(4);
+        assert_eq!(res.nav(Nav::PageUp(1)), Some(2));
+        assert_eq!(res.nav(Nav::PageUp(50)), Some(1));
+        // A selected row gone stale after a new search does not break it.
+        res.selected = Some(99);
+        assert_eq!(res.nav(Nav::Down), Some(1));
     }
 
     #[test]

@@ -788,6 +788,7 @@ impl Ui {
     pub fn focus_field(&mut self, field: BarField) {
         self.field = field;
         self.find_focused = true;
+        self.results.set_focus(false);
     }
 
     /// Hides the replace strip; the keyboard goes back to the text if its box had it.

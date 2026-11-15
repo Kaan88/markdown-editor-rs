@@ -181,6 +181,12 @@ impl App {
                 !matches!(app.ui.results.state, State::Running { .. })
             });
         }
+        if a.results_focus {
+            self.focus_results();
+            if let Some(row) = self.ui.results.nav(crate::results::Nav::Down) {
+                self.ui.results.select(row);
+            }
+        }
         if let Some(text) = &a.results_replace {
             self.ui.results.replace.field.set_text(text);
         }

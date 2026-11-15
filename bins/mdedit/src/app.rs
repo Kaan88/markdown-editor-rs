@@ -473,6 +473,7 @@ impl App {
     /// The caret shows: the text has the keyboard and the window has focus.
     fn text_focused(&self) -> bool {
         !self.ui.find_focused
+            && !self.ui.results.focused
             && self.ui.dialog.is_none()
             && !self.palette_open()
             && self.docs.active_ready().is_some()

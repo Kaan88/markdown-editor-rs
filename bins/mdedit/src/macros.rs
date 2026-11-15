@@ -550,6 +550,7 @@ pub fn recordable(id: C) -> bool {
             | C::MakeDefault
             | C::ToggleSplit
             | C::FocusOther
+            | C::FocusResults
             | C::ToggleFiles
             | C::ToggleOutline
             | C::FindInFiles

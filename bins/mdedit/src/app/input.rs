@@ -629,6 +629,12 @@ impl App {
         ) {
             self.ui.find_focused = false;
         }
+        // A press in the results panel (or on its edge) gives it the keyboard, except in its
+        // replacement box, which is a box of the bar; a press anywhere else takes it away.
+        let in_panel = (hit.region() == Some(crate::ui::Region::Results)
+            && hit != Hit::ResultsReplace)
+            || hit == Hit::ResultsEdge;
+        self.ui.results.set_focus(in_panel);
         let clicks = self.click_count(x, y);
         self.redraw();
         match hit {
@@ -1153,6 +1159,13 @@ impl App {
         if self.ui.find_focused
             && let Some(n) = &name
             && self.find_key(n, mods, typed)
+        {
+            return;
+        }
+        if self.ui.results.focused
+            && !self.ui.find_focused
+            && let Some(n) = &name
+            && self.results_key(n, mods)
         {
             return;
         }

@@ -189,6 +189,8 @@ pub struct Args {
     pub copy_change: Option<bool>,
     /// `--find-in-files`: search the folder for the find text now, and wait for the answer.
     pub find_in_files: bool,
+    /// `--results-focus`: the results panel has the keyboard, on its second match.
+    pub results_focus: bool,
     /// The results panel's replacement box starts with this text.
     pub results_replace: Option<String>,
     /// Plan the replacement in files and show the confirmation, or apply it and show the report.
@@ -362,6 +364,7 @@ impl Args {
                     }
                 }
                 "--find-in-files" => out.find_in_files = true,
+                "--results-focus" => out.results_focus = true,
                 "--results-replace" => out.results_replace = value(&a),
                 "--replace-dialog" => out.replace_dialog = true,
                 "--replace-report" => out.replace_report = true,
@@ -539,9 +542,10 @@ mod tests {
         assert_eq!(parse("--copy-change across a.rs").copy_change, Some(true));
         assert_eq!(parse("--copy-change take a.rs").copy_change, Some(false));
         assert_eq!(parse("--copy-change a.rs").copy_change, None);
-        let a =
-            parse("--find-in-files --results-replace new --replace-dialog --replace-report a.rs");
-        assert!(a.find_in_files && a.replace_dialog && a.replace_report);
+        let a = parse(
+            "--find-in-files --results-focus --results-replace new --replace-dialog --replace-report a.rs",
+        );
+        assert!(a.find_in_files && a.results_focus && a.replace_dialog && a.replace_report);
         assert_eq!(a.results_replace.as_deref(), Some("new"));
     }
 

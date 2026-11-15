@@ -94,7 +94,11 @@ impl App {
                 }
             }
             Hit::OutlineFiles => self.command(C::ToggleFiles),
-            Hit::ResultsRow(i) => self.go_to_result(i),
+            Hit::ResultsRow(i) => {
+                self.go_to_result(i);
+                // A click leaves the keyboard in the panel, for Up and Down from that row.
+                self.ui.results.set_focus(true);
+            }
             Hit::ResultsClose => self.ui.results.close(),
             Hit::ResultsReplaceAll => self.replace_all_in_files(),
             Hit::ResultsUndo => self.replace_undo(),
@@ -242,6 +246,73 @@ impl App {
         self.ui.results.set_tabs(query.text(), tabs, left_out);
     }
 
+    /// Gives the keyboard to the results panel; the row the keyboard is on is the last one gone
+    /// to, or the first match.
+    pub(super) fn focus_results(&mut self) {
+        if !self.ui.results.open {
+            return;
+        }
+        self.ui.find_focused = false;
+        self.ui.results.set_focus(true);
+        if self.ui.results.selected.is_none()
+            && let Some(row) = self.ui.results.step(true)
+        {
+            self.ui.results.select(row);
+        }
+    }
+
+    /// Keys for the results panel while it has the keyboard. True when the key was used; the
+    /// shortcuts (F4, Ctrl+F and the rest) are left to the commands.
+    pub(super) fn results_key(&mut self, name: &crate::keys::KeyName, mods: Mods) -> bool {
+        use crate::keys::KeyName;
+        use crate::results::Nav;
+        if mods.ctrl || mods.alt {
+            return false;
+        }
+        let page = (self.ui.results.view / crate::results::ROW)
+            .floor()
+            .max(1.0) as usize;
+        let nav = match name {
+            KeyName::Up => Nav::Up,
+            KeyName::Down => Nav::Down,
+            KeyName::Home => Nav::Home,
+            KeyName::End => Nav::End,
+            KeyName::PageUp => Nav::PageUp(page),
+            KeyName::PageDown => Nav::PageDown(page),
+            KeyName::Enter => {
+                // The match opens and the keyboard goes back to the text, to edit there.
+                if let Some(row) = self
+                    .ui
+                    .results
+                    .selected
+                    .or_else(|| self.ui.results.step(true))
+                {
+                    self.go_to_result(row);
+                }
+                return true;
+            }
+            // As in the find box: the keyboard goes back to the text.
+            KeyName::Escape => {
+                self.ui.results.set_focus(false);
+                self.caret_reset();
+                return true;
+            }
+            // Keys of the text that the panel keeps from it.
+            KeyName::Left
+            | KeyName::Right
+            | KeyName::Backspace
+            | KeyName::Delete
+            | KeyName::Tab => {
+                return true;
+            }
+            _ => return false,
+        };
+        if let Some(row) = self.ui.results.nav(nav) {
+            self.ui.results.select(row);
+        }
+        true
+    }
+
     /// Opens the file or tab of a row of the results and selects the match there.
     fn go_to_result(&mut self, row: usize) {
         let Some((path, doc, range)) = self.ui.results.target(row) else {
@@ -268,6 +339,7 @@ impl App {
         self.ui.results.select(row);
         self.docs.select_in(i, range);
         self.ui.find_focused = false;
+        self.ui.results.set_focus(false);
         self.caret_reset();
     }
 
@@ -1320,8 +1392,19 @@ impl App {
                     self.docs.find_step_scoped(true);
                 }
             }
-            C::FindInFiles => self.find_in_files(),
-            C::FindInTabs => self.find_in_tabs(),
+            C::FindInFiles | C::FindInTabs => {
+                if id == C::FindInFiles {
+                    self.find_in_files();
+                } else {
+                    self.find_in_tabs();
+                }
+                // The answer is what the key was for: the panel takes the keyboard, unless the
+                // search could not start and the find box was asked for its text instead.
+                if self.ui.results.open && !self.ui.find_focused {
+                    self.focus_results();
+                }
+            }
+            C::FocusResults => self.focus_results(),
             C::NextResult | C::PreviousResult => match self.ui.results.step(id == C::NextResult) {
                 Some(row) => self.go_to_result(row),
                 None => self.docs.set_toast(strings::NO_RESULTS),
