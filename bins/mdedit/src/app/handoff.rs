@@ -920,6 +920,61 @@ mod tests {
         a.docs.links.finish();
     }
 
+    #[test]
+    fn the_caret_in_a_long_line_tells_the_viewer_how_far_along_it_is() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("hand-column");
+        let rx = viewer(&dir);
+        let got = || rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let quiet = || rx.recv_timeout(Duration::from_millis(300)).is_err();
+        // Line 3 is one paragraph written as a single line, with letters of two bytes in it.
+        let long = "d\u{fc}\u{15f}\u{fc}nce ".repeat(200);
+        let path = dir.join("long.md");
+        std::fs::write(&path, format!("# Title\n\n{long}\n\nend\n")).unwrap();
+        let mut a = app();
+        let i = open_now(&mut a, &path);
+        let id = a.docs.tabs[i].id;
+        let t0 = Instant::now();
+        let later = |ms: u64| t0 + Duration::from_millis(ms);
+        let canonical = canonical_or_absolute(&path);
+        (a.docs.links).link(id, canonical.clone().into(), Some(1), None, t0);
+        a.docs.links.start(a.docs.waker());
+        // Onto the long line, far along it: the line and the caret's byte in it, from 1.
+        a.docs.go_to(3, 1101);
+        a.docs.link_poll(later(500));
+        let r = got();
+        assert!(r.follow && r.text.is_none() && r.path == canonical);
+        assert_eq!((r.line, r.column), (Some(3), Some(1101)));
+        // A few letters on nothing is sent; a stretch further on, the new place.
+        a.docs.go_to(3, 1111);
+        a.docs.link_poll(later(1000));
+        assert!(quiet());
+        a.docs.go_to(3, 1101 + 2 * link::COLUMN_STEP as usize);
+        a.docs.link_poll(later(1500));
+        assert_eq!(got().column, Some(1101 + 2 * link::COLUMN_STEP));
+        // Typing there sends the text with the place the caret is left at.
+        a.docs.prefs.live_preview = true;
+        a.docs.edit(crate::docs::EditOp::Insert("xy"), None);
+        a.docs.link_poll(later(2000));
+        let r = got();
+        assert!(r.text.is_some_and(|t| t.contains("xy")));
+        assert_eq!(r.column, Some(1101 + 2 * link::COLUMN_STEP + 2));
+        // What the viewer asks for ("Edit in mdedit" from a row inside the paragraph) puts
+        // the caret at that byte of the line.
+        a.handed_over(vec![Request {
+            line: Some(3),
+            column: Some(13),
+            from: Some("mdview".into()),
+            ..Request::new(&path)
+        }]);
+        let r = a.docs.active_ready().unwrap();
+        assert_eq!(r.view.sel.caret - r.buffer.line_range(2).start, 12);
+        a.docs.links.unlink(id);
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A viewer of before documents without a file: it answers `ok` to whatever it is sent and
     /// does nothing. The guard keeps what makes it count as running.
     fn old_viewer(dir: &Path) -> impl Sized {
