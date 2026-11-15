@@ -40,6 +40,9 @@ pub enum BarField {
     Goto,
     /// The results panel's replacement box.
     ResultsReplace,
+    /// The results panel's boxes for the folder and the kinds of file a search looks in.
+    ResultsFolder,
+    ResultsKinds,
 }
 
 impl BarField {
@@ -48,6 +51,8 @@ impl BarField {
             BarField::Find | BarField::Goto => Hit::Find,
             BarField::Replace => Hit::Replace,
             BarField::ResultsReplace => Hit::ResultsReplace,
+            BarField::ResultsFolder => Hit::ResultsFolder,
+            BarField::ResultsKinds => Hit::ResultsKinds,
         }
     }
 }
@@ -169,6 +174,8 @@ pub enum Hit {
     ResultsEdge,
     /// The panel's replacement box and its buttons (replace in files).
     ResultsReplace,
+    ResultsFolder,
+    ResultsKinds,
     ResultsReplaceAll,
     ResultsUndo,
     ResultsCancel,
@@ -230,6 +237,8 @@ impl Hit {
             Hit::ResultsRow(_)
             | Hit::ResultsClose
             | Hit::ResultsReplace
+            | Hit::ResultsFolder
+            | Hit::ResultsKinds
             | Hit::ResultsReplaceAll
             | Hit::ResultsUndo
             | Hit::ResultsCancel
@@ -277,6 +286,8 @@ impl Hit {
                 | Hit::Find
                 | Hit::Replace
                 | Hit::ResultsReplace
+                | Hit::ResultsFolder
+                | Hit::ResultsKinds
                 | Hit::Tab(_)
                 | Hit::DlgCard
         )
@@ -743,6 +754,8 @@ impl Ui {
             BarField::Replace => &self.replace,
             BarField::Goto => &self.goto,
             BarField::ResultsReplace => &self.results.replace.field,
+            BarField::ResultsFolder => &self.results.folder,
+            BarField::ResultsKinds => &self.results.kinds,
         }
     }
 
@@ -757,6 +770,8 @@ impl Ui {
             BarField::Replace => &self.replace,
             BarField::Goto => &self.goto,
             BarField::ResultsReplace => &self.results.replace.field,
+            BarField::ResultsFolder => &self.results.folder,
+            BarField::ResultsKinds => &self.results.kinds,
         }
     }
 
@@ -781,6 +796,8 @@ impl Ui {
             BarField::Replace => &mut self.replace,
             BarField::Goto => &mut self.goto,
             BarField::ResultsReplace => &mut self.results.replace.field,
+            BarField::ResultsFolder => &mut self.results.folder,
+            BarField::ResultsKinds => &mut self.results.kinds,
         }
     }
 

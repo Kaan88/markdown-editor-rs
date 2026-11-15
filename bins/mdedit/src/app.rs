@@ -945,6 +945,18 @@ impl App {
                     (ui.find_focused && ui.field == BarField::ResultsReplace)
                         .then_some(ui.caret_on),
                     ui.results.replace.field.caret(),
+                    (
+                        ui.find_focused
+                            && matches!(ui.field, BarField::ResultsFolder | BarField::ResultsKinds),
+                        ui.field,
+                        ui.caret_on,
+                    ),
+                    (
+                        ui.results.folder.text(),
+                        ui.results.folder.caret(),
+                        ui.results.kinds.text(),
+                        ui.results.kinds.caret(),
+                    ),
                 ))
             }
         }
@@ -1735,6 +1747,7 @@ impl App {
                 (self.ui.match_case, self.ui.whole_word, self.ui.regex),
                 self.ui.find_recall.items(),
                 self.ui.replace_recall.items(),
+                (self.ui.results.folder.text(), self.ui.results.kinds.text()),
             ),
         ))
     }
@@ -1810,6 +1823,8 @@ impl App {
         // The function list is not kept: the pane comes back with the Files tree, or not at all.
         s.files = Some(self.ui.panes.files && !self.ui.outline.on);
         s.files_w = Some(self.ui.panes.files_w.round() as u32);
+        s.find_folder = self.ui.results.folder.text().to_string();
+        s.find_kinds = self.ui.results.kinds.text().to_string();
         s.folder = self.docs.folder.clone();
         if let Err(e) = s.save(&path) {
             eprintln!("mdedit: could not save the session: {e}");
@@ -2864,6 +2879,8 @@ pub fn run() -> i32 {
     if let Some(w) = app.session.files_w {
         app.ui.panes.files_w = (w as f32).clamp(PANE_MIN, PANE_MAX);
     }
+    app.ui.results.folder.set_text(&app.session.find_folder);
+    app.ui.results.kinds.set_text(&app.session.find_kinds);
     if let Some(h) = app.session.results_h {
         app.ui.results.height = (h as f32).max(crate::results::RESULTS_MIN_H);
     }

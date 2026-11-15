@@ -174,6 +174,84 @@ pub enum Event {
     },
 }
 
+/// Which file names a search of a folder looks in: a list of patterns such as
+/// `*.md;*.txt` (`*` is any run of characters, `?` any one; case does not matter; a name is
+/// compared, not a path). A pattern starting with `.` and nothing else special, like `.md`, means
+/// `*.md`. A pattern starting with `!` leaves names out: `*.rs;!*_test.rs`. No pattern for
+/// inclusion means every name.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NameFilter {
+    include: Vec<Vec<char>>,
+    exclude: Vec<Vec<char>>,
+}
+
+impl NameFilter {
+    /// Reads patterns separated by `;` or `,`.
+    pub fn parse(text: &str) -> NameFilter {
+        let mut f = NameFilter::default();
+        for part in text.split([';', ',']) {
+            let part = part.trim();
+            let (out, part) = match part.strip_prefix('!') {
+                Some(rest) => (true, rest.trim()),
+                None => (false, part),
+            };
+            if part.is_empty() {
+                continue;
+            }
+            let mut p: String = part.to_lowercase();
+            if p.starts_with('.') && !p.contains(['*', '?']) {
+                p.insert(0, '*');
+            }
+            let p: Vec<char> = p.chars().collect();
+            if out {
+                f.exclude.push(p);
+            } else {
+                f.include.push(p);
+            }
+        }
+        f
+    }
+
+    /// True when it lets every name through.
+    pub fn is_empty(&self) -> bool {
+        self.include.is_empty() && self.exclude.is_empty()
+    }
+
+    pub fn matches(&self, name: &str) -> bool {
+        let n: Vec<char> = name.to_lowercase().chars().collect();
+        (self.include.is_empty() || self.include.iter().any(|p| glob(p, &n)))
+            && !self.exclude.iter().any(|p| glob(p, &n))
+    }
+
+    /// Whether the file name of `path` passes.
+    pub fn matches_path(&self, path: &Path) -> bool {
+        path.file_name()
+            .is_some_and(|n| self.matches(&n.to_string_lossy()))
+    }
+}
+
+/// `*` and `?` matching of `name` against `pat`, without backtracking beyond the last star.
+fn glob(pat: &[char], name: &[char]) -> bool {
+    let (mut p, mut n) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while n < name.len() {
+        if p < pat.len() && (pat[p] == '?' || pat[p] == name[n]) {
+            p += 1;
+            n += 1;
+        } else if p < pat.len() && pat[p] == '*' {
+            star = Some((p, n));
+            p += 1;
+        } else if let Some((sp, sn)) = star {
+            p = sp + 1;
+            n = sn + 1;
+            star = Some((sp, sn + 1));
+        } else {
+            return false;
+        }
+    }
+    pat[p..].iter().all(|c| *c == '*')
+}
+
 /// Folders never searched.
 const SKIPPED_DIRS: [&str; 3] = [".git", "node_modules", "target"];
 
@@ -181,6 +259,8 @@ struct Walk<'a> {
     query: &'a Query,
     load: &'a LoadOptions,
     opts: &'a TreeOptions,
+    /// Only files whose names pass are searched.
+    filter: Option<&'a NameFilter>,
     cancel: &'a AtomicBool,
     sink: &'a mut dyn FnMut(Event),
     files: usize,
@@ -224,7 +304,7 @@ impl Walk<'_> {
                 if !SKIPPED_DIRS.contains(&name.as_str()) {
                     dirs.push((key, path));
                 }
-            } else if is_file {
+            } else if is_file && self.filter.is_none_or(|f| f.matches(&name)) {
                 files.push((key, path));
             }
         }
@@ -322,10 +402,25 @@ pub fn in_tree(
     cancel: &AtomicBool,
     sink: &mut dyn FnMut(Event),
 ) {
+    in_tree_named(root, query, load, opts, None, cancel, sink);
+}
+
+/// `in_tree` that looks only in the files of a folder whose names pass `filter` (a `root` that
+/// is itself a file is searched whatever its name).
+pub fn in_tree_named(
+    root: &Path,
+    query: &Query,
+    load: &LoadOptions,
+    opts: &TreeOptions,
+    filter: Option<&NameFilter>,
+    cancel: &AtomicBool,
+    sink: &mut dyn FnMut(Event),
+) {
     let mut walk = Walk {
         query,
         load,
         opts,
+        filter,
         cancel,
         sink,
         files: 0,
@@ -444,6 +539,73 @@ mod tests {
 
     fn run(text: &str, query: &Query, cap: usize) -> (Vec<Hit>, bool) {
         in_buffer(&Buffer::from_text(text), query, cap, &no_cancel())
+    }
+
+    #[test]
+    fn name_filters_match_globs_case_blind_with_exclusions() {
+        let f = NameFilter::parse("*.md; *.TXT , .rs");
+        assert!(!f.is_empty());
+        for yes in ["a.md", "A.MD", "notes.txt", "lib.rs", ".md", "a.b.md"] {
+            assert!(f.matches(yes), "{yes}");
+        }
+        for no in ["a.mdx", "md", "a.rs.bak", "Makefile"] {
+            assert!(!f.matches(no), "{no}");
+        }
+        let f = NameFilter::parse("*.rs;!*_test.rs");
+        assert!(f.matches("a.rs") && !f.matches("a_test.rs") && !f.matches("a.md"));
+        // Only exclusions: everything else passes.
+        let f = NameFilter::parse("!*.min.js");
+        assert!(f.matches("a.js") && !f.matches("a.min.js"));
+        // ? is one character; an exact name; empty and stray separators mean no filter.
+        let f = NameFilter::parse("a?c.txt;Makefile");
+        assert!(f.matches("abc.txt") && !f.matches("ac.txt") && f.matches("makefile"));
+        for blank in ["", "  ", ";;", " ; , "] {
+            let f = NameFilter::parse(blank);
+            assert!(f.is_empty() && f.matches("anything"), "{blank:?}");
+        }
+        assert!(NameFilter::parse("*.md").matches_path(Path::new("C:/x/y/z.md")));
+        assert!(!NameFilter::parse("*.md").matches_path(Path::new("C:/x/y.md/z.txt")));
+    }
+
+    #[test]
+    fn a_tree_search_looks_only_in_the_files_that_pass_the_filter() {
+        let dir = std::env::temp_dir().join(format!("mdedit-namefilter-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("a.md"), "needle\n").unwrap();
+        fs::write(dir.join("b.txt"), "needle\n").unwrap();
+        fs::write(dir.join("sub").join("c.md"), "needle\n").unwrap();
+        fs::write(dir.join("sub").join("d.rs"), "needle\n").unwrap();
+        let query = plain("needle");
+        let load = LoadOptions::default();
+        let names = |filter: Option<&NameFilter>| {
+            let mut found = Vec::new();
+            in_tree_named(
+                &dir,
+                &query,
+                &load,
+                &TreeOptions::default(),
+                filter,
+                &no_cancel(),
+                &mut |e| {
+                    if let Event::File { path, .. } = e {
+                        found.push(path.file_name().unwrap().to_string_lossy().into_owned());
+                    }
+                },
+            );
+            found
+        };
+        assert_eq!(names(None), ["a.md", "b.txt", "c.md", "d.rs"]);
+        assert_eq!(names(Some(&NameFilter::parse("*.md"))), ["a.md", "c.md"]);
+        assert_eq!(
+            names(Some(&NameFilter::parse("*.md;*.rs"))),
+            ["a.md", "c.md", "d.rs"]
+        );
+        assert_eq!(
+            names(Some(&NameFilter::parse("*.zip"))),
+            Vec::<String>::new()
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

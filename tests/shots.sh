@@ -120,6 +120,7 @@ shot fold-dark --dark --wrap --whitespace --size 520x600 --fold 10 --fold 17 "$f
 shot results --light --find self --find-in-tabs "$fx/sample.rs" "$fx/sample.md"
 shot results-dark --dark --find the --find-in-tabs "$fx/sample.md" "$fx/sample.rs"
 shot results-focus --light --find self --find-in-tabs --results-focus "$fx/sample.rs" "$fx/sample.md"
+shot results-scope --light --folder "$fx" --find the --find-in-files --results-kinds "*.md;*.txt" "$fx/sample.md"
 shot outline --light --outline --goto 30:1 "$fx/sample.rs"
 shot outline-dark --dark --outline "$fx/sample.md"
 shot outline-md --light --outline --goto 20:1 "$fx/sample.md"

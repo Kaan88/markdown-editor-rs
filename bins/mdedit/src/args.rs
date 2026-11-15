@@ -189,6 +189,9 @@ pub struct Args {
     pub copy_change: Option<bool>,
     /// `--find-in-files`: search the folder for the find text now, and wait for the answer.
     pub find_in_files: bool,
+    /// `--results-folder` and `--results-kinds`: what the results panel's boxes hold.
+    pub results_folder: Option<String>,
+    pub results_kinds: Option<String>,
     /// `--results-focus`: the results panel has the keyboard, on its second match.
     pub results_focus: bool,
     /// The results panel's replacement box starts with this text.
@@ -365,6 +368,8 @@ impl Args {
                 }
                 "--find-in-files" => out.find_in_files = true,
                 "--results-focus" => out.results_focus = true,
+                "--results-folder" => out.results_folder = value(&a),
+                "--results-kinds" => out.results_kinds = value(&a),
                 "--results-replace" => out.results_replace = value(&a),
                 "--replace-dialog" => out.replace_dialog = true,
                 "--replace-report" => out.replace_report = true,

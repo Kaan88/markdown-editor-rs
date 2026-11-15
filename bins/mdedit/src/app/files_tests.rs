@@ -1104,3 +1104,58 @@ fn results_of_an_edited_tab_are_stale_at_once_and_true_again_after_a_search() {
     assert_eq!(a.results_sync(now), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_results_panel_searches_the_folder_and_kinds_typed_in_its_boxes() {
+    let dir = scratch("results-scope");
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::write(dir.join("a.md"), "needle\n").unwrap();
+    std::fs::write(dir.join("b.txt"), "needle\n").unwrap();
+    std::fs::write(dir.join("sub").join("c.txt"), "needle\n").unwrap();
+    let mut a = app();
+    a.set_folder(dir.clone());
+    open_now(&mut a, &dir.join("a.md"));
+    a.ui.find.set_text("needle");
+    let done = |a: &App| matches!(a.ui.results.state, crate::results::State::Done { .. });
+    let names = |a: &App| {
+        a.ui.results
+            .rows
+            .iter()
+            .filter_map(|r| match r {
+                crate::results::Row::File { name, .. } => Some(name.replace('\\', "/")),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    // Boxes empty: the open folder, every file.
+    a.find_in_files();
+    pump(&mut a, done);
+    assert_eq!(names(&a), ["a.md", "b.txt", "sub/c.txt"]);
+    assert!(a.ui.results.scope_shown());
+    // Kinds typed in its box; Enter there searches again and the panel takes the keyboard.
+    a.ui.focus_field(BarField::ResultsKinds);
+    a.ui.results.kinds.set_text("*.txt");
+    press(&mut a, KeyName::Enter, None);
+    pump(&mut a, done);
+    assert_eq!(names(&a), ["b.txt", "sub/c.txt"]);
+    assert!(a.ui.results.focused && !a.ui.find_focused);
+    // A folder (relative to the open one) as well.
+    a.ui.results.folder.set_text("sub");
+    a.find_in_files();
+    pump(&mut a, done);
+    assert_eq!(names(&a), ["c.txt"]);
+    // One that is not there: nothing is searched, and the old rows stay.
+    a.ui.results.folder.set_text("nowhere");
+    a.find_in_files();
+    assert_eq!(names(&a), ["c.txt"]);
+    // The boxes keep what was typed for the next search, and the replacement uses the same files.
+    assert_eq!(a.ui.results.kinds.text(), "*.txt");
+    assert!(
+        a.ui.results
+            .replace
+            .searched
+            .as_ref()
+            .is_some_and(|s| !s.filter.is_empty())
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

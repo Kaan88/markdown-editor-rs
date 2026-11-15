@@ -9,11 +9,12 @@ use crate::docs::Waker;
 use crate::ui::{Drag, Hit, Scroller, Ui};
 use mdedit_core::find::Query;
 use mdedit_core::load::LoadOptions;
-use mdedit_core::search::{self, Event, Hit as Found, TreeOptions};
+use mdedit_core::search::{self, Event, Hit as Found, NameFilter, TreeOptions};
 use mdedit_highlight::DocId;
 use mdshared_ui::gfx::{Face, Rect, mix};
 use mdshared_ui::pane::draw_row_fill;
 use mdshared_ui::scroll::{draw_scrollbar, scrollbar};
+use mdshared_ui::textfield::TextField;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,8 @@ pub const RESULTS_MIN_H: f32 = 110.0;
 pub const RESULTS_TEXT_MIN: f32 = 140.0;
 /// The panel's title row.
 const HEAD: f32 = 34.0;
+/// The row under the title row with the boxes for the folder and the kinds of file.
+const SCOPE_H: f32 = 34.0;
 /// A row of the list and the part of it that is filled.
 pub const ROW: f32 = 25.0;
 const ROW_H: f32 = 23.0;
@@ -123,6 +126,11 @@ pub struct Results {
     pub hits: usize,
     pub files: usize,
     pub state: State,
+    /// The boxes of a folder search: the folder (empty: the open folder) and the kinds of file
+    /// (patterns like `*.md;*.txt`; empty: every file). They keep what was typed from one search
+    /// to the next.
+    pub folder: TextField,
+    pub kinds: TextField,
     /// What was looked for and where, for the title row.
     pub what: String,
     pub place: String,
@@ -165,6 +173,8 @@ impl Default for Results {
             hits: 0,
             files: 0,
             state: State::Idle,
+            folder: TextField::new(),
+            kinds: TextField::new(),
             what: String::new(),
             place: String::new(),
             height: RESULTS_H,
@@ -220,10 +230,23 @@ impl Results {
     }
 
     /// Starts a search of `root` on a worker thread.
-    pub fn start_tree(&mut self, root: &Path, query: Query, load: LoadOptions, waker: Waker) {
-        self.reset(query.text(), format!("in {}", short(root)));
+    pub fn start_tree(
+        &mut self,
+        root: &Path,
+        query: Query,
+        load: LoadOptions,
+        filter: NameFilter,
+        waker: Waker,
+    ) {
+        let place = if filter.is_empty() {
+            format!("in {}", short(root))
+        } else {
+            format!("in {} ({})", short(root), self.kinds.text().trim())
+        };
+        self.reset(query.text(), place);
         self.query = Some(query.clone());
-        self.replace.searched(root, query.clone(), load);
+        self.replace
+            .searched(root, query.clone(), load, filter.clone());
         self.root = root.to_path_buf();
         self.state = State::Running { files: 0 };
         let tx = Arc::new(Mutex::new(Vec::new()));
@@ -233,7 +256,8 @@ impl Results {
         std::thread::spawn(move || {
             let mut woke = Instant::now();
             let opts = TreeOptions::default();
-            search::in_tree(&root, &query, &load, &opts, &cancel, &mut |event| {
+            let named = (!filter.is_empty()).then_some(&filter);
+            search::in_tree_named(&root, &query, &load, &opts, named, &cancel, &mut |event| {
                 let done = matches!(event, Event::Done { .. });
                 tx.lock().unwrap().push(event);
                 if done || woke.elapsed() >= WAKE_EVERY {
@@ -692,9 +716,47 @@ pub fn dragged_height(want: f32, room: f32) -> f32 {
     want.clamp(RESULTS_MIN_H, max).round()
 }
 
-/// The list below the panel's title row.
-pub fn list(r: Rect) -> Rect {
-    Rect::new(r.x, r.y + HEAD, r.w, (r.h - HEAD).max(0.0))
+impl Results {
+    /// The row of boxes for the folder and the kinds shows after a search of a folder.
+    pub fn scope_shown(&self) -> bool {
+        self.replace.searched.is_some() && self.replace.outcome.is_none()
+    }
+
+    /// The list below the panel's title row (and the row of boxes, when it shows).
+    pub fn list_area(&self, r: Rect) -> Rect {
+        let top = HEAD + if self.scope_shown() { SCOPE_H } else { 0.0 };
+        Rect::new(r.x, r.y + top, r.w, (r.h - top).max(0.0))
+    }
+}
+
+/// The boxes of the folder and the kinds of file, under the title row.
+fn draw_scope(c: &mut Ctx, ui: &mut Ui, r: Rect) {
+    let (focus, on) = (ui.find_focused, ui.caret_on);
+    let which = ui.field;
+    let y = r.y + HEAD + 4.0;
+    let inner = (r.w - 32.0 - 8.0).max(0.0);
+    let fw = (inner * 0.6).round();
+    let folder = Rect::new(r.x + 16.0, y, fw, 26.0);
+    let kinds = Rect::new(folder.right() + 8.0, y, inner - fw, 26.0);
+    let res = &mut ui.results;
+    crate::chrome::draw_field(
+        c,
+        &mut res.folder,
+        focus && which == crate::ui::BarField::ResultsFolder,
+        on,
+        folder,
+        crate::ui::BarField::ResultsFolder,
+        false,
+    );
+    crate::chrome::draw_field(
+        c,
+        &mut res.kinds,
+        focus && which == crate::ui::BarField::ResultsKinds,
+        on,
+        kinds,
+        crate::ui::BarField::ResultsKinds,
+        false,
+    );
 }
 
 pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
@@ -710,6 +772,9 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
     c.p.fill(Rect::new(r.x, r.y, r.w, px), top);
     let search_done = matches!(ui.results.state, State::Done { .. }) && ui.results.files > 0;
     let controls = crate::replace_ui::draw_head(c, ui, r, search_done);
+    if ui.results.scope_shown() {
+        draw_scope(c, ui, r);
+    }
     let res = &mut ui.results;
     let title = res.title();
     c.p.text(
@@ -728,7 +793,7 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
     c.p.icon(glyph::CLOSE, 10.0, b.cx(), b.cy(), pal.muted);
     c.hit(Hit::ResultsClose, b);
 
-    let area = list(r);
+    let area = res.list_area(r);
     let shown_rows = res
         .replace
         .outcome
@@ -1101,6 +1166,38 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_search_keeps_to_the_kinds_of_file_chosen_and_says_so() {
+        let dir = std::env::temp_dir().join(format!("mdedit-kinds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "needle\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "needle\n").unwrap();
+        let load = LoadOptions {
+            legacy: mdedit_core::encoding::legacy_for_code_page(1252),
+            max_bytes: 1 << 20,
+            forced: None,
+        };
+        let mut res = Results::default();
+        assert!(!res.scope_shown());
+        res.kinds.set_text(" *.md ");
+        let filter = NameFilter::parse(res.kinds.text());
+        res.start_tree(&dir, query("needle"), load, filter, Arc::new(|_| {}));
+        // The boxes show once a folder was searched, and the title says what it looked in.
+        assert!(res.scope_shown());
+        assert!(res.title().contains("(*.md)"));
+        wait_refreshed(&mut res, |r| matches!(r.state, State::Done { .. }));
+        assert_eq!((res.files, res.hits), (1, 1));
+        assert!(matches!(&res.rows[0], Row::File { name, .. } if name == "a.md"));
+        // The replacement that follows plans from the same files.
+        let s = res.replace.searched.as_ref().unwrap();
+        assert!(s.filter.matches("a.md") && !s.filter.matches("b.txt"));
+        // A search of the open tabs has no folder: the boxes go.
+        res.set_tabs("x", Vec::new(), false);
+        assert!(!res.scope_shown());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_folder_is_searched_on_a_worker() {
         let dir = std::env::temp_dir().join(format!("mdedit-results-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1118,7 +1215,7 @@ mod tests {
             let _ = tx.send(());
         });
         let mut res = Results::default();
-        res.start_tree(&dir, query("needle"), load, waker);
+        res.start_tree(&dir, query("needle"), load, NameFilter::default(), waker);
         assert_eq!(res.state, State::Running { files: 0 });
         let until = Instant::now() + Duration::from_secs(20);
         while matches!(res.state, State::Running { .. }) && Instant::now() < until {
@@ -1148,7 +1245,13 @@ mod tests {
         assert_eq!(path, Some(dir.join("sub").join("two.txt")));
         assert_eq!((doc, range), (None, 8..14));
         // A new search drops the old rows; closing stops it.
-        res.start_tree(&dir, query("hay"), load, Arc::new(|_| {}));
+        res.start_tree(
+            &dir,
+            query("hay"),
+            load,
+            NameFilter::default(),
+            Arc::new(|_| {}),
+        );
         assert!(res.rows.is_empty() && res.selected.is_none());
         res.close();
         assert!(!res.poll());

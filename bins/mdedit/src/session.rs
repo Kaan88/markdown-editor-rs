@@ -209,6 +209,10 @@ pub struct Session {
     pub files_w: Option<u32>,
     /// The results panel's height, logical px, once the user dragged it.
     pub results_h: Option<u32>,
+    /// What the results panel's boxes for the folder and the kinds of file held; empty for
+    /// nothing typed.
+    pub find_folder: String,
+    pub find_kinds: String,
     pub folder: Option<PathBuf>,
     /// Look for a newer version at launch, at every launch.
     pub check_updates: bool,
@@ -239,6 +243,8 @@ impl Default for Session {
             files: None,
             files_w: None,
             results_h: None,
+            find_folder: String::new(),
+            find_kinds: String::new(),
             folder: None,
             check_updates: true,
             update_checked: 0,
@@ -322,6 +328,8 @@ impl Session {
                             .ok()
                             .filter(|h| (40..=4000).contains(h))
                     }
+                    "find_folder" => s.find_folder = unescape(value),
+                    "find_kinds" => s.find_kinds = unescape(value),
                     "folder" if !value.is_empty() => s.folder = Some(decode_path(value)),
                     "check_updates" => s.check_updates = value.trim() != "0",
                     "update_checked" => s.update_checked = value.trim().parse().unwrap_or(0),
@@ -396,6 +404,12 @@ impl Session {
         }
         if let Some(h) = self.results_h {
             out.line("results_h", &h.to_string());
+        }
+        if !self.find_folder.is_empty() {
+            out.line("find_folder", &escape(&self.find_folder));
+        }
+        if !self.find_kinds.is_empty() {
+            out.line("find_kinds", &escape(&self.find_kinds));
         }
         if let Some(f) = &self.folder {
             out.line("folder", &encode_path(f));
@@ -575,6 +589,8 @@ mod tests {
             files: Some(true),
             files_w: Some(300),
             results_h: Some(180),
+            find_folder: "C:/some dir/x=y".into(),
+            find_kinds: "*.md;*.txt;!a%b".into(),
             folder: Some(PathBuf::from("C:/proj")),
             ..Session::default()
         };

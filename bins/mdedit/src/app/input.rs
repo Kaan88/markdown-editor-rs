@@ -74,7 +74,15 @@ impl App {
             (Some(dir), _) => CursorIcon::from(dir),
             (
                 None,
-                Some(Hit::Text | Hit::Other | Hit::Find | Hit::Replace | Hit::ResultsReplace),
+                Some(
+                    Hit::Text
+                    | Hit::Other
+                    | Hit::Find
+                    | Hit::Replace
+                    | Hit::ResultsReplace
+                    | Hit::ResultsFolder
+                    | Hit::ResultsKinds,
+                ),
             ) => CursorIcon::Text,
             (None, Some(Hit::Splitter | Hit::Divider)) => CursorIcon::ColResize,
             (None, Some(Hit::ResultsEdge)) => CursorIcon::RowResize,
@@ -268,7 +276,7 @@ impl App {
             }
             Scroller::Results => {
                 let res = &self.ui.results;
-                let list = crate::results::list(self.areas.results?);
+                let list = res.list_area(self.areas.results?);
                 Some((list, res.content, res.view, res.scroll))
             }
             Scroller::Text | Scroller::TextH | Scroller::OtherText | Scroller::OtherTextH => None,
@@ -622,6 +630,8 @@ impl App {
                 | Hit::Bar(BarItem::FindNext | BarItem::FindPrev)
                 | Hit::Replace
                 | Hit::ResultsReplace
+                | Hit::ResultsFolder
+                | Hit::ResultsKinds
                 | Hit::ReplaceOne
                 | Hit::ReplaceAll
                 | Hit::InSelection
@@ -632,7 +642,10 @@ impl App {
         // A press in the results panel (or on its edge) gives it the keyboard, except in its
         // replacement box, which is a box of the bar; a press anywhere else takes it away.
         let in_panel = (hit.region() == Some(crate::ui::Region::Results)
-            && hit != Hit::ResultsReplace)
+            && !matches!(
+                hit,
+                Hit::ResultsReplace | Hit::ResultsFolder | Hit::ResultsKinds
+            ))
             || hit == Hit::ResultsEdge;
         self.ui.results.set_focus(in_panel);
         let clicks = self.click_count(x, y);
@@ -716,9 +729,17 @@ impl App {
                 self.caret_reset();
             }
             Hit::Text | Hit::Gutter => self.text_press(x, y, clicks),
-            Hit::Find | Hit::Replace | Hit::ResultsReplace => {
+            Hit::Find
+            | Hit::Replace
+            | Hit::ResultsReplace
+            | Hit::ResultsFolder
+            | Hit::ResultsKinds => {
                 self.ui.focus_field(if hit == Hit::ResultsReplace {
                     BarField::ResultsReplace
+                } else if hit == Hit::ResultsFolder {
+                    BarField::ResultsFolder
+                } else if hit == Hit::ResultsKinds {
+                    BarField::ResultsKinds
                 } else if hit == Hit::Replace {
                     BarField::Replace
                 } else if self.ui.going_to() {
@@ -1362,6 +1383,27 @@ impl App {
             // The panel's box: Enter plans the replacement in the files it searched.
             (KeyName::Enter, _) if which == BarField::ResultsReplace => {
                 self.replace_all_in_files();
+                return true;
+            }
+            // The boxes of the folder and the kinds: Enter searches again with them.
+            (KeyName::Enter, _)
+                if matches!(which, BarField::ResultsFolder | BarField::ResultsKinds) =>
+            {
+                // The keyboard goes to the answer, unless the find box was asked for first.
+                self.ui.find_focused = false;
+                self.command(C::FindInFiles);
+                return true;
+            }
+            (KeyName::Tab, false)
+                if matches!(which, BarField::ResultsFolder | BarField::ResultsKinds) =>
+            {
+                self.ui.field = if which == BarField::ResultsFolder {
+                    BarField::ResultsKinds
+                } else {
+                    BarField::ResultsFolder
+                };
+                self.ui.field_mut().select_all();
+                self.caret_reset();
                 return true;
             }
             (KeyName::Enter, true) if mods.shift && !mods.alt => {

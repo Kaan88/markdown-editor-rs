@@ -175,6 +175,12 @@ impl App {
                 app.replace_poll();
             }
         };
+        if let Some(text) = &a.results_folder {
+            self.ui.results.folder.set_text(text);
+        }
+        if let Some(text) = &a.results_kinds {
+            self.ui.results.kinds.set_text(text);
+        }
         if a.find_in_files {
             self.find_in_files();
             wait(self, |app| {

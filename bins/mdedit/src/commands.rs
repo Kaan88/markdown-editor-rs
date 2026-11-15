@@ -344,6 +344,9 @@ pub mod strings {
     pub const FIND_PLACEHOLDER: &str = "Find in file";
     pub const REPLACE_PLACEHOLDER: &str = "Replace with";
     pub const RESULTS_REPLACE_PLACEHOLDER: &str = "Replace with, in these files";
+    pub const RESULTS_FOLDER_PLACEHOLDER: &str = "Folder (the open folder when empty)";
+    pub const RESULTS_KINDS_PLACEHOLDER: &str = "File kinds, like *.md;*.txt";
+    pub const NO_FOLDER_THERE: &str = "That folder is not there.";
     pub const REPLACE_BUSY: &str = "Wait for the replacement to finish, or Cancel it.";
     pub const REPLACE_NOTHING: &str = "Nothing to replace in those files.";
     pub const REPLACE_BLOCKED: &str = "Another dialog is open: press Replace all… again.";

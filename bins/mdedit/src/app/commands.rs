@@ -206,16 +206,35 @@ impl App {
         let Some(query) = self.search_query() else {
             return;
         };
-        let root = self.ui.tree.root().map(Path::to_path_buf).or_else(|| {
+        let open = self.ui.tree.root().map(Path::to_path_buf).or_else(|| {
             let path = self.docs.active_doc()?.path.as_ref()?;
             path.parent().map(Path::to_path_buf)
         });
+        // A folder typed in the panel's box is looked in instead (a relative one from the open
+        // folder).
+        let typed = self.ui.results.folder.text().trim().to_string();
+        let root = if typed.is_empty() {
+            open
+        } else {
+            let p = PathBuf::from(&typed);
+            match open {
+                Some(base) if p.is_relative() => Some(base.join(p)),
+                _ => Some(p),
+            }
+        };
         let Some(root) = root else {
             self.docs.set_toast(strings::NO_SEARCH_FOLDER);
             return;
         };
+        if !root.exists() {
+            self.docs.set_toast(strings::NO_FOLDER_THERE);
+            return;
+        }
+        let filter = mdedit_core::search::NameFilter::parse(self.ui.results.kinds.text());
         let (load, waker) = (self.docs.load_options(), self.docs.waker());
-        self.ui.results.start_tree(&root, query, load, waker);
+        self.ui
+            .results
+            .start_tree(&root, query, load, filter, waker);
     }
 
     /// Looks for the find box's text in every open tab, in the text as it is now.

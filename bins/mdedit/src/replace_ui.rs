@@ -53,6 +53,8 @@ pub struct Searched {
     pub root: PathBuf,
     pub query: Query,
     pub load: LoadOptions,
+    /// The kinds of file the search looked in.
+    pub filter: mdedit_core::search::NameFilter,
 }
 
 /// A step running on a worker thread. The window reads its progress and takes its result; the
@@ -425,12 +427,19 @@ impl Default for Replacing {
 impl Replacing {
     /// A search of a folder ran: what it searched is what a replacement will plan. Anything of
     /// an earlier replacement is over.
-    pub fn searched(&mut self, root: &Path, query: Query, load: LoadOptions) {
+    pub fn searched(
+        &mut self,
+        root: &Path,
+        query: Query,
+        load: LoadOptions,
+        filter: mdedit_core::search::NameFilter,
+    ) {
         self.forget();
         self.searched = Some(Searched {
             root: root.to_path_buf(),
             query,
             load,
+            filter,
         });
     }
 
@@ -473,15 +482,22 @@ impl Replacing {
                 load: s.load,
                 ..PlanOptions::default()
             };
-            replace_files::plan(
-                Source::Tree(&s.root),
-                &s.query,
-                &with,
-                &opts,
-                &skip,
-                cancel,
-                progress,
-            )
+            // With kinds of file chosen, the files are the ones of the same walk that pass.
+            let named: Vec<PathBuf>;
+            let source = if s.filter.is_empty() {
+                Source::Tree(&s.root)
+            } else {
+                let mut list = Vec::new();
+                mdedit_core::search::walk_files(&s.root, opts.skip_hidden, cancel, &mut |p| {
+                    if s.filter.matches_path(p) {
+                        list.push(p.to_path_buf());
+                    }
+                    true
+                });
+                named = list;
+                Source::Files(&named)
+            };
+            replace_files::plan(source, &s.query, &with, &opts, &skip, cancel, progress)
         }));
         self.generation += 1;
         true

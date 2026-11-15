@@ -420,7 +420,10 @@ pub fn field_parts(which: BarField, frame: Rect, has_text: bool) -> (Rect, Optio
         // The replacement's box has the find box's left inset (its icon is in the same place) and
         // no clear button.
         BarField::Replace => (find_parts(frame, false).0, None),
-        BarField::Goto | BarField::ResultsReplace => (
+        BarField::Goto
+        | BarField::ResultsReplace
+        | BarField::ResultsFolder
+        | BarField::ResultsKinds => (
             Rect::new(
                 frame.x + 10.0,
                 frame.y + 1.0,
@@ -807,6 +810,8 @@ pub(crate) fn draw_field(
             BarField::Find => strings::FIND_PLACEHOLDER,
             BarField::Replace => strings::REPLACE_PLACEHOLDER,
             BarField::ResultsReplace => strings::RESULTS_REPLACE_PLACEHOLDER,
+            BarField::ResultsFolder => strings::RESULTS_FOLDER_PLACEHOLDER,
+            BarField::ResultsKinds => strings::RESULTS_KINDS_PLACEHOLDER,
             BarField::Goto if naming => strings::MACRO_NAME_PLACEHOLDER,
             BarField::Goto => strings::GOTO_PLACEHOLDER,
         },
