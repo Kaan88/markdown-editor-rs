@@ -2205,7 +2205,27 @@ impl Docs {
             .is_some_and(|c| (c.4, c.5) == (r.view.sel, r.view.extra.len()));
         let column_text =
             on_column && (!r.view.sel.is_empty() || r.view.extra.iter().any(|s| !s.is_empty()));
-        let multi_op = if r.view.extra.is_empty() {
+        // Typing on a column selection that reaches past the end of short lines pads them with
+        // spaces up to the rectangle's left edge (virtual space).
+        let padded: Option<Vec<String>> = match (&op, r.view.column) {
+            (EditOp::Insert(text), Some(c)) if on_column => {
+                let mut list = r.view.extra.clone();
+                let at = list.partition_point(|s| s.range().start < r.view.sel.range().start);
+                list.insert(at, r.view.sel);
+                multi::column_pads(&r.buffer, &list, c.1.min(c.3), crate::live::tab_width()).map(
+                    |pads| {
+                        pads.iter()
+                            .map(|&n| format!("{}{text}", " ".repeat(n)))
+                            .collect()
+                    },
+                )
+            }
+            _ => None,
+        };
+        let padded_refs: Vec<&str> = padded.iter().flatten().map(String::as_str).collect();
+        let multi_op = if padded.is_some() {
+            Some(MultiOp::InsertEach(&padded_refs))
+        } else if r.view.extra.is_empty() {
             None
         } else {
             match op {
@@ -4658,6 +4678,38 @@ mod tests {
     }
 
     #[test]
+    fn typing_on_a_column_past_short_lines_pads_them_with_spaces() {
+        let src = "abcdef\nx\n\nabcdef\n";
+        let (mut d, i, _path, dir) = file_docs("column-virtual", src.as_bytes());
+        // Carets at column 4 on every line: the short ones get spaces up to it, in one step.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((0, 4), (3, 4));
+        assert!(d.edit(EditOp::Insert("Z"), None));
+        assert_eq!(text_of(&d, i), "abcdZef\nx   Z\n    Z\nabcdZef\n");
+        assert!(d.edit(EditOp::Undo, None));
+        assert_eq!(text_of(&d, i), src);
+        assert!(!d.edit(EditOp::Undo, None), "one step");
+        // The rectangle's left edge counts: dragged from column 6 back to 3.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((0, 6), (3, 3));
+        assert!(d.edit(EditOp::Insert("Z"), None));
+        assert_eq!(text_of(&d, i), "abcZ\nx  Z\n   Z\nabcZ\n");
+        assert!(d.edit(EditOp::Undo, None));
+        // A column inside every line adds nothing; and one line alone is padded too.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.select_column((1, 3), (1, 3));
+        assert!(d.edit(EditOp::Insert("Z"), None));
+        assert_eq!(text_of(&d, i), "abcdef\nx  Z\n\nabcdef\n");
+        assert!(d.edit(EditOp::Undo, None));
+        // Ordinary typing with carets that are not a column's is not padded.
+        let r = d.tabs[i].ready_mut().unwrap();
+        r.view.sel = Selection::at(8);
+        r.add_caret(9);
+        assert!(d.edit(EditOp::Insert("Z"), None));
+        assert_eq!(text_of(&d, i), "abcdef\nxZ\nZ\nabcdef\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
     fn a_column_selection_counts_wide_characters_and_short_lines() {
         let src = "abcdef\n\u{6f22}\u{5b57}ef\nx\nabcdef\n";
         let (mut d, i, _path, dir) = file_docs("column", src.as_bytes());
@@ -4670,7 +4722,7 @@ mod tests {
         assert_eq!(ranges, [2..4, 10..13, 17..17, 20..22]);
         assert_eq!(primary, 3);
         assert!(d.edit(EditOp::Insert("X"), None));
-        assert_eq!(text_of(&d, i), "abXef\n\u{6f22}Xef\nxX\nabXef\n");
+        assert_eq!(text_of(&d, i), "abXef\n\u{6f22}Xef\nx X\nabXef\n");
         // One undo step brings all four lines back, and one caret is left.
         assert!(d.edit(EditOp::Undo, None));
         assert_eq!(text_of(&d, i), src);

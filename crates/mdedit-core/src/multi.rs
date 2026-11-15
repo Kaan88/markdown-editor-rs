@@ -286,6 +286,33 @@ pub fn column(
     (list, c - lo)
 }
 
+/// The spaces typing must add before its text on each selection of a column selection, in
+/// document order, for the virtual space past short lines: a selection that is only a caret at
+/// the end of a line narrower than visual column `left` (the left edge of the rectangle) is given
+/// the spaces that bring the line to that column; any other selection none. `None` when no line
+/// needs any.
+pub fn column_pads(
+    buf: &Buffer,
+    sels: &[Selection],
+    left: usize,
+    tab_width: usize,
+) -> Option<Vec<usize>> {
+    let mut any = false;
+    let pads: Vec<usize> = sels
+        .iter()
+        .map(|s| {
+            let line = buf.line_of(s.caret);
+            if !s.is_empty() || s.caret != buf.line_range(line).end {
+                return 0;
+            }
+            let pad = left.saturating_sub(vcol::visual_col(buf, s.caret, tab_width));
+            any |= pad > 0;
+            pad
+        })
+        .collect();
+    any.then_some(pads)
+}
+
 /// The visual column of `offset` on its line, as `column` counts (a wide character is two
 /// columns), for the shell.
 pub fn visual_col(buf: &Buffer, offset: usize, tab_width: usize) -> usize {
@@ -896,6 +923,21 @@ mod tests {
         // Empty lines give carets at their start.
         let (v, _) = col("ab\n\nab", 0, 1, 2, 2);
         assert_eq!(v, vec![s(1, 2), at(3), s(5, 6)]);
+    }
+
+    #[test]
+    fn column_pads_name_the_spaces_short_lines_need() {
+        let buf = Buffer::from_text("abcdef\nx\n\n\u{6f22}\nabcdef\n");
+        let (list, _) = column(&buf, 0, 4, 4, 4, 4);
+        // "abcdef" and the last line reach column 4; "x" needs 3, the empty line 4, the wide
+        // character (2 columns) 2.
+        assert_eq!(column_pads(&buf, &list, 4, 4), Some(vec![0, 3, 4, 2, 0]));
+        // Only the empty line is short of column 1; the wide character is cut at its start.
+        let (list, _) = column(&buf, 0, 1, 4, 3, 4);
+        assert_eq!(column_pads(&buf, &list, 1, 4), Some(vec![0, 0, 1, 0, 0]));
+        // A caret inside its line needs none.
+        let (list, _) = column(&buf, 0, 2, 0, 2, 4);
+        assert_eq!(column_pads(&buf, &list, 2, 4), None);
     }
 
     #[test]
