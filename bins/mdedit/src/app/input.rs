@@ -86,7 +86,10 @@ impl App {
             ) => CursorIcon::Text,
             (None, Some(Hit::Splitter | Hit::Divider)) => CursorIcon::ColResize,
             (None, Some(Hit::ResultsEdge)) => CursorIcon::RowResize,
-            (None, Some(Hit::Fold(_) | Hit::FoldBox(_) | Hit::Bookmark(_))) => CursorIcon::Pointer,
+            (
+                None,
+                Some(Hit::Fold(_) | Hit::FoldBox(_) | Hit::Bookmark(_) | Hit::CopyChange { .. }),
+            ) => CursorIcon::Pointer,
             _ => CursorIcon::Default,
         };
         self.set_cursor(cursor);
@@ -728,6 +731,7 @@ impl App {
                 }
                 self.caret_reset();
             }
+            Hit::CopyChange { other, hunk } => self.compare_copy_hunk(other, hunk),
             Hit::Text | Hit::Gutter => self.text_press(x, y, clicks),
             Hit::Find
             | Hit::Replace

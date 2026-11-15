@@ -121,6 +121,7 @@ pub enum CommandId {
     /// side's, or the other side's replace this side's.
     CopyChangeAcross,
     TakeChangeAcross,
+    CopyLineAcross,
     /// Off Windows, from an AppImage: the default application for text files.
     MakeDefault,
     /// Show the file in mdview and keep it scrolled to the caret's line, or stop doing so; and
@@ -260,6 +261,7 @@ pub const COMMANDS: &[Command] = &[
         "Take this change from the other side",
         &[],
     ),
+    cmd(C::CopyLineAcross, "Copy this line to the other side", &[]),
     cmd(
         C::PreviewInViewer,
         "Preview in mdview, or stop",
@@ -522,6 +524,8 @@ pub mod strings {
     pub const NO_NEXT_DIFFERENCE: &str = "No more differences below.";
     pub const NO_PREVIOUS_DIFFERENCE: &str = "No more differences above.";
     pub const NOT_IN_A_DIFFERENCE: &str = "The caret is not in a difference.";
+    pub const NO_PARTNER_LINE: &str =
+        "This line has no matching line on the other side. Copy the whole change instead.";
     pub const COMPARE_STALE: &str = "Wait until the comparison is up to date.";
     pub const COMPARE_TARGET_READ_ONLY: &str = "The other side cannot be changed.";
     pub const TAKE_TARGET_READ_ONLY: &str = "This side cannot be changed.";

@@ -633,6 +633,81 @@ fn a_change_is_copied_to_the_other_side_or_taken_from_it_in_one_undo_step() {
 }
 
 #[test]
+fn a_gutter_arrow_copies_its_block_across_in_one_undo_step() {
+    let b_text = "1\nTWO\n3\n4\nx\ny\n5\n6\n7\n9\n10\n";
+    let (mut a, dir, ia, ib) = compared(TEN, b_text);
+    let text = |a: &App, i| tabs(a, i).buffer.rope().to_string();
+    let al = tabs(&a, ia).view.align.clone().unwrap();
+    // The block of "2" against "TWO" starts on row 1; the row under it is not a block start.
+    let first = al.hunk_starting_at(1).expect("a block starts on row 1");
+    assert!(al.hunk_starting_at(0).is_none() && al.hunk_starting_at(2).is_none());
+    // The arrow of the pane that has the keyboard copies from it to the other pane's document.
+    a.compare_copy_hunk(false, first);
+    assert_eq!(text(&a, ib), "1\n2\n3\n4\nx\ny\n5\n6\n7\n9\n10\n");
+    assert_eq!(text(&a, ia), TEN, "the source stays as it was");
+    assert!(a.docs.edit_in(ib, EditOp::Undo, None));
+    assert_eq!(text(&a, ib), b_text);
+    assert!(!a.docs.edit_in(ib, EditOp::Undo, None), "one step");
+    // The second pane's arrow copies from it into the pane that has the keyboard.
+    settle_compare(&mut a);
+    let al = tabs(&a, ia).view.align.clone().unwrap();
+    let xy = al.hunk_starting_at(4).expect("a block starts on row 4");
+    a.compare_copy_hunk(true, xy);
+    assert_eq!(text(&a, ia), "1\n2\n3\n4\nx\ny\n5\n6\n7\n8\n9\n10\n");
+    assert_eq!(text(&a, ib), b_text, "the source stays as it was");
+    assert!(a.docs.edit_in(ia, EditOp::Undo, None));
+    assert_eq!(text(&a, ia), TEN);
+    // A block that is not there, or an older diff, copies nothing.
+    a.compare_copy_hunk(false, 99);
+    assert_eq!(text(&a, ib), b_text);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn one_line_of_a_changed_block_goes_across_when_it_has_a_partner() {
+    let (mut a, dir, ia, ib) = compared("a\nb\nc\nd\ne\n", "a\nB\nC\nD\nE\nF\ne\n");
+    let text = |a: &App, i| tabs(a, i).buffer.rope().to_string();
+    let at_line = |a: &mut App, line: usize| {
+        let r = a.docs.tabs[ia].ready_mut().unwrap();
+        r.view.sel = Selection::at(r.buffer.line_range(line).start);
+    };
+    // On an equal line there is nothing to copy.
+    at_line(&mut a, 0);
+    assert!(!crate::compare::enabled(C::CopyLineAcross, &a.docs));
+    a.command(C::CopyLineAcross);
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .is_some_and(|t| t.contains("not in a difference"))
+    );
+    // "c" shares its row with "C": only that line changes, in one undo step.
+    at_line(&mut a, 2);
+    assert!(crate::compare::enabled(C::CopyLineAcross, &a.docs));
+    a.command(C::CopyLineAcross);
+    assert_eq!(text(&a, ib), "a\nB\nc\nD\nE\nF\ne\n");
+    assert_eq!(text(&a, ia), "a\nb\nc\nd\ne\n");
+    assert!(a.docs.edit_in(ib, EditOp::Undo, None));
+    assert_eq!(text(&a, ib), "a\nB\nC\nD\nE\nF\ne\n");
+    assert!(!a.docs.edit_in(ib, EditOp::Undo, None), "one step");
+    let _ = std::fs::remove_dir_all(&dir);
+    // The first file has the surplus: its last line of the block has no partner.
+    let (mut a, dir, ia, ib) = compared("a\nb\nc\nd\ne\n", "a\nB\ne\n");
+    {
+        let r = a.docs.tabs[ia].ready_mut().unwrap();
+        r.view.sel = Selection::at(r.buffer.line_range(3).start);
+    }
+    assert!(!crate::compare::enabled(C::CopyLineAcross, &a.docs));
+    a.command(C::CopyLineAcross);
+    assert_eq!(text(&a, ib), "a\nB\ne\n");
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .is_some_and(|t| t.contains("no matching line"))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_block_one_side_lacks_is_brought_in_or_removed() {
     let text = |a: &App, i| tabs(a, i).buffer.rope().to_string();
     // The caret goes to "c", the line after the filler rows of the block.

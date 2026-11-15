@@ -310,6 +310,7 @@ fn icon(id: C) -> &'static str {
         C::NextDifference | C::FindNext => glyph::DOWN,
         C::CopyChangeAcross => glyph::FORWARD,
         C::TakeChangeAcross => glyph::BACK,
+        C::CopyLineAcross => glyph::FORWARD,
         C::DeleteLine => glyph::DELETE_LINE,
         C::ToggleComment => glyph::COMMENT,
         C::UpperCase => glyph::UPPERCASE,
@@ -448,7 +449,8 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::NextDifference
         | C::PreviousDifference
         | C::CopyChangeAcross
-        | C::TakeChangeAcross => crate::compare::enabled(id, docs),
+        | C::TakeChangeAcross
+        | C::CopyLineAcross => crate::compare::enabled(id, docs),
         _ => true,
     }
 }

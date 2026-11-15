@@ -199,6 +199,13 @@ pub enum Hit {
     /// The bookmark cell at the left end of a line's gutter: a press sets or removes the
     /// bookmark of that line.
     Bookmark(usize),
+    /// The arrow at the first row of a difference in a comparison: copies that change to the
+    /// document of the other pane. `other` is the second pane's arrow (it copies into the pane
+    /// that has the keyboard); `hunk` is the block's index in the diff.
+    CopyChange {
+        other: bool,
+        hunk: usize,
+    },
     /// The line that parts the two panes of a split view: drag to resize, double click to halve.
     Divider,
     EmptyOpen,
@@ -251,12 +258,14 @@ impl Hit {
             | Hit::Splitter
             | Hit::ScrollBar(Scroller::Files) => Region::Files,
             Hit::ScrollBar(Scroller::OtherText | Scroller::OtherTextH) => Region::Other,
+            Hit::CopyChange { other: true, .. } => Region::Other,
             Hit::ScrollBar(Scroller::Text | Scroller::TextH)
             | Hit::Text
             | Hit::Gutter
             | Hit::Fold(_)
             | Hit::FoldBox(_)
             | Hit::Bookmark(_)
+            | Hit::CopyChange { .. }
             | Hit::EmptyOpen
             | Hit::EmptyRecent(_) => Region::Text,
             Hit::Other => Region::Other,
@@ -276,6 +285,7 @@ impl Hit {
                 | Hit::Fold(_)
                 | Hit::FoldBox(_)
                 | Hit::Bookmark(_)
+                | Hit::CopyChange { .. }
                 | Hit::Other
                 | Hit::Divider
                 | Hit::ResultsEdge
@@ -1251,6 +1261,20 @@ mod tests {
             assert_eq!(h.region(), Some(Region::Text));
             assert!(!h.is_button());
         }
+        let arrow = Hit::CopyChange {
+            other: true,
+            hunk: 2,
+        };
+        assert_eq!(arrow.region(), Some(Region::Other));
+        assert_eq!(
+            Hit::CopyChange {
+                other: false,
+                hunk: 2
+            }
+            .region(),
+            Some(Region::Text)
+        );
+        assert!(!arrow.is_button());
     }
 }
 

@@ -235,6 +235,13 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
                 CommandId::ToggleFold,
             )
         }
+        Hit::CopyChange { other, .. } => {
+            if other {
+                "Copy this change into the other pane".into()
+            } else {
+                "Copy this change to the other pane".into()
+            }
+        }
         Hit::Tab(i) => {
             let doc = docs.tabs.get(i)?;
             doc.path

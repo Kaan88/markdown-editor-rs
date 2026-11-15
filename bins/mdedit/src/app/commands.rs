@@ -1511,6 +1511,7 @@ impl App {
             C::PreviousDifference => self.compare_jump(false),
             C::CopyChangeAcross => self.compare_copy(true),
             C::TakeChangeAcross => self.compare_copy(false),
+            C::CopyLineAcross => self.compare_copy_line(),
             C::GoToLine => {
                 if self.docs.active_ready().is_some() {
                     self.ui.naming = false;

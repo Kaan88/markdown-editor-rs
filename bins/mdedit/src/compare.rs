@@ -178,6 +178,44 @@ impl Align {
         Some((h.a.clone(), h.b.clone()))
     }
 
+    /// The first row of the difference (not equal block) that starts on row `row`, as its index
+    /// among the diff's blocks. `None` unless the diff is current.
+    pub fn hunk_starting_at(&self, row: usize) -> Option<usize> {
+        if !self.fresh {
+            return None;
+        }
+        let d = self.data.as_ref()?;
+        let h = d.diff.hunk_at(row)?;
+        (d.diff.hunk_rows(h).start == row).then_some(h)
+    }
+
+    /// The line ranges of the first and the second file of block `hunk`; `None` unless the diff
+    /// is current.
+    pub fn hunk_ranges(&self, hunk: usize) -> Option<(Range<usize>, Range<usize>)> {
+        if !self.fresh {
+            return None;
+        }
+        let h = self.data.as_ref()?.diff.hunks().get(hunk)?;
+        (h.kind != HunkKind::Equal).then(|| (h.a.clone(), h.b.clone()))
+    }
+
+    /// The line of the first and the line of the second file that share a row with line `line`
+    /// of this side, in a changed block that has lines on both sides; `None` for a line without
+    /// a partner (the other side has filler there) and unless the diff is current.
+    pub fn partner_of(&self, line: usize) -> Option<(usize, usize)> {
+        if !self.fresh {
+            return None;
+        }
+        let d = self.data.as_ref()?;
+        let row = d.diff.row(self.row_of(line))?;
+        if row.kind != HunkKind::Change {
+            return None;
+        }
+        let (a, b) = (row.a?, row.b?);
+        let mine = if self.right { b } else { a };
+        (mine == line).then_some((a, b))
+    }
+
     /// The status strip's words: "3 differences", "No differences", "Comparing…".
     pub fn summary(&self) -> String {
         let Some(d) = self.data.as_ref().filter(|_| self.fresh) else {
@@ -240,6 +278,9 @@ pub enum Refusal {
     Stale,
     /// The caret is not in a difference.
     NoChange,
+    /// The caret's line has no partner line on the other side (a line of a changed block the
+    /// other side has no row for, or not a changed block).
+    NoPartner,
     /// The document that would change cannot be edited.
     ReadOnly,
 }
@@ -254,9 +295,8 @@ pub struct Pick {
     pub to: Range<usize>,
 }
 
-/// The difference the caret of the active document is in. With `across` this document's lines go
-/// to the other pane's document, else the other's come here.
-pub fn pick(docs: &Docs, across: bool) -> Result<Pick, Refusal> {
+/// The two compared tabs: the one with the keyboard and the other, with the active one's align.
+fn pair(docs: &Docs) -> Result<(usize, usize, &Align), Refusal> {
     let (Some(me), Some(other)) = (docs.active(), docs.other()) else {
         return Err(Refusal::NotCompared);
     };
@@ -269,16 +309,17 @@ pub fn pick(docs: &Docs, across: bool) -> Result<Pick, Refusal> {
     if !al.fresh {
         return Err(Refusal::Stale);
     }
-    let line = r.buffer.line_of(r.view.sel.caret);
-    let (a, b) = al
-        .change_at_line(line, r.buffer.len_lines())
-        .ok_or(Refusal::NoChange)?;
-    let (mine, theirs) = if al.right { (b, a) } else { (a, b) };
-    let (source, target, from, to) = if across {
-        (me, other, mine, theirs)
-    } else {
-        (other, me, theirs, mine)
-    };
+    Ok((me, other, al))
+}
+
+/// `from` and `to` are the lines of the tab that is the source and of the one that changes; the
+/// target must be editable.
+fn make_pick(
+    docs: &Docs,
+    (source, target): (usize, usize),
+    from: Range<usize>,
+    to: Range<usize>,
+) -> Result<Pick, Refusal> {
     let t = docs.tabs[target].ready().ok_or(Refusal::NotCompared)?;
     if t.read_only || t.info.lossy {
         return Err(Refusal::ReadOnly);
@@ -289,6 +330,52 @@ pub fn pick(docs: &Docs, across: bool) -> Result<Pick, Refusal> {
         from,
         to,
     })
+}
+
+/// The difference the caret of the active document is in. With `across` this document's lines go
+/// to the other pane's document, else the other's come here.
+pub fn pick(docs: &Docs, across: bool) -> Result<Pick, Refusal> {
+    let (me, other, al) = pair(docs)?;
+    let r = docs.tabs[me].ready().ok_or(Refusal::NotCompared)?;
+    let line = r.buffer.line_of(r.view.sel.caret);
+    let (a, b) = al
+        .change_at_line(line, r.buffer.len_lines())
+        .ok_or(Refusal::NoChange)?;
+    let (mine, theirs) = if al.right { (b, a) } else { (a, b) };
+    if across {
+        make_pick(docs, (me, other), mine, theirs)
+    } else {
+        make_pick(docs, (other, me), theirs, mine)
+    }
+}
+
+/// The block `hunk` of the current diff (a gutter arrow's), copied from the pane `from_other`
+/// (the second pane, else the one with the keyboard) to the other pane's document.
+pub fn pick_hunk(docs: &Docs, from_other: bool, hunk: usize) -> Result<Pick, Refusal> {
+    let (me, other, al) = pair(docs)?;
+    let (a, b) = al.hunk_ranges(hunk).ok_or(Refusal::NoChange)?;
+    let (mine, theirs) = if al.right { (b, a) } else { (a, b) };
+    if from_other {
+        make_pick(docs, (other, me), theirs, mine)
+    } else {
+        make_pick(docs, (me, other), mine, theirs)
+    }
+}
+
+/// The caret's line alone, copied to the line that shares its row on the other side.
+pub fn pick_line(docs: &Docs) -> Result<Pick, Refusal> {
+    let (me, other, al) = pair(docs)?;
+    let r = docs.tabs[me].ready().ok_or(Refusal::NotCompared)?;
+    let line = r.buffer.line_of(r.view.sel.caret);
+    let (a, b) = al.partner_of(line).ok_or_else(|| {
+        if al.change_at_line(line, r.buffer.len_lines()).is_some() {
+            Refusal::NoPartner
+        } else {
+            Refusal::NoChange
+        }
+    })?;
+    let (mine, theirs) = if al.right { (b, a) } else { (a, b) };
+    make_pick(docs, (me, other), mine..mine + 1, theirs..theirs + 1)
 }
 
 /// Which compare commands can run now.
@@ -306,6 +393,7 @@ pub fn enabled(id: C, docs: &Docs) -> bool {
         C::StopCompare | C::NextDifference | C::PreviousDifference => compared,
         C::CopyChangeAcross => pick(docs, true).is_ok(),
         C::TakeChangeAcross => pick(docs, false).is_ok(),
+        C::CopyLineAcross => pick_line(docs).is_ok(),
         _ => true,
     }
 }

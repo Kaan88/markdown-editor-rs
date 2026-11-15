@@ -420,6 +420,8 @@ pub struct DrawState {
     pub hbar_active: bool,
     /// The second pane of a split view: its scrollbars hit as its own.
     pub other: bool,
+    /// The pane's compare arrows point right (the other pane is at its right), else left.
+    pub arrow_right: bool,
 }
 
 fn spans_hash(spans: Option<&[Span]>) -> u64 {
@@ -887,6 +889,8 @@ impl View {
             t.of(al.kind(row)?, al.right)
         };
         let mut fillers: Vec<i32> = Vec::new();
+        // Compare mode: the first rows of differences in view, for their copy arrows.
+        let mut arrows: Vec<(i32, usize)> = Vec::new();
         let row_tint = if pal.dark { ROW_TINT_DARK } else { ROW_TINT };
         if g.wrapped {
             let mut p = wrap::top(r);
@@ -923,6 +927,11 @@ impl View {
         } else {
             for row in visible(g.top, g.view_lines, g.rows) {
                 let y = y0 + line_y(row, g.top, lh).round() as i32;
+                if bands.is_none()
+                    && let Some(h) = align.as_ref().and_then(|al| al.hunk_starting_at(row))
+                {
+                    arrows.push((y, h));
+                }
                 let Some(i) = r.line_on_row(row) else {
                     // A filler row: nothing on this side, opposite lines on the other.
                     if bands.is_none() {
@@ -1319,6 +1328,37 @@ impl View {
             let gy = y as f32 + m.baseline - n.1;
             self.engine
                 .draw_layout_clipped(c.p.bmp, &n.0, x as f32, gy.round(), gutter);
+        }
+        // The copy arrows: a cell at the left end of the gutter, at the first row of each
+        // difference. The arrow points to the other pane.
+        for &(y, hunk) in &arrows {
+            let cell = Rect::new(
+                area.x,
+                y as f32 / scale,
+                metrics::BOOKMARK_CELL_W.min(g.gutter_w),
+                lh as f32 / scale,
+            );
+            let hit = crate::ui::Hit::CopyChange {
+                other: s.other,
+                hunk,
+            };
+            let hovered = c.hover == Some(hit);
+            let (cx, cy) = (cell.cx(), cell.cy());
+            if hovered && let Some(f) = c.fill_for(hit, false, false) {
+                c.p.rbox(
+                    Rect::new(cell.x, cell.y + 1.0, cell.w, cell.h - 2.0),
+                    3.0,
+                    f,
+                );
+            }
+            let glyph_name = if s.arrow_right {
+                glyph::FORWARD
+            } else {
+                glyph::BACK
+            };
+            let color = if hovered { pal.text } else { pal.accent };
+            c.p.icon(glyph_name, 10.0, cx, cy, color);
+            c.hit(hit, cell);
         }
         let (vscroller, hscroller) = if s.other {
             (

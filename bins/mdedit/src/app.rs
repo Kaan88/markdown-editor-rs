@@ -1211,6 +1211,7 @@ impl App {
                     })
                 ),
             other: false,
+            arrow_right: !self.docs.other_left,
             hbar_active: hover == Some(Hit::ScrollBar(Scroller::TextH))
                 || matches!(
                     self.ui.drag,
@@ -1333,6 +1334,7 @@ impl App {
                                         })
                                     ),
                                 other: true,
+                                arrow_right: left,
                                 ..ds
                             };
                             let view = &mut self.view;

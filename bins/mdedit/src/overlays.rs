@@ -203,32 +203,44 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
             glyph::SPLIT,
         )
         .enabled(docs.active_ready().is_some()),
-        cmd(C::CompareOther, "Compare with the other pane", glyph::SPLIT)
-            .sep()
-            .enabled(crate::compare::enabled(C::CompareOther, docs)),
-        cmd(C::CompareFile, "Compare with file\u{2026}", glyph::OPEN)
-            .enabled(crate::compare::enabled(C::CompareFile, docs)),
-        cmd(C::CompareSaved, "Compare with saved", glyph::SAVE)
-            .enabled(crate::compare::enabled(C::CompareSaved, docs)),
-        cmd(C::NextDifference, "Next difference", glyph::DOWN)
-            .enabled(crate::compare::enabled(C::NextDifference, docs)),
-        cmd(C::PreviousDifference, "Previous difference", glyph::UP)
-            .enabled(crate::compare::enabled(C::PreviousDifference, docs)),
-        cmd(
-            C::CopyChangeAcross,
-            "Copy this change to the other side",
-            glyph::FORWARD,
-        )
-        .enabled(crate::compare::enabled(C::CopyChangeAcross, docs)),
-        cmd(
-            C::TakeChangeAcross,
-            "Take this change from the other side",
-            glyph::BACK,
-        )
-        .enabled(crate::compare::enabled(C::TakeChangeAcross, docs)),
-        cmd(C::StopCompare, "Stop comparing", glyph::CLOSE)
-            .enabled(crate::compare::enabled(C::StopCompare, docs)),
     ];
+    // While two files are compared the commands that start a comparison are of no use (and
+    // greyed); the ones that work on it take their place, so the menu stays short.
+    if docs.active_ready().is_some_and(|r| r.view.align.is_some()) {
+        items.extend([
+            cmd(C::NextDifference, "Next difference", glyph::DOWN).sep(),
+            cmd(C::PreviousDifference, "Previous difference", glyph::UP),
+            cmd(
+                C::CopyChangeAcross,
+                "Copy this change to the other side",
+                glyph::FORWARD,
+            )
+            .enabled(crate::compare::enabled(C::CopyChangeAcross, docs)),
+            cmd(
+                C::TakeChangeAcross,
+                "Take this change from the other side",
+                glyph::BACK,
+            )
+            .enabled(crate::compare::enabled(C::TakeChangeAcross, docs)),
+            cmd(
+                C::CopyLineAcross,
+                "Copy this line to the other side",
+                glyph::FORWARD,
+            )
+            .enabled(crate::compare::enabled(C::CopyLineAcross, docs)),
+            cmd(C::StopCompare, "Stop comparing", glyph::CLOSE),
+        ]);
+    } else {
+        items.extend([
+            cmd(C::CompareOther, "Compare with the other pane", glyph::SPLIT)
+                .sep()
+                .enabled(crate::compare::enabled(C::CompareOther, docs)),
+            cmd(C::CompareFile, "Compare with file\u{2026}", glyph::OPEN)
+                .enabled(crate::compare::enabled(C::CompareFile, docs)),
+            cmd(C::CompareSaved, "Compare with saved", glyph::SAVE)
+                .enabled(crate::compare::enabled(C::CompareSaved, docs)),
+        ]);
+    }
     items.extend(preview_items(docs, None));
     items.extend([
         cmd(C::ToggleFold, "Fold or open the block", glyph::FOLD).sep(),

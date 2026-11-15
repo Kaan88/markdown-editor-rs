@@ -208,13 +208,35 @@ impl App {
         // The diff's freshness is otherwise marked before a frame: a command run right after an
         // edit (a macro, a second copy) must not work from line ranges of the older text.
         self.compare_timer(Instant::now());
-        let pick = match crate::compare::pick(&self.docs, across) {
+        let pick = crate::compare::pick(&self.docs, across);
+        self.compare_apply(pick, across);
+    }
+
+    /// "Copy this line to the other side": the caret's line replaces its partner line.
+    pub(super) fn compare_copy_line(&mut self) {
+        self.compare_timer(Instant::now());
+        let pick = crate::compare::pick_line(&self.docs);
+        self.compare_apply(pick, true);
+    }
+
+    /// A gutter arrow: block `hunk` goes from the pane `from_other` (the second pane, else the
+    /// one with the keyboard) to the document of the other pane.
+    pub(super) fn compare_copy_hunk(&mut self, from_other: bool, hunk: usize) {
+        self.compare_timer(Instant::now());
+        let pick = crate::compare::pick_hunk(&self.docs, from_other, hunk);
+        self.compare_apply(pick, !from_other);
+    }
+
+    /// Carries a pick out as one undo step in the document that changes, or says why not.
+    fn compare_apply(&mut self, pick: Result<crate::compare::Pick, Refusal>, across: bool) {
+        let pick = match pick {
             Ok(p) => p,
             Err(why) => {
                 let text = match why {
                     Refusal::NotCompared => return,
                     Refusal::Stale => strings::COMPARE_STALE,
                     Refusal::NoChange => strings::NOT_IN_A_DIFFERENCE,
+                    Refusal::NoPartner => strings::NO_PARTNER_LINE,
                     Refusal::ReadOnly if across => strings::COMPARE_TARGET_READ_ONLY,
                     Refusal::ReadOnly => strings::TAKE_TARGET_READ_ONLY,
                 };

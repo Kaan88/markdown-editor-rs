@@ -547,6 +547,7 @@ pub fn recordable(id: C) -> bool {
             | C::StopCompare
             | C::CopyChangeAcross
             | C::TakeChangeAcross
+            | C::CopyLineAcross
             | C::MakeDefault
             | C::ToggleSplit
             | C::FocusOther
