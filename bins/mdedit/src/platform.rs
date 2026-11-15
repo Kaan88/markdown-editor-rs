@@ -143,8 +143,9 @@ pub fn clipboard_png() -> Option<Vec<u8>> {
     .flatten()
 }
 
-/// The files the clipboard holds (copied in the file manager), or none. Windows only: elsewhere
-/// a copied file is not looked for.
+/// The files the clipboard holds (copied in the file manager), or none. Windows: the file list
+/// format. Elsewhere the same tools as for an image ask for the list of `file://` URIs the file
+/// manager offers (`text/uri-list`, or `x-special/gnome-copied-files` on GNOME).
 #[cfg(windows)]
 pub fn clipboard_files() -> Vec<PathBuf> {
     const CF_HDROP: u32 = 15;
@@ -161,6 +162,21 @@ pub fn clipboard_files() -> Vec<PathBuf> {
 
 #[cfg(not(windows))]
 pub fn clipboard_files() -> Vec<PathBuf> {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty());
+    for mime in ["text/uri-list", "x-special/gnome-copied-files"] {
+        let wl = ("wl-paste", vec!["--no-newline", "--type", mime]);
+        let x11 = ("xclip", vec!["-selection", "clipboard", "-t", mime, "-o"]);
+        let order = if wayland { [wl, x11] } else { [x11, wl] };
+        for (program, args) in &order {
+            let Some(bytes) = capture(program, args) else {
+                continue;
+            };
+            let files = crate::image_paste::parse_uri_list(&String::from_utf8_lossy(&bytes));
+            if !files.is_empty() {
+                return files;
+            }
+        }
+    }
     Vec::new()
 }
 
@@ -237,7 +253,14 @@ pub fn clipboard_png() -> Option<Vec<u8>> {
 /// seconds; a tool that hangs on a clipboard owner that does not answer is stopped.
 #[cfg(not(windows))]
 fn capture_png(program: &str, args: &[&str]) -> Option<Vec<u8>> {
-    use crate::image_paste::{MAX_BYTES, is_png};
+    capture(program, args).filter(|b| crate::image_paste::is_png(b))
+}
+
+/// Runs `program` and returns what it printed when that is of a sensible size, within three
+/// seconds (see [`capture_png`]).
+#[cfg(not(windows))]
+fn capture(program: &str, args: &[&str]) -> Option<Vec<u8>> {
+    use crate::image_paste::MAX_BYTES;
     use std::io::Read;
     use std::process::{Command, Stdio};
     let mut child = Command::new(program)
@@ -262,7 +285,7 @@ fn capture_png(program: &str, args: &[&str]) -> Option<Vec<u8>> {
     // Finished or not, nothing more is wanted from it.
     let _ = child.kill();
     let _ = child.wait();
-    got.filter(|b| b.len() <= MAX_BYTES && is_png(b))
+    got.filter(|b| b.len() <= MAX_BYTES)
 }
 
 /// The system's ANSI code page (`GetACP`), for files that are neither UTF-8 nor marked.

@@ -269,6 +269,51 @@ pub fn parse_dropfiles(data: &[u8]) -> Vec<String> {
     out
 }
 
+/// The paths in a clipboard list of `file://` URIs (what file managers on Linux offer as
+/// `text/uri-list`, and GNOME as `x-special/gnome-copied-files`, whose first line says `copy` or
+/// `cut`): one URI to a line, `#` lines are comments, anything that is not a `file:` URI for this
+/// machine (no host, or `localhost`) is skipped. Percent escapes are decoded.
+#[cfg(any(not(windows), test))]
+pub fn parse_uri_list(text: &str) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some(rest) = line
+            .get(..7)
+            .filter(|p| p.eq_ignore_ascii_case("file://"))
+            .map(|_| &line[7..])
+        else {
+            continue;
+        };
+        // After the (empty or local) host the path starts at the next slash.
+        let path = match rest.find('/') {
+            Some(0) => rest,
+            Some(i) if rest[..i].eq_ignore_ascii_case("localhost") => &rest[i..],
+            _ => continue,
+        };
+        let mut bytes = Vec::with_capacity(path.len());
+        let b = path.as_bytes();
+        let mut i = 0;
+        while i < b.len() {
+            let hex = |c: u8| (c as char).to_digit(16);
+            if b[i] == b'%'
+                && let (Some(h), Some(l)) = (
+                    b.get(i + 1).copied().and_then(hex),
+                    b.get(i + 2).copied().and_then(hex),
+                )
+            {
+                bytes.push((h * 16 + l) as u8);
+                i += 3;
+            } else {
+                bytes.push(b[i]);
+                i += 1;
+            }
+        }
+        out.push(PathBuf::from(String::from_utf8_lossy(&bytes).into_owned()));
+    }
+    out
+}
+
 /// A Windows clipboard bitmap (`CF_DIB`: a BITMAPINFOHEADER or a later header, then the pixels) as
 /// a PNG file. Only 24 and 32 bit colour with the usual channel order is understood; the alpha
 /// byte of 32 bit is not trusted (the clipboard's bitmap format leaves it zero), so the picture is
@@ -444,6 +489,28 @@ mod tests {
         let mut bad = vec![0u8; 20];
         bad[0] = 200;
         assert!(parse_dropfiles(&bad).is_empty());
+    }
+
+    #[test]
+    fn a_uri_list_from_a_linux_file_manager_is_read() {
+        let list = "# a comment\r\nfile:///home/me/My%20Pics/a%C3%A7.png\r\nfile://localhost/tmp/b.jpg\n\
+                    file://otherhost/share/c.png\nhttps://example.com/d.png\nfile:///100%25.gif\nfile:///bad%zz%4\n";
+        assert_eq!(
+            parse_uri_list(list),
+            [
+                PathBuf::from("/home/me/My Pics/a\u{e7}.png"),
+                PathBuf::from("/tmp/b.jpg"),
+                PathBuf::from("/100%.gif"),
+                PathBuf::from("/bad%zz%4"),
+            ]
+        );
+        // GNOME's list starts with what the file manager will do.
+        assert_eq!(
+            parse_uri_list("copy\nfile:///a.png\nfile:///b.png"),
+            [PathBuf::from("/a.png"), PathBuf::from("/b.png")]
+        );
+        assert!(parse_uri_list("").is_empty());
+        assert!(parse_uri_list("\u{e7}\u{e7}\u{e7}\u{e7}").is_empty());
     }
 
     #[test]
