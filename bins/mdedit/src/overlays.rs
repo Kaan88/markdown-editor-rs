@@ -179,7 +179,8 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
         item(C::PreviewInViewer, "Preview in mdview")
             .checked(linked)
             .sep(),
-        item(C::PreviewSideBySide, "Preview side by side"),
+        item(C::PreviewSideBySide, "Preview side by side")
+            .checked(linked && docs.links.side_by_side),
     ]
 }
 

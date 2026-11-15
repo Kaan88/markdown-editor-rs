@@ -23,6 +23,15 @@ impl App {
     /// keyboard.
     pub(super) fn handed_over(&mut self, requests: Vec<Request>) {
         for request in &requests {
+            if request.unplace {
+                // The viewer gave up the side-by-side arrangement (its tab or its window was
+                // closed): this window goes back too. The viewer is not told; it knows.
+                if let Some(w) = self.window.clone() {
+                    self.tiling.restore(&w);
+                }
+                self.docs.links.side_by_side = false;
+                continue;
+            }
             let (line, col) = (
                 request.line.map(|l| l as usize),
                 request.column.map_or(1, |c| c as usize),
@@ -102,6 +111,12 @@ impl App {
             self.docs.links.unlink(id);
             return;
         }
+        // Side by side already, with this document previewed: the command gives the arrangement
+        // up. The windows go back to where they were and the preview goes on.
+        if side_by_side && self.docs.links.contains(id) && self.side_by_side() {
+            self.end_side_by_side();
+            return;
+        }
         let ready = self.docs.active_ready();
         let line = ready.map(|r| r.buffer.line_of(r.view.sel.caret) as u32 + 1);
         let too_large = ready.is_some_and(|r| r.buffer.len_bytes() > sister::MAX_TEXT);
@@ -162,13 +177,48 @@ impl App {
     /// desktop does not let a window be placed, says so and returns nothing.
     fn tile_left(&mut self) -> Option<Rect> {
         let window = self.window.clone();
+        let tiling = &mut self.tiling;
         let right = window
             .as_ref()
-            .and_then(|w| tiled(place::work_area(w), |left| place::set(w, left)));
+            .and_then(|w| tiled(place::work_area(w), |left| tiling.set(w, left)));
         if right.is_none() {
             self.docs.set_toast(strings::PREVIEW_TILING);
         }
+        self.docs.links.side_by_side = right.is_some();
         right
+    }
+
+    /// Whether this window is where "Preview side by side" put it. A window the user has moved
+    /// since is no longer part of an arrangement.
+    pub(super) fn side_by_side(&mut self) -> bool {
+        let window = self.window.clone();
+        let still = window.is_some_and(|w| self.tiling.before(&w).is_some());
+        self.docs.links.side_by_side &= still;
+        still
+    }
+
+    /// The side-by-side arrangement is over: this window goes back to where it was before,
+    /// unless the user has moved it since, and the viewer is told to do the same with its own.
+    /// The viewer is told off this thread: a send waits for the answer.
+    pub(super) fn end_side_by_side(&mut self) {
+        if let Some(w) = self.window.clone() {
+            self.tiling.restore(&w);
+        } else {
+            self.tiling.forget();
+        }
+        self.docs.links.side_by_side = false;
+        std::thread::spawn(|| {
+            sister::send(link::VIEWER, &unplace_request());
+        });
+    }
+}
+
+/// The request that asks the viewer to put its window back where it was.
+pub(super) fn unplace_request() -> Request {
+    Request {
+        unplace: true,
+        from: Some(link::FROM.into()),
+        ..Request::default()
     }
 }
 
@@ -178,6 +228,23 @@ mod tests {
     use super::*;
     use crate::commands::CommandId as C;
     use mdedit_core::Position;
+
+    #[test]
+    fn the_viewer_giving_up_side_by_side_ends_it_here_and_opens_nothing() {
+        let mut a = app();
+        a.docs.links.side_by_side = true;
+        let tabs = a.docs.tabs.len();
+        // What the viewer sends: a live update with no file and no line.
+        let message = unplace_request().encode("mdedit");
+        let lines = message.lines().skip(1).take_while(|l| !l.is_empty());
+        let requests = Request::parse(lines);
+        assert!(requests.len() == 1 && requests[0].unplace && requests[0].follow);
+        a.handed_over(requests);
+        assert!(!a.docs.links.side_by_side);
+        assert_eq!(a.docs.tabs.len(), tabs, "nothing was opened");
+        // And what this window sends says who it is from.
+        assert_eq!(unplace_request().from.as_deref(), Some("mdedit"));
+    }
 
     #[test]
     fn the_halves_cover_the_screen_and_the_viewer_gets_the_right_one() {

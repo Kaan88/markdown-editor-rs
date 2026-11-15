@@ -202,6 +202,8 @@ pub struct Links {
     sent_at: Option<Instant>,
     /// Exists while something is linked.
     courier: Option<Courier>,
+    /// The windows were put side by side and have not been sent back: the menu's check mark.
+    pub side_by_side: bool,
 }
 
 impl Links {

@@ -1823,6 +1823,27 @@ impl App {
         self.session.set_window_size(lw, lh, w.is_maximized());
     }
 
+    /// The exit while the windows are side by side: the place the window had before is the one
+    /// the next start gets, and the viewer is told to go back to its own. True when that was
+    /// so: the size is saved then, and [`save_size`](Self::save_size) would save the half.
+    pub(super) fn leave_side_by_side(&mut self) -> bool {
+        let Some(w) = self.window.clone() else {
+            return false;
+        };
+        let Some(before) = self.tiling.before(&w) else {
+            return false;
+        };
+        self.tiling.forget();
+        let content = self.content_size(before.inner.0, before.inner.1);
+        let (lw, lh) = logical_size(content, w.scale_factor());
+        self.session.set_window_size(lw, lh, before.maximized);
+        if !before.maximized {
+            (self.session).set_window_position(before.outer.x, before.outer.y);
+        }
+        mdshared_app::sister::send(crate::link::VIEWER, &super::handoff::unplace_request());
+        true
+    }
+
     /// `--type-steps`: one keystroke per frame at the caret, then a summary of the time from
     /// keystroke to pixels (the edit plus the frame's own work) and exit without saving.
     pub(super) fn type_step(&mut self) {

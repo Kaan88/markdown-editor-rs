@@ -172,6 +172,11 @@ struct App {
     service_doc: Option<DocId>,
     service_dark: Option<bool>,
     window: Option<Rc<Window>>,
+    /// Where the window was before "Preview side by side" put it on the left half, while it is
+    /// still there.
+    tiling: mdshared_ui::place::Tiling,
+    /// The exit has saved the window's size.
+    size_saved: bool,
     /// The window's drop shadow (Linux: KWin's protocol, or the client-drawn margin where the
     /// compositor has none); `None` elsewhere. With the margin, `size` is the CONTENT size (the
     /// surface minus the margin on every side) and `present` puts the content inside the surface.
@@ -332,6 +337,8 @@ impl App {
             service_doc: None,
             service_dark: None,
             window: None,
+            tiling: Default::default(),
+            size_saved: false,
             shadow: None,
             surface: None,
             frost: crate::frost::Frost::default(),
@@ -2070,13 +2077,26 @@ impl ApplicationHandler<Wake> for App {
             self.redraw();
         }
         if self.exit {
-            // The viewer goes back to the files it was showing the text of.
+            // The viewer goes back to the files it was showing the text of, and to where its
+            // window was.
             self.docs.links.finish();
-            self.save_size();
+            // The size is saved once: the loop comes here again before it ends, and a second
+            // pass would save the window as it is now, not as it was before a side-by-side
+            // preview.
+            let first = !std::mem::replace(&mut self.size_saved, true);
+            if first && !self.leave_side_by_side() {
+                self.save_size();
+            }
             self.save_session();
             self.recovery.finish(&self.docs);
             self.trace.cpu("exit");
             event_loop.exit();
+            if first {
+                // The loop reads an exit asked for here only after the next event, and a close
+                // that comes from the system alone (the taskbar's "Close window") is followed
+                // by none: the window stayed open until the pointer moved. This is that event.
+                (self.docs.waker())(Wake::Instance);
+            }
             return;
         }
         if self.docs.watch_changed {
@@ -2089,6 +2109,11 @@ impl ApplicationHandler<Wake> for App {
         self.persist_if_changed();
         self.recover_due = self.recovery.poll(&self.docs, Instant::now());
         self.link_due = self.docs.link_poll(Instant::now());
+        // The last preview is over (stopped, its tab closed, the viewer gone): the windows go
+        // back to where they were.
+        if self.tiling.is_some() && self.docs.links.is_empty() {
+            self.end_side_by_side();
+        }
         if !self.settled && !self.first && self.is_settled() {
             self.settled = true;
             self.trace.stage("loading and colouring idle");
