@@ -1445,3 +1445,29 @@ fn bookmarks_come_back_when_a_closed_file_is_opened_again_and_across_runs() {
     assert!(b.docs.tabs[k].ready().unwrap().bookmarks.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn text_sent_as_unicode_packets_is_typed_into_the_text_and_the_palette() {
+    use super::input::event_key;
+    use winit::keyboard::{Key as WKey, NativeKey};
+    let dir = scratch("packet");
+    std::fs::write(dir.join("a.txt"), "x").unwrap();
+    let mut a = app();
+    open_now(&mut a, &dir.join("a.txt"));
+    let packet = WKey::Unidentified(NativeKey::Unidentified);
+    let family = "\u{1f468}\u{200d}\u{1f469}";
+    let send = |a: &mut App, text: &str| {
+        let key = event_key(&packet, &packet, Some(text), a.mods).expect("the text has a key");
+        a.key_pressed(key, Some(text));
+    };
+    send(&mut a, "\u{e9}");
+    send(&mut a, family);
+    let r = a.docs.active_ready().unwrap();
+    assert_eq!(r.buffer.rope().to_string(), format!("\u{e9}{family}x"));
+    ctrl_p(&mut a);
+    send(&mut a, "\u{e9}");
+    send(&mut a, "t");
+    let q = a.palette.open.as_ref().unwrap().palette.query().to_string();
+    assert_eq!(q, "\u{e9}t");
+    let _ = std::fs::remove_dir_all(&dir);
+}

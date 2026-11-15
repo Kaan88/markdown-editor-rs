@@ -1093,7 +1093,8 @@ impl App {
         };
         #[cfg(not(any(windows, target_os = "linux")))]
         let bare = event.logical_key.clone();
-        let Some(key) = keys::key_of(&bare).or_else(|| keys::key_of(&event.logical_key)) else {
+        let Some(key) = event_key(&bare, &event.logical_key, event.text.as_deref(), self.mods)
+        else {
             return;
         };
         self.key_pressed(key, event.text.as_deref());
@@ -1685,10 +1686,76 @@ fn autoscroll_step(dx: f32, dy: f32) -> (f64, f64) {
     (down as f64, right as f64)
 }
 
+/// The key a key event stands for: by the key without modifiers, else by the logical key, else,
+/// for text that came without a key (characters sent as `KEYEVENTF_UNICODE` by on-screen
+/// keyboards, emoji pickers and remapping tools reach winit as `Key::Unidentified`, and a
+/// sequence of several code points names no key), a character key of the text's first
+/// character, so that the text itself, which every text box takes from the event's `text`, is
+/// not thrown away. Text with a control character, and any text while Ctrl or Alt is held, is
+/// left to the keys.
+pub(super) fn event_key(
+    bare: &winit::keyboard::Key,
+    logical: &winit::keyboard::Key,
+    text: Option<&str>,
+    mods: Mods,
+) -> Option<keys::Key> {
+    keys::key_of(bare)
+        .or_else(|| keys::key_of(logical))
+        .or_else(|| {
+            let text = text.filter(|t| !t.is_empty() && !t.chars().any(char::is_control))?;
+            if mods.ctrl || mods.alt {
+                return None;
+            }
+            let c = text.chars().next()?;
+            Some(keys::Key::Name(KeyName::Char(
+                c.to_lowercase().next().unwrap_or(c),
+            )))
+        })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{TitlePress, access_char, autoscroll_step, title_moved, title_press};
-    use crate::keys::{KeyName, Mods};
+    use super::{TitlePress, access_char, autoscroll_step, event_key, title_moved, title_press};
+    use crate::keys::{Key, KeyName, Mods};
+    use winit::keyboard::{Key as WKey, NamedKey, NativeKey};
+
+    /// Characters sent as `KEYEVENTF_UNICODE` (on-screen keyboards, emoji pickers, remapping
+    /// tools) arrive as `Key::Unidentified` with the text in the event, and a sequence of
+    /// several code points has no key name either: the text must still reach the boxes.
+    #[test]
+    fn text_without_a_key_name_still_gets_a_key_so_that_it_is_typed() {
+        let none = Mods::default();
+        let packet = WKey::Unidentified(NativeKey::Unidentified);
+        let name = |c| Some(Key::Name(KeyName::Char(c)));
+        assert_eq!(
+            event_key(&packet, &packet, Some("\u{e9}"), none),
+            name('\u{e9}')
+        );
+        assert_eq!(
+            event_key(&packet, &packet, Some("\u{20ac}"), none),
+            name('\u{20ac}')
+        );
+        // A ZWJ sequence: no key name in the logical key (several characters), still text.
+        let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+        let multi = WKey::Character(family.into());
+        assert_eq!(
+            event_key(&packet, &multi, Some(family), none),
+            name('\u{1f468}')
+        );
+        // A key that has a name keeps it, whatever the text.
+        let a = WKey::Character("a".into());
+        assert_eq!(event_key(&a, &a, Some("a"), none), name('a'));
+        let enter = WKey::Named(NamedKey::Enter);
+        assert_eq!(
+            event_key(&enter, &enter, Some("\r"), none),
+            Some(Key::Name(KeyName::Enter))
+        );
+        // No text, a control character, or Ctrl or Alt held: nothing to type, no key.
+        assert_eq!(event_key(&packet, &packet, None, none), None);
+        assert_eq!(event_key(&packet, &packet, Some("\u{1}"), none), None);
+        let ctrl = Mods { ctrl: true, ..none };
+        assert_eq!(event_key(&packet, &packet, Some("x"), ctrl), None);
+    }
 
     #[test]
     fn a_menu_reads_printable_keys_without_ctrl_or_alt_as_access_keys() {
