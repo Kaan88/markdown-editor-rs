@@ -465,6 +465,10 @@ pub struct Ready {
     /// Bookmarked lines, sorted. They follow edits and a reload, and are gone when the tab
     /// closes.
     pub bookmarks: Vec<usize>,
+    /// The bookmarks that "Cut bookmarked lines" and "Delete bookmarked lines" took away, with the
+    /// id of the undo step that did it ([`History::state`] after it): undoing that step brings
+    /// them back. The newest last, a few kept.
+    pub bookmark_undo: Vec<(u64, Vec<usize>)>,
     /// The typing help for this document's language, the preferences and `detected`.
     pub assist: Assist,
     /// The indentation the text shows ([`mdedit_core::indent::detect`]), found when the text was
@@ -678,6 +682,48 @@ impl Ready {
         }
     }
 
+    /// Keeps the bookmarks of the lines that Cut and Delete bookmarked lines remove: the step
+    /// that did it remembers them, undoing it puts them back beside any set since, and redoing it
+    /// takes them away again. `state_before` is the history's state before the edit.
+    fn bookmarks_after(
+        &mut self,
+        op: &EditOp,
+        state_before: u64,
+        marks_before: Option<Vec<usize>>,
+    ) {
+        const KEPT: usize = 16;
+        let now = self.history.state();
+        match op {
+            EditOp::DeleteBookmarked => {
+                if let Some(marks) = marks_before {
+                    self.bookmark_undo.push((now, marks));
+                    if self.bookmark_undo.len() > KEPT {
+                        self.bookmark_undo.remove(0);
+                    }
+                }
+            }
+            EditOp::Undo => {
+                if let Some((_, marks)) = self
+                    .bookmark_undo
+                    .iter()
+                    .find(|(id, _)| *id == state_before)
+                {
+                    self.bookmarks.extend(marks.iter().copied());
+                    self.bookmarks.sort_unstable();
+                    self.bookmarks.dedup();
+                    let last = self.buffer.len_lines().saturating_sub(1);
+                    self.bookmarks.retain(|&m| m <= last);
+                }
+            }
+            EditOp::Redo => {
+                if self.bookmark_undo.iter().any(|(id, _)| *id == now) {
+                    self.bookmarks.clear();
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Where the other view's top line starts in the text as it is now, before an edit.
     fn twin_top_offset(&self) -> Option<usize> {
         let t = self.twin.as_deref()?;
@@ -877,6 +923,7 @@ impl Ready {
             view: ViewState::new(),
             twin: None,
             bookmarks: Vec::new(),
+            bookmark_undo: Vec::new(),
             assist: Prefs::default().assist_for(language.map_or("", Language::name), detected),
             detected,
             wrap: false,
@@ -2291,6 +2338,8 @@ impl Docs {
                 .or_else(|| markdown_edit(r, &op))
                 .or_else(|| line_edit(r, &op, eol, comment.unwrap_or_default()))
         };
+        let state_before = r.history.state();
+        let marks_before = matches!(op, EditOp::DeleteBookmarked).then(|| r.bookmarks.clone());
         let (buf, hist, sel) = (&mut r.buffer, &mut r.history, r.view.sel);
         let out = if let Some(out) = typed {
             out
@@ -2439,6 +2488,7 @@ impl Docs {
             if had_scope {
                 r.view.replace_scope = new_scope.take();
             }
+            r.bookmarks_after(&op, state_before, marks_before);
             if let Some(s) = service.filter(|_| r.colourable) {
                 s.edit(
                     *id,

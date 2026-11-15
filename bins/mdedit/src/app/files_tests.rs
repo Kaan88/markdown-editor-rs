@@ -1279,6 +1279,38 @@ fn closing_a_document_without_saving_takes_its_discarded_matches_off_the_panel()
 }
 
 #[test]
+fn undoing_cut_or_delete_bookmarked_lines_brings_the_bookmarks_back() {
+    let dir = scratch("marks-undo");
+    std::fs::write(dir.join("a.txt"), "a\nb\nc\nd\ne\n").unwrap();
+    for command in [C::DeleteBookmarkedLines, C::CutBookmarkedLines] {
+        let mut a = app();
+        open_now(&mut a, &dir.join("a.txt"));
+        for line in [2, 4] {
+            a.docs.go_to(line, 1);
+            a.docs.active_ready_mut().unwrap().toggle_bookmark();
+        }
+        a.command(command);
+        let r = a.docs.active_ready().unwrap();
+        assert_eq!(r.buffer.rope().to_string(), "a\nc\ne\n");
+        assert!(r.bookmarks.is_empty());
+        // Undo: the lines and their bookmarks are back.
+        a.command(C::Undo);
+        let r = a.docs.active_ready().unwrap();
+        assert_eq!(r.buffer.rope().to_string(), "a\nb\nc\nd\ne\n");
+        assert_eq!(r.bookmarks, [1, 3]);
+        // Redo takes the lines and the marks away again, and a bookmark set meanwhile stays when
+        // Undo brings the others back.
+        a.command(C::Redo);
+        assert!(a.docs.active_ready().unwrap().bookmarks.is_empty());
+        a.docs.go_to(1, 1);
+        a.docs.active_ready_mut().unwrap().toggle_bookmark();
+        a.command(C::Undo);
+        assert_eq!(a.docs.active_ready().unwrap().bookmarks, [0, 1, 3]);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_results_panel_searches_the_folder_and_kinds_typed_in_its_boxes() {
     let dir = scratch("results-scope");
     std::fs::create_dir_all(dir.join("sub")).unwrap();

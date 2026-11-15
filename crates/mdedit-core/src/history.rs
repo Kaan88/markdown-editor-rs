@@ -231,8 +231,9 @@ impl History {
         !self.redo.is_empty()
     }
 
-    /// The id of the current state: the newest undo step's, or the base.
-    fn state(&self) -> u64 {
+    /// The id of the current state: the newest undo step's, or the base. Ids are never reused,
+    /// so something kept against a step's id can tell whether that step is the newest one.
+    pub fn state(&self) -> u64 {
         self.undo.back().map_or(self.base_id, |s| s.id)
     }
 
