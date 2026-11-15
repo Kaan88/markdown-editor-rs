@@ -457,12 +457,16 @@ impl App {
             return;
         };
         #[cfg(windows)]
-        let handle = hwnd(&window);
+        let mut sys = mdshared_ui::frost::WindowSystem(hwnd(&window));
+        // KDE Plasma (Wayland): the blur protocol on the window's own connection; elsewhere it
+        // says no and the chrome stays flat.
         #[cfg(not(windows))]
-        let handle = None;
-        let _ = &window;
-        let mut sys = mdshared_ui::frost::WindowSystem(handle);
+        let mut sys = mdshared_ui::frost::BlurSystem(&window);
         if self.frost.sync(want, self.focused, &self.pal, &mut sys) {
+            // The buffers carry alpha while the chrome is frosted (or the shadow's margin needs
+            // it); a no-op where the surface cannot.
+            #[cfg(not(windows))]
+            self.sync_surface_alpha();
             // Every mark goes: the regions put theirs back when they are drawn frosted.
             for px in self.screen.pixels.as_chunks_mut::<4>().0 {
                 px[3] = 255;
@@ -476,6 +480,16 @@ impl App {
             };
             self.trace
                 .line(&format!("backdrop {}: chrome {state}", want.key()));
+        }
+    }
+
+    /// Wayland buffers must carry alpha for a frosted chrome or the client-drawn margin.
+    #[cfg(not(windows))]
+    fn sync_surface_alpha(&mut self) {
+        let alpha =
+            self.frost.wants_alpha() || self.shadow.as_ref().is_some_and(|s| s.wants_alpha());
+        if let Some(s) = self.surface.as_mut() {
+            s.set_premultiplied_alpha(alpha);
         }
     }
 
@@ -1988,6 +2002,9 @@ impl ApplicationHandler<Wake> for App {
                     s.set_premultiplied_alpha(true);
                 }
                 self.surface = Some(s);
+                // The frost may already be on (a first frame with the setting set).
+                #[cfg(not(windows))]
+                self.sync_surface_alpha();
             }
             Err(e) => {
                 eprintln!("mdedit: no surface: {e}");
