@@ -244,6 +244,8 @@ struct App {
     /// Recovery copies of unsaved documents, and when the next one is due.
     recovery: crate::recovery::Recovery,
     recover_due: Option<Instant>,
+    /// When the results panel next looks at the tabs whose matches it lists.
+    results_due: Option<Instant>,
     /// `--run`: when its command runs.
     run_due: Option<Instant>,
     /// `--scroll-steps`: steps left, the direction, and the frame times taken.
@@ -384,6 +386,7 @@ impl App {
             exit_due: None,
             recovery: crate::recovery::Recovery::off(),
             recover_due: None,
+            results_due: None,
             run_due: None,
             step_down: true,
             step_times: Vec::new(),
@@ -2119,6 +2122,7 @@ impl ApplicationHandler<Wake> for App {
         self.persist_if_changed();
         self.recover_due = self.recovery.poll(&self.docs, Instant::now());
         self.link_due = self.docs.link_poll(Instant::now());
+        self.results_due = self.results_sync(Instant::now());
         // The last preview is over (stopped, its tab closed, the viewer gone): the windows go
         // back to where they were.
         if self.tiling.is_some() && self.docs.links.is_empty() {
@@ -2148,6 +2152,10 @@ impl ApplicationHandler<Wake> for App {
         }
         let next = self.timers(Instant::now());
         let next = match (next, self.recover_due) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        let next = match (next, self.results_due) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         };

@@ -366,6 +366,7 @@ pub mod strings {
     pub const NO_SEARCH_FOLDER: &str = "Open a folder or a file first: its folder is searched.";
     pub const NO_RESULTS: &str = "No results. Ctrl+Shift+F finds in files.";
     pub const RESULT_TAB_CLOSED: &str = "That tab is closed.";
+    pub const RESULT_STALE: &str = "That document changed; its results are being updated.";
     pub const NO_NEXT_OCCURRENCE: &str = "There is no other place with that text to select.";
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
     pub const NO_BLOCK: &str = "Nothing to fold here: no lines below are indented more.";

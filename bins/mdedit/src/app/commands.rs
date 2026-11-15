@@ -230,6 +230,7 @@ impl App {
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let mut left_out = false;
         let mut tabs = Vec::new();
+        let mut revisions = Vec::new();
         for d in &self.docs.tabs {
             // A tab not read yet, or with more text than is searched while the window waits.
             let Some(r) = d
@@ -241,9 +242,35 @@ impl App {
             };
             let max = crate::results::TAB_HITS_MAX;
             let (hits, more) = mdedit_core::search::in_buffer(&r.buffer, &query, max, &cancel);
+            revisions.push((d.id, r.buffer.revision()));
             tabs.push((d.id, d.name(), d.path.clone(), hits, more));
         }
         self.ui.results.set_tabs(query.text(), tabs, left_out);
+        self.ui.results.set_tab_search(query, &revisions);
+    }
+
+    /// Keeps the results panel true to the tabs it lists matches of; nothing at all while the
+    /// panel is closed.
+    pub(super) fn results_sync(&mut self, now: Instant) -> Option<Instant> {
+        if !self.ui.results.open {
+            return None;
+        }
+        let docs = &self.docs;
+        let tabs = docs.tabs.iter().filter_map(|d| {
+            let r = d.ready()?;
+            Some(crate::results::TabRev {
+                id: d.id,
+                path: d.path.as_deref(),
+                revision: r.buffer.revision(),
+                modified: d.modified(),
+            })
+        });
+        let snapshot = |id: mdedit_highlight::DocId| {
+            let d = docs.tabs.iter().find(|d| d.id == id)?;
+            Some(d.ready()?.buffer.clone())
+        };
+        let waker = docs.waker();
+        self.ui.results.sync(tabs, now, &snapshot, &waker)
     }
 
     /// Gives the keyboard to the results panel; the row the keyboard is on is the last one gone
@@ -318,6 +345,11 @@ impl App {
         let Some((path, doc, range)) = self.ui.results.target(row) else {
             return;
         };
+        // The document was edited since: this place may be somewhere else now.
+        if self.ui.results.is_stale(row) {
+            self.docs.set_toast(strings::RESULT_STALE);
+            return;
+        }
         let open = doc
             .and_then(|id| self.docs.index_of_id(id))
             .or_else(|| path.as_deref().and_then(|p| self.docs.index_of(p)));

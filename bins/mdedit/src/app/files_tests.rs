@@ -1061,3 +1061,46 @@ fn the_results_panel_takes_the_keyboard_moves_its_row_and_gives_it_back() {
     assert!(!a.ui.results.focused && a.text_focused());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn results_of_an_edited_tab_are_stale_at_once_and_true_again_after_a_search() {
+    let dir = scratch("results-follow");
+    std::fs::write(dir.join("a.txt"), "foo\nbar\nfoo\n").unwrap();
+    let mut a = app();
+    open_now(&mut a, &dir.join("a.txt"));
+    a.ui.find.set_text("foo");
+    a.command(C::FindInTabs);
+    let now = Instant::now();
+    // Nothing is looked for while nothing changed.
+    assert_eq!(a.results_sync(now), None);
+    assert!(!a.ui.results.is_stale(1));
+    // An edit before the matches: the rows say so and cannot be gone to.
+    a.docs.edit(EditOp::Insert("zz\n"), None);
+    let due = a.results_sync(now);
+    assert!(due.is_some() && a.ui.results.is_stale(1) && a.ui.results.is_stale(2));
+    press(&mut a, KeyName::Enter, None);
+    let r = a.docs.active_ready().unwrap();
+    assert_eq!(r.view.sel.caret, r.view.sel.anchor);
+    assert!(
+        a.ui.results.focused,
+        "the refused Enter leaves the keyboard in the panel"
+    );
+    // After a pause the tab is searched again and the rows are the new places.
+    a.results_sync(now + Duration::from_millis(400));
+    let until = Instant::now() + Duration::from_secs(20);
+    while a.ui.results.is_stale(1) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+        a.ui.results.poll();
+    }
+    assert!(!a.ui.results.is_stale(1));
+    assert_eq!(a.ui.results.target(1).map(|t| t.2), Some(3..6));
+    assert_eq!(a.ui.results.target(2).map(|t| t.2), Some(11..14));
+    a.ui.results.select(1);
+    press(&mut a, KeyName::Enter, None);
+    let r = a.docs.active_ready().unwrap();
+    assert_eq!((r.view.sel.anchor, r.view.sel.caret), (3, 6));
+    // A closed panel is not looked at.
+    a.command(C::CloseResults);
+    assert_eq!(a.results_sync(now), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -14,6 +14,7 @@ use mdedit_highlight::DocId;
 use mdshared_ui::gfx::{Face, Rect, mix};
 use mdshared_ui::pane::draw_row_fill;
 use mdshared_ui::scroll::{draw_scrollbar, scrollbar};
+use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,6 +36,9 @@ pub const TAB_HITS_MAX: usize = 2000;
 /// An open tab with more text than this is not searched by "Find in open tabs", which runs
 /// while the window waits.
 pub const TAB_BYTES_MAX: usize = 64 << 20;
+/// A document with matches listed that has been edited is searched again this long after its
+/// last change.
+pub const REFRESH_AFTER: Duration = Duration::from_millis(300);
 /// The worker wakes the window at most this often while files with matches come in.
 const WAKE_EVERY: Duration = Duration::from_millis(40);
 
@@ -62,8 +66,42 @@ pub enum Row {
         name: String,
         count: usize,
         more: bool,
+        /// The document was edited after these matches were found: they are not offered as
+        /// places to go to until it is searched again.
+        stale: bool,
     },
     Hit(Found),
+}
+
+/// One open tab as the panel needs to see it to keep its rows true.
+pub struct TabRev<'a> {
+    pub id: DocId,
+    pub path: Option<&'a Path>,
+    /// Changes with every edit of the text.
+    pub revision: u64,
+    pub modified: bool,
+}
+
+/// What the panel knows of an open tab whose matches it lists.
+struct Seen {
+    /// The revision the listed matches are of; `u64::MAX` for matches read from a file that
+    /// the tab has changed since.
+    revision: u64,
+    /// The revision the next search is waited for, and when it starts.
+    due_for: Option<u64>,
+    due: Option<Instant>,
+    /// The revision a search on a worker is running for.
+    job: Option<u64>,
+}
+
+/// The answer of a search of one tab again, for the revision it started at.
+struct Refreshed {
+    epoch: u64,
+    doc: DocId,
+    path: Option<PathBuf>,
+    revision: u64,
+    hits: Vec<Found>,
+    more: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -100,6 +138,17 @@ pub struct Results {
     /// Counts every change of what the panel shows.
     pub generation: u64,
     root: PathBuf,
+    /// What was looked for, to search a changed tab again.
+    query: Option<Query>,
+    /// The file rows by file and by tab, and what is known of each open tab with matches.
+    by_path: HashMap<PathBuf, usize>,
+    by_doc: HashMap<DocId, usize>,
+    seen: HashMap<DocId, Seen>,
+    /// Counts the searches; an answer of an older one is dropped.
+    epoch: u64,
+    /// Files with stale rows.
+    stale_files: usize,
+    refreshed: Arc<Mutex<Vec<Refreshed>>>,
     /// Replace in files: the box, the steps and the report of the panel.
     pub replace: crate::replace_ui::Replacing,
     /// What the worker has found and the window has not taken in yet. A list under a lock, not
@@ -126,6 +175,13 @@ impl Default for Results {
             focused: false,
             generation: 0,
             root: PathBuf::new(),
+            query: None,
+            by_path: HashMap::new(),
+            by_doc: HashMap::new(),
+            seen: HashMap::new(),
+            epoch: 0,
+            stale_files: 0,
+            refreshed: Arc::new(Mutex::new(Vec::new())),
             replace: Default::default(),
             rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
@@ -148,6 +204,12 @@ impl Results {
         self.cancel = Arc::new(AtomicBool::new(false));
         self.rx = None;
         self.rows.clear();
+        self.by_path.clear();
+        self.by_doc.clear();
+        self.seen.clear();
+        self.stale_files = 0;
+        self.epoch += 1;
+        self.refreshed.lock().unwrap().clear();
         (self.hits, self.files) = (0, 0);
         self.what = what.to_string();
         self.place = place;
@@ -160,6 +222,7 @@ impl Results {
     /// Starts a search of `root` on a worker thread.
     pub fn start_tree(&mut self, root: &Path, query: Query, load: LoadOptions, waker: Waker) {
         self.reset(query.text(), format!("in {}", short(root)));
+        self.query = Some(query.clone());
         self.replace.searched(root, query.clone(), load);
         self.root = root.to_path_buf();
         self.state = State::Running { files: 0 };
@@ -200,6 +263,23 @@ impl Results {
         };
     }
 
+    /// Tells the panel what was searched for in the tabs, and each tab's revision at that
+    /// time, so that a later edit of a tab is noticed.
+    pub fn set_tab_search(&mut self, query: Query, revisions: &[(DocId, u64)]) {
+        self.query = Some(query);
+        for &(doc, revision) in revisions {
+            self.seen.insert(
+                doc,
+                Seen {
+                    revision,
+                    due_for: None,
+                    due: None,
+                    job: None,
+                },
+            );
+        }
+    }
+
     fn push_file(
         &mut self,
         path: Option<PathBuf>,
@@ -210,22 +290,29 @@ impl Results {
     ) {
         self.files += 1;
         self.hits += hits.len();
+        if let Some(p) = &path {
+            self.by_path.insert(p.clone(), self.rows.len());
+        }
+        if let Some(d) = doc {
+            self.by_doc.insert(d, self.rows.len());
+        }
         self.rows.push(Row::File {
             path,
             doc,
             name,
             count: hits.len(),
             more,
+            stale: false,
         });
         self.rows.extend(hits.into_iter().map(Row::Hit));
     }
 
     /// Takes in what the worker has sent. True when the panel changed.
     pub fn poll(&mut self) -> bool {
+        let mut changed = self.take_refreshed();
         let Some(rx) = self.rx.take() else {
-            return false;
+            return changed;
         };
-        let mut changed = false;
         let mut finished = false;
         let events = std::mem::take(&mut *rx.lock().unwrap());
         for event in events {
@@ -262,6 +349,187 @@ impl Results {
             self.generation += 1;
         }
         changed
+    }
+
+    /// The file row of a tab: by its id (matches found in the open tabs) or by its file.
+    fn file_row(&self, id: DocId, path: Option<&Path>) -> Option<usize> {
+        self.by_doc
+            .get(&id)
+            .or_else(|| path.and_then(|p| self.by_path.get(p)))
+            .copied()
+    }
+
+    /// The rows after file row `file` up to the next file row.
+    fn extent(&self, file: usize) -> Range<usize> {
+        let end = self.rows[file + 1..]
+            .iter()
+            .position(|r| matches!(r, Row::File { .. }))
+            .map_or(self.rows.len(), |n| file + 1 + n);
+        file + 1..end
+    }
+
+    fn set_stale(&mut self, file: usize, on: bool) {
+        if let Some(Row::File { stale, .. }) = self.rows.get_mut(file)
+            && *stale != on
+        {
+            *stale = on;
+            self.stale_files = if on {
+                self.stale_files + 1
+            } else {
+                self.stale_files.saturating_sub(1)
+            };
+            self.generation += 1;
+        }
+    }
+
+    /// True when the match row, or the file it belongs to, was found before the document was
+    /// edited.
+    pub fn is_stale(&self, row: usize) -> bool {
+        if self.stale_files == 0 || row >= self.rows.len() {
+            return false;
+        }
+        self.rows[..=row]
+            .iter()
+            .rev()
+            .find_map(|r| match r {
+                Row::File { stale, .. } => Some(*stale),
+                Row::Hit(_) => None,
+            })
+            .unwrap_or(false)
+    }
+
+    /// Keeps the rows of the open tabs true to their text. A tab edited since its matches were
+    /// found has its rows marked, is searched again on a worker once it has been left alone for
+    /// `REFRESH_AFTER`, and its rows are replaced when the answer comes. `snapshot` gives a copy
+    /// of a tab's text to search. Returns when it wants to be called again.
+    pub fn sync<'a>(
+        &mut self,
+        tabs: impl Iterator<Item = TabRev<'a>>,
+        now: Instant,
+        snapshot: &dyn Fn(DocId) -> Option<mdedit_core::Buffer>,
+        waker: &Waker,
+    ) -> Option<Instant> {
+        if !self.open || self.rows.is_empty() || self.query.is_none() {
+            return None;
+        }
+        let mut next: Option<Instant> = None;
+        for t in tabs {
+            let Some(file) = self.file_row(t.id, t.path) else {
+                continue;
+            };
+            let seen = self.seen.entry(t.id).or_insert(Seen {
+                // Matches read from the file are of the tab's text only when it is unchanged.
+                revision: if t.modified { u64::MAX } else { t.revision },
+                due_for: None,
+                due: None,
+                job: None,
+            });
+            if seen.revision == t.revision {
+                seen.due_for = None;
+                seen.due = None;
+                continue;
+            }
+            if seen.due_for != Some(t.revision) {
+                seen.due_for = Some(t.revision);
+                seen.due = Some(now + REFRESH_AFTER);
+            }
+            let due = seen.due.unwrap_or(now);
+            let start = seen.job.is_none() && now >= due;
+            if start {
+                seen.job = Some(t.revision);
+                seen.due = None;
+            } else if seen.job.is_none() {
+                next = Some(next.map_or(due, |n| n.min(due)));
+            }
+            self.set_stale(file, true);
+            if start && let (Some(query), Some(buf)) = (self.query.clone(), snapshot(t.id)) {
+                let (epoch, doc, revision) = (self.epoch, t.id, t.revision);
+                let path = t.path.map(Path::to_path_buf);
+                let (out, waker) = (self.refreshed.clone(), waker.clone());
+                std::thread::spawn(move || {
+                    let cancel = AtomicBool::new(false);
+                    let (hits, more) = search::in_buffer(&buf, &query, TAB_HITS_MAX, &cancel);
+                    out.lock().unwrap().push(Refreshed {
+                        epoch,
+                        doc,
+                        path,
+                        revision,
+                        hits,
+                        more,
+                    });
+                    waker(Wake::Results);
+                });
+            }
+        }
+        next
+    }
+
+    /// Puts the answers of the searches of single tabs into the rows. True when any did.
+    fn take_refreshed(&mut self) -> bool {
+        let list = std::mem::take(&mut *self.refreshed.lock().unwrap());
+        let mut changed = false;
+        let epoch = self.epoch;
+        for r in list.into_iter().filter(|r| r.epoch == epoch) {
+            if let Some(seen) = self.seen.get_mut(&r.doc) {
+                seen.job = None;
+                seen.revision = r.revision;
+            }
+            if let Some(file) = self.file_row(r.doc, r.path.as_deref()) {
+                self.replace_file(file, r.hits, r.more);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Replaces the matches under file row `file`; a file left with none loses its row.
+    fn replace_file(&mut self, file: usize, hits: Vec<Found>, more: bool) {
+        let old = self.extent(file);
+        let (removed, added) = (old.len(), hits.len());
+        if let Some(Row::File { stale: true, .. }) = self.rows.get(file) {
+            self.stale_files = self.stale_files.saturating_sub(1);
+        }
+        self.hits = self.hits + added - removed;
+        self.rows
+            .splice(old.clone(), hits.into_iter().map(Row::Hit));
+        // The row the keyboard was on keeps its place when it is before the changed rows or after
+        // them, and goes when it was among them.
+        let gone = usize::from(added == 0);
+        self.selected = match self.selected {
+            Some(s) if s <= file => Some(s),
+            Some(s) if s >= old.end => Some(s + added - removed - gone),
+            _ => None,
+        };
+        if added == 0 {
+            self.rows.remove(file);
+            self.files -= 1;
+        } else if let Row::File {
+            count,
+            more: m,
+            stale,
+            ..
+        } = &mut self.rows[file]
+        {
+            (*count, *m, *stale) = (added, more, false);
+        }
+        self.reindex();
+        self.generation += 1;
+    }
+
+    /// Rebuilds the lookups of file rows after rows moved.
+    fn reindex(&mut self) {
+        self.by_path.clear();
+        self.by_doc.clear();
+        for (i, r) in self.rows.iter().enumerate() {
+            if let Row::File { path, doc, .. } = r {
+                if let Some(p) = path {
+                    self.by_path.insert(p.clone(), i);
+                }
+                if let Some(d) = doc {
+                    self.by_doc.insert(*d, i);
+                }
+            }
+        }
     }
 
     /// Closes the panel and stops a search still running. A replacement being written keeps the
@@ -386,6 +654,9 @@ impl Results {
             count(self.hits, "match", "matches"),
             count(self.files, "file", "files"),
         );
+        if self.stale_files > 0 {
+            s.push_str(" \u{00B7} updating\u{2026}");
+        }
         match self.state {
             State::Idle => {}
             State::Running { files } => {
@@ -480,6 +751,8 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
     let quiet = mix(pal.text, pal.muted, 0.35);
     let old = c.p.clip(area);
     let first = (scroll / ROW).floor() as usize;
+    // Whether the rows being drawn belong to a file whose matches are out of date.
+    let mut stale = res.stale_files > 0 && res.is_stale(first);
     for (i, row) in res.rows.iter().enumerate().skip(first) {
         let y = area.y + i as f32 * ROW - scroll;
         if y > area.bottom() {
@@ -489,8 +762,13 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
         let cy = rr.cy();
         match row {
             Row::File {
-                name, count, more, ..
+                name,
+                count,
+                more,
+                stale: s,
+                ..
             } => {
+                stale = *s;
                 c.p.icon(glyph::DOC, 13.0, r.x + 24.0, cy, pal.muted);
                 let w = c.p.text(
                     Face::Semibold,
@@ -536,7 +814,8 @@ pub fn draw(c: &mut Ctx, ui: &mut Ui, r: Rect) {
                         c.p.rbox_a(m, 3.0, pal.find_mark, if pal.dark { 0.38 } else { 0.45 });
                     }
                 }
-                c.p.text(Face::Ui, 13.0, x, cy, &hit.snippet, quiet, max);
+                let ink = if stale { pal.faint } else { quiet };
+                c.p.text(Face::Ui, 13.0, x, cy, &hit.snippet, ink, max);
                 c.hit(h, rr);
             }
         }
@@ -628,17 +907,7 @@ mod tests {
         res.set_tabs(
             "x",
             vec![
-                (
-                    1,
-                    "a".into(),
-                    None,
-                    found(
-                        "x
-.x
-", "x",
-                    ),
-                    false,
-                ),
+                (1, "a".into(), None, found("x\n.x\n", "x"), false),
                 (3, "b".into(), None, found("..x", "x"), false),
             ],
             false,
@@ -664,6 +933,161 @@ mod tests {
         // A selected row gone stale after a new search does not break it.
         res.selected = Some(99);
         assert_eq!(res.nav(Nav::Down), Some(1));
+    }
+
+    fn wait_refreshed(res: &mut Results, until: impl Fn(&Results) -> bool) {
+        let end = Instant::now() + Duration::from_secs(20);
+        while !until(res) && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(5));
+            res.poll();
+        }
+        assert!(until(res), "timed out");
+    }
+
+    #[test]
+    fn rows_of_an_edited_tab_go_stale_then_are_searched_again_on_a_worker() {
+        let waker: Waker = Arc::new(|_| {});
+        let mut text = String::from("x\nab\nx\n");
+        let mut res = Results::default();
+        res.set_tabs(
+            "x",
+            vec![
+                (1, "a.txt".into(), None, found(&text, "x"), false),
+                (2, "b.txt".into(), None, found("x", "x"), false),
+            ],
+            false,
+        );
+        res.set_tab_search(query("x"), &[(1, 5), (2, 7)]);
+        let now = Instant::now();
+        let tab = |id, revision, modified| TabRev {
+            id,
+            path: None,
+            revision,
+            modified,
+        };
+        let snap = |t: &str| Buffer::from_text(t);
+        // Rows: 0 file a, 1 and 2 matches, 3 file b, 4 match. Nothing changed: nothing to do.
+        let buf = snap(&text);
+        let same = [tab(1, 5, false), tab(2, 7, false)];
+        assert_eq!(
+            res.sync(same.into_iter(), now, &|_| Some(buf.clone()), &waker),
+            None
+        );
+        assert!(!res.is_stale(1) && res.stale_files == 0);
+        res.select(2);
+        // The first tab is edited: its rows (and only its) are stale at once, a search is
+        // waited for.
+        text = "x\nab\nx\nx\nx\n".into();
+        let buf = snap(&text);
+        let edited = [tab(1, 6, true), tab(2, 7, false)];
+        let due = res.sync(edited.into_iter(), now, &|_| Some(buf.clone()), &waker);
+        assert_eq!(due, Some(now + REFRESH_AFTER));
+        assert!(res.is_stale(1) && res.is_stale(2) && !res.is_stale(4));
+        assert!(res.title().contains("updating"));
+        // Another change moves the wait; no search has started yet.
+        let later = now + Duration::from_millis(100);
+        let edited = [tab(1, 7, true), tab(2, 7, false)];
+        let due = res.sync(edited.into_iter(), later, &|_| Some(buf.clone()), &waker);
+        assert_eq!(due, Some(later + REFRESH_AFTER));
+        assert!(res.refreshed.lock().unwrap().is_empty());
+        // Left alone for long enough, it is searched again and the rows are replaced.
+        let edited = [tab(1, 7, true), tab(2, 7, false)];
+        let end = later + REFRESH_AFTER + Duration::from_millis(1);
+        res.sync(edited.into_iter(), end, &|_| Some(buf.clone()), &waker);
+        wait_refreshed(&mut res, |r| r.hits == 5);
+        assert_eq!((res.rows.len(), res.files, res.stale_files), (7, 2, 0));
+        assert!(!res.is_stale(1) && res.title().contains("5 matches"));
+        // The selected row was inside the changed ones, so it went.
+        assert_eq!(res.selected, None);
+        assert_eq!(res.target(4), Some((None, Some(1), 9..10)));
+        // The second file is now at row 5 and its match at 6.
+        assert_eq!(res.target(6), Some((None, Some(2), 0..1)));
+        // Asked again for the same revision nothing starts: the rows are of it.
+        let edited = [tab(1, 7, true), tab(2, 7, false)];
+        assert_eq!(
+            res.sync(edited.into_iter(), end, &|_| Some(buf.clone()), &waker),
+            None
+        );
+        // The text loses its last match: the file's row goes.
+        let buf = snap("ab\n");
+        let gone = [tab(1, 8, true), tab(2, 7, false)];
+        res.sync(gone.into_iter(), end, &|_| Some(buf.clone()), &waker);
+        let gone = [tab(1, 8, true), tab(2, 7, false)];
+        let after = end + REFRESH_AFTER;
+        res.sync(gone.into_iter(), after, &|_| Some(buf.clone()), &waker);
+        wait_refreshed(&mut res, |r| r.files == 1);
+        assert_eq!((res.rows.len(), res.hits, res.stale_files), (2, 1, 0));
+        assert!(matches!(
+            &res.rows[0],
+            Row::File {
+                doc: Some(2),
+                count: 1,
+                ..
+            }
+        ));
+        assert_eq!(res.target(1), Some((None, Some(2), 0..1)));
+    }
+
+    #[test]
+    fn a_selected_row_after_the_changed_ones_keeps_its_place() {
+        let mut res = Results::default();
+        res.set_tabs(
+            "x",
+            vec![
+                (1, "a".into(), None, found("x\nx\n", "x"), false),
+                (2, "b".into(), None, found("x", "x"), false),
+            ],
+            false,
+        );
+        // Rows: 0 file, 1 and 2 matches, 3 file, 4 match. The first file gets one more match.
+        res.selected = Some(4);
+        res.replace_file(0, found("x\nx\nx\n", "x"), false);
+        assert_eq!((res.rows.len(), res.hits, res.selected), (6, 4, Some(5)));
+        // It loses all of them: file row and matches go, the selected row follows.
+        res.replace_file(0, Vec::new(), false);
+        assert_eq!((res.rows.len(), res.files, res.selected), (2, 1, Some(1)));
+    }
+
+    #[test]
+    fn matches_read_from_a_file_that_its_open_tab_has_changed_are_stale_from_the_start() {
+        let waker: Waker = Arc::new(|_| {});
+        let buf = Buffer::from_text("y");
+        let path = Path::new("C:/d/a.txt");
+        let tab = |modified| TabRev {
+            id: 9,
+            path: Some(path),
+            revision: 3,
+            modified,
+        };
+        let now = Instant::now();
+        let folder_search = || {
+            let mut res = Results::default();
+            res.set_tabs("x", Vec::new(), false);
+            res.push_file(
+                Some(path.to_path_buf()),
+                None,
+                "a.txt".into(),
+                found("x", "x"),
+                false,
+            );
+            res.query = Some(query("x"));
+            res
+        };
+        // A tab that is unchanged: the rows read from its file are of it.
+        let mut res = folder_search();
+        let due = res.sync(
+            [tab(false)].into_iter(),
+            now,
+            &|_| Some(buf.clone()),
+            &waker,
+        );
+        assert_eq!(due, None);
+        assert!(!res.is_stale(1));
+        // One with unsaved changes is not: they were read from the file.
+        let mut res = folder_search();
+        let due = res.sync([tab(true)].into_iter(), now, &|_| Some(buf.clone()), &waker);
+        assert_eq!(due, Some(now + REFRESH_AFTER));
+        assert!(res.is_stale(1));
     }
 
     #[test]
