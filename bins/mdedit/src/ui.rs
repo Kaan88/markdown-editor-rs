@@ -300,6 +300,8 @@ pub enum Act {
     Edit(EditAct),
     /// Turns a search option on or off.
     Opt(FindOpt),
+    /// Row `n` of the completion list.
+    Complete(usize),
 }
 
 impl Act {
@@ -345,6 +347,8 @@ pub enum PopupKind {
     Markdown,
     /// The find box's editing menu.
     Find,
+    /// The word completion list at the caret; typing goes on in the text.
+    Complete,
 }
 
 pub struct Popup {

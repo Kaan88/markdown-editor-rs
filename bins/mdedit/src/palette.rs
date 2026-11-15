@@ -357,6 +357,8 @@ fn icon(id: C) -> &'static str {
         C::MdMoveColumnLeft => glyph::BACK,
         C::MdMoveColumnRight => glyph::FORWARD,
         C::Settings => glyph::SLIDERS,
+        C::CompleteWord => glyph::EDIT,
+        C::OpenSnippets => glyph::DOC,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
 }
@@ -393,6 +395,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::MdHeading
         | C::MdLink
         | C::MdTable
+        | C::CompleteWord
         | C::MdRowBelow
         | C::MdRowAbove
         | C::MdDeleteRow

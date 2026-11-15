@@ -345,6 +345,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .icon(glyph::UPPERCASE)
             .hint("›")
             .enabled(ready),
+        cmd(C::CompleteWord, "Complete word", glyph::EDIT).enabled(ready),
         cmd(C::Find, "Find…", glyph::SEARCH).sep().enabled(ready),
         cmd(C::Replace, "Replace…", glyph::REPLACE).enabled(ready),
         cmd(C::Reload, "Reload", glyph::RELOAD),

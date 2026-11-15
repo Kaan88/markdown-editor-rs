@@ -1916,3 +1916,87 @@ the clipboard (`CF_HDROP`), not pixels.
 - `platform::clipboard_formats` is the one place that opens the Windows clipboard for these formats;
   `clipboard_png` and `clipboard_files` both go through it (64 MB limit for each format).
 - Not on Linux: a copied file is not looked for there (`clipboard_files` is empty).
+
+## 63. Word completion and snippets (2026-11-15)
+
+No language server: the words of the open documents, and snippets.
+
+- **Opening.** The command Complete word: Ctrl+Space, and Alt+/ (Ctrl+Space can belong to an input
+  method on Linux; Alt+/ needs a layout with a bare `/` key, so not the Turkish one). It is in the
+  text's right-click menu and the command palette. With the setting "Suggest words while typing"
+  (Settings, Editing; off by default; `complete_auto`) the list also opens after the third letter
+  of a word. Not while a macro is recorded; the command is not recordable.
+- **When there is no list.** A selection, several carets (the command says "Completion works with
+  one caret."), a read-only or lossily read document, another popup open, the word's start not on
+  screen. The command with nothing to offer says "Nothing to complete here."; the automatic list
+  says nothing, and does not read the text again for a longer form of the same word.
+- **The words.** A word is letters, digits and `_`, 3 to 64 bytes. They are read when the list
+  opens and not while typing on: 1 MiB of the active document around the caret (cut at line
+  breaks), then the other open documents from their start, 1 MiB each and 4 MiB together, at most
+  50,000 distinct words (`limits.rs`). Nothing is indexed, kept or watched between lists.
+- **Matching.** A candidate begins with the same letter as what is typed (any case) and holds
+  the typed letters in order; scored by the shared fuzzy matcher. Order: those that begin with
+  the typed letters, snippets before words, score, how often the word occurs, shorter, then by
+  name. The word equal to what is typed is left out; a snippet with that trigger stays.
+- **The list.** The shared popup menu, up to 8 rows, its labels starting where the word starts;
+  under the line, or above it when there is more room there. The first row is chosen. A snippet
+  row says "snippet" at its right.
+- **Keys while it is open.** Letters, digits and `_` are typed and narrow the list; Backspace
+  widens it; Up and Down move; Enter and Tab take the chosen row; Escape closes. Any other key
+  closes the list and does its own work. When nothing matches any more the list closes. Enter
+  and Tab are never taken when no list is open. A click on a row takes it.
+- **Taking a word** replaces the typed letters by the word: one undo step back to what was typed.
+- **Snippets.** Built in, for Markdown only: `table`, `code`, `link`. The user's are in
+  `snippets.toml` beside the settings file, read when a list opens and the file is new or changed
+  (at most 1 MiB, 1000 snippets, 64 KiB each). The format is a small part of TOML: `[[snippet]]`
+  tables with `trigger` (letters, digits, `_`), `text`, and optional `types` (language names;
+  none means every file type). A line that cannot be read is skipped. A snippet of the file
+  replaces a built-in one with the same trigger. "Open snippets file" (command palette only: the
+  main menu has no room for a row in an 800 px window) makes the file with its instructions as
+  comments when it is not there, and opens it.
+- **Snippet text.** `$1`, `$2`, `${1:default}` are stops in number order, `$0` is where the caret
+  ends (the end when there is none), `$$` is a dollar sign; a number used twice is a stop at its
+  first place only (no mirrored typing). Line breaks become the document's; later lines get the
+  indentation of the line the trigger was on, and a leading tab becomes one indent unit.
+- **Filling in.** The first stop is selected. Tab goes to the next stop and Shift+Tab back, as
+  long as the caret is inside the stop in use; the last stop ends it. A caret anywhere else ends
+  it and Tab is a Tab again. This Tab comes before the table keys, so the `table` snippet's
+  stops are walked first.
+- **Cost.** Nothing at start, and with the setting off nothing on a keystroke (one test of the
+  setting). Measured in a release build on the Windows PC: a list at every limit (5 MiB read,
+  50,000 words) takes 34 ms to open, once; typing on only narrows what was found.
+
+## 64. Rounded window corners (2026-11-14, branch `next`)
+
+Setting "Window corners" (View group of Settings, under Theme): Square, Small (4 logical px),
+Round (8, the default; the radius of the apps' dialogs). Kept in the session file as `corners=`
+(the logical radius; written only when not 8), in `Session.corners`. The code is shared
+(`mdshared_ui::corners`, `shadow::Frame`, docs/LINUX.md in the shared repository).
+
+| Where | Result |
+|---|---|
+| Windows 11 | `corners::set_window_corners` sets `DWMWA_WINDOW_CORNER_PREFERENCE` (do not round, small, round) at window creation and on a change; the system draws it and squares a maximized window. Nothing is drawn by the app. |
+| Windows 10 | The attribute is unknown, the call fails and is ignored: square, no message. |
+| Wayland, client margin | Content corner squares (radius r device px, `radius * scale` rounded) are cut anti-aliased into the ARGB buffer; the shadow under them is the window's own. Square when the margin is 0 (maximized, tiled, fullscreen). |
+| KDE Wayland | With a radius above 0 `Auto` uses the client margin instead of KWin's protocol (`shadow::decide(.., round)`), because KWin's route is opaque. Square keeps KWin's route. |
+| X11 | Opaque window (no margin by default): square. `MD_SHADOW=client` rounds like Wayland and squares while maximized or fullscreen. |
+
+**Drawing.** `present` copies the damaged rectangles into the surface buffer as before; when
+`Shadow::rounds()` it then calls `Shadow::paint_corners(buffer, sw, sh, &screen.pixels, damage)`:
+only the corner squares a copied rectangle touches (all four after a whole copy: buffer age not
+1) are rebuilt, from the app's bitmap, as content at its coverage over the shadow beneath
+(premultiplied). At most `4 * r^2` pixels, none when square or maximized; a corner not copied again
+keeps its cut, so partial repaints stay correct. A change of the setting redraws the whole window
+(`full`) and repaints the margin for two frames (the gate). The shadow's margin tiles are
+unchanged (a rounded rectangle's blurred shadow differs from the plain one by about one alpha
+step); the shadow beneath the uncovered pixels is a small table beside the tiles.
+
+**Row.** Offered where it can work: Windows, or a window with a shadow route (Wayland); hidden on
+X11 without the margin. Help line from `corners::setting_help()` (Linux: "Some desktops need a
+restart to apply": on KDE, switching on from Square needs a restart because the window was
+created opaque; switching to Square applies at once).
+
+**Shots.** `--frame square|small|round` with `--shot` renders the window as the margin route shows
+it (content, shadow margin, corners) over a flat backdrop; the existing shots are unchanged.
+`tests/shots.sh` takes `frame-*` at scale 1 and 2 in both themes. The Windows runner draws the
+same Wayland-style picture (it is the shared pixel code, not the DWM result).

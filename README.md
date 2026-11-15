@@ -30,6 +30,11 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   submenu (and the command palette) has Insert row below/above, Delete row, Insert column
   right/left, Delete column and Move column left/right, next to Align table. Tables in block
   quotes and indented tables keep their prefix.
+- **Word completion and snippets:** Ctrl+Space (or Alt+/) lists the words of the open files that
+  match what is typed; Up and Down choose, Enter or Tab takes one, Escape closes. A setting
+  (off at first) opens the list by itself after three letters. In Markdown files `table`, `code`
+  and `link` are snippets with stops that Tab moves between; your own go in `snippets.toml`
+  ("Open snippets file" in the command palette).
 - **Paste an image:** Ctrl+V in a saved Markdown file with an image on the clipboard (and no text)
   saves it as a PNG beside the file (`notes-image-1.png`) and inserts `![](notes-image-1.png)`.
   Windows: a clipboard PNG or bitmap. Linux: needs `wl-paste` (Wayland) or `xclip` (X11).
@@ -46,6 +51,9 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   **Settings (Ctrl+,)** for the preferences.
 - **With mdview:** Preview in mdview (Ctrl+Shift+V) opens the file in the viewer at the caret's
   line, and keeps the viewer on your unsaved text while you type (live preview, up to 2 MiB).
+- **Window:** rounded corners (Settings > Window corners: Square, Small or Round; Round, 8 px at
+  100 %, is the default). Windows 11 draws them itself; on Wayland the window draws its own shape
+  and shadow; where the window is opaque (X11, KDE with a square setting) it stays square.
 - Changes a file's line endings and encoding from the status bar, wraps long lines (Alt+Z),
   keeps unsaved text when the window closes and puts it back at the next start, keeps a copy of
   every changed document in the background so unsaved text also survives a crash, a kill or a

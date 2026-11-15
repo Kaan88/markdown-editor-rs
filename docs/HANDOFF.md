@@ -53,7 +53,8 @@ No branch below was reviewed by the main session unless it says so.
 |---|---|---|---|
 | `merge/next-release` | the six features marked "merged" below and `f/paste-image-files`, merged together | see `git log` | CI green at `95edf8d` on Linux and Windows, not read for the head; reviewed by the main session; the owner tried it by hand on Windows (see "Where the session of 2026-11-15 stopped"); not merged into `main`; nothing released |
 | `f/paste-image-files` | paste image files copied in the file manager as links | see `git log` (finished in the second session of 2026-11-15) | finished on Windows: clippy clean, all tests pass, tried in a real window by script (see "Second session of 2026-11-15"); merged into `merge/next-release` on the owner's word ("Merge it", 2026-11-15) without a hand test by the owner; a CI run was started at `b5185e9` (run 43651515645) and its result was not read; Linux not done |
-| `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; left out of `merge/next-release` (see the review results below) |
+| `next` | rounded corners (direct on `next`) | `c2ea815` | CI green; superseded by `f/rounded-corners` |
+| `f/rounded-corners` | rounded corners on top of `merge/next-release`, pins shared `f/rounded-corners` | see `git log` | CI green on Linux and Windows; merged into `merge/next-release` on the owner's word (2026-11-15); never seen on a Linux desktop; see "Rounded corners, second session" |
 | `feat/restart-after-update` | Restart button after an update | `886625a` | CI green; reviewed; pins shared `30aaa8b`; not merged; waits for a hand test on Windows |
 | `f/table-editing` | Markdown table editing help | `88d5503` | CI green; reviewed; merged into `merge/next-release` |
 | `f/multicaret-line-commands` | multi-caret in the line commands | `aaba1fa` | CI green; reviewed; merged into `merge/next-release` |
@@ -61,7 +62,7 @@ No branch below was reviewed by the main session unless it says so.
 | `f/paste-image` | paste an image into a Markdown file | `c14ebb3` | CI green; reviewed; tried on Windows by script; merged into `merge/next-release` |
 | `f/autosave-recovery` | autosave and crash recovery | `4750c39` | CI green; reviewed; merged into `merge/next-release` (with the data-loss fix `867f197`) |
 | `f/column-selection` | column (block) selection | `3785c7d` | CI green; reviewed; merged into `merge/next-release` |
-| `f/word-completion` | word completion and snippets | `0a09e78` | **WIP**, never built in this state, no CI |
+| `f/word-completion` | word completion and snippets | see `git log` (finished in the second session of 2026-11-15) | CI green on Linux and Windows at `7b91273` (run 43652712584); merged into `merge/next-release` on the owner's word ("Merge it", 2026-11-15); the owner has not looked at the list (see "Word completion, second session of 2026-11-15") |
 | `f/live-preview-unsaved` | live preview of a never-saved file (both apps) | `8019a35` | **not started** (branch equals the plan commit) |
 | `f/finer-sync` | finer scroll sync inside long blocks (both apps) | `8019a35` | **not started** |
 
@@ -179,6 +180,65 @@ it by hand.
 - A leftover of the test: the folder `D:\mdedit-paste-test` (one 185-byte PNG). Its removal by
   the session was refused by a safety check; the owner can delete it.
 
+**Word completion, second session of 2026-11-15 (branch `f/word-completion`, merged into
+`merge/next-release` by a fast-forward on the owner's word).** The owner chose it as the next
+feature. The interrupted commit `0a09e78` turned out to be nearly
+whole: after merging `merge/next-release` into it (three textual conflicts, both sides kept) it
+compiled, clippy was clean and one test failed (a count of settings lines).
+
+- Reviewed by the main session: `mdedit_core::complete` and `snippets`, `app/completion.rs`,
+  `view/point.rs` and the wiring. Changed: the settings line count in the prefs test; "Open
+  snippets file" taken out of the main menu (with it the menu no longer fitted an 800 px window
+  and scrolled; the command stays in the palette); the shot `complete-above` given a window short
+  enough that the list really goes above; an ignored test that measures the cost of a list.
+- Run on this PC: clippy clean; all tests pass (editor 247, core 469). Budgets, release build,
+  five runs: first frame of `sample.rs` 70.5 to 73.3 ms, private memory 27.5 to 28.0 MiB,
+  keystroke p50 0.53 ms: as before the feature (not an interleaved comparison). Exe 6,341,632
+  bytes (+59,392). A list at every limit opens in 34 ms (DESIGN section 63).
+- Shots looked at by the session (light and dark where both exist): the word list, the snippet
+  row, the snippet taken, the list above the caret, the Settings row, the text menu. Nothing found.
+- Tried in a real window on Windows with sent keys: Ctrl+Space, Down, Enter took the second word;
+  Escape closed the list and Enter was then a plain Enter; the `table` snippet was filled in over
+  four stops with Tab; with `complete_auto` on, the list opened on the third letter and Tab and
+  Enter took words; with it off, Tab after three letters was a Tab.
+- Alt+/ did not open the list with sent keys: this PC's first layout is Turkish Q, where `/` is
+  Shift+7, so the chord cannot be pressed there. It is kept for layouts with a bare `/` key
+  (the reason for it is Linux, where an input method can own Ctrl+Space). The owner may want
+  another second shortcut, or none.
+- Not run: the owner's look at the list; a mouse click on a row in a real window (test only);
+  a split view; a real `snippets.toml` by hand (tests only); Linux; CI result.
+- Decisions taken without the owner: no list with several carets; the list reads the text each
+  time it opens and keeps no index; snippets ship for Markdown only; `snippets.toml` beside the
+  settings file; the docs are edited on the branch itself (README, DESIGN section 63, NEXT.md).
+
+**Rounded corners, second session of 2026-11-15 (branch `f/rounded-corners` in the editor and in
+the shared repository; merged into `merge/next-release` on the owner's word, "Merge it",
+after CI passed on Linux and Windows for both: editor run 43653711348, shared run 43653504034).** The owner said: "test rounded corners with ci for now."
+
+- The editor's `next` (two commits) is merged onto `merge/next-release` as `f/rounded-corners`;
+  three docs conflicted and both sides were kept (the corners are DESIGN section 64 now, 63 is
+  word completion on its own branch).
+- Shared `f/rounded-corners` = shared `next` (`e3d381b`) plus two commits, pinned here by rev:
+  1. The test that failed CI was wrong, not the drawing: it wanted an alpha above 20 at the
+     outermost pixel of each corner, and the top corners sit over the faint side of a dropped
+     shadow (15 at scale 1). It now checks partial alpha, no colour, no step from the margin
+     pixel outside it, and the bottom stronger than the top. Shared CI green on Linux and Windows
+     at `8e75bff`.
+  2. A fault found in the `--frame` pictures, in 0.5.0 already and not from the rounding: the
+     client-drawn shadow's edge bands kept their full strength up to the window's corners and
+     met the corner tiles with a visible step (alpha 37 beside 9, 60 beside 25). The ends of each
+     band now take the other edge's coverage (`shadow::client::Ends`, `c8b7d97`); a test checks
+     every band against its corner tiles at each depth. The eight tiles themselves, and so the
+     KWin route, are unchanged: KWin stretches the same edge tiles between the same corner
+     tiles, so the step is probably there on KDE's own route too. Not looked at.
+- Run on this PC: shared and editor clippy clean, all tests pass; the `--frame` shots (light,
+  dark, scale 2, square) and the Settings row looked at by the session before and after the fix.
+- Not run: any Linux desktop (the client route only draws there); Windows 11 with the three
+  choices in a real window; the CI results of the second shared commit and of this branch.
+- Still open, the owner's: with Round as the default, `Auto` takes the client-margin route on KDE
+  instead of KWin's (the corners need an alpha channel there). The viewer has no branch for this
+  yet.
+
 **The owner's answers (2026-11-15, second session).** F7: "didn't enable compare", so F7 was
 pressed with no comparison open, where it does nothing and says nothing (`compare_jump` returns
 when there is no alignment). Not a fault; F7 inside a comparison was not reported on. Tab in
@@ -205,9 +265,13 @@ tables adds a row only from the last cell of the last row: as designed. Both que
 2. The owner decides: merge `merge/next-release` into `main`, the version number, the release.
    None of that was done or asked for.
 3. `feat/restart-after-update`: needs a real update and Restart staged by hand (above).
-4. Rounded corners: only Linux needs work (the failing shared test, the KDE shadow route).
-5. `f/word-completion` (WIP, never built), `f/live-preview-unsaved` and `f/finer-sync` (not
-   started; both need the viewer and the shared crates).
+4. Rounded corners are merged; the owner looks at them on a Linux desktop and decides the KDE
+   shadow route. The shared branch `f/rounded-corners` (`c8b7d97`) is pinned by rev and is not
+   the shared `main`; the viewer has no branch for the corners.
+5. `f/live-preview-unsaved`, then `f/finer-sync`, and the frosted window (a spike on
+   `spike/frosted-window`, then the feature on `f/frosted-window`) were given to two other
+   sessions on 2026-11-15 (worktrees under `Desktop\md-wt`); their results are not in this
+   file yet.
 6. The frosted window (Mica, Acrylic, blur on Wayland): on the roadmap in `docs/PLAN.md`, starts
    with a spike on Windows.
 
@@ -2043,3 +2107,32 @@ regular expressions, `replace.rs`); the shell part was written in the main sessi
 - Not built: "find in all open tabs" waits for the results panel of find in files (item 8);
   replace within the selection (the core takes `within`, the shell always passes the whole
   document); Undo with a box of the bar focused still does nothing.
+
+## Next release work (branch next)
+
+### Rounded window corners (base `8019a35`)
+
+Built in `mdshared_ui::corners` and `shadow` (shared branch `next`) and wired here; DESIGN section
+57 is the specification.
+
+- Built: the "Window corners" setting (Square, Small, Round; default Round), kept as `corners=` in
+  the session; Windows: the DWM preference, applied at creation and on a change; Wayland client
+  margin: the anti-aliased corner cut in `present` (only the touched corner squares), the shadow
+  under the cut; `--frame` shots; tests for the setting, the args, the mask and painter (shared)
+  and the frame picture.
+- Decisions: radii 0, 4, 8 only (they are exact on Windows too: do not round, small, round; a 12
+  would have been drawn as 8 there); on KDE the default (Round) now uses the client margin instead
+  of KWin's protocol, because KWin's route is opaque (the plan's own note); Square keeps KWin's
+  route. A change from Square to Round on KDE applies at the next start (the help line says so).
+  The row is hidden where nothing can round (X11 without the margin). The shadow tiles were not
+  re-rendered for the rounded shape: the difference is about one alpha step (computed, not seen).
+  The Windows 11 preference used to be set to Round unconditionally in `style_window`; that call
+  is now the setting's.
+- NOT verified (no local builds by the owner's rule; CI only): any real window on any desktop.
+  Not seen: the corner in a real Wayland window, on KDE with the route change, the shadow under the
+  corner, a tiled or maximized window, switching the setting at run time, Windows 11 DWM rounding
+  or Windows 10 staying square, fractional scales other than in the unit tests. The startup and
+  keystroke budgets were not measured: the change adds a `Shadow::rounds()` check to `present`
+  and nothing else on the keystroke and scroll path; with Square or without a margin nothing runs.
+  The KDE route change does move the default KDE window from KWin's shadow to the client-drawn one
+  (bigger buffer by the 36 px margin each side), which was not timed.
