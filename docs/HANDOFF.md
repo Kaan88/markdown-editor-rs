@@ -41,9 +41,21 @@ Measured on Linux under Xvfb, 1280x800, release builds:
 
 The pane skips texts while an answer is awaited, so it shows about one keystroke in two
 (embedded) or in three and a half (renderer) during fast typing; both stay inside one frame.
-Not measured: scrolling the pane on its own, and the 100 MB file. Windows: the
-`preview-test` workflow builds the test zip and times both builds on a runner; nothing has been
-run by hand on Windows.
+Not measured: scrolling the pane on its own, and the 100 MB file.
+
+On a Windows runner (`preview-test` run 43875754540, a real window; slower than the PC, no
+baseline without the pane was taken there):
+| | renderer build | embedded build |
+|---|---|---|
+| First frame | 138-157 ms | 138-149 ms |
+| Keystroke to pixels p50 / p95, pane open (3 runs x 2 files) | 3.0-3.1 / 3.6-3.8 ms | 2.3-2.4 / 2.7-2.9 ms |
+| Pane open to first page | 40-50 ms (202 ms on mdview's very first start) | 20-25 ms |
+| Keystroke to pane pixels p50 / p95 | 9.6-9.9 / 10.9-11.6 ms | 8.4-8.8 / 10.0-10.4 ms |
+| Private memory, pane open | 36.2-36.7 MiB + mdview 5.7-6.9 MiB | 37.2-37.8 MiB |
+| Exe | mdedit 6.58 MB | mdedit 7.91 MB |
+There every keystroke reached the pane (300 answers of 300). The renderer build's 0.7 ms more
+per keystroke in the editor itself is not explained yet (two processes on a small runner?).
+The pictures of both builds are byte-identical. Nothing has been run by hand on Windows.
 
 Downsides of embedding, as told to the owner: mdedit's `panic = "abort"` makes a renderer panic
 end mdedit (the renderer build loses only the pane); larger build and exe, mdedit tied to the
