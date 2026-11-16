@@ -38,7 +38,7 @@ mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "
 # markdown-shared-rs docs/LINUX.md. Drop these two and the feature to build against stock crates:
 # the window then uses KWin's shadow protocol or none.
 [patch.crates-io]
-winit = { git = "https://github.com/Kaan88/winit", rev = "89ace86e65387b44cec55730e5691e894b451722" }
+winit = { git = "https://github.com/Kaan88/winit", rev = "62fa7270760a4d47f558625da2e6e2a1d7d09983" }
 softbuffer = { git = "https://github.com/Kaan88/softbuffer", rev = "dd18fec9d08e2f466c42d4c2cece62aa0ee1eba9" }
 
 [profile.release]
