@@ -167,7 +167,7 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
         return Vec::new();
     };
     let linked = docs.links.contains(doc.id);
-    if !docs.viewer || (!doc.is_markdown() && !linked && doc.path.is_some()) {
+    if !doc.is_markdown() && !linked && doc.path.is_some() {
         return Vec::new();
     }
     // Different letters in the View menu and the tab menu, where the other items take the rest.
@@ -190,11 +190,18 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
         };
         item.icon(glyph::VIEW)
     };
-    vec![
-        item(C::PreviewPane, here).checked(docs.pane_open).sep(),
-        item(C::PreviewInViewer, preview).checked(linked),
-        item(C::PreviewSideBySide, side).checked(linked && docs.links.side_by_side),
-    ]
+    let mut items = Vec::new();
+    if docs.pane {
+        items.push(item(C::PreviewPane, here).checked(docs.pane_open));
+    }
+    if docs.viewer {
+        items.push(item(C::PreviewInViewer, preview).checked(linked));
+        items.push(item(C::PreviewSideBySide, side).checked(linked && docs.links.side_by_side));
+    }
+    if let Some(first) = items.first_mut() {
+        first.separator_before = true;
+    }
+    items
 }
 
 /// The View menu, opened from the main menu in its place.

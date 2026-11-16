@@ -1,11 +1,11 @@
 //! The preview pane: the active Markdown document drawn by mdview's renderer, beside the text.
 //!
-//! Two builds, one pane. By default the page is drawn by mdview itself: `mdview
-//! --preview-server` runs without a window and answers over a pipe, so mdedit carries no
-//! renderer and the pane is there only while mdview is installed. With the cargo feature
-//! `embedded-preview` the same drawing loop runs on a thread of mdedit's own (mdview's crates
-//! are built into mdedit); it is still offered only while mdview is installed, whose engine
-//! draws the formulas and diagrams.
+//! Two builds, one pane. By default (cargo feature `embedded-preview`) the drawing loop runs on a
+//! thread of mdedit's own, with mdview's renderer built in, and formulas and diagrams go to the
+//! `mdview-engine` process shipped beside mdedit (or, failing that, beside mdview): the pane is
+//! always offered. Built with `--no-default-features`, the page is drawn by mdview itself:
+//! `mdview --preview-server` runs without a window and answers over a pipe, and the pane is
+//! offered only while mdview is installed. That build is kept to compare the two.
 //!
 //! The editor sends what changed (the text, the pane's size, the caret's line, a scroll) and
 //! keeps a copy of the frame that the answers update. While a request is unanswered, a newer
@@ -74,15 +74,30 @@ pub struct Pane {
     pub kind: &'static str,
 }
 
-/// The mdview installed, if any, and the engine beside it.
+/// The pane needs no mdview: this build draws it itself.
+pub const STANDALONE: bool = cfg!(feature = "embedded-preview");
+
+/// The mdview installed, if any.
 pub fn viewer() -> Option<PathBuf> {
     mdshared_app::sister::find(crate::link::VIEWER)
+}
+
+/// The engine for formulas and diagrams: the one shipped beside mdedit, else the one beside the
+/// installed mdview. None leaves the renderer to its own search (and the formulas as source).
+#[cfg_attr(not(feature = "embedded-preview"), allow(dead_code))]
+fn engine(viewer: Option<&Path>) -> Option<PathBuf> {
+    let file = format!("mdview-engine{}", std::env::consts::EXE_SUFFIX);
+    let own = std::env::current_exe()
+        .ok()
+        .and_then(|e| Some(e.parent()?.join(&file)));
+    let beside_viewer = viewer.and_then(|v| Some(v.parent()?.join(&file)));
+    own.into_iter().chain(beside_viewer).find(|p| p.is_file())
 }
 
 impl Pane {
     /// Opens a pane drawn by `viewer` (the renderer build) or on a thread of this process (the
     /// embedded build). `wake` is called whenever an answer is waiting.
-    pub fn open(viewer: &Path, wake: Waker) -> Pane {
+    pub fn open(viewer: Option<&Path>, wake: Waker) -> Pane {
         let (requests, rx) = mpsc::channel::<Request>();
         let (tx, events) = mpsc::channel::<Event>();
         let opened = Instant::now();
@@ -244,9 +259,15 @@ fn guarded(work: impl FnOnce(), tx: &Sender<Event>, wake: &Waker) {
 /// The embedded build: the loop runs on a thread here; formulas and diagrams go to the engine
 /// installed beside mdview.
 #[cfg(feature = "embedded-preview")]
-fn start(viewer: &Path, rx: Receiver<Request>, tx: Sender<Event>, wake: Waker) -> &'static str {
-    let engine = viewer.with_file_name(format!("mdview-engine{}", std::env::consts::EXE_SUFFIX));
-    mdview_render::set_engine_path(engine);
+fn start(
+    viewer: Option<&Path>,
+    rx: Receiver<Request>,
+    tx: Sender<Event>,
+    wake: Waker,
+) -> &'static str {
+    if let Some(engine) = engine(viewer) {
+        mdview_render::set_engine_path(engine);
+    }
     let (tx2, wake2) = (tx.clone(), wake.clone());
     let spawned = std::thread::Builder::new()
         .name(THREAD.into())
@@ -274,12 +295,22 @@ fn start(viewer: &Path, rx: Receiver<Request>, tx: Sender<Event>, wake: Waker) -
 /// The renderer build: `mdview --preview-server`, a writer thread for its input and a reader
 /// thread for its answers.
 #[cfg(not(feature = "embedded-preview"))]
-fn start(viewer: &Path, rx: Receiver<Request>, tx: Sender<Event>, wake: Waker) -> &'static str {
+fn start(
+    viewer: Option<&Path>,
+    rx: Receiver<Request>,
+    tx: Sender<Event>,
+    wake: Waker,
+) -> &'static str {
     use std::io::{BufReader, BufWriter};
     use std::process::{Command, Stdio};
     let ended = |tx: &Sender<Event>, wake: &Waker, why: String| {
         let _ = tx.send(Event::Ended(why));
         wake(Wake::Preview);
+    };
+    let Some(viewer) = viewer else {
+        let _ = tx.send(Event::Ended("mdview is not installed.".into()));
+        wake(Wake::Preview);
+        return "mdview";
     };
     let child = Command::new(viewer)
         .arg("--preview-server")

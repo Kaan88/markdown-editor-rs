@@ -53,11 +53,12 @@ jobs:
           cp target/release/mdedit.exe ../out/renderer/
           cargo build --release -p mdedit
           cp target/release/mdedit.exe ../out/embedded/
-          for d in renderer embedded; do
-            cp ../viewer/target/release/mdview.exe ../viewer/target/release/mdview-engine.exe ../out/$d/
-          done
+          # The renderer build needs mdview; the default build only the engine beside it.
+          cp ../viewer/target/release/mdview.exe ../viewer/target/release/mdview-engine.exe ../out/renderer/
+          cp ../viewer/target/release/mdview-engine.exe ../out/embedded/
           cp ../viewer/fixtures/everything.md ../out/everything.md
           cp ../viewer/docs/PLAN.md ../out/plan.md
+          cp ../viewer/fixtures/math.md ../viewer/fixtures/diagrams.md ../out/
           ls -l ../out ../out/*
       - name: The pane's tests against this mdview
         shell: bash
@@ -110,6 +111,10 @@ jobs:
             out/$b/mdedit.exe --no-session --size 1400x860 --scale 1 --preview-pane --shot out/shots/$b-light.png out/everything.md
             out/$b/mdedit.exe --no-session --dark --size 1400x860 --scale 1.5 --preview-pane --shot out/shots/$b-dark.png out/plan.md
           done
+          # No mdview beside it: formulas and diagrams from the engine shipped with mdedit.
+          for f in math diagrams; do
+            out/embedded/mdedit.exe --no-session --size 1400x860 --scale 1 --preview-pane --shot out/shots/standalone-$f.png out/$f.md
+          done
           ls -l out/shots
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -122,14 +127,17 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/mdedit-preview-test
-          cp -r out/renderer out/embedded out/everything.md dist/mdedit-preview-test/
+          cp -r out/renderer out/embedded out/everything.md out/math.md out/diagrams.md dist/mdedit-preview-test/
           cat > dist/mdedit-preview-test/README.txt <<'EOF'
           mdedit preview pane, Windows test build (not a release).
 
-          renderer\mdedit.exe   the page is drawn by mdview --preview-server, in its own process
-          embedded\mdedit.exe   the page is drawn by mdview's renderer inside mdedit
+          embedded\mdedit.exe   the page is drawn by mdview's renderer inside mdedit; formulas
+                                and diagrams by mdview-engine.exe beside it. No mdview needed:
+                                "Preview in mdview" stays hidden unless mdview is installed.
+          renderer\mdedit.exe   the page is drawn by mdview --preview-server, in its own
+                                process, with the mdview beside it
 
-          Each folder has the mdview it uses beside it. Run one mdedit at a time: the two
+          Run one mdedit at a time: the two
           share their single-instance channel and settings. Open a .md file and press
           Preview in the bar (or View > Preview in this window).
           EOF

@@ -471,8 +471,10 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
         let listed = match c.id {
             C::CommandPalette | C::Escape | C::Theme | C::OpenRecent => false,
             C::MakeDefault => make_default_offered(),
-            // Without mdview there is no preview at all, not even greyed.
-            C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => src.docs.viewer,
+            // Without mdview the previews in it are not listed, not even greyed; the pane is
+            // listed while it is offered.
+            C::PreviewInViewer | C::PreviewSideBySide => src.docs.viewer,
+            C::PreviewPane => src.docs.pane,
             _ => true,
         };
         if !listed {

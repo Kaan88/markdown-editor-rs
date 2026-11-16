@@ -9,14 +9,16 @@ use std::time::Duration;
 const NOTCH: f32 = 60.0;
 
 impl App {
-    /// Looks for mdview and offers the previews (or takes them away) by what it finds. A pane
-    /// that is open stays open: it was started from an mdview that was there.
+    /// Looks for mdview and offers the previews in it (or takes them away) by what it finds;
+    /// the pane too in the build that needs mdview for it. A pane that is open stays open.
     pub(super) fn look_for_viewer(&mut self) {
         let found = crate::preview_pane::viewer();
-        let had = self.docs.viewer;
-        self.docs.viewer = found.is_some() || self.preview.is_some();
+        let had = (self.docs.viewer, self.docs.pane);
+        self.docs.viewer = found.is_some();
+        self.docs.pane =
+            crate::preview_pane::STANDALONE || found.is_some() || self.preview.is_some();
         self.viewer_path = Some(found);
-        if had != self.docs.viewer {
+        if had != (self.docs.viewer, self.docs.pane) {
             self.redraw();
         }
     }
@@ -29,12 +31,13 @@ impl App {
             if self.viewer_path.is_none() {
                 self.look_for_viewer();
             }
-            let Some(Some(viewer)) = self.viewer_path.clone() else {
+            let viewer = self.viewer_path.clone().flatten();
+            if viewer.is_none() && !crate::preview_pane::STANDALONE {
                 return;
-            };
+            }
             self.docs.other = None;
             self.docs.same_file = false;
-            self.preview = Some(Pane::open(&viewer, self.docs.waker()));
+            self.preview = Some(Pane::open(viewer.as_deref(), self.docs.waker()));
             self.docs.pane_open = true;
             self.trace
                 .stage(&format!("preview pane opened ({})", self.kind_of_preview()));
@@ -253,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn without_mdview_no_preview_is_offered_anywhere() {
+    fn without_mdview_only_the_pane_of_the_standalone_build_is_offered() {
         let dir = scratch("pane-none");
         let md = dir.join("a.md");
         std::fs::write(&md, "# Title\n").unwrap();
@@ -261,28 +264,42 @@ mod tests {
         open_now(&mut a, &md);
         a.compose();
         assert!(a.hit_rect(Hit::Bar(crate::ui::BarItem::Preview)).is_some());
+        // What looking for mdview leaves when there is none.
         a.docs.viewer = false;
+        a.docs.pane = crate::preview_pane::STANDALONE;
+        a.viewer_path = Some(None);
         a.compose();
-        assert!(a.hit_rect(Hit::Bar(crate::ui::BarItem::Preview)).is_none());
-        assert_eq!(chrome::preview_button(&a.docs), None);
+        let standalone = crate::preview_pane::STANDALONE;
+        assert_eq!(
+            a.hit_rect(Hit::Bar(crate::ui::BarItem::Preview)).is_some(),
+            standalone
+        );
+        assert_eq!(chrome::preview_button(&a.docs).is_some(), standalone);
         let view = crate::overlays::view_menu(&a.docs, &a.ui, 0.0, 0.0, false);
         let tab = crate::overlays::tab_menu(&a.docs, 0, 0.0, 0.0);
-        let previews = |m: &mdshared_ui::menu::Menu<Act>| {
-            m.items.iter().any(|it| {
-                matches!(
-                    it.id,
-                    Act::Cmd(C::PreviewPane | C::PreviewInViewer | C::PreviewSideBySide)
-                        | Act::TabCmd(
-                            C::PreviewPane | C::PreviewInViewer | C::PreviewSideBySide,
-                            _
-                        )
-                )
+        let has = |m: &mdshared_ui::menu::Menu<Act>, ids: &[C]| {
+            m.items.iter().any(|it| match it.id {
+                Act::Cmd(c) | Act::TabCmd(c, _) => ids.contains(&c),
+                _ => false,
             })
         };
-        assert!(!previews(&view) && !previews(&tab));
-        // Its key and the command do nothing.
-        a.command(C::PreviewPane);
+        let in_mdview = [C::PreviewInViewer, C::PreviewSideBySide];
+        assert!(!has(&view, &in_mdview) && !has(&tab, &in_mdview));
+        assert_eq!(has(&view, &[C::PreviewPane]), standalone);
+        assert_eq!(has(&tab, &[C::PreviewPane]), standalone);
+        // The previews in mdview do nothing from their keys; the pane opens only standalone.
         a.command(C::PreviewInViewer);
-        assert!(a.preview.is_none() && a.docs.links.is_empty());
+        assert!(a.docs.links.is_empty());
+        a.command(C::PreviewPane);
+        assert_eq!(a.preview.is_some(), standalone);
+        if standalone {
+            pump(&mut a, |a| generation(a) > 0);
+            let p = a.preview.as_ref().unwrap();
+            assert!(
+                p.generation > 0 && p.ended.is_none(),
+                "drawn without mdview: {:?}",
+                p.ended
+            );
+        }
     }
 }

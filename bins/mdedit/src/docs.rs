@@ -1355,10 +1355,13 @@ pub struct Docs {
     pub watch_changed: bool,
     /// The documents previewed in mdview, and what keeps the viewer scrolled to their carets.
     pub links: crate::link::Links,
-    /// mdview is installed: every preview (the pane, in mdview, side by side) is offered only
-    /// then, and is invisible otherwise. Looked for after the start and when the window gets
+    /// mdview is installed: the previews in mdview (alone and side by side) are offered only
+    /// then, and are invisible otherwise. Looked for after the start and when the window gets
     /// the focus back; on in tests, which stand in for the viewer.
     pub viewer: bool,
+    /// The preview pane is offered: always in the default build, which draws it itself with
+    /// the engine shipped beside mdedit; only with mdview in the build that asks mdview to draw.
+    pub pane: bool,
     /// The preview pane is open (the app holds it; menus and the bar read this).
     pub pane_open: bool,
 }
@@ -1397,6 +1400,7 @@ impl Docs {
             watch_changed: true,
             links: crate::link::Links::default(),
             viewer: cfg!(test),
+            pane: cfg!(test) || crate::preview_pane::STANDALONE,
             pane_open: false,
         }
     }

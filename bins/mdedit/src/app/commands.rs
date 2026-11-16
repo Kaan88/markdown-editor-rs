@@ -1642,8 +1642,10 @@ impl App {
                     self.docs.set_toast(strings::SPLIT_NEEDS_TWO);
                 }
             }
-            // Without mdview the previews are not offered, and their keys do nothing.
-            C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane if !self.docs.viewer => {}
+            // Previews not offered (in mdview without it, the pane in the build that needs it)
+            // do nothing from their keys.
+            C::PreviewInViewer | C::PreviewSideBySide if !self.docs.viewer => {}
+            C::PreviewPane if !self.docs.pane => {}
             C::PreviewInViewer => self.preview(false),
             C::PreviewSideBySide => self.preview(true),
             C::PreviewPane => self.toggle_preview_pane(),

@@ -424,10 +424,10 @@ pub fn find_label(docs: &Docs) -> (String, bool) {
 }
 
 /// The measured text widths the bar's fit depends on.
-/// The bar's Preview button: hidden (None) unless the active document can be previewed in mdview
-/// (as the View menu lists the preview), and pressed (true) while it is.
+/// The bar's Preview button, which opens the pane: hidden (None) unless the pane is offered and
+/// the active document can be previewed (as the View menu lists it), pressed (true) while open.
 pub fn preview_button(docs: &Docs) -> Option<bool> {
-    if !docs.viewer {
+    if !docs.pane {
         return None;
     }
     let doc = docs.active_doc()?;
