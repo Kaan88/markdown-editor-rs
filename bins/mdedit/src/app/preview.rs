@@ -127,7 +127,40 @@ impl App {
             let column = caret - r.buffer.line_range(line).start;
             pane.follow(line as u32 + 1, column as u32);
         }
-        changed
+        changed | self.preview_scroll_sync()
+    }
+
+    /// Synced scrolling: the page puts the editor's top line at its top, or, after the wheel
+    /// turned over the page, the editor puts the page's top line at its top. True when the
+    /// editor moved.
+    fn preview_scroll_sync(&mut self) -> bool {
+        let Some(pane) = self.preview.as_mut() else {
+            return false;
+        };
+        let previewable = self.docs.active_doc().is_some_and(previewable);
+        let Some(r) = self.docs.active_ready_mut().filter(|_| previewable) else {
+            return false;
+        };
+        let top = view::source_top(r);
+        match pane.take_page_top() {
+            Some(want) if (want - top).abs() > 1e-3 => {
+                view::set_source_top(r, want);
+                self.full = true;
+                true
+            }
+            Some(_) => false,
+            None => {
+                pane.align(top);
+                false
+            }
+        }
+    }
+
+    /// Any input but the wheel over the page: the editor leads synced scrolling again.
+    pub(super) fn editor_leads(&mut self) {
+        if let Some(pane) = self.preview.as_mut() {
+            pane.editor_leads();
+        }
     }
 
     /// The wheel over the pane: true when it was there.
@@ -253,6 +286,67 @@ mod tests {
         a.command(C::PreviewPane);
         a.compose();
         assert!(a.preview.is_none() && a.areas.preview.is_none());
+    }
+
+    #[test]
+    fn scrolling_either_side_brings_the_other_to_the_same_line() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("pane-sync");
+        let md = dir.join("a.md");
+        let text: String = (0..300)
+            .map(|i| format!("Paragraph {i}, a few words long.\n\n"))
+            .collect();
+        std::fs::write(&md, text).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.command(C::PreviewPane);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        let page_top = |a: &App| a.preview.as_ref().unwrap().top;
+        let editor_top = |a: &mut App| view::source_top(a.docs.active_ready_mut().unwrap());
+        assert!(page_top(&a) < 1.0);
+
+        // The editor scrolls to line 201 (paragraph 100): the page follows.
+        view::scroll_rows(a.docs.active_ready_mut().unwrap(), 200.0);
+        a.compose();
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top > 1000.0);
+        let after_editor = page_top(&a);
+        assert!(after_editor > 1000.0, "the page followed: {after_editor}");
+        assert!((editor_top(&mut a) - 200.0).abs() < 0.01);
+
+        // The wheel over the page: the editor follows, and the page stays where the wheel put it.
+        let r = a.areas.preview.unwrap();
+        assert!(a.preview_wheel(r.cx(), r.cy(), -10.0, None));
+        pump(&mut a, |a| {
+            let r = a.docs.active_ready().unwrap();
+            r.view.top > 205.0
+        });
+        let line = editor_top(&mut a);
+        assert!(line > 205.0, "the editor followed: {line}");
+        let after_wheel = page_top(&a);
+        assert!(
+            after_wheel > after_editor + 300.0,
+            "{after_editor} {after_wheel}"
+        );
+        // Nothing goes back and forth: a while later both are where they were, nothing waits.
+        let quiet = Instant::now() + Duration::from_millis(300);
+        pump(&mut a, |_| Instant::now() > quiet);
+        assert_eq!(page_top(&a), after_wheel);
+        assert!((editor_top(&mut a) - line).abs() < 1e-6);
+        assert_eq!(a.preview.as_ref().unwrap().waiting, 0);
+
+        // A key: the editor leads again, and its own scrolling moves the page.
+        a.editor_leads();
+        view::scroll_rows(a.docs.active_ready_mut().unwrap(), -100.0);
+        a.compose();
+        pump(&mut a, |a| {
+            a.preview.as_ref().unwrap().top < after_wheel - 1000.0
+        });
+        assert!(page_top(&a) < after_wheel - 1000.0);
     }
 
     #[test]

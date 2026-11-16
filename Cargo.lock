@@ -1458,7 +1458,7 @@ dependencies = [
 [[package]]
 name = "mdview-core"
 version = "0.5.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=a2294f703a5393b996a68339d54e33a0eb29175e#a2294f703a5393b996a68339d54e33a0eb29175e"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=82617306c135ef166584165bddb9d72ae7d7e2af#82617306c135ef166584165bddb9d72ae7d7e2af"
 dependencies = [
  "mdshared-app",
  "memchr",
@@ -1470,12 +1470,12 @@ dependencies = [
 [[package]]
 name = "mdview-engine-proto"
 version = "0.5.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=a2294f703a5393b996a68339d54e33a0eb29175e#a2294f703a5393b996a68339d54e33a0eb29175e"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=82617306c135ef166584165bddb9d72ae7d7e2af#82617306c135ef166584165bddb9d72ae7d7e2af"
 
 [[package]]
 name = "mdview-preview"
 version = "0.5.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=a2294f703a5393b996a68339d54e33a0eb29175e#a2294f703a5393b996a68339d54e33a0eb29175e"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=82617306c135ef166584165bddb9d72ae7d7e2af#82617306c135ef166584165bddb9d72ae7d7e2af"
 dependencies = [
  "mdview-core",
  "mdview-render",
@@ -1484,7 +1484,7 @@ dependencies = [
 [[package]]
 name = "mdview-render"
 version = "0.5.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=a2294f703a5393b996a68339d54e33a0eb29175e#a2294f703a5393b996a68339d54e33a0eb29175e"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=82617306c135ef166584165bddb9d72ae7d7e2af#82617306c135ef166584165bddb9d72ae7d7e2af"
 dependencies = [
  "gif",
  "image-webp",

@@ -43,6 +43,22 @@ phase 1, and section 16 on editing and saving as built).
   is missing and the manifest is of this version.
 - Not run: none of the release scripts or the release workflow has run with these changes.
 
+**Synced scrolling** (the owner asked for it beyond the caret sync; viewer `8261730`, protocol
+`MDVPREVIEW2`): the side the reader moved last leads, the other follows and sends nothing back,
+so they cannot set each other off. A wheel over the page makes the page lead (`Pane::scroll`);
+any key, click or wheel over the editor makes the editor lead (`App::editor_leads`, from the
+window events). Leading editor: its top as a fractional source line (`view::source_top`, word
+wrap included) goes to the page as `Align` when it moved. Leading page: each update's `line`
+puts the editor there (`view::set_source_top`). The caret sync stays as it was and goes after
+the align. Lines between two blocks share the page rows between them evenly.
+Test: `scrolling_either_side_brings_the_other_to_the_same_line` (both builds).
+Measured on Linux under Xvfb, `tools/compare-builds.py`, 5 runs, the commit before against
+this: pane closed, every figure within noise; pane open, the scroll frame p50/p95 grows by
+0.5 to 0.8 ms (sample.md 1.07/1.18 to 1.59/1.74 ms; PLAN.md 0.96/1.17 to 1.73/1.97 ms) since the
+page now moves with the text and its region is repainted; budget under 4 ms. Not run on
+Windows by hand; an mdview built before this answers with the old greeting, and the renderer
+build then asks to update mdview.
+
 **Crash reports** (shared crates `f/crash-report`, the owner's request; mdview has the same):
 - `main` installs `mdshared_app::crash` first, into `data_dir("mdedit")/crashes`. A panic (any
   thread) and, on Windows, an access violation or stack overflow write `crash-<secs>.txt`: app,

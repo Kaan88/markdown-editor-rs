@@ -2233,6 +2233,10 @@ impl ApplicationHandler<Wake> for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => match (state, button) {
+                _ if state == ElementState::Pressed && self.preview.is_some() && {
+                    self.editor_leads();
+                    false
+                } => {}
                 // On a Mac, Control and a click is a right click (`Mods::control` is never set
                 // elsewhere).
                 (ElementState::Pressed, MouseButton::Left) if self.mods.control => {
@@ -2247,7 +2251,11 @@ impl ApplicationHandler<Wake> for App {
                 (ElementState::Pressed, MouseButton::Middle) => self.middle_press(),
                 _ => {}
             },
-            WindowEvent::MouseWheel { delta, .. } => self.wheel(delta),
+            WindowEvent::MouseWheel { delta, .. } => {
+                // The wheel over the page makes the page lead again (`preview_wheel`).
+                self.editor_leads();
+                self.wheel(delta)
+            }
             // A trackpad: a pinch zooms in steps; the smart-zoom tap (two fingers, twice) is the
             // actual size. winit reports both on macOS only.
             WindowEvent::PinchGesture { delta, phase, .. } => {
@@ -2269,6 +2277,7 @@ impl ApplicationHandler<Wake> for App {
                 if matches!(event.logical_key, Key::Named(NamedKey::Alt)) {
                     return;
                 }
+                self.editor_leads();
                 self.key(&event);
             }
             // Text an input method made: an accent typed with a dead key or chosen by holding a

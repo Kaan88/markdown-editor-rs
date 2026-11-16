@@ -40,6 +40,20 @@ pub(crate) struct Sent {
     pub(crate) version: Option<(u64, u64)>,
     view: Option<(u32, u32, u32, bool)>,
     follow: Option<(u32, u32)>,
+    /// The editor's top (a source line from 0, fractional) the page was last aligned to.
+    align: Option<f64>,
+}
+
+/// Which side synced scrolling follows: the one the reader moved last. The other side follows
+/// and sends nothing back, so neither can set the other off again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Lead {
+    /// The editor scrolled (or was typed in, clicked, scrolled with its own wheel): the page
+    /// puts the editor's top line at its top.
+    #[default]
+    Editor,
+    /// The wheel turned over the page: the editor puts the page's top line at its top.
+    Page,
 }
 
 /// One open preview pane.
@@ -72,6 +86,10 @@ pub struct Pane {
     pub opened: Instant,
     pub first_page: Option<Duration>,
     pub kind: &'static str,
+    /// Synced scrolling: who leads, and the source line at the page's top (from 1) as the last
+    /// update gave it, until the editor has taken it.
+    pub lead: Lead,
+    page_line: Option<f32>,
 }
 
 /// The pane needs no mdview: this build draws it itself.
@@ -138,6 +156,8 @@ impl Pane {
             opened,
             first_page: None,
             kind,
+            lead: Lead::Editor,
+            page_line: None,
         }
     }
 
@@ -181,8 +201,10 @@ impl Pane {
         }
         self.held = false;
         if self.sent.doc != Some(doc) {
-            // Another document starts at its caret, not where the last one was.
+            // Another document starts at its caret and its top, not where the last one was.
             self.sent.follow = None;
+            self.sent.align = None;
+            self.lead = Lead::Editor;
         }
         self.sent.doc = Some(doc);
         self.sent.version = Some(version);
@@ -200,11 +222,38 @@ impl Pane {
         }
     }
 
-    /// Scrolls the page `by` device pixels.
+    /// Scrolls the page `by` device pixels; the page leads synced scrolling from here.
     pub fn scroll(&mut self, by: f32) {
         if by != 0.0 {
+            self.lead = Lead::Page;
             self.send(Request::Scroll { by });
         }
+    }
+
+    /// The reader turned to the editor (a key, a click, its own wheel): it leads again, and the
+    /// page is aligned to it at the next sync.
+    pub fn editor_leads(&mut self) {
+        if self.lead != Lead::Editor {
+            self.lead = Lead::Editor;
+            self.sent.align = None;
+        }
+    }
+
+    /// While the editor leads: sends its top (a source line from 0, fractional) when it moved.
+    pub fn align(&mut self, top: f64) {
+        if self.lead == Lead::Editor && self.sent.align.is_none_or(|a| (a - top).abs() > 1e-3) {
+            self.sent.align = Some(top);
+            self.send(Request::Align {
+                line: (top + 1.0) as f32,
+            });
+        }
+    }
+
+    /// While the page leads: the source line at its top (from 0, fractional) from an update the
+    /// editor has not followed yet.
+    pub fn take_page_top(&mut self) -> Option<f64> {
+        let line = self.page_line.take()?;
+        (self.lead == Lead::Page).then_some(line as f64 - 1.0)
     }
 
     /// Takes the answers in. True when the frame changed or the pane ended.
@@ -232,6 +281,7 @@ impl Pane {
                         (self.frame.width, self.frame.height) = size;
                         self.top = u.top;
                         self.total = u.total;
+                        self.page_line = Some(u.line);
                         self.generation += 1;
                         changed = true;
                     } else {
