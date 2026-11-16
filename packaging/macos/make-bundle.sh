@@ -20,5 +20,8 @@ cp "$bin/mdedit" "$app/Contents/MacOS/"
 "$root/packaging/macos/make-icns.sh" "$root/assets/mdedit-macos.png" "$app/Contents/Resources/mdedit.icns"
 sed "s/@VERSION@/$version/g" "$root/packaging/macos/Info.plist" > "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
+# A second executable in Contents/MacOS is a nested code object: it is signed first, or the
+# bundle's signature does not verify. (The arm64 linker signs it ad hoc already; x86_64's does not.)
+[ ! -f "$app/Contents/MacOS/mdview-engine" ] || codesign --force --sign - "$app/Contents/MacOS/mdview-engine"
 codesign --force --sign - "$app"
 echo "$app ($version)"
