@@ -14,6 +14,7 @@
 
 use crate::args::{Args, ShotDialog, ShotMenu};
 use crate::chrome::{self, Ctx};
+use crate::commands::CommandId as C;
 use crate::commands::strings;
 use crate::docs::{DocState, Docs, EditOp, Waker};
 use crate::keys::Mods;
@@ -46,7 +47,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, WindowId};
@@ -245,8 +246,12 @@ struct App {
     /// macOS: the left press held now was made with the Control key, which a Mac takes for a
     /// right click; its release is not a left release.
     control_click: bool,
+    /// A trackpad pinch on its way to the next zoom step.
+    pinch: mdshared_ui::window::PinchZoom,
     cursor: CursorIcon,
     last_title: String,
+    /// The close button's unsaved-changes dot as last set (macOS).
+    last_edited: bool,
     last_active: Option<PathBuf>,
     toast_until: Option<Instant>,
     size_save_due: Option<Instant>,
@@ -392,8 +397,10 @@ impl App {
             restart: None,
             mods: Mods::default(),
             control_click: false,
+            pinch: Default::default(),
             cursor: CursorIcon::Default,
             last_title: String::new(),
+            last_edited: false,
             last_active: None,
             toast_until: None,
             size_save_due: None,
@@ -1563,6 +1570,14 @@ impl App {
             }
             self.last_title = title;
         }
+        // macOS: the dot in the close button while any tab has unsaved changes.
+        let edited = mdshared_ui::chrome::NATIVE_FRAME && !self.docs.modified_ids().is_empty();
+        if edited != self.last_edited {
+            if let Some(w) = &self.window {
+                mdshared_ui::window::set_edited(w, edited);
+            }
+            self.last_edited = edited;
+        }
         if self.first {
             self.first = false;
             self.trace.stage("first frame presented hidden");
@@ -2189,6 +2204,19 @@ impl ApplicationHandler<Wake> for App {
                 _ => {}
             },
             WindowEvent::MouseWheel { delta, .. } => self.wheel(delta),
+            // A trackpad: a pinch zooms in steps; the smart-zoom tap (two fingers, twice) is the
+            // actual size. winit reports both on macOS only.
+            WindowEvent::PinchGesture { delta, phase, .. } => {
+                let steps = self.pinch.add(delta);
+                for _ in 0..steps.unsigned_abs() {
+                    self.command(if steps > 0 { C::ZoomIn } else { C::ZoomOut });
+                }
+                if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+                    self.pinch.end();
+                }
+            }
+            WindowEvent::DoubleTapGesture { .. } => self.command(C::ZoomReset),
+
             WindowEvent::KeyboardInput {
                 event,
                 is_synthetic: false,
@@ -2202,6 +2230,10 @@ impl ApplicationHandler<Wake> for App {
             // Text an input method made: an accent typed with a dead key or chosen by holding a
             // key, or Chinese, Japanese or Korean input. Input methods are on only on macOS.
             WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ime_commit(&text),
+            // The input method's candidate window goes under the caret.
+            WindowEvent::Ime(winit::event::Ime::Enabled | winit::event::Ime::Preedit(..)) => {
+                self.ime_area()
+            }
             WindowEvent::DroppedFile(path) => self.dropped(path),
             _ => {}
         }

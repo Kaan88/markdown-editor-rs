@@ -70,8 +70,26 @@ sleep 1
 screencapture -x "$out/edit-menu.png" && echo "edit menu captured"
 se 'key code 53'
 sleep 0.5
+# Control+Command+F: the window's full screen (the Window menu's item), and back.
+se 'keystroke "f" using {control down, command down}'
+sleep 3
+screencapture -x "$out/full-screen.png" && echo "full screen captured"
+se 'keystroke "f" using {control down, command down}'
+sleep 3
+# The system's list of this application's recent documents has the file.
+recent="$HOME/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments"
+ls "$recent" 2>/dev/null | grep -i mdedit || true
+if ls "$recent" 2>/dev/null | grep -qi 'kaan88.mdedit'; then
+    echo "PASS the system lists mdedit's recent documents"
+else
+    echo "FAIL no recent documents of mdedit in the system's list"
+    fail=1
+fi
 # Command+Q with unsaved changes asks first (winit's own Quit would end the process at once).
 se 'keystroke "!"'
+sleep 1
+# Unsaved now: the close button has its dot.
+screencapture -x "$out/edited.png" && echo "edited captured"
 se 'keystroke "q" using command down'
 sleep 2
 if kill -0 "$pid" 2>/dev/null; then

@@ -2063,6 +2063,8 @@ impl Docs {
                 doc.encoding_changed = recovered_flags.1;
                 doc.changed_on_disk = recovered_flags.0;
                 if let Some(path) = doc.path.clone() {
+                    // macOS: the Dock icon's menu and Recent Items list it too.
+                    mdshared_ui::platform::note_recent_document(&path);
                     self.recents.add(path);
                 }
                 if let Some((text, case)) = query {
@@ -2735,6 +2737,7 @@ impl Docs {
         doc.changed_on_disk = false;
         doc.discard = false;
         doc.encoding_changed = false;
+        mdshared_ui::platform::note_recent_document(&path);
         self.recents.add(path);
         self.watch_changed = true;
         Ok(())

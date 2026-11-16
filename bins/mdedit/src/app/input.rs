@@ -657,7 +657,7 @@ impl App {
         match hit {
             Hit::Backdrop => self.close_dialog(),
             Hit::TitleDrag => match title_press(clicks, DEFER_TITLE_DRAG) {
-                TitlePress::Maximize => self.toggle_maximized(),
+                TitlePress::Maximize => self.title_double_click(),
                 TitlePress::DragNow => {
                     if let Some(w) = &self.window {
                         let _ = w.drag_window();
@@ -1055,6 +1055,39 @@ impl App {
     pub(super) fn toggle_maximized(&mut self) {
         if let Some(w) = &self.window {
             w.set_maximized(!w.is_maximized());
+        }
+    }
+
+    /// A double click on the title row: maximize, or on a Mac what its setting says (zoom,
+    /// minimise or nothing).
+    pub(super) fn title_double_click(&mut self) {
+        match &self.window {
+            Some(w) if mdshared_ui::chrome::NATIVE_FRAME => {
+                mdshared_ui::window::title_double_click(w)
+            }
+            _ => self.toggle_maximized(),
+        }
+    }
+
+    /// Tells the input method where the caret is, so its candidate window opens beside it.
+    pub(super) fn ime_area(&mut self) {
+        let Some(caret) = self.docs.active_ready().map(|r| r.view.sel.caret) else {
+            return;
+        };
+        let region = self.areas.text;
+        let (view, scale) = (&mut self.view, self.scale);
+        let Some((x, y, lh)) = self
+            .docs
+            .with_pane(0, |doc| view.point_of(doc, region, scale, caret))
+            .flatten()
+        else {
+            return;
+        };
+        if let Some(w) = &self.window {
+            w.set_ime_cursor_area(
+                winit::dpi::LogicalPosition::new(x, y),
+                winit::dpi::LogicalSize::new(1.0, lh),
+            );
         }
     }
 
