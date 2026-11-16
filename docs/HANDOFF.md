@@ -28,6 +28,11 @@ change and, after `Copy`, the text and HTML.
   still enable Copy by the text's selection.
 - Test: `the_page_selects_with_the_mouse_and_copy_takes_its_text` (both builds; the copy goes to
   a test slot, not the system clipboard), and 3 in the viewer's `server.rs`.
+- Measured on Linux under Xvfb, `tools/compare-builds.py`, main against this branch, 5
+  interleaved runs: pane closed, every figure within noise; pane open, within noise except
+  PLAN.md's scroll (p50 1.24 to 1.67 ms, ranges overlapping), which a second run of 7 put back
+  at 1.30 to 1.29 ms (p95 1.80 to 1.84). With nothing selected the new code does no work.
+  Not run on Windows.
 
 ## START HERE: mdedit 1.0.0 is released (2026-11-16)
 
