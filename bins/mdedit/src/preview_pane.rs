@@ -225,6 +225,22 @@ impl Drop for Pane {
     }
 }
 
+/// The name of the embedded build's drawing thread: a panic there ends the pane, not mdedit.
+pub const THREAD: &str = "preview";
+
+/// What the pane says when mdview's renderer failed on the document.
+#[cfg_attr(not(feature = "embedded-preview"), allow(dead_code))]
+const STOPPED: &str = "The preview stopped: it could not draw this document. Close the pane and open it again to retry.";
+
+/// Runs `work` and reports a panic in it as the pane's end, so that the pane shows why.
+#[cfg_attr(not(feature = "embedded-preview"), allow(dead_code))]
+fn guarded(work: impl FnOnce(), tx: &Sender<Event>, wake: &Waker) {
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).is_err() {
+        let _ = tx.send(Event::Ended(STOPPED.into()));
+        wake(Wake::Preview);
+    }
+}
+
 /// The embedded build: the loop runs on a thread here; formulas and diagrams go to the engine
 /// installed beside mdview.
 #[cfg(feature = "embedded-preview")]
@@ -233,13 +249,20 @@ fn start(viewer: &Path, rx: Receiver<Request>, tx: Sender<Event>, wake: Waker) -
     mdview_render::set_engine_path(engine);
     let (tx2, wake2) = (tx.clone(), wake.clone());
     let spawned = std::thread::Builder::new()
-        .name("preview".into())
+        .name(THREAD.into())
         .spawn(move || {
-            mdview_preview::serve(rx, |u| {
-                let ok = tx.send(Event::Update(u)).is_ok();
-                wake(Wake::Preview);
-                ok
-            });
+            let (tx3, wake3) = (tx.clone(), wake.clone());
+            guarded(
+                move || {
+                    mdview_preview::serve(rx, |u| {
+                        let ok = tx.send(Event::Update(u)).is_ok();
+                        wake(Wake::Preview);
+                        ok
+                    });
+                },
+                &tx3,
+                &wake3,
+            );
         });
     if let Err(e) = spawned {
         let _ = tx2.send(Event::Ended(format!("The preview could not start: {e}")));
@@ -367,4 +390,26 @@ pub fn draw(c: &mut crate::chrome::Ctx, pane: Option<&Pane>, docs: &crate::docs:
     let (x0, y0, _, _) = c.p.dev_rect(rect);
     let h = pane.frame.height as i32;
     c.p.blit(&pane.frame, 0, h, x0 + 1, y0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panic_in_the_drawing_ends_the_pane_and_says_so() {
+        let (tx, rx) = mpsc::channel::<Event>();
+        let woken = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let w = woken.clone();
+        let wake: Waker =
+            std::sync::Arc::new(move |_| w.store(true, std::sync::atomic::Ordering::SeqCst));
+        std::thread::Builder::new()
+            .name(THREAD.into())
+            .spawn(move || guarded(|| panic!("the renderer failed"), &tx, &wake))
+            .unwrap()
+            .join()
+            .expect("the thread itself ends normally");
+        assert!(matches!(rx.try_recv(), Ok(Event::Ended(why)) if why == STOPPED));
+        assert!(woken.load(std::sync::atomic::Ordering::SeqCst));
+    }
 }

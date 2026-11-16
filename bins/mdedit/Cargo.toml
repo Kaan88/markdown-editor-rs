@@ -6,8 +6,9 @@ publish.workspace = true
 description = "mdedit: the winit + softbuffer shell. Every control is drawn by this crate or by mdshared-ui."
 
 [features]
-# Draws the preview pane in this process with mdview's renderer built in, instead of asking the
-# installed mdview to draw it. For comparing the two; the default build carries no renderer.
+default = ["embedded-preview"]
+# Draws the preview pane in this process with mdview's renderer built in. Without it
+# (--no-default-features) the installed mdview draws it in its own process, kept to compare.
 embedded-preview = ["mdview-preview/server", "dep:mdview-render"]
 
 [[bin]]

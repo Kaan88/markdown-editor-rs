@@ -48,10 +48,10 @@ jobs:
         run: |
           (cd viewer && cargo build --release -p mdview -p mdview-engine)
           cd editor
-          cargo build --release -p mdedit
+          cargo build --release -p mdedit --no-default-features
           mkdir -p ../out/renderer ../out/embedded
           cp target/release/mdedit.exe ../out/renderer/
-          cargo build --release -p mdedit --features embedded-preview
+          cargo build --release -p mdedit
           cp target/release/mdedit.exe ../out/embedded/
           for d in renderer embedded; do
             cp ../viewer/target/release/mdview.exe ../viewer/target/release/mdview-engine.exe ../out/$d/
@@ -65,8 +65,8 @@ jobs:
           MDEDIT_TEST_MDVIEW: ${{ github.workspace }}\out\renderer\mdview.exe
         run: |
           cd editor
+          cargo test --release -p mdedit --no-default-features preview
           cargo test --release -p mdedit preview
-          cargo test --release -p mdedit --features embedded-preview preview
       - name: Timings (a real window on the runner)
         shell: pwsh
         continue-on-error: true
@@ -141,8 +141,9 @@ jobs:
           path: mdedit-preview-test-windows.zip
           retention-days: 30
 
-  # mdedit from main against the embedded build, the pane closed: does carrying the renderer cost
-  # anything on the budgets of docs/PLAN.md? tools/compare-builds.py, 7 interleaved runs.
+  # mdedit from main against this branch's default build (the renderer built in, panic = unwind),
+  # the pane closed: does either cost anything on the budgets of docs/PLAN.md?
+  # tools/compare-builds.py, 7 interleaved runs.
   compare:
     runs-on: windows-latest
     timeout-minutes: 120
@@ -170,7 +171,7 @@ jobs:
           mkdir -p out/main out/embedded
           (cd main && cargo build --release -p mdedit && cp target/release/mdedit.exe ../out/main/)
           cd editor
-          cargo build --release -p mdedit --features embedded-preview
+          cargo build --release -p mdedit
           cp target/release/mdedit.exe ../out/embedded/
           mkdir -p target/data
           cargo run --release -q -p mdedit-core --example gen -- lines 100 target/data/100mb.txt

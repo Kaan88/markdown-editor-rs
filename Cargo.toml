@@ -46,9 +46,10 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
-# Nothing catches a panic, so unwinding buys only a dead worker thread instead of an ended
-# process; the unwind tables cost about 0.9 MB of the 6 MB exe budget (docs/DESIGN.md, section 2).
-panic = "abort"
+# Unwinding, for the preview pane only: a panic in mdview's renderer on its thread is caught and
+# ends the pane, not mdedit. Every other panic still ends the process (the hook in
+# bins/mdedit/src/main.rs), as with "abort". The unwind tables cost about 0.9 MB of exe.
+panic = "unwind"
 
 # Code that runs once and waits on the user or the disk (file dialogs, the folder watcher's
 # set-up, formats syntect never reads at run time): built for size, which pays for the regex
