@@ -150,7 +150,7 @@ impl App {
             }
             Some(_) => false,
             None => {
-                pane.align(top);
+                pane.align(top, view::source_ends(r));
                 false
             }
         }
@@ -347,6 +347,60 @@ mod tests {
             a.preview.as_ref().unwrap().top < after_wheel - 1000.0
         });
         assert!(page_top(&a) < after_wheel - 1000.0);
+    }
+
+    #[test]
+    fn the_editor_at_its_end_brings_the_page_to_its_end_wrapped_or_not() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("pane-end");
+        let md = dir.join("a.md");
+        // Headings and code are taller on the page than in the text: the page is the longer.
+        let text: String = (0..120)
+            .map(|i| format!("## Part {i}\n\n```\ncode {i}\n```\n\nA paragraph.\n\n"))
+            .collect();
+        std::fs::write(&md, text).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.command(C::PreviewPane);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        let at_bottom = |a: &App| {
+            let p = a.preview.as_ref().unwrap();
+            p.top > 0.0 && p.top >= p.total - p.frame.height as f32 - 0.5
+        };
+        for wrap in [false, true] {
+            a.docs.active_ready_mut().unwrap().wrap = wrap;
+            view::scroll_rows(a.docs.active_ready_mut().unwrap(), -1e6);
+            a.compose();
+            pump(&mut a, |a| a.preview.as_ref().unwrap().top < 1.0);
+            // To the editor's end: the page reaches its own.
+            view::scroll_rows(a.docs.active_ready_mut().unwrap(), 1e6);
+            a.compose();
+            pump(&mut a, at_bottom);
+            assert!(at_bottom(&a), "wrap {wrap}: the page at its end");
+            // Up a line and down again: the page comes back to its end, not above it.
+            view::scroll_rows(a.docs.active_ready_mut().unwrap(), -1.0);
+            a.compose();
+            pump(&mut a, |a| !at_bottom(a));
+            assert!(!at_bottom(&a), "wrap {wrap}: a line up moves the page");
+            view::scroll_rows(a.docs.active_ready_mut().unwrap(), 1.0);
+            a.compose();
+            pump(&mut a, at_bottom);
+            assert!(at_bottom(&a), "wrap {wrap}: back at its end");
+            // The page leading from there leaves the editor at its end.
+            let end = view::source_top(a.docs.active_ready_mut().unwrap());
+            let r = a.areas.preview.unwrap();
+            assert!(a.preview_wheel(r.cx(), r.cy(), -3.0, None));
+            let quiet = Instant::now() + Duration::from_millis(300);
+            pump(&mut a, |_| Instant::now() > quiet);
+            let now = view::source_top(a.docs.active_ready_mut().unwrap());
+            assert!((now - end).abs() < 0.01, "wrap {wrap}: {end} {now}");
+            a.editor_leads();
+        }
     }
 
     #[test]

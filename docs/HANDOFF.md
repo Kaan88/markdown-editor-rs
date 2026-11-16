@@ -51,7 +51,17 @@ window events). Leading editor: its top as a fractional source line (`view::sour
 wrap included) goes to the page as `Align` when it moved. Leading page: each update's `line`
 puts the editor there (`view::set_source_top`). The caret sync stays as it was and goes after
 the align. Lines between two blocks share the page rows between them evenly.
-Test: `scrolling_either_side_brings_the_other_to_the_same_line` (both builds).
+The two ends: the page is mostly the longer, so the same top line on both sides left the
+page's end out of reach, and the editor's next scroll pulled the page back up (the owner saw
+it). Since viewer `c76948a` (protocol `MDVPREVIEW3`), `Align` also carries the editor's last
+screen of scrolling (`view::source_ends`: without wrap, one screen above `max_top`; with wrap,
+one screen of rows above the last row at the top, as far as wrapped scrolling goes); over it
+the page's top goes straight on to its bottom, and the line in each update is the exact
+inverse (the page at its bottom is the editor at its end), so the lead changing sides moves
+neither. A page shorter than the text stops at its bottom as before.
+Tests: `scrolling_either_side_brings_the_other_to_the_same_line`,
+`the_editor_at_its_end_brings_the_page_to_its_end_wrapped_or_not` (fails without the fix; both
+builds).
 Measured on Linux under Xvfb, `tools/compare-builds.py`, 5 runs, the commit before against
 this: pane closed, every figure within noise; pane open, the scroll frame p50/p95 grows by
 0.5 to 0.8 ms (sample.md 1.07/1.18 to 1.59/1.74 ms; PLAN.md 0.96/1.17 to 1.73/1.97 ms) since the

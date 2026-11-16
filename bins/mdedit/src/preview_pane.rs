@@ -40,8 +40,9 @@ pub(crate) struct Sent {
     pub(crate) version: Option<(u64, u64)>,
     view: Option<(u32, u32, u32, bool)>,
     follow: Option<(u32, u32)>,
-    /// The editor's top (a source line from 0, fractional) the page was last aligned to.
-    align: Option<f64>,
+    /// The editor's top and its last screen ([`crate::view::source_ends`]) the page was last aligned
+    /// to.
+    align: Option<(f64, f64, f64)>,
 }
 
 /// Which side synced scrolling follows: the one the reader moved last. The other side follows
@@ -239,12 +240,19 @@ impl Pane {
         }
     }
 
-    /// While the editor leads: sends its top (a source line from 0, fractional) when it moved.
-    pub fn align(&mut self, top: f64) {
-        if self.lead == Lead::Editor && self.sent.align.is_none_or(|a| (a - top).abs() > 1e-3) {
-            self.sent.align = Some(top);
+    /// While the editor leads: sends its top and its last screen of scrolling (source lines
+    /// from 0, fractional; [`crate::view::source_ends`]) when they moved.
+    pub fn align(&mut self, top: f64, (tail, end): (f64, f64)) {
+        let now = (top, tail, end);
+        let moved = |a: (f64, f64, f64)| {
+            (a.0 - now.0).abs() > 1e-3 || (a.1 - now.1).abs() > 1e-3 || (a.2 - now.2).abs() > 1e-3
+        };
+        if self.lead == Lead::Editor && self.sent.align.is_none_or(moved) {
+            self.sent.align = Some(now);
             self.send(Request::Align {
                 line: (top + 1.0) as f32,
+                tail: (tail + 1.0) as f32,
+                end: (end + 1.0) as f32,
             });
         }
     }

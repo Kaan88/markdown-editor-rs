@@ -185,6 +185,42 @@ pub fn source_top(r: &mut Ready) -> f64 {
     }
 }
 
+/// The editor's last screen of scrolling, as [`source_top`] gives tops: `(tail, end)`, `end`
+/// the top when scrolled to the bottom and `tail` one screen above it (or the first line).
+/// Without wrapping the bottom is the last line at the view's bottom; with it, the last row at
+/// the view's top, as far as wrapped scrolling goes.
+pub fn source_ends(r: &mut Ready) -> (f64, f64) {
+    let vl = r.view.view_lines.max(0.0);
+    if r.wrapped() {
+        let last = r.buffer.len_lines().saturating_sub(1);
+        let end = wrap::step(
+            r,
+            wrap::Pos {
+                line: last,
+                row: usize::MAX,
+            },
+            0,
+        );
+        let tail = wrap::step(r, end, -(vl.floor() as isize));
+        let mut at = |p: wrap::Pos| {
+            let n = wrap::rows(r, p.line).len().max(1) as f64;
+            p.line as f64 + p.row as f64 / n
+        };
+        (at(tail), at(end))
+    } else {
+        let end = max_top(shown_rows(r), vl);
+        let tail = (end - vl).max(0.0);
+        let line = |v: f64| {
+            if r.view.folds.is_empty() || v <= 0.0 {
+                return v;
+            }
+            let row = v.floor();
+            r.view.folds.line_at_row(row as usize) as f64 + (v - row)
+        };
+        (line(tail), line(end))
+    }
+}
+
 /// Puts source line `top` (from 0, fractional as [`source_top`] gives it) at the view's top.
 /// The next layout pass clamps it.
 pub fn set_source_top(r: &mut Ready, top: f64) {
