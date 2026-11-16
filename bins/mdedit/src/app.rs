@@ -242,6 +242,9 @@ struct App {
     /// The file to start once the window is closed: set by a Restart that was carried out.
     restart: Option<PathBuf>,
     mods: Mods,
+    /// macOS: the left press held now was made with the Control key, which a Mac takes for a
+    /// right click; its release is not a left release.
+    control_click: bool,
     cursor: CursorIcon,
     last_title: String,
     last_active: Option<PathBuf>,
@@ -388,6 +391,7 @@ impl App {
             exit: false,
             restart: None,
             mods: Mods::default(),
+            control_click: false,
             cursor: CursorIcon::Default,
             last_title: String::new(),
             last_active: None,
@@ -2170,6 +2174,14 @@ impl ApplicationHandler<Wake> for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => match (state, button) {
+                // On a Mac, Control and a click is a right click (`Mods::control` is never set
+                // elsewhere).
+                (ElementState::Pressed, MouseButton::Left) if self.mods.control => {
+                    self.control_click = true;
+                    self.right_press();
+                }
+                (ElementState::Released, MouseButton::Left)
+                    if std::mem::take(&mut self.control_click) => {}
                 (ElementState::Pressed, MouseButton::Left) => self.left_press(),
                 (ElementState::Released, MouseButton::Left) => self.left_release(),
                 (ElementState::Pressed, MouseButton::Right) => self.right_press(),
