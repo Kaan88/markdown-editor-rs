@@ -537,6 +537,7 @@ impl App {
     /// The caret shows: the text has the keyboard and the window has focus.
     fn text_focused(&self) -> bool {
         !self.ui.find_focused
+            && !self.preview_focused()
             && !self.ui.results.focused
             && self.ui.dialog.is_none()
             && !self.palette_open()
@@ -2245,10 +2246,17 @@ impl ApplicationHandler<Wake> for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => match (state, button) {
-                _ if state == ElementState::Pressed && self.preview.is_some() && {
-                    self.editor_leads();
-                    false
-                } => {}
+                // A press on the page leaves the lead where it is: a selection there does not
+                // move it.
+                _ if state == ElementState::Pressed
+                    && self.preview.is_some()
+                    && !self
+                        .page_area()
+                        .is_some_and(|r| r.contains(self.ui.mouse.0, self.ui.mouse.1))
+                    && {
+                        self.editor_leads();
+                        false
+                    } => {}
                 // On a Mac, Control and a click is a right click (`Mods::control` is never set
                 // elsewhere).
                 (ElementState::Pressed, MouseButton::Left) if self.mods.control => {

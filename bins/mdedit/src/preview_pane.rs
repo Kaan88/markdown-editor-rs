@@ -90,6 +90,14 @@ pub struct Pane {
     /// Synced scrolling: who leads, and the source line at the page's top (from 1) as the last
     /// update gave it, until the editor has taken it.
     pub lead: Lead,
+    /// The selection on the page, its rectangles `[x, y, w, h]` in page pixels, as the last
+    /// update that changed it gave them; empty when nothing is selected.
+    pub selection: Vec<[f32; 4]>,
+    /// The page has the keyboard: a press on it gave it, a press in the text or any key the
+    /// page does not use takes it back. Copy and Select all then act on the page.
+    pub focused: bool,
+    /// The answer to the last [`copy`](Self::copy), until the editor has taken it.
+    copied: Option<mdview_preview::Copied>,
     page_line: Option<f32>,
 }
 
@@ -159,6 +167,9 @@ impl Pane {
             kind,
             lead: Lead::Editor,
             page_line: None,
+            selection: Vec::new(),
+            focused: false,
+            copied: None,
         }
     }
 
@@ -257,6 +268,43 @@ impl Pane {
         }
     }
 
+    /// The main button went down on the page at `x, y` (device pixels from the page's top
+    /// left): the page takes the keyboard and a selection starts there.
+    pub fn press(&mut self, x: f32, y: f32, clicks: u32) {
+        self.focused = true;
+        self.send(Request::Press { x, y, clicks });
+    }
+
+    /// The pointer moved with the button down.
+    pub fn drag(&mut self, x: f32, y: f32) {
+        self.send(Request::Drag { x, y });
+    }
+
+    pub fn release(&mut self) {
+        self.send(Request::Release);
+    }
+
+    pub fn select_all(&mut self) {
+        self.send(Request::SelectAll);
+    }
+
+    /// The page gives the keyboard back, its selection cleared.
+    pub fn blur(&mut self) {
+        if self.focused {
+            self.focused = false;
+            self.send(Request::Unselect);
+        }
+    }
+
+    /// Asks for the selection's text; [`take_copied`](Self::take_copied) has it once answered.
+    pub fn copy(&mut self) {
+        self.send(Request::Copy);
+    }
+
+    pub fn take_copied(&mut self) -> Option<mdview_preview::Copied> {
+        self.copied.take()
+    }
+
     /// While the page leads: the source line at its top (from 0, fractional) from an update the
     /// editor has not followed yet.
     pub fn take_page_top(&mut self) -> Option<f64> {
@@ -269,8 +317,18 @@ impl Pane {
         let mut changed = false;
         while let Ok(event) = self.events.try_recv() {
             match event {
-                Event::Update(u) => {
+                Event::Update(mut u) => {
                     self.waiting = self.waiting.saturating_sub(u.answers);
+                    if let Some(rects) = u.selection.take() {
+                        self.selection = rects;
+                        // The pane is painted again by its generation.
+                        self.generation += 1;
+                        changed = true;
+                    }
+                    if let Some(c) = u.copied.take() {
+                        self.copied = Some(c);
+                        changed = true;
+                    }
                     if self.waiting == 0
                         && let Some(at) = self.asked.take()
                     {
@@ -470,9 +528,21 @@ pub fn draw(c: &mut crate::chrome::Ctx, pane: Option<&Pane>, docs: &crate::docs:
     if pane.frame.width <= 1 {
         return;
     }
-    let (x0, y0, _, _) = c.p.dev_rect(rect);
+    let (x0, y0, x1, y1) = c.p.dev_rect(rect);
     let h = pane.frame.height as i32;
     c.p.blit(&pane.frame, 0, h, x0 + 1, y0);
+    // The selection over the page, as mdview blends it.
+    let alpha = if pal.dark { 0.42 } else { 0.30 };
+    let color = pal.selection;
+    for &[x, y, w, h] in &pane.selection {
+        let left = x0 + 1 + x.round() as i32;
+        let top = y0 + (y - pane.top).round() as i32;
+        let (a, b) = (left.max(x0 + 1), (left + w.round() as i32).min(x1));
+        let (t, u) = (top.max(y0), (top + h.round() as i32).min(y1));
+        if a < b && t < u {
+            c.p.fill_dev(a, t, b, u, color, alpha);
+        }
+    }
 }
 
 #[cfg(test)]
