@@ -1340,7 +1340,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "mdedit"
-version = "0.7.1"
+version = "1.0.0"
 dependencies = [
  "bytemuck",
  "libc",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-core"
-version = "0.7.1"
+version = "1.0.0"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-highlight"
-version = "0.7.1"
+version = "1.0.0"
 dependencies = [
  "mdshared-highlight",
  "ropey",
@@ -1390,7 +1390,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-outline"
-version = "0.7.1"
+version = "1.0.0"
 dependencies = [
  "ropey",
 ]
@@ -1398,7 +1398,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=51e76049ab18a7228b132de9bb01d216879bd947#51e76049ab18a7228b132de9bb01d216879bd947"
 dependencies = [
  "notify",
  "windows-sys 0.59.0",
@@ -1407,7 +1407,7 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=51e76049ab18a7228b132de9bb01d216879bd947#51e76049ab18a7228b132de9bb01d216879bd947"
 dependencies = [
  "libloading",
  "windows-sys 0.59.0",
@@ -1416,7 +1416,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=51e76049ab18a7228b132de9bb01d216879bd947#51e76049ab18a7228b132de9bb01d216879bd947"
 dependencies = [
  "syntect",
 ]
@@ -1424,7 +1424,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=51e76049ab18a7228b132de9bb01d216879bd947#51e76049ab18a7228b132de9bb01d216879bd947"
 dependencies = [
  "parley",
  "png",
@@ -1434,7 +1434,7 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=51e76049ab18a7228b132de9bb01d216879bd947#51e76049ab18a7228b132de9bb01d216879bd947"
 dependencies = [
  "arboard",
  "mdshared-app",
@@ -1457,8 +1457,8 @@ dependencies = [
 
 [[package]]
 name = "mdview-core"
-version = "0.5.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=c76948a94a55234b578654b1cc8fc120c97edf9a#c76948a94a55234b578654b1cc8fc120c97edf9a"
+version = "1.0.0"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=94280e093f17786664a948a4931ac3315a9d6e0e#94280e093f17786664a948a4931ac3315a9d6e0e"
 dependencies = [
  "mdshared-app",
  "memchr",
@@ -1469,13 +1469,13 @@ dependencies = [
 
 [[package]]
 name = "mdview-engine-proto"
-version = "0.5.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=c76948a94a55234b578654b1cc8fc120c97edf9a#c76948a94a55234b578654b1cc8fc120c97edf9a"
+version = "1.0.0"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=94280e093f17786664a948a4931ac3315a9d6e0e#94280e093f17786664a948a4931ac3315a9d6e0e"
 
 [[package]]
 name = "mdview-preview"
-version = "0.5.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=c76948a94a55234b578654b1cc8fc120c97edf9a#c76948a94a55234b578654b1cc8fc120c97edf9a"
+version = "1.0.0"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=94280e093f17786664a948a4931ac3315a9d6e0e#94280e093f17786664a948a4931ac3315a9d6e0e"
 dependencies = [
  "mdview-core",
  "mdview-render",
@@ -1483,8 +1483,8 @@ dependencies = [
 
 [[package]]
 name = "mdview-render"
-version = "0.5.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=c76948a94a55234b578654b1cc8fc120c97edf9a#c76948a94a55234b578654b1cc8fc120c97edf9a"
+version = "1.0.0"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=94280e093f17786664a948a4931ac3315a9d6e0e#94280e093f17786664a948a4931ac3315a9d6e0e"
 dependencies = [
  "gif",
  "image-webp",

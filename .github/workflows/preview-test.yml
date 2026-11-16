@@ -1,11 +1,9 @@
-# The preview pane's Windows test app, from the f/preview-pane branches of mdedit and mdview:
+# The preview pane's Windows test app, from the main branches of mdedit and mdview (by hand):
 # builds mdview (with its engine) and both builds of mdedit's pane, times them on the runner and
 # packs one zip with a folder for each build. Not a release: no installer, no signature.
 name: preview-test
 
 on:
-  push:
-    branches: [f/preview-pane]
   workflow_dispatch:
 
 concurrency:
@@ -31,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Kaan88/markdown-viewer-rs
-          ref: f/preview-pane
+          ref: main
           path: viewer
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -105,7 +103,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Kaan88/markdown-shared-rs
-          ref: f/crash-report
+          ref: main
           path: shared
       - name: Crash reports on Windows (a panic, and an access violation)
         shell: bash
