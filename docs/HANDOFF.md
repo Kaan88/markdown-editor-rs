@@ -5,6 +5,35 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Selecting text on the preview pane, branch `f/pane-select` (2026-11-16, not merged)
+
+The owner asked whether the page could be selected; their answers: copy as mdview copies (the
+rendered text, with HTML beside it; the source is on the left), and no click-to-jump. Viewer
+branch `f/pane-select` (`5af35f5`, protocol `MDVPREVIEW4`) adds the requests `Press`, `Drag`,
+`Release`, `SelectAll`, `Unselect`, `Copy`; answers carry the selection's rectangles when they
+change and, after `Copy`, the text and HTML.
+- A press on the page (`App::preview_press`, before the hit test, since the pane has no hit)
+  starts a selection there and gives the page the keyboard (`Pane::focused`; `text_focused` is
+  then false); two clicks take a word, three the block, a drag extends, past the pane's edge the
+  auto-scroll timer scrolls the page (`preview_autoscroll`, the page leads). A press on the page
+  does not hand the lead to the editor.
+- While the page has the keyboard: Copy and Select all (their keys, the palette) act on the page
+  (`C::Copy`, `C::SelectAll` in `app/commands.rs`); Escape, any other key, or a press in the
+  text, a tab or the find boxes give it back and clear the page's selection; the other keys then
+  act in the text as usual. Copy puts text and HTML on the clipboard (`preview_copied`).
+- The rectangles are page positions, blended over the frame as mdview does (`preview_pane::draw`,
+  `pal.selection` at 0.30 light, 0.42 dark). The cursor is the I-beam over the page.
+- A new text clears the selection (its offsets were into the old one).
+- Not done: a right-click menu on the page (Copy, Select all); the palette and the text's menu
+  still enable Copy by the text's selection.
+- Test: `the_page_selects_with_the_mouse_and_copy_takes_its_text` (both builds; the copy goes to
+  a test slot, not the system clipboard), and 3 in the viewer's `server.rs`.
+- Measured on Linux under Xvfb, `tools/compare-builds.py`, main against this branch, 5
+  interleaved runs: pane closed, every figure within noise; pane open, within noise except
+  PLAN.md's scroll (p50 1.24 to 1.67 ms, ranges overlapping), which a second run of 7 put back
+  at 1.30 to 1.29 ms (p95 1.80 to 1.84). With nothing selected the new code does no work.
+  Not run on Windows.
+
 ## START HERE: mdedit 1.0.0 is released (2026-11-16)
 
 **The released state is `main`, mdedit 1.0.0, tag `v1.0.0` at `3e3f8d8`, published with mdview

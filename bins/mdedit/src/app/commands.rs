@@ -1367,7 +1367,13 @@ impl App {
                 }
             }
             C::Copy => {
-                self.copy();
+                if self.preview_focused() {
+                    if let Some(pane) = self.preview.as_mut() {
+                        pane.copy();
+                    }
+                } else {
+                    self.copy();
+                }
             }
             C::Paste => self.paste(),
             C::DuplicateLine => {
@@ -1515,6 +1521,11 @@ impl App {
             }
             C::TabsToSpaces => {
                 self.edit(EditOp::TabsToSpaces);
+            }
+            C::SelectAll if self.preview_focused() => {
+                if let Some(pane) = self.preview.as_mut() {
+                    pane.select_all();
+                }
             }
             C::SelectAll => {
                 if let Some(r) = self.docs.active_ready_mut() {

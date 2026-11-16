@@ -617,6 +617,8 @@ pub enum SelectUnit {
 /// A press being held: what it started on.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Drag {
+    /// A selection on the preview pane's page, the button down.
+    Preview,
     /// A tab pressed; it becomes a reorder once the pointer moves a few px.
     Tab {
         index: usize,

@@ -2,6 +2,7 @@
 //! over it. The pane itself is `crate::preview_pane`.
 
 use super::*;
+use crate::keys::KeyName;
 use crate::preview_pane::Pane;
 use std::time::Duration;
 
@@ -127,6 +128,7 @@ impl App {
             let column = caret - r.buffer.line_range(line).start;
             pane.follow(line as u32 + 1, column as u32);
         }
+        self.preview_copied();
         changed | self.preview_scroll_sync()
     }
 
@@ -153,6 +155,144 @@ impl App {
                 pane.align(top, view::source_ends(r));
                 false
             }
+        }
+    }
+
+    /// The pane's area when it shows a page that can be selected.
+    pub(super) fn page_area(&self) -> Option<Rect> {
+        let pane = self.preview.as_ref()?;
+        let shown = pane.ended.is_none()
+            && pane.frame.width > 1
+            && self.docs.active_doc().is_some_and(previewable);
+        self.areas.preview.filter(|_| shown)
+    }
+
+    /// Window point `x, y` as a point on the page: device pixels from its top left, kept
+    /// inside it (the page starts one pixel in, after the line that parts it from the text).
+    fn page_point(&self, r: Rect, x: f32, y: f32) -> (f32, f32) {
+        let s = self.scale;
+        (
+            ((x - r.x) * s - 1.0).clamp(0.0, (r.w * s - 2.0).max(0.0)),
+            ((y - r.y) * s).clamp(0.0, (r.h * s - 1.0).max(0.0)),
+        )
+    }
+
+    /// The main button went down at `x, y`: on the page, a selection starts there and the page
+    /// takes the keyboard. False when the point is not on the page.
+    pub(super) fn preview_press(&mut self, x: f32, y: f32, clicks: u32) -> bool {
+        let Some(r) = self.page_area().filter(|r| r.contains(x, y)) else {
+            return false;
+        };
+        let (px, py) = self.page_point(r, x, y);
+        if let Some(pane) = self.preview.as_mut() {
+            pane.press(px, py, clicks);
+        }
+        self.ui.find_focused = false;
+        self.ui.results.set_focus(false);
+        self.ui.drag = Some(Drag::Preview);
+        self.redraw();
+        true
+    }
+
+    /// The pointer moved with the button down after a press on the page. Past its top or
+    /// bottom, the auto-scroll timer scrolls it.
+    pub(super) fn preview_drag(&mut self, x: f32, y: f32) {
+        let Some(r) = self.areas.preview else {
+            return;
+        };
+        let (px, py) = self.page_point(r, x, y);
+        if let Some(pane) = self.preview.as_mut() {
+            pane.drag(px, py);
+        }
+        let outside = y < r.y || y >= r.bottom();
+        if outside && self.ui.autoscroll_due.is_none() {
+            self.ui.autoscroll_due = Some(Instant::now() + AUTOSCROLL_TICK);
+        } else if !outside {
+            self.ui.autoscroll_due = None;
+        }
+    }
+
+    pub(super) fn preview_release(&mut self) {
+        if let Some(pane) = self.preview.as_mut() {
+            pane.release();
+        }
+    }
+
+    /// A tick of the auto-scroll while a selection on the page is dragged past its edge: the
+    /// page moves (and leads synced scrolling), and the selection follows the pointer.
+    pub(super) fn preview_autoscroll(&mut self) {
+        let Some(r) = self.areas.preview else {
+            return;
+        };
+        let (x, y) = self.ui.mouse;
+        let dy = if y < r.y {
+            y - r.y
+        } else if y >= r.bottom() {
+            y - r.bottom() + 1.0
+        } else {
+            return;
+        };
+        // As the text scrolls past its edge: faster the farther the pointer is.
+        let by = (dy.abs() / 20.0).clamp(0.25, 3.0) * dy.signum() * 20.0 * self.scale;
+        if let Some(pane) = self.preview.as_mut() {
+            pane.scroll(by);
+        }
+        self.preview_drag(x, y);
+        self.wants_frame = true;
+    }
+
+    /// Whether the page has the keyboard.
+    pub(super) fn preview_focused(&self) -> bool {
+        self.preview.as_ref().is_some_and(|p| p.focused)
+    }
+
+    /// The page gives the keyboard back to the text, its selection cleared.
+    pub(super) fn preview_blur(&mut self) {
+        if let Some(pane) = self.preview.as_mut()
+            && pane.focused
+        {
+            pane.blur();
+            self.redraw();
+        }
+    }
+
+    /// A key while the page has the keyboard. Copy and Select all act on the page (through
+    /// their commands); Escape and any other key give the keyboard back to the text, and the
+    /// other keys then do there what they do. True when the key was used.
+    pub(super) fn preview_key(&mut self, name: Option<&KeyName>, command: Option<C>) -> bool {
+        if !self.preview_focused() {
+            return false;
+        }
+        match (name, command) {
+            (_, Some(C::Copy | C::SelectAll)) => false,
+            (Some(KeyName::Escape), _) => {
+                self.preview_blur();
+                true
+            }
+            (None, None) => false,
+            _ => {
+                self.preview_blur();
+                false
+            }
+        }
+    }
+
+    /// Puts the page's selection on the clipboard when its text has come, as mdview does: the
+    /// text and the HTML beside it.
+    fn preview_copied(&mut self) {
+        let Some(c) = self.preview.as_mut().and_then(|p| p.take_copied()) else {
+            return;
+        };
+        if c.text.is_empty() {
+            return;
+        }
+        #[cfg(test)]
+        {
+            tests::COPIED.with(|v| *v.borrow_mut() = Some(c.text));
+        }
+        #[cfg(not(test))]
+        if c.html.is_empty() || !platform::set_clipboard_html(&c.html, &c.text) {
+            platform::set_clipboard_text(&c.text);
         }
     }
 
@@ -196,7 +336,13 @@ mod tests {
     use super::*;
     use crate::commands::CommandId as C;
     use crate::ui::Act;
+    use std::cell::RefCell;
     use std::time::Duration;
+
+    thread_local! {
+        /// What the page's Copy put on the clipboard, in place of the system's in tests.
+        pub(super) static COPIED: RefCell<Option<String>> = const { RefCell::new(None) };
+    }
 
     /// The mdview that draws the pane in the default build: `MDEDIT_TEST_MDVIEW`, or the
     /// viewer's release build beside this repository. The embedded build needs none.
@@ -401,6 +547,81 @@ mod tests {
             assert!((now - end).abs() < 0.01, "wrap {wrap}: {end} {now}");
             a.editor_leads();
         }
+    }
+
+    #[test]
+    fn the_page_selects_with_the_mouse_and_copy_takes_its_text() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("pane-select");
+        let md = dir.join("a.md");
+        let text: String = (0..80)
+            .map(|i| format!("Paragraph {i} of **the** page.\n\n"))
+            .collect();
+        std::fs::write(&md, &text).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.command(C::PreviewPane);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        let r = a.page_area().expect("a page in the pane");
+        let selected = |a: &App| !a.preview.as_ref().unwrap().selection.is_empty();
+        let copied = || COPIED.with(|v| v.borrow_mut().take());
+        let caret = a.docs.active_ready().unwrap().view.sel;
+
+        // A drag across the first lines of the page: they show selected, the page has the
+        // keyboard, and the text keeps its caret.
+        a.pointer_moved(r.x + 4.0, r.y + 4.0);
+        a.left_press();
+        a.pointer_moved(r.x + r.w - 4.0, r.y + 120.0);
+        a.left_release();
+        pump(&mut a, selected);
+        assert!(selected(&a), "the selection shows");
+        assert!(a.preview_focused() && !a.text_focused());
+        assert_eq!(a.docs.active_ready().unwrap().view.sel, caret);
+
+        // Copy takes the rendered text, not the Markdown.
+        a.command(C::Copy);
+        pump(&mut a, |_| COPIED.with(|v| v.borrow().is_some()));
+        let got = copied().expect("copied");
+        assert!(got.starts_with("Paragraph 0 of the page."), "{got:?}");
+        assert!(!got.contains("**"));
+
+        // Select all takes the whole page.
+        a.command(C::SelectAll);
+        a.command(C::Copy);
+        pump(&mut a, |_| COPIED.with(|v| v.borrow().is_some()));
+        let all = copied().expect("copied");
+        assert!(all.contains("Paragraph 79 of the page."), "{}", all.len());
+        assert_eq!(
+            a.docs.active_ready().unwrap().view.sel,
+            caret,
+            "the text is not selected"
+        );
+
+        // Escape gives the keyboard back and clears the page's selection.
+        a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Escape), None);
+        pump(&mut a, |a| !selected(a));
+        assert!(!selected(&a) && !a.preview_focused() && a.text_focused());
+
+        // A press in the text takes the keyboard from the page too.
+        a.pointer_moved(r.x + 4.0, r.y + 4.0);
+        a.left_press();
+        a.left_release();
+        assert!(a.preview_focused());
+        let t = a.areas.text;
+        a.pointer_moved(t.x + 60.0, t.y + 10.0);
+        a.left_press();
+        a.left_release();
+        assert!(!a.preview_focused());
+        // Copy is the text's again.
+        a.command(C::Copy);
+        let quiet = Instant::now() + Duration::from_millis(200);
+        pump(&mut a, |_| Instant::now() > quiet);
+        assert!(copied().is_none());
     }
 
     #[test]

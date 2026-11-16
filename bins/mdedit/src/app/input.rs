@@ -70,7 +70,10 @@ impl App {
                 self.redraw();
             }
         }
+        let on_page =
+            edge.is_none() && !in_menu && self.page_area().is_some_and(|r| r.contains(x, y));
         let cursor = match (edge, hit) {
+            _ if on_page => CursorIcon::Text,
             (Some(dir), _) => CursorIcon::from(dir),
             (
                 None,
@@ -152,6 +155,7 @@ impl App {
 
     pub(super) fn drag_to(&mut self, drag: Drag, x: f32, y: f32) {
         match drag {
+            Drag::Preview => self.preview_drag(x, y),
             Drag::Title { x: x0, y: y0 } => {
                 if title_moved((x0, y0), (x, y)) {
                     self.ui.drag = None;
@@ -625,7 +629,19 @@ impl App {
             self.redraw();
             return;
         }
+        if self.page_area().is_some_and(|r| r.contains(x, y)) {
+            let clicks = self.click_count(x, y);
+            self.preview_press(x, y, clicks);
+            return;
+        }
         let Some(hit) = self.hit_at(x, y) else { return };
+        // A press in the text, or on anything that takes the keyboard, takes it from the page.
+        if matches!(
+            hit,
+            Hit::Text | Hit::Other | Hit::Tab(_) | Hit::Find | Hit::Replace
+        ) {
+            self.preview_blur();
+        }
         // Clicking elsewhere takes focus from the bar's boxes, except for their own buttons.
         if !matches!(
             hit,
@@ -804,6 +820,9 @@ impl App {
             return;
         }
         if let Some(drag) = self.ui.drag.take() {
+            if drag == Drag::Preview {
+                self.preview_release();
+            }
             if matches!(drag, Drag::Splitter { .. }) {
                 self.session.files_w = Some(self.ui.panes.files_w.round() as u32);
             }
@@ -1317,6 +1336,9 @@ impl App {
         {
             return;
         }
+        if self.preview_key(name.as_ref(), keys::command_for(&key, mods)) {
+            return;
+        }
         if let Some(id) = keys::command_for(&key, mods) {
             self.command(id);
             return;
@@ -1691,6 +1713,10 @@ impl App {
 
     /// One auto-scroll step of a selection drag with the pointer outside the text.
     pub(super) fn autoscroll(&mut self) {
+        if self.ui.drag == Some(Drag::Preview) {
+            self.preview_autoscroll();
+            return;
+        }
         let (x, y) = self.ui.mouse;
         let Some(doc) = self.docs.active_doc() else {
             return;
