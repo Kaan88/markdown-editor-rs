@@ -82,7 +82,14 @@ Ctrl+1/2/3; the rest have no key.
   `app::format_tests` (2: shown for Markdown only, toggle, overflow; a click edits, gives the
   keyboard back to the text, shows pressed), the session key, the access-key test with the Table
   menu.
-- Measured: see below (MEASURE).
+- Measured on Linux under Xvfb, `tools/compare-builds.py`, 5 runs, the commit before against
+  this (bar on): the first try cost 1.2 ms per keystroke on sample.md and about 7 ms of first
+  frame, from asking the rope byte by byte for five span markers several times a frame. Now one
+  string scan of the caret's line (`markdown::spans_at`, checked against the edit's own span
+  finder on random text), once per frame (`App::format`). After that: first frame within
+  noise (sample.md 93.0 vs 92.2 ms, PLAN.md 92.3 vs 93.1, sample.rs 90.6 vs 84.0), idle memory
+  equal, scroll within noise, keystroke p50/p95 on sample.md 1.26/1.54 to 1.49/1.71 ms (+0.2 ms),
+  on PLAN.md and sample.rs within noise.
 - Not seen by the owner; not run on Windows.
 
 **Crash reports** (shared crates `f/crash-report`, the owner's request; mdview has the same):

@@ -221,6 +221,8 @@ struct App {
     save: bool,
     session: Session,
     screen: Bitmap,
+    /// The format bar's state for this frame (`None`: not shown), worked out once per frame.
+    format: Option<crate::format_bar::State>,
     gfx: Gfx,
     pal: Palette,
     system_dark: bool,
@@ -390,6 +392,7 @@ impl App {
             session_path,
             session,
             screen: Bitmap::new(1, 1),
+            format: None,
             gfx: Gfx::new(),
             pal: theme::LIGHT,
             system_dark,
@@ -836,11 +839,7 @@ impl App {
                     .active_ready()
                     .is_some_and(|r| !r.find.matches.is_empty());
                 sig((
-                    (
-                        common,
-                        chrome::preview_button(&self.docs),
-                        crate::format_bar::shown(&self.docs),
-                    ),
+                    (common, chrome::preview_button(&self.docs), self.format),
                     self.docs.theme.to_setting(),
                     ui.find.text(),
                     ui.find.caret(),
@@ -1068,6 +1067,7 @@ impl App {
         self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
+        self.format = crate::format_bar::shown(&self.docs);
         self.relayout_areas();
         // Lay the text out first: it clamps the scroll and says which lines want colours.
         let text = self.areas.text;
@@ -1321,7 +1321,7 @@ impl App {
                         let bar = Rect::new(rect.x, rect.y, rect.w, crate::ui::BAR_H);
                         chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar);
                         let mut y = bar.bottom();
-                        if let Some(state) = crate::format_bar::shown(&self.docs) {
+                        if let Some(state) = self.format {
                             let row = Rect::new(rect.x, y, rect.w, crate::format_bar::FORMAT_H);
                             crate::format_bar::draw(&mut c, &state, row);
                             y = row.bottom();
@@ -2428,7 +2428,7 @@ impl App {
         } else {
             0.0
         };
-        let format = if crate::format_bar::shown(&self.docs).is_some() {
+        let format = if self.format.is_some() {
             crate::format_bar::FORMAT_H
         } else {
             0.0
@@ -2468,6 +2468,7 @@ impl App {
 
     /// The layout pass of a frame without drawing: areas, scroll clamping, colour requests.
     fn compose_layout_only(&mut self) {
+        self.format = crate::format_bar::shown(&self.docs);
         self.sync_theme();
         self.compare_sync();
         self.docs.sync_wrap();

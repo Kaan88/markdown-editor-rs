@@ -117,12 +117,13 @@ pub fn shown(docs: &Docs) -> Option<State> {
     }
     let r = docs.active_ready().filter(|r| r.assist.markdown)?;
     let (buf, caret) = (&r.buffer, r.view.sel.caret);
+    let on = markdown::spans_at(buf, caret, &["**", "*", "_", "~~", "`", "$"]);
     Some(State {
-        bold: markdown::in_span(buf, caret, "**"),
-        italic: markdown::in_span(buf, caret, "*") || markdown::in_span(buf, caret, "_"),
-        strike: markdown::in_span(buf, caret, "~~"),
-        code: markdown::in_span(buf, caret, "`"),
-        math: markdown::in_span(buf, caret, "$"),
+        bold: on[0],
+        italic: on[1] || on[2],
+        strike: on[3],
+        code: on[4],
+        math: on[5],
         line: blocks::line_state(buf, caret),
     })
 }

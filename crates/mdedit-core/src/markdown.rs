@@ -84,7 +84,50 @@ fn is_marker(buf: &Buffer, at: usize, marker: &str) -> bool {
 /// Whether the caret is inside a span of `marker` on its line (what the format bar shows as
 /// pressed); see [`toggle_wrap`].
 pub fn in_span(buf: &Buffer, caret: usize, marker: &str) -> bool {
-    span_around(buf, caret.min(buf.len_bytes()), marker).is_some()
+    spans_at(buf, caret, &[marker])[0]
+}
+
+/// For each of `markers` (ASCII, as [`toggle_wrap`] takes them), whether the caret is inside a
+/// span of it on its line, paired from the line's first as [`toggle_wrap`] pairs them. One read
+/// of the line around the caret ([`SCAN`] bytes each way), so the format bar can ask on every
+/// frame.
+pub fn spans_at(buf: &Buffer, caret: usize, markers: &[&str]) -> Vec<bool> {
+    let caret = buf.floor_char(caret.min(buf.len_bytes()));
+    let line = buf.line_range(buf.line_of(caret));
+    let from = buf.floor_char(line.start.max(caret.saturating_sub(SCAN)));
+    let to = buf.floor_char(line.end.min(caret + SCAN));
+    let text = text_of(buf, from..to);
+    let b = text.as_bytes();
+    let at = caret - from;
+    markers
+        .iter()
+        .map(|m| {
+            let m = m.as_bytes();
+            if m.is_empty() || !m.is_ascii() {
+                return false;
+            }
+            let marker_at = |i: usize| {
+                b[i..].starts_with(m)
+                    && (m.len() > 1
+                        || ((i == 0 || b[i - 1] != m[0]) && b.get(i + 1) != Some(&m[0])))
+            };
+            let mut i = 0;
+            let mut open: Option<usize> = None;
+            while i + m.len() <= b.len() {
+                if marker_at(i) {
+                    match open.take() {
+                        None => open = Some(i),
+                        Some(o) if o < at && at < i + m.len() => return true,
+                        Some(_) => {}
+                    }
+                    i += m.len();
+                } else {
+                    i += 1;
+                }
+            }
+            false
+        })
+        .collect()
 }
 
 /// The span of `marker` markers on the caret's line that has the caret strictly inside, as
@@ -979,6 +1022,28 @@ mod tests {
 
     fn table(s: &str) -> String {
         one(s, format_table)
+    }
+
+    #[test]
+    fn the_pressed_state_agrees_with_the_spans_toggle_wrap_finds() {
+        let mut rng = Rng::new(7);
+        let parts = ["*", "**", "~~", "`", "$", "a", " ", "_", "\n", "é"];
+        for _ in 0..150 {
+            let n = 1 + rng.below(24);
+            let text: String = (0..n).map(|_| *rng.pick(&parts)).collect();
+            let buf = Buffer::from_text(&text);
+            for at in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {
+                let markers = ["**", "*", "~~", "`", "$", "_"];
+                let fast = spans_at(&buf, at, &markers);
+                for (m, f) in markers.iter().zip(fast) {
+                    assert_eq!(
+                        f,
+                        span_around(&buf, at, m).is_some(),
+                        "{text:?} at {at}, {m}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
