@@ -43,9 +43,12 @@ pub type Brush = [u8; 4];
 pub const MONO: &str = "Consolas, Cascadia Mono, Noto Sans Mono, DejaVu Sans Mono, monospace";
 /// The colour emoji families come before the `monospace` generic: that generic can reach a
 /// monochrome font that has the emoji before any emoji font is tried.
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "macos")))]
 pub const MONO: &str =
     "Consolas, Cascadia Mono, Noto Sans Mono, DejaVu Sans Mono, Noto Color Emoji, monospace";
+/// macOS: SF Mono where it is installed, else Menlo (fontique's `monospace` there is Courier).
+#[cfg(target_os = "macos")]
+pub const MONO: &str = "SF Mono, Menlo, Monaco, Apple Color Emoji, monospace";
 /// What a wide glyph's width is measured on.
 const WIDE_SAMPLE: &str =
     "\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}\u{6F22}\u{5B57}";

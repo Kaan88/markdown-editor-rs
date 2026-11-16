@@ -1752,7 +1752,8 @@ impl App {
     }
 
     fn edge_at(&self, x: f32, y: f32) -> Option<ResizeDirection> {
-        if self.maximized || self.window.is_none() {
+        // macOS resizes the window itself (`chrome::NATIVE_FRAME`).
+        if self.maximized || self.window.is_none() || mdshared_ui::chrome::NATIVE_FRAME {
             return None;
         }
         self.resize_band(x, y)
@@ -2001,6 +2002,7 @@ impl ApplicationHandler<Wake> for App {
                 return;
             }
         };
+        mdshared_ui::window::created(&window);
         self.trace.stage("window created");
         self.scale = window.scale_factor() as f32;
         self.maximized = window.is_maximized();
@@ -2177,6 +2179,9 @@ impl ApplicationHandler<Wake> for App {
                 }
                 self.key(&event);
             }
+            // Text an input method made: an accent typed with a dead key or chosen by holding a
+            // key, or Chinese, Japanese or Korean input. Input methods are on only on macOS.
+            WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ime_commit(&text),
             WindowEvent::DroppedFile(path) => self.dropped(path),
             _ => {}
         }

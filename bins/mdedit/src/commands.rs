@@ -312,20 +312,32 @@ pub fn command(id: CommandId) -> &'static Command {
         .expect("every CommandId has a table entry")
 }
 
-/// The first shortcut of a command, for menu hints and tooltips; empty when it has none.
+/// The first shortcut of a command, for menu hints and tooltips, as this platform has it and
+/// prints it ("⌘O" on a Mac); empty when it has none.
 pub fn hint(id: CommandId) -> &'static str {
-    command(id).keys.first().copied().unwrap_or("")
+    let first = command(id).keys.first().copied().unwrap_or("");
+    mdshared_ui::keys::label(mdshared_ui::keys::for_platform(first))
 }
 
-/// Lines for the Keyboard shortcuts dialog: (keys joined by ", ", label).
+/// Lines for the Keyboard shortcuts dialog: (keys joined by ", ", label), each shortcut as this
+/// platform has it and prints it.
 pub fn shortcut_help() -> Vec<(String, &'static str)> {
+    use mdshared_ui::keys::{for_platform, label};
     let mut rows: Vec<(String, &'static str)> = COMMANDS
         .iter()
         .filter(|c| !c.keys.is_empty())
-        .map(|c| (c.keys.join(", "), c.label))
+        .map(|c| {
+            let keys: Vec<&str> = c.keys.iter().map(|k| label(for_platform(k))).collect();
+            (keys.join(", "), c.label)
+        })
         .collect();
     // Not commands: made with the keys and the mouse in the text.
-    rows.push((strings::COLUMN_KEYS.to_string(), strings::COLUMN_LABEL));
+    let column = if mdshared_ui::keys::MAC {
+        strings::COLUMN_KEYS_MAC
+    } else {
+        strings::COLUMN_KEYS
+    };
+    rows.push((column.to_string(), strings::COLUMN_LABEL));
     rows
 }
 
@@ -343,6 +355,8 @@ pub mod strings {
     pub const SHORTCUTS_TITLE: &str = "Keyboard shortcuts";
     pub const COLUMN_LABEL: &str = "Select a column";
     pub const COLUMN_KEYS: &str = "Alt+Shift+Arrows, Alt+Drag";
+    /// On a Mac Option+Shift+Left and Right select by word, so the column takes Command too.
+    pub const COLUMN_KEYS_MAC: &str = "\u{2325}\u{21e7}\u{2318}Arrows, \u{2325}Drag";
     pub const MANAGE_RECENT_TITLE: &str = "Manage recent files";
     pub const EMPTY_HINT: &str = "Open a file or drag one into this window.";
     pub const EMPTY_BUTTON: &str = "Open file…";

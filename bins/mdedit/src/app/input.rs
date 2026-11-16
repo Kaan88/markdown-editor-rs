@@ -1100,6 +1100,19 @@ impl App {
         self.key_pressed(key, event.text.as_deref());
     }
 
+    /// Text an input method committed, typed as a key without modifiers would type it. winit
+    /// sends a commit only for text the input method composed (a dead key, a held key's accent
+    /// menu, CJK), and then no key event for it, so nothing is typed twice.
+    pub(super) fn ime_commit(&mut self, text: &str) {
+        let Some(c) = text.chars().next() else {
+            return;
+        };
+        let held = std::mem::take(&mut self.mods);
+        let key = keys::Key::Name(KeyName::Char(c.to_lowercase().next().unwrap_or(c)));
+        self.key_pressed(key, Some(text));
+        self.mods = held;
+    }
+
     pub(super) fn key_pressed(&mut self, key: keys::Key, typed: Option<&str>) {
         let mods = self.mods;
         self.ui.tip = None;
@@ -1238,9 +1251,15 @@ impl App {
             return;
         }
         // Typed text. Ctrl alone is a shortcut and Alt alone a menu key; both together are
-        // AltGr on layouts where winit reports it that way.
+        // AltGr on layouts where winit reports it that way. On a Mac Option types (accents,
+        // symbols) and Command or Control makes a shortcut.
+        let types = if mdshared_ui::keys::MAC {
+            mdshared_ui::keys::types_text(mods)
+        } else {
+            mods.ctrl == mods.alt
+        };
         if self.text_focused()
-            && mods.ctrl == mods.alt
+            && types
             && let Some(text) = typed.filter(|t| !t.is_empty() && !t.chars().any(char::is_control))
         {
             self.edit(EditOp::Insert(text));
@@ -1250,6 +1269,25 @@ impl App {
 
     /// Editing and caret keys for the text area. True when the key was used.
     fn text_key(&mut self, name: &KeyName, mods: Mods) -> bool {
+        // The Mac's text keys (Command+arrows to the ends, Option+arrows by word). Option+Shift+
+        // Left and Right select by word there, so a column takes Command+Option+Shift+arrows.
+        let arrow = matches!(
+            name,
+            KeyName::Up | KeyName::Down | KeyName::Left | KeyName::Right
+        );
+        let (name, mods) = if mdshared_ui::keys::MAC && arrow && mods.ctrl && mods.alt && mods.shift
+        {
+            (
+                name.clone(),
+                Mods {
+                    ctrl: false,
+                    ..mods
+                },
+            )
+        } else {
+            mdshared_ui::keys::text_key(name.clone(), mods)
+        };
+        let name = &name;
         let op = match (name, mods.ctrl, mods.shift) {
             (KeyName::Enter, false, _) => Some(EditOp::Newline),
             (KeyName::Backspace, false, _) => Some(EditOp::Backspace),
@@ -1404,6 +1442,9 @@ impl App {
     /// Keys for the focused box of the bar. True when the key was used.
     pub(super) fn find_key(&mut self, name: &KeyName, mods: Mods, typed: Option<&str>) -> bool {
         use crate::commands::CommandId as C;
+        // The Mac's text keys (Command+arrows to the ends, Option+arrows by word).
+        let (name, mods) = mdshared_ui::keys::text_key(name.clone(), mods);
+        let name = &name;
         let (which, replace_open) = (self.ui.field, self.ui.replace_open);
         let naming = self.ui.naming;
         let has_history = matches!(which, BarField::Find | BarField::Replace)
@@ -1553,10 +1594,11 @@ impl App {
                 return false;
             }
             _ => {
-                // Typed text; Ctrl alone is a shortcut, Ctrl+Alt is AltGr on Windows.
+                // Typed text, or a shortcut (`keys::types_text`: AltGr on Windows, Option on a
+                // Mac types).
                 let typed = typed.filter(|t| !t.chars().any(char::is_control));
                 match typed {
-                    Some(t) if !(mods.ctrl && !mods.alt) => f.insert(t),
+                    Some(t) if mdshared_ui::keys::types_text(mods) => f.insert(t),
                     _ => return false,
                 }
             }

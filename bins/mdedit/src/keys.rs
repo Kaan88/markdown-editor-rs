@@ -77,7 +77,7 @@ pub fn command_for(key: &Key, mods: Mods) -> Option<CommandId> {
     COMMANDS.iter().find_map(|c| {
         c.keys
             .iter()
-            .filter_map(|s| parse(s))
+            .filter_map(|s| parse(mdshared_ui::keys::for_platform(s)))
             .any(|chord| chord.matches(key, mods))
             .then_some(c.id)
     })
@@ -91,21 +91,25 @@ mod tests {
         ctrl: false,
         shift: false,
         alt: false,
+        control: false,
     };
     const CTRL: Mods = Mods {
         ctrl: true,
         shift: false,
         alt: false,
+        control: false,
     };
     const CTRL_SHIFT: Mods = Mods {
         ctrl: true,
         shift: true,
         alt: false,
+        control: false,
     };
     const SHIFT: Mods = Mods {
         ctrl: false,
         shift: true,
         alt: false,
+        control: false,
     };
 
     fn n(k: KeyName) -> Key {
@@ -142,8 +146,26 @@ mod tests {
         assert_eq!(c(n(KeyName::F(3)), SHIFT), Some(CommandId::FindPrevious));
         assert_eq!(c(n(KeyName::Char('w')), CTRL), Some(CommandId::CloseTab));
         assert_eq!(c(n(KeyName::F(4)), CTRL), Some(CommandId::CloseTab));
-        assert_eq!(c(n(KeyName::Tab), CTRL), Some(CommandId::NextTab));
-        assert_eq!(c(n(KeyName::Tab), CTRL_SHIFT), Some(CommandId::PreviousTab));
+        // On a Mac Command+Tab is the system's: the tabs take Control+Tab, and Replace, whose
+        // Command+H would hide the application, takes Option+Command+F.
+        let tab = if mdshared_ui::keys::MAC {
+            Mods {
+                control: true,
+                ..NONE
+            }
+        } else {
+            CTRL
+        };
+        let tab_shift = Mods { shift: true, ..tab };
+        assert_eq!(c(n(KeyName::Tab), tab), Some(CommandId::NextTab));
+        assert_eq!(c(n(KeyName::Tab), tab_shift), Some(CommandId::PreviousTab));
+        if mdshared_ui::keys::MAC {
+            let alt_cmd = Mods { alt: true, ..CTRL };
+            assert_eq!(c(n(KeyName::Char('f')), alt_cmd), Some(CommandId::Replace));
+            assert_eq!(c(n(KeyName::Char('h')), CTRL), None);
+        } else {
+            assert_eq!(c(n(KeyName::Char('h')), CTRL), Some(CommandId::Replace));
+        }
         assert_eq!(
             c(n(KeyName::Char('1')), CTRL_SHIFT),
             Some(CommandId::ToggleFiles)

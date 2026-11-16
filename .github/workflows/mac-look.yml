@@ -1,0 +1,62 @@
+# mdedit on a real Mac, for the macOS port without one: the headless screenshot suite, the app in
+# a real window (tests/mac-window.sh) and typing into it (tests/mac-typing.sh: Command shortcuts
+# and a dead key, checked in the saved file). The pictures are printed into the log as base64
+# (tests/print-pngs.sh) as well as uploaded, since a cloud session cannot download artifacts;
+# tools/mac-look-decode.sh turns the log back into files.
+name: mac-look
+
+on:
+  push:
+    branches: [f/macos]
+  workflow_dispatch:
+
+concurrency:
+  group: mac-look-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_TOOLCHAIN: 1.99.1
+
+jobs:
+  look:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mac-look
+      - run: cargo build --release -p mdedit
+      - name: Typing in a real window
+        run: bash tests/mac-typing.sh target/typing target/release/mdedit
+      - name: The app in a real window
+        if: ${{ !cancelled() }}
+        run: |
+          bash tests/mac-window.sh target/window/rs target/release/mdedit --no-session fixtures/sample.rs
+          bash tests/mac-window.sh target/window/md-dark target/release/mdedit --no-session --dark fixtures/sample.md
+      - name: Screenshot suite
+        if: ${{ !cancelled() }}
+        run: bash tests/shots.sh target/shots
+      - name: Print the pictures
+        if: ${{ !cancelled() }}
+        run: |
+          bash tests/print-pngs.sh \
+            target/typing/screen.png target/window/rs/window.png target/window/md-dark/window.png \
+            target/shots/rs-light.png target/shots/menu-main.png target/shots/cjk.png
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: mac-look
+          path: |
+            target/shots/*.png
+            target/window/**
+            target/typing/**
+          retention-days: 14

@@ -134,7 +134,10 @@ pub fn rows(
             "Suggest words while typing",
             prefs.complete_auto,
         )
-        .help("A list of words opens after three letters. Ctrl+Space opens it anyway."),
+        .help(format!(
+            "A list of words opens after three letters. {} opens it anyway.",
+            crate::commands::hint(crate::commands::CommandId::CompleteWord)
+        )),
         Row::header("Saving"),
         Row::toggle(
             TRIM_ON_SAVE,
@@ -163,8 +166,10 @@ pub fn rows(
             MINIMAP_WIDTH_MAX as i32,
         )
         .unit("px"),
-        Row::toggle(WORD_WRAP, "Word wrap for new documents", prefs.word_wrap)
-            .help("Alt+Z changes the document you are in."),
+        Row::toggle(WORD_WRAP, "Word wrap for new documents", prefs.word_wrap).help(format!(
+            "{} changes the document you are in.",
+            crate::commands::hint(crate::commands::CommandId::ToggleWrap)
+        )),
         Row::choice(THEME, "Theme", &THEMES, theme_index(theme)),
         Row::header("Preview"),
         Row::toggle(

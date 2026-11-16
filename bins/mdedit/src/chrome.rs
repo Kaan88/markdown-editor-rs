@@ -7,8 +7,9 @@ use crate::docs::Docs;
 use crate::session::ThemeChoice;
 use crate::ui::{BarField, BarItem, Drag, FindOpt, Hit, PopupKind, Ui};
 use mdshared_ui::chrome::{
-    BAR_H, DRAG_MIN, NEW_TAB_W, TABS_X, TITLE_H, TabState, WIN_BTN_W, WinButton, button_fill,
-    draw_new_tab_button, draw_tab, draw_win_button, tab_natural_width, tab_widths, win_button_rect,
+    BAR_H, DRAG_MIN, NATIVE_FRAME, NEW_TAB_W, TABS_LEFT, TITLE_H, TabState, WIN_BTN_W, WinButton,
+    button_fill, draw_new_tab_button, draw_tab, draw_win_button, tab_natural_width, tab_widths,
+    win_button_rect,
 };
 use mdshared_ui::gfx::{Face, Painter, Rect, Rgb, mix};
 pub use mdshared_ui::glyph;
@@ -310,7 +311,10 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
     let pal = *c.pal;
     c.p.fill(r, pal.title);
     c.hit(Hit::TitleDrag, r);
-    logo(c.p, Rect::new(14.0, 9.0, 22.0, 22.0));
+    // macOS draws its own three buttons at the left of this row (`NATIVE_FRAME`).
+    if !NATIVE_FRAME {
+        logo(c.p, Rect::new(14.0, 9.0, 22.0, 22.0));
+    }
 
     // Window buttons, right to left.
     let mut right = r.right();
@@ -319,7 +323,12 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
         (Hit::WinMax, WinButton::Max),
         (Hit::WinMin, WinButton::Min),
     ];
-    for (hit, kind) in buttons {
+    let buttons = if NATIVE_FRAME {
+        &buttons[..0]
+    } else {
+        &buttons[..]
+    };
+    for &(hit, kind) in buttons {
         let b = win_button_rect(right, 0);
         right -= WIN_BTN_W;
         draw_win_button(
@@ -336,13 +345,14 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
 
     // Tabs.
     let labels = docs.labels();
-    let avail = (right - DRAG_MIN - NEW_TAB_W - TABS_X).max(0.0);
+    let avail = (right - DRAG_MIN - NEW_TAB_W - TABS_LEFT).max(0.0);
     let natural: Vec<f32> = labels.iter().map(|l| tab_natural_width(c.p, l)).collect();
     let widths = tab_widths(&natural, avail);
     let active = docs.active();
-    let mut x = TABS_X;
+    let mut x = TABS_LEFT;
     // Tabs that still do not fit at the floor width are cut off rather than drawn over the buttons.
-    let clip = c.p.clip(Rect::new(0.0, 0.0, TABS_X + avail + 8.0, TITLE_H));
+    let clip =
+        c.p.clip(Rect::new(0.0, 0.0, TABS_LEFT + avail + 8.0, TITLE_H));
     let is_hot = |hover: Option<Hit>, i: usize| matches!(hover, Some(Hit::Tab(j) | Hit::TabClose(j)) if j == i);
     for (i, label) in labels.iter().enumerate() {
         let w = widths[i];

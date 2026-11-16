@@ -639,6 +639,7 @@ mod tests {
                     ctrl: true,
                     shift: false,
                     alt: true,
+                    control: false,
                 },
                 typed: None,
             })
@@ -649,6 +650,7 @@ mod tests {
                 ctrl: true,
                 shift: true,
                 alt: true,
+                control: false,
             },
             typed: None,
         });
