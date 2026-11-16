@@ -129,6 +129,10 @@ impl App {
             pane.follow(line as u32 + 1, column as u32);
         }
         self.preview_copied();
+        self.ui.page_selected = self
+            .preview
+            .as_ref()
+            .is_some_and(|p| p.focused && !p.selection.is_empty());
         changed | self.preview_scroll_sync()
     }
 
@@ -239,6 +243,30 @@ impl App {
         }
         self.preview_drag(x, y);
         self.wants_frame = true;
+    }
+
+    /// A right-click at `x, y`: on the page, it takes the keyboard (keeping its selection) and
+    /// its menu opens. False when the point is not on the page.
+    pub(super) fn preview_menu(&mut self, x: f32, y: f32) -> bool {
+        if !self.page_area().is_some_and(|r| r.contains(x, y)) {
+            return false;
+        }
+        let Some(pane) = self.preview.as_mut() else {
+            return false;
+        };
+        pane.focus();
+        let selected = !pane.selection.is_empty();
+        self.ui.find_focused = false;
+        self.ui.results.set_focus(false);
+        // Opened by the pointer, so the access-key underlines stay hidden until a key is used.
+        let cues = self.ui.keyboard;
+        self.ui.popup = Some(crate::ui::Popup::with_cues(
+            crate::ui::PopupKind::Text,
+            crate::overlays::page_menu(selected, x + 2.0, y + 2.0),
+            cues,
+        ));
+        self.redraw();
+        true
     }
 
     /// Whether the page has the keyboard.
@@ -602,10 +630,49 @@ mod tests {
             "the text is not selected"
         );
 
+        // The right-click menu: Copy and Select all, Copy only with something selected; the
+        // palette's Copy follows the page too. Copy from the menu takes the page's text.
+        a.preview_sync();
+        assert!(crate::palette::enabled(C::Copy, &a.docs, &a.ui, true));
+        a.pointer_moved(r.x + 40.0, r.y + 40.0);
+        a.right_press();
+        let items: Vec<(Act, bool)> = {
+            let p = a.ui.popup.as_ref().expect("the page's menu");
+            p.menu
+                .items
+                .iter()
+                .map(|i| (i.id.clone(), i.enabled))
+                .collect()
+        };
+        assert_eq!(
+            items,
+            [(Act::Cmd(C::Copy), true), (Act::Cmd(C::SelectAll), true)]
+        );
+        assert!(
+            a.preview_focused(),
+            "a right-click keeps the page's keyboard and selection"
+        );
+        a.choose(Act::Cmd(C::Copy), false);
+        pump(&mut a, |_| COPIED.with(|v| v.borrow().is_some()));
+        assert!(copied().is_some_and(|t| t.contains("Paragraph 79")));
+        // Cut does nothing to the text while the page has the keyboard.
+        let before = a.docs.active_ready().unwrap().buffer.len_bytes();
+        a.command(C::SelectAll);
+        a.command(C::Cut);
+        assert_eq!(a.docs.active_ready().unwrap().buffer.len_bytes(), before);
+
         // Escape gives the keyboard back and clears the page's selection.
         a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Escape), None);
         pump(&mut a, |a| !selected(a));
         assert!(!selected(&a) && !a.preview_focused() && a.text_focused());
+        a.preview_sync();
+        assert!(!crate::palette::enabled(C::Copy, &a.docs, &a.ui, true));
+        // With nothing selected on the page, its menu's Copy is off.
+        a.pointer_moved(r.x + 40.0, r.y + 40.0);
+        a.right_press();
+        let copy_on = a.ui.popup.as_ref().unwrap().menu.items[0].enabled;
+        assert!(!copy_on);
+        a.ui.popup = None;
 
         // A press in the text takes the keyboard from the page too.
         a.pointer_moved(r.x + 4.0, r.y + 4.0);

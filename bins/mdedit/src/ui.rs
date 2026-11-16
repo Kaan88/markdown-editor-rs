@@ -743,6 +743,8 @@ pub struct Ui {
     /// its access-key underlines (the Windows convention). True before any input, so that the
     /// menus of a `--shot` show them.
     pub keyboard: bool,
+    /// The preview pane's page has the keyboard and something selected: Copy acts on it.
+    pub page_selected: bool,
     pub hover: Option<Hit>,
     pub pressed: Option<Hit>,
     pub drag: Option<Drag>,
@@ -792,6 +794,7 @@ impl Ui {
             caret_due: None,
             mouse: (-1.0, -1.0),
             keyboard: true,
+            page_selected: false,
             hover: None,
             pressed: None,
             drag: None,

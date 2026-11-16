@@ -1361,6 +1361,8 @@ impl App {
             C::Redo => {
                 self.edit(EditOp::Redo);
             }
+            // The page cannot be cut: Cut does nothing while it has the keyboard.
+            C::Cut if self.preview_focused() => {}
             C::Cut => {
                 if self.copy() {
                     self.edit(EditOp::Insert(""));

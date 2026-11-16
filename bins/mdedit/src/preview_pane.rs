@@ -280,6 +280,11 @@ impl Pane {
         self.send(Request::Drag { x, y });
     }
 
+    /// The page takes the keyboard and keeps its selection (a right-click on it).
+    pub fn focus(&mut self) {
+        self.focused = true;
+    }
+
     pub fn release(&mut self) {
         self.send(Request::Release);
     }

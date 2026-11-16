@@ -858,6 +858,9 @@ impl App {
             return;
         }
         self.ui.popup = None;
+        if self.preview_menu(x, y) {
+            return;
+        }
         // Opened by the pointer, so the access-key underlines stay hidden until a key is used.
         let cues = self.ui.keyboard;
         match self.hit_at(x, y) {

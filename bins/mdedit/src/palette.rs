@@ -459,7 +459,9 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => has_tab,
         C::Undo => ready.is_some_and(|r| r.history.can_undo()),
         C::Redo => ready.is_some_and(|r| r.history.can_redo()),
-        C::Cut | C::Copy | C::UpperCase | C::LowerCase => selected,
+        // Copy takes the page's selection while the page has the keyboard.
+        C::Copy => selected || ui.page_selected,
+        C::Cut | C::UpperCase | C::LowerCase => selected,
         C::ToggleComment => ready
             .and_then(|r| r.language)
             .is_some_and(|l| l.line_comment().is_some()),

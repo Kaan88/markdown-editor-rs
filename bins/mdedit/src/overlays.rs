@@ -293,6 +293,25 @@ pub fn minimap_menu(x: f32, y: f32) -> Menu<Act> {
     .access_keys(true)
 }
 
+/// The preview pane's right-click menu: the page's selection, as mdview's page menu has it.
+pub fn page_menu(selected: bool, x: f32, y: f32) -> Menu<Act> {
+    Menu::new(
+        vec![
+            Item::new(Act::Cmd(C::Copy), "&Copy")
+                .hint(hint(C::Copy))
+                .icon(glyph::COPY)
+                .enabled(selected),
+            Item::new(Act::Cmd(C::SelectAll), "Select &all")
+                .hint(hint(C::SelectAll))
+                .icon(glyph::SELECT_ALL),
+        ],
+        x,
+        y,
+        false,
+    )
+    .access_keys(true)
+}
+
 pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
     let many = docs.tabs.len() > 1;
     let has_file = docs.tabs.get(index).is_some_and(|d| d.path.is_some());

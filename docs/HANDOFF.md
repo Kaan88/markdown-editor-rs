@@ -5,7 +5,26 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## START HERE: mdedit 1.0.1, selecting text on the preview pane (2026-11-16, released)
+## START HERE: mdedit 1.0.2, a right-click menu on the preview pane (2026-11-16)
+
+The owner asked for it after 1.0.1 ("implement right click, only build edit this time"): only
+mdedit is released; the viewer is unchanged and the pin stays at `8faf059`. The owner has not
+seen the menu.
+- A right-click on the page (`App::preview_menu`, called from `right_press` before the text's
+  menu) gives the page the keyboard without touching its selection (`Pane::focus`) and opens
+  `overlays::page_menu`: Copy (enabled with something selected on the page) and Select all. Both
+  run through the same commands as their keys, so they act on the page.
+- `Ui::page_selected` (set in `preview_sync`: the page has the keyboard and a selection) enables
+  Copy in the command palette; Cut stays tied to the text's selection and does nothing
+  while the page has the keyboard.
+- Test: `the_page_selects_with_the_mouse_and_copy_takes_its_text` now also opens the menu with
+  and without a selection, copies from it, and checks that Cut leaves the text alone.
+- Measured on Linux under Xvfb, `tools/compare-builds.py`, main against the branch, 5
+  interleaved runs, pane closed and open: every figure within noise (the largest, PLAN.md's
+  scroll p95 with the pane closed, 1.81 to 2.12 ms with overlapping ranges; the pane-open runs
+  moved the other way). Not run on Windows.
+
+## mdedit 1.0.1, selecting text on the preview pane (2026-11-16, released)
 
 Released as 1.0.1 with mdview 1.0.1 on the owner's word ("I trust you"), without a hands-on
 test on Windows. Record in `docs/RELEASE.md`.
@@ -28,8 +47,7 @@ change and, after `Copy`, the text and HTML.
 - The rectangles are page positions, blended over the frame as mdview does (`preview_pane::draw`,
   `pal.selection` at 0.30 light, 0.42 dark). The cursor is the I-beam over the page.
 - A new text clears the selection (its offsets were into the old one).
-- Not done: a right-click menu on the page (Copy, Select all); the palette and the text's menu
-  still enable Copy by the text's selection.
+- A right-click menu on the page came in 1.0.2 (above).
 - Test: `the_page_selects_with_the_mouse_and_copy_takes_its_text` (both builds; the copy goes to
   a test slot, not the system clipboard), and 3 in the viewer's `server.rs`.
 - Measured on Linux under Xvfb, `tools/compare-builds.py`, main against this branch, 5
