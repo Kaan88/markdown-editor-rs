@@ -10,7 +10,7 @@
 #
 # The package does not update itself; pacman (or the AUR helper) does.
 pkgname=mdedit-bin
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="A light, fast text editor (prebuilt binary)"
 arch=('x86_64')

@@ -5,7 +5,11 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## Selecting text on the preview pane, branch `f/pane-select` (2026-11-16, not merged)
+## START HERE: mdedit 1.0.1, selecting text on the preview pane (2026-11-16, released)
+
+Released as 1.0.1 with mdview 1.0.1 on the owner's word ("I trust you"), without a hands-on
+test on Windows. Record in `docs/RELEASE.md`.
+
 
 The owner asked whether the page could be selected; their answers: copy as mdview copies (the
 rendered text, with HTML beside it; the source is on the left), and no click-to-jump. Viewer
@@ -34,7 +38,7 @@ change and, after `Copy`, the text and HTML.
   at 1.30 to 1.29 ms (p95 1.80 to 1.84). With nothing selected the new code does no work.
   Not run on Windows.
 
-## START HERE: mdedit 1.0.0 is released (2026-11-16)
+## mdedit 1.0.0 is released (2026-11-16)
 
 **The released state is `main`, mdedit 1.0.0, tag `v1.0.0` at `3e3f8d8`, published with mdview
 1.0.0 (`94280e0`) on the owner's word, after they approved the preview pane's Windows test build.
