@@ -124,6 +124,8 @@ mod tests {
         let md = dir.join("a.md");
         std::fs::write(&md, "# Secret title\n").unwrap();
         let mut a = app();
+        // The report opens as text, where the format bar would go away too.
+        a.docs.format_bar = false;
         open_now(&mut a, &md);
         a.crash_context();
         assert!(!context_text(&a.crash_key).contains("Secret"));

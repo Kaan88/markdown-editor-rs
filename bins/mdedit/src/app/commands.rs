@@ -7,6 +7,7 @@ use crate::docs::{EditOp, SaveFailed};
 use crate::image_paste;
 use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
+use mdedit_core::blocks::{Fence, ListKind};
 use mdedit_core::find::Query;
 use mdedit_core::limits::COPY_LIMIT;
 use mdedit_core::lines;
@@ -49,6 +50,12 @@ impl App {
             Hit::UpdateRestart => self.request(After::Restart),
             Hit::UpdateClose => self.docs.updates.dismiss(),
             Hit::CrashOpen | Hit::CrashCopy | Hit::CrashClose => self.crash_bar(hit),
+            // The format bar's buttons act on the text, which keeps the keyboard.
+            Hit::Format(id) => {
+                self.ui.find_focused = false;
+                self.command(id);
+            }
+            Hit::FormatMore => self.open_popup(crate::format_bar::MORE_MENU),
             Hit::StatusEol => self.open_popup(PopupKind::Eol),
             Hit::StatusEncoding => self.open_popup(PopupKind::Encoding),
             Hit::Bar(item) => match item {
@@ -430,7 +437,7 @@ impl App {
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
-            Act::LinesMenu | Act::ConvertMenu | Act::MarkdownMenu => {
+            Act::LinesMenu | Act::ConvertMenu | Act::MarkdownMenu | Act::TableMenu => {
                 if let (Some(kind), Some(sub)) = (self.ui.popup_kind(), act.submenu()) {
                     self.open_sub(kind, sub, false);
                 }
@@ -1036,6 +1043,11 @@ impl App {
                     return below(r, true);
                 }
             }
+            PopupKind::Markdown => {
+                if let Some(r) = self.hit_rect(Hit::FormatMore) {
+                    return below(r, true);
+                }
+            }
             // Above their field: the menu is moved up to fit in the window.
             PopupKind::Eol | PopupKind::Encoding => {
                 let hit = if kind == PopupKind::Eol {
@@ -1096,6 +1108,7 @@ impl App {
             PopupKind::Lines => overlays::lines_menu(&self.docs, x, y, right),
             PopupKind::Convert => overlays::convert_menu(&self.docs, x, y, right),
             PopupKind::Markdown => overlays::markdown_menu(&self.docs, x, y, right),
+            PopupKind::Table => overlays::table_menu(&self.docs, x, y, right),
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return None,
@@ -1237,6 +1250,22 @@ impl App {
                 | C::MdHeading
                 | C::MdLink
                 | C::MdTable
+                | C::MdHeading1
+                | C::MdHeading2
+                | C::MdHeading3
+                | C::MdBulletList
+                | C::MdNumberedList
+                | C::MdTaskList
+                | C::MdQuote
+                | C::MdAlert
+                | C::MdCodeBlock
+                | C::MdMath
+                | C::MdMathBlock
+                | C::MdDiagram
+                | C::MdDetails
+                | C::MdRule
+                | C::MdFootnote
+                | C::MdImage
                 | C::MdRowBelow
                 | C::MdRowAbove
                 | C::MdDeleteRow
@@ -1400,6 +1429,53 @@ impl App {
             }
             C::MdTable => {
                 self.edit(EditOp::MdTable);
+            }
+            C::MdHeading1 | C::MdHeading2 | C::MdHeading3 => {
+                let level = match id {
+                    C::MdHeading1 => 1,
+                    C::MdHeading2 => 2,
+                    _ => 3,
+                };
+                self.edit(EditOp::MdHeadingLevel(level));
+            }
+            C::MdBulletList => {
+                self.edit(EditOp::MdList(ListKind::Bullet));
+            }
+            C::MdNumberedList => {
+                self.edit(EditOp::MdList(ListKind::Numbered));
+            }
+            C::MdTaskList => {
+                self.edit(EditOp::MdList(ListKind::Task));
+            }
+            C::MdQuote => {
+                self.edit(EditOp::MdQuote);
+            }
+            C::MdAlert => {
+                self.edit(EditOp::MdAlert);
+            }
+            C::MdCodeBlock => {
+                self.edit(EditOp::MdFence(Fence::Code));
+            }
+            C::MdMath => {
+                self.edit(EditOp::MdWrap("$"));
+            }
+            C::MdMathBlock => {
+                self.edit(EditOp::MdFence(Fence::Math));
+            }
+            C::MdDiagram => {
+                self.edit(EditOp::MdFence(Fence::Diagram));
+            }
+            C::MdDetails => {
+                self.edit(EditOp::MdFence(Fence::Details));
+            }
+            C::MdRule => {
+                self.edit(EditOp::MdRule);
+            }
+            C::MdFootnote => {
+                self.edit(EditOp::MdFootnote);
+            }
+            C::MdImage => {
+                self.edit(EditOp::MdImage);
             }
             C::MdRowBelow => {
                 self.edit(EditOp::MdTableOp(TableOp::RowBelow));
@@ -1574,6 +1650,7 @@ impl App {
                 self.docs.sync_wrap();
             }
             C::ToggleMinimap => self.docs.minimap = !self.docs.minimap,
+            C::ToggleFormatBar => self.docs.format_bar = !self.docs.format_bar,
             C::ToggleBookmark => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.toggle_bookmark();

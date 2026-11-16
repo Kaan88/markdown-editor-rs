@@ -8,6 +8,7 @@ mod chrome;
 mod commands;
 mod compare;
 mod docs;
+mod format_bar;
 mod frost;
 mod image_paste;
 mod keys;

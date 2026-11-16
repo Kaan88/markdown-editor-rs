@@ -62,6 +62,8 @@ pub use crash::crash_dir;
 #[cfg(test)]
 mod files_tests;
 #[cfg(test)]
+mod format_tests;
+#[cfg(test)]
 mod frost_tests;
 mod handoff;
 #[cfg(test)]
@@ -834,7 +836,11 @@ impl App {
                     .active_ready()
                     .is_some_and(|r| !r.find.matches.is_empty());
                 sig((
-                    (common, chrome::preview_button(&self.docs)),
+                    (
+                        common,
+                        chrome::preview_button(&self.docs),
+                        crate::format_bar::shown(&self.docs),
+                    ),
                     self.docs.theme.to_setting(),
                     ui.find.text(),
                     ui.find.caret(),
@@ -1315,6 +1321,11 @@ impl App {
                         let bar = Rect::new(rect.x, rect.y, rect.w, crate::ui::BAR_H);
                         chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar);
                         let mut y = bar.bottom();
+                        if let Some(state) = crate::format_bar::shown(&self.docs) {
+                            let row = Rect::new(rect.x, y, rect.w, crate::format_bar::FORMAT_H);
+                            crate::format_bar::draw(&mut c, &state, row);
+                            y = row.bottom();
+                        }
                         if self.ui.replace_open {
                             let strip = Rect::new(rect.x, y, rect.w, crate::ui::REPLACE_H);
                             chrome::draw_replace_strip(&mut c, &self.docs, &mut self.ui, strip);
@@ -1953,6 +1964,7 @@ impl App {
         if !self.args.minimap {
             s.minimap = self.docs.minimap;
         }
+        s.format_bar = self.docs.format_bar;
         s.check_updates = self.docs.check_updates;
         s.find_options = (self.ui.match_case, self.ui.whole_word, self.ui.regex);
         s.find_history = self.ui.find_recall.items().to_vec();
@@ -2398,8 +2410,8 @@ impl ApplicationHandler<Wake> for App {
 }
 
 impl App {
-    /// The height of what shows under the command bar: the replace strip, the update bar, then
-    /// the crash bar.
+    /// The height of what shows under the command bar: the format bar, the replace strip, the
+    /// update bar, then the crash bar.
     fn notice_h(&self) -> f32 {
         let strip = if self.ui.replace_open {
             crate::ui::REPLACE_H
@@ -2416,7 +2428,12 @@ impl App {
         } else {
             0.0
         };
-        strip + update + crash
+        let format = if crate::format_bar::shown(&self.docs).is_some() {
+            crate::format_bar::FORMAT_H
+        } else {
+            0.0
+        };
+        format + strip + update + crash
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
@@ -2767,13 +2784,17 @@ fn shot(mut app: App, path: &Path) -> i32 {
             );
             app.right_press();
             app.compose();
-            let (row, sub) = match m {
-                ShotMenu::TextLines => (7, PopupKind::Lines),
-                ShotMenu::TextConvert => (8, PopupKind::Convert),
-                _ => (6, PopupKind::Markdown),
+            let sub = match m {
+                ShotMenu::TextLines => PopupKind::Lines,
+                ShotMenu::TextConvert => PopupKind::Convert,
+                _ => PopupKind::Markdown,
             };
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = Some(row);
+                p.menu.hover = p
+                    .menu
+                    .items
+                    .iter()
+                    .position(|i| i.id.submenu() == Some(sub));
             }
             app.open_sub(PopupKind::Text, sub, true);
         }
@@ -2973,6 +2994,7 @@ pub fn run() -> i32 {
     // commands change them for this run only.
     docs.wrap = args.wrap || session.wrap || session.prefs.word_wrap;
     docs.minimap = args.minimap || session.minimap || session.prefs.minimap;
+    docs.format_bar = session.format_bar;
     docs.theme = match args.dark {
         Some(true) => ThemeChoice::Dark,
         Some(false) => ThemeChoice::Light,

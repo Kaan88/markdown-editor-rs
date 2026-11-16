@@ -271,6 +271,8 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
             BarItem::Theme => format!("Theme: {} (click to change)", theme_label(docs.theme)),
             BarItem::More => "More".into(),
         },
+        Hit::Format(id) => crate::format_bar::tooltip(id),
+        Hit::FormatMore => "More Markdown".into(),
         Hit::FindClear => "Clear search (Escape)".into(),
         Hit::FindOpt(FindOpt::Case) => "Match case".into(),
         Hit::FindOpt(FindOpt::Word) => "Whole word".into(),

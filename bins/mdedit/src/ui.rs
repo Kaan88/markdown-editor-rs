@@ -171,6 +171,9 @@ pub enum Hit {
     CrashOpen,
     CrashCopy,
     CrashClose,
+    /// The format bar's buttons, and its button for the Markdown menu when they do not all fit.
+    Format(crate::commands::CommandId),
+    FormatMore,
     /// The status strip's line-ending and encoding fields: each opens a menu.
     StatusEol,
     StatusEncoding,
@@ -245,7 +248,9 @@ impl Hit {
             | Hit::UpdateClose
             | Hit::CrashOpen
             | Hit::CrashCopy
-            | Hit::CrashClose => Region::Bar,
+            | Hit::CrashClose
+            | Hit::Format(_)
+            | Hit::FormatMore => Region::Bar,
             Hit::Replace
             | Hit::ReplaceOne
             | Hit::ReplaceAll
@@ -329,10 +334,11 @@ pub enum Act {
     ViewMenu,
     /// Open the Macro menu beside the open one.
     MacroMenu,
-    /// Open the text menu's Lines, Convert and Markdown submenus beside it.
+    /// Open the text menu's Lines, Convert, Markdown and Table submenus beside it.
     LinesMenu,
     ConvertMenu,
     MarkdownMenu,
+    TableMenu,
     /// Play saved macro `n` of the Macro menu.
     PlaySaved(usize),
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").
@@ -360,6 +366,7 @@ impl Act {
             Act::LinesMenu => Some(PopupKind::Lines),
             Act::ConvertMenu => Some(PopupKind::Convert),
             Act::MarkdownMenu => Some(PopupKind::Markdown),
+            Act::TableMenu => Some(PopupKind::Table),
             _ => None,
         }
     }
@@ -387,10 +394,11 @@ pub enum PopupKind {
     Tab(usize),
     /// The text area's right-click menu.
     Text,
-    /// Its submenus: line commands, conversions, Markdown formatting.
+    /// Its submenus: line commands, conversions, Markdown formatting, pipe tables.
     Lines,
     Convert,
     Markdown,
+    Table,
     /// The find box's editing menu.
     Find,
     /// The word completion list at the caret; typing goes on in the text.

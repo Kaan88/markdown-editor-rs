@@ -59,6 +59,32 @@ page now moves with the text and its region is repainted; budget under 4 ms. Not
 Windows by hand; an mdview built before this answers with the old greeting, and the renderer
 build then asks to update mdview.
 
+**Format bar** (the owner: "build that toolbar next. make it support viewers features"; the
+mockup was `FormatBar.dc.html`): a row under the command bar for Markdown documents
+(`format_bar.rs`), on by default, View > "Format bar (Mar&kdown)" turns it off (session key
+`format_bar=0`). Groups: B, I, S, code | H1, H2, H3 | bulleted, numbered, task, quote, alert |
+link, image, table, code block | math, math block, diagram, footnote, collapsible section, rule.
+A button shows pressed when the caret is in what it makes (bold span, heading level, list kind,
+quote). Where the window is too narrow, the last groups give way to a "…" button that opens the
+Markdown menu, which now has every command; the table's row and column commands moved to their
+own Table submenu beside it (the menu had more items than letters). Headings 1 to 3 have
+Ctrl+1/2/3; the rest have no key.
+- New edits, each one undo step, in `mdedit-core/src/blocks.rs`: `toggle_list` (any other list
+  marker is replaced; all of the kind already: markers off), `toggle_quote`, `cycle_alert` (plain
+  -> NOTE -> TIP -> IMPORTANT -> WARNING -> CAUTION -> plain), `insert_fence` (code, `$$`,
+  ```` ```mermaid ```` with a two-node flowchart, `<details>`), `insert_rule` (blank line above, so
+  not a heading underline), `footnote` (next free number, its text appended at the end, the
+  caret there; nothing over 4 MB), `line_state`. In `markdown.rs`: `image_from_selection`,
+  `in_span`. Inline math is `MdWrap("$")`.
+- The bar's own icons (numbered list, quote, code block, sigma, diagram, footnote, details, rule)
+  are in `format_bar.rs`, not in the shared glyph set, so the shared crates did not move.
+- Tests: `blocks::tests` (6), `images_are_links_with_a_bang`, `format_bar::tests` (2),
+  `app::format_tests` (2: shown for Markdown only, toggle, overflow; a click edits, gives the
+  keyboard back to the text, shows pressed), the session key, the access-key test with the Table
+  menu.
+- Measured: see below (MEASURE).
+- Not seen by the owner; not run on Windows.
+
 **Crash reports** (shared crates `f/crash-report`, the owner's request; mdview has the same):
 - `main` installs `mdshared_app::crash` first, into `data_dir("mdedit")/crashes`. A panic (any
   thread) and, on Windows, an access violation or stack overflow write `crash-<secs>.txt`: app,

@@ -81,6 +81,12 @@ fn is_marker(buf: &Buffer, at: usize, marker: &str) -> bool {
     true
 }
 
+/// Whether the caret is inside a span of `marker` on its line (what the format bar shows as
+/// pressed); see [`toggle_wrap`].
+pub fn in_span(buf: &Buffer, caret: usize, marker: &str) -> bool {
+    span_around(buf, caret.min(buf.len_bytes()), marker).is_some()
+}
+
 /// The span of `marker` markers on the caret's line that has the caret strictly inside, as
 /// (opening marker start, closing marker start). Markers on the line are paired from the first.
 fn span_around(buf: &Buffer, caret: usize, marker: &str) -> Option<(usize, usize)> {
@@ -854,20 +860,44 @@ pub fn link_from_selection(
     sels: &[Selection],
     primary: usize,
 ) -> Option<Typed> {
+    link_like(buf, hist, sels, primary, false)
+}
+
+/// [`link_from_selection`] for an image: `![text](url)`, the selection taken for the alt text or
+/// the image's URL.
+pub fn image_from_selection(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sels: &[Selection],
+    primary: usize,
+) -> Option<Typed> {
+    link_like(buf, hist, sels, primary, true)
+}
+
+fn link_like(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sels: &[Selection],
+    primary: usize,
+    image: bool,
+) -> Option<Typed> {
+    let bang = usize::from(image);
     run(buf, hist, sels, primary, |buf, s| {
         let len = buf.len_bytes();
         let r = buf.floor_char(s.range().start.min(len))..buf.floor_char(s.range().end.min(len));
         let r = r.start..r.end.max(r.start);
         if r.is_empty() {
-            return Act::replace(r.start..r.start, "[]()", 1, true);
+            let text = if image { "![]()" } else { "[]()" };
+            return Act::replace(r.start..r.start, text, 1 + bang, true);
         }
         let url = r.len() <= URL_MAX && looks_like_url(&text_of(buf, r.clone()));
-        let (open, close, at) = if url {
-            ("[](", ")", 1)
-        } else {
-            ("[", "]()", 2)
+        let (open, close, at) = match (url, image) {
+            (true, false) => ("[](", ")", 1),
+            (true, true) => ("![](", ")", 2),
+            (false, false) => ("[", "]()", 2),
+            (false, true) => ("![", "]()", 2),
         };
-        let caret = if url { (r.start, 1) } else { (r.end, at) };
+        let caret = if url { (r.start, at) } else { (r.end, at) };
         Act {
             edits: vec![ins(r.start, open), ins(r.end, close)],
             anchor: caret,
@@ -949,6 +979,24 @@ mod tests {
 
     fn table(s: &str) -> String {
         one(s, format_table)
+    }
+
+    #[test]
+    fn images_are_links_with_a_bang() {
+        let img = |s: &str| {
+            go(s, |b, h, sels| {
+                let (o, l, _) = image_from_selection(b, h, sels, 0)?;
+                Some((o.change, l))
+            })
+        };
+        assert_eq!(img("a¦").unwrap(), "a![¦]()");
+        assert_eq!(img("‹cat›").unwrap(), "![cat](¦)");
+        assert_eq!(
+            img("‹https://x.org/a.png›").unwrap(),
+            "![¦](https://x.org/a.png)"
+        );
+        let b = Buffer::from_text("a **bold** b");
+        assert!(in_span(&b, 5, "**") && !in_span(&b, 1, "**") && !in_span(&b, 5, "*"));
     }
 
     fn link(s: &str) -> Option<String> {

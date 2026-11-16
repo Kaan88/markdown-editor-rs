@@ -70,6 +70,7 @@ fn every_fixed_menu_marks_each_item_with_its_own_letter() {
         "markdown",
         &crate::overlays::markdown_menu(docs, 0.0, 0.0, false),
     );
+    assert_all_marked("table", &crate::overlays::table_menu(docs, 0.0, 0.0, false));
     assert_all_marked(
         "convert",
         &crate::overlays::convert_menu(docs, 0.0, 0.0, false),
