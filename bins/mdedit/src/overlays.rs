@@ -320,7 +320,8 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
             command(C::ShowInFileManager)
                 .label
                 .replace("Explorer", "&Explorer")
-                .replace("manager", "&manager"),
+                .replace("manager", "&manager")
+                .replace("Finder", "Fin&der"),
         )
         .icon(glyph::FOLDER_OPEN)
         .enabled(has_file),
