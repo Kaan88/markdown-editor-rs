@@ -34,5 +34,9 @@ mod updater;
 mod view;
 
 fn main() {
+    // First: a crash from here on leaves a report for the next start.
+    if let Some(dir) = app::crash_dir() {
+        mdshared_app::crash::install("mdedit", env!("CARGO_PKG_VERSION"), dir);
+    }
     std::process::exit(app::run());
 }

@@ -167,6 +167,10 @@ pub enum Hit {
     /// The update bar's Restart button, once the new version is installed.
     UpdateRestart,
     UpdateClose,
+    /// The crash bar's buttons.
+    CrashOpen,
+    CrashCopy,
+    CrashClose,
     /// The status strip's line-ending and encoding fields: each opens a menu.
     StatusEol,
     StatusEncoding,
@@ -238,7 +242,10 @@ impl Hit {
             | Hit::FindClear
             | Hit::UpdateGo
             | Hit::UpdateRestart
-            | Hit::UpdateClose => Region::Bar,
+            | Hit::UpdateClose
+            | Hit::CrashOpen
+            | Hit::CrashCopy
+            | Hit::CrashClose => Region::Bar,
             Hit::Replace
             | Hit::ReplaceOne
             | Hit::ReplaceAll

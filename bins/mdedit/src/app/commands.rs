@@ -48,6 +48,7 @@ impl App {
             Hit::UpdateGo => self.install_update(),
             Hit::UpdateRestart => self.request(After::Restart),
             Hit::UpdateClose => self.docs.updates.dismiss(),
+            Hit::CrashOpen | Hit::CrashCopy | Hit::CrashClose => self.crash_bar(hit),
             Hit::StatusEol => self.open_popup(PopupKind::Eol),
             Hit::StatusEncoding => self.open_popup(PopupKind::Encoding),
             Hit::Bar(item) => match item {

@@ -675,6 +675,28 @@ pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect) {
     }
 }
 
+/// The bar under the command bar that offers the report of last time's crash.
+pub fn draw_crash_bar(c: &mut Ctx, bar: Rect) {
+    use mdshared_ui::notice::{self, CrashBarState};
+    let state = CrashBarState {
+        open_hovered: c.hover == Some(Hit::CrashOpen),
+        open_pressed: c.pressed == Some(Hit::CrashOpen),
+        copy_hovered: c.hover == Some(Hit::CrashCopy),
+        copy_pressed: c.pressed == Some(Hit::CrashCopy),
+        close_hovered: c.hover == Some(Hit::CrashClose),
+    };
+    let hits = notice::draw_crash_bar(c.p, c.pal, bar, "mdedit", state);
+    for (hit, r) in [
+        (Hit::CrashOpen, hits.open),
+        (Hit::CrashCopy, hits.copy),
+        (Hit::CrashClose, hits.close),
+    ] {
+        if let Some(r) = r {
+            c.hit(hit, r);
+        }
+    }
+}
+
 pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);

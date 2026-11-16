@@ -57,6 +57,8 @@ mod access_tests;
 mod commands;
 mod compare_events;
 mod completion;
+mod crash;
+pub use crash::crash_dir;
 #[cfg(test)]
 mod files_tests;
 #[cfg(test)]
@@ -209,6 +211,8 @@ struct App {
     pub(crate) preview: Option<crate::preview_pane::Pane>,
     /// The installed mdview, as last looked for; `None` before the first look.
     viewer_path: Option<Option<PathBuf>>,
+    /// What the crash report says mdedit was doing, as last set.
+    crash_key: crash::CrashKey,
     watcher: Option<FileWatcher>,
     session_path: Option<PathBuf>,
     /// Write the session on exit (not in `--shot`).
@@ -379,6 +383,7 @@ impl App {
             link_due: None,
             preview: None,
             viewer_path: None,
+            crash_key: Default::default(),
             watcher: None,
             session_path,
             session,
@@ -859,6 +864,7 @@ impl App {
                             .bar()
                             .map(|s| crate::updater::Updates::bar_label(&crate::updater::APP, s)),
                         self.docs.updates.relaunch_target().is_some(),
+                        self.docs.crash.is_some(),
                     ),
                 ))
             }
@@ -1314,9 +1320,14 @@ impl App {
                             chrome::draw_replace_strip(&mut c, &self.docs, &mut self.ui, strip);
                             y = strip.bottom();
                         }
-                        let under = Rect::new(rect.x, y, rect.w, rect.bottom() - y);
-                        if under.h > 0.0 {
+                        if self.docs.updates.bar().is_some() {
+                            let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
                             chrome::draw_update_bar(&mut c, &self.docs, under);
+                            y = under.bottom();
+                        }
+                        if self.docs.crash.is_some() {
+                            let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
+                            chrome::draw_crash_bar(&mut c, under);
                         }
                     }
                     Region::Files if self.ui.outline.on => {
@@ -1588,6 +1599,7 @@ impl App {
         {
             self.step_times.push(times);
         }
+        self.crash_context();
         let title = strings::window_title(self.docs.active_doc().map(|d| d.title()).as_deref());
         if title != self.last_title {
             if let Some(w) = &self.window {
@@ -2326,6 +2338,7 @@ impl ApplicationHandler<Wake> for App {
             self.settled = true;
             // Off the path to the first frame: whether mdview is there to offer previews.
             self.look_for_viewer();
+            self.look_for_crash();
             self.trace.stage("loading and colouring idle");
             self.trace.memory("idle");
             self.trace.cpu("idle");
@@ -2376,7 +2389,8 @@ impl ApplicationHandler<Wake> for App {
 }
 
 impl App {
-    /// The height of what shows under the command bar: the replace strip, then the update bar.
+    /// The height of what shows under the command bar: the replace strip, the update bar, then
+    /// the crash bar.
     fn notice_h(&self) -> f32 {
         let strip = if self.ui.replace_open {
             crate::ui::REPLACE_H
@@ -2388,7 +2402,12 @@ impl App {
         } else {
             0.0
         };
-        strip + update
+        let crash = if self.docs.crash.is_some() {
+            view::BANNER_H
+        } else {
+            0.0
+        };
+        strip + update + crash
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
@@ -2656,6 +2675,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
+    // A report from last time shows its bar in a picture too.
+    app.look_for_crash();
     if app.args.preview_pane {
         app.look_for_viewer();
         app.toggle_preview_pane();

@@ -1311,6 +1311,8 @@ pub struct Applied {
 pub struct Docs {
     /// The update on offer, downloading or installed, as the bar and About show it.
     pub updates: crate::updater::Updates,
+    /// The report of last time's crash, while its bar offers it.
+    pub crash: Option<PathBuf>,
     /// The setting: look for a newer version at launch.
     pub check_updates: bool,
     /// The preferences: the typing help, the save options and what new documents start with.
@@ -1395,6 +1397,7 @@ impl Docs {
             find_done: Default::default(),
             toast: None,
             updates: crate::updater::Updates::default(),
+            crash: None,
             check_updates: true,
             prefs: Prefs::default(),
             watch_changed: true,

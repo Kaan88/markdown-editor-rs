@@ -405,6 +405,7 @@ pub mod strings {
     pub const NO_NEXT_OCCURRENCE: &str = "There is no other place with that text to select.";
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
     pub const NO_BLOCK: &str = "Nothing to fold here: no lines below are indented more.";
+    pub const CRASH_REPORT_COPIED: &str = "The report is on the clipboard.";
     pub const SPLIT_NEEDS_TWO: &str = "Open a second file to show two side by side.";
     pub const PALETTE_PLACEHOLDER: &str =
         "Type a file name, > for commands, : for a line, @ for symbols";
