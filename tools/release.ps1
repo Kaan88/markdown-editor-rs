@@ -6,7 +6,8 @@
   tools\release.ps1 -Notes 'One short sentence.'             build and check only
   tools\release.ps1 -Notes 'One short sentence.' -Publish    also publish
 
-  Output: target\dist\<version>\mdedit-<version>-windows-x86_64.exe, mdedit-update.txt and
+  Output: target\dist\<version>\mdedit-<version>-windows-x86_64.exe, mdview-engine.exe (the
+  preview pane's engine, packaging\windows\build-engine.ps1), mdedit-update.txt and
   mdedit-setup-<version>.exe
   Changes under tools\ and docs\ do not count as a dirty tree (the exe does not depend on them).
 #>
@@ -46,6 +47,8 @@ $env:TEMP = $tmp
 $env:TMP = $tmp
 & cargo build --release -p mdedit
 if ($LASTEXITCODE -ne 0) { Fail 'cargo build failed' }
+& (Join-Path $repo 'packaging\windows\build-engine.ps1')
+if ($LASTEXITCODE -ne 0) { Fail 'engine build failed' }
 
 $dist = Join-Path $repo "target\dist\$version"
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
@@ -54,9 +57,13 @@ $asset = "mdedit-$version-windows-x86_64.exe"
 $exe = Join-Path $dist $asset
 Copy-Item (Join-Path $repo 'target\release\mdedit.exe') $exe
 $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+$engine = Join-Path $dist 'mdview-engine.exe'
+Copy-Item (Join-Path $repo 'target\engine\mdview-engine.exe') $engine
+$engineHash = (Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash.ToLowerInvariant()
 
-# One executable, no engine: the three keys of the platform entry.
+# The executable and the engine beside it: the platform entry and its engine keys.
 $url = "https://github.com/$slug/releases/download/v$version/$asset"
+$engineUrl = "https://github.com/$slug/releases/download/v$version/mdview-engine.exe"
 $manifest = Join-Path $dist 'mdedit-update.txt'
 $lines = @(
   'manifest: 1',
@@ -64,21 +71,25 @@ $lines = @(
   "notes: $Notes",
   "windows-x86_64.asset: $asset",
   "windows-x86_64.url: $url",
-  "windows-x86_64.sha256: $hash"
+  "windows-x86_64.sha256: $hash",
+  "windows-x86_64.engine.url: $engineUrl",
+  "windows-x86_64.engine.sha256: $engineHash"
 )
 [System.IO.File]::WriteAllText($manifest, (($lines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 
 # Re-read the manifest and compare with the file.
 $back = Get-Content -LiteralPath $manifest
-$want = @{ 'version' = $version; 'windows-x86_64.asset' = $asset; 'windows-x86_64.url' = $url; 'windows-x86_64.sha256' = $hash }
+$want = @{ 'version' = $version; 'windows-x86_64.asset' = $asset; 'windows-x86_64.url' = $url; 'windows-x86_64.sha256' = $hash
+           'windows-x86_64.engine.url' = $engineUrl; 'windows-x86_64.engine.sha256' = $engineHash }
 if ($back[0] -ne 'manifest: 1') { Fail 'manifest header wrong' }
 foreach ($k in $want.Keys) {
   $line = $back | Where-Object { $_.StartsWith("${k}: ") }
   if (-not $line -or $line.Substring($k.Length + 2) -ne $want[$k]) { Fail "manifest key $k does not match" }
 }
 if ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash) { Fail 'hash mismatch' }
+if ((Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash.ToLowerInvariant() -ne $engineHash) { Fail 'engine hash mismatch' }
 if ((Get-Item $manifest).Length -gt 8192) { Fail 'manifest too large' }
-# The installer, an extra asset: the manifest keeps naming the bare exe, which is all the updater installs.
+# The installer, an extra asset: the manifest names the bare exe and the engine, which is what the updater installs.
 & (Join-Path $repo 'packaging\windows\build-installer.ps1') -SkipBuild
 if ($LASTEXITCODE -ne 0) { Fail 'installer build failed' }
 $setupName = "mdedit-setup-$version.exe"
@@ -89,6 +100,6 @@ Write-Host "built $asset ($((Get-Item $exe).Length) bytes) sha256 $hash from $sh
 
 if (-not $Publish) { Write-Host "not published (no -Publish). Files are in $dist"; exit 0 }
 
-& gh release create "v$version" $exe $manifest $setup --repo $slug --target $sha --title "mdedit $version" --notes $ReleaseNotes --latest
+& gh release create "v$version" $exe $engine $manifest $setup --repo $slug --target $sha --title "mdedit $version" --notes $ReleaseNotes --latest
 if ($LASTEXITCODE -ne 0) { Fail 'gh release create failed' }
 Write-Host "published https://github.com/$slug/releases/tag/v$version"

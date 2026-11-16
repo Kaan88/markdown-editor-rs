@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Builds the Linux release of mdedit as an AppImage, from any Linux PC with Docker.
+# Builds the Linux release of mdedit as an AppImage, from any Linux PC with Docker. The preview
+# pane's engine (mdview-engine) is built too, from the viewer at the revision mdedit pins
+# (packaging/engine-source.sh), and sits beside mdedit in usr/bin of the AppImage.
 #
 #   packaging/linux/build-appimage.sh
 #
-# Output: target/dist-linux/mdedit-<version>-linux-x86_64.AppImage, and the binary in
-# target/dist-linux/bin/. RUST_TOOLCHAIN (default stable) picks the toolchain the image installs.
+# Output: target/dist-linux/mdedit-<version>-linux-x86_64.AppImage, and the binaries (mdedit,
+# mdview-engine) in target/dist-linux/bin/. RUST_TOOLCHAIN (default stable) picks the toolchain the image installs.
 #
 # The binary is built inside packaging/linux/Dockerfile (Ubuntu 20.04, glibc 2.31) from the
 # repository mounted read-only, so it runs on distributions at least that old. Caches (kept between
@@ -39,12 +41,18 @@ docker run --rm --user "$(id -u):$(id -g)" \
     -v "$cache/$app/target-linux:/cache/target" \
     -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR=/cache/target -e CARGO_TERM_COLOR=never \
     -w /src "$image" \
-    bash -c 'PATH=/opt/cargo/bin:$PATH cargo build --release --locked -p mdedit'
+    bash -c 'set -e; PATH=/opt/cargo/bin:$PATH
+        cargo build --release --locked -p mdedit
+        packaging/engine-source.sh /cache/target/engine-src
+        cargo build --release --locked -p mdview-engine \
+            --manifest-path /cache/target/engine-src/Cargo.toml --target-dir /cache/target/engine'
 bin="$cache/$app/target-linux/release/$app"
+engine="$cache/$app/target-linux/engine/release/mdview-engine"
 [ -x "$bin" ] || { echo "build left no $bin" >&2; exit 1; }
+[ -x "$engine" ] || { echo "build left no $engine" >&2; exit 1; }
 
-# 3. The glibc the binary asks for must be old enough.
-need="$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)"
+# 3. The glibc the binaries ask for must be old enough.
+need="$(objdump -T "$bin" "$engine" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)"
 echo "highest GLIBC symbol version needed: $need"
 if [ "$(printf '%s\n2.31\n' "$need" | sort -V | tail -1)" != "2.31" ]; then
     echo "needs glibc $need, newer than 2.31" >&2
@@ -55,10 +63,12 @@ fi
 dist="$root/target/dist-linux"
 mkdir -p "$dist/bin"
 install -m 755 "$bin" "$dist/bin/$app"
+install -m 755 "$engine" "$dist/bin/mdview-engine"
 appdir="$dist/AppDir"
 rm -rf "$appdir"
 mkdir -p "$appdir/usr/bin"
 install -m 755 "$bin" "$appdir/usr/bin/$app"
+install -m 755 "$engine" "$appdir/usr/bin/mdview-engine"
 install -m 644 assets/mdedit.png "$appdir/$app.png"
 install -m 644 assets/mdedit.png "$appdir/.DirIcon"
 install -m 644 packaging/linux/$app.desktop "$appdir/$app.desktop"

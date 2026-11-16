@@ -171,9 +171,17 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
         return Vec::new();
     }
     // Different letters in the View menu and the tab menu, where the other items take the rest.
-    let (preview, side) = match index {
-        Some(_) => ("&Preview in mdview", "Preview side &by side"),
-        None => ("&Preview in mdview", "Pre&view side by side"),
+    let (here, preview, side) = match index {
+        Some(_) => (
+            "Preview in t&his window",
+            "&Preview in mdview",
+            "Preview side &by side",
+        ),
+        None => (
+            "Preview in thi&s window",
+            "&Preview in mdview",
+            "Pre&view side by side",
+        ),
     };
     let item = |id: C, label: &str| {
         let item = match index {
@@ -182,10 +190,18 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
         };
         item.icon(glyph::VIEW)
     };
-    vec![
-        item(C::PreviewInViewer, preview).checked(linked).sep(),
-        item(C::PreviewSideBySide, side).checked(linked && docs.links.side_by_side),
-    ]
+    let mut items = Vec::new();
+    if docs.pane {
+        items.push(item(C::PreviewPane, here).checked(docs.pane_open));
+    }
+    if docs.viewer {
+        items.push(item(C::PreviewInViewer, preview).checked(linked));
+        items.push(item(C::PreviewSideBySide, side).checked(linked && docs.links.side_by_side));
+    }
+    if let Some(first) = items.first_mut() {
+        first.separator_before = true;
+    }
+    items
 }
 
 /// The View menu, opened from the main menu in its place.
@@ -198,6 +214,7 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
         cmd(C::ToggleWhitespace, "S&how whitespace", glyph::WHITESPACE).checked(docs.whitespace),
         cmd(C::ToggleWrap, "&Word wrap", glyph::WRAP).checked(docs.wrap),
         cmd(C::ToggleMinimap, "&Minimap", glyph::MINIMAP).checked(docs.minimap),
+        cmd(C::ToggleFormatBar, "Format bar (Mar&kdown)", glyph::BOLD).checked(docs.format_bar),
         cmd(C::ToggleSplit, "Two files si&de by side", glyph::SPLIT)
             .checked(docs.other().is_some() || docs.same_file),
         cmd(C::FocusOther, "&Go to the other pane", glyph::OTHER_PANE)
@@ -350,7 +367,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         .and_then(|r| r.language)
         .is_some_and(|l| l.line_comment().is_some());
     let markdown = docs.active_ready().is_some_and(|r| r.assist.markdown);
-    let items = vec![
+    let mut items = vec![
         cmd(C::Undo, "&Undo", glyph::UNDO).enabled(history.is_some_and(|h| h.can_undo())),
         cmd(C::Redo, "&Redo", glyph::REDO).enabled(history.is_some_and(|h| h.can_redo())),
         cmd(C::Cut, "&Cut", glyph::CUT).sep().enabled(has_selection),
@@ -377,6 +394,15 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
                 .sep()
                 .enabled(has_comment)
         },
+    ];
+    if markdown {
+        items.push(
+            Item::new(Act::TableMenu, "Ta&ble")
+                .icon(glyph::TABLE)
+                .hint("›"),
+        );
+    }
+    items.extend([
         Item::new(Act::LinesMenu, "&Lines")
             .icon(glyph::DUPLICATE_LINE)
             .hint("›")
@@ -389,7 +415,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         cmd(C::Find, "&Find…", glyph::SEARCH).sep().enabled(ready),
         cmd(C::Replace, "R&eplace…", glyph::REPLACE).enabled(ready),
         cmd(C::Reload, "Reloa&d", glyph::RELOAD),
-    ];
+    ]);
     Menu::new(items, x, y, false).access_keys(true)
 }
 
@@ -440,7 +466,8 @@ pub fn lines_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     Menu::new(items, x, y, align_right).access_keys(true)
 }
 
-/// The text menu's Markdown submenu, for Markdown documents.
+/// The text menu's Markdown submenu, for Markdown documents; also what the format bar's
+/// overflow button opens.
 pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let ready = docs.active_ready().is_some();
     let items = vec![
@@ -451,11 +478,37 @@ pub fn markdown_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act
         cmd(C::MdHeading, "&Heading level", glyph::HEADING)
             .sep()
             .enabled(ready),
-        cmd(C::MdLink, "&Link", glyph::LINK).enabled(ready),
-        cmd(C::MdTable, "&Align table", glyph::TABLE)
+        cmd(C::MdHeading1, "Heading &1", glyph::HEADING).enabled(ready),
+        cmd(C::MdHeading2, "Heading &2", glyph::HEADING).enabled(ready),
+        cmd(C::MdHeading3, "Heading &3", glyph::HEADING).enabled(ready),
+        cmd(C::MdBulletList, "Bull&eted list", glyph::OUTLINE)
             .sep()
             .enabled(ready),
-        cmd(C::MdRowBelow, "Insert &row below", glyph::PLUS).enabled(ready),
+        cmd(C::MdNumberedList, "&Numbered list", glyph::OUTLINE).enabled(ready),
+        cmd(C::MdTaskList, "&Task list", glyph::TASK).enabled(ready),
+        cmd(C::MdQuote, "&Quote", glyph::EDIT).enabled(ready),
+        cmd(C::MdAlert, "Ale&rt (again for the next kind)", glyph::INFO).enabled(ready),
+        cmd(C::MdLink, "&Link", glyph::LINK).sep().enabled(ready),
+        cmd(C::MdImage, "Ima&ge", glyph::IMAGE).enabled(ready),
+        cmd(C::MdCodeBlock, "C&ode block", glyph::CODE).enabled(ready),
+        cmd(C::MdMath, "&Math", glyph::FUNCTIONS).enabled(ready),
+        cmd(C::MdMathBlock, "Math bloc&k", glyph::FUNCTIONS).enabled(ready),
+        cmd(C::MdDiagram, "&Diagram (Mermaid)", glyph::FUNCTIONS).enabled(ready),
+        cmd(C::MdFootnote, "&Footnote", glyph::EDIT).enabled(ready),
+        cmd(C::MdDetails, "Colla&psible section", glyph::EDIT).enabled(ready),
+        cmd(C::MdRule, "Hori&zontal rule", glyph::EDIT).enabled(ready),
+    ];
+    Menu::new(items, x, y, align_right).access_keys(true)
+}
+
+/// The text menu's Table submenu, for Markdown documents: the pipe table the caret is in.
+pub fn table_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    let ready = docs.active_ready().is_some();
+    let items = vec![
+        cmd(C::MdTable, "&Align table", glyph::TABLE).enabled(ready),
+        cmd(C::MdRowBelow, "Insert &row below", glyph::PLUS)
+            .sep()
+            .enabled(ready),
         cmd(C::MdRowAbove, "I&nsert row above", glyph::PLUS).enabled(ready),
         cmd(C::MdDeleteRow, "&Delete row", glyph::DELETE).enabled(ready),
         cmd(C::MdMoveRowUp, "Move row &up", glyph::UP).enabled(ready),

@@ -10,13 +10,15 @@ pub use shared::{
     spawn_check, spawn_install, unix_now,
 };
 
-/// mdedit as the updater knows it: one executable, and no installer entry yet.
+/// mdedit as the updater knows it: the executable and, on Windows, the engine beside it for the
+/// preview pane's formulas and diagrams (`mdview-engine.exe`, built from the viewer at the
+/// revision mdedit pins). No installer entry yet.
 pub const APP: shared::App = shared::App {
     name: "mdedit",
     version: env!("CARGO_PKG_VERSION"),
     manifest_url: "https://github.com/Kaan88/markdown-editor-rs/releases/latest/download/mdedit-update.txt",
     manifest_env: "MDEDIT_UPDATE_MANIFEST",
-    engine: None,
+    engine: Some("mdview-engine"),
     uninstall_key: None,
 };
 

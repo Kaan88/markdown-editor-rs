@@ -333,7 +333,7 @@ fn icon(id: C) -> &'static str {
         C::FoldAll => glyph::FOLD_ALL,
         C::UnfoldAll => glyph::UNFOLD,
         C::ToggleSplit | C::CompareOther | C::ShowInOtherPane => glyph::SPLIT,
-        C::PreviewInViewer | C::PreviewSideBySide => glyph::VIEW,
+        C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => glyph::VIEW,
         C::FocusOther | C::FocusResults => glyph::OTHER_PANE,
         C::CompareFile => glyph::OPEN,
         C::CompareSaved => glyph::SAVE,
@@ -358,6 +358,15 @@ fn icon(id: C) -> &'static str {
         C::MdBold | C::MdItalic | C::MdCode | C::MdStrike | C::MdHeading => glyph::WORD,
         C::MdLink => glyph::LINK,
         C::MdTable => glyph::TABS,
+        C::MdHeading1 | C::MdHeading2 | C::MdHeading3 => glyph::HEADING,
+        C::MdBulletList | C::MdNumberedList => glyph::OUTLINE,
+        C::MdTaskList => glyph::TASK,
+        C::MdQuote | C::MdDetails | C::MdRule | C::MdFootnote => glyph::EDIT,
+        C::MdAlert => glyph::INFO,
+        C::MdCodeBlock => glyph::CODE,
+        C::MdMath | C::MdMathBlock | C::MdDiagram => glyph::FUNCTIONS,
+        C::MdImage => glyph::IMAGE,
+        C::ToggleFormatBar => glyph::BOLD,
         C::MdRowBelow | C::MdRowAbove | C::MdColumnRight | C::MdColumnLeft => glyph::PLUS,
         C::MdDeleteRow | C::MdDeleteColumn => glyph::DELETE,
         C::MdMoveColumnLeft => glyph::BACK,
@@ -405,6 +414,22 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::MdHeading
         | C::MdLink
         | C::MdTable
+        | C::MdHeading1
+        | C::MdHeading2
+        | C::MdHeading3
+        | C::MdBulletList
+        | C::MdNumberedList
+        | C::MdTaskList
+        | C::MdQuote
+        | C::MdAlert
+        | C::MdCodeBlock
+        | C::MdMath
+        | C::MdMathBlock
+        | C::MdDiagram
+        | C::MdDetails
+        | C::MdRule
+        | C::MdFootnote
+        | C::MdImage
         | C::CompleteWord
         | C::MdRowBelow
         | C::MdRowAbove
@@ -431,7 +456,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::PinTab => has_tab,
         C::CopyFilePath | C::ShowInFileManager => has_file,
         // A document that has no file is previewed from its text.
-        C::PreviewInViewer | C::PreviewSideBySide => has_tab,
+        C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => has_tab,
         C::Undo => ready.is_some_and(|r| r.history.can_undo()),
         C::Redo => ready.is_some_and(|r| r.history.can_redo()),
         C::Cut | C::Copy | C::UpperCase | C::LowerCase => selected,
@@ -471,6 +496,10 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
         let listed = match c.id {
             C::CommandPalette | C::Escape | C::Theme | C::OpenRecent => false,
             C::MakeDefault => make_default_offered(),
+            // Without mdview the previews in it are not listed, not even greyed; the pane is
+            // listed while it is offered.
+            C::PreviewInViewer | C::PreviewSideBySide => src.docs.viewer,
+            C::PreviewPane => src.docs.pane,
             _ => true,
         };
         if !listed {

@@ -7,6 +7,7 @@ use crate::docs::{EditOp, SaveFailed};
 use crate::image_paste;
 use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
+use mdedit_core::blocks::{Fence, ListKind};
 use mdedit_core::find::Query;
 use mdedit_core::limits::COPY_LIMIT;
 use mdedit_core::lines;
@@ -48,6 +49,13 @@ impl App {
             Hit::UpdateGo => self.install_update(),
             Hit::UpdateRestart => self.request(After::Restart),
             Hit::UpdateClose => self.docs.updates.dismiss(),
+            Hit::CrashOpen | Hit::CrashCopy | Hit::CrashClose => self.crash_bar(hit),
+            // The format bar's buttons act on the text, which keeps the keyboard.
+            Hit::Format(id) => {
+                self.ui.find_focused = false;
+                self.command(id);
+            }
+            Hit::FormatMore => self.open_popup(crate::format_bar::MORE_MENU),
             Hit::StatusEol => self.open_popup(PopupKind::Eol),
             Hit::StatusEncoding => self.open_popup(PopupKind::Encoding),
             Hit::Bar(item) => match item {
@@ -55,10 +63,7 @@ impl App {
                 BarItem::Reload => self.command(C::Reload),
                 BarItem::Recent => self.command(C::OpenRecent),
                 BarItem::Files => self.command(C::ToggleFiles),
-                BarItem::Preview if chrome::preview_button(&self.docs) == Some(true) => {
-                    self.command(C::PreviewInViewer)
-                }
-                BarItem::Preview => self.command(C::PreviewSideBySide),
+                BarItem::Preview => self.command(C::PreviewPane),
                 BarItem::FindPrev => self.command(C::FindPrevious),
                 BarItem::FindNext => self.command(C::FindNext),
                 BarItem::Theme => self.command(C::Theme),
@@ -432,7 +437,7 @@ impl App {
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
-            Act::LinesMenu | Act::ConvertMenu | Act::MarkdownMenu => {
+            Act::LinesMenu | Act::ConvertMenu | Act::MarkdownMenu | Act::TableMenu => {
                 if let (Some(kind), Some(sub)) = (self.ui.popup_kind(), act.submenu()) {
                     self.open_sub(kind, sub, false);
                 }
@@ -992,7 +997,8 @@ impl App {
             | C::CompareSaved
             | C::ShowInOtherPane
             | C::PreviewInViewer
-            | C::PreviewSideBySide => {
+            | C::PreviewSideBySide
+            | C::PreviewPane => {
                 self.docs.activate(index);
                 self.command(id);
             }
@@ -1034,6 +1040,11 @@ impl App {
             }
             PopupKind::Main => {
                 if let Some(r) = self.hit_rect(Hit::Bar(BarItem::More)) {
+                    return below(r, true);
+                }
+            }
+            PopupKind::Markdown => {
+                if let Some(r) = self.hit_rect(Hit::FormatMore) {
                     return below(r, true);
                 }
             }
@@ -1097,6 +1108,7 @@ impl App {
             PopupKind::Lines => overlays::lines_menu(&self.docs, x, y, right),
             PopupKind::Convert => overlays::convert_menu(&self.docs, x, y, right),
             PopupKind::Markdown => overlays::markdown_menu(&self.docs, x, y, right),
+            PopupKind::Table => overlays::table_menu(&self.docs, x, y, right),
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return None,
@@ -1238,6 +1250,22 @@ impl App {
                 | C::MdHeading
                 | C::MdLink
                 | C::MdTable
+                | C::MdHeading1
+                | C::MdHeading2
+                | C::MdHeading3
+                | C::MdBulletList
+                | C::MdNumberedList
+                | C::MdTaskList
+                | C::MdQuote
+                | C::MdAlert
+                | C::MdCodeBlock
+                | C::MdMath
+                | C::MdMathBlock
+                | C::MdDiagram
+                | C::MdDetails
+                | C::MdRule
+                | C::MdFootnote
+                | C::MdImage
                 | C::MdRowBelow
                 | C::MdRowAbove
                 | C::MdDeleteRow
@@ -1401,6 +1429,53 @@ impl App {
             }
             C::MdTable => {
                 self.edit(EditOp::MdTable);
+            }
+            C::MdHeading1 | C::MdHeading2 | C::MdHeading3 => {
+                let level = match id {
+                    C::MdHeading1 => 1,
+                    C::MdHeading2 => 2,
+                    _ => 3,
+                };
+                self.edit(EditOp::MdHeadingLevel(level));
+            }
+            C::MdBulletList => {
+                self.edit(EditOp::MdList(ListKind::Bullet));
+            }
+            C::MdNumberedList => {
+                self.edit(EditOp::MdList(ListKind::Numbered));
+            }
+            C::MdTaskList => {
+                self.edit(EditOp::MdList(ListKind::Task));
+            }
+            C::MdQuote => {
+                self.edit(EditOp::MdQuote);
+            }
+            C::MdAlert => {
+                self.edit(EditOp::MdAlert);
+            }
+            C::MdCodeBlock => {
+                self.edit(EditOp::MdFence(Fence::Code));
+            }
+            C::MdMath => {
+                self.edit(EditOp::MdWrap("$"));
+            }
+            C::MdMathBlock => {
+                self.edit(EditOp::MdFence(Fence::Math));
+            }
+            C::MdDiagram => {
+                self.edit(EditOp::MdFence(Fence::Diagram));
+            }
+            C::MdDetails => {
+                self.edit(EditOp::MdFence(Fence::Details));
+            }
+            C::MdRule => {
+                self.edit(EditOp::MdRule);
+            }
+            C::MdFootnote => {
+                self.edit(EditOp::MdFootnote);
+            }
+            C::MdImage => {
+                self.edit(EditOp::MdImage);
             }
             C::MdRowBelow => {
                 self.edit(EditOp::MdTableOp(TableOp::RowBelow));
@@ -1575,6 +1650,7 @@ impl App {
                 self.docs.sync_wrap();
             }
             C::ToggleMinimap => self.docs.minimap = !self.docs.minimap,
+            C::ToggleFormatBar => self.docs.format_bar = !self.docs.format_bar,
             C::ToggleBookmark => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.toggle_bookmark();
@@ -1644,8 +1720,13 @@ impl App {
                     self.docs.set_toast(strings::SPLIT_NEEDS_TWO);
                 }
             }
+            // Previews not offered (in mdview without it, the pane in the build that needs it)
+            // do nothing from their keys.
+            C::PreviewInViewer | C::PreviewSideBySide if !self.docs.viewer => {}
+            C::PreviewPane if !self.docs.pane => {}
             C::PreviewInViewer => self.preview(false),
             C::PreviewSideBySide => self.preview(true),
+            C::PreviewPane => self.toggle_preview_pane(),
             C::FocusOther => {
                 if self.docs.focus_other() {
                     self.ui.find_focused = false;
@@ -1833,6 +1914,8 @@ impl App {
                     .unwrap_or_default();
                 self.handed_over(requests);
             }
+            // The pane's answer is taken in by the pass after this event (`preview_sync`).
+            Wake::Preview => {}
             Wake::Link => {
                 // The links are over; the next frame no longer shows the mark.
                 self.docs.links.take_gone();
@@ -2105,6 +2188,9 @@ impl App {
                 max,
                 self.type_edit_ms / count,
             );
+            if let Some(line) = self.preview_summary() {
+                eprintln!("mdedit: {line}");
+            }
             self.exit = true;
             return;
         }

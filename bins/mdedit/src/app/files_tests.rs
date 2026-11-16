@@ -48,7 +48,7 @@ fn press(app: &mut App, key: KeyName, typed: Option<&str>) {
     app.key_pressed(Key::Name(key), typed);
 }
 
-fn type_text(app: &mut App, text: &str) {
+pub(super) fn type_text(app: &mut App, text: &str) {
     for ch in text.chars() {
         let s = ch.to_string();
         press(app, KeyName::Char(ch), Some(&s));

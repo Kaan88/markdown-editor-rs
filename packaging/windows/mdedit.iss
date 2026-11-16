@@ -1,4 +1,5 @@
-; Inno Setup script for mdedit (one statically linked exe, no DLLs). Modelled on mdview.iss of the
+; Inno Setup script for mdedit (mdedit.exe and mdview-engine.exe, the preview pane's helper for
+; formulas and diagrams, from build-engine.ps1; no DLLs). Modelled on mdview.iss of the
 ; Markdown viewer (Kaan88/markdown-viewer-rs, packaging\windows): the same [Setup] choices, wizard
 ; pages, task wording and registry layout; only the names, the AppId, the exe and the extensions
 ; differ, and there is one more task (the "Edit with mdedit" context-menu entry).
@@ -79,6 +80,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "..\..\target\release\mdedit.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\engine\mdview-engine.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\assets\mdedit.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

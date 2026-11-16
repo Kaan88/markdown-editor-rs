@@ -27,11 +27,11 @@ unicode-width = { version = "0.2", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "nfa-pikevm", "nfa-backtrack", "dfa-onepass", "hybrid", "perf-literal", "unicode"] }
 parley = "=0.12.0"
 bytemuck = "1.25"
-mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d7754930273e8356555a417f017d05bbf436a59c" }
-mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d7754930273e8356555a417f017d05bbf436a59c" }
-mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d7754930273e8356555a417f017d05bbf436a59c" }
-mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d7754930273e8356555a417f017d05bbf436a59c", features = ["client-margin"] }
-mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "d7754930273e8356555a417f017d05bbf436a59c" }
+mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "21fd49bacd6f2cc9558044c80dfd8713c88e47ea" }
+mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "21fd49bacd6f2cc9558044c80dfd8713c88e47ea" }
+mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "21fd49bacd6f2cc9558044c80dfd8713c88e47ea" }
+mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "21fd49bacd6f2cc9558044c80dfd8713c88e47ea", features = ["client-margin"] }
+mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "21fd49bacd6f2cc9558044c80dfd8713c88e47ea" }
 
 # The Wayland client-drawn window shadow (mdshared-ui's `client-margin`): winit gets a content margin
 # and softbuffer honours alpha on Wayland. Both are the stock 0.30.13 / 0.4.8 plus one patch; see
@@ -47,7 +47,9 @@ lto = "fat"
 codegen-units = 1
 strip = "symbols"
 # Nothing catches a panic, so unwinding buys only a dead worker thread instead of an ended
-# process; the unwind tables cost about 0.9 MB of the 6 MB exe budget (docs/DESIGN.md, section 2).
+# process; the unwind tables cost about 0.9 MB of exe. Unwinding to catch a panic in the preview
+# pane's renderer was measured on Windows (2026-11-16): about 0.3 ms more per keystroke and
+# scroll frame, and 3 MB of exe; the owner chose "abort".
 panic = "abort"
 
 # Code that runs once and waits on the user or the disk (file dialogs, the folder watcher's

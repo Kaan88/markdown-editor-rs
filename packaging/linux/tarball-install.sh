@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs mdedit from this folder into ~/.local, or into the prefix given as the argument:
 #   ./install.sh [PREFIX]
-# Copies bin/ and share/ under PREFIX and points the desktop entry's Exec at the installed binary,
+# Copies bin/, lib/mdedit/ and share/ under PREFIX and points the desktop entry's Exec at the installed binary,
 # so the launcher works even when PREFIX/bin is not on PATH. uninstall.sh removes it again.
 set -eu
 app=mdedit
@@ -9,10 +9,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 prefix="${1:-${HOME:?HOME is not set}/.local}"
 case "$prefix" in /*) ;; *) prefix="$(pwd)/$prefix" ;; esac
 
-mkdir -p "$prefix/bin" "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
+mkdir -p "$prefix/bin" "$prefix/lib/$app" "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
 cp "$here/bin/$app" "$prefix/bin/$app.new"
 chmod 755 "$prefix/bin/$app.new"
 mv -f "$prefix/bin/$app.new" "$prefix/bin/$app"
+# The preview pane's engine, where mdedit looks for it: ../lib/mdedit/ from its binary.
+cp "$here/lib/$app/mdview-engine" "$prefix/lib/$app/mdview-engine.new"
+chmod 755 "$prefix/lib/$app/mdview-engine.new"
+mv -f "$prefix/lib/$app/mdview-engine.new" "$prefix/lib/$app/mdview-engine"
 cp "$here/share/icons/hicolor/256x256/apps/$app.png" "$prefix/share/icons/hicolor/256x256/apps/$app.png"
 # Exec is rewritten to the absolute path; a path with a space is quoted as the desktop entry
 # specification asks.

@@ -45,6 +45,26 @@ pub enum CommandId {
     MdHeading,
     MdLink,
     MdTable,
+    /// The format bar's Markdown: heading levels, lists, quotes, alerts, blocks, inline math,
+    /// footnotes, images.
+    MdHeading1,
+    MdHeading2,
+    MdHeading3,
+    MdBulletList,
+    MdNumberedList,
+    MdTaskList,
+    MdQuote,
+    MdAlert,
+    MdCodeBlock,
+    MdMath,
+    MdMathBlock,
+    MdDiagram,
+    MdDetails,
+    MdRule,
+    MdFootnote,
+    MdImage,
+    /// The format bar under the command bar, for Markdown documents.
+    ToggleFormatBar,
     MdRowBelow,
     MdRowAbove,
     MdDeleteRow,
@@ -133,6 +153,8 @@ pub enum CommandId {
     /// the same with the two windows placed side by side.
     PreviewInViewer,
     PreviewSideBySide,
+    /// The preview pane beside the text, drawn by mdview's renderer; again closes it.
+    PreviewPane,
     /// The word and snippet list at the caret; the snippets file.
     CompleteWord,
     OpenSnippets,
@@ -209,6 +231,26 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::MdHeading, "Heading level", &["Ctrl+Shift+H"]),
     cmd(C::MdLink, "Link", &[]),
     cmd(C::MdTable, "Align table", &[]),
+    cmd(C::MdHeading1, "Heading 1", &["Ctrl+1"]),
+    cmd(C::MdHeading2, "Heading 2", &["Ctrl+2"]),
+    cmd(C::MdHeading3, "Heading 3", &["Ctrl+3"]),
+    cmd(C::MdBulletList, "Bulleted list", &[]),
+    cmd(C::MdNumberedList, "Numbered list", &[]),
+    cmd(C::MdTaskList, "Task list", &[]),
+    cmd(C::MdQuote, "Quote", &[]),
+    cmd(
+        C::MdAlert,
+        "Alert (note, tip, important, warning, caution)",
+        &[],
+    ),
+    cmd(C::MdCodeBlock, "Code block", &[]),
+    cmd(C::MdMath, "Math", &[]),
+    cmd(C::MdMathBlock, "Math block", &[]),
+    cmd(C::MdDiagram, "Diagram", &[]),
+    cmd(C::MdDetails, "Collapsible section", &[]),
+    cmd(C::MdRule, "Horizontal rule", &[]),
+    cmd(C::MdFootnote, "Footnote", &[]),
+    cmd(C::MdImage, "Image", &[]),
     cmd(C::MdRowBelow, "Insert row below", &[]),
     cmd(C::MdRowAbove, "Insert row above", &[]),
     cmd(C::MdDeleteRow, "Delete row", &[]),
@@ -242,6 +284,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ToggleWhitespace, "Show whitespace", &[]),
     cmd(C::ToggleWrap, "Word wrap", &["Alt+Z"]),
     cmd(C::ToggleMinimap, "Minimap", &["Ctrl+Shift+M"]),
+    cmd(C::ToggleFormatBar, "Format bar", &[]),
     cmd(C::ToggleBookmark, "Toggle bookmark", &["Ctrl+F2"]),
     cmd(C::NextBookmark, "Next bookmark", &["F2"]),
     cmd(C::PreviousBookmark, "Previous bookmark", &["Shift+F2"]),
@@ -278,6 +321,7 @@ pub const COMMANDS: &[Command] = &[
         &["Ctrl+Shift+V"],
     ),
     cmd(C::PreviewSideBySide, "Preview side by side", &[]),
+    cmd(C::PreviewPane, "Preview in this window, or close it", &[]),
     cmd(C::RecordMacro, "Record a macro, or stop", &["Ctrl+Shift+R"]),
     cmd(C::PlayMacro, "Play the macro", &["Ctrl+Shift+P"]),
     cmd(
@@ -402,6 +446,7 @@ pub mod strings {
     pub const NO_NEXT_OCCURRENCE: &str = "There is no other place with that text to select.";
     pub const NO_BOOKMARKS: &str = "No bookmarks. Ctrl+F2 sets one on the caret's line.";
     pub const NO_BLOCK: &str = "Nothing to fold here: no lines below are indented more.";
+    pub const CRASH_REPORT_COPIED: &str = "The report is on the clipboard.";
     pub const SPLIT_NEEDS_TWO: &str = "Open a second file to show two side by side.";
     pub const PALETTE_PLACEHOLDER: &str =
         "Type a file name, > for commands, : for a line, @ for symbols";

@@ -1,0 +1,209 @@
+# The preview pane's Windows test app, from the f/preview-pane branches of mdedit and mdview:
+# builds mdview (with its engine) and both builds of mdedit's pane, times them on the runner and
+# packs one zip with a folder for each build. Not a release: no installer, no signature.
+name: preview-test
+
+on:
+  push:
+    branches: [f/preview-pane]
+  workflow_dispatch:
+
+concurrency:
+  group: preview-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_TOOLCHAIN: 1.99.1
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: editor
+      - uses: actions/checkout@v4
+        with:
+          repository: Kaan88/markdown-viewer-rs
+          ref: f/preview-pane
+          path: viewer
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: preview-test
+          workspaces: |
+            editor
+            viewer
+      - name: Build mdview and both mdedit builds
+        shell: bash
+        run: |
+          (cd viewer && cargo build --release -p mdview -p mdview-engine)
+          cd editor
+          cargo build --release -p mdedit --no-default-features
+          mkdir -p ../out/renderer ../out/embedded
+          cp target/release/mdedit.exe ../out/renderer/
+          cargo build --release -p mdedit
+          cp target/release/mdedit.exe ../out/embedded/
+          # The renderer build needs mdview; the default build only the engine beside it.
+          cp ../viewer/target/release/mdview.exe ../viewer/target/release/mdview-engine.exe ../out/renderer/
+          cp ../viewer/target/release/mdview-engine.exe ../out/embedded/
+          cp ../viewer/fixtures/everything.md ../out/everything.md
+          cp ../viewer/docs/PLAN.md ../out/plan.md
+          cp ../viewer/fixtures/math.md ../viewer/fixtures/diagrams.md ../out/
+          ls -l ../out ../out/*
+      - name: The pane's tests against this mdview
+        shell: bash
+        env:
+          MDEDIT_TEST_MDVIEW: ${{ github.workspace }}\out\renderer\mdview.exe
+        run: |
+          cd editor
+          cargo test --release -p mdedit --no-default-features preview
+          cargo test --release -p mdedit preview
+      - name: Timings (a real window on the runner)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $out = "$env:GITHUB_WORKSPACE\out"
+          function Run($build, $file, $extra) {
+            $exe = "$out\$build\mdedit.exe"
+            $err = "$out\err.txt"
+            $argv = @('--no-session', '--trace', '--size', '1400x900') + $extra + @("$out\$file")
+            $p = Start-Process -FilePath $exe -ArgumentList $argv -RedirectStandardError $err -PassThru
+            Start-Sleep -Milliseconds 3000
+            $kids = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($p.Id)"
+            $me = (Get-Process -Id $p.Id -ErrorAction SilentlyContinue).PrivateMemorySize64
+            $line = "MEM $build $file mdedit {0:N1} MiB" -f ($me / 1MB)
+            foreach ($k in $kids) {
+              $km = (Get-Process -Id $k.ProcessId -ErrorAction SilentlyContinue).PrivateMemorySize64
+              $line += "; $($k.Name) {0:N1} MiB" -f ($km / 1MB)
+            }
+            if (-not $p.WaitForExit(120000)) { $p.Kill() }
+            Write-Output $line
+            Get-Content $err | Select-String -Pattern 'first frame after|memory|preview|keystroke' | ForEach-Object { "  $_" }
+          }
+          foreach ($b in 'renderer', 'embedded') {
+            foreach ($f in 'everything.md', 'plan.md') {
+              Write-Output "== $b $f, no pane"
+              Run $b $f @('--exit-after-ms', '4000')
+              Write-Output "== $b $f, pane"
+              Run $b $f @('--exit-after-ms', '4000', '--preview-pane')
+              foreach ($i in 1..3) {
+                Write-Output "== $b $f, typing $i"
+                Run $b $f @('--type-steps', '300', '--preview-pane')
+              }
+            }
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Kaan88/markdown-shared-rs
+          ref: f/crash-report
+          path: shared
+      - name: Crash reports on Windows (a panic, and an access violation)
+        shell: bash
+        run: |
+          cd shared
+          d="$RUNNER_TEMP/crashes"
+          for how in panic fault; do
+            rm -rf "$d"; mkdir -p "$d"
+            cargo run --release -q -p mdshared-app --example crash -- "$d" $how || echo "exit $? (expected)"
+            echo "== $how"; cat "$d"/crash-*.txt
+            grep -q "on purpose" "$d"/crash-*.txt
+          done
+          grep -q "access violation" "$d"/crash-*.txt
+      - name: Pictures of the pane
+        shell: bash
+        continue-on-error: true
+        run: |
+          mkdir -p out/shots
+          for b in renderer embedded; do
+            out/$b/mdedit.exe --no-session --size 1400x860 --scale 1 --preview-pane --shot out/shots/$b-light.png out/everything.md
+            out/$b/mdedit.exe --no-session --dark --size 1400x860 --scale 1.5 --preview-pane --shot out/shots/$b-dark.png out/plan.md
+          done
+          # No mdview beside it: formulas and diagrams from the engine shipped with mdedit.
+          for f in math diagrams; do
+            out/embedded/mdedit.exe --no-session --size 1400x860 --scale 1 --preview-pane --shot out/shots/standalone-$f.png out/$f.md
+          done
+          ls -l out/shots
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: preview-shots-windows
+          path: out/shots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: The test zip
+        shell: bash
+        run: |
+          mkdir -p dist/mdedit-preview-test
+          cp -r out/renderer out/embedded out/everything.md out/math.md out/diagrams.md dist/mdedit-preview-test/
+          cat > dist/mdedit-preview-test/README.txt <<'EOF'
+          mdedit preview pane, Windows test build (not a release).
+
+          embedded\mdedit.exe   the page is drawn by mdview's renderer inside mdedit; formulas
+                                and diagrams by mdview-engine.exe beside it. No mdview needed:
+                                "Preview in mdview" stays hidden unless mdview is installed.
+          renderer\mdedit.exe   the page is drawn by mdview --preview-server, in its own
+                                process, with the mdview beside it
+
+          Run one mdedit at a time: the two
+          share their single-instance channel and settings. Open a .md file and press
+          Preview in the bar (or View > Preview in this window).
+          EOF
+          cd dist && 7z a -tzip ../mdedit-preview-test-windows.zip mdedit-preview-test >/dev/null
+          ls -l ../mdedit-preview-test-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdedit-preview-test-windows
+          path: mdedit-preview-test-windows.zip
+          retention-days: 30
+
+  # mdedit from main against this branch's default build (the renderer built in, panic = unwind),
+  # the pane closed: does either cost anything on the budgets of docs/PLAN.md?
+  # tools/compare-builds.py, 7 interleaved runs.
+  compare:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: editor
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: preview-compare
+          workspaces: |
+            editor
+            main
+      - name: Build main and the embedded build
+        shell: bash
+        run: |
+          mkdir -p out/main out/embedded
+          (cd main && cargo build --release -p mdedit && cp target/release/mdedit.exe ../out/main/)
+          cd editor
+          cargo build --release -p mdedit
+          cp target/release/mdedit.exe ../out/embedded/
+          mkdir -p target/data
+          cargo run --release -q -p mdedit-core --example gen -- lines 100 target/data/100mb.txt
+          ls -l ../out/*
+      - name: Compare (real windows on the runner)
+        shell: bash
+        run: |
+          cd editor
+          python tools/compare-builds.py ../out/main/mdedit.exe ../out/embedded/mdedit.exe 7 \
+            fixtures/sample.rs fixtures/sample.md fixtures/complete.md target/data/100mb.txt

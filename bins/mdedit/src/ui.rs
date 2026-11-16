@@ -104,9 +104,11 @@ pub enum Region {
     Minimap,
     /// The second pane's minimap.
     MinimapOther,
+    /// The preview pane, beside the text.
+    Preview,
 }
 
-pub const REGIONS: [Region; 9] = [
+pub const REGIONS: [Region; 10] = [
     Region::Title,
     Region::Bar,
     Region::Files,
@@ -116,6 +118,7 @@ pub const REGIONS: [Region; 9] = [
     Region::Other,
     Region::Minimap,
     Region::MinimapOther,
+    Region::Preview,
 ];
 
 /// A text pane of a split view is at least this wide; a narrower window shows one pane.
@@ -164,6 +167,13 @@ pub enum Hit {
     /// The update bar's Restart button, once the new version is installed.
     UpdateRestart,
     UpdateClose,
+    /// The crash bar's buttons.
+    CrashOpen,
+    CrashCopy,
+    CrashClose,
+    /// The format bar's buttons, and its button for the Markdown menu when they do not all fit.
+    Format(crate::commands::CommandId),
+    FormatMore,
     /// The status strip's line-ending and encoding fields: each opens a menu.
     StatusEol,
     StatusEncoding,
@@ -235,7 +245,12 @@ impl Hit {
             | Hit::FindClear
             | Hit::UpdateGo
             | Hit::UpdateRestart
-            | Hit::UpdateClose => Region::Bar,
+            | Hit::UpdateClose
+            | Hit::CrashOpen
+            | Hit::CrashCopy
+            | Hit::CrashClose
+            | Hit::Format(_)
+            | Hit::FormatMore => Region::Bar,
             Hit::Replace
             | Hit::ReplaceOne
             | Hit::ReplaceAll
@@ -319,10 +334,11 @@ pub enum Act {
     ViewMenu,
     /// Open the Macro menu beside the open one.
     MacroMenu,
-    /// Open the text menu's Lines, Convert and Markdown submenus beside it.
+    /// Open the text menu's Lines, Convert, Markdown and Table submenus beside it.
     LinesMenu,
     ConvertMenu,
     MarkdownMenu,
+    TableMenu,
     /// Play saved macro `n` of the Macro menu.
     PlaySaved(usize),
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").
@@ -350,6 +366,7 @@ impl Act {
             Act::LinesMenu => Some(PopupKind::Lines),
             Act::ConvertMenu => Some(PopupKind::Convert),
             Act::MarkdownMenu => Some(PopupKind::Markdown),
+            Act::TableMenu => Some(PopupKind::Table),
             _ => None,
         }
     }
@@ -377,10 +394,11 @@ pub enum PopupKind {
     Tab(usize),
     /// The text area's right-click menu.
     Text,
-    /// Its submenus: line commands, conversions, Markdown formatting.
+    /// Its submenus: line commands, conversions, Markdown formatting, pipe tables.
     Lines,
     Convert,
     Markdown,
+    Table,
     /// The find box's editing menu.
     Find,
     /// The word completion list at the caret; typing goes on in the text.
@@ -907,6 +925,8 @@ pub struct Areas {
     pub minimap_other: Option<Rect>,
     /// The line between the panes of a split view.
     pub divider: Option<Divider>,
+    /// The preview pane, at the right of the text (with the divider between them).
+    pub preview: Option<Rect>,
 }
 
 /// Where a split view's panes part: the x of the line, and the span both panes share.
@@ -954,6 +974,7 @@ impl Areas {
             Region::Other => self.other,
             Region::Minimap => self.minimap,
             Region::MinimapOther => self.minimap_other,
+            Region::Preview => self.preview,
         }
     }
 
@@ -1008,6 +1029,24 @@ impl Areas {
         self
     }
 
+    /// Gives the right of the text to the preview pane, the share `ratio` leaves, when there is
+    /// no split view and both keep `SPLIT_MIN`.
+    pub fn with_preview(mut self, on: bool, ratio: f32) -> Areas {
+        if !on || self.other.is_some() || self.text.w < 2.0 * SPLIT_MIN {
+            return self;
+        }
+        let t = self.text;
+        let half = (t.w * split_ratio(t.w, t.w * ratio)).floor();
+        self.divider = Some(Divider {
+            x: t.x + half,
+            left: t.x,
+            right: t.right(),
+        });
+        self.text = Rect::new(t.x, t.y, half, t.h);
+        self.preview = Some(Rect::new(t.x + half, t.y, t.w - half, t.h));
+        self
+    }
+
     /// Gives the bottom of the text to the results panel when it is open and the text keeps
     /// enough height.
     pub fn with_results(mut self, open: bool, want: f32) -> Areas {
@@ -1052,6 +1091,7 @@ impl Areas {
             minimap: None,
             minimap_other: None,
             divider: None,
+            preview: None,
         }
     }
 }

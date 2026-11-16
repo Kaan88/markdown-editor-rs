@@ -227,6 +227,8 @@ pub struct Session {
     pub wrap: bool,
     /// The minimap beside the text.
     pub minimap: bool,
+    /// The format bar under the command bar, for Markdown documents; on until turned off.
+    pub format_bar: bool,
     /// `WxH[ max][ @x,y]`, the viewer's format.
     pub geometry: String,
     /// Whether the Files pane shows; `None` when never set.
@@ -268,6 +270,7 @@ impl Default for Session {
             whitespace: false,
             wrap: false,
             minimap: false,
+            format_bar: true,
             geometry: String::new(),
             files: None,
             files_w: None,
@@ -337,6 +340,7 @@ impl Session {
                     "whitespace" => s.whitespace = value.trim() == "1",
                     "wrap" => s.wrap = value.trim() == "1",
                     "minimap" => s.minimap = value.trim() == "1",
+                    "format_bar" => s.format_bar = value.trim() != "0",
                     "geometry" => s.geometry = unescape(value),
                     "files" => {
                         s.files = match value.trim() {
@@ -441,6 +445,9 @@ impl Session {
         }
         if self.minimap {
             out.line("minimap", "1");
+        }
+        if !self.format_bar {
+            out.line("format_bar", "0");
         }
         if !self.geometry.is_empty() {
             out.line("geometry", &escape(&self.geometry));
@@ -700,6 +707,18 @@ mod tests {
             Corners::Round
         );
         assert_eq!(Session::parse("[mdedit]\n").corners, Corners::Round);
+    }
+
+    #[test]
+    fn the_format_bar_is_on_until_turned_off() {
+        assert!(Session::parse("").format_bar);
+        let s = Session {
+            format_bar: false,
+            ..Session::default()
+        };
+        assert!(s.serialize().contains("format_bar=0"));
+        assert!(!Session::parse(&s.serialize()).format_bar);
+        assert!(!Session::default().serialize().contains("format_bar"));
     }
 
     #[test]

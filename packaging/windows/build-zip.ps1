@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
   Makes the portable zip of the release: mdedit-<version>-windows-x86_64.zip, one folder holding
-  mdedit.exe, LICENSE and README.md. Unzip it anywhere and run mdedit.exe; it updates itself in
+  mdedit.exe, mdview-engine.exe (the preview pane's formulas and diagrams), LICENSE and README.md. Unzip it anywhere and run mdedit.exe; it updates itself in
   place like the installed copy (the folder must be writable).
 .NOTES
-  pwsh packaging\windows\build-zip.ps1 [-Exe path\to\mdedit.exe] [-OutDir dir]
-  Defaults: target\release\mdedit.exe, target\dist\<version>. Run after tools\release.ps1.
+  pwsh packaging\windows\build-zip.ps1 [-Exe path\to\mdedit.exe] [-Engine path\to\mdview-engine.exe] [-OutDir dir]
+  Defaults: target\release\mdedit.exe, target\engine\mdview-engine.exe, target\dist\<version>. Run after tools\release.ps1.
 #>
-param([string]$Exe = '', [string]$OutDir = '')
+param([string]$Exe = '', [string]$Engine = '', [string]$OutDir = '')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 function Fail($msg) { Write-Error $msg; exit 1 }
@@ -19,7 +19,9 @@ if (-not $m.Success) { Fail 'Could not read [workspace.package] version from Car
 $version = $m.Groups[1].Value
 if (-not $Exe) { $Exe = Join-Path $root 'target\release\mdedit.exe' }
 if (-not $OutDir) { $OutDir = Join-Path $root "target\dist\$version" }
+if (-not $Engine) { $Engine = Join-Path $root 'target\engine\mdview-engine.exe' }
 if (-not (Test-Path -LiteralPath $Exe)) { Fail "$Exe is missing." }
+if (-not (Test-Path -LiteralPath $Engine)) { Fail "$Engine is missing." }
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
 $name = "mdedit-$version-windows-x86_64"
@@ -27,6 +29,7 @@ $stage = Join-Path ([System.IO.Path]::GetTempPath()) ("zip-" + [guid]::NewGuid()
 $folder = Join-Path $stage $name
 New-Item -ItemType Directory -Force $folder | Out-Null
 Copy-Item -LiteralPath $Exe -Destination (Join-Path $folder 'mdedit.exe')
+Copy-Item -LiteralPath $Engine -Destination (Join-Path $folder 'mdview-engine.exe')
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $folder
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $folder
 

@@ -170,6 +170,77 @@ struct ShownLine {
     parts: Vec<(Chunk, f64, i32)>,
 }
 
+/// The source line at the view's top, from 0, with the fraction of it above the top (with word
+/// wrap, the share of the line's rows above it): the editor's side of synced scrolling with the
+/// preview pane.
+pub fn source_top(r: &mut Ready) -> f64 {
+    if r.wrapped() {
+        let p = wrap::top(r);
+        let n = wrap::rows(r, p.line).len().max(1) as f64;
+        p.line as f64 + p.row as f64 / n
+    } else if r.view.top.is_finite() {
+        r.view.top.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// The editor's last screen of scrolling, as [`source_top`] gives tops: `(tail, end)`, `end`
+/// the top when scrolled to the bottom and `tail` one screen above it (or the first line).
+/// Without wrapping the bottom is the last line at the view's bottom; with it, the last row at
+/// the view's top, as far as wrapped scrolling goes.
+pub fn source_ends(r: &mut Ready) -> (f64, f64) {
+    let vl = r.view.view_lines.max(0.0);
+    if r.wrapped() {
+        let last = r.buffer.len_lines().saturating_sub(1);
+        let end = wrap::step(
+            r,
+            wrap::Pos {
+                line: last,
+                row: usize::MAX,
+            },
+            0,
+        );
+        let tail = wrap::step(r, end, -(vl.floor() as isize));
+        let mut at = |p: wrap::Pos| {
+            let n = wrap::rows(r, p.line).len().max(1) as f64;
+            p.line as f64 + p.row as f64 / n
+        };
+        (at(tail), at(end))
+    } else {
+        let end = max_top(shown_rows(r), vl);
+        let tail = (end - vl).max(0.0);
+        let line = |v: f64| {
+            if r.view.folds.is_empty() || v <= 0.0 {
+                return v;
+            }
+            let row = v.floor();
+            r.view.folds.line_at_row(row as usize) as f64 + (v - row)
+        };
+        (line(tail), line(end))
+    }
+}
+
+/// Puts source line `top` (from 0, fractional as [`source_top`] gives it) at the view's top.
+/// The next layout pass clamps it.
+pub fn set_source_top(r: &mut Ready, top: f64) {
+    if !top.is_finite() {
+        return;
+    }
+    let top = top.max(0.0);
+    if r.wrapped() {
+        let last = r.buffer.len_lines().saturating_sub(1);
+        let line = r.view.folds.shown((top.floor() as usize).min(last));
+        let n = wrap::rows(r, line).len().max(1);
+        let part = (top - line as f64).clamp(0.0, 1.0);
+        r.view.top = line as f64;
+        r.view.top_row = ((part * n as f64) as usize).min(n - 1);
+        r.view.row_rest = 0.0;
+    } else {
+        r.view.top = top;
+    }
+}
+
 /// Scrolls the text by `by` rows, down when positive. The next layout pass clamps it.
 pub fn scroll_rows(r: &mut Ready, by: f64) {
     if r.wrapped() {

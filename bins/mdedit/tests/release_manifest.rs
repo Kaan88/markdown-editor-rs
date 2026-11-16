@@ -19,7 +19,7 @@ const APP: App = App {
     version: env!("CARGO_PKG_VERSION"),
     manifest_url: "https://github.com/Kaan88/markdown-editor-rs/releases/latest/download/mdedit-update.txt",
     manifest_env: "MDEDIT_UPDATE_MANIFEST",
-    engine: None,
+    engine: Some("mdview-engine"),
     uninstall_key: None,
 };
 
@@ -67,7 +67,20 @@ fn the_release_manifests_are_read_and_their_files_match() {
                     dir.display(),
                     o.app.url
                 );
-                assert!(o.engine.is_none(), "mdedit has no engine file");
+                // Windows carries the preview pane's engine as a second file; the AppImage
+                // (and the macOS bundle) hold theirs inside.
+                match (current, o.engine) {
+                    ("windows-x86_64", Some(e)) => assert!(
+                        e.url.ends_with(&format!("/v{version}/mdview-engine.exe")),
+                        "{}: engine url {}",
+                        dir.display(),
+                        e.url
+                    ),
+                    ("windows-x86_64", None) => {
+                        panic!("{}: the Windows entry lists no engine", dir.display())
+                    }
+                    (_, e) => assert!(e.is_none(), "Linux has no engine file"),
+                }
             }
             None => assert!(
                 offer.is_none(),
@@ -82,11 +95,12 @@ fn the_release_manifests_are_read_and_their_files_match() {
         // Every file the manifest lists is beside it, with the stated hash.
         let mut checked = 0;
         for (key, hash) in k.iter().filter(|(k, _)| k.ends_with(".sha256")) {
-            let platform = key.trim_end_matches(".sha256");
-            let asset = k
-                .get(&format!("{platform}.asset"))
-                .unwrap_or_else(|| panic!("{key} has no .asset"));
-            let file = dir.join(asset);
+            // The file is the last part of the entry's URL (the engine has no .asset key).
+            let entry = key.trim_end_matches(".sha256");
+            let url = k
+                .get(&format!("{entry}.url"))
+                .unwrap_or_else(|| panic!("{key} has no .url"));
+            let file = dir.join(url.rsplit('/').next().unwrap());
             assert!(file.is_file(), "{} is listed but missing", file.display());
             assert!(
                 verify_sha256_file(&file, hash).unwrap(),
@@ -95,6 +109,12 @@ fn the_release_manifests_are_read_and_their_files_match() {
             );
             checked += 1;
         }
+        assert!(
+            !k.contains_key("windows-x86_64.asset")
+                || k.contains_key("windows-x86_64.engine.sha256"),
+            "{}: the Windows entry lists no engine",
+            dir.display()
+        );
         assert!(
             checked >= 1,
             "{}: no file hashes in the manifest",

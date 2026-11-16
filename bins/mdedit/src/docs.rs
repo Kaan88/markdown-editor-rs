@@ -14,6 +14,7 @@ use crate::app::Wake;
 use crate::commands::strings;
 use crate::session::{TabState, ThemeChoice, Unsaved};
 use crate::view::cache::Lru;
+use mdedit_core::blocks;
 use mdedit_core::display::ChunkIndex;
 use mdedit_core::edit::{self, Outcome};
 use mdedit_core::encoding::Encoding;
@@ -1268,6 +1269,22 @@ pub enum EditOp<'a> {
     MdTable,
     /// Markdown: a row or column command on the pipe table the caret is in.
     MdTableOp(table::TableOp),
+    /// Markdown: the lines become headings of this level, or stop being ones.
+    MdHeadingLevel(u8),
+    /// Markdown: the lines become items of this list, or stop being ones.
+    MdList(blocks::ListKind),
+    /// Markdown: the lines go in a block quote, or out of one.
+    MdQuote,
+    /// Markdown: the alert around the caret steps to its next kind.
+    MdAlert,
+    /// Markdown: the lines go between a fence's lines.
+    MdFence(blocks::Fence),
+    /// Markdown: a horizontal rule after the caret's line.
+    MdRule,
+    /// Markdown: a numbered footnote at the caret, its text at the end.
+    MdFootnote,
+    /// Markdown: `![alt](url)` from the selection.
+    MdImage,
     /// The save options of the preferences (trailing spaces, final line break).
     SaveOptions(&'a Prefs),
     /// Makes every line break this one.
@@ -1311,6 +1328,8 @@ pub struct Applied {
 pub struct Docs {
     /// The update on offer, downloading or installed, as the bar and About show it.
     pub updates: crate::updater::Updates,
+    /// The report of last time's crash, while its bar offers it.
+    pub crash: Option<PathBuf>,
     /// The setting: look for a newer version at launch.
     pub check_updates: bool,
     /// The preferences: the typing help, the save options and what new documents start with.
@@ -1355,6 +1374,17 @@ pub struct Docs {
     pub watch_changed: bool,
     /// The documents previewed in mdview, and what keeps the viewer scrolled to their carets.
     pub links: crate::link::Links,
+    /// mdview is installed: the previews in mdview (alone and side by side) are offered only
+    /// then, and are invisible otherwise. Looked for after the start and when the window gets
+    /// the focus back; on in tests, which stand in for the viewer.
+    pub viewer: bool,
+    /// The preview pane is offered: always in the default build, which draws it itself with
+    /// the engine shipped beside mdedit; only with mdview in the build that asks mdview to draw.
+    pub pane: bool,
+    /// The preview pane is open (the app holds it; menus and the bar read this).
+    pub pane_open: bool,
+    /// The format bar shows under the command bar for Markdown documents.
+    pub format_bar: bool,
 }
 
 impl Docs {
@@ -1386,10 +1416,15 @@ impl Docs {
             find_done: Default::default(),
             toast: None,
             updates: crate::updater::Updates::default(),
+            crash: None,
             check_updates: true,
             prefs: Prefs::default(),
             watch_changed: true,
             links: crate::link::Links::default(),
+            viewer: cfg!(test),
+            pane: cfg!(test) || crate::preview_pane::STANDALONE,
+            pane_open: false,
+            format_bar: true,
         }
     }
 
@@ -2256,6 +2291,14 @@ impl Docs {
             | EditOp::MdLink
             | EditOp::MdTable
             | EditOp::MdTableOp(_)
+            | EditOp::MdHeadingLevel(_)
+            | EditOp::MdList(_)
+            | EditOp::MdQuote
+            | EditOp::MdAlert
+            | EditOp::MdFence(_)
+            | EditOp::MdRule
+            | EditOp::MdFootnote
+            | EditOp::MdImage
                 if !r.assist.markdown =>
             {
                 Some(strings::NOT_MARKDOWN)
@@ -2394,7 +2437,7 @@ impl Docs {
         if multi_op.is_none()
             && !matches!(
                 op,
-                EditOp::MdWrap(_) | EditOp::MdLink | EditOp::SaveOptions(_)
+                EditOp::MdWrap(_) | EditOp::MdLink | EditOp::MdImage | EditOp::SaveOptions(_)
             )
             && line_op(&op, "", 0, "", typing::Indent::Tab).is_none()
         {
@@ -2504,7 +2547,16 @@ impl Docs {
                     table::edit(buf, hist, sel, t, eol).unwrap_or(Outcome { sel, change: None })
                 }
                 // Done above, with every caret; reaching here is a selection it did not take.
-                EditOp::MdWrap(_) | EditOp::MdLink => Outcome { sel, change: None },
+                EditOp::MdWrap(_) | EditOp::MdLink | EditOp::MdImage => {
+                    Outcome { sel, change: None }
+                }
+                EditOp::MdHeadingLevel(level) => markdown::toggle_heading(buf, hist, sel, level),
+                EditOp::MdList(kind) => blocks::toggle_list(buf, hist, sel, kind),
+                EditOp::MdQuote => blocks::toggle_quote(buf, hist, sel),
+                EditOp::MdAlert => blocks::cycle_alert(buf, hist, sel, eol),
+                EditOp::MdFence(fence) => blocks::insert_fence(buf, hist, sel, fence, eol),
+                EditOp::MdRule => blocks::insert_rule(buf, hist, sel, eol),
+                EditOp::MdFootnote => blocks::footnote(buf, hist, sel, eol),
                 EditOp::SaveOptions(prefs) => {
                     mdedit_core::prefs::apply_on_save(buf, hist, sel, prefs, eol)
                 }
@@ -3344,7 +3396,7 @@ fn table_keys(r: &mut Ready, op: &EditOp, eol: &str) -> Option<Outcome> {
 
 /// Markdown's wrap and link commands, for every caret. `None` when they do nothing.
 fn markdown_edit(r: &mut Ready, op: &EditOp) -> Option<Outcome> {
-    if !matches!(op, EditOp::MdWrap(_) | EditOp::MdLink) {
+    if !matches!(op, EditOp::MdWrap(_) | EditOp::MdLink | EditOp::MdImage) {
         return None;
     }
     let at = r
@@ -3357,6 +3409,7 @@ fn markdown_edit(r: &mut Ready, op: &EditOp) -> Option<Outcome> {
         EditOp::MdWrap(marker) => {
             markdown::toggle_wrap(&mut r.buffer, &mut r.history, &list, at, marker)
         }
+        EditOp::MdImage => markdown::image_from_selection(&mut r.buffer, &mut r.history, &list, at),
         _ => markdown::link_from_selection(&mut r.buffer, &mut r.history, &list, at),
     };
     let (out, mut list, primary) = typed?;

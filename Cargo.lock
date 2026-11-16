@@ -366,6 +366,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "byteorder-lite"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
+
+[[package]]
 name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -914,6 +920,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gif"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
+dependencies = [
+ "weezl",
+]
+
+[[package]]
 name = "harfrust"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1103,6 +1118,16 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "image-webp"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
+dependencies = [
+ "byteorder-lite",
+ "quick-error",
 ]
 
 [[package]]
@@ -1326,6 +1351,8 @@ dependencies = [
  "mdshared-fetch",
  "mdshared-text",
  "mdshared-ui",
+ "mdview-preview",
+ "mdview-render",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "parley",
@@ -1371,15 +1398,16 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d7754930273e8356555a417f017d05bbf436a59c#d7754930273e8356555a417f017d05bbf436a59c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
 dependencies = [
  "notify",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d7754930273e8356555a417f017d05bbf436a59c#d7754930273e8356555a417f017d05bbf436a59c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
 dependencies = [
  "libloading",
  "windows-sys 0.59.0",
@@ -1388,7 +1416,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d7754930273e8356555a417f017d05bbf436a59c#d7754930273e8356555a417f017d05bbf436a59c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
 dependencies = [
  "syntect",
 ]
@@ -1396,7 +1424,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d7754930273e8356555a417f017d05bbf436a59c#d7754930273e8356555a417f017d05bbf436a59c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
 dependencies = [
  "parley",
  "png",
@@ -1406,7 +1434,7 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=d7754930273e8356555a417f017d05bbf436a59c#d7754930273e8356555a417f017d05bbf436a59c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=21fd49bacd6f2cc9558044c80dfd8713c88e47ea#21fd49bacd6f2cc9558044c80dfd8713c88e47ea"
 dependencies = [
  "arboard",
  "mdshared-app",
@@ -1425,6 +1453,48 @@ dependencies = [
  "x11rb",
  "zbus",
  "zeno",
+]
+
+[[package]]
+name = "mdview-core"
+version = "0.5.1"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=c76948a94a55234b578654b1cc8fc120c97edf9a#c76948a94a55234b578654b1cc8fc120c97edf9a"
+dependencies = [
+ "mdshared-app",
+ "memchr",
+ "pulldown-cmark",
+ "regex-syntax",
+ "unicase",
+]
+
+[[package]]
+name = "mdview-engine-proto"
+version = "0.5.1"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=c76948a94a55234b578654b1cc8fc120c97edf9a#c76948a94a55234b578654b1cc8fc120c97edf9a"
+
+[[package]]
+name = "mdview-preview"
+version = "0.5.1"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=c76948a94a55234b578654b1cc8fc120c97edf9a#c76948a94a55234b578654b1cc8fc120c97edf9a"
+dependencies = [
+ "mdview-core",
+ "mdview-render",
+]
+
+[[package]]
+name = "mdview-render"
+version = "0.5.1"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=c76948a94a55234b578654b1cc8fc120c97edf9a#c76948a94a55234b578654b1cc8fc120c97edf9a"
+dependencies = [
+ "gif",
+ "image-webp",
+ "mdshared-highlight",
+ "mdshared-text",
+ "mdview-core",
+ "mdview-engine-proto",
+ "parley",
+ "png",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2180,6 +2250,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
+dependencies = [
+ "bitflags 2.13.2",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
+name = "quick-error"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
+
+[[package]]
 name = "quick-xml"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2873,6 +2960,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "unicase"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3149,6 +3242,12 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "weezl"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
 name = "winapi-util"
@@ -3718,6 +3817,21 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zune-core"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d56377fd46368984a170bc5aac5567e52ca5da874caa60bea39fcbca78fb658b"
+
+[[package]]
+name = "zune-jpeg"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
+dependencies = [
+ "zune-core",
+]
 
 [[package]]
 name = "zvariant"

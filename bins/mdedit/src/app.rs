@@ -57,8 +57,12 @@ mod access_tests;
 mod commands;
 mod compare_events;
 mod completion;
+mod crash;
+pub use crash::crash_dir;
 #[cfg(test)]
 mod files_tests;
+#[cfg(test)]
+mod format_tests;
 #[cfg(test)]
 mod frost_tests;
 mod handoff;
@@ -67,6 +71,8 @@ mod ime_tests;
 mod input;
 pub(crate) mod modal;
 mod palette_events;
+mod preview;
+pub(crate) use preview::previewable;
 #[cfg(test)]
 mod pin_tests;
 mod replace_files;
@@ -100,6 +106,8 @@ pub enum Wake {
     Menu(mdshared_ui::menu_bar::AppCommand),
     /// The viewer that a preview was following is gone.
     Link,
+    /// The preview pane has an answer.
+    Preview,
     /// The file watcher saw a change.
     Files,
     /// A load made progress or finished.
@@ -201,12 +209,20 @@ struct App {
     incoming: Option<Receiver<Request>>,
     /// When the viewer is next told the caret's line, if an update is held back.
     link_due: Option<Instant>,
+    /// The preview pane, while it is open (src/preview_pane.rs).
+    pub(crate) preview: Option<crate::preview_pane::Pane>,
+    /// The installed mdview, as last looked for; `None` before the first look.
+    viewer_path: Option<Option<PathBuf>>,
+    /// What the crash report says mdedit was doing, as last set.
+    crash_key: crash::CrashKey,
     watcher: Option<FileWatcher>,
     session_path: Option<PathBuf>,
     /// Write the session on exit (not in `--shot`).
     save: bool,
     session: Session,
     screen: Bitmap,
+    /// The format bar's state for this frame (`None`: not shown), worked out once per frame.
+    format: Option<crate::format_bar::State>,
     gfx: Gfx,
     pal: Palette,
     system_dark: bool,
@@ -222,9 +238,9 @@ struct App {
     snap_sent: Option<Option<(i32, i32, i32, i32)>>,
     focused: bool,
     areas: Areas,
-    hits: [Vec<(Hit, Rect)>; 9],
+    hits: [Vec<(Hit, Rect)>; 10],
     overlay_hits: Vec<(Hit, Rect)>,
-    sigs: [u64; 9],
+    sigs: [u64; 10],
     /// The minimap's window and band as of the last frame, the lines of its window, and its
     /// drawing.
     /// One of each for the pane with the keyboard and for the second pane.
@@ -369,10 +385,14 @@ impl App {
             frost: crate::frost::Frost::default(),
             incoming: None,
             link_due: None,
+            preview: None,
+            viewer_path: None,
+            crash_key: Default::default(),
             watcher: None,
             session_path,
             session,
             screen: Bitmap::new(1, 1),
+            format: None,
             gfx: Gfx::new(),
             pal: theme::LIGHT,
             system_dark,
@@ -384,7 +404,7 @@ impl App {
             areas: Areas::default(),
             hits: Default::default(),
             overlay_hits: Vec::new(),
-            sigs: [0; 9],
+            sigs: [0; 10],
             map_plan: [None; 2],
             map_lines: [None, None],
             map_cache: Default::default(),
@@ -819,7 +839,7 @@ impl App {
                     .active_ready()
                     .is_some_and(|r| !r.find.matches.is_empty());
                 sig((
-                    (common, chrome::preview_button(&self.docs)),
+                    (common, chrome::preview_button(&self.docs), self.format),
                     self.docs.theme.to_setting(),
                     ui.find.text(),
                     ui.find.caret(),
@@ -849,6 +869,7 @@ impl App {
                             .bar()
                             .map(|s| crate::updater::Updates::bar_label(&crate::updater::APP, s)),
                         self.docs.updates.relaunch_target().is_some(),
+                        self.docs.crash.is_some(),
                     ),
                 ))
             }
@@ -971,6 +992,10 @@ impl App {
                 };
                 self.minimap_sig(common, pane, doc, Some((ready, v)))
             }
+            Region::Preview => match &self.preview {
+                Some(p) => sig((common, p.generation, p.ended.as_deref(), self.dark())),
+                None => sig((common, "closed")),
+            },
             Region::Status => sig((common, status::fields(&self.docs), self.dark())),
             Region::Results => {
                 let drag = matches!(
@@ -1042,6 +1067,7 @@ impl App {
         self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
+        self.format = crate::format_bar::shown(&self.docs);
         self.relayout_areas();
         // Lay the text out first: it clamps the scroll and says which lines want colours.
         let text = self.areas.text;
@@ -1076,7 +1102,7 @@ impl App {
         times.layout = t0.elapsed();
 
         let t1 = Instant::now();
-        let mut dirty = [self.full; 9];
+        let mut dirty = [self.full; 10];
         for r in REGIONS {
             let rect = self.areas.region(r);
             let s = self.region_sig(r, rect);
@@ -1295,14 +1321,24 @@ impl App {
                         let bar = Rect::new(rect.x, rect.y, rect.w, crate::ui::BAR_H);
                         chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar);
                         let mut y = bar.bottom();
+                        if let Some(state) = self.format {
+                            let row = Rect::new(rect.x, y, rect.w, crate::format_bar::FORMAT_H);
+                            crate::format_bar::draw(&mut c, &state, row);
+                            y = row.bottom();
+                        }
                         if self.ui.replace_open {
                             let strip = Rect::new(rect.x, y, rect.w, crate::ui::REPLACE_H);
                             chrome::draw_replace_strip(&mut c, &self.docs, &mut self.ui, strip);
                             y = strip.bottom();
                         }
-                        let under = Rect::new(rect.x, y, rect.w, rect.bottom() - y);
-                        if under.h > 0.0 {
+                        if self.docs.updates.bar().is_some() {
+                            let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
                             chrome::draw_update_bar(&mut c, &self.docs, under);
+                            y = under.bottom();
+                        }
+                        if self.docs.crash.is_some() {
+                            let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
+                            chrome::draw_crash_bar(&mut c, under);
                         }
                     }
                     Region::Files if self.ui.outline.on => {
@@ -1345,6 +1381,9 @@ impl App {
                             let hot = hover == Some(hit);
                             minimap::draw(&mut c, map_cache, None, plan.as_ref(), rect, look(hot));
                         }
+                    }
+                    Region::Preview => {
+                        crate::preview_pane::draw(&mut c, self.preview.as_ref(), &self.docs, rect)
                     }
                     Region::Status => status::draw(&mut c, &self.docs, rect),
                     Region::Results => crate::results::draw(&mut c, &mut self.ui, rect),
@@ -1571,6 +1610,7 @@ impl App {
         {
             self.step_times.push(times);
         }
+        self.crash_context();
         let title = strings::window_title(self.docs.active_doc().map(|d| d.title()).as_deref());
         if title != self.last_title {
             if let Some(w) = &self.window {
@@ -1756,8 +1796,10 @@ impl App {
             return Some(Hit::ResultsEdge);
         }
         // The line between two panes is not drawn by a region: it is where the layout says.
-        if let (Some(d), Some(_)) = (self.areas.divider, self.areas.other)
-            && d.grab(self.areas.text.y, self.areas.text.h).contains(x, y)
+        if let (Some(d), true) = (
+            self.areas.divider,
+            self.areas.other.is_some() || self.areas.preview.is_some(),
+        ) && d.grab(self.areas.text.y, self.areas.text.h).contains(x, y)
         {
             return Some(Hit::Divider);
         }
@@ -1922,6 +1964,7 @@ impl App {
         if !self.args.minimap {
             s.minimap = self.docs.minimap;
         }
+        s.format_bar = self.docs.format_bar;
         s.check_updates = self.docs.check_updates;
         s.find_options = (self.ui.match_case, self.ui.whole_word, self.ui.regex);
         s.find_history = self.ui.find_recall.items().to_vec();
@@ -2169,6 +2212,10 @@ impl ApplicationHandler<Wake> for App {
                     self.redraw();
                 }
                 if focused {
+                    // mdview may have been installed or removed meanwhile.
+                    if self.settled {
+                        self.look_for_viewer();
+                    }
                     self.caret_reset();
                 } else {
                     self.ui.caret_on = true;
@@ -2198,6 +2245,10 @@ impl ApplicationHandler<Wake> for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => match (state, button) {
+                _ if state == ElementState::Pressed && self.preview.is_some() && {
+                    self.editor_leads();
+                    false
+                } => {}
                 // On a Mac, Control and a click is a right click (`Mods::control` is never set
                 // elsewhere).
                 (ElementState::Pressed, MouseButton::Left) if self.mods.control => {
@@ -2212,7 +2263,11 @@ impl ApplicationHandler<Wake> for App {
                 (ElementState::Pressed, MouseButton::Middle) => self.middle_press(),
                 _ => {}
             },
-            WindowEvent::MouseWheel { delta, .. } => self.wheel(delta),
+            WindowEvent::MouseWheel { delta, .. } => {
+                // The wheel over the page makes the page lead again (`preview_wheel`).
+                self.editor_leads();
+                self.wheel(delta)
+            }
             // A trackpad: a pinch zooms in steps; the smart-zoom tap (two fingers, twice) is the
             // actual size. winit reports both on macOS only.
             WindowEvent::PinchGesture { delta, phase, .. } => {
@@ -2234,6 +2289,7 @@ impl ApplicationHandler<Wake> for App {
                 if matches!(event.logical_key, Key::Named(NamedKey::Alt)) {
                     return;
                 }
+                self.editor_leads();
                 self.key(&event);
             }
             // Text an input method made: an accent typed with a dead key or chosen by holding a
@@ -2289,6 +2345,10 @@ impl ApplicationHandler<Wake> for App {
         self.persist_if_changed();
         self.recover_due = self.recovery.poll(&self.docs, Instant::now());
         self.link_due = self.docs.link_poll(Instant::now());
+        if self.preview.is_some() && self.preview_sync() {
+            self.trace_preview_page();
+            self.redraw();
+        }
         self.results_due = self.results_sync(Instant::now());
         // The last preview is over (stopped, its tab closed, the viewer gone): the windows go
         // back to where they were.
@@ -2297,11 +2357,17 @@ impl ApplicationHandler<Wake> for App {
         }
         if !self.settled && !self.first && self.is_settled() {
             self.settled = true;
+            // Off the path to the first frame: whether mdview is there to offer previews.
+            self.look_for_viewer();
+            self.look_for_crash();
             self.trace.stage("loading and colouring idle");
             self.trace.memory("idle");
             self.trace.cpu("idle");
+            if self.args.preview_pane && self.preview.is_none() {
+                self.toggle_preview_pane();
+            }
         }
-        if self.type_steps.is_some() && self.settled {
+        if self.type_steps.is_some() && self.settled && self.preview_ready() {
             self.type_step();
             if self.exit {
                 return;
@@ -2344,7 +2410,8 @@ impl ApplicationHandler<Wake> for App {
 }
 
 impl App {
-    /// The height of what shows under the command bar: the replace strip, then the update bar.
+    /// The height of what shows under the command bar: the format bar, the replace strip, the
+    /// update bar, then the crash bar.
     fn notice_h(&self) -> f32 {
         let strip = if self.ui.replace_open {
             crate::ui::REPLACE_H
@@ -2356,7 +2423,17 @@ impl App {
         } else {
             0.0
         };
-        strip + update
+        let crash = if self.docs.crash.is_some() {
+            view::BANNER_H
+        } else {
+            0.0
+        };
+        let format = if self.format.is_some() {
+            crate::format_bar::FORMAT_H
+        } else {
+            0.0
+        };
+        format + strip + update + crash
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
@@ -2381,6 +2458,7 @@ impl App {
                 self.docs.other_left,
                 self.docs.split_ratio,
             )
+            .with_preview(self.preview.is_some(), self.docs.split_ratio)
             .with_minimap(self.docs.minimap && self.docs.active().is_some());
         if areas != self.areas {
             self.areas = areas;
@@ -2390,6 +2468,7 @@ impl App {
 
     /// The layout pass of a frame without drawing: areas, scroll clamping, colour requests.
     fn compose_layout_only(&mut self) {
+        self.format = crate::format_bar::shown(&self.docs);
         self.sync_theme();
         self.compare_sync();
         self.docs.sync_wrap();
@@ -2402,6 +2481,7 @@ impl App {
             self.notice_h(),
         )
         .with_results(self.ui.results.open, self.ui.results.height)
+        .with_preview(self.preview.is_some(), self.docs.split_ratio)
         .with_minimap(self.docs.minimap && self.docs.active().is_some());
         let text = self.areas.text;
         let mut geom = None;
@@ -2622,6 +2702,18 @@ fn shot(mut app: App, path: &Path) -> i32 {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
+    // A report from last time shows its bar in a picture too.
+    app.look_for_crash();
+    if app.args.preview_pane {
+        app.look_for_viewer();
+        app.toggle_preview_pane();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !app.preview_ready() && Instant::now() < deadline {
+            app.compose_layout_only();
+            app.preview_sync();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
     app.compose();
     if let Some(t) = app.args.macro_prompt.clone() {
         app.ui.naming = true;
@@ -2693,13 +2785,17 @@ fn shot(mut app: App, path: &Path) -> i32 {
             );
             app.right_press();
             app.compose();
-            let (row, sub) = match m {
-                ShotMenu::TextLines => (7, PopupKind::Lines),
-                ShotMenu::TextConvert => (8, PopupKind::Convert),
-                _ => (6, PopupKind::Markdown),
+            let sub = match m {
+                ShotMenu::TextLines => PopupKind::Lines,
+                ShotMenu::TextConvert => PopupKind::Convert,
+                _ => PopupKind::Markdown,
             };
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = Some(row);
+                p.menu.hover = p
+                    .menu
+                    .items
+                    .iter()
+                    .position(|i| i.id.submenu() == Some(sub));
             }
             app.open_sub(PopupKind::Text, sub, true);
         }
@@ -2899,6 +2995,7 @@ pub fn run() -> i32 {
     // commands change them for this run only.
     docs.wrap = args.wrap || session.wrap || session.prefs.word_wrap;
     docs.minimap = args.minimap || session.minimap || session.prefs.minimap;
+    docs.format_bar = session.format_bar;
     docs.theme = match args.dark {
         Some(true) => ThemeChoice::Dark,
         Some(false) => ThemeChoice::Light,

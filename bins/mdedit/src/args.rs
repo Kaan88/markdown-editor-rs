@@ -168,6 +168,9 @@ pub struct Args {
     /// (letters, with a line break and a Backspace now and then), one per frame, print the time
     /// from keystroke to pixels and exit without saving.
     pub type_steps: Option<u32>,
+    /// `--preview-pane`: open the preview pane once the file has loaded, for timing it with
+    /// `--trace` and `--type-steps`. Does nothing without mdview.
+    pub preview_pane: bool,
     /// `--exit-after-ms N`: close the window N ms after the first frame, as if the user closed
     /// it, so a real window can be started and stopped from a script. Added in package C; not in
     /// DESIGN.md section 12.
@@ -376,6 +379,7 @@ impl Args {
                 "--replace-dialog" => out.replace_dialog = true,
                 "--replace-report" => out.replace_report = true,
                 "--trace" => out.trace = true,
+                "--preview-pane" => out.preview_pane = true,
                 "--folder" => out.folder = value(&a).map(PathBuf::from),
                 "--shot" => out.shot = value(&a).map(PathBuf::from),
                 "--find" => out.find = value(&a).filter(|v| !v.is_empty()),
@@ -505,9 +509,10 @@ mod tests {
         assert!(parse("--minimap a.rs").minimap);
         assert!(!parse("a.rs").minimap);
         // It goes with the other switches of the timing runs.
-        let a = parse("--minimap --trace --type-steps 5 --scroll-steps 7 a.rs");
+        let a = parse("--minimap --trace --type-steps 5 --scroll-steps 7 --preview-pane a.rs");
         assert!(a.minimap && a.trace);
         assert_eq!((a.type_steps, a.scroll_steps), (Some(5), Some(7)));
+        assert!(a.preview_pane);
     }
 
     #[test]

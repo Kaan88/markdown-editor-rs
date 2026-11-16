@@ -5,6 +5,179 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Preview pane, branch `f/preview-pane` (2026-11-16, not merged, not seen by the owner)
+
+**Decisions of the owner, later the same day (these replace the two-build comparison below):**
+- **The renderer is built in** (feature `embedded-preview`, now the default). The build that
+  asks `mdview --preview-server` to draw stays behind `--no-default-features`, for comparison.
+- **The pane works without mdview.** `mdview-engine` (formulas, diagrams, SVG) ships beside
+  mdedit, looked for there first, then beside mdview. The pane, its bar button and its menu items
+  are always offered; "Preview in mdview" and side by side still need mdview. Checked on Linux
+  with only mdedit and the engine in a folder: math and Mermaid drawn; the engine used 2 to
+  4 MB while alive and had exited 12 s later. See "Shipping the engine" below.
+- **`panic = "abort"` stays.** Unwinding so the pane could catch a renderer panic was built and
+  measured on a Windows runner (`tools/compare-builds.py`, 7 runs, run 43886251468): keystroke
+  and scroll p50 about 0.3 ms slower (0.76 to 1.03 ms on sample.rs), first frame +0 to 6 ms,
+  exe 6.53 to 9.60 MB; Linux showed nothing. The embedded build with abort matched `main` on
+  every figure (run 43882888383). The owner chose abort: a renderer panic ends mdedit and crash
+  recovery brings the text back.
+
+**Shipping the engine** (same branch):
+- Built from the viewer at the revision mdedit pins (the `rev` of `mdview-preview` in
+  `bins/mdedit/Cargo.toml`), in the viewer's own workspace (its lockfile, its size-first engine
+  profile): `packaging/engine-source.sh DIR` checks it out, then `cargo build --release --locked
+  -p mdview-engine --manifest-path DIR/Cargo.toml`. On Windows `packaging/windows/build-engine.ps1`
+  does both, with the static C runtime, into `target\engine\mdview-engine.exe`.
+- Windows: the installer (`mdedit.iss`), the zip (`build-zip.ps1`), `tools/release.ps1`,
+  `tools/release-cross.sh` and `release-all.sh` carry `mdview-engine.exe`; the manifest has
+  `windows-x86_64.engine.url/sha256` (`tools/write-manifest.sh --windows-engine`), and the
+  updater (`updater::APP.engine`) replaces both files.
+- Linux: the AppImage has it beside mdedit in `usr/bin`; the tarball, deb, rpm and PKGBUILD put it
+  in `lib/mdedit/` (mdview's packages own `/usr/bin/mdview-engine`). mdedit looks beside its exe,
+  then in `../lib/mdedit/`, then beside mdview (`preview_pane::own_engines`).
+- macOS: `make-bundle.sh` copies it into `Contents/MacOS` when the build folder has one; the
+  release workflow builds it and checks it is there.
+- An mdedit 0.7 that updates itself installs only `mdedit.exe` (its updater knows no engine).
+  Shared crates `21fd49b`: such a copy still counts as installed, its next update brings the
+  engine, and the launch look (`updater::restore_engine`) fetches this version's engine when it
+  is missing and the manifest is of this version.
+- Not run: none of the release scripts or the release workflow has run with these changes.
+
+**Synced scrolling** (the owner asked for it beyond the caret sync; viewer `8261730`, protocol
+`MDVPREVIEW2`): the side the reader moved last leads, the other follows and sends nothing back,
+so they cannot set each other off. A wheel over the page makes the page lead (`Pane::scroll`);
+any key, click or wheel over the editor makes the editor lead (`App::editor_leads`, from the
+window events). Leading editor: its top as a fractional source line (`view::source_top`, word
+wrap included) goes to the page as `Align` when it moved. Leading page: each update's `line`
+puts the editor there (`view::set_source_top`). The caret sync stays as it was and goes after
+the align. Lines between two blocks share the page rows between them evenly.
+The two ends: the page is mostly the longer, so the same top line on both sides left the
+page's end out of reach, and the editor's next scroll pulled the page back up (the owner saw
+it). Since viewer `c76948a` (protocol `MDVPREVIEW3`), `Align` also carries the editor's last
+screen of scrolling (`view::source_ends`: without wrap, one screen above `max_top`; with wrap,
+one screen of rows above the last row at the top, as far as wrapped scrolling goes); over it
+the page's top goes straight on to its bottom, and the line in each update is the exact
+inverse (the page at its bottom is the editor at its end), so the lead changing sides moves
+neither. A page shorter than the text stops at its bottom as before.
+Tests: `scrolling_either_side_brings_the_other_to_the_same_line`,
+`the_editor_at_its_end_brings_the_page_to_its_end_wrapped_or_not` (fails without the fix; both
+builds).
+Measured on Linux under Xvfb, pane open, 5 interleaved runs, the commit before against this:
+first frame and memory the same; scroll p50/p95 sample.md 1.19/1.24 to 1.39/1.90 ms, PLAN.md
+1.27/1.63 to 1.71/1.96 ms (the ranges overlap; at the end the page now moves where it used to
+stay); keystroke within noise (sample.md p50 1.32 to 1.81, PLAN.md 1.30 to 1.18). Budget under
+4 ms. Pane closed: the code does not run.
+Measured on Linux under Xvfb, `tools/compare-builds.py`, 5 runs, the commit before against
+this: pane closed, every figure within noise; pane open, the scroll frame p50/p95 grows by
+0.5 to 0.8 ms (sample.md 1.07/1.18 to 1.59/1.74 ms; PLAN.md 0.96/1.17 to 1.73/1.97 ms) since the
+page now moves with the text and its region is repainted; budget under 4 ms. Not run on
+Windows by hand; an mdview built before this answers with the old greeting, and the renderer
+build then asks to update mdview.
+
+**Format bar** (the owner: "build that toolbar next. make it support viewers features"; the
+mockup was `FormatBar.dc.html`): a row under the command bar for Markdown documents
+(`format_bar.rs`), on by default, View > "Format bar (Mar&kdown)" turns it off (session key
+`format_bar=0`). Groups: B, I, S, code | H1, H2, H3 | bulleted, numbered, task, quote, alert |
+link, image, table, code block | math, math block, diagram, footnote, collapsible section, rule.
+A button shows pressed when the caret is in what it makes (bold span, heading level, list kind,
+quote). Where the window is too narrow, the last groups give way to a "…" button that opens the
+Markdown menu, which now has every command; the table's row and column commands moved to their
+own Table submenu beside it (the menu had more items than letters). Headings 1 to 3 have
+Ctrl+1/2/3; the rest have no key.
+- New edits, each one undo step, in `mdedit-core/src/blocks.rs`: `toggle_list` (any other list
+  marker is replaced; all of the kind already: markers off), `toggle_quote`, `cycle_alert` (plain
+  -> NOTE -> TIP -> IMPORTANT -> WARNING -> CAUTION -> plain), `insert_fence` (code, `$$`,
+  ```` ```mermaid ```` with a two-node flowchart, `<details>`), `insert_rule` (blank line above, so
+  not a heading underline), `footnote` (next free number, its text appended at the end, the
+  caret there; nothing over 4 MB), `line_state`. In `markdown.rs`: `image_from_selection`,
+  `in_span`. Inline math is `MdWrap("$")`.
+- The bar's own icons (numbered list, quote, code block, sigma, diagram, footnote, details, rule)
+  are in `format_bar.rs`, not in the shared glyph set, so the shared crates did not move.
+- Tests: `blocks::tests` (6), `images_are_links_with_a_bang`, `format_bar::tests` (2),
+  `app::format_tests` (2: shown for Markdown only, toggle, overflow; a click edits, gives the
+  keyboard back to the text, shows pressed), the session key, the access-key test with the Table
+  menu.
+- Measured on Linux under Xvfb, `tools/compare-builds.py`, 5 runs, the commit before against
+  this (bar on): the first try cost 1.2 ms per keystroke on sample.md and about 7 ms of first
+  frame, from asking the rope byte by byte for five span markers several times a frame. Now one
+  string scan of the caret's line (`markdown::spans_at`, checked against the edit's own span
+  finder on random text), once per frame (`App::format`). After that: first frame within
+  noise (sample.md 93.0 vs 92.2 ms, PLAN.md 92.3 vs 93.1, sample.rs 90.6 vs 84.0), idle memory
+  equal, scroll within noise, keystroke p50/p95 on sample.md 1.26/1.54 to 1.49/1.71 ms (+0.2 ms),
+  on PLAN.md and sample.rs within noise.
+- Not seen by the owner; not run on Windows.
+
+**Crash reports** (shared crates `f/crash-report`, the owner's request; mdview has the same):
+- `main` installs `mdshared_app::crash` first, into `data_dir("mdedit")/crashes`. A panic (any
+  thread) and, on Windows, an access violation or stack overflow write `crash-<secs>.txt`: app,
+  version, message, source place, thread, time, system, and a context line of kinds and sizes
+  (`app/crash.rs`: "Markdown, 48 KB; 2 tabs; preview pane open"), never text or file names.
+  Five are kept. Nothing is sent.
+- On the next start a bar under the update bar offers Open report (in a tab), Copy, close; each
+  marks it seen (`.seen.txt`, kept).
+- Checked: on Linux a real panic on the preview thread (a temporary trigger, removed) gave the
+  report and the next start's bar. On a Windows runner (preview-test run 43896081143) the shared
+  example wrote correct reports for a panic and an access violation (`0xc0000005 at exe+0x340d`).
+  Not seen on Windows: mdedit's own bar.
+- The same run compared `main` with this branch's default build (abort, standalone engine, crash
+  reports) on a Windows runner, 7 runs: every figure within noise (keystroke p50 0.53 vs 0.54 ms
+  on sample.rs, first frame 107.2 vs 106.8 ms on sample.md, idle memory equal).
+
+The owner asked for a preview inside mdedit, in two versions to compare, and for it to be hidden
+without mdview. Viewer side on the viewer's branch `f/preview-pane` (crate `crates/preview`,
+`mdview --preview-server`, `mdview_render::set_engine_path`); the editor pins that branch's
+commit.
+
+- **One pane, two builds.** Default: `mdview --preview-server` draws the page in its own process;
+  mdedit sends the text, the pane size, the caret's line and wheel scrolls over a pipe
+  (`mdview_preview::wire`) and gets back the rows that changed. Feature `embedded-preview`: the
+  same loop (`mdview_preview::serve`) on a thread of mdedit, with mdview's renderer built in.
+  Code: `preview_pane.rs` (the pane, its threads, drawing), `app/preview.rs` (open, close, sync,
+  wheel, tests).
+- **Offered only while mdview is installed** (`sister::find`, looked up at settle and on focus):
+  the bar button, View > "Preview in thi&s window", the tab menu's "Preview in t&his window",
+  the palette and the two other preview commands are hidden, and the commands do nothing. Shown
+  for Markdown, untitled and linked documents. The pane takes the split's place; a split ends.
+- **The page moves only when the caret's line is out of view.** Front matter on line 1 shows
+  from the top.
+- An mdview too old for `--preview-server` (no greeting in 3 s) is stopped and the pane says to
+  update mdview.
+- `--preview-pane` opens the pane at start for `--trace`, `--type-steps` (adds a "preview" line)
+  and `--shot`.
+
+Measured on Linux under Xvfb, 1280x800, release builds:
+| | main | renderer build | embedded build |
+|---|---|---|---|
+| First frame, no pane | 94 ms | 93 ms | 94 ms |
+| Keystroke to pixels p50, pane open (3 runs, 300 keys) | 1.0-1.5 ms | 0.9-1.2 ms | 0.8-1.3 ms |
+| Pane open to first page | | 23-37 ms | 19-23 ms |
+| Keystroke to pane pixels p50 / p95 | | 3.7-5.0 / 5.5-10.5 ms | 2.2-2.7 / 2.8-3.9 ms |
+| Private memory, pane open, all processes (762-line file) | 31.4 MiB (no pane) | 37.0 MiB (33.3 + mdview 3.7) | 36.1 MiB |
+| Exe (Linux, information) | 12.57 MB | +0.06 MB | +1.71 MB |
+
+The pane skips texts while an answer is awaited, so it shows about one keystroke in two
+(embedded) or in three and a half (renderer) during fast typing; both stay inside one frame.
+Not measured: scrolling the pane on its own, and the 100 MB file.
+
+On a Windows runner (`preview-test` run 43875754540, a real window; slower than the PC, no
+baseline without the pane was taken there):
+| | renderer build | embedded build |
+|---|---|---|
+| First frame | 138-157 ms | 138-149 ms |
+| Keystroke to pixels p50 / p95, pane open (3 runs x 2 files) | 3.0-3.1 / 3.6-3.8 ms | 2.3-2.4 / 2.7-2.9 ms |
+| Pane open to first page | 40-50 ms (202 ms on mdview's very first start) | 20-25 ms |
+| Keystroke to pane pixels p50 / p95 | 9.6-9.9 / 10.9-11.6 ms | 8.4-8.8 / 10.0-10.4 ms |
+| Private memory, pane open | 36.2-36.7 MiB + mdview 5.7-6.9 MiB | 37.2-37.8 MiB |
+| Exe | mdedit 6.58 MB | mdedit 7.91 MB |
+There every keystroke reached the pane (300 answers of 300). The renderer build's 0.7 ms more
+per keystroke in the editor itself is not explained yet (two processes on a small runner?).
+The pictures of both builds are byte-identical. Nothing has been run by hand on Windows.
+
+Downsides of embedding, as told to the owner: mdedit's `panic = "abort"` makes a renderer panic
+end mdedit (the renderer build loses only the pane); larger build and exe, mdedit tied to the
+viewer crates' revision and possibly drawing differently from the installed mdview; the
+renderer's caches live in mdedit's memory; math and diagrams still need mdview's engine.
+
 ## After 0.7.1, on `main`, not released (2026-11-16)
 
 Shared crates at `d775493`. Owner's requests of 2026-11-16:

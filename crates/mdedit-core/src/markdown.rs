@@ -81,6 +81,55 @@ fn is_marker(buf: &Buffer, at: usize, marker: &str) -> bool {
     true
 }
 
+/// Whether the caret is inside a span of `marker` on its line (what the format bar shows as
+/// pressed); see [`toggle_wrap`].
+pub fn in_span(buf: &Buffer, caret: usize, marker: &str) -> bool {
+    spans_at(buf, caret, &[marker])[0]
+}
+
+/// For each of `markers` (ASCII, as [`toggle_wrap`] takes them), whether the caret is inside a
+/// span of it on its line, paired from the line's first as [`toggle_wrap`] pairs them. One read
+/// of the line around the caret ([`SCAN`] bytes each way), so the format bar can ask on every
+/// frame.
+pub fn spans_at(buf: &Buffer, caret: usize, markers: &[&str]) -> Vec<bool> {
+    let caret = buf.floor_char(caret.min(buf.len_bytes()));
+    let line = buf.line_range(buf.line_of(caret));
+    let from = buf.floor_char(line.start.max(caret.saturating_sub(SCAN)));
+    let to = buf.floor_char(line.end.min(caret + SCAN));
+    let text = text_of(buf, from..to);
+    let b = text.as_bytes();
+    let at = caret - from;
+    markers
+        .iter()
+        .map(|m| {
+            let m = m.as_bytes();
+            if m.is_empty() || !m.is_ascii() {
+                return false;
+            }
+            let marker_at = |i: usize| {
+                b[i..].starts_with(m)
+                    && (m.len() > 1
+                        || ((i == 0 || b[i - 1] != m[0]) && b.get(i + 1) != Some(&m[0])))
+            };
+            let mut i = 0;
+            let mut open: Option<usize> = None;
+            while i + m.len() <= b.len() {
+                if marker_at(i) {
+                    match open.take() {
+                        None => open = Some(i),
+                        Some(o) if o < at && at < i + m.len() => return true,
+                        Some(_) => {}
+                    }
+                    i += m.len();
+                } else {
+                    i += 1;
+                }
+            }
+            false
+        })
+        .collect()
+}
+
 /// The span of `marker` markers on the caret's line that has the caret strictly inside, as
 /// (opening marker start, closing marker start). Markers on the line are paired from the first.
 fn span_around(buf: &Buffer, caret: usize, marker: &str) -> Option<(usize, usize)> {
@@ -854,20 +903,44 @@ pub fn link_from_selection(
     sels: &[Selection],
     primary: usize,
 ) -> Option<Typed> {
+    link_like(buf, hist, sels, primary, false)
+}
+
+/// [`link_from_selection`] for an image: `![text](url)`, the selection taken for the alt text or
+/// the image's URL.
+pub fn image_from_selection(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sels: &[Selection],
+    primary: usize,
+) -> Option<Typed> {
+    link_like(buf, hist, sels, primary, true)
+}
+
+fn link_like(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sels: &[Selection],
+    primary: usize,
+    image: bool,
+) -> Option<Typed> {
+    let bang = usize::from(image);
     run(buf, hist, sels, primary, |buf, s| {
         let len = buf.len_bytes();
         let r = buf.floor_char(s.range().start.min(len))..buf.floor_char(s.range().end.min(len));
         let r = r.start..r.end.max(r.start);
         if r.is_empty() {
-            return Act::replace(r.start..r.start, "[]()", 1, true);
+            let text = if image { "![]()" } else { "[]()" };
+            return Act::replace(r.start..r.start, text, 1 + bang, true);
         }
         let url = r.len() <= URL_MAX && looks_like_url(&text_of(buf, r.clone()));
-        let (open, close, at) = if url {
-            ("[](", ")", 1)
-        } else {
-            ("[", "]()", 2)
+        let (open, close, at) = match (url, image) {
+            (true, false) => ("[](", ")", 1),
+            (true, true) => ("![](", ")", 2),
+            (false, false) => ("[", "]()", 2),
+            (false, true) => ("![", "]()", 2),
         };
-        let caret = if url { (r.start, 1) } else { (r.end, at) };
+        let caret = if url { (r.start, at) } else { (r.end, at) };
         Act {
             edits: vec![ins(r.start, open), ins(r.end, close)],
             anchor: caret,
@@ -949,6 +1022,46 @@ mod tests {
 
     fn table(s: &str) -> String {
         one(s, format_table)
+    }
+
+    #[test]
+    fn the_pressed_state_agrees_with_the_spans_toggle_wrap_finds() {
+        let mut rng = Rng::new(7);
+        let parts = ["*", "**", "~~", "`", "$", "a", " ", "_", "\n", "é"];
+        for _ in 0..150 {
+            let n = 1 + rng.below(24);
+            let text: String = (0..n).map(|_| *rng.pick(&parts)).collect();
+            let buf = Buffer::from_text(&text);
+            for at in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {
+                let markers = ["**", "*", "~~", "`", "$", "_"];
+                let fast = spans_at(&buf, at, &markers);
+                for (m, f) in markers.iter().zip(fast) {
+                    assert_eq!(
+                        f,
+                        span_around(&buf, at, m).is_some(),
+                        "{text:?} at {at}, {m}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn images_are_links_with_a_bang() {
+        let img = |s: &str| {
+            go(s, |b, h, sels| {
+                let (o, l, _) = image_from_selection(b, h, sels, 0)?;
+                Some((o.change, l))
+            })
+        };
+        assert_eq!(img("a¦").unwrap(), "a![¦]()");
+        assert_eq!(img("‹cat›").unwrap(), "![cat](¦)");
+        assert_eq!(
+            img("‹https://x.org/a.png›").unwrap(),
+            "![¦](https://x.org/a.png)"
+        );
+        let b = Buffer::from_text("a **bold** b");
+        assert!(in_span(&b, 5, "**") && !in_span(&b, 1, "**") && !in_span(&b, 5, "*"));
     }
 
     fn link(s: &str) -> Option<String> {

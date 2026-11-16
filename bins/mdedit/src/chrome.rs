@@ -264,18 +264,15 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
             BarItem::Reload => with("Reload", CommandId::Reload),
             BarItem::Recent => "Recent files".into(),
             BarItem::Files => with("Files pane", CommandId::ToggleFiles),
-            BarItem::Preview if preview_button(docs) == Some(true) => {
-                with("Stop the preview", CommandId::PreviewInViewer)
-            }
-            BarItem::Preview => with(
-                "Preview in mdview, side by side",
-                CommandId::PreviewSideBySide,
-            ),
+            BarItem::Preview if docs.pane_open => "Close the preview".into(),
+            BarItem::Preview => with("Preview in this window", CommandId::PreviewPane),
             BarItem::FindPrev => with("Previous match", CommandId::FindPrevious),
             BarItem::FindNext => with("Next match", CommandId::FindNext),
             BarItem::Theme => format!("Theme: {} (click to change)", theme_label(docs.theme)),
             BarItem::More => "More".into(),
         },
+        Hit::Format(id) => crate::format_bar::tooltip(id),
+        Hit::FormatMore => "More Markdown".into(),
         Hit::FindClear => "Clear search (Escape)".into(),
         Hit::FindOpt(FindOpt::Case) => "Match case".into(),
         Hit::FindOpt(FindOpt::Word) => "Whole word".into(),
@@ -429,12 +426,15 @@ pub fn find_label(docs: &Docs) -> (String, bool) {
 }
 
 /// The measured text widths the bar's fit depends on.
-/// The bar's Preview button: hidden (None) unless the active document can be previewed in mdview
-/// (as the View menu lists the preview), and pressed (true) while it is.
+/// The bar's Preview button, which opens the pane: hidden (None) unless the pane is offered and
+/// the active document can be previewed (as the View menu lists it), pressed (true) while open.
 pub fn preview_button(docs: &Docs) -> Option<bool> {
+    if !docs.pane {
+        return None;
+    }
     let doc = docs.active_doc()?;
     let linked = docs.links.contains(doc.id);
-    (doc.is_markdown() || linked || doc.path.is_none()).then_some(linked)
+    (doc.is_markdown() || linked || doc.path.is_none() || docs.pane_open).then_some(docs.pane_open)
 }
 
 pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
@@ -674,6 +674,28 @@ pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect) {
     }
     if let Some(r) = hits.close {
         c.hit(Hit::UpdateClose, r);
+    }
+}
+
+/// The bar under the command bar that offers the report of last time's crash.
+pub fn draw_crash_bar(c: &mut Ctx, bar: Rect) {
+    use mdshared_ui::notice::{self, CrashBarState};
+    let state = CrashBarState {
+        open_hovered: c.hover == Some(Hit::CrashOpen),
+        open_pressed: c.pressed == Some(Hit::CrashOpen),
+        copy_hovered: c.hover == Some(Hit::CrashCopy),
+        copy_pressed: c.pressed == Some(Hit::CrashCopy),
+        close_hovered: c.hover == Some(Hit::CrashClose),
+    };
+    let hits = notice::draw_crash_bar(c.p, c.pal, bar, "mdedit", state);
+    for (hit, r) in [
+        (Hit::CrashOpen, hits.open),
+        (Hit::CrashCopy, hits.copy),
+        (Hit::CrashClose, hits.close),
+    ] {
+        if let Some(r) = r {
+            c.hit(hit, r);
+        }
     }
 }
 
