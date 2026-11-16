@@ -256,6 +256,16 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.0.1 (published 2026-11-16 by the release workflow, run by hand with `publish`, at commit 1c589e9)
+
+Run 43967599050 (the tag made by `gh release create`: the session could not push tags). Selecting
+text on the preview pane; mdview pinned at `8faf059` (1.0.1). Released on the owner's word
+without a hands-on test (the Windows test build of the branch was cancelled at their request);
+the `ci` run on the commit was not waited for. 13 assets, as for 1.0.0.
+Verified against the live release: both manifests name 1.0.1, and every file they name
+downloaded with the manifest's SHA-256. Not verified: any published file run on a desktop; a
+1.0.0 install updating itself.
+
 ## v1.0.0 (published 2026-11-16 by the release workflow, from the tag at commit 3e3f8d8)
 
 Run 43937748930. The tag was pushed by the owner (the cloud session that cut the release could not
