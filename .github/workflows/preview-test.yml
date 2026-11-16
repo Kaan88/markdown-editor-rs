@@ -102,6 +102,23 @@ jobs:
               }
             }
           }
+      - uses: actions/checkout@v4
+        with:
+          repository: Kaan88/markdown-shared-rs
+          ref: f/crash-report
+          path: shared
+      - name: Crash reports on Windows (a panic, and an access violation)
+        shell: bash
+        run: |
+          cd shared
+          d="$RUNNER_TEMP/crashes"
+          for how in panic fault; do
+            rm -rf "$d"; mkdir -p "$d"
+            cargo run --release -q -p mdshared-app --example crash -- "$d" $how || echo "exit $? (expected)"
+            echo "== $how"; cat "$d"/crash-*.txt
+            grep -q "on purpose" "$d"/crash-*.txt
+          done
+          grep -q "access violation" "$d"/crash-*.txt
       - name: Pictures of the pane
         shell: bash
         continue-on-error: true
