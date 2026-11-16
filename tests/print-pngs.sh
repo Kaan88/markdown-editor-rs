@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Prints PNG files as base64 between markers, for reading pictures out of a CI log where the
-# artifacts cannot be downloaded. tools/mac-look-decode.sh writes them back to files.
+# artifacts cannot be downloaded. tools/mac-look-decode.sh writes them back to files, each named
+# after its folder and file (target/window/rs/screen.png is rs-screen.png).
 #
 #   tests/print-pngs.sh file.png...
 for f in "$@"; do
     [ -f "$f" ] || { echo "missing: $f"; continue; }
-    echo "=====PNG-BEGIN $(basename "$f")====="
+    echo "=====PNG-BEGIN $(basename "$(dirname "$f")")-$(basename "$f")====="
     base64 < "$f" | tr -d '\n' | fold -w 76
     echo
     echo "=====PNG-END====="

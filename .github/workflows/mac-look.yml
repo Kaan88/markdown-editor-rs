@@ -35,13 +35,15 @@ jobs:
         with:
           key: mac-look
       - run: cargo build --release -p mdedit
+      - name: The bundle
+        run: bash packaging/macos/make-bundle.sh target/release target/dist
       - name: Typing in a real window
-        run: bash tests/mac-typing.sh target/typing target/release/mdedit
+        run: bash tests/mac-typing.sh target/typing target/dist/mdedit.app
       - name: The app in a real window
         if: ${{ !cancelled() }}
         run: |
-          bash tests/mac-window.sh target/window/rs target/release/mdedit --no-session fixtures/sample.rs
-          bash tests/mac-window.sh target/window/md-dark target/release/mdedit --no-session --dark fixtures/sample.md
+          bash tests/mac-window.sh target/window/rs target/dist/mdedit.app --no-session "$PWD/fixtures/sample.rs"
+          bash tests/mac-window.sh target/window/md-dark target/dist/mdedit.app --no-session --dark "$PWD/fixtures/sample.md"
       - name: Screenshot suite
         if: ${{ !cancelled() }}
         run: bash tests/shots.sh target/shots
@@ -59,4 +61,5 @@ jobs:
             target/shots/*.png
             target/window/**
             target/typing/**
+            target/dist/**
           retention-days: 14
