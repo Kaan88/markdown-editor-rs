@@ -5221,7 +5221,7 @@ let a = 1;
         assert_eq!(d.active(), Some(0));
         assert_eq!(d.tabs[0].name(), "c.txt");
         d.close(0, None);
-        assert_eq!(d.tabs.len(), if cfg!(windows) { 2 } else { 3 });
+        assert_eq!(d.tabs.len(), if one { 2 } else { 3 });
         assert_eq!(d.active(), Some(0));
         d.close_all(None);
         assert!(d.tabs.is_empty() && d.active().is_none());
