@@ -3,6 +3,11 @@
 # false is a dry build: everything is built and checked, and uploaded as one artifact.
 # Windows files are built natively on a Windows runner, Linux files in the old-glibc image of
 # packaging/linux/Dockerfile. See docs/CI.md.
+# macOS files (a zipped .app with the ad-hoc signature, Apple Silicon and Intel) are built on
+# GitHub's macOS runners and go in every release with their own manifest, <app>-update-macos.txt.
+# A manual run with attach_macos_to: v<version> builds only those and adds them to that existing
+# release.
+
 name: release
 
 on:
@@ -14,6 +19,10 @@ on:
         description: "Create the GitHub release (false is a dry build: the files are uploaded as an artifact)"
         type: boolean
         default: false
+      attach_macos_to:
+        description: "Only build the macOS files and add them to this existing release (v<version>, the workspace's)"
+        type: string
+        default: ''
 
 concurrency:
   group: release-${{ github.ref }}
@@ -33,15 +42,18 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       publish: ${{ steps.meta.outputs.publish }}
+      attach: ${{ steps.meta.outputs.attach }}
     steps:
       - uses: actions/checkout@v4
       - id: meta
         run: .github/scripts/meta.sh
         env:
           INPUT_PUBLISH: ${{ inputs.publish }}
+          INPUT_ATTACH: ${{ inputs.attach_macos_to }}
 
   windows:
     needs: meta
+    if: needs.meta.outputs.attach == ''
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -85,6 +97,7 @@ jobs:
 
   linux:
     needs: meta
+    if: needs.meta.outputs.attach == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -132,8 +145,74 @@ jobs:
             target/dist-linux/*.lintian.txt
           if-no-files-found: error
 
+  macos:
+    needs: meta
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: aarch64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos-${{ matrix.arch }}
+      - name: The bundle (packaging/macos/make-bundle.sh, ad-hoc signature), zipped
+        run: |
+          cargo build --release -p mdedit
+          bash packaging/macos/make-bundle.sh target/release target/dist
+          codesign --verify --deep --strict target/dist/mdedit.app
+          zip="target/dist/mdedit-${{ needs.meta.outputs.version }}-macos-${{ matrix.arch }}.zip"
+          ditto -c -k --keepParent target/dist/mdedit.app "$zip"
+          shasum -a 256 "$zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-files-${{ matrix.arch }}
+          path: target/dist/*.zip
+          if-no-files-found: error
+
+  attach:
+    needs: [meta, macos]
+    if: needs.meta.outputs.attach != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # gh release upload and edit, and only here
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      TAG: ${{ needs.meta.outputs.attach }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: macos-files-*
+          merge-multiple: true
+          path: mac
+      - name: Manifest, then add the files to the release and the macOS paragraph to its text
+        run: |
+          .github/scripts/notes.sh "$VERSION" notes
+          packaging/macos/write-manifest.sh mdedit Kaan88/markdown-editor-rs "$VERSION" "$(cat notes/notes-line.txt)" mac \
+            "mac/mdedit-$VERSION-macos-aarch64.zip" "mac/mdedit-$VERSION-macos-x86_64.zip"
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "mac/mdedit-$VERSION-macos-aarch64.zip" "mac/mdedit-$VERSION-macos-x86_64.zip" \
+            "mac/mdedit-update-macos.txt"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body -q .body > body.md
+          if ! grep -q '^## macOS' body.md; then
+            sed "s/APP/mdedit/g; s/VERSION/$VERSION/g" packaging/macos/release-notes.md >> body.md
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file body.md
+          fi
+
   publish:
-    needs: [meta, windows, linux]
+    needs: [meta, windows, linux, macos]
+    if: needs.meta.outputs.attach == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -166,6 +245,7 @@ jobs:
           mkdir -p "$all"
           find parts -type f -exec cp {} "$all/" \;
           .github/scripts/notes.sh "$VERSION" notes
+          sed "s/APP/mdedit/g; s/VERSION/$VERSION/g" packaging/macos/release-notes.md >> notes/release-notes.md
           ls -l "$all"
       - name: Manifest (both platforms), every hash checked
         run: |
@@ -185,6 +265,9 @@ jobs:
           # The packages that carry no manifest entry: the PKGBUILD names the tar.gz's hash.
           tgz="$all/mdedit-$VERSION-linux-x86_64.tar.gz"
           grep -q "sha256sums=('$(sha256sum "$tgz" | cut -d' ' -f1)')" "$all/PKGBUILD"
+          # The macOS builds read a manifest of their own.
+          packaging/macos/write-manifest.sh mdedit Kaan88/markdown-editor-rs "$VERSION" "$(cat notes/notes-line.txt)" "$all" \
+            "$all/mdedit-$VERSION-macos-aarch64.zip" "$all/mdedit-$VERSION-macos-x86_64.zip"
       - name: The manifest test, run against the assembled folder
         run: cargo test --release -p mdedit --test release_manifest -- --nocapture
       - name: Create the GitHub release
@@ -197,6 +280,7 @@ jobs:
             "mdedit_${VERSION}_amd64.deb" "mdedit-$VERSION-1.x86_64.rpm" PKGBUILD \
             "mdedit-$VERSION-windows-x86_64.exe" "mdedit-$VERSION-windows-x86_64.zip" \
             "mdedit-setup-$VERSION.exe" "mdedit-update.txt" \
+            "mdedit-$VERSION-macos-aarch64.zip" "mdedit-$VERSION-macos-x86_64.zip" "mdedit-update-macos.txt" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "mdedit $VERSION" \
             --notes-file "$GITHUB_WORKSPACE/notes/release-notes.md" --latest
       - name: Dry run, everything as one artifact
