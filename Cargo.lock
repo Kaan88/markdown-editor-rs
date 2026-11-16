@@ -1318,6 +1318,7 @@ name = "mdedit"
 version = "0.7.1"
 dependencies = [
  "bytemuck",
+ "libc",
  "mdedit-core",
  "mdedit-highlight",
  "mdedit-outline",
@@ -1370,7 +1371,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9ff952adfdba0a688fa0fba2a2d461a31d36fdce#9ff952adfdba0a688fa0fba2a2d461a31d36fdce"
 dependencies = [
  "notify",
 ]
@@ -1378,7 +1379,7 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9ff952adfdba0a688fa0fba2a2d461a31d36fdce#9ff952adfdba0a688fa0fba2a2d461a31d36fdce"
 dependencies = [
  "libloading",
  "windows-sys 0.59.0",
@@ -1387,7 +1388,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9ff952adfdba0a688fa0fba2a2d461a31d36fdce#9ff952adfdba0a688fa0fba2a2d461a31d36fdce"
 dependencies = [
  "syntect",
 ]
@@ -1395,7 +1396,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9ff952adfdba0a688fa0fba2a2d461a31d36fdce#9ff952adfdba0a688fa0fba2a2d461a31d36fdce"
 dependencies = [
  "parley",
  "png",
@@ -1405,7 +1406,7 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=9ff952adfdba0a688fa0fba2a2d461a31d36fdce#9ff952adfdba0a688fa0fba2a2d461a31d36fdce"
 dependencies = [
  "arboard",
  "mdshared-app",

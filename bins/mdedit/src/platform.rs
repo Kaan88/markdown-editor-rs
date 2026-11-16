@@ -385,7 +385,8 @@ pub fn memory() -> Option<Memory> {
 }
 
 /// Linux: `RssAnon` (memory private to the process, the counterpart of Windows' private bytes)
-/// and `VmHWM` (the peak resident set) from `/proc/self/status`. Other systems: none.
+/// and `VmHWM` (the peak resident set) from `/proc/self/status`. macOS: the physical footprint
+/// (what Activity Monitor shows as Memory) and its peak. Other systems: none.
 #[cfg(not(windows))]
 pub fn memory() -> Option<Memory> {
     #[cfg(target_os = "linux")]
@@ -393,7 +394,24 @@ pub fn memory() -> Option<Memory> {
         let status = std::fs::read_to_string("/proc/self/status").ok()?;
         parse_status(&status)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: a zeroed rusage_info_v4 is valid, and the call writes at most one of them for
+        // this process.
+        let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+        let ok = unsafe {
+            libc::proc_pid_rusage(
+                std::process::id() as libc::c_int,
+                libc::RUSAGE_INFO_V4,
+                (&mut info as *mut libc::rusage_info_v4).cast(),
+            )
+        };
+        (ok == 0).then_some(Memory {
+            private: info.ri_phys_footprint,
+            peak_working_set: info.ri_lifetime_max_phys_footprint,
+        })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     None
 }
 
@@ -436,7 +454,8 @@ pub fn cpu_time() -> Option<Duration> {
 }
 
 /// Linux: user plus system time of the process from `/proc/self/stat`, in clock ticks of
-/// `USER_HZ`, which is 100 on every Linux. Other systems: none.
+/// `USER_HZ`, which is 100 on every Linux. macOS: the same two from `getrusage`. Other systems:
+/// none.
 #[cfg(not(windows))]
 pub fn cpu_time() -> Option<Duration> {
     #[cfg(target_os = "linux")]
@@ -444,7 +463,19 @@ pub fn cpu_time() -> Option<Duration> {
         let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
         parse_stat(&stat)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: a zeroed rusage is valid and getrusage fills it for this process.
+        let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+        if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) } != 0 {
+            return None;
+        }
+        let t = |v: libc::timeval| {
+            Duration::from_secs(v.tv_sec as u64) + Duration::from_micros(v.tv_usec as u64)
+        };
+        Some(t(u.ru_utime) + t(u.ru_stime))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     None
 }
 

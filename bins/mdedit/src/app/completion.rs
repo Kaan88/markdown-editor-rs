@@ -556,12 +556,13 @@ mod tests {
         }
     }
 
+    /// The completion shortcut as this platform has it: Ctrl+Space, or on a Mac Option+Escape
+    /// (Command+Space is Spotlight).
     fn ctrl_space(a: &mut App) {
-        a.mods = Mods {
-            ctrl: true,
-            ..Mods::default()
-        };
-        press(a, KeyName::Space, None);
+        let chord = mdshared_ui::keys::parse(mdshared_ui::keys::for_platform("Ctrl+Space"))
+            .expect("the completion shortcut parses");
+        a.mods = chord.mods;
+        press(a, chord.key, None);
         a.mods = Mods::default();
     }
 
@@ -869,8 +870,14 @@ mod tests {
             alt: true,
             ..Mods::default()
         };
+        // On a Mac Command+Space is Spotlight: the shortcut is Option+Escape there.
+        let (key, mods) = if mdshared_ui::keys::MAC {
+            (KeyName::Escape, alt)
+        } else {
+            (KeyName::Space, ctrl)
+        };
         assert_eq!(
-            crate::keys::command_for(&Key::Name(KeyName::Space), ctrl),
+            crate::keys::command_for(&Key::Name(key), mods),
             Some(C::CompleteWord)
         );
         assert_eq!(

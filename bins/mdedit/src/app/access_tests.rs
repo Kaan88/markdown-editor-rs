@@ -174,11 +174,9 @@ fn the_completion_list_does_not_read_access_keys_and_typing_goes_on() {
     let r = a.docs.active_ready_mut().unwrap();
     let end = r.buffer.len_bytes();
     r.view.sel = mdedit_core::Selection::at(end);
-    a.mods = Mods {
-        ctrl: true,
-        ..Mods::default()
-    };
-    press(&mut a, KeyName::Space, None);
+    let chord = mdshared_ui::keys::parse(mdshared_ui::keys::for_platform("Ctrl+Space")).unwrap();
+    a.mods = chord.mods;
+    press(&mut a, chord.key, None);
     a.mods = Mods::default();
     assert!(a.completion_showing());
     assert_eq!(a.ui.popup.as_mut().unwrap().menu.access_key('p'), None);

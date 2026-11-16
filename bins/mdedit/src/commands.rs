@@ -152,6 +152,8 @@ use CommandId as C;
 
 const SHOW_IN_FILE_MANAGER: &str = if cfg!(windows) {
     "Show in File Explorer"
+} else if cfg!(target_os = "macos") {
+    "Show in Finder"
 } else {
     "Show in file manager"
 };
@@ -605,14 +607,20 @@ mod tests {
     #[test]
     fn help_lists_every_bound_command() {
         let help = shortcut_help();
+        // Printed as the platform prints them (on a Mac in its symbols).
+        let l = mdshared_ui::keys::label;
+        let copy = format!("{}, {}", l("Ctrl+C"), l("Ctrl+Insert"));
+        assert!(help.iter().any(|(k, c)| *k == copy && *c == "Copy"));
+        let close = format!("{}, {}", l("Ctrl+W"), l("Ctrl+F4"));
+        assert!(help.iter().any(|(k, _)| *k == close));
+        let column = if mdshared_ui::keys::MAC {
+            strings::COLUMN_KEYS_MAC
+        } else {
+            "Alt+Shift+Arrows, Alt+Drag"
+        };
         assert!(
             help.iter()
-                .any(|(k, l)| k == "Ctrl+C, Ctrl+Insert" && *l == "Copy")
-        );
-        assert!(help.iter().any(|(k, _)| k == "Ctrl+W, Ctrl+F4"));
-        assert!(
-            help.iter()
-                .any(|(k, l)| k == "Alt+Shift+Arrows, Alt+Drag" && *l == "Select a column")
+                .any(|(k, c)| k == column && *c == "Select a column")
         );
         assert_eq!(hint(CommandId::FindNext), "F3");
         assert_eq!(hint(CommandId::About), "");

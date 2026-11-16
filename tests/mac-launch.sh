@@ -7,10 +7,12 @@ launch() {
     if [[ "$target" == *.app ]]; then
         local exe
         exe="$(cd "$target/Contents/MacOS" && pwd)/$(defaults read "$(cd "$target" && pwd)/Contents/Info" CFBundleExecutable)"
-        open -n "$target" --stdout "$out/app.log" --stderr "$out/app.log" --args "$@"
+        # Not `open -n`: a copy started as a new instance is not the one LaunchServices sends
+        # later open-documents events to. The tests end each copy before the next starts.
+        open "$target" --stdout "$out/app.log" --stderr "$out/app.log" --args "$@"
         pid=""
         for _ in $(seq 1 40); do
-            pid="$(pgrep -n -f "^$exe" || true)"
+            pid="$(pgrep -n -f "^$exe( |\$)" || true)"
             [ -n "$pid" ] && break
             sleep 0.25
         done

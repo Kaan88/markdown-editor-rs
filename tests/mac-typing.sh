@@ -57,6 +57,19 @@ se 'keystroke "v" using command down'
 se 'keystroke "s" using command down'
 check "Command+A, X and V" "Xabc éXabc é"
 screencapture -x "$out/screen.png" && echo "screen captured"
+# The system's open panel (rfd, from a helper thread) opens with Command+O and closes with Escape.
+se 'keystroke "o" using command down'
+sleep 2
+screencapture -x "$out/open-panel.png" && echo "open panel captured"
+se 'key code 53'
+sleep 1
+if kill -0 "$pid" 2>/dev/null; then echo "PASS the open panel opens and closes"; else echo "FAIL the open panel ended the process"; fail=1; fi
+# The Edit menu, opened from the menu bar: its items are disabled over the window.
+se 'tell process "mdedit" to click menu bar item "Edit" of menu bar 1' || echo "no Edit menu"
+sleep 1
+screencapture -x "$out/edit-menu.png" && echo "edit menu captured"
+se 'key code 53'
+sleep 0.5
 # Command+Q with unsaved changes asks first (winit's own Quit would end the process at once).
 se 'keystroke "!"'
 se 'keystroke "q" using command down'

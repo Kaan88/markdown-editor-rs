@@ -51,7 +51,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           bash tests/print-pngs.sh \
-            target/typing/screen.png target/typing/quit.png target/window/rs/window.png target/window/md-dark/window.png \
+            target/typing/screen.png target/typing/open-panel.png target/typing/edit-menu.png target/typing/quit.png target/window/rs/window.png target/window/md-dark/window.png \
             target/shots/rs-light.png target/shots/menu-main.png target/shots/cjk.png
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}

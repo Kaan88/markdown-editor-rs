@@ -52,3 +52,5 @@ winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] 
 softbuffer = { version = "=0.4.8", default-features = false }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSBitmapImageRep", "NSImageRep"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSString"] }
+# The memory and CPU figures --trace prints (proc_pid_rusage, getrusage). Already in the build.
+libc = "0.2"
