@@ -55,10 +55,7 @@ impl App {
                 BarItem::Reload => self.command(C::Reload),
                 BarItem::Recent => self.command(C::OpenRecent),
                 BarItem::Files => self.command(C::ToggleFiles),
-                BarItem::Preview if chrome::preview_button(&self.docs) == Some(true) => {
-                    self.command(C::PreviewInViewer)
-                }
-                BarItem::Preview => self.command(C::PreviewSideBySide),
+                BarItem::Preview => self.command(C::PreviewPane),
                 BarItem::FindPrev => self.command(C::FindPrevious),
                 BarItem::FindNext => self.command(C::FindNext),
                 BarItem::Theme => self.command(C::Theme),
@@ -992,7 +989,8 @@ impl App {
             | C::CompareSaved
             | C::ShowInOtherPane
             | C::PreviewInViewer
-            | C::PreviewSideBySide => {
+            | C::PreviewSideBySide
+            | C::PreviewPane => {
                 self.docs.activate(index);
                 self.command(id);
             }
@@ -1644,8 +1642,11 @@ impl App {
                     self.docs.set_toast(strings::SPLIT_NEEDS_TWO);
                 }
             }
+            // Without mdview the previews are not offered, and their keys do nothing.
+            C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane if !self.docs.viewer => {}
             C::PreviewInViewer => self.preview(false),
             C::PreviewSideBySide => self.preview(true),
+            C::PreviewPane => self.toggle_preview_pane(),
             C::FocusOther => {
                 if self.docs.focus_other() {
                     self.ui.find_focused = false;
@@ -1833,6 +1834,8 @@ impl App {
                     .unwrap_or_default();
                 self.handed_over(requests);
             }
+            // The pane's answer is taken in by the pass after this event (`preview_sync`).
+            Wake::Preview => {}
             Wake::Link => {
                 // The links are over; the next frame no longer shows the mark.
                 self.docs.links.take_gone();
@@ -2105,6 +2108,9 @@ impl App {
                 max,
                 self.type_edit_ms / count,
             );
+            if let Some(line) = self.preview_summary() {
+                eprintln!("mdedit: {line}");
+            }
             self.exit = true;
             return;
         }

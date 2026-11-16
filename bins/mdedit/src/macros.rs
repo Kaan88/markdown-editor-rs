@@ -543,6 +543,7 @@ pub fn recordable(id: C) -> bool {
             | C::ShowInOtherPane
             | C::PreviewInViewer
             | C::PreviewSideBySide
+            | C::PreviewPane
             | C::CompareFile
             | C::CompareSaved
             | C::StopCompare

@@ -167,13 +167,21 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
         return Vec::new();
     };
     let linked = docs.links.contains(doc.id);
-    if !doc.is_markdown() && !linked && doc.path.is_some() {
+    if !docs.viewer || (!doc.is_markdown() && !linked && doc.path.is_some()) {
         return Vec::new();
     }
     // Different letters in the View menu and the tab menu, where the other items take the rest.
-    let (preview, side) = match index {
-        Some(_) => ("&Preview in mdview", "Preview side &by side"),
-        None => ("&Preview in mdview", "Pre&view side by side"),
+    let (here, preview, side) = match index {
+        Some(_) => (
+            "Preview in t&his window",
+            "&Preview in mdview",
+            "Preview side &by side",
+        ),
+        None => (
+            "Preview in thi&s window",
+            "&Preview in mdview",
+            "Pre&view side by side",
+        ),
     };
     let item = |id: C, label: &str| {
         let item = match index {
@@ -183,7 +191,8 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
         item.icon(glyph::VIEW)
     };
     vec![
-        item(C::PreviewInViewer, preview).checked(linked).sep(),
+        item(C::PreviewPane, here).checked(docs.pane_open).sep(),
+        item(C::PreviewInViewer, preview).checked(linked),
         item(C::PreviewSideBySide, side).checked(linked && docs.links.side_by_side),
     ]
 }

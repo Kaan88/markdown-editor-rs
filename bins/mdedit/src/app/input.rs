@@ -965,6 +965,11 @@ impl App {
             }
             return;
         }
+        if self.ui.dialog.is_none()
+            && self.preview_wheel(x, y, ny as f32, pixels.map(|(_, py)| py as f32))
+        {
+            return;
+        }
         if self.ui.dialog.is_some() {
             if let Some(d) = self.ui.dialog.as_ref() {
                 let dy = match pixels {

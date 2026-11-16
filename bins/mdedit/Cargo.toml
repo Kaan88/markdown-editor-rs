@@ -5,6 +5,11 @@ edition.workspace = true
 publish.workspace = true
 description = "mdedit: the winit + softbuffer shell. Every control is drawn by this crate or by mdshared-ui."
 
+[features]
+# Draws the preview pane in this process with mdview's renderer built in, instead of asking the
+# installed mdview to draw it. For comparing the two; the default build carries no renderer.
+embedded-preview = ["mdview-preview/server", "dep:mdview-render"]
+
 [[bin]]
 name = "mdedit"
 path = "src/main.rs"
@@ -24,6 +29,10 @@ parley.workspace = true
 bytemuck.workspace = true
 # The PNG a Windows clipboard bitmap is saved as; already in the build through mdshared-text.
 png = "0.18"
+# The preview pane (src/preview_pane.rs). The wire format to `mdview --preview-server` always;
+# mdview's renderer itself only in the embedded build (the feature below).
+mdview-preview = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "1ad3d0ee750021504a3d03b3974d6d4e7ab02376" }
+mdview-render = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "1ad3d0ee750021504a3d03b3974d6d4e7ab02376", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }

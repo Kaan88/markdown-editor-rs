@@ -21,6 +21,7 @@ mod overlays;
 mod palette;
 mod panes;
 mod platform;
+mod preview_pane;
 mod recall;
 mod recovery;
 mod replace_ui;

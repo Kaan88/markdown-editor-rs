@@ -133,6 +133,8 @@ pub enum CommandId {
     /// the same with the two windows placed side by side.
     PreviewInViewer,
     PreviewSideBySide,
+    /// The preview pane beside the text, drawn by mdview's renderer; again closes it.
+    PreviewPane,
     /// The word and snippet list at the caret; the snippets file.
     CompleteWord,
     OpenSnippets,
@@ -278,6 +280,7 @@ pub const COMMANDS: &[Command] = &[
         &["Ctrl+Shift+V"],
     ),
     cmd(C::PreviewSideBySide, "Preview side by side", &[]),
+    cmd(C::PreviewPane, "Preview in this window, or close it", &[]),
     cmd(C::RecordMacro, "Record a macro, or stop", &["Ctrl+Shift+R"]),
     cmd(C::PlayMacro, "Play the macro", &["Ctrl+Shift+P"]),
     cmd(

@@ -333,7 +333,7 @@ fn icon(id: C) -> &'static str {
         C::FoldAll => glyph::FOLD_ALL,
         C::UnfoldAll => glyph::UNFOLD,
         C::ToggleSplit | C::CompareOther | C::ShowInOtherPane => glyph::SPLIT,
-        C::PreviewInViewer | C::PreviewSideBySide => glyph::VIEW,
+        C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => glyph::VIEW,
         C::FocusOther | C::FocusResults => glyph::OTHER_PANE,
         C::CompareFile => glyph::OPEN,
         C::CompareSaved => glyph::SAVE,
@@ -431,7 +431,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::PinTab => has_tab,
         C::CopyFilePath | C::ShowInFileManager => has_file,
         // A document that has no file is previewed from its text.
-        C::PreviewInViewer | C::PreviewSideBySide => has_tab,
+        C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => has_tab,
         C::Undo => ready.is_some_and(|r| r.history.can_undo()),
         C::Redo => ready.is_some_and(|r| r.history.can_redo()),
         C::Cut | C::Copy | C::UpperCase | C::LowerCase => selected,
@@ -471,6 +471,8 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
         let listed = match c.id {
             C::CommandPalette | C::Escape | C::Theme | C::OpenRecent => false,
             C::MakeDefault => make_default_offered(),
+            // Without mdview there is no preview at all, not even greyed.
+            C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => src.docs.viewer,
             _ => true,
         };
         if !listed {

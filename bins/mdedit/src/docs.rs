@@ -1355,6 +1355,12 @@ pub struct Docs {
     pub watch_changed: bool,
     /// The documents previewed in mdview, and what keeps the viewer scrolled to their carets.
     pub links: crate::link::Links,
+    /// mdview is installed: every preview (the pane, in mdview, side by side) is offered only
+    /// then, and is invisible otherwise. Looked for after the start and when the window gets
+    /// the focus back; on in tests, which stand in for the viewer.
+    pub viewer: bool,
+    /// The preview pane is open (the app holds it; menus and the bar read this).
+    pub pane_open: bool,
 }
 
 impl Docs {
@@ -1390,6 +1396,8 @@ impl Docs {
             prefs: Prefs::default(),
             watch_changed: true,
             links: crate::link::Links::default(),
+            viewer: cfg!(test),
+            pane_open: false,
         }
     }
 

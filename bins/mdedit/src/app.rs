@@ -67,6 +67,8 @@ mod ime_tests;
 mod input;
 pub(crate) mod modal;
 mod palette_events;
+mod preview;
+pub(crate) use preview::previewable;
 #[cfg(test)]
 mod pin_tests;
 mod replace_files;
@@ -100,6 +102,8 @@ pub enum Wake {
     Menu(mdshared_ui::menu_bar::AppCommand),
     /// The viewer that a preview was following is gone.
     Link,
+    /// The preview pane has an answer.
+    Preview,
     /// The file watcher saw a change.
     Files,
     /// A load made progress or finished.
@@ -201,6 +205,10 @@ struct App {
     incoming: Option<Receiver<Request>>,
     /// When the viewer is next told the caret's line, if an update is held back.
     link_due: Option<Instant>,
+    /// The preview pane, while it is open (src/preview_pane.rs).
+    pub(crate) preview: Option<crate::preview_pane::Pane>,
+    /// The installed mdview, as last looked for; `None` before the first look.
+    viewer_path: Option<Option<PathBuf>>,
     watcher: Option<FileWatcher>,
     session_path: Option<PathBuf>,
     /// Write the session on exit (not in `--shot`).
@@ -222,9 +230,9 @@ struct App {
     snap_sent: Option<Option<(i32, i32, i32, i32)>>,
     focused: bool,
     areas: Areas,
-    hits: [Vec<(Hit, Rect)>; 9],
+    hits: [Vec<(Hit, Rect)>; 10],
     overlay_hits: Vec<(Hit, Rect)>,
-    sigs: [u64; 9],
+    sigs: [u64; 10],
     /// The minimap's window and band as of the last frame, the lines of its window, and its
     /// drawing.
     /// One of each for the pane with the keyboard and for the second pane.
@@ -369,6 +377,8 @@ impl App {
             frost: crate::frost::Frost::default(),
             incoming: None,
             link_due: None,
+            preview: None,
+            viewer_path: None,
             watcher: None,
             session_path,
             session,
@@ -384,7 +394,7 @@ impl App {
             areas: Areas::default(),
             hits: Default::default(),
             overlay_hits: Vec::new(),
-            sigs: [0; 9],
+            sigs: [0; 10],
             map_plan: [None; 2],
             map_lines: [None, None],
             map_cache: Default::default(),
@@ -971,6 +981,10 @@ impl App {
                 };
                 self.minimap_sig(common, pane, doc, Some((ready, v)))
             }
+            Region::Preview => match &self.preview {
+                Some(p) => sig((common, p.generation, p.ended.as_deref(), self.dark())),
+                None => sig((common, "closed")),
+            },
             Region::Status => sig((common, status::fields(&self.docs), self.dark())),
             Region::Results => {
                 let drag = matches!(
@@ -1076,7 +1090,7 @@ impl App {
         times.layout = t0.elapsed();
 
         let t1 = Instant::now();
-        let mut dirty = [self.full; 9];
+        let mut dirty = [self.full; 10];
         for r in REGIONS {
             let rect = self.areas.region(r);
             let s = self.region_sig(r, rect);
@@ -1345,6 +1359,9 @@ impl App {
                             let hot = hover == Some(hit);
                             minimap::draw(&mut c, map_cache, None, plan.as_ref(), rect, look(hot));
                         }
+                    }
+                    Region::Preview => {
+                        crate::preview_pane::draw(&mut c, self.preview.as_ref(), &self.docs, rect)
                     }
                     Region::Status => status::draw(&mut c, &self.docs, rect),
                     Region::Results => crate::results::draw(&mut c, &mut self.ui, rect),
@@ -1756,8 +1773,10 @@ impl App {
             return Some(Hit::ResultsEdge);
         }
         // The line between two panes is not drawn by a region: it is where the layout says.
-        if let (Some(d), Some(_)) = (self.areas.divider, self.areas.other)
-            && d.grab(self.areas.text.y, self.areas.text.h).contains(x, y)
+        if let (Some(d), true) = (
+            self.areas.divider,
+            self.areas.other.is_some() || self.areas.preview.is_some(),
+        ) && d.grab(self.areas.text.y, self.areas.text.h).contains(x, y)
         {
             return Some(Hit::Divider);
         }
@@ -2169,6 +2188,10 @@ impl ApplicationHandler<Wake> for App {
                     self.redraw();
                 }
                 if focused {
+                    // mdview may have been installed or removed meanwhile.
+                    if self.settled {
+                        self.look_for_viewer();
+                    }
                     self.caret_reset();
                 } else {
                     self.ui.caret_on = true;
@@ -2289,6 +2312,10 @@ impl ApplicationHandler<Wake> for App {
         self.persist_if_changed();
         self.recover_due = self.recovery.poll(&self.docs, Instant::now());
         self.link_due = self.docs.link_poll(Instant::now());
+        if self.preview.is_some() && self.preview_sync() {
+            self.trace_preview_page();
+            self.redraw();
+        }
         self.results_due = self.results_sync(Instant::now());
         // The last preview is over (stopped, its tab closed, the viewer gone): the windows go
         // back to where they were.
@@ -2297,11 +2324,16 @@ impl ApplicationHandler<Wake> for App {
         }
         if !self.settled && !self.first && self.is_settled() {
             self.settled = true;
+            // Off the path to the first frame: whether mdview is there to offer previews.
+            self.look_for_viewer();
             self.trace.stage("loading and colouring idle");
             self.trace.memory("idle");
             self.trace.cpu("idle");
+            if self.args.preview_pane && self.preview.is_none() {
+                self.toggle_preview_pane();
+            }
         }
-        if self.type_steps.is_some() && self.settled {
+        if self.type_steps.is_some() && self.settled && self.preview_ready() {
             self.type_step();
             if self.exit {
                 return;
@@ -2381,6 +2413,7 @@ impl App {
                 self.docs.other_left,
                 self.docs.split_ratio,
             )
+            .with_preview(self.preview.is_some(), self.docs.split_ratio)
             .with_minimap(self.docs.minimap && self.docs.active().is_some());
         if areas != self.areas {
             self.areas = areas;
@@ -2402,6 +2435,7 @@ impl App {
             self.notice_h(),
         )
         .with_results(self.ui.results.open, self.ui.results.height)
+        .with_preview(self.preview.is_some(), self.docs.split_ratio)
         .with_minimap(self.docs.minimap && self.docs.active().is_some());
         let text = self.areas.text;
         let mut geom = None;
@@ -2619,6 +2653,16 @@ fn shot(mut app: App, path: &Path) -> i32 {
             let colored = s.wait(deadline.min(Instant::now() + Duration::from_millis(50)));
             app.docs.colored(colored);
         } else {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    if app.args.preview_pane {
+        app.look_for_viewer();
+        app.toggle_preview_pane();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !app.preview_ready() && Instant::now() < deadline {
+            app.compose_layout_only();
+            app.preview_sync();
             std::thread::sleep(Duration::from_millis(5));
         }
     }

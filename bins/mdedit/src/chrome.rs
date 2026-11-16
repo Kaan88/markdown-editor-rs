@@ -264,13 +264,8 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
             BarItem::Reload => with("Reload", CommandId::Reload),
             BarItem::Recent => "Recent files".into(),
             BarItem::Files => with("Files pane", CommandId::ToggleFiles),
-            BarItem::Preview if preview_button(docs) == Some(true) => {
-                with("Stop the preview", CommandId::PreviewInViewer)
-            }
-            BarItem::Preview => with(
-                "Preview in mdview, side by side",
-                CommandId::PreviewSideBySide,
-            ),
+            BarItem::Preview if docs.pane_open => "Close the preview".into(),
+            BarItem::Preview => with("Preview in this window", CommandId::PreviewPane),
             BarItem::FindPrev => with("Previous match", CommandId::FindPrevious),
             BarItem::FindNext => with("Next match", CommandId::FindNext),
             BarItem::Theme => format!("Theme: {} (click to change)", theme_label(docs.theme)),
@@ -432,9 +427,12 @@ pub fn find_label(docs: &Docs) -> (String, bool) {
 /// The bar's Preview button: hidden (None) unless the active document can be previewed in mdview
 /// (as the View menu lists the preview), and pressed (true) while it is.
 pub fn preview_button(docs: &Docs) -> Option<bool> {
+    if !docs.viewer {
+        return None;
+    }
     let doc = docs.active_doc()?;
     let linked = docs.links.contains(doc.id);
-    (doc.is_markdown() || linked || doc.path.is_none()).then_some(linked)
+    (doc.is_markdown() || linked || doc.path.is_none() || docs.pane_open).then_some(docs.pane_open)
 }
 
 pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
