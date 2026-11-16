@@ -62,6 +62,11 @@ neither. A page shorter than the text stops at its bottom as before.
 Tests: `scrolling_either_side_brings_the_other_to_the_same_line`,
 `the_editor_at_its_end_brings_the_page_to_its_end_wrapped_or_not` (fails without the fix; both
 builds).
+Measured on Linux under Xvfb, pane open, 5 interleaved runs, the commit before against this:
+first frame and memory the same; scroll p50/p95 sample.md 1.19/1.24 to 1.39/1.90 ms, PLAN.md
+1.27/1.63 to 1.71/1.96 ms (the ranges overlap; at the end the page now moves where it used to
+stay); keystroke within noise (sample.md p50 1.32 to 1.81, PLAN.md 1.30 to 1.18). Budget under
+4 ms. Pane closed: the code does not run.
 Measured on Linux under Xvfb, `tools/compare-builds.py`, 5 runs, the commit before against
 this: pane closed, every figure within noise; pane open, the scroll frame p50/p95 grows by
 0.5 to 0.8 ms (sample.md 1.07/1.18 to 1.59/1.74 ms; PLAN.md 0.96/1.17 to 1.73/1.97 ms) since the
