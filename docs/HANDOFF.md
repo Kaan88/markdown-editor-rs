@@ -7,6 +7,22 @@ phase 1, and section 16 on editing and saving as built).
 
 ## Preview pane, branch `f/preview-pane` (2026-11-16, not merged, not seen by the owner)
 
+**Decisions of the owner, later the same day (these replace the two-build comparison below):**
+- **The renderer is built in** (feature `embedded-preview`, now the default). The build that
+  asks `mdview --preview-server` to draw stays behind `--no-default-features`, for comparison.
+- **The pane works without mdview.** `mdview-engine` (formulas, diagrams, SVG) ships beside
+  mdedit, looked for there first, then beside mdview. The pane, its bar button and its menu items
+  are always offered; "Preview in mdview" and side by side still need mdview. Checked on Linux
+  with only mdedit and the engine in a folder: math and Mermaid drawn; the engine used 2 to
+  4 MB while alive and had exited 12 s later. Still to do: ship the engine in mdedit's installer,
+  zip, Linux packages and Mac bundle, and have the updater update it (as mdview's does).
+- **`panic = "abort"` stays.** Unwinding so the pane could catch a renderer panic was built and
+  measured on a Windows runner (`tools/compare-builds.py`, 7 runs, run 43886251468): keystroke
+  and scroll p50 about 0.3 ms slower (0.76 to 1.03 ms on sample.rs), first frame +0 to 6 ms,
+  exe 6.53 to 9.60 MB; Linux showed nothing. The embedded build with abort matched `main` on
+  every figure (run 43882888383). The owner chose abort: a renderer panic ends mdedit and crash
+  recovery brings the text back.
+
 The owner asked for a preview inside mdedit, in two versions to compare, and for it to be hidden
 without mdview. Viewer side on the viewer's branch `f/preview-pane` (crate `crates/preview`,
 `mdview --preview-server`, `mdview_render::set_engine_path`); the editor pins that branch's
