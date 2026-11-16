@@ -5,6 +5,51 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Preview pane, branch `f/preview-pane` (2026-11-16, not merged, not seen by the owner)
+
+The owner asked for a preview inside mdedit, in two versions to compare, and for it to be hidden
+without mdview. Viewer side on the viewer's branch `f/preview-pane` (crate `crates/preview`,
+`mdview --preview-server`, `mdview_render::set_engine_path`); the editor pins that branch's
+commit.
+
+- **One pane, two builds.** Default: `mdview --preview-server` draws the page in its own process;
+  mdedit sends the text, the pane size, the caret's line and wheel scrolls over a pipe
+  (`mdview_preview::wire`) and gets back the rows that changed. Feature `embedded-preview`: the
+  same loop (`mdview_preview::serve`) on a thread of mdedit, with mdview's renderer built in.
+  Code: `preview_pane.rs` (the pane, its threads, drawing), `app/preview.rs` (open, close, sync,
+  wheel, tests).
+- **Offered only while mdview is installed** (`sister::find`, looked up at settle and on focus):
+  the bar button, View > "Preview in thi&s window", the tab menu's "Preview in t&his window",
+  the palette and the two other preview commands are hidden, and the commands do nothing. Shown
+  for Markdown, untitled and linked documents. The pane takes the split's place; a split ends.
+- **The page moves only when the caret's line is out of view.** Front matter on line 1 shows
+  from the top.
+- An mdview too old for `--preview-server` (no greeting in 3 s) is stopped and the pane says to
+  update mdview.
+- `--preview-pane` opens the pane at start for `--trace`, `--type-steps` (adds a "preview" line)
+  and `--shot`.
+
+Measured on Linux under Xvfb, 1280x800, release builds:
+| | main | renderer build | embedded build |
+|---|---|---|---|
+| First frame, no pane | 94 ms | 93 ms | 94 ms |
+| Keystroke to pixels p50, pane open (3 runs, 300 keys) | 1.0-1.5 ms | 0.9-1.2 ms | 0.8-1.3 ms |
+| Pane open to first page | | 23-37 ms | 19-23 ms |
+| Keystroke to pane pixels p50 / p95 | | 3.7-5.0 / 5.5-10.5 ms | 2.2-2.7 / 2.8-3.9 ms |
+| Private memory, pane open, all processes (762-line file) | 31.4 MiB (no pane) | 37.0 MiB (33.3 + mdview 3.7) | 36.1 MiB |
+| Exe (Linux, information) | 12.57 MB | +0.06 MB | +1.71 MB |
+
+The pane skips texts while an answer is awaited, so it shows about one keystroke in two
+(embedded) or in three and a half (renderer) during fast typing; both stay inside one frame.
+Not measured: scrolling the pane on its own, and the 100 MB file. Windows: the
+`preview-test` workflow builds the test zip and times both builds on a runner; nothing has been
+run by hand on Windows.
+
+Downsides of embedding, as told to the owner: mdedit's `panic = "abort"` makes a renderer panic
+end mdedit (the renderer build loses only the pane); larger build and exe, mdedit tied to the
+viewer crates' revision and possibly drawing differently from the installed mdview; the
+renderer's caches live in mdedit's memory; math and diagrams still need mdview's engine.
+
 ## After 0.7.1, on `main`, not released (2026-11-16)
 
 Shared crates at `d775493`. Owner's requests of 2026-11-16:
