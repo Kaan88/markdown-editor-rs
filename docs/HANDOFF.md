@@ -5,7 +5,7 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## START HERE: mdedit 1.0.2, a right-click menu on the preview pane (2026-11-16)
+## START HERE: mdedit 1.0.2, a right-click menu on the preview pane (2026-11-16, released)
 
 The owner asked for it after 1.0.1 ("implement right click, only build edit this time"): only
 mdedit is released; the viewer is unchanged and the pin stays at `8faf059`. The owner has not
