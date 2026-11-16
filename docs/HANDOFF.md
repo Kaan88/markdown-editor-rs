@@ -5,7 +5,18 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## Preview pane, branch `f/preview-pane` (2026-11-16, not merged, not seen by the owner)
+## START HERE: mdedit 1.0.0 is released (2026-11-16)
+
+**The released state is `main`, mdedit 1.0.0, tag `v1.0.0` at `3e3f8d8`, published with mdview
+1.0.0 (`94280e0`) on the owner's word, after they approved the preview pane's Windows test build.
+Shared crates: `main` of markdown-shared-rs at `51e7604`. 1.0.0 holds the sections below: the
+preview pane (embedded by default, synced scrolling), the format bar, pinned tabs, crash reports,
+the engine shipped with mdedit; notes in `docs/release-notes/1.0.0.md`, the release record in
+`docs/RELEASE.md`. All feature branches are merged; the `preview-test` workflow now runs by hand
+from `main`. The merged branches (`f/preview-pane`, `f/crash-report`, `f/macos`,
+`f/control-fixes`, `chore/dependabot`) can be deleted; the cloud session could not.**
+
+## Preview pane (2026-11-16, merged, in 1.0.0, approved by the owner)
 
 **Decisions of the owner, later the same day (these replace the two-build comparison below):**
 - **The renderer is built in** (feature `embedded-preview`, now the default). The build that
@@ -178,7 +189,7 @@ end mdedit (the renderer build loses only the pane); larger build and exe, mdedi
 viewer crates' revision and possibly drawing differently from the installed mdview; the
 renderer's caches live in mdedit's memory; math and diagrams still need mdview's engine.
 
-## After 0.7.1, on `main`, not released (2026-11-16)
+## After 0.7.1 (2026-11-16, in 1.0.0)
 
 Shared crates at `d775493`. Owner's requests of 2026-11-16:
 - **Input-method compositions are drawn** (underlined, the selected clause shaded) at the caret in

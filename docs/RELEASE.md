@@ -256,6 +256,31 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.0.0 (published 2026-11-16 by the release workflow, from the tag at commit 3e3f8d8)
+
+Run 43937748930. The tag was pushed by the owner (the cloud session that cut the release could not
+push tags through its proxy). The `ci` run on the same commit (43930227198) had passed on Windows,
+Linux and the Intel Mac; its Apple-silicon Mac job had not got a runner when the tag went out, and
+the release run built and packed that Mac version without failing. Released with mdview 1.0.0
+(the pane's `--preview-server`, protocol `MDVPREVIEW3`); mdview-engine is built from the pinned
+viewer revision `94280e0`.
+Assets: `mdedit-1.0.0-windows-x86_64.exe` (7,969,280 bytes), `mdview-engine.exe`,
+`mdedit-setup-1.0.0.exe`, `mdedit-1.0.0-windows-x86_64.zip`,
+`mdedit-1.0.0-linux-x86_64.AppImage` (15,403,512 bytes), `mdedit-1.0.0-linux-x86_64.tar.gz`,
+`mdedit_1.0.0_amd64.deb`, `mdedit-1.0.0-1.x86_64.rpm`, `PKGBUILD`,
+`mdedit-1.0.0-macos-aarch64.zip`, `mdedit-1.0.0-macos-x86_64.zip`, `mdedit-update.txt` and
+`mdedit-update-macos.txt`.
+
+Verified against the live release: both manifests at the latest-download address name 1.0.0;
+every file they name (exe, engine, AppImage, both Mac zips) downloaded and has the manifest's
+SHA-256; the published AppImage's `--check-update` answered "nothing newer", exit 0.
+
+Before publishing, the owner tried the preview pane's Windows test build of the same code (the
+`preview-test` zip with the scroll-to-the-end fix) and approved it.
+
+Not verified: the published files run on any desktop; an installed 0.7.1 updating itself to
+1.0.0; the installer and the Linux packages installed.
+
 ## v0.7.1 (published 2026-11-15 by the release workflow, from the tag at commit fbb3ac7)
 
 Run 43761807215; the `ci` run on the same commit (43760998757) had passed on Linux and Windows.
