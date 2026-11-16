@@ -140,3 +140,44 @@ jobs:
           name: mdedit-preview-test-windows
           path: mdedit-preview-test-windows.zip
           retention-days: 30
+
+  # mdedit from main against the embedded build, the pane closed: does carrying the renderer cost
+  # anything on the budgets of docs/PLAN.md? tools/compare-builds.py, 7 interleaved runs.
+  compare:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: editor
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: preview-compare
+          workspaces: |
+            editor
+            main
+      - name: Build main and the embedded build
+        shell: bash
+        run: |
+          mkdir -p out/main out/embedded
+          (cd main && cargo build --release -p mdedit && cp target/release/mdedit.exe ../out/main/)
+          cd editor
+          cargo build --release -p mdedit --features embedded-preview
+          cp target/release/mdedit.exe ../out/embedded/
+          mkdir -p target/data
+          cargo run --release -q -p mdedit-core --example gen -- lines 100 target/data/100mb.txt
+          ls -l ../out/*
+      - name: Compare (real windows on the runner)
+        shell: bash
+        run: |
+          cd editor
+          python tools/compare-builds.py ../out/main/mdedit.exe ../out/embedded/mdedit.exe 7 \
+            fixtures/sample.rs fixtures/sample.md fixtures/complete.md target/data/100mb.txt
