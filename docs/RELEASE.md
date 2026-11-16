@@ -260,8 +260,8 @@ dry-run builds of the same commit's parent were installed in Debian 12 and Fedor
 
 Run 43937748930. The tag was pushed by the owner (the cloud session that cut the release could not
 push tags through its proxy). The `ci` run on the same commit (43930227198) had passed on Windows,
-Linux and the Intel Mac; its Apple-silicon Mac job had not got a runner when the tag went out, and
-the release run built and packed that Mac version without failing. Released with mdview 1.0.0
+Linux and the Intel Mac when the tag went out; its Apple-silicon Mac job, still waiting for a
+runner then, passed afterwards. Released with mdview 1.0.0
 (the pane's `--preview-server`, protocol `MDVPREVIEW3`); mdview-engine is built from the pinned
 viewer revision `94280e0`.
 Assets: `mdedit-1.0.0-windows-x86_64.exe` (7,969,280 bytes), `mdview-engine.exe`,
