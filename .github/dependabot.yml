@@ -1,0 +1,38 @@
+# Dependabot keeps the dependencies up to date by opening pull requests only: nothing is merged
+# on its own. CI (.github/workflows/ci.yml) runs on every pull request; a PR is merged by hand
+# after CI passes and, for mdedit, after the budgets in docs/PLAN.md are measured.
+#
+# Left alone, since they are moved by hand:
+# - the sister repositories' crates (mdshared-*, mdview-*), pinned by commit;
+# - winit and softbuffer, patched to the owner's forks in [patch.crates-io].
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    ignore:
+      - dependency-name: "mdshared-*"
+      - dependency-name: "mdview-*"
+      - dependency-name: "winit"
+      - dependency-name: "softbuffer"
+    groups:
+      # Minor and patch updates in one pull request a week; each major update on its own.
+      cargo-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
