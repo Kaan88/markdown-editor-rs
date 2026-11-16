@@ -261,7 +261,7 @@ dry-run builds of the same commit's parent were installed in Debian 12 and Fedor
 Run 43967599050 (the tag made by `gh release create`: the session could not push tags). Selecting
 text on the preview pane; mdview pinned at `8faf059` (1.0.1). Released on the owner's word
 without a hands-on test (the Windows test build of the branch was cancelled at their request);
-the `ci` run on the commit was not waited for. 13 assets, as for 1.0.0.
+the `ci` run on the commit was not waited for (it passed afterwards). 13 assets, as for 1.0.0.
 Verified against the live release: both manifests name 1.0.1, and every file they name
 downloaded with the manifest's SHA-256. Not verified: any published file run on a desktop; a
 1.0.0 install updating itself.
