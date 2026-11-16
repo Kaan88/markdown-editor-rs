@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Writes <app>-update-macos.txt, the manifest the macOS builds read (they only tell of a new
-# version and open the download page: docs/MACOS.md, decision 5), re-reads it and checks every
+# Writes <app>-update-macos.txt, the manifest the macOS builds read (they download the zip and
+# replace their bundle with it: docs/MACOS.md, decision 5), re-reads it and checks every
 # hash. The grammar is mdshared-app's update.rs; the asset names are the file names given, the
 # URLs where GitHub serves the assets of tag v<version>.
 #

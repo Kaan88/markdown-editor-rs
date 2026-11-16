@@ -526,6 +526,7 @@ pub fn recordable(id: C) -> bool {
             | C::CloseTab
             | C::CloseAllTabs
             | C::CloseOtherTabs
+            | C::PinTab
             | C::NextTab
             | C::PreviousTab
             | C::Exit

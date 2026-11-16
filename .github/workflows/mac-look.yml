@@ -7,7 +7,7 @@ name: mac-look
 
 on:
   push:
-    branches: [f/macos]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -37,6 +37,8 @@ jobs:
       - run: cargo build --release -p mdedit
       - name: The bundle
         run: bash packaging/macos/make-bundle.sh target/release target/dist
+      - name: Updating itself (a newer bundle from a local HTTPS server)
+        run: bash tests/mac-update.sh target/update target/dist/mdedit.app
       - name: Typing in a real window
         run: bash tests/mac-typing.sh target/typing target/dist/mdedit.app
       - name: The app in a real window

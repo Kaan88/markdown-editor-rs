@@ -40,6 +40,10 @@ impl App {
             Hit::WinMax => self.toggle_maximized(),
             Hit::WinClose => self.request(After::Exit),
             Hit::NewTab => self.command(C::NewFile),
+            // A pinned tab's button is its pin: pressing it unpins the tab.
+            Hit::TabClose(i) if self.docs.tabs.get(i).is_some_and(|d| d.pinned) => {
+                self.docs.set_pinned(i, false);
+            }
             Hit::TabClose(i) => self.close_tab(i),
             Hit::UpdateGo => self.install_update(),
             Hit::UpdateRestart => self.request(After::Restart),
@@ -821,10 +825,29 @@ impl App {
             self.perform(after);
             return;
         }
+        // A pinned tab closes only once unpinned; closing the others or all passes it by.
+        if let After::CloseTab(id) = after
+            && self
+                .docs
+                .index_of_id(id)
+                .is_some_and(|i| self.docs.tabs[i].pinned)
+        {
+            self.docs.set_toast(crate::commands::strings::PINNED);
+            self.redraw();
+            return;
+        }
+        let pinned: Vec<DocId> = self
+            .docs
+            .tabs
+            .iter()
+            .filter(|d| d.pinned)
+            .map(|d| d.id)
+            .collect();
         let in_scope = |id: DocId| match after {
             After::CloseTab(t) | After::Reload(t) | After::ReadAs(t, _) => id == t,
-            After::CloseOthers(keep) => id != keep,
-            After::CloseAll | After::Exit | After::Restart => true,
+            After::CloseOthers(keep) => id != keep && !pinned.contains(&id),
+            After::CloseAll => !pinned.contains(&id),
+            After::Exit | After::Restart => true,
             After::Nothing => false,
         };
         let next = self
@@ -972,6 +995,10 @@ impl App {
             C::CloseTab => self.request(After::CloseTab(doc)),
             C::CloseOtherTabs => self.request(After::CloseOthers(doc)),
             C::CloseAllTabs => self.request(After::CloseAll),
+            C::PinTab => {
+                let on = !self.docs.tabs[index].pinned;
+                self.docs.set_pinned(index, on);
+            }
             C::CopyFilePath => {
                 if let Some(path) = path
                     && platform::set_clipboard_text(&path.display().to_string())
@@ -1660,7 +1687,7 @@ impl App {
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),
             C::MakeDefault => self.make_default(),
-            C::CloseOtherTabs | C::CopyFilePath | C::ShowInFileManager => {
+            C::CloseOtherTabs | C::PinTab | C::CopyFilePath | C::ShowInFileManager => {
                 if let Some(i) = self.docs.active() {
                     self.tab_command(id, i);
                 }

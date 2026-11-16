@@ -62,9 +62,13 @@ mod files_tests;
 #[cfg(test)]
 mod frost_tests;
 mod handoff;
+#[cfg(test)]
+mod ime_tests;
 mod input;
 pub(crate) mod modal;
 mod palette_events;
+#[cfg(test)]
+mod pin_tests;
 mod replace_files;
 
 const TIP_DELAY: Duration = Duration::from_millis(500);
@@ -832,6 +836,7 @@ impl App {
                                 .map(|r| (r.view.replace_scope.clone(), r.view.scope_on)),
                         ),
                         (ui.goto.text(), ui.goto.caret(), ui.naming),
+                        ui.field().preedit().map(|p| (&p.text, p.cursor)),
                     ),
                     chrome::find_label(&self.docs),
                     ui.panes.files,
@@ -919,8 +924,11 @@ impl App {
                             _ => &r.view,
                         };
                         let sel = v.sel.range();
+                        let preedit = (!second)
+                            .then(|| self.view.preedit.as_ref().map(|p| (&p.text, p.cursor)))
+                            .flatten();
                         sig((
-                            3u8,
+                            (3u8, preedit),
                             (v.top.to_bits(), v.top_row, r.wrap),
                             v.left.to_bits(),
                             (!sel.is_empty()).then_some((sel.start, sel.end)),
@@ -1820,7 +1828,7 @@ impl App {
     /// What the session file holds, as a hash.
     fn session_sig(&self) -> u64 {
         sig((
-            self.docs.paths(),
+            (self.docs.paths(), self.docs.pins()),
             (self.docs.active_among_paths(), self.split_state()),
             self.docs.recents.paths(),
             (!self.theme_from_args).then_some(self.docs.theme),
@@ -1895,6 +1903,7 @@ impl App {
         let split = self.split_state();
         let s = &mut self.session;
         s.tabs = self.docs.paths();
+        s.pinned = self.docs.pins();
         s.active = self.docs.active_among_paths();
         s.split = split;
         s.recent = self.docs.recents.clone();
@@ -2231,9 +2240,13 @@ impl ApplicationHandler<Wake> for App {
             // key, or Chinese, Japanese or Korean input. Input methods are on only on macOS.
             WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ime_commit(&text),
             // The input method's candidate window goes under the caret.
-            WindowEvent::Ime(winit::event::Ime::Enabled | winit::event::Ime::Preedit(..)) => {
-                self.ime_area()
+            // What it is composing shows where it will go, and its candidate window goes under
+            // the caret.
+            WindowEvent::Ime(winit::event::Ime::Preedit(text, cursor)) => {
+                self.ime_preedit(text, cursor)
             }
+            WindowEvent::Ime(winit::event::Ime::Enabled) => self.ime_area(),
+            WindowEvent::Ime(winit::event::Ime::Disabled) => self.ime_preedit(String::new(), None),
             WindowEvent::DroppedFile(path) => self.dropped(path),
             _ => {}
         }
@@ -2795,6 +2808,12 @@ pub fn run() -> i32 {
     if args.check_update {
         return crate::updater::check_and_print();
     }
+    if args.install_update {
+        return mdshared_app::updater::install_and_restart(
+            &crate::updater::APP,
+            &crate::updater::fetch,
+        );
+    }
     // From an AppImage this writes the desktop entry and icon (on a thread); elsewhere nothing.
     mdshared_ui::desktop_entry::ensure(mdshared_ui::desktop_entry::Spec {
         name: "mdedit",
@@ -2943,6 +2962,10 @@ pub fn run() -> i32 {
     // The copies come back as modified tabs.
     let recovered = recovery.restore(&mut docs, found);
     restored.extend(recovered.load.iter().copied());
+    // The pinned tabs are marked now and put first once every index taken here is used.
+    if restore {
+        docs.mark_pinned(&session.pinned);
+    }
     if active.is_none() && !docs.tabs.is_empty() {
         active = Some(0);
     }
@@ -3008,6 +3031,8 @@ pub fn run() -> i32 {
         app.docs.activate(i);
         trace.stage("load started");
     }
+    let pins = app.session.pinned.clone();
+    app.docs.pinned_first(&pins);
     // The split view comes back when both its files did (and the second is not the active one).
     if let Some(split) = app.session.split.clone() {
         app.docs

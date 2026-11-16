@@ -296,6 +296,7 @@ fn icon(id: C) -> &'static str {
         C::CloseTab | C::CloseResults | C::ClearSearch | C::StopCompare => glyph::CLOSE,
         C::CloseAllTabs => glyph::CLOSE_ALL,
         C::CloseOtherTabs => glyph::CLOSE_OTHERS,
+        C::PinTab => glyph::PIN,
         C::Exit => glyph::POWER,
         C::Undo => glyph::UNDO,
         C::Redo => glyph::REDO,
@@ -427,6 +428,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::ReplaceNext
         | C::ReplaceAll => has_tab,
         C::CloseOtherTabs | C::NextTab | C::PreviousTab => many,
+        C::PinTab => has_tab,
         C::CopyFilePath | C::ShowInFileManager => has_file,
         // A document that has no file is previewed from its text.
         C::PreviewInViewer | C::PreviewSideBySide => has_tab,

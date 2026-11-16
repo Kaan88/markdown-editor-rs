@@ -1071,6 +1071,16 @@ impl App {
 
     /// Tells the input method where the caret is, so its candidate window opens beside it.
     pub(super) fn ime_area(&mut self) {
+        if self.ui.find_focused
+            && let Some(area) = self.field_area()
+            && let Some(w) = &self.window
+        {
+            w.set_ime_cursor_area(
+                winit::dpi::LogicalPosition::new(area.x, area.y),
+                winit::dpi::LogicalSize::new(area.w, area.h),
+            );
+            return;
+        }
         let Some(caret) = self.docs.active_ready().map(|r| r.view.sel.caret) else {
             return;
         };
@@ -1136,6 +1146,33 @@ impl App {
     /// Text an input method committed, typed as a key without modifiers would type it. winit
     /// sends a commit only for text the input method composed (a dead key, a held key's accent
     /// menu, CJK), and then no key event for it, so nothing is typed twice.
+    /// What an input method is composing, drawn where it will go by whatever has the keyboard:
+    /// the settings' text box, the palette's query, the bar's box, or the text.
+    pub(super) fn ime_preedit(&mut self, text: String, cursor: Option<(usize, usize)>) {
+        use mdshared_ui::textfield::Preedit;
+        let pre = Preedit::new(text, cursor);
+        self.view.preedit = None;
+        let shown = if let Some(f) = self.ui.settings.as_mut() {
+            self.ui.overlay_tick += 1;
+            f.set_preedit(pre)
+        } else if let Some(open) = self.palette.open.as_mut() {
+            self.palette.tick += 1;
+            open.palette.set_preedit(pre)
+        } else if self.ui.find_focused {
+            self.ui.field_mut().set_preedit(pre)
+        } else if self.text_focused() {
+            self.view.preedit = pre;
+            true
+        } else {
+            false
+        };
+        if shown {
+            self.caret_reset();
+            self.redraw();
+        }
+        self.ime_area();
+    }
+
     pub(super) fn ime_commit(&mut self, text: &str) {
         let Some(c) = text.chars().next() else {
             return;

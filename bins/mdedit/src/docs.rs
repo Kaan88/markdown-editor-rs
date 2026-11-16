@@ -1038,6 +1038,9 @@ pub struct Doc {
     cancel: Option<Arc<AtomicBool>>,
     /// A name that stands for the file's (a read-only copy made for a comparison).
     pub title: Option<String>,
+    /// Pinned: kept at the left with the other pinned tabs, and closed only once unpinned
+    /// (Close other tabs and Close all tabs pass it by). Kept in the session.
+    pub pinned: bool,
 }
 
 impl Doc {
@@ -1061,6 +1064,7 @@ impl Doc {
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
             title: None,
+            pinned: false,
         }
     }
 
@@ -1510,6 +1514,7 @@ impl Docs {
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             cancel: None,
             title: None,
+            pinned: false,
         });
         let i = self.tabs.len() - 1;
         self.active = Some(i);
@@ -1817,24 +1822,92 @@ impl Docs {
         }
     }
 
+    /// Closes every tab but `keep` and the pinned ones.
     pub fn close_others(&mut self, keep: usize, service: Option<&HighlightService>) {
         let Some(id) = self.tabs.get(keep).map(|d| d.id) else {
             return;
         };
-        while let Some(i) = self.tabs.iter().position(|d| d.id != id) {
+        while let Some(i) = self.tabs.iter().position(|d| d.id != id && !d.pinned) {
             self.close(i, service);
         }
     }
 
+    /// Closes every tab but the pinned ones.
     pub fn close_all(&mut self, service: Option<&HighlightService>) {
-        while !self.tabs.is_empty() {
-            self.close(self.tabs.len() - 1, service);
+        while let Some(i) = self.tabs.iter().rposition(|d| !d.pinned) {
+            self.close(i, service);
         }
     }
 
-    /// Moves tab `from` to `to`; the active tab stays active.
+    /// How many tabs are pinned: they are the first ones.
+    pub fn pinned_count(&self) -> usize {
+        self.tabs.iter().take_while(|d| d.pinned).count()
+    }
+
+    /// Pins or unpins tab `i`. A pinned tab goes to the end of the pinned ones, an unpinned one
+    /// to the start of the others; the active tab stays active. False when nothing changed.
+    pub fn set_pinned(&mut self, i: usize, on: bool) -> bool {
+        if self.tabs.get(i).is_none_or(|d| d.pinned == on) {
+            return false;
+        }
+        let to = if on {
+            self.pinned_count()
+        } else {
+            self.pinned_count() - 1
+        };
+        let active_id = self.active_doc().map(|d| d.id);
+        let mut doc = self.tabs.remove(i);
+        doc.pinned = on;
+        self.tabs.insert(to, doc);
+        self.active = active_id.and_then(|id| self.tabs.iter().position(|d| d.id == id));
+        true
+    }
+
+    /// The pinned tabs, as the session keeps them.
+    pub fn pins(&self) -> Vec<crate::session::Pin> {
+        use crate::session::Pin;
+        self.tabs
+            .iter()
+            .filter(|d| d.pinned)
+            .filter_map(|d| match &d.path {
+                Some(path) => Some(Pin::File(path.clone())),
+                None => (d.untitled > 0).then_some(Pin::Untitled(d.untitled)),
+            })
+            .collect()
+    }
+
+    /// Marks the tabs the session names as pinned (without moving them: see
+    /// [`pinned_first`](Self::pinned_first)).
+    pub fn mark_pinned(&mut self, pins: &[crate::session::Pin]) {
+        for d in &mut self.tabs {
+            d.pinned = pin_place(pins, d).is_some();
+        }
+    }
+
+    /// Puts the pinned tabs first, in the order `pins` names them; the others keep theirs
+    /// (after a session is read). The active tab stays active.
+    pub fn pinned_first(&mut self, pins: &[crate::session::Pin]) {
+        let active_id = self.active_doc().map(|d| d.id);
+        self.tabs.sort_by_key(|d| match d.pinned {
+            true => pin_place(pins, d).unwrap_or(usize::MAX - 1),
+            false => usize::MAX,
+        });
+        self.active = active_id.and_then(|id| self.tabs.iter().position(|d| d.id == id));
+    }
+
+    /// Moves tab `from` to `to`; the active tab stays active. A pinned tab stays among the
+    /// pinned ones and any other after them.
     pub fn move_tab(&mut self, from: usize, to: usize) -> bool {
-        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
+        if from >= self.tabs.len() || to >= self.tabs.len() {
+            return false;
+        }
+        let pinned = self.pinned_count();
+        let to = if self.tabs[from].pinned {
+            to.min(pinned.saturating_sub(1))
+        } else {
+            to.max(pinned)
+        };
+        if from == to {
             return false;
         }
         let active_id = self.active_doc().map(|d| d.id);
@@ -3315,6 +3388,16 @@ fn map_scope(range: Range<usize>, change: &Change) -> Range<usize> {
         at + change.inserted
     };
     start..end.max(start)
+}
+
+/// Where `d` stands in the session's list of pinned tabs, if it is there.
+fn pin_place(pins: &[crate::session::Pin], d: &Doc) -> Option<usize> {
+    use crate::session::Pin;
+    pins.iter().position(|p| match (p, &d.path) {
+        (Pin::File(f), Some(path)) => f == path,
+        (Pin::Untitled(n), None) => *n == d.untitled,
+        _ => false,
+    })
 }
 
 #[cfg(test)]

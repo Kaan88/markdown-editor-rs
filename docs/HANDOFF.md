@@ -5,6 +5,25 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## After 0.7.1, on `main`, not released (2026-11-16)
+
+Shared crates at `d775493`. Owner's requests of 2026-11-16:
+- **Input-method compositions are drawn** (underlined, the selected clause shaded) at the caret in
+  the text, and in the find, palette and settings boxes: `View::draw_preedit`, `ime_preedit` in
+  `app/input.rs`, shared `textfield::Preedit`. Tests in `app/ime_tests.rs`. Not yet tried with a
+  real input method on any system.
+- **macOS updates install themselves** (the owner changed decision 5 of the viewer's
+  `docs/MACOS.md`): the zip is checked, unpacked with `ditto` and the bundle swapped whole, then
+  the app restarts. `--install-update` does the same from a terminal; `tests/mac-update.sh` runs
+  it in the Mac CI job against a local HTTPS server.
+- **Pinned tabs**: "Pin tab" in the tab menu and the palette (`CommandId::PinTab`). Pinned tabs
+  stay first, show a pin where the close button was (pressing it unpins), are passed by Close
+  other tabs and Close all tabs, and Ctrl+W on one says to unpin it first. The session keeps them
+  (`pin=` lines; a note without a file as `pin=#N`, restored with its unsaved text from the
+  backup). Tests in `app/pin_tests.rs`. Budgets on Linux under Xvfb, 7 interleaved runs of
+  `sample.rs`: first frame median 78 ms against 74 before (noise of the machine: 70 to 95 ms
+  both), keystroke p50 1.08 against 1.09 ms. Not measured on Windows.
+
 ## START HERE: mdedit 0.7.1 is released (2026-11-15)
 
 **The released state is `main`, mdedit 0.7.1, tag `v0.7.1` at `fbb3ac7`, published with mdview

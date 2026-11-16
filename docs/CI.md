@@ -71,7 +71,7 @@ version is that release's.
 | `PKGBUILD` | Arch: `makepkg -si` in a folder holding it; installs the tar.gz. |
 | `mdedit-update.txt` | The update manifest (Windows and Linux entries). |
 | `mdedit-<version>-macos-aarch64.zip`, `mdedit-<version>-macos-x86_64.zip` | `mdedit.app` for Apple Silicon and Intel Macs, macOS 12 or later; ad-hoc signed only, so opened with right-click, Open the first time. |
-| `mdedit-update-macos.txt` | The manifest the macOS builds read: they only tell of a new version and open the download page. |
+| `mdedit-update-macos.txt` | The manifest the macOS builds read: they download the zip and replace their bundle with it. |
 
 ## Who should use which
 

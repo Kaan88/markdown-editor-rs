@@ -174,6 +174,8 @@ pub struct Args {
     pub exit_after_ms: Option<u64>,
     /// Look for a newer version, print the answer and exit.
     pub check_update: bool,
+    /// Install a newer version as the update bar would, start it, and exit. No window.
+    pub install_update: bool,
     /// Show the update bar at a stage (`available`, `installing`, `installed`), for a shot.
     pub update_bar: Option<String>,
     /// Open the command palette with this text in its box, for a shot.
@@ -435,6 +437,7 @@ impl Args {
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--check-update" => out.check_update = true,
+                "--install-update" => out.install_update = true,
                 "--update-bar" => {
                     out.update_bar = checked(&a, value(&a), |v| {
                         matches!(

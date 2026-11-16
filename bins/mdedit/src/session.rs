@@ -116,6 +116,30 @@ impl Unsaved {
     }
 }
 
+/// A pinned tab: its file, or the number of a document that has none ("Untitled 2"), whose
+/// text comes back from the backup kept beside the session (`pin=#2`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Pin {
+    File(PathBuf),
+    Untitled(u32),
+}
+
+impl Pin {
+    fn parse(value: &str) -> Option<Pin> {
+        match value.trim().strip_prefix('#') {
+            Some(n) => n.parse().ok().filter(|&n| n > 0).map(Pin::Untitled),
+            None => (!value.is_empty()).then(|| Pin::File(decode_path(value))),
+        }
+    }
+
+    fn serialize(&self) -> String {
+        match self {
+            Pin::File(path) => encode_path(path),
+            Pin::Untitled(n) => format!("#{n}"),
+        }
+    }
+}
+
 /// A split view: the file in the second pane, the side it is on, and the left pane's share of
 /// the width in thousandths.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -179,6 +203,8 @@ impl Split {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Session {
     pub tabs: Vec<PathBuf>,
+    /// The pinned tabs.
+    pub pinned: Vec<Pin>,
     /// The tabs whose unsaved text was kept when the window last closed.
     pub unsaved: Vec<Unsaved>,
     pub active: usize,
@@ -228,6 +254,7 @@ impl Default for Session {
     fn default() -> Session {
         Session {
             tabs: Vec::new(),
+            pinned: Vec::new(),
             unsaved: Vec::new(),
             active: 0,
             split: None,
@@ -280,6 +307,7 @@ impl Session {
                 match key {
                     "tab" if !value.is_empty() => s.tabs.push(decode_path(value)),
                     "unsaved" => s.unsaved.extend(Unsaved::parse(value)),
+                    "pin" => s.pinned.extend(Pin::parse(value)),
                     "recent" if !value.is_empty() => recent.push(decode_path(value)),
                     "split" => s.split = Split::parse(value),
                     "find_case" => s.find_options.0 = value.trim() == "1",
@@ -371,6 +399,9 @@ impl Session {
         }
         for u in &self.unsaved {
             out.line("unsaved", &u.serialize());
+        }
+        for p in &self.pinned {
+            out.line("pin", &p.serialize());
         }
         out.line("active", &self.active.to_string());
         if let Some(split) = &self.split {
@@ -609,6 +640,7 @@ mod tests {
     fn round_trip() {
         let mut s = Session {
             tabs: vec![PathBuf::from("C:/a b/x.rs"), PathBuf::from("C:/c/y=z%.md")],
+            pinned: vec![Pin::File(PathBuf::from("C:/a b/x.rs")), Pin::Untitled(3)],
             active: 1,
             theme: ThemeChoice::Dark,
             files: Some(true),
@@ -634,6 +666,12 @@ mod tests {
         assert_eq!(back.recent.paths()[0], PathBuf::from("C:/new.txt"));
         assert_eq!(back.window_size(), Some((1100, 700, false)));
         assert_eq!(back.window_position(), Some((-8, 40)));
+    }
+
+    #[test]
+    fn a_pin_that_cannot_be_read_is_dropped() {
+        let s = Session::parse("[mdedit]\npin=#0\npin=#x\npin=\npin=#7\n");
+        assert_eq!(s.pinned, vec![Pin::Untitled(7)]);
     }
 
     #[test]

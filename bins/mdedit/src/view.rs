@@ -592,6 +592,8 @@ pub struct View {
     cache: Lru<LineKey, Rc<Shaped>>,
     numbers: Lru<(usize, Rgb), Number>,
     scratch: String,
+    /// What an input method is composing, drawn at the caret of the pane with the keyboard.
+    pub preedit: Option<mdshared_ui::textfield::Preedit>,
 }
 
 impl View {
@@ -609,6 +611,7 @@ impl View {
             cache: Lru::new(400),
             numbers: Lru::new(400),
             scratch: String::new(),
+            preedit: None,
         }
     }
 
@@ -684,6 +687,58 @@ impl View {
         let area = text_area(doc, region);
         let r = doc.ready_mut()?;
         Some(geom(r, area, &m))
+    }
+
+    /// Draws what an input method is composing at `at` (the caret's device position, the row's
+    /// top), underlined, the clause the input method has selected shaded, with `rest` (the row's
+    /// text after the caret) moved right after it, in the plain text colour. Returns where its
+    /// caret goes, when `caret` (the blink is on).
+    fn draw_preedit(
+        &mut self,
+        c: &mut Ctx,
+        pre: &mdshared_ui::textfield::Preedit,
+        rest: &str,
+        at: (i32, i32),
+        clip: (i32, i32, i32, i32),
+        caret: bool,
+    ) -> Option<i32> {
+        let (pal, scale) = (*c.pal, c.p.scale);
+        let m = self.metrics?;
+        let (x, y, lh) = (at.0, at.1, m.line_h);
+        let layout = self.build(&pre.text, m.size, pal.text, &[]);
+        let mut width_of = |text: &str| -> i32 {
+            if text.is_empty() {
+                0
+            } else {
+                self.build(text, m.size, pal.text, &[]).width().round() as i32
+            }
+        };
+        let w = layout.width().ceil() as i32;
+        let caret_dx = width_of(&pre.text[..pre.caret()]);
+        let clause = pre
+            .cursor
+            .filter(|c| c.0 < c.1)
+            .map(|(a, b)| (width_of(&pre.text[..a]), width_of(&pre.text[..b])));
+        fill_clipped(c, (x, y, clip.2, y + lh), clip, pal.page, 1.0);
+        if let Some((a, b)) = clause {
+            fill_clipped(c, (x + a, y, x + b, y + lh), clip, pal.selection, 0.35);
+        }
+        let first = layout
+            .lines()
+            .next()
+            .map_or(m.size, |l| l.metrics().baseline);
+        let gy = y as f32 + m.baseline - first;
+        self.engine
+            .draw_layout_clipped(c.p.bmp, &layout, x as f32, gy.round(), clip);
+        if !rest.is_empty() {
+            let after = self.build(rest, m.size, pal.text, &[]);
+            self.engine
+                .draw_layout_clipped(c.p.bmp, &after, (x + w) as f32, gy.round(), clip);
+        }
+        let t = scale.round().max(1.0) as i32;
+        let uy = ((y as f32 + m.baseline + 2.0 * scale).round() as i32).min(y + lh - t);
+        fill_clipped(c, (x, uy, x + w, uy + t), clip, pal.text, 1.0);
+        caret.then_some(x + caret_dx)
     }
 
     /// The layout of one line or chunk. Offsets in it are bytes from the chunk's start.
@@ -1228,13 +1283,26 @@ impl View {
                     Some((chunk, m.chunk_x(&chunk.start), l.y))
                 }
             });
-        if let Some((chunk, cx, y)) = caret_part.filter(|_| s.caret) {
+        let preedit = self.preedit.clone().filter(|_| s.band);
+        if let Some((chunk, cx, y)) = caret_part.filter(|_| s.caret || preedit.is_some()) {
             let shaped = self.shaped(r, caret_line, chunk, s.dark);
             let in_chunk = caret.saturating_sub(chunk.start.offset);
             let x = origin + cx + shaped.x_of(in_chunk) as f64;
             let w = (1.5 * scale).round().max(1.0) as i32;
             let x = x.round() as i32;
-            fill_clipped(c, (x, y, x + w, y + lh), text_clip, pal.text, 1.0);
+            match preedit {
+                Some(pre) => {
+                    // The rest of the row moves right to make room, as typed text would.
+                    let mut rest = String::new();
+                    r.buffer.text(caret.min(chunk.end)..chunk.end, &mut rest);
+                    let rest = rest.trim_end_matches(['\n', '\r']);
+                    let caret_x = self.draw_preedit(c, &pre, rest, (x, y), text_clip, s.caret);
+                    if let Some(cx) = caret_x {
+                        fill_clipped(c, (cx, y, cx + w, y + lh), text_clip, pal.text, 1.0);
+                    }
+                }
+                None => fill_clipped(c, (x, y, x + w, y + lh), text_clip, pal.text, 1.0),
+            }
         }
         // The gutter: same background, numbers right-aligned.
         let gutter = intersect((x0, y0, gutter_r, y1), base);

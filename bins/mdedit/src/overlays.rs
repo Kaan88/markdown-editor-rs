@@ -287,6 +287,15 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
             .enabled(many),
         Item::new(Act::TabCmd(C::CloseAllTabs, index), "Close &all tabs").icon(glyph::CLOSE_ALL),
         Item::new(
+            Act::TabCmd(C::PinTab, index),
+            if docs.tabs.get(index).is_some_and(|d| d.pinned) {
+                "U&npin tab"
+            } else {
+                "Pi&n tab"
+            },
+        )
+        .icon(glyph::PIN),
+        Item::new(
             Act::TabCmd(C::ShowInOtherPane, index),
             "Show &in the other pane",
         )

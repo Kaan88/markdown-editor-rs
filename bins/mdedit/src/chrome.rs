@@ -249,6 +249,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
                 .as_ref()
                 .map_or_else(|| doc.name(), |p| p.display().to_string())
         }
+        Hit::TabClose(i) if docs.tabs.get(i).is_some_and(|d| d.pinned) => "Unpin tab".into(),
         Hit::TabClose(_) => with("Close tab", CommandId::CloseTab),
         Hit::NewTab => with("New file", CommandId::NewFile),
         Hit::WinMin => "Minimize".into(),
@@ -367,6 +368,7 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
             next_quiet: i + 1 < labels.len() && active != Some(i + 1) && !is_hot(c.hover, i + 1),
             close_hovered: c.hover == Some(Hit::TabClose(i)),
             close_pressed: c.pressed == Some(Hit::TabClose(i)),
+            pinned: docs.tabs[i].pinned,
         };
         let drawn = draw_tab(c.p, &pal, x, w, r.w, label, &state);
         c.hit(Hit::Tab(i), drawn.tab);

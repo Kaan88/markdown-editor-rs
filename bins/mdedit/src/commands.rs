@@ -108,6 +108,8 @@ pub enum CommandId {
     ShowShortcuts,
     About,
     CloseOtherTabs,
+    /// Pins the tab, or unpins a pinned one.
+    PinTab,
     CopyFilePath,
     ShowInFileManager,
     CommandPalette,
@@ -299,6 +301,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ShowShortcuts, "Keyboard shortcuts", &[]),
     cmd(C::About, "About mdedit", &[]),
     cmd(C::CloseOtherTabs, "Close other tabs", &[]),
+    cmd(C::PinTab, "Pin or unpin tab", &[]),
     cmd(C::CopyFilePath, "Copy file path", &[]),
     cmd(C::ShowInFileManager, SHOW_IN_FILE_MANAGER, &[]),
     cmd(C::MakeDefault, strings::MAKE_DEFAULT, &[]),
@@ -356,6 +359,8 @@ pub mod strings {
     pub const MAKE_DEFAULT: &str = "Make mdedit the default for text files";
     pub const SHORTCUTS_TITLE: &str = "Keyboard shortcuts";
     pub const COLUMN_LABEL: &str = "Select a column";
+    /// Closing a pinned tab.
+    pub const PINNED: &str = "This tab is pinned. Unpin it to close it.";
     pub const COLUMN_KEYS: &str = "Alt+Shift+Arrows, Alt+Drag";
     /// On a Mac Option+Shift+Left and Right select by word, so the column takes Command too.
     pub const COLUMN_KEYS_MAC: &str = "\u{2325}\u{21e7}\u{2318}Arrows, \u{2325}Drag";
