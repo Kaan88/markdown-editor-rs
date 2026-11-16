@@ -127,3 +127,15 @@ jobs:
           path: target/shots/*.png
           if-no-files-found: warn
           retention-days: 14
+      - name: The bundle (unsigned but for the ad-hoc signature, zipped)
+        if: ${{ !cancelled() }}
+        run: |
+          bash packaging/macos/make-bundle.sh target/release target/dist
+          ditto -c -k --keepParent target/dist/mdedit.app target/dist/mdedit-macos-${{ matrix.arch }}.zip
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: mdedit-macos-${{ matrix.arch }}
+          path: target/dist/mdedit-macos-${{ matrix.arch }}.zip
+          if-no-files-found: warn
+          retention-days: 30

@@ -1370,7 +1370,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f#6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
 dependencies = [
  "notify",
 ]
@@ -1378,7 +1378,7 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f#6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
 dependencies = [
  "libloading",
  "windows-sys 0.59.0",
@@ -1387,7 +1387,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f#6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
 dependencies = [
  "syntect",
 ]
@@ -1395,7 +1395,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f#6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
 dependencies = [
  "parley",
  "png",
@@ -1405,11 +1405,13 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f#6b0086bc9c60573e2e81c5c6685cbb5e73ec9c3f"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=e97fc1fbbeae029e3a6d96be6863d48aa790745c#e97fc1fbbeae029e3a6d96be6863d48aa790745c"
 dependencies = [
  "arboard",
  "mdshared-app",
  "mdshared-text",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "parley",
  "rfd",
@@ -1725,8 +1727,11 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "583300ad934cba24ff5292aee751ecc070f7ca6b39a574cc21b7b5e588e06a0b"
 dependencies = [
+ "dispatch2",
  "libc",
+ "objc2 0.6.5",
  "objc2-core-foundation",
+ "objc2-security",
 ]
 
 [[package]]
@@ -1767,6 +1772,7 @@ dependencies = [
  "bitflags 2.13.2",
  "objc2 0.6.5",
  "objc2-core-foundation",
+ "objc2-core-services",
 ]
 
 [[package]]
@@ -1827,6 +1833,17 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "objc2-security"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709fe137109bd1e8b5a99390f77a7d8b2961dafc1a1c5db8f2e60329ad6d895a"
+dependencies = [
+ "bitflags 2.13.2",
+ "objc2 0.6.5",
+ "objc2-core-foundation",
 ]
 
 [[package]]

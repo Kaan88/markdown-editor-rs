@@ -49,6 +49,24 @@ check "Command+Left and Option+Right" "XabcY é"
 se 'keystroke "z" using command down'
 se 'keystroke "s" using command down'
 check "Command+Z" "Xabc é"
+# The menu bar's Edit items leave the keys to the window: Command+A, X, then V twice.
+se 'keystroke "a" using command down'
+se 'keystroke "x" using command down'
+se 'keystroke "v" using command down'
+se 'keystroke "v" using command down'
+se 'keystroke "s" using command down'
+check "Command+A, X and V" "Xabc éXabc é"
 screencapture -x "$out/screen.png" && echo "screen captured"
+# Command+Q with unsaved changes asks first (winit's own Quit would end the process at once).
+se 'keystroke "!"'
+se 'keystroke "q" using command down'
+sleep 2
+if kill -0 "$pid" 2>/dev/null; then
+    echo "PASS Command+Q with unsaved changes asks first"
+else
+    echo "FAIL Command+Q with unsaved changes ended the process"
+    fail=1
+fi
+screencapture -x "$out/quit.png" && echo "quit captured"
 stop
 exit $fail

@@ -1781,6 +1781,19 @@ impl App {
 
     pub(super) fn woken(&mut self, wake: Wake) {
         match wake {
+            Wake::Open(paths) => {
+                for path in paths {
+                    self.dropped(path);
+                }
+            }
+            Wake::Menu(item) => {
+                use mdshared_ui::menu_bar::AppCommand;
+                self.command(match item {
+                    AppCommand::About => C::About,
+                    AppCommand::Settings => C::Settings,
+                    AppCommand::Quit => C::Exit,
+                });
+            }
             Wake::Instance => {
                 let requests: Vec<Request> = self
                     .incoming

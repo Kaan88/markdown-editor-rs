@@ -89,6 +89,10 @@ const SCROLLBAR_EDGE: f32 = 3.0;
 pub enum Wake {
     /// The single-instance listener queued requests.
     Instance,
+    /// macOS asked the application to open files (Finder, Open With, the Dock icon).
+    Open(Vec<PathBuf>),
+    /// An item of the macOS menu bar the application answers.
+    Menu(mdshared_ui::menu_bar::AppCommand),
     /// The viewer that a preview was following is gone.
     Link,
     /// The file watcher saw a change.
@@ -2003,6 +2007,10 @@ impl ApplicationHandler<Wake> for App {
             }
         };
         mdshared_ui::window::created(&window);
+        // macOS: the menu bar, with Quit as the Exit command, which asks about unsaved changes
+        // (winit's ends the process at once).
+        let wake = self.docs.waker();
+        mdshared_ui::menu_bar::install("mdedit", move |c| wake(Wake::Menu(c)));
         self.trace.stage("window created");
         self.scale = window.scale_factor() as f32;
         self.maximized = window.is_maximized();
@@ -3001,6 +3009,11 @@ pub fn run() -> i32 {
     if let Ok(mut slot) = proxy.lock() {
         *slot = Some(p.clone());
     }
+    // macOS hands a running bundle its files as an event, also the files it was launched with.
+    let po = p.clone();
+    mdshared_ui::open_documents::on_open(move |paths| {
+        let _ = po.send_event(Wake::Open(paths));
+    });
     trace.stage("event loop");
     if let Some(settings) = &app.session_path {
         let p = p.clone();
