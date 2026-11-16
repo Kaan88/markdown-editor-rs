@@ -55,6 +55,10 @@ impl App {
                 BarItem::Reload => self.command(C::Reload),
                 BarItem::Recent => self.command(C::OpenRecent),
                 BarItem::Files => self.command(C::ToggleFiles),
+                BarItem::Preview if chrome::preview_button(&self.docs) == Some(true) => {
+                    self.command(C::PreviewInViewer)
+                }
+                BarItem::Preview => self.command(C::PreviewSideBySide),
                 BarItem::FindPrev => self.command(C::FindPrevious),
                 BarItem::FindNext => self.command(C::FindNext),
                 BarItem::Theme => self.command(C::Theme),

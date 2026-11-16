@@ -1475,3 +1475,23 @@ fn text_sent_as_unicode_packets_is_typed_into_the_text_and_the_palette() {
     assert_eq!(q, "\u{e9}t");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_preview_button_shows_for_markdown_and_documents_without_a_file() {
+    let dir = scratch("preview-button");
+    let (md, rs) = (dir.join("a.md"), dir.join("b.rs"));
+    std::fs::write(&md, "# A\n").unwrap();
+    std::fs::write(&rs, "fn b() {}\n").unwrap();
+    let mut a = app();
+    open_now(&mut a, &md);
+    a.compose();
+    assert_eq!(chrome::preview_button(&a.docs), Some(false));
+    assert!(a.hit_rect(Hit::Bar(crate::ui::BarItem::Preview)).is_some());
+    open_now(&mut a, &rs);
+    a.docs.activate(1);
+    a.compose();
+    assert_eq!(chrome::preview_button(&a.docs), None);
+    assert!(a.hit_rect(Hit::Bar(crate::ui::BarItem::Preview)).is_none());
+    a.docs.new_untitled();
+    assert_eq!(chrome::preview_button(&a.docs), Some(false));
+}

@@ -113,6 +113,7 @@ pub struct BarText {
     pub open: f32,
     pub recent: f32,
     pub files: f32,
+    pub preview: f32,
     pub theme: f32,
     /// The match counter, 0 when empty.
     pub count: f32,
@@ -137,6 +138,8 @@ fn plan_width(plan: &BarPlan, t: &BarText) -> f32 {
     }
     if plan.panes {
         w += SEP + labelled(t.files, l) + GAP;
+        // Kept free when the button is hidden, so the find box does not move between tabs.
+        w += SEP + labelled(t.preview, l) + GAP;
     }
     // Right group: more, theme, separator, next, previous, find box, counter.
     w += ICON_BTN + GAP + labelled(t.theme, l) + SEP + 2.0 * (ICON_BTN + GAP) + plan.find_w;
@@ -261,6 +264,13 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
             BarItem::Reload => with("Reload", CommandId::Reload),
             BarItem::Recent => "Recent files".into(),
             BarItem::Files => with("Files pane", CommandId::ToggleFiles),
+            BarItem::Preview if preview_button(docs) == Some(true) => {
+                with("Stop the preview", CommandId::PreviewInViewer)
+            }
+            BarItem::Preview => with(
+                "Preview in mdview, side by side",
+                CommandId::PreviewSideBySide,
+            ),
             BarItem::FindPrev => with("Previous match", CommandId::FindPrevious),
             BarItem::FindNext => with("Next match", CommandId::FindNext),
             BarItem::Theme => format!("Theme: {} (click to change)", theme_label(docs.theme)),
@@ -419,12 +429,21 @@ pub fn find_label(docs: &Docs) -> (String, bool) {
 }
 
 /// The measured text widths the bar's fit depends on.
+/// The bar's Preview button: hidden (None) unless the active document can be previewed in mdview
+/// (as the View menu lists the preview), and pressed (true) while it is.
+pub fn preview_button(docs: &Docs) -> Option<bool> {
+    let doc = docs.active_doc()?;
+    let linked = docs.links.contains(doc.id);
+    (doc.is_markdown() || linked || doc.path.is_none()).then_some(linked)
+}
+
 pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
     let (count, _) = find_label(docs);
     BarText {
         open: p.measure(Face::Ui, 13.0, "Open"),
         recent: p.measure(Face::Ui, 13.0, "Recent"),
         files: p.measure(Face::Ui, 13.0, "Files"),
+        preview: p.measure(Face::Ui, 13.0, "Preview"),
         theme: p.measure(Face::Ui, 13.0, theme_label(docs.theme)),
         count: if count.is_empty() {
             0.0
@@ -728,14 +747,18 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     }
     if plan.panes {
         x += sep(c, x);
-        button(
+        x += button(
             c,
             x,
             BarItem::Files,
             glyph::FOLDER,
             lab("Files"),
             ui.panes.files,
-        );
+        ) + GAP;
+        if let Some(on) = preview_button(docs) {
+            x += sep(c, x);
+            button(c, x, BarItem::Preview, glyph::VIEW, lab("Preview"), on);
+        }
     }
 
     // Right group, from the right edge.
@@ -905,6 +928,7 @@ mod tests {
             open: 30.0,
             recent: 40.0,
             files: 30.0,
+            preview: 50.0,
             theme: 32.0,
             count: 0.0,
         };
@@ -958,6 +982,7 @@ mod tests {
             open: 32.0,
             recent: 42.0,
             files: 28.0,
+            preview: 50.0,
             theme: 44.0,
             count: 50.0,
         }

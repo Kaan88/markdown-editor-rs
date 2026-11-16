@@ -80,6 +80,8 @@ pub enum BarItem {
     Reload,
     Recent,
     Files,
+    /// Preview in mdview, side by side; pressed while the document is previewed.
+    Preview,
     FindPrev,
     FindNext,
     Theme,

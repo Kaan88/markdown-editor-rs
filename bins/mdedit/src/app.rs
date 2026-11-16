@@ -819,7 +819,7 @@ impl App {
                     .active_ready()
                     .is_some_and(|r| !r.find.matches.is_empty());
                 sig((
-                    common,
+                    (common, chrome::preview_button(&self.docs)),
                     self.docs.theme.to_setting(),
                     ui.find.text(),
                     ui.find.caret(),
