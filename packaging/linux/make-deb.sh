@@ -19,7 +19,7 @@ declare -A pkg_of=(
 )
 glibc="$(glibc_needed)"
 declare -A deps=([libfreetype6]=1 [libxcb1]=1)
-for b in "${bins[@]}"; do
+for b in "${bins[@]}" "$engine"; do
     for so in $(objdump -p "$BIN_DIR/$b" | awk '/NEEDED/{print $2}'); do
         p="${pkg_of[$so]:-}"
         [ -n "$p" ] || { echo "make-deb: $b needs $so, which is not in the map of make-deb.sh" >&2; exit 1; }
@@ -73,8 +73,9 @@ Priority: optional
 Homepage: $homepage
 Description: $summary
  $app is a light, fast native text editor with syntax highlighting, find
- and replace, split view and tabs. This package installs the program, its
- desktop entry and its icon. It does not update itself; use the package
+ and replace, split view, tabs and a Markdown preview. This package installs
+ the program, mdview-engine (the helper process the preview starts for
+ formulas and diagrams, in /usr/lib/mdedit), its desktop entry and its icon. It does not update itself; use the package
  manager, or the AppImage if you want the built-in updater.
 CONTROL
 for script in postinst postrm; do

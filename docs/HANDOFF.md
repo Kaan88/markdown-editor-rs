@@ -14,14 +14,50 @@ phase 1, and section 16 on editing and saving as built).
   mdedit, looked for there first, then beside mdview. The pane, its bar button and its menu items
   are always offered; "Preview in mdview" and side by side still need mdview. Checked on Linux
   with only mdedit and the engine in a folder: math and Mermaid drawn; the engine used 2 to
-  4 MB while alive and had exited 12 s later. Still to do: ship the engine in mdedit's installer,
-  zip, Linux packages and Mac bundle, and have the updater update it (as mdview's does).
+  4 MB while alive and had exited 12 s later. See "Shipping the engine" below.
 - **`panic = "abort"` stays.** Unwinding so the pane could catch a renderer panic was built and
   measured on a Windows runner (`tools/compare-builds.py`, 7 runs, run 43886251468): keystroke
   and scroll p50 about 0.3 ms slower (0.76 to 1.03 ms on sample.rs), first frame +0 to 6 ms,
   exe 6.53 to 9.60 MB; Linux showed nothing. The embedded build with abort matched `main` on
   every figure (run 43882888383). The owner chose abort: a renderer panic ends mdedit and crash
   recovery brings the text back.
+
+**Shipping the engine** (same branch):
+- Built from the viewer at the revision mdedit pins (the `rev` of `mdview-preview` in
+  `bins/mdedit/Cargo.toml`), in the viewer's own workspace (its lockfile, its size-first engine
+  profile): `packaging/engine-source.sh DIR` checks it out, then `cargo build --release --locked
+  -p mdview-engine --manifest-path DIR/Cargo.toml`. On Windows `packaging/windows/build-engine.ps1`
+  does both, with the static C runtime, into `target\engine\mdview-engine.exe`.
+- Windows: the installer (`mdedit.iss`), the zip (`build-zip.ps1`), `tools/release.ps1`,
+  `tools/release-cross.sh` and `release-all.sh` carry `mdview-engine.exe`; the manifest has
+  `windows-x86_64.engine.url/sha256` (`tools/write-manifest.sh --windows-engine`), and the
+  updater (`updater::APP.engine`) replaces both files.
+- Linux: the AppImage has it beside mdedit in `usr/bin`; the tarball, deb, rpm and PKGBUILD put it
+  in `lib/mdedit/` (mdview's packages own `/usr/bin/mdview-engine`). mdedit looks beside its exe,
+  then in `../lib/mdedit/`, then beside mdview (`preview_pane::own_engines`).
+- macOS: `make-bundle.sh` copies it into `Contents/MacOS` when the build folder has one; the
+  release workflow builds it and checks it is there.
+- An mdedit 0.7 that updates itself installs only `mdedit.exe` (its updater knows no engine).
+  Shared crates `21fd49b`: such a copy still counts as installed, its next update brings the
+  engine, and the launch look (`updater::restore_engine`) fetches this version's engine when it
+  is missing and the manifest is of this version.
+- Not run: none of the release scripts or the release workflow has run with these changes.
+
+**Crash reports** (shared crates `f/crash-report`, the owner's request; mdview has the same):
+- `main` installs `mdshared_app::crash` first, into `data_dir("mdedit")/crashes`. A panic (any
+  thread) and, on Windows, an access violation or stack overflow write `crash-<secs>.txt`: app,
+  version, message, source place, thread, time, system, and a context line of kinds and sizes
+  (`app/crash.rs`: "Markdown, 48 KB; 2 tabs; preview pane open"), never text or file names.
+  Five are kept. Nothing is sent.
+- On the next start a bar under the update bar offers Open report (in a tab), Copy, close; each
+  marks it seen (`.seen.txt`, kept).
+- Checked: on Linux a real panic on the preview thread (a temporary trigger, removed) gave the
+  report and the next start's bar. On a Windows runner (preview-test run 43896081143) the shared
+  example wrote correct reports for a panic and an access violation (`0xc0000005 at exe+0x340d`).
+  Not seen on Windows: mdedit's own bar.
+- The same run compared `main` with this branch's default build (abort, standalone engine, crash
+  reports) on a Windows runner, 7 runs: every figure within noise (keystroke p50 0.53 vs 0.54 ms
+  on sample.rs, first frame 107.2 vs 106.8 ms on sample.md, idle memory equal).
 
 The owner asked for a preview inside mdedit, in two versions to compare, and for it to be hidden
 without mdview. Viewer side on the viewer's branch `f/preview-pane` (crate `crates/preview`,

@@ -82,16 +82,33 @@ pub fn viewer() -> Option<PathBuf> {
     mdshared_app::sister::find(crate::link::VIEWER)
 }
 
-/// The engine for formulas and diagrams: the one shipped beside mdedit, else the one beside the
+/// The engine for formulas and diagrams: the one shipped with mdedit, else the one beside the
 /// installed mdview. None leaves the renderer to its own search (and the formulas as source).
 #[cfg_attr(not(feature = "embedded-preview"), allow(dead_code))]
 fn engine(viewer: Option<&Path>) -> Option<PathBuf> {
-    let file = format!("mdview-engine{}", std::env::consts::EXE_SUFFIX);
-    let own = std::env::current_exe()
-        .ok()
-        .and_then(|e| Some(e.parent()?.join(&file)));
-    let beside_viewer = viewer.and_then(|v| Some(v.parent()?.join(&file)));
-    own.into_iter().chain(beside_viewer).find(|p| p.is_file())
+    let exe = std::env::current_exe().ok();
+    own_engines(exe.as_deref())
+        .into_iter()
+        .chain(viewer.and_then(|v| Some(v.parent()?.join(engine_file()))))
+        .find(|p| p.is_file())
+}
+
+fn engine_file() -> String {
+    format!("mdview-engine{}", std::env::consts::EXE_SUFFIX)
+}
+
+/// Where mdedit's own engine is, in the order looked at: beside the executable (Windows, the
+/// macOS bundle, the AppImage), then `../lib/mdedit/` (the Linux packages and the tarball, which
+/// keep it off `bin/`, where mdview's packages put theirs).
+fn own_engines(exe: Option<&Path>) -> Vec<PathBuf> {
+    let Some(dir) = exe.and_then(Path::parent) else {
+        return Vec::new();
+    };
+    let mut at = vec![dir.join(engine_file())];
+    if let Some(prefix) = dir.parent().filter(|_| cfg!(target_os = "linux")) {
+        at.push(prefix.join("lib/mdedit").join(engine_file()));
+    }
+    at
 }
 
 impl Pane {
@@ -398,4 +415,23 @@ pub fn draw(c: &mut crate::chrome::Ctx, pane: Option<&Pane>, docs: &crate::docs:
     let (x0, y0, _, _) = c.p.dev_rect(rect);
     let h = pane.frame.height as i32;
     c.p.blit(&pane.frame, 0, h, x0 + 1, y0);
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use super::*;
+
+    #[test]
+    fn the_own_engine_is_looked_for_beside_the_exe_then_in_lib_mdedit() {
+        let file = engine_file();
+        let at = own_engines(Some(Path::new("/usr/bin/mdedit")));
+        assert_eq!(at[0], Path::new("/usr/bin").join(&file));
+        if cfg!(target_os = "linux") {
+            assert_eq!(at[1], Path::new("/usr/lib/mdedit").join(&file));
+            assert_eq!(at.len(), 2);
+        } else {
+            assert_eq!(at.len(), 1);
+        }
+        assert!(own_engines(None).is_empty());
+    }
 }

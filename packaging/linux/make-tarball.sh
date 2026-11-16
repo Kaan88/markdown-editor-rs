@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The generic Linux tarball: mdedit-<version>-linux-x86_64.tar.gz, one folder holding bin/,
-# share/ (desktop entry, icon), LICENSE, README.md, install.sh and uninstall.sh.
+# lib/mdedit/ (the preview pane's engine), share/ (desktop entry, icon), LICENSE, README.md, install.sh and uninstall.sh.
 #   packaging/linux/make-tarball.sh        (see lib.sh for BIN_DIR, OUT_DIR, SOURCE_DATE_EPOCH)
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

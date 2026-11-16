@@ -18,8 +18,9 @@ Suggests:       xdg-desktop-portal
 
 %description
 mdedit is a light, fast native text editor with syntax highlighting, find and
-replace, split view and tabs. This package installs the program, its desktop
-entry and its icon. It does not update itself; use the package manager, or the
+replace, split view, tabs and a Markdown preview. This package installs the
+program, mdview-engine (the helper process the preview starts for formulas and
+diagrams, in /usr/lib/mdedit), its desktop entry and its icon. It does not update itself; use the package manager, or the
 AppImage if you want the built-in updater.
 
 %install
@@ -40,6 +41,7 @@ command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -f /usr/share/icons/hicolo
 %license /usr/share/licenses/mdedit/LICENSE
 %doc /usr/share/doc/mdedit/README.md
 /usr/bin/mdedit
+/usr/lib/mdedit/mdview-engine
 /usr/share/applications/mdedit.desktop
 /usr/share/icons/hicolor/256x256/apps/mdedit.png
 
