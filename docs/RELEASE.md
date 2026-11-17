@@ -256,6 +256,16 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.0.4 (published 2026-11-17 by the release workflow, run by hand with `publish`, at commit d3d2f58)
+
+Run 44182210312; the `ci` run on the commit (44182209751) passed. The preview pane's cursor (a
+hand over a task box) and the page kept still after a tick; viewer pinned at `56dfe05` (on
+mdview's `main`, not an mdview release). The owner tried the Windows test build of `9c543c1`
+(the same code, before the version bump) and said "good". 13 assets (exe 8,007,168 bytes,
+AppImage 15,448,568). Verified against the live release: both manifests name 1.0.4, and every
+file they name downloaded with the manifest's SHA-256. Not verified: a 1.0.3 install updating
+itself; the Mac and Linux files run on a desktop.
+
 ## v1.0.3 (published 2026-11-17 by the release workflow, run by hand with `publish`, at commit ff30198)
 
 Run 44149883394; the `ci` run on the commit (44149885114) passed. Ticking task boxes on the
