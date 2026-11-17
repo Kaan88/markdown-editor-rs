@@ -8,11 +8,13 @@ phase 1, and section 16 on editing and saving as built).
 ## START HERE: feature complete, in maintenance (2026-11-17)
 
 The owner agreed that mdedit is feature complete: see the status at the top of `docs/PLAN.md`
-(what maintenance means, the small known gaps, what was set aside). The latest release is 1.0.3 (below).
+(what maintenance means, the small known gaps, what was set aside). The latest release is 1.0.4 (below).
 The owner tried the right-click menu of 1.0.2 and said it works. mdview's own 1.0.1 release was
-withdrawn; mdedit pins viewer commit `56dfe05` (after 1.0.3), which is on mdview's `main`.
+withdrawn; mdedit pins viewer commit `56dfe05` (from 1.0.4), which is on mdview's `main`.
 
-## After 1.0.3: the cursor over the page, and the page still after a tick (2026-11-17)
+## mdedit 1.0.4: the cursor over the page, and the page still after a tick (2026-11-17)
+
+The owner tried the Windows test build of `9c543c1` and said "good"; released as 1.0.4.
 
 The owner tried 1.0.3: "cursor remains in caret mode on the entire preview window and clicking
 boxes scrolls the page to top". Viewer pin `56dfe05` (protocol `MDVPREVIEW6`, on mdview's `main`,
