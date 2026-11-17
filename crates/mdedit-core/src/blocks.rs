@@ -500,6 +500,35 @@ pub fn insert_rule(buf: &mut Buffer, hist: &mut History, sel: Selection, eol: &s
     one(buf, hist, sel, act)
 }
 
+/// A task box ticked on the preview: the mark between the brackets at `at` becomes `mark` (`x`
+/// or a space), the selection staying on its text. Nothing when `at` is not the middle of a
+/// `[ ]`, `[x]` or `[X]` (the text changed since the page was drawn).
+pub fn set_task(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    at: usize,
+    mark: char,
+) -> Outcome {
+    let mut around = String::new();
+    if at == 0 || at + 2 > buf.len_bytes() || !buf.is_char_boundary(at - 1) {
+        return nothing(sel);
+    }
+    if !buf.is_char_boundary(at + 2) {
+        return nothing(sel);
+    }
+    buf.text(at - 1..at + 2, &mut around);
+    if !matches!(around.as_str(), "[ ]" | "[x]" | "[X]") || !matches!(mark, 'x' | ' ') {
+        return nothing(sel);
+    }
+    one(
+        buf,
+        hist,
+        sel,
+        keep(sel, vec![edit(at, at + 1, mark.to_string())]),
+    )
+}
+
 /// A footnote's text: `[^label]: ...`.
 fn is_note(line: &str) -> bool {
     line.strip_prefix("[^")
@@ -604,6 +633,17 @@ mod tests {
             }
         }
         marked_show(&after, &[out.sel], C)
+    }
+
+    #[test]
+    fn a_task_mark_flips_in_place_and_the_caret_stays() {
+        let task = |s: &str, at, mark| go(s, |b, h, sel| set_task(b, h, sel, at, mark));
+        assert_eq!(task("- [ ] a\nb¦", 3, 'x'), "- [x] a\nb¦");
+        assert_eq!(task("- [X] a¦", 3, ' '), "- [ ] a¦");
+        // Not a box there any more: nothing changes.
+        assert_eq!(task("- [ ] a¦", 2, 'x'), "- [ ] a¦");
+        assert_eq!(task("ğ[ ]¦", 1, 'x'), "ğ[ ]¦");
+        assert_eq!(task("[ ¦", 1, 'x'), "[ ¦");
     }
 
     fn list(s: &str, k: ListKind) -> String {

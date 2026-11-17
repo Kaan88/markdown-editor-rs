@@ -98,6 +98,9 @@ pub struct Pane {
     pub focused: bool,
     /// The answer to the last [`copy`](Self::copy), until the editor has taken it.
     copied: Option<mdview_preview::Copied>,
+    /// A task box clicked on the page, until the editor has taken it: the document and version
+    /// of the text it is about, the byte of its mark, and whether the click checks it.
+    task: Option<(DocId, (u64, u64), usize, bool)>,
     page_line: Option<f32>,
 }
 
@@ -170,6 +173,7 @@ impl Pane {
             selection: Vec::new(),
             focused: false,
             copied: None,
+            task: None,
         }
     }
 
@@ -310,6 +314,12 @@ impl Pane {
         self.copied.take()
     }
 
+    /// The task box clicked on the page: the document and version of the text it is about, the
+    /// byte offset of its mark, and whether the click checks it.
+    pub fn take_task(&mut self) -> Option<(DocId, (u64, u64), usize, bool)> {
+        self.task.take()
+    }
+
     /// While the page leads: the source line at its top (from 0, fractional) from an update the
     /// editor has not followed yet.
     pub fn take_page_top(&mut self) -> Option<f64> {
@@ -332,6 +342,13 @@ impl Pane {
                     }
                     if let Some(c) = u.copied.take() {
                         self.copied = Some(c);
+                        changed = true;
+                    }
+                    // About the last text sent: the server took every request in order.
+                    if let Some((at, checked)) = u.task.take()
+                        && let (Some(doc), Some(version)) = (self.sent.doc, self.sent.version)
+                    {
+                        self.task = Some((doc, version, at as usize, checked));
                         changed = true;
                     }
                     if self.waiting == 0

@@ -129,6 +129,7 @@ impl App {
             pane.follow(line as u32 + 1, column as u32);
         }
         self.preview_copied();
+        self.preview_task();
         self.ui.page_selected = self
             .preview
             .as_ref()
@@ -321,6 +322,23 @@ impl App {
         #[cfg(not(test))]
         if c.html.is_empty() || !platform::set_clipboard_html(&c.html, &c.text) {
             platform::set_clipboard_text(&c.text);
+        }
+    }
+
+    /// A task box clicked on the page: its mark changes in the text, as an edit that can be
+    /// undone; nothing is saved. Only when the text is still the one the page showed.
+    fn preview_task(&mut self) {
+        let Some((id, version, at, checked)) = self.preview.as_mut().and_then(|p| p.take_task())
+        else {
+            return;
+        };
+        let current = self
+            .docs
+            .active_doc()
+            .filter(|d| d.id == id)
+            .and_then(|d| d.ready().map(|r| (d.revision, r.buffer.revision())));
+        if current == Some(version) {
+            self.edit(EditOp::SetTask(at, if checked { 'x' } else { ' ' }));
         }
     }
 
@@ -575,6 +593,58 @@ mod tests {
             assert!((now - end).abs() < 0.01, "wrap {wrap}: {end} {now}");
             a.editor_leads();
         }
+    }
+
+    #[test]
+    fn a_click_on_a_task_box_ticks_it_in_the_text_without_saving() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("pane-tasks");
+        let md = dir.join("a.md");
+        let text = "Tasks:\n\n- [ ] one\n- [x] two\n";
+        std::fs::write(&md, text).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.command(C::PreviewPane);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        let r = a.page_area().expect("a page in the pane");
+        let now = |a: &App| {
+            let b = &a.docs.active_ready().unwrap().buffer;
+            let mut s = String::new();
+            b.text(0..b.len_bytes(), &mut s);
+            s
+        };
+        let caret = a.docs.active_ready().unwrap().view.sel;
+        // Single clicks over the top left of the page, one after another without waiting: the
+        // first on a box ticks it; the rest are about a text that has changed since, or miss.
+        'scan: for y in (0..(r.h.min(160.0) as u32)).step_by(3) {
+            for x in (0..(r.w.min(80.0) as u32)).step_by(3) {
+                a.preview_press(r.x + x as f32, r.y + y as f32, 1);
+                a.left_release();
+                a.preview_sync();
+                if now(&a) != text {
+                    break 'scan;
+                }
+            }
+        }
+        pump(&mut a, |a| now(a) != text);
+        let ticked = now(&a);
+        assert!(
+            ticked == "Tasks:\n\n- [x] one\n- [x] two\n"
+                || ticked == "Tasks:\n\n- [ ] one\n- [ ] two\n",
+            "{ticked:?}"
+        );
+        // An edit like any other: the document is modified, nothing is saved, the caret stays,
+        // and Undo takes it back.
+        assert!(a.docs.active_doc().unwrap().modified());
+        assert_eq!(std::fs::read_to_string(&md).unwrap(), text);
+        assert_eq!(a.docs.active_ready().unwrap().view.sel, caret);
+        a.command(C::Undo);
+        assert_eq!(now(&a), text);
     }
 
     #[test]

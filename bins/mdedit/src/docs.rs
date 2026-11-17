@@ -1285,6 +1285,9 @@ pub enum EditOp<'a> {
     MdFootnote,
     /// Markdown: `![alt](url)` from the selection.
     MdImage,
+    /// Markdown: a task box ticked on the preview: the mark at this byte (between the brackets)
+    /// becomes this one, `x` or a space. The view stays where it is.
+    SetTask(usize, char),
     /// The save options of the preferences (trailing spaces, final line break).
     SaveOptions(&'a Prefs),
     /// Makes every line break this one.
@@ -2556,6 +2559,7 @@ impl Docs {
                 EditOp::MdAlert => blocks::cycle_alert(buf, hist, sel, eol),
                 EditOp::MdFence(fence) => blocks::insert_fence(buf, hist, sel, fence, eol),
                 EditOp::MdRule => blocks::insert_rule(buf, hist, sel, eol),
+                EditOp::SetTask(at, mark) => blocks::set_task(buf, hist, sel, at, mark),
                 EditOp::MdFootnote => blocks::footnote(buf, hist, sel, eol),
                 EditOp::SaveOptions(prefs) => {
                     mdedit_core::prefs::apply_on_save(buf, hist, sel, prefs, eol)
@@ -2624,7 +2628,10 @@ impl Docs {
                 );
             }
         }
-        crate::view::reveal(r, r.view.sel.caret, false);
+        // A box ticked on the page is not where the reader is looking in the text.
+        if !matches!(op, EditOp::SetTask(..)) {
+            crate::view::reveal(r, r.view.sel.caret, false);
+        }
         match replaced {
             Some(0) => self.set_toast(strings::NOTHING_TO_REPLACE),
             Some(n) => self.set_toast(&strings::replaced(n)),

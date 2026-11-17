@@ -1340,7 +1340,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "mdedit"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "bytemuck",
  "libc",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-core"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-highlight"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "mdshared-highlight",
  "ropey",
@@ -1390,7 +1390,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-outline"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "ropey",
 ]
@@ -1458,7 +1458,7 @@ dependencies = [
 [[package]]
 name = "mdview-core"
 version = "1.0.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=8faf059be833d45bc6aee12ffb6b1d872f2a1d2d#8faf059be833d45bc6aee12ffb6b1d872f2a1d2d"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f#2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f"
 dependencies = [
  "mdshared-app",
  "memchr",
@@ -1470,12 +1470,12 @@ dependencies = [
 [[package]]
 name = "mdview-engine-proto"
 version = "1.0.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=8faf059be833d45bc6aee12ffb6b1d872f2a1d2d#8faf059be833d45bc6aee12ffb6b1d872f2a1d2d"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f#2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f"
 
 [[package]]
 name = "mdview-preview"
 version = "1.0.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=8faf059be833d45bc6aee12ffb6b1d872f2a1d2d#8faf059be833d45bc6aee12ffb6b1d872f2a1d2d"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f#2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f"
 dependencies = [
  "mdview-core",
  "mdview-render",
@@ -1484,7 +1484,7 @@ dependencies = [
 [[package]]
 name = "mdview-render"
 version = "1.0.1"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=8faf059be833d45bc6aee12ffb6b1d872f2a1d2d#8faf059be833d45bc6aee12ffb6b1d872f2a1d2d"
+source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f#2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f"
 dependencies = [
  "gif",
  "image-webp",

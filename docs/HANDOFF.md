@@ -8,9 +8,30 @@ phase 1, and section 16 on editing and saving as built).
 ## START HERE: feature complete, in maintenance (2026-11-17)
 
 The owner agreed that mdedit is feature complete: see the status at the top of `docs/PLAN.md`
-(what maintenance means, the small known gaps, what was set aside). The latest release is 1.0.2.
+(what maintenance means, the small known gaps, what was set aside). The latest release is 1.0.3 (below).
 The owner tried the right-click menu of 1.0.2 and said it works. mdview's own 1.0.1 release was
-withdrawn; mdedit still pins viewer commit `8faf059`, which is on mdview's `main`.
+withdrawn; mdedit pins viewer commit `2dc2099` (from 1.0.3), which is on mdview's `main`.
+
+## mdedit 1.0.3, ticking task boxes on the preview pane (2026-11-17)
+
+The owner asked for it ("like in mdview ... it shouldn't save it automatically though") and for a
+point release of mdedit only. Viewer commit `2dc2099` on mdview's `main` (protocol `MDVPREVIEW5`,
+not an mdview release) is the new pin.
+- A single click on a task box on the page: the server finds the byte of its mark in the text it
+  was sent (mdview's `tasks::toggle`, refused when the text and page disagree) and answers
+  `Update::task`. The pane keeps it with the document and version that text was
+  (`Pane::take_task`); `App::preview_task` applies it only if the document is still at that
+  version, as `EditOp::SetTask` (`blocks::set_task`: one undo step, nothing when the bytes are no
+  longer `[ ]`, `[x]` or `[X]`). The document becomes modified like any edit; nothing is saved;
+  the caret stays and the view does not move to it. The page redraws from the new text.
+- A double or triple click on a box selects as before.
+- Tests: `a_click_on_a_task_box_ticks_it_in_the_text_without_saving` (app, in the embedded
+  build), `a_task_mark_flips_in_place_and_the_caret_stays` (mdedit-core), and the viewer's
+  `a_click_on_a_task_box_gives_its_mark_and_selects_nothing`.
+- Measured on Linux under Xvfb, `tools/compare-builds.py`, 1.0.2 against the branch, 5
+  interleaved runs pane closed and open, then 7 with the pane open: within noise (the first runs
+  were slightly up, including pane closed where no new code runs; the 7-run rerun came out
+  slightly down). Not run on Windows.
 
 ## mdedit 1.0.2, a right-click menu on the preview pane (2026-11-16, released)
 
