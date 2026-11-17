@@ -256,6 +256,15 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.0.3 (published 2026-11-17 by the release workflow, run by hand with `publish`, at commit ff30198)
+
+Run 44149883394; the `ci` run on the commit (44149885114) passed. Ticking task boxes on the
+preview pane; mdedit only, viewer pinned at `2dc2099` (on mdview's `main`, not an mdview
+release). Released on the owner's word without a hands-on test. 13 assets, as for 1.0.0 (exe
+8,005,632 bytes, AppImage 15,444,472). Verified against the live release: both manifests name
+1.0.3, and every file they name downloaded with the manifest's SHA-256. Not verified: any
+published file run on a desktop; a 1.0.2 install updating itself.
+
 ## v1.0.2 (published 2026-11-16 by the release workflow, run by hand with `publish`, at commit 61087cc)
 
 Run 43979228491; the `ci` run on the commit (43979215380) passed. A right-click menu on the

@@ -12,7 +12,7 @@ The owner agreed that mdedit is feature complete: see the status at the top of `
 The owner tried the right-click menu of 1.0.2 and said it works. mdview's own 1.0.1 release was
 withdrawn; mdedit pins viewer commit `2dc2099` (from 1.0.3), which is on mdview's `main`.
 
-## mdedit 1.0.3, ticking task boxes on the preview pane (2026-11-17)
+## mdedit 1.0.3, ticking task boxes on the preview pane (2026-11-17, released)
 
 The owner asked for it ("like in mdview ... it shouldn't save it automatically though") and for a
 point release of mdedit only. Viewer commit `2dc2099` on mdview's `main` (protocol `MDVPREVIEW5`,
