@@ -73,7 +73,7 @@ impl App {
         let on_page =
             edge.is_none() && !in_menu && self.page_area().is_some_and(|r| r.contains(x, y));
         let cursor = match (edge, hit) {
-            _ if on_page => CursorIcon::Text,
+            _ if on_page => self.preview_hover(x, y),
             (Some(dir), _) => CursorIcon::from(dir),
             (
                 None,

@@ -10,7 +10,25 @@ phase 1, and section 16 on editing and saving as built).
 The owner agreed that mdedit is feature complete: see the status at the top of `docs/PLAN.md`
 (what maintenance means, the small known gaps, what was set aside). The latest release is 1.0.3 (below).
 The owner tried the right-click menu of 1.0.2 and said it works. mdview's own 1.0.1 release was
-withdrawn; mdedit pins viewer commit `2dc2099` (from 1.0.3), which is on mdview's `main`.
+withdrawn; mdedit pins viewer commit `56dfe05` (after 1.0.3), which is on mdview's `main`.
+
+## After 1.0.3: the cursor over the page, and the page still after a tick (2026-11-17)
+
+The owner tried 1.0.3: "cursor remains in caret mode on the entire preview window and clicking
+boxes scrolls the page to top". Viewer pin `56dfe05` (protocol `MDVPREVIEW6`, on mdview's `main`,
+not an mdview release).
+- Cursor: a pointer move over the page asks it what is there (`Pane::hover`, `Request::Hover`;
+  only one in flight, the latest place kept in `hover_due` and sent when the answers are in).
+  `Pane::pointer` holds the answer and `preview_sync` shows it: a hand over a task box, the text
+  cursor over text, the arrow elsewhere (`page_cursor`). Links are not followed on the pane, so
+  no hand there.
+- Scroll: the server followed the caret after every new text, and the caret was off screen
+  (often at line 1), so the page jumped. The text that answers a tick now leaves the page where
+  it is (`Server::keep_top` in the viewer); a caret that moved still comes as its own `Follow`.
+- Test: `the_cursor_is_a_hand_over_a_box_and_a_tick_leaves_the_page_still` (caret at the far end,
+  page at its top: the hand is found by hovering, the click ticks, the page stays at 0).
+- Measured on Linux under Xvfb, 1.0.3 against the branch, 5 interleaved runs, pane closed and
+  open: within noise. The benchmark does not move the pointer. Not run on Windows.
 
 ## mdedit 1.0.3, ticking task boxes on the preview pane (2026-11-17, released)
 

@@ -130,6 +130,16 @@ impl App {
         }
         self.preview_copied();
         self.preview_task();
+        // The page's answer about the cursor came after the pointer moved: show it now.
+        let (mx, my) = self.ui.mouse;
+        if self.ui.drag.is_none()
+            && self.ui.popup.is_none()
+            && self.page_area().is_some_and(|r| r.contains(mx, my))
+            && let Some(p) = self.preview.as_ref()
+        {
+            let cursor = page_cursor(p.pointer);
+            self.set_cursor(cursor);
+        }
         self.ui.page_selected = self
             .preview
             .as_ref()
@@ -180,6 +190,22 @@ impl App {
             ((x - r.x) * s - 1.0).clamp(0.0, (r.w * s - 2.0).max(0.0)),
             ((y - r.y) * s).clamp(0.0, (r.h * s - 1.0).max(0.0)),
         )
+    }
+
+    /// The pointer rests at `x, y` on the page: asks the page for the cursor there, and gives
+    /// the one it last answered until the new answer comes.
+    pub(super) fn preview_hover(&mut self, x: f32, y: f32) -> CursorIcon {
+        let Some(r) = self.page_area() else {
+            return CursorIcon::Default;
+        };
+        let (px, py) = self.page_point(r, x, y);
+        match self.preview.as_mut() {
+            Some(pane) => {
+                pane.hover(px, py);
+                page_cursor(pane.pointer)
+            }
+            None => CursorIcon::Default,
+        }
     }
 
     /// The main button went down at `x, y`: on the page, a selection starts there and the page
@@ -374,6 +400,15 @@ impl App {
 /// Whether the pane draws this document: Markdown, or a document that has no file yet.
 pub(crate) fn previewable(doc: &crate::docs::Doc) -> bool {
     doc.is_markdown() || doc.path.is_none()
+}
+
+/// The cursor the page asks for at a place: a hand over a task box, the text cursor over text.
+fn page_cursor(p: mdview_preview::Pointer) -> CursorIcon {
+    match p {
+        mdview_preview::Pointer::Hand => CursorIcon::Pointer,
+        mdview_preview::Pointer::Text => CursorIcon::Text,
+        mdview_preview::Pointer::Arrow => CursorIcon::Default,
+    }
 }
 
 #[cfg(test)]
@@ -645,6 +680,75 @@ mod tests {
         assert_eq!(a.docs.active_ready().unwrap().view.sel, caret);
         a.command(C::Undo);
         assert_eq!(now(&a), text);
+    }
+
+    #[test]
+    fn the_cursor_is_a_hand_over_a_box_and_a_tick_leaves_the_page_still() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("pane-tasks-still");
+        let md = dir.join("a.md");
+        let mut text = String::from("- [ ] first\n- [x] second\n\n");
+        text.extend((0..150).map(|i| format!("Paragraph {i}.\n\n")));
+        std::fs::write(&md, &text).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.command(C::PreviewPane);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        let idle = |a: &App| a.preview.as_ref().unwrap().idle();
+        // The caret at the end of the text, the page then scrolled back to its top: what the
+        // reader sees is the boxes, far from the caret.
+        a.docs.active_ready_mut().unwrap().view.sel =
+            mdedit_core::selection::Selection::at(text.len());
+        a.preview_sync();
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top > 0.0);
+        a.preview.as_mut().unwrap().scroll(-1e9);
+        pump(&mut a, |a| {
+            a.preview.as_ref().unwrap().top == 0.0 && idle(a)
+        });
+        let r = a.page_area().expect("a page in the pane");
+        // The cursor over the page, asked for at each place: a hand over a box, the text
+        // cursor over words.
+        let mut hand = None;
+        let mut text_cursor = false;
+        'scan: for y in (0..(r.h.min(100.0) as u32)).step_by(4) {
+            for x in (0..(r.w.min(120.0) as u32)).step_by(4) {
+                let (px, py) = (r.x + x as f32, r.y + y as f32);
+                a.pointer_moved(px, py);
+                pump(&mut a, idle);
+                a.preview_sync();
+                text_cursor |= a.cursor == CursorIcon::Text;
+                if a.cursor == CursorIcon::Pointer {
+                    hand = Some((px, py));
+                    if text_cursor {
+                        break 'scan;
+                    }
+                }
+            }
+        }
+        let (px, py) = hand.expect("a hand over a box");
+        assert!(text_cursor, "the text cursor over words");
+        // A click there ticks the box, and the page stays at its top, though the caret is at
+        // the far end.
+        a.pointer_moved(px, py);
+        a.left_press();
+        a.left_release();
+        pump(&mut a, |a| now_text(a) != text);
+        assert_ne!(now_text(&a), text);
+        pump(&mut a, |a| idle(a) && generation(a) > 0);
+        a.preview_sync();
+        assert_eq!(a.preview.as_ref().unwrap().top, 0.0, "the page stayed");
+    }
+
+    fn now_text(a: &App) -> String {
+        let b = &a.docs.active_ready().unwrap().buffer;
+        let mut s = String::new();
+        b.text(0..b.len_bytes(), &mut s);
+        s
     }
 
     #[test]

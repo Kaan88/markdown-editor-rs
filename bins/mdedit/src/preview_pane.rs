@@ -101,6 +101,10 @@ pub struct Pane {
     /// A task box clicked on the page, until the editor has taken it: the document and version
     /// of the text it is about, the byte of its mark, and whether the click checks it.
     task: Option<(DocId, (u64, u64), usize, bool)>,
+    /// The cursor for the place the pointer last rested on, as the page last answered.
+    pub pointer: mdview_preview::Pointer,
+    /// A place to ask the cursor for once nothing is awaited (only the latest is kept).
+    hover_due: Option<(f32, f32)>,
     page_line: Option<f32>,
 }
 
@@ -174,6 +178,8 @@ impl Pane {
             focused: false,
             copied: None,
             task: None,
+            pointer: mdview_preview::Pointer::Arrow,
+            hover_due: None,
         }
     }
 
@@ -314,6 +320,24 @@ impl Pane {
         self.copied.take()
     }
 
+    /// The pointer rests at `x, y` (device pixels from the page's top left): asks the page for
+    /// the cursor there, at once when nothing is awaited, else once the answers are in, so a
+    /// moving pointer does not queue requests. [`pointer`](Self::pointer) has the answer.
+    pub fn hover(&mut self, x: f32, y: f32) {
+        if self.waiting == 0 {
+            self.hover_due = None;
+            self.send(Request::Hover { x, y });
+        } else {
+            self.hover_due = Some((x, y));
+        }
+    }
+
+    /// Nothing is awaited from the page, and no cursor question is held back.
+    #[cfg(test)]
+    pub fn idle(&self) -> bool {
+        self.waiting == 0 && self.hover_due.is_none()
+    }
+
     /// The task box clicked on the page: the document and version of the text it is about, the
     /// byte offset of its mark, and whether the click checks it.
     pub fn take_task(&mut self) -> Option<(DocId, (u64, u64), usize, bool)> {
@@ -345,6 +369,12 @@ impl Pane {
                         changed = true;
                     }
                     // About the last text sent: the server took every request in order.
+                    if let Some(p) = u.pointer.take()
+                        && p != self.pointer
+                    {
+                        self.pointer = p;
+                        changed = true;
+                    }
                     if let Some((at, checked)) = u.task.take()
                         && let (Some(doc), Some(version)) = (self.sent.doc, self.sent.version)
                     {
@@ -384,6 +414,12 @@ impl Pane {
                     changed = true;
                 }
             }
+        }
+        if self.waiting == 0
+            && self.ended.is_none()
+            && let Some((x, y)) = self.hover_due.take()
+        {
+            self.send(Request::Hover { x, y });
         }
         changed
     }

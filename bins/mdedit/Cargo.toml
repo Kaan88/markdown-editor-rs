@@ -32,8 +32,8 @@ bytemuck.workspace = true
 png = "0.18"
 # The preview pane (src/preview_pane.rs). The wire format to `mdview --preview-server` always;
 # mdview's renderer itself only in the embedded build (the feature below).
-mdview-preview = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f" }
-mdview-render = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "2dc2099eaedb0cdcb5cb90dd8a0b0a88d511224f", optional = true }
+mdview-preview = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "56dfe05223e6686830b56f294da0e5fdf8ec3ea0" }
+mdview-render = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "56dfe05223e6686830b56f294da0e5fdf8ec3ea0", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
