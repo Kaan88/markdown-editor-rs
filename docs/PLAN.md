@@ -1,5 +1,20 @@
 # Plan: mdedit, a light text editor
 
+## Status: feature complete, in maintenance (2026-11-17)
+
+The owner agreed on 2026-11-17 that mdedit is feature complete. Every roadmap below is built; the
+sections that follow are history, not open work. From here on:
+
+- Fix bugs found in daily use, and keep dependencies current: Dependabot opens pull requests
+  every Monday (`.github/dependabot.yml`); `ci` runs on each; merge by hand once it passes and the budgets below are measured.
+  The sister crates (`mdshared-*`, `mdview-*`) and the winit and softbuffer forks are moved by hand.
+- A new feature goes in only when the owner asks for it, under the same rules as before.
+- Release only the app a change affects (mdview 1.0.1 carried no change of its own and was
+  withdrawn).
+- Known small gaps, not planned unless they get in the way: no access keys in the line-ending and encoding menus; an empty function list for Vue and Svelte; a column selection pads short lines on typing but not on paste or Enter; no compare arrows with word wrap on; the Markdown menu has no room left in an 800 px window.
+- Set aside by the owner (can be reopened): screen-reader accessibility; plugins; printing; the FTP and project panels; syntax-aware folding.
+- Never checked by hand: the KDE blur on Linux; pasting image files copied in a Linux file manager; the Linux AppImage and packages; an installed copy updating itself and restarting.
+
 Written 2026-11-12. The user said to start the same day. Phases 0 to 3 are built (see "State"
 below); the user has not yet looked at the interface, so nothing about it is approved.
 

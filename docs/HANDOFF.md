@@ -5,7 +5,14 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## START HERE: mdedit 1.0.2, a right-click menu on the preview pane (2026-11-16, released)
+## START HERE: feature complete, in maintenance (2026-11-17)
+
+The owner agreed that mdedit is feature complete: see the status at the top of `docs/PLAN.md`
+(what maintenance means, the small known gaps, what was set aside). The latest release is 1.0.2.
+The owner tried the right-click menu of 1.0.2 and said it works. mdview's own 1.0.1 release was
+withdrawn; mdedit still pins viewer commit `8faf059`, which is on mdview's `main`.
+
+## mdedit 1.0.2, a right-click menu on the preview pane (2026-11-16, released)
 
 The owner asked for it after 1.0.1 ("implement right click, only build edit this time"): only
 mdedit is released; the viewer is unchanged and the pin stays at `8faf059`. The owner has not
@@ -26,7 +33,7 @@ seen the menu.
 
 ## mdedit 1.0.1, selecting text on the preview pane (2026-11-16, released)
 
-Released as 1.0.1 with mdview 1.0.1 on the owner's word ("I trust you"), without a hands-on
+Released as 1.0.1 with mdview 1.0.1 (that mdview release was withdrawn later the same day) on the owner's word ("I trust you"), without a hands-on
 test on Windows. Record in `docs/RELEASE.md`.
 
 
