@@ -871,6 +871,7 @@ impl App {
                             .map(|s| crate::updater::Updates::bar_label(&crate::updater::APP, s)),
                         self.docs.updates.relaunch_target().is_some(),
                         self.docs.crash.is_some(),
+                        self.docs.stale.len(),
                     ),
                 ))
             }
@@ -1340,6 +1341,11 @@ impl App {
                         if self.docs.crash.is_some() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
                             chrome::draw_crash_bar(&mut c, under);
+                            y = under.bottom();
+                        }
+                        if !self.docs.stale.is_empty() {
+                            let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
+                            chrome::draw_stale_bar(&mut c, under, self.docs.stale.len());
                         }
                     }
                     Region::Files if self.ui.outline.on => {
@@ -1950,6 +1956,7 @@ impl App {
         s.active = self.docs.active_among_paths();
         s.active_tab = self.docs.active_pin();
         s.last_pinned = self.docs.last_pinned();
+        s.seen = self.docs.seen();
         s.split = split;
         s.recent = self.docs.recents.clone();
         if !self.theme_from_args {
@@ -2443,7 +2450,12 @@ impl App {
         } else {
             0.0
         };
-        format + strip + update + crash
+        let stale = if self.docs.stale.is_empty() {
+            0.0
+        } else {
+            view::BANNER_H
+        };
+        format + strip + update + crash + stale
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
@@ -3069,6 +3081,7 @@ pub fn run() -> i32 {
     // The copies come back as modified tabs.
     let recovered = recovery.restore(&mut docs, found);
     restored.extend(recovered.load.iter().copied());
+    docs.start_day(&mut session);
     // The pinned tabs are marked now and put first once every index taken here is used.
     if restore {
         docs.mark_pinned(&session.pinned);
@@ -3141,6 +3154,9 @@ pub fn run() -> i32 {
     }
     let pins = app.session.pinned.clone();
     app.docs.pinned_first(&pins);
+    if app.docs.prefs.offer_stale {
+        app.docs.offer_stale_tabs();
+    }
     // The split view comes back when both its files did (and the second is not the active one).
     if let Some(split) = app.session.split.clone() {
         app.docs

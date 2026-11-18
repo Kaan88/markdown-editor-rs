@@ -39,7 +39,7 @@ use mdedit_highlight::{Colored, DocId, HighlightService, Language, Span};
 use mdshared_app::files::{FileStamp, stamp};
 use mdshared_app::paths::{canonical_or_absolute, same_path, tab_labels};
 use mdshared_app::recents::Recents;
-use mdshared_ui::pins;
+use mdshared_ui::{pins, stale};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1043,6 +1043,8 @@ pub struct Doc {
     /// Pinned: kept at the left with the other pinned tabs, and closed only once unpinned
     /// (Close other tabs and Close all tabs pass it by). Kept in the session.
     pub pinned: bool,
+    /// The day of use the tab was last shown on ([`mdshared_ui::stale`]).
+    pub seen: u32,
 }
 
 impl pins::Pinnable for Doc {
@@ -1085,6 +1087,7 @@ impl Doc {
             cancel: None,
             title: None,
             pinned: false,
+            seen: 0,
         }
     }
 
@@ -1362,6 +1365,10 @@ pub struct Docs {
     active: Option<usize>,
     /// The pinned tab shown last, for the setting to start on it.
     last_pinned: Option<DocId>,
+    /// Today's number among the days mdedit was used ([`mdshared_ui::stale`]).
+    day: u32,
+    /// The tabs offered for closing at start, while the bar offering them shows.
+    pub stale: Vec<DocId>,
     next_id: DocId,
     pub recents: Recents,
     pub folder: Option<PathBuf>,
@@ -1418,6 +1425,8 @@ impl Docs {
             marks: Default::default(),
             active: None,
             last_pinned: None,
+            day: 0,
+            stale: Vec::new(),
             next_id: 1,
             recents: Recents::default(),
             folder: None,
@@ -1534,7 +1543,9 @@ impl Docs {
         }
         let id = self.next_id;
         self.next_id += 1;
-        self.tabs.push(Doc::new(id, path));
+        let mut doc = Doc::new(id, path);
+        doc.seen = self.day;
+        self.tabs.push(doc);
         self.watch_changed = true;
         self.tabs.len() - 1
     }
@@ -1575,6 +1586,7 @@ impl Docs {
             cancel: None,
             title: None,
             pinned: false,
+            seen: self.day,
         });
         let i = self.tabs.len() - 1;
         self.active = Some(i);
@@ -1843,6 +1855,7 @@ impl Docs {
             self.other_left = !self.other_left;
         }
         self.active = Some(i);
+        self.tabs[i].seen = self.day;
         if self.tabs[i].pinned {
             self.last_pinned = Some(self.tabs[i].id);
         }
@@ -1959,6 +1972,54 @@ impl Docs {
 
     /// Puts the pinned tabs first, in the order `pins` names them; the others keep theirs
     /// (after a session is read). The active tab stays active.
+    /// At start, after the session's tabs are made: counts today among the days mdedit was used
+    /// and gives each tab the day it was last shown (one the session has none for: today).
+    pub fn start_day(&mut self, session: &mut crate::session::Session) {
+        let (count, date) = session.use_days;
+        let used = stale::UseDays { count, date }.start(stale::today());
+        session.use_days = (used.count, used.date);
+        self.day = used.count;
+        for doc in &mut self.tabs {
+            let seen = doc
+                .pin()
+                .and_then(|p| session.seen.iter().find(|(q, _)| *q == p));
+            doc.seen = seen.map_or(used.count, |&(_, day)| day);
+        }
+    }
+
+    /// Each tab's day of use, for the session.
+    pub fn seen(&self) -> Vec<(crate::session::Pin, u32)> {
+        (self.tabs.iter())
+            .filter_map(|d| Some((d.pin()?, d.seen)))
+            .collect()
+    }
+
+    /// The tabs to offer for closing: not opened in a week of use, and neither pinned, showing,
+    /// in the other pane, nor holding changes or text without a file.
+    pub fn offer_stale_tabs(&mut self) {
+        let active = self.active.map(|i| self.tabs[i].id);
+        self.stale = (self.tabs.iter())
+            .filter(|d| {
+                !d.pinned
+                    && d.path.is_some()
+                    && !d.modified()
+                    && Some(d.id) != active
+                    && Some(d.id) != self.other
+                    && stale::is_stale(d.seen, self.day)
+            })
+            .map(|d| d.id)
+            .collect();
+    }
+
+    /// The bar's Keep: the tabs it offered count from today.
+    pub fn keep_stale(&mut self) {
+        let offered = std::mem::take(&mut self.stale);
+        let day = self.day;
+        for d in self.tabs.iter_mut().filter(|d| offered.contains(&d.id)) {
+            d.seen = day;
+        }
+    }
+
     pub fn pinned_first(&mut self, list: &[crate::session::Pin]) {
         pins::restore(&mut self.tabs, |d| pin_place(list, d), &mut self.active);
     }

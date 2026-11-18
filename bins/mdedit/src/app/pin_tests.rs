@@ -200,3 +200,70 @@ fn the_tab_left_showing_comes_back_even_a_pinned_note_and_the_setting_picks_the_
     let (b, start) = restart(&s);
     assert_eq!(b.docs.tabs[start.unwrap()].name(), "a.txt");
 }
+
+/// Tabs not shown in the last week of use are offered at start: never a pinned one, the one
+/// showing, one with changes, or a note without a file. Keep starts their count again; Close
+/// closes them.
+#[test]
+fn tabs_not_opened_for_a_week_of_use_are_offered_and_closed_or_kept() {
+    let mut a = four(); // a b c d(note), c showing
+    a.tab_command(C::PinTab, 1); // b pinned: b a c d
+    let mut s = Session {
+        tabs: a.docs.paths(),
+        pinned: a.docs.pins(),
+        use_days: (10, 0), // another date: this start is day 11
+        seen: a.docs.seen().into_iter().map(|(p, _)| (p, 2)).collect(),
+        ..Session::default()
+    };
+    let start = |s: &mut Session| {
+        let mut b = app();
+        for p in s.tabs.clone() {
+            open_now(&mut b, &p);
+        }
+        b.docs.start_day(s);
+        b.docs.mark_pinned(&s.pinned);
+        b.docs.activate(2); // c
+        b.docs.pinned_first(&s.pinned);
+        b.docs.offer_stale_tabs();
+        b
+    };
+    let mut b = start(&mut s.clone());
+    let offered = |b: &App| -> Vec<String> {
+        (b.docs.stale.iter())
+            .map(|&id| b.docs.tabs[b.docs.index_of_id(id).unwrap()].name())
+            .collect()
+    };
+    assert_eq!(offered(&b), ["a.txt"], "not b (pinned) nor c (showing)");
+    b.stale_bar(Hit::StaleKeep);
+    assert!(b.docs.stale.is_empty());
+    s.seen = b.docs.seen();
+    assert!(
+        s.seen
+            .iter()
+            .any(|(p, d)| matches!(p, Pin::File(f) if f.ends_with("a.txt")) && *d == 11)
+    );
+
+    // A changed tab is not offered; Close closes the others.
+    s.seen = s.seen.iter().map(|(p, _)| (p.clone(), 2)).collect();
+    s.use_days = (20, 0);
+    let mut b = start(&mut s.clone());
+    assert_eq!(offered(&b), ["a.txt"]);
+    let i = b
+        .docs
+        .tabs
+        .iter()
+        .position(|d| d.name() == "a.txt")
+        .unwrap();
+    b.docs.activate(i);
+    b.docs.edit(crate::docs::EditOp::Insert("x"), None);
+    b.docs.activate(2);
+    b.stale_bar(Hit::StaleClose);
+    assert_eq!(
+        names(&b),
+        ["b.txt", "a.txt", "c.txt"],
+        "a has changes: kept"
+    );
+    let mut b = start(&mut s.clone());
+    b.stale_bar(Hit::StaleClose);
+    assert_eq!(names(&b), ["b.txt", "c.txt"]);
+}

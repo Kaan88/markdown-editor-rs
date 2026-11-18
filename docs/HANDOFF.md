@@ -12,6 +12,23 @@ The owner agreed that mdedit is feature complete: see the status at the top of `
 The owner tried the right-click menu of 1.0.2 and said it works. mdview's own 1.0.1 release was
 withdrawn; mdedit pins viewer commit `56dfe05` (from 1.0.4), which is on mdview's `main`.
 
+## Tabs not opened for a week (2026-11-18, branch `f/stale-tabs`)
+
+The owner asked for an offer to close tabs left unopened, on by default, in both applications;
+the rules are `mdshared_ui::stale` (shared `f/stale-tabs` at `49de4ec`), the viewer pin is
+mdview's `f/stale-tabs` (`cf965a8`), which has the same. Time counts in days of use
+(`Session::use_days`, one more at a start on a new date); each tab keeps the day it was last
+shown (`Doc::seen`, `seen` lines by `Pin`; none in the session counts as today, so the first
+start after an update offers nothing). At start (`Docs::offer_stale_tabs`, after the pins are
+put first) tabs not shown in the last 7 days of use go on a bar under the command bar
+(`chrome::draw_stale_bar`, `notice::draw_offer_bar`): Close them, Keep (their count starts
+again), the close button (asked again next start). Never offered: pinned, showing, in the other
+pane, changed, or without a file. `App::stale_bar` checks each again before closing.
+Setting `Prefs::offer_stale` (on), Settings > Session, "Offer to close tabs not opened in a week".
+Test: `tabs_not_opened_for_a_week_of_use_are_offered_and_closed_or_kept` (pin_tests.rs).
+Budgets against 1.0.5's code (15 interleaved runs): no change beyond noise (first frame
+94.7 → 94.4 ms, idle 25.6 MiB both).
+
 ## Pinned tabs: the tab left showing comes back, and a setting (2026-11-18, `f/pins`, for 1.0.5)
 
 The owner found that a pinned tab showing at close came back as its neighbour: the session's

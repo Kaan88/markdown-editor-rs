@@ -171,6 +171,10 @@ pub enum Hit {
     CrashOpen,
     CrashCopy,
     CrashClose,
+    /// The bar that offers to close the tabs not opened for a week of use.
+    StaleClose,
+    StaleKeep,
+    StaleDismiss,
     /// The format bar's buttons, and its button for the Markdown menu when they do not all fit.
     Format(crate::commands::CommandId),
     FormatMore,
@@ -249,6 +253,9 @@ impl Hit {
             | Hit::CrashOpen
             | Hit::CrashCopy
             | Hit::CrashClose
+            | Hit::StaleClose
+            | Hit::StaleKeep
+            | Hit::StaleDismiss
             | Hit::Format(_)
             | Hit::FormatMore => Region::Bar,
             Hit::Replace

@@ -213,6 +213,11 @@ pub struct Session {
     pub active_tab: Option<Pin>,
     /// The pinned tab shown last (for the setting to start on it).
     pub last_pinned: Option<Pin>,
+    /// The days mdedit was used: how many, and the date (days since 1970) of the last. See
+    /// `mdshared_ui::stale`.
+    pub use_days: (u32, u64),
+    /// The day of use each tab was last shown on: one `seen` line each.
+    pub seen: Vec<(Pin, u32)>,
     /// The split view, when two tabs were side by side.
     pub split: Option<Split>,
     /// The find options (match case, whole word, regular expression).
@@ -264,6 +269,8 @@ impl Default for Session {
             pinned: Vec::new(),
             active_tab: None,
             last_pinned: None,
+            use_days: (0, 0),
+            seen: Vec::new(),
             unsaved: Vec::new(),
             active: 0,
             split: None,
@@ -332,6 +339,21 @@ impl Session {
                     "active" => s.active = value.trim().parse().unwrap_or(0),
                     "active_tab" => s.active_tab = Pin::parse(value),
                     "last_pinned" => s.last_pinned = Pin::parse(value),
+                    "use_days" => {
+                        let mut parts = value.split_whitespace();
+                        let n = parts.next().and_then(|n| n.parse().ok());
+                        let d = parts.next().and_then(|d| d.parse().ok());
+                        if let (Some(n), Some(d)) = (n, d) {
+                            s.use_days = (n, d);
+                        }
+                    }
+                    "seen" => {
+                        if let Some((day, pin)) = value.split_once(' ')
+                            && let (Ok(day), Some(pin)) = (day.parse(), Pin::parse(pin))
+                        {
+                            s.seen.push((pin, day));
+                        }
+                    }
                     "theme" => {
                         s.theme = ThemeChoice::from_setting(value.trim().parse().unwrap_or(0))
                     }
@@ -422,6 +444,15 @@ impl Session {
         }
         if let Some(p) = &self.last_pinned {
             out.line("last_pinned", &p.serialize());
+        }
+        if self.use_days != (0, 0) {
+            out.line(
+                "use_days",
+                &format!("{} {}", self.use_days.0, self.use_days.1),
+            );
+        }
+        for (p, day) in &self.seen {
+            out.line("seen", &format!("{day} {}", p.serialize()));
         }
         if let Some(split) = &self.split {
             out.line("split", &split.serialize());
@@ -666,6 +697,11 @@ mod tests {
             active: 1,
             active_tab: Some(Pin::Untitled(3)),
             last_pinned: Some(Pin::File(PathBuf::from("C:/a b/x.rs"))),
+            use_days: (12, 20405),
+            seen: vec![
+                (Pin::File(PathBuf::from("C:/a b/x.rs")), 9),
+                (Pin::Untitled(2), 11),
+            ],
             theme: ThemeChoice::Dark,
             files: Some(true),
             files_w: Some(300),

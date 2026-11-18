@@ -50,6 +50,7 @@ impl App {
             Hit::UpdateRestart => self.request(After::Restart),
             Hit::UpdateClose => self.docs.updates.dismiss(),
             Hit::CrashOpen | Hit::CrashCopy | Hit::CrashClose => self.crash_bar(hit),
+            Hit::StaleClose | Hit::StaleKeep | Hit::StaleDismiss => self.stale_bar(hit),
             // The format bar's buttons act on the text, which keeps the keyboard.
             Hit::Format(id) => {
                 self.ui.find_focused = false;
@@ -909,6 +910,33 @@ impl App {
             d.subject = subject;
         }
         self.ui.pending = Some(Pending { doc: id, after });
+        self.redraw();
+    }
+
+    /// The stale-tab bar's buttons: close the tabs it offers (those still open, unpinned, not
+    /// showing and unchanged since), keep them for another week of use, or ask at the next start.
+    pub(super) fn stale_bar(&mut self, hit: Hit) {
+        match hit {
+            Hit::StaleClose => {
+                let offered = std::mem::take(&mut self.docs.stale);
+                let service = self.service.as_ref();
+                for id in offered.into_iter().rev() {
+                    let active = self.docs.active_doc().map(|d| d.id);
+                    if let Some(i) = self.docs.index_of_id(id)
+                        && let d = &self.docs.tabs[i]
+                        && !d.pinned
+                        && !d.modified()
+                        && Some(id) != active
+                    {
+                        self.docs.close(i, service);
+                    }
+                }
+            }
+            Hit::StaleKeep => self.docs.keep_stale(),
+            _ => self.docs.stale.clear(),
+        }
+        self.relayout_areas();
+        self.full = true;
         self.redraw();
     }
 

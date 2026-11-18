@@ -699,6 +699,39 @@ pub fn draw_crash_bar(c: &mut Ctx, bar: Rect) {
     }
 }
 
+/// The bar under the command bar that offers to close the tabs not opened for a week of use.
+pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize) {
+    use mdshared_ui::notice::{self, OfferBarState};
+    use mdshared_ui::stale;
+    let state = OfferBarState {
+        yes_hovered: c.hover == Some(Hit::StaleClose),
+        yes_pressed: c.pressed == Some(Hit::StaleClose),
+        no_hovered: c.hover == Some(Hit::StaleKeep),
+        no_pressed: c.pressed == Some(Hit::StaleKeep),
+        close_hovered: c.hover == Some(Hit::StaleDismiss),
+    };
+    let text = stale::label(count, "mdedit");
+    let hits = notice::draw_offer_bar(
+        c.p,
+        c.pal,
+        bar,
+        glyph::RECENT,
+        &text,
+        stale::CLOSE_THEM,
+        stale::KEEP,
+        state,
+    );
+    for (hit, r) in [
+        (Hit::StaleClose, hits.yes),
+        (Hit::StaleKeep, hits.no),
+        (Hit::StaleDismiss, hits.close),
+    ] {
+        if let Some(r) = r {
+            c.hit(hit, r);
+        }
+    }
+}
+
 pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);
