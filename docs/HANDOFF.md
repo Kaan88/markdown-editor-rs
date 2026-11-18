@@ -19,6 +19,14 @@ drag and drop and with the optional "Edit with mdedit" entry. Not run on Windows
 self-updater swaps the exe only, so an install updated that way keeps the old entries until the
 installer runs again.
 
+.txt is associated, on the owner's word ("don't leave .txt alone, associate"): the task
+"txtdefault" (checked) writes mdedit's ProgId as the default of `HKCU\Software\Classes\.txt`,
+which decides where the user never chose another application. A choice made in "Open with >
+Always" or Default apps (Explorer's protected `UserChoice`) wins over it and an installer cannot
+change it; then (`TxtChosenElsewhere` in `[Code]`) the last page offers
+`ms-settings:defaultapps?registeredAppUser=mdedit`, mdedit's Default apps page. Uninstalling
+removes the default value.
+
 ## START HERE: feature complete, in maintenance (2026-11-17)
 
 The owner agreed that mdedit is feature complete: see the status at the top of `docs/PLAN.md`
