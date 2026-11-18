@@ -25,8 +25,17 @@
 
 ; The extensions mdedit is offered for (text, data and the source files it colours), without the
 ; dot, each followed by a comma. Registered as "Open with" and in Default apps; none becomes a
-; default by itself.
-#define Exts "txt,log,ini,cfg,conf,env,properties,json,xml,yaml,yml,toml,csv,md,markdown,ts,tsx,mts,cts,js,jsx,mjs,cjs,c,h,cc,cpp,hpp,cs,java,go,py,rb,php,rs,kt,kts,swift,sql,sh,bash,zsh,ps1,psm1,bat,cmd,html,htm,css,scss,less,dart,zig,lua,pl,r,diff,patch,cmake,gradle,groovy,scala,hs,tex,"
+; default by itself. .txt is the first.
+;
+; Never a type that Windows, or a runtime people install, RUNS on a double-click (scripts) or that
+; a browser opens: a new "Open with" handler can make Windows ask "How do you want to open this
+; file?" instead of running a .bat or a .cmd. Those are in Runnable below; mdedit still opens
+; them from its Open dialog, by drag and drop, and with the optional "Edit with mdedit" entry.
+#define Exts "txt,log,ini,cfg,conf,env,properties,json,xml,yaml,yml,toml,csv,md,markdown,ts,tsx,mts,cts,jsx,c,h,cc,cpp,hpp,cs,java,go,rs,kt,kts,swift,sql,css,scss,less,dart,zig,r,diff,patch,cmake,gradle,groovy,scala,hs,tex,"
+; Registered by mdedit 1.0.5 and earlier and taken off again by this installer: the scripts
+; Windows or a common runtime runs (bat, cmd, PowerShell, Windows Script Host's js, shells,
+; Python, Ruby, Perl, PHP, Lua) and the pages a browser opens.
+#define Runnable "bat,cmd,ps1,psm1,js,mjs,cjs,sh,bash,zsh,py,rb,pl,php,lua,html,htm,"
 #define Rest ""
 #define Ext ""
 #define N 0
@@ -74,7 +83,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; Checked by default. Windows does not let an installer take the default handler for an extension
 ; (the per-user choice is protected), so mdedit registers as a handler and as an application in
 ; Settings > Default apps; the last page offers to open that page so the user can pick it.
-Name: "assoc"; Description: "Register mdedit for text and source files (.txt, .log, .ini, .json, .md, .rs, .ts, .py and more)"; GroupDescription: "File types:"
+Name: "assoc"; Description: "Register mdedit for text and source files (.txt, .log, .ini, .json, .md, .rs, .ts and more; not scripts such as .bat)"; GroupDescription: "File types:"
 Name: "contextmenu"; Description: "Add ""Edit with mdedit"" to the context menu of all files"; GroupDescription: "File types:"; Flags: unchecked
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
@@ -121,10 +130,47 @@ Root: HKA; Subkey: "Software\{#AppName}\Capabilities\FileAssociations"; ValueTyp
 #endsub
 #for {N = 0; Rest != ""; N = N + 1} Each
 
+; Takes the entries an earlier mdedit wrote for a runnable type off again, at every install
+; (whatever the tasks); the keys it made are removed when empty, in [Code].
+#sub Unregister
+#emit NextExt
+#emit RunnableEntries
+#endsub
+#sub RunnableEntries
+Root: HKA; Subkey: "Software\Classes\.{#Ext}\OpenWithProgids"; ValueType: none; ValueName: "{#ProgId}"; Flags: deletevalue dontcreatekey
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: none; ValueName: ".{#Ext}"; Flags: deletevalue dontcreatekey
+Root: HKA; Subkey: "Software\{#AppName}\Capabilities\FileAssociations"; ValueType: none; ValueName: ".{#Ext}"; Flags: deletevalue dontcreatekey
+#endsub
+#expr Rest = Runnable
+#for {N = 0; Rest != ""; N = N + 1} Unregister
+
 ; The optional context-menu entry for every file.
 Root: HKA; Subkey: "Software\Classes\*\shell\{#AppName}"; ValueType: string; ValueName: ""; ValueData: "Edit with {#DisplayName}"; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKA; Subkey: "Software\Classes\*\shell\{#AppName}"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\mdedit.ico"; Tasks: contextmenu
 Root: HKA; Subkey: "Software\Classes\*\shell\{#AppName}\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: contextmenu
+
+[Code]
+// The ".bat" and ".bat\OpenWithProgids" keys an earlier mdedit made under HKCU\Software\Classes
+// are removed when nothing else is in them, so Windows looks up those types as before.
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Exts: String;
+  Ext: String;
+  P: Integer;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    Exts := '{#Runnable}';
+    while Exts <> '' do
+    begin
+      P := Pos(',', Exts);
+      Ext := Copy(Exts, 1, P - 1);
+      Delete(Exts, 1, P);
+      RegDeleteKeyIfEmpty(HKA, 'Software\Classes\.' + Ext + '\OpenWithProgids');
+      RegDeleteKeyIfEmpty(HKA, 'Software\Classes\.' + Ext);
+    end;
+  end;
+end;
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch mdedit"; Flags: nowait postinstall skipifsilent
