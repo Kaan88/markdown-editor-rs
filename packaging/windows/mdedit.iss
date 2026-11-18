@@ -25,8 +25,17 @@
 
 ; The extensions mdedit is offered for (text, data and the source files it colours), without the
 ; dot, each followed by a comma. Registered as "Open with" and in Default apps; none becomes a
-; default by itself.
-#define Exts "txt,log,ini,cfg,conf,env,properties,json,xml,yaml,yml,toml,csv,md,markdown,ts,tsx,mts,cts,js,jsx,mjs,cjs,c,h,cc,cpp,hpp,cs,java,go,py,rb,php,rs,kt,kts,swift,sql,sh,bash,zsh,ps1,psm1,bat,cmd,html,htm,css,scss,less,dart,zig,lua,pl,r,diff,patch,cmake,gradle,groovy,scala,hs,tex,"
+; default by itself; .txt is made one by the "txtdefault" task below.
+;
+; Never a type that Windows, or a runtime people install, RUNS on a double-click (scripts) or that
+; a browser opens: a new "Open with" handler can make Windows ask "How do you want to open this
+; file?" instead of running a .bat or a .cmd. Those are in Runnable below; mdedit still opens
+; them from its Open dialog, by drag and drop, and with the optional "Edit with mdedit" entry.
+#define Exts "txt,log,ini,cfg,conf,env,properties,json,xml,yaml,yml,toml,csv,md,markdown,ts,tsx,mts,cts,jsx,c,h,cc,cpp,hpp,cs,java,go,rs,kt,kts,swift,sql,css,scss,less,dart,zig,r,diff,patch,cmake,gradle,groovy,scala,hs,tex,"
+; Registered by mdedit 1.0.5 and earlier and taken off again by this installer: the scripts
+; Windows or a common runtime runs (bat, cmd, PowerShell, Windows Script Host's js, shells,
+; Python, Ruby, Perl, PHP, Lua) and the pages a browser opens.
+#define Runnable "bat,cmd,ps1,psm1,js,mjs,cjs,sh,bash,zsh,py,rb,pl,php,lua,html,htm,"
 #define Rest ""
 #define Ext ""
 #define N 0
@@ -74,7 +83,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; Checked by default. Windows does not let an installer take the default handler for an extension
 ; (the per-user choice is protected), so mdedit registers as a handler and as an application in
 ; Settings > Default apps; the last page offers to open that page so the user can pick it.
-Name: "assoc"; Description: "Register mdedit for text and source files (.txt, .log, .ini, .json, .md, .rs, .ts, .py and more)"; GroupDescription: "File types:"
+Name: "assoc"; Description: "Register mdedit for text and source files (.txt, .log, .ini, .json, .md, .rs, .ts and more; not scripts such as .bat)"; GroupDescription: "File types:"
+Name: "txtdefault"; Description: "Open .txt files with mdedit"; GroupDescription: "File types:"
 Name: "contextmenu"; Description: "Add ""Edit with mdedit"" to the context menu of all files"; GroupDescription: "File types:"; Flags: unchecked
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
@@ -88,22 +98,30 @@ Name: "{autoprograms}\{#DisplayName}"; Filename: "{app}\{#AppExe}"; IconFilename
 Name: "{autodesktop}\{#DisplayName}"; Filename: "{app}\{#AppExe}"; IconFilename: "{app}\mdedit.ico"; Tasks: desktopicon
 
 [Registry]
-; mdedit is only OFFERED under "Open with". Nothing here writes an extension's default value
-; (the "(Default)" of HKCU\Software\Classes\.txt etc.), so the user's current choice is untouched.
-Root: HKA; Subkey: "Software\Classes\{#ProgId}"; ValueType: string; ValueName: ""; ValueData: "Text document"; Flags: uninsdeletekey; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\{#ProgId}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\mdedit.ico"; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\{#ProgId}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: assoc
+; mdedit is OFFERED under "Open with" for its types; only .txt (the "txtdefault" task, below) gets
+; mdedit as its handler. A choice the user made for any type stays theirs: Windows protects it.
+Root: HKA; Subkey: "Software\Classes\{#ProgId}"; ValueType: string; ValueName: ""; ValueData: "Text document"; Flags: uninsdeletekey; Tasks: assoc txtdefault
+Root: HKA; Subkey: "Software\Classes\{#ProgId}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\mdedit.ico"; Tasks: assoc txtdefault
+Root: HKA; Subkey: "Software\Classes\{#ProgId}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: assoc txtdefault
 
-Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#DisplayName}"; Flags: uninsdeletekey; Tasks: assoc
-Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: assoc
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#DisplayName}"; Flags: uninsdeletekey; Tasks: assoc txtdefault
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: assoc txtdefault
+
+; .txt opens in mdedit: its handler for this user. Windows keeps a choice the user made in "Open
+; with > Always" or Default apps above this, and an installer cannot change that one; then the last
+; page offers Default apps at mdedit's page (TxtChosenElsewhere in [Code]). Uninstalling clears it.
+Root: HKA; Subkey: "Software\Classes\.txt"; ValueType: string; ValueName: ""; ValueData: "{#ProgId}"; Flags: uninsdeletevalue; Tasks: txtdefault
+Root: HKA; Subkey: "Software\Classes\.txt\OpenWithProgids"; ValueType: string; ValueName: "{#ProgId}"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty; Tasks: txtdefault
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".txt"; ValueData: ""; Tasks: txtdefault
+Root: HKA; Subkey: "Software\{#AppName}\Capabilities\FileAssociations"; ValueType: string; ValueName: ".txt"; ValueData: "{#ProgId}"; Tasks: txtdefault
 
 ; Registered application: lists mdedit in Settings > Apps > Default apps, where the user can make it
 ; the default for each extension.
-Root: HKA; Subkey: "Software\{#AppName}"; Flags: uninsdeletekey; Tasks: assoc
-Root: HKA; Subkey: "Software\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#DisplayName}"; Tasks: assoc
-Root: HKA; Subkey: "Software\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "A light, fast text editor."; Tasks: assoc
-Root: HKA; Subkey: "Software\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: "{app}\mdedit.ico"; Tasks: assoc
-Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#AppName}"; ValueData: "Software\{#AppName}\Capabilities"; Flags: uninsdeletevalue; Tasks: assoc
+Root: HKA; Subkey: "Software\{#AppName}"; Flags: uninsdeletekey; Tasks: assoc txtdefault
+Root: HKA; Subkey: "Software\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#DisplayName}"; Tasks: assoc txtdefault
+Root: HKA; Subkey: "Software\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "A light, fast text editor."; Tasks: assoc txtdefault
+Root: HKA; Subkey: "Software\{#AppName}\Capabilities"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: "{app}\mdedit.ico"; Tasks: assoc txtdefault
+Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#AppName}"; ValueData: "Software\{#AppName}\Capabilities"; Flags: uninsdeletevalue; Tasks: assoc txtdefault
 
 ; Takes the next extension and writes its entries.
 #sub Each
@@ -121,10 +139,59 @@ Root: HKA; Subkey: "Software\{#AppName}\Capabilities\FileAssociations"; ValueTyp
 #endsub
 #for {N = 0; Rest != ""; N = N + 1} Each
 
+; Takes the entries an earlier mdedit wrote for a runnable type off again, at every install
+; (whatever the tasks); the keys it made are removed when empty, in [Code].
+#sub Unregister
+#emit NextExt
+#emit RunnableEntries
+#endsub
+#sub RunnableEntries
+Root: HKA; Subkey: "Software\Classes\.{#Ext}\OpenWithProgids"; ValueType: none; ValueName: "{#ProgId}"; Flags: deletevalue dontcreatekey
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: none; ValueName: ".{#Ext}"; Flags: deletevalue dontcreatekey
+Root: HKA; Subkey: "Software\{#AppName}\Capabilities\FileAssociations"; ValueType: none; ValueName: ".{#Ext}"; Flags: deletevalue dontcreatekey
+#endsub
+#expr Rest = Runnable
+#for {N = 0; Rest != ""; N = N + 1} Unregister
+
 ; The optional context-menu entry for every file.
 Root: HKA; Subkey: "Software\Classes\*\shell\{#AppName}"; ValueType: string; ValueName: ""; ValueData: "Edit with {#DisplayName}"; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKA; Subkey: "Software\Classes\*\shell\{#AppName}"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\mdedit.ico"; Tasks: contextmenu
 Root: HKA; Subkey: "Software\Classes\*\shell\{#AppName}\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: contextmenu
 
+[Code]
+// The user chose another application for .txt (Explorer's protected choice): the installer cannot
+// change that, so the last page offers Default apps at mdedit's page.
+function TxtChosenElsewhere(): Boolean;
+var
+  ProgId: String;
+begin
+  Result := RegQueryStringValue(HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.txt\UserChoice',
+    'ProgId', ProgId) and (ProgId <> '{#ProgId}');
+end;
+
+// The ".bat" and ".bat\OpenWithProgids" keys an earlier mdedit made under HKCU\Software\Classes
+// are removed when nothing else is in them, so Windows looks up those types as before.
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Exts: String;
+  Ext: String;
+  P: Integer;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    Exts := '{#Runnable}';
+    while Exts <> '' do
+    begin
+      P := Pos(',', Exts);
+      Ext := Copy(Exts, 1, P - 1);
+      Delete(Exts, 1, P);
+      RegDeleteKeyIfEmpty(HKA, 'Software\Classes\.' + Ext + '\OpenWithProgids');
+      RegDeleteKeyIfEmpty(HKA, 'Software\Classes\.' + Ext);
+    end;
+  end;
+end;
+
 [Run]
+Filename: "ms-settings:defaultapps?registeredAppUser={#AppName}"; Description: "Choose mdedit for .txt in Default apps (another app is chosen now)"; Flags: shellexec nowait postinstall skipifsilent; Tasks: txtdefault; Check: TxtChosenElsewhere
 Filename: "{app}\{#AppExe}"; Description: "Launch mdedit"; Flags: nowait postinstall skipifsilent

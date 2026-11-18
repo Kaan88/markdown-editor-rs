@@ -5,6 +5,28 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Installer: no scripts under "Open with" (2026-11-18, branch `f/installer-types`)
+
+The owner found that after installing mdedit, .bat files no longer ran: the installer offered
+mdedit under "Open with" for .bat and .cmd (and other runnable types), and a new handler there can
+make Windows ask how to open the file instead of running it. `mdedit.iss` now registers only
+text, data and source types that nothing runs on a double-click (`Exts`, .txt first) and, at
+every install, takes off what 1.0.5 and earlier wrote for `Runnable` (bat, cmd, ps1, psm1, js,
+mjs, cjs, sh, bash, zsh, py, rb, pl, php, lua, html, htm): the `OpenWithProgids` value, the
+`SupportedTypes` and `FileAssociations` entries, and the keys it made, when empty
+(`RegDeleteKeyIfEmpty` in `[Code]`). mdedit still opens those types from its Open dialog, by
+drag and drop and with the optional "Edit with mdedit" entry. Not run on Windows yet. The
+self-updater swaps the exe only, so an install updated that way keeps the old entries until the
+installer runs again.
+
+.txt is associated, on the owner's word ("don't leave .txt alone, associate"): the task
+"txtdefault" (checked) writes mdedit's ProgId as the default of `HKCU\Software\Classes\.txt`,
+which decides where the user never chose another application. A choice made in "Open with >
+Always" or Default apps (Explorer's protected `UserChoice`) wins over it and an installer cannot
+change it; then (`TxtChosenElsewhere` in `[Code]`) the last page offers
+`ms-settings:defaultapps?registeredAppUser=mdedit`, mdedit's Default apps page. Uninstalling
+removes the default value.
+
 ## START HERE: feature complete, in maintenance (2026-11-17)
 
 The owner agreed that mdedit is feature complete: see the status at the top of `docs/PLAN.md`
