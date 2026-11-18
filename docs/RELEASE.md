@@ -256,6 +256,17 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.0.5 (published 2026-11-18 by the release workflow, run by hand with `publish`, at commit a03b570)
+
+Run 44261636486; the `ci` run on the commit (44261621346) passed. The tab left showing comes back
+by identity (a pinned note no longer comes back as its neighbour) and the setting "Start on the
+last pinned tab"; pin rules moved to `mdshared_ui::pins` (shared `main` at `6dcaf7f`); viewer
+pinned at `9d3398a` (mdview's pinned tabs, on `main`, released as mdview 1.0.2 at `1ba74a4`).
+The owner tried the Windows test build of `83fa762` (the same code, before the version bump):
+"all work". 13 assets (exe 8,001,536 bytes, AppImage 15,444,472). Verified against the live
+release: both manifests name 1.0.5, and every file they name downloaded with the manifest's
+SHA-256. Not verified: a 1.0.4 install updating itself; the Mac and Linux files run on a desktop.
+
 ## v1.0.4 (published 2026-11-17 by the release workflow, run by hand with `publish`, at commit d3d2f58)
 
 Run 44182210312; the `ci` run on the commit (44182209751) passed. The preview pane's cursor (a
