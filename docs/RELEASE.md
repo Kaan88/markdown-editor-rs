@@ -256,6 +256,20 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.0.6 (published 2026-11-18 by the release workflow, run by hand with `publish`, at commit 8969e4f)
+
+Run 44314504746; the `ci` run on the commit (44314502216) passed. The offer to close tabs not
+opened in the last 7 days of use (`mdshared_ui::stale`, shared `main` at `49de4ec`; setting
+`offer_stale`, on), and the installer: no Open with entries for scripts and web pages (and those
+of earlier installers taken off), .txt opened with mdedit (task `txtdefault`, ticked). Viewer
+pinned at `31338da` (mdview 1.0.3). Released on the owner's word after they had the Windows test
+builds of `e371df5` and `9e551d5` (the same code, before the merge and the version bump), with
+the preview-link report (ticks left on after mdview's tab closes) left open until a fuller
+report. 13 assets (exe 8,007,168 bytes, AppImage 15,444,472). Verified against the live release:
+both manifests name 1.0.6, and every file they name downloaded with the manifest's SHA-256. Not
+verified: the installer run on Windows (scripts' entries removed, .txt taken); a 1.0.5 install
+updating itself; the Mac and Linux files run on a desktop.
+
 ## v1.0.5 (published 2026-11-18 by the release workflow, run by hand with `publish`, at commit a03b570)
 
 Run 44261636486; the `ci` run on the commit (44261621346) passed. The tab left showing comes back
