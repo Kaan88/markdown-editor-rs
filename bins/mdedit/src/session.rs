@@ -208,6 +208,11 @@ pub struct Session {
     /// The tabs whose unsaved text was kept when the window last closed.
     pub unsaved: Vec<Unsaved>,
     pub active: usize,
+    /// The tab that was showing, by what it is: `active` counts only tabs with a file, so a new
+    /// document cannot be found by it. Read first; `active` is for sessions written before.
+    pub active_tab: Option<Pin>,
+    /// The pinned tab shown last (for the setting to start on it).
+    pub last_pinned: Option<Pin>,
     /// The split view, when two tabs were side by side.
     pub split: Option<Split>,
     /// The find options (match case, whole word, regular expression).
@@ -257,6 +262,8 @@ impl Default for Session {
         Session {
             tabs: Vec::new(),
             pinned: Vec::new(),
+            active_tab: None,
+            last_pinned: None,
             unsaved: Vec::new(),
             active: 0,
             split: None,
@@ -323,6 +330,8 @@ impl Session {
                         s.replace_history.push(unescape(value))
                     }
                     "active" => s.active = value.trim().parse().unwrap_or(0),
+                    "active_tab" => s.active_tab = Pin::parse(value),
+                    "last_pinned" => s.last_pinned = Pin::parse(value),
                     "theme" => {
                         s.theme = ThemeChoice::from_setting(value.trim().parse().unwrap_or(0))
                     }
@@ -408,6 +417,12 @@ impl Session {
             out.line("pin", &p.serialize());
         }
         out.line("active", &self.active.to_string());
+        if let Some(p) = &self.active_tab {
+            out.line("active_tab", &p.serialize());
+        }
+        if let Some(p) = &self.last_pinned {
+            out.line("last_pinned", &p.serialize());
+        }
         if let Some(split) = &self.split {
             out.line("split", &split.serialize());
         }
@@ -649,6 +664,8 @@ mod tests {
             tabs: vec![PathBuf::from("C:/a b/x.rs"), PathBuf::from("C:/c/y=z%.md")],
             pinned: vec![Pin::File(PathBuf::from("C:/a b/x.rs")), Pin::Untitled(3)],
             active: 1,
+            active_tab: Some(Pin::Untitled(3)),
+            last_pinned: Some(Pin::File(PathBuf::from("C:/a b/x.rs"))),
             theme: ThemeChoice::Dark,
             files: Some(true),
             files_w: Some(300),

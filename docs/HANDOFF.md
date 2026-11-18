@@ -12,6 +12,22 @@ The owner agreed that mdedit is feature complete: see the status at the top of `
 The owner tried the right-click menu of 1.0.2 and said it works. mdview's own 1.0.1 release was
 withdrawn; mdedit pins viewer commit `56dfe05` (from 1.0.4), which is on mdview's `main`.
 
+## Pinned tabs: the tab left showing comes back, and a setting (2026-11-18, `f/pins`, for 1.0.5)
+
+The owner found that a pinned tab showing at close came back as its neighbour: the session's
+`active` counted only tabs with a file, so a pinned untitled note mapped to the next file tab.
+- `session.rs`: `active_tab` and `last_pinned` keep tabs by identity (`Pin::File` /
+  `Pin::Untitled`); `active` stays the fallback for older sessions.
+- Setting "Start on the last pinned tab" (`Prefs::start_on_pinned`, Settings under "Restore tabs
+  at start"): the pinned tab used last shows at start instead.
+- The pin rules moved to `mdshared_ui::pins` (shared `main` at `6dcaf7f`) so mdview has the
+  same; `Docs` implements `Pinnable` and calls `pins::set`, `move_tab`, `restore`,
+  `start_tab`. The viewer pin is mdview's `f/pins` (`9d3398a`), which uses the same shared rev, so
+  one copy of the shared crates is built.
+- Test: `the_tab_left_showing_comes_back_even_a_pinned_note_and_the_setting_picks_the_pin`.
+- Budgets against 1.0.4 (15 interleaved runs, Linux xvfb): no change beyond noise (first frame
+  93.6 → 93.4 ms, idle 25.6 MiB both, keystroke p95 1.86 → 1.63 ms).
+
 ## mdedit 1.0.4: the cursor over the page, and the page still after a tick (2026-11-17)
 
 The owner tried the Windows test build of `9c543c1` and said "good"; released as 1.0.4.

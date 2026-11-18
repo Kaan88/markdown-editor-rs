@@ -66,6 +66,8 @@ pub struct Prefs {
     /// Whether a new window wraps long lines.
     pub word_wrap: bool,
     pub restore_session: bool,
+    /// At start, show the pinned tab used last instead of the tab that was showing.
+    pub start_on_pinned: bool,
     /// mdview shows the text of a previewed document as it is typed, not only when it is saved.
     pub live_preview: bool,
     /// The word list opens by itself after three letters (Ctrl+Space opens it either way).
@@ -93,6 +95,7 @@ impl Default for Prefs {
             minimap_width: MINIMAP_WIDTH_DEFAULT,
             word_wrap: false,
             restore_session: true,
+            start_on_pinned: false,
             live_preview: true,
             complete_auto: false,
             backdrop: Backdrop::Off,
@@ -193,6 +196,9 @@ impl Prefs {
                     "restore_session" => {
                         p.restore_session = flag(value).unwrap_or(d.restore_session)
                     }
+                    "start_on_pinned" => {
+                        p.start_on_pinned = flag(value).unwrap_or(d.start_on_pinned)
+                    }
                     "live_preview" => p.live_preview = flag(value).unwrap_or(d.live_preview),
                     "complete_auto" => p.complete_auto = flag(value).unwrap_or(d.complete_auto),
                     "backdrop" => p.backdrop = Backdrop::parse(value).unwrap_or(d.backdrop),
@@ -226,6 +232,7 @@ impl Prefs {
         w.line("minimap_width", &p.minimap_width.to_string());
         w.line("word_wrap", b(p.word_wrap));
         w.line("restore_session", b(p.restore_session));
+        w.line("start_on_pinned", b(p.start_on_pinned));
         w.line("live_preview", b(p.live_preview));
         w.line("complete_auto", b(p.complete_auto));
         w.line("backdrop", p.backdrop.key());
@@ -378,6 +385,7 @@ mod tests {
             minimap_width: 150,
             word_wrap: true,
             restore_session: false,
+            start_on_pinned: true,
             live_preview: false,
             complete_auto: true,
             backdrop: Backdrop::Acrylic,
@@ -397,7 +405,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 20);
+        assert_eq!(t.lines().count(), 21);
         let r = Prefs::parse(&t);
         assert_eq!(
             (r.font_pt, r.tab_width, r.font_family.as_str()),

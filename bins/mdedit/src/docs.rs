@@ -39,6 +39,7 @@ use mdedit_highlight::{Colored, DocId, HighlightService, Language, Span};
 use mdshared_app::files::{FileStamp, stamp};
 use mdshared_app::paths::{canonical_or_absolute, same_path, tab_labels};
 use mdshared_app::recents::Recents;
+use mdshared_ui::pins;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1044,7 +1045,25 @@ pub struct Doc {
     pub pinned: bool,
 }
 
+impl pins::Pinnable for Doc {
+    fn pinned(&self) -> bool {
+        self.pinned
+    }
+    fn set_pinned(&mut self, on: bool) {
+        self.pinned = on;
+    }
+}
+
 impl Doc {
+    /// How the session names this tab: its file, or the number of a new document.
+    pub fn pin(&self) -> Option<crate::session::Pin> {
+        use crate::session::Pin;
+        match &self.path {
+            Some(path) => Some(Pin::File(path.clone())),
+            None => (self.untitled > 0).then_some(Pin::Untitled(self.untitled)),
+        }
+    }
+
     fn new(id: DocId, path: PathBuf) -> Doc {
         Doc {
             id,
@@ -1341,6 +1360,8 @@ pub struct Docs {
     /// The bookmarks closed files left, and the session's.
     pub marks: crate::marks::Marks,
     active: Option<usize>,
+    /// The pinned tab shown last, for the setting to start on it.
+    last_pinned: Option<DocId>,
     next_id: DocId,
     pub recents: Recents,
     pub folder: Option<PathBuf>,
@@ -1396,6 +1417,7 @@ impl Docs {
             tabs: Vec::new(),
             marks: Default::default(),
             active: None,
+            last_pinned: None,
             next_id: 1,
             recents: Recents::default(),
             folder: None,
@@ -1821,6 +1843,9 @@ impl Docs {
             self.other_left = !self.other_left;
         }
         self.active = Some(i);
+        if self.tabs[i].pinned {
+            self.last_pinned = Some(self.tabs[i].id);
+        }
         if matches!(self.tabs[i].state, DocState::Pending) {
             self.start_load(i);
         }
@@ -1877,40 +1902,50 @@ impl Docs {
         }
     }
 
-    /// How many tabs are pinned: they are the first ones.
-    pub fn pinned_count(&self) -> usize {
-        self.tabs.iter().take_while(|d| d.pinned).count()
-    }
-
-    /// Pins or unpins tab `i`. A pinned tab goes to the end of the pinned ones, an unpinned one
-    /// to the start of the others; the active tab stays active. False when nothing changed.
+    /// Pins or unpins tab `i` ([`pins::set`]); the active tab stays active. False when nothing
+    /// changed.
     pub fn set_pinned(&mut self, i: usize, on: bool) -> bool {
-        if self.tabs.get(i).is_none_or(|d| d.pinned == on) {
+        let Some(id) = self.tabs.get(i).map(|d| d.id) else {
+            return false;
+        };
+        if !pins::set(&mut self.tabs, i, on, &mut self.active) {
             return false;
         }
-        let to = if on {
-            self.pinned_count()
-        } else {
-            self.pinned_count() - 1
-        };
-        let active_id = self.active_doc().map(|d| d.id);
-        let mut doc = self.tabs.remove(i);
-        doc.pinned = on;
-        self.tabs.insert(to, doc);
-        self.active = active_id.and_then(|id| self.tabs.iter().position(|d| d.id == id));
+        if on && self.active_doc().is_some_and(|d| d.id == id) {
+            self.last_pinned = Some(id);
+        } else if !on && self.last_pinned == Some(id) {
+            self.last_pinned = None;
+        }
         true
+    }
+
+    /// The pinned tab shown last, as the session keeps it.
+    pub fn last_pinned(&self) -> Option<crate::session::Pin> {
+        let id = self.last_pinned?;
+        self.tabs
+            .iter()
+            .find(|d| d.id == id && d.pinned)
+            .and_then(Doc::pin)
+    }
+
+    /// The tab showing, as the session keeps it.
+    pub fn active_pin(&self) -> Option<crate::session::Pin> {
+        self.active_doc().and_then(Doc::pin)
+    }
+
+    /// The tab a session's `pin` names.
+    pub fn find_pin(&self, pin: &crate::session::Pin) -> Option<usize> {
+        self.tabs
+            .iter()
+            .position(|d| pin_place(std::slice::from_ref(pin), d).is_some())
     }
 
     /// The pinned tabs, as the session keeps them.
     pub fn pins(&self) -> Vec<crate::session::Pin> {
-        use crate::session::Pin;
         self.tabs
             .iter()
             .filter(|d| d.pinned)
-            .filter_map(|d| match &d.path {
-                Some(path) => Some(Pin::File(path.clone())),
-                None => (d.untitled > 0).then_some(Pin::Untitled(d.untitled)),
-            })
+            .filter_map(Doc::pin)
             .collect()
     }
 
@@ -1924,13 +1959,31 @@ impl Docs {
 
     /// Puts the pinned tabs first, in the order `pins` names them; the others keep theirs
     /// (after a session is read). The active tab stays active.
-    pub fn pinned_first(&mut self, pins: &[crate::session::Pin]) {
-        let active_id = self.active_doc().map(|d| d.id);
-        self.tabs.sort_by_key(|d| match d.pinned {
-            true => pin_place(pins, d).unwrap_or(usize::MAX - 1),
-            false => usize::MAX,
-        });
-        self.active = active_id.and_then(|id| self.tabs.iter().position(|d| d.id == id));
+    pub fn pinned_first(&mut self, list: &[crate::session::Pin]) {
+        pins::restore(&mut self.tabs, |d| pin_place(list, d), &mut self.active);
+    }
+
+    /// At start, once the session's tabs are open and marked pinned: the tab to show. The one
+    /// that was showing, found by what it is (a new document has no place among the files
+    /// `Session::active` counts, so `fallback`, from that count, is only for older sessions);
+    /// with the setting, the pinned tab used last. Remembers that pinned tab.
+    pub fn start_tab(
+        &mut self,
+        session: &crate::session::Session,
+        fallback: Option<usize>,
+    ) -> Option<usize> {
+        let was = session
+            .active_tab
+            .as_ref()
+            .and_then(|p| self.find_pin(p))
+            .or(fallback);
+        let last = session
+            .last_pinned
+            .as_ref()
+            .and_then(|p| self.find_pin(p))
+            .filter(|&i| self.tabs[i].pinned);
+        self.last_pinned = last.map(|i| self.tabs[i].id);
+        pins::start_tab(session.prefs.start_on_pinned, last, was)
     }
 
     /// Moves tab `from` to `to`; the active tab stays active. A pinned tab stays among the
@@ -1939,20 +1992,7 @@ impl Docs {
         if from >= self.tabs.len() || to >= self.tabs.len() {
             return false;
         }
-        let pinned = self.pinned_count();
-        let to = if self.tabs[from].pinned {
-            to.min(pinned.saturating_sub(1))
-        } else {
-            to.max(pinned)
-        };
-        if from == to {
-            return false;
-        }
-        let active_id = self.active_doc().map(|d| d.id);
-        let doc = self.tabs.remove(from);
-        self.tabs.insert(to, doc);
-        self.active = active_id.and_then(|id| self.tabs.iter().position(|d| d.id == id));
-        true
+        pins::move_tab(&mut self.tabs, from, to, &mut self.active)
     }
 
     pub fn step_tab(&mut self, forward: bool) {

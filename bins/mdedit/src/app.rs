@@ -1948,6 +1948,8 @@ impl App {
         s.tabs = self.docs.paths();
         s.pinned = self.docs.pins();
         s.active = self.docs.active_among_paths();
+        s.active_tab = self.docs.active_pin();
+        s.last_pinned = self.docs.last_pinned();
         s.split = split;
         s.recent = self.docs.recents.clone();
         if !self.theme_from_args {
@@ -3070,6 +3072,7 @@ pub fn run() -> i32 {
     // The pinned tabs are marked now and put first once every index taken here is used.
     if restore {
         docs.mark_pinned(&session.pinned);
+        active = docs.start_tab(&session, active);
     }
     if active.is_none() && !docs.tabs.is_empty() {
         active = Some(0);

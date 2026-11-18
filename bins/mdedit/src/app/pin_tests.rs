@@ -35,7 +35,7 @@ fn a_pinned_tab_goes_first_and_an_unpinned_one_after_the_pinned() {
     assert!(a.docs.tabs[0].pinned);
     assert_eq!(a.docs.active(), Some(0), "the active tab stays active");
     a.tab_command(C::PinTab, 3);
-    assert_eq!(a.docs.pinned_count(), 2);
+    assert_eq!(mdshared_ui::pins::count(&a.docs.tabs), 2);
     assert!(names(&a)[1].starts_with("Untitled"));
 
     // Dragging keeps each group on its side.
@@ -49,12 +49,12 @@ fn a_pinned_tab_goes_first_and_an_unpinned_one_after_the_pinned() {
         a.docs.move_tab(3, 0),
         "an unpinned one goes no further left than them"
     );
-    assert_eq!(a.docs.pinned_count(), 2);
+    assert_eq!(mdshared_ui::pins::count(&a.docs.tabs), 2);
     assert!(!a.docs.tabs[2].pinned);
 
     // Unpinning puts it right after the pinned ones.
     a.tab_command(C::PinTab, 0);
-    assert_eq!(a.docs.pinned_count(), 1);
+    assert_eq!(mdshared_ui::pins::count(&a.docs.tabs), 1);
     assert!(!a.docs.tabs[1].pinned);
 }
 
@@ -126,4 +126,77 @@ fn pins_come_back_in_their_order_with_a_note_that_has_no_file() {
     assert!(b.docs.tabs[0].pinned && b.docs.tabs[1].pinned && !b.docs.tabs[2].pinned);
     assert_eq!(names(&b)[2], "a.txt");
     assert_eq!(b.docs.active(), Some(2), "a.txt stays the active tab");
+}
+
+#[test]
+fn the_tab_left_showing_comes_back_even_a_pinned_note_and_the_setting_picks_the_pin() {
+    // Pinned: the note d and c; showing: the note.
+    let mut a = four();
+    let note = a.docs.tabs[3].untitled;
+    a.tab_command(C::PinTab, 3);
+    a.tab_command(C::PinTab, 3); // c.txt
+    let at = |a: &App, name: &str| a.docs.tabs.iter().position(|d| d.name() == name);
+    let note_name = a.docs.tabs[0].name();
+    a.docs.activate(at(&a, &note_name).unwrap());
+    // Then b, which is not pinned: the note stays the pinned tab used last.
+    a.docs.activate(at(&a, "b.txt").unwrap());
+    let mut s = Session {
+        tabs: a.docs.paths(),
+        pinned: a.docs.pins(),
+        active: a.docs.active_among_paths(),
+        active_tab: a.docs.active_pin(),
+        last_pinned: a.docs.last_pinned(),
+        ..Session::default()
+    };
+    assert_eq!(s.last_pinned, Some(Pin::Untitled(note)));
+    s = Session::parse(&s.serialize());
+
+    // A new start with the same tabs, in the order a start opens them (files, then the note).
+    let restart = |s: &Session| {
+        let mut b = app();
+        for p in &s.tabs {
+            open_now(&mut b, p);
+        }
+        b.docs.restore_untitled(note, "kept");
+        b.docs.mark_pinned(&s.pinned);
+        let fallback = Some(s.active);
+        // As a start does: show it, then put the pins first (the shown tab stays shown).
+        if let Some(i) = b.docs.start_tab(s, fallback) {
+            b.docs.activate(i);
+        }
+        b.docs.pinned_first(&s.pinned);
+        let start = b.docs.active();
+        (b, start)
+    };
+    let (b, start) = restart(&s);
+    assert_eq!(b.docs.tabs[start.unwrap()].name(), "b.txt");
+
+    // The note was showing when the window closed: it comes back showing, not the tab beside it.
+    a.docs.activate(at(&a, &note_name).unwrap());
+    s.active = a.docs.active_among_paths();
+    s.active_tab = a.docs.active_pin();
+    let (b, start) = restart(&s);
+    let shown = &b.docs.tabs[start.unwrap()];
+    assert!(
+        shown.path.is_none() && shown.untitled == note,
+        "{}",
+        shown.name()
+    );
+
+    // With the setting, the pinned tab used last shows, whichever was showing.
+    s.active_tab = Some(Pin::File(
+        b.docs.tabs[at(&b, "a.txt").unwrap()].path.clone().unwrap(),
+    ));
+    s.last_pinned = Some(Pin::File(
+        b.docs.tabs[at(&b, "c.txt").unwrap()].path.clone().unwrap(),
+    ));
+    let (b, start) = restart(&s);
+    assert_eq!(b.docs.tabs[start.unwrap()].name(), "a.txt");
+    s.prefs.start_on_pinned = true;
+    let (b, start) = restart(&s);
+    assert_eq!(b.docs.tabs[start.unwrap()].name(), "c.txt");
+    // A tab that is no longer pinned is not the pinned tab used last.
+    s.pinned.retain(|p| matches!(p, Pin::Untitled(_)));
+    let (b, start) = restart(&s);
+    assert_eq!(b.docs.tabs[start.unwrap()].name(), "a.txt");
 }

@@ -38,6 +38,7 @@ pub const WINDOW_CORNERS: u32 = 21;
 pub const MINIMAP_WIDTH: u32 = 22;
 pub const COMPLETE_AUTO: u32 = 70;
 pub const BACKDROP: u32 = 80;
+pub const START_ON_PINNED: u32 = 23;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -180,6 +181,12 @@ pub fn rows(
         .help("mdview shows the text as you type it. Off: it shows the file when you save."),
         Row::header("Session"),
         Row::toggle(RESTORE_TABS, "Restore tabs at start", prefs.restore_session),
+        Row::toggle(
+            START_ON_PINNED,
+            "Start on the last pinned tab",
+            prefs.start_on_pinned,
+        )
+        .help("The pinned tab you used last shows at start, not the tab you left on."),
         Row::header("Updates"),
         Row::toggle(
             CHECK_AT_LAUNCH,
@@ -371,6 +378,7 @@ impl App {
             (MINIMAP_WIDTH, Value::Number(n)) => p.minimap_width = n.max(0) as usize,
             (WORD_WRAP, Value::Bool(on)) => p.word_wrap = on,
             (RESTORE_TABS, Value::Bool(on)) => p.restore_session = on,
+            (START_ON_PINNED, Value::Bool(on)) => p.start_on_pinned = on,
             (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
             (COMPLETE_AUTO, Value::Bool(on)) => p.complete_auto = on,
             (BACKDROP, Value::Choice(i)) => {
