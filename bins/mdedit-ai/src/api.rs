@@ -2,7 +2,6 @@
 //! model lists.
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -188,13 +187,17 @@ fn whole_words(s: &str) -> &str {
     }
 }
 
-/// An error's body as read: when the read stopped at `max` it is cut, and the word at the cut
-/// goes (audit 1 round 3, #4).
-fn read_part(body: String, max: usize) -> String {
-    if body.len() < max {
-        return body;
+/// What an error body that did not fit its limit says instead: a cut body may end in part of a
+/// key that no mask can find (audit 1 round 4, #6).
+const BODY_TOO_LONG: &str = "(its message was too long to show)";
+
+/// An error's body for a message: `key` taken out of the whole of it before anything is cut;
+/// a body that stopped at `max` says only [`BODY_TOO_LONG`].
+fn error_body(body: &str, max: usize, key: Option<&str>) -> String {
+    if body.len() >= max {
+        return BODY_TOO_LONG.to_string();
     }
-    whole_words(&body).to_string()
+    crate::proto::redact(body, key)
 }
 
 /// What an HTTP error status means for the user.
@@ -250,11 +253,10 @@ fn checked(
         MAX,
     )
     .unwrap_or_default();
-    let body = read_part(body, MAX);
     if cancelled() {
         return Err(Fail::new("cancelled", "Cancelled."));
     }
-    let body = crate::proto::redact(&body, key);
+    let body = error_body(&body, MAX, key);
     Err(http_fail(provider, status, retry_after, &body))
 }
 
@@ -323,11 +325,13 @@ fn run_claude_with(
         .unwrap_or(false)
     {
         // Learn the model's output limit once; a failure here shows again in the run itself.
-        // Part of the run: a cancel ends it, and nothing is sent after (audit 1 round 3).
+        // Part of the run: a cancel ends it (audit 1 round 3).
         let _ = models_claude_with(key, Some(job));
-        if job.is_cancelled() {
-            return Err(Fail::new("cancelled", "Cancelled."));
-        }
+    }
+    // Nothing is sent for a run already cancelled, whether or not the models were asked for
+    // (audit 1 round 4, #7).
+    if job.is_cancelled() {
+        return Err(Fail::new("cancelled", "Cancelled."));
     }
     let max_tokens = claude_limits()
         .lock()
@@ -455,12 +459,16 @@ pub fn models_claude() -> Result<Vec<Model>, Fail> {
     models_claude_with(&key, None).map_err(|f| f.hide(Some(&key)))
 }
 
-/// The model list; a cancel of `job` ends it.
+/// The model list; a cancel of `job` ends it, between pages and inside a page's read (audit 1
+/// round 4, #7).
 fn models_claude_with(key: &str, job: Option<&Job>) -> Result<Vec<Model>, Fail> {
     const P: &str = "Claude API";
     let mut list = Vec::new();
     let mut after: Option<String> = None;
     loop {
+        if job.is_some_and(Job::is_cancelled) {
+            return Err(Fail::new("cancelled", "Cancelled."));
+        }
         let mut url = format!("{}/v1/models?limit=1000", claude_base());
         if let Some(a) = &after {
             url.push_str("&after_id=");
@@ -476,7 +484,7 @@ fn models_claude_with(key: &str, job: Option<&Job>) -> Result<Vec<Model>, Fail> 
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .call(),
         )?;
-        let v = read_json(P, resp)?;
+        let v = read_json(P, resp, job)?;
         list.extend(parse_claude_models(&v));
         match (v["has_more"].as_bool(), v["last_id"].as_str()) {
             (Some(true), Some(last)) if after.as_deref() != Some(last) => {
@@ -519,13 +527,33 @@ pub fn parse_claude_models(v: &Value) -> Vec<Model> {
         .collect()
 }
 
-fn read_json(provider: &str, resp: ureq::http::Response<ureq::Body>) -> Result<Value, Fail> {
-    let mut body = String::new();
-    resp.into_body()
-        .into_reader()
-        .take(16 * 1024 * 1024)
-        .read_to_string(&mut body)
-        .map_err(|e| Fail::new("network", format!("{provider}: {e}")))?;
+/// A model list's body (16 MB at most), read on its own thread: a cancel of `job` ends the read.
+fn read_json(
+    provider: &str,
+    resp: ureq::http::Response<ureq::Body>,
+    job: Option<&Job>,
+) -> Result<Value, Fail> {
+    let cancelled = || job.is_some_and(Job::is_cancelled);
+    let body = sse::read_body(
+        resp.into_body().into_reader(),
+        &cancelled,
+        IDLE,
+        16 * 1024 * 1024,
+    )
+    .map_err(|b| match b {
+        sse::Broken::Io(e) => Fail::new("network", format!("{provider}: {e}")),
+        sse::Broken::Idle => Fail::new(
+            "network",
+            format!("{provider} stopped sending the model list."),
+        ),
+        sse::Broken::TooLong => Fail::new(
+            "http",
+            format!("{provider} sent something that is not a model list."),
+        ),
+    })?;
+    if cancelled() {
+        return Err(Fail::new("cancelled", "Cancelled."));
+    }
     serde_json::from_str(&body).map_err(|_| {
         Fail::new(
             "http",
@@ -600,7 +628,10 @@ pub fn run_openai(
         req.send(openai_body(model, effort, system, prompt).to_string()),
     )
     .map_err(|f| hide(explain_effort(f, effort)))?;
-    let mut s = OpenAiStream::default();
+    let mut s = OpenAiStream {
+        key: key.clone(),
+        ..OpenAiStream::default()
+    };
     let mut pr = Progress::new(progress);
     stream(&p, resp, job, openai_last, &mut |data| {
         let go = s.event(data);
@@ -627,6 +658,8 @@ pub struct OpenAiStream {
     pub finish: Option<String>,
     pub fail: Option<String>,
     pub ended: bool,
+    /// The run's key: taken out of an error before its message is cut (audit 1 round 4, #6).
+    pub key: Option<String>,
 }
 
 impl OpenAiStream {
@@ -639,7 +672,8 @@ impl OpenAiStream {
             return true;
         };
         if !v["error"].is_null() {
-            self.fail = Some(body_message(data));
+            let data = crate::proto::redact(data, self.key.as_deref());
+            self.fail = Some(body_message(&data));
             return false;
         }
         let c = &v["choices"][0];
@@ -695,6 +729,7 @@ pub fn models_openai(base: &str, slot: &str) -> Result<Vec<Model>, Fail> {
     let v = read_json(
         &p,
         checked(&p, key.as_deref(), None, req.call()).map_err(hide)?,
+        None,
     )
     .map_err(hide)?;
     Ok(parse_openai_models(&v))

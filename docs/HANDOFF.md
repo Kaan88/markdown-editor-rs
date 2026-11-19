@@ -5,6 +5,40 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Audit 1, round 4 (2026-11-19, branch `f/ai`)
+
+Astra's round-4 re-review (10 findings) is fixed. Recovery identity moved from path/number to a
+stable **draft id** (`draft=` in the recovery header and a `draft=<file>|<hex>` session line; older
+builds skip both). Each test below was checked to fail with its fix reverted.
+
+- #1, #9 (remap lost on an unwritten session, header rewrite): no header is rewritten any more;
+  a copy covers a backup by draft id (`recovery::cover`). A failed session write is retried after
+  5 s (`session_retry`). Test `app::tests::drafts_survive_starts_whose_session_is_never_written`.
+  The retry itself has no unit test.
+- #2 (a readable header hid a valid backup): a file tab keeps the backup as `Doc.fallback` until
+  the copy's text is in. Test `a_copy_whose_text_cannot_be_read_gives_way_to_its_backup`.
+- #3 (a read error deleted the only copy): `read_header_checked`/`read_checked` tell an I/O error
+  from an invalid record; unreadable copies are kept by scan and exit. Test
+  `recovery::tests::a_copy_that_cannot_be_read_now_is_kept`.
+- #4, #5 (path case, ambiguous legacy entries): legacy matching uses `same_path`, covers only one to
+  one and only when the copy is at least as new as the backup; a file tab already taking a copy
+  never has it replaced. Tests `copies_and_backups_without_ids_cover_only_when_certain`,
+  `two_old_entries_with_one_number_and_a_copy_all_come_back`,
+  `an_old_copy_older_than_the_backup_hides_nothing`, `two_copies_of_one_file_both_come_back`.
+- #6: the key is masked over the whole error body before any cut; a body over 64 KiB shows a fixed
+  message; the OpenAI stream error is masked with the run's key; CLI stderr at its cap drops the
+  cut line. Tests `an_error_body_loses_the_key_before_it_is_cut`,
+  `a_streamed_error_loses_the_key_before_it_is_cut`, `stderr_at_its_limit_loses_the_cut_line`.
+- #7: the model list read is cancellable and each page checks the job; the pre-POST cancel check is
+  on the common path. Engine test `a_cancel_during_the_model_list_asks_for_nothing_more` fails only
+  with both the page check and the cancellable read removed (each alone suffices).
+- #8: the SSE reader counts every read as activity (`Activity`, `Watched`), `pump` consults it
+  before Idle, and a closed flag stops the reader after the run ends. Tests in `sse::round4`.
+- #10: the 40-character rule needs mixed case and digits. Test in `proto::tests::keys_are_hidden`.
+
+Not run: Linux, macOS. No round-5 prompt was written; the owner deferred further review to the next
+release.
+
 ## Audit 1, round 3 (2026-11-19, branch `f/ai`)
 
 Astra's re-review of 41db024: 4 fixed, 7 partly fixed, 12 findings. All addressed; each test

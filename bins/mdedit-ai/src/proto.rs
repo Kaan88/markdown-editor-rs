@@ -137,10 +137,14 @@ fn looks_like_key(word: &str) -> bool {
 }
 
 /// Whether a word that starts like a key has the random part of one: a run of 16 characters or
-/// more between separators, or 40 characters in all. A model's name (`xai-grok-4-fast-reasoning`)
-/// is short words joined (audit 1 round 3, #12).
+/// more between separators, or 40 characters in all with capitals, small letters and digits
+/// mixed. A model's name (`xai-grok-4-fast-reasoning-production-west`) is short words joined
+/// (audit 1 round 3, #12; round 4, #10).
 fn random_part(word: &str) -> bool {
-    word.len() >= 40
+    let mixed = word.chars().any(|c| c.is_ascii_uppercase())
+        && word.chars().any(|c| c.is_ascii_lowercase())
+        && word.chars().any(|c| c.is_ascii_digit());
+    word.len() >= 40 && mixed
         || word
             .split(['-', '_', '.'])
             .any(|part| part.chars().count() >= 16)
@@ -308,6 +312,9 @@ mod tests {
             "task-0123456789abcdefghijkl"
         );
         // Audit 1 round 3, #12: a model's name is not a key; a key of that provider is.
+        // Audit 1 round 4, #10: long, but short words joined.
+        let long = "Unknown model: xai-grok-4-fast-reasoning-production-west";
+        assert_eq!(redact(long, None), long);
         let alias = "Unknown model alias: xai-grok-4-fast-reasoning";
         assert_eq!(redact(alias, None), alias);
         assert_eq!(

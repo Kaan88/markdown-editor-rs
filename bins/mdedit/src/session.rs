@@ -46,13 +46,16 @@ impl ThemeChoice {
 
 /// A tab that had unsaved text when the window closed: its text is in `file` of the backup
 /// folder beside the settings file.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Unsaved {
     /// A name this application made: digits and `.txt`.
     pub file: String,
     /// The number of a document that has no file ("Untitled 2"), else 0.
     pub untitled: u32,
     pub path: Option<PathBuf>,
+    /// The draft's id, the same in its recovery copy's header (kept as a `draft=<file>|<hex>`
+    /// line of its own, which builds before 1.1 skip). `None` in a session from before 1.1.
+    pub draft: Option<u64>,
 }
 
 /// What [`Unsaved::prune`] needs to know of an open tab (borrowed: it is asked on every pass of
@@ -63,6 +66,8 @@ pub struct TabState<'a> {
     pub modified: bool,
     /// The backup file the tab still waits to put back, by name.
     pub waiting: Option<String>,
+    /// The tab's draft id ([`Unsaved::draft`]).
+    pub draft: u64,
 }
 
 impl Unsaved {
@@ -88,9 +93,11 @@ impl Unsaved {
                 tabs.iter().any(|t| {
                     t.waiting.as_deref() == Some(u.file.as_str())
                         || t.modified
-                            && match &u.path {
-                                Some(p) => t.path == Some(p.as_path()),
-                                None => t.path.is_none() && t.untitled == u.untitled,
+                            && match (u.draft, &u.path) {
+                                // The draft's id says which tab it is, whatever its name now.
+                                (Some(d), _) => t.draft == d,
+                                (None, Some(p)) => t.path == Some(p.as_path()),
+                                (None, None) => t.path.is_none() && t.untitled == u.untitled,
                             }
                 })
             })
@@ -107,12 +114,19 @@ impl Unsaved {
             file: file.to_string(),
             untitled,
             path: (!path.is_empty()).then(|| decode_path(path)),
+            draft: None,
         })
     }
 
     fn serialize(&self) -> String {
         let path = self.path.as_deref().map(encode_path).unwrap_or_default();
         format!("{}|{}|{path}", self.file, self.untitled)
+    }
+
+    /// `draft=<file>|<hex>`: the id of the entry whose backup is `file`.
+    fn parse_draft(value: &str) -> Option<(&str, u64)> {
+        let (file, id) = value.split_once('|')?;
+        Some((file.trim(), u64::from_str_radix(id.trim(), 16).ok()?))
     }
 }
 
@@ -310,6 +324,7 @@ impl Session {
     pub fn parse(text: &str) -> Session {
         let mut s = Session::default();
         let mut recent = Vec::new();
+        let mut drafts: Vec<(String, u64)> = Vec::new();
         let mut in_section = true;
         for line in text.lines() {
             let t = line.trim();
@@ -324,6 +339,8 @@ impl Session {
                 match key {
                     "tab" if !value.is_empty() => s.tabs.push(decode_path(value)),
                     "unsaved" => s.unsaved.extend(Unsaved::parse(value)),
+                    "draft" => drafts
+                        .extend(Unsaved::parse_draft(value).map(|(f, id)| (f.to_string(), id))),
                     "pin" => s.pinned.extend(Pin::parse(value)),
                     "recent" if !value.is_empty() => recent.push(decode_path(value)),
                     "split" => s.split = Split::parse(value),
@@ -422,6 +439,9 @@ impl Session {
         for p in recent.into_iter().rev() {
             s.recent.add(p);
         }
+        for u in &mut s.unsaved {
+            u.draft = drafts.iter().find(|(f, _)| *f == u.file).map(|(_, id)| *id);
+        }
         s.active = s.active.min(s.tabs.len().saturating_sub(1));
         s.prefs = mdedit_core::prefs::Prefs::parse(text);
         s
@@ -434,6 +454,11 @@ impl Session {
         }
         for u in &self.unsaved {
             out.line("unsaved", &u.serialize());
+        }
+        for u in &self.unsaved {
+            if let Some(d) = u.draft {
+                out.line("draft", &format!("{}|{d:016x}", u.file));
+            }
         }
         for p in &self.pinned {
             out.line("pin", &p.serialize());
@@ -592,6 +617,7 @@ mod tests {
             file: file.into(),
             untitled,
             path: path.map(PathBuf::from),
+            draft: None,
         }
     }
 
@@ -606,6 +632,7 @@ mod tests {
             untitled,
             modified,
             waiting: waiting.map(String::from),
+            draft: 0,
         }
     }
 
@@ -812,11 +839,13 @@ minimap=0
                 file: Unsaved::file_name(1),
                 untitled: 0,
                 path: Some(PathBuf::from("C:/a b/c|d.txt")),
+                draft: Some(0xfedc_ba98_7654_3210),
             },
             Unsaved {
                 file: Unsaved::file_name(12),
                 untitled: 3,
                 path: None,
+                draft: None,
             },
         ]);
         assert_eq!(Session::parse(&s.serialize()), s);

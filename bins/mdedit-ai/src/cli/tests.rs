@@ -72,3 +72,17 @@ fn a_set_program_that_is_missing_is_named() {
     assert_eq!(f.kind, "not_found");
     assert!(f.message.contains("/no/such/codex"));
 }
+
+/// Audit 1 round 4, #6: stderr read up to its limit loses the line at the cut, where part of a
+/// key could be; what is under the limit is whole.
+#[test]
+fn stderr_at_its_limit_loses_the_cut_line() {
+    let mut b = vec![b'a'; STDERR_MAX - 20];
+    b.extend_from_slice(b"\nsk-ant-cut-off-par");
+    b.push(b't');
+    assert_eq!(b.len(), STDERR_MAX);
+    let s = stderr_text(b);
+    assert!(!s.contains("sk-ant"), "the cut line stays");
+    assert_eq!(s.len(), STDERR_MAX - 20);
+    assert_eq!(stderr_text(b"error: no\nsk-x".to_vec()), "error: no\nsk-x");
+}

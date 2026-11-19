@@ -225,6 +225,54 @@ fn claude_api_streams_an_answer() {
     assert_eq!(body["messages"][0]["content"], "trip notes");
 }
 
+/// Audit 1 round 4, #7: a run cancelled while the model list is being read sends nothing more:
+/// no further page of the list, no rewrite. The first page's body is held back past the cancel
+/// and says more pages follow.
+#[test]
+fn a_cancel_during_the_model_list_asks_for_nothing_more() {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    let (tx, seen) = mpsc::channel();
+    std::thread::spawn(move || {
+        for s in l.incoming() {
+            let Ok(s) = s else { break };
+            let Some(req) = read_request(&s) else {
+                continue;
+            };
+            let _ = tx.send(req.path.clone());
+            let body = json!({"data": [{"id": "m1", "max_tokens": 1000}],
+                              "has_more": true, "last_id": "m1"})
+            .to_string();
+            let mut w = &s;
+            let head = format!(
+                "HTTP/1.1 200 OK
+content-length: {}
+connection: close
+
+",
+                body.len()
+            );
+            let _ = w.write_all(head.as_bytes());
+            let _ = w.write_all(&body.as_bytes()[..10]);
+            let _ = w.flush();
+            std::thread::sleep(Duration::from_millis(1500));
+            let _ = w.write_all(&body.as_bytes()[10..]);
+        }
+    });
+    let mut e = Engine::start(&[("ANTHROPIC_BASE_URL", &base)]);
+    e.send(run(json!({"kind": "claude-api"}), "m1", ""));
+    let first = seen.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(first.starts_with("/v1/models"), "{first}");
+    std::thread::sleep(Duration::from_millis(200));
+    e.send(json!({"op": "cancel", "id": 7}));
+    let a = e.answer();
+    assert_eq!(a["kind"], "cancelled", "{a}");
+    // The held body goes out; nothing is asked after it, before or after the answer.
+    std::thread::sleep(Duration::from_millis(2500));
+    let more: Vec<String> = seen.try_iter().collect();
+    assert!(more.is_empty(), "asked after the cancel: {more:?}");
+}
+
 #[test]
 fn claude_api_errors_are_explained() {
     let (base, _seen) = stub(|path| {

@@ -215,11 +215,11 @@ fn run(
         }
     });
     let err_reader = std::thread::spawn(move || {
-        let mut s = String::new();
+        let mut b = Vec::new();
         if let Some(e) = stderr {
-            let _ = e.take(256 * 1024).read_to_string(&mut s);
+            let _ = e.take(STDERR_MAX as u64).read_to_end(&mut b);
         }
-        s
+        stderr_text(b)
     });
     let mut last = std::time::Instant::now();
     if let Some(out) = stdout {
@@ -249,6 +249,18 @@ fn run(
         Some(s) => Ok((s, stderr)),
         None => Err(classify(cli, &tail(&stderr))),
     }
+}
+
+/// The most of a program's stderr that is read.
+const STDERR_MAX: usize = 256 * 1024;
+
+/// What a program wrote to stderr as text. When the read stopped at [`STDERR_MAX`], the line at
+/// the cut goes: part of a key there could not be found and hidden (audit 1 round 4, #6).
+fn stderr_text(mut b: Vec<u8>) -> String {
+    if b.len() >= STDERR_MAX {
+        b.truncate(b.iter().rposition(|&c| c == b'\n').unwrap_or(0));
+    }
+    String::from_utf8_lossy(&b).into_owned()
 }
 
 /// The last lines of what a program wrote to stderr, for a message.

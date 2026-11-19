@@ -185,7 +185,37 @@ fn a_cut_never_leaves_part_of_a_key() {
     assert_eq!(m, "(its message could not be shown)");
     // Short bodies are whole.
     assert_eq!(body_message(" no such model "), "no such model");
-    let cut = read_part(format!("{{\"error\": \"bad {}", &key[..10]), 22);
-    assert!(!cut.contains("QWERTY"), "{cut}");
-    assert_eq!(read_part("whole".into(), 64), "whole");
+}
+
+/// A key with separators in it, which a cut at a word's end can split.
+const SPLIT_KEY: &str = "Qx7Lm9:Zp2Rt5:Wv8Yb3:Kd4Hs6";
+
+/// Audit 1 round 4, #6: an error body has the key taken out of all of it before it is cut,
+/// and a body over its limit says nothing of itself.
+#[test]
+fn an_error_body_loses_the_key_before_it_is_cut() {
+    let body = format!("{}{SPLIT_KEY} end", "a ".repeat(95));
+    let shown = body_message(&error_body(&body, 64 * 1024, Some(SPLIT_KEY)));
+    assert!(!shown.contains("Qx7"), "{shown}");
+    let long = format!("{}{}", " ".repeat(100), &SPLIT_KEY[..10]);
+    assert_eq!(
+        error_body(&long, long.len(), Some(SPLIT_KEY)),
+        BODY_TOO_LONG
+    );
+    assert_eq!(error_body("short", 64, None), "short");
+}
+
+/// Audit 1 round 4, #6: an error in an OpenAI stream has the run's key taken out before its
+/// message is cut.
+#[test]
+fn a_streamed_error_loses_the_key_before_it_is_cut() {
+    let message = format!("{}{SPLIT_KEY} end", "a ".repeat(95));
+    let mut s = OpenAiStream {
+        key: Some(SPLIT_KEY.into()),
+        ..OpenAiStream::default()
+    };
+    let data = serde_json::json!({"error": {"code": 1}, "detail": message}).to_string();
+    assert!(!s.event(&data));
+    let m = s.fail.clone().unwrap();
+    assert!(!m.contains("Qx7"), "{m}");
 }

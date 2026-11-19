@@ -2,7 +2,9 @@
 //! an event.
 
 use std::io::{BufRead, BufReader, Read};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TrySendError};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 /// The longest line taken from a stream.
@@ -33,21 +35,87 @@ pub enum Broken {
 
 enum Item<T> {
     One(T),
-    /// Something came that is not an item yet (a comment, a line of an event): the stream is
-    /// alive.
-    Alive,
     End,
     Failed(Broken),
 }
 
+/// What the reader thread and the run share: when a byte last came, and whether the run has
+/// stopped taking items (audit 1 round 4, #8).
+struct Activity {
+    start: Instant,
+    /// Milliseconds after `start` that the last bytes came.
+    last: AtomicU64,
+    closed: AtomicBool,
+}
+
+impl Activity {
+    fn new() -> Arc<Activity> {
+        Arc::new(Activity {
+            start: Instant::now(),
+            last: AtomicU64::new(0),
+            closed: AtomicBool::new(false),
+        })
+    }
+
+    fn touch(&self) {
+        let ms = self.start.elapsed().as_millis() as u64;
+        self.last.fetch_max(ms, Ordering::Relaxed);
+    }
+
+    fn last(&self) -> Instant {
+        self.start + Duration::from_millis(self.last.load(Ordering::Relaxed))
+    }
+
+    fn closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
+}
+
+/// The input of a reader thread: every read that brings bytes counts as activity, whether or
+/// not it ends a line or an event, and once the run has stopped no read is begun and a read that
+/// returns ends the thread.
+struct Watched<R> {
+    inner: R,
+    act: Arc<Activity>,
+}
+
+impl<R: Read> Read for Watched<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let ended = || std::io::Error::other("the run has ended");
+        if self.act.closed() {
+            return Err(ended());
+        }
+        let n = self.inner.read(buf)?;
+        if n > 0 {
+            self.act.touch();
+        }
+        if self.act.closed() {
+            return Err(ended());
+        }
+        Ok(n)
+    }
+}
+
+/// Sets `closed` when the run stops taking items, however it stops.
+struct Close(Arc<Activity>);
+
+impl Drop for Close {
+    fn drop(&mut self) {
+        self.0.closed.store(true, Ordering::Relaxed);
+    }
+}
+
 /// Waits for the reader thread's items, handing each to `f` until it returns false: a cancel
-/// (`stop`) is seen within [`POLL`], and nothing for `idle` is [`Broken::Idle`].
+/// (`stop`) is seen within [`POLL`], and nothing for `idle` is [`Broken::Idle`]. "Nothing" is no
+/// byte at all, an unfinished line or event included: the reader counts each read in `act`.
 fn pump<T>(
     rx: Receiver<Item<T>>,
+    act: Arc<Activity>,
     stop: &dyn Fn() -> bool,
     idle: Duration,
     f: &mut dyn FnMut(T) -> bool,
 ) -> Result<(), Broken> {
+    let act = Close(act);
     let mut deadline = Instant::now() + idle;
     loop {
         if stop() {
@@ -60,13 +128,14 @@ fn pump<T>(
                     return Ok(());
                 }
             }
-            Ok(Item::Alive) => deadline = Instant::now() + idle,
             Ok(Item::End) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
             Ok(Item::Failed(b)) => return Err(b),
-            Err(RecvTimeoutError::Timeout) if Instant::now() >= deadline => {
-                return Err(Broken::Idle);
+            Err(RecvTimeoutError::Timeout) => {
+                deadline = deadline.max(act.0.last() + idle);
+                if Instant::now() >= deadline {
+                    return Err(Broken::Idle);
+                }
             }
-            Err(RecvTimeoutError::Timeout) => {}
         }
     }
 }
@@ -77,7 +146,8 @@ fn pump<T>(
 /// cancel (`stop`) end the run within [`POLL`], and nothing for `idle` ends it with
 /// [`Broken::Idle`]. The thread stops after an event `last` says ends the answer, dropping the
 /// body with its connection; after a cancel or a failure it ends when its read returns (at the
-/// latest at the agent's body timeout), holding nothing the engine waits for.
+/// latest at the agent's body timeout), holding nothing the engine waits for. Once the run has
+/// stopped, a read that returns ends the thread and no new read is begun.
 pub fn read(
     input: impl Read + Send + 'static,
     stop: &dyn Fn() -> bool,
@@ -86,14 +156,15 @@ pub fn read(
     f: &mut dyn FnMut(Event) -> bool,
 ) -> Result<(), Broken> {
     let (tx, rx) = mpsc::sync_channel::<Item<Event>>(AHEAD);
+    let act = Activity::new();
+    let watched = Watched {
+        inner: input,
+        act: act.clone(),
+    };
     std::thread::spawn(move || {
-        let mut input = BufReader::new(input);
+        let mut input = BufReader::new(watched);
         let mut buf = Vec::new();
         let mut events = Parser::default();
-        // Lines that make no event yet still count as the stream being alive; told at most every
-        // [`POLL`], and a reader whose run has ended (a cancel) stops at its next line (audit 1
-        // round 3, #7).
-        let mut told = Instant::now();
         loop {
             buf.clear();
             let read = input
@@ -116,18 +187,9 @@ pub fn read(
                         if tx.send(Item::One(e)).is_err() || done {
                             return;
                         }
-                        told = Instant::now();
                         continue;
                     }
-                    None => {
-                        if told.elapsed() >= POLL {
-                            told = Instant::now();
-                            if let Err(TrySendError::Disconnected(_)) = tx.try_send(Item::Alive) {
-                                return;
-                            }
-                        }
-                        continue;
-                    }
+                    None => continue,
                 },
                 Err(e) => Item::Failed(Broken::Io(e)),
             };
@@ -135,7 +197,7 @@ pub fn read(
             return;
         }
     });
-    pump(rx, stop, idle, f)
+    pump(rx, act, stop, idle, f)
 }
 
 /// Reads at most `max` bytes of `input` (an error's body) on its own thread, with the same cancel
@@ -147,8 +209,13 @@ pub fn read_body(
     max: usize,
 ) -> Result<String, Broken> {
     let (tx, rx) = mpsc::sync_channel::<Item<Vec<u8>>>(AHEAD);
+    let act = Activity::new();
+    let watched = Watched {
+        inner: input,
+        act: act.clone(),
+    };
     std::thread::spawn(move || {
-        let mut input = input.take(max as u64);
+        let mut input = watched.take(max as u64);
         let mut chunk = vec![0; 8 * 1024];
         loop {
             let item = match input.read(&mut chunk) {
@@ -163,7 +230,7 @@ pub fn read_body(
         }
     });
     let mut body = Vec::new();
-    pump(rx, stop, idle, &mut |c| {
+    pump(rx, act, stop, idle, &mut |c| {
         body.extend_from_slice(&c);
         body.len() < max
     })?;
@@ -495,5 +562,126 @@ mod round3 {
             &mut |_| panic!("no event"),
         );
         assert!(matches!(r, Err(Broken::TooLong)), "{r:?}");
+    }
+}
+
+#[cfg(test)]
+mod round4 {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// A server that sends `parts`, each after its pause, then ends.
+    struct Paced(std::collections::VecDeque<(u64, &'static str)>);
+    impl Read for Paced {
+        fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+            let Some((ms, s)) = self.0.pop_front() else {
+                return Ok(0);
+            };
+            std::thread::sleep(Duration::from_millis(ms));
+            b[..s.len()].copy_from_slice(s.as_bytes());
+            Ok(s.len())
+        }
+    }
+
+    fn events(parts: &[(u64, &'static str)], idle_ms: u64) -> Result<Vec<String>, Broken> {
+        let mut got = Vec::new();
+        read(
+            Paced(parts.iter().copied().collect()),
+            &|| false,
+            Duration::from_millis(idle_ms),
+            |_| false,
+            &mut |e| {
+                got.push(e.data);
+                true
+            },
+        )
+        .map(|_| got)
+    }
+
+    /// Audit 1 round 4, #8: the first line of an event comes soon after the last event, the
+    /// second line just inside the idle time after it. No pause reached the idle time.
+    #[test]
+    fn a_line_soon_after_an_event_counts_as_activity() {
+        let got = events(
+            &[
+                (0, "data: one\n\n"),
+                (155, "data: a\n"),
+                (285, "data: b\n\n"),
+            ],
+            300,
+        );
+        assert_eq!(got.unwrap(), ["one", "a\nb"]);
+    }
+
+    /// Audit 1 round 4, #8: bytes of one unfinished line, every 45 ms for longer than the idle
+    /// time, keep the stream alive.
+    #[test]
+    fn bytes_of_an_unfinished_line_count_as_activity() {
+        let mut parts = vec![(0, "data: ")];
+        parts.extend(std::iter::repeat_n((45, "x"), 16));
+        parts.push((45, "\n\n"));
+        let got = events(&parts, 300).unwrap();
+        assert_eq!(got, ["x".repeat(16)]);
+    }
+
+    /// Still idle when nothing at all comes.
+    #[test]
+    fn a_stream_that_stops_mid_line_is_idle() {
+        let r = events(&[(0, "data: x"), (2000, "\n\n")], 300);
+        assert!(matches!(r, Err(Broken::Idle)), "{r:?}");
+    }
+
+    /// A server that sends an event, then (once `go` is set) a comment, then records whether it
+    /// was read again and goes silent.
+    struct Gated {
+        step: u8,
+        go: Arc<AtomicBool>,
+        again: Arc<AtomicBool>,
+    }
+    impl Read for Gated {
+        fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+            self.step += 1;
+            let s: &[u8] = match self.step {
+                1 => b"data: one\n\n",
+                2 => {
+                    while !self.go.load(Ordering::SeqCst) {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    b": ping\n"
+                }
+                _ => {
+                    self.again.store(true, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_secs(5));
+                    return Ok(0);
+                }
+            };
+            b[..s.len()].copy_from_slice(s);
+            Ok(s.len())
+        }
+    }
+
+    /// Audit 1 round 4, #8: the run has stopped taking events while the reader waits in a read;
+    /// what that read brings ends the reader, which begins no other read.
+    #[test]
+    fn a_reader_begins_no_read_after_the_run_stops() {
+        let go = Arc::new(AtomicBool::new(false));
+        let again = Arc::new(AtomicBool::new(false));
+        let input = Gated {
+            step: 0,
+            go: go.clone(),
+            again: again.clone(),
+        };
+        let r = read(
+            input,
+            &|| false,
+            Duration::from_secs(60),
+            |_| false,
+            &mut |_| false,
+        );
+        assert!(r.is_ok());
+        go.store(true, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!again.load(Ordering::SeqCst), "the reader read again");
     }
 }
