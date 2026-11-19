@@ -600,16 +600,17 @@ mod round4 {
     }
 
     /// Audit 1 round 4, #8: the first line of an event comes soon after the last event, the
-    /// second line just inside the idle time after it. No pause reached the idle time.
+    /// second line well inside the idle time after it, but later than the idle time after the last
+    /// whole event. No pause reached the idle time (margins wide for slow CI runners).
     #[test]
     fn a_line_soon_after_an_event_counts_as_activity() {
         let got = events(
             &[
                 (0, "data: one\n\n"),
-                (155, "data: a\n"),
-                (285, "data: b\n\n"),
+                (700, "data: a\n"),
+                (700, "data: b\n\n"),
             ],
-            300,
+            1000,
         );
         assert_eq!(got.unwrap(), ["one", "a\nb"]);
     }
@@ -619,16 +620,16 @@ mod round4 {
     #[test]
     fn bytes_of_an_unfinished_line_count_as_activity() {
         let mut parts = vec![(0, "data: ")];
-        parts.extend(std::iter::repeat_n((45, "x"), 16));
+        parts.extend(std::iter::repeat_n((45, "x"), 40));
         parts.push((45, "\n\n"));
-        let got = events(&parts, 300).unwrap();
-        assert_eq!(got, ["x".repeat(16)]);
+        let got = events(&parts, 1000).unwrap();
+        assert_eq!(got, ["x".repeat(40)]);
     }
 
     /// Still idle when nothing at all comes.
     #[test]
     fn a_stream_that_stops_mid_line_is_idle() {
-        let r = events(&[(0, "data: x"), (2000, "\n\n")], 300);
+        let r = events(&[(0, "data: x"), (3000, "\n\n")], 1000);
         assert!(matches!(r, Err(Broken::Idle)), "{r:?}");
     }
 
