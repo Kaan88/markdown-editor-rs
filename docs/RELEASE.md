@@ -33,7 +33,7 @@ SHA-256, and run `mdedit --check-update`.
   `windows-x86_64.asset`, `.url`, `.sha256`; from 0.5.0 also the same three under `linux-x86_64`;
   grammar in `mdshared-app`'s `update.rs`).
 
-From 1.1.0 there are two Windows manifests: `mdedit-update.txt` stays format 1 (exe and engine;
+From 1.1.1 there are two Windows manifests: `mdedit-update.txt` stays format 1 (exe and engine;
 read by every copy up to 1.0.6, which refuses unknown keys, and by 1.1 on Linux) and
 `mdedit-update-2.txt` is format 2 (also `windows-x86_64.mdedit-ai.url/sha256`), read by 1.1 and
 later on Windows. `mdedit-ai.exe` (the AI engine) is an asset of its own like `mdview-engine.exe`,
