@@ -1397,6 +1397,8 @@ pub struct Docs {
     pub ai_prompts: Vec<mdedit_core::ai::SavedPrompt>,
     /// What a running AI rewrite has done so far, shown at the left of the status strip.
     pub ai_status: Option<String>,
+    /// The step of the moving strip over the status bar while a rewrite runs.
+    pub ai_phase: u32,
     pub tabs: Vec<Doc>,
     /// The bookmarks closed files left, and the session's.
     pub marks: crate::marks::Marks,
@@ -1491,6 +1493,7 @@ impl Docs {
             crash: None,
             ai_prompts: Vec::new(),
             ai_status: None,
+            ai_phase: 0,
             check_updates: true,
             prefs: Prefs::default(),
             watch_changed: true,

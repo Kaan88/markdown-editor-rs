@@ -605,6 +605,17 @@ impl App {
 
     fn paste(&mut self) {
         if let Some(text) = platform::clipboard_text().filter(|t| !t.is_empty()) {
+            // The path of an image file, as text (Explorer's Copy as path, a terminal): in a saved
+            // Markdown document it becomes a link to the image, as the copied file itself does.
+            let doc = self
+                .docs
+                .active_doc()
+                .filter(|d| d.is_markdown())
+                .and_then(|d| d.path.clone());
+            if let Some((doc, file)) = doc.zip(image_paste::image_path_in_text(&text)) {
+                self.paste_image_files(Some(&doc), &[file]);
+                return;
+            }
             self.edit(EditOp::Paste(&text));
         } else {
             self.paste_image();
@@ -2094,6 +2105,8 @@ impl App {
 
     /// Runs whatever timers are due and returns the next deadline.
     pub(super) fn timers(&mut self, now: Instant) -> Option<Instant> {
+        /// How often the AI strip moves.
+        const AI_TICK: Duration = Duration::from_millis(50);
         let mut next: Option<Instant> = None;
         let mut at = |t: Instant| next = Some(next.map_or(t, |n| n.min(t)));
         // Caret blink, only while the window has focus and the text or the find box has the keys.
@@ -2111,6 +2124,18 @@ impl App {
             }
         } else {
             self.ui.caret_due = None;
+        }
+        // A running AI rewrite: the status bar's strip moves (only that strip is redrawn).
+        if self.docs.ai_status.is_some() {
+            let due = *self.ai_tick.get_or_insert(now + AI_TICK);
+            if now >= due {
+                self.docs.ai_phase = self.docs.ai_phase.wrapping_add(1);
+                self.ai_tick = Some(now + AI_TICK);
+                self.wants_frame = true;
+            }
+            at(self.ai_tick.unwrap_or(now + AI_TICK));
+        } else {
+            self.ai_tick = None;
         }
         if let Some(tip) = self.ui.tip.as_mut().filter(|t| !t.shown) {
             if now >= tip.due {

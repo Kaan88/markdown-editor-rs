@@ -389,6 +389,65 @@ pub fn parse_prompts(text: &str) -> Vec<SavedPrompt> {
     out
 }
 
+/// The name a prompt saved from the instruction box gets: its first words (at most 40
+/// characters, whole words), then " 2", " 3"… when a saved prompt already has that name.
+pub fn prompt_name(instruction: &str, saved: &[SavedPrompt]) -> String {
+    let mut base = String::new();
+    for word in instruction.split_whitespace() {
+        let next = if base.is_empty() {
+            word.to_string()
+        } else {
+            format!("{base} {word}")
+        };
+        if next.chars().count() > 40 {
+            break;
+        }
+        base = next;
+    }
+    if base.is_empty() {
+        base = instruction.trim().chars().take(40).collect();
+    }
+    let base = base
+        .trim_end_matches([',', '.', ';', ':', '#'])
+        .trim()
+        .to_string();
+    let base = if base.is_empty() {
+        "Saved prompt".to_string()
+    } else {
+        base
+    };
+    let taken = |n: &str| saved.iter().any(|p| p.name.eq_ignore_ascii_case(n));
+    if !taken(&base) {
+        return base;
+    }
+    (2..)
+        .map(|k| format!("{base} {k}"))
+        .find(|n| !taken(n))
+        .unwrap_or(base)
+}
+
+/// `file` (the saved prompts file's text) with one more prompt at its end, as [`parse_prompts`]
+/// reads it back: a `## name` heading and the instruction under it. A line of the instruction
+/// that would read as a heading or a fence gets a backslash first.
+pub fn append_prompt(file: &str, name: &str, instruction: &str) -> String {
+    let mut out = file.trim_end().to_string();
+    if !out.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str("## ");
+    out.push_str(name.trim());
+    out.push_str("\n\n");
+    for line in instruction.trim().lines() {
+        let t = line.trim_start();
+        if line.starts_with("## ") || t.starts_with("```") || t.starts_with("~~~") {
+            out.push('\\');
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 // ---- review ------------------------------------------------------------------------------------
 
 /// A line of the review: unchanged, removed or added, with its line numbers (1-based), or a fold
@@ -596,6 +655,38 @@ mod tests {
         assert_eq!(fit_end("a\r\n", "b\n"), "b\r\n");
         assert_eq!(with_eol("a\nb\r\nc", "\r\n"), "a\r\nb\r\nc");
         assert_eq!(with_eol("a\r\nb", "\n"), "a\nb");
+    }
+
+    #[test]
+    fn a_prompt_saved_from_the_box_reads_back() {
+        let saved = parse_prompts(PROMPTS_TEMPLATE);
+        let name = prompt_name("Make the prices a table, sorted by date please", &saved);
+        assert_eq!(name, "Make the prices a table, sorted by date");
+        // A name already taken gets a number.
+        assert_eq!(prompt_name("Shorten", &saved), "Shorten 2");
+        assert_eq!(prompt_name("   ", &saved), "Saved prompt");
+        let text = append_prompt(
+            PROMPTS_TEMPLATE,
+            &name,
+            "Make the prices a table\n## not a heading",
+        );
+        let back = parse_prompts(&text);
+        assert_eq!(back.len(), saved.len() + 1);
+        let last = back.last().unwrap();
+        assert_eq!(last.name, name);
+        assert_eq!(
+            last.instruction,
+            "Make the prices a table\n\\## not a heading"
+        );
+        // Into an empty file.
+        let one = parse_prompts(&append_prompt("", "A", "Do it."));
+        assert_eq!(
+            one,
+            [SavedPrompt {
+                name: "A".into(),
+                instruction: "Do it.".into()
+            }]
+        );
     }
 
     #[test]

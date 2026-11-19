@@ -52,6 +52,59 @@ impl App {
         };
     }
 
+    /// The instruction panel's Save prompt (or Ctrl+S): what is typed goes at the end of the
+    /// saved prompts file under a name made of its first words, and the panel's list shows it.
+    /// The file is made from its template first when there is none.
+    pub(super) fn ai_save_prompt(&mut self) {
+        let Some(text) = self
+            .ai
+            .instruction()
+            .map(|i| i.field.text().trim().to_string())
+            .filter(|t| !t.is_empty())
+        else {
+            return;
+        };
+        self.ai_load_prompts();
+        if let Some(p) = self
+            .docs
+            .ai_prompts
+            .iter()
+            .find(|p| p.instruction.trim() == text)
+        {
+            self.docs
+                .set_toast(&format!("Already saved as \u{201c}{}\u{201d}.", p.name));
+            return;
+        }
+        let Some(path) = self.ai_prompts_path() else {
+            self.docs
+                .set_toast("There is no folder for the saved prompts file.");
+            return;
+        };
+        let name = core_ai::prompt_name(&text, &self.docs.ai_prompts);
+        let written = crate::ai::ensure_prompts_file(&path).and_then(|_| {
+            let file = std::fs::read_to_string(&path)?;
+            mdshared_app::settings::write_atomic(
+                &path,
+                &core_ai::append_prompt(&file, &name, &text),
+            )
+        });
+        match written {
+            Ok(()) => {
+                self.ai_load_prompts();
+                let k = self.docs.ai_prompts.iter().position(|p| p.name == name);
+                if let Some(i) = self.ai.instruction() {
+                    i.selected = k;
+                }
+                self.docs.set_toast(&format!(
+                    "Saved as \u{201c}{name}\u{201d}. Edit saved prompts to rename it."
+                ));
+            }
+            Err(e) => self
+                .docs
+                .set_toast(&format!("Could not save the prompt: {e}")),
+        }
+    }
+
     pub(super) fn ai_edit_prompts(&mut self) {
         let Some(path) = self.ai_prompts_path() else {
             self.docs
@@ -799,6 +852,7 @@ impl App {
             Some(Panel::Instruction(i)) => match name {
                 KeyName::Escape => self.ai_close_panel(),
                 KeyName::Enter => self.ai_submit(),
+                KeyName::Char('s') if mods.ctrl => self.ai_save_prompt(),
                 KeyName::Down => self.ai_pick(true),
                 KeyName::Up => self.ai_pick(false),
                 _ => {
@@ -900,6 +954,7 @@ impl App {
             }
             AiHit::Cancel => self.ai_close_panel(),
             AiHit::Rewrite => self.ai_submit(),
+            AiHit::SavePrompt => self.ai_save_prompt(),
             hit => self.ai_review_action(hit),
         }
     }
@@ -1014,6 +1069,8 @@ impl App {
             "working" => {
                 self.ai.run = Some(run);
                 self.ai_status();
+                // The strip partway across, as it is most of the time.
+                self.docs.ai_phase = 14;
             }
             "bar" => self.ai_failed("rate", "Claude API is busy (429).".into(), Some(40)),
             "settings" => self.ai_open_settings(),

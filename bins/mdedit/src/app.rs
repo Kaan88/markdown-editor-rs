@@ -327,6 +327,8 @@ struct App {
     saved_sig: u64,
     /// The session could not be written: when to try again.
     session_retry: Option<Instant>,
+    /// While an AI rewrite runs: when the status bar's strip moves next.
+    ai_tick: Option<Instant>,
     /// `--goto`, `--select`, `--find`, `--scroll` or `--hscroll` wait for this document to be
     /// ready in a windowed run.
     positions_for: Option<DocId>,
@@ -458,6 +460,7 @@ impl App {
             wheel_rest: (0.0, 0.0),
             saved_sig: 0,
             session_retry: None,
+            ai_tick: None,
             positions_for: None,
             completion: Default::default(),
         }
@@ -1013,7 +1016,12 @@ impl App {
                 Some(p) => sig((common, p.generation, p.ended.as_deref(), self.dark())),
                 None => sig((common, "closed")),
             },
-            Region::Status => sig((common, status::fields(&self.docs), self.dark())),
+            Region::Status => sig((
+                common,
+                status::fields(&self.docs),
+                self.dark(),
+                self.docs.ai_status.as_ref().map(|_| self.docs.ai_phase),
+            )),
             Region::Results => {
                 let drag = matches!(
                     ui.drag,

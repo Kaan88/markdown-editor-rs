@@ -411,3 +411,38 @@ fn a_closed_document_keeps_its_result_to_copy() {
     assert!(!hit_shown(&a, AiHit::RunAgain));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// What is typed in the instruction box is saved as a prompt (Ctrl+S, or Save prompt), named by
+/// its first words, and listed at once; the same text again is not saved twice.
+#[test]
+fn the_instruction_is_saved_as_a_prompt() {
+    let (mut a, dir) = ai_app("text\n");
+    a.session_path = Some(dir.join("session.ini"));
+    a.command(C::AiRewrite);
+    for c in "make the prices a table".chars() {
+        let s = c.to_string();
+        a.key_pressed(keys::Key::Name(KeyName::Char(c)), Some(&s));
+    }
+    a.compose();
+    assert!(a.ai.hits.iter().any(|(h, _)| *h == AiHit::SavePrompt));
+    a.mods.ctrl = true;
+    a.key_pressed(keys::Key::Name(KeyName::Char('s')), None);
+    a.mods.ctrl = false;
+    let file = std::fs::read_to_string(dir.join(mdedit_core::ai::PROMPTS_FILE)).unwrap();
+    assert!(
+        file.contains("## make the prices a table\n\nmake the prices a table\n"),
+        "{file}"
+    );
+    let last = a.docs.ai_prompts.last().unwrap();
+    assert_eq!(last.name, "make the prices a table");
+    // The panel stays open, the prompt picked, nothing sent.
+    assert!(a.ai_panel_open() && !a.ai.running());
+    assert_eq!(
+        a.ai.instruction().unwrap().selected,
+        Some(a.docs.ai_prompts.len() - 1)
+    );
+    let n = a.docs.ai_prompts.len();
+    a.ai_save_prompt();
+    assert_eq!(a.docs.ai_prompts.len(), n);
+    let _ = std::fs::remove_dir_all(&dir);
+}

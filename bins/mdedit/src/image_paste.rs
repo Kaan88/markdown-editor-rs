@@ -180,6 +180,21 @@ pub fn relative_path(dir: &Path, file: &Path) -> Option<String> {
     (!out.is_empty()).then(|| out.join("/"))
 }
 
+/// The image file a pasted text names, when the text is nothing but its full path (in double
+/// quotes or not, as Explorer's Copy as path gives it) and the file is there.
+pub fn image_path_in_text(text: &str) -> Option<PathBuf> {
+    let t = text.trim();
+    if t.contains(['\n', '\r']) {
+        return None;
+    }
+    let t = t
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(t);
+    let path = PathBuf::from(t);
+    (path.is_absolute() && is_image_file(&path) && path.is_file()).then_some(path)
+}
+
 /// The link for the image file `file` pasted into the document `doc`: to the file where it is,
 /// by its path from the document's folder, or, when there is no such path (another drive), to a
 /// copy made beside the document under the file's own name (numbered when that is taken; no
@@ -449,6 +464,34 @@ mod tests {
         assert_eq!(rel("/notes/pics/a.png").as_deref(), Some("../pics/a.png"));
         assert_eq!(rel("/a.png").as_deref(), Some("../../a.png"));
         assert_eq!(rel("a.png"), None);
+    }
+
+    /// A pasted path to an image (from another folder, quoted as Copy as path gives it) is
+    /// taken as that image; anything else stays text.
+    #[test]
+    fn a_pasted_image_path_is_an_image() {
+        let dir = temp_dir("pasted-path");
+        let file = dir.join("elsewhere").join("my pic.png");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, SIGNATURE).unwrap();
+        let shown = file.display().to_string();
+        assert_eq!(image_path_in_text(&shown), Some(file.clone()));
+        assert_eq!(
+            image_path_in_text(&format!("\"{shown}\"\r\n")),
+            Some(file.clone())
+        );
+        // Not an image, not there, not alone, not a full path: text.
+        let txt = dir.join("a.txt");
+        std::fs::write(&txt, "x").unwrap();
+        assert_eq!(image_path_in_text(&txt.display().to_string()), None);
+        assert_eq!(
+            image_path_in_text(&dir.join("gone.png").display().to_string()),
+            None
+        );
+        assert_eq!(image_path_in_text(&format!("see {shown}")), None);
+        assert_eq!(image_path_in_text(&format!("{shown}\n{shown}")), None);
+        assert_eq!(image_path_in_text("my pic.png"), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

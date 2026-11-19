@@ -230,11 +230,33 @@ pub fn encoding_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     Menu::new(items, x, y, true).above()
 }
 
+/// Steps the strip takes to cross the status bar once.
+const STRIP_STEPS: u32 = 40;
+
+/// While an AI rewrite runs: an accent segment that keeps crossing the top edge of the status
+/// bar, so the work is seen from anywhere in the window. `phase` is [`Docs::ai_phase`].
+fn ai_strip(c: &mut Ctx, phase: u32, r: Rect) {
+    let pal = *c.pal;
+    let h = (c.p.px() * 2.0).max(2.0);
+    c.p.fill(Rect::new(r.x, r.y, r.w, h), pal.selection);
+    let seg = (r.w * 0.25).max(40.0);
+    let t = (phase % STRIP_STEPS) as f32 / STRIP_STEPS as f32;
+    let from = (r.x - seg + t * (r.w + seg)).max(r.x);
+    let to = (r.x - seg + t * (r.w + seg) + seg).min(r.right());
+    if to > from {
+        c.p.fill(Rect::new(from, r.y, to - from, h), pal.accent);
+    }
+}
+
 pub fn draw(c: &mut Ctx, docs: &Docs, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);
     let px = c.p.px();
     c.p.fill(Rect::new(r.x, r.y, r.w, px), pal.line);
+    let working = docs.ai_status.is_some();
+    if working {
+        ai_strip(c, docs.ai_phase, r);
+    }
     let (left, mut right) = fields(docs);
     // The indentation field sits between the language and the line endings. Where the fields
     // would crowd the strip (a long selection count, many carets, the narrowest window) it is
@@ -287,7 +309,7 @@ pub fn draw(c: &mut Ctx, docs: &Docs, r: Rect) {
             r.x + 16.0,
             cy,
             &left,
-            pal.muted,
+            if working { pal.accent } else { pal.muted },
             (x - r.x - 32.0).max(0.0),
         );
     }
