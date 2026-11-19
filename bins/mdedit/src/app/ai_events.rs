@@ -436,15 +436,14 @@ impl App {
     /// A finished run: shown for review, or applied at once when the setting says so and the
     /// text is still as it was.
     fn ai_finish(&mut self, run: Run, reply: &str) {
-        let Some(i) = self.docs.index_of_id(run.doc) else {
-            return;
+        // A document closed (or being read again) meanwhile still gets the review, blocked, so
+        // the result can be copied.
+        let doc = self.docs.index_of_id(run.doc).map(|i| &self.docs.tabs[i]);
+        let fitted = core_ai::fit_end(&run.original, reply);
+        let result = match doc.and_then(|d| d.ready()) {
+            Some(r) => core_ai::with_eol(&fitted, r.info.eol.dominant()),
+            None => fitted,
         };
-        let doc = &self.docs.tabs[i];
-        let Some(r) = doc.ready() else {
-            return;
-        };
-        let eol = r.info.eol.dominant();
-        let result = core_ai::with_eol(&core_ai::fit_end(&run.original, reply), eol);
         if result.trim().is_empty() {
             self.ai_set_bar(Bar {
                 text: "The AI sent back no text. Nothing was changed.".into(),
@@ -462,8 +461,7 @@ impl App {
             return;
         }
         let base_dir = doc
-            .path
-            .as_deref()
+            .and_then(|d| d.path.as_deref())
             .and_then(|p| p.parent())
             .map(Path::to_path_buf);
         let mut blocked = self.ai_blocked(run.doc, run.start, run.end, &run.original);
@@ -558,6 +556,8 @@ impl App {
         self.ai.panel = Some(Panel::Instruction(Instruction {
             field: TextField::new(),
             spec: None,
+            source: (scope.doc, scope.start, scope.end, scope.text),
+            changed: false,
             selected: None,
             scope: scope.label,
             via: self.ai_via(),
@@ -600,7 +600,31 @@ impl App {
             },
             _ => return,
         };
-        self.ai_start(spec);
+        // Only what the panel shows is sent: another tab, another selection or other text since
+        // (a file opened or dropped, an edit) is shown first and waits for Rewrite again.
+        let now = self.ai_scope();
+        let Some(i) = self.ai.instruction() else {
+            return;
+        };
+        match now {
+            Some(n)
+                if (n.doc, n.start, n.end, &n.text)
+                    == (i.source.0, i.source.1, i.source.2, &i.source.3) =>
+            {
+                self.ai_start(spec)
+            }
+            Some(n) => {
+                i.scope = format!(
+                    "Changed since: {}. Press Rewrite again to send it.",
+                    n.label
+                );
+                i.source = (n.doc, n.start, n.end, n.text);
+                i.changed = true;
+                self.ai.tick += 1;
+                self.redraw();
+            }
+            None => self.ai_close_panel(),
+        }
     }
 
     /// Moves the pick in the saved prompts and puts its instruction in the box.
@@ -666,13 +690,16 @@ impl App {
             AiHit::RunAgain => {
                 let Some(rv) = self.ai.review() else { return };
                 let (doc, spec) = (rv.doc, rv.spec.clone());
-                self.ai_close_panel();
                 // Again on the review's document, never on whichever tab is active now; the
-                // panel shows what will be sent and waits for Rewrite.
+                // panel shows what will be sent and waits for Rewrite. A closed document keeps
+                // the review, with its result to copy.
                 let Some(i) = self.docs.index_of_id(doc) else {
-                    self.docs.set_toast(core_ai::BLOCKED_CLOSED);
+                    rv.blocked = Some(core_ai::BLOCKED_CLOSED.into());
+                    self.ai.tick += 1;
+                    self.redraw();
                     return;
                 };
+                self.ai_close_panel();
                 if self.docs.active() != Some(i) {
                     self.docs.activate(i);
                 }
@@ -970,7 +997,7 @@ impl App {
             }
             "bar" => self.ai_failed("rate", "Claude API is busy (429).".into(), Some(40)),
             "settings" => self.ai_open_settings(),
-            "review" | "preview" | "stale" => {
+            "review" | "preview" | "stale" | "closed" => {
                 let text = result(&scope.text);
                 if kind == "stale" {
                     let mut p = self.docs.prefs.clone();
@@ -992,6 +1019,11 @@ impl App {
                     self.docs.prefs.ai_review = true;
                     self.docs.prefs.ai_review_preview = kind == "preview";
                     self.ai_finish(run, &text);
+                    if kind == "closed"
+                        && let Some(rv) = self.ai.review()
+                    {
+                        rv.blocked = Some(core_ai::BLOCKED_CLOSED.into());
+                    }
                 }
             }
             _ => {}

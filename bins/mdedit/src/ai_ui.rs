@@ -132,7 +132,7 @@ fn instruction(
         x,
         r.y + PAD + 34.0,
         &i.scope,
-        pal.muted,
+        if i.changed { pal.text } else { pal.muted },
         inner,
     );
     // The field.
@@ -395,15 +395,19 @@ fn review(
     } else {
         ("Apply", Hit::Apply)
     };
+    // A closed document cannot be run again: Copy result and Discard only.
+    let closed = rv.blocked.as_deref() == Some(mdedit_core::ai::BLOCKED_CLOSED);
     let second = if rv.blocked.is_some() {
         ("Run again", Hit::RunAgain)
     } else {
         ("Copy result", Hit::Copy)
     };
-    for (k, (label, hit)) in [primary, second, ("Discard", Hit::Discard)]
-        .into_iter()
-        .enumerate()
-    {
+    let buttons: Vec<(&str, Hit)> = if closed {
+        vec![primary, ("Discard", Hit::Discard)]
+    } else {
+        vec![primary, second, ("Discard", Hit::Discard)]
+    };
+    for (k, (label, hit)) in buttons.into_iter().enumerate() {
         let bw = dialog_button_w(p, label);
         bx -= bw;
         let b = Rect::new(bx, by, bw, 32.0);

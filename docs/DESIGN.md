@@ -1864,7 +1864,12 @@ deletes the recovery files, what is found at the start is from a run that did no
 Recovery does not depend on "Restore tabs at start", and neither does the text kept on a normal
 close: closing never asks, so a tab with unsaved text comes back at the next start whatever the
 setting says (Audit 1, 2026-11-19); with the setting off only the tabs with nothing unsaved stay
-closed. There is no setting and no "autosave to the real file".
+closed. Each entry put back is rewritten to describe the tab it came back as (no file when the
+file is gone, the untitled number it really got), so the session goes on naming its backup until
+the text is saved or discarded. A recovery write in flight makes the next look come within a
+second, so a failed write is retried even when nothing else wakes the window; a write that cannot
+be handed to the writer counts as failed. There is no setting and no "autosave to the real
+file".
 
 **At start** (only when the folder has files; one directory listing otherwise): files that are
 not whole and `.tmp` files are deleted. For a copy whose file still exists the tab is added (or
@@ -2162,16 +2167,27 @@ lines on stdin and stdout (`bins/mdedit-ai/src/proto.rs`). Connections:
 API keys are kept in the system's credential store (`keyring`), under the service "mdedit", one
 slot per connection or provider, and for "Custom" one per base URL (`openai:custom:<url>`, the
 scheme and host in lower case, no trailing `/`), so a key typed for one server is never sent to
-another; mdedit sends a key to the engine once, when it is saved, and never writes it to
-settings.ini. The engine takes the key, and anything shaped like one (the word after `Bearer ` or
-`x-api-key:`, `sk-…` of 20 characters or more), out of every error message before it leaves the
-process (`proto::redact`).
+another. In the credential store that slot is named by the hex SHA-256 of the URL
+(`keys::target`): Windows compares credential names without case, and a URL can be long. A key
+draft belongs to the slot it was typed for and is dropped when the endpoint changes; a new base
+URL's key is looked up 500 ms after typing stops. A key is at least 4 characters. mdedit sends a
+key to the engine once, when it is saved, and never writes it to settings.ini.
 
-**Streams.** The answer is read on its own thread, so a cancel ends a run within 0.2 s even when
-the server sends nothing; nothing for 3 minutes ends it as a network failure; a line over 1 MB or
-an answer over 2 MB ends it as too long. A reader left behind ends with the connection, at the
-latest at the agent's 30-minute body timeout. A CLI whose `--version` exits with an error is not
-taken as found.
+The engine takes keys out of every error message before it leaves the process (`proto::redact`):
+the active key wherever it appears (from the raw error body, before the body is cut for the
+message); a credential-looking word after `Bearer ` or `x-api-key:` (16+ characters with a digit,
+or 32+; "Bearer authentication is required" stays); a word of 20+ characters starting like a known
+provider's key (`sk-`, `ghp_`, `github_pat_`, `xai-`, `gsk_`, `AIza` and the other GitHub
+prefixes).
+
+**Streams.** The answer is read and parsed on its own thread (`sse::read`), so a cancel ends a run
+within 0.2 s even when the server sends nothing; nothing for 3 minutes ends it as a network
+failure; a line or an event over 1 MB, or an answer over 2 MB, ends it as too long; at most 8
+events wait read ahead. The thread stops at the answer's last event (`message_stop`, `[DONE]`) and
+lets go of the body. After a cancel, an idle end or an error it lives until its read returns, at
+the latest at the agent's 30-minute body timeout; it holds no lock, job or slot of the engine. An
+error status's body is read the same way (`sse::read_body`: 64 KB, 20 s idle, cancel). A CLI whose
+`--version` exits with an error is not taken as found.
 
 **In the window** (`src/ai.rs` the client and state, `src/app/ai_events.rs` the behaviour,
 `src/ai_ui.rs` the drawing). While a rewrite runs the status strip says so and Esc stops it; the
@@ -2190,7 +2206,11 @@ cannot go in — the text changed, the document is read-only or was closed — n
 review says why in a band over the result and offers Copy result and Run again. A read-only
 document with "Show changes" off gets that review too, so the result can still be copied. Run
 again goes back to the review's document and opens the instruction panel there, filled with the
-instruction (and keeping its title); nothing is sent until Rewrite.
+instruction (and keeping its title); nothing is sent until Rewrite. The instruction panel keeps
+the document, range and text it shows; if another tab, selection or text is current when Rewrite
+is pressed, the panel shows the new scope ("Changed since: …") and sends only on the next Rewrite.
+A document closed while its rewrite runs, or while its review is open, keeps the review with Copy
+result and Discard (no Run again).
 Failures show in a bar with the one thing to do (Open AI settings, Try again).
 
 **Saved prompts** are `ai-prompts.md` beside the snippets file: `## Name` then the instruction.
@@ -2205,7 +2225,7 @@ prompts › Edit…. The rows are made again as answers come in.
 **Budgets.** Nothing is started at launch and nothing is read until an AI command or the AI
 section is used; the engine is not in the process at all until then.
 
-**Shots.** `--ai-demo instruction|review|preview|stale|working|bar|settings` shows each state with
+**Shots.** `--ai-demo instruction|review|preview|stale|closed|working|bar|settings` shows each state with
 a made-up result and no engine (`--pref ai_connection=claude-api` to choose the connection).
 
 **Not run** (2026-11-19): real calls with real keys, the Codex CLI, a signed-in Claude Code

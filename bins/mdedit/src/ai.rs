@@ -327,6 +327,11 @@ pub struct Instruction {
     /// The instruction the box was filled with (Run again): run under its own title while the
     /// box still holds it.
     pub spec: Option<Spec>,
+    /// What the panel says will be sent: document, byte range and text. Rewrite sends only that;
+    /// if it changed meanwhile the panel shows the new scope and waits for Rewrite again.
+    pub source: (DocId, usize, usize, String),
+    /// The scope changed since the panel showed it: the line says so.
+    pub changed: bool,
     /// The saved prompt the keyboard is on.
     pub selected: Option<usize>,
     pub scope: String,
@@ -409,6 +414,10 @@ pub struct Ai {
     pub tick: u64,
     /// The API key typed in Settings and not saved yet. Never written anywhere but the engine.
     pub key_draft: String,
+    /// The key slot the draft was typed for: a draft is never saved under another endpoint.
+    pub key_draft_slot: Option<String>,
+    /// The base URL was edited: its key is looked up once typing pauses.
+    pub url_due: Option<std::time::Instant>,
     /// "Other…" was chosen for the model: Settings shows a box for its name.
     pub model_other: bool,
     /// The saved prompts file's time and size when it was last read.

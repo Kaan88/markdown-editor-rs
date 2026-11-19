@@ -16,6 +16,7 @@ use mdedit_highlight::DocId;
 use ropey::Rope;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -53,7 +54,10 @@ struct Writer {
 /// Writes that failed, by name and revision: the next look tries them again.
 type Failed = Arc<Mutex<Vec<(String, Key)>>>;
 
-fn spawn_writer(dir: PathBuf, failed: Failed) -> Option<Writer> {
+/// Writes sent and not done yet.
+type InFlight = Arc<AtomicUsize>;
+
+fn spawn_writer(dir: PathBuf, failed: Failed, in_flight: InFlight) -> Option<Writer> {
     let (tx, rx) = channel::<Job>();
     let handle = std::thread::Builder::new()
         .name("mdedit-recovery".into())
@@ -85,6 +89,13 @@ fn spawn_writer(dir: PathBuf, failed: Failed) -> Option<Writer> {
                         }
                     }
                 }
+                // Done, written or failed (a failure is listed first, so a look that sees
+                // nothing in flight sees it).
+                let writes = batch
+                    .iter()
+                    .filter(|j| matches!(j, Job::Write { .. }))
+                    .count();
+                in_flight.fetch_sub(writes, Ordering::AcqRel);
             }
         })
         .ok()?;
@@ -136,6 +147,10 @@ pub struct Recovery {
     slots: HashMap<DocId, Slot>,
     writer: Option<Writer>,
     failed: Failed,
+    in_flight: InFlight,
+    /// Tests: the writer thread cannot be started.
+    #[cfg(test)]
+    no_writer: bool,
 }
 
 impl Recovery {
@@ -154,6 +169,9 @@ impl Recovery {
             slots: HashMap::new(),
             writer: None,
             failed: Failed::default(),
+            in_flight: InFlight::default(),
+            #[cfg(test)]
+            no_writer: false,
         }
     }
 
@@ -252,11 +270,27 @@ impl Recovery {
         let Some(dir) = self.dir.clone() else {
             return;
         };
-        if self.writer.is_none() {
-            self.writer = spawn_writer(dir, self.failed.clone());
+        #[cfg(test)]
+        let start = !self.no_writer;
+        #[cfg(not(test))]
+        let start = true;
+        if self.writer.is_none() && start {
+            self.writer = spawn_writer(dir, self.failed.clone(), self.in_flight.clone());
         }
-        if let Some(w) = &self.writer {
-            let _ = w.tx.send(job);
+        let write = match &job {
+            Job::Write { name, key, .. } => Some((name.clone(), *key)),
+            Job::Remove(_) => None,
+        };
+        if write.is_some() {
+            self.in_flight.fetch_add(1, Ordering::AcqRel);
+        }
+        let sent = self.writer.as_ref().is_some_and(|w| w.tx.send(job).is_ok());
+        // Not handed to a writer: a failed write, tried again like one.
+        if !sent && let Some(w) = write {
+            if let Ok(mut f) = self.failed.lock() {
+                f.push(w);
+            }
+            self.in_flight.fetch_sub(1, Ordering::AcqRel);
         }
     }
 
@@ -353,6 +387,12 @@ impl Recovery {
         }
         for job in jobs {
             self.send(job);
+        }
+        // A write in flight may fail: look again soon, so a failure is seen without any other
+        // event to wake the window.
+        if self.in_flight.load(Ordering::Acquire) > 0 {
+            let soon = now + Duration::from_secs(1);
+            next = Some(next.map_or(soon, |n| n.min(soon)));
         }
         next
     }
@@ -523,12 +563,39 @@ mod tests {
         let t0 = Instant::now();
         assert!(d.edit(EditOp::Insert("a"), None));
         assert_eq!(rec.poll(&d, t0), Some(t0 + secs(3)));
-        assert_eq!(rec.poll(&d, t0 + secs(3)), None, "sent to be written");
+        // Sent to be written: looked at again within a second, to see how it went.
+        let again = rec
+            .poll(&d, t0 + secs(3))
+            .expect("a look while the write is in flight");
+        assert!(again <= t0 + secs(4));
         rec.flush();
         // The failure is seen at the next look: due again after the pause, not at once.
         assert_eq!(rec.poll(&d, t0 + secs(4)), Some(t0 + secs(7)));
         std::fs::remove_file(dir.join("recover")).unwrap();
-        assert_eq!(rec.poll(&d, t0 + secs(7)), None);
+        rec.poll(&d, t0 + secs(7));
+        rec.flush();
+        // Written now: nothing in flight, nothing due.
+        assert_eq!(rec.poll(&d, t0 + secs(8)), None);
+        assert_eq!(files(&dir).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1, round 2: a write that cannot even be handed to the writer is tried again too.
+    #[test]
+    fn a_write_that_cannot_be_sent_is_tried_again() {
+        let (dir, path, mut rec) = setup("unsent", b"one\n");
+        rec.no_writer = true;
+        let mut d = docs();
+        let i = d.open(&path);
+        d.load_now(i, None, false);
+        let t0 = Instant::now();
+        assert!(d.edit(EditOp::Insert("a"), None));
+        rec.poll(&d, t0);
+        rec.poll(&d, t0 + secs(3));
+        // Due again after the pause, not taken as written.
+        assert_eq!(rec.poll(&d, t0 + secs(4)), Some(t0 + secs(7)));
+        rec.no_writer = false;
+        rec.poll(&d, t0 + secs(7));
         rec.flush();
         assert_eq!(files(&dir).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);

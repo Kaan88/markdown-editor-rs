@@ -115,10 +115,35 @@ impl Fail {
 /// What stands for a hidden key.
 pub const HIDDEN: &str = "[key hidden]";
 
-/// `text` with no key in it: `key` itself, the token after `Bearer ` or `x-api-key:`, and any
-/// `sk-…` word of 20 characters or more. Servers sometimes echo what they were sent.
+/// Words that start a key of a known provider: such a word of 20 characters or more is hidden.
+const KEY_PREFIXES: &[&str] = &[
+    "sk-",
+    "ghp_",
+    "gho_",
+    "ghu_",
+    "ghs_",
+    "ghr_",
+    "github_pat_",
+    "xai-",
+    "gsk_",
+    "AIza",
+];
+
+/// Whether the word after `Bearer` or `x-api-key:` looks like a credential rather than prose:
+/// long, and with a digit unless it is very long.
+fn looks_like_key(word: &str) -> bool {
+    let n = word.chars().count();
+    n >= 32 || (n >= 16 && word.chars().any(|c| c.is_ascii_digit()))
+}
+
+/// `text` with no key in it: `key` itself (any key mdedit stores: 4 characters or more), a
+/// credential-looking word after `Bearer ` or `x-api-key:`, and a word of 20 characters or more
+/// that starts like a known provider's key. Servers sometimes echo what they were sent.
 pub fn redact(text: &str, key: Option<&str>) -> String {
-    let s = match key.map(str::trim).filter(|k| k.len() >= 8) {
+    let s = match key
+        .map(str::trim)
+        .filter(|k| k.chars().count() >= crate::keys::KEY_MIN)
+    {
         Some(k) => text.replace(k, HIDDEN),
         None => text.to_string(),
     };
@@ -140,7 +165,7 @@ pub fn redact(text: &str, key: Option<&str>) -> String {
                 .unwrap_or(s.len() - j);
             j += sep;
             let end = j + s[j..].find(|c: char| !tok(c)).unwrap_or(s.len() - j);
-            if end - j >= 8 && (m == "bearer " || sep > 0) {
+            if looks_like_key(&s[j..end]) && (m == "bearer " || sep > 0) {
                 out.push_str(&s[i..j]);
                 out.push_str(HIDDEN);
                 i = end;
@@ -148,7 +173,7 @@ pub fn redact(text: &str, key: Option<&str>) -> String {
                 continue;
             }
         }
-        if !prev_tok && rest.starts_with("sk-") {
+        if !prev_tok && KEY_PREFIXES.iter().any(|p| s[i..].starts_with(p)) {
             let end = i + s[i..].find(|c: char| !tok(c)).unwrap_or(s.len() - i);
             if end - i >= 20 {
                 out.push_str(HIDDEN);
@@ -243,17 +268,28 @@ mod tests {
             "bad key [key hidden]."
         );
         assert_eq!(
-            redact("Authorization: Bearer xyzxyzxyz123 refused", None),
+            redact("Authorization: Bearer xyzxyzxyz1234567890 refused", None),
             "Authorization: Bearer [key hidden] refused"
         );
         assert_eq!(
-            redact(r#"{"x-api-key": "zzzzzzzzzz"}"#, None),
+            redact(r#"{"x-api-key": "zz12345678901234567"}"#, None),
             r#"{"x-api-key": "[key hidden]"}"#
         );
         assert_eq!(
             redact("got sk-proj-0123456789abcdefghij, and sk-short", None),
             "got [key hidden], and sk-short"
         );
+        assert_eq!(
+            redact("token ghp_0123456789abcdefghijABCDEFGHIJ1234 leaked", None),
+            "token [key hidden] leaked"
+        );
+        assert_eq!(
+            redact("echo: q7Zp-x said no", Some("q7Zp-x")),
+            "echo: [key hidden] said no"
+        );
+        // Audit 1, round 2: guidance about authentication is not a key.
+        let prose = "Bearer authentication is required. Send an x-api-key: header.";
+        assert_eq!(redact(prose, None), prose);
         // Ordinary words stay.
         let plain = "invalid x-api-key; the bearer of bad news — überall";
         assert_eq!(redact(plain, None), plain);

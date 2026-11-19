@@ -512,6 +512,9 @@ struct Models {
     other: bool,
 }
 
+/// How long typing in the base URL pauses before its key is looked up.
+pub(super) const AI_URL_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
 impl App {
     fn ai_key_slot(&self) -> Option<String> {
         let p = &self.docs.prefs;
@@ -768,7 +771,7 @@ impl App {
         self.modal_changed();
     }
 
-    fn ai_setting(&mut self, id: u32, value: Value) {
+    pub(super) fn ai_setting(&mut self, id: u32, value: Value) {
         let mut p = self.docs.prefs.clone();
         let c = p.ai_connection;
         let mut ask = false;
@@ -795,9 +798,14 @@ impl App {
                 self.ai.key_error = None;
                 ask = true;
             }
-            (AI_BASE_URL, Value::Text(t)) => p.ai_base_url = t,
+            (AI_BASE_URL, Value::Text(t)) => {
+                p.ai_base_url = t;
+                // The new URL's key is looked up once typing pauses.
+                self.ai.url_due = Some(std::time::Instant::now() + AI_URL_DELAY);
+            }
             (AI_KEY, Value::Text(t)) => {
                 self.ai.key_draft = t;
+                self.ai.key_draft_slot = self.ai_key_slot();
                 self.ai_settings_refresh();
                 return;
             }
@@ -821,6 +829,12 @@ impl App {
         }
         p.clamp();
         self.set_prefs(p);
+        // A key typed for one endpoint is never kept for another.
+        if !self.ai.key_draft.is_empty() && self.ai.key_draft_slot != self.ai_key_slot() {
+            self.ai.key_draft.clear();
+            self.ai.key_draft_slot = None;
+            self.ai.key_error = None;
+        }
         if ask {
             self.ai_settings_needs();
         } else {
@@ -846,6 +860,16 @@ impl App {
                     return;
                 };
                 let key = self.ai.key_draft.trim().to_string();
+                if !key.is_empty() && self.ai.key_draft_slot.as_ref() != Some(&slot) {
+                    self.ai.key_draft.clear();
+                    self.ai_settings_refresh();
+                    return;
+                }
+                if !key.is_empty() && key.chars().count() < 4 {
+                    self.ai.key_error = Some("This is too short to be an API key.".into());
+                    self.ai_settings_refresh();
+                    return;
+                }
                 let req = if key.is_empty() {
                     if self.ai.keys.get(&slot) != Some(&true) {
                         return;

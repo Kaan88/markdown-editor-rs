@@ -351,6 +351,35 @@ fn a_key_echoed_by_the_server_is_hidden() {
     assert!(!m.contains("AbCdEf") && m.contains("[key hidden]"), "{m}");
 }
 
+/// Audit 1, round 2: an opaque key echoed where a long plain-text error is cut for the message
+/// leaves no fragment; prose about authentication stays readable.
+#[test]
+fn a_key_at_the_cut_of_a_long_error_leaves_no_fragment() {
+    const KEY: &str = "Zq9wPlmX3rT7";
+    let (base, _seen) = stub(|path| {
+        if path.ends_with("/models") {
+            (401, vec![], "Bearer authentication is required.".into())
+        } else {
+            (
+                500,
+                vec![],
+                format!("{}{KEY} trailing words here", "e".repeat(194)),
+            )
+        }
+    });
+    let mut e = Engine::start(&[("MDEDIT_AI_KEY", KEY)]);
+    let conn = json!({"kind": "openai", "base_url": format!("{base}/v1"), "slot": "openai:x"});
+    e.send(run(conn.clone(), "m", ""));
+    let a = e.answer();
+    let m = a["message"].as_str().unwrap();
+    assert!(!m.contains("Zq9w") && !m.contains("mX3r"), "{m}");
+    // The cut may fall inside the marker; the key is what must not be there.
+    assert!(m.contains("[key h"), "{m}");
+    e.send(json!({"op": "models", "id": 3, "conn": conn}));
+    let a = e.answer();
+    assert_eq!(a["kind"], "auth", "{a}");
+}
+
 #[test]
 fn a_huge_reply_is_not_used() {
     let (base, _seen) = stub(|_| {

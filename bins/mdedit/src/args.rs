@@ -183,7 +183,7 @@ pub struct Args {
     pub update_bar: Option<String>,
     /// Open the command palette with this text in its box, for a shot.
     pub palette: Option<String>,
-    /// `--ai-demo instruction|review|preview|stale|working|bar|settings`: an AI panel or state
+    /// `--ai-demo instruction|review|preview|stale|closed|working|bar|settings`: an AI panel or state
     /// for a shot, with a made-up result and no engine.
     pub ai_demo: Option<String>,
     /// `--compare A B`: open both files, side by side, compared.

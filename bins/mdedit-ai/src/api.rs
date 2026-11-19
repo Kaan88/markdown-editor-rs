@@ -83,6 +83,8 @@ impl<'a> Progress<'a> {
 
 /// Nothing from a streaming answer for this long ends the run.
 const IDLE: Duration = Duration::from_secs(180);
+/// Nothing of an error's body for this long ends the wait for it.
+const ERROR_BODY_IDLE: Duration = Duration::from_secs(20);
 /// The longest answer taken.
 pub const REPLY_MAX: usize = 2 * 1024 * 1024;
 
@@ -99,6 +101,7 @@ fn stream(
     provider: &str,
     resp: ureq::http::Response<ureq::Body>,
     job: &Job,
+    last: fn(&sse::Event) -> bool,
     f: &mut dyn FnMut(&str) -> (bool, usize),
 ) -> Result<(), Fail> {
     let mut long = false;
@@ -106,6 +109,7 @@ fn stream(
         resp.into_body().into_reader(),
         &|| job.is_cancelled(),
         IDLE,
+        last,
         &mut |ev| {
             let (go, len) = f(&ev.data);
             long = len > REPLY_MAX;
@@ -124,7 +128,7 @@ fn stream(
                 IDLE.as_secs() / 60
             ),
         ),
-        sse::Broken::LineTooLong => too_long(),
+        sse::Broken::TooLong => too_long(),
     })?;
     if job.is_cancelled() {
         return Err(Fail::new("cancelled", "Cancelled."));
@@ -188,11 +192,16 @@ pub fn http_fail(provider: &str, status: u16, retry_after: Option<u64>, body: &s
 }
 
 /// Sends a request and returns the response if its status is 2xx, else the failure.
+///
+/// An error's body is read on its own thread (64 KB at most, 20 s without a byte ends it, a cancel
+/// of `job` ends it at once), and `key` is taken out of it before it is cut for the message.
 fn checked(
     provider: &str,
+    key: Option<&str>,
+    job: Option<&Job>,
     r: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
 ) -> Result<ureq::http::Response<ureq::Body>, Fail> {
-    let mut resp = r.map_err(|e| network_fail(provider, e))?;
+    let resp = r.map_err(|e| network_fail(provider, e))?;
     let status = resp.status().as_u16();
     if (200..300).contains(&status) {
         return Ok(resp);
@@ -203,12 +212,18 @@ fn checked(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse::<f64>().ok())
         .map(|s| s.ceil() as u64);
-    let mut body = String::new();
-    let _ = resp
-        .body_mut()
-        .as_reader()
-        .take(64 * 1024)
-        .read_to_string(&mut body);
+    let cancelled = || job.is_some_and(Job::is_cancelled);
+    let body = sse::read_body(
+        resp.into_body().into_reader(),
+        &cancelled,
+        ERROR_BODY_IDLE,
+        64 * 1024,
+    )
+    .unwrap_or_default();
+    if cancelled() {
+        return Err(Fail::new("cancelled", "Cancelled."));
+    }
+    let body = crate::proto::redact(&body, key);
     Err(http_fail(provider, status, retry_after, &body))
 }
 
@@ -288,6 +303,8 @@ fn run_claude_with(
     let body = claude_body(model, effort, system, prompt, max_tokens);
     let resp = checked(
         P,
+        Some(key),
+        Some(job),
         agent()
             .post(format!("{}/v1/messages", claude_base()))
             .header("x-api-key", key)
@@ -297,7 +314,9 @@ fn run_claude_with(
     )?;
     let mut s = ClaudeStream::default();
     let mut p = Progress::new(progress);
-    stream(P, resp, job, &mut |data| {
+    let last: fn(&sse::Event) -> bool =
+        |e| e.name == "message_stop" || e.data.contains(r#""type":"message_stop""#);
+    stream(P, resp, job, last, &mut |data| {
         let go = s.event(data);
         p.tick(s.chars);
         (go, s.text.len())
@@ -393,6 +412,8 @@ fn models_claude_with(key: &str) -> Result<Vec<Model>, Fail> {
         }
         let resp = checked(
             P,
+            Some(key),
+            None,
             agent()
                 .get(&url)
                 .header("x-api-key", key)
@@ -518,12 +539,14 @@ pub fn run_openai(
     }
     let resp = checked(
         &p,
+        key.as_deref(),
+        Some(job),
         req.send(openai_body(model, effort, system, prompt).to_string()),
     )
     .map_err(|f| hide(explain_effort(f, effort)))?;
     let mut s = OpenAiStream::default();
     let mut pr = Progress::new(progress);
-    stream(&p, resp, job, &mut |data| {
+    stream(&p, resp, job, |e| e.data.trim() == "[DONE]", &mut |data| {
         let go = s.event(data);
         pr.tick(s.chars);
         (go, s.text.len())
@@ -613,7 +636,11 @@ pub fn models_openai(base: &str, slot: &str) -> Result<Vec<Model>, Fail> {
     if let Some(key) = &key {
         req = req.header("authorization", &format!("Bearer {key}"));
     }
-    let v = read_json(&p, checked(&p, req.call()).map_err(hide)?).map_err(hide)?;
+    let v = read_json(
+        &p,
+        checked(&p, key.as_deref(), None, req.call()).map_err(hide)?,
+    )
+    .map_err(hide)?;
     Ok(parse_openai_models(&v))
 }
 

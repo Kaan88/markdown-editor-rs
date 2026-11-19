@@ -2159,6 +2159,15 @@ impl App {
         {
             at(due);
         }
+        if let Some(due) = self.ai.url_due {
+            if now >= due {
+                self.ai.url_due = None;
+                self.ai_settings_needs();
+                self.ai_settings_refresh();
+            } else {
+                at(due);
+            }
+        }
         if let Some(due) = self.find_due {
             if now >= due {
                 self.find_due = None;

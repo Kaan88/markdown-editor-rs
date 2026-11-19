@@ -5,6 +5,29 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Audit 1, round 2 (2026-11-19, branch `f/ai`)
+
+Astra's re-review of cffebe3: 9 fixed, 6 partly fixed, 8 new findings. All addressed; each test
+below was checked to fail with its fix reverted.
+
+| Item | Fix | Test |
+|---|---|---|
+| N1 restored draft lost its session entry (file gone, or number taken) | `restore_unsaved` rewrites each entry to the tab it came back as | `app::tests::kept_drafts_survive_restarts_with_restore_off` |
+| N2 Windows: case-different URLs share a credential | `keys::target`: custom slots stored under SHA-256 of the URL | `keys::tests::custom_endpoints_have_names_apart` |
+| N3 Rewrite could send a scope the panel did not show | `Instruction.source`; changed scope is shown and needs Rewrite again | `ai_tests::rewrite_sends_only_the_scope_the_panel_showed` |
+| N4 key draft followed a new custom URL; new URL's key not looked up | `key_draft_slot`; `ai.url_due` (500 ms) runs `ai_settings_needs` | `ai_tests::a_key_draft_does_not_follow_a_new_url` |
+| N5 finished stream kept its reader and socket | parsing on the reader thread; it stops after the last event | `sse::tests::the_reader_lets_go_after_the_last_event` |
+| N6 Run again on a closed source dropped the result; closed before the answer, no review | review kept, Run again hidden; `ai_finish` builds a closed review | `ai_tests::a_closed_document_keeps_its_result_to_copy` |
+| N7 "Bearer authentication is required" redacted | `looks_like_key` after markers | `proto::tests::keys_are_hidden` |
+| N8 queued jump to a missing category (shared 1cc5220) | ignored and dropped on `set_rows` | shared `settings::tests::a_jump_to_a_missing_category_is_ignored` |
+| #5 failure unseen while idle; dispatch failures | `in_flight` keeps a look within 1 s; unsent writes count as failed | `recovery::tests::a_failed_write_is_tried_again`, `a_write_that_cannot_be_sent_is_tried_again` |
+| #6 short keys, other providers' tokens, key cut by truncation | keys ≥ 4 chars (refused shorter), more prefixes, key hidden in the raw body | `proto::tests::keys_are_hidden`, `engine::a_key_at_the_cut_of_a_long_error_leaves_no_fragment` |
+| #9 multiline event unbounded; error body not cancellable | event cap 1 MB, 8 events ahead; `sse::read_body` for error bodies | `sse::tests::a_huge_event_of_short_lines_is_refused`, `a_silent_error_body_is_cancelled_at_once` |
+
+Still a limit: after a cancel, idle end or error, the reader thread lives until its read returns
+or the 30-minute body timeout (ureq gives no way to close the socket from another thread); it
+holds nothing the engine waits for.
+
 ## Audit 1 fixes (2026-11-19, branch `f/ai`)
 
 Astra audited `f/ai` @27530b6 (and shared `f/ai` @19348d3) on Windows and found 10 problems, 3

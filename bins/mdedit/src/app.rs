@@ -2037,14 +2037,18 @@ impl App {
 /// has newer text of the same document. Whatever "Restore tabs at start" says: closing never
 /// asks about unsaved text, so it keeps it, and only tabs with nothing unsaved stay closed.
 /// Returns the tabs that read their backup once loaded.
+///
+/// Each entry put back is made to describe the tab it came back as (a document whose file is gone
+/// comes back without a file, an untitled number may be taken), so the session keeps naming its
+/// backup until the text is saved or discarded.
 fn restore_unsaved(
     docs: &mut Docs,
-    unsaved: &[Unsaved],
+    unsaved: &mut [Unsaved],
     found: &[crate::recovery::Found],
     dir: &Path,
 ) -> Vec<usize> {
     let mut restored = Vec::new();
-    for u in unsaved {
+    for u in unsaved.iter_mut() {
         if crate::recovery::covers(found, u) {
             continue;
         }
@@ -2061,7 +2065,9 @@ fn restore_unsaved(
             // A document that had no file, or whose file is gone since.
             None => {
                 if let Ok(text) = std::fs::read_to_string(&file) {
-                    docs.restore_untitled(u.untitled, &text);
+                    let k = docs.restore_untitled(u.untitled, &text);
+                    u.path = None;
+                    u.untitled = docs.tabs[k].untitled;
                 }
             }
         }
@@ -3132,7 +3138,7 @@ pub fn run() -> i32 {
     let found = recovery.scan();
     // Unsaved text kept at the last exit comes back whatever "Restore tabs at start" says.
     let mut restored = match session_path.as_deref().and_then(backup_dir_of) {
-        Some(dir) => restore_unsaved(&mut docs, &session.unsaved, &found, &dir),
+        Some(dir) => restore_unsaved(&mut docs, &mut session.unsaved, &found, &dir),
         None => Vec::new(),
     };
     // The copies come back as modified tabs.
@@ -3381,36 +3387,55 @@ mod tests {
         assert_eq!(app.restart, Some(PathBuf::from("/preview/app")));
     }
 
-    /// Audit 1, finding 1: with "Restore tabs at start" off, an untitled draft kept at exit
-    /// comes back at the next start and is kept again by the next exit, however often.
+    /// Audit 1, finding 1 and round 2: with "Restore tabs at start" off, drafts kept at exit
+    /// come back at every start, and the session keeps naming their backups after the first
+    /// pruning, also for a document whose file is gone and an untitled number already taken.
     #[test]
-    fn a_kept_draft_survives_restarts_with_restore_off() {
+    fn kept_drafts_survive_restarts_with_restore_off() {
         let dir = std::env::temp_dir().join(format!("mdedit-unsaved-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        // The first run: a draft, then Exit keeps it.
-        let mut docs = Docs::new(1254, Arc::new(|_| {}));
-        docs.prefs.restore_session = false;
+        let backups = dir.join("backup");
+        std::fs::create_dir_all(&backups).unwrap();
+        let file = dir.join("gone.txt");
+        std::fs::write(&file, "file text\n").unwrap();
+        let fresh = || {
+            let mut d = Docs::new(1254, Arc::new(|_| {}));
+            d.prefs.restore_session = false;
+            d
+        };
+        // The first run: an untitled draft, a draft of a file, and Exit keeps both.
+        let mut docs = fresh();
         docs.new_untitled();
         assert!(docs.edit(EditOp::Insert("draft"), None));
-        let mut unsaved = docs.write_backups(&dir).unwrap();
-        assert_eq!(unsaved.len(), 1);
+        let i = docs.open(&file);
+        docs.load_now(i, None, false);
+        docs.activate(i);
+        assert!(docs.edit(EditOp::Insert("edited "), None));
+        let mut unsaved = docs.write_backups(&backups).unwrap();
+        assert_eq!(unsaved.len(), 2);
+        // The file goes; the next start has another untitled tab holding number 1.
+        std::fs::remove_file(&file).unwrap();
         for run in 0..3 {
-            let mut docs = Docs::new(1254, Arc::new(|_| {}));
-            docs.prefs.restore_session = false;
-            restore_unsaved(&mut docs, &unsaved, &[], &dir);
-            let d = docs
+            let mut docs = fresh();
+            docs.new_untitled();
+            restore_unsaved(&mut docs, &mut unsaved, &[], &backups);
+            let texts: Vec<String> = docs
                 .tabs
                 .iter()
-                .find(|d| d.modified())
-                .expect("the draft is back");
-            assert_eq!(
-                d.ready().unwrap().buffer.rope().to_string(),
-                "draft",
+                .filter(|d| d.modified())
+                .map(|d| d.ready().unwrap().buffer.rope().to_string())
+                .collect();
+            assert!(texts.contains(&"draft".to_string()), "run {run}: {texts:?}");
+            assert!(
+                texts.contains(&"edited file text\n".to_string()),
                 "run {run}"
             );
-            unsaved = docs.write_backups(&dir).unwrap();
-            assert_eq!(unsaved.len(), 1, "kept again by exit {run}");
+            // The session's first pruning keeps both.
+            let tabs: Vec<TabState> = docs.tabs.iter().map(|d| d.tab_state()).collect();
+            let kept = Unsaved::prune(&unsaved, &tabs);
+            assert_eq!(kept.len(), 2, "run {run}: {kept:?}");
+            unsaved = docs.write_backups(&backups).unwrap();
+            assert_eq!(unsaved.len(), 2, "kept again by exit {run}");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

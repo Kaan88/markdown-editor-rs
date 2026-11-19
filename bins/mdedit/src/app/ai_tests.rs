@@ -267,3 +267,100 @@ fn a_read_only_document_shows_the_result_to_copy() {
     assert!(!toast.contains("done"), "{toast}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Audit 1, round 2 (N3): Rewrite sends only what the panel showed. Another tab made active
+/// meanwhile (a file opened or dropped) is shown first and waits for Rewrite again.
+#[test]
+fn rewrite_sends_only_the_scope_the_panel_showed() {
+    let (mut a, dir) = ai_app("alpha\n");
+    std::fs::write(dir.join("b.md"), "beta\n").unwrap();
+    a.command(C::AiRewrite);
+    for c in "shorter".chars() {
+        let s = c.to_string();
+        a.key_pressed(keys::Key::Name(KeyName::Char(c)), Some(&s));
+    }
+    let b = open_now(&mut a, &dir.join("b.md"));
+    a.docs.activate(b);
+    a.key_pressed(keys::Key::Name(KeyName::Enter), None);
+    assert!(
+        !a.ai.running(),
+        "nothing sent for a scope the panel did not show"
+    );
+    let Some(Panel::Instruction(ins)) = &a.ai.panel else {
+        panic!("the panel stays")
+    };
+    assert!(
+        ins.changed && ins.scope.contains("Changed since"),
+        "{}",
+        ins.scope
+    );
+    a.key_pressed(keys::Key::Name(KeyName::Enter), None);
+    assert!(a.ai.running());
+    let run = a.ai.run.as_ref().unwrap();
+    assert_eq!(
+        (run.doc, run.original.as_str()),
+        (a.docs.tabs[b].id, "beta\n")
+    );
+    wait(&mut a, |a| !a.ai.running());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 1, round 2 (N4): a key typed for one custom URL is dropped when the URL changes, and
+/// the new URL's key is looked up once typing pauses.
+#[test]
+fn a_key_draft_does_not_follow_a_new_url() {
+    use super::modal::{AI_BASE_URL, AI_KEY};
+    use mdshared_ui::settings::Value;
+    let (mut a, dir) = ai_app("t\n");
+    a.docs.prefs.ai_connection = Connection::OpenAi;
+    a.docs.prefs.ai_preset = "custom".into();
+    a.docs.prefs.ai_base_url = "https://a.example/v1".into();
+    a.command(C::AiSettings);
+    a.ai_setting(AI_KEY, Value::Text("sk-typed-for-a".into()));
+    assert_eq!(a.ai.key_draft, "sk-typed-for-a");
+    a.ai_setting(AI_BASE_URL, Value::Text("https://b.example/v1".into()));
+    assert!(a.ai.key_draft.is_empty(), "the draft was for A");
+    let slot_b = "openai:custom:https://b.example/v1";
+    assert!(!a.ai.keys.contains_key(slot_b) && !a.ai.pending_key(slot_b));
+    a.timers(Instant::now() + Duration::from_secs(1));
+    wait(&mut a, |a| a.ai.keys.contains_key(slot_b));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn hit_shown(a: &App, h: AiHit) -> bool {
+    a.ai.hits.iter().any(|(x, _)| *x == h)
+}
+
+/// Audit 1, round 2 (N6): a document closed while its rewrite runs still gets the review, to
+/// copy the result; closed while the review is open, Run again keeps the review.
+#[test]
+fn a_closed_document_keeps_its_result_to_copy() {
+    let (mut a, dir) = ai_app("one\n");
+    a.command(C::AiFormat);
+    let i = a.docs.active().unwrap();
+    a.docs.close(i, None);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    assert_eq!(
+        review(&mut a).blocked.as_deref(),
+        Some(mdedit_core::ai::BLOCKED_CLOSED)
+    );
+    assert_eq!(review(&mut a).result, "# Done\n");
+    a.compose();
+    assert!(hit_shown(&a, AiHit::Copy));
+    assert!(!hit_shown(&a, AiHit::RunAgain) && !hit_shown(&a, AiHit::Apply));
+    // Closed while the review is open: Run again does not drop it.
+    a.ai.panel = None;
+    open_now(&mut a, &dir.join("a.md"));
+    a.command(C::AiFormat);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    let i = a.docs.active().unwrap();
+    a.docs.close(i, None);
+    a.ai_review_action(AiHit::RunAgain);
+    assert_eq!(
+        review(&mut a).blocked.as_deref(),
+        Some(mdedit_core::ai::BLOCKED_CLOSED)
+    );
+    a.compose();
+    assert!(!hit_shown(&a, AiHit::RunAgain));
+    let _ = std::fs::remove_dir_all(&dir);
+}
