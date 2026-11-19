@@ -356,7 +356,7 @@ fn review(
     );
 
     let mut body = review_body(r);
-    if rv.stale {
+    if let Some(why) = &rv.blocked {
         let note = Rect::new(
             body.x + PAD - 1.0,
             body.y + 12.0,
@@ -369,7 +369,7 @@ fn review(
             12.5,
             note.x + 14.0,
             note.cy(),
-            "The text changed while this was being written, so it cannot be applied in place. Copy the result, or run it again.",
+            why,
             pal.text,
             note.w - 28.0,
         );
@@ -390,12 +390,12 @@ fn review(
     // Footer.
     let by = footer.y + (DIALOG_FOOTER - 32.0) / 2.0;
     let mut bx = r.right() - PAD;
-    let primary = if rv.stale {
+    let primary = if rv.blocked.is_some() {
         ("Copy result", Hit::Copy)
     } else {
         ("Apply", Hit::Apply)
     };
-    let second = if rv.stale {
+    let second = if rv.blocked.is_some() {
         ("Run again", Hit::RunAgain)
     } else {
         ("Copy result", Hit::Copy)
@@ -412,7 +412,7 @@ fn review(
     }
     let note = if rv.preview {
         "Drawn by mdview's renderer. The two sides scroll together."
-    } else if rv.stale {
+    } else if rv.blocked.is_some() {
         ""
     } else {
         "Apply is one step: Ctrl+Z brings the old text back."

@@ -166,13 +166,39 @@ pub fn preset_by_key(key: &str) -> &'static Preset {
 }
 
 /// The credential-store slot of a connection's key; `None` for one that takes no key.
-pub fn key_slot(conn: Connection, preset: &str) -> Option<String> {
+///
+/// A custom endpoint keeps one key per URL, so a key typed for one server is never sent to
+/// another; none while no URL is typed.
+pub fn key_slot(conn: Connection, preset: &str, custom: &str) -> Option<String> {
     match conn {
         Connection::ClaudeApi => Some("claude-api".into()),
-        Connection::OpenAi => Some(format!("openai:{}", preset_by_key(preset).key)),
+        Connection::OpenAi => {
+            let p = preset_by_key(preset);
+            if p.base_url.is_empty() {
+                let url = normalize_url(custom);
+                (!url.is_empty()).then(|| format!("openai:custom:{url}"))
+            } else {
+                Some(format!("openai:{}", p.key))
+            }
+        }
         _ => None,
     }
 }
+
+/// A URL as a key slot names it: trimmed, scheme and host in lower case, no trailing `/`.
+fn normalize_url(url: &str) -> String {
+    let url = url.trim().trim_end_matches('/');
+    let start = url.find("://").map_or(0, |i| i + 3);
+    let end = url[start..].find('/').map_or(url.len(), |i| start + i);
+    format!("{}{}", url[..end].to_ascii_lowercase(), &url[end..])
+}
+
+/// Why a review's result cannot be applied in place.
+pub const BLOCKED_CHANGED: &str = "The text changed while this was being written, so it cannot be applied in place. Copy the result, or run it again.";
+pub const BLOCKED_READ_ONLY: &str =
+    "This document is read-only, so the result cannot be applied. Copy the result instead.";
+pub const BLOCKED_CLOSED: &str =
+    "The document was closed, so the result cannot be applied. Copy the result instead.";
 
 /// The base URL a rewrite goes to: the preset's, or the one typed for Custom.
 pub fn base_url(preset: &str, custom: &str) -> String {
@@ -521,14 +547,27 @@ mod tests {
         assert_eq!(base_url("ollama", "x"), "http://localhost:11434/v1");
         assert_eq!(base_url("custom", " http://h:1/v1 "), "http://h:1/v1");
         assert_eq!(
-            key_slot(Connection::OpenAi, "openrouter").as_deref(),
+            key_slot(Connection::OpenAi, "openrouter", "http://x").as_deref(),
             Some("openai:openrouter")
         );
         assert_eq!(
-            key_slot(Connection::ClaudeApi, "").as_deref(),
+            key_slot(Connection::ClaudeApi, "", "").as_deref(),
             Some("claude-api")
         );
-        assert_eq!(key_slot(Connection::Codex, ""), None);
+        assert_eq!(key_slot(Connection::Codex, "", ""), None);
+    }
+
+    #[test]
+    fn a_custom_endpoint_has_a_key_per_url() {
+        let slot = |u| key_slot(Connection::OpenAi, "custom", u);
+        assert_eq!(slot("  "), None, "no URL, no key");
+        let a = slot("https://a.example/v1").unwrap();
+        let b = slot("https://b.example/v1").unwrap();
+        assert_ne!(a, b, "a key typed for one server is not sent to another");
+        assert_eq!(a, "openai:custom:https://a.example/v1");
+        assert_eq!(slot(" HTTPS://A.Example/v1/ ").unwrap(), a);
+        // The path keeps its case: servers may tell paths apart by it.
+        assert_ne!(slot("https://a.example/V1").unwrap(), a);
         assert_eq!(
             destination(Connection::OpenAi, "ollama", ""),
             "Text you rewrite stays on this computer (Ollama)."

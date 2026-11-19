@@ -1861,8 +1861,10 @@ Read-only tabs (a comparison's saved side) and documents read lossily get none.
 (`write_backups`, section 19). That is unchanged and is separate from the recovery store except
 that both are put back by the same path (`Doc::restore`, `put_back`). Because a normal exit
 deletes the recovery files, what is found at the start is from a run that did not exit normally.
-Recovery does not depend on "Restore tabs at start". There is no setting and no "autosave to the
-real file".
+Recovery does not depend on "Restore tabs at start", and neither does the text kept on a normal
+close: closing never asks, so a tab with unsaved text comes back at the next start whatever the
+setting says (Audit 1, 2026-11-19); with the setting off only the tabs with nothing unsaved stay
+closed. There is no setting and no "autosave to the real file".
 
 **At start** (only when the folder has files; one directory listing otherwise): files that are
 not whole and `.tmp` files are deleted. For a copy whose file still exists the tab is added (or
@@ -2158,8 +2160,18 @@ lines on stdin and stdout (`bins/mdedit-ai/src/proto.rs`). Connections:
   base URL.
 
 API keys are kept in the system's credential store (`keyring`), under the service "mdedit", one
-slot per connection or provider; mdedit sends a key to the engine once, when it is saved, and
-never writes it to settings.ini.
+slot per connection or provider, and for "Custom" one per base URL (`openai:custom:<url>`, the
+scheme and host in lower case, no trailing `/`), so a key typed for one server is never sent to
+another; mdedit sends a key to the engine once, when it is saved, and never writes it to
+settings.ini. The engine takes the key, and anything shaped like one (the word after `Bearer ` or
+`x-api-key:`, `sk-…` of 20 characters or more), out of every error message before it leaves the
+process (`proto::redact`).
+
+**Streams.** The answer is read on its own thread, so a cancel ends a run within 0.2 s even when
+the server sends nothing; nothing for 3 minutes ends it as a network failure; a line over 1 MB or
+an answer over 2 MB ends it as too long. A reader left behind ends with the connection, at the
+latest at the agent's 30-minute body timeout. A CLI whose `--version` exits with an error is not
+taken as found.
 
 **In the window** (`src/ai.rs` the client and state, `src/app/ai_events.rs` the behaviour,
 `src/ai_ui.rs` the drawing). While a rewrite runs the status strip says so and Esc stops it; the
@@ -2172,8 +2184,13 @@ line break at the end follows the original; the line breaks become the file's), 
   remembered. Apply, Copy result, Discard.
 - without it, the result goes in at once.
 
-Applying is one undo step (`edit::replace_range`). If the text in the range changed while the AI
-was working, nothing is put in: the review says so and offers Copy result and Run again.
+Applying is one undo step (`edit::replace_range`). The range is checked against the text it was
+taken from when the answer comes and again on Apply (a reload, an edit in another view). When it
+cannot go in — the text changed, the document is read-only or was closed — nothing is put in: the
+review says why in a band over the result and offers Copy result and Run again. A read-only
+document with "Show changes" off gets that review too, so the result can still be copied. Run
+again goes back to the review's document and opens the instruction panel there, filled with the
+instruction (and keeping its title); nothing is sent until Rewrite.
 Failures show in a bar with the one thing to do (Open AI settings, Try again).
 
 **Saved prompts** are `ai-prompts.md` beside the snippets file: `## Name` then the instruction.

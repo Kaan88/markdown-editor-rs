@@ -17,6 +17,7 @@ use ropey::Rope;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -30,6 +31,8 @@ enum Job {
         name: String,
         header: Header,
         text: Rope,
+        /// The revision written, handed back when the write fails.
+        key: Key,
     },
     Remove(String),
 }
@@ -47,7 +50,10 @@ struct Writer {
     handle: JoinHandle<()>,
 }
 
-fn spawn_writer(dir: PathBuf) -> Option<Writer> {
+/// Writes that failed, by name and revision: the next look tries them again.
+type Failed = Arc<Mutex<Vec<(String, Key)>>>;
+
+fn spawn_writer(dir: PathBuf, failed: Failed) -> Option<Writer> {
     let (tx, rx) = channel::<Job>();
     let handle = std::thread::Builder::new()
         .name("mdedit-recovery".into())
@@ -61,9 +67,17 @@ fn spawn_writer(dir: PathBuf) -> Option<Writer> {
                         continue;
                     }
                     match job {
-                        Job::Write { name, header, text } => {
+                        Job::Write {
+                            name,
+                            header,
+                            text,
+                            key,
+                        } => {
                             if let Err(e) = recovery::write(&dir, name, header, text) {
                                 eprintln!("mdedit: could not write a recovery copy: {e}");
+                                if let Ok(mut f) = failed.lock() {
+                                    f.push((name.clone(), *key));
+                                }
                             }
                         }
                         Job::Remove(name) => {
@@ -121,6 +135,7 @@ pub struct Recovery {
     tag: String,
     slots: HashMap<DocId, Slot>,
     writer: Option<Writer>,
+    failed: Failed,
 }
 
 impl Recovery {
@@ -138,6 +153,7 @@ impl Recovery {
             tag: format!("{millis:x}"),
             slots: HashMap::new(),
             writer: None,
+            failed: Failed::default(),
         }
     }
 
@@ -237,7 +253,7 @@ impl Recovery {
             return;
         };
         if self.writer.is_none() {
-            self.writer = spawn_writer(dir);
+            self.writer = spawn_writer(dir, self.failed.clone());
         }
         if let Some(w) = &self.writer {
             let _ = w.tx.send(job);
@@ -253,6 +269,23 @@ impl Recovery {
             Duration::from_millis(RECOVERY_IDLE_MS),
             Duration::from_millis(RECOVERY_MAX_MS),
         );
+        // A copy that could not be written is not written: it is due again after the pause, so
+        // a folder that cannot be written is tried at that pace, not in a loop.
+        let failed = self
+            .failed
+            .lock()
+            .map(|mut f| std::mem::take(&mut *f))
+            .unwrap_or_default();
+        for (name, key) in failed {
+            let id = self.slots.keys().copied().find(|&id| self.name(id) == name);
+            if let Some(slot) = id.and_then(|id| self.slots.get_mut(&id))
+                && slot.written == Some(key)
+            {
+                slot.written = None;
+                slot.last_change = Some(now);
+                slot.dirty_since = Some(now);
+            }
+        }
         let mut next: Option<Instant> = None;
         let mut jobs = Vec::new();
         for d in &docs.tabs {
@@ -303,6 +336,7 @@ impl Recovery {
                 name,
                 header,
                 text: r.buffer.snapshot(),
+                key,
             });
         }
         // A tab that was closed takes its copy with it.
@@ -473,6 +507,30 @@ mod tests {
         rec.poll(&d, t0 + secs(71));
         rec.flush();
         assert!(files(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1, finding 5: a copy that could not be written is not taken as written; it is
+    /// tried again after the pause, and written once the folder can be.
+    #[test]
+    fn a_failed_write_is_tried_again() {
+        let (dir, path, mut rec) = setup("failed", b"one\n");
+        // A file where the folder goes: the write fails.
+        std::fs::write(dir.join("recover"), b"in the way").unwrap();
+        let mut d = docs();
+        let i = d.open(&path);
+        d.load_now(i, None, false);
+        let t0 = Instant::now();
+        assert!(d.edit(EditOp::Insert("a"), None));
+        assert_eq!(rec.poll(&d, t0), Some(t0 + secs(3)));
+        assert_eq!(rec.poll(&d, t0 + secs(3)), None, "sent to be written");
+        rec.flush();
+        // The failure is seen at the next look: due again after the pause, not at once.
+        assert_eq!(rec.poll(&d, t0 + secs(4)), Some(t0 + secs(7)));
+        std::fs::remove_file(dir.join("recover")).unwrap();
+        assert_eq!(rec.poll(&d, t0 + secs(7)), None);
+        rec.flush();
+        assert_eq!(files(&dir).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

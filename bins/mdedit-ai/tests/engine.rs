@@ -316,6 +316,56 @@ fn openai_compatible_streams_and_lists_models() {
 }
 
 #[test]
+fn a_key_echoed_by_the_server_is_hidden() {
+    const KEY: &str = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv";
+    let (base, _seen) = stub(|path| {
+        if path.starts_with("/v1/models") {
+            (200, vec![], r#"{"data":[]}"#.into())
+        } else if path.contains("messages") {
+            (
+                200,
+                vec![],
+                sse(&[
+                    json!({"type": "error", "error": {"type": "invalid_request_error",
+                    "message": format!("bad header x-api-key: {KEY}")}}),
+                ]),
+            )
+        } else {
+            (
+                400,
+                vec![],
+                format!(r#"{{"error":{{"message":"Bearer {KEY} is not valid"}}}}"#),
+            )
+        }
+    });
+    let mut e = Engine::start(&[("ANTHROPIC_BASE_URL", &base), ("MDEDIT_AI_KEY", KEY)]);
+    e.send(run(json!({"kind": "claude-api"}), "claude-opus-5-5", ""));
+    let a = e.answer();
+    assert_eq!(a["kind"], "http", "{a}");
+    let m = a["message"].as_str().unwrap();
+    assert!(!m.contains("AbCdEf") && m.contains("[key hidden]"), "{m}");
+    let conn = json!({"kind": "openai", "base_url": format!("{base}/v1"), "slot": "openai:x"});
+    e.send(run(conn, "m", ""));
+    let a = e.answer();
+    let m = a["message"].as_str().unwrap();
+    assert!(!m.contains("AbCdEf") && m.contains("[key hidden]"), "{m}");
+}
+
+#[test]
+fn a_huge_reply_is_not_used() {
+    let (base, _seen) = stub(|_| {
+        let chunk = "x".repeat(64 * 1024);
+        let line = format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{chunk}\"}}}}]}}\n\n");
+        (200, vec![], line.repeat(48))
+    });
+    let mut e = Engine::start(&[]);
+    let conn = json!({"kind": "openai", "base_url": format!("{base}/v1"), "slot": "openai:x"});
+    e.send(run(conn, "m", ""));
+    let a = e.answer();
+    assert_eq!(a["kind"], "length", "{a}");
+}
+
+#[test]
 fn an_unreachable_server_is_a_network_failure() {
     // A port nothing listens on.
     let port = TcpListener::bind("127.0.0.1:0")
@@ -449,6 +499,27 @@ mod fake_cli {
         assert!(
             args.ends_with("model_reasoning_effort=\"low\"\n-\n"),
             "{args}"
+        );
+    }
+
+    #[test]
+    fn a_cli_whose_version_fails_is_not_found() {
+        let dir = std::env::temp_dir().join(format!("mdedit-ai-test-{}-v1", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("codex");
+        std::fs::write(&p, "#!/bin/sh\necho 'not this'\nexit 1\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut e = Engine::start(&[]);
+        e.send(json!({"op": "detect", "id": 1, "cli": "codex", "program": p}));
+        let a = e.answer();
+        assert_eq!(
+            (a["ev"].as_str(), a["kind"].as_str()),
+            (Some("error"), Some("cli")),
+            "{a}"
+        );
+        assert!(
+            a["message"].as_str().unwrap().contains("exited with 1"),
+            "{a}"
         );
     }
 

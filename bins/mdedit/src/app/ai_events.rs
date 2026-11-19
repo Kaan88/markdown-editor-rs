@@ -263,12 +263,12 @@ impl App {
     pub(super) fn ai_open_settings(&mut self) {
         self.ai.panel = None;
         self.open_settings();
-        // The form is laid out when it is drawn; the jump waits for that.
-        self.ai.settings_jump = self
-            .ui
-            .settings
-            .as_ref()
-            .and_then(|f| f.categories().iter().position(|c| *c == "AI"));
+        // The form is not laid out yet: it keeps the jump for its first layout.
+        if let Some(f) = self.ui.settings.as_mut()
+            && let Some(cat) = f.categories().iter().position(|c| *c == "AI")
+        {
+            f.jump_to_category(cat);
+        }
         self.ai_settings_needs();
     }
 
@@ -324,6 +324,7 @@ impl App {
 
     pub(super) fn ai_wake(&mut self) {
         let mut settings = false;
+        let mut needs = false;
         for e in self.ai.poll() {
             match e {
                 Event::Delta { id, chars } => {
@@ -386,6 +387,8 @@ impl App {
                         self.ai.keys.insert(slot, stored);
                         self.ai.key_error = None;
                         settings = true;
+                        // A key found lets the model list be fetched.
+                        needs = true;
                     }
                 }
                 Event::Ended(why) => {
@@ -401,11 +404,33 @@ impl App {
                 }
             }
         }
+        if needs {
+            self.ai_settings_needs();
+        }
         if settings {
             self.ai_settings_refresh();
         }
         self.ai.tick += 1;
         self.redraw();
+    }
+
+    /// Why `original` at `start..end` of document `doc` cannot be replaced now, if it cannot.
+    fn ai_blocked(&self, doc: DocId, start: usize, end: usize, original: &str) -> Option<String> {
+        let Some(d) = self.docs.index_of_id(doc).map(|i| &self.docs.tabs[i]) else {
+            return Some(core_ai::BLOCKED_CLOSED.into());
+        };
+        // A reload in flight replaces the text.
+        let Some(r) = d.ready().filter(|_| !d.is_loading()) else {
+            return Some(core_ai::BLOCKED_CHANGED.into());
+        };
+        if r.info.lossy || r.read_only {
+            return Some(core_ai::BLOCKED_READ_ONLY.into());
+        }
+        let mut now = String::new();
+        if start <= end && end <= r.buffer.len_bytes() {
+            r.buffer.text(start..end, &mut now);
+        }
+        (end > r.buffer.len_bytes() || now != original).then(|| core_ai::BLOCKED_CHANGED.into())
     }
 
     /// A finished run: shown for review, or applied at once when the setting says so and the
@@ -436,25 +461,22 @@ impl App {
             });
             return;
         }
-        let stale = {
-            let mut now = String::new();
-            if run.end <= r.buffer.len_bytes() {
-                r.buffer.text(run.start..run.end, &mut now);
-            }
-            run.end > r.buffer.len_bytes() || now != run.original
-        };
         let base_dir = doc
             .path
             .as_deref()
             .and_then(|p| p.parent())
             .map(Path::to_path_buf);
-        if !self.docs.prefs.ai_review && !stale {
-            self.ai_replace(run.doc, run.start, run.end, &result);
-            self.docs.set_toast(&format!(
-                "{} done. Undo brings the old text back.",
-                run.spec.title
-            ));
-            return;
+        let mut blocked = self.ai_blocked(run.doc, run.start, run.end, &run.original);
+        if !self.docs.prefs.ai_review && blocked.is_none() {
+            if self.ai_replace(run.doc, run.start, run.end, &result) {
+                self.docs.set_toast(&format!(
+                    "{} done. Undo brings the old text back.",
+                    run.spec.title
+                ));
+                return;
+            }
+            // Not taken: the result is shown, so it can still be copied.
+            blocked = Some(core_ai::BLOCKED_READ_ONLY.into());
         }
         let (lines, removed, added) = core_ai::review(&run.original, &result);
         let preview = self.docs.prefs.ai_review_preview;
@@ -470,7 +492,7 @@ impl App {
             lines,
             removed,
             added,
-            stale,
+            blocked,
             preview,
             scroll: 0.0,
             content: 0.0,
@@ -484,9 +506,10 @@ impl App {
     }
 
     /// Puts `text` in place of `start..end` of document `doc`, as one undo step.
-    fn ai_replace(&mut self, doc: DocId, start: usize, end: usize, text: &str) {
+    /// Whether the text went in (not in a read-only document).
+    fn ai_replace(&mut self, doc: DocId, start: usize, end: usize, text: &str) -> bool {
         let Some(i) = self.docs.index_of_id(doc) else {
-            return;
+            return false;
         };
         if self.docs.active() != Some(i) {
             self.docs.activate(i);
@@ -501,6 +524,7 @@ impl App {
         }
         self.caret_reset();
         self.redraw();
+        changed
     }
 
     /// What gives way to a panel: the palette, menus, tooltips, the find box's keyboard.
@@ -533,6 +557,7 @@ impl App {
         self.close_for_ai_panel();
         self.ai.panel = Some(Panel::Instruction(Instruction {
             field: TextField::new(),
+            spec: None,
             selected: None,
             scope: scope.label,
             via: self.ai_via(),
@@ -562,7 +587,9 @@ impl App {
             .selected
             .and_then(|k| self.docs.ai_prompts.get(k))
             .cloned();
+        let again = i.spec.clone().filter(|s| typed == s.instruction.trim());
         let spec = match picked {
+            _ if let Some(s) = again => s,
             Some(p) if typed.is_empty() || typed == p.instruction.trim() => Spec {
                 title: p.name,
                 instruction: p.instruction,
@@ -597,7 +624,7 @@ impl App {
         i.field.select_all();
     }
 
-    fn ai_review_action(&mut self, hit: AiHit) {
+    pub(super) fn ai_review_action(&mut self, hit: AiHit) {
         match hit {
             AiHit::Discard => self.ai_close_panel(),
             AiHit::Copy => {
@@ -612,18 +639,49 @@ impl App {
             }
             AiHit::Apply => {
                 let Some(rv) = self.ai.review() else { return };
-                if rv.stale {
+                if rv.blocked.is_some() {
                     return;
                 }
-                let (doc, start, end, text) = (rv.doc, rv.start, rv.end, rv.result.clone());
-                self.ai_close_panel();
-                self.ai_replace(doc, start, end, &text);
+                let (doc, start, end) = (rv.doc, rv.start, rv.end);
+                let original = rv.original.clone();
+                // The text may have changed since the review opened (an edit elsewhere, a reload).
+                let mut blocked = self.ai_blocked(doc, start, end, &original);
+                if blocked.is_none() {
+                    let Some(Panel::Review(rv)) = self.ai.panel.take() else {
+                        return;
+                    };
+                    if self.ai_replace(doc, start, end, &rv.result) {
+                        self.ai_close_panel();
+                        return;
+                    }
+                    self.ai.panel = Some(Panel::Review(rv));
+                    blocked = Some(core_ai::BLOCKED_READ_ONLY.into());
+                }
+                if let Some(rv) = self.ai.review() {
+                    rv.blocked = blocked;
+                }
+                self.ai.tick += 1;
+                self.redraw();
             }
             AiHit::RunAgain => {
                 let Some(rv) = self.ai.review() else { return };
-                let spec = rv.spec.clone();
+                let (doc, spec) = (rv.doc, rv.spec.clone());
                 self.ai_close_panel();
-                self.ai_start(spec);
+                // Again on the review's document, never on whichever tab is active now; the
+                // panel shows what will be sent and waits for Rewrite.
+                let Some(i) = self.docs.index_of_id(doc) else {
+                    self.docs.set_toast(core_ai::BLOCKED_CLOSED);
+                    return;
+                };
+                if self.docs.active() != Some(i) {
+                    self.docs.activate(i);
+                }
+                self.ai_open_instruction();
+                if let Some(ins) = self.ai.instruction() {
+                    ins.field.set_text(spec.instruction.trim());
+                    ins.field.select_all();
+                    ins.spec = Some(spec);
+                }
             }
             AiHit::Changes | AiHit::Preview => {
                 let on = hit == AiHit::Preview;
@@ -705,7 +763,11 @@ impl App {
             Some(Panel::Review(rv)) => match name {
                 KeyName::Escape => self.ai_close_panel(),
                 KeyName::Enter => {
-                    let hit = if rv.stale { AiHit::Copy } else { AiHit::Apply };
+                    let hit = if rv.blocked.is_some() {
+                        AiHit::Copy
+                    } else {
+                        AiHit::Apply
+                    };
                     self.ai_review_action(hit);
                 }
                 KeyName::Char('c') if mods.ctrl => self.ai_review_action(AiHit::Copy),
@@ -822,7 +884,7 @@ impl App {
             .is_some_and(|i| i.field.set_preedit(pre))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn ai_start_for_test(&mut self, instruction: &str) {
         self.ai_start(Spec {
             title: "Test".into(),
@@ -859,9 +921,11 @@ impl App {
                 },
             );
         }
-        if let Some(slot) =
-            core_ai::key_slot(self.docs.prefs.ai_connection, &self.docs.prefs.ai_preset)
-        {
+        if let Some(slot) = core_ai::key_slot(
+            self.docs.prefs.ai_connection,
+            &self.docs.prefs.ai_preset,
+            &self.docs.prefs.ai_base_url,
+        ) {
             self.ai.keys.insert(slot, true);
         }
         // A shot reads no saved prompts file: the template's prompts stand in.

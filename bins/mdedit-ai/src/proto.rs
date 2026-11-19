@@ -104,6 +104,65 @@ impl Fail {
             retry_after: None,
         }
     }
+
+    /// The same failure with `key`, and anything shaped like a key, hidden from its message.
+    pub fn hide(mut self, key: Option<&str>) -> Fail {
+        self.message = redact(&self.message, key);
+        self
+    }
+}
+
+/// What stands for a hidden key.
+pub const HIDDEN: &str = "[key hidden]";
+
+/// `text` with no key in it: `key` itself, the token after `Bearer ` or `x-api-key:`, and any
+/// `sk-…` word of 20 characters or more. Servers sometimes echo what they were sent.
+pub fn redact(text: &str, key: Option<&str>) -> String {
+    let s = match key.map(str::trim).filter(|k| k.len() >= 8) {
+        Some(k) => text.replace(k, HIDDEN),
+        None => text.to_string(),
+    };
+    let tok = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
+    let lower = s.to_ascii_lowercase();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut prev_tok = false;
+    while i < s.len() {
+        let rest = &lower[i..];
+        // A marker, then separators, then the token it names.
+        let marker = ["bearer ", "x-api-key"]
+            .into_iter()
+            .find(|m| rest.starts_with(m));
+        if let Some(m) = marker.filter(|_| !prev_tok) {
+            let mut j = i + m.len();
+            let sep = s[j..]
+                .find(|c: char| !matches!(c, ' ' | ':' | '=' | '"' | '\''))
+                .unwrap_or(s.len() - j);
+            j += sep;
+            let end = j + s[j..].find(|c: char| !tok(c)).unwrap_or(s.len() - j);
+            if end - j >= 8 && (m == "bearer " || sep > 0) {
+                out.push_str(&s[i..j]);
+                out.push_str(HIDDEN);
+                i = end;
+                prev_tok = false;
+                continue;
+            }
+        }
+        if !prev_tok && rest.starts_with("sk-") {
+            let end = i + s[i..].find(|c: char| !tok(c)).unwrap_or(s.len() - i);
+            if end - i >= 20 {
+                out.push_str(HIDDEN);
+                i = end;
+                prev_tok = false;
+                continue;
+            }
+        }
+        let c = s[i..].chars().next().unwrap_or(' ');
+        out.push(c);
+        prev_tok = tok(c);
+        i += c.len_utf8();
+    }
+    out
 }
 
 /// Stdout, shared by the threads that answer.
@@ -136,7 +195,9 @@ pub fn done(id: u64, text: &str) -> Value {
 }
 
 pub fn error(id: u64, f: &Fail) -> Value {
-    let mut v = json!({"ev": "error", "id": id, "kind": f.kind, "message": f.message});
+    // Whatever the failure came from, a key-shaped word never leaves the engine.
+    let message = redact(&f.message, None);
+    let mut v = json!({"ev": "error", "id": id, "kind": f.kind, "message": message});
     if let Some(s) = f.retry_after {
         v["retry_after"] = s.into();
     }
@@ -173,6 +234,34 @@ pub fn key(id: u64, slot: &str, stored: bool) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keys_are_hidden() {
+        let k = "abcd1234efgh5678";
+        assert_eq!(
+            redact(&format!("bad key {k}."), Some(k)),
+            "bad key [key hidden]."
+        );
+        assert_eq!(
+            redact("Authorization: Bearer xyzxyzxyz123 refused", None),
+            "Authorization: Bearer [key hidden] refused"
+        );
+        assert_eq!(
+            redact(r#"{"x-api-key": "zzzzzzzzzz"}"#, None),
+            r#"{"x-api-key": "[key hidden]"}"#
+        );
+        assert_eq!(
+            redact("got sk-proj-0123456789abcdefghij, and sk-short", None),
+            "got [key hidden], and sk-short"
+        );
+        // Ordinary words stay.
+        let plain = "invalid x-api-key; the bearer of bad news — überall";
+        assert_eq!(redact(plain, None), plain);
+        assert_eq!(
+            redact("task-0123456789abcdefghijkl", None),
+            "task-0123456789abcdefghijkl"
+        );
+    }
 
     #[test]
     fn requests_parse() {

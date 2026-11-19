@@ -22,6 +22,8 @@ while IFS= read -r line; do
       printf '%s\n' "{\"ev\":\"done\",\"id\":$id,\"text\":\"# Done\\n\"}";;
     *'"op":"key_has"'*)
       echo "{\"ev\":\"key\",\"id\":$id,\"slot\":\"claude-api\",\"stored\":true}";;
+    *'"op":"models"'*)
+      echo "{\"ev\":\"models\",\"id\":$id,\"list\":[{\"id\":\"claude-test-1\",\"name\":\"Claude Test 1\"}]}";;
   esac
 done
 "##;
@@ -73,7 +75,7 @@ fn a_rewrite_is_reviewed_then_applied_as_one_undo_step() {
     let Some(Panel::Review(rv)) = &a.ai.panel else {
         panic!("a review")
     };
-    assert!(!rv.stale);
+    assert!(rv.blocked.is_none());
     assert_eq!((rv.removed, rv.added), (1, 1));
     // The panel is drawn and takes the keyboard: Enter applies.
     a.compose();
@@ -108,7 +110,10 @@ fn text_changed_meanwhile_is_not_overwritten() {
     let Some(Panel::Review(rv)) = &a.ai.panel else {
         panic!("a review")
     };
-    assert!(rv.stale);
+    assert_eq!(
+        rv.blocked.as_deref(),
+        Some(mdedit_core::ai::BLOCKED_CHANGED)
+    );
     a.key_pressed(keys::Key::Name(KeyName::Enter), None);
     // Enter copies; nothing is put in.
     assert_eq!(text(&a), "xone\n");
@@ -166,11 +171,99 @@ fn settings_has_an_ai_group_that_asks_for_the_key() {
     let f = a.ui.settings.as_ref().expect("settings");
     assert!(f.categories().contains(&"AI"));
     wait(&mut a, |a| a.ai.keys.get("claude-api") == Some(&true));
+    // Audit 1: the key found, the models are asked for and arrive.
+    wait(&mut a, |a| {
+        a.ai.models.values().any(|m| {
+            m.as_ref()
+                .is_ok_and(|l| l.iter().any(|m| m.id == "claude-test-1"))
+        })
+    });
     let f = a.ui.settings.as_ref().unwrap();
     assert!(
         f.rows()
             .iter()
             .any(|r| r.id() == Some(super::modal::AI_KEY))
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn review(a: &mut App) -> &mut crate::ai::Review {
+    a.ai.review().expect("a review")
+}
+
+/// Audit 1, finding 2: text reloaded from disk after the review opened is not overwritten by
+/// Apply; the review says why and offers Copy result.
+#[test]
+fn apply_does_not_overwrite_text_reloaded_meanwhile() {
+    let (mut a, dir) = ai_app("one\n");
+    a.command(C::AiFormat);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    assert!(review(&mut a).blocked.is_none());
+    // The file changes on disk and the clean tab reloads it.
+    std::fs::write(dir.join("a.md"), "two\n").unwrap();
+    let i = a.docs.active().unwrap();
+    a.docs.load_now(i, None, false);
+    assert_eq!(text(&a), "two\n");
+    a.ai_review_action(AiHit::Apply);
+    assert_eq!(text(&a), "two\n", "not overwritten");
+    assert_eq!(
+        review(&mut a).blocked.as_deref(),
+        Some(mdedit_core::ai::BLOCKED_CHANGED)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 1, finding 3: Run again goes back to the review's document and waits for Rewrite;
+/// it never sends whichever tab is active.
+#[test]
+fn run_again_is_for_the_reviewed_document_and_asks_first() {
+    let (mut a, dir) = ai_app("alpha\n");
+    let first = a.docs.active().unwrap();
+    std::fs::write(dir.join("b.md"), "secret other text\n").unwrap();
+    a.command(C::AiFormat);
+    a.edit(EditOp::Paste("x"));
+    let other = open_now(&mut a, &dir.join("b.md"));
+    a.docs.activate(other);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    let title = review(&mut a).spec.title.clone();
+    a.ai_review_action(AiHit::RunAgain);
+    assert_eq!(a.docs.active(), Some(first), "the reviewed document");
+    assert!(!a.ai.running(), "nothing sent before Rewrite");
+    let Some(Panel::Instruction(ins)) = &a.ai.panel else {
+        panic!("the instruction panel")
+    };
+    assert_eq!(ins.scope, "The whole document");
+    assert_eq!(
+        ins.field.text(),
+        a.ai.last.as_ref().unwrap().instruction.trim()
+    );
+    // Rewrite: the same instruction under its own title, on this document.
+    a.key_pressed(keys::Key::Name(KeyName::Enter), None);
+    assert!(a.ai.running());
+    let run = a.ai.run.as_ref().unwrap();
+    assert_eq!(run.spec.title, title);
+    assert_eq!(run.doc, a.docs.tabs[first].id);
+    assert_eq!(run.original, "xalpha\n");
+    wait(&mut a, |a| !a.ai.running());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 1: a read-only document with review off says the result cannot go in and shows it to
+/// copy, rather than a "done" toast with nothing changed.
+#[test]
+fn a_read_only_document_shows_the_result_to_copy() {
+    let (mut a, dir) = ai_app("one\n");
+    a.docs.prefs.ai_review = false;
+    let i = a.docs.active().unwrap();
+    a.docs.tabs[i].ready_mut().unwrap().read_only = true;
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    assert_eq!(text(&a), "one\n");
+    assert_eq!(
+        review(&mut a).blocked.as_deref(),
+        Some(mdedit_core::ai::BLOCKED_READ_ONLY)
+    );
+    let toast = a.docs.toast(Instant::now()).unwrap_or_default().to_string();
+    assert!(!toast.contains("done"), "{toast}");
     let _ = std::fs::remove_dir_all(&dir);
 }

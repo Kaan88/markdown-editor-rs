@@ -2327,8 +2327,9 @@ impl Docs {
                 (DocState::Ready(_), FileStamp::Missing) => self.tabs[i].missing = true,
                 (DocState::Ready(r), s) if s != r.info.stamp || doc.missing => {
                     let changed = s != r.info.stamp;
-                    if r.history.is_modified() {
-                        // Unsaved changes are never replaced behind the user's back.
+                    if doc.modified() {
+                        // Unsaved changes, an unsaved encoding choice among them, are never
+                        // replaced behind the user's back.
                         self.tabs[i].changed_on_disk = changed;
                         self.tabs[i].missing = false;
                     } else {

@@ -5,6 +5,36 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Audit 1 fixes (2026-11-19, branch `f/ai`)
+
+Astra audited `f/ai` @27530b6 (and shared `f/ai` @19348d3) on Windows and found 10 problems, 3
+smaller AI issues and 2 Windows validation failures. All are fixed; each has a test that fails on
+the old code where one could be written (checked by reverting the fix for 2, 7 and 10). The owner's
+decision on 1: closing never asks; unsaved text is kept and comes back whatever "Restore tabs at
+start" says.
+
+| # | Finding | Fix | Test |
+|---|---|---|---|
+| 1 | Restore off: the second exit deleted a draft | `app.rs` `restore_unsaved` puts backups back whatever `restore` says; `persist_if_changed` prunes with restore off too | `app::tests::a_kept_draft_survives_restarts_with_restore_off` |
+| 2 | Apply overwrote text reloaded after the review opened | `ai_blocked` checks the range again on Apply | `ai_tests::apply_does_not_overwrite_text_reloaded_meanwhile` |
+| 3 | Run again sent another tab's text | Run again activates the review's document, opens the instruction panel filled in (`Instruction.spec`), waits for Rewrite | `ai_tests::run_again_is_for_the_reviewed_document_and_asks_first` |
+| 4 | Custom provider URL reused the `openai:custom` key | `key_slot(conn, preset, url)`: one slot per normalized URL | `mdedit_core::ai::tests::a_custom_endpoint_has_a_key_per_url` |
+| 5 | Recovery took a failed write as written | the writer hands `(name, key)` back; `poll` clears `written`, due again after the pause | `recovery::tests::a_failed_write_is_tried_again` |
+| 6 | Diagnostics could carry the key | `proto::redact` on every error event, `Fail::hide(key)` in each API call | `proto::tests::keys_are_hidden`, `engine::a_key_echoed_by_the_server_is_hidden` |
+| 7 | An edit during viewer start dropped an untitled preview's `open` | `Update::over` keeps the older `open` in `Courier::put` and in the retry | `link::tests::a_newer_update_keeps_the_request_to_open` |
+| 8 | `jump_to_category` / `current_category` before layout panicked (shared) | the form keeps the jump for its next layout (shared f36af6f); mdedit's `settings_jump` workaround removed | `settings::tests::a_jump_before_layout_waits_for_it` (shared) |
+| 9 | A silent stream could not be cancelled; no body timeout | `sse::read` on a reader thread, 200 ms cancel checks, 180 s idle, 1 MB line / 2 MB reply caps, 30 min body timeout | `sse::tests::a_silent_stream_*`, `a_huge_line_is_refused`, `engine::a_huge_reply_is_not_used` |
+| 10 | A change on disk discarded an unsaved encoding choice | `check_changed` uses `Doc::modified()` | `files_tests::a_change_on_disk_keeps_an_unsaved_encoding_choice` |
+| – | A key found did not fetch the models | `Event::Key` calls `ai_settings_needs` | `ai_tests::settings_has_an_ai_group_that_asks_for_the_key` (fake engine answers `models`) |
+| – | Read-only + review off: "done" toast, nothing changed | `ai_replace` returns whether it went in; the review opens blocked (`Review.blocked: Option<String>`) | `ai_tests::a_read_only_document_shows_the_result_to_copy` |
+| – | A CLI whose `--version` failed counted as found | the exit status is checked | `engine::fake_cli::a_cli_whose_version_fails_is_not_found` |
+| – | Windows clippy: unused `ai_start_for_test` | `#[cfg(all(test, unix))]` like its caller | clippy for x86_64-pc-windows-msvc |
+| – | Shared crash test failed on Windows paths | the assertion takes `\` as `/` (shared f36af6f) | `crash` tests (shared) |
+
+Run here (Linux): all workspace tests with default and no default features, clippy `-D warnings`
+with default and no default features and for x86_64-pc-windows-msvc and aarch64-apple-darwin, fmt; same
+in the shared repo. Not run: anything on Windows, real provider calls, the real credential store.
+
 ## AI rewriting (2026-11-19, branch `f/ai`, not merged, not released)
 
 Owner's request and approved mockups; design in DESIGN.md section 68, PLAN.md amended.

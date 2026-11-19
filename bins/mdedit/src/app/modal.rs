@@ -519,7 +519,7 @@ impl App {
         if p.ai_connection == Connection::OpenAi && preset.local {
             return None;
         }
-        core_ai::key_slot(p.ai_connection, &p.ai_preset)
+        core_ai::key_slot(p.ai_connection, &p.ai_preset, &p.ai_base_url)
     }
 
     fn ai_models_key(&self) -> String {

@@ -324,6 +324,9 @@ impl BarAction {
 /// The instruction panel.
 pub struct Instruction {
     pub field: TextField,
+    /// The instruction the box was filled with (Run again): run under its own title while the
+    /// box still holds it.
+    pub spec: Option<Spec>,
     /// The saved prompt the keyboard is on.
     pub selected: Option<usize>,
     pub scope: String,
@@ -343,8 +346,9 @@ pub struct Review {
     pub lines: Vec<ReviewLine>,
     pub removed: usize,
     pub added: usize,
-    /// The text changed while the answer was being written: Apply is replaced by Run again.
-    pub stale: bool,
+    /// Why the result cannot be applied in place (the text changed meanwhile, the document is
+    /// read-only or closed): Apply gives way to Copy result and Run again.
+    pub blocked: Option<String>,
     /// The rendered before and after rather than the changes.
     pub preview: bool,
     /// The changes' scroll, logical px.
@@ -407,8 +411,6 @@ pub struct Ai {
     pub key_draft: String,
     /// "Other…" was chosen for the model: Settings shows a box for its name.
     pub model_other: bool,
-    /// Settings opened for AI: the group to scroll to once the form is laid out.
-    pub settings_jump: Option<usize>,
     /// The saved prompts file's time and size when it was last read.
     pub prompts_stamp: Option<Option<(Option<std::time::SystemTime>, u64)>>,
 }
@@ -511,7 +513,7 @@ pub fn conn_json(conn: Connection, prefs: &mdedit_core::prefs::Prefs) -> Value {
         Connection::OpenAi | Connection::Off => json!({
             "kind": "openai",
             "base_url": mdedit_core::ai::base_url(&prefs.ai_preset, &prefs.ai_base_url),
-            "slot": mdedit_core::ai::key_slot(Connection::OpenAi, &prefs.ai_preset).unwrap_or_default(),
+            "slot": mdedit_core::ai::key_slot(Connection::OpenAi, &prefs.ai_preset, &prefs.ai_base_url).unwrap_or_default(),
         }),
     }
 }

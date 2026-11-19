@@ -135,7 +135,19 @@ pub fn detect(cli: Cli, configured: &str) -> Result<(String, String), Fail> {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(st)) if st.success() => break,
+            Ok(Some(st)) => {
+                let how = st
+                    .code()
+                    .map_or_else(|| "was stopped".into(), |c| format!("exited with {c}"));
+                return Err(Fail::new(
+                    "cli",
+                    format!(
+                        "{} did not run (--version {how}). Check the program in Settings › AI.",
+                        cli.name()
+                    ),
+                ));
+            }
             Ok(None) if std::time::Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(50))
             }

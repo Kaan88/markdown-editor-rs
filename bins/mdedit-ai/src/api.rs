@@ -2,7 +2,7 @@
 //! model lists.
 
 use std::collections::HashMap;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -46,6 +46,8 @@ fn agent() -> &'static ureq::Agent {
             .timeout_connect(Some(Duration::from_secs(20)))
             // A long thought before the first token is normal with a high effort.
             .timeout_recv_response(Some(Duration::from_secs(600)))
+            // A reader left behind by a cancelled or silent run ends with this at the latest.
+            .timeout_recv_body(Some(Duration::from_secs(30 * 60)))
             .user_agent(concat!("mdedit-ai/", env!("CARGO_PKG_VERSION")))
             .build()
             .into()
@@ -77,6 +79,60 @@ impl<'a> Progress<'a> {
             (self.f)(chars);
         }
     }
+}
+
+/// Nothing from a streaming answer for this long ends the run.
+const IDLE: Duration = Duration::from_secs(180);
+/// The longest answer taken.
+pub const REPLY_MAX: usize = 2 * 1024 * 1024;
+
+fn too_long() -> Fail {
+    Fail::new(
+        "length",
+        "The answer was too long to use, so it was not used. Try a smaller selection.",
+    )
+}
+
+/// Reads a streaming answer, handing each event's data to `f` with the text so far, until `f`
+/// returns false. A cancel ends at once; a silent server, a huge line or reply end with a failure.
+fn stream(
+    provider: &str,
+    resp: ureq::http::Response<ureq::Body>,
+    job: &Job,
+    f: &mut dyn FnMut(&str) -> (bool, usize),
+) -> Result<(), Fail> {
+    let mut long = false;
+    sse::read(
+        resp.into_body().into_reader(),
+        &|| job.is_cancelled(),
+        IDLE,
+        &mut |ev| {
+            let (go, len) = f(&ev.data);
+            long = len > REPLY_MAX;
+            go && !long
+        },
+    )
+    .map_err(|b| match b {
+        sse::Broken::Io(e) => Fail::new(
+            "network",
+            format!("{provider}: the answer was cut off: {e}"),
+        ),
+        sse::Broken::Idle => Fail::new(
+            "network",
+            format!(
+                "{provider} stopped sending: nothing came for {} minutes.",
+                IDLE.as_secs() / 60
+            ),
+        ),
+        sse::Broken::LineTooLong => too_long(),
+    })?;
+    if job.is_cancelled() {
+        return Err(Fail::new("cancelled", "Cancelled."));
+    }
+    if long {
+        return Err(too_long());
+    }
+    Ok(())
 }
 
 fn network_fail(provider: &str, e: ureq::Error) -> Fail {
@@ -194,8 +250,22 @@ pub fn run_claude(
     job: &Job,
     progress: &dyn Fn(usize),
 ) -> Result<String, Fail> {
-    const P: &str = "Claude API";
     let key = claude_key()?;
+    run_claude_with(&key, model, effort, system, prompt, job, progress)
+        .map_err(|f| f.hide(Some(&key)))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_claude_with(
+    key: &str,
+    model: &str,
+    effort: &str,
+    system: &str,
+    prompt: &str,
+    job: &Job,
+    progress: &dyn Fn(usize),
+) -> Result<String, Fail> {
+    const P: &str = "Claude API";
     let model = if model.is_empty() {
         CLAUDE_DEFAULT_MODEL
     } else {
@@ -220,23 +290,18 @@ pub fn run_claude(
         P,
         agent()
             .post(format!("{}/v1/messages", claude_base()))
-            .header("x-api-key", &key)
+            .header("x-api-key", key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header("content-type", "application/json")
             .send(body.to_string()),
     )?;
-    let mut input = BufReader::new(resp.into_body().into_reader());
     let mut s = ClaudeStream::default();
     let mut p = Progress::new(progress);
-    sse::read(&mut input, &|| job.is_cancelled(), &mut |ev| {
-        let go = s.event(&ev.data);
+    stream(P, resp, job, &mut |data| {
+        let go = s.event(data);
         p.tick(s.chars);
-        go
-    })
-    .map_err(|e| Fail::new("network", format!("{P}: the answer was cut off: {e}")))?;
-    if job.is_cancelled() {
-        return Err(Fail::new("cancelled", "Cancelled."));
-    }
+        (go, s.text.len())
+    })?;
     s.finish()
 }
 
@@ -312,8 +377,12 @@ impl ClaudeStream {
 
 /// The Claude models of the account, newest first as the API lists them.
 pub fn models_claude() -> Result<Vec<Model>, Fail> {
-    const P: &str = "Claude API";
     let key = claude_key()?;
+    models_claude_with(&key).map_err(|f| f.hide(Some(&key)))
+}
+
+fn models_claude_with(key: &str) -> Result<Vec<Model>, Fail> {
+    const P: &str = "Claude API";
     let mut list = Vec::new();
     let mut after: Option<String> = None;
     loop {
@@ -326,7 +395,7 @@ pub fn models_claude() -> Result<Vec<Model>, Fail> {
             P,
             agent()
                 .get(&url)
-                .header("x-api-key", &key)
+                .header("x-api-key", key)
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .call(),
         )?;
@@ -439,30 +508,28 @@ pub fn run_openai(
             "No base URL is set in Settings › AI.",
         ));
     }
+    let key = keys::get(slot)?;
+    let hide = |f: Fail| f.hide(key.as_deref());
     let mut req = agent()
         .post(format!("{url}/chat/completions"))
         .header("content-type", "application/json");
-    if let Some(key) = keys::get(slot)? {
+    if let Some(key) = &key {
         req = req.header("authorization", &format!("Bearer {key}"));
     }
     let resp = checked(
         &p,
         req.send(openai_body(model, effort, system, prompt).to_string()),
     )
-    .map_err(|f| explain_effort(f, effort))?;
-    let mut input = BufReader::new(resp.into_body().into_reader());
+    .map_err(|f| hide(explain_effort(f, effort)))?;
     let mut s = OpenAiStream::default();
     let mut pr = Progress::new(progress);
-    sse::read(&mut input, &|| job.is_cancelled(), &mut |ev| {
-        let go = s.event(&ev.data);
+    stream(&p, resp, job, &mut |data| {
+        let go = s.event(data);
         pr.tick(s.chars);
-        go
+        (go, s.text.len())
     })
-    .map_err(|e| Fail::new("network", format!("{p}: the answer was cut off: {e}")))?;
-    if job.is_cancelled() {
-        return Err(Fail::new("cancelled", "Cancelled."));
-    }
-    s.finish(&p)
+    .map_err(hide)?;
+    s.finish(&p).map_err(hide)
 }
 
 /// A 400 for a request with an effort is most likely the effort: say so.
@@ -540,11 +607,13 @@ pub fn models_openai(base: &str, slot: &str) -> Result<Vec<Model>, Fail> {
             "No base URL is set in Settings › AI.",
         ));
     }
+    let key = keys::get(slot)?;
+    let hide = |f: Fail| f.hide(key.as_deref());
     let mut req = agent().get(format!("{base}/models"));
-    if let Some(key) = keys::get(slot)? {
+    if let Some(key) = &key {
         req = req.header("authorization", &format!("Bearer {key}"));
     }
-    let v = read_json(&p, checked(&p, req.call())?)?;
+    let v = read_json(&p, checked(&p, req.call()).map_err(hide)?).map_err(hide)?;
     Ok(parse_openai_models(&v))
 }
 

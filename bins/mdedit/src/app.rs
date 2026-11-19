@@ -1547,10 +1547,6 @@ impl App {
                     }
                 }
                 if let Some(f) = self.ui.settings.as_mut() {
-                    if let Some(cat) = self.ai.settings_jump.take() {
-                        f.layout(c.p, Rect::new(0.0, 0.0, w, h));
-                        f.jump_to_category(cat);
-                    }
                     f.draw(c.p, &pal, Rect::new(0.0, 0.0, w, h), self.ui.caret_on);
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
@@ -1964,7 +1960,7 @@ impl App {
         }
         // Backups of text that was saved, discarded or closed since the start are dropped. Not
         // once the exit has set the list to keep (it is final then).
-        if !self.session.unsaved.is_empty() && !self.exit && self.docs.prefs.restore_session {
+        if !self.session.unsaved.is_empty() && !self.exit {
             let tabs: Vec<TabState> = self.docs.tabs.iter().map(|d| d.tab_state()).collect();
             let kept = Unsaved::prune(&self.session.unsaved, &tabs);
             if kept.len() != self.session.unsaved.len() {
@@ -2035,6 +2031,42 @@ impl App {
         }
         self.saved_sig = self.session_sig();
     }
+}
+
+/// Puts back the text that was unsaved when the window last closed, except where a recovery copy
+/// has newer text of the same document. Whatever "Restore tabs at start" says: closing never
+/// asks about unsaved text, so it keeps it, and only tabs with nothing unsaved stay closed.
+/// Returns the tabs that read their backup once loaded.
+fn restore_unsaved(
+    docs: &mut Docs,
+    unsaved: &[Unsaved],
+    found: &[crate::recovery::Found],
+    dir: &Path,
+) -> Vec<usize> {
+    let mut restored = Vec::new();
+    for u in unsaved {
+        if crate::recovery::covers(found, u) {
+            continue;
+        }
+        let file = dir.join(&u.file);
+        if !file.is_file() {
+            continue;
+        }
+        match u.path.as_ref().filter(|p| p.is_file()) {
+            Some(path) => {
+                let k = docs.add_pending(path);
+                docs.tabs[k].restore = Some(file);
+                restored.push(k);
+            }
+            // A document that had no file, or whose file is gone since.
+            None => {
+                if let Ok(text) = std::fs::read_to_string(&file) {
+                    docs.restore_untitled(u.untitled, &text);
+                }
+            }
+        }
+    }
+    restored
 }
 
 fn backup_dir_of(session: &Path) -> Option<PathBuf> {
@@ -3098,33 +3130,11 @@ pub fn run() -> i32 {
             .and_then(crate::recovery::dir_of),
     );
     let found = recovery.scan();
-    // Tabs that had unsaved text when the window last closed get it back, except where a
-    // recovery copy has newer text of the same document.
-    let mut restored = Vec::new();
-    if let Some(dir) = session_path.as_deref().and_then(backup_dir_of) {
-        for u in session.unsaved.iter().filter(|_| restore) {
-            if crate::recovery::covers(&found, u) {
-                continue;
-            }
-            let file = dir.join(&u.file);
-            if !file.is_file() {
-                continue;
-            }
-            match u.path.as_ref().filter(|p| p.is_file()) {
-                Some(path) => {
-                    let k = docs.add_pending(path);
-                    docs.tabs[k].restore = Some(file);
-                    restored.push(k);
-                }
-                // A document that had no file, or whose file is gone since.
-                None => {
-                    if let Ok(text) = std::fs::read_to_string(&file) {
-                        docs.restore_untitled(u.untitled, &text);
-                    }
-                }
-            }
-        }
-    }
+    // Unsaved text kept at the last exit comes back whatever "Restore tabs at start" says.
+    let mut restored = match session_path.as_deref().and_then(backup_dir_of) {
+        Some(dir) => restore_unsaved(&mut docs, &session.unsaved, &found, &dir),
+        None => Vec::new(),
+    };
     // The copies come back as modified tabs.
     let recovered = recovery.restore(&mut docs, found);
     restored.extend(recovered.load.iter().copied());
@@ -3369,6 +3379,40 @@ mod tests {
         app.answer(1);
         assert!(app.exit);
         assert_eq!(app.restart, Some(PathBuf::from("/preview/app")));
+    }
+
+    /// Audit 1, finding 1: with "Restore tabs at start" off, an untitled draft kept at exit
+    /// comes back at the next start and is kept again by the next exit, however often.
+    #[test]
+    fn a_kept_draft_survives_restarts_with_restore_off() {
+        let dir = std::env::temp_dir().join(format!("mdedit-unsaved-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // The first run: a draft, then Exit keeps it.
+        let mut docs = Docs::new(1254, Arc::new(|_| {}));
+        docs.prefs.restore_session = false;
+        docs.new_untitled();
+        assert!(docs.edit(EditOp::Insert("draft"), None));
+        let mut unsaved = docs.write_backups(&dir).unwrap();
+        assert_eq!(unsaved.len(), 1);
+        for run in 0..3 {
+            let mut docs = Docs::new(1254, Arc::new(|_| {}));
+            docs.prefs.restore_session = false;
+            restore_unsaved(&mut docs, &unsaved, &[], &dir);
+            let d = docs
+                .tabs
+                .iter()
+                .find(|d| d.modified())
+                .expect("the draft is back");
+            assert_eq!(
+                d.ready().unwrap().buffer.rope().to_string(),
+                "draft",
+                "run {run}"
+            );
+            unsaved = docs.write_backups(&dir).unwrap();
+            assert_eq!(unsaved.len(), 1, "kept again by exit {run}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The saved window size is the content size: a window started at the saved size, grown by
