@@ -264,6 +264,37 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.1.1 (published 2026-11-19 by the release workflow, run by hand with `publish`, at commit 905dac6)
+
+Run 44608990427; the `ci` run on the commit (44604761547) passed on Windows, Linux, macOS arm64
+and Intel.
+
+What's in it:
+- AI rewriting, with the AI engine `mdedit-ai` in every package and the format-2 Windows manifest
+  (`mdedit-update-2.txt`);
+- the recovery fixes of audit rounds 3 to 5;
+- the AI activity strip, Save prompt, and image path paste.
+
+1.1.0 was never published: its CI failed on the Intel Mac timing test, and the version was moved
+to 1.1.1.
+
+Released on the owner's word after Astra's round-5 findings were fixed (`3e6359c`). Astra's round
+6 was deferred to a later version. The owner runs a local build of the same code (`3e6359c` plus
+docs).
+
+15 assets (exe 8,335,360 bytes, mdedit-ai.exe 2,265,088, AppImage 17,467,896).
+
+Verified against the live release:
+- all three manifests name 1.1.1;
+- format 1 has no `mdedit-ai` key, and format 2 does;
+- every file they name downloaded with the manifest's SHA-256;
+- the tagged URL the repair reads (`releases/download/v1.1.1/mdedit-update-2.txt`) answers 200.
+
+Not verified:
+- a 1.0.6 install updating itself, then fetching `mdedit-ai` at its next start;
+- the installer run on Windows;
+- the Mac and Linux files run on a desktop.
+
 ## v1.0.6 (published 2026-11-18 by the release workflow, run by hand with `publish`, at commit 8969e4f)
 
 Run 44314504746; the `ci` run on the commit (44314502216) passed. The offer to close tabs not
