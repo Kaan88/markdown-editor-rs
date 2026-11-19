@@ -66,3 +66,9 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSString"] }
 # The memory and CPU figures --trace prints (proc_pid_rusage, getrusage). Already in the build.
 libc = "0.2"
+
+[dev-dependencies]
+# The shared updater of mdedit 1.0.6, which reads the format-1 manifest that release still offers to
+# copies up to 1.0.6 (tests/release_manifest.rs): the published file must read with the build that
+# reads it. Already in the lockfile through the viewer.
+mdshared-app-106 = { package = "mdshared-app", git = "https://github.com/Kaan88/markdown-shared-rs", rev = "49de4ecfa4b2d038354749a89acce41e09b871dc" }

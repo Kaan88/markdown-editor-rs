@@ -33,6 +33,14 @@ SHA-256, and run `mdedit --check-update`.
   `windows-x86_64.asset`, `.url`, `.sha256`; from 0.5.0 also the same three under `linux-x86_64`;
   grammar in `mdshared-app`'s `update.rs`).
 
+From 1.1.0 there are two Windows manifests: `mdedit-update.txt` stays format 1 (exe and engine;
+read by every copy up to 1.0.6, which refuses unknown keys, and by 1.1 on Linux) and
+`mdedit-update-2.txt` is format 2 (also `windows-x86_64.mdedit-ai.url/sha256`), read by 1.1 and
+later on Windows. `mdedit-ai.exe` (the AI engine) is an asset of its own like `mdview-engine.exe`,
+and is inside the zip, the installer, the AppImage (usr/bin), the Linux packages (lib/mdedit/) and
+the Mac bundle. `tools/write-manifest.sh` writes both; `bins/mdedit/tests/release_manifest.rs`
+reads format 1 with 1.0.6's shared updater and format 2 with the current one.
+
 Manifest address (the latest release's, so it must not be a pre-release or draft):
 `https://github.com/Kaan88/markdown-editor-rs/releases/latest/download/mdedit-update.txt`
 

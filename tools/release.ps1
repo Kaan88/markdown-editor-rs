@@ -7,8 +7,9 @@
   tools\release.ps1 -Notes 'One short sentence.' -Publish    also publish
 
   Output: target\dist\<version>\mdedit-<version>-windows-x86_64.exe, mdview-engine.exe (the
-  preview pane's engine, packaging\windows\build-engine.ps1), mdedit-update.txt and
-  mdedit-setup-<version>.exe
+  preview pane's engine, packaging\windows\build-engine.ps1), mdedit-ai.exe (the AI engine),
+  mdedit-update.txt (format 1, read by 1.0.6 and older, without mdedit-ai), mdedit-update-2.txt
+  (format 2, read by 1.1 and later, with it) and mdedit-setup-<version>.exe
   Changes under tools\ and docs\ do not count as a dirty tree (the exe does not depend on them).
 #>
 param(
@@ -45,7 +46,7 @@ $tmp = Join-Path $repo 'target\tmp'
 New-Item -ItemType Directory -Force $tmp | Out-Null
 $env:TEMP = $tmp
 $env:TMP = $tmp
-& cargo build --release -p mdedit
+& cargo build --release -p mdedit -p mdedit-ai
 if ($LASTEXITCODE -ne 0) { Fail 'cargo build failed' }
 & (Join-Path $repo 'packaging\windows\build-engine.ps1')
 if ($LASTEXITCODE -ne 0) { Fail 'engine build failed' }
@@ -60,6 +61,10 @@ $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant
 $engine = Join-Path $dist 'mdview-engine.exe'
 Copy-Item (Join-Path $repo 'target\engine\mdview-engine.exe') $engine
 $engineHash = (Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash.ToLowerInvariant()
+$ai = Join-Path $dist 'mdedit-ai.exe'
+Copy-Item (Join-Path $repo 'target\release\mdedit-ai.exe') $ai
+$aiHash = (Get-FileHash -LiteralPath $ai -Algorithm SHA256).Hash.ToLowerInvariant()
+$aiUrl = "https://github.com/$slug/releases/download/v$version/mdedit-ai.exe"
 
 # The executable and the engine beside it: the platform entry and its engine keys.
 $url = "https://github.com/$slug/releases/download/v$version/$asset"
@@ -76,6 +81,15 @@ $lines = @(
   "windows-x86_64.engine.sha256: $engineHash"
 )
 [System.IO.File]::WriteAllText($manifest, (($lines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
+# Format 2, read by 1.1 and later: the same, and the AI engine beside the exe.
+$manifest2 = Join-Path $dist 'mdedit-update-2.txt'
+$lines2 = @('manifest: 2') + $lines[1..($lines.Count - 1)] + @(
+  "windows-x86_64.mdedit-ai.url: $aiUrl",
+  "windows-x86_64.mdedit-ai.sha256: $aiHash"
+)
+[System.IO.File]::WriteAllText($manifest2, (($lines2 -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
+if ((Get-Content -LiteralPath $manifest2)[-1] -ne "windows-x86_64.mdedit-ai.sha256: $aiHash") { Fail 'manifest 2 does not match' }
+if ((Get-FileHash -LiteralPath $ai -Algorithm SHA256).Hash.ToLowerInvariant() -ne $aiHash) { Fail 'AI engine hash mismatch' }
 
 # Re-read the manifest and compare with the file.
 $back = Get-Content -LiteralPath $manifest
@@ -100,6 +114,6 @@ Write-Host "built $asset ($((Get-Item $exe).Length) bytes) sha256 $hash from $sh
 
 if (-not $Publish) { Write-Host "not published (no -Publish). Files are in $dist"; exit 0 }
 
-& gh release create "v$version" $exe $engine $manifest $setup --repo $slug --target $sha --title "mdedit $version" --notes $ReleaseNotes --latest
+& gh release create "v$version" $exe $engine $ai $manifest $manifest2 $setup --repo $slug --target $sha --title "mdedit $version" --notes $ReleaseNotes --latest
 if ($LASTEXITCODE -ne 0) { Fail 'gh release create failed' }
 Write-Host "published https://github.com/$slug/releases/tag/v$version"

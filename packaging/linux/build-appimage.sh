@@ -42,17 +42,19 @@ docker run --rm --user "$(id -u):$(id -g)" \
     -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR=/cache/target -e CARGO_TERM_COLOR=never \
     -w /src "$image" \
     bash -c 'set -e; PATH=/opt/cargo/bin:$PATH
-        cargo build --release --locked -p mdedit
+        cargo build --release --locked -p mdedit -p mdedit-ai
         packaging/engine-source.sh /cache/target/engine-src
         cargo build --release --locked -p mdview-engine \
             --manifest-path /cache/target/engine-src/Cargo.toml --target-dir /cache/target/engine'
 bin="$cache/$app/target-linux/release/$app"
 engine="$cache/$app/target-linux/engine/release/mdview-engine"
+ai="$cache/$app/target-linux/release/mdedit-ai"
+[ -x "$ai" ] || { echo "build left no $ai" >&2; exit 1; }
 [ -x "$bin" ] || { echo "build left no $bin" >&2; exit 1; }
 [ -x "$engine" ] || { echo "build left no $engine" >&2; exit 1; }
 
 # 3. The glibc the binaries ask for must be old enough.
-need="$(objdump -T "$bin" "$engine" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)"
+need="$(objdump -T "$bin" "$engine" "$ai" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)"
 echo "highest GLIBC symbol version needed: $need"
 if [ "$(printf '%s\n2.31\n' "$need" | sort -V | tail -1)" != "2.31" ]; then
     echo "needs glibc $need, newer than 2.31" >&2
@@ -64,11 +66,13 @@ dist="$root/target/dist-linux"
 mkdir -p "$dist/bin"
 install -m 755 "$bin" "$dist/bin/$app"
 install -m 755 "$engine" "$dist/bin/mdview-engine"
+install -m 755 "$ai" "$dist/bin/mdedit-ai"
 appdir="$dist/AppDir"
 rm -rf "$appdir"
 mkdir -p "$appdir/usr/bin"
 install -m 755 "$bin" "$appdir/usr/bin/$app"
 install -m 755 "$engine" "$appdir/usr/bin/mdview-engine"
+install -m 755 "$ai" "$appdir/usr/bin/mdedit-ai"
 install -m 644 assets/mdedit.png "$appdir/$app.png"
 install -m 644 assets/mdedit.png "$appdir/.DirIcon"
 install -m 644 packaging/linux/$app.desktop "$appdir/$app.desktop"

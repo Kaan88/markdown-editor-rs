@@ -11,6 +11,9 @@ bins=(mdedit)
 # pinned revision. The packages put it in lib/mdedit/, not bin/: mdview's packages install their
 # own mdview-engine in bin/, and two packages must not own one file. mdedit looks in both places.
 engine=mdview-engine
+# Every program that goes in lib/mdedit/: the engine, and the AI engine (mdedit-ai, from 1.1),
+# which mdedit also looks for there.
+helpers=(mdview-engine mdedit-ai)
 slug=Kaan88/markdown-editor-rs
 summary="Light, fast text editor"
 maintainer="Kaan88 <Kaan88@users.noreply.github.com>"
@@ -23,7 +26,7 @@ BIN_DIR="${BIN_DIR:-$root/target/dist-linux/bin}"
 OUT_DIR="${OUT_DIR:-$root/target/dist-linux}"
 epoch="${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct 2>/dev/null || date +%s)}"
 mkdir -p "$OUT_DIR"
-for b in "${bins[@]}" "$engine"; do
+for b in "${bins[@]}" "${helpers[@]}"; do
     [ -x "$BIN_DIR/$b" ] || { echo "no $BIN_DIR/$b (build it first: packaging/linux/build-appimage.sh)" >&2; exit 1; }
 done
 
@@ -39,15 +42,17 @@ stage_tree() {
         # The release binary keeps a small symbol table; distribution packages carry none.
         [ "$strip" != strip ] || strip --strip-unneeded "$dest/bin/$b"
     done
-    install -m 755 "$BIN_DIR/$engine" "$dest/lib/$app/$engine"
-    [ "$strip" != strip ] || strip --strip-unneeded "$dest/lib/$app/$engine"
+    for h in "${helpers[@]}"; do
+        install -m 755 "$BIN_DIR/$h" "$dest/lib/$app/$h"
+        [ "$strip" != strip ] || strip --strip-unneeded "$dest/lib/$app/$h"
+    done
     install -m 644 "$root/packaging/linux/$app.desktop" "$dest/share/applications/$app.desktop"
     install -m 644 "$root/assets/$app.png" "$dest/share/icons/hicolor/256x256/apps/$app.png"
 }
 
 # The glibc symbol version the binaries ask for at most, e.g. 2.30.
 glibc_needed() {
-    for b in "${bins[@]}" "$engine"; do objdump -T "$BIN_DIR/$b"; done | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1
+    for b in "${bins[@]}" "${helpers[@]}"; do objdump -T "$BIN_DIR/$b"; done | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1
 }
 
 # Stamps every file under DIR with the epoch, so a package does not depend on when it was made.

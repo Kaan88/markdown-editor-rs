@@ -2035,7 +2035,7 @@ impl App {
     // ---- updates -----------------------------------------------------------------------------
 
     /// At launch: clears what an earlier update left behind and, when a look for a newer
-    /// version is due, takes it. Nothing here runs for a launch without a session or for a copy
+    /// version is due, takes it; a program missing beside the executable is fetched either way. Nothing here runs for a launch without a session or for a copy
     /// that cannot update itself, and all of it is on its own thread.
     pub(super) fn updates_at_launch(&mut self) {
         if self.session_path.is_none() || !self.save {
@@ -2050,6 +2050,11 @@ impl App {
             self.session.update_checked,
             updater::unix_now(),
         );
+        if !due {
+            // A program missing beside the exe (the AI engine, after an update from 1.0.6) is
+            // fetched even with the look turned off.
+            updater::spawn_restore(files.clone());
+        }
         let wake = self.docs.waker();
         updater::spawn_at_launch(updater::APP, files, due, updater::fetch, move |e| {
             wake(Wake::Update(e))

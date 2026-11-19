@@ -17,6 +17,10 @@ mv -f "$prefix/bin/$app.new" "$prefix/bin/$app"
 cp "$here/lib/$app/mdview-engine" "$prefix/lib/$app/mdview-engine.new"
 chmod 755 "$prefix/lib/$app/mdview-engine.new"
 mv -f "$prefix/lib/$app/mdview-engine.new" "$prefix/lib/$app/mdview-engine"
+# The AI engine, in the same place.
+cp "$here/lib/$app/mdedit-ai" "$prefix/lib/$app/mdedit-ai.new"
+chmod 755 "$prefix/lib/$app/mdedit-ai.new"
+mv -f "$prefix/lib/$app/mdedit-ai.new" "$prefix/lib/$app/mdedit-ai"
 cp "$here/share/icons/hicolor/256x256/apps/$app.png" "$prefix/share/icons/hicolor/256x256/apps/$app.png"
 # Exec is rewritten to the absolute path; a path with a space is quoted as the desktop entry
 # specification asks.

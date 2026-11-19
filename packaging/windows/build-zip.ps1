@@ -1,13 +1,14 @@
 <#
 .SYNOPSIS
   Makes the portable zip of the release: mdedit-<version>-windows-x86_64.zip, one folder holding
-  mdedit.exe, mdview-engine.exe (the preview pane's formulas and diagrams), LICENSE and README.md. Unzip it anywhere and run mdedit.exe; it updates itself in
+  mdedit.exe, mdview-engine.exe (the preview pane's formulas and diagrams), mdedit-ai.exe (AI
+  rewriting), LICENSE and README.md. Unzip it anywhere and run mdedit.exe; it updates itself in
   place like the installed copy (the folder must be writable).
 .NOTES
   pwsh packaging\windows\build-zip.ps1 [-Exe path\to\mdedit.exe] [-Engine path\to\mdview-engine.exe] [-OutDir dir]
   Defaults: target\release\mdedit.exe, target\engine\mdview-engine.exe, target\dist\<version>. Run after tools\release.ps1.
 #>
-param([string]$Exe = '', [string]$Engine = '', [string]$OutDir = '')
+param([string]$Exe = '', [string]$Engine = '', [string]$Ai = '', [string]$OutDir = '')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 function Fail($msg) { Write-Error $msg; exit 1 }
@@ -20,6 +21,8 @@ $version = $m.Groups[1].Value
 if (-not $Exe) { $Exe = Join-Path $root 'target\release\mdedit.exe' }
 if (-not $OutDir) { $OutDir = Join-Path $root "target\dist\$version" }
 if (-not $Engine) { $Engine = Join-Path $root 'target\engine\mdview-engine.exe' }
+if (-not $Ai) { $Ai = Join-Path $root 'target\release\mdedit-ai.exe' }
+if (-not (Test-Path -LiteralPath $Ai)) { Fail "$Ai is missing." }
 if (-not (Test-Path -LiteralPath $Exe)) { Fail "$Exe is missing." }
 if (-not (Test-Path -LiteralPath $Engine)) { Fail "$Engine is missing." }
 New-Item -ItemType Directory -Force $OutDir | Out-Null
@@ -30,6 +33,7 @@ $folder = Join-Path $stage $name
 New-Item -ItemType Directory -Force $folder | Out-Null
 Copy-Item -LiteralPath $Exe -Destination (Join-Path $folder 'mdedit.exe')
 Copy-Item -LiteralPath $Engine -Destination (Join-Path $folder 'mdview-engine.exe')
+Copy-Item -LiteralPath $Ai -Destination (Join-Path $folder 'mdedit-ai.exe')
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $folder
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $folder
 

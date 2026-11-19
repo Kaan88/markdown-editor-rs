@@ -160,7 +160,7 @@ impl Client {
             .find(|p| p.is_file())
         else {
             return Err(
-                "The AI engine (mdedit-ai) is missing from mdedit's folder. Reinstall mdedit."
+                "The AI engine (mdedit-ai) is missing from mdedit's folder. An updated copy fetches it                  at its next start; otherwise reinstall mdedit."
                     .into(),
             );
         };
