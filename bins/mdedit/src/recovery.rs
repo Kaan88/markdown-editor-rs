@@ -912,10 +912,10 @@ mod tests {
                 .unwrap()
         };
         #[cfg(unix)]
-        let lock = {
+        {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&held, std::fs::Permissions::from_mode(0o000)).unwrap();
-        };
+        }
         if std::fs::read(&held).is_ok() {
             // Running as a user every file is readable to: nothing to test.
             let _ = std::fs::remove_dir_all(&dir);
@@ -931,7 +931,7 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&held, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
-        #[allow(clippy::drop_non_drop)]
+        #[cfg(windows)]
         drop(lock);
         assert!(held.is_file(), "the copy is kept");
         let mut again = Recovery::new(Some(r.clone()));
