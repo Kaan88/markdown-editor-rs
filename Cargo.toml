@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/mdedit-core", "crates/mdedit-highlight", "crates/mdedit-outline", "bins/mdedit"]
+members = ["crates/mdedit-core", "crates/mdedit-highlight", "crates/mdedit-outline", "bins/mdedit", "bins/mdedit-ai"]
 exclude = ["spikes"]
 
 [workspace.package]
