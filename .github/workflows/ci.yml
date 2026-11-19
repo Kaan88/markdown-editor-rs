@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: System packages
         run: |
           sudo apt-get update
@@ -52,7 +52,7 @@ jobs:
           cargo build --release -p mdedit
           bash tests/shots.sh target/shots
           bash tests/shots-check.sh target/shots
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: shots-linux
@@ -64,7 +64,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -83,7 +83,7 @@ jobs:
           cargo build --release -p mdedit
           bash tests/shots.sh target/shots
           bash tests/shots-check.sh target/shots
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: shots-windows
@@ -103,7 +103,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -120,7 +120,7 @@ jobs:
           cargo build --release -p mdedit
           bash tests/shots.sh target/shots
           bash tests/shots-check.sh target/shots
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: shots-macos-${{ matrix.arch }}
@@ -132,7 +132,7 @@ jobs:
         run: |
           bash packaging/macos/make-bundle.sh target/release target/dist
           ditto -c -k --keepParent target/dist/mdedit.app target/dist/mdedit-macos-${{ matrix.arch }}.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: mdedit-macos-${{ matrix.arch }}
