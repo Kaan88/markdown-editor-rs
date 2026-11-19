@@ -64,6 +64,31 @@ impl App {
         else {
             return;
         };
+        let Some(path) = self.ai_prompts_path() else {
+            self.docs
+                .set_toast("There is no folder for the saved prompts file.");
+            return;
+        };
+        // Open in a tab with changes not saved: writing the file under them would be lost to
+        // the tab's next save (audit 1 round 5).
+        if self.docs.tabs.iter().any(|d| {
+            d.modified()
+                && d.path
+                    .as_deref()
+                    .is_some_and(|p| mdshared_app::paths::same_path(p, &path))
+        }) {
+            self.docs.set_toast(&format!(
+                "Save or close {} first: it has changes that are not saved.",
+                core_ai::PROMPTS_FILE
+            ));
+            return;
+        }
+        // The file is made from its template first, so a prompt the template has is found.
+        if let Err(e) = crate::ai::ensure_prompts_file(&path) {
+            self.docs
+                .set_toast(&format!("Could not save the prompt: {e}"));
+            return;
+        }
         self.ai_load_prompts();
         if let Some(p) = self
             .docs
@@ -75,19 +100,40 @@ impl App {
                 .set_toast(&format!("Already saved as \u{201c}{}\u{201d}.", p.name));
             return;
         }
-        let Some(path) = self.ai_prompts_path() else {
-            self.docs
-                .set_toast("There is no folder for the saved prompts file.");
-            return;
+        let file = match std::fs::read_to_string(&path) {
+            Ok(file) => file,
+            Err(e) => {
+                self.docs
+                    .set_toast(&format!("Could not save the prompt: {e}"));
+                return;
+            }
         };
         let name = core_ai::prompt_name(&text, &self.docs.ai_prompts);
-        let written = crate::ai::ensure_prompts_file(&path).and_then(|_| {
-            let file = std::fs::read_to_string(&path)?;
-            mdshared_app::settings::write_atomic(
-                &path,
-                &core_ai::append_prompt(&file, &name, &text),
-            )
-        });
+        let new = core_ai::append_prompt(&file, &name, &text);
+        // Written only when the list reads it back: every prompt there was, and this one.
+        if new.len() as u64 > PROMPTS_BYTES {
+            self.docs.set_toast(&format!(
+                "The prompt was not saved: {} would be over {} KB. Remove some prompts first.",
+                core_ai::PROMPTS_FILE,
+                PROMPTS_BYTES / 1024
+            ));
+            return;
+        }
+        let back = core_ai::parse_prompts(&new);
+        let before = core_ai::parse_prompts(&file);
+        let reads_back = back.len() == before.len() + 1
+            && back[..before.len()] == before[..]
+            && back
+                .last()
+                .is_some_and(|p| p.name == name && p.instruction == text);
+        if !reads_back {
+            self.docs.set_toast(&format!(
+                "The prompt was not saved: the end of {} would not read as a prompt (a code block left open?). Edit saved prompts to fix it.",
+                core_ai::PROMPTS_FILE
+            ));
+            return;
+        }
+        let written = mdshared_app::settings::write_atomic(&path, &new);
         match written {
             Ok(()) => {
                 self.ai_load_prompts();

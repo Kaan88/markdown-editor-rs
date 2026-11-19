@@ -341,13 +341,51 @@ Make this text about half as long. Keep every fact and the Markdown structure.\n
 \n\
 Fix the spelling, grammar and punctuation. Change nothing else.\n";
 
+/// A line of an instruction split for [`escape_line`] and [`unescape_line`]: its indent, its
+/// leading backslashes, and whether what follows them would read as a `## ` heading (at the start
+/// of the line only) or a code fence.
+fn line_parts(line: &str) -> (usize, usize, bool) {
+    let ws = line.len() - line.trim_start().len();
+    let rest = &line[ws..];
+    let n = rest.len() - rest.trim_start_matches('\\').len();
+    let after = &rest[n..];
+    let special = (ws == 0 && after.starts_with("## "))
+        || after.starts_with("```")
+        || after.starts_with("~~~");
+    (ws, n, special)
+}
+
+/// A line of an instruction as the prompts file holds it: a line that would read as a heading or
+/// a fence (and one that already has backslashes before such a start) gets one backslash more,
+/// which [`unescape_line`] takes off again, so the instruction reads back as it was typed.
+pub fn escape_line(line: &str) -> String {
+    let (ws, _, special) = line_parts(line);
+    if special {
+        format!("{}\\{}", &line[..ws], &line[ws..])
+    } else {
+        line.to_string()
+    }
+}
+
+/// The instruction's line an [`escape_line`] line stands for. A line with no backslash before
+/// such a start is left as it is: a fence in an instruction written by hand is its text.
+pub fn unescape_line(line: &str) -> String {
+    let (ws, n, special) = line_parts(line);
+    if special && n > 0 {
+        format!("{}{}", &line[..ws], &line[ws + 1..])
+    } else {
+        line.to_string()
+    }
+}
+
 /// Reads the saved prompts: each `## Name` heading and the text under it to the next one. Empty
-/// names and empty instructions are left out; a heading inside a code fence is text.
+/// names and empty instructions are left out; a heading inside a code fence is text. A line
+/// with a backslash before a `## ` or a fence reads without it ([`unescape_line`]).
 pub fn parse_prompts(text: &str) -> Vec<SavedPrompt> {
     let mut out: Vec<SavedPrompt> = Vec::new();
-    let mut cur: Option<(String, Vec<&str>)> = None;
+    let mut cur: Option<(String, Vec<String>)> = None;
     let mut fence: Option<String> = None;
-    let flush = |cur: &mut Option<(String, Vec<&str>)>, out: &mut Vec<SavedPrompt>| {
+    let flush = |cur: &mut Option<(String, Vec<String>)>, out: &mut Vec<SavedPrompt>| {
         if let Some((name, lines)) = cur.take() {
             let instruction = lines.join("\n").trim().to_string();
             if !name.is_empty() && !instruction.is_empty() {
@@ -382,7 +420,11 @@ pub fn parse_prompts(text: &str) -> Vec<SavedPrompt> {
             continue;
         }
         if let Some((_, lines)) = cur.as_mut() {
-            lines.push(line);
+            lines.push(if fence.is_none() {
+                unescape_line(line)
+            } else {
+                line.to_string()
+            });
         }
     }
     flush(&mut cur, &mut out);
@@ -427,23 +469,26 @@ pub fn prompt_name(instruction: &str, saved: &[SavedPrompt]) -> String {
 }
 
 /// `file` (the saved prompts file's text) with one more prompt at its end, as [`parse_prompts`]
-/// reads it back: a `## name` heading and the instruction under it. A line of the instruction
-/// that would read as a heading or a fence gets a backslash first.
+/// reads it back: a `## name` heading and the instruction under it ([`escape_line`] for each of
+/// its lines). The file's text is kept as it is, and what is added takes its line ending (CRLF
+/// when the file has one). Whether it reads back is the caller's to check: a file that ends
+/// inside a code fence takes the heading as text.
 pub fn append_prompt(file: &str, name: &str, instruction: &str) -> String {
-    let mut out = file.trim_end().to_string();
+    let eol = if file.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = file.to_string();
     if !out.is_empty() {
-        out.push_str("\n\n");
+        if !out.ends_with('\n') {
+            out.push_str(eol);
+        }
+        out.push_str(eol);
     }
     out.push_str("## ");
     out.push_str(name.trim());
-    out.push_str("\n\n");
+    out.push_str(eol);
+    out.push_str(eol);
     for line in instruction.trim().lines() {
-        let t = line.trim_start();
-        if line.starts_with("## ") || t.starts_with("```") || t.starts_with("~~~") {
-            out.push('\\');
-        }
-        out.push_str(line);
-        out.push('\n');
+        out.push_str(&escape_line(line));
+        out.push_str(eol);
     }
     out
 }
@@ -674,9 +719,10 @@ mod tests {
         assert_eq!(back.len(), saved.len() + 1);
         let last = back.last().unwrap();
         assert_eq!(last.name, name);
+        // Read back exactly as typed (audit 1 round 5).
         assert_eq!(
             last.instruction,
-            "Make the prices a table\n\\## not a heading"
+            "Make the prices a table\n## not a heading"
         );
         // Into an empty file.
         let one = parse_prompts(&append_prompt("", "A", "Do it."));
@@ -687,6 +733,39 @@ mod tests {
                 instruction: "Do it.".into()
             }]
         );
+    }
+
+    /// Audit 1 round 5: what the box saves reads back as it was typed, whatever its lines look
+    /// like, and the file's own text and line endings are kept.
+    #[test]
+    fn a_saved_prompt_reads_back_exactly_and_the_file_is_kept() {
+        for typed in [
+            "## Literal heading",
+            "One\n```\ncode\n```\nTwo",
+            "First\n  ~~~ indented fence",
+            "\\## already escaped\n\\\\``` twice",
+            "Plain \\ backslash and ## mid-line",
+        ] {
+            for file in [
+                "",
+                "## A\n\nDo a.\n",
+                "## A\r\n\r\nDo a.   \r\n",
+                "## A\n\nDo a.",
+            ] {
+                let out = append_prompt(file, "B", typed);
+                assert!(out.starts_with(file), "{file:?}");
+                let back = parse_prompts(&out);
+                let b = back.iter().find(|p| p.name == "B").unwrap();
+                assert_eq!(b.instruction, typed, "{typed:?} in {file:?}");
+                if file.contains('\r') {
+                    let added = &out[file.len()..];
+                    assert!(!added.replace("\r\n", "").contains('\n'), "{added:?}");
+                }
+            }
+        }
+        for line in ["## x", "\\## x", "  ```", "plain", "  ## x", "\\\\~~~"] {
+            assert_eq!(unescape_line(&escape_line(line)), line);
+        }
     }
 
     #[test]

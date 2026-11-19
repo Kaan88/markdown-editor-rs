@@ -6,8 +6,8 @@ use mdshared_app::updater as shared;
 use std::time::Duration;
 
 pub use shared::{
-    Event, Files, NOT_INSTALLED, Stage, Updates, at_launch_label, check_due, spawn_at_launch,
-    spawn_check, spawn_install, unix_now,
+    Event, Files, NOT_INSTALLED, Stage, Updates, at_launch_label, check_due, spawn_install,
+    unix_now,
 };
 
 /// mdedit as the updater knows it: the executable and, on Windows, the two programs beside it:
@@ -59,27 +59,84 @@ pub fn missing_parts(files: &Files) -> bool {
         .any(|p| !p.exists())
 }
 
-/// At launch, when the look for a newer version is not due (the reader turned it off) and a
-/// program beside the executable is missing: fetches the manifest and puts in place what it lists
-/// of this very version ([`shared::restore_engine`]). Nothing is shown; an offer it may hold is
-/// left for a look the reader asks for. When the look is due, `spawn_at_launch` does the same.
-pub fn spawn_restore(files: Files) {
-    if !missing_parts(&files) {
-        return;
+/// The manifest of this very version, for a repair: the one in the release of its own tag, which
+/// a newer release does not replace (`MDEDIT_UPDATE_MANIFEST` overrides it, as it does the look).
+/// The latest release's manifest is of another version once a newer one is out, and a repair
+/// takes nothing from that (audit 1 round 5).
+pub fn repair_manifest_url() -> String {
+    if let Ok(url) = std::env::var(APP.manifest_env) {
+        return url;
     }
+    let latest = APP.manifest_url();
+    let name = latest.rsplit('/').next().unwrap_or_default();
+    format!(
+        "https://github.com/Kaan88/markdown-editor-rs/releases/download/v{}/{name}",
+        APP.version
+    )
+}
+
+/// One repair at a time: the launch's and a look the reader asks for would write the same files.
+static REPAIRING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Puts in place what is missing beside the executable (see [`missing_parts`]), from this
+/// version's own manifest ([`repair_manifest_url`]). `Ok(true)` when something was put in place,
+/// `Ok(false)` when nothing was missing, a repair is already running or the release lists none
+/// of it; `Err` when a download, its hash or the write failed: nothing is in place then, and the
+/// next start or look tries again.
+pub fn repair(files: &Files) -> Result<bool, String> {
+    use std::sync::atomic::Ordering;
+    if !missing_parts(files) {
+        return Ok(false);
+    }
+    let Some(platform) = mdshared_app::update::Platform::current() else {
+        return Ok(false);
+    };
+    if REPAIRING.swap(true, Ordering::AcqRel) {
+        return Ok(false);
+    }
+    let result = fetch(
+        &repair_manifest_url(),
+        mdshared_app::update::MAX_MANIFEST_BYTES,
+        Duration::from_secs(30),
+    )
+    .and_then(|bytes| shared::restore_engine(&APP, files, &bytes, platform, &fetch));
+    REPAIRING.store(false, Ordering::Release);
+    result
+}
+
+/// What [`spawn_look`] posts.
+#[derive(Debug)]
+pub enum Answer {
+    /// The look for a newer version.
+    Update(Event),
+    /// A repair ran ([`repair`]).
+    Repaired(Result<bool, String>),
+}
+
+/// On its own thread: at launch (`launch`), clears what an earlier update left behind; when a
+/// program beside the executable is missing, repairs it ([`repair`]) and posts how that went;
+/// then, when `look` says so, looks for a newer version (`Some(manual)`) and posts the answer.
+/// `files` is `None` for a copy that cannot update itself: then only the look runs.
+pub fn spawn_look(
+    files: Option<Files>,
+    launch: bool,
+    look: Option<bool>,
+    post: impl Fn(Answer) + Send + 'static,
+) {
     let _ = std::thread::Builder::new()
-        .name("mdedit-restore".into())
+        .name("mdedit-update".into())
         .spawn(move || {
-            let Some(platform) = mdshared_app::update::Platform::current() else {
-                return;
-            };
-            let bytes = fetch(
-                &APP.manifest_url(),
-                mdshared_app::update::MAX_MANIFEST_BYTES,
-                Duration::from_secs(30),
-            );
-            if let Ok(bytes) = bytes {
-                _ = shared::restore_engine(&APP, &files, &bytes, platform, &fetch);
+            if let Some(files) = &files {
+                if launch {
+                    shared::clean_up(files);
+                }
+                if missing_parts(files) {
+                    post(Answer::Repaired(repair(files)));
+                }
+            }
+            if let Some(manual) = look {
+                let result = shared::check(&APP, &fetch);
+                post(Answer::Update(Event::Checked { manual, result }));
             }
         });
 }
@@ -126,6 +183,38 @@ mod tests {
             cfg!(windows),
             "{MANIFEST_URL}"
         );
+    }
+
+    /// Audit 1 round 5: a repair reads the manifest of this very version, in the release of its
+    /// own tag, which stays when a newer release is out; the look reads the latest.
+    #[test]
+    fn a_repair_reads_the_manifest_of_its_own_version() {
+        if std::env::var(APP.manifest_env).is_ok() {
+            return;
+        }
+        let url = repair_manifest_url();
+        let latest = APP.manifest_url();
+        let name = latest.rsplit('/').next().unwrap();
+        assert_eq!(
+            url,
+            format!(
+                "https://github.com/Kaan88/markdown-editor-rs/releases/download/v{}/{name}",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+        assert!(latest.contains("/releases/latest/download/"));
+        // Nothing missing: nothing is fetched.
+        let dir = std::env::temp_dir().join(format!("mdedit-repair-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = dir.join("mdedit.exe");
+        std::fs::write(&app, "x").unwrap();
+        let files = Files {
+            app: app.clone(),
+            engine: None,
+            extras: vec![app],
+        };
+        assert_eq!(repair(&files), Ok(false));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

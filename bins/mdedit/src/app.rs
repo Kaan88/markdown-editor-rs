@@ -22,7 +22,7 @@ use crate::minimap;
 use crate::overlays::{self, Bubble};
 use crate::panes;
 use crate::platform;
-use crate::session::{Session, TabState, ThemeChoice, Unsaved};
+use crate::session::{Session, ThemeChoice, Unsaved};
 use crate::status;
 use crate::trace::{FrameTimes, Trace, summary};
 use crate::ui::{
@@ -130,7 +130,7 @@ pub enum Wake {
     /// The highlight worker queued colours.
     Highlight,
     /// An updater thread has an answer.
-    Update(crate::updater::Event),
+    Update(crate::updater::Answer),
     /// A file dialog (off Windows they run on a helper thread) was answered or cancelled.
     #[cfg(not(windows))]
     Dialog(Picked),
@@ -1980,8 +1980,7 @@ impl App {
         // Backups of text that was saved, discarded or closed since the start are dropped. Not
         // once the exit has set the list to keep (it is final then).
         if !self.session.unsaved.is_empty() && !self.exit {
-            let tabs: Vec<TabState> = self.docs.tabs.iter().map(|d| d.tab_state()).collect();
-            let kept = Unsaved::prune(&self.session.unsaved, &tabs);
+            let kept = self.docs.backups_needed(&self.session.unsaved);
             if kept.len() != self.session.unsaved.len() {
                 self.session.unsaved = kept;
                 self.save_session();
@@ -1991,6 +1990,21 @@ impl App {
         if self.session_sig() != self.saved_sig {
             self.save_session();
         }
+    }
+
+    /// When the event loop must wake next with nothing else to wake it: the timers, the next
+    /// recovery look, the folder search, and a session write that failed (tried again then, also
+    /// in a window left alone, audit 1 round 5).
+    fn next_wake(&mut self, now: Instant) -> Option<Instant> {
+        [
+            self.timers(now),
+            self.recover_due,
+            self.results_due,
+            self.session_retry,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Where unsaved text is kept between runs: `backup` beside the session file.
@@ -2078,7 +2092,8 @@ fn bring_back(
         let file = backups?.join(&u.file);
         std::fs::metadata(file).and_then(|m| m.modified()).ok()
     };
-    let cover = crate::recovery::cover(&found, unsaved, time);
+    let legacy = |u: &Unsaved| crate::recovery::legacy_draft(&backups?.join(&u.file), u);
+    let cover = crate::recovery::cover(&found, unsaved, time, legacy);
     let recovered = recovery.restore(docs, found);
     let covered: Vec<Option<DocId>> = cover
         .iter()
@@ -2135,28 +2150,35 @@ fn restore_unsaved(
         if !file.is_file() {
             continue;
         }
+        // Read now (a backup no tab waits for): one that cannot be read now stays listed and on
+        // disk for the next start (audit 1 round 5, #3).
+        let read_now = |docs: &mut Docs, u: &Unsaved, number: u32| match std::fs::read(&file) {
+            Ok(bytes) => Some(docs.restore_untitled(number, &String::from_utf8_lossy(&bytes))),
+            Err(e) => {
+                eprintln!("mdedit: a backup cannot be read now ({e}); kept");
+                docs.unread_backups.push(u.clone());
+                None
+            }
+        };
         let k = match u.path.as_ref().filter(|p| p.is_file()) {
             Some(path) => {
                 let k = docs.add_pending(path);
                 if docs.tabs[k].restore.is_none() {
-                    docs.tabs[k].restore = Some(file);
+                    docs.tabs[k].restore = Some(file.clone());
                     restored.push(k);
                     Some(k)
                 } else {
                     // The tab already takes other unsaved text of this file (a copy that is not
                     // certainly this draft's): this backup comes back as a draft of its own.
-                    std::fs::read_to_string(&file)
-                        .ok()
-                        .map(|text| docs.restore_untitled(0, &text))
+                    read_now(docs, u, 0)
                 }
             }
             // A document that had no file, or whose file is gone since.
-            None => std::fs::read_to_string(&file)
-                .ok()
-                .map(|text| docs.restore_untitled(u.untitled, &text)),
+            None => read_now(docs, u, u.untitled),
         };
         if let Some(k) = k {
-            if let Some(d) = u.draft
+            // A backup from before 1.1 takes the id its file gives it, the same at every start.
+            if let Some(d) = u.draft.or_else(|| crate::recovery::legacy_draft(&file, u))
                 && !docs.tabs.iter().any(|t| t.draft == d)
             {
                 docs.tabs[k].draft = d;
@@ -2509,8 +2531,8 @@ impl ApplicationHandler<Wake> for App {
             if first && !self.leave_side_by_side() {
                 self.save_size();
             }
-            self.save_session();
-            self.recovery.finish(&self.docs);
+            let saved = self.save_session();
+            self.recovery.finish(&self.docs, saved);
             self.trace.cpu("exit");
             event_loop.exit();
             if first {
@@ -2569,15 +2591,7 @@ impl ApplicationHandler<Wake> for App {
             event_loop.set_control_flow(ControlFlow::Poll);
             return;
         }
-        let next = self.timers(Instant::now());
-        let next = match (next, self.recover_due) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
-        let next = match (next, self.results_due) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
+        let next = self.next_wake(Instant::now());
         if self.exit {
             return;
         }
@@ -3403,6 +3417,7 @@ fn logical_size((w, h): (u32, u32), scale: f64) -> (u32, u32) {
 mod tests {
     use super::*;
     use crate::keys::Key;
+    use crate::session::TabState;
     use mdshared_ui::keys::KeyName;
 
     fn app() -> App {
@@ -3614,7 +3629,7 @@ mod tests {
                 let tabs: Vec<TabState> = docs.tabs.iter().map(|d| d.tab_state()).collect();
                 let kept = Unsaved::prune(&unsaved, &tabs);
                 assert_eq!(kept.len(), 1, "{kept:?}");
-                rec.finish(&docs);
+                rec.finish(&docs, true);
                 unsaved = docs.write_backups(&backups).unwrap();
                 assert_eq!(unsaved.len(), 1);
             }
@@ -3666,6 +3681,229 @@ mod tests {
         let backups = dir.join("backup");
         std::fs::create_dir_all(&backups).unwrap();
         (dir, backups)
+    }
+
+    /// As an exit that writes its session does: the backups, then the removal of the others.
+    fn r5_exit(docs: &Docs, backups: &Path) -> Vec<Unsaved> {
+        let list = docs.write_backups(backups).unwrap();
+        Docs::drop_stale_backups(backups, &list);
+        list
+    }
+
+    /// A run that edits `file` (its backup kept at exit), then types on and dies once the
+    /// recovery copy is written: the session list, the backup's text and the copy's.
+    fn r5_backup_and_copy(dir: &Path, backups: &Path, file: &Path) -> Vec<Unsaved> {
+        use crate::recovery::Recovery;
+        let mut docs = r4_docs();
+        let i = docs.open(file);
+        docs.load_now(i, None, false);
+        docs.activate(i);
+        assert!(docs.edit(EditOp::Insert("backup "), None));
+        let unsaved = r5_exit(&docs, backups);
+        // The copy is written later than the backup (the file times must differ).
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        assert!(docs.edit(EditOp::Insert("copy "), None));
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        r4_copies(&docs, &mut rec);
+        unsaved
+    }
+
+    /// Audit 1 round 5, #1: the recovery copy is accepted at the start, then cannot be read
+    /// when its tab loads. The tab does not take the older backup in its place; the copy is
+    /// kept at exit, and the next start has its text.
+    #[test]
+    fn a_copy_locked_after_the_start_is_kept_for_the_next() {
+        use crate::recovery::{Locked, Recovery};
+        let (dir, backups) = r4_dir("r5-locked-copy");
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "file\n").unwrap();
+        let mut unsaved = r5_backup_and_copy(&dir, &backups, &file);
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        let k = docs.tabs.iter().position(|d| d.restore.is_some()).unwrap();
+        let copy = docs.tabs[k].restore.clone().unwrap();
+        assert_eq!(copy.parent(), Some(dir.join("recover").as_path()));
+        let Some(lock) = Locked::new(&copy) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
+        docs.load_now(k, None, false);
+        let d = &docs.tabs[k];
+        assert_eq!(d.ready().unwrap().buffer.rope().to_string(), "file\n");
+        assert!(d.modified() && d.restore.is_some() && d.ready().unwrap().read_only);
+        drop(lock);
+        // A normal exit.
+        unsaved = r5_exit(&docs, &backups);
+        rec.finish(&docs, true);
+        assert!(copy.is_file(), "the copy is kept");
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        assert_eq!(r4_texts(&mut docs), ["backup copy file\n"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 5, #2: a file tab whose backup cannot be read when it loads shows the file
+    /// and takes no typing, so nothing typed can be lost behind the backup the exit keeps.
+    #[test]
+    fn a_tab_waiting_for_its_text_takes_no_typing() {
+        use crate::recovery::{Locked, Recovery};
+        let (dir, backups) = r4_dir("r5-locked-backup");
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "file\n").unwrap();
+        let mut docs = r4_docs();
+        let i = docs.open(&file);
+        docs.load_now(i, None, false);
+        docs.activate(i);
+        assert!(docs.edit(EditOp::Insert("backup "), None));
+        let mut unsaved = r5_exit(&docs, &backups);
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        let k = docs.tabs.iter().position(|d| d.restore.is_some()).unwrap();
+        let backup = docs.tabs[k].restore.clone().unwrap();
+        let Some(lock) = Locked::new(&backup) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
+        docs.load_now(k, None, false);
+        docs.activate(k);
+        assert!(!docs.edit(EditOp::Insert("typed "), None), "no typing");
+        let name = docs.tabs[k].name();
+        assert_eq!(
+            docs.toast(Instant::now()).unwrap(),
+            strings::waiting_text_toast(&name)
+        );
+        drop(lock);
+        unsaved = r5_exit(&docs, &backups);
+        rec.finish(&docs, true);
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "backup file\n");
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        assert_eq!(r4_texts(&mut docs), ["backup file\n"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 5, #3: an untitled draft's backup cannot be read at the start. It stays in
+    /// the session's list through the pruning and the exit, and on disk, for the next start.
+    #[test]
+    fn an_untitled_backup_locked_at_the_start_is_kept() {
+        use crate::recovery::{Locked, Recovery};
+        let (dir, backups) = r4_dir("r5-locked-untitled");
+        let mut docs = r4_docs();
+        docs.new_untitled();
+        assert!(docs.edit(EditOp::Insert("draft"), None));
+        let mut unsaved = r5_exit(&docs, &backups);
+        assert_eq!(unsaved.len(), 1);
+        let backup = backups.join(&unsaved[0].file);
+        let lock = Locked::new(&backup);
+        if lock.is_none() {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        assert!(docs.tabs.iter().all(|d| !d.modified()));
+        // The session's pruning keeps it.
+        assert_eq!(docs.backups_needed(&unsaved), unsaved);
+        drop(lock);
+        // The exit keeps it.
+        let kept = r5_exit(&docs, &backups);
+        rec.finish(&docs, true);
+        assert_eq!(kept, unsaved);
+        assert!(backup.is_file());
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        let mut kept = kept;
+        bring_back(&mut docs, &mut rec, &mut kept, Some(&backups));
+        assert_eq!(r4_texts(&mut docs), ["draft"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 5, #4: the session cannot be written at exit. The exit does not go ahead
+    /// (the user is asked, as when a backup cannot be written), the backups the old session
+    /// names are untouched, and a copy of a tab still unsaved is kept by an exit that follows.
+    #[test]
+    fn an_exit_whose_session_cannot_be_written_keeps_everything() {
+        use crate::recovery::Recovery;
+        let (dir, backups) = r4_dir("r5-exit-session");
+        // The session file cannot be written: its place is a folder.
+        let session = dir.join("session.ini");
+        std::fs::create_dir_all(&session).unwrap();
+        let mut app = app();
+        app.save = true;
+        app.session_path = Some(session.clone());
+        // The old session names a backup of another draft.
+        std::fs::write(backups.join("1.txt"), "older draft").unwrap();
+        let old = Unsaved {
+            file: "1.txt".into(),
+            untitled: 3,
+            path: None,
+            draft: Some(77),
+        };
+        app.session.unsaved = vec![old.clone()];
+        assert!(app.docs.edit(EditOp::Insert("new draft"), None));
+        app.request(After::Exit);
+        assert!(!app.exit, "not closed");
+        assert_eq!(
+            app.ui.dialog.as_ref().map(|d| d.kind),
+            Some(DialogKind::Unsaved)
+        );
+        assert_eq!(app.session.unsaved, [old]);
+        assert_eq!(
+            std::fs::read_to_string(backups.join("1.txt")).unwrap(),
+            "older draft"
+        );
+        // An exit whose session is not written keeps the copy of a tab with unsaved text.
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        r4_copies(&app.docs, &mut rec);
+        rec.finish(&app.docs, false);
+        assert_eq!(std::fs::read_dir(dir.join("recover")).unwrap().count(), 1);
+        rec.finish(&app.docs, true);
+        assert!(!dir.join("recover").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 5: a backup from before 1.1 (no draft id) and a session that cannot be
+    /// written. Each start writes a recovery copy and dies; the next has one draft, not one more
+    /// each time.
+    #[test]
+    fn a_legacy_backup_does_not_multiply_when_the_session_is_never_written() {
+        use crate::recovery::Recovery;
+        let (dir, backups) = r4_dir("r5-legacy");
+        std::fs::write(backups.join("1.txt"), "legacy draft").unwrap();
+        let session = vec![Unsaved {
+            file: "1.txt".into(),
+            untitled: 1,
+            path: None,
+            draft: None,
+        }];
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        for run in 0..4 {
+            let mut docs = r4_docs();
+            let mut rec = Recovery::new(Some(dir.join("recover")));
+            let mut unsaved = session.clone();
+            bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+            assert_eq!(r4_texts(&mut docs), ["legacy draft"], "run {run}");
+            r4_copies(&docs, &mut rec);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 5: a session write that failed wakes the window when it is due again, with
+    /// nothing else to wake it.
+    #[test]
+    fn a_failed_session_write_wakes_the_window_to_try_again() {
+        let mut app = app();
+        let now = Instant::now();
+        // Due before anything else would wake the window.
+        let at = now + Duration::from_micros(1);
+        assert!(app.next_wake(now).is_none_or(|t| t > at));
+        app.session_retry = Some(at);
+        assert_eq!(app.next_wake(now), Some(at));
     }
 
     /// Audit 1 round 4, #1 and #9: the session cannot be written at any start, so every start

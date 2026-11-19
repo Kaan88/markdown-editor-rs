@@ -446,3 +446,95 @@ fn the_instruction_is_saved_as_a_prompt() {
     assert_eq!(a.docs.ai_prompts.len(), n);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An instruction panel with `typed` in its field, its prompts file in `dir`.
+fn r5_panel(typed: &str) -> (App, PathBuf, PathBuf) {
+    let (mut a, dir) = ai_app("text\n");
+    a.session_path = Some(dir.join("session.ini"));
+    a.command(C::AiRewrite);
+    a.ai.instruction().unwrap().field.set_text(typed);
+    let file = dir.join(mdedit_core::ai::PROMPTS_FILE);
+    (a, dir, file)
+}
+
+/// Audit 1 round 5: with no prompts file yet, an instruction the template has is found in it
+/// once the file is made, not saved a second time.
+#[test]
+fn a_prompt_the_template_has_is_not_saved_twice() {
+    let (mut a, dir, file) = r5_panel("Shorten");
+    let shorten = mdedit_core::ai::parse_prompts(mdedit_core::ai::PROMPTS_TEMPLATE)
+        .into_iter()
+        .find(|p| p.name == "Shorten")
+        .unwrap();
+    a.ai.instruction()
+        .unwrap()
+        .field
+        .set_text(&shorten.instruction);
+    assert!(!file.exists());
+    a.ai_save_prompt();
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        mdedit_core::ai::PROMPTS_TEMPLATE
+    );
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .unwrap()
+            .starts_with("Already saved")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 1 round 5: the prompts file open in a tab with changes not saved is not written under
+/// them; nothing is saved until the tab is saved or closed.
+#[test]
+fn a_prompt_is_not_saved_under_unsaved_changes_to_the_file() {
+    let (mut a, dir, file) = r5_panel("Say it twice");
+    std::fs::write(&file, "## A\n\nDo a.\n").unwrap();
+    let k = a.docs.open(&file);
+    a.docs.load_now(k, None, false);
+    a.docs.activate(k);
+    assert!(a.docs.edit(EditOp::Insert("edited "), None));
+    a.ai_save_prompt();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "## A\n\nDo a.\n");
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .unwrap()
+            .starts_with("Save or close")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 1 round 5: a file left inside a code block, or one the prompt would take over the
+/// size the list reads, is not written, and says why.
+#[test]
+fn a_prompt_that_would_not_read_back_is_not_saved() {
+    let (mut a, dir, file) = r5_panel("Say it twice");
+    let open_fence = "## A\n\nDo a.\n```\ncode\n";
+    std::fs::write(&file, open_fence).unwrap();
+    a.ai_save_prompt();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), open_fence);
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .unwrap()
+            .contains("would not read")
+    );
+    // Near the limit.
+    let big = format!("## A\n\n{}\n", "x".repeat(256 * 1024 - 20));
+    std::fs::write(&file, &big).unwrap();
+    a.ai_save_prompt();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), big);
+    assert!(a.docs.toast(Instant::now()).unwrap().contains("KB"));
+    // A CRLF file keeps its bytes and gets CRLF.
+    let crlf = "## A\r\n\r\nDo a.   \r\n";
+    std::fs::write(&file, crlf).unwrap();
+    a.ai_save_prompt();
+    let out = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        out,
+        format!("{crlf}\r\n## Say it twice\r\n\r\nSay it twice\r\n")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
