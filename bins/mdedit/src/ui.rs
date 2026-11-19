@@ -175,6 +175,9 @@ pub enum Hit {
     StaleClose,
     StaleKeep,
     StaleDismiss,
+    /// The AI bar's button and its close button.
+    AiBarGo,
+    AiBarClose,
     /// The format bar's buttons, and its button for the Markdown menu when they do not all fit.
     Format(crate::commands::CommandId),
     FormatMore,
@@ -256,6 +259,8 @@ impl Hit {
             | Hit::StaleClose
             | Hit::StaleKeep
             | Hit::StaleDismiss
+            | Hit::AiBarGo
+            | Hit::AiBarClose
             | Hit::Format(_)
             | Hit::FormatMore => Region::Bar,
             Hit::Replace
@@ -346,6 +351,10 @@ pub enum Act {
     ConvertMenu,
     MarkdownMenu,
     TableMenu,
+    /// Open the text menu's AI submenu.
+    AiMenu,
+    /// Rewrite with saved AI prompt `n`.
+    AiPrompt(usize),
     /// Play saved macro `n` of the Macro menu.
     PlaySaved(usize),
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").
@@ -374,6 +383,7 @@ impl Act {
             Act::ConvertMenu => Some(PopupKind::Convert),
             Act::MarkdownMenu => Some(PopupKind::Markdown),
             Act::TableMenu => Some(PopupKind::Table),
+            Act::AiMenu => Some(PopupKind::Ai),
             _ => None,
         }
     }
@@ -406,6 +416,8 @@ pub enum PopupKind {
     Convert,
     Markdown,
     Table,
+    /// AI rewriting: the built-in requests and the saved prompts.
+    Ai,
     /// The find box's editing menu.
     Find,
     /// The word completion list at the caret; typing goes on in the text.

@@ -10,6 +10,7 @@
 //! read twice gives the same struct. Writing always writes every key, so write, read, write gives
 //! the same text.
 
+use crate::ai::Connection;
 use crate::buffer::Buffer;
 use crate::edit::{Cmd, Outcome};
 use crate::history::{History, Kind};
@@ -76,6 +77,31 @@ pub struct Prefs {
     pub complete_auto: bool,
     /// A system backdrop behind the chrome (Windows 11); off is the flat colours.
     pub backdrop: Backdrop,
+    /// Where AI rewrites go; off by default.
+    pub ai_connection: Connection,
+    /// A rewrite opens in a review before it goes in (on by default); off puts it in at once.
+    pub ai_review: bool,
+    /// The review opens on the rendered preview rather than the changes.
+    pub ai_review_preview: bool,
+    /// The model and effort chosen for each connection but Off, in [`Connection::ALL`] order
+    /// from the second; empty is the default.
+    pub ai_models: [String; 4],
+    pub ai_efforts: [String; 4],
+    /// The provider of the OpenAI-compatible API ([`crate::ai::PRESETS`]), and the base URL for
+    /// a custom one.
+    pub ai_preset: String,
+    pub ai_base_url: String,
+    /// The Claude Code and Codex programs; empty finds them.
+    pub ai_claude_path: String,
+    pub ai_codex_path: String,
+}
+
+/// A setting's text longer than this many bytes is not a setting: the default is used.
+const AI_TEXT_MAX: usize = 2048;
+
+/// The index of a connection's model and effort in [`Prefs::ai_models`].
+fn ai_index(c: Connection) -> Option<usize> {
+    Connection::ALL[1..].iter().position(|&x| x == c)
 }
 
 impl Default for Prefs {
@@ -102,7 +128,26 @@ impl Default for Prefs {
             live_preview: true,
             complete_auto: false,
             backdrop: Backdrop::Off,
+            ai_connection: Connection::Off,
+            ai_review: true,
+            ai_review_preview: false,
+            ai_models: Default::default(),
+            ai_efforts: Default::default(),
+            ai_preset: "openai".into(),
+            ai_base_url: String::new(),
+            ai_claude_path: String::new(),
+            ai_codex_path: String::new(),
         }
+    }
+}
+
+/// A text setting, or empty when it is too long or holds a line break.
+fn ai_text(value: &str) -> String {
+    let v = unescape(value);
+    if v.len() <= AI_TEXT_MAX && !v.contains(['\n', '\r']) {
+        v
+    } else {
+        String::new()
     }
 }
 
@@ -136,6 +181,23 @@ impl Prefs {
             .clamp(MINIMAP_WIDTH_MIN, MINIMAP_WIDTH_MAX);
         if self.font_family.len() > FONT_FAMILY_MAX || self.font_family.contains(['\n', '\r']) {
             self.font_family.clear();
+        }
+        for t in self
+            .ai_models
+            .iter_mut()
+            .chain(self.ai_efforts.iter_mut())
+            .chain([
+                &mut self.ai_base_url,
+                &mut self.ai_claude_path,
+                &mut self.ai_codex_path,
+            ])
+        {
+            if t.len() > AI_TEXT_MAX || t.contains(['\n', '\r']) {
+                t.clear();
+            }
+        }
+        if !crate::ai::PRESETS.iter().any(|x| x.key == self.ai_preset) {
+            self.ai_preset = "openai".into();
         }
     }
 
@@ -206,7 +268,36 @@ impl Prefs {
                     "live_preview" => p.live_preview = flag(value).unwrap_or(d.live_preview),
                     "complete_auto" => p.complete_auto = flag(value).unwrap_or(d.complete_auto),
                     "backdrop" => p.backdrop = Backdrop::parse(value).unwrap_or(d.backdrop),
-                    _ => {}
+                    "ai_connection" => {
+                        p.ai_connection = Connection::parse(value).unwrap_or(d.ai_connection)
+                    }
+                    "ai_review" => p.ai_review = flag(value).unwrap_or(d.ai_review),
+                    "ai_review_preview" => {
+                        p.ai_review_preview = flag(value).unwrap_or(d.ai_review_preview)
+                    }
+                    "ai_preset" => {
+                        let v = ai_text(value);
+                        p.ai_preset = if crate::ai::PRESETS.iter().any(|x| x.key == v) {
+                            v
+                        } else {
+                            d.ai_preset.clone()
+                        };
+                    }
+                    "ai_base_url" => p.ai_base_url = ai_text(value),
+                    "ai_claude_path" => p.ai_claude_path = ai_text(value),
+                    "ai_codex_path" => p.ai_codex_path = ai_text(value),
+                    k => {
+                        let per = |prefix: &str| {
+                            k.strip_prefix(prefix)
+                                .and_then(Connection::parse)
+                                .and_then(ai_index)
+                        };
+                        if let Some(i) = per("ai_model_") {
+                            p.ai_models[i] = ai_text(value);
+                        } else if let Some(i) = per("ai_effort_") {
+                            p.ai_efforts[i] = ai_text(value);
+                        }
+                    }
                 }
             }
         }
@@ -241,7 +332,39 @@ impl Prefs {
         w.line("live_preview", b(p.live_preview));
         w.line("complete_auto", b(p.complete_auto));
         w.line("backdrop", p.backdrop.key());
+        w.line("ai_connection", p.ai_connection.key());
+        w.line("ai_review", b(p.ai_review));
+        w.line("ai_review_preview", b(p.ai_review_preview));
+        for (i, c) in Connection::ALL[1..].iter().enumerate() {
+            w.line(&format!("ai_model_{}", c.key()), &escape(&p.ai_models[i]));
+            w.line(&format!("ai_effort_{}", c.key()), &escape(&p.ai_efforts[i]));
+        }
+        w.line("ai_preset", &escape(&p.ai_preset));
+        w.line("ai_base_url", &escape(&p.ai_base_url));
+        w.line("ai_claude_path", &escape(&p.ai_claude_path));
+        w.line("ai_codex_path", &escape(&p.ai_codex_path));
         w.finish()
+    }
+
+    /// The model chosen for a connection; empty is its default.
+    pub fn ai_model(&self, c: Connection) -> &str {
+        ai_index(c).map_or("", |i| self.ai_models[i].as_str())
+    }
+
+    pub fn ai_effort(&self, c: Connection) -> &str {
+        ai_index(c).map_or("", |i| self.ai_efforts[i].as_str())
+    }
+
+    pub fn set_ai_model(&mut self, c: Connection, m: &str) {
+        if let Some(i) = ai_index(c) {
+            self.ai_models[i] = m.trim().to_string();
+        }
+    }
+
+    pub fn set_ai_effort(&mut self, c: Connection, e: &str) {
+        if let Some(i) = ai_index(c) {
+            self.ai_efforts[i] = e.trim().to_string();
+        }
     }
 
     /// One level of indentation: a tab, or `indent_size` spaces.
@@ -395,6 +518,20 @@ mod tests {
             live_preview: false,
             complete_auto: true,
             backdrop: Backdrop::Acrylic,
+            ai_connection: Connection::OpenAi,
+            ai_review: false,
+            ai_review_preview: true,
+            ai_models: [
+                "opus".into(),
+                "".into(),
+                "claude-fable-5-2".into(),
+                "llama 4".into(),
+            ],
+            ai_efforts: ["max".into(), "minimal".into(), "".into(), "low".into()],
+            ai_preset: "custom".into(),
+            ai_base_url: "http://h:8080/v1?x=%1".into(),
+            ai_claude_path: "C:\\Program Files\\claude.exe".into(),
+            ai_codex_path: "/opt/codex = 2".into(),
         };
         let t = p.serialize();
         assert_eq!(Prefs::parse(&t), p);
@@ -408,10 +545,16 @@ mod tests {
             tab_width: 99,
             minimap_width: 5,
             font_family: "a\nb".into(),
+            ai_base_url: "a\nb".into(),
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 22);
+        assert_eq!(t.lines().count(), 37);
+        assert_eq!(Prefs::parse(&t).ai_base_url, "");
+        assert_eq!(
+            Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,
+            "openai"
+        );
         let r = Prefs::parse(&t);
         assert_eq!(
             (r.font_pt, r.tab_width, r.font_family.as_str()),

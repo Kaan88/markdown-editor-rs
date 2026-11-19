@@ -4,8 +4,10 @@
 //! Keys, the pointer and the wheel go to the form while it is open, and the page does not see them.
 
 use super::*;
+use crate::ai::Ask;
 use crate::commands::CommandId as C;
 use crate::{keys, updater};
+use mdedit_core::ai::{self as core_ai, Connection};
 use mdedit_core::prefs::{
     FONT_PT_MAX, FONT_PT_MIN, INDENT_SIZE_MAX, MINIMAP_WIDTH_MAX, MINIMAP_WIDTH_MIN, Prefs,
     TAB_WIDTH_MAX,
@@ -13,6 +15,7 @@ use mdedit_core::prefs::{
 use mdshared_ui::corners::{self, Corners};
 use mdshared_ui::keys::{KeyName, Mods};
 use mdshared_ui::settings::{Form, Outcome as Out, Row, Value};
+use serde_json::json;
 
 pub const FONT_FAMILY: u32 = 1;
 pub const FONT_SIZE: u32 = 2;
@@ -40,6 +43,19 @@ pub const COMPLETE_AUTO: u32 = 70;
 pub const BACKDROP: u32 = 80;
 pub const START_ON_PINNED: u32 = 23;
 pub const OFFER_STALE: u32 = 24;
+pub const AI_CONNECTION: u32 = 90;
+pub const AI_PROGRAM: u32 = 91;
+pub const AI_CHECK: u32 = 92;
+pub const AI_PROVIDER: u32 = 93;
+pub const AI_BASE_URL: u32 = 94;
+pub const AI_KEY: u32 = 95;
+pub const AI_KEY_SAVE: u32 = 96;
+pub const AI_MODEL: u32 = 97;
+pub const AI_MODEL_NAME: u32 = 98;
+pub const AI_FETCH: u32 = 99;
+pub const AI_EFFORT: u32 = 100;
+pub const AI_REVIEW: u32 = 101;
+pub const AI_PROMPTS: u32 = 102;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -256,16 +272,31 @@ impl App {
         self.ui.hover = None;
         self.ui.find_focused = false;
         self.ui.dialog = None;
+        self.ai.key_draft.clear();
+        self.ai.key_error = None;
+        let rows = self.settings_rows();
+        self.ui.settings = Some(Form::new("Settings", rows));
+        self.ai_settings_needs();
+        self.modal_changed();
+    }
+
+    /// The form's rows from the preferences, with the AI group before Updates.
+    fn settings_rows(&mut self) -> Vec<Row> {
         let look = self.docs.updates.about_label();
-        let rows = rows(
+        let mut rows = rows(
             &self.docs.prefs,
             self.docs.theme,
             self.corners_offered().then_some(self.session.corners),
             self.docs.check_updates,
             &look,
         );
-        self.ui.settings = Some(Form::new("Settings", rows));
-        self.modal_changed();
+        self.ai_load_prompts();
+        let at = rows
+            .iter()
+            .position(|r| matches!(r, Row::Header(h) if h == "Updates"))
+            .unwrap_or(rows.len());
+        rows.splice(at..at, self.ai_rows());
+        rows
     }
 
     pub(super) fn close_settings(&mut self) {
@@ -346,6 +377,10 @@ impl App {
                 self.apply_setting(id, value);
                 self.modal_changed();
             }
+            Out::Action(id) if (AI_CONNECTION..=AI_PROMPTS).contains(&id) => {
+                self.ai_settings_action(id);
+                self.modal_changed();
+            }
             Out::Action(id) => {
                 // The answer shows on the page (a bar or a toast): the dialog goes, as About's
                 // buttons do.
@@ -367,6 +402,10 @@ impl App {
 
     /// Applies one change to every open document and keeps it for the next start.
     pub(super) fn apply_setting(&mut self, id: u32, value: Value) {
+        if (AI_CONNECTION..=AI_PROMPTS).contains(&id) {
+            self.ai_setting(id, value);
+            return;
+        }
         let mut p = self.docs.prefs.clone();
         match (id, value) {
             (FONT_FAMILY, Value::Text(t)) => p.font_family = t,
@@ -459,6 +498,411 @@ impl App {
         }
         self.full = true;
         self.redraw();
+    }
+}
+
+// ---- Settings › AI -------------------------------------------------------------------------------
+
+/// What the Model row offers: (the model's id, its label), "Default" first and "Other…" last.
+struct Models {
+    list: Vec<(String, String)>,
+    /// Where the current model is in `list`.
+    value: usize,
+    /// The current model is typed, not one of the list.
+    other: bool,
+}
+
+/// How long typing in the base URL pauses before its key is looked up.
+pub(super) const AI_URL_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+impl App {
+    fn ai_key_slot(&self) -> Option<String> {
+        let p = &self.docs.prefs;
+        let preset = core_ai::preset_by_key(&p.ai_preset);
+        if p.ai_connection == Connection::OpenAi && preset.local {
+            return None;
+        }
+        core_ai::key_slot(p.ai_connection, &p.ai_preset, &p.ai_base_url)
+    }
+
+    fn ai_models_key(&self) -> String {
+        let p = &self.docs.prefs;
+        crate::ai::models_key(
+            p.ai_connection,
+            &core_ai::base_url(&p.ai_preset, &p.ai_base_url),
+        )
+    }
+
+    /// The fetched list for the current connection, when there is one.
+    fn ai_fetched(&self) -> Option<&Result<Vec<crate::ai::ModelInfo>, String>> {
+        match self.docs.prefs.ai_connection {
+            Connection::ClaudeApi | Connection::OpenAi => self.ai.models.get(&self.ai_models_key()),
+            _ => None,
+        }
+    }
+
+    fn ai_model_options(&self) -> Models {
+        let c = self.docs.prefs.ai_connection;
+        let current = self.docs.prefs.ai_model(c).to_string();
+        let mut list = vec![(String::new(), "Default".to_string())];
+        for (id, name) in c.aliases() {
+            list.push((id.to_string(), name.to_string()));
+        }
+        if let Some(Ok(models)) = self.ai_fetched() {
+            for m in models {
+                let label = if m.name.is_empty() || m.name == m.id {
+                    m.id.clone()
+                } else {
+                    format!("{} ({})", m.name, m.id)
+                };
+                list.push((m.id.clone(), label));
+            }
+        }
+        let known = list.iter().position(|(id, _)| *id == current);
+        list.push(("\u{0}other".into(), "Other…".into()));
+        let other = known.is_none() || self.ai.model_other;
+        let value = if other {
+            list.len() - 1
+        } else {
+            known.unwrap_or(0)
+        };
+        Models { list, value, other }
+    }
+
+    /// The effort levels the current model takes: its own list, or the connection's.
+    fn ai_effort_options(&self) -> Vec<String> {
+        let c = self.docs.prefs.ai_connection;
+        let model = self.docs.prefs.ai_model(c);
+        if let Some(Ok(models)) = self.ai_fetched()
+            && let Some(m) = models.iter().find(|m| m.id == model)
+            && !m.efforts.is_empty()
+        {
+            return m.efforts.clone();
+        }
+        c.efforts().iter().map(|e| e.to_string()).collect()
+    }
+
+    fn ai_rows(&self) -> Vec<Row> {
+        let p = &self.docs.prefs;
+        let c = p.ai_connection;
+        let labels: Vec<&str> = Connection::ALL.iter().map(|c| c.label()).collect();
+        let at = Connection::ALL.iter().position(|x| *x == c).unwrap_or(0);
+        let mut rows = vec![
+            Row::header("AI"),
+            Row::choice(AI_CONNECTION, "Connection", &labels, at).help(core_ai::destination(
+                c,
+                &p.ai_preset,
+                &p.ai_base_url,
+            )),
+        ];
+        if c.is_cli() {
+            let (value, name) = match c {
+                Connection::ClaudeCode => (&p.ai_claude_path, "claude"),
+                _ => (&p.ai_codex_path, "codex"),
+            };
+            let help = match self.ai.detected.get(c.key()) {
+                Some(Ok((path, version))) if version.is_empty() => format!("Found at {path}."),
+                Some(Ok((path, version))) => format!("Found {version} at {path}."),
+                Some(Err(why)) => why.clone(),
+                None => "Looking for it…".into(),
+            };
+            rows.push(
+                Row::text(AI_PROGRAM, "Program", value.clone())
+                    .placeholder(format!("Found by itself: {name}"))
+                    .help(help),
+            );
+            rows.push(Row::action(AI_CHECK, "Check the program", "Check"));
+        }
+        if c == Connection::OpenAi {
+            let names: Vec<&str> = core_ai::PRESETS.iter().map(|x| x.name).collect();
+            let at = core_ai::PRESETS
+                .iter()
+                .position(|x| x.key == p.ai_preset)
+                .unwrap_or(0);
+            rows.push(Row::choice(AI_PROVIDER, "Provider", &names, at));
+            let preset = core_ai::preset_by_key(&p.ai_preset);
+            if preset.base_url.is_empty() {
+                rows.push(
+                    Row::text(AI_BASE_URL, "Base URL", p.ai_base_url.clone())
+                        .placeholder("https://example.com/v1")
+                        .help("The address before /chat/completions."),
+                );
+            }
+        }
+        if let Some(slot) = self.ai_key_slot() {
+            let stored = self.ai.keys.get(&slot).copied();
+            let placeholder = match stored {
+                Some(true) => "Stored. Type a new key to replace it.",
+                _ => "Paste your API key",
+            };
+            let help = self.ai.key_error.clone().unwrap_or_else(|| match stored {
+                None => "Looking in the system's credential store…".into(),
+                _ => "Kept in the system's credential store, never in the settings file.".into(),
+            });
+            rows.push(
+                Row::text(AI_KEY, "API key", self.ai.key_draft.clone())
+                    .secret()
+                    .placeholder(placeholder)
+                    .help(help),
+            );
+            let button = if self.ai.key_draft.trim().is_empty() && stored == Some(true) {
+                "Remove"
+            } else {
+                "Save"
+            };
+            rows.push(Row::action(AI_KEY_SAVE, "Store the key", button));
+        }
+        if c != Connection::Off {
+            let models = self.ai_model_options();
+            let labels: Vec<&str> = models.list.iter().map(|(_, l)| l.as_str()).collect();
+            let help = match (c, self.ai_fetched()) {
+                (Connection::ClaudeApi | Connection::OpenAi, _) if self.ai.fetching.is_some() => {
+                    "Fetching the models…".to_string()
+                }
+                (_, Some(Err(why))) => why.clone(),
+                (_, Some(Ok(list))) => format!("{} models offered.", list.len()),
+                (Connection::ClaudeCode, _) => "Claude Code's names for its latest models.".into(),
+                (Connection::Codex, _) => "Default is the model Codex is set to use.".into(),
+                _ => String::new(),
+            };
+            rows.push(Row::choice(AI_MODEL, "Model", &labels, models.value).help(help));
+            if models.other {
+                rows.push(
+                    Row::text(AI_MODEL_NAME, "Model name", p.ai_model(c).to_string())
+                        .placeholder("The model's id"),
+                );
+            }
+            if matches!(c, Connection::ClaudeApi | Connection::OpenAi) {
+                rows.push(Row::action(AI_FETCH, "The list of models", "Fetch again"));
+            }
+            let efforts = self.ai_effort_options();
+            let mut labels = vec!["Default".to_string()];
+            labels.extend(efforts.iter().map(|e| core_ai::effort_label(e)));
+            let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+            let at = efforts
+                .iter()
+                .position(|e| e == p.ai_effort(c))
+                .map_or(0, |i| i + 1);
+            rows.push(
+                Row::choice(AI_EFFORT, "Effort", &labels, at)
+                    .help("Higher thinks longer before answering. Default is the model's own."),
+            );
+            rows.push(
+                Row::toggle(AI_REVIEW, "Show changes before applying", p.ai_review)
+                    .help("Off: the result replaces the text at once, and Undo brings it back."),
+            );
+            let n = self.docs.ai_prompts.len();
+            let s = if n == 1 { "" } else { "s" };
+            rows.push(Row::action(
+                AI_PROMPTS,
+                format!("Saved prompts ({n} prompt{s})"),
+                "Edit…",
+            ));
+        }
+        rows
+    }
+
+    /// Asks the engine for what Settings › AI shows and does not know yet: whether the program is
+    /// there, whether a key is stored, the models.
+    pub(super) fn ai_settings_needs(&mut self) {
+        let c = self.docs.prefs.ai_connection;
+        // A shot never starts the engine.
+        if c == Connection::Off || self.ui.settings.is_none() || self.args.shot.is_some() {
+            return;
+        }
+        let wake = self.docs.waker();
+        let mut failed = None;
+        if c.is_cli() && !self.ai.detected.contains_key(c.key()) {
+            let program = match c {
+                Connection::ClaudeCode => &self.docs.prefs.ai_claude_path,
+                _ => &self.docs.prefs.ai_codex_path,
+            };
+            let req = json!({"op": "detect", "cli": c.key(), "program": program});
+            if let Err(e) = self.ai.ask(&wake, Ask::Detect(c), req) {
+                failed = Some(e);
+            }
+        }
+        // While a URL is being typed, its key and models wait for the pause (`url_due`): a reply
+        // that comes in meanwhile, for the URL before, does not look up the one half typed
+        // (audit 1 round 3, #8). The timer calls this again.
+        let typing = self.ai.url_due.is_some();
+        let slot = self.ai_key_slot().filter(|_| !typing);
+        if let Some(slot) = &slot
+            && !self.ai.keys.contains_key(slot)
+            && !self.ai.pending_key(slot)
+            && let Err(e) = self.ai.ask(
+                &wake,
+                Ask::Key(slot.clone()),
+                json!({"op": "key_has", "slot": slot}),
+            )
+        {
+            failed = Some(e);
+        }
+        let key_ok = slot
+            .as_ref()
+            .is_none_or(|s| self.ai.keys.get(s) == Some(&true));
+        let base_ok = c != Connection::OpenAi
+            || !core_ai::base_url(&self.docs.prefs.ai_preset, &self.docs.prefs.ai_base_url)
+                .is_empty();
+        let key = self.ai_models_key();
+        if matches!(c, Connection::ClaudeApi | Connection::OpenAi)
+            && !typing
+            && key_ok
+            && base_ok
+            && !self.ai.models.contains_key(&key)
+            && self.ai.fetching.as_ref() != Some(&key)
+        {
+            let req = json!({"op": "models", "conn": crate::ai::conn_json(c, &self.docs.prefs)});
+            match self.ai.ask(&wake, Ask::Models(key.clone()), req) {
+                Ok(_) => self.ai.fetching = Some(key),
+                Err(e) => failed = Some(e),
+            }
+        }
+        if let Some(why) = failed {
+            self.ai.key_error = Some(why);
+        }
+        self.ai_settings_refresh();
+    }
+
+    /// Settings › AI is made again from what is known now.
+    pub(super) fn ai_settings_refresh(&mut self) {
+        if self.ui.settings.is_none() {
+            return;
+        }
+        let rows = self.settings_rows();
+        if let Some(f) = self.ui.settings.as_mut() {
+            f.set_rows(rows);
+        }
+        self.modal_changed();
+    }
+
+    pub(super) fn ai_setting(&mut self, id: u32, value: Value) {
+        let mut p = self.docs.prefs.clone();
+        let c = p.ai_connection;
+        let mut ask = false;
+        match (id, value) {
+            (AI_CONNECTION, Value::Choice(i)) => {
+                p.ai_connection = Connection::ALL.get(i).copied().unwrap_or_default();
+                self.ai.key_draft.clear();
+                self.ai.key_error = None;
+                self.ai.model_other = false;
+                ask = true;
+            }
+            (AI_PROGRAM, Value::Text(t)) => {
+                match c {
+                    Connection::ClaudeCode => p.ai_claude_path = t,
+                    _ => p.ai_codex_path = t,
+                }
+                self.ai.detected.remove(c.key());
+            }
+            (AI_PROVIDER, Value::Choice(i)) => {
+                if let Some(x) = core_ai::PRESETS.get(i) {
+                    p.ai_preset = x.key.into();
+                }
+                self.ai.key_draft.clear();
+                self.ai.key_error = None;
+                ask = true;
+            }
+            (AI_BASE_URL, Value::Text(t)) => {
+                p.ai_base_url = t;
+                // The new URL's key is looked up once typing pauses.
+                self.ai.url_due = Some(std::time::Instant::now() + AI_URL_DELAY);
+            }
+            (AI_KEY, Value::Text(t)) => {
+                self.ai.key_draft = t;
+                self.ai.key_draft_slot = self.ai_key_slot();
+                self.ai_settings_refresh();
+                return;
+            }
+            (AI_MODEL, Value::Choice(i)) => {
+                let models = self.ai_model_options();
+                if i + 1 >= models.list.len() {
+                    self.ai.model_other = true;
+                } else {
+                    self.ai.model_other = false;
+                    p.set_ai_model(c, &models.list[i].0);
+                }
+            }
+            (AI_MODEL_NAME, Value::Text(t)) => p.set_ai_model(c, t.trim()),
+            (AI_EFFORT, Value::Choice(i)) => {
+                let efforts = self.ai_effort_options();
+                let e = i.checked_sub(1).and_then(|k| efforts.get(k));
+                p.set_ai_effort(c, e.map_or("", String::as_str));
+            }
+            (AI_REVIEW, Value::Bool(on)) => p.ai_review = on,
+            _ => return,
+        }
+        p.clamp();
+        self.set_prefs(p);
+        // A key typed for one endpoint is never kept for another.
+        if !self.ai.key_draft.is_empty() && self.ai.key_draft_slot != self.ai_key_slot() {
+            self.ai.key_draft.clear();
+            self.ai.key_draft_slot = None;
+            self.ai.key_error = None;
+        }
+        if ask {
+            self.ai_settings_needs();
+        } else {
+            self.ai_settings_refresh();
+        }
+    }
+
+    fn ai_settings_action(&mut self, id: u32) {
+        let c = self.docs.prefs.ai_connection;
+        match id {
+            AI_CHECK => {
+                self.ai.detected.remove(c.key());
+                self.ai_settings_needs();
+            }
+            AI_FETCH => {
+                let key = self.ai_models_key();
+                self.ai.models.remove(&key);
+                self.ai.key_error = None;
+                self.ai_settings_needs();
+            }
+            AI_KEY_SAVE => {
+                let Some(slot) = self.ai_key_slot() else {
+                    return;
+                };
+                let key = self.ai.key_draft.trim().to_string();
+                if !key.is_empty() && self.ai.key_draft_slot.as_ref() != Some(&slot) {
+                    self.ai.key_draft.clear();
+                    self.ai_settings_refresh();
+                    return;
+                }
+                if !key.is_empty() && key.chars().count() < 4 {
+                    self.ai.key_error = Some("This is too short to be an API key.".into());
+                    self.ai_settings_refresh();
+                    return;
+                }
+                let req = if key.is_empty() {
+                    if self.ai.keys.get(&slot) != Some(&true) {
+                        return;
+                    }
+                    json!({"op": "key_clear", "slot": slot})
+                } else {
+                    json!({"op": "key_set", "slot": slot, "key": key})
+                };
+                let wake = self.docs.waker();
+                match self.ai.ask(&wake, Ask::Key(slot.clone()), req) {
+                    Ok(_) => {
+                        self.ai.key_draft.clear();
+                        self.ai.key_error = None;
+                        self.ai.keys.remove(&slot);
+                        // The list is fetched again with the new key.
+                        let k = self.ai_models_key();
+                        self.ai.models.remove(&k);
+                    }
+                    Err(e) => self.ai.key_error = Some(e),
+                }
+                self.ai_settings_refresh();
+            }
+            AI_PROMPTS => {
+                self.close_settings();
+                self.ai_edit_prompts();
+            }
+            _ => {}
+        }
     }
 }
 

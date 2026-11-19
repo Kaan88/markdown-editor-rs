@@ -54,6 +54,9 @@ use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, Wind
 
 #[cfg(test)]
 mod access_tests;
+mod ai_events;
+#[cfg(test)]
+mod ai_tests;
 mod commands;
 mod compare_events;
 mod completion;
@@ -108,6 +111,8 @@ pub enum Wake {
     Link,
     /// The preview pane has an answer.
     Preview,
+    /// The AI engine sent something.
+    Ai,
     /// The file watcher saw a change.
     Files,
     /// A load made progress or finished.
@@ -163,6 +168,9 @@ fn make_plan(r: &mut crate::docs::Ready, g: &view::Geom, rect: Rect, scale: f32)
         col_h,
     )
 }
+
+/// How long after a failed write the session is written again.
+const SESSION_RETRY: Duration = Duration::from_secs(5);
 
 fn sig<T: Hash>(t: T) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -294,6 +302,8 @@ struct App {
     macros: crate::macros::Macros,
     /// The command palette: empty until it is first opened.
     palette: crate::palette::Host,
+    /// AI rewriting: the engine once started, a run, its panels and its bar.
+    ai: crate::ai::Ai,
     /// `--type-steps`: keystrokes left and typed, each one's time from keystroke to pixels (ms),
     /// and the part of it spent in the edit itself.
     type_steps: Option<u32>,
@@ -315,6 +325,8 @@ struct App {
     /// The session state last written (`session_sig`); a change is written at the next pass of
     /// the loop, so an ended process (shutdown, Task Manager) loses nothing.
     saved_sig: u64,
+    /// The session could not be written: when to try again.
+    session_retry: Option<Instant>,
     /// `--goto`, `--select`, `--find`, `--scroll` or `--hscroll` wait for this document to be
     /// ready in a windowed run.
     positions_for: Option<DocId>,
@@ -439,11 +451,13 @@ impl App {
             step_times: Vec::new(),
             macros: crate::macros::Macros::default(),
             palette: Default::default(),
+            ai: Default::default(),
             settled: false,
             load_traced: false,
             colours_traced: false,
             wheel_rest: (0.0, 0.0),
             saved_sig: 0,
+            session_retry: None,
             positions_for: None,
             completion: Default::default(),
         }
@@ -541,6 +555,7 @@ impl App {
             && !self.ui.results.focused
             && self.ui.dialog.is_none()
             && !self.palette_open()
+            && !self.ai_panel_open()
             && self.docs.active_ready().is_some()
     }
 
@@ -1049,6 +1064,7 @@ impl App {
 
     /// Composes one frame into `screen` and returns the device-px rectangles changed.
     fn compose(&mut self) -> (Vec<(i32, i32, i32, i32)>, FrameTimes) {
+        self.ai_review_sync();
         let mut times = FrameTimes::default();
         let t0 = Instant::now();
         let (pw, ph) = (self.size.0.max(1), self.size.1.max(1));
@@ -1170,7 +1186,7 @@ impl App {
                 bounds.push(s.menu.rect().inset(-20.0));
             }
         }
-        if self.ui.dialog.is_some() || self.ui.settings.is_some() {
+        if self.ui.dialog.is_some() || self.ui.settings.is_some() || self.ai_panel_open() {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
         if let Some(p) = self.palette.open.as_mut() {
@@ -1233,6 +1249,13 @@ impl App {
                 .open
                 .is_some()
                 .then_some((self.palette.tick, self.ui.caret_on)),
+            // The AI panels raise their tick for every change, as the palette does.
+            self.ai_panel_open().then_some((
+                self.ai.tick,
+                self.ai.hover,
+                self.ai.pressed,
+                self.ui.caret_on,
+            )),
         ));
         let overlay_changed = osig != self.overlay_sig;
         self.overlay_sig = osig;
@@ -1346,6 +1369,11 @@ impl App {
                         if !self.docs.stale.is_empty() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
                             chrome::draw_stale_bar(&mut c, under, self.docs.stale.len());
+                            y = under.bottom();
+                        }
+                        if let Some(bar) = &self.ai.bar {
+                            let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
+                            chrome::draw_ai_bar(&mut c, bar, under);
                         }
                     }
                     Region::Files if self.ui.outline.on => {
@@ -1539,6 +1567,17 @@ impl App {
                     b.draw(c.p, &pal);
                 }
                 // Last, over everything.
+                if self.ai.panel.is_some() {
+                    crate::ai_ui::draw(
+                        c.p,
+                        &pal,
+                        &mut self.ai,
+                        &self.docs.ai_prompts,
+                        w,
+                        h,
+                        self.ui.caret_on,
+                    );
+                }
                 if let Some(p) = self.palette.open.as_mut() {
                     let window = Rect::new(0.0, 0.0, w, h);
                     p.palette
@@ -1582,7 +1621,10 @@ impl App {
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        let covered = self.ui.dialog.is_some() || self.palette_open() || self.ui.settings.is_some();
+        let covered = self.ui.dialog.is_some()
+            || self.palette_open()
+            || self.ai_panel_open()
+            || self.ui.settings.is_some();
         let margin = self.shadow.as_ref().map_or(0, |s| s.margin()) as f32 / self.scale;
         let rect = chrome::snap_button_rect(self.areas.title, margin, self.maximized, covered);
         let key = rect.map(|r| {
@@ -1781,8 +1823,8 @@ impl App {
     // ---- hit testing -------------------------------------------------------------------------
 
     fn hit_at(&self, x: f32, y: f32) -> Option<Hit> {
-        // The palette does its own hit testing.
-        if self.palette_open() {
+        // The palette and the AI panels do their own hit testing.
+        if self.palette_open() || self.ai_panel_open() {
             return None;
         }
         if self.ui.dialog.is_some() {
@@ -1877,7 +1919,7 @@ impl App {
     /// What the session file holds, as a hash.
     fn session_sig(&self) -> u64 {
         sig((
-            (self.docs.paths(), self.docs.pins()),
+            (self.docs.paths(), self.docs.pins(), &self.session.unsaved),
             (self.docs.active_among_paths(), self.split_state()),
             self.docs.recents.paths(),
             (!self.theme_from_args).then_some(self.docs.theme),
@@ -1923,9 +1965,13 @@ impl App {
         if !self.save || self.session_path.is_none() || self.ui.drag.is_some() {
             return;
         }
+        // A write that failed is tried again after a pause, not on every pass.
+        if self.session_retry.is_some_and(|at| Instant::now() < at) {
+            return;
+        }
         // Backups of text that was saved, discarded or closed since the start are dropped. Not
         // once the exit has set the list to keep (it is final then).
-        if !self.session.unsaved.is_empty() && !self.exit && self.docs.prefs.restore_session {
+        if !self.session.unsaved.is_empty() && !self.exit {
             let tabs: Vec<TabState> = self.docs.tabs.iter().map(|d| d.tab_state()).collect();
             let kept = Unsaved::prune(&self.session.unsaved, &tabs);
             if kept.len() != self.session.unsaved.len() {
@@ -1945,9 +1991,11 @@ impl App {
         backup_dir_of(path)
     }
 
-    fn save_session(&mut self) {
+    /// Writes the session; false when it could not be written (it is tried again later: the
+    /// state written last is not taken as written, audit 1 round 4, #1).
+    fn save_session(&mut self) -> bool {
         let Some(path) = self.session_path.clone().filter(|_| self.save) else {
-            return;
+            return true;
         };
         let split = self.split_state();
         let s = &mut self.session;
@@ -1993,9 +2041,122 @@ impl App {
         s.folder = self.docs.folder.clone();
         if let Err(e) = s.save(&path) {
             eprintln!("mdedit: could not save the session: {e}");
+            self.session_retry = Some(Instant::now() + SESSION_RETRY);
+            return false;
         }
+        self.session_retry = None;
         self.saved_sig = self.session_sig();
+        true
     }
+}
+
+/// At the start: the recovery copies an earlier run left (`recovery`'s folder) and the backups the
+/// last exit kept (`backups`, listed in `unsaved`) come back as tabs. Returns the tabs that read
+/// their text once loaded, how many copies came back, and whether an entry of `unsaved` changed
+/// (the caller writes the session at once then).
+///
+/// Which copy covers which backup is settled first ([`crate::recovery::cover`]: by draft id,
+/// only when certain, only when the copy is the newer), then the copies come back, then the
+/// backups. Nothing depends on the session being written afterwards: a copy and its backup name
+/// the same draft id whatever the tabs are called (audit 1 round 4, #1).
+fn bring_back(
+    docs: &mut Docs,
+    recovery: &mut crate::recovery::Recovery,
+    unsaved: &mut [Unsaved],
+    backups: Option<&Path>,
+) -> (Vec<usize>, usize, bool) {
+    let found = recovery.scan();
+    let time = |u: &Unsaved| {
+        let file = backups?.join(&u.file);
+        std::fs::metadata(file).and_then(|m| m.modified()).ok()
+    };
+    let cover = crate::recovery::cover(&found, unsaved, time);
+    let recovered = recovery.restore(docs, found);
+    let covered: Vec<Option<DocId>> = cover
+        .iter()
+        .map(|c| c.and_then(|i| recovered.tabs[i]))
+        .collect();
+    // Unsaved text kept at the last exit comes back whatever "Restore tabs at start" says.
+    let (mut restored, remapped) = match backups {
+        Some(dir) => restore_unsaved(docs, unsaved, &covered, dir),
+        None => (Vec::new(), false),
+    };
+    restored.extend(recovered.load.iter().copied());
+    (restored, recovered.count, remapped)
+}
+
+/// Puts back the text that was unsaved when the window last closed, except where a recovery copy
+/// has newer text of the same draft. Whatever "Restore tabs at start" says: closing never asks
+/// about unsaved text, so it keeps it, and only tabs with nothing unsaved stay closed. Returns
+/// the tabs that read their backup once loaded, and whether any entry changed.
+///
+/// `covered` has, for each entry, the tab of the recovery copy that covers it. That tab keeps the
+/// backup as its fallback until the copy's text is in (audit 1 round 4, #2). Each entry is made
+/// to describe the tab it stands for (its file, number and draft id), so the session keeps
+/// naming its backup until the text is saved or discarded. A file tab already taking a copy's
+/// text never has it replaced by a backup: the backup opens as a draft of its own.
+fn restore_unsaved(
+    docs: &mut Docs,
+    unsaved: &mut [Unsaved],
+    covered: &[Option<DocId>],
+    dir: &Path,
+) -> (Vec<usize>, bool) {
+    let mut restored = Vec::new();
+    let mut changed = false;
+    let describe = |u: &mut Unsaved, d: &crate::docs::Doc| {
+        let now = (d.path.clone(), d.untitled, Some(d.draft));
+        let was = (u.path.clone(), u.untitled, u.draft);
+        (u.path, u.untitled, u.draft) = now.clone();
+        was != now
+    };
+    for (i, u) in unsaved.iter_mut().enumerate() {
+        let file = dir.join(&u.file);
+        if let Some(k) = covered
+            .get(i)
+            .copied()
+            .flatten()
+            .and_then(|id| docs.index_of_id(id))
+        {
+            let d = &mut docs.tabs[k];
+            if d.restore.is_some() && d.fallback.is_none() && file.is_file() {
+                d.fallback = Some(file);
+            }
+            changed |= describe(u, &docs.tabs[k]);
+            continue;
+        }
+        if !file.is_file() {
+            continue;
+        }
+        let k = match u.path.as_ref().filter(|p| p.is_file()) {
+            Some(path) => {
+                let k = docs.add_pending(path);
+                if docs.tabs[k].restore.is_none() {
+                    docs.tabs[k].restore = Some(file);
+                    restored.push(k);
+                    Some(k)
+                } else {
+                    // The tab already takes other unsaved text of this file (a copy that is not
+                    // certainly this draft's): this backup comes back as a draft of its own.
+                    std::fs::read_to_string(&file)
+                        .ok()
+                        .map(|text| docs.restore_untitled(0, &text))
+                }
+            }
+            // A document that had no file, or whose file is gone since.
+            None => std::fs::read_to_string(&file)
+                .ok()
+                .map(|text| docs.restore_untitled(u.untitled, &text)),
+        };
+        if let Some(k) = k {
+            if let Some(d) = u.draft
+                && !docs.tabs.iter().any(|t| t.draft == d)
+            {
+                docs.tabs[k].draft = d;
+            }
+            changed |= describe(u, &docs.tabs[k]);
+        }
+    }
+    (restored, changed)
 }
 
 fn backup_dir_of(session: &Path) -> Option<PathBuf> {
@@ -2455,7 +2616,12 @@ impl App {
         } else {
             view::BANNER_H
         };
-        format + strip + update + crash + stale
+        let ai = if self.ai.bar.is_some() {
+            view::BANNER_H
+        } else {
+            0.0
+        };
+        format + strip + update + crash + stale + ai
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
@@ -2862,6 +3028,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
         app.settle_palette();
     }
     app.shot_replace();
+    if let Some(kind) = app.args.ai_demo.clone() {
+        app.ai_demo(&kind);
+    }
     if app.ui.dialog.is_some() || app.ui.popup.is_some() || app.palette_open() {
         app.compose();
     }
@@ -3050,37 +3219,13 @@ pub fn run() -> i32 {
             .filter(|_| args.shot.is_none())
             .and_then(crate::recovery::dir_of),
     );
-    let found = recovery.scan();
-    // Tabs that had unsaved text when the window last closed get it back, except where a
-    // recovery copy has newer text of the same document.
-    let mut restored = Vec::new();
-    if let Some(dir) = session_path.as_deref().and_then(backup_dir_of) {
-        for u in session.unsaved.iter().filter(|_| restore) {
-            if crate::recovery::covers(&found, u) {
-                continue;
-            }
-            let file = dir.join(&u.file);
-            if !file.is_file() {
-                continue;
-            }
-            match u.path.as_ref().filter(|p| p.is_file()) {
-                Some(path) => {
-                    let k = docs.add_pending(path);
-                    docs.tabs[k].restore = Some(file);
-                    restored.push(k);
-                }
-                // A document that had no file, or whose file is gone since.
-                None => {
-                    if let Ok(text) = std::fs::read_to_string(&file) {
-                        docs.restore_untitled(u.untitled, &text);
-                    }
-                }
-            }
-        }
-    }
-    // The copies come back as modified tabs.
-    let recovered = recovery.restore(&mut docs, found);
-    restored.extend(recovered.load.iter().copied());
+    let backups = session_path.as_deref().and_then(backup_dir_of);
+    let (restored, recovered, remapped) = bring_back(
+        &mut docs,
+        &mut recovery,
+        &mut session.unsaved,
+        backups.as_deref(),
+    );
     docs.start_day(&mut session);
     // The pinned tabs are marked now and put first once every index taken here is used.
     if restore {
@@ -3117,7 +3262,7 @@ pub fn run() -> i32 {
     let mut app = App::new(args, docs, trace, session_path, session);
     app.compare_wait = compare_ids;
     app.recovery = recovery;
-    let recovered_count = app.args.demo_recovered.unwrap_or(recovered.count);
+    let recovered_count = app.args.demo_recovered.unwrap_or(recovered);
     if recovered_count > 0 {
         app.docs
             .set_toast(&crate::commands::strings::recovered(recovered_count));
@@ -3191,6 +3336,12 @@ pub fn run() -> i32 {
         app.positions_for = app.docs.active_doc().map(|d| d.id);
     }
     app.saved_sig = app.session_sig();
+    // A backup that now names another document is written down before any recovery copy can be
+    // written under that name (audit 1 round 3, #5).
+    if remapped && !app.save_session() {
+        // Not written: the next pass of the loop tries again.
+        app.saved_sig = 0;
+    }
     let event_loop = match EventLoop::<Wake>::with_user_event().build() {
         Ok(l) => l,
         Err(e) => {
@@ -3322,6 +3473,343 @@ mod tests {
         app.answer(1);
         assert!(app.exit);
         assert_eq!(app.restart, Some(PathBuf::from("/preview/app")));
+    }
+
+    /// Audit 1, finding 1 and round 2: with "Restore tabs at start" off, drafts kept at exit
+    /// come back at every start, and the session keeps naming their backups after the first
+    /// pruning, also for a document whose file is gone and an untitled number already taken.
+    #[test]
+    fn kept_drafts_survive_restarts_with_restore_off() {
+        let dir = std::env::temp_dir().join(format!("mdedit-kept-drafts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let backups = dir.join("backup");
+        std::fs::create_dir_all(&backups).unwrap();
+        let file = dir.join("gone.txt");
+        std::fs::write(&file, "file text\n").unwrap();
+        let fresh = || {
+            let mut d = Docs::new(1254, Arc::new(|_| {}));
+            d.prefs.restore_session = false;
+            d
+        };
+        // The first run: an untitled draft, a draft of a file, and Exit keeps both.
+        let mut docs = fresh();
+        docs.new_untitled();
+        assert!(docs.edit(EditOp::Insert("draft"), None));
+        let i = docs.open(&file);
+        docs.load_now(i, None, false);
+        docs.activate(i);
+        assert!(docs.edit(EditOp::Insert("edited "), None));
+        let mut unsaved = docs.write_backups(&backups).unwrap();
+        assert_eq!(unsaved.len(), 2);
+        // The file goes; the next start has another untitled tab holding number 1.
+        std::fs::remove_file(&file).unwrap();
+        for run in 0..3 {
+            let mut docs = fresh();
+            docs.new_untitled();
+            restore_unsaved(&mut docs, &mut unsaved, &[], &backups);
+            let texts: Vec<String> = docs
+                .tabs
+                .iter()
+                .filter(|d| d.modified())
+                .map(|d| d.ready().unwrap().buffer.rope().to_string())
+                .collect();
+            assert!(texts.contains(&"draft".to_string()), "run {run}: {texts:?}");
+            assert!(
+                texts.contains(&"edited file text\n".to_string()),
+                "run {run}"
+            );
+            // The session's first pruning keeps both.
+            let tabs: Vec<TabState> = docs.tabs.iter().map(|d| d.tab_state()).collect();
+            let kept = Unsaved::prune(&unsaved, &tabs);
+            assert_eq!(kept.len(), 2, "run {run}: {kept:?}");
+            unsaved = docs.write_backups(&backups).unwrap();
+            assert_eq!(unsaved.len(), 2, "kept again by exit {run}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 3, #1 and #5: a draft of a file that is gone and an untitled draft with a
+    /// newer recovery copy both came back, and a second interruption before any new copy was
+    /// written. Both texts come back at every start, and an exit keeps both; the session entries
+    /// name the tabs they stand for, so Save As on one drops only its own entry.
+    #[test]
+    fn two_drafts_survive_a_second_interruption() {
+        use crate::recovery::Recovery;
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("mdedit-two-drafts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let backups = dir.join("backup");
+        std::fs::create_dir_all(&backups).unwrap();
+        let file = dir.join("gone.txt");
+        std::fs::write(&file, "file text\n").unwrap();
+        let fresh = || {
+            let mut d = Docs::new(1254, Arc::new(|_| {}));
+            d.prefs.restore_session = false;
+            d
+        };
+        let texts = |docs: &Docs| {
+            let mut t: Vec<String> = docs
+                .tabs
+                .iter()
+                .filter(|d| d.modified())
+                .map(|d| d.ready().unwrap().buffer.rope().to_string())
+                .collect();
+            t.sort();
+            t
+        };
+        // The first run: a draft of a file and an untitled draft, kept by Exit.
+        let mut docs = fresh();
+        let i = docs.open(&file);
+        docs.load_now(i, None, false);
+        docs.activate(i);
+        assert!(docs.edit(EditOp::Insert("edited "), None));
+        let u = docs.new_untitled();
+        docs.activate(u);
+        assert!(docs.edit(EditOp::Insert("draft"), None));
+        let mut unsaved = docs.write_backups(&backups).unwrap();
+        assert_eq!(unsaved.len(), 2);
+        // The second run types on in the untitled draft; its copy is written, then it dies.
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        assert!(docs.edit(EditOp::Insert(" newer"), None));
+        let t0 = Instant::now();
+        rec.poll(&docs, t0);
+        rec.poll(&docs, t0 + Duration::from_secs(60));
+        rec.flush();
+        drop(rec);
+        std::fs::remove_file(&file).unwrap();
+        let want = vec!["draft newer".to_string(), "edited file text\n".to_string()];
+        // Two starts that both die before writing anything new, then one that exits.
+        for run in 0..3 {
+            let mut docs = fresh();
+            let mut rec = Recovery::new(Some(dir.join("recover")));
+            let (_, _, remapped) = bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+            assert_eq!(texts(&docs), want, "run {run}");
+            // The entries name distinct tabs.
+            let mut names: Vec<(bool, u32)> = unsaved
+                .iter()
+                .map(|u| (u.path.is_some(), u.untitled))
+                .collect();
+            names.dedup();
+            assert_eq!(names.len(), 2, "run {run}: {unsaved:?}");
+            let tabs: Vec<TabState> = docs.tabs.iter().map(|d| d.tab_state()).collect();
+            assert_eq!(Unsaved::prune(&unsaved, &tabs).len(), 2, "run {run}");
+            // The file's draft took a new number once, and the session was told.
+            assert_eq!(remapped, run == 0, "run {run}");
+            if run == 2 {
+                // Save As on the recovered draft drops its entry, and only its entry.
+                let k = (0..docs.tabs.len())
+                    .find(|&k| docs.tabs[k].ready().unwrap().buffer.rope() == "draft newer")
+                    .unwrap();
+                docs.activate(k);
+                docs.save_as(k, &dir.join("saved.txt"), None, false)
+                    .unwrap();
+                let tabs: Vec<TabState> = docs.tabs.iter().map(|d| d.tab_state()).collect();
+                let kept = Unsaved::prune(&unsaved, &tabs);
+                assert_eq!(kept.len(), 1, "{kept:?}");
+                rec.finish(&docs);
+                unsaved = docs.write_backups(&backups).unwrap();
+                assert_eq!(unsaved.len(), 1);
+            }
+        }
+        // What is left on disk is the file's draft.
+        let mut docs = fresh();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        assert_eq!(texts(&docs), ["edited file text\n"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A start for the round 4 tests: the documents, as `two_drafts_survive_a_second_interruption`.
+    fn r4_docs() -> Docs {
+        let mut d = Docs::new(1254, Arc::new(|_| {}));
+        d.prefs.restore_session = false;
+        d
+    }
+
+    /// The texts of the modified tabs, sorted; tabs waiting for their text read it first.
+    fn r4_texts(docs: &mut Docs) -> Vec<String> {
+        for k in 0..docs.tabs.len() {
+            if docs.tabs[k].ready().is_none() {
+                docs.load_now(k, None, false);
+            }
+        }
+        let mut t: Vec<String> = docs
+            .tabs
+            .iter()
+            .filter(|d| d.modified())
+            .map(|d| d.ready().unwrap().buffer.rope().to_string())
+            .collect();
+        t.sort();
+        t
+    }
+
+    /// Writes the recovery copies of `docs` as a run that then dies does.
+    fn r4_copies(docs: &Docs, rec: &mut crate::recovery::Recovery) {
+        use std::time::{Duration, Instant};
+        let t0 = Instant::now();
+        rec.poll(docs, t0);
+        rec.poll(docs, t0 + Duration::from_secs(60));
+        rec.flush();
+    }
+
+    fn r4_dir(name: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mdedit-r4-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let backups = dir.join("backup");
+        std::fs::create_dir_all(&backups).unwrap();
+        (dir, backups)
+    }
+
+    /// Audit 1 round 4, #1 and #9: the session cannot be written at any start, so every start
+    /// reads the entries the first exit wrote, while each start writes recovery copies of its
+    /// own before it dies. Both drafts come back once each, every time.
+    #[test]
+    fn drafts_survive_starts_whose_session_is_never_written() {
+        use crate::recovery::Recovery;
+        let (dir, backups) = r4_dir("no-session");
+        let file = dir.join("gone.txt");
+        std::fs::write(&file, "file text\n").unwrap();
+        let mut docs = r4_docs();
+        let i = docs.open(&file);
+        docs.load_now(i, None, false);
+        docs.activate(i);
+        assert!(docs.edit(EditOp::Insert("edited "), None));
+        let u = docs.new_untitled();
+        docs.activate(u);
+        assert!(docs.edit(EditOp::Insert("draft"), None));
+        let first = docs.write_backups(&backups).unwrap();
+        assert_eq!(first.len(), 2);
+        // The second run types on in the untitled draft, writes its copy, and dies; the file
+        // goes, so the next start gives the file's draft another name.
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        assert!(docs.edit(EditOp::Insert(" newer"), None));
+        r4_copies(&docs, &mut rec);
+        drop(rec);
+        std::fs::remove_file(&file).unwrap();
+        let want = vec!["draft newer".to_string(), "edited file text\n".to_string()];
+        for run in 0..4 {
+            let mut unsaved = first.clone();
+            let mut docs = r4_docs();
+            let mut rec = Recovery::new(Some(dir.join("recover")));
+            bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+            assert_eq!(r4_texts(&mut docs), want, "run {run}");
+            r4_copies(&docs, &mut rec);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 4, #2: a recovery copy whose header reads but whose text does not (here
+    /// not UTF-8) gives way to the backup of the same draft, for a file and for a new document.
+    #[test]
+    fn a_copy_whose_text_cannot_be_read_gives_way_to_its_backup() {
+        use crate::recovery::Recovery;
+        let (dir, backups) = r4_dir("bad-copy");
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "file text\n").unwrap();
+        let mut docs = r4_docs();
+        let i = docs.open(&file);
+        docs.load_now(i, None, false);
+        docs.activate(i);
+        assert!(docs.edit(EditOp::Insert("backup "), None));
+        let u = docs.new_untitled();
+        docs.activate(u);
+        assert!(docs.edit(EditOp::Insert("draft"), None));
+        let mut unsaved = docs.write_backups(&backups).unwrap();
+        // A later run types more in both and dies; its copies are then damaged.
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        assert!(docs.edit(EditOp::Insert(" newer"), None));
+        docs.activate(i);
+        assert!(docs.edit(EditOp::Insert("newer "), None));
+        r4_copies(&docs, &mut rec);
+        drop(rec);
+        let mut damaged = 0;
+        for e in std::fs::read_dir(dir.join("recover")).unwrap().flatten() {
+            let mut data = std::fs::read(e.path()).unwrap();
+            *data.last_mut().unwrap() = 0xff;
+            std::fs::write(e.path(), data).unwrap();
+            damaged += 1;
+        }
+        assert_eq!(damaged, 2);
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        assert_eq!(
+            r4_texts(&mut docs),
+            ["backup file text\n".to_string(), "draft".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 4, #5: sessions from before 1.1 with two entries both numbered 1 (round 3
+    /// could leave them) and one copy numbered 1. Which entry the copy stands for is not
+    /// certain, so all three texts come back.
+    #[test]
+    fn two_old_entries_with_one_number_and_a_copy_all_come_back() {
+        use crate::recovery::Recovery;
+        let (dir, backups) = r4_dir("same-number");
+        std::fs::write(backups.join("1.txt"), "first").unwrap();
+        std::fs::write(backups.join("2.txt"), "second").unwrap();
+        let entry = |file: &str| Unsaved {
+            file: file.into(),
+            untitled: 1,
+            path: None,
+            draft: None,
+        };
+        let mut unsaved = vec![entry("1.txt"), entry("2.txt")];
+        let h = mdedit_core::recovery::Header {
+            path: None,
+            untitled: 1,
+            encoding: "UTF-8".into(),
+            eol: "Unix (LF)".into(),
+            disk: None,
+            draft: None,
+            bytes: 0,
+        };
+        let rope = ropey::Rope::from_str("copy");
+        mdedit_core::recovery::write(&dir.join("recover"), "7-1.rec", &h, &rope).unwrap();
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        assert_eq!(r4_texts(&mut docs), ["copy", "first", "second"]);
+        // Each entry now names a draft of its own.
+        let tabs: Vec<TabState> = docs.tabs.iter().map(|d| d.tab_state()).collect();
+        assert_eq!(Unsaved::prune(&unsaved, &tabs).len(), 2);
+        assert_ne!(unsaved[0].draft, unsaved[1].draft);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 4, #4: a copy from before 1.1 that is older than the backup of the same
+    /// file (a later exit wrote the backup) does not hide the backup's newer text.
+    #[test]
+    fn an_old_copy_older_than_the_backup_hides_nothing() {
+        use crate::recovery::Recovery;
+        let (dir, backups) = r4_dir("older-copy");
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "file\n").unwrap();
+        let h = mdedit_core::recovery::Header {
+            path: Some(file.clone()),
+            untitled: 0,
+            encoding: "UTF-8".into(),
+            eol: "Unix (LF)".into(),
+            disk: None,
+            draft: None,
+            bytes: 0,
+        };
+        let rope = ropey::Rope::from_str("older");
+        mdedit_core::recovery::write(&dir.join("recover"), "7-1.rec", &h, &rope).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        std::fs::write(backups.join("1.txt"), "newer").unwrap();
+        let mut unsaved = vec![Unsaved {
+            file: "1.txt".into(),
+            untitled: 0,
+            path: Some(file.clone()),
+            draft: None,
+        }];
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        assert_eq!(r4_texts(&mut docs), ["newer", "older"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The saved window size is the content size: a window started at the saved size, grown by

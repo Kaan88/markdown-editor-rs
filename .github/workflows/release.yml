@@ -132,6 +132,7 @@ jobs:
           "$d/prefix/bin/mdedit" --no-session --scale 1.0 --shot "$d/shot.png" --light fixtures/sample.rs
           test -s "$d/shot.png"
           test -x "$d/prefix/lib/mdedit/mdview-engine"
+          test -x "$d/prefix/lib/mdedit/mdedit-ai"
           "$d/mdedit-$v-linux-x86_64/uninstall.sh" "$d/prefix"
           test ! -e "$d/prefix/bin/mdedit" && test ! -e "$d/prefix/lib/mdedit"
       - uses: actions/upload-artifact@v4
@@ -167,13 +168,14 @@ jobs:
           key: release-macos-${{ matrix.arch }}
       - name: The bundle (packaging/macos/make-bundle.sh, ad-hoc signature), zipped
         run: |
-          cargo build --release -p mdedit
+          cargo build --release -p mdedit -p mdedit-ai
           # The preview pane's engine, from the viewer at the revision mdedit pins.
           bash packaging/engine-source.sh target/engine-src
           cargo build --release --locked -p mdview-engine --manifest-path target/engine-src/Cargo.toml --target-dir target/engine
           cp target/engine/release/mdview-engine target/release/
           bash packaging/macos/make-bundle.sh target/release target/dist
           test -x target/dist/mdedit.app/Contents/MacOS/mdview-engine
+          test -x target/dist/mdedit.app/Contents/MacOS/mdedit-ai
           codesign --verify --deep --strict target/dist/mdedit.app
           zip="target/dist/mdedit-${{ needs.meta.outputs.version }}-macos-${{ matrix.arch }}.zip"
           ditto -c -k --keepParent target/dist/mdedit.app "$zip"
@@ -259,15 +261,17 @@ jobs:
           # The Windows entry names the native exe the windows job built, the Linux entry the AppImage.
           tools/write-manifest.sh --version "$VERSION" --notes "$(cat notes/notes-line.txt)" --out "$all" \
             --windows "$all/mdedit-$VERSION-windows-x86_64.exe" --windows-engine "$all/mdview-engine.exe" \
-            --linux "$all/mdedit-$VERSION-linux-x86_64.AppImage"
-          cat "$all/mdedit-update.txt"
+            --windows-ai "$all/mdedit-ai.exe" --linux "$all/mdedit-$VERSION-linux-x86_64.AppImage"
+          cat "$all/mdedit-update.txt" "$all/mdedit-update-2.txt"
           # Independently of the script: every sha256 line against the file it names.
-          while read -r key value; do
-            case "$key" in
-              *.url:) file="${value##*/}" ;;
-              *.sha256:) echo "$value  $all/$file" | sha256sum -c - ;;
-            esac
-          done < "$all/mdedit-update.txt"
+          for m in mdedit-update.txt mdedit-update-2.txt; do
+            while read -r key value; do
+              case "$key" in
+                *.url:) file="${value##*/}" ;;
+                *.sha256:) echo "$value  $all/$file" | sha256sum -c - ;;
+              esac
+            done < "$all/$m"
+          done
           # The packages that carry no manifest entry: the PKGBUILD names the tar.gz's hash.
           tgz="$all/mdedit-$VERSION-linux-x86_64.tar.gz"
           grep -q "sha256sums=('$(sha256sum "$tgz" | cut -d' ' -f1)')" "$all/PKGBUILD"
@@ -284,8 +288,8 @@ jobs:
           gh release create "v$VERSION" \
             "mdedit-$VERSION-linux-x86_64.AppImage" "mdedit-$VERSION-linux-x86_64.tar.gz" \
             "mdedit_${VERSION}_amd64.deb" "mdedit-$VERSION-1.x86_64.rpm" PKGBUILD \
-            "mdedit-$VERSION-windows-x86_64.exe" "mdview-engine.exe" "mdedit-$VERSION-windows-x86_64.zip" \
-            "mdedit-setup-$VERSION.exe" "mdedit-update.txt" \
+            "mdedit-$VERSION-windows-x86_64.exe" "mdview-engine.exe" "mdedit-ai.exe" "mdedit-$VERSION-windows-x86_64.zip" \
+            "mdedit-setup-$VERSION.exe" "mdedit-update.txt" "mdedit-update-2.txt" \
             "mdedit-$VERSION-macos-aarch64.zip" "mdedit-$VERSION-macos-x86_64.zip" "mdedit-update-macos.txt" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "mdedit $VERSION" \
             --notes-file "$GITHUB_WORKSPACE/notes/release-notes.md" --latest

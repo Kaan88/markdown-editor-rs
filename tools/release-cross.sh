@@ -59,7 +59,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
     -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR=/cache/target -e XWIN_CACHE_DIR=/cache/xwin \
     -e MD_LLVM_RC=/usr/bin/llvm-rc -e CARGO_TERM_COLOR=never \
     -w /src "$image" \
-    bash -c 'PATH=/opt/cargo/bin:$PATH cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p mdedit
+    bash -c 'PATH=/opt/cargo/bin:$PATH cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p mdedit -p mdedit-ai
         packaging/engine-source.sh /cache/target/engine-src
         RUSTFLAGS="-C target-feature=+crt-static" cargo xwin build --release --locked --target x86_64-pc-windows-msvc \
             -p mdview-engine --manifest-path /cache/target/engine-src/Cargo.toml --target-dir /cache/target/engine'
@@ -67,11 +67,14 @@ built="$cache/$app/target-win/x86_64-pc-windows-msvc/release/$app.exe"
 engine="$cache/$app/target-win/engine/x86_64-pc-windows-msvc/release/mdview-engine.exe"
 [ -f "$built" ] || { echo "build left no $built" >&2; exit 1; }
 [ -f "$engine" ] || { echo "build left no $engine" >&2; exit 1; }
+ai="$cache/$app/target-win/x86_64-pc-windows-msvc/release/mdedit-ai.exe"
+[ -f "$ai" ] || { echo "build left no $ai" >&2; exit 1; }
 
 asset="$app-$version-windows-x86_64.exe"
-rm -f "$dist/$asset" "$dist/mdview-engine.exe" "$dist/$app-setup-$version.exe" "$dist/$app-update.txt"
+rm -f "$dist/$asset" "$dist/mdview-engine.exe" "$dist/mdedit-ai.exe" "$dist/$app-update-2.txt" "$dist/$app-setup-$version.exe" "$dist/$app-update.txt"
 cp "$built" "$dist/$asset"
 cp "$engine" "$dist/mdview-engine.exe"
+cp "$ai" "$dist/mdedit-ai.exe"
 
 # 2. The installer: ISCC.exe under Wine, on the same .iss the PowerShell script uses. The script
 # names its inputs relative to itself (..\..\target\release\mdedit.exe), so a scratch tree with the
@@ -91,6 +94,7 @@ if [ "$installer" = 1 ]; then
     cp assets/mdedit.ico "$stage/assets/"
     cp "$built" "$stage/target/release/mdedit.exe"
     cp "$engine" "$stage/target/engine/mdview-engine.exe"
+    cp "$ai" "$stage/target/release/mdedit-ai.exe"
     export WINEPREFIX="$cache/wine-prefix" WINEARCH=win64 WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
     wine "$iscc_dir/ISCC.exe" "/DAppVersion=$version" "$(winepath -w "$stage/packaging/windows/mdedit.iss" 2>/dev/null)" >/dev/null
     cp "$stage/target/installer/$app-setup-$version.exe" "$dist/"
@@ -106,6 +110,6 @@ if [ "$installer" = 1 ]; then
 fi
 
 # 3. The manifest, Windows entry only.
-tools/write-manifest.sh --version "$version" --notes "$notes" --out "$dist" --windows "$dist/$asset" --windows-engine "$dist/mdview-engine.exe"
+tools/write-manifest.sh --version "$version" --notes "$notes" --out "$dist" --windows "$dist/$asset" --windows-engine "$dist/mdview-engine.exe" --windows-ai "$dist/mdedit-ai.exe"
 
 ( cd "$dist" && ls -l "$asset" mdview-engine.exe "$app-update.txt" $( [ "$installer" = 1 ] && echo "$app-setup-$version.exe" ) && sha256sum "$asset" $( [ "$installer" = 1 ] && echo "$app-setup-$version.exe" ) )

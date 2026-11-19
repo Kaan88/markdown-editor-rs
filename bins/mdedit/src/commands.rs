@@ -158,6 +158,15 @@ pub enum CommandId {
     /// The word and snippet list at the caret; the snippets file.
     CompleteWord,
     OpenSnippets,
+    /// AI rewriting of the selection, or of the whole document when nothing is selected:
+    /// the two built-in requests, one typed, the saved prompts file, the AI settings, and
+    /// stopping a rewrite that is running.
+    AiFormat,
+    AiFix,
+    AiRewrite,
+    AiEditPrompts,
+    AiSettings,
+    AiCancel,
 }
 
 pub struct Command {
@@ -352,6 +361,12 @@ pub const COMMANDS: &[Command] = &[
     // Ctrl+Space can be taken by an input method on Linux (switching layouts), so Alt+/ too.
     cmd(C::CompleteWord, "Complete word", &["Ctrl+Space", "Alt+/"]),
     cmd(C::OpenSnippets, "Open snippets file", &[]),
+    cmd(C::AiFormat, "AI: Format as Markdown", &[]),
+    cmd(C::AiFix, "AI: Fix Markdown", &[]),
+    cmd(C::AiRewrite, "AI: Rewrite with instruction…", &[]),
+    cmd(C::AiEditPrompts, "AI: Edit saved prompts", &[]),
+    cmd(C::AiSettings, "AI: Settings", &[]),
+    cmd(C::AiCancel, "AI: Stop rewriting", &[]),
 ];
 
 pub fn command(id: CommandId) -> &'static Command {

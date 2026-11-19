@@ -1,32 +1,29 @@
 //! The manifests the release scripts write (tools/write-manifest.sh, tools/release.ps1) must read
-//! as installable releases, and every file they list must have the hash they state. Each of
-//! these folders is checked when it exists, and skipped when it does not:
+//! as installable releases with the build that reads each, and every file they list must have the
+//! hash they state. Each of these folders is checked when it exists, and skipped when it does not:
 //!
-//! * `target/release-files-all/`   tools/release-all.sh (Windows and Linux)
+//! * `target/release-files-all/`   the release workflow and tools/release-all.sh
 //! * `target/dist-cross/`          tools/release-cross.sh (Windows only)
 //! * `target/dist/<version>/`      tools\release.ps1 on Windows (Windows only)
 //!
-//! Runs on Windows and Linux. The platform this test runs on is offered the release when the
-//! manifest has an entry for it.
+//! `mdedit-update.txt` (format 1) is what mdedit up to 1.0.6 reads on Windows and Linux, and 1.1 on
+//! Linux: it is read here with 1.0.6's shared updater (`mdshared-app-106`) and with this one.
+//! `mdedit-update-2.txt` (format 2) is what 1.1 reads on Windows: it must list the AI engine, and
+//! 1.0.6's reader must refuse it (that is why there are two). Both platforms are checked whatever
+//! this runs on.
 
-use mdshared_app::update::{Version, verify_sha256_file};
-use mdshared_app::updater::{self as shared, App};
+use mdshared_app::update::{Platform, UpdateManifest, Version, newer, verify_sha256_file};
+use mdshared_app_106::update as old;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-const APP: App = App {
-    name: "mdedit",
-    version: env!("CARGO_PKG_VERSION"),
-    manifest_url: "https://github.com/Kaan88/markdown-editor-rs/releases/latest/download/mdedit-update.txt",
-    manifest_env: "MDEDIT_UPDATE_MANIFEST",
-    engine: Some("mdview-engine"),
-    uninstall_key: None,
-};
-
 fn folders() -> Vec<PathBuf> {
     let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    let mut out = vec![target.join("release-files-all"), target.join("dist-cross")];
-    out.push(target.join("dist").join(env!("CARGO_PKG_VERSION")));
+    let out = vec![
+        target.join("release-files-all"),
+        target.join("dist-cross"),
+        target.join("dist").join(env!("CARGO_PKG_VERSION")),
+    ];
     out.into_iter()
         .filter(|d| d.join("mdedit-update.txt").is_file())
         .collect()
@@ -40,85 +37,105 @@ fn keys(text: &str) -> HashMap<String, String> {
         .collect()
 }
 
+/// Every file a manifest lists is beside it, with the stated hash; how many.
+fn files_match(dir: &Path, text: &str) -> usize {
+    let k = keys(text);
+    let mut checked = 0;
+    for (key, hash) in k.iter().filter(|(k, _)| k.ends_with(".sha256")) {
+        let entry = key.trim_end_matches(".sha256");
+        let url = k
+            .get(&format!("{entry}.url"))
+            .unwrap_or_else(|| panic!("{key} has no .url"));
+        let file = dir.join(url.rsplit('/').next().unwrap());
+        assert!(file.is_file(), "{} is listed but missing", file.display());
+        assert!(
+            verify_sha256_file(&file, hash).unwrap(),
+            "{} does not match {key}",
+            file.display()
+        );
+        checked += 1;
+    }
+    checked
+}
+
 #[test]
 fn the_release_manifests_are_read_and_their_files_match() {
-    let current = if cfg!(windows) {
-        "windows-x86_64"
-    } else {
-        "linux-x86_64"
-    };
     for dir in folders() {
-        let bytes = std::fs::read(dir.join("mdedit-update.txt")).unwrap();
-        let text = String::from_utf8(bytes.clone()).expect("the manifest is UTF-8");
-        let k = keys(&text);
-        let version = k.get("version").expect("a version");
-        let older = Version::parse("0.0.1").unwrap();
+        let one = std::fs::read(dir.join("mdedit-update.txt")).unwrap();
+        let text = String::from_utf8(one.clone()).expect("the manifest is UTF-8");
+        let version = keys(&text)["version"].clone();
+        let d = dir.display();
+        assert!(text.starts_with("manifest: 1\n"), "{d}: format 1");
+        assert!(files_match(&dir, &text) >= 1, "{d}: no file hashes");
 
-        // The platform this runs on is offered the release when the manifest lists it.
-        let offer = shared::offer(&APP, &bytes, &older).expect("the manifest parses");
-        match k.get(&format!("{current}.asset")) {
-            Some(asset) => {
-                let o =
-                    offer.unwrap_or_else(|| panic!("{}: no offer for {current}", dir.display()));
-                assert_eq!(o.version.to_string(), *version);
-                assert!(
-                    o.app.url.ends_with(&format!("/v{version}/{asset}")),
-                    "{}: url {} does not end in v{version}/{asset}",
-                    dir.display(),
-                    o.app.url
-                );
-                // Windows carries the preview pane's engine as a second file; the AppImage
-                // (and the macOS bundle) hold theirs inside.
-                match (current, o.engine) {
-                    ("windows-x86_64", Some(e)) => assert!(
-                        e.url.ends_with(&format!("/v{version}/mdview-engine.exe")),
-                        "{}: engine url {}",
-                        dir.display(),
-                        e.url
-                    ),
-                    ("windows-x86_64", None) => {
-                        panic!("{}: the Windows entry lists no engine", dir.display())
-                    }
-                    (_, e) => assert!(e.is_none(), "Linux has no engine file"),
-                }
-            }
-            None => assert!(
-                offer.is_none(),
-                "{}: offered a platform it does not list",
-                dir.display()
-            ),
-        }
-        // A manifest at the current version offers nothing.
-        let same = Version::parse(version).unwrap();
-        assert!(shared::offer(&APP, &bytes, &same).unwrap().is_none());
-
-        // Every file the manifest lists is beside it, with the stated hash.
-        let mut checked = 0;
-        for (key, hash) in k.iter().filter(|(k, _)| k.ends_with(".sha256")) {
-            // The file is the last part of the entry's URL (the engine has no .asset key).
-            let entry = key.trim_end_matches(".sha256");
-            let url = k
-                .get(&format!("{entry}.url"))
-                .unwrap_or_else(|| panic!("{key} has no .url"));
-            let file = dir.join(url.rsplit('/').next().unwrap());
-            assert!(file.is_file(), "{} is listed but missing", file.display());
+        // Format 1, as mdedit 1.0.6 reads it.
+        let m = old::UpdateManifest::parse(&one).unwrap_or_else(|e| panic!("{d}: 1.0.6: {e}"));
+        assert_eq!(m.version.to_string(), version);
+        let older = old::Version::parse("1.0.6").unwrap();
+        let windows = m.asset(old::Platform::WindowsX64).is_some();
+        if windows {
+            let a = old::newer(&older, &m, old::Platform::WindowsX64).expect("1.0.6 is offered");
             assert!(
-                verify_sha256_file(&file, hash).unwrap(),
-                "{} does not match {key}",
-                file.display()
+                a.url.ends_with(&format!("/v{version}/{}", a.name)),
+                "{d}: {}",
+                a.url
             );
-            checked += 1;
+            let e = a.engine.expect("the Windows entry lists the engine");
+            assert!(
+                e.url.ends_with(&format!("/v{version}/mdview-engine.exe")),
+                "{d}: {}",
+                e.url
+            );
         }
+        if m.asset(old::Platform::LinuxX64).is_some() {
+            assert!(
+                old::newer(&older, &m, old::Platform::LinuxX64).is_some(),
+                "{d}: Linux"
+            );
+        }
+
+        // Format 1, as this build reads it on Linux.
+        let m = UpdateManifest::parse(&one).unwrap_or_else(|e| panic!("{d}: {e}"));
+        let older = Version::parse("1.0.6").unwrap();
+        if m.asset(Platform::LinuxX64).is_some() {
+            let a = newer(&older, &m, Platform::LinuxX64).expect("Linux is offered");
+            assert!(
+                a.url.ends_with(&format!("/v{version}/{}", a.name)),
+                "{d}: {}",
+                a.url
+            );
+        }
+
+        // Format 2, as this build reads it on Windows.
+        let two_path = dir.join("mdedit-update-2.txt");
+        if !windows {
+            continue;
+        }
+        let two = std::fs::read(&two_path)
+            .unwrap_or_else(|_| panic!("{d}: Windows files but no mdedit-update-2.txt"));
+        let text2 = String::from_utf8(two.clone()).unwrap();
+        assert!(text2.starts_with("manifest: 2\n"), "{d}: format 2");
         assert!(
-            !k.contains_key("windows-x86_64.asset")
-                || k.contains_key("windows-x86_64.engine.sha256"),
-            "{}: the Windows entry lists no engine",
-            dir.display()
+            files_match(&dir, &text2) >= 3,
+            "{d}: format 2 lists exe, engine, AI engine"
         );
+        let m = UpdateManifest::parse(&two).unwrap_or_else(|e| panic!("{d}: format 2: {e}"));
+        assert_eq!(m.version.to_string(), version);
+        let a = newer(&older, &m, Platform::WindowsX64).expect("Windows is offered");
+        assert!(a.engine.is_some(), "{d}: format 2 lists the engine");
+        let ai = a.extra("mdedit-ai").expect("format 2 lists mdedit-ai");
         assert!(
-            checked >= 1,
-            "{}: no file hashes in the manifest",
-            dir.display()
+            ai.url.ends_with(&format!("/v{version}/mdedit-ai.exe")),
+            "{d}: {}",
+            ai.url
         );
+        // 1.0.6 refuses it: it must keep reading format 1.
+        assert!(
+            old::UpdateManifest::parse(&two).is_err(),
+            "{d}: 1.0.6 reads format 2"
+        );
+        // A manifest at the current version offers nothing.
+        let same = Version::parse(&version).unwrap();
+        assert!(newer(&same, &m, Platform::WindowsX64).is_none());
     }
 }

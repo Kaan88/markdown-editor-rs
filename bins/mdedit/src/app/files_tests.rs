@@ -1495,3 +1495,24 @@ fn the_preview_button_shows_for_markdown_and_documents_without_a_file() {
     a.docs.new_untitled();
     assert_eq!(chrome::preview_button(&a.docs), Some(false));
 }
+
+/// Audit 1, finding 10: a file changed on disk while an encoding choice is unsaved is offered
+/// as changed, not reloaded over the choice.
+#[test]
+fn a_change_on_disk_keeps_an_unsaved_encoding_choice() {
+    use mdedit_core::encoding::Encoding;
+    let dir = scratch("encoding-choice");
+    let path = dir.join("a.txt");
+    std::fs::write(&path, "one\n").unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &path);
+    a.docs.activate(i);
+    assert!(a.docs.save_in(Encoding::Utf16Le));
+    std::fs::write(&path, "one and two\n").unwrap();
+    a.docs.check_changed();
+    let d = &a.docs.tabs[i];
+    assert!(!d.is_loading(), "not reloaded");
+    assert!(d.changed_on_disk && d.modified());
+    assert_eq!(d.ready().unwrap().info.encoding, Encoding::Utf16Le);
+    let _ = std::fs::remove_dir_all(&dir);
+}

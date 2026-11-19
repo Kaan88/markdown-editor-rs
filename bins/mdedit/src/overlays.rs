@@ -430,6 +430,16 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .icon(glyph::UPPERCASE)
             .hint("›")
             .enabled(ready),
+    ]);
+    if docs.prefs.ai_connection != mdedit_core::ai::Connection::Off {
+        items.push(
+            Item::new(Act::AiMenu, "A&I")
+                .icon(glyph::EDIT)
+                .hint("›")
+                .enabled(ready),
+        );
+    }
+    items.extend([
         cmd(C::CompleteWord, "Complete &word", glyph::EDIT).enabled(ready),
         cmd(C::Find, "&Find…", glyph::SEARCH).sep().enabled(ready),
         cmd(C::Replace, "R&eplace…", glyph::REPLACE).enabled(ready),
@@ -543,6 +553,30 @@ pub fn table_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
             .sep()
             .enabled(ready),
     ];
+    Menu::new(items, x, y, align_right).access_keys(true)
+}
+
+/// The text menu's AI submenu: the built-in requests, then the saved prompts.
+pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    let idle = docs.active_ready().is_some() && docs.ai_status.is_none();
+    let mut items = vec![
+        cmd(C::AiFormat, "&Format as Markdown", glyph::EDIT).enabled(idle),
+        cmd(C::AiFix, "Fi&x Markdown", glyph::EDIT).enabled(idle),
+        cmd(C::AiRewrite, "&Rewrite with instruction…", glyph::EDIT).enabled(idle),
+    ];
+    for (k, p) in docs.ai_prompts.iter().enumerate() {
+        let mut item = Item::new(Act::AiPrompt(k), p.name.replace('&', "&&"))
+            .icon(glyph::EDIT)
+            .enabled(idle);
+        if k == 0 {
+            item = item.sep();
+        }
+        items.push(item);
+    }
+    items.push(cmd(C::AiEditPrompts, "&Edit saved prompts", glyph::DOC).sep());
+    if docs.ai_status.is_some() {
+        items.push(cmd(C::AiCancel, "&Stop rewriting", glyph::STOP));
+    }
     Menu::new(items, x, y, align_right).access_keys(true)
 }
 

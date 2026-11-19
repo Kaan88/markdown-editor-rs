@@ -976,6 +976,22 @@ impl Ready {
 
 /// The unsaved text a `restore` file holds: a backup is the text itself, a recovery copy has a
 /// header before it.
+/// A new draft id: different from every other with all the likelihood of 64 bits of the clock
+/// and a counter mixed.
+pub fn new_draft_id() -> u64 {
+    use std::sync::atomic::AtomicU64;
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    let n = COUNT.fetch_add(1, Ordering::Relaxed);
+    // SplitMix64 over the clock and the count; never 0.
+    let mut z = nanos ^ n.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ u64::from(std::process::id()) << 32;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    (z ^ (z >> 31)).max(1)
+}
+
 fn read_restore(path: &Path) -> Option<String> {
     if path
         .extension()
@@ -1029,6 +1045,12 @@ pub struct Doc {
     pub restore: Option<PathBuf>,
     /// Set with `restore` when that file is a recovery copy.
     pub recovered: Option<Recovered>,
+    /// The session backup of the same draft, older than the recovery copy in `restore`: put back
+    /// in its place when the copy's text cannot be read, and kept until one of them is.
+    pub fallback: Option<PathBuf>,
+    /// The draft's id: the same in its session backup and its recovery copy, whatever the tab is
+    /// called by then (a file gone, an untitled number taken).
+    pub draft: u64,
     /// The encoding the user chose to read the file as; every load of this tab uses it.
     pub forced: Option<Encoding>,
     /// The encoding to save in was changed since the file was read or written.
@@ -1080,6 +1102,8 @@ impl Doc {
             pending_goto: None,
             restore: None,
             recovered: None,
+            fallback: None,
+            draft: new_draft_id(),
             forced: None,
             encoding_changed: false,
             lossy_toasted: false,
@@ -1129,8 +1153,15 @@ impl Doc {
 
     /// The name of the session backup this tab still waits to put back, if it is one.
     pub fn waiting_backup(&self) -> Option<String> {
-        let file = self.restore.as_ref()?.file_name()?.to_str()?.to_string();
-        Unsaved::is_file_name(&file).then_some(file)
+        // The backup itself, or the one held as the fallback of a recovery copy.
+        let name = |p: &PathBuf| {
+            let f = p.file_name()?.to_str()?;
+            Unsaved::is_file_name(f).then(|| f.to_string())
+        };
+        self.restore
+            .as_ref()
+            .and_then(name)
+            .or_else(|| self.fallback.as_ref().and_then(name))
     }
 
     /// What the session's pruning of stale backups needs to know of this tab.
@@ -1140,6 +1171,7 @@ impl Doc {
             untitled: self.untitled,
             modified: self.modified(),
             waiting: self.waiting_backup(),
+            draft: self.draft,
         }
     }
 
@@ -1322,6 +1354,8 @@ pub enum EditOp<'a> {
     /// Compare: puts the lines of the other side's block in place of this side's block, as one
     /// undo step.
     CopyLines(&'a merge::Splice),
+    /// An AI rewrite: the bytes from start to end become this text, as one undo step, the new text selected.
+    ReplaceRange(usize, usize, &'a str),
 }
 
 /// The largest text Replace all takes. It runs on the UI thread at about 1.4 to 2.2 s per
@@ -1359,6 +1393,10 @@ pub struct Docs {
     pub check_updates: bool,
     /// The preferences: the typing help, the save options and what new documents start with.
     pub prefs: Prefs,
+    /// The saved AI prompts, as the palette and the AI menu list them.
+    pub ai_prompts: Vec<mdedit_core::ai::SavedPrompt>,
+    /// What a running AI rewrite has done so far, shown at the left of the status strip.
+    pub ai_status: Option<String>,
     pub tabs: Vec<Doc>,
     /// The bookmarks closed files left, and the session's.
     pub marks: crate::marks::Marks,
@@ -1451,6 +1489,8 @@ impl Docs {
             toast: None,
             updates: crate::updater::Updates::default(),
             crash: None,
+            ai_prompts: Vec::new(),
+            ai_status: None,
             check_updates: true,
             prefs: Prefs::default(),
             watch_changed: true,
@@ -1579,6 +1619,8 @@ impl Docs {
             pending_goto: None,
             restore: None,
             recovered: None,
+            fallback: None,
+            draft: new_draft_id(),
             forced: None,
             encoding_changed: false,
             lossy_toasted: false,
@@ -1666,6 +1708,7 @@ impl Docs {
                 file,
                 untitled: d.untitled,
                 path: d.path.clone(),
+                draft: Some(d.draft),
             });
         }
         if let Ok(entries) = std::fs::read_dir(dir) {
@@ -2240,9 +2283,22 @@ impl Docs {
                     r.twin = Some(Box::new(r.view.twin_of()));
                 }
                 // Unsaved text from the last run goes back over what was read.
-                let recovered = doc.recovered.take();
+                let mut recovered = doc.recovered.take();
                 let mut recovered_flags = (false, false);
-                if let Some(text) = doc.restore.take().and_then(|p| read_restore(&p)) {
+                let (source, fallback) = (doc.restore.take(), doc.fallback.take());
+                // The copy, else the older backup of the same draft (audit 1 round 4, #2).
+                let mut text = source.as_deref().and_then(read_restore);
+                if text.is_none() {
+                    recovered = None;
+                    text = fallback.as_deref().and_then(read_restore);
+                }
+                if text.is_none() && source.is_some() {
+                    // Neither can be read now: both stay, the tab stays modified, and the next
+                    // start tries them again.
+                    doc.restore = source;
+                    doc.fallback = fallback;
+                }
+                if let Some(text) = text {
                     r.put_back(&text);
                     if let Some(rec) = &recovered {
                         // The file is not the one the copy was made from: both are kept, the
@@ -2319,8 +2375,9 @@ impl Docs {
                 (DocState::Ready(_), FileStamp::Missing) => self.tabs[i].missing = true,
                 (DocState::Ready(r), s) if s != r.info.stamp || doc.missing => {
                     let changed = s != r.info.stamp;
-                    if r.history.is_modified() {
-                        // Unsaved changes are never replaced behind the user's back.
+                    if doc.modified() {
+                        // Unsaved changes, an unsaved encoding choice among them, are never
+                        // replaced behind the user's back.
                         self.tabs[i].changed_on_disk = changed;
                         self.tabs[i].missing = false;
                     } else {
@@ -2644,6 +2701,9 @@ impl Docs {
                 EditOp::JoinLines => lines::join_lines(buf, hist, sel),
                 EditOp::CopyLines(s) => {
                     merge::replace_lines(buf, hist, sel, s.target.clone(), &s.from, eol)
+                }
+                EditOp::ReplaceRange(start, end, text) => {
+                    edit::replace_range(buf, hist, sel, start..end, text)
                 }
                 EditOp::MdHeading => markdown::cycle_heading(buf, hist, sel),
                 EditOp::MdTable => markdown::format_table(buf, hist, sel),
@@ -3622,8 +3682,11 @@ mod tests {
     }
 
     fn file_docs(name: &str, text: &[u8]) -> (Docs, usize, PathBuf, PathBuf) {
+        // One folder per call: tests of one process run in parallel (audit 1 round 3, #11).
+        static CALL: AtomicU64 = AtomicU64::new(0);
+        let n = CALL.fetch_add(1, Ordering::Relaxed);
         let dir = mdshared_app::paths::canonical_or_absolute(&std::env::temp_dir())
-            .join(format!("mdedit-{name}-{}", std::process::id()));
+            .join(format!("mdedit-{name}-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("file.txt");
         std::fs::write(&path, text).unwrap();
@@ -4315,9 +4378,12 @@ mod tests {
         let mut e = docs();
         let k = e.add_pending(&path);
         e.tabs[k].restore = Some(backup.join(&list[0].file));
+        // As the start does: each tab takes the draft id its entry names.
+        e.tabs[k].draft = list[0].draft.unwrap();
         assert!(e.tabs[k].modified());
         let text = std::fs::read_to_string(backup.join(&list[1].file)).unwrap();
         let u = e.restore_untitled(list[1].untitled, &text);
+        e.tabs[u].draft = list[1].draft.unwrap();
         assert_eq!((text_of(&e, u).as_str(), e.tabs[u].untitled), ("note", 1));
         assert!(e.tabs[u].modified());
         // Closing again before the file's tab was read keeps its backup as it is.

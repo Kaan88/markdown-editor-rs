@@ -58,10 +58,10 @@ packaging/linux/build-packages.sh
 tools/release-cross.sh --notes "$notes"
 cp "target/dist-linux/$app-$version-linux-x86_64.AppImage" "target/dist-linux/$app-$version-linux-x86_64.tar.gz" \
    "target/dist-linux/${app}_${version}_amd64.deb" "target/dist-linux/$app-$version-1.x86_64.rpm" target/dist-linux/PKGBUILD \
-   "target/dist-cross/$app-$version-windows-x86_64.exe" target/dist-cross/mdview-engine.exe \
+   "target/dist-cross/$app-$version-windows-x86_64.exe" target/dist-cross/mdview-engine.exe target/dist-cross/mdedit-ai.exe \
    "target/dist-cross/$app-setup-$version.exe" "$all/"
 tools/write-manifest.sh --version "$version" --notes "$notes" --out "$all" \
-    --windows "$all/$app-$version-windows-x86_64.exe" --windows-engine "$all/mdview-engine.exe" --linux "$all/$app-$version-linux-x86_64.AppImage"
+    --windows "$all/$app-$version-windows-x86_64.exe" --windows-engine "$all/mdview-engine.exe" --windows-ai "$all/mdedit-ai.exe" --linux "$all/$app-$version-linux-x86_64.AppImage"
 
 echo
 echo "release files for $app $version (commit $sha) in $all:"
@@ -71,7 +71,7 @@ if [ "$publish" = 0 ]; then
     echo "not published (no --publish)."
     exit 0
 fi
-cmd=(gh release create "v$version" "$all/$app-$version-linux-x86_64.AppImage" "$all/$app-$version-windows-x86_64.exe" "$all/mdview-engine.exe"
+cmd=(gh release create "v$version" "$all/$app-$version-linux-x86_64.AppImage" "$all/$app-$version-windows-x86_64.exe" "$all/mdview-engine.exe" "$all/mdedit-ai.exe" "$all/$app-update-2.txt"
      "$all/$app-setup-$version.exe" "$all/$app-update.txt" "$all/$app-$version-linux-x86_64.tar.gz"
      "$all/${app}_${version}_amd64.deb" "$all/$app-$version-1.x86_64.rpm" "$all/PKGBUILD"
      --repo "$slug" --target "$sha" --title "$app $version" --notes-file "$notes_file" --latest)

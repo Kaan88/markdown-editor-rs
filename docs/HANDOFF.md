@@ -5,6 +5,137 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Audit 1, round 4 (2026-11-19, branch `f/ai`)
+
+Astra's round-4 re-review (10 findings) is fixed. Recovery identity moved from path/number to a
+stable **draft id** (`draft=` in the recovery header and a `draft=<file>|<hex>` session line; older
+builds skip both). Each test below was checked to fail with its fix reverted.
+
+- #1, #9 (remap lost on an unwritten session, header rewrite): no header is rewritten any more;
+  a copy covers a backup by draft id (`recovery::cover`). A failed session write is retried after
+  5 s (`session_retry`). Test `app::tests::drafts_survive_starts_whose_session_is_never_written`.
+  The retry itself has no unit test.
+- #2 (a readable header hid a valid backup): a file tab keeps the backup as `Doc.fallback` until
+  the copy's text is in. Test `a_copy_whose_text_cannot_be_read_gives_way_to_its_backup`.
+- #3 (a read error deleted the only copy): `read_header_checked`/`read_checked` tell an I/O error
+  from an invalid record; unreadable copies are kept by scan and exit. Test
+  `recovery::tests::a_copy_that_cannot_be_read_now_is_kept`.
+- #4, #5 (path case, ambiguous legacy entries): legacy matching uses `same_path`, covers only one to
+  one and only when the copy is at least as new as the backup; a file tab already taking a copy
+  never has it replaced. Tests `copies_and_backups_without_ids_cover_only_when_certain`,
+  `two_old_entries_with_one_number_and_a_copy_all_come_back`,
+  `an_old_copy_older_than_the_backup_hides_nothing`, `two_copies_of_one_file_both_come_back`.
+- #6: the key is masked over the whole error body before any cut; a body over 64 KiB shows a fixed
+  message; the OpenAI stream error is masked with the run's key; CLI stderr at its cap drops the
+  cut line. Tests `an_error_body_loses_the_key_before_it_is_cut`,
+  `a_streamed_error_loses_the_key_before_it_is_cut`, `stderr_at_its_limit_loses_the_cut_line`.
+- #7: the model list read is cancellable and each page checks the job; the pre-POST cancel check is
+  on the common path. Engine test `a_cancel_during_the_model_list_asks_for_nothing_more` fails only
+  with both the page check and the cancellable read removed (each alone suffices).
+- #8: the SSE reader counts every read as activity (`Activity`, `Watched`), `pump` consults it
+  before Idle, and a closed flag stops the reader after the run ends. Tests in `sse::round4`.
+- #10: the 40-character rule needs mixed case and digits. Test in `proto::tests::keys_are_hidden`.
+
+Not run: Linux, macOS. No round-5 prompt was written; the owner deferred further review to the next
+release.
+
+## Audit 1, round 3 (2026-11-19, branch `f/ai`)
+
+Astra's re-review of 41db024: 4 fixed, 7 partly fixed, 12 findings. All addressed; each test
+below was checked to fail with its fix reverted (finding 1's fails on the old order at the first
+start, where both entries named one tab).
+
+| # | Fix | Test |
+|---|---|---|
+| 1 one copy hid two drafts | `bring_back` (app.rs): coverage settled first, copies restored before backups; a copy that comes back under another name rewrites its header at once (`Recovery::restore`), and a covered entry takes the copy's identity (`Restored.idents`) | `app::tests::two_drafts_survive_a_second_interruption` (three starts, Save As) |
+| 2 queued failure, window asleep | `poll` wakes in 1 s while a failure is listed (count read before list); a writer that stopped is replaced | `recovery::tests::a_write_that_cannot_be_sent_is_tried_again` (asserts the dispatching poll) |
+| 3 failed copy closed the review | Copy closes only on success | `ai_tests::a_closed_document_keeps_its_result_to_copy` (`CLIPBOARD_FAILS`) |
+| 4 short keys, keys cut in excerpts | `keys::usable` for store and override, `set` validates before the override; `body_message` and `read_part` cut at a word's end | `keys::tests::a_short_key_is_never_used`, `api::tests::a_cut_never_leaves_part_of_a_key` |
+| 5 remap only in memory | the session is written at start when an entry changed | covered by the `remapped` assertion of #1's test; the write itself is in `run`, not tested |
+| 6 reader and consumer disagreed | `claude_last` / `openai_last`: the top-level type, the same events the streams end on | `api::tests::the_reader_and_the_answer_agree_on_the_end` |
+| 7 heartbeats timed out as idle | `Item::Alive` every 200 ms of lines without an event; a reader whose run ended stops at its next line | `sse::round3::comments_keep_a_stream_alive`, `a_reader_of_comments_stops_after_a_cancel` |
+| 8 old key reply bypassed the URL pause | `ai_settings_needs` skips key and models while `url_due` is set | `ai_tests::a_key_draft_does_not_follow_a_new_url` (A's reply drained first) |
+| 9 Apply shown for a closed source | `ai_review_sync` at compose, key and action | `ai_tests::a_closed_document_keeps_its_result_to_copy` (drawn before any action) |
+| 10 event name not counted | `Parser::size` = name + data | `sse::round3::an_event_name_counts_toward_the_limit` |
+| 11 tests shared a folder | `file_docs` numbers its folders; the N1 test has its own | — |
+| 12 model alias hidden | the prefix rule needs a 16-character run or 40 in all (`random_part`) | `proto::tests::keys_are_hidden` |
+| scope | the cold model enquiry of a Claude run takes the job; a cancel ends the run before the POST | not tested (no stub for it) |
+
+The AI app tests (`ai_tests`) now run on Windows too: the stand-in engine script runs under Git's
+bash from a batch file (`MDEDIT_TEST_BASH` names another bash). Not run: anything on Linux or
+macOS this round, real providers, the real credential store.
+
+## Audit 1, round 2 (2026-11-19, branch `f/ai`)
+
+Astra's re-review of cffebe3: 9 fixed, 6 partly fixed, 8 new findings. All addressed; each test
+below was checked to fail with its fix reverted.
+
+| Item | Fix | Test |
+|---|---|---|
+| N1 restored draft lost its session entry (file gone, or number taken) | `restore_unsaved` rewrites each entry to the tab it came back as | `app::tests::kept_drafts_survive_restarts_with_restore_off` |
+| N2 Windows: case-different URLs share a credential | `keys::target`: custom slots stored under SHA-256 of the URL | `keys::tests::custom_endpoints_have_names_apart` |
+| N3 Rewrite could send a scope the panel did not show | `Instruction.source`; changed scope is shown and needs Rewrite again | `ai_tests::rewrite_sends_only_the_scope_the_panel_showed` |
+| N4 key draft followed a new custom URL; new URL's key not looked up | `key_draft_slot`; `ai.url_due` (500 ms) runs `ai_settings_needs` | `ai_tests::a_key_draft_does_not_follow_a_new_url` |
+| N5 finished stream kept its reader and socket | parsing on the reader thread; it stops after the last event | `sse::tests::the_reader_lets_go_after_the_last_event` |
+| N6 Run again on a closed source dropped the result; closed before the answer, no review | review kept, Run again hidden; `ai_finish` builds a closed review | `ai_tests::a_closed_document_keeps_its_result_to_copy` |
+| N7 "Bearer authentication is required" redacted | `looks_like_key` after markers | `proto::tests::keys_are_hidden` |
+| N8 queued jump to a missing category (shared 1cc5220) | ignored and dropped on `set_rows` | shared `settings::tests::a_jump_to_a_missing_category_is_ignored` |
+| #5 failure unseen while idle; dispatch failures | `in_flight` keeps a look within 1 s; unsent writes count as failed | `recovery::tests::a_failed_write_is_tried_again`, `a_write_that_cannot_be_sent_is_tried_again` |
+| #6 short keys, other providers' tokens, key cut by truncation | keys ≥ 4 chars (refused shorter), more prefixes, key hidden in the raw body | `proto::tests::keys_are_hidden`, `engine::a_key_at_the_cut_of_a_long_error_leaves_no_fragment` |
+| #9 multiline event unbounded; error body not cancellable | event cap 1 MB, 8 events ahead; `sse::read_body` for error bodies | `sse::tests::a_huge_event_of_short_lines_is_refused`, `a_silent_error_body_is_cancelled_at_once` |
+
+Still a limit: after a cancel, idle end or error, the reader thread lives until its read returns
+or the 30-minute body timeout (ureq gives no way to close the socket from another thread); it
+holds nothing the engine waits for.
+
+## Audit 1 fixes (2026-11-19, branch `f/ai`)
+
+Astra audited `f/ai` @27530b6 (and shared `f/ai` @19348d3) on Windows and found 10 problems, 3
+smaller AI issues and 2 Windows validation failures. All are fixed; each has a test that fails on
+the old code where one could be written (checked by reverting the fix for 2, 7 and 10). The owner's
+decision on 1: closing never asks; unsaved text is kept and comes back whatever "Restore tabs at
+start" says.
+
+| # | Finding | Fix | Test |
+|---|---|---|---|
+| 1 | Restore off: the second exit deleted a draft | `app.rs` `restore_unsaved` puts backups back whatever `restore` says; `persist_if_changed` prunes with restore off too | `app::tests::a_kept_draft_survives_restarts_with_restore_off` |
+| 2 | Apply overwrote text reloaded after the review opened | `ai_blocked` checks the range again on Apply | `ai_tests::apply_does_not_overwrite_text_reloaded_meanwhile` |
+| 3 | Run again sent another tab's text | Run again activates the review's document, opens the instruction panel filled in (`Instruction.spec`), waits for Rewrite | `ai_tests::run_again_is_for_the_reviewed_document_and_asks_first` |
+| 4 | Custom provider URL reused the `openai:custom` key | `key_slot(conn, preset, url)`: one slot per normalized URL | `mdedit_core::ai::tests::a_custom_endpoint_has_a_key_per_url` |
+| 5 | Recovery took a failed write as written | the writer hands `(name, key)` back; `poll` clears `written`, due again after the pause | `recovery::tests::a_failed_write_is_tried_again` |
+| 6 | Diagnostics could carry the key | `proto::redact` on every error event, `Fail::hide(key)` in each API call | `proto::tests::keys_are_hidden`, `engine::a_key_echoed_by_the_server_is_hidden` |
+| 7 | An edit during viewer start dropped an untitled preview's `open` | `Update::over` keeps the older `open` in `Courier::put` and in the retry | `link::tests::a_newer_update_keeps_the_request_to_open` |
+| 8 | `jump_to_category` / `current_category` before layout panicked (shared) | the form keeps the jump for its next layout (shared f36af6f); mdedit's `settings_jump` workaround removed | `settings::tests::a_jump_before_layout_waits_for_it` (shared) |
+| 9 | A silent stream could not be cancelled; no body timeout | `sse::read` on a reader thread, 200 ms cancel checks, 180 s idle, 1 MB line / 2 MB reply caps, 30 min body timeout | `sse::tests::a_silent_stream_*`, `a_huge_line_is_refused`, `engine::a_huge_reply_is_not_used` |
+| 10 | A change on disk discarded an unsaved encoding choice | `check_changed` uses `Doc::modified()` | `files_tests::a_change_on_disk_keeps_an_unsaved_encoding_choice` |
+| – | A key found did not fetch the models | `Event::Key` calls `ai_settings_needs` | `ai_tests::settings_has_an_ai_group_that_asks_for_the_key` (fake engine answers `models`) |
+| – | Read-only + review off: "done" toast, nothing changed | `ai_replace` returns whether it went in; the review opens blocked (`Review.blocked: Option<String>`) | `ai_tests::a_read_only_document_shows_the_result_to_copy` |
+| – | A CLI whose `--version` failed counted as found | the exit status is checked | `engine::fake_cli::a_cli_whose_version_fails_is_not_found` |
+| – | Windows clippy: unused `ai_start_for_test` | `#[cfg(all(test, unix))]` like its caller | clippy for x86_64-pc-windows-msvc |
+| – | Shared crash test failed on Windows paths | the assertion takes `\` as `/` (shared f36af6f) | `crash` tests (shared) |
+
+Run here (Linux): all workspace tests with default and no default features, clippy `-D warnings`
+with default and no default features and for x86_64-pc-windows-msvc and aarch64-apple-darwin, fmt; same
+in the shared repo. Not run: anything on Windows, real provider calls, the real credential store.
+
+## AI rewriting (2026-11-19, branch `f/ai`, not merged, not released)
+
+Owner's request and approved mockups; design in DESIGN.md section 68, PLAN.md amended.
+
+- Phase 1 (shared, `markdown-shared-rs` branch `f/ai`, 19348d3): secret text fields.
+- Phase 2 (`bins/mdedit-ai`, fc6955d): the engine, its four connections, keys; 18 unit and 12
+  integration tests against a stub HTTP server and fake CLIs.
+- Phase 3 (this commit): mdedit's side: commands, palette, text menu, the instruction and review
+  panels (Changes / Preview with mdview's renderer), the bar, Settings › AI, prefs, saved prompts,
+  `replace_range` as one undo step. 6 app tests with a stand-in engine script.
+- Next, phase 4: package `mdedit-ai` (installer, zip, Linux `lib/mdedit`, Mac bundle, release
+  workflow, updater manifest), measure the budgets with `tools/compare-builds.py`, a Windows test
+  build for the owner.
+- Not run: real API calls with keys, the Codex CLI, a real Claude Code rewrite, the credential
+  store on Windows/macOS, anything on Windows. The owner has not seen it in the app yet.
+- The shared crates are pinned to the `f/ai` commit; move the pin to `main` once that branch is
+  merged there.
+
 ## Installer: no scripts under "Open with" (2026-11-18, branch `f/installer-types`)
 
 The owner found that after installing mdedit, .bat files no longer ran: the installer offered

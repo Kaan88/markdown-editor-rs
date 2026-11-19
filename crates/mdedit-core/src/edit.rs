@@ -130,6 +130,35 @@ pub fn insert(buf: &mut Buffer, hist: &mut History, sel: Selection, text: &str) 
     cmd.finish(hist, kind, sel, Selection::at(at + text.len()))
 }
 
+/// Replaces `range` (byte offsets, floored to char boundaries and clamped to the buffer) with
+/// `text` as one undo step of its own, and selects the new text. `sel` is the selection before,
+/// which undo gives back. For a rewrite put in whole (AI).
+pub fn replace_range(
+    buf: &mut Buffer,
+    hist: &mut History,
+    sel: Selection,
+    range: Range<usize>,
+    text: &str,
+) -> Outcome {
+    let whole = clamped(
+        buf,
+        Selection {
+            anchor: range.start,
+            caret: range.end,
+            goal_col: None,
+        },
+    );
+    let at = whole.start;
+    let mut cmd = Cmd::new(buf);
+    cmd.replace(whole, text);
+    let after = Selection {
+        anchor: at,
+        caret: at + text.len(),
+        goal_col: None,
+    };
+    cmd.finish(hist, Kind::Other, sel, after)
+}
+
 /// Replaces the selection with a line break `eol`, then, with `auto_indent`, the spaces and tabs
 /// the line holding the selection's start begins with (those before the start only). Its own
 /// step.

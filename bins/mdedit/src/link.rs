@@ -120,6 +120,18 @@ pub struct Update {
 }
 
 impl Update {
+    /// This update taking the place of `older`, which was not sent: a request of the older one
+    /// to show the document (and where) is kept, or a document without a file would never be
+    /// opened when it changed while the viewer was starting.
+    fn over(mut self, older: Option<Update>) -> Update {
+        if self.open.is_none()
+            && let Some(o) = older.filter(|o| o.target == self.target)
+        {
+            self.open = o.open;
+        }
+        self
+    }
+
     /// The live update: no raising, no opening, no placing. The one that opens a document
     /// without a file does all three.
     fn request(&self) -> Request {
@@ -512,7 +524,9 @@ impl Courier {
 
     /// Replaces what waits in the slot: of several updates the newest counts.
     fn put(&self, update: Update) {
-        self.slot.state.lock().unwrap().next = Some(update);
+        let mut state = self.slot.state.lock().unwrap();
+        state.next = Some(update.over(state.next.take()));
+        drop(state);
         self.slot.wake.notify_all();
     }
 
@@ -640,7 +654,10 @@ fn run(
             // The viewer is still starting. A newer update takes this one's place.
             std::thread::sleep(timing.retry);
             let mut state = slot.state.lock().unwrap();
-            state.next.get_or_insert(update);
+            state.next = Some(match state.next.take() {
+                Some(newer) => newer.over(Some(update)),
+                None => update,
+            });
             continue;
         }
         gone.store(true, Ordering::Release);
@@ -1231,6 +1248,53 @@ mod tests {
         c.off(&untitled());
         let r = sent.recv_timeout(WAIT).unwrap();
         assert!(r.live_off && r.doc == Some(doc_name(1)) && r.path.as_os_str().is_empty());
+    }
+
+    /// Audit 1, finding 7: an edit while the viewer starts does not lose the request to open a
+    /// document without a file, whether the newer update replaces the waiting one or the one
+    /// being tried again.
+    #[test]
+    fn a_newer_update_keeps_the_request_to_open() {
+        let (sent_tx, sent) = channel();
+        let (gate, answers) = channel::<Delivery>();
+        let answers = Mutex::new(answers);
+        let c = Courier::spawn(
+            move |r| {
+                _ = sent_tx.send(r.clone());
+                answers.lock().unwrap().recv().unwrap_or(Delivery::Taken)
+            },
+            FAST,
+            || {},
+        );
+        let newer = |edit, text: &str| Update {
+            target: untitled(),
+            ..with_text(1, edit, text)
+        };
+        // Replaced while it waits: the courier is busy with a file's update.
+        c.put(update(3, Instant::now() + WAIT));
+        assert_eq!(sent.recv_timeout(WAIT).unwrap().line, Some(3));
+        c.put(opening(1, 1, "# one\n"));
+        c.put(newer(2, "# two\n"));
+        gate.send(Delivery::Taken).unwrap();
+        let r = sent.recv_timeout(WAIT).unwrap();
+        assert!(r.open && r.text.as_deref() == Some("# two\n"), "{r:?}");
+        gate.send(Delivery::Taken).unwrap();
+        // Replacing the one tried again: nobody answers the opening yet.
+        c.put(opening(1, 3, "# three\n"));
+        let r = sent.recv_timeout(WAIT).unwrap();
+        assert!(r.open && r.text.as_deref() == Some("# three\n"));
+        c.put(newer(4, "# four\n"));
+        gate.send(Delivery::Nobody).unwrap();
+        // The question without the text, then the newer text: still an opening.
+        let r = loop {
+            let r = sent.recv_timeout(WAIT).unwrap();
+            if r.text.as_deref() == Some("# four\n") {
+                break r;
+            }
+            gate.send(Delivery::Nobody).unwrap();
+        };
+        assert!(r.open, "{r:?}");
+        gate.send(Delivery::Taken).unwrap();
     }
 
     #[test]

@@ -10,6 +10,7 @@
 //! encoding=UTF-8
 //! eol=Unix (LF)
 //! disk=<size>/<seconds>.<nanoseconds>     (omitted when there was no file to compare with)
+//! draft=<16 hex digits>                   (the draft's own id; since 1.1, skipped before)
 //! bytes=<length of the text>
 //! ---
 //! <the text, UTF-8, as it is in the buffer>
@@ -48,6 +49,9 @@ pub struct Header {
     pub eol: String,
     /// The size and modification time of the file when it was read, when it had been.
     pub disk: Option<(u64, Duration)>,
+    /// The draft's id, the same in the session's list of backups: which backup a copy is newer
+    /// text of. `None` in a copy from before 1.1.
+    pub draft: Option<u64>,
     /// The length of the text, in bytes.
     pub bytes: u64,
 }
@@ -89,6 +93,9 @@ impl Header {
                 d.subsec_nanos()
             ));
         }
+        if let Some(d) = self.draft {
+            s.push_str(&format!("draft={d:016x}\n"));
+        }
         s.push_str(&format!("bytes={}\n{SEPARATOR}", self.bytes));
         s
     }
@@ -107,6 +114,7 @@ impl Header {
             encoding: String::new(),
             eol: String::new(),
             disk: None,
+            draft: None,
             bytes: 0,
         };
         let mut have_bytes = false;
@@ -123,6 +131,7 @@ impl Header {
                     let nanos: u32 = nanos.parse().ok().filter(|n| *n < 1_000_000_000)?;
                     h.disk = Some((size.parse().ok()?, Duration::new(secs.parse().ok()?, nanos)));
                 }
+                "draft" => h.draft = u64::from_str_radix(value, 16).ok(),
                 "bytes" => {
                     h.bytes = value.parse().ok()?;
                     have_bytes = true;
@@ -185,27 +194,47 @@ pub fn write(dir: &Path, name: &str, header: &Header, text: &Rope) -> io::Result
 /// The header of the recovery file at `path`, when it is a whole one (its text has the length
 /// the header says). Reads only the start of the file.
 pub fn read_header(path: &Path) -> Option<Header> {
-    let mut file = std::fs::File::open(path).ok()?;
-    let total = file.metadata().ok()?.len();
+    read_header_checked(path).ok().flatten()
+}
+
+/// [`read_header`], with a file that could not be read told apart from one that is not a whole
+/// recovery copy: `Err` for the first (it may be readable later, and is kept), `Ok(None)` for
+/// the second. A file that is gone is `Ok(None)`.
+pub fn read_header_checked(path: &Path) -> io::Result<Option<Header>> {
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let total = file.metadata()?.len();
     let mut head = Vec::new();
-    (&mut file)
-        .take(HEADER_MAX as u64)
-        .read_to_end(&mut head)
-        .ok()?;
-    let (h, len) = Header::parse(&head)?;
-    (total == len as u64 + h.bytes).then_some(h)
+    (&mut file).take(HEADER_MAX as u64).read_to_end(&mut head)?;
+    Ok(Header::parse(&head)
+        .filter(|(h, len)| total == *len as u64 + h.bytes)
+        .map(|(h, _)| h))
 }
 
 /// The header and the text of the recovery file at `path`; `None` unless it is whole and its
 /// text is UTF-8.
 pub fn read(path: &Path) -> Option<(Header, String)> {
-    let data = std::fs::read(path).ok()?;
-    let (h, len) = Header::parse(&data[..data.len().min(HEADER_MAX)])?;
+    read_checked(path).ok().flatten()
+}
+
+/// [`read`], with a file that could not be read (`Err`) told apart from one that is not a whole
+/// copy with UTF-8 text (`Ok(None)`), as [`read_header_checked`] does.
+pub fn read_checked(path: &Path) -> io::Result<Option<(Header, String)>> {
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let Some((h, len)) = Header::parse(&data[..data.len().min(HEADER_MAX)]) else {
+        return Ok(None);
+    };
     if data.len() as u64 != len as u64 + h.bytes {
-        return None;
+        return Ok(None);
     }
-    let text = String::from_utf8(data[len..].to_vec()).ok()?;
-    Some((h, text))
+    Ok(String::from_utf8(data[len..].to_vec()).ok().map(|t| (h, t)))
 }
 
 /// Whether `name` is the name of a recovery file.
@@ -225,6 +254,7 @@ mod tests {
             encoding: "Windows-1254".into(),
             eol: "Windows (CRLF)".into(),
             disk: Some((1234, Duration::new(1_700_000_000, 5))),
+            draft: Some(0x0123_4567_89ab_cdef),
             bytes: 0,
         }
     }
