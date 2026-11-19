@@ -5,6 +5,32 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Audit 1, round 3 (2026-11-19, branch `f/ai`)
+
+Astra's re-review of 41db024: 4 fixed, 7 partly fixed, 12 findings. All addressed; each test
+below was checked to fail with its fix reverted (finding 1's fails on the old order at the first
+start, where both entries named one tab).
+
+| # | Fix | Test |
+|---|---|---|
+| 1 one copy hid two drafts | `bring_back` (app.rs): coverage settled first, copies restored before backups; a copy that comes back under another name rewrites its header at once (`Recovery::restore`), and a covered entry takes the copy's identity (`Restored.idents`) | `app::tests::two_drafts_survive_a_second_interruption` (three starts, Save As) |
+| 2 queued failure, window asleep | `poll` wakes in 1 s while a failure is listed (count read before list); a writer that stopped is replaced | `recovery::tests::a_write_that_cannot_be_sent_is_tried_again` (asserts the dispatching poll) |
+| 3 failed copy closed the review | Copy closes only on success | `ai_tests::a_closed_document_keeps_its_result_to_copy` (`CLIPBOARD_FAILS`) |
+| 4 short keys, keys cut in excerpts | `keys::usable` for store and override, `set` validates before the override; `body_message` and `read_part` cut at a word's end | `keys::tests::a_short_key_is_never_used`, `api::tests::a_cut_never_leaves_part_of_a_key` |
+| 5 remap only in memory | the session is written at start when an entry changed | covered by the `remapped` assertion of #1's test; the write itself is in `run`, not tested |
+| 6 reader and consumer disagreed | `claude_last` / `openai_last`: the top-level type, the same events the streams end on | `api::tests::the_reader_and_the_answer_agree_on_the_end` |
+| 7 heartbeats timed out as idle | `Item::Alive` every 200 ms of lines without an event; a reader whose run ended stops at its next line | `sse::round3::comments_keep_a_stream_alive`, `a_reader_of_comments_stops_after_a_cancel` |
+| 8 old key reply bypassed the URL pause | `ai_settings_needs` skips key and models while `url_due` is set | `ai_tests::a_key_draft_does_not_follow_a_new_url` (A's reply drained first) |
+| 9 Apply shown for a closed source | `ai_review_sync` at compose, key and action | `ai_tests::a_closed_document_keeps_its_result_to_copy` (drawn before any action) |
+| 10 event name not counted | `Parser::size` = name + data | `sse::round3::an_event_name_counts_toward_the_limit` |
+| 11 tests shared a folder | `file_docs` numbers its folders; the N1 test has its own | — |
+| 12 model alias hidden | the prefix rule needs a 16-character run or 40 in all (`random_part`) | `proto::tests::keys_are_hidden` |
+| scope | the cold model enquiry of a Claude run takes the job; a cancel ends the run before the POST | not tested (no stub for it) |
+
+The AI app tests (`ai_tests`) now run on Windows too: the stand-in engine script runs under Git's
+bash from a batch file (`MDEDIT_TEST_BASH` names another bash). Not run: anything on Linux or
+macOS this round, real providers, the real credential store.
+
 ## Audit 1, round 2 (2026-11-19, branch `f/ai`)
 
 Astra's re-review of cffebe3: 9 fixed, 6 partly fixed, 8 new findings. All addressed; each test

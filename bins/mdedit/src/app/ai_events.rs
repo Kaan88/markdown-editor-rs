@@ -648,18 +648,37 @@ impl App {
         i.field.select_all();
     }
 
+    /// A review whose document was closed after it opened says so, before its buttons are drawn
+    /// or a key picks one: Copy result and Discard, no Apply (audit 1 round 3, #9).
+    pub(super) fn ai_review_sync(&mut self) {
+        let Some(Panel::Review(rv)) = self.ai.panel.as_ref() else {
+            return;
+        };
+        let closed = Some(core_ai::BLOCKED_CLOSED);
+        if rv.blocked.as_deref() != closed && self.docs.index_of_id(rv.doc).is_none() {
+            if let Some(rv) = self.ai.review() {
+                rv.blocked = Some(core_ai::BLOCKED_CLOSED.into());
+            }
+            self.ai.tick += 1;
+        }
+    }
+
     pub(super) fn ai_review_action(&mut self, hit: AiHit) {
+        self.ai_review_sync();
         match hit {
             AiHit::Discard => self.ai_close_panel(),
             AiHit::Copy => {
                 let Some(rv) = self.ai.review() else { return };
-                let ok = platform::set_clipboard_text(&rv.result);
-                self.docs.set_toast(if ok {
-                    "Copied the result."
+                // The review may be the only place the result is (its document closed): it
+                // closes only once the result is on the clipboard (audit 1 round 3, #3).
+                if copy_text(&rv.result) {
+                    self.docs.set_toast("Copied the result.");
+                    self.ai_close_panel();
                 } else {
-                    "Could not copy to the clipboard"
-                });
-                self.ai_close_panel();
+                    self.docs
+                        .set_toast("Could not copy to the clipboard. The result is still here.");
+                    self.redraw();
+                }
             }
             AiHit::Apply => {
                 let Some(rv) = self.ai.review() else { return };
@@ -773,6 +792,7 @@ impl App {
 
     pub(super) fn ai_key(&mut self, name: Option<KeyName>, typed: Option<&str>) {
         let Some(name) = name else { return };
+        self.ai_review_sync();
         let mods = self.mods;
         self.ai.tick += 1;
         match self.ai.panel.as_mut() {
@@ -911,7 +931,7 @@ impl App {
             .is_some_and(|i| i.field.set_preedit(pre))
     }
 
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     pub(super) fn ai_start_for_test(&mut self, instruction: &str) {
         self.ai_start(Spec {
             title: "Test".into(),
@@ -1056,4 +1076,19 @@ impl App {
             &core_ai::base_url(&p.ai_preset, &p.ai_base_url),
         )
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the clipboard refuses the text.
+    pub(super) static CLIPBOARD_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Puts `text` on the clipboard; true when it is there.
+fn copy_text(text: &str) -> bool {
+    #[cfg(test)]
+    if CLIPBOARD_FAILS.with(|f| f.get()) {
+        return false;
+    }
+    platform::set_clipboard_text(text)
 }

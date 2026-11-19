@@ -53,28 +53,41 @@ fn override_key() -> Option<String> {
 /// The stored key, or `None` when there is none.
 pub fn get(slot: &str) -> Result<Option<String>, Fail> {
     if let Some(k) = override_key() {
-        return Ok((!k.is_empty()).then_some(k));
+        return usable(k);
     }
     match entry(slot)?.get_password() {
-        Ok(k) => Ok(Some(k)),
+        Ok(k) => usable(k),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(store_fail(e)),
     }
 }
 
+/// A key as found, under the one rule every key follows wherever it comes from: shorter than
+/// [`KEY_MIN`] it is never sent, since it could not be hidden from messages (audit 1 round 3, #4).
+fn usable(k: String) -> Result<Option<String>, Fail> {
+    match k.trim().chars().count() {
+        0 => Ok(None),
+        n if n < KEY_MIN => Err(Fail::new(
+            "auth",
+            "The stored key is too short to be an API key. Enter it again in Settings › AI.",
+        )),
+        _ => Ok(Some(k)),
+    }
+}
+
 pub fn set(slot: &str, key: &str) -> Result<(), Fail> {
-    if override_key().is_some() {
-        return Ok(());
-    }
     let key = key.trim();
-    if key.is_empty() {
-        return clear(slot);
-    }
-    if key.chars().count() < KEY_MIN {
+    if !key.is_empty() && key.chars().count() < KEY_MIN {
         return Err(Fail::new(
             "bad_request",
             "This is too short to be an API key.",
         ));
+    }
+    if override_key().is_some() {
+        return Ok(());
+    }
+    if key.is_empty() {
+        return clear(slot);
     }
     entry(slot)?.set_password(key).map_err(store_fail)
 }
@@ -108,5 +121,15 @@ mod tests {
         assert_eq!(target(&long).len(), CUSTOM.len() + 64);
         assert_eq!(target("claude-api"), "claude-api");
         assert_eq!(target("openai:groq"), "openai:groq");
+    }
+
+    /// Audit 1 round 3, #4: a key too short to hide is refused wherever it comes from.
+    #[test]
+    fn a_short_key_is_never_used() {
+        assert!(usable("abc".into()).is_err());
+        assert!(usable(" ab ".into()).is_err());
+        assert_eq!(usable(String::new()).unwrap(), None);
+        assert_eq!(usable("abcd".into()).unwrap().as_deref(), Some("abcd"));
+        assert!(set("claude-api", "xyz").is_err());
     }
 }

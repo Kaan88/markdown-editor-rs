@@ -161,11 +161,40 @@ fn body_message(body: &str) -> String {
         }
     }
     let t = body.trim();
-    let mut s: String = t.chars().take(200).collect();
-    if s.len() < t.len() {
-        s.push('…');
+    if t.chars().count() <= 200 {
+        return t.to_string();
     }
-    s
+    // Cut at a word's end, never inside one: a key cut in two could not be found and hidden
+    // (audit 1 round 3, #4).
+    let cut: String = t.chars().take(200).collect();
+    match whole_words(&cut).trim_end() {
+        "" => "(its message could not be shown)".to_string(),
+        s => format!("{s}…"),
+    }
+}
+
+/// `s` without the word it ends in, when that word may go on past `s`: up to its last separator.
+fn whole_words(s: &str) -> &str {
+    let sep = |c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '"' | '\'' | ',' | ';' | ':' | '{' | '}' | '[' | ']' | '(' | ')' | '<' | '>'
+            )
+    };
+    match s.rfind(sep) {
+        Some(i) => &s[..i + s[i..].chars().next().map_or(0, char::len_utf8)],
+        None => "",
+    }
+}
+
+/// An error's body as read: when the read stopped at `max` it is cut, and the word at the cut
+/// goes (audit 1 round 3, #4).
+fn read_part(body: String, max: usize) -> String {
+    if body.len() < max {
+        return body;
+    }
+    whole_words(&body).to_string()
 }
 
 /// What an HTTP error status means for the user.
@@ -213,13 +242,15 @@ fn checked(
         .and_then(|v| v.trim().parse::<f64>().ok())
         .map(|s| s.ceil() as u64);
     let cancelled = || job.is_some_and(Job::is_cancelled);
+    const MAX: usize = 64 * 1024;
     let body = sse::read_body(
         resp.into_body().into_reader(),
         &cancelled,
         ERROR_BODY_IDLE,
-        64 * 1024,
+        MAX,
     )
     .unwrap_or_default();
+    let body = read_part(body, MAX);
     if cancelled() {
         return Err(Fail::new("cancelled", "Cancelled."));
     }
@@ -292,7 +323,11 @@ fn run_claude_with(
         .unwrap_or(false)
     {
         // Learn the model's output limit once; a failure here shows again in the run itself.
-        let _ = models_claude();
+        // Part of the run: a cancel ends it, and nothing is sent after (audit 1 round 3).
+        let _ = models_claude_with(key, Some(job));
+        if job.is_cancelled() {
+            return Err(Fail::new("cancelled", "Cancelled."));
+        }
     }
     let max_tokens = claude_limits()
         .lock()
@@ -314,14 +349,34 @@ fn run_claude_with(
     )?;
     let mut s = ClaudeStream::default();
     let mut p = Progress::new(progress);
-    let last: fn(&sse::Event) -> bool =
-        |e| e.name == "message_stop" || e.data.contains(r#""type":"message_stop""#);
-    stream(P, resp, job, last, &mut |data| {
+    stream(P, resp, job, claude_last, &mut |data| {
         let go = s.event(data);
         p.tick(s.chars);
         (go, s.text.len())
     })?;
     s.finish()
+}
+
+/// The type of a Claude event (`message_stop`), from its data: the top-level `type`.
+fn claude_type(data: &str) -> Option<String> {
+    let v = serde_json::from_str::<Value>(data).ok()?;
+    v["type"].as_str().map(str::to_string)
+}
+
+/// Whether a Claude event ends the answer: the reader stops after exactly the events
+/// [`ClaudeStream::event`] ends on (audit 1 round 3, #6).
+pub fn claude_last(e: &sse::Event) -> bool {
+    matches!(
+        claude_type(&e.data).as_deref(),
+        Some("message_stop" | "error")
+    )
+}
+
+/// Whether an OpenAI-style event ends the answer: `[DONE]` or an error, as
+/// [`OpenAiStream::event`] decides.
+pub fn openai_last(e: &sse::Event) -> bool {
+    e.data.trim() == "[DONE]"
+        || serde_json::from_str::<Value>(&e.data).is_ok_and(|v| !v["error"].is_null())
 }
 
 /// The state of a Claude answer as its events come in.
@@ -397,10 +452,11 @@ impl ClaudeStream {
 /// The Claude models of the account, newest first as the API lists them.
 pub fn models_claude() -> Result<Vec<Model>, Fail> {
     let key = claude_key()?;
-    models_claude_with(&key).map_err(|f| f.hide(Some(&key)))
+    models_claude_with(&key, None).map_err(|f| f.hide(Some(&key)))
 }
 
-fn models_claude_with(key: &str) -> Result<Vec<Model>, Fail> {
+/// The model list; a cancel of `job` ends it.
+fn models_claude_with(key: &str, job: Option<&Job>) -> Result<Vec<Model>, Fail> {
     const P: &str = "Claude API";
     let mut list = Vec::new();
     let mut after: Option<String> = None;
@@ -413,7 +469,7 @@ fn models_claude_with(key: &str) -> Result<Vec<Model>, Fail> {
         let resp = checked(
             P,
             Some(key),
-            None,
+            job,
             agent()
                 .get(&url)
                 .header("x-api-key", key)
@@ -546,7 +602,7 @@ pub fn run_openai(
     .map_err(|f| hide(explain_effort(f, effort)))?;
     let mut s = OpenAiStream::default();
     let mut pr = Progress::new(progress);
-    stream(&p, resp, job, |e| e.data.trim() == "[DONE]", &mut |data| {
+    stream(&p, resp, job, openai_last, &mut |data| {
         let go = s.event(data);
         pr.tick(s.chars);
         (go, s.text.len())

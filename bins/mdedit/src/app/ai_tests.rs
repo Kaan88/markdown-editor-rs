@@ -31,11 +31,37 @@ done
 fn engine() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        use std::os::unix::fs::PermissionsExt;
         let dir = scratch("ai-engine");
-        let path = dir.join("fake-engine");
-        std::fs::write(&path, ENGINE).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let script = dir.join("fake-engine");
+        std::fs::write(&script, ENGINE).unwrap();
+        #[cfg(unix)]
+        let path = {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            script
+        };
+        // Windows: the same script, run by Git's bash from a batch file (MDEDIT_TEST_BASH
+        // names another bash).
+        #[cfg(windows)]
+        let path = {
+            let bash = std::env::var_os("MDEDIT_TEST_BASH")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    let pf = std::env::var_os("ProgramFiles")?;
+                    Some(PathBuf::from(pf).join("Git").join("bin").join("bash.exe"))
+                })
+                .filter(|p| p.is_file())
+                .expect("the AI tests need Git's bash (or MDEDIT_TEST_BASH)");
+            let cmd = dir.join("fake-engine.cmd");
+            let line = format!(
+                "@\"{}\" \"{}\"
+",
+                bash.display(),
+                script.display()
+            );
+            std::fs::write(&cmd, line).unwrap();
+            cmd
+        };
         // SAFETY: set once, before any test of this file starts an engine.
         unsafe { std::env::set_var("MDEDIT_AI_ENGINE", &path) };
     });
@@ -322,6 +348,14 @@ fn a_key_draft_does_not_follow_a_new_url() {
     assert!(a.ai.key_draft.is_empty(), "the draft was for A");
     let slot_b = "openai:custom:https://b.example/v1";
     assert!(!a.ai.keys.contains_key(slot_b) && !a.ai.pending_key(slot_b));
+    // A's answer comes in while B's pause runs: B is not looked up before it, nor its models
+    // asked for (audit 1 round 3, #8).
+    wait(&mut a, |a| {
+        a.ai.keys.contains_key("openai:custom:https://a.example/v1")
+    });
+    assert!(a.ai.url_due.is_some());
+    assert!(!a.ai.keys.contains_key(slot_b) && !a.ai.pending_key(slot_b));
+    assert!(a.ai.fetching.is_none());
     a.timers(Instant::now() + Duration::from_secs(1));
     wait(&mut a, |a| a.ai.keys.contains_key(slot_b));
     let _ = std::fs::remove_dir_all(&dir);
@@ -355,6 +389,19 @@ fn a_closed_document_keeps_its_result_to_copy() {
     wait(&mut a, |a| a.ai.panel.is_some());
     let i = a.docs.active().unwrap();
     a.docs.close(i, None);
+    // Drawn before anything is pressed: the review already knows (audit 1 round 3, #9).
+    a.compose();
+    assert!(hit_shown(&a, AiHit::Copy));
+    assert!(!hit_shown(&a, AiHit::Apply), "Apply for a closed document");
+    assert_eq!(
+        review(&mut a).blocked.as_deref(),
+        Some(mdedit_core::ai::BLOCKED_CLOSED)
+    );
+    // A copy that fails keeps the review and its result (audit 1 round 3, #3).
+    super::ai_events::CLIPBOARD_FAILS.with(|f| f.set(true));
+    a.key_pressed(keys::Key::Name(KeyName::Enter), None);
+    super::ai_events::CLIPBOARD_FAILS.with(|f| f.set(false));
+    assert_eq!(review(&mut a).result, "# Done\n");
     a.ai_review_action(AiHit::RunAgain);
     assert_eq!(
         review(&mut a).blocked.as_deref(),

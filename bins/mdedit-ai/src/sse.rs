@@ -2,12 +2,12 @@
 //! an event.
 
 use std::io::{BufRead, BufReader, Read};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TrySendError};
 use std::time::{Duration, Instant};
 
 /// The longest line taken from a stream.
 pub const LINE_MAX: usize = 1024 * 1024;
-/// The most data one event may gather over its lines.
+/// The most one event may gather over its lines: its name and its data, line breaks included.
 pub const EVENT_MAX: usize = 1024 * 1024;
 /// Events read ahead of the run: with [`EVENT_MAX`], at most 8 MB waits.
 const AHEAD: usize = 8;
@@ -33,6 +33,9 @@ pub enum Broken {
 
 enum Item<T> {
     One(T),
+    /// Something came that is not an item yet (a comment, a line of an event): the stream is
+    /// alive.
+    Alive,
     End,
     Failed(Broken),
 }
@@ -57,6 +60,7 @@ fn pump<T>(
                     return Ok(());
                 }
             }
+            Ok(Item::Alive) => deadline = Instant::now() + idle,
             Ok(Item::End) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
             Ok(Item::Failed(b)) => return Err(b),
             Err(RecvTimeoutError::Timeout) if Instant::now() >= deadline => {
@@ -86,6 +90,10 @@ pub fn read(
         let mut input = BufReader::new(input);
         let mut buf = Vec::new();
         let mut events = Parser::default();
+        // Lines that make no event yet still count as the stream being alive; told at most every
+        // [`POLL`], and a reader whose run has ended (a cancel) stops at its next line (audit 1
+        // round 3, #7).
+        let mut told = Instant::now();
         loop {
             buf.clear();
             let read = input
@@ -102,15 +110,24 @@ pub fn read(
                 },
                 Ok(_) if buf.len() > LINE_MAX => Item::Failed(Broken::TooLong),
                 Ok(_) => match events.line(&String::from_utf8_lossy(&buf)) {
-                    _ if events.data.len() > EVENT_MAX => Item::Failed(Broken::TooLong),
+                    _ if events.size() > EVENT_MAX => Item::Failed(Broken::TooLong),
                     Some(e) => {
                         let done = last(&e);
                         if tx.send(Item::One(e)).is_err() || done {
                             return;
                         }
+                        told = Instant::now();
                         continue;
                     }
-                    None => continue,
+                    None => {
+                        if told.elapsed() >= POLL {
+                            told = Instant::now();
+                            if let Err(TrySendError::Disconnected(_)) = tx.try_send(Item::Alive) {
+                                return;
+                            }
+                        }
+                        continue;
+                    }
                 },
                 Err(e) => Item::Failed(Broken::Io(e)),
             };
@@ -189,6 +206,11 @@ impl Parser {
             _ => {}
         }
         None
+    }
+
+    /// What the event being read holds: its name and its data (audit 1 round 3, #10).
+    fn size(&self) -> usize {
+        self.name.len() + self.data.len()
     }
 
     /// The event being read, if it has data.
@@ -369,5 +391,109 @@ mod tests {
         let r = read_body(Silent, &stop, Duration::from_secs(600), 64 * 1024);
         assert_eq!(r.unwrap(), "");
         assert!(t.elapsed() < Duration::from_secs(1));
+    }
+}
+
+#[cfg(test)]
+mod round3 {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// A server that sends a comment every 45 ms, `n` times (forever with `None`), then an event
+    /// and the end; `dropped` is set when the reader lets go of it.
+    struct Pings {
+        n: Option<usize>,
+        tail: std::io::Cursor<Vec<u8>>,
+        dropped: Arc<AtomicBool>,
+    }
+    impl Read for Pings {
+        fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+            if self.n != Some(0) {
+                std::thread::sleep(Duration::from_millis(45));
+                if let Some(n) = &mut self.n {
+                    *n -= 1;
+                }
+                let ping = b": ping\n";
+                b[..ping.len()].copy_from_slice(ping);
+                return Ok(ping.len());
+            }
+            self.tail.read(b)
+        }
+    }
+    impl Drop for Pings {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn pings(n: Option<usize>) -> (Pings, Arc<AtomicBool>) {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let p = Pings {
+            n,
+            tail: std::io::Cursor::new(b"data: end\n\n".to_vec()),
+            dropped: dropped.clone(),
+        };
+        (p, dropped)
+    }
+
+    /// Audit 1 round 3, #7: comments keep a stream alive; it is not idle while they come.
+    #[test]
+    fn comments_keep_a_stream_alive() {
+        let (input, _) = pings(Some(20));
+        let mut got = Vec::new();
+        let r = read(
+            input,
+            &|| false,
+            Duration::from_millis(300),
+            |_| false,
+            &mut |e| {
+                got.push(e.data);
+                true
+            },
+        );
+        assert!(r.is_ok(), "{r:?}");
+        assert_eq!(got, ["end"]);
+    }
+
+    /// Audit 1 round 3, #7: after a cancel, a reader that gets only comments stops.
+    #[test]
+    fn a_reader_of_comments_stops_after_a_cancel() {
+        let (input, dropped) = pings(None);
+        let t = Instant::now();
+        let stop = || t.elapsed() > Duration::from_millis(200);
+        assert!(
+            read(
+                input,
+                &stop,
+                Duration::from_secs(60),
+                |_| false,
+                &mut |_| true
+            )
+            .is_ok()
+        );
+        while !dropped.load(Ordering::SeqCst) {
+            assert!(t.elapsed() < Duration::from_secs(3), "the reader goes on");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Audit 1 round 3, #10: the event's name counts toward its limit.
+    #[test]
+    fn an_event_name_counts_toward_the_limit() {
+        let half = EVENT_MAX / 2 + 100;
+        let s = format!(
+            "event: {}\ndata: {}\n\n",
+            "n".repeat(half),
+            "d".repeat(half)
+        );
+        let r = read(
+            std::io::Cursor::new(s),
+            &|| false,
+            Duration::from_secs(5),
+            |_| false,
+            &mut |_| panic!("no event"),
+        );
+        assert!(matches!(r, Err(Broken::TooLong)), "{r:?}");
     }
 }

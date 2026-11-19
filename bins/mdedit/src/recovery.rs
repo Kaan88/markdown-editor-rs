@@ -123,13 +123,23 @@ pub struct Found {
 
 /// True when a recovery copy holds the newer text of the document a session backup is for: the
 /// same file, or for documents without a file the same untitled number.
+#[cfg(test)]
 pub fn covers(found: &[Found], u: &Unsaved) -> bool {
-    found.iter().any(|f| match (&f.header.path, &u.path) {
+    covering(found, u).is_some()
+}
+
+/// The copy in `found` that covers the backup `u` (see [`covers`]), by index.
+pub fn covering(found: &[Found], u: &Unsaved) -> Option<usize> {
+    found.iter().position(|f| match (&f.header.path, &u.path) {
         (Some(a), Some(b)) => a == b,
         (None, None) => f.header.untitled == u.untitled,
         _ => false,
     })
 }
+
+/// Who a document is to a session backup and a recovery copy: its file, or without one its
+/// untitled number.
+pub type Ident = (Option<PathBuf>, u32);
 
 /// What [`Recovery::restore`] did.
 #[derive(Default)]
@@ -138,6 +148,10 @@ pub struct Restored {
     pub count: usize,
     /// Tabs of files, which wait for their file to be read; the caller starts those loads.
     pub load: Vec<usize>,
+    /// For each copy given, in order, the document it came back as; `None` for a copy that
+    /// could not be read (it is gone). A session backup a copy covers is made to name the same
+    /// document (audit 1 round 3, #1).
+    pub idents: Vec<Option<Ident>>,
 }
 
 pub struct Recovery {
@@ -217,6 +231,7 @@ impl Recovery {
         let mut out = Restored::default();
         for found in found {
             let h = &found.header;
+            out.idents.push(None);
             match h.path.as_ref().filter(|p| p.is_file()) {
                 Some(path) => {
                     let k = docs.add_pending(path);
@@ -230,6 +245,7 @@ impl Recovery {
                     });
                     out.load.push(k);
                     out.count += 1;
+                    *out.idents.last_mut().unwrap() = Some((h.path.clone(), h.untitled));
                 }
                 None => {
                     let Some((_, text)) = recovery::read(&found.file) else {
@@ -243,8 +259,26 @@ impl Recovery {
                         docs.tabs[k].encoding_changed = true;
                     }
                     let id = docs.tabs[k].id;
-                    self.adopt(&found, id);
+                    let at = self.adopt(&found, id);
+                    let number = docs.tabs[k].untitled;
+                    // The document came back under another name (its file is gone, or its
+                    // number was taken): the copy says so at once, before anything else is
+                    // written, so a second interruption finds it under the name the tab has and
+                    // does not take it for another document's.
+                    if h.path.is_some() || h.untitled != number {
+                        let mut header = h.clone();
+                        header.path = None;
+                        header.untitled = number;
+                        let name = at.file_name().map(|n| n.to_string_lossy().into_owned());
+                        if let (Some(dir), Some(name)) = (at.parent(), name)
+                            && let Err(e) =
+                                recovery::write(dir, &name, &header, &Rope::from_str(&text))
+                        {
+                            eprintln!("mdedit: could not rewrite a recovery copy: {e}");
+                        }
+                    }
                     out.count += 1;
+                    *out.idents.last_mut().unwrap() = Some((None, number));
                 }
             }
         }
@@ -285,6 +319,10 @@ impl Recovery {
             self.in_flight.fetch_add(1, Ordering::AcqRel);
         }
         let sent = self.writer.as_ref().is_some_and(|w| w.tx.send(job).is_ok());
+        // A writer that stopped is replaced at the next write, not sent to again.
+        if !sent {
+            self.writer = None;
+        }
         // Not handed to a writer: a failed write, tried again like one.
         if !sent && let Some(w) = write {
             if let Ok(mut f) = self.failed.lock() {
@@ -388,9 +426,14 @@ impl Recovery {
         for job in jobs {
             self.send(job);
         }
-        // A write in flight may fail: look again soon, so a failure is seen without any other
-        // event to wake the window.
-        if self.in_flight.load(Ordering::Acquire) > 0 {
+        // A write in flight may fail, and one may have failed already (one that could not be
+        // sent, or one the thread finished since the list was taken): look again soon, so a
+        // failure is seen without any other event to wake the window. The count is read before
+        // the list: the thread lists a failure before it counts the write done, so a count of
+        // nothing means every failure of those writes is in the list (audit 1 round 3, #2).
+        let busy = self.in_flight.load(Ordering::Acquire) > 0;
+        let failed = self.failed.lock().is_ok_and(|f| !f.is_empty());
+        if busy || failed {
             let soon = now + Duration::from_secs(1);
             next = Some(next.map_or(soon, |n| n.min(soon)));
         }
@@ -591,7 +634,9 @@ mod tests {
         let t0 = Instant::now();
         assert!(d.edit(EditOp::Insert("a"), None));
         rec.poll(&d, t0);
-        rec.poll(&d, t0 + secs(3));
+        // The poll that could not send the write looks again soon: nothing else may wake an
+        // idle window to see the failure (audit 1 round 3, #2).
+        assert_eq!(rec.poll(&d, t0 + secs(3)), Some(t0 + secs(4)));
         // Due again after the pause, not taken as written.
         assert_eq!(rec.poll(&d, t0 + secs(4)), Some(t0 + secs(7)));
         rec.no_writer = false;

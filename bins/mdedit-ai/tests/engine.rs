@@ -373,8 +373,8 @@ fn a_key_at_the_cut_of_a_long_error_leaves_no_fragment() {
     let a = e.answer();
     let m = a["message"].as_str().unwrap();
     assert!(!m.contains("Zq9w") && !m.contains("mX3r"), "{m}");
-    // The cut may fall inside the marker; the key is what must not be there.
-    assert!(m.contains("[key h"), "{m}");
+    // The cut falls at a word's end, inside the marker; the key is what must not be there.
+    assert!(m.contains("[key"), "{m}");
     e.send(json!({"op": "models", "id": 3, "conn": conn}));
     let a = e.answer();
     assert_eq!(a["kind"], "auth", "{a}");

@@ -136,6 +136,16 @@ fn looks_like_key(word: &str) -> bool {
     n >= 32 || (n >= 16 && word.chars().any(|c| c.is_ascii_digit()))
 }
 
+/// Whether a word that starts like a key has the random part of one: a run of 16 characters or
+/// more between separators, or 40 characters in all. A model's name (`xai-grok-4-fast-reasoning`)
+/// is short words joined (audit 1 round 3, #12).
+fn random_part(word: &str) -> bool {
+    word.len() >= 40
+        || word
+            .split(['-', '_', '.'])
+            .any(|part| part.chars().count() >= 16)
+}
+
 /// `text` with no key in it: `key` itself (any key mdedit stores: 4 characters or more), a
 /// credential-looking word after `Bearer ` or `x-api-key:`, and a word of 20 characters or more
 /// that starts like a known provider's key. Servers sometimes echo what they were sent.
@@ -175,7 +185,7 @@ pub fn redact(text: &str, key: Option<&str>) -> String {
         }
         if !prev_tok && KEY_PREFIXES.iter().any(|p| s[i..].starts_with(p)) {
             let end = i + s[i..].find(|c: char| !tok(c)).unwrap_or(s.len() - i);
-            if end - i >= 20 {
+            if end - i >= 20 && random_part(&s[i..end]) {
                 out.push_str(HIDDEN);
                 i = end;
                 prev_tok = false;
@@ -296,6 +306,13 @@ mod tests {
         assert_eq!(
             redact("task-0123456789abcdefghijkl", None),
             "task-0123456789abcdefghijkl"
+        );
+        // Audit 1 round 3, #12: a model's name is not a key; a key of that provider is.
+        let alias = "Unknown model alias: xai-grok-4-fast-reasoning";
+        assert_eq!(redact(alias, None), alias);
+        assert_eq!(
+            redact("key xai-Zq81LmN0pQ7rS2tU9vW4xY6z rejected", None),
+            "key [key hidden] rejected"
         );
     }
 

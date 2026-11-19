@@ -722,7 +722,11 @@ impl App {
                 failed = Some(e);
             }
         }
-        let slot = self.ai_key_slot();
+        // While a URL is being typed, its key and models wait for the pause (`url_due`): a reply
+        // that comes in meanwhile, for the URL before, does not look up the one half typed
+        // (audit 1 round 3, #8). The timer calls this again.
+        let typing = self.ai.url_due.is_some();
+        let slot = self.ai_key_slot().filter(|_| !typing);
         if let Some(slot) = &slot
             && !self.ai.keys.contains_key(slot)
             && !self.ai.pending_key(slot)
@@ -742,6 +746,7 @@ impl App {
                 .is_empty();
         let key = self.ai_models_key();
         if matches!(c, Connection::ClaudeApi | Connection::OpenAi)
+            && !typing
             && key_ok
             && base_ok
             && !self.ai.models.contains_key(&key)

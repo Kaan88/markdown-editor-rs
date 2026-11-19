@@ -3634,8 +3634,11 @@ mod tests {
     }
 
     fn file_docs(name: &str, text: &[u8]) -> (Docs, usize, PathBuf, PathBuf) {
+        // One folder per call: tests of one process run in parallel (audit 1 round 3, #11).
+        static CALL: AtomicU64 = AtomicU64::new(0);
+        let n = CALL.fetch_add(1, Ordering::Relaxed);
         let dir = mdshared_app::paths::canonical_or_absolute(&std::env::temp_dir())
-            .join(format!("mdedit-{name}-{}", std::process::id()));
+            .join(format!("mdedit-{name}-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("file.txt");
         std::fs::write(&path, text).unwrap();

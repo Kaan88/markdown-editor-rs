@@ -140,3 +140,52 @@ fn the_host_names_the_provider() {
     assert_eq!(host_of("https://openrouter.ai/api/v1"), "openrouter.ai");
     assert_eq!(host_of("http://localhost:11434/v1"), "localhost:11434");
 }
+
+/// Audit 1 round 3, #6: the reader and the answer agree on the last event, whatever the
+/// spacing of its JSON, and a field nested deeper is not the event's type.
+#[test]
+fn the_reader_and_the_answer_agree_on_the_end() {
+    let ev = |data: &str| sse::Event {
+        name: String::new(),
+        data: data.to_string(),
+    };
+    let spaced = r#"{"type": "message_stop"}"#;
+    let nested = r##"{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"},"x":{"type":"message_stop"}}"##;
+    for (data, end) in [
+        (spaced, true),
+        (nested, false),
+        (r#"{"type":"error","error":{}}"#, true),
+    ] {
+        let mut s = ClaudeStream::default();
+        assert_eq!(!s.event(data), end, "{data}");
+        assert_eq!(claude_last(&ev(data)), end, "{data}");
+    }
+    for (data, end) in [
+        (" [DONE] ", true),
+        (r#"{"error": {"code": 1}}"#, true),
+        (r#"{"choices":[{"delta":{"content":"[DONE]"}}]}"#, false),
+    ] {
+        let mut s = OpenAiStream::default();
+        assert_eq!(!s.event(data), end, "{data}");
+        assert_eq!(openai_last(&ev(data)), end, "{data}");
+    }
+}
+
+/// Audit 1 round 3, #4: a message cut for length never ends in part of a word, so a key in it
+/// is whole (and hidden) or gone; an error body cut at its limit loses the word at the cut.
+#[test]
+fn a_cut_never_leaves_part_of_a_key() {
+    let key = "QWERTYUIOPASDFGHJKLZXCVBNM1234567890";
+    let body = format!("{}{key} more", "a ".repeat(90));
+    let m = body_message(&body);
+    assert!(!m.contains("QWERTY"), "{m}");
+    assert!(m.ends_with('…'));
+    // One long word: nothing can be shown of it.
+    let m = body_message(&"Z".repeat(500));
+    assert_eq!(m, "(its message could not be shown)");
+    // Short bodies are whole.
+    assert_eq!(body_message(" no such model "), "no such model");
+    let cut = read_part(format!("{{\"error\": \"bad {}", &key[..10]), 22);
+    assert!(!cut.contains("QWERTY"), "{cut}");
+    assert_eq!(read_part("whole".into(), 64), "whole");
+}
