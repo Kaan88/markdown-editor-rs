@@ -9,6 +9,8 @@ sections that follow are history, not open work. From here on:
   every Monday (`.github/dependabot.yml`); `ci` runs on each; merge by hand once it passes and the budgets below are measured.
   The sister crates (`mdshared-*`, `mdview-*`) and the winit and softbuffer forks are moved by hand.
 - A new feature goes in only when the owner asks for it, under the same rules as before.
+  On 2026-11-19 the owner asked for AI rewriting (local Claude Code and Codex, the Claude API,
+  OpenAI-compatible APIs with provider presets, model and effort settings): DESIGN.md section 68.
 - Release only the app a change affects (mdview 1.0.1 carried no change of its own and was
   withdrawn).
 - Known small gaps, not planned unless they get in the way: no access keys in the line-ending and encoding menus; an empty function list for Vue and Svelte; a column selection pads short lines on typing but not on paste or Enter; no compare arrows with word wrap on; the Markdown menu has no room left in an 800 px window.
@@ -229,7 +231,10 @@ opens any text file and shares the shell, text and highlighting code with the vi
 - No multiple cursors, split views, minimap or code folding in the first version (all built
   since; see the roadmap above).
 - No network use, except looking for and downloading its own updates (added 2026-11-13 with
-  the shared updater; a small manifest from GitHub at most once a day, off with one setting).
+  the shared updater; a small manifest from GitHub at most once a day, off with one setting),
+  and AI rewriting when the user turns it on (amended 2026-11-19 at the owner's request). The AI
+  connection is Off by default; when it is on, only the text a command is run on goes, and only
+  to the provider chosen. The editor itself makes no request: the `mdedit-ai` engine does.
 
 ## Depends on
 

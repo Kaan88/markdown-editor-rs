@@ -5,6 +5,24 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## AI rewriting (2026-11-19, branch `f/ai`, not merged, not released)
+
+Owner's request and approved mockups; design in DESIGN.md section 68, PLAN.md amended.
+
+- Phase 1 (shared, `markdown-shared-rs` branch `f/ai`, 19348d3): secret text fields.
+- Phase 2 (`bins/mdedit-ai`, fc6955d): the engine, its four connections, keys; 18 unit and 12
+  integration tests against a stub HTTP server and fake CLIs.
+- Phase 3 (this commit): mdedit's side: commands, palette, text menu, the instruction and review
+  panels (Changes / Preview with mdview's renderer), the bar, Settings › AI, prefs, saved prompts,
+  `replace_range` as one undo step. 6 app tests with a stand-in engine script.
+- Next, phase 4: package `mdedit-ai` (installer, zip, Linux `lib/mdedit`, Mac bundle, release
+  workflow, updater manifest), measure the budgets with `tools/compare-builds.py`, a Windows test
+  build for the owner.
+- Not run: real API calls with keys, the Codex CLI, a real Claude Code rewrite, the credential
+  store on Windows/macOS, anything on Windows. The owner has not seen it in the app yet.
+- The shared crates are pinned to the `f/ai` commit; move the pin to `main` once that branch is
+  merged there.
+
 ## Installer: no scripts under "Open with" (2026-11-18, branch `f/installer-types`)
 
 The owner found that after installing mdedit, .bat files no longer ran: the installer offered

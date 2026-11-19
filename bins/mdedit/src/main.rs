@@ -2,6 +2,8 @@
 //! crate or by mdshared-ui. Phase 1 is read-only.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai;
+mod ai_ui;
 mod app;
 mod args;
 mod chrome;

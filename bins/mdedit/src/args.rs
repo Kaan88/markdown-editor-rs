@@ -183,6 +183,9 @@ pub struct Args {
     pub update_bar: Option<String>,
     /// Open the command palette with this text in its box, for a shot.
     pub palette: Option<String>,
+    /// `--ai-demo instruction|review|preview|stale|working|bar|settings`: an AI panel or state
+    /// for a shot, with a made-up result and no engine.
+    pub ai_demo: Option<String>,
     /// `--compare A B`: open both files, side by side, compared.
     pub compare: Option<(PathBuf, PathBuf)>,
     /// Compare the active document with its file on disk (for a shot: with `--type`).
@@ -354,6 +357,7 @@ impl Args {
                 "--regex" => out.regex = true,
                 "--replace" => out.replace = value(&a),
                 "--palette" => out.palette = value(&a),
+                "--ai-demo" => out.ai_demo = value(&a),
                 "--compare" => {
                     let pair = (value(&a), value(&a));
                     if let (Some(x), Some(y)) = pair {

@@ -15,7 +15,7 @@ use mdedit_core::save::SaveError;
 use mdedit_core::table::TableOp;
 
 /// How long after the last edit the find marks are searched for again.
-const REFIND_DELAY: Duration = Duration::from_millis(300);
+pub(super) const REFIND_DELAY: Duration = Duration::from_millis(300);
 /// What `--type-steps` types, over and over.
 const TYPE_TEXT: &str = "the quick brown fox jumps over the lazy dog ";
 
@@ -51,6 +51,10 @@ impl App {
             Hit::UpdateClose => self.docs.updates.dismiss(),
             Hit::CrashOpen | Hit::CrashCopy | Hit::CrashClose => self.crash_bar(hit),
             Hit::StaleClose | Hit::StaleKeep | Hit::StaleDismiss => self.stale_bar(hit),
+            Hit::AiBarGo => self.ai_bar_go(),
+            Hit::AiBarClose => {
+                self.ai_bar_close();
+            }
             // The format bar's buttons act on the text, which keeps the keyboard.
             Hit::Format(id) => {
                 self.ui.find_focused = false;
@@ -438,7 +442,12 @@ impl App {
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
-            Act::LinesMenu | Act::ConvertMenu | Act::MarkdownMenu | Act::TableMenu => {
+            Act::AiPrompt(k) => self.ai_saved(k),
+            Act::LinesMenu
+            | Act::ConvertMenu
+            | Act::MarkdownMenu
+            | Act::TableMenu
+            | Act::AiMenu => {
                 if let (Some(kind), Some(sub)) = (self.ui.popup_kind(), act.submenu()) {
                     self.open_sub(kind, sub, false);
                 }
@@ -1137,6 +1146,10 @@ impl App {
             PopupKind::Convert => overlays::convert_menu(&self.docs, x, y, right),
             PopupKind::Markdown => overlays::markdown_menu(&self.docs, x, y, right),
             PopupKind::Table => overlays::table_menu(&self.docs, x, y, right),
+            PopupKind::Ai => {
+                self.ai_load_prompts();
+                overlays::ai_menu(&self.docs, x, y, right)
+            }
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return None,
@@ -1809,6 +1822,12 @@ impl App {
             C::Settings => self.open_settings(),
             C::CompleteWord => self.open_completion(true),
             C::OpenSnippets => self.open_snippets_file(),
+            C::AiFormat => self.ai_builtin(mdedit_core::ai::FORMAT, "Format as Markdown"),
+            C::AiFix => self.ai_builtin(mdedit_core::ai::FIX, "Fix Markdown"),
+            C::AiRewrite => self.ai_open_instruction(),
+            C::AiEditPrompts => self.ai_edit_prompts(),
+            C::AiSettings => self.ai_open_settings(),
+            C::AiCancel => self.ai_cancel(),
             C::NextTab => self.docs.step_tab(true),
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),
@@ -1897,6 +1916,9 @@ impl App {
         if self.ui.popup.take().is_some() {
             return;
         }
+        if self.ai_escape() {
+            return;
+        }
         if self.ui.dialog.is_some() {
             self.close_dialog();
             return;
@@ -1956,7 +1978,8 @@ impl App {
                 self.handed_over(requests);
             }
             // The pane's answer is taken in by the pass after this event (`preview_sync`).
-            Wake::Preview => {}
+            Wake::Preview => self.ai_poll_panes(),
+            Wake::Ai => self.ai_wake(),
             Wake::Link => {
                 // The links are over; the next frame no longer shows the mark.
                 self.docs.links.take_gone();

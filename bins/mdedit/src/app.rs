@@ -54,6 +54,9 @@ use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, Wind
 
 #[cfg(test)]
 mod access_tests;
+mod ai_events;
+#[cfg(all(test, unix))]
+mod ai_tests;
 mod commands;
 mod compare_events;
 mod completion;
@@ -108,6 +111,8 @@ pub enum Wake {
     Link,
     /// The preview pane has an answer.
     Preview,
+    /// The AI engine sent something.
+    Ai,
     /// The file watcher saw a change.
     Files,
     /// A load made progress or finished.
@@ -294,6 +299,8 @@ struct App {
     macros: crate::macros::Macros,
     /// The command palette: empty until it is first opened.
     palette: crate::palette::Host,
+    /// AI rewriting: the engine once started, a run, its panels and its bar.
+    ai: crate::ai::Ai,
     /// `--type-steps`: keystrokes left and typed, each one's time from keystroke to pixels (ms),
     /// and the part of it spent in the edit itself.
     type_steps: Option<u32>,
@@ -439,6 +446,7 @@ impl App {
             step_times: Vec::new(),
             macros: crate::macros::Macros::default(),
             palette: Default::default(),
+            ai: Default::default(),
             settled: false,
             load_traced: false,
             colours_traced: false,
@@ -541,6 +549,7 @@ impl App {
             && !self.ui.results.focused
             && self.ui.dialog.is_none()
             && !self.palette_open()
+            && !self.ai_panel_open()
             && self.docs.active_ready().is_some()
     }
 
@@ -1170,7 +1179,7 @@ impl App {
                 bounds.push(s.menu.rect().inset(-20.0));
             }
         }
-        if self.ui.dialog.is_some() || self.ui.settings.is_some() {
+        if self.ui.dialog.is_some() || self.ui.settings.is_some() || self.ai_panel_open() {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
         if let Some(p) = self.palette.open.as_mut() {
@@ -1233,6 +1242,13 @@ impl App {
                 .open
                 .is_some()
                 .then_some((self.palette.tick, self.ui.caret_on)),
+            // The AI panels raise their tick for every change, as the palette does.
+            self.ai_panel_open().then_some((
+                self.ai.tick,
+                self.ai.hover,
+                self.ai.pressed,
+                self.ui.caret_on,
+            )),
         ));
         let overlay_changed = osig != self.overlay_sig;
         self.overlay_sig = osig;
@@ -1346,6 +1362,11 @@ impl App {
                         if !self.docs.stale.is_empty() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
                             chrome::draw_stale_bar(&mut c, under, self.docs.stale.len());
+                            y = under.bottom();
+                        }
+                        if let Some(bar) = &self.ai.bar {
+                            let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
+                            chrome::draw_ai_bar(&mut c, bar, under);
                         }
                     }
                     Region::Files if self.ui.outline.on => {
@@ -1526,6 +1547,10 @@ impl App {
                     }
                 }
                 if let Some(f) = self.ui.settings.as_mut() {
+                    if let Some(cat) = self.ai.settings_jump.take() {
+                        f.layout(c.p, Rect::new(0.0, 0.0, w, h));
+                        f.jump_to_category(cat);
+                    }
                     f.draw(c.p, &pal, Rect::new(0.0, 0.0, w, h), self.ui.caret_on);
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
@@ -1539,6 +1564,17 @@ impl App {
                     b.draw(c.p, &pal);
                 }
                 // Last, over everything.
+                if self.ai.panel.is_some() {
+                    crate::ai_ui::draw(
+                        c.p,
+                        &pal,
+                        &mut self.ai,
+                        &self.docs.ai_prompts,
+                        w,
+                        h,
+                        self.ui.caret_on,
+                    );
+                }
                 if let Some(p) = self.palette.open.as_mut() {
                     let window = Rect::new(0.0, 0.0, w, h);
                     p.palette
@@ -1582,7 +1618,10 @@ impl App {
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        let covered = self.ui.dialog.is_some() || self.palette_open() || self.ui.settings.is_some();
+        let covered = self.ui.dialog.is_some()
+            || self.palette_open()
+            || self.ai_panel_open()
+            || self.ui.settings.is_some();
         let margin = self.shadow.as_ref().map_or(0, |s| s.margin()) as f32 / self.scale;
         let rect = chrome::snap_button_rect(self.areas.title, margin, self.maximized, covered);
         let key = rect.map(|r| {
@@ -1781,8 +1820,8 @@ impl App {
     // ---- hit testing -------------------------------------------------------------------------
 
     fn hit_at(&self, x: f32, y: f32) -> Option<Hit> {
-        // The palette does its own hit testing.
-        if self.palette_open() {
+        // The palette and the AI panels do their own hit testing.
+        if self.palette_open() || self.ai_panel_open() {
             return None;
         }
         if self.ui.dialog.is_some() {
@@ -2455,7 +2494,12 @@ impl App {
         } else {
             view::BANNER_H
         };
-        format + strip + update + crash + stale
+        let ai = if self.ai.bar.is_some() {
+            view::BANNER_H
+        } else {
+            0.0
+        };
+        format + strip + update + crash + stale + ai
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
@@ -2862,6 +2906,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
         app.settle_palette();
     }
     app.shot_replace();
+    if let Some(kind) = app.args.ai_demo.clone() {
+        app.ai_demo(&kind);
+    }
     if app.ui.dialog.is_some() || app.ui.popup.is_some() || app.palette_open() {
         app.compose();
     }

@@ -20,6 +20,7 @@ impl App {
         self.ui.tip = None;
         self.ui.hover = None;
         self.ui.find_focused = false;
+        self.ai_load_prompts();
         self.palette
             .open(query, &self.docs, &self.ui, &mut self.macros);
         self.caret_reset();
@@ -168,6 +169,7 @@ impl App {
             }
             Target::Recent(path) | Target::File(path) => self.open(&path),
             Target::Symbol(line) => self.go_to_line(line + 1, 1),
+            Target::AiPrompt(k) => self.ai_saved(k),
             Target::Prefix(_) => {}
         }
         self.redraw();

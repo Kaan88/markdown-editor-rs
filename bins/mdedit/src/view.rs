@@ -1103,13 +1103,14 @@ impl View {
             if let Some(col) = tint {
                 c.p.fill_dev(x0, y, x1, y + h, col, row_tint);
             }
-            let intra = tint.and_then(|col| {
-                align
-                    .as_ref()?
-                    .intra(shown_line.row)
-                    .filter(|m| !m.is_empty())
-                    .map(|m| (m, col))
-            });
+            let intra = tint
+                .zip(
+                    align
+                        .as_ref()
+                        .and_then(|a| a.intra(shown_line.row))
+                        .filter(|m| !m.is_empty()),
+                )
+                .map(|(col, m)| (m, col));
             let range = r.buffer.line_range(i);
             let with_break = r.buffer.line_range_with_break(i);
             let folded = r.view.folds.headed(i).is_some();

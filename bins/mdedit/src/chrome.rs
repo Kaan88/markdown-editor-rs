@@ -732,6 +732,57 @@ pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize) {
     }
 }
 
+/// The bar under the command bar that says why an AI rewrite did not happen, or that one ended
+/// without a change, with the one thing to do about it.
+pub fn draw_ai_bar(c: &mut Ctx, ai: &crate::ai::Bar, bar: Rect) {
+    use mdshared_ui::notice::{bar_button, bar_button_w};
+    let pal = *c.pal;
+    let bg = if ai.info { pal.bar } else { pal.warn_bg };
+    c.p.fill(bar, bg);
+    c.p.fill(
+        Rect::new(bar.x, bar.bottom() - c.p.px(), bar.w, c.p.px()),
+        pal.line,
+    );
+    let close = Rect::new(bar.right() - 34.0, bar.cy() - 12.0, 24.0, 24.0);
+    if c.hover == Some(Hit::AiBarClose) {
+        c.p.rbox(close, 5.0, mix(bg, pal.text, 0.10));
+    }
+    c.p.icon(glyph::CLOSE, 10.0, close.cx(), close.cy(), pal.muted);
+    c.hit(Hit::AiBarClose, close);
+    let mut right = close.x - 10.0;
+    if let Some(action) = ai.action {
+        let label = action.label();
+        right -= bar_button_w(c.p, label);
+        let b = bar_button(
+            c.p,
+            &pal,
+            right,
+            bar.cy(),
+            label,
+            false,
+            c.hover == Some(Hit::AiBarGo),
+            c.pressed == Some(Hit::AiBarGo),
+        );
+        c.hit(Hit::AiBarGo, b);
+        right -= 12.0;
+    }
+    let (icon, tint) = if ai.info {
+        (glyph::INFO, pal.muted)
+    } else {
+        (glyph::WARN, pal.warn)
+    };
+    c.p.icon(icon, 13.0, bar.x + 22.0, bar.cy(), tint);
+    c.p.text(
+        Face::Ui,
+        12.5,
+        bar.x + 38.0,
+        bar.cy(),
+        &ai.text,
+        pal.text,
+        (right - (bar.x + 38.0)).max(0.0),
+    );
+}
+
 pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);

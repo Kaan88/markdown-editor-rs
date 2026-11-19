@@ -2132,3 +2132,65 @@ of `compose`, the key-out in `present`.
 `settings-view` and `settings-view-dark` (the View section, which had no shot, with the new row
 under Theme on Windows) and `settings-view-backdrop` (the row set to Mica; the chrome in it is flat,
 which is the point: no window, no frost). On Linux these three show the section without the row.
+
+## 68. AI rewriting (2026-11-19, branch `f/ai`)
+
+Asked for by the owner on 2026-11-19, designed in mockups the owner approved the same day.
+
+**Commands.** AI: Format as Markdown, AI: Fix Markdown, AI: Rewrite with instruction…, the saved
+prompts (each "AI: <name>" in the palette), AI: Edit saved prompts, AI: Settings, AI: Stop
+rewriting. In the palette always; in the text menu's AI submenu while a connection is chosen. A
+command works on the selection, or on the whole document when nothing is selected, up to 200 KB.
+
+**The engine.** `bins/mdedit-ai` is a separate program, started on the first AI command or when
+Settings › AI needs it, kept for the session, and killed with the window. mdedit's release build
+aborts on a panic, so the network, JSON and child-process code lives where a failure cannot take
+unsaved text with it: if the engine stops, a bar says so and the text is untouched. It speaks JSON
+lines on stdin and stdout (`bins/mdedit-ai/src/proto.rs`). Connections:
+
+- Claude Code (local): `claude -p` with stream-json, no tools, no session kept, `--model`, `--effort`.
+- Codex (local): `codex exec --json --ephemeral --sandbox read-only`, model and
+  `model_reasoning_effort` with `-m` and `-c`.
+- Claude API: Messages, streamed, `output_config.effort`; models from `/v1/models` with the effort
+  levels each takes.
+- OpenAI-compatible: `chat/completions`, streamed, `reasoning_effort` only when set; presets for
+  OpenAI, OpenRouter, Groq, Together, DeepSeek, Mistral, Gemini, xAI, Ollama, LM Studio, or a
+  base URL.
+
+API keys are kept in the system's credential store (`keyring`), under the service "mdedit", one
+slot per connection or provider; mdedit sends a key to the engine once, when it is saved, and
+never writes it to settings.ini.
+
+**In the window** (`src/ai.rs` the client and state, `src/app/ai_events.rs` the behaviour,
+`src/ai_ui.rs` the drawing). While a rewrite runs the status strip says so and Esc stops it; the
+editor stays usable. The answer is cleaned (one code fence around everything is taken off; the
+line break at the end follows the original; the line breaks become the file's), then:
+
+- with "Show changes before applying" (on by default), the review: Changes, the lines removed and
+  added with unchanged runs folded, or Preview, the text before and after drawn side by side by
+  mdview's renderer (two preview panes, opened the first time), scrolling together. The choice is
+  remembered. Apply, Copy result, Discard.
+- without it, the result goes in at once.
+
+Applying is one undo step (`edit::replace_range`). If the text in the range changed while the AI
+was working, nothing is put in: the review says so and offers Copy result and Run again.
+Failures show in a bar with the one thing to do (Open AI settings, Try again).
+
+**Saved prompts** are `ai-prompts.md` beside the snippets file: `## Name` then the instruction.
+Edit opens it in a tab; it is read again when it changes.
+
+**Settings › AI**: Connection (with who receives the text under it); the program and a Check for
+the CLIs; Provider and Base URL for OpenAI-compatible; the API key (drawn as dots, never copied)
+with Save or Remove; Model (fetched, or Claude Code's aliases, or Other… with a name); Fetch
+again; Effort (the model's levels, or the connection's); Show changes before applying; Saved
+prompts › Edit…. The rows are made again as answers come in.
+
+**Budgets.** Nothing is started at launch and nothing is read until an AI command or the AI
+section is used; the engine is not in the process at all until then.
+
+**Shots.** `--ai-demo instruction|review|preview|stale|working|bar|settings` shows each state with
+a made-up result and no engine (`--pref ai_connection=claude-api` to choose the connection).
+
+**Not run** (2026-11-19): real calls with real keys, the Codex CLI, a signed-in Claude Code
+rewrite, the credential store on Windows and macOS, anything on Windows.
+

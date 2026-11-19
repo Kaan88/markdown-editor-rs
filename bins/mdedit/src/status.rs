@@ -141,6 +141,7 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
                     .map(|a| a.summary())
                     .unwrap_or_default()
             };
+            let left = docs.ai_status.clone().unwrap_or(left);
             let mut right = Vec::new();
             if docs.recording {
                 right.push("Recording".to_string());

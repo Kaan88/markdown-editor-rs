@@ -30,6 +30,8 @@ parley.workspace = true
 bytemuck.workspace = true
 # The PNG a Windows clipboard bitmap is saved as; already in the build through mdshared-text.
 png = "0.18"
+# The AI engine's JSON lines (src/ai.rs). Already in the build through mdview-preview.
+serde_json = "1"
 # The preview pane (src/preview_pane.rs). The wire format to `mdview --preview-server` always;
 # mdview's renderer itself only in the embedded build (the feature below).
 mdview-preview = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "31338dae9b179a68b90c06353cc128d8493b12c6" }

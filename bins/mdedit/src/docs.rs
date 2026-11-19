@@ -1322,6 +1322,8 @@ pub enum EditOp<'a> {
     /// Compare: puts the lines of the other side's block in place of this side's block, as one
     /// undo step.
     CopyLines(&'a merge::Splice),
+    /// An AI rewrite: the bytes from start to end become this text, as one undo step, the new text selected.
+    ReplaceRange(usize, usize, &'a str),
 }
 
 /// The largest text Replace all takes. It runs on the UI thread at about 1.4 to 2.2 s per
@@ -1359,6 +1361,10 @@ pub struct Docs {
     pub check_updates: bool,
     /// The preferences: the typing help, the save options and what new documents start with.
     pub prefs: Prefs,
+    /// The saved AI prompts, as the palette and the AI menu list them.
+    pub ai_prompts: Vec<mdedit_core::ai::SavedPrompt>,
+    /// What a running AI rewrite has done so far, shown at the left of the status strip.
+    pub ai_status: Option<String>,
     pub tabs: Vec<Doc>,
     /// The bookmarks closed files left, and the session's.
     pub marks: crate::marks::Marks,
@@ -1451,6 +1457,8 @@ impl Docs {
             toast: None,
             updates: crate::updater::Updates::default(),
             crash: None,
+            ai_prompts: Vec::new(),
+            ai_status: None,
             check_updates: true,
             prefs: Prefs::default(),
             watch_changed: true,
@@ -2644,6 +2652,9 @@ impl Docs {
                 EditOp::JoinLines => lines::join_lines(buf, hist, sel),
                 EditOp::CopyLines(s) => {
                     merge::replace_lines(buf, hist, sel, s.target.clone(), &s.from, eol)
+                }
+                EditOp::ReplaceRange(start, end, text) => {
+                    edit::replace_range(buf, hist, sel, start..end, text)
                 }
                 EditOp::MdHeading => markdown::cycle_heading(buf, hist, sel),
                 EditOp::MdTable => markdown::format_table(buf, hist, sel),

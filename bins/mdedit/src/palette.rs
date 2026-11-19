@@ -53,6 +53,8 @@ pub enum Target {
     Symbol(usize),
     /// A row of the `?` list: puts this prefix in the box.
     Prefix(&'static str),
+    /// A saved AI prompt, by its place in the file.
+    AiPrompt(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -377,6 +379,10 @@ fn icon(id: C) -> &'static str {
         C::Settings => glyph::SLIDERS,
         C::CompleteWord => glyph::EDIT,
         C::OpenSnippets => glyph::DOC,
+        C::AiFormat | C::AiFix | C::AiRewrite => glyph::EDIT,
+        C::AiEditPrompts => glyph::DOC,
+        C::AiSettings => glyph::SLIDERS,
+        C::AiCancel => glyph::STOP,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
 }
@@ -454,6 +460,8 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         | C::ReplaceAll => has_tab,
         C::CloseOtherTabs | C::NextTab | C::PreviousTab => many,
         C::PinTab => has_tab,
+        C::AiFormat | C::AiFix | C::AiRewrite => ready.is_some() && docs.ai_status.is_none(),
+        C::AiCancel => docs.ai_status.is_some(),
         C::CopyFilePath | C::ShowInFileManager => has_file,
         // A document that has no file is previewed from its text.
         C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => has_tab,
@@ -514,6 +522,16 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
                 .icon(icon(c.id))
                 .group(G_PLAIN)
                 .enabled(on)
+        });
+    }
+    let ai_on = enabled(C::AiRewrite, src.docs, src.ui, src.macro_idle);
+    for (k, p) in src.docs.ai_prompts.iter().enumerate() {
+        let label = format!("AI: {}", p.name);
+        push(&mut entries, &mut targets, Target::AiPrompt(k), |id| {
+            Entry::new(id, label.as_str())
+                .icon(glyph::EDIT)
+                .group(G_PLAIN)
+                .enabled(ai_on)
         });
     }
     (entries, targets)
