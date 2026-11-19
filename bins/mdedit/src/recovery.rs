@@ -135,13 +135,18 @@ pub struct Found {
 ///
 /// Whatever is not certain is not covered: both texts open, one as an extra draft, and nothing is
 /// deleted on a guess.
+///
+/// A backup from before 1.1 has no id in the session; `legacy` gives it the one it is restored
+/// under ([`legacy_draft`]), which its tab's copy then names (audit 1 round 5).
 pub fn cover(
     found: &[Found],
     unsaved: &[Unsaved],
     backup_time: impl Fn(&Unsaved) -> Option<SystemTime>,
+    legacy: impl Fn(&Unsaved) -> Option<u64>,
 ) -> Vec<Option<usize>> {
     let same = |f: &Found, u: &Unsaved| match (f.header.draft, u.draft) {
         (Some(a), Some(b)) => a == b,
+        (Some(a), None) => legacy(u) == Some(a),
         (None, None) => match (&f.header.path, &u.path) {
             (Some(a), Some(b)) => mdshared_app::paths::same_path(a, b),
             (None, None) => f.header.untitled == u.untitled,
@@ -164,6 +169,40 @@ pub fn cover(
             (backups == 1 && newer).then_some(i)
         })
         .collect()
+}
+
+/// The draft id a session backup from before 1.1 (no id of its own) is restored under: the same
+/// at every start while the backup file is unchanged, so a recovery copy written for its tab
+/// names it even when the session could not be written with the id since (audit 1 round 5: a
+/// session that cannot be written no longer makes one more draft at each start). Made of the
+/// backup's name, the document it stands for, and the file's size and time. `None` when the file
+/// cannot be looked at.
+pub fn legacy_draft(file: &Path, u: &Unsaved) -> Option<u64> {
+    let meta = std::fs::metadata(file).ok()?;
+    let time = meta
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    // FNV-1a, 64 bits.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |bytes: &[u8]| {
+        for &b in bytes {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    eat(u.file.as_bytes());
+    eat(&[0]);
+    if let Some(p) = &u.path {
+        eat(p.to_string_lossy().as_bytes());
+    }
+    eat(&[0]);
+    eat(&u.untitled.to_le_bytes());
+    eat(&meta.len().to_le_bytes());
+    eat(&time.to_le_bytes());
+    Some(h.max(1))
 }
 
 /// What [`Recovery::restore`] did.
@@ -494,15 +533,27 @@ impl Recovery {
     }
 
     /// A normal exit: the copies are removed, except those of tabs whose text was never put
-    /// back (it is in no other place; the next start offers it).
-    pub fn finish(&mut self, docs: &Docs) {
+    /// back (it is in no other place; the next start offers it). `unsaved_kept` is false when
+    /// the session listing the backups of the unsaved text could not be written: then the copy
+    /// of every tab with unsaved changes stays too, for the next start (audit 1 round 5, #4).
+    pub fn finish(&mut self, docs: &Docs, unsaved_kept: bool) {
         self.flush();
         let Some(dir) = &self.dir else { return };
+        let modified: Vec<PathBuf> = if unsaved_kept {
+            Vec::new()
+        } else {
+            docs.tabs
+                .iter()
+                .filter(|d| d.modified())
+                .map(|d| dir.join(self.name(d.id)))
+                .collect()
+        };
         let keep: Vec<&Path> = docs
             .tabs
             .iter()
             .filter_map(|d| d.restore.as_deref())
             .chain(self.unreadable.iter().map(PathBuf::as_path))
+            .chain(modified.iter().map(PathBuf::as_path))
             .collect();
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -514,6 +565,58 @@ impl Recovery {
         }
         // The folder goes too once it is empty.
         let _ = std::fs::remove_dir(dir);
+    }
+}
+
+/// Tests: a file another program holds so it cannot be read (on Windows open without read
+/// sharing; elsewhere without permissions), until dropped.
+#[cfg(test)]
+pub(crate) struct Locked {
+    path: PathBuf,
+    #[cfg(windows)]
+    _file: std::fs::File,
+}
+
+#[cfg(test)]
+impl Locked {
+    /// `None` when the file stays readable (a user every file is readable to): nothing to test.
+    pub(crate) fn new(path: &Path) -> Option<Locked> {
+        #[cfg(windows)]
+        let locked = {
+            use std::os::windows::fs::OpenOptionsExt;
+            // Others may delete or rename it, not read or write it.
+            const FILE_SHARE_DELETE: u32 = 4;
+            Locked {
+                path: path.to_path_buf(),
+                _file: std::fs::OpenOptions::new()
+                    .read(true)
+                    .share_mode(FILE_SHARE_DELETE)
+                    .open(path)
+                    .unwrap(),
+            }
+        };
+        #[cfg(not(windows))]
+        let locked = {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+            Locked {
+                path: path.to_path_buf(),
+            }
+        };
+        std::fs::read(path).is_err().then_some(locked)
+    }
+}
+
+#[cfg(test)]
+impl Drop for Locked {
+    fn drop(&mut self) {
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600));
+        }
+        #[cfg(windows)]
+        let _ = &self.path;
     }
 }
 
@@ -763,7 +866,7 @@ mod tests {
         // The copies were taken over under this run's names; nothing else was added.
         assert_eq!(files(&dir).len(), 2);
         // A normal exit removes them, and the folder.
-        rec.finish(&e);
+        rec.finish(&e, true);
         assert!(files(&dir).is_empty() && !dir.join("recover").exists());
         // Nothing left to find at the start after that.
         assert!(Recovery::new(Some(dir.join("recover"))).scan().is_empty());
@@ -925,7 +1028,7 @@ mod tests {
         let found = rec.scan();
         assert!(found.is_empty());
         rec.restore(&mut d, found);
-        rec.finish(&d);
+        rec.finish(&d, true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -985,13 +1088,16 @@ mod tests {
             entry("3.txt", 2, None, Some(3)),
             entry("4.txt", 0, Some("/a/f.txt"), None),
         ];
-        assert_eq!(cover(&found, &list, at_100), [Some(0), Some(1), None, None]);
+        assert_eq!(
+            cover(&found, &list, at_100, |_| None),
+            [Some(0), Some(1), None, None]
+        );
         // A copy older than the backup does not cover it: the backup is the newer text.
         let old = vec![copy(Some("/a/f.txt"), 0, Some(1), 50)];
-        assert_eq!(cover(&old, &list[..1], at_100), [None]);
+        assert_eq!(cover(&old, &list[..1], at_100, |_| None), [None]);
         // A backup whose time is unknown is not covered.
-        assert_eq!(cover(&found, &list[..1], |_| None), [None]);
-        assert_eq!(cover(&[], &list[..1], at_100), [None]);
+        assert_eq!(cover(&found, &list[..1], |_| None, |_| None), [None]);
+        assert_eq!(cover(&[], &list[..1], at_100, |_| None), [None]);
     }
 
     /// Before 1.1 neither had an id: the file, compared as the tabs compare files, or the number
@@ -1011,23 +1117,23 @@ mod tests {
             entry("5.txt", 0, Some("/a/other.txt"), None),
         ];
         assert_eq!(
-            cover(&found, &list, at_100),
+            cover(&found, &list, at_100, |_| None),
             [Some(0), Some(1), None, None, None]
         );
         // An id on one side only is not a match.
         let mixed = [entry("1.txt", 0, Some("/a/f.txt"), Some(9))];
-        assert_eq!(cover(&found, &mixed, at_100), [None]);
+        assert_eq!(cover(&found, &mixed, at_100, |_| None), [None]);
         // Two backups numbered 1 and one copy numbered 1: neither is certainly the copy's.
         let two = [entry("1.txt", 1, None, None), entry("2.txt", 1, None, None)];
         let one = vec![copy(None, 1, None, 200)];
-        assert_eq!(cover(&one, &two, at_100), [None, None]);
+        assert_eq!(cover(&one, &two, at_100, |_| None), [None, None]);
         // Two copies for one backup: the same.
         let copies = vec![copy(None, 1, None, 200), copy(None, 1, None, 201)];
-        assert_eq!(cover(&copies, &two[..1], at_100), [None]);
+        assert_eq!(cover(&copies, &two[..1], at_100, |_| None), [None]);
         // Windows compares file names without case, as its tabs do.
         if cfg!(windows) {
             let upper = [entry("1.txt", 0, Some("/A/F.TXT"), None)];
-            assert_eq!(cover(&found, &upper, at_100), [Some(0)]);
+            assert_eq!(cover(&found, &upper, at_100, |_| None), [Some(0)]);
         }
     }
 
@@ -1048,7 +1154,7 @@ mod tests {
         let found = rec.scan();
         rec.restore(&mut e, found);
         // Closed before the file was read: the copy is the only place the text is.
-        rec.finish(&e);
+        rec.finish(&e, true);
         assert_eq!(files(&dir).len(), 1);
         let mut again = Recovery::new(Some(dir.join("recover")));
         assert_eq!(again.scan().len(), 1);

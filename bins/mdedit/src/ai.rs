@@ -377,6 +377,8 @@ pub enum Hit {
     Prompt(usize),
     Cancel,
     Rewrite,
+    /// The instruction panel: save what is typed as a saved prompt.
+    SavePrompt,
     Changes,
     Preview,
     Discard,

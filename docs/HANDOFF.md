@@ -5,6 +5,60 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Audit 1, round 5 (2026-11-19, branch `f/next`, release 1.1.1 held for it)
+
+Astra reviewed `6cdf50e..1fe830f`: four recovery blockers, two round-4 leftovers, the updater
+repair, the cross-build script and six Save prompt cases. All are fixed in `3e6359c`. Each test
+below was checked to fail with its fix reverted.
+
+- **#1: a copy locked after the start.** The backup takes the copy's place only when the copy
+  has no text (gone, or not whole). On an I/O error the tab keeps waiting for the copy, which the
+  exit keeps (`read_restore` now returns `io::Result<Option<String>>`). Test
+  `a_copy_locked_after_the_start_is_kept_for_the_next`.
+- **#2: typing into a tab whose text waits.** That tab is read-only, and an edit gets the
+  `waiting_text_toast`. Test `a_tab_waiting_for_its_text_takes_no_typing`.
+- **#3: an untitled backup locked at the start.** It goes in `Docs::unread_backups`, which
+  `Docs::backups_needed` (the session's pruning) and `write_backups` keep. Test
+  `an_untitled_backup_locked_at_the_start_is_kept`.
+- **#4: exit with an unwritable session.**
+  - `write_backups` only writes. A new backup never takes the name of a file already there.
+  - `keep_unsaved` writes the session, and only then calls `Docs::drop_stale_backups`.
+  - When the session cannot be written, the old list is restored and the Unsaved dialog asks.
+  - `Recovery::finish(docs, saved)` keeps the copies of modified tabs when the exit's session
+    write failed.
+  - Test `an_exit_whose_session_cannot_be_written_keeps_everything`.
+- **Legacy multiplication.** `recovery::legacy_draft` gives an id-less backup a stable id: FNV of
+  its name, document, size and file time. Restoring uses it, and `cover` matches a copy against
+  it. Test `a_legacy_backup_does_not_multiply_when_the_session_is_never_written`.
+- **Session retry wake.** `App::next_wake` includes `session_retry`. Test
+  `a_failed_session_write_wakes_the_window_to_try_again`.
+- **Updater repair.**
+  - `updater::repair` reads `repair_manifest_url()`, which is
+    `releases/download/v<version>/<manifest>`, the running version's own tag.
+  - `spawn_look` runs at launch whether or not a look is due, and on Check for updates.
+  - A failed repair shows `strings::repair_failed`.
+  - A static flag stops two repairs from running at once.
+  - Test `a_repair_reads_the_manifest_of_its_own_version` checks the URL only. No download path
+    is tested here; `restore_engine` is the shared crate's and is tested there.
+- **Cross build.** The container's `bash -c` starts with `set -e`. Not run.
+- **Save prompt.**
+  - The template is created before the duplicate check.
+  - It refuses when the prompts file is open with unsaved changes.
+  - It refuses when the result would be over 256 KiB, or would not read back as every earlier
+    prompt plus the new one.
+  - `escape_line` and `unescape_line` round-trip heading and fence lines.
+  - `append_prompt` keeps the file's bytes and uses its line ending.
+  - Tests:
+    - `a_saved_prompt_reads_back_exactly_and_the_file_is_kept` (core);
+    - `a_prompt_the_template_has_is_not_saved_twice`;
+    - `a_prompt_is_not_saved_under_unsaved_changes_to_the_file`;
+    - `a_prompt_that_would_not_read_back_is_not_saved`.
+- **Release notes.** Paste is compared with pasting a copied file, not dropping one. The notes
+  also mention the repair retry and the exit fix.
+
+Not run: Linux, macOS, the cross build, a real repair download. The owner has not yet looked at
+the AI strip or the Save prompt button.
+
 ## Audit 1, round 4 (2026-11-19, branch `f/ai`)
 
 Astra's round-4 re-review (10 findings) is fixed. Recovery identity moved from path/number to a

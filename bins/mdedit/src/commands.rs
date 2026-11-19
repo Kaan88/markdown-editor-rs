@@ -625,6 +625,20 @@ pub mod strings {
         format!("Could not read {name} from disk: {why}")
     }
 
+    /// A program missing beside the executable could not be put in place (the updater's repair).
+    pub fn repair_failed(error: &str) -> String {
+        format!(
+            "The AI engine could not be installed ({error}). mdedit tries again at its next start, or now with Check for updates."
+        )
+    }
+
+    /// An edit to a tab whose unsaved text from the last run could not be read yet.
+    pub fn waiting_text_toast(name: &str) -> String {
+        format!(
+            "The unsaved text of {name} cannot be read now, so the tab is read-only. It comes back at the next start."
+        )
+    }
+
     pub fn read_only_copy_toast(name: &str) -> String {
         format!("{name} is a read-only copy.")
     }

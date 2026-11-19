@@ -232,6 +232,8 @@ fn instruction(
     let run = Rect::new(r.right() - PAD - run_w, by, run_w, 32.0);
     let cancel_w = dialog_button_w(p, "Cancel");
     let cancel = Rect::new(run.x - 8.0 - cancel_w, by, cancel_w, 32.0);
+    let save_w = dialog_button_w(p, "Save prompt");
+    let save = Rect::new(cancel.x - 8.0 - save_w, by, save_w, 32.0);
     p.text(
         Face::Ui,
         12.0,
@@ -239,8 +241,22 @@ fn instruction(
         footer.cy(),
         &i.via,
         pal.muted,
-        cancel.x - x - 12.0,
+        save.x - x - 12.0,
     );
+    // Only when there is something to save.
+    if !i.field.text().trim().is_empty() {
+        button(
+            p,
+            pal,
+            hits,
+            save,
+            Hit::SavePrompt,
+            "Save prompt",
+            false,
+            hover,
+            pressed,
+        );
+    }
     button(
         p,
         pal,

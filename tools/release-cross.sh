@@ -59,7 +59,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
     -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR=/cache/target -e XWIN_CACHE_DIR=/cache/xwin \
     -e MD_LLVM_RC=/usr/bin/llvm-rc -e CARGO_TERM_COLOR=never \
     -w /src "$image" \
-    bash -c 'PATH=/opt/cargo/bin:$PATH cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p mdedit -p mdedit-ai
+    bash -c 'set -e; PATH=/opt/cargo/bin:$PATH cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p mdedit -p mdedit-ai
         packaging/engine-source.sh /cache/target/engine-src
         RUSTFLAGS="-C target-feature=+crt-static" cargo xwin build --release --locked --target x86_64-pc-windows-msvc \
             -p mdview-engine --manifest-path /cache/target/engine-src/Cargo.toml --target-dir /cache/target/engine'

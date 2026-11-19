@@ -605,6 +605,17 @@ impl App {
 
     fn paste(&mut self) {
         if let Some(text) = platform::clipboard_text().filter(|t| !t.is_empty()) {
+            // The path of an image file, as text (Explorer's Copy as path, a terminal): in a saved
+            // Markdown document it becomes a link to the image, as the copied file itself does.
+            let doc = self
+                .docs
+                .active_doc()
+                .filter(|d| d.is_markdown())
+                .and_then(|d| d.path.clone());
+            if let Some((doc, file)) = doc.zip(image_paste::image_path_in_text(&text)) {
+                self.paste_image_files(Some(&doc), &[file]);
+                return;
+            }
             self.edit(EditOp::Paste(&text));
         } else {
             self.paste_image();
@@ -889,15 +900,25 @@ impl App {
         self.ask(kind, id, after);
     }
 
-    /// Writes the unsaved text of every tab beside the session, for the next start. False when
-    /// there is no session to come back to or a text could not be written: then the user is asked.
+    /// Writes the unsaved text of every tab beside the session, for the next start, and the
+    /// session that lists it; only then are the backups it no longer lists removed (audit 1
+    /// round 5, #4). False when there is no session to come back to, or a text or the session
+    /// could not be written: then the user is asked, and the session keeps the list it had.
     fn keep_unsaved(&mut self) -> bool {
         let Some(dir) = self.backup_dir() else {
             return false;
         };
         match self.docs.write_backups(&dir) {
             Ok(list) => {
-                self.session.unsaved = list;
+                let before = std::mem::replace(&mut self.session.unsaved, list);
+                if !self.save_session() {
+                    eprintln!(
+                        "mdedit: could not keep the unsaved text: the session was not written"
+                    );
+                    self.session.unsaved = before;
+                    return false;
+                }
+                crate::docs::Docs::drop_stale_backups(&dir, &self.session.unsaved);
                 true
             }
             Err(e) => {
@@ -2015,13 +2036,19 @@ impl App {
                     self.palette.tick += 1;
                 }
             }
-            Wake::Update(updater::Event::Checked { manual, result }) => {
+            Wake::Update(updater::Answer::Repaired(result)) => {
+                if let Err(e) = result {
+                    eprintln!("mdedit: could not put the AI engine in place: {e}");
+                    self.docs.set_toast(&strings::repair_failed(&e));
+                }
+            }
+            Wake::Update(updater::Answer::Update(updater::Event::Checked { manual, result })) => {
                 self.session.update_checked = updater::unix_now();
                 if let Some(text) = self.docs.updates.checked(&updater::APP, manual, result) {
                     self.docs.set_toast(&text);
                 }
             }
-            Wake::Update(updater::Event::Installed(result)) => {
+            Wake::Update(updater::Answer::Update(updater::Event::Installed(result))) => {
                 if let Some(text) = self.docs.updates.finished(&updater::APP, result) {
                     self.docs.set_toast(&text);
                 }
@@ -2034,9 +2061,11 @@ impl App {
 
     // ---- updates -----------------------------------------------------------------------------
 
-    /// At launch: clears what an earlier update left behind and, when a look for a newer
-    /// version is due, takes it; a program missing beside the executable is fetched either way. Nothing here runs for a launch without a session or for a copy
-    /// that cannot update itself, and all of it is on its own thread.
+    /// At launch: clears what an earlier update left behind, puts in place a program missing
+    /// beside the executable (the AI engine, after an update from 1.0.6) whether or not a look
+    /// is due, and, when a look for a newer version is due, takes it. Nothing here runs for a
+    /// launch without a session or for a copy that cannot update itself, and all of it is on
+    /// its own thread.
     pub(super) fn updates_at_launch(&mut self) {
         if self.session_path.is_none() || !self.save {
             return;
@@ -2050,22 +2079,18 @@ impl App {
             self.session.update_checked,
             updater::unix_now(),
         );
-        if !due {
-            // A program missing beside the exe (the AI engine, after an update from 1.0.6) is
-            // fetched even with the look turned off.
-            updater::spawn_restore(files.clone());
-        }
         let wake = self.docs.waker();
-        updater::spawn_at_launch(updater::APP, files, due, updater::fetch, move |e| {
-            wake(Wake::Update(e))
+        updater::spawn_look(Some(files), true, due.then_some(false), move |a| {
+            wake(Wake::Update(a))
         });
     }
 
-    /// Looks for a newer version now, because the user asked: the answer always shows.
+    /// Looks for a newer version now, because the user asked: the answer always shows. A
+    /// program missing beside the executable is put in place first, from this version's release.
     pub(super) fn check_for_updates(&mut self) {
         let wake = self.docs.waker();
-        updater::spawn_check(updater::APP, true, updater::fetch, move |e| {
-            wake(Wake::Update(e))
+        updater::spawn_look(updater::installed_files(), false, Some(true), move |a| {
+            wake(Wake::Update(a))
         });
     }
 
@@ -2083,7 +2108,7 @@ impl App {
             .set_relaunch(mdshared_app::relaunch::target(Some(&files)));
         let wake = self.docs.waker();
         updater::spawn_install(updater::APP, offer, files, updater::fetch, move |e| {
-            wake(Wake::Update(e))
+            wake(Wake::Update(updater::Answer::Update(e)))
         });
     }
 
@@ -2094,6 +2119,8 @@ impl App {
 
     /// Runs whatever timers are due and returns the next deadline.
     pub(super) fn timers(&mut self, now: Instant) -> Option<Instant> {
+        /// How often the AI strip moves.
+        const AI_TICK: Duration = Duration::from_millis(50);
         let mut next: Option<Instant> = None;
         let mut at = |t: Instant| next = Some(next.map_or(t, |n| n.min(t)));
         // Caret blink, only while the window has focus and the text or the find box has the keys.
@@ -2111,6 +2138,18 @@ impl App {
             }
         } else {
             self.ui.caret_due = None;
+        }
+        // A running AI rewrite: the status bar's strip moves (only that strip is redrawn).
+        if self.docs.ai_status.is_some() {
+            let due = *self.ai_tick.get_or_insert(now + AI_TICK);
+            if now >= due {
+                self.docs.ai_phase = self.docs.ai_phase.wrapping_add(1);
+                self.ai_tick = Some(now + AI_TICK);
+                self.wants_frame = true;
+            }
+            at(self.ai_tick.unwrap_or(now + AI_TICK));
+        } else {
+            self.ai_tick = None;
         }
         if let Some(tip) = self.ui.tip.as_mut().filter(|t| !t.shown) {
             if now >= tip.due {

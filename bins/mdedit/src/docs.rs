@@ -974,8 +974,6 @@ impl Ready {
     }
 }
 
-/// The unsaved text a `restore` file holds: a backup is the text itself, a recovery copy has a
-/// header before it.
 /// A new draft id: different from every other with all the likelihood of 64 bits of the clock
 /// and a counter mixed.
 pub fn new_draft_id() -> u64 {
@@ -992,14 +990,21 @@ pub fn new_draft_id() -> u64 {
     (z ^ (z >> 31)).max(1)
 }
 
-fn read_restore(path: &Path) -> Option<String> {
+/// The unsaved text a `restore` file holds: a backup is the text itself, a recovery copy has a
+/// header before it. `Ok(None)` when there is no such text (the file is gone, or is not a whole
+/// copy); `Err` when the file is there and cannot be read now (another program has it open).
+fn read_restore(path: &Path) -> std::io::Result<Option<String>> {
     if path
         .extension()
         .is_some_and(|e| e == mdedit_core::recovery::EXTENSION)
     {
-        mdedit_core::recovery::read(path).map(|(_, text)| text)
+        mdedit_core::recovery::read_checked(path).map(|r| r.map(|(_, text)| text))
     } else {
-        std::fs::read_to_string(path).ok()
+        match std::fs::read(path) {
+            Ok(bytes) => Ok(String::from_utf8(bytes).ok()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -1397,9 +1402,15 @@ pub struct Docs {
     pub ai_prompts: Vec<mdedit_core::ai::SavedPrompt>,
     /// What a running AI rewrite has done so far, shown at the left of the status strip.
     pub ai_status: Option<String>,
+    /// The step of the moving strip over the status bar while a rewrite runs.
+    pub ai_phase: u32,
     pub tabs: Vec<Doc>,
     /// The bookmarks closed files left, and the session's.
     pub marks: crate::marks::Marks,
+    /// Session backups that could not be read at the start (another program had them open):
+    /// listed in the session and kept on disk, whatever the exit, for the next start (audit 1
+    /// round 5, #3).
+    pub unread_backups: Vec<Unsaved>,
     active: Option<usize>,
     /// The pinned tab shown last, for the setting to start on it.
     last_pinned: Option<DocId>,
@@ -1461,6 +1472,7 @@ impl Docs {
         Docs {
             tabs: Vec::new(),
             marks: Default::default(),
+            unread_backups: Vec::new(),
             active: None,
             last_pinned: None,
             day: 0,
@@ -1491,6 +1503,7 @@ impl Docs {
             crash: None,
             ai_prompts: Vec::new(),
             ai_status: None,
+            ai_phase: 0,
             check_updates: true,
             prefs: Prefs::default(),
             watch_changed: true,
@@ -1671,25 +1684,37 @@ impl Docs {
         i
     }
 
-    /// Writes the text of every tab with unsaved changes into `dir`, removes the backups nothing
-    /// refers to any more, and returns the list for the session. A tab whose unsaved text was
-    /// never put back (it was not read yet) keeps the backup it has.
+    /// Writes the text of every tab with unsaved changes into `dir` and returns the list for the
+    /// session. A tab whose unsaved text was never put back (it was not read yet) keeps the
+    /// backup it has, and so does a backup that could not be read at the start. A new backup
+    /// never takes the name of a file already there: until the session naming the new list is
+    /// written, the old one still names those ([`Docs::drop_stale_backups`] removes them after,
+    /// audit 1 round 5, #4).
     pub fn write_backups(&self, dir: &Path) -> std::io::Result<Vec<Unsaved>> {
         use std::io::Write;
-        let mut out = Vec::new();
+        let mut out: Vec<Unsaved> = self.unread_backups.clone();
         let waiting = Doc::waiting_backup;
-        let kept: Vec<String> = self.tabs.iter().filter_map(waiting).collect();
+        let kept: Vec<String> = self
+            .tabs
+            .iter()
+            .filter_map(waiting)
+            .chain(self.unread_backups.iter().map(|u| u.file.clone()))
+            .collect();
         let mut number = 0u32;
         for d in self.tabs.iter().filter(|d| d.modified()) {
             let file = match waiting(d) {
                 Some(file) => file,
+                // Its text waits in a recovery copy that could not be read, which the exit keeps.
+                None if d.restore.is_some() => continue,
                 None => {
                     let Some(r) = d.ready() else { continue };
                     std::fs::create_dir_all(dir)?;
                     let file = loop {
                         number += 1;
                         let name = Unsaved::file_name(number);
-                        if !kept.contains(&name) {
+                        let taken =
+                            dir.join(&name).exists() || dir.join(format!("{name}.tmp")).exists();
+                        if !kept.contains(&name) && !taken {
                             break name;
                         }
                     };
@@ -1711,15 +1736,40 @@ impl Docs {
                 draft: Some(d.draft),
             });
         }
+        Ok(out)
+    }
+
+    /// The entries of the session's `list` of backups still needed ([`Unsaved::prune`]), and
+    /// always those that could not be read at the start (audit 1 round 5, #3).
+    pub fn backups_needed(&self, list: &[Unsaved]) -> Vec<Unsaved> {
+        let tabs: Vec<TabState> = self.tabs.iter().map(|d| d.tab_state()).collect();
+        Unsaved::prune(list, &tabs)
+            .into_iter()
+            .chain(
+                self.unread_backups
+                    .iter()
+                    .filter(|u| list.contains(u))
+                    .cloned(),
+            )
+            .fold(Vec::new(), |mut out, u| {
+                if !out.contains(&u) {
+                    out.push(u);
+                }
+                out
+            })
+    }
+
+    /// Removes from `dir` every file `list` (the session's list of backups, once written) does
+    /// not name.
+    pub fn drop_stale_backups(dir: &Path, list: &[Unsaved]) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for e in entries.flatten() {
                 let name = e.file_name().to_string_lossy().into_owned();
-                if !out.iter().any(|u| u.file == name) {
+                if !list.iter().any(|u| u.file == name) {
                     let _ = std::fs::remove_file(e.path());
                 }
             }
         }
-        Ok(out)
     }
 
     /// Opens `path` in a tab (or shows the tab that has it) and makes it active.
@@ -2286,17 +2336,31 @@ impl Docs {
                 let mut recovered = doc.recovered.take();
                 let mut recovered_flags = (false, false);
                 let (source, fallback) = (doc.restore.take(), doc.fallback.take());
-                // The copy, else the older backup of the same draft (audit 1 round 4, #2).
-                let mut text = source.as_deref().and_then(read_restore);
-                if text.is_none() {
+                // The copy, else the older backup of the same draft (audit 1 round 4, #2). The
+                // backup takes the copy's place only when the copy holds no text (gone, or not
+                // whole), never when it cannot be read now: its text is the newer (round 5, #1).
+                // The text, and whether the file is there but cannot be read now.
+                let read = |p: &Path| match read_restore(p) {
+                    Ok(text) => (text, false),
+                    Err(e) => {
+                        eprintln!("mdedit: unsaved text cannot be read now ({e}); kept");
+                        (None, true)
+                    }
+                };
+                let (mut text, mut unreadable) = source.as_deref().map_or((None, false), read);
+                if text.is_none() && !unreadable {
                     recovered = None;
-                    text = fallback.as_deref().and_then(read_restore);
+                    (text, unreadable) = fallback.as_deref().map_or((None, false), read);
                 }
-                if text.is_none() && source.is_some() {
-                    // Neither can be read now: both stay, the tab stays modified, and the next
-                    // start tries them again.
+                if unreadable {
+                    // The text waits, kept on disk for the next start: the tab stays modified and
+                    // read-only, so nothing typed into it can be lost behind the text that waits
+                    // (round 5, #2).
                     doc.restore = source;
                     doc.fallback = fallback;
+                    doc.recovered = recovered.take();
+                    r.read_only = true;
+                    text = None;
                 }
                 if let Some(text) = text {
                     r.put_back(&text);
@@ -2340,6 +2404,10 @@ impl Docs {
                 }
                 if active {
                     self.toast_lossy(i);
+                }
+                if unreadable {
+                    let name = self.tabs[i].name();
+                    self.set_toast(&strings::waiting_text_toast(&name));
                 }
                 Applied {
                     active_ready: active,
@@ -2421,6 +2489,7 @@ impl Docs {
             return false;
         }
         let name = doc.name();
+        let waiting = doc.restore.is_some();
         let Doc {
             id,
             revision,
@@ -2436,7 +2505,11 @@ impl Docs {
             return false;
         }
         if r.read_only {
-            self.set_toast(&strings::read_only_copy_toast(&name));
+            self.set_toast(&if waiting {
+                strings::waiting_text_toast(&name)
+            } else {
+                strings::read_only_copy_toast(&name)
+            });
             return false;
         }
         let comment = r.language.and_then(Language::line_comment);
@@ -4352,6 +4425,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// As an exit does: the backups, then (the session written) the removal of the others.
+    fn kept(d: &Docs, dir: &Path) -> Vec<Unsaved> {
+        let list = d.write_backups(dir).unwrap();
+        Docs::drop_stale_backups(dir, &list);
+        list
+    }
+
     #[test]
     fn unsaved_text_survives_a_restart() {
         let (mut d, i, path, dir) = file_docs("unsaved", b"one\r\ntwo\r\n");
@@ -4359,7 +4439,7 @@ mod tests {
         // Nothing unsaved: no list, and stray files in the folder go.
         std::fs::create_dir_all(&backup).unwrap();
         std::fs::write(backup.join("9.txt"), "old").unwrap();
-        assert!(d.write_backups(&backup).unwrap().is_empty());
+        assert!(kept(&d, &backup).is_empty());
         assert!(!backup.join("9.txt").exists());
         // An edited file and an edited new document are both kept.
         d.tabs[i].ready_mut().unwrap().view.sel = Selection::at(0);
@@ -4368,7 +4448,7 @@ mod tests {
         d.new_untitled();
         d.activate(n);
         assert!(d.edit(EditOp::Insert("note"), None));
-        let list = d.write_backups(&backup).unwrap();
+        let list = kept(&d, &backup);
         assert_eq!(list.len(), 2);
         assert_eq!((list[0].path.as_ref(), list[0].untitled), (Some(&path), 0));
         assert_eq!((list[1].path.as_ref(), list[1].untitled), (None, 1));
@@ -4387,7 +4467,7 @@ mod tests {
         assert_eq!((text_of(&e, u).as_str(), e.tabs[u].untitled), ("note", 1));
         assert!(e.tabs[u].modified());
         // Closing again before the file's tab was read keeps its backup as it is.
-        let again = e.write_backups(&backup).unwrap();
+        let again = kept(&e, &backup);
         assert_eq!(again.len(), 2);
         assert_eq!(again[0], list[0]);
         assert!(backup.join(&list[0].file).is_file());
@@ -4404,7 +4484,7 @@ mod tests {
         assert!(!e.tabs[k].modified());
         // Saved or undone, nothing is left to keep.
         e.close(u, None);
-        assert!(e.write_backups(&backup).unwrap().is_empty());
+        assert!(kept(&e, &backup).is_empty());
         assert_eq!(std::fs::read_dir(&backup).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }

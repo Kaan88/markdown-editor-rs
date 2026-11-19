@@ -341,13 +341,51 @@ Make this text about half as long. Keep every fact and the Markdown structure.\n
 \n\
 Fix the spelling, grammar and punctuation. Change nothing else.\n";
 
+/// A line of an instruction split for [`escape_line`] and [`unescape_line`]: its indent, its
+/// leading backslashes, and whether what follows them would read as a `## ` heading (at the start
+/// of the line only) or a code fence.
+fn line_parts(line: &str) -> (usize, usize, bool) {
+    let ws = line.len() - line.trim_start().len();
+    let rest = &line[ws..];
+    let n = rest.len() - rest.trim_start_matches('\\').len();
+    let after = &rest[n..];
+    let special = (ws == 0 && after.starts_with("## "))
+        || after.starts_with("```")
+        || after.starts_with("~~~");
+    (ws, n, special)
+}
+
+/// A line of an instruction as the prompts file holds it: a line that would read as a heading or
+/// a fence (and one that already has backslashes before such a start) gets one backslash more,
+/// which [`unescape_line`] takes off again, so the instruction reads back as it was typed.
+pub fn escape_line(line: &str) -> String {
+    let (ws, _, special) = line_parts(line);
+    if special {
+        format!("{}\\{}", &line[..ws], &line[ws..])
+    } else {
+        line.to_string()
+    }
+}
+
+/// The instruction's line an [`escape_line`] line stands for. A line with no backslash before
+/// such a start is left as it is: a fence in an instruction written by hand is its text.
+pub fn unescape_line(line: &str) -> String {
+    let (ws, n, special) = line_parts(line);
+    if special && n > 0 {
+        format!("{}{}", &line[..ws], &line[ws + 1..])
+    } else {
+        line.to_string()
+    }
+}
+
 /// Reads the saved prompts: each `## Name` heading and the text under it to the next one. Empty
-/// names and empty instructions are left out; a heading inside a code fence is text.
+/// names and empty instructions are left out; a heading inside a code fence is text. A line
+/// with a backslash before a `## ` or a fence reads without it ([`unescape_line`]).
 pub fn parse_prompts(text: &str) -> Vec<SavedPrompt> {
     let mut out: Vec<SavedPrompt> = Vec::new();
-    let mut cur: Option<(String, Vec<&str>)> = None;
+    let mut cur: Option<(String, Vec<String>)> = None;
     let mut fence: Option<String> = None;
-    let flush = |cur: &mut Option<(String, Vec<&str>)>, out: &mut Vec<SavedPrompt>| {
+    let flush = |cur: &mut Option<(String, Vec<String>)>, out: &mut Vec<SavedPrompt>| {
         if let Some((name, lines)) = cur.take() {
             let instruction = lines.join("\n").trim().to_string();
             if !name.is_empty() && !instruction.is_empty() {
@@ -382,10 +420,76 @@ pub fn parse_prompts(text: &str) -> Vec<SavedPrompt> {
             continue;
         }
         if let Some((_, lines)) = cur.as_mut() {
-            lines.push(line);
+            lines.push(if fence.is_none() {
+                unescape_line(line)
+            } else {
+                line.to_string()
+            });
         }
     }
     flush(&mut cur, &mut out);
+    out
+}
+
+/// The name a prompt saved from the instruction box gets: its first words (at most 40
+/// characters, whole words), then " 2", " 3"… when a saved prompt already has that name.
+pub fn prompt_name(instruction: &str, saved: &[SavedPrompt]) -> String {
+    let mut base = String::new();
+    for word in instruction.split_whitespace() {
+        let next = if base.is_empty() {
+            word.to_string()
+        } else {
+            format!("{base} {word}")
+        };
+        if next.chars().count() > 40 {
+            break;
+        }
+        base = next;
+    }
+    if base.is_empty() {
+        base = instruction.trim().chars().take(40).collect();
+    }
+    let base = base
+        .trim_end_matches([',', '.', ';', ':', '#'])
+        .trim()
+        .to_string();
+    let base = if base.is_empty() {
+        "Saved prompt".to_string()
+    } else {
+        base
+    };
+    let taken = |n: &str| saved.iter().any(|p| p.name.eq_ignore_ascii_case(n));
+    if !taken(&base) {
+        return base;
+    }
+    (2..)
+        .map(|k| format!("{base} {k}"))
+        .find(|n| !taken(n))
+        .unwrap_or(base)
+}
+
+/// `file` (the saved prompts file's text) with one more prompt at its end, as [`parse_prompts`]
+/// reads it back: a `## name` heading and the instruction under it ([`escape_line`] for each of
+/// its lines). The file's text is kept as it is, and what is added takes its line ending (CRLF
+/// when the file has one). Whether it reads back is the caller's to check: a file that ends
+/// inside a code fence takes the heading as text.
+pub fn append_prompt(file: &str, name: &str, instruction: &str) -> String {
+    let eol = if file.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = file.to_string();
+    if !out.is_empty() {
+        if !out.ends_with('\n') {
+            out.push_str(eol);
+        }
+        out.push_str(eol);
+    }
+    out.push_str("## ");
+    out.push_str(name.trim());
+    out.push_str(eol);
+    out.push_str(eol);
+    for line in instruction.trim().lines() {
+        out.push_str(&escape_line(line));
+        out.push_str(eol);
+    }
     out
 }
 
@@ -596,6 +700,72 @@ mod tests {
         assert_eq!(fit_end("a\r\n", "b\n"), "b\r\n");
         assert_eq!(with_eol("a\nb\r\nc", "\r\n"), "a\r\nb\r\nc");
         assert_eq!(with_eol("a\r\nb", "\n"), "a\nb");
+    }
+
+    #[test]
+    fn a_prompt_saved_from_the_box_reads_back() {
+        let saved = parse_prompts(PROMPTS_TEMPLATE);
+        let name = prompt_name("Make the prices a table, sorted by date please", &saved);
+        assert_eq!(name, "Make the prices a table, sorted by date");
+        // A name already taken gets a number.
+        assert_eq!(prompt_name("Shorten", &saved), "Shorten 2");
+        assert_eq!(prompt_name("   ", &saved), "Saved prompt");
+        let text = append_prompt(
+            PROMPTS_TEMPLATE,
+            &name,
+            "Make the prices a table\n## not a heading",
+        );
+        let back = parse_prompts(&text);
+        assert_eq!(back.len(), saved.len() + 1);
+        let last = back.last().unwrap();
+        assert_eq!(last.name, name);
+        // Read back exactly as typed (audit 1 round 5).
+        assert_eq!(
+            last.instruction,
+            "Make the prices a table\n## not a heading"
+        );
+        // Into an empty file.
+        let one = parse_prompts(&append_prompt("", "A", "Do it."));
+        assert_eq!(
+            one,
+            [SavedPrompt {
+                name: "A".into(),
+                instruction: "Do it.".into()
+            }]
+        );
+    }
+
+    /// Audit 1 round 5: what the box saves reads back as it was typed, whatever its lines look
+    /// like, and the file's own text and line endings are kept.
+    #[test]
+    fn a_saved_prompt_reads_back_exactly_and_the_file_is_kept() {
+        for typed in [
+            "## Literal heading",
+            "One\n```\ncode\n```\nTwo",
+            "First\n  ~~~ indented fence",
+            "\\## already escaped\n\\\\``` twice",
+            "Plain \\ backslash and ## mid-line",
+        ] {
+            for file in [
+                "",
+                "## A\n\nDo a.\n",
+                "## A\r\n\r\nDo a.   \r\n",
+                "## A\n\nDo a.",
+            ] {
+                let out = append_prompt(file, "B", typed);
+                assert!(out.starts_with(file), "{file:?}");
+                let back = parse_prompts(&out);
+                let b = back.iter().find(|p| p.name == "B").unwrap();
+                assert_eq!(b.instruction, typed, "{typed:?} in {file:?}");
+                if file.contains('\r') {
+                    let added = &out[file.len()..];
+                    assert!(!added.replace("\r\n", "").contains('\n'), "{added:?}");
+                }
+            }
+        }
+        for line in ["## x", "\\## x", "  ```", "plain", "  ## x", "\\\\~~~"] {
+            assert_eq!(unescape_line(&escape_line(line)), line);
+        }
     }
 
     #[test]
