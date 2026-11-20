@@ -9,8 +9,11 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 static TAB: AtomicUsize = AtomicUsize::new(4);
 static FONT_PT: AtomicU32 = AtomicU32::new(0x4160_0000); // 14.0
 static NUMBERS: AtomicBool = AtomicBool::new(true);
-/// Visual editing: the open block is drawn without a gutter, its text in line with the page's.
-static BARE: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    /// Visual editing: the open block is drawn without a gutter, its text in line with the
+    /// page's. Per thread: the window's thread sets and reads it, and each test has its own.
+    static BARE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 static FAMILY: Mutex<String> = Mutex::new(String::new());
 static LINE_BAND: AtomicBool = AtomicBool::new(true);
 static MINIMAP_W: AtomicU32 = AtomicU32::new(mdedit_core::prefs::MINIMAP_WIDTH_DEFAULT as u32);
@@ -26,11 +29,11 @@ pub fn font_pt() -> f32 {
 }
 
 pub fn bare() -> bool {
-    BARE.load(Ordering::Relaxed)
+    BARE.with(std::cell::Cell::get)
 }
 
 pub fn set_bare(on: bool) {
-    BARE.store(on, Ordering::Relaxed);
+    BARE.with(|b| b.set(on));
 }
 
 pub fn line_numbers() -> bool {

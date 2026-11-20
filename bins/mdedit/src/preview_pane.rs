@@ -111,6 +111,9 @@ pub struct Pane {
     /// Visual editing: the page row where the room for the open block starts, as the last
     /// update gave it, and the answer to the last [`block_at`](Self::block_at) until taken.
     pub gap_y: Option<f32>,
+    /// Answers still due before the last gap request has been taken: a `gap_y` in an update
+    /// before that is about the gap before it.
+    gap_due: u32,
     block: Option<Option<mdview_preview::wire::BlockLines>>,
 }
 
@@ -187,6 +190,7 @@ impl Pane {
             pointer: mdview_preview::Pointer::Arrow,
             hover_due: None,
             gap_y: None,
+            gap_due: 0,
             block: None,
         }
     }
@@ -366,7 +370,15 @@ impl Pane {
                 self.gap_y = None;
             }
             self.send(Request::Gap { gap });
+            self.gap_due = self.waiting;
         }
+    }
+
+    /// Visual editing: the page forgets the caret line it followed, so a new text or size
+    /// leaves it where the reader scrolled it. Following starts again with the next line sent.
+    pub fn unfollow(&mut self) {
+        self.sent.follow = None;
+        self.send(Request::Unfollow);
     }
 
     /// The gap last asked for: its source lines (from 1) and height (device pixels).
@@ -400,6 +412,7 @@ impl Pane {
             match event {
                 Event::Update(mut u) => {
                     self.waiting = self.waiting.saturating_sub(u.answers);
+                    self.gap_due = self.gap_due.saturating_sub(u.answers);
                     if let Some(rects) = u.selection.take() {
                         self.selection = rects;
                         // The pane is painted again by its generation.
@@ -433,7 +446,7 @@ impl Pane {
                         self.block = Some(b);
                         changed = true;
                     }
-                    if self.sent.gap.is_some() && u.gap_y != self.gap_y {
+                    if self.sent.gap.is_some() && self.gap_due == 0 && u.gap_y != self.gap_y {
                         self.gap_y = u.gap_y;
                         changed = true;
                     }

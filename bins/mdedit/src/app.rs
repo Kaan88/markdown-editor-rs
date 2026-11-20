@@ -558,7 +558,9 @@ impl App {
 
     /// The caret shows: the text has the keyboard and the window has focus.
     fn text_focused(&self) -> bool {
-        !self.ui.find_focused
+        // Visual editing: the text has the keyboard only in an open block.
+        !(self.visual.is_some() && self.visual_block().is_none())
+            && !self.ui.find_focused
             && !self.preview_focused()
             && !self.ui.results.focused
             && self.ui.dialog.is_none()
@@ -1414,6 +1416,11 @@ impl App {
                         Some(i) => {
                             let doc = &mut self.docs.tabs[i];
                             times.paint = if visual_box.is_some() {
+                                // The box can be scrolled partly out of the page: its text
+                                // stays inside the page, off the bars around it.
+                                if let Some(page) = self.areas.preview {
+                                    c.p.clip(page);
+                                }
                                 // The open block's text sits on the box's tint, not the page.
                                 let boxed = Palette {
                                     page: visual::box_fill(c.pal),

@@ -26,6 +26,10 @@ impl App {
 
     /// Opens the preview pane beside the text, or closes it. A split view gives way to it.
     pub(super) fn toggle_preview_pane(&mut self) {
+        // Visual editing is drawn on the pane: it ends with it.
+        if self.preview.is_some() && self.visual.is_some() {
+            self.end_visual();
+        }
         if self.preview.take().is_some() {
             self.docs.pane_open = false;
         } else {
@@ -104,6 +108,9 @@ impl App {
         let held = self.visual_block().is_some();
         let pending = self.visual.as_mut().and_then(|v| v.pending.take());
         let mut requeue = None;
+        if self.preview.is_none() && self.visual.is_some() {
+            self.end_visual();
+        }
         let Some(pane) = self.preview.as_mut() else {
             return false;
         };
@@ -131,12 +138,16 @@ impl App {
                     s
                 });
             }
-            if let Some(line) = pending {
-                if pane.held {
-                    // The text waits for an answer: ask after it has gone.
-                    requeue = Some(line);
+            if let Some(ask) = pending {
+                if pane.held || held {
+                    // The text waits (for an answer, or for the open block to close): the
+                    // question goes after it.
+                    requeue = Some(ask);
                 } else {
-                    pane.block_of_line(line);
+                    match ask {
+                        super::visual::Ask::Line(line) => pane.block_of_line(line),
+                        super::visual::Ask::At(x, y) => pane.block_at(x, y),
+                    }
                 }
             }
             let caret = r.view.sel.caret;
@@ -941,6 +952,100 @@ mod tests {
                 p.ended
             );
         }
+    }
+
+    #[test]
+    fn visual_editing_keeps_the_hidden_text_safe_and_follows_edits_around_the_block() {
+        use crate::docs::EditOp;
+        use crate::keys::{Key, KeyName};
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-safe");
+        let md = dir.join("a.md");
+        std::fs::write(
+            &md,
+            "# Title
+
+First paragraph.
+
+- one
+- two
+
+Last.
+",
+        )
+        .unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.compose();
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        let text = |a: &App| {
+            let r = a.docs.active_ready().unwrap();
+            let mut s = String::new();
+            r.buffer.text(0..r.buffer.len_bytes(), &mut s);
+            s
+        };
+        let before = text(&a);
+
+        // No block open: typing, Enter, Delete and paste change nothing.
+        type_text(&mut a, "xyz");
+        a.key_pressed(Key::Name(KeyName::Enter), None);
+        a.key_pressed(Key::Name(KeyName::Delete), None);
+        a.command(C::Paste);
+        a.command(C::Undo);
+        assert_eq!(text(&a), before);
+
+        // The list opens; Ctrl+A takes its lines only.
+        a.docs.active_ready_mut().unwrap().view.sel = mdedit_core::selection::Selection::at(0);
+        if let Some(v) = a.visual.as_mut() {
+            v.pending = Some(super::super::visual::Ask::Line(5));
+        }
+        pump(&mut a, |a| a.visual_block().is_some_and(|b| b.first == 4));
+        a.command(C::SelectAll);
+        let r = a.docs.active_ready().unwrap();
+        let sel = r.view.sel.range();
+        let mut got = String::new();
+        r.buffer.text(sel, &mut got);
+        assert_eq!(
+            got,
+            "- one
+- two"
+        );
+
+        // An edit above the block (as Replace All or a reload would make): the block closes, the
+        // page gets the text and the block under the caret opens again, on its new lines.
+        a.edit(EditOp::ReplaceRange(
+            0,
+            7,
+            "# Title
+
+A new line.",
+        ));
+        a.compose();
+        // The caret is put back in the list, which is on lines 6 and 7 now: it opens there, the
+        // page in step with the new text.
+        {
+            let r = a.docs.active_ready_mut().unwrap();
+            let at = r.buffer.line_range(6).start;
+            r.view.sel = mdedit_core::selection::Selection::at(at);
+        }
+        a.compose();
+        pump(&mut a, |a| a.visual_block().is_some_and(|b| b.first == 6));
+        assert_eq!(a.visual_block().map(|b| b.first), Some(6));
+        assert_eq!(
+            a.preview.as_ref().unwrap().sent_gap().map(|g| g.0),
+            Some((7, 8))
+        );
+
+        // Closing the pane ends visual editing.
+        a.toggle_preview_pane();
+        a.compose();
+        assert!(!a.visual_on() && !a.docs.visual_open && a.areas.text.w > 0.0);
     }
 
     #[test]

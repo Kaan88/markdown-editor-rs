@@ -1341,7 +1341,9 @@ impl App {
                 | C::MdMoveRowDown
                 | C::MdSortColumn
         );
-        if self.ui.find_focused && edits {
+        // Visual editing with no block open: the text has no caret on screen, so nothing edits it.
+        let hidden = self.visual_on() && self.visual_block().is_none();
+        if (self.ui.find_focused || hidden) && edits {
             return;
         }
         // A command ends the run of typing that one Undo takes back.
@@ -1592,6 +1594,7 @@ impl App {
                     pane.select_all();
                 }
             }
+            C::SelectAll if self.visual_on() => self.visual_select_all(),
             C::SelectAll => {
                 if let Some(r) = self.docs.active_ready_mut() {
                     r.view.extra.clear();

@@ -37,18 +37,34 @@ pub(crate) fn box_fill(pal: &mdshared_ui::theme::Palette) -> mdshared_ui::gfx::R
 pub(crate) struct Visual {
     pub doc: DocId,
     pub block: Option<Block>,
-    /// A line (from 1) to ask the page's block of once it has the text.
-    pub pending: Option<u32>,
+    /// A question for the page, asked once it has the document's current text.
+    pub pending: Option<Ask>,
+    /// The caret offset the page was last scrolled for, so the reader's own scrolling is left
+    /// alone until the caret moves.
+    pub caret_seen: Option<usize>,
+}
+
+/// A question for the page about the current text.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Ask {
+    /// The block holding this line (from 1).
+    Line(u32),
+    /// The block at this point of the pane (device px).
+    At(f32, f32),
 }
 
 /// The open block: its first line (from 0), and how many lines follow it to the end of the
 /// text. Edits inside the block change neither, so its last line is always known.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Block {
     pub first: usize,
     pub tail: usize,
     /// The text's line count when the block opened: the page keeps that text while it is open.
     pub lines: usize,
+    /// The text when the block opened (a cheap copy), and the version checked against it last:
+    /// an edit outside the block (Replace All, a reload, an AI edit, trimming on save) closes it.
+    pub opened: ropey::Rope,
+    pub seen: (u64, u64),
 }
 
 impl Block {
@@ -92,6 +108,40 @@ fn line_end(buffer: &mdedit_core::buffer::Buffer, line: usize) -> usize {
 
 /// From `line`, the first line with text on it going up or down (`line` itself when it has
 /// text, or when there is none that way).
+/// Whether `line` has nothing but white space.
+fn blank(buffer: &mdedit_core::buffer::Buffer, line: usize) -> bool {
+    let mut s = String::new();
+    buffer.text(buffer.line_range(line), &mut s);
+    s.trim().is_empty()
+}
+
+/// The text before the block's first line and after its last is as it was when it opened:
+/// only the block itself was edited.
+fn outside_unchanged(block: &Block, buffer: &mdedit_core::buffer::Buffer) -> bool {
+    // Lines counted as the buffer counts them (a final line break makes no line of its own).
+    let old = mdedit_core::buffer::Buffer::from_rope(block.opened.clone());
+    let (old_lines, lines) = (old.len_lines(), buffer.len_lines());
+    if block.first >= old_lines || block.first >= lines || block.tail >= lines {
+        return false;
+    }
+    let head = old.line_start(block.first);
+    if head != buffer.line_start(block.first)
+        || old.rope().byte_slice(..head) != buffer.rope().byte_slice(..head)
+    {
+        return false;
+    }
+    // The tail: the same number of lines after the block, the same text. With none, the end.
+    let end = |b: &mdedit_core::buffer::Buffer, n: usize| {
+        if block.tail == 0 {
+            b.len_bytes()
+        } else {
+            b.line_start(n - block.tail)
+        }
+    };
+    let (old_tail, new_tail) = (end(&old, old_lines), end(buffer, lines));
+    old.rope().byte_slice(old_tail..) == buffer.rope().byte_slice(new_tail..)
+}
+
 fn next_text_line(buffer: &mdedit_core::buffer::Buffer, line: usize, up: bool) -> usize {
     let mut s = String::new();
     let mut at = line;
@@ -151,11 +201,14 @@ impl App {
             doc: id,
             block: None,
             pending: None,
+            caret_seen: None,
         });
         self.docs.visual_open = true;
-        // The page starts where the text was.
+        // The page starts where the text was; from then on the reader scrolls it, and a new
+        // text or size leaves it there.
         if let Some(p) = self.preview.as_mut() {
             p.editor_leads();
+            p.unfollow();
         }
         self.relayout_areas();
         self.full = true;
@@ -179,7 +232,24 @@ impl App {
 
     /// The open block, if any.
     pub(super) fn visual_block(&self) -> Option<Block> {
-        self.visual.as_ref()?.block
+        self.visual.as_ref()?.block.clone()
+    }
+
+    /// Select All in visual editing: the open block's lines, which are all the box shows.
+    pub(super) fn visual_select_all(&mut self) {
+        let Some(block) = self.visual_block() else {
+            return;
+        };
+        let Some(r) = self.docs.active_ready_mut() else {
+            return;
+        };
+        let last = block.last(r.buffer.len_lines());
+        r.view.extra.clear();
+        r.view.sel = Selection {
+            anchor: r.buffer.line_range(block.first).start,
+            caret: line_end(&r.buffer, last),
+            goal_col: None,
+        };
     }
 
     /// Closes the open block: the page draws it again.
@@ -209,9 +279,12 @@ impl App {
         };
         let s = self.scale;
         let (px, py) = (((x - r.x) * s).max(0.0), ((y - r.y) * s).max(0.0));
-        if let Some(p) = self.preview.as_mut() {
-            p.block_at(px, py);
+        // Asked after the page has the current text (`preview_sync` sends it first), or the
+        // answer would be in the lines of an older one.
+        if let Some(v) = self.visual.as_mut() {
+            v.pending = Some(Ask::At(px, py));
         }
+        self.redraw();
     }
 
     /// Keeps visual editing in step, once per frame before the layout: ends it when its
@@ -237,17 +310,50 @@ impl App {
             return;
         };
         let line_h = self.view.metrics(self.scale).line_h as f32;
+        let version = self
+            .docs
+            .active_doc()
+            .and_then(|d| d.ready().map(|r| (d.revision, r.buffer.revision())));
         let Some(r) = self.docs.active_ready_mut() else {
             return;
         };
         let lines = r.buffer.len_lines();
         let last = block.last(lines);
         let caret = r.buffer.line_of(r.view.sel.caret);
+        if let Some(version) = version
+            && version != block.seen
+        {
+            if !outside_unchanged(&block, &r.buffer) {
+                // Something changed the text around the block: the page gets the new text and
+                // the block under the caret opens again.
+                let line = caret.min(lines.saturating_sub(1));
+                self.close_block();
+                if let Some(v) = self.visual.as_mut() {
+                    v.pending = Some(Ask::Line(line as u32 + 1));
+                }
+                return;
+            }
+            if let Some(b) = self.visual.as_mut().and_then(|v| v.block.as_mut()) {
+                b.seen = version;
+            }
+        }
+        let Some(r) = self.docs.active_ready_mut() else {
+            return;
+        };
         if caret < block.first || caret > last {
             // The caret went out of the block (the arrows, a find): the block it went to opens,
-            // over the blank lines between them.
+            // over the blank lines between them. Past the first or the last block, with only
+            // blank lines there, it stays in the block.
             let up = caret < block.first;
             let target = next_text_line(&r.buffer, caret, up);
+            if blank(&r.buffer, target) {
+                r.view.sel = Selection::at(if up {
+                    r.buffer.line_range(block.first).start
+                } else {
+                    line_end(&r.buffer, last)
+                });
+                return;
+            }
             let start = r.buffer.line_range(target).start;
             if target != caret {
                 r.view.sel = Selection::at(if up {
@@ -259,7 +365,7 @@ impl App {
             self.close_block();
             // Asked once the page has the edited text (`preview_sync` sends it first).
             if let Some(v) = self.visual.as_mut() {
-                v.pending = Some(target as u32 + 1);
+                v.pending = Some(Ask::Line(target as u32 + 1));
             }
             return;
         }
@@ -274,12 +380,48 @@ impl App {
         } else {
             (last - block.first + 1) as f32
         };
+        // The caret's row in the box, counted the same way, to keep it in sight.
+        let caret_offset = r.view.sel.caret;
+        let caret_rows = if r.wrap && r.view.view_w >= 100.0 {
+            let before: usize = (block.first..caret)
+                .map(|l| crate::view::wrap::rows(r, l).len().max(1))
+                .sum();
+            (before + 1) as f32
+        } else {
+            (caret - block.first + 1) as f32
+        };
         let s = self.scale;
-        let height = rows * line_h + 2.0 * ((BOX_PAD * s).round() + (BOX_GAP * s).round());
+        let pad = (BOX_PAD * s).round() + (BOX_GAP * s).round();
+        let height = rows * line_h + 2.0 * pad;
         // In the page's lines: it keeps the text the block opened on until it closes.
         let page_last = block.last(block.lines);
-        if let Some(p) = self.preview.as_mut() {
-            p.set_gap(Some((block.first as u32 + 1, page_last as u32 + 1, height)));
+        let pane_h = self.areas.preview.map_or(0.0, |p| p.h * s);
+        let moved = self.visual.as_ref().and_then(|v| v.caret_seen) != Some(caret_offset);
+        let Some(p) = self.preview.as_mut() else {
+            return;
+        };
+        p.set_gap(Some((block.first as u32 + 1, page_last as u32 + 1, height)));
+        // A caret that moved out of the pane (typing at the bottom of a tall block, a find)
+        // brings the page along, a line of room kept; the reader's own scrolling is left alone.
+        if moved
+            && pane_h > 0.0
+            && let Some(gap_y) = p.gap_y
+        {
+            let bottom = gap_y + pad + caret_rows * line_h;
+            let top = bottom - line_h;
+            let by = if bottom + line_h > p.top + pane_h {
+                bottom + line_h - (p.top + pane_h)
+            } else if top - line_h < p.top {
+                top - line_h - p.top
+            } else {
+                0.0
+            };
+            if by != 0.0 {
+                p.scroll(by);
+            }
+            if let Some(v) = self.visual.as_mut() {
+                v.caret_seen = Some(caret_offset);
+            }
         }
     }
 
@@ -309,12 +451,24 @@ impl App {
         };
         r.view.sel = Selection::at(caret);
         r.view.extra.clear();
+        // The box shows every line of the block: folds over it open.
+        for line in first..=last {
+            r.view.folds.reveal(line);
+        }
         crate::view::set_source_top(r, first as f64);
+        let opened = r.buffer.snapshot();
+        let seen = self
+            .docs
+            .active_doc()
+            .and_then(|d| d.ready().map(|r| (d.revision, r.buffer.revision())))
+            .unwrap_or_default();
         if let Some(v) = self.visual.as_mut() {
             v.block = Some(Block {
                 first,
                 tail: lines - 1 - last,
                 lines,
+                opened,
+                seen,
             });
         }
         self.caret_reset();
@@ -397,9 +551,69 @@ mod tests {
             first: 2,
             tail: 3,
             lines: 10,
+            opened: ropey::Rope::new(),
+            seen: (0, 0),
         };
         assert_eq!(block.last(8), 4);
         assert_eq!(block.last(10), 6);
         assert_eq!(block.last(3), 2);
+    }
+
+    #[test]
+    fn an_edit_outside_the_block_is_told_from_one_inside_it() {
+        let text = "# T
+
+- a
+- b
+
+Last
+";
+        let block = Block {
+            first: 2,
+            tail: 2,
+            lines: 6,
+            opened: Buffer::from_text(text).snapshot(),
+            seen: (0, 0),
+        };
+        let inside = Buffer::from_text(
+            "# T
+
+- a
+- b, more
+- c
+
+Last
+",
+        );
+        assert!(outside_unchanged(&block, &inside));
+        let before = Buffer::from_text(
+            "# Title
+
+- a
+- b
+
+Last
+",
+        );
+        assert!(!outside_unchanged(&block, &before));
+        let after = Buffer::from_text(
+            "# T
+
+- a
+- b
+
+Last.
+",
+        );
+        assert!(!outside_unchanged(&block, &after));
+        let fewer = Buffer::from_text(
+            "# T
+- a
+- b
+
+Last
+",
+        );
+        assert!(!outside_unchanged(&block, &fewer));
     }
 }
