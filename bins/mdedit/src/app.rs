@@ -1413,7 +1413,23 @@ impl App {
                         None => overlays::draw_empty(&mut c, &self.docs, rect),
                         Some(i) => {
                             let doc = &mut self.docs.tabs[i];
-                            times.paint = self.view.draw(&mut c, doc, rect, &ds, None);
+                            times.paint = if visual_box.is_some() {
+                                // The open block's text sits on the box's tint, not the page.
+                                let boxed = Palette {
+                                    page: visual::box_fill(c.pal),
+                                    ..*c.pal
+                                };
+                                let mut bc = chrome::Ctx {
+                                    p: &mut *c.p,
+                                    pal: &boxed,
+                                    hits: &mut *c.hits,
+                                    hover: c.hover,
+                                    pressed: c.pressed,
+                                };
+                                self.view.draw(&mut bc, doc, rect, &ds, None)
+                            } else {
+                                self.view.draw(&mut c, doc, rect, &ds, None)
+                            };
                         }
                     },
                     Region::Minimap | Region::MinimapOther => {
@@ -1449,7 +1465,7 @@ impl App {
                     Region::Preview => {
                         crate::preview_pane::draw(&mut c, self.preview.as_ref(), &self.docs, rect);
                         if let Some(b) = visual_box {
-                            c.p.frame(b, 6.0, pal.page, pal.accent);
+                            c.p.frame(b, 6.0, visual::box_fill(&pal), pal.accent);
                         }
                     }
                     Region::Status => status::draw(&mut c, &self.docs, rect),

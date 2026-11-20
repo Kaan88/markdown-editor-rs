@@ -11,9 +11,11 @@ use mdedit_highlight::DocId;
 use mdshared_ui::gfx::Rect;
 
 /// Room above and below the block's lines inside the box, logical px.
-pub(crate) const BOX_PAD: f32 = 8.0;
+pub(crate) const BOX_PAD: f32 = 10.0;
 /// How far the box reaches out from the page's text column on each side, logical px.
-const BOX_OUT: f32 = 12.0;
+const BOX_OUT: f32 = 10.0;
+/// Space kept between the box and the blocks above and below it, logical px.
+const BOX_GAP: f32 = 6.0;
 
 /// The page's side margin and text column width (logical px), as mdview's renderer lays the
 /// page out (`Theme::margin`, `Theme::reading_width`).
@@ -25,11 +27,18 @@ const PAGE: (f32, f32) = (
 #[cfg(not(feature = "embedded-preview"))]
 const PAGE: (f32, f32) = (40.0, 700.0);
 
+/// The box's fill: the page tinted toward the text, as mdview shades code.
+pub(crate) fn box_fill(pal: &mdshared_ui::theme::Palette) -> mdshared_ui::gfx::Rgb {
+    mdshared_ui::gfx::mix(pal.page, pal.text, 0.04)
+}
+
 /// Visual editing of one document.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Visual {
     pub doc: DocId,
     pub block: Option<Block>,
+    /// A line (from 1) to ask the page's block of once it has the text.
+    pub pending: Option<u32>,
 }
 
 /// The open block: its first line (from 0), and how many lines follow it to the end of the
@@ -38,6 +47,8 @@ pub(crate) struct Visual {
 pub(crate) struct Block {
     pub first: usize,
     pub tail: usize,
+    /// The text's line count when the block opened: the page keeps that text while it is open.
+    pub lines: usize,
 }
 
 impl Block {
@@ -139,6 +150,7 @@ impl App {
         self.visual = Some(Visual {
             doc: id,
             block: None,
+            pending: None,
         });
         self.docs.visual_open = true;
         // The page starts where the text was.
@@ -185,20 +197,21 @@ impl App {
         }
     }
 
-    /// A press on the page at `x, y` (window, logical px) outside the open block: opens the
-    /// block there (closing the open one), or just closes it where there is none.
+    /// A press on the page at `x, y` (window, logical px) outside the open block: closes it;
+    /// with none open, opens the block there.
     pub(super) fn visual_press(&mut self, x: f32, y: f32) {
+        if self.visual_block().is_some() {
+            self.close_block();
+            return;
+        }
         let Some(r) = self.areas.preview else {
             return;
         };
         let s = self.scale;
         let (px, py) = (((x - r.x) * s).max(0.0), ((y - r.y) * s).max(0.0));
-        // Asked before the open block closes, so the point is read on the page as it is shown;
-        // the answer is in source lines, which closing does not move.
         if let Some(p) = self.preview.as_mut() {
             p.block_at(px, py);
         }
-        self.close_block();
     }
 
     /// Keeps visual editing in step, once per frame before the layout: ends it when its
@@ -244,8 +257,9 @@ impl App {
                 });
             }
             self.close_block();
-            if let Some(p) = self.preview.as_mut() {
-                p.block_of_line(target as u32 + 1);
+            // Asked once the page has the edited text (`preview_sync` sends it first).
+            if let Some(v) = self.visual.as_mut() {
+                v.pending = Some(target as u32 + 1);
             }
             return;
         }
@@ -260,9 +274,12 @@ impl App {
         } else {
             (last - block.first + 1) as f32
         };
-        let height = rows * line_h + 2.0 * (BOX_PAD * self.scale).round();
+        let s = self.scale;
+        let height = rows * line_h + 2.0 * ((BOX_PAD * s).round() + (BOX_GAP * s).round());
+        // In the page's lines: it keeps the text the block opened on until it closes.
+        let page_last = block.last(block.lines);
         if let Some(p) = self.preview.as_mut() {
-            p.set_gap(Some((block.first as u32 + 1, last as u32 + 1, height)));
+            p.set_gap(Some((block.first as u32 + 1, page_last as u32 + 1, height)));
         }
     }
 
@@ -297,6 +314,7 @@ impl App {
             v.block = Some(Block {
                 first,
                 tail: lines - 1 - last,
+                lines,
             });
         }
         self.caret_reset();
@@ -320,8 +338,9 @@ impl App {
         let left = ((width - column) / 2.0 * s).round() / s;
         let x = (pane.x + 1.0 / s + left - BOX_OUT).max(pane.x);
         let w = (column + 2.0 * BOX_OUT).min(pane.right() - x);
-        let y = pane.y + (gap_y - p.top) / s;
-        Some(Rect::new(x, y, w, height / s))
+        let gap = (BOX_GAP * s).round();
+        let y = pane.y + (gap_y + gap - p.top) / s;
+        Some(Rect::new(x, y, w, (height - 2.0 * gap).max(0.0) / s))
     }
 
     /// In visual editing the page takes the text area and the text view only the open block's
@@ -374,7 +393,11 @@ mod tests {
 
     #[test]
     fn the_last_line_follows_lines_added_inside_the_block() {
-        let block = Block { first: 2, tail: 3 };
+        let block = Block {
+            first: 2,
+            tail: 3,
+            lines: 10,
+        };
         assert_eq!(block.last(8), 4);
         assert_eq!(block.last(10), 6);
         assert_eq!(block.last(3), 2);

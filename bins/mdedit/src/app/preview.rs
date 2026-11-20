@@ -99,6 +99,11 @@ impl App {
         let scale = self.scale;
         let rect = self.areas.preview;
         let visual = self.visual_on();
+        // While a block is open the page keeps the text it opened on and stands still; the
+        // edits go to it when the block closes.
+        let held = self.visual_block().is_some();
+        let pending = self.visual.as_mut().and_then(|v| v.pending.take());
+        let mut requeue = None;
         let Some(pane) = self.preview.as_mut() else {
             return false;
         };
@@ -119,11 +124,21 @@ impl App {
                 .as_deref()
                 .and_then(|p| p.parent())
                 .map(Path::to_path_buf);
-            pane.set_text(doc.id, version, base, || {
-                let mut s = String::new();
-                r.buffer.text(0..r.buffer.len_bytes(), &mut s);
-                s
-            });
+            if !held {
+                pane.set_text(doc.id, version, base, || {
+                    let mut s = String::new();
+                    r.buffer.text(0..r.buffer.len_bytes(), &mut s);
+                    s
+                });
+            }
+            if let Some(line) = pending {
+                if pane.held {
+                    // The text waits for an answer: ask after it has gone.
+                    requeue = Some(line);
+                } else {
+                    pane.block_of_line(line);
+                }
+            }
             let caret = r.view.sel.caret;
             let line = r.buffer.line_of(caret);
             let column = caret - r.buffer.line_range(line).start;
@@ -131,6 +146,11 @@ impl App {
             if !visual {
                 pane.follow(line as u32 + 1, column as u32);
             }
+        }
+        if let Some(line) = requeue
+            && let Some(v) = self.visual.as_mut()
+        {
+            v.pending = Some(line);
         }
         self.preview_copied();
         self.preview_task();
@@ -989,7 +1009,7 @@ Last.
                 .as_ref()
                 .unwrap()
                 .sent_gap()
-                .is_some_and(|g| g.0 == (1, 2))
+                .is_some_and(|g| g.1 > h1)
         });
         let r = a.docs.active_ready().unwrap();
         let mut s = String::new();
@@ -1003,7 +1023,8 @@ Last.
             "{s:?}"
         );
         let (lines, h2) = a.preview.as_ref().unwrap().sent_gap().unwrap();
-        assert_eq!(lines, (1, 2));
+        // The page keeps the text the block opened on: its lines stay, the room grows.
+        assert_eq!(lines, (1, 1));
         assert!(h2 > h1);
 
         // Down from the block's last line goes over the blank line into the next block.
@@ -1021,6 +1042,18 @@ Last.
         assert_eq!(a.visual_block().map(|b| b.first), Some(1));
         let r = a.docs.active_ready().unwrap();
         assert_eq!(r.buffer.line_of(r.view.sel.caret), 1);
+
+        // A press on the page outside the box only closes it, opening nothing; the next opens.
+        let page = a.areas.preview.expect("the page");
+        a.visual_press(page.x + 4.0, page.y + 50.0);
+        a.compose();
+        for _ in 0..20 {
+            a.preview_sync();
+            a.compose();
+        }
+        assert!(a.visual_block().is_none());
+        a.visual_press(page.cx(), page.y + 50.0);
+        pump(&mut a, |a| a.visual_block().is_some());
 
         // Esc puts it back; Ctrl+E again goes back to the text beside the page.
         a.key_pressed(Key::Name(KeyName::Escape), None);
