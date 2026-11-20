@@ -16,6 +16,16 @@ phase 1, and section 16 on editing and saving as built).
 - 2026-11-21: three Fable reviews asked for: (1) visual editing, (2) `f/four-fixes`, (3) a second
   opinion on Astra's audit 1 areas (recovery and session, AI keys, AI apply/review, the updater).
   Their findings and fixes go in a section "Audit 2" here.
+- Audit 2's findings were all fixed for 1.2.0 (below). The fixes themselves have not been reviewed
+  by Fable or anyone else; each has a test that fails with its fix reverted, except where noted.
+- Seen while preparing 1.2.0: a 1.2.0 launch (with no file) next to the owner's running 1.1.2
+  window did not hand over: the forward got no answer, and 1.1.2 holds no folder lock, so the
+  new window ran on the same session, took `instance.port`, rewrote `settings.ini` and renamed
+  the 1.1.2 window's recovery copies to its own. It was stopped by force, so it wrote nothing at
+  exit; nothing was lost (the 1.1.2 window still had the text, the copies and backups stayed).
+  Why that forward got no answer is not known: with scratch settings a 1.1.2 or 1.2.0 window
+  took every launch (files, none, an unknown flag) in 15 to 21 ms. The lock protects only once
+  every window is 1.2.0 or later.
 
 ## Audit 2 (Fable, 2026-11-21): findings, and how each was fixed
 
@@ -83,6 +93,16 @@ Probe tests: `docs/review-prompts/audit2-probe-tests.patch`.
      checks existence only; with the overlap gone, the case Fable described (an old file
      swapped over a new one) cannot arise.
    - `host_of` drops `user:pass@`. Test `an_address_s_user_and_password_are_not_shown`.
+
+**Release checks for 1.2.0** (Windows, this PC, merged head `37e1dd9` plus the version bump):
+fmt, clippy (default and `--no-default-features`, `-D warnings`) and `cargo test --workspace`
+clean (mdedit 407, core 514, mdedit-ai 44 + 12 engine). Budgets, `tools/compare-builds.py`, 15
+interleaved runs of `sample.rs`, 1.1.2 against 1.2.0: first frame 109.8 / 112.2 ms (both over
+the 100 ms budget today; earlier releases measured 85 to 95 ms here, so the PC is slower now),
+private memory 27.6 / 27.7 MiB, keystroke p50 0.55 / 0.58 ms, scroll p50 0.44 / 0.48 ms: within
+noise. Four launches at once on one scratch session, five tries: 1.2.0 leaves one window each
+time (the others hand over, exit 0); 1.1.2 leaves two. Not checked: that the one window has all
+four files.
 
 **B fixed** on `f/visual-edit` (`2496e6d`, merged into `release/1.2.0`); see "Visual editing, B+"
 below. B2 (clipping) and B3 (scroll to the caret) have no automated test and wait for the owner
