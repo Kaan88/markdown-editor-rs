@@ -71,6 +71,53 @@ pub(crate) fn trimmed(
     (first < lines && last >= first).then_some((first, last))
 }
 
+/// The end of line `line`, before its line break.
+fn line_end(buffer: &mdedit_core::buffer::Buffer, line: usize) -> usize {
+    let range = buffer.line_range(line);
+    let mut s = String::new();
+    buffer.text(range.clone(), &mut s);
+    range.start + s.trim_end_matches(['\n', '\r']).len()
+}
+
+/// From `line`, the first line with text on it going up or down (`line` itself when it has
+/// text, or when there is none that way).
+fn next_text_line(buffer: &mdedit_core::buffer::Buffer, line: usize, up: bool) -> usize {
+    let mut s = String::new();
+    let mut at = line;
+    loop {
+        s.clear();
+        buffer.text(buffer.line_range(at), &mut s);
+        if !s.trim().is_empty() {
+            return at;
+        }
+        match up {
+            true if at > 0 => at -= 1,
+            false if at + 1 < buffer.len_lines() => at += 1,
+            _ => return line,
+        }
+    }
+}
+
+/// The offset near a click `down` and `across` its block (fractions of the block's height and
+/// of the page's text column), in lines `first` to `last`: the line by height, the column by
+/// width, on a character boundary.
+fn near(
+    buffer: &mdedit_core::buffer::Buffer,
+    first: usize,
+    last: usize,
+    down: f32,
+    across: f32,
+) -> usize {
+    let n = last - first + 1;
+    let line = first + ((down.clamp(0.0, 1.0) * n as f32) as usize).min(n - 1);
+    let start = buffer.line_range(line).start;
+    let mut s = String::new();
+    buffer.text(start..line_end(buffer, line), &mut s);
+    let chars = s.chars().count();
+    let k = (across.clamp(0.0, 1.0) * chars as f32).round() as usize;
+    start + s.char_indices().nth(k).map_or(s.len(), |(i, _)| i)
+}
+
 impl App {
     /// Turns visual editing on for the active Markdown document, opening the preview pane for
     /// it, or off again.
@@ -138,21 +185,20 @@ impl App {
         }
     }
 
-    /// A press on the page at `x, y` (window, logical px) outside the open block: closes the
-    /// block, or asks the page which block is there to open it.
+    /// A press on the page at `x, y` (window, logical px) outside the open block: opens the
+    /// block there (closing the open one), or just closes it where there is none.
     pub(super) fn visual_press(&mut self, x: f32, y: f32) {
-        if self.visual_block().is_some() {
-            self.close_block();
-            return;
-        }
         let Some(r) = self.areas.preview else {
             return;
         };
         let s = self.scale;
         let (px, py) = (((x - r.x) * s).max(0.0), ((y - r.y) * s).max(0.0));
+        // Asked before the open block closes, so the point is read on the page as it is shown;
+        // the answer is in source lines, which closing does not move.
         if let Some(p) = self.preview.as_mut() {
             p.block_at(px, py);
         }
+        self.close_block();
     }
 
     /// Keeps visual editing in step, once per frame before the layout: ends it when its
@@ -171,8 +217,8 @@ impl App {
             return;
         }
         let answer = self.preview.as_mut().and_then(|p| p.take_block());
-        if let Some(Some((first, next))) = answer {
-            self.open_block(first, next);
+        if let Some(Some(b)) = answer {
+            self.open_block(b.first, b.next, b.at);
         }
         let Some(block) = self.visual_block() else {
             return;
@@ -185,21 +231,44 @@ impl App {
         let last = block.last(lines);
         let caret = r.buffer.line_of(r.view.sel.caret);
         if caret < block.first || caret > last {
+            // The caret went out of the block (the arrows, a find): the block it went to opens,
+            // over the blank lines between them.
+            let up = caret < block.first;
+            let target = next_text_line(&r.buffer, caret, up);
+            let start = r.buffer.line_range(target).start;
+            if target != caret {
+                r.view.sel = Selection::at(if up {
+                    line_end(&r.buffer, target)
+                } else {
+                    start
+                });
+            }
             self.close_block();
+            if let Some(p) = self.preview.as_mut() {
+                p.block_of_line(target as u32 + 1);
+            }
             return;
         }
         // The view shows the block's lines from its top, whatever scrolled it.
         crate::view::set_source_top(r, block.first as f64);
         r.view.left = 0.0;
-        let rows = (last - block.first + 1) as f32;
+        // Rows by the box's width once the view has been laid out in it; lines before that.
+        let rows = if r.wrap && r.view.view_w >= 100.0 {
+            (block.first..=last)
+                .map(|l| crate::view::wrap::rows(r, l).len().max(1))
+                .sum::<usize>() as f32
+        } else {
+            (last - block.first + 1) as f32
+        };
         let height = rows * line_h + 2.0 * (BOX_PAD * self.scale).round();
         if let Some(p) = self.preview.as_mut() {
             p.set_gap(Some((block.first as u32 + 1, last as u32 + 1, height)));
         }
     }
 
-    /// Opens the block the page reported (lines from 1), the caret at its start.
-    fn open_block(&mut self, first: u32, next: Option<u32>) {
+    /// Opens the block the page reported (lines from 1). After a click (`at`, where in the
+    /// block it was) the caret goes near it; otherwise it stays where it is, kept inside.
+    fn open_block(&mut self, first: u32, next: Option<u32>, at: Option<(f32, f32)>) {
         let Some(r) = self.docs.active_ready_mut() else {
             return;
         };
@@ -207,8 +276,21 @@ impl App {
             return;
         };
         let lines = r.buffer.len_lines();
-        let start = r.buffer.line_range(first).start;
-        r.view.sel = Selection::at(start);
+        let caret = match at {
+            Some((down, across)) => near(&r.buffer, first, last, down, across),
+            None => {
+                let c = r.view.sel.caret;
+                let line = r.buffer.line_of(c);
+                if line < first {
+                    r.buffer.line_range(first).start
+                } else if line > last {
+                    line_end(&r.buffer, last)
+                } else {
+                    c
+                }
+            }
+        };
+        r.view.sel = Selection::at(caret);
         r.view.extra.clear();
         crate::view::set_source_top(r, first as f64);
         if let Some(v) = self.visual.as_mut() {
@@ -245,6 +327,7 @@ impl App {
     /// In visual editing the page takes the text area and the text view only the open block's
     /// box (an empty area at the top while no block is open).
     pub(super) fn with_visual(&self, mut a: crate::ui::Areas) -> crate::ui::Areas {
+        crate::live::set_bare(self.visual_on());
         if !self.visual_on() {
             return a;
         }
@@ -263,8 +346,15 @@ impl App {
 
     /// The text view's area inside the box: the block's lines, under the box's padding.
     pub(super) fn visual_text(&self, b: Rect) -> Rect {
+        // The text starts `TEXT_PAD` into its area: so it lines up with the page's column.
         let pad = (BOX_PAD * self.scale).round() / self.scale;
-        Rect::new(b.x, b.y + pad, b.w, (b.h - 2.0 * pad).max(0.0))
+        let side = BOX_OUT - crate::view::metrics::TEXT_PAD;
+        Rect::new(
+            b.x + side,
+            b.y + pad,
+            (b.w - 2.0 * side).max(0.0),
+            (b.h - 2.0 * pad).max(0.0),
+        )
     }
 }
 

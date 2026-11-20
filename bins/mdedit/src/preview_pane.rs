@@ -111,7 +111,7 @@ pub struct Pane {
     /// Visual editing: the page row where the room for the open block starts, as the last
     /// update gave it, and the answer to the last [`block_at`](Self::block_at) until taken.
     pub gap_y: Option<f32>,
-    block: Option<Option<(u32, Option<u32>)>>,
+    block: Option<Option<mdview_preview::wire::BlockLines>>,
 }
 
 /// The pane needs no mdview: this build draws it itself.
@@ -346,9 +346,14 @@ impl Pane {
         self.send(Request::BlockAt { x, y });
     }
 
-    /// The answer to [`block_at`](Self::block_at): `Some(None)` when no block is there, else
-    /// its first source line and the next block's (from 1).
-    pub fn take_block(&mut self) -> Option<Option<(u32, Option<u32>)>> {
+    /// Visual editing: asks which top-level block holds source line `line` (from 1).
+    pub fn block_of_line(&mut self, line: u32) {
+        self.send(Request::BlockOfLine { line });
+    }
+
+    /// The answer to [`block_at`](Self::block_at) or [`block_of_line`](Self::block_of_line):
+    /// `Some(None)` when no block is there.
+    pub fn take_block(&mut self) -> Option<Option<mdview_preview::wire::BlockLines>> {
         self.block.take()
     }
 

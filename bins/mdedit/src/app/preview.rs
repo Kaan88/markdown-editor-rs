@@ -973,7 +973,14 @@ Last.
         let ((first, last), h1) = a.preview.as_ref().unwrap().sent_gap().unwrap();
         assert_eq!((first, last), (1, 1));
 
+        // The caret is on the title's line, near where the click was, not at its start.
+        let r = a.docs.active_ready().unwrap();
+        let caret = r.view.sel.caret;
+        assert_eq!(r.buffer.line_of(caret), 0);
+        assert!(caret > 0, "near the click: {caret}");
+
         // Typing goes into the document; Enter adds a line to the block and the room grows.
+        a.key_pressed(Key::Name(KeyName::Home), None);
         type_text(&mut a, "My ");
         a.key_pressed(Key::Name(KeyName::Enter), None);
         a.compose();
@@ -998,6 +1005,22 @@ Last.
         let (lines, h2) = a.preview.as_ref().unwrap().sent_gap().unwrap();
         assert_eq!(lines, (1, 2));
         assert!(h2 > h1);
+
+        // Down from the block's last line goes over the blank line into the next block.
+        a.key_pressed(Key::Name(KeyName::Down), None);
+        a.compose();
+        pump(&mut a, |a| a.visual_block().is_some_and(|b| b.first == 3));
+        assert_eq!(a.visual_block().map(|b| b.first), Some(3));
+        let r = a.docs.active_ready().unwrap();
+        assert_eq!(r.buffer.line_of(r.view.sel.caret), 3);
+        // And Up goes back to the title, at its end: "My" before it is a paragraph of its own
+        // on the page now, so the heading alone opens.
+        a.key_pressed(Key::Name(KeyName::Up), None);
+        a.compose();
+        pump(&mut a, |a| a.visual_block().is_some_and(|b| b.first == 1));
+        assert_eq!(a.visual_block().map(|b| b.first), Some(1));
+        let r = a.docs.active_ready().unwrap();
+        assert_eq!(r.buffer.line_of(r.view.sel.caret), 1);
 
         // Esc puts it back; Ctrl+E again goes back to the text beside the page.
         a.key_pressed(Key::Name(KeyName::Escape), None);

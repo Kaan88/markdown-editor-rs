@@ -2930,7 +2930,9 @@ impl Docs {
             if r.view.folds.suspended() != compared {
                 r.view.folds.suspend(compared);
             }
-            let wrap = self.wrap && !compared;
+            // Visual editing wraps the open block to the page's column.
+            let visual = self.visual_open && active == Some(k);
+            let wrap = (self.wrap || visual) && !compared;
             if r.wrap != wrap {
                 r.wrap = wrap;
                 // Each of the document's views starts its rows over, with its caret's line in
