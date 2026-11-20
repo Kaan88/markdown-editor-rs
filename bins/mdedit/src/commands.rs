@@ -523,6 +523,12 @@ pub mod strings {
     pub const FIND_SEARCHING: &str = "Searching";
     pub const FILES_DOCK: &str = "FILES";
     pub const FILE_GONE: &str = "The file was deleted or moved. Showing the text last read.";
+    pub const SESSION_BUSY: &str = "Another mdedit window has the session and did not answer. This window runs without it: its tabs and drafts are not kept.";
+    pub fn session_unreadable(e: &std::io::Error) -> String {
+        format!(
+            "The session file could not be read ({e}). This window runs without it and leaves it as it is: its tabs and drafts are not kept."
+        )
+    }
     pub fn recovered(n: usize) -> String {
         match n {
             1 => "Recovered 1 unsaved document".to_string(),

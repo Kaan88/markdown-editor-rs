@@ -17,7 +17,7 @@ phase 1, and section 16 on editing and saving as built).
   opinion on Astra's audit 1 areas (recovery and session, AI keys, AI apply/review, the updater).
   Their findings and fixes go in a section "Audit 2" here.
 
-## Audit 2 (Fable, 2026-11-21): findings, none fixed yet
+## Audit 2 (Fable, 2026-11-21): findings, and how each was fixed
 
 Read-only reviews; the findings are from reading code unless marked. Spot-checked against the code by
 the session that asked for them (marked "verified").
@@ -42,6 +42,52 @@ the updater held up. Drafts can still be lost:
    overlapping an install (`missing_parts` checks existence, not version; staged files not
    fsynced); `host_of` shows `user:pass@` from a base URL in errors.
 Probe tests: `docs/review-prompts/audit2-probe-tests.patch`.
+
+**A fixed** (branch `release/1.2.0`). Each test fails with its fix reverted, except where noted.
+1. One window per settings folder: `instance::claim` (new `instance.rs`) takes a lock on
+   `settings.ini.lock` (std `File::try_lock`), held while the window runs. A launch that cannot
+   take it forwards its files to the window that has it, retrying every 50 ms for up to 10 s
+   while that window starts listening; failing that it runs without the session (toast
+   `SESSION_BUSY`), so it cannot drop the other's drafts. A running window is tried first, so a
+   window from before the lock still gets the files. Tests `instance::tests::*` (two). The real
+   two-process check is in the release checks below.
+2. `Session::read` is an error for a file that exists but cannot be read; `read_patiently` tries
+   again for 2 s; on failure the window runs without the session and says so
+   (`session_unreadable`). `Session::load` is gone. Test
+   `a_session_that_cannot_be_read_is_an_error_not_an_empty_session`. Shared `write_atomic` now
+   syncs the file before the rename (and the folder on unix), shared `75ddc1a`; no test (a power
+   loss).
+3. "Don't save" counts only once the run ends: `Doc::modified()` is `!discard && has_changes()`,
+   and the recovery copy, the session entry and `check_changed` use `has_changes()`. Cancel
+   later brings the tab back as it was. Test
+   `dont_save_then_cancel_keeps_the_first_tabs_copy_and_backup_meanwhile`.
+4. The dev-flag exits go through `timed_exit()`, which keeps the unsaved text as a normal close
+   does. Test `a_timed_exit_keeps_the_unsaved_text`.
+5. New tests: `an_exit_whose_session_write_fails_keeps_the_recovery_copy` (`finish_session`),
+   `the_recovery_look_leaves_a_waiting_tabs_copy_alone`, `a_fail_hides_its_own_key` (proto
+   unit) and `an_opaque_key_echoed_in_a_streamed_error_is_hidden` (engine). The engine test
+   still passes with `Fail::hide` removed, because `proto::redact` also knows the key; it fails
+   only with both removed: the two are each other's backup. The `sse` `Watched` checks are
+   likewise redundant with each other; the existing test fails only with both removed.
+6. - A copy older than its backup with the same text covers it (`cover`'s `same_text`, read only
+     for that case): a crash after the exit wrote the backups no longer opens the draft twice.
+     Tests `a_copy_covers_the_backup_of_its_draft` (unit) and
+     `a_crash_after_the_backups_were_written_brings_the_text_back_once` (end to end).
+   - `finish` lets go of a waiting tab's copy when the user answered "Don't save" on it.
+     Test `an_exit_before_the_text_was_put_back_keeps_its_copy` (extended).
+   - Updater: a static `FILES` mutex in mdedit's `updater.rs`. A repair takes it with
+     `try_lock` and does nothing while an update holds it; mdedit's own `spawn_install` waits
+     for it, then runs shared `install` and `record_version`. Test
+     `a_repair_leaves_the_files_alone_while_an_update_writes_them`. Shared staged files are now
+     synced before the swap (`write_synced`, shared `8b73e01`), no test. `missing_parts` still
+     checks existence only; with the overlap gone, the case Fable described (an old file
+     swapped over a new one) cannot arise.
+   - `host_of` drops `user:pass@`. Test `an_address_s_user_and_password_are_not_shown`.
+
+**B fixed** on `f/visual-edit` (`2496e6d`, merged into `release/1.2.0`); see "Visual editing, B+"
+below. B2 (clipping) and B3 (scroll to the caret) have no automated test and wait for the owner
+to look. **C fixed** on `f/four-fixes` (`b06800a`, the four-fixes session); each fix has a test
+that fails with its fix reverted.
 
 **B. Visual editing (`f/visual-edit` + mdview `f/block-edit`).** No edit loss found.
 1. The page jumps to the caret line of the Ctrl+E moment on each text or view change: the server

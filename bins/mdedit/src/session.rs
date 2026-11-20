@@ -315,10 +315,27 @@ impl Default for Session {
 }
 
 impl Session {
-    pub fn load(path: &Path) -> Session {
-        std::fs::read(path)
-            .map(|b| Session::parse(&String::from_utf8_lossy(&b)))
-            .unwrap_or_default()
+    /// The session in `path`: none yet (no file) is an empty one; a file that cannot be read is
+    /// an error, never taken as empty (the next exit would write over it and drop its drafts).
+    pub fn read(path: &Path) -> std::io::Result<Session> {
+        match std::fs::read(path) {
+            Ok(b) => Ok(Session::parse(&String::from_utf8_lossy(&b))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Session::default()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// [`read`](Self::read), tried again for up to two seconds while it fails: another program
+    /// (a scanner, a sync client) may have the file open a moment.
+    pub fn read_patiently(path: &Path) -> std::io::Result<Session> {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            match Session::read(path) {
+                Ok(s) => return Ok(s),
+                Err(e) if std::time::Instant::now() >= end => return Err(e),
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
+            }
+        }
     }
 
     pub fn parse(text: &str) -> Session {
@@ -935,5 +952,36 @@ minimap=0
         let mut fresh = Session::default();
         fresh.set_window_size(2560, 1380, true);
         assert_eq!(fresh.window_size(), Some((2560, 1380, true)));
+    }
+
+    #[test]
+    fn a_session_that_cannot_be_read_is_an_error_not_an_empty_session() {
+        let dir = std::env::temp_dir().join(format!("mdedit-session-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.ini");
+        // None yet: an empty session, no error.
+        assert!(Session::read(&path).unwrap().tabs.is_empty());
+        let s = Session {
+            tabs: vec![dir.join("a.txt")],
+            ..Default::default()
+        };
+        std::fs::write(&path, s.serialize()).unwrap();
+        assert_eq!(Session::read(&path).unwrap().tabs.len(), 1);
+        // Held by another program: an error, after trying for a while.
+        let Some(lock) = crate::recovery::Locked::new(&path) else {
+            return;
+        };
+        assert!(Session::read(&path).is_err());
+        let t0 = std::time::Instant::now();
+        assert!(Session::read_patiently(&path).is_err());
+        assert!(t0.elapsed() >= std::time::Duration::from_millis(1500));
+        // Let go while it is being tried: it is read.
+        let path2 = path.clone();
+        let reader = std::thread::spawn(move || Session::read_patiently(&path2));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(lock);
+        assert_eq!(reader.join().unwrap().unwrap().tabs.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

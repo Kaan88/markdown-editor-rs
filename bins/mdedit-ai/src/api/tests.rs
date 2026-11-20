@@ -219,3 +219,13 @@ fn a_streamed_error_loses_the_key_before_it_is_cut() {
     let m = s.fail.clone().unwrap();
     assert!(!m.contains("Qx7"), "{m}");
 }
+
+#[test]
+fn an_address_s_user_and_password_are_not_shown() {
+    assert_eq!(
+        host_of("https://me:secret@llm.example.com/v1"),
+        "llm.example.com"
+    );
+    assert_eq!(host_of("http://127.0.0.1:1234/v1"), "127.0.0.1:1234");
+    assert_eq!(host_of("https://"), "The server");
+}

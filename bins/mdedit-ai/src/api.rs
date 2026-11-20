@@ -565,7 +565,9 @@ fn read_json(
 /// The provider's name for messages: the host of its base URL.
 fn host_of(base: &str) -> String {
     let rest = base.split_once("://").map_or(base, |(_, r)| r);
-    let host = rest.split(['/', '?']).next().unwrap_or(rest);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    // A user name and password in the address are never shown (audit 2).
+    let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
     if host.is_empty() {
         "The server".into()
     } else {

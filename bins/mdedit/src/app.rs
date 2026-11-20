@@ -2066,6 +2066,13 @@ impl App {
 
     /// Writes the session; false when it could not be written (it is tried again later: the
     /// state written last is not taken as written, audit 1 round 4, #1).
+    /// At exit: the session is written, and the recovery copies go, except those of text the
+    /// session could not keep (its write failed): those stay for the next start.
+    fn finish_session(&mut self) {
+        let saved = self.save_session();
+        self.recovery.finish(&self.docs, saved);
+    }
+
     fn save_session(&mut self) -> bool {
         let Some(path) = self.session_path.clone().filter(|_| self.save) else {
             return true;
@@ -2144,7 +2151,18 @@ fn bring_back(
         std::fs::metadata(file).and_then(|m| m.modified()).ok()
     };
     let legacy = |u: &Unsaved| crate::recovery::legacy_draft(&backups?.join(&u.file), u);
-    let cover = crate::recovery::cover(&found, unsaved, time, legacy);
+    // Read only for a copy older than its backup: the same text means one draft, not two.
+    let same_text = |f: &crate::recovery::Found, u: &Unsaved| {
+        let Some(dir) = backups else { return false };
+        let Ok(backup) = std::fs::read(dir.join(&u.file)) else {
+            return false;
+        };
+        matches!(
+            mdedit_core::recovery::read_checked(&f.file),
+            Ok(Some((_, text))) if text.as_bytes() == backup.as_slice()
+        )
+    };
+    let cover = crate::recovery::cover(&found, unsaved, time, legacy, same_text);
     let recovered = recovery.restore(docs, found);
     let covered: Vec<Option<DocId>> = cover
         .iter()
@@ -2582,8 +2600,7 @@ impl ApplicationHandler<Wake> for App {
             if first && !self.leave_side_by_side() {
                 self.save_size();
             }
-            let saved = self.save_session();
-            self.recovery.finish(&self.docs, saved);
+            self.finish_session();
             self.trace.cpu("exit");
             event_loop.exit();
             if first {
@@ -3191,14 +3208,22 @@ pub fn run() -> i32 {
     });
     let explicit = std::env::var_os("MDEDIT_SETTINGS").map(PathBuf::from);
     // A shot never touches the user's session; it may read a scratch one named by MDEDIT_SETTINGS.
-    let session_path = match (args.no_session, args.shot.is_some()) {
+    let mut session_path = match (args.no_session, args.shot.is_some()) {
         (true, _) => None,
         (false, true) => explicit,
         (false, false) => {
             explicit.or_else(|| mdshared_app::settings::default_settings_path("mdedit"))
         }
     };
-    if let Some(settings) = session_path.as_ref().filter(|_| args.shot.is_none()) {
+    // The settings path this window listens on for other launches, kept even when the session
+    // itself is not used (`session_path` set to `None` below).
+    let instance_path = session_path.clone().filter(|_| args.shot.is_none());
+    // Held while the window runs: this launch has the settings folder (crate::instance).
+    let mut _folder_lock = None;
+    // Why this window runs without its session, to say once it is open.
+    let mut no_session_note: Option<String> = None;
+    if let Some(settings) = session_path.clone().filter(|_| args.shot.is_none()) {
+        let settings = &settings;
         // Started by a restart: the window that started it is still closing; wait it out, or the
         // hand-over below would go to it and leave no window.
         mdshared_app::relaunch::wait_for_predecessor(std::env::args().skip(1), settings);
@@ -3213,25 +3238,41 @@ pub fn run() -> i32 {
                 requests.push(Request::new(dir));
             }
         }
-        let handed = if requests.is_empty() {
-            mdshared_app::single::forward("mdedit", settings, &paths)
-        } else {
-            requests
-                .iter()
-                .all(|r| mdshared_app::single::forward_request("mdedit", settings, r))
+        let forward = || {
+            if requests.is_empty() {
+                mdshared_app::single::forward("mdedit", settings, &paths)
+            } else {
+                requests
+                    .iter()
+                    .all(|r| mdshared_app::single::forward_request("mdedit", settings, r))
+            }
         };
-        if handed {
-            return 0;
+        // A window that is still starting is waited for, not run beside.
+        match crate::instance::claim(settings, forward, crate::instance::WAIT) {
+            crate::instance::Claim::Own(lock) => _folder_lock = lock,
+            crate::instance::Claim::Handed => return 0,
+            crate::instance::Claim::Busy => {
+                session_path = None;
+                no_session_note = Some(crate::commands::strings::SESSION_BUSY.to_string());
+            }
         }
     }
     // A live update is for a window that shows the file already: with none, there is nothing to do.
     if args.follow && args.shot.is_none() {
         return 0;
     }
-    let session = session_path
-        .as_deref()
-        .map(Session::load)
-        .unwrap_or_default();
+    // A session file that is there but cannot be read (another program has it open a moment, a
+    // disk error) is tried again for a while; failing that, this window runs without it, so it
+    // neither writes over it nor drops the drafts it lists (audit 2).
+    let session = match session_path.as_deref().map(Session::read_patiently) {
+        None => Session::default(),
+        Some(Ok(s)) => s,
+        Some(Err(e)) => {
+            session_path = None;
+            no_session_note = Some(crate::commands::strings::session_unreadable(&e));
+            Session::default()
+        }
+    };
     trace.stage("session read");
 
     // The proxy exists only once the event loop does; until then wakes are dropped and the
@@ -3346,6 +3387,9 @@ pub fn run() -> i32 {
         app.docs
             .set_toast(&crate::commands::strings::recovered(recovered_count));
     }
+    if let Some(note) = &no_session_note {
+        app.docs.set_toast(note);
+    }
     // Macros are read from here when first wanted, not now.
     app.macros.path = app
         .session_path
@@ -3438,7 +3482,7 @@ pub fn run() -> i32 {
         let _ = po.send_event(Wake::Open(paths));
     });
     trace.stage("event loop");
-    if let Some(settings) = &app.session_path {
+    if let Some(settings) = &instance_path {
         let p = p.clone();
         app.incoming =
             mdshared_app::single::listen_requests_waking("mdedit", settings, move || {
@@ -4496,5 +4540,172 @@ mod tests {
         assert!(a.ui.settings.is_some());
         a.close_settings();
         assert!(a.ui.settings.is_none());
+    }
+
+    /// Audit 2: Close All, "Don't save" on the first tab while the second's question is open,
+    /// then Cancel. In between, the loop turns: the first tab's recovery copy stays, and so does
+    /// the backup the session lists for it.
+    #[test]
+    fn dont_save_then_cancel_keeps_the_first_tabs_copy_and_backup_meanwhile() {
+        use crate::recovery::Recovery;
+        use std::time::{Duration, Instant};
+        let (dir, backups) = r4_dir("a2-discard");
+        let session = dir.join("session.ini");
+        let mut app = app();
+        app.save = true;
+        app.session_path = Some(session.clone());
+        app.recovery = Recovery::new(Some(dir.join("recover")));
+        assert!(app.docs.edit(EditOp::Insert("first"), None));
+        let first = app.docs.tabs[0].id;
+        let k = app.docs.new_untitled();
+        app.docs.activate(k);
+        assert!(app.docs.edit(EditOp::Insert("second"), None));
+        r4_copies(&app.docs, &mut app.recovery);
+        let count = || std::fs::read_dir(dir.join("recover")).map_or(0, |d| d.count());
+        assert_eq!(count(), 2);
+        app.request(After::CloseAll);
+        assert_eq!(
+            app.ui.dialog.as_ref().map(|d| d.kind),
+            Some(DialogKind::Unsaved)
+        );
+        app.answer(1);
+        assert_eq!(
+            app.ui.dialog.as_ref().map(|d| d.kind),
+            Some(DialogKind::Unsaved)
+        );
+        let i = app.docs.index_of_id(first).unwrap();
+        let state = app.docs.tabs[i].tab_state();
+        assert!(
+            state.modified,
+            "the session's pruning still sees the first tab's text"
+        );
+        let t0 = Instant::now();
+        app.recovery.poll(&app.docs, t0);
+        app.recovery.poll(&app.docs, t0 + Duration::from_secs(60));
+        app.recovery.flush();
+        assert_eq!(
+            count(),
+            2,
+            "the first tab's copy is kept while the question is open"
+        );
+        app.answer(2);
+        assert_eq!(app.docs.tabs.len(), 2);
+        let i = app.docs.index_of_id(first).unwrap();
+        assert!(app.docs.tabs[i].modified());
+        let _ = backups;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 2: `--exit-after-ms` (and the other timed runs) end as the user's exit does: the
+    /// unsaved text is kept as a backup the session lists.
+    #[test]
+    fn a_timed_exit_keeps_the_unsaved_text() {
+        let (dir, backups) = r4_dir("a2-timed");
+        let session = dir.join("session.ini");
+        let mut app = app();
+        app.save = true;
+        app.session_path = Some(session.clone());
+        assert!(app.docs.edit(EditOp::Insert("typed in a timed run"), None));
+        app.exit_due = Some(Instant::now());
+        app.timers(Instant::now() + Duration::from_millis(1));
+        assert!(app.exit);
+        let listed = Session::read(&session).unwrap().unsaved;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(backups.join(&listed[0].file)).unwrap(),
+            "typed in a timed run"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 2: the exit path itself keeps the recovery copy of unsaved text when the session
+    /// cannot be written (the round-5 fix was tested on `Recovery::finish` alone).
+    #[test]
+    fn an_exit_whose_session_write_fails_keeps_the_recovery_copy() {
+        use crate::recovery::Recovery;
+        let (dir, _backups) = r4_dir("a2-exit-copy");
+        // The session's folder is a file: nothing can be written there.
+        let blocker = dir.join("blocked");
+        std::fs::write(&blocker, "a file").unwrap();
+        let mut app = app();
+        app.save = true;
+        app.session_path = Some(blocker.join("session.ini"));
+        app.recovery = Recovery::new(Some(dir.join("recover")));
+        assert!(app.docs.edit(EditOp::Insert("only here"), None));
+        r4_copies(&app.docs, &mut app.recovery);
+        let count = || std::fs::read_dir(dir.join("recover")).map_or(0, |d| d.count());
+        assert_eq!(count(), 1);
+        app.finish_session();
+        assert_eq!(count(), 1, "the copy is the only place the text is");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 2: an exit that wrote the backups and the session, then stopped before it removed
+    /// the recovery copies (a crash, power lost): the next start opens the text once.
+    #[test]
+    fn a_crash_after_the_backups_were_written_brings_the_text_back_once() {
+        use crate::recovery::Recovery;
+        let (dir, backups) = r4_dir("a2-dup");
+        let mut app = app();
+        app.save = true;
+        app.session_path = Some(dir.join("session.ini"));
+        app.recovery = Recovery::new(Some(dir.join("recover")));
+        assert!(app.docs.edit(EditOp::Insert("only here"), None));
+        r4_copies(&app.docs, &mut app.recovery);
+        // The backup is written after the copy, so it is the newer file.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        app.request(After::Exit);
+        assert!(app.exit);
+        assert_eq!(std::fs::read_dir(dir.join("recover")).unwrap().count(), 1);
+        drop(app);
+        // The next start.
+        let mut session = Session::read(&dir.join("session.ini")).unwrap();
+        assert_eq!(session.unsaved.len(), 1);
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut session.unsaved, Some(&backups));
+        assert_eq!(r4_texts(&mut docs), ["only here"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 2: while a tab waits for its copy (the copy could not be read yet), the recovery
+    /// look leaves the copy alone: it is the only place that text is.
+    #[test]
+    fn the_recovery_look_leaves_a_waiting_tabs_copy_alone() {
+        use crate::recovery::{Locked, Recovery};
+        let (dir, backups) = r4_dir("a2-waiting");
+        let file = dir.join("f.txt");
+        std::fs::write(
+            &file, "file
+",
+        )
+        .unwrap();
+        let mut unsaved = r5_backup_and_copy(&dir, &backups, &file);
+        let mut app = app();
+        app.docs = r4_docs();
+        app.recovery = Recovery::new(Some(dir.join("recover")));
+        bring_back(
+            &mut app.docs,
+            &mut app.recovery,
+            &mut unsaved,
+            Some(&backups),
+        );
+        let k = app
+            .docs
+            .tabs
+            .iter()
+            .position(|d| d.restore.is_some())
+            .unwrap();
+        let copy = app.docs.tabs[k].restore.clone().unwrap();
+        let Some(lock) = Locked::new(&copy) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
+        app.docs.load_now(k, None, false);
+        assert!(app.docs.tabs[k].restore.is_some());
+        r4_copies(&app.docs, &mut app.recovery);
+        drop(lock);
+        assert!(copy.is_file(), "the waiting tab's copy is kept");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

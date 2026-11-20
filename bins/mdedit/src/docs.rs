@@ -1174,18 +1174,26 @@ impl Doc {
         TabState {
             path: self.path.as_deref(),
             untitled: self.untitled,
-            modified: self.modified(),
+            modified: self.has_changes(),
             waiting: self.waiting_backup(),
             draft: self.draft,
         }
     }
 
-    /// The text has changes that are not in the file (also unsaved text still to be put back).
+    /// The text has changes that are not in the file (also unsaved text still to be put back),
+    /// and they were not given up ("Don't save" in a close or exit that is still asking).
     pub fn modified(&self) -> bool {
-        !self.discard
-            && (self.restore.is_some()
-                || self.encoding_changed
-                || self.ready().is_some_and(|r| r.history.is_modified()))
+        !self.discard && self.has_changes()
+    }
+
+    /// The text has changes that are not in the file, given up on or not. What keeps them safe
+    /// (the recovery copy, the session's backup, no reload over them) goes by this: a "Don't
+    /// save" holds only once the close or exit it answered goes through, and a Cancel after it
+    /// takes it back (audit 2).
+    pub fn has_changes(&self) -> bool {
+        self.restore.is_some()
+            || self.encoding_changed
+            || self.ready().is_some_and(|r| r.history.is_modified())
     }
 
     /// The banner over the text, if any.
@@ -2450,7 +2458,7 @@ impl Docs {
                 (DocState::Ready(_), FileStamp::Missing) => self.tabs[i].missing = true,
                 (DocState::Ready(r), s) if s != r.info.stamp || doc.missing => {
                     let changed = s != r.info.stamp;
-                    if doc.modified() {
+                    if doc.has_changes() {
                         // Unsaved changes, an unsaved encoding choice among them, are never
                         // replaced behind the user's back.
                         self.tabs[i].changed_on_disk = changed;

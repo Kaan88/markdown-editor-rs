@@ -1007,6 +1007,17 @@ impl App {
         self.redraw();
     }
 
+    /// The end of a timed run (`--exit-after-ms`, `--type-steps`, `--scroll-steps`): as the user's
+    /// own exit, unsaved text kept, when the run keeps a session; else straight out, nothing to keep
+    /// (audit 2: these exits skipped keeping the text and then removed its recovery copies).
+    fn timed_exit(&mut self) {
+        if self.save && self.session_path.is_some() {
+            self.request(After::Exit);
+        } else {
+            self.exit = true;
+        }
+    }
+
     /// The answer to the question dialog: button `n`, the first being its default.
     pub(super) fn answer(&mut self, n: usize) {
         let kind = self.ui.dialog.as_ref().map(|d| d.kind);
@@ -2256,7 +2267,7 @@ impl App {
         if let Some(due) = self.exit_due {
             if now >= due {
                 self.exit_due = None;
-                self.exit = true;
+                self.timed_exit();
             } else {
                 at(due);
             }
@@ -2318,7 +2329,7 @@ impl App {
             if let Some(line) = self.preview_summary() {
                 eprintln!("mdedit: {line}");
             }
-            self.exit = true;
+            self.timed_exit();
             return;
         }
         self.type_steps = Some(n - 1);
@@ -2370,7 +2381,7 @@ impl App {
                 mean(|t| t.copy),
                 mean(|t| t.present),
             );
-            self.exit = true;
+            self.timed_exit();
             return;
         }
         self.steps = Some(n - 1);

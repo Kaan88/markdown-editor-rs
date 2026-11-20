@@ -131,7 +131,9 @@ pub struct Found {
 ///   the same file (as the tabs compare files: `same_path`) or without a file the same number;
 /// * one copy for that backup and one backup for that copy;
 /// * the copy at least as new as the backup (`backup_time`, its file's time). A backup written at
-///   a later normal exit than the copy holds the newer text.
+///   a later normal exit than the copy holds the newer text. An older copy with the same text as
+///   the backup (`same_text`) covers it too: the exit that wrote the backup ended before it
+///   removed the copies (audit 2: both came back, the same text twice).
 ///
 /// Whatever is not certain is not covered: both texts open, one as an extra draft, and nothing is
 /// deleted on a guess.
@@ -143,6 +145,7 @@ pub fn cover(
     unsaved: &[Unsaved],
     backup_time: impl Fn(&Unsaved) -> Option<SystemTime>,
     legacy: impl Fn(&Unsaved) -> Option<u64>,
+    same_text: impl Fn(&Found, &Unsaved) -> bool,
 ) -> Vec<Option<usize>> {
     let same = |f: &Found, u: &Unsaved| match (f.header.draft, u.draft) {
         (Some(a), Some(b)) => a == b,
@@ -166,7 +169,7 @@ pub fn cover(
                 (Some(c), Some(b)) => c >= b,
                 _ => false,
             };
-            (backups == 1 && newer).then_some(i)
+            (backups == 1 && (newer || same_text(&found[i], u))).then_some(i)
         })
         .collect()
 }
@@ -450,7 +453,7 @@ impl Recovery {
             let ready = d.ready().filter(|r| {
                 !r.read_only && !r.info.lossy && r.buffer.len_bytes() <= RECOVERY_MAX_BYTES
             });
-            let (Some(r), true) = (ready, d.modified()) else {
+            let (Some(r), true) = (ready, d.has_changes()) else {
                 if self.slots.remove(&d.id).is_some_and(|s| s.on_disk) {
                     jobs.push(Job::Remove(self.name(d.id)));
                 }
@@ -551,6 +554,8 @@ impl Recovery {
         let keep: Vec<&Path> = docs
             .tabs
             .iter()
+            // A waiting tab the user answered "Don't save" on gives its text up (audit 2).
+            .filter(|d| !d.discard)
             .filter_map(|d| d.restore.as_deref())
             .chain(self.unreadable.iter().map(PathBuf::as_path))
             .chain(modified.iter().map(PathBuf::as_path))
@@ -1089,15 +1094,30 @@ mod tests {
             entry("4.txt", 0, Some("/a/f.txt"), None),
         ];
         assert_eq!(
-            cover(&found, &list, at_100, |_| None),
+            cover(&found, &list, at_100, |_| None, |_, _| false),
             [Some(0), Some(1), None, None]
         );
         // A copy older than the backup does not cover it: the backup is the newer text.
         let old = vec![copy(Some("/a/f.txt"), 0, Some(1), 50)];
-        assert_eq!(cover(&old, &list[..1], at_100, |_| None), [None]);
+        assert_eq!(
+            cover(&old, &list[..1], at_100, |_| None, |_, _| false),
+            [None]
+        );
         // A backup whose time is unknown is not covered.
-        assert_eq!(cover(&found, &list[..1], |_| None, |_| None), [None]);
-        assert_eq!(cover(&[], &list[..1], at_100, |_| None), [None]);
+        assert_eq!(
+            cover(&found, &list[..1], |_| None, |_| None, |_, _| false),
+            [None]
+        );
+        assert_eq!(
+            cover(&[], &list[..1], at_100, |_| None, |_, _| false),
+            [None]
+        );
+        // A copy older than the backup with the same text: the exit that wrote the backup
+        // ended before it removed the copy (audit 2). One tab, not the same text twice.
+        assert_eq!(
+            cover(&old, &list[..1], at_100, |_| None, |_, _| true),
+            [Some(0)]
+        );
     }
 
     /// Before 1.1 neither had an id: the file, compared as the tabs compare files, or the number
@@ -1117,23 +1137,35 @@ mod tests {
             entry("5.txt", 0, Some("/a/other.txt"), None),
         ];
         assert_eq!(
-            cover(&found, &list, at_100, |_| None),
+            cover(&found, &list, at_100, |_| None, |_, _| false),
             [Some(0), Some(1), None, None, None]
         );
         // An id on one side only is not a match.
         let mixed = [entry("1.txt", 0, Some("/a/f.txt"), Some(9))];
-        assert_eq!(cover(&found, &mixed, at_100, |_| None), [None]);
+        assert_eq!(
+            cover(&found, &mixed, at_100, |_| None, |_, _| false),
+            [None]
+        );
         // Two backups numbered 1 and one copy numbered 1: neither is certainly the copy's.
         let two = [entry("1.txt", 1, None, None), entry("2.txt", 1, None, None)];
         let one = vec![copy(None, 1, None, 200)];
-        assert_eq!(cover(&one, &two, at_100, |_| None), [None, None]);
+        assert_eq!(
+            cover(&one, &two, at_100, |_| None, |_, _| false),
+            [None, None]
+        );
         // Two copies for one backup: the same.
         let copies = vec![copy(None, 1, None, 200), copy(None, 1, None, 201)];
-        assert_eq!(cover(&copies, &two[..1], at_100, |_| None), [None]);
+        assert_eq!(
+            cover(&copies, &two[..1], at_100, |_| None, |_, _| false),
+            [None]
+        );
         // Windows compares file names without case, as its tabs do.
         if cfg!(windows) {
             let upper = [entry("1.txt", 0, Some("/A/F.TXT"), None)];
-            assert_eq!(cover(&found, &upper, at_100, |_| None), [Some(0)]);
+            assert_eq!(
+                cover(&found, &upper, at_100, |_| None, |_, _| false),
+                [Some(0)]
+            );
         }
     }
 
@@ -1158,6 +1190,14 @@ mod tests {
         assert_eq!(files(&dir).len(), 1);
         let mut again = Recovery::new(Some(dir.join("recover")));
         assert_eq!(again.scan().len(), 1);
+        // Audit 2: the same tab, answered "Don't save" at an exit that asks: the copy goes.
+        let mut f = docs();
+        let found = again.scan();
+        again.restore(&mut f, found);
+        let k = f.tabs.iter().position(|d| d.restore.is_some()).unwrap();
+        f.tabs[k].discard = true;
+        again.finish(&f, false);
+        assert!(files(&dir).is_empty(), "{:?}", files(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

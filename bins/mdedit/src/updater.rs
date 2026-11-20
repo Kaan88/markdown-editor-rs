@@ -6,8 +6,7 @@ use mdshared_app::updater as shared;
 use std::time::Duration;
 
 pub use shared::{
-    Event, Files, NOT_INSTALLED, Stage, Updates, at_launch_label, check_due, spawn_install,
-    unix_now,
+    Event, Files, NOT_INSTALLED, Stage, Updates, at_launch_label, check_due, unix_now,
 };
 
 /// mdedit as the updater knows it: the executable and, on Windows, the two programs beside it:
@@ -75,8 +74,34 @@ pub fn repair_manifest_url() -> String {
     )
 }
 
-/// One repair at a time: the launch's and a look the reader asks for would write the same files.
-static REPAIRING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Held while a repair or an update writes the files beside the executable: they stage and swap
+/// the same files, so one waits for the other (audit 2: an update during the launch's repair
+/// could have a file of the old version swapped in after the new one). A repair that finds it
+/// held does nothing; an update waits for it.
+static FILES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The bar's Update: [`shared::install`] on its own thread once no repair is writing the files
+/// ([`FILES`]), then the version is recorded and `post` told, as the shared `spawn_install` does.
+pub fn spawn_install(
+    app: shared::App,
+    offer: shared::Offer,
+    files: Files,
+    fetch: shared::FetchFn,
+    post: impl Fn(Event) + Send + 'static,
+) {
+    let _ = std::thread::Builder::new()
+        .name("mdedit-update".into())
+        .spawn(move || {
+            let result = {
+                let _files = FILES.lock().unwrap_or_else(|e| e.into_inner());
+                shared::install(&offer, &files, &fetch)
+            };
+            if result.is_ok() {
+                shared::record_version(&app, &offer.version);
+            }
+            post(Event::Installed(result));
+        });
+}
 
 /// Puts in place what is missing beside the executable (see [`missing_parts`]), from this
 /// version's own manifest ([`repair_manifest_url`]). `Ok(true)` when something was put in place,
@@ -84,24 +109,27 @@ static REPAIRING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// of it; `Err` when a download, its hash or the write failed: nothing is in place then, and the
 /// next start or look tries again.
 pub fn repair(files: &Files) -> Result<bool, String> {
-    use std::sync::atomic::Ordering;
     if !missing_parts(files) {
         return Ok(false);
     }
     let Some(platform) = mdshared_app::update::Platform::current() else {
         return Ok(false);
     };
-    if REPAIRING.swap(true, Ordering::AcqRel) {
+    let _files = match FILES.try_lock() {
+        Ok(g) => g,
+        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
+    };
+    // What an update that held the files put in place may have been the missing part.
+    if !missing_parts(files) {
         return Ok(false);
     }
-    let result = fetch(
+    fetch(
         &repair_manifest_url(),
         mdshared_app::update::MAX_MANIFEST_BYTES,
         Duration::from_secs(30),
     )
-    .and_then(|bytes| shared::restore_engine(&APP, files, &bytes, platform, &fetch));
-    REPAIRING.store(false, Ordering::Release);
-    result
+    .and_then(|bytes| shared::restore_engine(&APP, files, &bytes, platform, &fetch))
 }
 
 /// What [`spawn_look`] posts.
@@ -238,6 +266,27 @@ mod tests {
         files.extras.clear();
         files.engine = Some(dir.join("not-there.exe"));
         assert!(missing_parts(&files));
+        _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 2: a repair and an update write the same files; while an update holds them, a
+    /// repair leaves them alone (it fetches nothing, so this needs no network).
+    #[test]
+    fn a_repair_leaves_the_files_alone_while_an_update_writes_them() {
+        let dir = std::env::temp_dir().join(format!("mdedit-held-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = dir.join("mdedit.exe");
+        std::fs::write(&app, "x").unwrap();
+        let files = Files {
+            app,
+            engine: Some(dir.join("mdview-engine.exe")),
+            extras: vec![],
+        };
+        assert!(missing_parts(&files));
+        let held = FILES.lock().unwrap();
+        assert_eq!(repair(&files), Ok(false));
+        drop(held);
+        assert!(!dir.join("mdview-engine.exe").exists());
         _ = std::fs::remove_dir_all(&dir);
     }
 }

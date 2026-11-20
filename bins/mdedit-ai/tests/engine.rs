@@ -399,6 +399,43 @@ fn a_key_echoed_by_the_server_is_hidden() {
     assert!(!m.contains("AbCdEf") && m.contains("[key hidden]"), "{m}");
 }
 
+/// Audit 2: a key with no known prefix, echoed in a streamed error (Claude's and OpenAI's)
+/// and in a plain one, is hidden by the key itself (`Fail::hide`), not by a prefix rule.
+#[test]
+fn an_opaque_key_echoed_in_a_streamed_error_is_hidden() {
+    const KEY: &str = "Zq9wPlmX3rT7uVbN";
+    let (base, _seen) = stub(|path| {
+        if path.starts_with("/v1/models") || path.ends_with("/models") {
+            (200, vec![], r#"{"data":[]}"#.into())
+        } else if path.contains("messages") {
+            (
+                200,
+                vec![],
+                sse(&[
+                    json!({"type": "error", "error": {"type": "invalid_request_error",
+                    "message": format!("bad header x-api-key: {KEY}")}}),
+                ]),
+            )
+        } else {
+            (
+                200,
+                vec![],
+                sse(&[json!({"error": {"message": format!("the value {KEY} was refused")}})]),
+            )
+        }
+    });
+    let mut e = Engine::start(&[("ANTHROPIC_BASE_URL", &base), ("MDEDIT_AI_KEY", KEY)]);
+    e.send(run(json!({"kind": "claude-api"}), "claude-opus-5-5", ""));
+    let a = e.answer();
+    let m = a["message"].as_str().unwrap();
+    assert!(!m.contains("Zq9w") && !m.contains("rT7u"), "{m}");
+    let conn = json!({"kind": "openai", "base_url": format!("{base}/v1"), "slot": "openai:x"});
+    e.send(run(conn, "m", ""));
+    let a = e.answer();
+    let m = a["message"].as_str().unwrap();
+    assert!(!m.contains("Zq9w") && !m.contains("rT7u"), "{m}");
+}
+
 /// Audit 1, round 2: an opaque key echoed where a long plain-text error is cut for the message
 /// leaves no fragment; prose about authentication stays readable.
 #[test]

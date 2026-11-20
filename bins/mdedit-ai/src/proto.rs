@@ -274,6 +274,19 @@ pub fn key(id: u64, slot: &str, stored: bool) -> Value {
 mod tests {
     use super::*;
 
+    /// Audit 2: `Fail::hide` hides a key with no known prefix by the key itself.
+    #[test]
+    fn a_fail_hides_its_own_key() {
+        let k = "Zq9wPlmX3rT7uVbN";
+        let f = Fail {
+            kind: "http",
+            message: format!("the value {k} was refused"),
+            retry_after: None,
+        }
+        .hide(Some(k));
+        assert_eq!(f.message, format!("the value {HIDDEN} was refused"));
+    }
+
     #[test]
     fn keys_are_hidden() {
         let k = "abcd1234efgh5678";
