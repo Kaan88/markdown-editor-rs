@@ -1,5 +1,0 @@
-open   n=  14  p50  38.94 ms  p95  75.36 ms  max  82.13 ms
-close  n=  14  p50  40.80 ms  p95  41.26 ms  max  41.29 ms
-caret  n=   6  p50   1.26 ms  p95   1.28 ms  max   1.28 ms
-on open: the box's top moved up to 6 px from the block's; the page below moved -423 to 119 px
-window 900x800 at scale 1, 25 blocks
