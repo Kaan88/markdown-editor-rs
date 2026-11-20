@@ -10,7 +10,7 @@
 //! read twice gives the same struct. Writing always writes every key, so write, read, write gives
 //! the same text.
 
-use crate::ai::Connection;
+use crate::ai::{CUSTOMS_MAX, Connection, CustomProvider};
 use crate::buffer::Buffer;
 use crate::edit::{Cmd, Outcome};
 use crate::history::{History, Kind};
@@ -35,6 +35,11 @@ pub const INDENT_SIZE_MAX: usize = 16;
 pub const MINIMAP_WIDTH_DEFAULT: usize = 96;
 pub const MINIMAP_WIDTH_MIN: usize = 48;
 pub const MINIMAP_WIDTH_MAX: usize = 240;
+/// Days of use a tab may go unopened before it is offered for closing: the default (as
+/// `mdshared_ui::stale::DAYS`) and the range the setting takes.
+pub const STALE_DAYS_DEFAULT: u32 = 7;
+pub const STALE_DAYS_MIN: u32 = 1;
+pub const STALE_DAYS_MAX: u32 = 365;
 /// A font family name longer than this many bytes is not a name: the default is used.
 pub const FONT_FAMILY_MAX: usize = 256;
 
@@ -69,8 +74,11 @@ pub struct Prefs {
     pub restore_session: bool,
     /// At start, show the pinned tab used last instead of the tab that was showing.
     pub start_on_pinned: bool,
-    /// At start, offer to close the tabs not opened in a week of use. On by default.
+    /// At start, offer to close the tabs not opened in [`stale_days`](Self::stale_days) days of
+    /// use. On by default.
     pub offer_stale: bool,
+    /// Days of use before an unopened tab is offered, 1 to 365 (default 7).
+    pub stale_days: u32,
     /// mdview shows the text of a previewed document as it is typed, not only when it is saved.
     pub live_preview: bool,
     /// The word list opens by itself after three letters (Ctrl+Space opens it either way).
@@ -90,7 +98,11 @@ pub struct Prefs {
     /// The provider of the OpenAI-compatible API ([`crate::ai::PRESETS`]), and the base URL for
     /// a custom one.
     pub ai_preset: String,
-    pub ai_base_url: String,
+    /// The custom providers, in the order they were added, and the one chosen while
+    /// `ai_preset` is `custom`. A file's `ai_base_url` (a single custom provider, before the
+    /// list) is read once into the list; it is not written.
+    pub ai_customs: Vec<CustomProvider>,
+    pub ai_custom: usize,
     /// The Claude Code and Codex programs; empty finds them.
     pub ai_claude_path: String,
     pub ai_codex_path: String,
@@ -125,6 +137,7 @@ impl Default for Prefs {
             restore_session: true,
             start_on_pinned: false,
             offer_stale: true,
+            stale_days: STALE_DAYS_DEFAULT,
             live_preview: true,
             complete_auto: false,
             backdrop: Backdrop::Off,
@@ -134,7 +147,8 @@ impl Default for Prefs {
             ai_models: Default::default(),
             ai_efforts: Default::default(),
             ai_preset: "openai".into(),
-            ai_base_url: String::new(),
+            ai_customs: Vec::new(),
+            ai_custom: 0,
             ai_claude_path: String::new(),
             ai_codex_path: String::new(),
         }
@@ -179,6 +193,7 @@ impl Prefs {
         self.minimap_width = self
             .minimap_width
             .clamp(MINIMAP_WIDTH_MIN, MINIMAP_WIDTH_MAX);
+        self.stale_days = self.stale_days.clamp(STALE_DAYS_MIN, STALE_DAYS_MAX);
         if self.font_family.len() > FONT_FAMILY_MAX || self.font_family.contains(['\n', '\r']) {
             self.font_family.clear();
         }
@@ -186,17 +201,22 @@ impl Prefs {
             .ai_models
             .iter_mut()
             .chain(self.ai_efforts.iter_mut())
-            .chain([
-                &mut self.ai_base_url,
-                &mut self.ai_claude_path,
-                &mut self.ai_codex_path,
-            ])
+            .chain([&mut self.ai_claude_path, &mut self.ai_codex_path])
+            .chain(
+                self.ai_customs
+                    .iter_mut()
+                    .flat_map(|c| [&mut c.name, &mut c.base_url, &mut c.model, &mut c.effort]),
+            )
         {
             if t.len() > AI_TEXT_MAX || t.contains(['\n', '\r']) {
                 t.clear();
             }
         }
-        if !crate::ai::PRESETS.iter().any(|x| x.key == self.ai_preset) {
+        self.ai_customs.truncate(CUSTOMS_MAX);
+        self.ai_custom = self.ai_custom.min(self.ai_customs.len().saturating_sub(1));
+        if !crate::ai::PRESETS.iter().any(|x| x.key == self.ai_preset)
+            || (self.ai_preset == "custom" && self.ai_customs.is_empty())
+        {
             self.ai_preset = "openai".into();
         }
     }
@@ -207,6 +227,10 @@ impl Prefs {
         let mut p = Prefs::default();
         let d = Prefs::default();
         let mut in_section = true;
+        // The single custom provider's URL, of the files before the list.
+        let mut legacy_url = None;
+        // The list as read, by its numbers in the file (gaps are closed below).
+        let mut customs: Vec<Option<CustomProvider>> = Vec::new();
         for line in text.lines() {
             let t = line.trim();
             if t.starts_with('[') && t.ends_with(']') {
@@ -262,6 +286,11 @@ impl Prefs {
                         p.restore_session = flag(value).unwrap_or(d.restore_session)
                     }
                     "offer_stale" => p.offer_stale = flag(value).unwrap_or(d.offer_stale),
+                    "stale_days" => {
+                        p.stale_days =
+                            number(value, STALE_DAYS_MIN as usize, STALE_DAYS_MAX as usize)
+                                .map_or(d.stale_days, |n| n as u32)
+                    }
                     "start_on_pinned" => {
                         p.start_on_pinned = flag(value).unwrap_or(d.start_on_pinned)
                     }
@@ -283,7 +312,8 @@ impl Prefs {
                             d.ai_preset.clone()
                         };
                     }
-                    "ai_base_url" => p.ai_base_url = ai_text(value),
+                    "ai_base_url" => legacy_url = Some(ai_text(value)),
+                    "ai_custom" => p.ai_custom = value.trim().parse().unwrap_or(0),
                     "ai_claude_path" => p.ai_claude_path = ai_text(value),
                     "ai_codex_path" => p.ai_codex_path = ai_text(value),
                     k => {
@@ -292,7 +322,26 @@ impl Prefs {
                                 .and_then(Connection::parse)
                                 .and_then(ai_index)
                         };
-                        if let Some(i) = per("ai_model_") {
+                        // `ai_custom_<n>_<field>`: one field of custom provider n.
+                        if let Some((n, field)) = k
+                            .strip_prefix("ai_custom_")
+                            .and_then(|r| r.split_once('_'))
+                            .and_then(|(n, f)| Some((n.parse::<usize>().ok()?, f)))
+                            .filter(|(n, _)| *n < CUSTOMS_MAX)
+                        {
+                            if customs.len() <= n {
+                                customs.resize(n + 1, None);
+                            }
+                            let c = customs[n].get_or_insert_with(CustomProvider::default);
+                            let v = ai_text(value);
+                            match field {
+                                "name" => c.name = v,
+                                "url" => c.base_url = v,
+                                "model" => c.model = v,
+                                "effort" => c.effort = v,
+                                _ => {}
+                            }
+                        } else if let Some(i) = per("ai_model_") {
                             p.ai_models[i] = ai_text(value);
                         } else if let Some(i) = per("ai_effort_") {
                             p.ai_efforts[i] = ai_text(value);
@@ -300,6 +349,25 @@ impl Prefs {
                     }
                 }
             }
+        }
+        // The list, its gaps closed and the chosen one kept chosen.
+        let chosen = p.ai_custom;
+        p.ai_custom = customs[..chosen.min(customs.len())]
+            .iter()
+            .filter(|c| c.is_some())
+            .count();
+        p.ai_customs = customs.into_iter().flatten().collect();
+        // A file from before the list: its one custom provider, with the model and effort the
+        // connection had (they were shared by every provider then).
+        if p.ai_customs.is_empty() && p.ai_preset == "custom" {
+            let i = ai_index(Connection::OpenAi).unwrap_or(0);
+            p.ai_customs.push(CustomProvider {
+                name: "Custom".into(),
+                base_url: legacy_url.unwrap_or_default(),
+                model: p.ai_models[i].clone(),
+                effort: p.ai_efforts[i].clone(),
+            });
+            p.ai_custom = 0;
         }
         p.clamp();
         p
@@ -329,6 +397,7 @@ impl Prefs {
         w.line("restore_session", b(p.restore_session));
         w.line("start_on_pinned", b(p.start_on_pinned));
         w.line("offer_stale", b(p.offer_stale));
+        w.line("stale_days", &p.stale_days.to_string());
         w.line("live_preview", b(p.live_preview));
         w.line("complete_auto", b(p.complete_auto));
         w.line("backdrop", p.backdrop.key());
@@ -340,29 +409,73 @@ impl Prefs {
             w.line(&format!("ai_effort_{}", c.key()), &escape(&p.ai_efforts[i]));
         }
         w.line("ai_preset", &escape(&p.ai_preset));
-        w.line("ai_base_url", &escape(&p.ai_base_url));
+        w.line("ai_custom", &p.ai_custom.to_string());
+        for (n, c) in p.ai_customs.iter().enumerate() {
+            w.line(&format!("ai_custom_{n}_name"), &escape(&c.name));
+            w.line(&format!("ai_custom_{n}_url"), &escape(&c.base_url));
+            w.line(&format!("ai_custom_{n}_model"), &escape(&c.model));
+            w.line(&format!("ai_custom_{n}_effort"), &escape(&c.effort));
+        }
         w.line("ai_claude_path", &escape(&p.ai_claude_path));
         w.line("ai_codex_path", &escape(&p.ai_codex_path));
         w.finish()
     }
 
-    /// The model chosen for a connection; empty is its default.
+    /// The custom provider chosen, while the provider is a custom one.
+    pub fn ai_custom_chosen(&self) -> Option<&CustomProvider> {
+        (self.ai_preset == "custom")
+            .then(|| self.ai_customs.get(self.ai_custom))
+            .flatten()
+    }
+
+    pub fn ai_custom_chosen_mut(&mut self) -> Option<&mut CustomProvider> {
+        if self.ai_preset == "custom" {
+            self.ai_customs.get_mut(self.ai_custom)
+        } else {
+            None
+        }
+    }
+
+    /// The chosen custom provider's base URL; empty for any other provider.
+    pub fn ai_url(&self) -> &str {
+        self.ai_custom_chosen().map_or("", |c| c.base_url.as_str())
+    }
+
+    /// The model chosen for a connection; empty is its default. A custom provider has its own.
     pub fn ai_model(&self, c: Connection) -> &str {
+        if c == Connection::OpenAi
+            && let Some(x) = self.ai_custom_chosen()
+        {
+            return &x.model;
+        }
         ai_index(c).map_or("", |i| self.ai_models[i].as_str())
     }
 
     pub fn ai_effort(&self, c: Connection) -> &str {
+        if c == Connection::OpenAi
+            && let Some(x) = self.ai_custom_chosen()
+        {
+            return &x.effort;
+        }
         ai_index(c).map_or("", |i| self.ai_efforts[i].as_str())
     }
 
     pub fn set_ai_model(&mut self, c: Connection, m: &str) {
-        if let Some(i) = ai_index(c) {
+        if c == Connection::OpenAi
+            && let Some(x) = self.ai_custom_chosen_mut()
+        {
+            x.model = m.trim().to_string();
+        } else if let Some(i) = ai_index(c) {
             self.ai_models[i] = m.trim().to_string();
         }
     }
 
     pub fn set_ai_effort(&mut self, c: Connection, e: &str) {
-        if let Some(i) = ai_index(c) {
+        if c == Connection::OpenAi
+            && let Some(x) = self.ai_custom_chosen_mut()
+        {
+            x.effort = e.trim().to_string();
+        } else if let Some(i) = ai_index(c) {
             self.ai_efforts[i] = e.trim().to_string();
         }
     }
@@ -494,6 +607,67 @@ mod tests {
         assert!(!Prefs::parse(&both).minimap);
     }
 
+    /// The user: more than one custom provider, each with its own name, URL, model and effort;
+    /// a file from before the list gives its one custom provider to the list.
+    #[test]
+    fn custom_providers_are_a_list_and_the_old_single_one_joins_it() {
+        let old = "[preferences]\nai_connection=openai\nai_preset=custom\n\
+                   ai_base_url=http://localhost:1234/v1\nai_model_openai=qwen\nai_effort_openai=low\n";
+        let p = Prefs::parse(old);
+        assert_eq!(
+            p.ai_customs,
+            [CustomProvider {
+                name: "Custom".into(),
+                base_url: "http://localhost:1234/v1".into(),
+                model: "qwen".into(),
+                effort: "low".into(),
+            }]
+        );
+        assert_eq!(p.ai_url(), "http://localhost:1234/v1");
+        assert_eq!(p.ai_model(Connection::OpenAi), "qwen");
+        // Written back it is the list alone.
+        let t = p.serialize();
+        assert!(t.contains("ai_custom_0_url=http://localhost:1234/v1\n"));
+        assert!(!t.contains("ai_base_url"));
+        assert_eq!(Prefs::parse(&t), p);
+        // An old file with another provider chosen has no custom provider.
+        let p = Prefs::parse("ai_preset=groq\nai_base_url=http://x/v1\n");
+        assert!(p.ai_customs.is_empty() && p.ai_url().is_empty());
+
+        // Two of them: each its own model; the chosen one is the one used.
+        let mut p = Prefs::parse(old);
+        p.ai_customs.push(CustomProvider {
+            name: "Ollama box".into(),
+            base_url: "http://box:11434/v1".into(),
+            ..CustomProvider::default()
+        });
+        p.ai_custom = 1;
+        assert_eq!(p.ai_model(Connection::OpenAi), "");
+        p.set_ai_model(Connection::OpenAi, "llama");
+        assert_eq!(p.ai_customs[1].model, "llama");
+        assert_eq!(p.ai_customs[0].model, "qwen", "the other keeps its own");
+        let back = Prefs::parse(&p.serialize());
+        assert_eq!(back, p);
+        assert_eq!(back.ai_url(), "http://box:11434/v1");
+        // A preset's model is not a custom provider's.
+        p.ai_preset = "groq".into();
+        p.set_ai_model(Connection::OpenAi, "mixtral");
+        assert_eq!(p.ai_model(Connection::OpenAi), "mixtral");
+        assert_eq!(p.ai_customs[1].model, "llama");
+        // Gaps in the numbers close, and the chosen one stays chosen; a chosen custom that is
+        // gone gives way to the default provider.
+        let gaps = Prefs::parse(
+            "ai_preset=custom\nai_custom=5\nai_custom_2_name=A\nai_custom_5_name=B\nai_custom_5_url=u\n",
+        );
+        assert_eq!(gaps.ai_customs.len(), 2);
+        assert_eq!((gaps.ai_custom, gaps.ai_url()), (1, "u"));
+        let gone = Prefs {
+            ai_preset: "custom".into(),
+            ..Prefs::default()
+        };
+        assert_eq!(Prefs::parse(&gone.serialize()).ai_preset, "openai");
+    }
+
     #[test]
     fn round_trip_is_stable() {
         let p = Prefs {
@@ -515,6 +689,7 @@ mod tests {
             restore_session: false,
             start_on_pinned: true,
             offer_stale: false,
+            stale_days: 30,
             live_preview: false,
             complete_auto: true,
             backdrop: Backdrop::Acrylic,
@@ -529,7 +704,20 @@ mod tests {
             ],
             ai_efforts: ["max".into(), "minimal".into(), "".into(), "low".into()],
             ai_preset: "custom".into(),
-            ai_base_url: "http://h:8080/v1?x=%1".into(),
+            ai_customs: vec![
+                CustomProvider {
+                    name: "Work = server".into(),
+                    base_url: "http://h:8080/v1?x=%1".into(),
+                    model: "qwen 3".into(),
+                    effort: "low".into(),
+                },
+                CustomProvider {
+                    name: "LM Studio".into(),
+                    base_url: "http://localhost:1234/v1".into(),
+                    ..CustomProvider::default()
+                },
+            ],
+            ai_custom: 1,
             ai_claude_path: "C:\\Program Files\\claude.exe".into(),
             ai_codex_path: "/opt/codex = 2".into(),
         };
@@ -545,12 +733,17 @@ mod tests {
             tab_width: 99,
             minimap_width: 5,
             font_family: "a\nb".into(),
-            ai_base_url: "a\nb".into(),
+            ai_preset: "custom".into(),
+            ai_customs: vec![CustomProvider {
+                name: "x".into(),
+                base_url: "a\nb".into(),
+                ..CustomProvider::default()
+            }],
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 37);
-        assert_eq!(Prefs::parse(&t).ai_base_url, "");
+        assert_eq!(t.lines().count(), 42);
+        assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,
             "openai"
@@ -568,6 +761,12 @@ mod tests {
         assert_eq!(
             Prefs::parse("[preferences]\nminimap_width=120\n").minimap_width,
             120
+        );
+        // The days before a tab is offered: kept in range, a bad value is the default.
+        let days = |v: &str| Prefs::parse(&format!("[preferences]\nstale_days={v}\n")).stale_days;
+        assert_eq!(
+            (days("14"), days("0"), days("9999"), days("x")),
+            (14, STALE_DAYS_MIN, STALE_DAYS_MAX, STALE_DAYS_DEFAULT)
         );
         // Random fractions survive.
         let mut rng = Rng::new(9);

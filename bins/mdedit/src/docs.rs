@@ -951,6 +951,34 @@ impl Ready {
         crate::view::reveal(self, at, true);
     }
 
+    /// Where the caret is and which line is at the top of the view, for the next time the
+    /// file is read ([`crate::places`]).
+    pub fn place(&self) -> crate::places::Place {
+        let pos = self.buffer.position(self.view.sel.caret);
+        crate::places::Place {
+            line: pos.line,
+            col: pos.col,
+            top: self.view.top.max(0.0) as usize,
+        }
+    }
+
+    /// Puts the caret and the scroll back where the file was left, as far as the text still
+    /// has them (it may have changed since). The view keeps the caret in sight when it is laid
+    /// out, so a top that no longer shows the caret gives way to it.
+    pub fn restore_place(&mut self, place: crate::places::Place) {
+        let last = self.buffer.len_lines().saturating_sub(1);
+        let pos = mdedit_core::buffer::Position {
+            line: place.line.min(last),
+            col: place.col,
+        };
+        let at = self.buffer.snap_to_grapheme(self.buffer.offset(pos));
+        self.view.extra.clear();
+        self.view.sel = Selection::at(at);
+        self.view.top = place.top.min(last) as f64;
+        self.view.top_row = 0;
+        self.view.row_rest = 0.0;
+    }
+
     /// Selects `range` as far as the text has it: a range found in the file as it was read
     /// some time ago, which the text may no longer reach.
     pub fn select_clamped(&mut self, range: Range<usize>) {
@@ -1407,6 +1435,8 @@ pub struct Docs {
     pub tabs: Vec<Doc>,
     /// The bookmarks closed files left, and the session's.
     pub marks: crate::marks::Marks,
+    /// Where the caret and the scroll were in files closed, and the session's.
+    pub places: crate::places::Places,
     /// Session backups that could not be read at the start (another program had them open):
     /// listed in the session and kept on disk, whatever the exit, for the next start (audit 1
     /// round 5, #3).
@@ -1472,6 +1502,7 @@ impl Docs {
         Docs {
             tabs: Vec::new(),
             marks: Default::default(),
+            places: Default::default(),
             unread_backups: Vec::new(),
             active: None,
             last_pinned: None,
@@ -1971,6 +2002,7 @@ impl Docs {
         // A file read and closed leaves its bookmarks for the next time it is opened.
         if let (Some(path), Some(r)) = (&doc.path, doc.ready()) {
             self.marks.put(path, &r.bookmarks);
+            self.places.put(path, r.place());
         }
         doc.cancel_load();
         if let Some(r) = doc.ready_mut() {
@@ -2087,7 +2119,7 @@ impl Docs {
             .collect()
     }
 
-    /// The tabs to offer for closing: not opened in a week of use, and neither pinned, showing,
+    /// The tabs to offer for closing: not opened in the last `prefs.stale_days` days of use, and neither pinned, showing,
     /// in the other pane, nor holding changes or text without a file.
     pub fn offer_stale_tabs(&mut self) {
         let active = self.active.map(|i| self.tabs[i].id);
@@ -2098,7 +2130,7 @@ impl Docs {
                     && !d.modified()
                     && Some(d.id) != active
                     && Some(d.id) != self.other
-                    && stale::is_stale(d.seen, self.day)
+                    && self.day.saturating_sub(d.seen) >= self.prefs.stale_days
             })
             .map(|d| d.id)
             .collect();
@@ -2310,6 +2342,13 @@ impl Docs {
                 // each of the document's views.
                 let mut query = None;
                 let waits = doc.restore.is_some();
+                // Read for the first time in this window: the caret goes back where the file
+                // was left (below, once any unsaved text from the last run is in).
+                let place = doc
+                    .ready()
+                    .is_none()
+                    .then(|| doc.path.as_deref().and_then(|p| self.places.get(p)))
+                    .flatten();
                 if let Some(old) = doc.ready_mut() {
                     r.view = ViewState::carried(&mut old.view, &old.buffer, &r.buffer);
                     r.twin = old
@@ -2385,6 +2424,9 @@ impl Docs {
                 {
                     s.open(doc.id, doc.revision, r.buffer.snapshot(), lang, dark);
                     r.colourable = true;
+                }
+                if let Some(place) = place {
+                    r.restore_place(place);
                 }
                 if let Some(range) = doc.pending_select.take() {
                     r.select_clamped(range);

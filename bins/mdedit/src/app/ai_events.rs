@@ -173,10 +173,11 @@ impl App {
     }
 
     /// The connection, model and effort, as the panels name them.
-    fn ai_via(&self) -> String {
+    pub(super) fn ai_via(&self) -> String {
         let p = &self.docs.prefs;
         let c = p.ai_connection;
         let mut s = match c {
+            Connection::OpenAi if let Some(x) = p.ai_custom_chosen() => x.label(p.ai_custom),
             Connection::OpenAi => {
                 let preset = core_ai::preset_by_key(&p.ai_preset);
                 preset
@@ -263,6 +264,31 @@ impl App {
                 instruction: p.instruction,
             });
         }
+    }
+
+    /// A saved prompt's Edit (the AI menu's, or a row's in the instruction panel): the panel
+    /// opens if it is not open, with the prompt in its box to be changed before Rewrite.
+    pub(super) fn ai_edit_saved(&mut self, k: usize) {
+        if self.ai.instruction().is_none() {
+            self.ai_open_instruction();
+        }
+        self.ai_put_prompt(k);
+    }
+
+    /// Puts saved prompt `k` in the instruction panel's box, the caret at its end, and runs
+    /// nothing: Rewrite runs it (under the prompt's name while the text is unchanged).
+    fn ai_put_prompt(&mut self, k: usize) {
+        let Some(p) = self.docs.ai_prompts.get(k).cloned() else {
+            return;
+        };
+        let Some(i) = self.ai.instruction() else {
+            return;
+        };
+        i.selected = Some(k);
+        i.field.set_text(p.instruction.trim());
+        self.caret_reset();
+        self.ai.tick += 1;
+        self.redraw();
     }
 
     fn ai_start(&mut self, spec: Spec) {
@@ -998,6 +1024,7 @@ impl App {
                 }
                 self.ai_submit();
             }
+            AiHit::EditPrompt(k) => self.ai_put_prompt(k),
             AiHit::Cancel => self.ai_close_panel(),
             AiHit::Rewrite => self.ai_submit(),
             AiHit::SavePrompt => self.ai_save_prompt(),
@@ -1072,7 +1099,7 @@ impl App {
         if let Some(slot) = core_ai::key_slot(
             self.docs.prefs.ai_connection,
             &self.docs.prefs.ai_preset,
-            &self.docs.prefs.ai_base_url,
+            self.docs.prefs.ai_url(),
         ) {
             self.ai.keys.insert(slot, true);
         }
@@ -1176,7 +1203,7 @@ impl App {
         let p = &self.docs.prefs;
         crate::ai::models_key(
             p.ai_connection,
-            &core_ai::base_url(&p.ai_preset, &p.ai_base_url),
+            &core_ai::base_url(&p.ai_preset, p.ai_url()),
         )
     }
 }

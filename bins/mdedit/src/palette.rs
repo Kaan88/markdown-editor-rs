@@ -379,7 +379,7 @@ fn icon(id: C) -> &'static str {
         C::Settings => glyph::SLIDERS,
         C::CompleteWord => glyph::EDIT,
         C::OpenSnippets => glyph::DOC,
-        C::AiFormat | C::AiFix | C::AiRewrite => glyph::EDIT,
+        C::AiFormat | C::AiFix | C::AiRewrite => crate::chrome::SPARKLE,
         C::AiEditPrompts => glyph::DOC,
         C::AiSettings => glyph::SLIDERS,
         C::AiCancel => glyph::STOP,
@@ -529,7 +529,7 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
         let label = format!("AI: {}", p.name);
         push(&mut entries, &mut targets, Target::AiPrompt(k), |id| {
             Entry::new(id, label.as_str())
-                .icon(glyph::EDIT)
+                .icon(glyph::PLAY)
                 .group(G_PLAIN)
                 .enabled(ai_on)
         });

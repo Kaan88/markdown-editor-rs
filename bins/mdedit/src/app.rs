@@ -1376,7 +1376,12 @@ impl App {
                         }
                         if !self.docs.stale.is_empty() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
-                            chrome::draw_stale_bar(&mut c, under, self.docs.stale.len());
+                            chrome::draw_stale_bar(
+                                &mut c,
+                                under,
+                                self.docs.stale.len(),
+                                self.docs.prefs.stale_days,
+                            );
                             y = under.bottom();
                         }
                         if let Some(bar) = &self.ai.bar {
@@ -1569,6 +1574,9 @@ impl App {
                     popup.menu.draw_in(c.p, &pal, room);
                     if let Some(s) = popup.sub.as_mut() {
                         s.menu.draw_in(c.p, &pal, room);
+                        if s.kind == PopupKind::Ai {
+                            crate::ai_ui::draw_menu_modify(c.p, &pal, &s.menu, self.ui.mouse);
+                        }
                     }
                 }
                 for b in &bubbles {
@@ -1939,7 +1947,11 @@ impl App {
             ),
             self.ui.panes.files,
             (self.ui.panes.files_w.round() as u32, self.session.results_h),
-            (&self.docs.folder, self.docs.marks.version),
+            (
+                &self.docs.folder,
+                self.docs.marks.version,
+                self.docs.places.version,
+            ),
             &self.session.geometry,
             (
                 self.docs.check_updates,
@@ -2063,6 +2075,12 @@ impl App {
                 .tabs
                 .iter()
                 .filter_map(|d| Some((d.path.as_deref()?, d.ready()?.bookmarks.as_slice()))),
+        );
+        s.places = self.docs.places.snapshot(
+            self.docs
+                .tabs
+                .iter()
+                .filter_map(|d| Some((d.path.as_deref()?, d.ready()?.place()))),
         );
         s.folder = self.docs.folder.clone();
         if let Err(e) = s.save(&path) {
@@ -2454,9 +2472,7 @@ impl ApplicationHandler<Wake> for App {
                 // move it.
                 _ if state == ElementState::Pressed
                     && self.preview.is_some()
-                    && !self
-                        .page_area()
-                        .is_some_and(|r| r.contains(self.ui.mouse.0, self.ui.mouse.1))
+                    && !self.on_page(self.ui.mouse.0, self.ui.mouse.1)
                     && {
                         self.editor_leads();
                         false
@@ -2992,7 +3008,12 @@ fn shot(mut app: App, path: &Path) -> i32 {
             );
             app.right_press();
         }
-        Some(m @ (ShotMenu::TextLines | ShotMenu::TextConvert | ShotMenu::TextMarkdown)) => {
+        Some(
+            m @ (ShotMenu::TextLines
+            | ShotMenu::TextConvert
+            | ShotMenu::TextMarkdown
+            | ShotMenu::TextAi),
+        ) => {
             app.ui.mouse = (
                 text.x + text.w * app.args.menu_at.unwrap_or(0.3),
                 text.y + 160.0,
@@ -3002,6 +3023,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             let sub = match m {
                 ShotMenu::TextLines => PopupKind::Lines,
                 ShotMenu::TextConvert => PopupKind::Convert,
+                ShotMenu::TextAi => PopupKind::Ai,
                 _ => PopupKind::Markdown,
             };
             if let Some(p) = app.ui.popup.as_mut() {
@@ -3228,6 +3250,7 @@ pub fn run() -> i32 {
         .map(canonical_or_absolute)
         .or_else(|| session.folder.clone());
     docs.marks = crate::marks::Marks::from_session(&session.marks);
+    docs.places = crate::places::Places::from_session(&session.places);
     let mut active = None;
     let restore = session.prefs.restore_session;
     for (i, path) in session.tabs.iter().enumerate().filter(|_| restore) {

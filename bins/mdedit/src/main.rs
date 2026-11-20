@@ -23,6 +23,7 @@ mod outline;
 mod overlays;
 mod palette;
 mod panes;
+mod places;
 mod platform;
 mod preview_pane;
 mod recall;

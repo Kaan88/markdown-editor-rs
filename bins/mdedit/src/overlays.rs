@@ -434,7 +434,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
     if docs.prefs.ai_connection != mdedit_core::ai::Connection::Off {
         items.push(
             Item::new(Act::AiMenu, "A&I")
-                .icon(glyph::EDIT)
+                .icon(crate::chrome::SPARKLE)
                 .hint("›")
                 .enabled(ready),
         );
@@ -556,17 +556,29 @@ pub fn table_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     Menu::new(items, x, y, align_right).access_keys(true)
 }
 
-/// The text menu's AI submenu: the built-in requests, then the saved prompts.
+/// A saved AI prompt's hint in the AI menu: room kept at the row's right, under the Modify
+/// button drawn there (`ai_ui::draw_menu_modify`), so the name never runs beneath it.
+pub const MENU_MODIFY_ROOM: &str = "              ";
+
+/// The text menu's AI submenu: the built-in requests (the AI mark), then the saved prompts (play:
+/// the row runs one; its Modify button, at the right, puts it in the instruction panel to be
+/// changed).
 pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let idle = docs.active_ready().is_some() && docs.ai_status.is_none();
     let mut items = vec![
-        cmd(C::AiFormat, "&Format as Markdown", glyph::EDIT).enabled(idle),
-        cmd(C::AiFix, "Fi&x Markdown", glyph::EDIT).enabled(idle),
-        cmd(C::AiRewrite, "&Rewrite with instruction…", glyph::EDIT).enabled(idle),
+        cmd(C::AiFormat, "&Format as Markdown", crate::chrome::SPARKLE).enabled(idle),
+        cmd(C::AiFix, "Fi&x Markdown", crate::chrome::SPARKLE).enabled(idle),
+        cmd(
+            C::AiRewrite,
+            "&Rewrite with instruction…",
+            crate::chrome::SPARKLE,
+        )
+        .enabled(idle),
     ];
     for (k, p) in docs.ai_prompts.iter().enumerate() {
         let mut item = Item::new(Act::AiPrompt(k), p.name.replace('&', "&&"))
-            .icon(glyph::EDIT)
+            .icon(glyph::PLAY)
+            .hint(MENU_MODIFY_ROOM)
             .enabled(idle);
         if k == 0 {
             item = item.sep();

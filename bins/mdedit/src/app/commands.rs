@@ -443,6 +443,7 @@ impl App {
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
             Act::AiPrompt(k) => self.ai_saved(k),
+            Act::AiEditPrompt(k) => self.ai_edit_saved(k),
             Act::LinesMenu
             | Act::ConvertMenu
             | Act::MarkdownMenu

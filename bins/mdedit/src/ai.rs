@@ -375,6 +375,8 @@ pub enum Hit {
     Card,
     Field,
     Prompt(usize),
+    /// A saved prompt's pencil: into the box to be changed, not run.
+    EditPrompt(usize),
     Cancel,
     Rewrite,
     /// The instruction panel: save what is typed as a saved prompt.
@@ -523,8 +525,8 @@ pub fn conn_json(conn: Connection, prefs: &mdedit_core::prefs::Prefs) -> Value {
         Connection::ClaudeApi => json!({"kind": "claude-api"}),
         Connection::OpenAi | Connection::Off => json!({
             "kind": "openai",
-            "base_url": mdedit_core::ai::base_url(&prefs.ai_preset, &prefs.ai_base_url),
-            "slot": mdedit_core::ai::key_slot(Connection::OpenAi, &prefs.ai_preset, &prefs.ai_base_url).unwrap_or_default(),
+            "base_url": mdedit_core::ai::base_url(&prefs.ai_preset, prefs.ai_url()),
+            "slot": mdedit_core::ai::key_slot(Connection::OpenAi, &prefs.ai_preset, prefs.ai_url()).unwrap_or_default(),
         }),
     }
 }

@@ -134,7 +134,7 @@ impl App {
         let (mx, my) = self.ui.mouse;
         if self.ui.drag.is_none()
             && self.ui.popup.is_none()
-            && self.page_area().is_some_and(|r| r.contains(mx, my))
+            && self.on_page(mx, my)
             && let Some(p) = self.preview.as_ref()
         {
             let cursor = page_cursor(p.pointer);
@@ -182,6 +182,12 @@ impl App {
         self.areas.preview.filter(|_| shown)
     }
 
+    /// Whether the pointer at `x, y` is over the page and nothing is drawn over it there: a
+    /// dialog (About, a question) is over the whole window, and its buttons may lie on the page.
+    pub(super) fn on_page(&self, x: f32, y: f32) -> bool {
+        self.ui.dialog.is_none() && self.page_area().is_some_and(|r| r.contains(x, y))
+    }
+
     /// Window point `x, y` as a point on the page: device pixels from its top left, kept
     /// inside it (the page starts one pixel in, after the line that parts it from the text).
     fn page_point(&self, r: Rect, x: f32, y: f32) -> (f32, f32) {
@@ -211,7 +217,7 @@ impl App {
     /// The main button went down at `x, y`: on the page, a selection starts there and the page
     /// takes the keyboard. False when the point is not on the page.
     pub(super) fn preview_press(&mut self, x: f32, y: f32, clicks: u32) -> bool {
-        let Some(r) = self.page_area().filter(|r| r.contains(x, y)) else {
+        let Some(r) = self.page_area().filter(|_| self.on_page(x, y)) else {
             return false;
         };
         let (px, py) = self.page_point(r, x, y);
@@ -275,7 +281,7 @@ impl App {
     /// A right-click at `x, y`: on the page, it takes the keyboard (keeping its selection) and
     /// its menu opens. False when the point is not on the page.
     pub(super) fn preview_menu(&mut self, x: f32, y: f32) -> bool {
-        if !self.page_area().is_some_and(|r| r.contains(x, y)) {
+        if !self.on_page(x, y) {
             return false;
         }
         let Some(pane) = self.preview.as_mut() else {
@@ -470,6 +476,38 @@ mod tests {
             out.extend_from_slice(&a.screen.pixels[(y * sw + x0) * 4..(y * sw + x0 + w) * 4]);
         }
         out
+    }
+
+    /// The owner: About's OK could not be clicked with the pane on. The button lies over the
+    /// page, and the page took the press before the dialog saw it.
+    #[test]
+    fn a_dialog_over_the_page_takes_the_click() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("dialog-over-page");
+        let md = dir.join("a.md");
+        std::fs::write(&md, "# Title\n\nSome text.\n").unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.command(C::PreviewPane);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        let page = a.page_area().expect("a page in the pane");
+        a.command(C::About);
+        a.compose();
+        let ok = a.hit_rect(Hit::DlgButton(0)).expect("About's OK");
+        assert!(page.contains(ok.cx(), ok.cy()), "OK lies on the page here");
+        a.pointer_moved(ok.cx(), ok.cy());
+        assert!(!a.on_page(ok.cx(), ok.cy()));
+        a.left_press();
+        assert!(a.ui.drag.is_none(), "the page took no press");
+        a.left_release();
+        assert!(a.ui.dialog.is_none(), "OK closed the dialog");
+        // With the dialog gone the page takes the pointer again.
+        assert!(a.on_page(ok.cx(), ok.cy()));
     }
 
     #[test]

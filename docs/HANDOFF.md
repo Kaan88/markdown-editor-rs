@@ -5,6 +5,75 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Four owner requests (2026-11-20, branch `f/four-fixes` off `main`, not pushed)
+
+- **A saved prompt's pencil** puts it in the instruction box to be changed and runs nothing.
+  The word is "Modify" (the owner's choice: "edit" reads as what every prompt does to the
+  text). It is a framed button (pencil and word, `ai_ui::draw_modify`) in both places, so it
+  reads as a control of its own and not as the row: in the Rewrite panel at each saved
+  prompt's right (`ai::Hit::EditPrompt`, `ai_ui::pencil_rect`), and in the AI submenu drawn
+  over each saved prompt's row after the shared menu (`ai_ui::draw_menu_modify`,
+  `menu_modify_rect`; the row's hint is blank room, `overlays::MENU_MODIFY_ROOM`, so the name
+  never runs under it). It takes the accent when the pointer is on it (the menu repaints when
+  the pointer crosses its edge, `menu_modify_at`). The rest of the row still runs the prompt.
+  A click on the menu's button is `Act::AiEditPrompt`, which opens the panel if needed
+  (`App::ai_edit_saved`). The pencil now means edit only: the AI item and the
+  built-in requests carry the AI mark (`chrome::SPARKLE`, a four-pointed star drawn here as
+  the shared icons are), saved prompts carry play (`glyph::PLAY`, as saved macros do), in the
+  menus and the palette. Rewrite then runs the text under the prompt's name while it
+  is unchanged, else as "Rewrite".
+  `--menu text-ai` shoots the text menu with the AI submenu open. Test `a_saved_prompts_pencil_puts_it_in_the_box_to_be_changed`.
+- **About's OK with the preview pane on.** `left_press` tried the page before the dialog, and
+  the OK button lies over the page. `App::on_page` is false while a dialog is open; the press,
+  the hover cursor, the cursor answer and the right-click use it. Test
+  `a_dialog_over_the_page_takes_the_click` (fails with the fix reverted).
+- **The days before a tab is offered** are a setting: `Prefs::stale_days` (`stale_days=`, 1 to
+  365, default 7), Settings > Session, "Offer them after … days" under "Offer to close tabs
+  left unopened". `Docs::offer_stale_tabs` and the bar's text (`chrome::stale_label`) use it;
+  the shared `stale::DAYS`/`is_stale`/`label` are no longer used here (mdview keeps its week).
+  Test `the_days_before_a_tab_is_offered_are_a_setting`.
+- **The caret and scroll per file** (`places.rs`, the shape of `marks.rs`): the caret's line and
+  column and the top line, for the 100 files used last, `place=line,col,top;path` in the
+  session. A file closed leaves its place; the session write takes the open tabs' places; a
+  file read for the first time in a window gets its place back (before `pending_select` and
+  `pending_goto`, so `--goto` and the viewer's hand-off still win), clamped to the text. Moving
+  the caret does not change the session's signature: places are written at exit, when a file
+  closes, or with any other write. Test
+  `the_caret_and_scroll_come_back_when_a_file_is_opened_again_and_across_runs`.
+
+Run on Windows: `cargo fmt`, `cargo clippy --all-targets` (no warnings), `cargo test -p mdedit`
+and `-p mdedit-core`. Budgets not measured. The owner looked at the shots and test builds and approved them.
+
+### Custom AI providers: no key needed, and more than one (same branch)
+
+The owner: "have it be possible to use custom ai's without api key. and have more than one
+custom provider possible to add."
+- `mdedit_core::ai::CustomProvider` (name, base URL, model, effort); `Prefs::ai_customs` (at
+  most `CUSTOMS_MAX`, 32) and `Prefs::ai_custom`, the one chosen while `ai_preset` is `custom`.
+  `Prefs::ai_url`, `ai_model`, `ai_effort` and their setters read and write the chosen custom
+  provider's own; presets keep sharing the connection's model as before.
+- File: `ai_custom=<n>` and `ai_custom_<n>_name|url|model|effort`. `ai_base_url` is no
+  longer written (the owner: no support for older builds). It is still read once: a file with
+  only `ai_base_url` (before the list) becomes a list of one, named "Custom", with the connection's
+  model and effort. Gaps in the numbers close; a `custom` preset with no provider becomes OpenAI.
+- Settings › AI: Provider lists the presets, the custom providers by name, then "Add a custom
+  provider…" (adds "Custom provider N" and chooses it). A custom provider shows Name, Base URL,
+  an optional API key (placeholder and help say so) and "Remove this provider". The rewrite
+  panel's line names the custom provider.
+- No key: the engine already sent `authorization` only with a stored key. Now Settings asks for
+  a custom provider's models once the store has answered, stored or not (it waited for a stored
+  key); a local preset (Ollama, LM Studio) has no key slot (`key_slot` gives `None`) and its
+  runs send an empty slot, for which `mdedit-ai`'s `keys::get` answers none without asking the
+  store (so they work where no credential store runs). A custom provider's key stays per URL,
+  so a key stored for the old single custom URL still applies; removing a provider leaves its
+  key in the store, as changing a URL did.
+- Tests: `custom_providers_are_a_list_and_the_old_single_one_joins_it` (core),
+  `custom_providers_are_added_chosen_and_removed_and_need_no_key`,
+  `an_empty_slot_has_no_key_and_asks_no_store`, and `presets_and_slots`.
+- Checked on Windows: the release `mdedit-ai.exe` against a stand-in server on 127.0.0.1 listed
+  the models and ran a rewrite for a custom provider with no stored key; neither request carried
+  an `authorization` header. Not tried against a real LM Studio or Ollama.
+
 ## Release 1.1.2 (2026-11-20, released)
 
 mdedit 1.1.2 is released: tag `v1.1.2` at `f8dce9b`, release workflow run 44651603606 green,
@@ -649,7 +718,7 @@ decision of the session, the owner may overrule: syntax-aware folding.
 ## After 0.6.0: gaps closed (2026-11-15, branch merge/next, not released)
 
 **State: the branch `merge/next` holds everything below, on top of 0.6.0 (`main`). It is not
-released and not in `main`. The owner has not looked at any of it.** Nothing here was seen or
+released and not in `main`. The owner looked at the shots and test builds and approved them.** Nothing here was seen or
 used by a person: every "Not verified" line below stands. Four workers each built a set of gaps on
 their own branch (`f/multicaret-more`, `f/panels-more`, `f/edit-more`, `f/adopt-shared`); the
 branches were merged into `merge/next` (the access letters of the new compare and table items were

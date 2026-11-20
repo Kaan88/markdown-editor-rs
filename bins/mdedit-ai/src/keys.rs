@@ -50,8 +50,12 @@ fn override_key() -> Option<String> {
     std::env::var("MDEDIT_AI_KEY").ok()
 }
 
-/// The stored key, or `None` when there is none.
+/// The stored key, or `None` when there is none. An empty slot (a provider that takes no key)
+/// has none, and the credential store is not asked, so a local server works where no store runs.
 pub fn get(slot: &str) -> Result<Option<String>, Fail> {
+    if slot.is_empty() {
+        return Ok(None);
+    }
     if let Some(k) = override_key() {
         return usable(k);
     }
@@ -105,6 +109,13 @@ pub fn clear(slot: &str) -> Result<(), Fail> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A provider that takes no key (an empty slot) has none, and the store is not asked: a
+    /// local server works where no credential store runs.
+    #[test]
+    fn an_empty_slot_has_no_key_and_asks_no_store() {
+        assert!(matches!(get(""), Ok(None)));
+    }
 
     /// Audit 1, round 2: paths that differ only in case get different credentials on Windows,
     /// and every name is short and in lower case.

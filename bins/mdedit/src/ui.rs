@@ -355,6 +355,8 @@ pub enum Act {
     AiMenu,
     /// Rewrite with saved AI prompt `n`.
     AiPrompt(usize),
+    /// Saved AI prompt `n` into the instruction panel, to be changed (the item's Edit).
+    AiEditPrompt(usize),
     /// Play saved macro `n` of the Macro menu.
     PlaySaved(usize),
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").

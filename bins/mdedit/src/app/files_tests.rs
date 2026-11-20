@@ -1450,6 +1450,78 @@ fn bookmarks_come_back_when_a_closed_file_is_opened_again_and_across_runs() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The owner: the caret (and the scroll) come back where a file was left, when it is opened
+/// again and when mdedit starts again.
+#[test]
+fn the_caret_and_scroll_come_back_when_a_file_is_opened_again_and_across_runs() {
+    use crate::places::{Place, Places};
+    let dir = scratch("places-back");
+    let file = dir.join("a.txt");
+    let text: String = (0..60).map(|i| format!("line {i}\n")).collect();
+    std::fs::write(&file, &text).unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &file);
+    let place = |a: &App, k: usize| a.docs.tabs[k].ready().unwrap().place();
+    {
+        let r = a.docs.active_ready_mut().unwrap();
+        let at = r.buffer.line_range(40).start + 3;
+        r.view.sel = mdedit_core::Selection::at(at);
+        r.view.top = 30.0;
+    }
+    let left = Place {
+        line: 40,
+        col: 3,
+        top: 30,
+    };
+    assert_eq!(place(&a, i), left);
+    let (sig, version) = (a.session_sig(), a.docs.places.version);
+    // Moving about is not a change to write at once; closing the file is.
+    assert_eq!(a.session_sig(), sig);
+    a.docs.close(i, None);
+    assert!(a.docs.places.version > version);
+    assert_ne!(a.session_sig(), sig);
+    // Opened again: the caret and the top are back.
+    let j = open_now(&mut a, &file);
+    assert_eq!(place(&a, j), left);
+    let r = a.docs.tabs[j].ready().unwrap();
+    assert_eq!(r.view.sel.caret, r.buffer.line_range(40).start + 3);
+    // Through the session file and into another run.
+    let session = Session {
+        places: a.docs.places.snapshot(
+            a.docs
+                .tabs
+                .iter()
+                .filter_map(|d| Some((d.path.as_deref()?, d.ready()?.place()))),
+        ),
+        ..Session::default()
+    };
+    let saved = session.serialize();
+    assert!(saved.contains("place=40,3,30;"), "{saved}");
+    let back = Session::parse(&saved);
+    assert_eq!(back.places, session.places);
+    let mut b = app();
+    b.docs.places = Places::from_session(&back.places);
+    let k = open_now(&mut b, &file);
+    assert_eq!(place(&b, k), left);
+    // The file got shorter meanwhile: the caret goes to what is left of it.
+    b.docs.close(k, None);
+    std::fs::write(&file, "one\ntwo\nthree").unwrap();
+    let k = open_now(&mut b, &file);
+    let r = b.docs.tabs[k].ready().unwrap();
+    assert_eq!(r.view.sel.caret, r.buffer.line_range(2).start + 3);
+    assert_eq!(r.view.top, 2.0);
+    // A file closed at its start forgets the old place.
+    b.docs.tabs[k]
+        .ready_mut()
+        .unwrap()
+        .restore_place(Place::default());
+    b.docs.close(k, None);
+    assert!(b.docs.places.get(&file).is_none());
+    let k = open_now(&mut b, &file);
+    assert_eq!(place(&b, k), Place::default());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn text_sent_as_unicode_packets_is_typed_into_the_text_and_the_palette() {
     use super::input::event_key;

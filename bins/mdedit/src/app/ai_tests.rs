@@ -340,7 +340,10 @@ fn a_key_draft_does_not_follow_a_new_url() {
     let (mut a, dir) = ai_app("t\n");
     a.docs.prefs.ai_connection = Connection::OpenAi;
     a.docs.prefs.ai_preset = "custom".into();
-    a.docs.prefs.ai_base_url = "https://a.example/v1".into();
+    a.docs.prefs.ai_customs = vec![mdedit_core::ai::CustomProvider {
+        base_url: "https://a.example/v1".into(),
+        ..Default::default()
+    }];
     a.command(C::AiSettings);
     a.ai_setting(AI_KEY, Value::Text("sk-typed-for-a".into()));
     assert_eq!(a.ai.key_draft, "sk-typed-for-a");
@@ -358,6 +361,100 @@ fn a_key_draft_does_not_follow_a_new_url() {
     assert!(a.ai.fetching.is_none());
     a.timers(Instant::now() + Duration::from_secs(1));
     wait(&mut a, |a| a.ai.keys.contains_key(slot_b));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The user: custom providers need no API key, and there can be more than one. Each is added
+/// from the Provider list, has its own name, URL and model, is chosen like any other provider
+/// and can be removed; with no key stored its models are still asked for, and the run goes to
+/// its URL with no key.
+#[test]
+fn custom_providers_are_added_chosen_and_removed_and_need_no_key() {
+    use super::modal::{AI_BASE_URL, AI_CUSTOM_NAME, AI_CUSTOM_REMOVE, AI_MODEL_NAME, AI_PROVIDER};
+    use mdshared_ui::settings::{Row, Value};
+    let (mut a, dir) = ai_app("t\n");
+    a.docs.prefs.ai_connection = Connection::OpenAi;
+    a.command(C::AiSettings);
+    let presets = mdedit_core::ai::PRESETS
+        .iter()
+        .filter(|x| !x.base_url.is_empty())
+        .count();
+    let rows_of = |a: &mut App| -> Vec<String> {
+        a.settings_rows()
+            .iter()
+            .filter_map(|r| match r {
+                Row::Choice { options, id, .. } if *id == AI_PROVIDER => {
+                    Some(format!("Provider: {}", options.join("|")))
+                }
+                Row::Text { label, .. } | Row::Action { label, .. } => Some(label.to_string()),
+                _ => None,
+            })
+            .collect()
+    };
+    let provider = |rows: &[String]| {
+        rows.iter()
+            .find(|r| r.starts_with("Provider: "))
+            .cloned()
+            .unwrap()
+    };
+    assert!(provider(&rows_of(&mut a)).ends_with("|Add a custom provider…"));
+    // Add two.
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets));
+    a.ai_setting(AI_CUSTOM_NAME, Value::Text("LM Studio".into()));
+    a.ai_setting(AI_BASE_URL, Value::Text("http://localhost:1234/v1".into()));
+    a.ai_setting(AI_MODEL_NAME, Value::Text("qwen".into()));
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets + 1));
+    a.ai_setting(AI_BASE_URL, Value::Text("http://box:11434/v1".into()));
+    let p = &a.docs.prefs;
+    assert_eq!(p.ai_customs.len(), 2);
+    assert_eq!((p.ai_custom, p.ai_url()), (1, "http://box:11434/v1"));
+    assert_eq!(p.ai_customs[1].name, "Custom provider 2");
+    let rows = rows_of(&mut a);
+    assert!(provider(&rows).ends_with("|LM Studio|Custom provider 2|Add a custom provider…"));
+    assert!(rows.iter().any(|r| r == "Remove this provider"));
+    // Choose the first again: its own URL and model.
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets));
+    assert_eq!(a.docs.prefs.ai_url(), "http://localhost:1234/v1");
+    assert_eq!(a.docs.prefs.ai_model(Connection::OpenAi), "qwen");
+    assert!(a.ai_via().starts_with("LM Studio"));
+    // No key stored: the key row says it is optional and the models are still asked for.
+    a.timers(Instant::now() + Duration::from_secs(1));
+    let slot = "openai:custom:http://localhost:1234/v1";
+    a.ai.keys.insert(slot.into(), false);
+    a.ai.models.clear();
+    a.ai.fetching = None;
+    a.ai_settings_needs();
+    assert!(
+        a.ai.fetching.is_some(),
+        "the models of a server that takes no key"
+    );
+    let help = a
+        .settings_rows()
+        .iter()
+        .find_map(|r| match r {
+            Row::Text { label, help, .. } if label.as_str() == "API key" => Some(help.to_string()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(help.starts_with("Optional."), "{help}");
+    // What a run is sent: this URL, and its slot (the engine sends a key only if one is stored).
+    let conn = crate::ai::conn_json(Connection::OpenAi, &a.docs.prefs);
+    assert_eq!(conn["base_url"], "http://localhost:1234/v1");
+    assert_eq!(conn["slot"], slot);
+    // A local preset is never looked up in the store.
+    a.docs.prefs.ai_preset = "ollama".into();
+    assert_eq!(
+        crate::ai::conn_json(Connection::OpenAi, &a.docs.prefs)["slot"],
+        ""
+    );
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets + 1));
+    // Remove the chosen one, then the last: the provider falls back to the first preset.
+    a.ai_settings_action(AI_CUSTOM_REMOVE);
+    assert_eq!(a.docs.prefs.ai_customs.len(), 1);
+    assert_eq!(a.docs.prefs.ai_url(), "http://localhost:1234/v1");
+    a.ai_settings_action(AI_CUSTOM_REMOVE);
+    assert!(a.docs.prefs.ai_customs.is_empty());
+    assert_eq!(a.docs.prefs.ai_preset, "openai");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -444,6 +541,100 @@ fn the_instruction_is_saved_as_a_prompt() {
     let n = a.docs.ai_prompts.len();
     a.ai_save_prompt();
     assert_eq!(a.docs.ai_prompts.len(), n);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The owner: a saved prompt's Edit puts it in the instruction box to be changed, and runs
+/// nothing: the button in the instruction panel's list, and the word at the right of its row in
+/// the AI menu (where the rest of the row, its play icon included, runs it).
+#[test]
+fn a_saved_prompts_pencil_puts_it_in_the_box_to_be_changed() {
+    use crate::ui::{Act, PopupKind};
+    let (mut a, dir) = ai_app("text\n");
+    a.session_path = Some(dir.join("session.ini"));
+    std::fs::write(
+        dir.join(mdedit_core::ai::PROMPTS_FILE),
+        "# Prompts\n\n## Tables\n\nmake the prices a table\n\n## Short\n\nshorten it\n",
+    )
+    .unwrap();
+    let instruction = |a: &mut App| {
+        a.ai.instruction()
+            .map(|i| (i.field.text().to_string(), i.selected))
+    };
+    // The panel's pencil.
+    a.command(C::AiRewrite);
+    a.compose();
+    let pencil =
+        a.ai.hits
+            .iter()
+            .find(|(h, _)| *h == AiHit::EditPrompt(1))
+            .map(|(_, r)| *r)
+            .expect("a pencil on the second prompt");
+    a.pointer_moved(pencil.cx(), pencil.cy());
+    a.left_press();
+    a.left_release();
+    assert_eq!(
+        instruction(&mut a),
+        Some(("shorten it".to_string(), Some(1)))
+    );
+    assert!(!a.ai.running(), "nothing sent");
+    // A click on the row beside the pencil still runs the prompt.
+    let row =
+        a.ai.hits
+            .iter()
+            .find(|(h, _)| *h == AiHit::Prompt(0))
+            .map(|(_, r)| *r)
+            .unwrap();
+    a.pointer_moved(row.x + 20.0, row.cy());
+    a.left_press();
+    a.left_release();
+    assert!(a.ai.running() && !a.ai_panel_open());
+    wait(&mut a, |a| !a.ai.running());
+
+    // The AI menu: the word Edit at the row's right opens the panel with the prompt in it.
+    a.ai.panel = None;
+    a.compose();
+    let text_area = a.hit_rect(crate::ui::Hit::Text).expect("the text");
+    a.ui.mouse = (text_area.cx(), text_area.cy());
+    a.right_press();
+    a.open_sub(PopupKind::Text, PopupKind::Ai, false);
+    a.compose();
+    let row =
+        a.ui.popup
+            .as_ref()
+            .unwrap()
+            .sub
+            .as_ref()
+            .unwrap()
+            .menu
+            .row_rect(3);
+    a.pointer_moved(row.right() - 20.0, row.cy());
+    a.left_release();
+    assert_eq!(
+        instruction(&mut a),
+        Some(("make the prices a table".to_string(), Some(0)))
+    );
+    assert!(!a.ai.running(), "nothing sent");
+    // The play icon at the left runs the prompt, as the rest of the row does.
+    a.ai.panel = None;
+    a.compose();
+    a.ui.mouse = (text_area.cx(), text_area.cy());
+    a.right_press();
+    a.open_sub(PopupKind::Text, PopupKind::Ai, false);
+    a.compose();
+    let menu = &a.ui.popup.as_ref().unwrap().sub.as_ref().unwrap().menu;
+    let row = menu.row_rect(4);
+    a.pointer_moved(row.x + 18.0, row.cy());
+    a.left_release();
+    assert!(a.ai.running() && !a.ai_panel_open());
+    wait(&mut a, |a| !a.ai.running());
+    // The command it is.
+    a.ai.panel = None;
+    a.act(Act::AiEditPrompt(1));
+    assert_eq!(
+        instruction(&mut a),
+        Some(("shorten it".to_string(), Some(1)))
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

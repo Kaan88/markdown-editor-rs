@@ -267,3 +267,44 @@ fn tabs_not_opened_for_a_week_of_use_are_offered_and_closed_or_kept() {
     b.stale_bar(Hit::StaleClose);
     assert_eq!(names(&b), ["b.txt", "c.txt"]);
 }
+
+/// The owner: the days before a tab is offered are a setting (Settings > Session), kept in the
+/// session file. A tab last shown 9 days of use ago is offered after 9 days, not after 10.
+#[test]
+fn the_days_before_a_tab_is_offered_are_a_setting() {
+    use crate::app::modal::STALE_DAYS;
+    use mdshared_ui::settings::Value;
+    let mut a = four(); // a b c d(note), c showing
+    let mut s = Session {
+        tabs: a.docs.paths(),
+        use_days: (10, 0), // this start is day 11
+        seen: a.docs.seen().into_iter().map(|(p, _)| (p, 2)).collect(),
+        ..Session::default()
+    };
+    a.docs.start_day(&mut s);
+    a.docs.activate(2); // c
+    a.apply_setting(STALE_DAYS, Value::Number(10));
+    assert_eq!(a.docs.prefs.stale_days, 10);
+    a.docs.offer_stale_tabs();
+    assert!(a.docs.stale.is_empty(), "9 days of use is under 10");
+    a.apply_setting(STALE_DAYS, Value::Number(9));
+    a.docs.offer_stale_tabs();
+    assert_eq!(
+        a.docs.stale.len(),
+        2,
+        "a and b; not c (showing) nor the note"
+    );
+    // Kept for the next start, and in its range.
+    let back = Session::parse(&a.session.serialize());
+    assert_eq!(back.prefs.stale_days, 9);
+    a.apply_setting(STALE_DAYS, Value::Number(0));
+    assert_eq!(a.docs.prefs.stale_days, 1);
+    assert_eq!(
+        crate::chrome::stale_label(2, 9),
+        "2 tabs have not been opened in the last 9 days you used mdedit."
+    );
+    assert_eq!(
+        crate::chrome::stale_label(1, 1),
+        "1 tab has not been opened on the last day you used mdedit."
+    );
+}
