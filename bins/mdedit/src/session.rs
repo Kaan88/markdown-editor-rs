@@ -766,6 +766,7 @@ mod tests {
                         line: 40,
                         col: 3,
                         top: 21,
+                        lang: Some("Rust"),
                     },
                 ),
                 (
@@ -774,6 +775,7 @@ mod tests {
                         line: 0,
                         col: 9,
                         top: 0,
+                        lang: None,
                     },
                 ),
             ],

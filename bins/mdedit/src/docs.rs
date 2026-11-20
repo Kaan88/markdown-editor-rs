@@ -457,6 +457,13 @@ pub struct Ready {
     /// Undo and redo, and whether the text differs from the file.
     pub history: History,
     pub language: Option<Language>,
+    /// The language was chosen for this file (the status bar's language field) over the one its
+    /// name and first line give; kept with the file's place ([`crate::places`]).
+    pub language_set: bool,
+    /// The AI made this document Markdown (`App::ai_made_markdown`): the undo state from before
+    /// that change and the language it had then. Undone back to that state, the switch goes
+    /// ([`Docs::drop_undone_switches`]).
+    pub ai_switch: Option<(u64, Option<Language>)>,
     /// The language exists and the file is within its limits: the service colours it.
     pub colourable: bool,
     /// The view of the pane that has the keyboard (or the only one).
@@ -919,6 +926,8 @@ impl Ready {
             info: loaded.info,
             history: History::new(),
             language,
+            language_set: false,
+            ai_switch: None,
             colourable: false,
             view: ViewState::new(),
             twin: None,
@@ -959,6 +968,9 @@ impl Ready {
             line: pos.line,
             col: pos.col,
             top: self.view.top.max(0.0) as usize,
+            lang: self
+                .language_set
+                .then(|| crate::languages::name_of(self.language)),
         }
     }
 
@@ -1276,6 +1288,45 @@ pub struct FindDone {
     pub kind: FindKind,
 }
 
+/// Moves `from` to `to`, never replacing a file at `to` (`AlreadyExists` then): a file that
+/// appears there between a look and the move is not lost.
+#[cfg(windows)]
+fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
+    let (f, t) = (wide(from), wide(to));
+    // No MOVEFILE_REPLACE_EXISTING: the move fails when `to` exists.
+    // SAFETY: both are NUL-terminated wide strings that live across the call.
+    if unsafe { MoveFileExW(f.as_ptr(), t.as_ptr(), 0) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Elsewhere a hard link, which fails when `to` exists, then the old name removed; a file
+/// system without hard links falls back to a rename after a look.
+#[cfg(not(windows))]
+fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::hard_link(from, to) {
+        Ok(()) => std::fs::remove_file(from).inspect_err(|_| {
+            let _ = std::fs::remove_file(to);
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(e),
+        Err(_) if std::fs::symlink_metadata(to).is_ok() => {
+            Err(std::io::ErrorKind::AlreadyExists.into())
+        }
+        Err(_) => std::fs::rename(from, to),
+    }
+}
+
+/// A name that says Markdown: `.md` or `.markdown`.
+fn is_markdown_name(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
+}
+
 /// How much of the first line the language lookup sees: enough for a shebang or a mode line.
 const FIRST_LINE_BYTES: usize = 1024;
 
@@ -1448,6 +1499,9 @@ pub struct Docs {
     day: u32,
     /// The tabs offered for closing at start, while the bar offering them shows.
     pub stale: Vec<DocId>,
+    /// The tab whose file the rename bar offers a `.md` name, after the AI made its text
+    /// Markdown ([`Docs::rename_bar`]).
+    pub rename_offer: Option<DocId>,
     next_id: DocId,
     pub recents: Recents,
     pub folder: Option<PathBuf>,
@@ -1508,6 +1562,7 @@ impl Docs {
             last_pinned: None,
             day: 0,
             stale: Vec::new(),
+            rename_offer: None,
             next_id: 1,
             recents: Recents::default(),
             folder: None,
@@ -2359,6 +2414,12 @@ impl Docs {
                     r.bookmarks = old.bookmarks.iter().map(|&m| m.min(last)).collect();
                     r.bookmarks.dedup();
                     r.wrap = old.wrap;
+                    // A language chosen for the file outlasts a reload.
+                    if old.language_set {
+                        r.language = old.language;
+                        r.language_set = true;
+                        r.set_assist(&self.prefs);
+                    }
                     // Read-only only while its text waited (below): set again only if it still
                     // cannot be read, so a reload that puts it back leaves the tab editable and
                     // its copy kept by the recovery look (audit 1 round 6).
@@ -2419,7 +2480,16 @@ impl Docs {
                         recovered_flags.1 = r.recovered_encoding(&rec.encoding);
                     }
                 }
-                if let (Some(lang), Some(s)) = (language, service)
+                // The language chosen for the file when it was last open.
+                if let Some(lang) = place
+                    .and_then(|p| p.lang)
+                    .and_then(crate::languages::by_name)
+                {
+                    r.language = lang;
+                    r.language_set = lang != language;
+                    r.set_assist(&self.prefs);
+                }
+                if let (Some(lang), Some(s)) = (r.language, service)
                     && lang.limits().allows_file(r.buffer.len_bytes())
                 {
                     s.open(doc.id, doc.revision, r.buffer.snapshot(), lang, dark);
@@ -3109,6 +3179,11 @@ impl Docs {
         let Some(doc) = self.tabs.get_mut(i) else {
             return Err(SaveFailed::NotSavable);
         };
+        let old_ext = doc
+            .path
+            .as_deref()
+            .and_then(Path::extension)
+            .map(|e| e.to_ascii_lowercase());
         let Some(r) = doc.ready_mut().filter(|r| !r.info.lossy) else {
             return Err(SaveFailed::NotSavable);
         };
@@ -3125,10 +3200,22 @@ impl Docs {
         r.history.mark_saved();
         // The file may have been created just now: its real name is known only after that.
         let path = canonical_or_absolute(&path);
-        r.language = language_of(&path, &r.buffer);
+        // A language chosen for the file stays while the extension does (a copy under another
+        // name); a new extension, or one that gives that language anyway, takes over.
+        let own = language_of(&path, &r.buffer);
+        let new_ext = path.extension().map(|e| e.to_ascii_lowercase());
+        if !r.language_set || r.language == own || new_ext != old_ext {
+            r.language = own;
+            r.language_set = false;
+        }
+        r.ai_switch = None;
         r.set_assist(&self.prefs);
         r.view.colors = LineColors::default();
         r.view.map_colors = LineColors::default();
+        if let Some(t) = r.twin.as_deref_mut() {
+            t.colors = LineColors::default();
+            t.map_colors = LineColors::default();
+        }
         r.colourable = false;
         doc.revision += 1;
         let (id, revision) = (doc.id, doc.revision);
@@ -3165,6 +3252,173 @@ impl Docs {
     }
 
     // ---- toast -----------------------------------------------------------------------------
+
+    /// The language tab `i`'s name and first line give it, whatever was chosen.
+    pub fn own_language(&self, i: usize) -> Option<Language> {
+        let doc = self.tabs.get(i)?;
+        let r = doc.ready()?;
+        let path = doc
+            .path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(doc.name()));
+        language_of(&path, &r.buffer)
+    }
+
+    /// Makes `language` (`None`: plain text) tab `i`'s, for its typing help, its colours, its
+    /// preview and its Markdown tools. Kept as chosen for the file unless it is the one the name
+    /// gives, which clears the choice. Nothing is written to the file. Whether it changed.
+    pub fn set_language(
+        &mut self,
+        i: usize,
+        language: Option<Language>,
+        service: Option<&HighlightService>,
+        dark: bool,
+    ) -> bool {
+        let own = self.own_language(i);
+        let Some(doc) = self.tabs.get_mut(i) else {
+            return false;
+        };
+        let Some(r) = doc.ready_mut() else {
+            return false;
+        };
+        // A language set any way but by the AI is not taken back by an undo.
+        r.ai_switch = None;
+        let set = language != own;
+        if r.language == language && r.language_set == set {
+            return false;
+        }
+        let recolour = r.language != language;
+        r.language = language;
+        r.language_set = set;
+        r.set_assist(&self.prefs);
+        if !recolour {
+            return true;
+        }
+        // Coloured again from the start, as after Save as gave the file another name.
+        r.view.colors = LineColors::default();
+        r.view.map_colors = LineColors::default();
+        if let Some(t) = r.twin.as_deref_mut() {
+            t.colors = LineColors::default();
+            t.map_colors = LineColors::default();
+        }
+        r.colourable = false;
+        doc.revision += 1;
+        let (id, revision) = (doc.id, doc.revision);
+        if let Some(s) = service {
+            s.close(id);
+        }
+        let r = doc.ready_mut().expect("checked above");
+        r.revision = revision;
+        if let (Some(lang), Some(s)) = (r.language, service)
+            && lang.limits().allows_file(r.buffer.len_bytes())
+        {
+            s.open(id, revision, r.buffer.snapshot(), lang, dark);
+            r.colourable = true;
+        }
+        true
+    }
+
+    /// Takes back what the AI's switch to Markdown did, for every document undone back to the
+    /// state before it: its language as it was, and the rename bar. Whether anything changed.
+    pub fn drop_undone_switches(&mut self, service: Option<&HighlightService>, dark: bool) -> bool {
+        let mut changed = false;
+        for i in 0..self.tabs.len() {
+            let Some((_, language)) = self.tabs[i]
+                .ready()
+                .and_then(|r| r.ai_switch.filter(|s| r.history.state() == s.0))
+            else {
+                continue;
+            };
+            self.set_language(i, language, service, dark);
+            if self.rename_offer == Some(self.tabs[i].id) {
+                self.rename_offer = None;
+            }
+            changed = true;
+        }
+        changed
+    }
+
+    /// What the rename bar offers while it shows: the tab offered is the active one, has a file
+    /// and is Markdown, but its name does not say so. Its name now and the file offered.
+    pub fn rename_bar(&self) -> Option<(String, PathBuf)> {
+        let doc = self
+            .active_doc()
+            .filter(|d| Some(d.id) == self.rename_offer)?;
+        let path = doc.path.as_deref()?;
+        (doc.is_markdown() && !is_markdown_name(path))
+            .then(|| (doc.name(), path.with_extension("md")))
+    }
+
+    /// Renames tab `i`'s file to `to` and makes that its file, keeping the tab, its text, its
+    /// unsaved changes and its undo history; the session and the recent files follow. A name
+    /// that is already a file, or open in another tab, is refused and nothing changes. The
+    /// language follows the new name unless one was chosen that the name does not give.
+    pub fn rename(
+        &mut self,
+        i: usize,
+        to: &Path,
+        service: Option<&HighlightService>,
+        dark: bool,
+    ) -> Result<(), String> {
+        let Some(from) = self.tabs.get(i).and_then(|d| d.path.clone()) else {
+            return Err("This tab has no file to rename.".into());
+        };
+        let to_name = to
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if same_path(&from, to) {
+            return Ok(());
+        }
+        let taken = || format!("{to_name} already exists. Nothing was renamed.");
+        // Anything at that name, or a name that cannot be looked at, is not taken over.
+        if std::fs::symlink_metadata(to).is_ok() {
+            return Err(taken());
+        }
+        if self.index_of(to).is_some_and(|o| o != i) {
+            return Err(format!(
+                "{to_name} is open in another tab. Nothing was renamed."
+            ));
+        }
+        let on_disk = match std::fs::symlink_metadata(&from) {
+            // The file is no longer on disk: only the tab's name changes (saving writes it).
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            // A move that never replaces a file, which may have appeared since the look above.
+            _ => {
+                move_no_replace(&from, to).map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::AlreadyExists {
+                        taken()
+                    } else {
+                        format!("Could not rename to {to_name}: {e}")
+                    }
+                })?;
+                true
+            }
+        };
+        let to = canonical_or_absolute(to);
+        self.tabs[i].path = Some(to.clone());
+        if !on_disk && let Some(r) = self.tabs[i].ready_mut() {
+            // Nothing is there yet: what Save expects to find, so it writes without asking.
+            r.info.stamp = mdshared_app::files::stamp(&to);
+        }
+        // The old name's place goes; the tab's own is taken from it when the session is written.
+        self.places.put(&from, crate::places::Place::default());
+        // Bookmarks the old name left from an earlier closing go to the new one.
+        if let Some(lines) = self.marks.lines(&from).map(<[usize]>::to_vec) {
+            self.marks.put(&from, &[]);
+            self.marks.put(&to, &lines);
+        }
+        self.recents.remove(&from);
+        self.recents.add(to.clone());
+        mdshared_ui::platform::note_recent_document(&to);
+        self.watch_changed = true;
+        let own = self.own_language(i);
+        if let Some((lang, set)) = self.tabs[i].ready().map(|r| (r.language, r.language_set)) {
+            let keep = if set && lang != own { lang } else { own };
+            self.set_language(i, keep, service, dark);
+        }
+        Ok(())
+    }
 
     pub fn set_toast(&mut self, text: &str) {
         self.toast = Some((
@@ -5435,6 +5689,27 @@ mod tests {
                 .is_some_and(|t| t.contains("read-only"))
         );
         assert!(matches!(d.save(i, false), Err(SaveFailed::NotSavable)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Fable review #2: the rename's move never replaces a file at the new name, one that
+    /// appeared after the look before it included.
+    #[test]
+    fn the_rename_move_never_replaces_a_file() {
+        let dir = std::env::temp_dir().join(format!("mdedit-move-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (from, to) = (dir.join("notes.txt"), dir.join("notes.md"));
+        std::fs::write(&from, "mine").unwrap();
+        std::fs::write(&to, "theirs").unwrap();
+        let e = move_no_replace(&from, &to).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(&from).unwrap(), "mine");
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), "theirs");
+        std::fs::remove_file(&to).unwrap();
+        move_no_replace(&from, &to).unwrap();
+        assert!(!from.exists());
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), "mine");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

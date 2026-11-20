@@ -187,6 +187,13 @@ pub struct Results {
     cancel: Arc<AtomicBool>,
 }
 
+/// The last part of a path, as a row names it.
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 impl Default for Results {
     fn default() -> Results {
         Results {
@@ -819,6 +826,48 @@ impl Results {
             (Some(s), false) => (0..s.min(n)).rev().chain((s.min(n)..n).rev()).find(is_hit),
             (None, true) => (0..n).find(is_hit),
             (None, false) => (0..n).rev().find(is_hit),
+        }
+    }
+
+    /// A file renamed (the rename bar): its rows, and what is known of its tab, follow the new
+    /// name.
+    pub fn renamed(&mut self, from: &Path, to: &Path) {
+        use mdshared_app::paths::same_path;
+        let (old, new) = (file_name(from), file_name(to));
+        let mut changed = false;
+        for row in &mut self.rows {
+            if let Row::File {
+                path: Some(p),
+                name,
+                ..
+            } = row
+                && same_path(p, from)
+            {
+                *p = to.to_path_buf();
+                if let Some(stem) = name.strip_suffix(old.as_str()) {
+                    *name = format!("{stem}{new}");
+                }
+                changed = true;
+            }
+        }
+        let keys: Vec<PathBuf> = self
+            .by_path
+            .keys()
+            .filter(|p| same_path(p, from))
+            .cloned()
+            .collect();
+        for k in keys {
+            if let Some(row) = self.by_path.remove(&k) {
+                self.by_path.insert(to.to_path_buf(), row);
+            }
+        }
+        for seen in self.seen.values_mut() {
+            if seen.path.as_deref().is_some_and(|p| same_path(p, from)) {
+                seen.path = Some(to.to_path_buf());
+            }
+        }
+        if changed {
+            self.generation += 1;
         }
     }
 

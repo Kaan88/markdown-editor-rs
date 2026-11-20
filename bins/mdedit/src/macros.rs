@@ -560,6 +560,7 @@ pub fn recordable(id: C) -> bool {
             | C::FindInTabs
             | C::CompleteWord
             | C::OpenSnippets
+            | C::Language
             | C::AiFormat
             | C::AiFix
             | C::AiRewrite

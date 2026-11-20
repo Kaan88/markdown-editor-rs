@@ -2,7 +2,8 @@
 //! for the most recently used files, the caret's line and column and the first line in view. The
 //! session file holds them (`place=` lines); the open documents hold their own while they are
 //! open, and this list is what a closed file left behind and what a file read again is given.
-//! The same shape as [`crate::marks`].
+//! A file's language, when one was chosen for it (the status bar's language field), is kept
+//! with its place. The same shape as [`crate::marks`].
 
 use mdshared_app::paths::same_path;
 use std::path::{Path, PathBuf};
@@ -10,33 +11,45 @@ use std::path::{Path, PathBuf};
 /// Files kept at most.
 pub const FILES_MAX: usize = 100;
 
-/// The caret's line and column (characters, from 0) and the first line in view (from 0).
+/// The caret's line and column (characters, from 0) and the first line in view (from 0), and
+/// the language chosen for the file over its extension's, by name ([`crate::languages`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Place {
     pub line: usize,
     pub col: usize,
     pub top: usize,
+    pub lang: Option<&'static str>,
 }
 
 impl Place {
-    /// A place worth keeping: anywhere but the very start, which is where a file opens anyway.
+    /// A place worth keeping: anywhere but the very start with no language chosen, which is how
+    /// a file opens anyway.
     pub fn is_start(&self) -> bool {
         *self == Place::default()
     }
 
-    /// `line,col,top`, the session line's value before the path.
+    /// `line,col,top` or `line,col,top,Language`, the session line's value before the path.
     pub fn to_setting(self) -> String {
-        format!("{},{},{}", self.line, self.col, self.top)
+        match self.lang {
+            Some(lang) => format!("{},{},{},{lang}", self.line, self.col, self.top),
+            None => format!("{},{},{}", self.line, self.col, self.top),
+        }
     }
 
+    /// A language this build does not offer is left out; the place stays.
     pub fn parse(value: &str) -> Option<Place> {
-        let mut parts = value.split(',').map(|n| n.trim().parse::<usize>());
-        let (line, col, top) = (
-            parts.next()?.ok()?,
-            parts.next()?.ok()?,
-            parts.next()?.ok()?,
-        );
-        parts.next().is_none().then_some(Place { line, col, top })
+        let mut parts = value.splitn(4, ',');
+        let mut num = || parts.next()?.trim().parse::<usize>().ok();
+        let (line, col, top) = (num()?, num()?, num()?);
+        let lang = parts
+            .next()
+            .and_then(|name| crate::languages::static_name(name.trim()));
+        Some(Place {
+            line,
+            col,
+            top,
+            lang,
+        })
     }
 }
 
@@ -122,7 +135,12 @@ mod tests {
     }
 
     fn at(line: usize, col: usize, top: usize) -> Place {
-        Place { line, col, top }
+        Place {
+            line,
+            col,
+            top,
+            lang: None,
+        }
     }
 
     #[test]
@@ -171,7 +189,20 @@ mod tests {
         );
         assert_eq!(Place::parse(&at(3, 4, 5).to_setting()), Some(at(3, 4, 5)));
         assert_eq!(Place::parse("1,2"), None);
-        assert_eq!(Place::parse("1,2,3,4"), None);
         assert_eq!(Place::parse("a,2,3"), None);
+        // A language chosen for the file rides along, and keeps a file at its start.
+        let md = Place {
+            lang: Some("Markdown"),
+            ..Place::default()
+        };
+        assert!(!md.is_start());
+        assert_eq!(md.to_setting(), "0,0,0,Markdown");
+        assert_eq!(Place::parse("0,0,0,Markdown"), Some(md));
+        assert_eq!(
+            Place::parse("0,0,0,Plain text").unwrap().lang,
+            Some("Plain text")
+        );
+        // One this build does not know is dropped.
+        assert_eq!(Place::parse("1,2,3,Klingon"), Some(at(1, 2, 3)));
     }
 }

@@ -38,6 +38,11 @@ pub enum ShotMenu {
     TextConvert,
     TextMarkdown,
     TextAi,
+    /// The language list above the status bar's language field.
+    Language,
+    /// The active document made Markdown as the AI's Format as Markdown does, with the bar
+    /// offering its `.md` name.
+    RenameBar,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -477,6 +482,8 @@ impl Args {
                         "text-lines" => Some(ShotMenu::TextLines),
                         "text-convert" => Some(ShotMenu::TextConvert),
                         "text-ai" => Some(ShotMenu::TextAi),
+                        "language" => Some(ShotMenu::Language),
+                        "rename-bar" => Some(ShotMenu::RenameBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
                         _ => None,
                     })

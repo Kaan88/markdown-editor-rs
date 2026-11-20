@@ -27,6 +27,35 @@ impl App {
         self.redraw();
     }
 
+    /// Opens the language list, above the status bar's language field.
+    pub(super) fn open_languages(&mut self) {
+        if self.ui.dialog.is_some()
+            || self.ui.settings.is_some()
+            || self.docs.active_ready().is_none()
+        {
+            return;
+        }
+        self.ui.popup = None;
+        self.ui.tip = None;
+        self.ui.hover = None;
+        self.ui.find_focused = false;
+        self.palette
+            .open_languages(&self.docs, &self.ui, &mut self.macros);
+        self.caret_reset();
+        self.redraw();
+    }
+
+    /// Makes `lang` the active document's language (from the language list).
+    fn choose_language(&mut self, lang: Option<mdedit_highlight::Language>) {
+        let Some(i) = self.docs.active() else {
+            return;
+        };
+        let dark = self.dark();
+        if self.docs.set_language(i, lang, self.service.as_ref(), dark) {
+            self.full = true;
+        }
+    }
+
     pub(super) fn close_palette(&mut self) {
         self.palette.close();
         self.ui.pressed = None;
@@ -170,6 +199,7 @@ impl App {
             Target::Recent(path) | Target::File(path) => self.open(&path),
             Target::Symbol(line) => self.go_to_line(line + 1, 1),
             Target::AiPrompt(k) => self.ai_saved(k),
+            Target::Language(lang) => self.choose_language(lang),
             Target::Prefix(_) => {}
         }
         self.redraw();

@@ -258,29 +258,38 @@ pub fn draw(c: &mut Ctx, docs: &Docs, r: Rect) {
         ai_strip(c, docs.ai_phase, r);
     }
     let (left, mut right) = fields(docs);
+    let ready = right.len() >= 4;
+    let mut indent_shown = ready;
     // The indentation field sits between the language and the line endings. Where the fields
     // would crowd the strip (a long selection count, many carets, the narrowest window) it is
-    // left out, and its tooltip moves to the language field.
-    if right.len() >= 4 {
+    // left out.
+    if ready {
         let total: f32 = right
             .iter()
             .map(|f| c.p.measure(Face::Ui, 12.0, f) + GAP)
             .sum();
         if total + 32.0 > r.w {
             right.remove(right.len() - 3);
+            indent_shown = false;
         }
     }
     let cy = r.y + r.h / 2.0 + 0.5;
     let mut x = r.right() - 16.0;
     let mut first = true;
     // The last two fields of a document that can be edited open menus: encoding, line endings.
-    // A lossy reading cannot be edited, but can be read again as another encoding.
+    // A lossy reading cannot be edited, but can be read again as another encoding. The language
+    // field opens the language list.
     let lossy = docs.active_ready().map(|r| r.info.lossy);
+    let (third, fourth) = match (ready, indent_shown) {
+        (true, true) => (Some(Hit::StatusIndent), Some(Hit::StatusLanguage)),
+        (true, false) => (Some(Hit::StatusLanguage), None),
+        _ => (None, None),
+    };
     let hits = [
         lossy.is_some().then_some(Hit::StatusEncoding),
         (lossy == Some(false)).then_some(Hit::StatusEol),
-        // The indentation field, or the language field when that one was left out.
-        (right.len() >= 4).then_some(Hit::StatusIndent),
+        third,
+        fourth,
     ];
     for (k, f) in right.iter().rev().enumerate() {
         if !first {

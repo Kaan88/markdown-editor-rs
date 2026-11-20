@@ -14,6 +14,7 @@ mod format_bar;
 mod frost;
 mod image_paste;
 mod keys;
+mod languages;
 mod link;
 mod live;
 mod macros;

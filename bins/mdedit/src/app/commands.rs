@@ -51,6 +51,8 @@ impl App {
             Hit::UpdateClose => self.docs.updates.dismiss(),
             Hit::CrashOpen | Hit::CrashCopy | Hit::CrashClose => self.crash_bar(hit),
             Hit::StaleClose | Hit::StaleKeep | Hit::StaleDismiss => self.stale_bar(hit),
+            Hit::RenameGo | Hit::RenameKeep | Hit::RenameDismiss => self.rename_bar(hit),
+            Hit::StatusLanguage => self.open_languages(),
             Hit::AiBarGo => self.ai_bar_go(),
             Hit::AiBarClose => {
                 self.ai_bar_close();
@@ -971,6 +973,36 @@ impl App {
         self.redraw();
     }
 
+    /// The rename bar's buttons: give the file the `.md` name it offers (refused, with a
+    /// message, when that name is taken), or keep the name. Either way the bar goes.
+    pub(super) fn rename_bar(&mut self, hit: Hit) {
+        if hit == Hit::RenameGo
+            && let Some((_, to)) = self.docs.rename_bar()
+            && let Some(i) = self.docs.active()
+        {
+            let dark = self.dark();
+            let name = to
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let from = self.docs.tabs[i].path.clone();
+            match self.docs.rename(i, &to, self.service.as_ref(), dark) {
+                Ok(()) => {
+                    // Find in files' rows for the file lead to its new name.
+                    if let (Some(from), Some(now)) = (from, self.docs.tabs[i].path.clone()) {
+                        self.ui.results.renamed(&from, &now);
+                    }
+                    self.docs.set_toast(&format!("Renamed to {name}."));
+                }
+                Err(e) => self.docs.set_toast(&e),
+            }
+        }
+        self.docs.rename_offer = None;
+        self.relayout_areas();
+        self.full = true;
+        self.redraw();
+    }
+
     fn perform(&mut self, after: After) {
         let service = self.service.as_ref();
         let index = |docs: &Docs, id: DocId| docs.index_of_id(id);
@@ -1850,6 +1882,7 @@ impl App {
             C::AiEditPrompts => self.ai_edit_prompts(),
             C::AiSettings => self.ai_open_settings(),
             C::AiCancel => self.ai_cancel(),
+            C::Language => self.open_languages(),
             C::NextTab => self.docs.step_tab(true),
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),

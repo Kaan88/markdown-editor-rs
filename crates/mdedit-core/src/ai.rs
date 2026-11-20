@@ -175,6 +175,20 @@ pub struct CustomProvider {
 /// Custom providers kept at most.
 pub const CUSTOMS_MAX: usize = 32;
 
+/// The name a custom provider added now gets: "Custom provider N" with the first N no provider
+/// in `list` goes by.
+pub fn new_custom_name(list: &[CustomProvider]) -> String {
+    let taken = |name: &str| {
+        list.iter()
+            .enumerate()
+            .any(|(i, c)| c.label(i).eq_ignore_ascii_case(name))
+    };
+    (1..)
+        .map(|n| format!("Custom provider {n}"))
+        .find(|name| !taken(name))
+        .expect("a free number")
+}
+
 impl CustomProvider {
     /// As the Provider list names it: its name, or a name made from its place in the list.
     pub fn label(&self, index: usize) -> String {
@@ -696,6 +710,25 @@ mod tests {
             "Custom provider 3",
             "an unnamed custom provider"
         );
+        // A new one takes the first number no provider goes by, not the count.
+        let named = |n: &str| CustomProvider {
+            name: n.into(),
+            ..CustomProvider::default()
+        };
+        assert_eq!(new_custom_name(&[]), "Custom provider 1");
+        let list = [named("LM Studio"), named("Custom provider 2")];
+        assert_eq!(new_custom_name(&list), "Custom provider 1");
+        let list = [named("Custom provider 1"), named("Custom provider 2")];
+        assert_eq!(new_custom_name(&list), "Custom provider 3");
+        // An unnamed one goes by its place.
+        let list = [named("Custom provider 2"), CustomProvider::default()];
+        assert_eq!(new_custom_name(&list), "Custom provider 1");
+        let list = [
+            CustomProvider::default(),
+            named("x"),
+            named("Custom provider 3"),
+        ];
+        assert_eq!(new_custom_name(&list), "Custom provider 2");
     }
 
     #[test]

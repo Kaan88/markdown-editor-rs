@@ -99,8 +99,9 @@ pub struct Prefs {
     /// a custom one.
     pub ai_preset: String,
     /// The custom providers, in the order they were added, and the one chosen while
-    /// `ai_preset` is `custom`. A file's `ai_base_url` (a single custom provider, before the
-    /// list) is read once into the list; it is not written.
+    /// `ai_preset` is `custom`. The file keeps `ai_base_url` too, the chosen one's URL, which is
+    /// all a build before the list (1.1.2) reads and writes; a file with only that (one of those
+    /// builds wrote it) becomes a list of one, whichever provider is chosen.
     pub ai_customs: Vec<CustomProvider>,
     pub ai_custom: usize,
     /// The Claude Code and Codex programs; empty finds them.
@@ -357,13 +358,15 @@ impl Prefs {
             .filter(|c| c.is_some())
             .count();
         p.ai_customs = customs.into_iter().flatten().collect();
-        // A file from before the list: its one custom provider, with the model and effort the
-        // connection had (they were shared by every provider then).
-        if p.ai_customs.is_empty() && p.ai_preset == "custom" {
+        // A file from before the list (or written by such a build since): its one custom
+        // provider, with the model and effort the connection had (they were shared by every
+        // provider then). Kept whichever provider is chosen, so its URL is not lost.
+        let legacy_url = legacy_url.unwrap_or_default();
+        if p.ai_customs.is_empty() && (p.ai_preset == "custom" || !legacy_url.trim().is_empty()) {
             let i = ai_index(Connection::OpenAi).unwrap_or(0);
             p.ai_customs.push(CustomProvider {
                 name: "Custom".into(),
-                base_url: legacy_url.unwrap_or_default(),
+                base_url: legacy_url,
                 model: p.ai_models[i].clone(),
                 effort: p.ai_efforts[i].clone(),
             });
@@ -409,6 +412,11 @@ impl Prefs {
             w.line(&format!("ai_effort_{}", c.key()), &escape(&p.ai_efforts[i]));
         }
         w.line("ai_preset", &escape(&p.ai_preset));
+        // The chosen custom provider's URL, for a build before the list (1.1.2), which keeps
+        // only this: written back by it, it comes in here as a list of one.
+        if let Some(c) = p.ai_customs.get(p.ai_custom) {
+            w.line("ai_base_url", &escape(&c.base_url));
+        }
         w.line("ai_custom", &p.ai_custom.to_string());
         for (n, c) in p.ai_customs.iter().enumerate() {
             w.line(&format!("ai_custom_{n}_name"), &escape(&c.name));
@@ -625,14 +633,37 @@ mod tests {
         );
         assert_eq!(p.ai_url(), "http://localhost:1234/v1");
         assert_eq!(p.ai_model(Connection::OpenAi), "qwen");
-        // Written back it is the list alone.
+        // Written back it is the list, and the chosen one's URL for a build before the list.
         let t = p.serialize();
         assert!(t.contains("ai_custom_0_url=http://localhost:1234/v1\n"));
-        assert!(!t.contains("ai_base_url"));
+        assert!(t.contains("ai_base_url=http://localhost:1234/v1\n"));
         assert_eq!(Prefs::parse(&t), p);
-        // An old file with another provider chosen has no custom provider.
+        // An old file with another provider chosen keeps its custom URL as a provider.
         let p = Prefs::parse("ai_preset=groq\nai_base_url=http://x/v1\n");
-        assert!(p.ai_customs.is_empty() && p.ai_url().is_empty());
+        assert_eq!(p.ai_preset, "groq");
+        assert_eq!(p.ai_customs.len(), 1);
+        assert_eq!(p.ai_customs[0].base_url, "http://x/v1");
+        // No URL and another provider: no custom provider.
+        assert!(Prefs::parse("ai_preset=groq\n").ai_customs.is_empty());
+
+        // New, then a build before the list (it keeps only the keys it knows), then new again:
+        // the chosen provider comes back.
+        let mut two = Prefs::parse(old);
+        two.ai_customs.push(CustomProvider {
+            name: "Box".into(),
+            base_url: "http://box:11434/v1".into(),
+            ..CustomProvider::default()
+        });
+        two.ai_custom = 1;
+        let by_old: String = two
+            .serialize()
+            .lines()
+            .filter(|l| !l.starts_with("ai_custom"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let back = Prefs::parse(&by_old);
+        assert_eq!(back.ai_preset, "custom");
+        assert_eq!(back.ai_url(), "http://box:11434/v1");
 
         // Two of them: each its own model; the chosen one is the one used.
         let mut p = Prefs::parse(old);
@@ -742,7 +773,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 42);
+        assert_eq!(t.lines().count(), 43);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,

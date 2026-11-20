@@ -52,10 +52,12 @@ custom provider possible to add."
   most `CUSTOMS_MAX`, 32) and `Prefs::ai_custom`, the one chosen while `ai_preset` is `custom`.
   `Prefs::ai_url`, `ai_model`, `ai_effort` and their setters read and write the chosen custom
   provider's own; presets keep sharing the connection's model as before.
-- File: `ai_custom=<n>` and `ai_custom_<n>_name|url|model|effort`. `ai_base_url` is no
-  longer written (the owner: no support for older builds). It is still read once: a file with
-  only `ai_base_url` (before the list) becomes a list of one, named "Custom", with the connection's
-  model and effort. Gaps in the numbers close; a `custom` preset with no provider becomes OpenAI.
+- File: `ai_custom=<n>` and `ai_custom_<n>_name|url|model|effort`, and `ai_base_url` (the
+  chosen custom provider's URL), all a 1.1.2 build keeps. A file with no list and an
+  `ai_base_url` (from 1.1.2, or written back by it) becomes a list of one, named "Custom", with
+  the connection's model and effort, whichever provider is chosen; so new → 1.1.2 → new keeps
+  the chosen provider (the others are lost: 1.1.2 drops what it does not know). Gaps in the
+  numbers close; a `custom` preset with no provider becomes OpenAI.
 - Settings › AI: Provider lists the presets, the custom providers by name, then "Add a custom
   provider…" (adds "Custom provider N" and chooses it). A custom provider shows Name, Base URL,
   an optional API key (placeholder and help say so) and "Remove this provider". The rewrite
@@ -65,14 +67,92 @@ custom provider possible to add."
   key); a local preset (Ollama, LM Studio) has no key slot (`key_slot` gives `None`) and its
   runs send an empty slot, for which `mdedit-ai`'s `keys::get` answers none without asking the
   store (so they work where no credential store runs). A custom provider's key stays per URL,
-  so a key stored for the old single custom URL still applies; removing a provider leaves its
-  key in the store, as changing a URL did.
+  so a key stored for the old single custom URL still applies. Removing a provider clears its
+  key from the store unless another provider uses that URL, so one added later on it does not
+  send it unasked. A store that cannot be asked (none running, as on many Linux desktops) means
+  no key for a custom slot (`keys::decide`), so the models are listed and runs go without one;
+  for the presets that need a key it stays an error. `MDEDIT_AI_KEY` applies to every slot,
+  a local preset's empty one too. "Add" names a provider "Custom provider N" with the first N
+  free (`core_ai::new_custom_name`).
 - Tests: `custom_providers_are_a_list_and_the_old_single_one_joins_it` (core),
   `custom_providers_are_added_chosen_and_removed_and_need_no_key`,
   `an_empty_slot_has_no_key_and_asks_no_store`, and `presets_and_slots`.
 - Checked on Windows: the release `mdedit-ai.exe` against a stand-in server on 127.0.0.1 listed
   the models and ran a rewrite for a custom provider with no stored key; neither request carried
   an `authorization` header. Not tried against a real LM Studio or Ollama.
+
+### Language switch, and a .md name after an AI conversion (2026-11-21, same branch, not committed)
+
+The owner approved: a language list from the status bar, kept per file; a text file the AI makes
+Markdown switches at once and is offered a `.md` name ("not intrusive and converted markdown
+file has no reason not to use .md").
+- `languages.rs`: the languages offered. The shared highlighter has no list, so it is what a
+  fixed set of names and extensions finds through `Language::by_token`, each once, by name
+  (61 tokens; the Rails and ASP variants left out). "Plain text" is no language.
+- Per file: `Ready::language_set` (chosen over what the name gives). `Docs::set_language`
+  recolours as Save as does (revision raised, service reopened); choosing the name's own
+  language clears the choice. Kept in the place (`places.rs`): `place=line,col,top,Markdown;path`,
+  so a file at its start with a choice is kept too; a name this build does not offer is dropped.
+  Restored on first read, before colouring; kept across a reload; Save as keeps it unless the
+  new name gives it anyway. Nothing is written to the file.
+- The list is the command palette's card in a fixed mode (`palette::Mode::Languages`, opened by
+  `Host::open_languages`, placeholder "Type a language"): plain text, Markdown (hint "preview"),
+  then the rest by name, the current one checked. `Hit::StatusLanguage` (the status field, tip
+  "Language (click to change)"; where the indentation field is left out the language field no
+  longer carries its tip) and the "Language" command open it. Anchored above the field:
+  `palette::anchored_window` gives the shared palette (which centres its card near the top of
+  what it is given) a narrow area ending at the field, moved down once the card's height is
+  known. The footer's note is painted over the shared footer (`palette::draw_note`; the shared
+  one gives its text a third of the width): "Kept for this file. Back to the extension's: Plain
+  text." or "From the extension: Plain text. A choice is kept for this file."
+- After AI: Format as Markdown or Fix Markdown applied to the whole of a document that is not
+  Markdown (direct or from the review) makes it Markdown (`App::ai_converts`,
+  `ai_made_markdown`). A part of a file changes nothing. A file not named `.md`/`.markdown` gets
+  the rename bar while its tab is active (`Docs::rename_offer`, `rename_bar`,
+  `chrome::draw_rename_bar`): "notes.txt is Markdown now. Rename it to notes.md?", Rename / Keep.
+  `Docs::rename` renames on disk and keeps the tab, its unsaved text and undo; the recent list,
+  places and the file watch follow, the session writes the new path. A name that exists, or is
+  open in another tab, is refused with a message and nothing is renamed.
+- Visual editing (Ctrl+E) is on `f/visual-edit`, not this branch; it asks `is_markdown()` too,
+  so it should follow once merged (not tried).
+- Shots: `--menu language`, `--menu rename-bar`. Tests:
+  `a_language_chosen_is_the_documents_and_comes_back_with_the_file`,
+  `a_chosen_language_outlasts_a_reload_and_follows_save_as`,
+  `a_text_file_formatted_as_markdown_is_markdown_and_offered_its_name`,
+  `only_a_whole_text_file_formatted_is_switched`,
+  `the_list_has_each_language_once_and_names_lead_back`, and the places and session round trips.
+- Not done: the rename has no undo of its own (rename back by hand).
+
+### Fable review of f/four-fixes (2026-11-21, same branch)
+
+Each fix has a test that fails with the fix reverted (checked on Windows by reverting each in
+turn).
+1. A rename rewrites the recovery copy at once (`recovery.rs`: a slot keeps the path it was
+   written for). Test `a_renamed_tab_has_its_copy_written_again`.
+2. The rename never replaces a file: `docs::move_no_replace` (Windows `MoveFileExW` without
+   `MOVEFILE_REPLACE_EXISTING`, windows-sys feature `Win32_Storage_FileSystem`; elsewhere a hard
+   link then removing the old name, falling back to a rename after a look where links are not
+   supported). The look before uses `symlink_metadata`, so a name that cannot be looked at is
+   taken as taken. Test `the_rename_move_never_replaces_a_file`.
+3. Undoing the AI's change back to the state before it takes the switch back: the language as
+   it was and the bar (`Ready::ai_switch`, `Docs::drop_undone_switches`, run at each layout).
+   A language chosen any other way, Save as or a rename clears it. Redo does not switch again.
+   Test `undoing_the_conversion_takes_the_switch_back`.
+4. and 10. `mdedit-ai` `keys::decide`: the override first, then the empty slot, then the
+   store; a store error is no key for a custom slot. Tests
+   `a_store_error_is_no_key_only_where_the_key_is_optional`,
+   `the_override_is_used_for_every_slot`.
+5. A tab whose file is no longer on disk is renamed by its path alone, and its stamp is that
+   of nothing there, so Save writes without asking. Test
+   `a_rename_follows_through_and_needs_no_file_on_disk`.
+6. Migration both ways (above). Test `custom_providers_are_a_list_and_the_old_single_one_joins_it`.
+7. Key cleared on remove; first free name. Tests
+   `custom_providers_are_added_chosen_and_removed_and_need_no_key`, `presets_and_slots`.
+8. Save as drops a chosen language when the extension changes (a copy with the same extension
+   keeps it) and resets the twin pane's colours. Test
+   `a_chosen_language_outlasts_a_reload_and_follows_save_as` (the twin's colours not tested).
+9. A rename moves the old name's `marks` entry and the find results' rows (`Results::renamed`).
+   Test `a_rename_follows_through_and_needs_no_file_on_disk`.
 
 ## Release 1.1.2 (2026-11-20, released)
 

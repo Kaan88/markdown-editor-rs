@@ -863,7 +863,7 @@ impl App {
                 } else if customs < core_ai::CUSTOMS_MAX {
                     // Add a custom provider: a new one, chosen, its URL to be typed.
                     p.ai_customs.push(core_ai::CustomProvider {
-                        name: format!("Custom provider {}", customs + 1),
+                        name: core_ai::new_custom_name(&p.ai_customs),
                         ..core_ai::CustomProvider::default()
                     });
                     p.ai_preset = "custom".into();
@@ -980,13 +980,27 @@ impl App {
                 self.ai_edit_prompts();
             }
             AI_CUSTOM_REMOVE => {
-                // The provider goes; its key stays in the store under its URL (another provider
-                // may use the same server), as it did when a custom URL was changed.
+                // The provider goes. Its key goes from the store too, unless another provider
+                // uses the same server: a provider added later on that URL must not send it
+                // unasked.
                 let mut p = self.docs.prefs.clone();
                 if p.ai_custom_chosen().is_none() {
                     return;
                 }
-                p.ai_customs.remove(p.ai_custom);
+                let gone = p.ai_customs.remove(p.ai_custom);
+                let slot = core_ai::key_slot(Connection::OpenAi, "custom", &gone.base_url);
+                let shared = p
+                    .ai_customs
+                    .iter()
+                    .any(|c| core_ai::key_slot(Connection::OpenAi, "custom", &c.base_url) == slot);
+                if let Some(slot) = slot.filter(|_| !shared) {
+                    let wake = self.docs.waker();
+                    let req = json!({"op": "key_clear", "slot": slot});
+                    self.ai.keys.remove(&slot);
+                    if let Err(e) = self.ai.ask(&wake, Ask::Key(slot), req) {
+                        self.ai.key_error = Some(e);
+                    }
+                }
                 if p.ai_customs.is_empty() {
                     p.ai_preset = "openai".into();
                 }

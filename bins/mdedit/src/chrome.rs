@@ -289,6 +289,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         Hit::StatusEol => "Line endings (click to change)".into(),
         Hit::StatusEncoding => "Encoding (click to change)".into(),
         Hit::StatusIndent => crate::status::indent_tip(docs)?,
+        Hit::StatusLanguage => "Language (click to change)".into(),
         Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
         _ => return None,
     })
@@ -747,6 +748,30 @@ pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize, days: u32) {
         (Hit::StaleClose, hits.yes),
         (Hit::StaleKeep, hits.no),
         (Hit::StaleDismiss, hits.close),
+    ] {
+        if let Some(r) = r {
+            c.hit(hit, r);
+        }
+    }
+}
+
+/// The bar under the command bar that offers a `.md` name to a file whose text the AI made
+/// Markdown: `name` is the file's name now, `to` the one offered.
+pub fn draw_rename_bar(c: &mut Ctx, bar: Rect, name: &str, to: &str) {
+    use mdshared_ui::notice::{self, OfferBarState};
+    let state = OfferBarState {
+        yes_hovered: c.hover == Some(Hit::RenameGo),
+        yes_pressed: c.pressed == Some(Hit::RenameGo),
+        no_hovered: c.hover == Some(Hit::RenameKeep),
+        no_pressed: c.pressed == Some(Hit::RenameKeep),
+        close_hovered: c.hover == Some(Hit::RenameDismiss),
+    };
+    let text = format!("{name} is Markdown now. Rename it to {to}?");
+    let hits = notice::draw_offer_bar(c.p, c.pal, bar, glyph::DOC, &text, "Rename", "Keep", state);
+    for (hit, r) in [
+        (Hit::RenameGo, hits.yes),
+        (Hit::RenameKeep, hits.no),
+        (Hit::RenameDismiss, hits.close),
     ] {
         if let Some(r) = r {
             c.hit(hit, r);

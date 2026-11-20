@@ -408,9 +408,10 @@ fn custom_providers_are_added_chosen_and_removed_and_need_no_key() {
     let p = &a.docs.prefs;
     assert_eq!(p.ai_customs.len(), 2);
     assert_eq!((p.ai_custom, p.ai_url()), (1, "http://box:11434/v1"));
-    assert_eq!(p.ai_customs[1].name, "Custom provider 2");
+    // Named by the first free number: "LM Studio" leaves 1 free.
+    assert_eq!(p.ai_customs[1].name, "Custom provider 1");
     let rows = rows_of(&mut a);
-    assert!(provider(&rows).ends_with("|LM Studio|Custom provider 2|Add a custom provider…"));
+    assert!(provider(&rows).ends_with("|LM Studio|Custom provider 1|Add a custom provider…"));
     assert!(rows.iter().any(|r| r == "Remove this provider"));
     // Choose the first again: its own URL and model.
     a.ai_setting(AI_PROVIDER, Value::Choice(presets));
@@ -448,10 +449,27 @@ fn custom_providers_are_added_chosen_and_removed_and_need_no_key() {
         ""
     );
     a.ai_setting(AI_PROVIDER, Value::Choice(presets + 1));
-    // Remove the chosen one, then the last: the provider falls back to the first preset.
+    // Remove the chosen one: no other provider uses its server, so its key is cleared from the
+    // store (a provider added later on that URL must not send it unasked).
+    let box_slot = "openai:custom:http://box:11434/v1";
+    wait(&mut a, |a| !a.ai.pending_key(box_slot));
     a.ai_settings_action(AI_CUSTOM_REMOVE);
+    assert!(a.ai.pending_key(box_slot), "the key is cleared");
     assert_eq!(a.docs.prefs.ai_customs.len(), 1);
     assert_eq!(a.docs.prefs.ai_url(), "http://localhost:1234/v1");
+    // A new one is named by the first free number, not the count.
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets + 1));
+    assert_eq!(a.docs.prefs.ai_customs[1].name, "Custom provider 1");
+    // On the first one's server too: removing it leaves the key the other still uses.
+    a.ai_setting(AI_BASE_URL, Value::Text("http://localhost:1234/v1".into()));
+    a.timers(Instant::now() + Duration::from_secs(1));
+    wait(&mut a, |a| !a.ai.pending_key(slot));
+    a.ai_settings_action(AI_CUSTOM_REMOVE);
+    assert!(
+        !a.ai.pending_key(slot),
+        "another provider still uses the key"
+    );
+    // The last one: the provider falls back to the first preset.
     a.ai_settings_action(AI_CUSTOM_REMOVE);
     assert!(a.docs.prefs.ai_customs.is_empty());
     assert_eq!(a.docs.prefs.ai_preset, "openai");
@@ -727,5 +745,176 @@ fn a_prompt_that_would_not_read_back_is_not_saved() {
         out,
         format!("{crlf}\r\n## Say it twice\r\n\r\nSay it twice\r\n")
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A text file the AI formats as Markdown is Markdown at once (preview, tools), and is offered
+/// a `.md` name: a name that is taken is refused, the rename keeps the tab and its undo.
+#[test]
+fn a_text_file_formatted_as_markdown_is_markdown_and_offered_its_name() {
+    engine();
+    let dir = scratch("ai-md");
+    let file = dir.join("notes.txt");
+    std::fs::write(&file, "plain words\n").unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &file);
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    assert!(!a.docs.tabs[i].is_markdown());
+    a.command(C::AiFormat);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.compose();
+    a.key_pressed(keys::Key::Name(KeyName::Enter), None);
+    assert_eq!(text(&a), "# Done\n");
+    let id = a.docs.tabs[i].id;
+    assert!(a.docs.tabs[i].is_markdown());
+    assert!(super::preview::previewable(&a.docs.tabs[i]));
+    let (name, to) = a.docs.rename_bar().expect("the rename bar");
+    assert_eq!(name, "notes.txt");
+    assert_eq!(to.file_name().unwrap(), "notes.md");
+    a.compose();
+    assert!(a.hit_rect(Hit::RenameGo).is_some());
+
+    // The name is taken: nothing is renamed, and it says so.
+    let md = dir.join("notes.md");
+    std::fs::write(&md, "another file").unwrap();
+    a.activate(Hit::RenameGo);
+    assert!(file.exists());
+    assert_eq!(std::fs::read_to_string(&md).unwrap(), "another file");
+    assert!(
+        a.docs.tabs[i]
+            .path
+            .as_deref()
+            .is_some_and(|p| p.ends_with("notes.txt"))
+    );
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .unwrap()
+            .contains("already exists")
+    );
+    assert!(a.docs.rename_bar().is_none());
+
+    // Free again and offered again: the file is renamed; the tab, its unsaved text and its undo
+    // stay.
+    std::fs::remove_file(&md).unwrap();
+    a.docs.rename_offer = Some(id);
+    a.activate(Hit::RenameGo);
+    assert!(!file.exists() && md.exists());
+    assert_eq!(a.docs.tabs[i].id, id);
+    assert!(
+        a.docs.tabs[i]
+            .path
+            .as_deref()
+            .is_some_and(|p| p.ends_with("notes.md"))
+    );
+    assert!(a.docs.tabs[i].modified());
+    let r = a.docs.tabs[i].ready().unwrap();
+    assert!(!r.language_set, "the name gives Markdown now");
+    assert!(a.docs.rename_bar().is_none());
+    // Saved under the new name without a question.
+    a.docs.save(i, false).unwrap();
+    assert_eq!(std::fs::read_to_string(&md).unwrap(), "# Done\n");
+    a.command(C::Undo);
+    assert_eq!(text(&a), "plain words\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable review #3: undoing the AI's change takes back the switch to Markdown and the bar, and
+/// nothing is kept for the file.
+#[test]
+fn undoing_the_conversion_takes_the_switch_back() {
+    engine();
+    let dir = scratch("ai-md-undo");
+    let file = dir.join("notes.txt");
+    std::fs::write(&file, "plain words\n").unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &file);
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    a.docs.prefs.ai_review = false;
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    assert!(a.docs.tabs[i].is_markdown() && a.docs.rename_bar().is_some());
+    a.command(C::Undo);
+    a.compose();
+    assert_eq!(text(&a), "plain words\n");
+    let r = a.docs.tabs[i].ready().unwrap();
+    assert_eq!(crate::languages::name_of(r.language), "Plain text");
+    assert!(r.place().lang.is_none());
+    assert!(!a.docs.tabs[i].is_markdown());
+    assert!(a.docs.rename_bar().is_none() && a.docs.rename_offer.is_none());
+    // Redone, the text is back but the language stays as chosen since (plain).
+    a.command(C::Redo);
+    a.compose();
+    assert_eq!(text(&a), "# Done\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable review #5 and #9: a file no longer on disk is renamed by its tab's name alone; the
+/// bookmarks the old name left and the find results follow the new name.
+#[test]
+fn a_rename_follows_through_and_needs_no_file_on_disk() {
+    engine();
+    let dir = scratch("ai-md-gone");
+    let file = dir.join("notes.txt");
+    std::fs::write(&file, "plain words\n").unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &file);
+    let file = a.docs.tabs[i].path.clone().unwrap();
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    a.docs.prefs.ai_review = false;
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    a.docs.marks.put(&file, &[0]);
+    a.ui.results.rows.push(crate::results::Row::File {
+        path: Some(file.clone()),
+        doc: None,
+        name: "notes.txt".into(),
+        count: 1,
+        more: false,
+        stale: false,
+    });
+    std::fs::remove_file(&file).unwrap();
+    a.compose();
+    a.activate(Hit::RenameGo);
+    let md = dir.join("notes.md");
+    let path = a.docs.tabs[i].path.clone().unwrap();
+    assert!(path.ends_with("notes.md"), "{path:?}");
+    assert!(!md.exists(), "nothing written until it is saved");
+    assert!(a.docs.toast(Instant::now()).unwrap().starts_with("Renamed"));
+    assert_eq!(a.docs.marks.lines(&path), Some(&[0][..]));
+    assert!(a.docs.marks.lines(&file).is_none());
+    match &a.ui.results.rows[0] {
+        crate::results::Row::File { path: p, name, .. } => {
+            assert_eq!(p.as_deref(), Some(path.as_path()));
+            assert_eq!(name, "notes.md");
+        }
+        _ => panic!("a file row"),
+    }
+    a.docs.save(i, false).unwrap();
+    assert_eq!(std::fs::read_to_string(&md).unwrap(), "# Done\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Markdown formatted as Markdown, or a part of a text file, changes no language.
+#[test]
+fn only_a_whole_text_file_formatted_is_switched() {
+    let (mut a, dir) = ai_app("plain words\n");
+    a.docs.prefs.ai_review = false;
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    assert!(a.docs.rename_bar().is_none() && a.docs.rename_offer.is_none());
+
+    let file = dir.join("part.txt");
+    std::fs::write(&file, "one\ntwo\n").unwrap();
+    let i = open_now(&mut a, &file);
+    a.docs.tabs[i].ready_mut().unwrap().view.sel = mdedit_core::Selection {
+        anchor: 0,
+        caret: 3,
+        goal_col: None,
+    };
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    assert!(!a.docs.tabs[i].is_markdown());
+    assert!(a.docs.rename_offer.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }

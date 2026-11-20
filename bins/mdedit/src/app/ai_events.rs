@@ -591,7 +591,11 @@ impl App {
             .map(Path::to_path_buf);
         let mut blocked = self.ai_blocked(run.doc, run.start, run.end, &run.original);
         if !self.docs.prefs.ai_review && blocked.is_none() {
+            let to_markdown = self.ai_converts(run.doc, run.start, run.end, &run.spec);
             if self.ai_replace(run.doc, run.start, run.end, &result) {
+                if let Some(before) = to_markdown {
+                    self.ai_made_markdown(run.doc, Some(before));
+                }
                 self.docs.set_toast(&format!(
                     "{} done. Undo brings the old text back.",
                     run.spec.title
@@ -625,6 +629,52 @@ impl App {
         if preview {
             self.ai_open_panes();
         }
+        self.redraw();
+    }
+
+    /// Whether putting the result of `spec` in place of `start..end` of document `doc` makes a
+    /// document that is not Markdown Markdown: Format as Markdown or Fix Markdown, over the
+    /// whole text (a part formatted leaves the rest as it was). When it does: the undo state and
+    /// the language from before, for an undo to take the switch back.
+    fn ai_converts(
+        &self,
+        doc: DocId,
+        start: usize,
+        end: usize,
+        spec: &Spec,
+    ) -> Option<(u64, Option<mdedit_highlight::Language>)> {
+        let d = self.docs.index_of_id(doc).map(|i| &self.docs.tabs[i])?;
+        let r = d.ready()?;
+        let whole = start == 0 && end == r.buffer.len_bytes();
+        (whole
+            && !d.is_markdown()
+            && (spec.instruction == core_ai::FORMAT || spec.instruction == core_ai::FIX))
+            .then(|| (r.history.state(), r.language))
+    }
+
+    /// A document the AI made Markdown is Markdown from now on (its preview, its tools, its
+    /// colours), as if chosen in the language list; a file not named so is offered a `.md` name
+    /// in a bar. `before`: the undo state and language from before the AI's change; undone back
+    /// to that state, the switch and the bar go (`Docs::drop_undone_switches`).
+    pub(super) fn ai_made_markdown(
+        &mut self,
+        doc: DocId,
+        before: Option<(u64, Option<mdedit_highlight::Language>)>,
+    ) {
+        let Some(i) = self.docs.index_of_id(doc) else {
+            return;
+        };
+        let dark = self.dark();
+        self.docs
+            .set_language(i, crate::languages::markdown(), self.service.as_ref(), dark);
+        if let Some(r) = self.docs.tabs[i].ready_mut() {
+            r.ai_switch = before;
+        }
+        if self.docs.tabs[i].path.is_some() {
+            self.docs.rename_offer = Some(doc);
+        }
+        self.relayout_areas();
+        self.full = true;
         self.redraw();
     }
 
@@ -818,8 +868,12 @@ impl App {
                     let Some(Panel::Review(rv)) = self.ai.panel.take() else {
                         return;
                     };
+                    let to_markdown = self.ai_converts(doc, start, end, &rv.spec);
                     if self.ai_replace(doc, start, end, &rv.result) {
                         self.ai_close_panel();
+                        if let Some(before) = to_markdown {
+                            self.ai_made_markdown(doc, Some(before));
+                        }
                         return;
                     }
                     self.ai.panel = Some(Panel::Review(rv));

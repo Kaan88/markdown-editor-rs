@@ -113,6 +113,8 @@ struct Slot {
     last_change: Option<Instant>,
     dirty_since: Option<Instant>,
     written: Option<Key>,
+    /// The file the copy was written for: a copy of a tab renamed since names the old file.
+    path: Option<PathBuf>,
 }
 
 /// A recovery copy left by an earlier run.
@@ -464,17 +466,24 @@ impl Recovery {
                 slot.last_change = Some(now);
                 slot.dirty_since.get_or_insert(now);
             }
+            // The tab's file was renamed since the copy was written: the copy is written again at
+            // once, so a crash now does not bring the text back as a draft of the old name.
+            let renamed = slot.written.is_some() && slot.path != d.path;
+            if renamed {
+                slot.written = None;
+            }
             if slot.written == Some(key) {
                 continue;
             }
             let last = slot.last_change.unwrap_or(now);
             let first = slot.dirty_since.unwrap_or(now);
             let due = (last + idle).min(first + longest);
-            if now < due {
+            if now < due && !renamed {
                 next = Some(next.map_or(due, |n| n.min(due)));
                 continue;
             }
             slot.written = Some(key);
+            slot.path = d.path.clone();
             slot.dirty_since = None;
             slot.on_disk = true;
             let mut header = Header {
@@ -738,6 +747,33 @@ mod tests {
         rec.poll(&d, t0 + secs(71));
         rec.flush();
         assert!(files(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Fable review #1: a tab renamed after its copy was written gets the copy written again at
+    /// once, naming the new file, so a crash does not bring its text back as a draft.
+    #[test]
+    fn a_renamed_tab_has_its_copy_written_again() {
+        let (dir, path, mut rec) = setup("renamed", b"one\n");
+        let mut d = docs();
+        let i = d.open(&path);
+        d.load_now(i, None, false);
+        let t0 = Instant::now();
+        assert!(d.edit(EditOp::Insert("a"), None));
+        rec.poll(&d, t0);
+        rec.poll(&d, t0 + secs(3));
+        rec.flush();
+        let list = files(&dir);
+        assert_eq!(list.len(), 1);
+        let to = dir.join("file.md");
+        d.rename(i, &to, None, false).unwrap();
+        // No edit and no pause: written again now.
+        rec.poll(&d, t0 + secs(4));
+        rec.flush();
+        let (h, body) = recovery::read(&dir.join("recover").join(&list[0])).unwrap();
+        assert_eq!(h.path.as_deref(), d.tabs[i].path.as_deref());
+        assert!(h.path.unwrap().ends_with("file.md"));
+        assert_eq!(body, text_of(&d, i));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

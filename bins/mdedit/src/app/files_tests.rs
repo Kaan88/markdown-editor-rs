@@ -1472,6 +1472,7 @@ fn the_caret_and_scroll_come_back_when_a_file_is_opened_again_and_across_runs() 
         line: 40,
         col: 3,
         top: 30,
+        lang: None,
     };
     assert_eq!(place(&a, i), left);
     let (sig, version) = (a.session_sig(), a.docs.places.version);
