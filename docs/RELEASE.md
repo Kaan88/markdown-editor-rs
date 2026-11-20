@@ -264,6 +264,25 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.1.2 (published 2026-11-20 by the release workflow, from the tag at commit f8dce9b)
+
+Release run 44651603606, every job green; `ci` run 44649826322 on the commit passed. Release
+notes: `docs/release-notes/1.1.2.md`.
+
+What's in it: the sixth audit round's two fixes (a reloaded tab stays editable; a due session
+retry is made even when nothing changed). 1.1.1 is published and stays as it was; the version
+was not reused.
+
+Verified against the live release:
+- the release is not a draft or pre-release and names 15 assets;
+- `releases/latest/download/` `mdedit-update.txt`, `mdedit-update-2.txt` and
+  `mdedit-update-macos.txt` all name 1.1.2 (format 1, format 2 and macOS);
+- the Windows exe (8,335,360 bytes) and the AppImage (17,467,896 bytes) downloaded with the
+  SHA-256 the manifest names.
+
+Not verified: the installer run on Windows, a 1.1.1 install updating itself, the Mac and Linux
+files on a desktop.
+
 ## v1.1.1 (published 2026-11-19 by the release workflow, run by hand with `publish`, at commit 905dac6)
 
 Run 44608990427; the `ci` run on the commit (44604761547) passed on Windows, Linux, macOS arm64

@@ -5,6 +5,13 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Release 1.1.2 (2026-11-20, released)
+
+mdedit 1.1.2 is released: tag `v1.1.2` at `f8dce9b`, release workflow run 44651603606 green,
+manifests and assets verified (see `docs/RELEASE.md`). It carries the two round-6 fixes (reload
+keeps a waiting tab editable; a due session retry is made). 1.1.1 is unchanged. The round-6 and
+round-7 notes below predate this release. Round 7 came back clean, so no fixes are pending.
+
 ## Audit 1, round 7 (2026-11-20)
 
 Astra re-reviewed `09c5f93`: no new findings, and both round-6 fixes were confirmed on Windows.
