@@ -1987,7 +1987,11 @@ impl App {
                 return;
             }
         }
-        if self.session_sig() != self.saved_sig {
+        // A retry that is due is made even when the state is back to what was last written (an
+        // exit that was cancelled puts the old list back): it succeeds and is done, or it is due
+        // again later. Never left in the past, where it would wake the loop at once on every pass
+        // (audit 1 round 6).
+        if self.session_retry.is_some() || self.session_sig() != self.saved_sig {
             self.save_session();
         }
     }
@@ -3904,6 +3908,105 @@ mod tests {
         assert!(app.next_wake(now).is_none_or(|t| t > at));
         app.session_retry = Some(at);
         assert_eq!(app.next_wake(now), Some(at));
+    }
+
+    /// Audit 1 round 6: a tab whose recovery copy could not be read is read-only; once the copy
+    /// can be read, Reload (Discard asked and taken) puts the copy's text back and the tab is
+    /// editable again, so the recovery look keeps its copy and a crash after it loses nothing.
+    #[test]
+    fn a_reload_that_puts_the_waiting_text_back_keeps_its_copy() {
+        use crate::recovery::{Locked, Recovery};
+        let (dir, backups) = r4_dir("r6-reload");
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "file\n").unwrap();
+        let mut unsaved = r5_backup_and_copy(&dir, &backups, &file);
+        let mut app = app();
+        app.docs = r4_docs();
+        app.recovery = Recovery::new(Some(dir.join("recover")));
+        bring_back(
+            &mut app.docs,
+            &mut app.recovery,
+            &mut unsaved,
+            Some(&backups),
+        );
+        let k = app
+            .docs
+            .tabs
+            .iter()
+            .position(|d| d.restore.is_some())
+            .unwrap();
+        let copy = app.docs.tabs[k].restore.clone().unwrap();
+        let Some(lock) = Locked::new(&copy) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
+        app.docs.load_now(k, None, false);
+        assert!(app.docs.tabs[k].ready().unwrap().read_only);
+        drop(lock);
+        // Reload, through its question.
+        app.docs.activate(k);
+        let id = app.docs.tabs[k].id;
+        app.request(After::Reload(id));
+        assert_eq!(
+            app.ui.dialog.as_ref().map(|d| d.kind),
+            Some(DialogKind::Discard)
+        );
+        app.answer(0);
+        let until = Instant::now() + Duration::from_secs(10);
+        while app.docs.tabs[k].is_loading() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(5));
+            app.docs.drain_loads(None, false);
+        }
+        let d = &app.docs.tabs[k];
+        let r = d.ready().unwrap();
+        assert_eq!(r.buffer.rope().to_string(), "backup copy file\n");
+        assert!(!r.read_only && d.restore.is_none() && d.modified());
+        // The recovery look keeps a copy of it; then the window dies.
+        r4_copies(&app.docs, &mut app.recovery);
+        drop(app);
+        let mut docs = r4_docs();
+        let mut rec = Recovery::new(Some(dir.join("recover")));
+        bring_back(&mut docs, &mut rec, &mut unsaved, Some(&backups));
+        assert_eq!(r4_texts(&mut docs), ["backup copy file\n"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 1 round 6: an exit cancelled after the session could not be written leaves the
+    /// state as last written, with a retry due. When it is due, the write is made all the same:
+    /// failing, it is due again later (never left in the past to wake the loop at once); written,
+    /// it is done.
+    #[test]
+    fn a_due_retry_is_made_when_nothing_changed_since() {
+        let (dir, _) = r4_dir("r6-retry");
+        let session = dir.join("session.ini");
+        let mut app = app();
+        app.save = true;
+        app.session_path = Some(session.clone());
+        assert!(app.save_session());
+        // The session cannot be written now; an exit tries, and is cancelled.
+        std::fs::remove_file(&session).unwrap();
+        std::fs::create_dir_all(&session).unwrap();
+        assert!(app.docs.edit(EditOp::Insert("x"), None));
+        app.request(After::Exit);
+        assert!(!app.exit && app.session_retry.is_some());
+        app.answer(2);
+        assert!(!app.exit);
+        assert_eq!(
+            app.session_sig(),
+            app.saved_sig,
+            "the state as last written"
+        );
+        // Due: tried again, and due again later.
+        app.session_retry = Some(Instant::now() - Duration::from_millis(1));
+        app.persist_if_changed();
+        assert!(app.session_retry.is_some_and(|t| t > Instant::now()));
+        // Writable again: done.
+        std::fs::remove_dir_all(&session).unwrap();
+        app.session_retry = Some(Instant::now() - Duration::from_millis(1));
+        app.persist_if_changed();
+        assert_eq!(app.session_retry, None);
+        assert!(session.is_file());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Audit 1 round 4, #1 and #9: the session cannot be written at any start, so every start

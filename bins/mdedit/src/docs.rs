@@ -2309,6 +2309,7 @@ impl Docs {
                 // A reload keeps the caret's line and column, the scroll and the find query, in
                 // each of the document's views.
                 let mut query = None;
+                let waits = doc.restore.is_some();
                 if let Some(old) = doc.ready_mut() {
                     r.view = ViewState::carried(&mut old.view, &old.buffer, &r.buffer);
                     r.twin = old
@@ -2319,7 +2320,10 @@ impl Docs {
                     r.bookmarks = old.bookmarks.iter().map(|&m| m.min(last)).collect();
                     r.bookmarks.dedup();
                     r.wrap = old.wrap;
-                    r.read_only = old.read_only;
+                    // Read-only only while its text waited (below): set again only if it still
+                    // cannot be read, so a reload that puts it back leaves the tab editable and
+                    // its copy kept by the recovery look (audit 1 round 6).
+                    r.read_only = old.read_only && !waits;
                     old.find.cancel();
                     if !old.find.text.is_empty() {
                         query = Some((old.find.text.clone(), old.find.options));
