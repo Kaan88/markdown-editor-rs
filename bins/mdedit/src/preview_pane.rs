@@ -43,6 +43,8 @@ pub(crate) struct Sent {
     /// The editor's top and its last screen ([`crate::view::source_ends`]) the page was last aligned
     /// to.
     align: Option<(f64, f64, f64)>,
+    /// The gap last asked for: source lines (from 1) and its height in device pixels.
+    gap: Option<(u32, u32, f32)>,
 }
 
 /// Which side synced scrolling follows: the one the reader moved last. The other side follows
@@ -106,6 +108,10 @@ pub struct Pane {
     /// A place to ask the cursor for once nothing is awaited (only the latest is kept).
     hover_due: Option<(f32, f32)>,
     page_line: Option<f32>,
+    /// Visual editing: the page row where the room for the open block starts, as the last
+    /// update gave it, and the answer to the last [`block_at`](Self::block_at) until taken.
+    pub gap_y: Option<f32>,
+    block: Option<Option<(u32, Option<u32>)>>,
 }
 
 /// The pane needs no mdview: this build draws it itself.
@@ -180,6 +186,8 @@ impl Pane {
             task: None,
             pointer: mdview_preview::Pointer::Arrow,
             hover_due: None,
+            gap_y: None,
+            block: None,
         }
     }
 
@@ -332,6 +340,35 @@ impl Pane {
         }
     }
 
+    /// Visual editing: asks which top-level block is at `x, y` (device pixels from the page's
+    /// top left); [`take_block`](Self::take_block) has the answer.
+    pub fn block_at(&mut self, x: f32, y: f32) {
+        self.send(Request::BlockAt { x, y });
+    }
+
+    /// The answer to [`block_at`](Self::block_at): `Some(None)` when no block is there, else
+    /// its first source line and the next block's (from 1).
+    pub fn take_block(&mut self) -> Option<Option<(u32, Option<u32>)>> {
+        self.block.take()
+    }
+
+    /// Visual editing: leaves source lines `first` to `last` (from 1) out of the page with
+    /// room `height` device pixels tall, or puts them back with `None`. Sent when it changed.
+    pub fn set_gap(&mut self, gap: Option<(u32, u32, f32)>) {
+        if self.sent.gap != gap {
+            self.sent.gap = gap;
+            if gap.is_none() {
+                self.gap_y = None;
+            }
+            self.send(Request::Gap { gap });
+        }
+    }
+
+    /// The gap last asked for: its source lines (from 1) and height (device pixels).
+    pub fn sent_gap(&self) -> Option<((u32, u32), f32)> {
+        self.sent.gap.map(|(a, b, h)| ((a, b), h))
+    }
+
     /// Nothing is awaited from the page, and no cursor question is held back.
     #[cfg(test)]
     pub fn idle(&self) -> bool {
@@ -386,6 +423,14 @@ impl Pane {
                     {
                         self.last_round_trip = Some(at.elapsed());
                         self.round_trips.push(at.elapsed());
+                    }
+                    if let Some(b) = u.block.take() {
+                        self.block = Some(b);
+                        changed = true;
+                    }
+                    if self.sent.gap.is_some() && u.gap_y != self.gap_y {
+                        self.gap_y = u.gap_y;
+                        changed = true;
                     }
                     self.last_server = Some(Duration::from_micros(u.micros as u64));
                     if u.is_ack() {

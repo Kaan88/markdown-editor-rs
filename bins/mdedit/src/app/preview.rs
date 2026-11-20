@@ -98,6 +98,7 @@ impl App {
         let dark = self.dark();
         let scale = self.scale;
         let rect = self.areas.preview;
+        let visual = self.visual_on();
         let Some(pane) = self.preview.as_mut() else {
             return false;
         };
@@ -126,7 +127,10 @@ impl App {
             let caret = r.view.sel.caret;
             let line = r.buffer.line_of(caret);
             let column = caret - r.buffer.line_range(line).start;
-            pane.follow(line as u32 + 1, column as u32);
+            // In visual editing the page is scrolled by the reader only.
+            if !visual {
+                pane.follow(line as u32 + 1, column as u32);
+            }
         }
         self.preview_copied();
         self.preview_task();
@@ -144,6 +148,12 @@ impl App {
             .preview
             .as_ref()
             .is_some_and(|p| p.focused && !p.selection.is_empty());
+        if visual {
+            let before = self.areas;
+            self.visual_sync();
+            self.relayout_areas();
+            return changed | (self.areas != before);
+        }
         changed | self.preview_scroll_sync()
     }
 
@@ -911,5 +921,91 @@ mod tests {
                 p.ended
             );
         }
+    }
+
+    #[test]
+    fn visual_editing_opens_a_block_in_place_follows_its_typing_and_puts_it_back() {
+        use crate::keys::{Key, KeyName};
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual");
+        let md = dir.join("a.md");
+        std::fs::write(
+            &md,
+            "# Title
+
+First paragraph.
+
+- one
+- two
+
+Last.
+",
+        )
+        .unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        let text_before = {
+            a.compose();
+            a.areas.text
+        };
+        a.command(C::VisualEdit);
+        assert!(a.visual_on() && a.docs.visual_open);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        // The page takes the whole text area; no text view while no block is open.
+        let page = a.areas.preview.expect("the page");
+        assert_eq!(page, text_before);
+        assert_eq!(a.areas.text.w, 0.0);
+
+        // A press near the page's top opens the title.
+        a.visual_press(page.cx(), page.y + 50.0);
+        pump(&mut a, |a| {
+            a.visual_block().is_some() && a.areas.text.w > 0.0
+        });
+        let block = a.visual_block().expect("a block opened");
+        assert_eq!(block.first, 0);
+        let boxed = a.areas.text;
+        assert!(boxed.y >= page.y && boxed.bottom() <= page.bottom() && boxed.w < page.w);
+        let ((first, last), h1) = a.preview.as_ref().unwrap().sent_gap().unwrap();
+        assert_eq!((first, last), (1, 1));
+
+        // Typing goes into the document; Enter adds a line to the block and the room grows.
+        type_text(&mut a, "My ");
+        a.key_pressed(Key::Name(KeyName::Enter), None);
+        a.compose();
+        pump(&mut a, |a| {
+            a.preview
+                .as_ref()
+                .unwrap()
+                .sent_gap()
+                .is_some_and(|g| g.0 == (1, 2))
+        });
+        let r = a.docs.active_ready().unwrap();
+        let mut s = String::new();
+        r.buffer.text(0..r.buffer.len_bytes(), &mut s);
+        assert!(
+            s.starts_with(
+                "My 
+# Title
+"
+            ),
+            "{s:?}"
+        );
+        let (lines, h2) = a.preview.as_ref().unwrap().sent_gap().unwrap();
+        assert_eq!(lines, (1, 2));
+        assert!(h2 > h1);
+
+        // Esc puts it back; Ctrl+E again goes back to the text beside the page.
+        a.key_pressed(Key::Name(KeyName::Escape), None);
+        a.compose();
+        assert!(a.visual_block().is_none());
+        assert!(a.preview.as_ref().unwrap().sent_gap().is_none());
+        a.command(C::VisualEdit);
+        a.compose();
+        assert!(!a.visual_on() && a.areas.text.w > 0.0);
     }
 }

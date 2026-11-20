@@ -1056,7 +1056,8 @@ impl App {
             | C::ShowInOtherPane
             | C::PreviewInViewer
             | C::PreviewSideBySide
-            | C::PreviewPane => {
+            | C::PreviewPane
+            | C::VisualEdit => {
                 self.docs.activate(index);
                 self.command(id);
             }
@@ -1798,10 +1799,11 @@ impl App {
             // Previews not offered (in mdview without it, the pane in the build that needs it)
             // do nothing from their keys.
             C::PreviewInViewer | C::PreviewSideBySide if !self.docs.viewer => {}
-            C::PreviewPane if !self.docs.pane => {}
+            C::PreviewPane | C::VisualEdit if !self.docs.pane => {}
             C::PreviewInViewer => self.preview(false),
             C::PreviewSideBySide => self.preview(true),
             C::PreviewPane => self.toggle_preview_pane(),
+            C::VisualEdit => self.toggle_visual(),
             C::FocusOther => {
                 if self.docs.focus_other() {
                     self.ui.find_focused = false;
@@ -1953,6 +1955,11 @@ impl App {
         }
         if self.ui.replace_open {
             self.close_replace();
+            return;
+        }
+        // Visual editing: Esc puts the open block back on the page.
+        if self.visual_block().is_some() {
+            self.close_block();
             return;
         }
         let has_query = self

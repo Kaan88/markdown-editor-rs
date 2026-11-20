@@ -155,6 +155,9 @@ pub enum CommandId {
     PreviewSideBySide,
     /// The preview pane beside the text, drawn by mdview's renderer; again closes it.
     PreviewPane,
+    /// Markdown shown as its page, one block at a time edited as its source in place (Ctrl+E);
+    /// again goes back to the text.
+    VisualEdit,
     /// The word and snippet list at the caret; the snippets file.
     CompleteWord,
     OpenSnippets,
@@ -331,6 +334,11 @@ pub const COMMANDS: &[Command] = &[
     ),
     cmd(C::PreviewSideBySide, "Preview side by side", &[]),
     cmd(C::PreviewPane, "Preview in this window, or close it", &[]),
+    cmd(
+        C::VisualEdit,
+        "Edit on the page, or back to the text",
+        &["Ctrl+E"],
+    ),
     cmd(C::RecordMacro, "Record a macro, or stop", &["Ctrl+Shift+R"]),
     cmd(C::PlayMacro, "Play the macro", &["Ctrl+Shift+P"]),
     cmd(

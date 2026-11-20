@@ -637,7 +637,14 @@ impl App {
             self.redraw();
             return;
         }
-        if self.page_area().is_some_and(|r| r.contains(x, y)) {
+        if self.visual_on()
+            && !self.areas.text.contains(x, y)
+            && self.page_area().is_some_and(|r| r.contains(x, y))
+        {
+            self.visual_press(x, y);
+            return;
+        }
+        if !self.visual_on() && self.page_area().is_some_and(|r| r.contains(x, y)) {
             let clicks = self.click_count(x, y);
             self.preview_press(x, y, clicks);
             return;

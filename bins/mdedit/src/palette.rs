@@ -335,7 +335,7 @@ fn icon(id: C) -> &'static str {
         C::FoldAll => glyph::FOLD_ALL,
         C::UnfoldAll => glyph::UNFOLD,
         C::ToggleSplit | C::CompareOther | C::ShowInOtherPane => glyph::SPLIT,
-        C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => glyph::VIEW,
+        C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane | C::VisualEdit => glyph::VIEW,
         C::FocusOther | C::FocusResults => glyph::OTHER_PANE,
         C::CompareFile => glyph::OPEN,
         C::CompareSaved => glyph::SAVE,
@@ -464,7 +464,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::AiCancel => docs.ai_status.is_some(),
         C::CopyFilePath | C::ShowInFileManager => has_file,
         // A document that has no file is previewed from its text.
-        C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane => has_tab,
+        C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane | C::VisualEdit => has_tab,
         C::Undo => ready.is_some_and(|r| r.history.can_undo()),
         C::Redo => ready.is_some_and(|r| r.history.can_redo()),
         // Copy takes the page's selection while the page has the keyboard.
@@ -509,7 +509,7 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
             // Without mdview the previews in it are not listed, not even greyed; the pane is
             // listed while it is offered.
             C::PreviewInViewer | C::PreviewSideBySide => src.docs.viewer,
-            C::PreviewPane => src.docs.pane,
+            C::PreviewPane | C::VisualEdit => src.docs.pane,
             _ => true,
         };
         if !listed {
