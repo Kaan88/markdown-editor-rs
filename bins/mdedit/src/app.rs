@@ -75,6 +75,7 @@ mod input;
 pub(crate) mod modal;
 mod palette_events;
 mod preview;
+mod visual;
 pub(crate) use preview::previewable;
 #[cfg(test)]
 mod pin_tests;
@@ -219,6 +220,9 @@ struct App {
     link_due: Option<Instant>,
     /// The preview pane, while it is open (src/preview_pane.rs).
     pub(crate) preview: Option<crate::preview_pane::Pane>,
+    /// Visual editing (Ctrl+E): the document shown as its page, one block at a time edited in
+    /// place (src/app/visual.rs).
+    pub(crate) visual: Option<visual::Visual>,
     /// The installed mdview, as last looked for; `None` before the first look.
     viewer_path: Option<Option<PathBuf>>,
     /// What the crash report says mdedit was doing, as last set.
@@ -400,6 +404,7 @@ impl App {
             incoming: None,
             link_due: None,
             preview: None,
+            visual: None,
             viewer_path: None,
             crash_key: Default::default(),
             watcher: None,
@@ -553,7 +558,9 @@ impl App {
 
     /// The caret shows: the text has the keyboard and the window has focus.
     fn text_focused(&self) -> bool {
-        !self.ui.find_focused
+        // Visual editing: the text has the keyboard only in an open block.
+        !(self.visual.is_some() && self.visual_block().is_none())
+            && !self.ui.find_focused
             && !self.preview_focused()
             && !self.ui.results.focused
             && self.ui.dialog.is_none()
@@ -1290,6 +1297,16 @@ impl App {
                 }
             }
         }
+        // Visual editing: the open block's text is drawn over the page, so a new page frame
+        // draws the text again.
+        let visual_box = self
+            .areas
+            .preview
+            .filter(|_| self.visual_on())
+            .and_then(|page| self.visual_box(page));
+        if self.visual_on() && dirty[Region::Preview.index()] {
+            dirty[ti] = true;
+        }
         if dirty[ti] {
             bands = None;
         }
@@ -1328,7 +1345,13 @@ impl App {
         let mut damage = Vec::new();
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
-            for r in REGIONS {
+            let mut order = REGIONS.to_vec();
+            if visual_box.is_some() || self.visual.is_some() {
+                order.retain(|&r| r != Region::Preview);
+                let at = order.iter().position(|&r| r == Region::Text).unwrap_or(0);
+                order.insert(at, Region::Preview);
+            }
+            for r in order {
                 if !dirty[r.index()] {
                     continue;
                 }
@@ -1392,7 +1415,28 @@ impl App {
                         None => overlays::draw_empty(&mut c, &self.docs, rect),
                         Some(i) => {
                             let doc = &mut self.docs.tabs[i];
-                            times.paint = self.view.draw(&mut c, doc, rect, &ds, None);
+                            times.paint = if visual_box.is_some() {
+                                // The box can be scrolled partly out of the page: its text
+                                // stays inside the page, off the bars around it.
+                                if let Some(page) = self.areas.preview {
+                                    c.p.clip(page);
+                                }
+                                // The open block's text sits on the box's tint, not the page.
+                                let boxed = Palette {
+                                    page: visual::box_fill(c.pal),
+                                    ..*c.pal
+                                };
+                                let mut bc = chrome::Ctx {
+                                    p: &mut *c.p,
+                                    pal: &boxed,
+                                    hits: &mut *c.hits,
+                                    hover: c.hover,
+                                    pressed: c.pressed,
+                                };
+                                self.view.draw(&mut bc, doc, rect, &ds, None)
+                            } else {
+                                self.view.draw(&mut c, doc, rect, &ds, None)
+                            };
                         }
                     },
                     Region::Minimap | Region::MinimapOther => {
@@ -1426,7 +1470,10 @@ impl App {
                         }
                     }
                     Region::Preview => {
-                        crate::preview_pane::draw(&mut c, self.preview.as_ref(), &self.docs, rect)
+                        crate::preview_pane::draw(&mut c, self.preview.as_ref(), &self.docs, rect);
+                        if let Some(b) = visual_box {
+                            c.p.frame(b, 6.0, visual::box_fill(&pal), pal.accent);
+                        }
                     }
                     Region::Status => status::draw(&mut c, &self.docs, rect),
                     Region::Results => crate::results::draw(&mut c, &mut self.ui, rect),
@@ -2666,14 +2713,16 @@ impl App {
         if self.docs.other.is_some() && self.docs.pane1().is_none() {
             self.docs.other = None;
         }
+        let visual = self.visual_on();
         let areas = areas
             .with_split(
-                self.docs.other.is_some(),
+                self.docs.other.is_some() && !visual,
                 self.docs.other_left,
                 self.docs.split_ratio,
             )
-            .with_preview(self.preview.is_some(), self.docs.split_ratio)
-            .with_minimap(self.docs.minimap && self.docs.active().is_some());
+            .with_preview(self.preview.is_some() && !visual, self.docs.split_ratio)
+            .with_minimap(self.docs.minimap && self.docs.active().is_some() && !visual);
+        let areas = self.with_visual(areas);
         if areas != self.areas {
             self.areas = areas;
             self.full = true;
@@ -2695,8 +2744,12 @@ impl App {
             self.notice_h(),
         )
         .with_results(self.ui.results.open, self.ui.results.height)
-        .with_preview(self.preview.is_some(), self.docs.split_ratio)
-        .with_minimap(self.docs.minimap && self.docs.active().is_some());
+        .with_preview(
+            self.preview.is_some() && !self.visual_on(),
+            self.docs.split_ratio,
+        )
+        .with_minimap(self.docs.minimap && self.docs.active().is_some() && !self.visual_on());
+        self.areas = self.with_visual(self.areas);
         let text = self.areas.text;
         let mut geom = None;
         if let Some(doc) = self.docs.active_doc_mut() {

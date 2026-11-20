@@ -193,6 +193,10 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
     let mut items = Vec::new();
     if docs.pane {
         items.push(item(C::PreviewPane, here).checked(docs.pane_open));
+        // The View menu has no letter left for it: the tab menu, the palette and Ctrl+E.
+        if index.is_some() {
+            items.push(item(C::VisualEdit, "Edit on the pa&ge").checked(docs.visual_open));
+        }
     }
     if docs.viewer {
         items.push(item(C::PreviewInViewer, preview).checked(linked));

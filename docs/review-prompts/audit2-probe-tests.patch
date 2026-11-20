@@ -1,0 +1,121 @@
+diff --git a/bins/mdedit/src/app.rs b/bins/mdedit/src/app.rs
+index ac354ce..3ce130c 100644
+--- a/bins/mdedit/src/app.rs
++++ b/bins/mdedit/src/app.rs
+@@ -4444,4 +4444,116 @@ mod tests {
+         a.close_settings();
+         assert!(a.ui.settings.is_none());
+     }
++    /// FABLE: two windows on one session folder. A keeps a draft at exit; B, started before
++    /// that with nothing unsaved, exits later.
++    #[test]
++    fn fable_second_instance_exit_deletes_first_instances_backup() {
++        let (dir, backups) = r4_dir("fable-two");
++        let session = dir.join("session.ini");
++        let mk = || {
++            let mut a = app();
++            a.save = true;
++            a.session_path = Some(session.clone());
++            a.session = Session::load(&session);
++            a
++        };
++        let mut a = mk();
++        let mut b = mk();
++        assert!(a.docs.edit(EditOp::Insert("A's unsaved text"), None));
++        a.request(After::Exit);
++        assert!(a.exit);
++        let listed = Session::load(&session).unsaved;
++        assert_eq!(listed.len(), 1);
++        assert!(backups.join(&listed[0].file).is_file());
++        // B closes with nothing unsaved.
++        b.request(After::Exit);
++        assert!(b.exit);
++        b.save_session();
++        eprintln!("FABLE after B exit: listed={} file_exists={}",
++            Session::load(&session).unsaved.len(), backups.join(&listed[0].file).is_file());
++        // B with an unsaved doc of its own.
++        let mut a = mk();
++        let mut b = mk();
++        assert!(a.docs.edit(EditOp::Insert("A2"), None));
++        a.request(After::Exit);
++        let listed = Session::load(&session).unsaved;
++        assert!(b.docs.edit(EditOp::Insert("B2"), None));
++        b.request(After::Exit);
++        let after = Session::load(&session).unsaved;
++        let texts: Vec<String> = after.iter().map(|u| std::fs::read_to_string(backups.join(&u.file)).unwrap_or_default()).collect();
++        eprintln!("FABLE both unsaved: A listed {:?}; after B exit texts {:?}", listed.iter().map(|u|&u.file).collect::<Vec<_>>(), texts);
++        let _ = std::fs::remove_dir_all(&dir);
++    }
++
++    /// FABLE: Close All, "Don't save" on the first tab, Cancel on the second: what happened to
++    /// the first tab's recovery copy and session backup in between.
++    #[test]
++    fn fable_discard_then_cancel_drops_the_copy() {
++        use crate::recovery::Recovery;
++        let (dir, backups) = r4_dir("fable-discard");
++        let session = dir.join("session.ini");
++        let mut app = app();
++        app.save = true;
++        app.session_path = Some(session.clone());
++        app.recovery = Recovery::new(Some(dir.join("recover")));
++        assert!(app.docs.edit(EditOp::Insert("first"), None));
++        let first = app.docs.tabs[0].id;
++        let k = app.docs.new_untitled();
++        app.docs.activate(k);
++        assert!(app.docs.edit(EditOp::Insert("second"), None));
++        r4_copies(&app.docs, &mut app.recovery);
++        let count = || std::fs::read_dir(dir.join("recover")).map(|d| d.count()).unwrap_or(0);
++        assert_eq!(count(), 2);
++        app.request(After::CloseAll);
++        assert_eq!(app.ui.dialog.as_ref().map(|d| d.kind), Some(DialogKind::Unsaved));
++        app.answer(1); // Don't save, first tab
++        assert_eq!(app.ui.dialog.as_ref().map(|d| d.kind), Some(DialogKind::Unsaved));
++        // The loop turns while the second question is open.
++        app.persist_if_changed();
++        app.recovery.poll(&app.docs, Instant::now());
++        app.recovery.flush();
++        let during = count();
++        app.answer(2); // Cancel
++        assert_eq!(app.docs.tabs.len(), 2);
++        let i = app.docs.index_of_id(first).unwrap();
++        eprintln!("FABLE discard/cancel: copies during={} first modified after cancel={}", during, app.docs.tabs[i].modified());
++        let _ = backups;
++        let _ = std::fs::remove_dir_all(&dir);
++    }
++    /// FABLE: the session file cannot be read at one start (another program has it open).
++    #[test]
++    fn fable_an_unreadable_session_loses_the_kept_drafts() {
++        use crate::recovery::Locked;
++        let (dir, backups) = r4_dir("fable-session-locked");
++        let session = dir.join("session.ini");
++        // A run that keeps a draft at exit.
++        let mut a = app();
++        a.save = true;
++        a.session_path = Some(session.clone());
++        assert!(a.docs.edit(EditOp::Insert("kept draft"), None));
++        a.request(After::Exit);
++        assert!(a.exit);
++        let listed = Session::load(&session).unsaved;
++        assert_eq!(listed.len(), 1);
++        let backup = backups.join(&listed[0].file);
++        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "kept draft");
++        // The next start: the session is held by another program while it is read.
++        let lock = Locked::new(&session);
++        if lock.is_none() { return; }
++        let loaded = Session::load(&session);
++        drop(lock);
++        eprintln!("FABLE locked session: unsaved entries read = {}", loaded.unsaved.len());
++        let mut b = app();
++        b.docs = r4_docs();
++        b.save = true;
++        b.session_path = Some(session.clone());
++        b.session = loaded;
++        let mut rec = crate::recovery::Recovery::new(Some(dir.join("recover")));
++        bring_back(&mut b.docs, &mut rec, &mut b.session.unsaved, Some(&backups));
++        eprintln!("FABLE locked session: tabs restored = {}", b.docs.tabs.len());
++        b.request(After::Exit);
++        eprintln!("FABLE locked session: exit={} backup still on disk={} session lists={}",
++            b.exit, backup.is_file(), Session::load(&session).unsaved.len());
++        let _ = std::fs::remove_dir_all(&dir);
++    }
+ }

@@ -1463,6 +1463,8 @@ pub struct Docs {
     pub pane: bool,
     /// The preview pane is open (the app holds it; menus and the bar read this).
     pub pane_open: bool,
+    /// Visual editing is on for the active document (`App::visual`), for the View menu's mark.
+    pub visual_open: bool,
     /// The format bar shows under the command bar for Markdown documents.
     pub format_bar: bool,
 }
@@ -1511,6 +1513,7 @@ impl Docs {
             viewer: cfg!(test),
             pane: cfg!(test) || crate::preview_pane::STANDALONE,
             pane_open: false,
+            visual_open: false,
             format_bar: true,
         }
     }
@@ -2927,7 +2930,9 @@ impl Docs {
             if r.view.folds.suspended() != compared {
                 r.view.folds.suspend(compared);
             }
-            let wrap = self.wrap && !compared;
+            // Visual editing wraps the open block to the page's column.
+            let visual = self.visual_open && active == Some(k);
+            let wrap = (self.wrap || visual) && !compared;
             if r.wrap != wrap {
                 r.wrap = wrap;
                 // Each of the document's views starts its rows over, with its caret's line in

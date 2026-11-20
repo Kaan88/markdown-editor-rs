@@ -1639,7 +1639,9 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
     let lines = r.buffer.len_lines().max(1);
     let adv_l = m.advance_l();
     // With line numbers off the gutter keeps its padding: the fold chevrons and bookmarks live there.
-    let gutter_w = if crate::live::line_numbers() {
+    let gutter_w = if crate::live::bare() {
+        0.0
+    } else if crate::live::line_numbers() {
         gutter_width(lines, adv_l, GUTTER_PAD_L + GUTTER_PAD_R)
     } else {
         GUTTER_PAD_L + GUTTER_PAD_R

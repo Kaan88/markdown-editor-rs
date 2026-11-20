@@ -5,6 +5,97 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Reviews: who audited what (2026-11-21)
+
+- Audit 1, rounds 1 to 7 (2026-11-19 to 11-20, up to `09c5f93`, released as 1.1.2): all by Astra
+  (GPT), since the owner's Fable limits were spent. No Fable audit of that code yet.
+- Not audited by anyone yet: everything after round 7. That is visual editing (`f/visual-edit`
+  here, with mdview `f/block-edit` `2fbb08c` and `5be9ca7`) and `f/four-fixes` (worktree
+  `..\mdedit-four-fixes`: prompt Modify, About OK, cleanup days, the caret kept per file,
+  custom AI providers without a key and several of them, the language switch, the .md rename offer).
+- 2026-11-21: three Fable reviews asked for: (1) visual editing, (2) `f/four-fixes`, (3) a second
+  opinion on Astra's audit 1 areas (recovery and session, AI keys, AI apply/review, the updater).
+  Their findings and fixes go in a section "Audit 2" here.
+
+## Audit 2 (Fable, 2026-11-21): findings, none fixed yet
+
+Read-only reviews; the findings are from reading code unless marked. Spot-checked against the code by
+the session that asked for them (marked "verified").
+
+**A. Second opinion on audit 1 (`main` @ `75afd67`, the 1.1.2 code).** Keys, Apply/review, SSE and
+the updater held up. Drafts can still be lost:
+1. Two windows on one session folder (launches close together, e.g. Explorer multi-open: no lock
+   before the single-instance listener starts, `app.rs` ~3145/3389). Each exit drops the other's
+   backups (`drop_stale_backups`), `Recovery::finish` clears all of `recover/`, both write
+   `session.ini.tmp`. Reproduced with two real processes and a probe test. Major.
+2. A session file that cannot be read at start (`Session::load`, `session.rs` ~318: any read error
+   gives an empty session) leads the next exit to write the empty session and delete every kept
+   draft. Probe test; verified. Also `settings::write_atomic` (shared) has no fsync before rename.
+   Major.
+3. "Don't save" then Cancel in a Close All / Close Others run: the first tab's recovery copy and
+   session entry go while the next question is open (`commands.rs` ~1026/1044). Probe test. Minor.
+4. `--exit-after-ms`, `--type-steps`, `--scroll-steps` exit without `keep_unsaved`. Minor (dev flags).
+5. Tests that pass with their fix reverted: `finish(.., saved)` in the exit path (`app.rs` ~2539),
+   the waiting-tab skip in `Recovery::poll` (`recovery.rs` ~447), every `Fail::hide(key)` (only the
+   `sk-ant-` prefix fallback is tested), the `sse` `Watched` closed check.
+6. Smaller: duplicate drafts after a crash between `keep_unsaved` and `finish`; an updater repair
+   overlapping an install (`missing_parts` checks existence, not version; staged files not
+   fsynced); `host_of` shows `user:pass@` from a base URL in errors.
+Probe tests: `docs/review-prompts/audit2-probe-tests.patch`.
+
+**B. Visual editing (`f/visual-edit` + mdview `f/block-edit`).** No edit loss found.
+1. The page jumps to the caret line of the Ctrl+E moment on each text or view change: the server
+   keeps the last `Follow` and mdedit stops sending it (`server.rs` `go_to`). Verified. Major.
+2. The box's text is not clipped to the page; it can paint over the bars when scrolled. Major.
+3. A block taller than the pane: nothing scrolls the page to the caret. Major.
+4. Closing the preview pane during visual editing leaves it stuck (`toggle_preview_pane`).
+   Verified. Major.
+5. A second quick click can get `block_at` answered from the old text (no `held` check on the
+   click path). Major, narrow.
+6. Keys edit at a hidden caret with no block open; Ctrl+A in a block selects the whole doc.
+   Verified. Major.
+7. Edits outside the block (Replace All, trim on save, reload, AI) put the box and the gap out of
+   step. Major.
+8. Minor: folds ignored; arrows at the first/last block; a one-frame stale `gap_y`; the
+   `live::BARE` global can make parallel tests flaky.
+
+**C. `f/four-fixes`.** No blocker; nothing reopens an audit 1 bug outright.
+1. Rename leaves the recovery copy under the old path: after a crash it comes back as a detached
+   Untitled draft. Major.
+2. Rename is check-then-`fs::rename`, which replaces a file appearing in between. Verified. Minor.
+3. Undo after the AI conversion leaves the doc Markdown and the Rename bar up. Minor.
+4. A custom provider with a URL still asks the credential store when keyless; fails where none
+   runs (Linux). Verified (`keys::get`). Minor on Windows.
+5. Rename of a tab whose file is not on disk fails and drops the offer. Minor.
+6. Minor: 1.1.2 round trip drops custom providers; migration drops a custom URL when another
+   preset was chosen; keys per URL are shared and orphaned on remove; duplicate "Custom provider
+   N" names; Save As keeps a chosen language; stale marks and find results after rename;
+   `MDEDIT_AI_KEY` ignored for local presets.
+
+## Visual editing, B+ (2026-11-20/21, branch `f/visual-edit`, not pushed, not released)
+
+Ctrl+E (tab menu "Edit on the pa&ge", palette) on a Markdown tab: the preview takes the whole
+text area. A click on a block opens it as its source in a box at its place on the page; the
+document's own text view is drawn there (`app/visual.rs`), so undo, find and every command work.
+Esc, a click anywhere outside the box, or the caret leaving the block closes it; arrows past its
+ends open the next block. Approved by the owner side by side with the spike ("it's the same").
+
+- The renderer leaves the room (mdview `set_gap`, protocol `MDVPREVIEW7`, pinned at `5be9ca7`):
+  the first covered top-level block becomes empty room of the box's height, the rest take none.
+- While a block is open the page gets no text (`preview_sync`, `held`): it keeps the text the
+  block opened on, so it stands still while typing, as the spike did. The gap is in that text's
+  lines (`Block.lines`, `Block::last`). The edits go to the page when the block closes.
+- The caret leaving the block sets `Visual.pending`. `preview_sync` sends the new text first,
+  then asks `block_of_line`; if the text is held for an answer, the question waits too.
+- A click outside an open block only closes it (as the spike); with none open it asks `block_at`.
+- The box: fill `box_fill` (page mixed 4% toward text, also the text view's background inside),
+  accent border, radius 6, 10 px padding, 6 px of room above and below. No gutter (`live::bare`),
+  wrap forced on.
+- Test: `app::preview::tests::visual_editing_opens_a_block_in_place_follows_its_typing_and_puts_it_back`.
+- Not done: scrolling the page to a block the arrows or find open off-screen; a View menu entry
+  (no free letter); PLAN step 3 edge cases; step 4 budgets. Run on Windows only (tests and the
+  owner's hand test).
+
 ## Release 1.1.2 (2026-11-20, released)
 
 mdedit 1.1.2 is released: tag `v1.1.2` at `f8dce9b`, release workflow run 44651603606 green,
