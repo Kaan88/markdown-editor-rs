@@ -13,6 +13,11 @@ use mdshared_ui::chrome::{
 };
 use mdshared_ui::gfx::{Face, Painter, Rect, Rgb, mix};
 pub use mdshared_ui::glyph;
+
+/// The AI mark: a four-pointed star with a small one above it, as AI features are commonly
+/// marked. Drawn as the shared icons are (`glyph`: strokes on a 16 by 16 grid), kept here until
+/// mdview needs it too.
+pub const SPARKLE: &str = "M6.5 4.5Q7 9 11.5 9.5Q7 10 6.5 14.5Q6 10 1.5 9.5Q6 9 6.5 4.5zM12.5 1.5Q12.7 3.3 14.5 3.5Q12.7 3.7 12.5 5.5Q12.3 3.7 10.5 3.5Q12.3 3.3 12.5 1.5z";
 use mdshared_ui::textfield::{FieldColors, TextField};
 use mdshared_ui::theme::Palette;
 
@@ -284,6 +289,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         Hit::StatusEol => "Line endings (click to change)".into(),
         Hit::StatusEncoding => "Encoding (click to change)".into(),
         Hit::StatusIndent => crate::status::indent_tip(docs)?,
+        Hit::StatusLanguage => "Language (click to change)".into(),
         Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
         _ => return None,
     })
@@ -699,8 +705,25 @@ pub fn draw_crash_bar(c: &mut Ctx, bar: Rect) {
     }
 }
 
-/// The bar under the command bar that offers to close the tabs not opened for a week of use.
-pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize) {
+/// What the stale bar says about `n` tabs not opened in the last `days` days of use (the shared
+/// `stale::label` knows the default week only).
+pub fn stale_label(n: usize, days: u32) -> String {
+    let tabs = if n == 1 {
+        "1 tab has".to_string()
+    } else {
+        format!("{n} tabs have")
+    };
+    let span = if days == 1 {
+        "on the last day".to_string()
+    } else {
+        format!("in the last {days} days")
+    };
+    format!("{tabs} not been opened {span} you used mdedit.")
+}
+
+/// The bar under the command bar that offers to close the tabs not opened in the last `days`
+/// days of use.
+pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize, days: u32) {
     use mdshared_ui::notice::{self, OfferBarState};
     use mdshared_ui::stale;
     let state = OfferBarState {
@@ -710,7 +733,7 @@ pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize) {
         no_pressed: c.pressed == Some(Hit::StaleKeep),
         close_hovered: c.hover == Some(Hit::StaleDismiss),
     };
-    let text = stale::label(count, "mdedit");
+    let text = stale_label(count, days);
     let hits = notice::draw_offer_bar(
         c.p,
         c.pal,
@@ -725,6 +748,30 @@ pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize) {
         (Hit::StaleClose, hits.yes),
         (Hit::StaleKeep, hits.no),
         (Hit::StaleDismiss, hits.close),
+    ] {
+        if let Some(r) = r {
+            c.hit(hit, r);
+        }
+    }
+}
+
+/// The bar under the command bar that offers a `.md` name to a file whose text the AI made
+/// Markdown: `name` is the file's name now, `to` the one offered.
+pub fn draw_rename_bar(c: &mut Ctx, bar: Rect, name: &str, to: &str) {
+    use mdshared_ui::notice::{self, OfferBarState};
+    let state = OfferBarState {
+        yes_hovered: c.hover == Some(Hit::RenameGo),
+        yes_pressed: c.pressed == Some(Hit::RenameGo),
+        no_hovered: c.hover == Some(Hit::RenameKeep),
+        no_pressed: c.pressed == Some(Hit::RenameKeep),
+        close_hovered: c.hover == Some(Hit::RenameDismiss),
+    };
+    let text = format!("{name} is Markdown now. Rename it to {to}?");
+    let hits = notice::draw_offer_bar(c.p, c.pal, bar, glyph::DOC, &text, "Rename", "Keep", state);
+    for (hit, r) in [
+        (Hit::RenameGo, hits.yes),
+        (Hit::RenameKeep, hits.no),
+        (Hit::RenameDismiss, hits.close),
     ] {
         if let Some(r) = r {
             c.hit(hit, r);

@@ -72,6 +72,8 @@ mod handoff;
 #[cfg(test)]
 mod ime_tests;
 mod input;
+#[cfg(test)]
+mod language_tests;
 pub(crate) mod modal;
 mod palette_events;
 mod preview;
@@ -896,7 +898,7 @@ impl App {
                             .map(|s| crate::updater::Updates::bar_label(&crate::updater::APP, s)),
                         self.docs.updates.relaunch_target().is_some(),
                         self.docs.crash.is_some(),
-                        self.docs.stale.len(),
+                        (self.docs.stale.len(), self.docs.rename_bar()),
                     ),
                 ))
             }
@@ -1100,6 +1102,7 @@ impl App {
         self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
+        self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
         self.relayout_areas();
         // Lay the text out first: it clamps the scroll and says which lines want colours.
@@ -1399,7 +1402,21 @@ impl App {
                         }
                         if !self.docs.stale.is_empty() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
-                            chrome::draw_stale_bar(&mut c, under, self.docs.stale.len());
+                            chrome::draw_stale_bar(
+                                &mut c,
+                                under,
+                                self.docs.stale.len(),
+                                self.docs.prefs.stale_days,
+                            );
+                            y = under.bottom();
+                        }
+                        if let Some((name, to)) = self.docs.rename_bar() {
+                            let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
+                            let to = to
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            chrome::draw_rename_bar(&mut c, under, &name, &to);
                             y = under.bottom();
                         }
                         if let Some(bar) = &self.ai.bar {
@@ -1577,6 +1594,20 @@ impl App {
                 }
             }
             if draw_overlays {
+                // The language list stands above the status bar's language field, when it shows.
+                let anchor = self
+                    .palette
+                    .open
+                    .as_ref()
+                    .filter(|p| p.anchored)
+                    .and_then(|_| {
+                        // `hit_rect`, by field: the painter holds the screen.
+                        self.hits
+                            .iter()
+                            .flatten()
+                            .find(|(h, _)| *h == Hit::StatusLanguage)
+                            .map(|(_, r)| *r)
+                    });
                 let mut c = Ctx {
                     p: &mut p,
                     pal: &pal,
@@ -1616,6 +1647,9 @@ impl App {
                     popup.menu.draw_in(c.p, &pal, room);
                     if let Some(s) = popup.sub.as_mut() {
                         s.menu.draw_in(c.p, &pal, room);
+                        if s.kind == PopupKind::Ai {
+                            crate::ai_ui::draw_menu_modify(c.p, &pal, &s.menu, self.ui.mouse);
+                        }
                     }
                 }
                 for b in &bubbles {
@@ -1634,9 +1668,22 @@ impl App {
                     );
                 }
                 if let Some(p) = self.palette.open.as_mut() {
-                    let window = Rect::new(0.0, 0.0, w, h);
-                    p.palette
-                        .draw(c.p, &pal, window, crate::ui::TITLE_H, self.ui.caret_on);
+                    let (window, title) = match anchor {
+                        Some(field) => (
+                            crate::palette::anchored_window(
+                                &mut p.palette,
+                                field,
+                                w,
+                                crate::ui::TITLE_H + 8.0,
+                            ),
+                            0.0,
+                        ),
+                        None => (Rect::new(0.0, 0.0, w, h), crate::ui::TITLE_H),
+                    };
+                    p.palette.draw(c.p, &pal, window, title, self.ui.caret_on);
+                    if let Some(note) = &p.note {
+                        crate::palette::draw_note(c.p, &pal, p.palette.rect(), note);
+                    }
                 }
             }
         }
@@ -1986,7 +2033,11 @@ impl App {
             ),
             self.ui.panes.files,
             (self.ui.panes.files_w.round() as u32, self.session.results_h),
-            (&self.docs.folder, self.docs.marks.version),
+            (
+                &self.docs.folder,
+                self.docs.marks.version,
+                self.docs.places.version,
+            ),
             &self.session.geometry,
             (
                 self.docs.check_updates,
@@ -2117,6 +2168,12 @@ impl App {
                 .tabs
                 .iter()
                 .filter_map(|d| Some((d.path.as_deref()?, d.ready()?.bookmarks.as_slice()))),
+        );
+        s.places = self.docs.places.snapshot(
+            self.docs
+                .tabs
+                .iter()
+                .filter_map(|d| Some((d.path.as_deref()?, d.ready()?.place()))),
         );
         s.folder = self.docs.folder.clone();
         if let Err(e) = s.save(&path) {
@@ -2519,9 +2576,7 @@ impl ApplicationHandler<Wake> for App {
                 // move it.
                 _ if state == ElementState::Pressed
                     && self.preview.is_some()
-                    && !self
-                        .page_area()
-                        .is_some_and(|r| r.contains(self.ui.mouse.0, self.ui.mouse.1))
+                    && !self.on_page(self.ui.mouse.0, self.ui.mouse.1)
                     && {
                         self.editor_leads();
                         false
@@ -2706,12 +2761,17 @@ impl App {
         } else {
             view::BANNER_H
         };
+        let rename = if self.docs.rename_bar().is_some() {
+            view::BANNER_H
+        } else {
+            0.0
+        };
         let ai = if self.ai.bar.is_some() {
             view::BANNER_H
         } else {
             0.0
         };
-        format + strip + update + crash + stale + ai
+        format + strip + update + crash + stale + rename + ai
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
@@ -2746,8 +2806,17 @@ impl App {
         }
     }
 
+    /// A switch to Markdown the AI made, undone since: taken back (with its rename bar).
+    fn drop_undone_switches(&mut self) {
+        let dark = self.dark();
+        if self.docs.drop_undone_switches(self.service.as_ref(), dark) {
+            self.full = true;
+        }
+    }
+
     /// The layout pass of a frame without drawing: areas, scroll clamping, colour requests.
     fn compose_layout_only(&mut self) {
+        self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
         self.sync_theme();
         self.compare_sync();
@@ -3062,7 +3131,12 @@ fn shot(mut app: App, path: &Path) -> i32 {
             );
             app.right_press();
         }
-        Some(m @ (ShotMenu::TextLines | ShotMenu::TextConvert | ShotMenu::TextMarkdown)) => {
+        Some(
+            m @ (ShotMenu::TextLines
+            | ShotMenu::TextConvert
+            | ShotMenu::TextMarkdown
+            | ShotMenu::TextAi),
+        ) => {
             app.ui.mouse = (
                 text.x + text.w * app.args.menu_at.unwrap_or(0.3),
                 text.y + 160.0,
@@ -3072,6 +3146,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             let sub = match m {
                 ShotMenu::TextLines => PopupKind::Lines,
                 ShotMenu::TextConvert => PopupKind::Convert,
+                ShotMenu::TextAi => PopupKind::Ai,
                 _ => PopupKind::Markdown,
             };
             if let Some(p) = app.ui.popup.as_mut() {
@@ -3082,6 +3157,15 @@ fn shot(mut app: App, path: &Path) -> i32 {
                     .position(|i| i.id.submenu() == Some(sub));
             }
             app.open_sub(PopupKind::Text, sub, true);
+        }
+        Some(ShotMenu::Language) => {
+            app.compose();
+            app.activate(Hit::StatusLanguage);
+        }
+        Some(ShotMenu::RenameBar) => {
+            if let Some(doc) = app.docs.active_doc().map(|d| d.id) {
+                app.ai_made_markdown(doc, None);
+            }
         }
         Some(ShotMenu::Find) => {
             if let Some(r) = app.hit_rect(Hit::Find) {
@@ -3322,6 +3406,7 @@ pub fn run() -> i32 {
         .map(canonical_or_absolute)
         .or_else(|| session.folder.clone());
     docs.marks = crate::marks::Marks::from_session(&session.marks);
+    docs.places = crate::places::Places::from_session(&session.places);
     let mut active = None;
     let restore = session.prefs.restore_session;
     for (i, path) in session.tabs.iter().enumerate().filter(|_| restore) {

@@ -141,6 +141,154 @@ ends open the next block. Approved by the owner side by side with the spike ("it
 - Not done: scrolling the page to a block the arrows or find open off-screen; a View menu entry
   (no free letter); PLAN step 3 edge cases; step 4 budgets. Run on Windows only (tests and the
   owner's hand test).
+## Four owner requests (2026-11-20, branch `f/four-fixes` off `main`, not pushed)
+
+- **A saved prompt's pencil** puts it in the instruction box to be changed and runs nothing.
+  The word is "Modify" (the owner's choice: "edit" reads as what every prompt does to the
+  text). It is a framed button (pencil and word, `ai_ui::draw_modify`) in both places, so it
+  reads as a control of its own and not as the row: in the Rewrite panel at each saved
+  prompt's right (`ai::Hit::EditPrompt`, `ai_ui::pencil_rect`), and in the AI submenu drawn
+  over each saved prompt's row after the shared menu (`ai_ui::draw_menu_modify`,
+  `menu_modify_rect`; the row's hint is blank room, `overlays::MENU_MODIFY_ROOM`, so the name
+  never runs under it). It takes the accent when the pointer is on it (the menu repaints when
+  the pointer crosses its edge, `menu_modify_at`). The rest of the row still runs the prompt.
+  A click on the menu's button is `Act::AiEditPrompt`, which opens the panel if needed
+  (`App::ai_edit_saved`). The pencil now means edit only: the AI item and the
+  built-in requests carry the AI mark (`chrome::SPARKLE`, a four-pointed star drawn here as
+  the shared icons are), saved prompts carry play (`glyph::PLAY`, as saved macros do), in the
+  menus and the palette. Rewrite then runs the text under the prompt's name while it
+  is unchanged, else as "Rewrite".
+  `--menu text-ai` shoots the text menu with the AI submenu open. Test `a_saved_prompts_pencil_puts_it_in_the_box_to_be_changed`.
+- **About's OK with the preview pane on.** `left_press` tried the page before the dialog, and
+  the OK button lies over the page. `App::on_page` is false while a dialog is open; the press,
+  the hover cursor, the cursor answer and the right-click use it. Test
+  `a_dialog_over_the_page_takes_the_click` (fails with the fix reverted).
+- **The days before a tab is offered** are a setting: `Prefs::stale_days` (`stale_days=`, 1 to
+  365, default 7), Settings > Session, "Offer them after … days" under "Offer to close tabs
+  left unopened". `Docs::offer_stale_tabs` and the bar's text (`chrome::stale_label`) use it;
+  the shared `stale::DAYS`/`is_stale`/`label` are no longer used here (mdview keeps its week).
+  Test `the_days_before_a_tab_is_offered_are_a_setting`.
+- **The caret and scroll per file** (`places.rs`, the shape of `marks.rs`): the caret's line and
+  column and the top line, for the 100 files used last, `place=line,col,top;path` in the
+  session. A file closed leaves its place; the session write takes the open tabs' places; a
+  file read for the first time in a window gets its place back (before `pending_select` and
+  `pending_goto`, so `--goto` and the viewer's hand-off still win), clamped to the text. Moving
+  the caret does not change the session's signature: places are written at exit, when a file
+  closes, or with any other write. Test
+  `the_caret_and_scroll_come_back_when_a_file_is_opened_again_and_across_runs`.
+
+Run on Windows: `cargo fmt`, `cargo clippy --all-targets` (no warnings), `cargo test -p mdedit`
+and `-p mdedit-core`. Budgets not measured. The owner looked at the shots and test builds and approved them.
+
+### Custom AI providers: no key needed, and more than one (same branch)
+
+The owner: "have it be possible to use custom ai's without api key. and have more than one
+custom provider possible to add."
+- `mdedit_core::ai::CustomProvider` (name, base URL, model, effort); `Prefs::ai_customs` (at
+  most `CUSTOMS_MAX`, 32) and `Prefs::ai_custom`, the one chosen while `ai_preset` is `custom`.
+  `Prefs::ai_url`, `ai_model`, `ai_effort` and their setters read and write the chosen custom
+  provider's own; presets keep sharing the connection's model as before.
+- File: `ai_custom=<n>` and `ai_custom_<n>_name|url|model|effort`, and `ai_base_url` (the
+  chosen custom provider's URL), all a 1.1.2 build keeps. A file with no list and an
+  `ai_base_url` (from 1.1.2, or written back by it) becomes a list of one, named "Custom", with
+  the connection's model and effort, whichever provider is chosen; so new → 1.1.2 → new keeps
+  the chosen provider (the others are lost: 1.1.2 drops what it does not know). Gaps in the
+  numbers close; a `custom` preset with no provider becomes OpenAI.
+- Settings › AI: Provider lists the presets, the custom providers by name, then "Add a custom
+  provider…" (adds "Custom provider N" and chooses it). A custom provider shows Name, Base URL,
+  an optional API key (placeholder and help say so) and "Remove this provider". The rewrite
+  panel's line names the custom provider.
+- No key: the engine already sent `authorization` only with a stored key. Now Settings asks for
+  a custom provider's models once the store has answered, stored or not (it waited for a stored
+  key); a local preset (Ollama, LM Studio) has no key slot (`key_slot` gives `None`) and its
+  runs send an empty slot, for which `mdedit-ai`'s `keys::get` answers none without asking the
+  store (so they work where no credential store runs). A custom provider's key stays per URL,
+  so a key stored for the old single custom URL still applies. Removing a provider clears its
+  key from the store unless another provider uses that URL, so one added later on it does not
+  send it unasked. A store that cannot be asked (none running, as on many Linux desktops) means
+  no key for a custom slot (`keys::decide`), so the models are listed and runs go without one;
+  for the presets that need a key it stays an error. `MDEDIT_AI_KEY` applies to every slot,
+  a local preset's empty one too. "Add" names a provider "Custom provider N" with the first N
+  free (`core_ai::new_custom_name`).
+- Tests: `custom_providers_are_a_list_and_the_old_single_one_joins_it` (core),
+  `custom_providers_are_added_chosen_and_removed_and_need_no_key`,
+  `an_empty_slot_has_no_key_and_asks_no_store`, and `presets_and_slots`.
+- Checked on Windows: the release `mdedit-ai.exe` against a stand-in server on 127.0.0.1 listed
+  the models and ran a rewrite for a custom provider with no stored key; neither request carried
+  an `authorization` header. Not tried against a real LM Studio or Ollama.
+
+### Language switch, and a .md name after an AI conversion (2026-11-21, same branch, not committed)
+
+The owner approved: a language list from the status bar, kept per file; a text file the AI makes
+Markdown switches at once and is offered a `.md` name ("not intrusive and converted markdown
+file has no reason not to use .md").
+- `languages.rs`: the languages offered. The shared highlighter has no list, so it is what a
+  fixed set of names and extensions finds through `Language::by_token`, each once, by name
+  (61 tokens; the Rails and ASP variants left out). "Plain text" is no language.
+- Per file: `Ready::language_set` (chosen over what the name gives). `Docs::set_language`
+  recolours as Save as does (revision raised, service reopened); choosing the name's own
+  language clears the choice. Kept in the place (`places.rs`): `place=line,col,top,Markdown;path`,
+  so a file at its start with a choice is kept too; a name this build does not offer is dropped.
+  Restored on first read, before colouring; kept across a reload; Save as keeps it unless the
+  new name gives it anyway. Nothing is written to the file.
+- The list is the command palette's card in a fixed mode (`palette::Mode::Languages`, opened by
+  `Host::open_languages`, placeholder "Type a language"): plain text, Markdown (hint "preview"),
+  then the rest by name, the current one checked. `Hit::StatusLanguage` (the status field, tip
+  "Language (click to change)"; where the indentation field is left out the language field no
+  longer carries its tip) and the "Language" command open it. Anchored above the field:
+  `palette::anchored_window` gives the shared palette (which centres its card near the top of
+  what it is given) a narrow area ending at the field, moved down once the card's height is
+  known. The footer's note is painted over the shared footer (`palette::draw_note`; the shared
+  one gives its text a third of the width): "Kept for this file. Back to the extension's: Plain
+  text." or "From the extension: Plain text. A choice is kept for this file."
+- After AI: Format as Markdown or Fix Markdown applied to the whole of a document that is not
+  Markdown (direct or from the review) makes it Markdown (`App::ai_converts`,
+  `ai_made_markdown`). A part of a file changes nothing. A file not named `.md`/`.markdown` gets
+  the rename bar while its tab is active (`Docs::rename_offer`, `rename_bar`,
+  `chrome::draw_rename_bar`): "notes.txt is Markdown now. Rename it to notes.md?", Rename / Keep.
+  `Docs::rename` renames on disk and keeps the tab, its unsaved text and undo; the recent list,
+  places and the file watch follow, the session writes the new path. A name that exists, or is
+  open in another tab, is refused with a message and nothing is renamed.
+- Visual editing (Ctrl+E) is on `f/visual-edit`, not this branch; it asks `is_markdown()` too,
+  so it should follow once merged (not tried).
+- Shots: `--menu language`, `--menu rename-bar`. Tests:
+  `a_language_chosen_is_the_documents_and_comes_back_with_the_file`,
+  `a_chosen_language_outlasts_a_reload_and_follows_save_as`,
+  `a_text_file_formatted_as_markdown_is_markdown_and_offered_its_name`,
+  `only_a_whole_text_file_formatted_is_switched`,
+  `the_list_has_each_language_once_and_names_lead_back`, and the places and session round trips.
+- Not done: the rename has no undo of its own (rename back by hand).
+
+### Fable review of f/four-fixes (2026-11-21, same branch)
+
+Each fix has a test that fails with the fix reverted (checked on Windows by reverting each in
+turn).
+1. A rename rewrites the recovery copy at once (`recovery.rs`: a slot keeps the path it was
+   written for). Test `a_renamed_tab_has_its_copy_written_again`.
+2. The rename never replaces a file: `docs::move_no_replace` (Windows `MoveFileExW` without
+   `MOVEFILE_REPLACE_EXISTING`, windows-sys feature `Win32_Storage_FileSystem`; elsewhere a hard
+   link then removing the old name, falling back to a rename after a look where links are not
+   supported). The look before uses `symlink_metadata`, so a name that cannot be looked at is
+   taken as taken. Test `the_rename_move_never_replaces_a_file`.
+3. Undoing the AI's change back to the state before it takes the switch back: the language as
+   it was and the bar (`Ready::ai_switch`, `Docs::drop_undone_switches`, run at each layout).
+   A language chosen any other way, Save as or a rename clears it. Redo does not switch again.
+   Test `undoing_the_conversion_takes_the_switch_back`.
+4. and 10. `mdedit-ai` `keys::decide`: the override first, then the empty slot, then the
+   store; a store error is no key for a custom slot. Tests
+   `a_store_error_is_no_key_only_where_the_key_is_optional`,
+   `the_override_is_used_for_every_slot`.
+5. A tab whose file is no longer on disk is renamed by its path alone, and its stamp is that
+   of nothing there, so Save writes without asking. Test
+   `a_rename_follows_through_and_needs_no_file_on_disk`.
+6. Migration both ways (above). Test `custom_providers_are_a_list_and_the_old_single_one_joins_it`.
+7. Key cleared on remove; first free name. Tests
+   `custom_providers_are_added_chosen_and_removed_and_need_no_key`, `presets_and_slots`.
+8. Save as drops a chosen language when the extension changes (a copy with the same extension
+   keeps it) and resets the twin pane's colours. Test
+   `a_chosen_language_outlasts_a_reload_and_follows_save_as` (the twin's colours not tested).
+9. A rename moves the old name's `marks` entry and the find results' rows (`Results::renamed`).
+   Test `a_rename_follows_through_and_needs_no_file_on_disk`.
 
 ## Release 1.1.2 (2026-11-20, released)
 
@@ -786,7 +934,7 @@ decision of the session, the owner may overrule: syntax-aware folding.
 ## After 0.6.0: gaps closed (2026-11-15, branch merge/next, not released)
 
 **State: the branch `merge/next` holds everything below, on top of 0.6.0 (`main`). It is not
-released and not in `main`. The owner has not looked at any of it.** Nothing here was seen or
+released and not in `main`. The owner looked at the shots and test builds and approved them.** Nothing here was seen or
 used by a person: every "Not verified" line below stands. Four workers each built a set of gaps on
 their own branch (`f/multicaret-more`, `f/panels-more`, `f/edit-more`, `f/adopt-shared`); the
 branches were merged into `merge/next` (the access letters of the new compare and table items were

@@ -175,6 +175,10 @@ pub enum Hit {
     StaleClose,
     StaleKeep,
     StaleDismiss,
+    /// The rename bar's buttons (a file the AI made Markdown, offered a `.md` name).
+    RenameGo,
+    RenameKeep,
+    RenameDismiss,
     /// The AI bar's button and its close button.
     AiBarGo,
     AiBarClose,
@@ -184,8 +188,10 @@ pub enum Hit {
     /// The status strip's line-ending and encoding fields: each opens a menu.
     StatusEol,
     StatusEncoding,
-    /// The indentation field (or, when it does not fit, the language field): a tooltip only.
+    /// The indentation field: a tooltip only.
     StatusIndent,
+    /// The language field: opens the language list above it.
+    StatusLanguage,
     /// The results panel: a row of its list and its close button.
     ResultsRow(usize),
     ResultsClose,
@@ -259,6 +265,9 @@ impl Hit {
             | Hit::StaleClose
             | Hit::StaleKeep
             | Hit::StaleDismiss
+            | Hit::RenameGo
+            | Hit::RenameKeep
+            | Hit::RenameDismiss
             | Hit::AiBarGo
             | Hit::AiBarClose
             | Hit::Format(_)
@@ -269,7 +278,9 @@ impl Hit {
             | Hit::ReplaceClose
             | Hit::InSelection
             | Hit::FindOpt(_) => Region::Bar,
-            Hit::StatusEol | Hit::StatusEncoding | Hit::StatusIndent => Region::Status,
+            Hit::StatusEol | Hit::StatusEncoding | Hit::StatusIndent | Hit::StatusLanguage => {
+                Region::Status
+            }
             Hit::ResultsRow(_)
             | Hit::ResultsClose
             | Hit::ResultsReplace
@@ -355,6 +366,8 @@ pub enum Act {
     AiMenu,
     /// Rewrite with saved AI prompt `n`.
     AiPrompt(usize),
+    /// Saved AI prompt `n` into the instruction panel, to be changed (the item's Edit).
+    AiEditPrompt(usize),
     /// Play saved macro `n` of the Macro menu.
     PlaySaved(usize),
     /// Make every line break of the document this one ("\r\n", "\n" or "\r").

@@ -27,7 +27,17 @@ impl App {
     // ---- pointer -----------------------------------------------------------------------------
 
     pub(super) fn pointer_moved(&mut self, x: f32, y: f32) {
+        let was = self.ui.mouse;
         self.ui.mouse = (x, y);
+        // A saved prompt's Modify button in the AI menu lights up under the pointer: a frame
+        // when the pointer crosses its edge, though the menu's row stays the same.
+        if let Some(s) = self.ui.popup.as_ref().and_then(|p| p.sub.as_ref())
+            && s.kind == PopupKind::Ai
+            && crate::ai_ui::menu_modify_at(&s.menu, was)
+                != crate::ai_ui::menu_modify_at(&s.menu, (x, y))
+        {
+            self.wants_frame = true;
+        }
         if self.ai_panel_open() {
             self.ai_pointer(x, y);
             return;
@@ -74,8 +84,7 @@ impl App {
                 self.redraw();
             }
         }
-        let on_page =
-            edge.is_none() && !in_menu && self.page_area().is_some_and(|r| r.contains(x, y));
+        let on_page = edge.is_none() && !in_menu && self.on_page(x, y);
         let cursor = match (edge, hit) {
             _ if on_page => self.preview_hover(x, y),
             (Some(dir), _) => CursorIcon::from(dir),
@@ -637,14 +646,12 @@ impl App {
             self.redraw();
             return;
         }
-        if self.visual_on()
-            && !self.areas.text.contains(x, y)
-            && self.page_area().is_some_and(|r| r.contains(x, y))
-        {
+        // Not under a dialog: its buttons come first (About's OK lay on the page and did nothing).
+        if self.visual_on() && !self.areas.text.contains(x, y) && self.on_page(x, y) {
             self.visual_press(x, y);
             return;
         }
-        if !self.visual_on() && self.page_area().is_some_and(|r| r.contains(x, y)) {
+        if !self.visual_on() && self.on_page(x, y) {
             let clicks = self.click_count(x, y);
             self.preview_press(x, y, clicks);
             return;
@@ -854,7 +861,15 @@ impl App {
         if let Some(p) = self.ui.popup.as_mut()
             && let Some(menu) = p.menu_at(x, y)
         {
-            let act = menu.chosen();
+            // A saved AI prompt's Modify button (at the row's right) puts it in the instruction
+            // panel to be changed; the rest of the row runs it.
+            let on_edit = menu
+                .hover
+                .is_some_and(|i| crate::ai_ui::menu_modify_rect(menu.row_rect(i)).contains(x, y));
+            let act = menu.chosen().map(|a| match a {
+                Act::AiPrompt(k) if on_edit => Act::AiEditPrompt(k),
+                a => a,
+            });
             if let Some(act) = act {
                 self.choose(act, false);
             }

@@ -267,6 +267,9 @@ pub struct Session {
     pub find_kinds: String,
     /// Bookmarked lines of the files used most recently (`mark=1,5;path`), most recent first.
     pub marks: Vec<(PathBuf, Vec<usize>)>,
+    /// Where the caret and the scroll were in the files used most recently
+    /// (`place=line,col,top;path`), most recent first.
+    pub places: Vec<crate::places::Entry>,
     pub folder: Option<PathBuf>,
     /// Look for a newer version at launch, at every launch.
     pub check_updates: bool,
@@ -306,6 +309,7 @@ impl Default for Session {
             find_folder: String::new(),
             find_kinds: String::new(),
             marks: Vec::new(),
+            places: Vec::new(),
             folder: None,
             check_updates: true,
             update_checked: 0,
@@ -443,6 +447,16 @@ impl Session {
                             }
                         }
                     }
+                    "place" => {
+                        // The place, then the path after the first `;`.
+                        if let Some((place, path)) = value.split_once(';')
+                            && let Some(place) = crate::places::Place::parse(place)
+                            && !path.is_empty()
+                            && s.places.len() < crate::places::FILES_MAX
+                        {
+                            s.places.push((decode_path(path), place));
+                        }
+                    }
                     "find_folder" => s.find_folder = unescape(value),
                     "find_kinds" => s.find_kinds = unescape(value),
                     "folder" if !value.is_empty() => s.folder = Some(decode_path(value)),
@@ -554,6 +568,12 @@ impl Session {
             out.line(
                 "mark",
                 &format!("{};{}", lines.join(","), encode_path(path)),
+            );
+        }
+        for (path, place) in &self.places {
+            out.line(
+                "place",
+                &format!("{};{}", place.to_setting(), encode_path(path)),
             );
         }
         if !self.find_folder.is_empty() {
@@ -755,6 +775,26 @@ mod tests {
             marks: vec![
                 (PathBuf::from("C:/a b/x;y.rs"), vec![0, 7, 100]),
                 (PathBuf::from("C:/z.md"), vec![3]),
+            ],
+            places: vec![
+                (
+                    PathBuf::from("C:/a b/x;y.rs"),
+                    crate::places::Place {
+                        line: 40,
+                        col: 3,
+                        top: 21,
+                        lang: Some("Rust"),
+                    },
+                ),
+                (
+                    PathBuf::from("C:/z.md"),
+                    crate::places::Place {
+                        line: 0,
+                        col: 9,
+                        top: 0,
+                        lang: None,
+                    },
+                ),
             ],
             folder: Some(PathBuf::from("C:/proj")),
             ..Session::default()

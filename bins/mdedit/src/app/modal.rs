@@ -10,7 +10,7 @@ use crate::{keys, updater};
 use mdedit_core::ai::{self as core_ai, Connection};
 use mdedit_core::prefs::{
     FONT_PT_MAX, FONT_PT_MIN, INDENT_SIZE_MAX, MINIMAP_WIDTH_MAX, MINIMAP_WIDTH_MIN, Prefs,
-    TAB_WIDTH_MAX,
+    STALE_DAYS_MAX, STALE_DAYS_MIN, TAB_WIDTH_MAX,
 };
 use mdshared_ui::corners::{self, Corners};
 use mdshared_ui::keys::{KeyName, Mods};
@@ -43,6 +43,7 @@ pub const COMPLETE_AUTO: u32 = 70;
 pub const BACKDROP: u32 = 80;
 pub const START_ON_PINNED: u32 = 23;
 pub const OFFER_STALE: u32 = 24;
+pub const STALE_DAYS: u32 = 25;
 pub const AI_CONNECTION: u32 = 90;
 pub const AI_PROGRAM: u32 = 91;
 pub const AI_CHECK: u32 = 92;
@@ -56,6 +57,10 @@ pub const AI_FETCH: u32 = 99;
 pub const AI_EFFORT: u32 = 100;
 pub const AI_REVIEW: u32 = 101;
 pub const AI_PROMPTS: u32 = 102;
+pub const AI_CUSTOM_NAME: u32 = 103;
+pub const AI_CUSTOM_REMOVE: u32 = 104;
+/// The last of the AI rows' ids.
+pub const AI_LAST: u32 = AI_CUSTOM_REMOVE;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -206,10 +211,19 @@ pub fn rows(
         .help("The pinned tab you used last shows at start, not the tab you left on."),
         Row::toggle(
             OFFER_STALE,
-            "Offer to close tabs not opened in a week",
+            "Offer to close tabs left unopened",
             prefs.offer_stale,
         )
-        .help("Counted in days you use mdedit. Pinned and changed tabs are never offered."),
+        .help("At start. Pinned and changed tabs are never offered."),
+        Row::number(
+            STALE_DAYS,
+            "Offer them after",
+            prefs.stale_days as i32,
+            STALE_DAYS_MIN as i32,
+            STALE_DAYS_MAX as i32,
+        )
+        .unit("days")
+        .help("Counted in days you use mdedit, not calendar days."),
         Row::header("Updates"),
         Row::toggle(
             CHECK_AT_LAUNCH,
@@ -281,7 +295,7 @@ impl App {
     }
 
     /// The form's rows from the preferences, with the AI group before Updates.
-    fn settings_rows(&mut self) -> Vec<Row> {
+    pub(super) fn settings_rows(&mut self) -> Vec<Row> {
         let look = self.docs.updates.about_label();
         let mut rows = rows(
             &self.docs.prefs,
@@ -377,7 +391,7 @@ impl App {
                 self.apply_setting(id, value);
                 self.modal_changed();
             }
-            Out::Action(id) if (AI_CONNECTION..=AI_PROMPTS).contains(&id) => {
+            Out::Action(id) if (AI_CONNECTION..=AI_LAST).contains(&id) => {
                 self.ai_settings_action(id);
                 self.modal_changed();
             }
@@ -402,7 +416,7 @@ impl App {
 
     /// Applies one change to every open document and keeps it for the next start.
     pub(super) fn apply_setting(&mut self, id: u32, value: Value) {
-        if (AI_CONNECTION..=AI_PROMPTS).contains(&id) {
+        if (AI_CONNECTION..=AI_LAST).contains(&id) {
             self.ai_setting(id, value);
             return;
         }
@@ -426,6 +440,7 @@ impl App {
             (RESTORE_TABS, Value::Bool(on)) => p.restore_session = on,
             (START_ON_PINNED, Value::Bool(on)) => p.start_on_pinned = on,
             (OFFER_STALE, Value::Bool(on)) => p.offer_stale = on,
+            (STALE_DAYS, Value::Number(n)) => p.stale_days = n.max(0) as u32,
             (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
             (COMPLETE_AUTO, Value::Bool(on)) => p.complete_auto = on,
             (BACKDROP, Value::Choice(i)) => {
@@ -503,6 +518,33 @@ impl App {
 
 // ---- Settings › AI -------------------------------------------------------------------------------
 
+/// The presets the Provider list offers: all but Custom, whose place the custom providers take.
+fn ai_presets() -> Vec<&'static core_ai::Preset> {
+    core_ai::PRESETS
+        .iter()
+        .filter(|x| !x.base_url.is_empty())
+        .collect()
+}
+
+/// The Provider list (the presets, the custom providers, then the item that adds one) and where
+/// the current provider is in it.
+fn ai_providers(p: &Prefs) -> (Vec<String>, usize) {
+    let presets = ai_presets();
+    let mut names: Vec<String> = presets.iter().map(|x| x.name.to_string()).collect();
+    names.extend(p.ai_customs.iter().enumerate().map(|(i, c)| c.label(i)));
+    let at = match p.ai_custom_chosen() {
+        Some(_) => presets.len() + p.ai_custom,
+        None => presets
+            .iter()
+            .position(|x| x.key == p.ai_preset)
+            .unwrap_or(0),
+    };
+    if p.ai_customs.len() < core_ai::CUSTOMS_MAX {
+        names.push("Add a custom provider…".into());
+    }
+    (names, at)
+}
+
 /// What the Model row offers: (the model's id, its label), "Default" first and "Other…" last.
 struct Models {
     list: Vec<(String, String)>,
@@ -518,18 +560,14 @@ pub(super) const AI_URL_DELAY: std::time::Duration = std::time::Duration::from_m
 impl App {
     fn ai_key_slot(&self) -> Option<String> {
         let p = &self.docs.prefs;
-        let preset = core_ai::preset_by_key(&p.ai_preset);
-        if p.ai_connection == Connection::OpenAi && preset.local {
-            return None;
-        }
-        core_ai::key_slot(p.ai_connection, &p.ai_preset, &p.ai_base_url)
+        core_ai::key_slot(p.ai_connection, &p.ai_preset, p.ai_url())
     }
 
     fn ai_models_key(&self) -> String {
         let p = &self.docs.prefs;
         crate::ai::models_key(
             p.ai_connection,
-            &core_ai::base_url(&p.ai_preset, &p.ai_base_url),
+            &core_ai::base_url(&p.ai_preset, p.ai_url()),
         )
     }
 
@@ -592,7 +630,7 @@ impl App {
             Row::choice(AI_CONNECTION, "Connection", &labels, at).help(core_ai::destination(
                 c,
                 &p.ai_preset,
-                &p.ai_base_url,
+                p.ai_url(),
             )),
         ];
         if c.is_cli() {
@@ -614,29 +652,38 @@ impl App {
             rows.push(Row::action(AI_CHECK, "Check the program", "Check"));
         }
         if c == Connection::OpenAi {
-            let names: Vec<&str> = core_ai::PRESETS.iter().map(|x| x.name).collect();
-            let at = core_ai::PRESETS
-                .iter()
-                .position(|x| x.key == p.ai_preset)
-                .unwrap_or(0);
-            rows.push(Row::choice(AI_PROVIDER, "Provider", &names, at));
-            let preset = core_ai::preset_by_key(&p.ai_preset);
-            if preset.base_url.is_empty() {
+            let (names, at) = ai_providers(p);
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            rows.push(
+                Row::choice(AI_PROVIDER, "Provider", &names, at)
+                    .help("Add a custom provider for any OpenAI-compatible server."),
+            );
+            if let Some(x) = p.ai_custom_chosen() {
                 rows.push(
-                    Row::text(AI_BASE_URL, "Base URL", p.ai_base_url.clone())
-                        .placeholder("https://example.com/v1")
+                    Row::text(AI_CUSTOM_NAME, "Name", x.name.clone())
+                        .placeholder(x.label(p.ai_custom))
+                        .help("As the provider list and the rewrite panel show it."),
+                );
+                rows.push(
+                    Row::text(AI_BASE_URL, "Base URL", x.base_url.clone())
+                        .placeholder("http://localhost:1234/v1")
                         .help("The address before /chat/completions."),
                 );
             }
         }
+        // A custom provider's key is optional: a local server (LM Studio, Ollama) takes none, and
+        // is then sent no key at all.
+        let optional = p.ai_custom_chosen().is_some();
         if let Some(slot) = self.ai_key_slot() {
             let stored = self.ai.keys.get(&slot).copied();
             let placeholder = match stored {
                 Some(true) => "Stored. Type a new key to replace it.",
+                _ if optional => "Optional: paste an API key",
                 _ => "Paste your API key",
             };
             let help = self.ai.key_error.clone().unwrap_or_else(|| match stored {
                 None => "Looking in the system's credential store…".into(),
+                _ if optional => "Optional. Leave it empty for a server that takes none, such as LM Studio or Ollama. A key is kept in the system's credential store.".into(),
                 _ => "Kept in the system's credential store, never in the settings file.".into(),
             });
             rows.push(
@@ -651,6 +698,13 @@ impl App {
                 "Save"
             };
             rows.push(Row::action(AI_KEY_SAVE, "Store the key", button));
+        }
+        if optional {
+            rows.push(Row::action(
+                AI_CUSTOM_REMOVE,
+                "Remove this provider",
+                "Remove",
+            ));
         }
         if c != Connection::Off {
             let models = self.ai_model_options();
@@ -738,12 +792,15 @@ impl App {
         {
             failed = Some(e);
         }
-        let key_ok = slot
-            .as_ref()
-            .is_none_or(|s| self.ai.keys.get(s) == Some(&true));
+        // The models are asked for once a key is stored; a custom provider's key is optional, so
+        // its list is asked for once the store has answered either way.
+        let optional = self.docs.prefs.ai_custom_chosen().is_some();
+        let key_ok = slot.as_ref().is_none_or(|s| match self.ai.keys.get(s) {
+            Some(&stored) => stored || optional,
+            None => false,
+        });
         let base_ok = c != Connection::OpenAi
-            || !core_ai::base_url(&self.docs.prefs.ai_preset, &self.docs.prefs.ai_base_url)
-                .is_empty();
+            || !core_ai::base_url(&self.docs.prefs.ai_preset, self.docs.prefs.ai_url()).is_empty();
         let key = self.ai_models_key();
         if matches!(c, Connection::ClaudeApi | Connection::OpenAi)
             && !typing
@@ -796,15 +853,36 @@ impl App {
                 self.ai.detected.remove(c.key());
             }
             (AI_PROVIDER, Value::Choice(i)) => {
-                if let Some(x) = core_ai::PRESETS.get(i) {
+                let presets = ai_presets();
+                let customs = p.ai_customs.len();
+                if let Some(x) = presets.get(i) {
                     p.ai_preset = x.key.into();
+                } else if i - presets.len() < customs {
+                    p.ai_preset = "custom".into();
+                    p.ai_custom = i - presets.len();
+                } else if customs < core_ai::CUSTOMS_MAX {
+                    // Add a custom provider: a new one, chosen, its URL to be typed.
+                    p.ai_customs.push(core_ai::CustomProvider {
+                        name: core_ai::new_custom_name(&p.ai_customs),
+                        ..core_ai::CustomProvider::default()
+                    });
+                    p.ai_preset = "custom".into();
+                    p.ai_custom = customs;
                 }
                 self.ai.key_draft.clear();
                 self.ai.key_error = None;
+                self.ai.model_other = false;
                 ask = true;
             }
+            (AI_CUSTOM_NAME, Value::Text(t)) => {
+                if let Some(x) = p.ai_custom_chosen_mut() {
+                    x.name = t;
+                }
+            }
             (AI_BASE_URL, Value::Text(t)) => {
-                p.ai_base_url = t;
+                if let Some(x) = p.ai_custom_chosen_mut() {
+                    x.base_url = t;
+                }
                 // The new URL's key is looked up once typing pauses.
                 self.ai.url_due = Some(std::time::Instant::now() + AI_URL_DELAY);
             }
@@ -847,7 +925,7 @@ impl App {
         }
     }
 
-    fn ai_settings_action(&mut self, id: u32) {
+    pub(super) fn ai_settings_action(&mut self, id: u32) {
         let c = self.docs.prefs.ai_connection;
         match id {
             AI_CHECK => {
@@ -900,6 +978,40 @@ impl App {
             AI_PROMPTS => {
                 self.close_settings();
                 self.ai_edit_prompts();
+            }
+            AI_CUSTOM_REMOVE => {
+                // The provider goes. Its key goes from the store too, unless another provider
+                // uses the same server: a provider added later on that URL must not send it
+                // unasked.
+                let mut p = self.docs.prefs.clone();
+                if p.ai_custom_chosen().is_none() {
+                    return;
+                }
+                let gone = p.ai_customs.remove(p.ai_custom);
+                let slot = core_ai::key_slot(Connection::OpenAi, "custom", &gone.base_url);
+                let shared = p
+                    .ai_customs
+                    .iter()
+                    .any(|c| core_ai::key_slot(Connection::OpenAi, "custom", &c.base_url) == slot);
+                if let Some(slot) = slot.filter(|_| !shared) {
+                    let wake = self.docs.waker();
+                    let req = json!({"op": "key_clear", "slot": slot});
+                    self.ai.keys.remove(&slot);
+                    if let Err(e) = self.ai.ask(&wake, Ask::Key(slot), req) {
+                        self.ai.key_error = Some(e);
+                    }
+                }
+                if p.ai_customs.is_empty() {
+                    p.ai_preset = "openai".into();
+                }
+                p.ai_custom = p.ai_custom.min(p.ai_customs.len().saturating_sub(1));
+                self.ai.key_draft.clear();
+                self.ai.key_draft_slot = None;
+                self.ai.key_error = None;
+                self.ai.model_other = false;
+                p.clamp();
+                self.set_prefs(p);
+                self.ai_settings_needs();
             }
             _ => {}
         }

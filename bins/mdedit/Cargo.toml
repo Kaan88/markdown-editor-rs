@@ -43,10 +43,12 @@ softbuffer = { version = "=0.4.8", default-features = false }
 # The Save as dialog; the same version and features as mdshared-ui, which opens the others.
 rfd = { version = "0.15.4", default-features = false }
 # GetACP (Globalization), the memory figures --trace prints (ProcessStatus, Threading) and the
-# first line of the clipboard for the find box (DataExchange, Memory).
+# first line of the clipboard for the find box (DataExchange, Memory), and the rename that never
+# replaces a file (Storage_FileSystem's MoveFileExW).
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Storage_FileSystem",
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_System_ProcessStatus",

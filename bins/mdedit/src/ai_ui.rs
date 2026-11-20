@@ -5,6 +5,7 @@
 use crate::ai::{Ai, Hit, Instruction, Panel, Review};
 use mdedit_core::ai::{ReviewLine, SavedPrompt};
 use mdshared_ui::gfx::{Face, Painter, Rect, mix};
+use mdshared_ui::glyph;
 use mdshared_ui::overlay::{
     DIALOG_FOOTER, DIALOG_PAD, dialog_button_w, dialog_card, draw_backdrop, draw_dialog_button,
     draw_dialog_card,
@@ -15,6 +16,8 @@ use mdshared_ui::theme::Palette;
 const PAD: f32 = DIALOG_PAD;
 /// A saved prompt's row in the instruction panel.
 const PROMPT_ROW: f32 = 46.0;
+/// The room the Modify button takes at the right of a saved prompt's row.
+const PENCIL: f32 = 104.0;
 /// A line of the changes.
 pub const LINE_H: f32 = 20.0;
 const HEADER_H: f32 = 64.0;
@@ -87,6 +90,88 @@ fn button(
         pressed == Some(hit),
     );
     hits.push((hit, r));
+}
+
+/// The Modify button (a pencil and the word) of a saved prompt's `row` in the instruction panel.
+pub fn pencil_rect(row: Rect) -> Rect {
+    Rect::new(
+        row.right() - 12.0 - MODIFY_W,
+        row.cy() - 14.0,
+        MODIFY_W,
+        28.0,
+    )
+}
+
+/// The Modify button's width.
+pub const MODIFY_W: f32 = 88.0;
+/// What it says.
+pub const MODIFY: &str = "Modify";
+
+/// A saved prompt's Modify button in `r`: a framed button with a pencil and the word, so it
+/// reads as a control of its own on a row that runs the prompt. The rewrite panel's rows and
+/// the AI menu's (drawn over the shared menu, [`draw_menu_modify`]) both have it.
+pub fn draw_modify(p: &mut Painter, pal: &Palette, r: Rect, hovered: bool, pressed: bool) {
+    let fill = if hovered && pressed {
+        pal.press
+    } else if hovered {
+        mix(pal.accent, pal.popup, 0.82)
+    } else {
+        mix(pal.popup, pal.text, 0.06)
+    };
+    let line = if hovered { pal.accent } else { pal.popup_line };
+    p.frame(r, 5.0, fill, line);
+    p.icon(glyph::EDIT, 13.0, r.x + 17.0, r.cy(), pal.text);
+    p.text(
+        Face::Ui,
+        12.5,
+        r.x + 29.0,
+        r.cy(),
+        MODIFY,
+        pal.text,
+        r.w - 33.0,
+    );
+}
+
+/// The Modify button of a saved prompt's `row` in the AI menu.
+pub fn menu_modify_rect(row: Rect) -> Rect {
+    Rect::new(
+        row.right() - 4.0 - MODIFY_W,
+        row.y + 3.0,
+        MODIFY_W,
+        row.h - 6.0,
+    )
+}
+
+/// The AI menu's row whose Modify button is under `at`, if any.
+pub fn menu_modify_at(
+    menu: &mdshared_ui::menu::Menu<crate::ui::Act>,
+    at: (f32, f32),
+) -> Option<usize> {
+    (0..menu.items.len()).find(|&i| {
+        let item = &menu.items[i];
+        matches!(item.id, crate::ui::Act::AiPrompt(_))
+            && item.enabled
+            && menu_modify_rect(menu.row_rect(i)).contains(at.0, at.1)
+    })
+}
+
+/// Draws the Modify buttons over the AI menu's saved prompts (the shared menu draws a row with
+/// one label and one hint): hovered when the pointer `mouse` is on one.
+pub fn draw_menu_modify(
+    p: &mut Painter,
+    pal: &Palette,
+    menu: &mdshared_ui::menu::Menu<crate::ui::Act>,
+    mouse: (f32, f32),
+) {
+    let old = p.clip(menu.rect());
+    for (i, item) in menu.items.iter().enumerate() {
+        if !matches!(item.id, crate::ui::Act::AiPrompt(_)) || !item.enabled {
+            continue;
+        }
+        let r = menu_modify_rect(menu.row_rect(i));
+        draw_modify(p, pal, r, r.contains(mouse.0, mouse.1), false);
+    }
+    p.restore(old);
 }
 
 /// The instruction panel's card in a `w` x `h` window.
@@ -200,7 +285,9 @@ fn instruction(
             if row.bottom() < list.y || row.y > list.bottom() {
                 continue;
             }
-            let on = i.selected == Some(k) || hover == Some(Hit::Prompt(k));
+            let on = i.selected == Some(k)
+                || hover == Some(Hit::Prompt(k))
+                || hover == Some(Hit::EditPrompt(k));
             if on {
                 p.rbox(row.inset(2.0), 6.0, pal.hover);
             }
@@ -211,7 +298,7 @@ fn instruction(
                 row.y + 15.0,
                 &sp.name,
                 pal.text,
-                row.w - 32.0,
+                row.w - 32.0 - PENCIL,
             );
             p.text(
                 Face::Ui,
@@ -220,9 +307,15 @@ fn instruction(
                 row.y + 32.0,
                 &sp.summary(),
                 pal.muted,
-                row.w - 32.0,
+                row.w - 32.0 - PENCIL,
             );
             hits.push((Hit::Prompt(k), row));
+            // Modify, a button of its own: the prompt goes into the box above to be changed, and
+            // does not run (the rest of the row runs it).
+            let pencil = pencil_rect(row);
+            let edit = Hit::EditPrompt(k);
+            draw_modify(p, pal, pencil, hover == Some(edit), pressed == Some(edit));
+            hits.push((edit, pencil));
         }
         p.restore(old);
     }

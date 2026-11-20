@@ -173,10 +173,11 @@ impl App {
     }
 
     /// The connection, model and effort, as the panels name them.
-    fn ai_via(&self) -> String {
+    pub(super) fn ai_via(&self) -> String {
         let p = &self.docs.prefs;
         let c = p.ai_connection;
         let mut s = match c {
+            Connection::OpenAi if let Some(x) = p.ai_custom_chosen() => x.label(p.ai_custom),
             Connection::OpenAi => {
                 let preset = core_ai::preset_by_key(&p.ai_preset);
                 preset
@@ -263,6 +264,31 @@ impl App {
                 instruction: p.instruction,
             });
         }
+    }
+
+    /// A saved prompt's Edit (the AI menu's, or a row's in the instruction panel): the panel
+    /// opens if it is not open, with the prompt in its box to be changed before Rewrite.
+    pub(super) fn ai_edit_saved(&mut self, k: usize) {
+        if self.ai.instruction().is_none() {
+            self.ai_open_instruction();
+        }
+        self.ai_put_prompt(k);
+    }
+
+    /// Puts saved prompt `k` in the instruction panel's box, the caret at its end, and runs
+    /// nothing: Rewrite runs it (under the prompt's name while the text is unchanged).
+    fn ai_put_prompt(&mut self, k: usize) {
+        let Some(p) = self.docs.ai_prompts.get(k).cloned() else {
+            return;
+        };
+        let Some(i) = self.ai.instruction() else {
+            return;
+        };
+        i.selected = Some(k);
+        i.field.set_text(p.instruction.trim());
+        self.caret_reset();
+        self.ai.tick += 1;
+        self.redraw();
     }
 
     fn ai_start(&mut self, spec: Spec) {
@@ -565,7 +591,11 @@ impl App {
             .map(Path::to_path_buf);
         let mut blocked = self.ai_blocked(run.doc, run.start, run.end, &run.original);
         if !self.docs.prefs.ai_review && blocked.is_none() {
+            let to_markdown = self.ai_converts(run.doc, run.start, run.end, &run.spec);
             if self.ai_replace(run.doc, run.start, run.end, &result) {
+                if let Some(before) = to_markdown {
+                    self.ai_made_markdown(run.doc, Some(before));
+                }
                 self.docs.set_toast(&format!(
                     "{} done. Undo brings the old text back.",
                     run.spec.title
@@ -599,6 +629,52 @@ impl App {
         if preview {
             self.ai_open_panes();
         }
+        self.redraw();
+    }
+
+    /// Whether putting the result of `spec` in place of `start..end` of document `doc` makes a
+    /// document that is not Markdown Markdown: Format as Markdown or Fix Markdown, over the
+    /// whole text (a part formatted leaves the rest as it was). When it does: the undo state and
+    /// the language from before, for an undo to take the switch back.
+    fn ai_converts(
+        &self,
+        doc: DocId,
+        start: usize,
+        end: usize,
+        spec: &Spec,
+    ) -> Option<(u64, Option<mdedit_highlight::Language>)> {
+        let d = self.docs.index_of_id(doc).map(|i| &self.docs.tabs[i])?;
+        let r = d.ready()?;
+        let whole = start == 0 && end == r.buffer.len_bytes();
+        (whole
+            && !d.is_markdown()
+            && (spec.instruction == core_ai::FORMAT || spec.instruction == core_ai::FIX))
+            .then(|| (r.history.state(), r.language))
+    }
+
+    /// A document the AI made Markdown is Markdown from now on (its preview, its tools, its
+    /// colours), as if chosen in the language list; a file not named so is offered a `.md` name
+    /// in a bar. `before`: the undo state and language from before the AI's change; undone back
+    /// to that state, the switch and the bar go (`Docs::drop_undone_switches`).
+    pub(super) fn ai_made_markdown(
+        &mut self,
+        doc: DocId,
+        before: Option<(u64, Option<mdedit_highlight::Language>)>,
+    ) {
+        let Some(i) = self.docs.index_of_id(doc) else {
+            return;
+        };
+        let dark = self.dark();
+        self.docs
+            .set_language(i, crate::languages::markdown(), self.service.as_ref(), dark);
+        if let Some(r) = self.docs.tabs[i].ready_mut() {
+            r.ai_switch = before;
+        }
+        if self.docs.tabs[i].path.is_some() {
+            self.docs.rename_offer = Some(doc);
+        }
+        self.relayout_areas();
+        self.full = true;
         self.redraw();
     }
 
@@ -792,8 +868,12 @@ impl App {
                     let Some(Panel::Review(rv)) = self.ai.panel.take() else {
                         return;
                     };
+                    let to_markdown = self.ai_converts(doc, start, end, &rv.spec);
                     if self.ai_replace(doc, start, end, &rv.result) {
                         self.ai_close_panel();
+                        if let Some(before) = to_markdown {
+                            self.ai_made_markdown(doc, Some(before));
+                        }
                         return;
                     }
                     self.ai.panel = Some(Panel::Review(rv));
@@ -998,6 +1078,7 @@ impl App {
                 }
                 self.ai_submit();
             }
+            AiHit::EditPrompt(k) => self.ai_put_prompt(k),
             AiHit::Cancel => self.ai_close_panel(),
             AiHit::Rewrite => self.ai_submit(),
             AiHit::SavePrompt => self.ai_save_prompt(),
@@ -1072,7 +1153,7 @@ impl App {
         if let Some(slot) = core_ai::key_slot(
             self.docs.prefs.ai_connection,
             &self.docs.prefs.ai_preset,
-            &self.docs.prefs.ai_base_url,
+            self.docs.prefs.ai_url(),
         ) {
             self.ai.keys.insert(slot, true);
         }
@@ -1176,7 +1257,7 @@ impl App {
         let p = &self.docs.prefs;
         crate::ai::models_key(
             p.ai_connection,
-            &core_ai::base_url(&p.ai_preset, &p.ai_base_url),
+            &core_ai::base_url(&p.ai_preset, p.ai_url()),
         )
     }
 }

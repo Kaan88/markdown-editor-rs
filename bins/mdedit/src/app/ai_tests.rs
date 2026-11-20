@@ -340,7 +340,10 @@ fn a_key_draft_does_not_follow_a_new_url() {
     let (mut a, dir) = ai_app("t\n");
     a.docs.prefs.ai_connection = Connection::OpenAi;
     a.docs.prefs.ai_preset = "custom".into();
-    a.docs.prefs.ai_base_url = "https://a.example/v1".into();
+    a.docs.prefs.ai_customs = vec![mdedit_core::ai::CustomProvider {
+        base_url: "https://a.example/v1".into(),
+        ..Default::default()
+    }];
     a.command(C::AiSettings);
     a.ai_setting(AI_KEY, Value::Text("sk-typed-for-a".into()));
     assert_eq!(a.ai.key_draft, "sk-typed-for-a");
@@ -358,6 +361,118 @@ fn a_key_draft_does_not_follow_a_new_url() {
     assert!(a.ai.fetching.is_none());
     a.timers(Instant::now() + Duration::from_secs(1));
     wait(&mut a, |a| a.ai.keys.contains_key(slot_b));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The user: custom providers need no API key, and there can be more than one. Each is added
+/// from the Provider list, has its own name, URL and model, is chosen like any other provider
+/// and can be removed; with no key stored its models are still asked for, and the run goes to
+/// its URL with no key.
+#[test]
+fn custom_providers_are_added_chosen_and_removed_and_need_no_key() {
+    use super::modal::{AI_BASE_URL, AI_CUSTOM_NAME, AI_CUSTOM_REMOVE, AI_MODEL_NAME, AI_PROVIDER};
+    use mdshared_ui::settings::{Row, Value};
+    let (mut a, dir) = ai_app("t\n");
+    a.docs.prefs.ai_connection = Connection::OpenAi;
+    a.command(C::AiSettings);
+    let presets = mdedit_core::ai::PRESETS
+        .iter()
+        .filter(|x| !x.base_url.is_empty())
+        .count();
+    let rows_of = |a: &mut App| -> Vec<String> {
+        a.settings_rows()
+            .iter()
+            .filter_map(|r| match r {
+                Row::Choice { options, id, .. } if *id == AI_PROVIDER => {
+                    Some(format!("Provider: {}", options.join("|")))
+                }
+                Row::Text { label, .. } | Row::Action { label, .. } => Some(label.to_string()),
+                _ => None,
+            })
+            .collect()
+    };
+    let provider = |rows: &[String]| {
+        rows.iter()
+            .find(|r| r.starts_with("Provider: "))
+            .cloned()
+            .unwrap()
+    };
+    assert!(provider(&rows_of(&mut a)).ends_with("|Add a custom provider…"));
+    // Add two.
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets));
+    a.ai_setting(AI_CUSTOM_NAME, Value::Text("LM Studio".into()));
+    a.ai_setting(AI_BASE_URL, Value::Text("http://localhost:1234/v1".into()));
+    a.ai_setting(AI_MODEL_NAME, Value::Text("qwen".into()));
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets + 1));
+    a.ai_setting(AI_BASE_URL, Value::Text("http://box:11434/v1".into()));
+    let p = &a.docs.prefs;
+    assert_eq!(p.ai_customs.len(), 2);
+    assert_eq!((p.ai_custom, p.ai_url()), (1, "http://box:11434/v1"));
+    // Named by the first free number: "LM Studio" leaves 1 free.
+    assert_eq!(p.ai_customs[1].name, "Custom provider 1");
+    let rows = rows_of(&mut a);
+    assert!(provider(&rows).ends_with("|LM Studio|Custom provider 1|Add a custom provider…"));
+    assert!(rows.iter().any(|r| r == "Remove this provider"));
+    // Choose the first again: its own URL and model.
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets));
+    assert_eq!(a.docs.prefs.ai_url(), "http://localhost:1234/v1");
+    assert_eq!(a.docs.prefs.ai_model(Connection::OpenAi), "qwen");
+    assert!(a.ai_via().starts_with("LM Studio"));
+    // No key stored: the key row says it is optional and the models are still asked for.
+    a.timers(Instant::now() + Duration::from_secs(1));
+    let slot = "openai:custom:http://localhost:1234/v1";
+    a.ai.keys.insert(slot.into(), false);
+    a.ai.models.clear();
+    a.ai.fetching = None;
+    a.ai_settings_needs();
+    assert!(
+        a.ai.fetching.is_some(),
+        "the models of a server that takes no key"
+    );
+    let help = a
+        .settings_rows()
+        .iter()
+        .find_map(|r| match r {
+            Row::Text { label, help, .. } if label.as_str() == "API key" => Some(help.to_string()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(help.starts_with("Optional."), "{help}");
+    // What a run is sent: this URL, and its slot (the engine sends a key only if one is stored).
+    let conn = crate::ai::conn_json(Connection::OpenAi, &a.docs.prefs);
+    assert_eq!(conn["base_url"], "http://localhost:1234/v1");
+    assert_eq!(conn["slot"], slot);
+    // A local preset is never looked up in the store.
+    a.docs.prefs.ai_preset = "ollama".into();
+    assert_eq!(
+        crate::ai::conn_json(Connection::OpenAi, &a.docs.prefs)["slot"],
+        ""
+    );
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets + 1));
+    // Remove the chosen one: no other provider uses its server, so its key is cleared from the
+    // store (a provider added later on that URL must not send it unasked).
+    let box_slot = "openai:custom:http://box:11434/v1";
+    wait(&mut a, |a| !a.ai.pending_key(box_slot));
+    a.ai_settings_action(AI_CUSTOM_REMOVE);
+    assert!(a.ai.pending_key(box_slot), "the key is cleared");
+    assert_eq!(a.docs.prefs.ai_customs.len(), 1);
+    assert_eq!(a.docs.prefs.ai_url(), "http://localhost:1234/v1");
+    // A new one is named by the first free number, not the count.
+    a.ai_setting(AI_PROVIDER, Value::Choice(presets + 1));
+    assert_eq!(a.docs.prefs.ai_customs[1].name, "Custom provider 1");
+    // On the first one's server too: removing it leaves the key the other still uses.
+    a.ai_setting(AI_BASE_URL, Value::Text("http://localhost:1234/v1".into()));
+    a.timers(Instant::now() + Duration::from_secs(1));
+    wait(&mut a, |a| !a.ai.pending_key(slot));
+    a.ai_settings_action(AI_CUSTOM_REMOVE);
+    assert!(
+        !a.ai.pending_key(slot),
+        "another provider still uses the key"
+    );
+    // The last one: the provider falls back to the first preset.
+    a.ai_settings_action(AI_CUSTOM_REMOVE);
+    assert!(a.docs.prefs.ai_customs.is_empty());
+    assert_eq!(a.docs.prefs.ai_preset, "openai");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -444,6 +559,100 @@ fn the_instruction_is_saved_as_a_prompt() {
     let n = a.docs.ai_prompts.len();
     a.ai_save_prompt();
     assert_eq!(a.docs.ai_prompts.len(), n);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The owner: a saved prompt's Edit puts it in the instruction box to be changed, and runs
+/// nothing: the button in the instruction panel's list, and the word at the right of its row in
+/// the AI menu (where the rest of the row, its play icon included, runs it).
+#[test]
+fn a_saved_prompts_pencil_puts_it_in_the_box_to_be_changed() {
+    use crate::ui::{Act, PopupKind};
+    let (mut a, dir) = ai_app("text\n");
+    a.session_path = Some(dir.join("session.ini"));
+    std::fs::write(
+        dir.join(mdedit_core::ai::PROMPTS_FILE),
+        "# Prompts\n\n## Tables\n\nmake the prices a table\n\n## Short\n\nshorten it\n",
+    )
+    .unwrap();
+    let instruction = |a: &mut App| {
+        a.ai.instruction()
+            .map(|i| (i.field.text().to_string(), i.selected))
+    };
+    // The panel's pencil.
+    a.command(C::AiRewrite);
+    a.compose();
+    let pencil =
+        a.ai.hits
+            .iter()
+            .find(|(h, _)| *h == AiHit::EditPrompt(1))
+            .map(|(_, r)| *r)
+            .expect("a pencil on the second prompt");
+    a.pointer_moved(pencil.cx(), pencil.cy());
+    a.left_press();
+    a.left_release();
+    assert_eq!(
+        instruction(&mut a),
+        Some(("shorten it".to_string(), Some(1)))
+    );
+    assert!(!a.ai.running(), "nothing sent");
+    // A click on the row beside the pencil still runs the prompt.
+    let row =
+        a.ai.hits
+            .iter()
+            .find(|(h, _)| *h == AiHit::Prompt(0))
+            .map(|(_, r)| *r)
+            .unwrap();
+    a.pointer_moved(row.x + 20.0, row.cy());
+    a.left_press();
+    a.left_release();
+    assert!(a.ai.running() && !a.ai_panel_open());
+    wait(&mut a, |a| !a.ai.running());
+
+    // The AI menu: the word Edit at the row's right opens the panel with the prompt in it.
+    a.ai.panel = None;
+    a.compose();
+    let text_area = a.hit_rect(crate::ui::Hit::Text).expect("the text");
+    a.ui.mouse = (text_area.cx(), text_area.cy());
+    a.right_press();
+    a.open_sub(PopupKind::Text, PopupKind::Ai, false);
+    a.compose();
+    let row =
+        a.ui.popup
+            .as_ref()
+            .unwrap()
+            .sub
+            .as_ref()
+            .unwrap()
+            .menu
+            .row_rect(3);
+    a.pointer_moved(row.right() - 20.0, row.cy());
+    a.left_release();
+    assert_eq!(
+        instruction(&mut a),
+        Some(("make the prices a table".to_string(), Some(0)))
+    );
+    assert!(!a.ai.running(), "nothing sent");
+    // The play icon at the left runs the prompt, as the rest of the row does.
+    a.ai.panel = None;
+    a.compose();
+    a.ui.mouse = (text_area.cx(), text_area.cy());
+    a.right_press();
+    a.open_sub(PopupKind::Text, PopupKind::Ai, false);
+    a.compose();
+    let menu = &a.ui.popup.as_ref().unwrap().sub.as_ref().unwrap().menu;
+    let row = menu.row_rect(4);
+    a.pointer_moved(row.x + 18.0, row.cy());
+    a.left_release();
+    assert!(a.ai.running() && !a.ai_panel_open());
+    wait(&mut a, |a| !a.ai.running());
+    // The command it is.
+    a.ai.panel = None;
+    a.act(Act::AiEditPrompt(1));
+    assert_eq!(
+        instruction(&mut a),
+        Some(("shorten it".to_string(), Some(1)))
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -536,5 +745,176 @@ fn a_prompt_that_would_not_read_back_is_not_saved() {
         out,
         format!("{crlf}\r\n## Say it twice\r\n\r\nSay it twice\r\n")
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A text file the AI formats as Markdown is Markdown at once (preview, tools), and is offered
+/// a `.md` name: a name that is taken is refused, the rename keeps the tab and its undo.
+#[test]
+fn a_text_file_formatted_as_markdown_is_markdown_and_offered_its_name() {
+    engine();
+    let dir = scratch("ai-md");
+    let file = dir.join("notes.txt");
+    std::fs::write(&file, "plain words\n").unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &file);
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    assert!(!a.docs.tabs[i].is_markdown());
+    a.command(C::AiFormat);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.compose();
+    a.key_pressed(keys::Key::Name(KeyName::Enter), None);
+    assert_eq!(text(&a), "# Done\n");
+    let id = a.docs.tabs[i].id;
+    assert!(a.docs.tabs[i].is_markdown());
+    assert!(super::preview::previewable(&a.docs.tabs[i]));
+    let (name, to) = a.docs.rename_bar().expect("the rename bar");
+    assert_eq!(name, "notes.txt");
+    assert_eq!(to.file_name().unwrap(), "notes.md");
+    a.compose();
+    assert!(a.hit_rect(Hit::RenameGo).is_some());
+
+    // The name is taken: nothing is renamed, and it says so.
+    let md = dir.join("notes.md");
+    std::fs::write(&md, "another file").unwrap();
+    a.activate(Hit::RenameGo);
+    assert!(file.exists());
+    assert_eq!(std::fs::read_to_string(&md).unwrap(), "another file");
+    assert!(
+        a.docs.tabs[i]
+            .path
+            .as_deref()
+            .is_some_and(|p| p.ends_with("notes.txt"))
+    );
+    assert!(
+        a.docs
+            .toast(Instant::now())
+            .unwrap()
+            .contains("already exists")
+    );
+    assert!(a.docs.rename_bar().is_none());
+
+    // Free again and offered again: the file is renamed; the tab, its unsaved text and its undo
+    // stay.
+    std::fs::remove_file(&md).unwrap();
+    a.docs.rename_offer = Some(id);
+    a.activate(Hit::RenameGo);
+    assert!(!file.exists() && md.exists());
+    assert_eq!(a.docs.tabs[i].id, id);
+    assert!(
+        a.docs.tabs[i]
+            .path
+            .as_deref()
+            .is_some_and(|p| p.ends_with("notes.md"))
+    );
+    assert!(a.docs.tabs[i].modified());
+    let r = a.docs.tabs[i].ready().unwrap();
+    assert!(!r.language_set, "the name gives Markdown now");
+    assert!(a.docs.rename_bar().is_none());
+    // Saved under the new name without a question.
+    a.docs.save(i, false).unwrap();
+    assert_eq!(std::fs::read_to_string(&md).unwrap(), "# Done\n");
+    a.command(C::Undo);
+    assert_eq!(text(&a), "plain words\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable review #3: undoing the AI's change takes back the switch to Markdown and the bar, and
+/// nothing is kept for the file.
+#[test]
+fn undoing_the_conversion_takes_the_switch_back() {
+    engine();
+    let dir = scratch("ai-md-undo");
+    let file = dir.join("notes.txt");
+    std::fs::write(&file, "plain words\n").unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &file);
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    a.docs.prefs.ai_review = false;
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    assert!(a.docs.tabs[i].is_markdown() && a.docs.rename_bar().is_some());
+    a.command(C::Undo);
+    a.compose();
+    assert_eq!(text(&a), "plain words\n");
+    let r = a.docs.tabs[i].ready().unwrap();
+    assert_eq!(crate::languages::name_of(r.language), "Plain text");
+    assert!(r.place().lang.is_none());
+    assert!(!a.docs.tabs[i].is_markdown());
+    assert!(a.docs.rename_bar().is_none() && a.docs.rename_offer.is_none());
+    // Redone, the text is back but the language stays as chosen since (plain).
+    a.command(C::Redo);
+    a.compose();
+    assert_eq!(text(&a), "# Done\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable review #5 and #9: a file no longer on disk is renamed by its tab's name alone; the
+/// bookmarks the old name left and the find results follow the new name.
+#[test]
+fn a_rename_follows_through_and_needs_no_file_on_disk() {
+    engine();
+    let dir = scratch("ai-md-gone");
+    let file = dir.join("notes.txt");
+    std::fs::write(&file, "plain words\n").unwrap();
+    let mut a = app();
+    let i = open_now(&mut a, &file);
+    let file = a.docs.tabs[i].path.clone().unwrap();
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    a.docs.prefs.ai_review = false;
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    a.docs.marks.put(&file, &[0]);
+    a.ui.results.rows.push(crate::results::Row::File {
+        path: Some(file.clone()),
+        doc: None,
+        name: "notes.txt".into(),
+        count: 1,
+        more: false,
+        stale: false,
+    });
+    std::fs::remove_file(&file).unwrap();
+    a.compose();
+    a.activate(Hit::RenameGo);
+    let md = dir.join("notes.md");
+    let path = a.docs.tabs[i].path.clone().unwrap();
+    assert!(path.ends_with("notes.md"), "{path:?}");
+    assert!(!md.exists(), "nothing written until it is saved");
+    assert!(a.docs.toast(Instant::now()).unwrap().starts_with("Renamed"));
+    assert_eq!(a.docs.marks.lines(&path), Some(&[0][..]));
+    assert!(a.docs.marks.lines(&file).is_none());
+    match &a.ui.results.rows[0] {
+        crate::results::Row::File { path: p, name, .. } => {
+            assert_eq!(p.as_deref(), Some(path.as_path()));
+            assert_eq!(name, "notes.md");
+        }
+        _ => panic!("a file row"),
+    }
+    a.docs.save(i, false).unwrap();
+    assert_eq!(std::fs::read_to_string(&md).unwrap(), "# Done\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Markdown formatted as Markdown, or a part of a text file, changes no language.
+#[test]
+fn only_a_whole_text_file_formatted_is_switched() {
+    let (mut a, dir) = ai_app("plain words\n");
+    a.docs.prefs.ai_review = false;
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    assert!(a.docs.rename_bar().is_none() && a.docs.rename_offer.is_none());
+
+    let file = dir.join("part.txt");
+    std::fs::write(&file, "one\ntwo\n").unwrap();
+    let i = open_now(&mut a, &file);
+    a.docs.tabs[i].ready_mut().unwrap().view.sel = mdedit_core::Selection {
+        anchor: 0,
+        caret: 3,
+        goal_col: None,
+    };
+    a.command(C::AiFormat);
+    wait(&mut a, |a| !a.ai.running());
+    assert!(!a.docs.tabs[i].is_markdown());
+    assert!(a.docs.rename_offer.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }

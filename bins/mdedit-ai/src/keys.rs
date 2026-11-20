@@ -50,15 +50,36 @@ fn override_key() -> Option<String> {
     std::env::var("MDEDIT_AI_KEY").ok()
 }
 
-/// The stored key, or `None` when there is none.
+/// The key to send, or `None` when there is none: `MDEDIT_AI_KEY` for every slot when set, else
+/// the stored one. An empty slot (a provider that takes no key) has none, and the credential
+/// store is not asked, so a local server works where no store runs.
 pub fn get(slot: &str) -> Result<Option<String>, Fail> {
-    if let Some(k) = override_key() {
-        return usable(k);
-    }
-    match entry(slot)?.get_password() {
-        Ok(k) => usable(k),
+    decide(slot, override_key(), || match entry(slot)?.get_password() {
+        Ok(k) => Ok(Some(k)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(store_fail(e)),
+    })
+}
+
+/// [`get`] with what it finds handed in: the override, and a look in the store. A custom
+/// provider's key is optional, so a store that cannot be asked (none runs, as on many Linux
+/// desktops) means it has none rather than an error.
+fn decide(
+    slot: &str,
+    over: Option<String>,
+    stored: impl FnOnce() -> Result<Option<String>, Fail>,
+) -> Result<Option<String>, Fail> {
+    if let Some(k) = over {
+        return usable(k);
+    }
+    if slot.is_empty() {
+        return Ok(None);
+    }
+    match stored() {
+        Ok(Some(k)) => usable(k),
+        Ok(None) => Ok(None),
+        Err(_) if slot.starts_with(CUSTOM) => Ok(None),
+        Err(f) => Err(f),
     }
 }
 
@@ -105,6 +126,39 @@ pub fn clear(slot: &str) -> Result<(), Fail> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A provider that takes no key (an empty slot) has none, and the store is not asked: a
+    /// local server works where no credential store runs.
+    #[test]
+    fn an_empty_slot_has_no_key_and_asks_no_store() {
+        let asked = || -> Result<Option<String>, Fail> { panic!("the store was asked") };
+        assert!(matches!(decide("", None, asked), Ok(None)));
+    }
+
+    /// `MDEDIT_AI_KEY` is used for every slot, a local preset's empty one too.
+    #[test]
+    fn the_override_is_used_for_every_slot() {
+        let asked = || -> Result<Option<String>, Fail> { panic!("the store was asked") };
+        let k = Some("sk-override".to_string());
+        assert_eq!(decide("", k.clone(), asked).unwrap(), k);
+        assert_eq!(decide("claude-api", k.clone(), asked).unwrap(), k);
+    }
+
+    /// A store that cannot be asked: a custom provider (its key optional) has none; a preset
+    /// that needs its key says why there is none.
+    #[test]
+    fn a_store_error_is_no_key_only_where_the_key_is_optional() {
+        let broken = || Err(Fail::new("keystore", "no store"));
+        let custom = "openai:custom:http://localhost:1234/v1";
+        assert!(matches!(decide(custom, None, broken), Ok(None)));
+        assert!(decide("claude-api", None, broken).is_err());
+        assert!(decide("openai:groq", None, broken).is_err());
+        let found = || Ok(Some("sk-stored".to_string()));
+        assert_eq!(
+            decide(custom, None, found).unwrap().as_deref(),
+            Some("sk-stored")
+        );
+    }
 
     /// Audit 1, round 2: paths that differ only in case get different credentials on Windows,
     /// and every name is short and in lower case.

@@ -25,6 +25,7 @@ use crate::ui::Ui;
 use mdedit_core::search::walk_files;
 use mdedit_highlight::DocId;
 use mdedit_outline::{Flavor, Symbol, symbols};
+use mdshared_ui::gfx::{Face, Painter, Rect};
 use mdshared_ui::palette::{Entry, Palette};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -55,6 +56,8 @@ pub enum Target {
     Prefix(&'static str),
     /// A saved AI prompt, by its place in the file.
     AiPrompt(usize),
+    /// A language for the current document (`None`: plain text).
+    Language(Option<mdedit_highlight::Language>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +67,9 @@ pub enum Mode {
     Line,
     Symbols,
     Help,
+    /// The language list: opened by itself (the status bar's language field, the "Language"
+    /// command), never by a prefix.
+    Languages,
 }
 
 /// The mode a query is in and how many chars of it are the prefix.
@@ -132,6 +138,12 @@ pub struct PaletteState {
     mode: Option<Mode>,
     /// Whether the folder's files are among the entries (only once the query has text).
     with_files: bool,
+    /// The mode it was opened in, whatever the query: the language list.
+    fixed: Option<Mode>,
+    /// The language list stands above the status bar's language field.
+    pub anchored: bool,
+    /// The language list's small print, drawn over the footer ([`draw_note`]).
+    pub note: Option<String>,
 }
 
 impl PaletteState {
@@ -149,6 +161,17 @@ impl PaletteState {
             targets: Vec::new(),
             mode: None,
             with_files: false,
+            fixed: None,
+            anchored: false,
+            note: None,
+        }
+    }
+
+    /// The mode the entries come from: the one it was opened in, or the query's prefix.
+    fn mode(&self) -> (Mode, usize) {
+        match self.fixed {
+            Some(mode) => (mode, 0),
+            None => mode_of(self.palette.query()),
         }
     }
 
@@ -157,7 +180,7 @@ impl PaletteState {
     /// a mode only re-ranks, which the palette does by itself. The go-to line's message follows
     /// every change of the query.
     fn sync(&mut self, src: &Sources, force: bool) {
-        let (mode, skip) = mode_of(self.palette.query());
+        let (mode, skip) = self.mode();
         let with_files = mode == Mode::Files && !self.palette.needle().is_empty();
         let changed = self.mode != Some(mode) || with_files != self.with_files || force;
         if changed {
@@ -170,6 +193,10 @@ impl PaletteState {
                 Mode::Line => (Vec::new(), Vec::new()),
                 Mode::Symbols => symbol_entries(src),
                 Mode::Help => help(),
+                Mode::Languages => {
+                    self.note = Some(language_note(src.docs));
+                    languages(src)
+                }
             };
             self.targets = targets;
             self.palette.set_message(match mode {
@@ -198,7 +225,7 @@ impl PaletteState {
 
     /// The line and column a go-to query names ("12", "12:5"), when it is in the line mode.
     pub fn line_query(&self) -> Option<(usize, usize)> {
-        let (mode, _) = mode_of(self.palette.query());
+        let (mode, _) = self.mode();
         if mode != Mode::Line {
             return None;
         }
@@ -379,10 +406,11 @@ fn icon(id: C) -> &'static str {
         C::Settings => glyph::SLIDERS,
         C::CompleteWord => glyph::EDIT,
         C::OpenSnippets => glyph::DOC,
-        C::AiFormat | C::AiFix | C::AiRewrite => glyph::EDIT,
+        C::AiFormat | C::AiFix | C::AiRewrite => crate::chrome::SPARKLE,
         C::AiEditPrompts => glyph::DOC,
         C::AiSettings => glyph::SLIDERS,
         C::AiCancel => glyph::STOP,
+        C::Language => glyph::CODE,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
 }
@@ -462,6 +490,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::PinTab => has_tab,
         C::AiFormat | C::AiFix | C::AiRewrite => ready.is_some() && docs.ai_status.is_none(),
         C::AiCancel => docs.ai_status.is_some(),
+        C::Language => ready.is_some(),
         C::CopyFilePath | C::ShowInFileManager => has_file,
         // A document that has no file is previewed from its text.
         C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane | C::VisualEdit => has_tab,
@@ -529,7 +558,7 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
         let label = format!("AI: {}", p.name);
         push(&mut entries, &mut targets, Target::AiPrompt(k), |id| {
             Entry::new(id, label.as_str())
-                .icon(glyph::EDIT)
+                .icon(glyph::PLAY)
                 .group(G_PLAIN)
                 .enabled(ai_on)
         });
@@ -565,6 +594,94 @@ fn symbol_entries(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
         });
     }
     (entries, targets)
+}
+
+/// The language list: plain text, Markdown, then every other language by name; the document's own checked, and
+/// Markdown marked as the one with a preview.
+fn languages(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
+    let (mut entries, mut targets) = (Vec::new(), Vec::new());
+    let current = src.docs.active_ready().map(|r| r.language);
+    let markdown = crate::languages::markdown();
+    // Markdown, the one with a preview, right under plain text.
+    let rest = crate::languages::all()
+        .into_iter()
+        .filter(|l| Some(*l) != markdown)
+        .map(Some);
+    let list = [None, markdown].into_iter().chain(rest);
+    for lang in list {
+        let label = crate::languages::name_of(lang);
+        let icon = if current == Some(lang) {
+            glyph::CHECK
+        } else {
+            ""
+        };
+        let hint = if lang.is_some() && lang == markdown {
+            "preview"
+        } else {
+            ""
+        };
+        push(&mut entries, &mut targets, Target::Language(lang), |id| {
+            Entry::new(id, label).hint(hint).icon(icon).group(G_PLAIN)
+        });
+    }
+    (entries, targets)
+}
+
+/// What the language list says under its rows: a choice is kept for the file, and the
+/// extension's language is the way back.
+pub fn language_note(docs: &Docs) -> String {
+    let own = docs.active().map(|i| docs.own_language(i));
+    let own = crate::languages::name_of(own.flatten());
+    if docs.active_ready().is_some_and(|r| r.language_set) {
+        format!("Kept for this file. Back to the extension's: {own}.")
+    } else {
+        format!("From the extension: {own}. A choice is kept for this file.")
+    }
+}
+
+/// The width of the language list.
+const LANGUAGES_W: f32 = 380.0;
+/// The shared palette's margin beside its card (its `MARGIN`) and its footer's height.
+const CARD_MARGIN: f32 = 24.0;
+const FOOTER_H: f32 = 28.0;
+
+/// The area to lay the palette out in so its card stands just above `field` (the status bar's
+/// language field), its right edge at the field's, no higher than `top`. The shared palette
+/// centres its card near the top of what it is given: it is given a narrow area that ends at the
+/// field, moved down once the card's height is known.
+pub fn anchored_window(p: &mut Palette, field: Rect, w: f32, top: f32) -> Rect {
+    let card_w = LANGUAGES_W.min(w - 16.0).max(240.0);
+    let x = (field.right() - card_w).min(w - card_w - 8.0).max(8.0) - CARD_MARGIN;
+    // The card ends 16 px above the area's bottom when it is as tall as the area allows.
+    let bottom = field.y - 4.0 + 16.0;
+    // The card's top is the area's top plus 12% of its height: put it at `top`.
+    let y = (top - 0.12 * bottom) / 0.88;
+    let area = Rect::new(x, y, card_w + 2.0 * CARD_MARGIN, bottom - y);
+    let card = p.layout(area, 0.0);
+    let dy = (field.y - 4.0 - card.bottom()).max(0.0);
+    Rect::new(area.x, area.y + dy, area.w, area.h)
+}
+
+/// The language list's small print in place of the footer's count and keys (the shared footer
+/// gives its text a third of the width).
+pub fn draw_note(p: &mut Painter, pal: &mdshared_ui::theme::Palette, card: Rect, note: &str) {
+    if card.h < 50.0 + FOOTER_H {
+        return;
+    }
+    let f = Rect::new(card.x, card.bottom() - FOOTER_H, card.w, FOOTER_H);
+    p.fill(
+        Rect::new(f.x + 10.0, f.y + 1.0, f.w - 20.0, f.h - 3.0),
+        pal.popup,
+    );
+    p.text(
+        Face::Ui,
+        11.5,
+        f.x + 16.0,
+        f.cy() + 1.0,
+        note,
+        pal.faint,
+        f.w - 32.0,
+    );
 }
 
 fn help() -> (Vec<Entry>, Vec<Target>) {
@@ -606,6 +723,18 @@ impl Host {
         self.tick += 1;
     }
 
+    /// Opens the language list: anchored above the status bar's language field.
+    pub fn open_languages(&mut self, docs: &Docs, ui: &Ui, macros: &mut Macros) {
+        let mut state = PaletteState::new("");
+        state.palette.set_placeholder("Type a language");
+        state.palette.set_groups(Vec::new());
+        state.fixed = Some(Mode::Languages);
+        state.anchored = true;
+        self.open = Some(state);
+        self.sync(docs, ui, macros, true);
+        self.tick += 1;
+    }
+
     /// Closes it. The folder's files stay listed for the next opening; the symbols go.
     pub fn close(&mut self) {
         self.open = None;
@@ -619,7 +748,7 @@ impl Host {
         let Some(mut state) = self.open.take() else {
             return;
         };
-        let (mode, _) = mode_of(state.palette.query());
+        let (mode, _) = state.mode();
         if mode == Mode::Files && !state.palette.needle().is_empty() {
             self.ensure_files(ui.tree.root(), docs.waker());
         }

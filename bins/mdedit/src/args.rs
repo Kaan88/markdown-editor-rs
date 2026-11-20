@@ -33,10 +33,16 @@ pub enum ShotMenu {
     Complete,
     /// The same, with its first snippet taken: the text it made, its first stop selected.
     CompleteSnippet,
-    /// The text menu with its Lines, Convert (or Markdown) submenu open beside it.
+    /// The text menu with its Lines, Convert, Markdown (or AI) submenu open beside it.
     TextLines,
     TextConvert,
     TextMarkdown,
+    TextAi,
+    /// The language list above the status bar's language field.
+    Language,
+    /// The active document made Markdown as the AI's Format as Markdown does, with the bar
+    /// offering its `.md` name.
+    RenameBar,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -475,6 +481,9 @@ impl Args {
                         "complete-snippet" => Some(ShotMenu::CompleteSnippet),
                         "text-lines" => Some(ShotMenu::TextLines),
                         "text-convert" => Some(ShotMenu::TextConvert),
+                        "text-ai" => Some(ShotMenu::TextAi),
+                        "language" => Some(ShotMenu::Language),
+                        "rename-bar" => Some(ShotMenu::RenameBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
                         _ => None,
                     })
