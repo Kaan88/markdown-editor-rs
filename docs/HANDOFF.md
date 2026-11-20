@@ -104,6 +104,13 @@ noise. Four launches at once on one scratch session, five tries: 1.2.0 leaves on
 time (the others hand over, exit 0); 1.1.2 leaves two. Not checked: that the one window has all
 four files.
 
+**After the test build (owner, 2026-11-21):** a right-click in the visual box opens the text's
+menu, not the page's (`right_press`; test `the_open_block_s_box_moves_with_the_page_it_is_on`,
+fails with the fix reverted); the AI submenu's Modify button lights up at once (its hover is in
+the overlay signature; no test). Not fixed: the owner sees the box stay put while the wheel
+scrolls the page; the same test has the box follow the page, so the cause is not found. Next
+review round: `docs/review-prompts/audit3-scope.md`.
+
 **B fixed** on `f/visual-edit` (`2496e6d`, merged into `release/1.2.0`); see "Visual editing, B+"
 below. B2 (clipping) and B3 (scroll to the caret) have no automated test and wait for the owner
 to look. **C fixed** on `f/four-fixes` (`b06800a`, the four-fixes session); each fix has a test

@@ -896,7 +896,10 @@ impl App {
             return;
         }
         self.ui.popup = None;
-        if self.preview_menu(x, y) {
+        // In visual editing the open block's box is the text: it gets the text's menu (AI and
+        // the rest), not the page's.
+        let in_box = self.visual_block().is_some() && self.areas.text.contains(x, y);
+        if !in_box && self.preview_menu(x, y) {
             return;
         }
         // Opened by the pointer, so the access-key underlines stay hidden until a key is used.

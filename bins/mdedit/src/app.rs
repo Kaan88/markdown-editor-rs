@@ -1232,9 +1232,17 @@ impl App {
                     p.kind,
                     (p.menu.hover, p.menu.scroll().to_bits()),
                     p.menu.items.len(),
-                    p.sub
-                        .as_ref()
-                        .map(|s| (s.kind, s.menu.hover, s.menu.scroll().to_bits())),
+                    p.sub.as_ref().map(|s| {
+                        (
+                            s.kind,
+                            s.menu.hover,
+                            s.menu.scroll().to_bits(),
+                            // A saved prompt's Modify button lit under the pointer (the owner:
+                            // it lit only half a second later, with the next other change).
+                            (s.kind == PopupKind::Ai)
+                                .then(|| crate::ai_ui::menu_modify_at(&s.menu, self.ui.mouse)),
+                        )
+                    }),
                 )
             }),
             self.ui

@@ -992,6 +992,94 @@ mod tests {
         }
     }
 
+    /// The owner: with a block open, the wheel over the box scrolled the page and left the box
+    /// where it was. The box is at the block's place on the page, so it moves with it.
+    #[test]
+    fn the_open_block_s_box_moves_with_the_page_it_is_on() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-scroll");
+        let md = dir.join("a.md");
+        let text: String = (0..80)
+            .map(|i| {
+                format!(
+                    "Paragraph {i}.
+
+"
+                )
+            })
+            .collect();
+        std::fs::write(&md, text).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.compose();
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        if let Some(v) = a.visual.as_mut() {
+            v.pending = Some(super::super::visual::Ask::Line(21));
+        }
+        let boxed = |a: &App| a.areas.preview.and_then(|p| a.visual_box(p));
+        pump(&mut a, |a| boxed(a).is_some());
+        let before = boxed(&a).expect("the box");
+        let top = a.preview.as_ref().unwrap().top;
+        a.ui.mouse = (before.x + 20.0, before.y + 15.0);
+        // The owner: a right-click in the box opens the text's menu, AI and all.
+        a.right_press();
+        assert!(
+            a.ui.popup
+                .as_ref()
+                .is_some_and(|p| p.kind == crate::ui::PopupKind::Text && p.menu.items.len() > 2),
+            "the text's menu in the box"
+        );
+        a.ui.popup = None;
+        a.compose();
+        a.wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -2.0));
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top != top);
+        let moved = a.preview.as_ref().unwrap().top - top;
+        assert!(moved > 0.0, "the page scrolled");
+        pump(&mut a, |a| boxed(a).is_some_and(|b| b.y != before.y));
+        let after = boxed(&a).expect("the box after the scroll");
+        assert!(
+            (before.y - after.y - moved / a.scale).abs() < 1.0,
+            "box {before:?} -> {after:?}, page moved {moved}"
+        );
+        assert_eq!(
+            a.areas.text.y,
+            a.visual_text(after).y,
+            "the text is in the box"
+        );
+        // Far enough that the caret leaves the pane: the page stays where the wheel put it.
+        let top = a.preview.as_ref().unwrap().top;
+        a.wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -15.0));
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top != top);
+        let far = a.preview.as_ref().unwrap().top;
+        assert!(far > top);
+        let end = Instant::now() + Duration::from_millis(500);
+        while Instant::now() < end {
+            a.preview_sync();
+            a.compose();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            a.preview.as_ref().unwrap().top,
+            far,
+            "nothing scrolled it back"
+        );
+        let after = boxed(&a).expect("the box after the far scroll");
+        eprintln!(
+            "box {after:?} text {:?} pane {:?} view {:?}",
+            a.areas.text,
+            a.areas.preview,
+            a.docs.active_ready().map(|r| r.view.top)
+        );
+        assert_eq!(a.areas.text, a.visual_text(after), "the text is in the box");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn visual_editing_keeps_the_hidden_text_safe_and_follows_edits_around_the_block() {
         use crate::docs::EditOp;
