@@ -5,6 +5,13 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Audit 1, round 7 (2026-11-20)
+
+Astra re-reviewed `09c5f93`: no new findings, and both round-6 fixes were confirmed on Windows.
+Astra ran the 25 application tests with default and with no default features; not the full
+workspace, clippy, the revert checks, Linux or macOS. Merged into `main` with no release; the
+fixes go out with the next version.
+
 ## Audit 1, round 6 (2026-11-20, branch `f/next`, after the 1.1.1 release)
 
 Astra's re-review of `3e6359c` found two regressions. Both are fixed; each test was checked to
