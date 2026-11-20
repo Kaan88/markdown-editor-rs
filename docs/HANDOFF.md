@@ -5,6 +5,36 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Audit 1, round 7 (2026-11-20)
+
+Astra re-reviewed `09c5f93`: no new findings, and both round-6 fixes were confirmed on Windows.
+Astra ran the 25 application tests with default and with no default features; not the full
+workspace, clippy, the revert checks, Linux or macOS. Merged into `main` with no release; the
+fixes go out with the next version.
+
+## Audit 1, round 6 (2026-11-20, branch `f/next`, after the 1.1.1 release)
+
+Astra's re-review of `3e6359c` found two regressions. Both are fixed; each test was checked to
+fail with its fix reverted. No release for these yet (the owner's call).
+
+- **Reload kept the waiting tab read-only.** The tab was read-only while its recovery copy could
+  not be read. Reload put the copy's text back but carried `read_only`, so `Recovery::poll`
+  dropped the copy. Now `apply_load` does not carry `read_only` from a tab whose text was
+  waiting; it is set again only if the text still cannot be read. Test
+  `a_reload_that_puts_the_waiting_text_back_keeps_its_copy` runs Reload, the Discard dialog, the
+  load on its thread, the recovery look, then a crash and the next start.
+- **An expired retry with an unchanged session.** A cancelled exit puts the old list back, so
+  the signature matches the one last written while `session_retry` stays set in the past, and
+  `next_wake` spun the loop. Now `persist_if_changed` writes whenever a retry is due: it succeeds
+  and clears, or fails and is due 5 s later. Test `a_due_retry_is_made_when_nothing_changed_since`.
+
+Known and accepted: a legacy (id-less) backup whose file time changes while the session still
+cannot be written gets a new `legacy_draft` id, so its text comes back twice. Nothing is lost.
+Astra reproduced it and judged it conservative.
+
+Astra noted that `3e6359c` itself lacks the round-5 section below; it was in the next commit,
+`2dd3797`.
+
 ## Audit 1, round 5 (2026-11-19, branch `f/next`, release 1.1.1 held for it)
 
 Astra reviewed `6cdf50e..1fe830f`: four recovery blockers, two round-4 leftovers, the updater
