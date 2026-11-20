@@ -210,6 +210,65 @@ text below was written before either was built: it is what the platforms offer.
   answers the GDI alpha question and says whether this is a small feature or a change to how the
   window is presented. Then the same on KDE Wayland.
 
+## Proposed (owner request 2026-11-20): visual editing (B+) and a notes library
+
+Discussed with the owner on 2026-11-20. Step 0 of B+ (the spike) is done and approved: "fast,
+jumps are not jarring" (owner, 2026-11-20, `spikes/blockedit/RESULTS.md`). The library is not
+started.
+
+### Visual editing, one block at a time ("B+")
+
+The window shows the rendered page; a click on a block (paragraph, list, table, code block)
+turns only that block into its Markdown source, in place, edited as plain text; clicking away
+renders it again. Ctrl+E swaps to the whole source and back at the same place. Typing straight
+into rendered text (Typora's way, "C") stays out: it needs a second editor core.
+
+What is already there, so the cost is not where it first looked:
+- mdview's renderer is built into mdedit since 1.0.0 (`embedded-preview`, default). Measured then
+  (HANDOFF, "Preview pane"): first frame unchanged (138-149 ms on the Windows runner, 94 ms
+  Linux), keystroke to pane pixels p50 8.4-8.8 ms on Windows, memory +1 MiB, exe +1.3 MB. No new
+  embedding is needed.
+- Every rendered block knows its first source line (`mdview_core::model::Block::line`); a block
+  runs to the next one's line. The pane already hit-tests clicks (task boxes tick in the text).
+
+Design: one buffer, no second core. The block being edited is shown by mdedit's own text view,
+limited to that block's lines of the same rope, drawn over the page; the renderer leaves a gap
+of that view's height where the block was. Undo, find, AI commands and saving are the editor's
+as they are. New in mdview's crates: the hit test returns the block and its line range, and a
+request "block N is a gap of H px" (wire + `serve`), so a viewer release goes first.
+
+Steps:
+0. **Spike, done 2026-11-20, approved** (`spikes/blockedit`): one file, page drawn, click a paragraph, the source view in a gap,
+   type, click away. Measure on Windows: click to source view, leaving a block to its pixels,
+   keystroke while a block is open, the page's jump when the gap's height differs from the
+   block's. Owner looks at it; it decides whether B+ goes ahead or falls back to B.
+1. mdview: block ranges from the hit test, the gap request, tests.
+2. mdedit: Visual mode per tab (the pane full width), the in-place block view, Ctrl+E, Esc leaves
+   a block, the caret's block opens when switching from source.
+3. Edges: front matter, nested lists and quotes (the outer block opens), tables, a block that
+   grows into several while typing, the 100 MB file (Visual mode refused over a size).
+4. Budgets before and after, Windows run, owner approval.
+
+Risks: the page moving under the pointer as blocks open and close; blocks the renderer merges
+or splits differently from where the source lines suggest.
+
+### Notes library
+
+Quick access to notes scattered anywhere, nothing moved. A `library` folder beside
+`ai-prompts.md`; each `.md` file in it is one top-level group. Read like the prompts file: saved
+means read again, text not understood is left out, missing files are shown as missing.
+
+    # Personal
+    ## Money
+    - [Taxes 2026](D:/misc/taxes.md)
+    - D:/misc/receipts.md            (title from its first heading)
+    - folder: D:/notes/journal       (every .md in it; open question)
+
+Quick open (Ctrl+P, if free in the key tables) searches titles and file names across all
+groups; a command adds the current file under a chosen heading. Both apps read the same files
+(code in the shared crates). Open: whether `folder:` lines are wanted (they need a background
+scan, never on the launch path); whether quick open also searches inside notes.
+
 ## What it is
 
 From the viewer's plan (section E, 2026-11-11): the user wants, for personal use, "an editor as
@@ -228,6 +287,8 @@ opens any text file and shares the shell, text and highlighting code with the vi
 - Not an IDE: no language servers, no build or debug, no plugins, no terminal. (Word completion
   from the open files was added in 0.6.0.)
 - Not a WYSIWYG Markdown editor. Markdown is edited as text; the rendered page is the viewer's job.
+  Amended 2026-11-20: visual editing one block at a time (B+, above), where each block is still
+  edited as its Markdown text, is planned; typing into rendered text stays out.
 - No multiple cursors, split views, minimap or code folding in the first version (all built
   since; see the roadmap above).
 - No network use, except looking for and downloading its own updates (added 2026-11-13 with

@@ -1,0 +1,21 @@
+[package]
+name = "blockedit-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Throwaway: the B+ question (docs/PLAN.md, "Visual editing, one block at a time"). The renderer at
+# the revision mdedit pins, and mdshared-ui at the revision that renderer uses, so the two share
+# one Bitmap type. Stock winit and softbuffer.
+[dependencies]
+mdview-core = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "31338dae9b179a68b90c06353cc128d8493b12c6" }
+mdview-render = { git = "https://github.com/Kaan88/markdown-viewer-rs", rev = "31338dae9b179a68b90c06353cc128d8493b12c6" }
+mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "49de4ecfa4b2d038354749a89acce41e09b871dc" }
+mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "49de4ecfa4b2d038354749a89acce41e09b871dc" }
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
+softbuffer = { version = "=0.4.8", default-features = false }
+
+[workspace]
+
+[profile.release]
+opt-level = 3
