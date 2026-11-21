@@ -3202,6 +3202,16 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.compose();
             app.activate(Hit::StatusLanguage);
         }
+        Some(ShotMenu::MainLibrary) => {
+            app.open_popup(PopupKind::Main);
+            app.compose();
+            if let Some(p) = app.ui.popup.as_mut() {
+                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::LibraryMenu);
+            }
+            app.open_sub(PopupKind::Main, PopupKind::Library, true);
+        }
+        Some(ShotMenu::Library) => app.command(crate::commands::CommandId::Library),
+        Some(ShotMenu::LibraryAdd) => app.command(crate::commands::CommandId::LibraryAdd),
         Some(ShotMenu::RenameBar) => {
             if let Some(doc) = app.docs.active_doc().map(|d| d.id) {
                 app.ai_made_markdown(doc, None);

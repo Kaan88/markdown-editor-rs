@@ -40,6 +40,11 @@ pub enum ShotMenu {
     TextAi,
     /// The language list above the status bar's language field.
     Language,
+    /// The main menu with its notes library submenu open beside it, the list of notes, and the
+    /// list of places a note can be put (the library folder is the one the settings folder has).
+    MainLibrary,
+    Library,
+    LibraryAdd,
     /// The active document made Markdown as the AI's Format as Markdown does, with the bar
     /// offering its `.md` name.
     RenameBar,
@@ -483,6 +488,9 @@ impl Args {
                         "text-convert" => Some(ShotMenu::TextConvert),
                         "text-ai" => Some(ShotMenu::TextAi),
                         "language" => Some(ShotMenu::Language),
+                        "main-library" => Some(ShotMenu::MainLibrary),
+                        "library" => Some(ShotMenu::Library),
+                        "library-add" => Some(ShotMenu::LibraryAdd),
                         "rename-bar" => Some(ShotMenu::RenameBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
                         _ => None,
