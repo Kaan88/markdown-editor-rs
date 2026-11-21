@@ -101,8 +101,44 @@ quiet no-op.
 - Known gap: a note that goes missing on disk is marked at the next re-read or Refresh, not
   continuously.
 
-**Next: phase 3** (keyboard in the pane, empty states with buttons, the folder shown per note,
-"Show this file in the notes library"), then phase 4, the AI import.
+**Phase 3, with the two faults the owner found in a real run (`8522c82`).**
+- **The name box drew nothing as you typed.** The pane's frame signature (`region_sig` in `app.rs`)
+  did not include the box, so typing changed `ui.library.field` and nothing the signature watched;
+  the pane was never redrawn. Renaming only *looked* right in the phase 2 shot because the hover or
+  the fold state happened to change at the same time. The signature now covers the box's text,
+  caret, selection, focus, blink and the cursor row, and three tests type into the box and compare
+  drawn pixels for every way of opening it.
+- **Deleting a library file.** "Delete this library file…" on the group row menu, with a
+  confirmation naming the group, the file and how many notes it lists, and saying the notes are not
+  touched. It refuses a file open with unsaved changes, and deletes only a regular `.md` directly
+  in the library folder, compared by canonicalised path so `..` and symlinks cannot get out. §9's
+  "no deleting from disk" still holds for the owner's own documents; a library file is the app's
+  own index. The menu-label test now allows exactly this one item.
+- **Keyboard in the pane**, only while `ui.library.focused`: Up/Down/Home/End/PageUp/PageDown,
+  Left folds or goes to the parent, Right opens or goes to the first child, Enter opens a note (and
+  hands the keyboard to the text) or folds a heading, F2 renames, Delete removes a note and asks
+  for a section, Shift+F10 and the Menu key open the row menu (a new `Key::Menu`, recorded by
+  macros as "menu"), Esc gives the keyboard back, a letter jumps to the next row starting with it,
+  and Ctrl/Alt shortcuts pass through. Ctrl+Shift+3 focuses the pane when it shows without the
+  keyboard and closes it when it has it. The cursor follows a note or heading **by identity across
+  re-reads**, falling back to its heading and then its group, and scrolls through the pane's
+  existing `reveal`.
+- **A note's folder** dimmed and right-aligned on its row, cut from the left, at most about a third
+  of the row, left out below 210 px. **Empty states with buttons**: "No library folder yet" with
+  "New group…", and "No notes yet" with "New group…" and "Add this file" (disabled until a document
+  is open). **"Show in the notes library"** on the tab menu and in the palette: Notes face,
+  unfolded to the note, cursor on it, disabled when the file is not listed.
+- **A bug found on the way:** a library link written `../notes/a.md`, as a hand-written file has
+  it, never matched the open tab, because `same_path` compares text — so the open-note highlight
+  from phase 1 was broken for those. `same_note` folds `.` and `..` by text (text only: the draw
+  path calls it per visible row per frame) and is used for the highlight, `lists`, the keyboard's
+  start row and "Show in the notes library".
+- mdedit is at 511 tests. The Files and Functions faces still have **no keyboard** — the two panes
+  share only the head, and a tree cursor that survives a rebuild is its own job.
+- Left out of §3.6 deliberately: the sort command and the search filter box.
+
+**Next:** the consolidated AI and library plan (`docs/ai-library-plan.md`, being written), then a
+folder per group (§10.1), splitting a document into a library (§10.2), and the AI import.
 
 ## "Leave out the tab you were last on too" (2026-11-21, on main)
 
