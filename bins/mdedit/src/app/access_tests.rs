@@ -63,6 +63,18 @@ fn every_fixed_menu_marks_each_item_with_its_own_letter() {
         "view",
         &crate::overlays::view_menu(docs, &a.ui, 0.0, 0.0, false),
     );
+    for has_file in [false, true] {
+        let library = crate::overlays::library_menu(has_file, 0.0, 0.0, false);
+        assert_all_marked("library", &library);
+        // The renamed item keeps a letter of its own; it opens a list, so it ends in the dots.
+        let edit = library
+            .items
+            .iter()
+            .find(|i| i.id == Act::Cmd(C::LibraryEdit))
+            .expect("the library menu has the edit item");
+        assert_eq!(parse_access(&edit.label).text, "Edit a library file…");
+        assert_eq!(access_key_of(&edit.label), Some('E'));
+    }
     assert_all_marked("tab", &crate::overlays::tab_menu(docs, 0, 0.0, 0.0));
     assert_all_marked("text", &crate::overlays::text_menu(docs, 0.0, 0.0));
     assert_all_marked("lines", &crate::overlays::lines_menu(docs, 0.0, 0.0, false));

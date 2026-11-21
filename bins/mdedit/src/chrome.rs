@@ -5,7 +5,7 @@
 use crate::commands::{CommandId, hint, strings};
 use crate::docs::Docs;
 use crate::session::ThemeChoice;
-use crate::ui::{BarField, BarItem, Drag, FindOpt, Hit, PopupKind, Ui};
+use crate::ui::{BarField, BarItem, Drag, FindOpt, Hit, PaneFace, PopupKind, Ui};
 use mdshared_ui::chrome::{
     BAR_H, DRAG_MIN, NATIVE_FRAME, NEW_TAB_W, TABS_LEFT, TITLE_H, TabState, WIN_BTN_W, WinButton,
     button_fill, draw_new_tab_button, draw_tab, draw_win_button, tab_natural_width, tab_widths,
@@ -105,7 +105,7 @@ pub fn logo(p: &mut Painter, r: Rect) {
 pub struct BarPlan {
     pub labels: bool,
     pub find_w: f32,
-    /// The Files toggle.
+    /// The Files and Notes toggles, and the Preview slot.
     pub panes: bool,
     /// Reload and Recent.
     pub recent: bool,
@@ -118,6 +118,7 @@ pub struct BarText {
     pub open: f32,
     pub recent: f32,
     pub files: f32,
+    pub library: f32,
     pub preview: f32,
     pub theme: f32,
     /// The match counter, 0 when empty.
@@ -142,7 +143,7 @@ fn plan_width(plan: &BarPlan, t: &BarText) -> f32 {
         w += ICON_BTN + GAP + labelled(t.recent, l) + GAP;
     }
     if plan.panes {
-        w += SEP + labelled(t.files, l) + GAP;
+        w += SEP + labelled(t.files, l) + GAP + labelled(t.library, l) + GAP;
         // Kept free when the button is hidden, so the find box does not move between tabs.
         w += SEP + labelled(t.preview, l) + GAP;
     }
@@ -203,6 +204,17 @@ pub fn bar_plan(avail: f32, t: &BarText) -> BarPlan {
     };
     last.find_w = (avail - plan_width(&last, t)).clamp(96.0, 160.0);
     last
+}
+
+/// Whether the Files or the Notes button is lit: each for the face it shows, not for the pane,
+/// since the function list and the library stand in the same pane and have their own buttons.
+pub fn pane_button_on(ui: &Ui, item: BarItem) -> bool {
+    let face = match item {
+        BarItem::Files => PaneFace::Files,
+        BarItem::Library => PaneFace::Notes,
+        _ => return false,
+    };
+    ui.panes.files && ui.pane_face() == face
 }
 
 fn theme_glyph(choice: ThemeChoice) -> &'static str {
@@ -269,6 +281,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
             BarItem::Reload => with("Reload", CommandId::Reload),
             BarItem::Recent => "Recent files".into(),
             BarItem::Files => with("Files pane", CommandId::ToggleFiles),
+            BarItem::Library => with("Notes library", CommandId::ToggleLibraryPane),
             BarItem::Preview if docs.pane_open => "Close the preview".into(),
             BarItem::Preview => with("Preview in this window", CommandId::PreviewPane),
             BarItem::FindPrev => with("Previous match", CommandId::FindPrevious),
@@ -291,6 +304,10 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         Hit::StatusIndent => crate::status::indent_tip(docs)?,
         Hit::StatusLanguage => "Language (click to change)".into(),
         Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
+        Hit::LibraryAdd => with("Add this file to the notes library", CommandId::LibraryAdd),
+        Hit::PaneFace(PaneFace::Files) => with("Files pane", CommandId::ToggleFiles),
+        Hit::PaneFace(PaneFace::Functions) => with("Function list", CommandId::ToggleOutline),
+        Hit::PaneFace(PaneFace::Notes) => with("Notes library", CommandId::ToggleLibraryPane),
         _ => return None,
     })
 }
@@ -449,6 +466,7 @@ pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
         open: p.measure(Face::Ui, 13.0, "Open"),
         recent: p.measure(Face::Ui, 13.0, "Recent"),
         files: p.measure(Face::Ui, 13.0, "Files"),
+        library: p.measure(Face::Ui, 13.0, "Notes"),
         preview: p.measure(Face::Ui, 13.0, "Preview"),
         theme: p.measure(Face::Ui, 13.0, theme_label(docs.theme)),
         count: if count.is_empty() {
@@ -906,9 +924,15 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             BarItem::Files,
             glyph::FOLDER,
             lab("Files"),
-            // Lit for the tree it opens, not for the pane: the function list and the notes
-            // library stand in the same pane and have their own commands.
-            ui.panes.files && !ui.outline.on && !ui.library.on,
+            pane_button_on(ui, BarItem::Files),
+        ) + GAP;
+        x += button(
+            c,
+            x,
+            BarItem::Library,
+            glyph::BOOKMARK,
+            lab("Notes"),
+            pane_button_on(ui, BarItem::Library),
         ) + GAP;
         if let Some(on) = preview_button(docs) {
             x += sep(c, x);
@@ -1083,6 +1107,7 @@ mod tests {
             open: 30.0,
             recent: 40.0,
             files: 30.0,
+            library: 36.0,
             preview: 50.0,
             theme: 32.0,
             count: 0.0,
@@ -1137,6 +1162,7 @@ mod tests {
             open: 32.0,
             recent: 42.0,
             files: 28.0,
+            library: 34.0,
             preview: 50.0,
             theme: 44.0,
             count: 50.0,
@@ -1161,6 +1187,35 @@ mod tests {
         }
         let narrow = bar_plan(520.0, &t);
         assert!(plan_width(&narrow, &t) <= 520.0);
+    }
+
+    #[test]
+    fn the_notes_button_takes_its_room_in_the_plan_and_follows_the_files_button() {
+        let t = text();
+        let none = BarText { library: 0.0, ..t };
+        let full = bar_plan(2000.0, &t);
+        assert!(full.labels && full.panes);
+        // With labels the button is as wide as its text more than a nameless one (the 44 px
+        // round the text are the button's own); icons alone, the text does not count.
+        assert_eq!(plan_width(&full, &t) - plan_width(&full, &none), t.library);
+        let icons = BarPlan {
+            labels: false,
+            ..full
+        };
+        assert_eq!(plan_width(&icons, &t), plan_width(&icons, &none));
+        // It is part of the Files group, which the plan hides as one.
+        let hidden = BarPlan {
+            panes: false,
+            ..icons
+        };
+        assert_eq!(
+            plan_width(&icons, &t) - plan_width(&hidden, &t),
+            SEP + ICON_BTN + GAP + ICON_BTN + GAP + SEP + ICON_BTN + GAP
+        );
+        // The labelled plan needs more room than before the button, so the labels go at a
+        // width where they used to stay.
+        let width = plan_width(&full, &none) + 1.0;
+        assert!(bar_plan(width, &none).labels && !bar_plan(width, &t).labels);
     }
 
     #[test]

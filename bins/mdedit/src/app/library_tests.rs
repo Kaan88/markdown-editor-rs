@@ -205,3 +205,120 @@ fn a_library_file_saved_meanwhile_is_read_again() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A library of two groups, Personal (taxes) and Work (a plan), the notes being files in `dir`.
+/// Returns the two library files and the two notes.
+fn two_groups(dir: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    let lib = dir.join("library");
+    std::fs::create_dir_all(&lib).unwrap();
+    let taxes = dir.join("taxes.md");
+    let plan = dir.join("plan.md");
+    std::fs::write(&taxes, "# Taxes\n").unwrap();
+    std::fs::write(&plan, "# Plan\n").unwrap();
+    let personal = lib.join("personal.md");
+    let work = lib.join("work.md");
+    std::fs::write(&personal, format!("# Personal\n\n- {}\n", slash(&taxes))).unwrap();
+    std::fs::write(&work, format!("# Work\n\n- {}\n", slash(&plan))).unwrap();
+    (personal, work, taxes, plan)
+}
+
+fn open_paths(a: &App) -> Vec<PathBuf> {
+    a.docs.tabs.iter().filter_map(|d| d.path.clone()).collect()
+}
+
+fn active_path(a: &App) -> Option<PathBuf> {
+    a.docs.active_doc().and_then(|d| d.path.clone())
+}
+
+#[test]
+fn edit_a_library_file_opens_only_the_group_of_the_note_in_front() {
+    let dir = scratch("library-edit-front");
+    let (personal, _work, taxes, _plan) = two_groups(&dir);
+    let mut a = app_in(&dir);
+    open_now(&mut a, &taxes);
+
+    a.command(C::LibraryEdit);
+    assert!(!a.palette_open(), "the note's group is no question");
+    assert_eq!(open_paths(&a), vec![taxes, personal.clone()]);
+    assert_eq!(
+        active_path(&a),
+        Some(personal),
+        "and it is the one in front"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn edit_a_library_file_opens_the_group_of_the_row_last_clicked_in_the_pane() {
+    let dir = scratch("library-edit-pane");
+    let (personal, work, taxes, _plan) = two_groups(&dir);
+    let mut a = app_in(&dir);
+    open_now(&mut a, &taxes);
+    a.command(C::ToggleLibraryPane);
+    let row =
+        a.ui.library
+            .rows
+            .iter()
+            .position(|r| r.label == "Work")
+            .expect("the Work group is a row");
+    a.activate(crate::ui::Hit::LibraryRow(row));
+
+    a.command(C::LibraryEdit);
+    assert_eq!(
+        active_path(&a),
+        Some(work.clone()),
+        "the row wins over the note in front"
+    );
+    assert_eq!(open_paths(&a), vec![taxes.clone(), work]);
+
+    // With the pane shut the row is forgotten: the note in front decides again.
+    a.command(C::ToggleLibraryPane);
+    a.command(C::ToggleLibraryPane);
+    assert_eq!(a.ui.library.cursor, None);
+    a.docs.activate(0);
+    a.command(C::LibraryEdit);
+    assert_eq!(active_path(&a), Some(personal));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn edit_a_library_file_asks_which_when_nothing_points_at_one_and_opens_the_one_chosen() {
+    let dir = scratch("library-edit-ask");
+    let (personal, work, _taxes, _plan) = two_groups(&dir);
+    let other = dir.join("other.md");
+    std::fs::write(&other, "# Not in the library\n").unwrap();
+    let mut a = app_in(&dir);
+    open_now(&mut a, &other);
+
+    a.command(C::LibraryEdit);
+    assert!(a.palette_open(), "two groups and no hint: a list");
+    assert_eq!(
+        listed(&a),
+        vec![
+            Target::LibraryFile(personal.clone()),
+            Target::LibraryFile(work.clone())
+        ]
+    );
+    assert_eq!(open_paths(&a), vec![other.clone()], "nothing opened yet");
+
+    choose(&mut a, "work");
+    assert!(!a.palette_open());
+    assert_eq!(open_paths(&a), vec![other, work.clone()]);
+    assert_eq!(active_path(&a), Some(work));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn edit_a_library_file_opens_the_only_group_without_asking() {
+    let dir = scratch("library-edit-only");
+    let lib = dir.join("library");
+    std::fs::create_dir_all(&lib).unwrap();
+    let file = lib.join("notes.md");
+    std::fs::write(&file, "# Notes\n").unwrap();
+    let mut a = app_in(&dir);
+
+    a.command(C::LibraryEdit);
+    assert!(!a.palette_open());
+    assert_eq!(open_paths(&a), vec![file]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

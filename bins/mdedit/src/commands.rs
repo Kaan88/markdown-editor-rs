@@ -386,7 +386,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::Language, "Language", &[]),
     cmd(C::Library, "Notes library", &["Ctrl+Shift+N"]),
     cmd(C::LibraryAdd, "Add this file to the notes library…", &[]),
-    cmd(C::LibraryEdit, "Edit the notes library", &[]),
+    cmd(C::LibraryEdit, "Edit a notes library file…", &[]),
     cmd(C::AiFormat, "AI: Format as Markdown", &[]),
     cmd(C::AiFix, "AI: Fix Markdown", &[]),
     cmd(C::AiRewrite, "AI: Rewrite with instruction…", &[]),
@@ -499,13 +499,13 @@ pub mod strings {
     // ---- the notes library ----
     pub const LIBRARY_PLACEHOLDER: &str = "Type the name of a note";
     pub const LIBRARY_ADD_PLACEHOLDER: &str = "Where to keep it";
+    pub const LIBRARY_FILES_PLACEHOLDER: &str = "Which library file to edit";
     pub const LIBRARY_MISSING: &str = "missing";
     pub const LIBRARY_END: &str = "at the end";
     pub const LIBRARY_NEW_FILE: &str = "a new library file";
     pub const LIBRARY_EMPTY: &str =
         "The library is empty. \u{201c}Add this file to the notes library\u{201d} starts it.";
     pub const LIBRARY_NO_FOLDER: &str = "There is no folder for the notes library.";
-    pub const LIBRARY_DOCK: &str = "NOTES";
     pub const LIBRARY_EMPTY_PANE: &str = "No notes yet";
     pub const LIBRARY_MISSING_FILE: &str = "That note is not where the library says it is.";
     pub const LIBRARY_NEEDS_FILE: &str = "Save this file first: the library keeps links to files.";
@@ -565,7 +565,6 @@ pub mod strings {
     }
     pub const FIND_NO_MATCHES: &str = "No matches";
     pub const FIND_SEARCHING: &str = "Searching";
-    pub const FILES_DOCK: &str = "FILES";
     pub const FILE_GONE: &str = "The file was deleted or moved. Showing the text last read.";
     pub const SESSION_BUSY: &str = "Another mdedit window has the session and did not answer. This window runs without it: its tabs and drafts are not kept.";
     pub fn session_unreadable(e: &std::io::Error) -> String {

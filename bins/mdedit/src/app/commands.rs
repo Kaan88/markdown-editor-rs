@@ -5,7 +5,7 @@ use super::*;
 use crate::commands::CommandId as C;
 use crate::docs::{Doc, EditOp, SaveFailed};
 use crate::image_paste;
-use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
+use crate::ui::{Act, After, BarField, BarItem, EditAct, PaneFace, Pending, Popup};
 use crate::updater;
 use mdedit_core::blocks::{Fence, ListKind};
 use mdedit_core::find::Query;
@@ -30,6 +30,14 @@ enum SaveAs {
 
 impl App {
     // ---- activation and commands -------------------------------------------------------------
+
+    /// The left pane shows `face`, opened if it was shut. The library is read when it is shown.
+    pub(super) fn show_pane_face(&mut self, face: PaneFace) {
+        self.ui.set_pane_face(face);
+        if face == PaneFace::Notes {
+            self.library_rows();
+        }
+    }
 
     pub(super) fn activate(&mut self, hit: Hit) {
         match hit {
@@ -70,6 +78,7 @@ impl App {
                 BarItem::Reload => self.command(C::Reload),
                 BarItem::Recent => self.command(C::OpenRecent),
                 BarItem::Files => self.command(C::ToggleFiles),
+                BarItem::Library => self.command(C::ToggleLibraryPane),
                 BarItem::Preview => self.command(C::PreviewPane),
                 BarItem::FindPrev => self.command(C::FindPrevious),
                 BarItem::FindNext => self.command(C::FindNext),
@@ -113,7 +122,9 @@ impl App {
                     self.caret_reset();
                 }
             }
-            Hit::OutlineFiles | Hit::LibraryFiles => self.command(C::ToggleFiles),
+            // The switch of the face already shown does nothing: it never closes the pane.
+            Hit::PaneFace(face) => self.show_pane_face(face),
+            Hit::LibraryAdd => self.command(C::LibraryAdd),
             Hit::LibraryRow(i) => self.library_row(i),
             Hit::ResultsRow(i) => {
                 self.go_to_result(i);
@@ -1328,8 +1339,7 @@ impl App {
         self.ui.tree.set_root(Some(dir));
         self.ui.panes.files_scroll = 0.0;
         self.last_active = None;
-        self.ui.panes.files = true;
-        self.ui.outline.on = false;
+        self.ui.set_pane_face(PaneFace::Files);
     }
 
     pub(super) fn set_theme(&mut self, choice: ThemeChoice) {
@@ -1748,17 +1758,15 @@ impl App {
             // The left pane shows the Files tree, the function list or the notes library: each
             // command shows its own, and hides the pane when that is what shows.
             C::ToggleFiles | C::ToggleOutline | C::ToggleLibraryPane => {
-                let want = match id {
-                    C::ToggleOutline => (true, false),
-                    C::ToggleLibraryPane => (false, true),
-                    _ => (false, false),
+                let face = match id {
+                    C::ToggleOutline => PaneFace::Functions,
+                    C::ToggleLibraryPane => PaneFace::Notes,
+                    _ => PaneFace::Files,
                 };
-                let shown = self.ui.panes.files && (self.ui.outline.on, self.ui.library.on) == want;
-                self.ui.panes.files = !shown;
-                self.ui.outline.on = !shown && want.0;
-                self.ui.library.on = !shown && want.1;
-                if self.ui.library.on {
-                    self.library_rows();
+                if self.ui.panes.files && self.ui.pane_face() == face {
+                    self.ui.hide_pane();
+                } else {
+                    self.show_pane_face(face);
                 }
             }
             C::CommandPalette => {

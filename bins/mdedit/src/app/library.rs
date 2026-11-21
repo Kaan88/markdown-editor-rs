@@ -44,6 +44,7 @@ impl App {
         let Some(row) = self.ui.library.rows.get(i).cloned() else {
             return;
         };
+        self.ui.library.cursor = self.ui.library.group_file(i);
         match row.kind {
             crate::library_pane::Kind::Group | crate::library_pane::Kind::Section => {
                 self.ui.library.fold(&row.key);
@@ -185,22 +186,48 @@ impl App {
         self.docs.set_toast(&strings::library_added(&title, &group));
     }
 
-    /// "Edit the notes library": opens the library files in tabs, making the first one from
-    /// its template when the folder is empty.
+    /// The library file "Edit a library file" opens without asking: the group of the row last
+    /// clicked in the pane while it shows, else of the note in the tab in front when the library
+    /// lists it, else the only group. `None` when there is more than one to choose from.
+    fn library_file_to_edit(&self) -> Option<PathBuf> {
+        let groups = &self.docs.library.groups;
+        let named = |file: &Path| {
+            groups
+                .iter()
+                .find(|g| mdshared_app::paths::same_path(&g.file, file))
+                .map(|g| g.file.clone())
+        };
+        if self.ui.panes.files
+            && self.ui.library.on
+            && let Some(file) = self.ui.library.cursor.as_deref().and_then(named)
+        {
+            return Some(file);
+        }
+        if let Some(open) = self.docs.active_doc().and_then(|d| d.path.as_deref())
+            && let Some(group) = groups.iter().find(|g| {
+                g.entries
+                    .iter()
+                    .any(|e| mdshared_app::paths::same_path(&e.path, open))
+            })
+        {
+            return Some(group.file.clone());
+        }
+        match groups.as_slice() {
+            [only] => Some(only.file.clone()),
+            _ => None,
+        }
+    }
+
+    /// "Edit a library file": opens one library file in a tab, the one `library_file_to_edit`
+    /// finds, else the one chosen from a list; makes the first one from its template when the
+    /// folder is empty.
     pub(super) fn library_edit(&mut self) {
         let Some(dir) = self.library_dir() else {
             self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
             return;
         };
         self.library_load();
-        let files: Vec<PathBuf> = self
-            .docs
-            .library
-            .groups
-            .iter()
-            .map(|g| g.file.clone())
-            .collect();
-        if files.is_empty() {
+        if self.docs.library.groups.is_empty() {
             let file = dir.join(library::DEFAULT_FILE);
             if let Err(e) = std::fs::create_dir_all(&dir)
                 .and_then(|()| std::fs::write(&file, library::TEMPLATE))
@@ -213,8 +240,11 @@ impl App {
             self.library_load();
             return;
         }
-        for file in files {
-            self.open(&file);
+        match self.library_file_to_edit() {
+            Some(file) => self.open(&file),
+            None => self
+                .palette
+                .open_library_files(&self.docs, &self.ui, &mut self.macros),
         }
     }
 }

@@ -75,6 +75,48 @@ pub enum Scroller {
     Page,
 }
 
+/// What the left pane shows, one at a time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum PaneFace {
+    Files,
+    Functions,
+    Notes,
+}
+
+impl PaneFace {
+    pub const ALL: [PaneFace; 3] = [PaneFace::Files, PaneFace::Functions, PaneFace::Notes];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PaneFace::Files => "Files",
+            PaneFace::Functions => "Functions",
+            PaneFace::Notes => "Notes",
+        }
+    }
+
+    /// The name the session file keeps it by.
+    pub fn key(self) -> &'static str {
+        match self {
+            PaneFace::Files => "files",
+            PaneFace::Functions => "functions",
+            PaneFace::Notes => "notes",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<PaneFace> {
+        PaneFace::ALL.into_iter().find(|f| f.key() == key)
+    }
+
+    /// The head's switch for it.
+    pub fn icon(self) -> &'static str {
+        match self {
+            PaneFace::Files => crate::chrome::glyph::FOLDER,
+            PaneFace::Functions => crate::chrome::glyph::FUNCTIONS,
+            PaneFace::Notes => crate::chrome::glyph::BOOKMARK,
+        }
+    }
+}
+
 /// The command bar's buttons.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum BarItem {
@@ -82,6 +124,8 @@ pub enum BarItem {
     Reload,
     Recent,
     Files,
+    /// The notes library in the left pane; lit while that is what the pane shows.
+    Library,
     /// Preview in mdview, side by side; pressed while the document is previewed.
     Preview,
     FindPrev,
@@ -206,13 +250,14 @@ pub enum Hit {
     ResultsReplaceAll,
     ResultsUndo,
     ResultsCancel,
-    /// The function list in the left pane: a row, and the button that brings the Files tree
-    /// back.
+    /// A row of the function list in the left pane.
     OutlineRow(usize),
-    OutlineFiles,
-    /// A row of the notes library in the left pane, and its way back to the Files tree.
+    /// A row of the notes library in the left pane, and the button of its head that adds the
+    /// open document.
     LibraryRow(usize),
-    LibraryFiles,
+    LibraryAdd,
+    /// The head's switches: what the left pane shows.
+    PaneFace(PaneFace),
     FilesRow(usize),
     FilesFolder,
     FilesOpenFolder,
@@ -297,9 +342,9 @@ impl Hit {
             | Hit::ScrollBar(Scroller::Results) => Region::Results,
             Hit::FilesRow(_)
             | Hit::OutlineRow(_)
-            | Hit::OutlineFiles
             | Hit::LibraryRow(_)
-            | Hit::LibraryFiles
+            | Hit::LibraryAdd
+            | Hit::PaneFace(_)
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
             | Hit::Splitter
@@ -810,6 +855,36 @@ pub struct Ui {
 }
 
 impl Ui {
+    /// What the left pane shows, or would show when it is opened.
+    pub fn pane_face(&self) -> PaneFace {
+        if self.outline.on {
+            PaneFace::Functions
+        } else if self.library.on {
+            PaneFace::Notes
+        } else {
+            PaneFace::Files
+        }
+    }
+
+    /// Sets what the left pane shows (and opens the pane); the flags the faces are kept in
+    /// never disagree.
+    pub fn set_pane_face(&mut self, face: PaneFace) {
+        self.panes.files = true;
+        self.outline.on = face == PaneFace::Functions;
+        self.library.on = face == PaneFace::Notes;
+        if face != PaneFace::Notes {
+            self.library.cursor = None;
+        }
+    }
+
+    /// Shuts the left pane, whatever it shows.
+    pub fn hide_pane(&mut self) {
+        self.panes.files = false;
+        self.outline.on = false;
+        self.library.on = false;
+        self.library.cursor = None;
+    }
+
     pub fn new() -> Ui {
         Ui {
             panes: Panes {

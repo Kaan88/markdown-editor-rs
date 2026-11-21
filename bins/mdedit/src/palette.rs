@@ -65,6 +65,8 @@ pub enum Target {
     /// Where the open file is written in the library: a library file and the heading under it
     /// (empty for the end of the file).
     NotePlace(PathBuf, Vec<String>),
+    /// A library file, to be opened as the Markdown file it is.
+    LibraryFile(PathBuf),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +83,8 @@ pub enum Mode {
     /// their command, never by a prefix.
     Library,
     LibraryAdd,
+    /// The library's files, to open one for editing.
+    LibraryFiles,
 }
 
 /// The mode a query is in and how many chars of it are the prefix.
@@ -210,6 +214,7 @@ impl PaletteState {
                 }
                 Mode::Library => library(src),
                 Mode::LibraryAdd => library_places(src),
+                Mode::LibraryFiles => library_files(src),
             };
             self.targets = targets;
             self.palette.set_message(match mode {
@@ -745,6 +750,29 @@ fn library_places(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
     (entries, targets)
 }
 
+/// The library's files, one row each: the group's name, and the file's own name as the hint.
+fn library_files(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
+    let (mut entries, mut targets) = (Vec::new(), Vec::new());
+    for group in &src.docs.library.groups {
+        let file = group
+            .file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        push(
+            &mut entries,
+            &mut targets,
+            Target::LibraryFile(group.file.clone()),
+            |id| {
+                Entry::new(id, group.name.as_str())
+                    .hint(file)
+                    .group(G_PLAIN)
+            },
+        );
+    }
+    (entries, targets)
+}
+
 /// What the language list says under its rows: a choice is kept for the file, and the
 /// extension's language is the way back.
 pub fn language_note(docs: &Docs) -> String {
@@ -872,6 +900,19 @@ impl Host {
             .set_placeholder(strings::LIBRARY_ADD_PLACEHOLDER);
         state.palette.set_groups(Vec::new());
         state.fixed = Some(Mode::LibraryAdd);
+        self.open = Some(state);
+        self.sync(docs, ui, macros, true);
+        self.tick += 1;
+    }
+
+    /// Opens the list of library files, to choose the one to edit.
+    pub fn open_library_files(&mut self, docs: &Docs, ui: &Ui, macros: &mut Macros) {
+        let mut state = PaletteState::new("");
+        state
+            .palette
+            .set_placeholder(strings::LIBRARY_FILES_PLACEHOLDER);
+        state.palette.set_groups(Vec::new());
+        state.fixed = Some(Mode::LibraryFiles);
         self.open = Some(state);
         self.sync(docs, ui, macros, true);
         self.tick += 1;

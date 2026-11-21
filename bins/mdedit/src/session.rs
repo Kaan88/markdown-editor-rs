@@ -260,6 +260,9 @@ pub struct Session {
     pub geometry: String,
     /// Whether the Files pane shows; `None` when never set.
     pub files: Option<bool>,
+    /// What the pane showed (`pane=files`, `functions` or `notes`); `None` when never set, which
+    /// is the Files tree.
+    pub pane: Option<crate::ui::PaneFace>,
     /// The Files pane's width, logical px, once the user dragged it.
     pub files_w: Option<u32>,
     /// The results panel's height, logical px, once the user dragged it.
@@ -308,6 +311,7 @@ impl Default for Session {
             format_bar: true,
             geometry: String::new(),
             files: None,
+            pane: None,
             files_w: None,
             results_h: None,
             find_folder: String::new(),
@@ -413,6 +417,7 @@ impl Session {
                             _ => None,
                         }
                     }
+                    "pane" => s.pane = crate::ui::PaneFace::from_key(value.trim()),
                     "files_w" => {
                         s.files_w = value
                             .trim()
@@ -554,6 +559,9 @@ impl Session {
         }
         if let Some(f) = self.files {
             out.line("files", if f { "1" } else { "0" });
+        }
+        if let Some(face) = self.pane {
+            out.line("pane", face.key());
         }
         if let Some(w) = self.files_w {
             out.line("files_w", &w.to_string());
@@ -766,6 +774,7 @@ mod tests {
             ],
             theme: ThemeChoice::Dark,
             files: Some(true),
+            pane: Some(crate::ui::PaneFace::Notes),
             files_w: Some(300),
             results_h: Some(180),
             find_folder: "C:/some dir/x=y".into(),
@@ -931,6 +940,11 @@ minimap=0
         assert_eq!(s.active, 0);
         assert_eq!(Session::parse("[mdedit]\nfiles_w=5\n").files_w, None);
         assert_eq!(Session::parse("[mdedit]\nfiles=2\n").files, None);
+        assert_eq!(Session::parse("[mdedit]\npane=bogus\n").pane, None);
+        assert_eq!(
+            Session::parse("[mdedit]\npane=functions\n").pane,
+            Some(crate::ui::PaneFace::Functions)
+        );
         assert_eq!(Session::parse("[mdedit]\nresults_h=5\n").results_h, None);
         assert_eq!(
             Session::parse("[mdedit]\nresults_h=200\n").results_h,

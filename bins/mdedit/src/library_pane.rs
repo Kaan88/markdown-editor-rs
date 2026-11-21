@@ -9,7 +9,7 @@ use crate::docs::Docs;
 use crate::ui::{Drag, Hit, Scroller, Ui};
 use mdshared_app::library::Library;
 use mdshared_ui::gfx::{Face, Rect, mix};
-use mdshared_ui::pane::{HEAD, ROW, ROW_H, draw_head, draw_row_fill};
+use mdshared_ui::pane::{HEAD, ROW, ROW_H, draw_row_fill};
 use mdshared_ui::scroll::{draw_scrollbar, scrollbar};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -51,9 +51,20 @@ pub struct LibraryPane {
     pub view: f32,
     /// When the folder was last looked at, so a pane left open does not stat it every frame.
     pub checked: Option<Instant>,
+    /// The library file of the row last clicked, while the pane shows: where "Edit a library
+    /// file" goes first.
+    pub cursor: Option<PathBuf>,
 }
 
 impl LibraryPane {
+    /// The library file the group of row `i` is: the row itself, or the one above it that
+    /// starts the group.
+    pub fn group_file(&self, i: usize) -> Option<PathBuf> {
+        let rows = self.rows.get(..=i)?;
+        let group = rows.iter().rev().find(|r| r.kind == Kind::Group)?;
+        Some(PathBuf::from(&group.key))
+    }
+
     pub fn is_folded(&self, key: &str) -> bool {
         self.folded.contains(key)
     }
@@ -159,14 +170,7 @@ pub fn list(r: Rect) -> Rect {
 pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
-    draw_head(c.p, &pal, r, strings::LIBRARY_DOCK);
-    // Back to the Files tree.
-    let b = Rect::new(r.right() - 38.0, r.y + 6.0, 28.0, 28.0);
-    if let Some(fill) = c.fill_for(Hit::LibraryFiles, false, false) {
-        c.p.rbox(b, 5.0, fill);
-    }
-    c.p.icon(glyph::FOLDER, 14.0, b.cx(), b.cy(), pal.muted);
-    c.hit(Hit::LibraryFiles, b);
+    crate::panes::draw_pane_head(c, ui, r);
 
     let dragging = matches!(ui.drag, Some(Drag::Splitter { .. }));
     let area = list(r);
@@ -176,7 +180,8 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     lib.view = area.h;
     lib.scroll = lib.scroll.clamp(0.0, (lib.content - area.h).max(0.0));
     let scroll = lib.scroll;
-    if lib.rows.is_empty() {
+    // Before the folder has been read (the pane came back at start) there is nothing to say yet.
+    if lib.rows.is_empty() && lib.checked.is_some() {
         let text = if docs.library.dir.as_os_str().is_empty() {
             strings::LIBRARY_NO_FOLDER
         } else {

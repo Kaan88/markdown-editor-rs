@@ -173,7 +173,7 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
             glyph::SIDEBAR,
         )
         .sep(),
-        cmd(C::LibraryEdit, "&Edit the library", glyph::DOC),
+        cmd(C::LibraryEdit, "&Edit a library file…", glyph::DOC),
     ];
     Menu::new(items, x, y, align_right).access_keys(true)
 }

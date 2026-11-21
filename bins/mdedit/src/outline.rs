@@ -4,13 +4,13 @@
 //! to its line, and the row of the caret's place is marked.
 
 use crate::app::Wake;
-use crate::chrome::{Ctx, glyph};
+use crate::chrome::Ctx;
 use crate::docs::{Docs, Waker};
 use crate::ui::{Drag, Hit, Scroller, Ui};
 use mdedit_highlight::DocId;
 use mdedit_outline::{Flavor, Kind, Symbol, symbols};
 use mdshared_ui::gfx::{Face, Rect, mix};
-use mdshared_ui::pane::{HEAD, draw_head, draw_row_fill};
+use mdshared_ui::pane::{HEAD, draw_row_fill};
 use mdshared_ui::scroll::{draw_scrollbar, scrollbar};
 use ropey::Rope;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -236,14 +236,7 @@ pub fn caret_row(docs: &Docs, outline: &Outline) -> Option<usize> {
 pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
-    draw_head(c.p, &pal, r, "FUNCTIONS");
-    // Back to the Files tree.
-    let b = Rect::new(r.right() - 38.0, r.y + 6.0, 28.0, 28.0);
-    if let Some(fill) = c.fill_for(Hit::OutlineFiles, false, false) {
-        c.p.rbox(b, 5.0, fill);
-    }
-    c.p.icon(glyph::FOLDER, 14.0, b.cx(), b.cy(), pal.muted);
-    c.hit(Hit::OutlineFiles, b);
+    crate::panes::draw_pane_head(c, ui, r);
 
     let dragging = matches!(ui.drag, Some(Drag::Splitter { .. }));
     let area = list(r);

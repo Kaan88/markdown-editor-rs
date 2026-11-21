@@ -2,13 +2,12 @@
 //! its inner edge. Adapted from the viewer's `bins/mdv-app/src/panes.rs`.
 
 use crate::chrome::{Ctx, glyph};
-use crate::commands::strings;
 use crate::docs::Docs;
-use crate::ui::{Drag, Hit, Scroller, Ui};
+use crate::ui::{Drag, Hit, PaneFace, Scroller, Ui};
 use mdshared_app::paths::same_path;
 use mdshared_ui::gfx::{Face, Rect, mix};
 pub use mdshared_ui::pane::ROW;
-use mdshared_ui::pane::{HEAD, ROW_H, draw_head, draw_row_fill, draw_splitter};
+use mdshared_ui::pane::{HEAD, ROW_H, Switch, draw_head_switches, draw_row_fill, draw_splitter};
 use mdshared_ui::scroll::{draw_scrollbar, scrollbar};
 
 /// The list of rows below the folder's own row.
@@ -17,16 +16,39 @@ pub fn files_list(r: Rect) -> Rect {
     Rect::new(r.x, ry + ROW, r.w, (r.bottom() - ry - ROW).max(0.0))
 }
 
+/// The head of the left pane, whatever it shows: a switch for each face, the lit one being the
+/// face shown, and at the right the button that belongs to that face (Files: pick a folder;
+/// Functions: none; Notes: add the open file).
+pub fn draw_pane_head(c: &mut Ctx, ui: &Ui, r: Rect) {
+    let pal = *c.pal;
+    let face = ui.pane_face();
+    let switches = PaneFace::ALL.map(|f| Switch {
+        icon: f.icon(),
+        label: f.name(),
+        lit: f == face,
+        fill: c.fill_for(Hit::PaneFace(f), false, false),
+    });
+    let rects = draw_head_switches(c.p, &pal, r, &switches);
+    for (f, b) in PaneFace::ALL.into_iter().zip(rects) {
+        c.hit(Hit::PaneFace(f), b);
+    }
+    let (hit, icon) = match face {
+        PaneFace::Files => (Hit::FilesFolder, glyph::FOLDER_OPEN),
+        PaneFace::Functions => return,
+        PaneFace::Notes => (Hit::LibraryAdd, glyph::PLUS),
+    };
+    let b = Rect::new(r.right() - 38.0, r.y + 6.0, 28.0, 28.0);
+    if let Some(fill) = c.fill_for(hit, false, false) {
+        c.p.rbox(b, 5.0, fill);
+    }
+    c.p.icon(icon, 14.0, b.cx(), b.cy(), pal.muted);
+    c.hit(hit, b);
+}
+
 pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
-    draw_head(c.p, &pal, r, strings::FILES_DOCK);
-    let b = Rect::new(r.right() - 38.0, r.y + 6.0, 28.0, 28.0);
-    if let Some(fill) = c.fill_for(Hit::FilesFolder, false, false) {
-        c.p.rbox(b, 5.0, fill);
-    }
-    c.p.icon(glyph::FOLDER_OPEN, 14.0, b.cx(), b.cy(), pal.muted);
-    c.hit(Hit::FilesFolder, b);
+    draw_pane_head(c, ui, r);
 
     let dragging = matches!(ui.drag, Some(Drag::Splitter { .. }));
     let Some(root) = ui.tree.root().map(|p| p.to_path_buf()) else {

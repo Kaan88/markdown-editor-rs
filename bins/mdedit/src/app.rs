@@ -2229,8 +2229,8 @@ impl App {
         s.find_options = (self.ui.match_case, self.ui.whole_word, self.ui.regex);
         s.find_history = self.ui.find_recall.items().to_vec();
         s.replace_history = self.ui.replace_recall.items().to_vec();
-        // The function list is not kept: the pane comes back with the Files tree, or not at all.
-        s.files = Some(self.ui.panes.files && !self.ui.outline.on);
+        s.files = Some(self.ui.panes.files);
+        s.pane = Some(self.ui.pane_face());
         s.files_w = Some(self.ui.panes.files_w.round() as u32);
         s.find_folder = self.ui.results.folder.text().to_string();
         s.find_kinds = self.ui.results.kinds.text().to_string();
@@ -3040,8 +3040,7 @@ impl App {
             }
         }
         if a.outline {
-            self.ui.panes.files = true;
-            self.ui.outline.on = true;
+            self.ui.set_pane_face(crate::ui::PaneFace::Functions);
             self.ui.outline.fill_now(&self.docs);
         }
         if let Some(with) = &a.replace {
@@ -3629,11 +3628,7 @@ pub fn run() -> i32 {
             .restore_split(&split.path, split.left, split.ratio());
     }
     let a = app.args.clone();
-    app.ui.panes.files = a.files_pane.or(app.session.files).unwrap_or(false)
-        || (a.folder.is_none() && a.files.iter().any(|f| f.is_dir()));
-    if let Some(w) = app.session.files_w {
-        app.ui.panes.files_w = (w as f32).clamp(PANE_MIN, PANE_MAX);
-    }
+    restore_pane(&mut app.ui, &app.session, &a);
     app.ui.results.folder.set_text(&app.session.find_folder);
     app.ui.results.kinds.set_text(&app.session.find_kinds);
     if let Some(h) = app.session.results_h {
@@ -3707,6 +3702,24 @@ pub fn run() -> i32 {
 
 /// A content size in device px as the logical size the session keeps (and `with_inner_size`
 /// takes back, before `Shadow::prepare` adds the margin).
+/// The left pane at start: shut or open, which face it showed, and how wide. The face comes
+/// back unless the command line asked for the pane (`--files`, or a folder to open). Only the
+/// flags are set: the library is read when the pane's first frame is due, not here.
+fn restore_pane(ui: &mut Ui, session: &Session, a: &Args) {
+    let forced = a.folder.is_none() && a.files.iter().any(|f| f.is_dir());
+    ui.panes.files = a.files_pane.or(session.files).unwrap_or(false) || forced;
+    if ui.panes.files
+        && a.files_pane.is_none()
+        && !forced
+        && let Some(face) = session.pane
+    {
+        ui.set_pane_face(face);
+    }
+    if let Some(w) = session.files_w {
+        ui.panes.files_w = (w as f32).clamp(PANE_MIN, PANE_MAX);
+    }
+}
+
 fn logical_size((w, h): (u32, u32), scale: f64) -> (u32, u32) {
     let size = winit::dpi::PhysicalSize::new(w, h).to_logical::<f64>(scale);
     (size.width.round() as u32, size.height.round() as u32)
@@ -4885,6 +4898,102 @@ mod tests {
         // It does nothing on its own: the rule has to be on.
         s.prefs.skip_brief = false;
         assert!(out(&s).is_empty());
+    }
+
+    /// The face the left pane showed is kept in the session and comes back with the pane; the
+    /// command line's own ask for the pane (`--files`, a folder to open) wins over it.
+    #[test]
+    fn the_left_pane_comes_back_at_start_with_the_face_it_had() {
+        use crate::ui::PaneFace;
+        let (dir, _backups) = r4_dir("pane-face");
+        let path = dir.join("session.ini");
+        let mut app = app();
+        app.save = true;
+        app.session_path = Some(path.clone());
+        app.ui.set_pane_face(PaneFace::Notes);
+        assert!(app.save_session());
+        let back = Session::read(&path).unwrap();
+        assert_eq!((back.files, back.pane), (Some(true), Some(PaneFace::Notes)));
+        // The function list is kept too (it used to leave the pane shut).
+        app.ui.set_pane_face(PaneFace::Functions);
+        assert!(app.save_session());
+        let back = Session::read(&path).unwrap();
+        assert_eq!(
+            (back.files, back.pane),
+            (Some(true), Some(PaneFace::Functions))
+        );
+
+        let restored = |session: &Session, args: &Args| {
+            let mut ui = Ui::new();
+            restore_pane(&mut ui, session, args);
+            (ui.panes.files, ui.pane_face())
+        };
+        let none = Args::default();
+        assert_eq!(restored(&back, &none), (true, PaneFace::Functions));
+        let notes = Session {
+            pane: Some(PaneFace::Notes),
+            ..back.clone()
+        };
+        assert_eq!(restored(&notes, &none), (true, PaneFace::Notes));
+        // A pane that was shut stays shut, whatever face it had.
+        let shut = Session {
+            files: Some(false),
+            ..notes.clone()
+        };
+        assert_eq!(restored(&shut, &none), (false, PaneFace::Files));
+        // A session from before the face was kept: the tree.
+        let old = Session {
+            pane: None,
+            ..notes.clone()
+        };
+        assert_eq!(restored(&old, &none), (true, PaneFace::Files));
+        // `--files` asks for the tree.
+        let files = Args {
+            files_pane: Some(true),
+            ..Args::default()
+        };
+        assert_eq!(restored(&notes, &files), (true, PaneFace::Files));
+        // So does a folder given to open.
+        let folder = Args {
+            files: vec![dir.clone()],
+            ..Args::default()
+        };
+        assert_eq!(restored(&notes, &folder), (true, PaneFace::Files));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The library is not read at start: a pane that comes back showing it reads it on the
+    /// first tick of the loop, which is also when its rows are made.
+    #[test]
+    fn a_library_pane_that_came_back_is_read_on_its_first_tick_not_at_start() {
+        use crate::ui::PaneFace;
+        let (dir, _backups) = r4_dir("pane-lazy");
+        let lib = dir.join("library");
+        std::fs::create_dir_all(&lib).unwrap();
+        let note = dir.join("n.md");
+        std::fs::write(&note, "# N\n").unwrap();
+        std::fs::write(
+            lib.join("notes.md"),
+            format!(
+                "# Notes\n\n- {}\n",
+                note.to_string_lossy().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+        let mut app = app();
+        app.session_path = Some(dir.join("settings.ini"));
+        let session = Session {
+            files: Some(true),
+            pane: Some(PaneFace::Notes),
+            ..Session::default()
+        };
+        restore_pane(&mut app.ui, &session, &Args::default());
+        assert!(app.ui.library.on);
+        assert!(app.docs.library.groups.is_empty(), "nothing read yet");
+        assert!(app.ui.library.rows.is_empty());
+        app.library_tick(Instant::now());
+        assert_eq!(app.ui.library.rows.len(), 2, "the group and its note");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The session written carries each file tab's focused seconds, read back at the next start.
