@@ -290,7 +290,7 @@ fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened()
     let note = l
         .dir
         .join("library")
-        .join("personal")
+        .join("Personal")
         .join("Money")
         .join("Budget.md");
     assert_eq!(read(&note), "# Budget\n");
@@ -298,10 +298,10 @@ fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened()
     // folder inside it.
     let mut want = l
         .text()
-        .replacen("# Personal\n", "# Personal\nhome: personal\n", 1);
+        .replacen("# Personal\n", "# Personal\nhome: Personal\n", 1);
     want = want.replacen(
         "\n\n### 2025",
-        "\n- [Budget](personal/Money/Budget.md)\n\n### 2025",
+        "\n- [Budget](Personal/Money/Budget.md)\n\n### 2025",
         1,
     );
     assert_eq!(read(&l.file), want);
@@ -318,7 +318,7 @@ fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened()
     assert!(
         l.dir
             .join("library")
-            .join("personal")
+            .join("Personal")
             .join("Money")
             .join("Budget 2.md")
             .exists()
@@ -384,19 +384,21 @@ fn the_first_note_a_group_gets_writes_its_home_and_says_where_the_notes_go() {
     let note = l
         .dir
         .join("library")
-        .join("personal")
+        .join("Personal")
         .join("Money")
         .join("Budget.md");
     assert_eq!(read(&note), "# Budget\n");
     let text = read(&l.file);
-    assert!(text.starts_with("# Personal\nhome: personal\n"), "{text}");
+    assert!(text.starts_with("# Personal\nhome: Personal\n"), "{text}");
     assert!(
-        text.contains("- [Budget](personal/Money/Budget.md)"),
+        text.contains("- [Budget](Personal/Money/Budget.md)"),
         "{text}"
     );
+    // The toast names the group and the folder its notes now go in, which is the group's own
+    // name: the folder reads in Explorer as the group reads in the pane.
     let says = toast(&a);
     assert!(
-        says.contains("Personal") && says.contains("personal"),
+        says.contains("Personal") && says.contains("library\\Personal"),
         "{says}"
     );
     // Nothing that was already there was moved, and the second note adds no second line.
@@ -412,7 +414,7 @@ fn the_first_note_a_group_gets_writes_its_home_and_says_where_the_notes_go() {
 fn a_folder_that_cannot_be_made_is_a_toast_and_no_note_is_written() {
     let (mut a, l) = lib("libw-home-blocked");
     // A file where the group's folder goes: the folder cannot be made.
-    std::fs::write(l.dir.join("library").join("personal"), "not a folder").unwrap();
+    std::fs::write(l.dir.join("library").join("Personal"), "not a folder").unwrap();
     let before = read(&l.file);
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Budget");
@@ -421,7 +423,7 @@ fn a_folder_that_cannot_be_made_is_a_toast_and_no_note_is_written() {
     assert!(
         !l.dir
             .join("library")
-            .join("personal")
+            .join("Personal")
             .join("Money")
             .exists()
     );
@@ -796,7 +798,15 @@ fn find_the_file_points_the_link_at_the_file_chosen_and_keeps_its_title() {
         let Kind::Note { .. } = a.ui.library.rows[i].kind else {
             unreachable!()
         };
-        crate::overlays::library_row_menu(&a.ui.library.rows[i].kind, i, true, 0.0, 0.0, false)
+        crate::overlays::library_row_menu(
+            &a.ui.library.rows[i].kind,
+            None,
+            i,
+            true,
+            0.0,
+            0.0,
+            false,
+        )
     };
     let find = |m: &mdshared_ui::menu::Menu<Act>| {
         m.items
@@ -905,6 +915,79 @@ fn a_menu_item_runs_what_it_says_and_a_letter_picks_it() {
 }
 
 #[test]
+fn the_group_menu_says_where_new_notes_go_and_reads_choose_when_it_does_not() {
+    use mdshared_ui::menu::{access_key_of, parse_access};
+    let (mut a, l) = lib("libm-home-said");
+    let set_home = |a: &App| {
+        let row = &a.ui.library.rows[0];
+        let menu = crate::overlays::library_row_menu(
+            &row.kind,
+            row.home.as_deref(),
+            0,
+            true,
+            0.0,
+            0.0,
+            false,
+        );
+        let item = menu
+            .items
+            .iter()
+            .find(|i| i.id == Act::Library(LibAct::SetHome, 0))
+            .expect("the group offers where its notes go");
+        (parse_access(&item.label).text, item.label.clone())
+    };
+    assert_eq!(
+        set_home(&a).0,
+        "Choose where new notes go\u{2026}",
+        "with no folder it asks for one"
+    );
+    std::fs::write(
+        &l.file,
+        l.text()
+            .replacen("# Personal\n", "# Personal\nhome: Japan 2025\n", 1),
+    )
+    .unwrap();
+    a.act(Act::Library(LibAct::Refresh, 0));
+    let (text, label) = set_home(&a);
+    assert_eq!(
+        text, "New notes go in: Japan 2025 \u{2014} Change\u{2026}",
+        "with a folder it says where the notes go"
+    );
+    assert_eq!(
+        access_key_of(&label),
+        Some('g'),
+        "the item keeps its own letter: {label:?}"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn clearing_the_group_folder_is_offered_only_when_the_group_has_one() {
+    let (mut a, l) = lib("libm-home-clear");
+    let offered = |a: &App| {
+        let row = &a.ui.library.rows[0];
+        crate::overlays::library_row_menu(&row.kind, row.home.as_deref(), 0, true, 0.0, 0.0, false)
+            .items
+            .iter()
+            .any(|i| i.id == Act::Library(LibAct::ClearHome, 0))
+    };
+    assert!(!offered(&a), "nothing to clear, so nothing to offer");
+    std::fs::write(
+        &l.file,
+        l.text()
+            .replacen("# Personal\n", "# Personal\nhome: elsewhere\n", 1),
+    )
+    .unwrap();
+    a.act(Act::Library(LibAct::Refresh, 0));
+    assert!(offered(&a), "the folder can be cleared");
+    // And clearing it takes the line away, after which it is not offered again.
+    pick(&mut a, LibAct::ClearHome, 0);
+    assert!(!read(&l.file).contains("home:"), "{}", read(&l.file));
+    assert!(!offered(&a));
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
 fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_only_a_library_file() {
     use mdshared_ui::menu::{access_key_of, parse_access};
     let note = |missing: bool| Kind::Note {
@@ -914,11 +997,13 @@ fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_only_a_library_
     };
     let mut menus = Vec::new();
     for can_add in [false, true] {
-        for kind in [Kind::Group, Kind::Section, note(false), note(true)] {
-            menus.push((
-                format!("{kind:?} {can_add}"),
-                crate::overlays::library_row_menu(&kind, 1, can_add, 0.0, 0.0, false),
-            ));
+        for home in [None, Some("work")] {
+            for kind in [Kind::Group, Kind::Section, note(false), note(true)] {
+                menus.push((
+                    format!("{kind:?} {can_add} {home:?}"),
+                    crate::overlays::library_row_menu(&kind, home, 1, can_add, 0.0, 0.0, false),
+                ));
+            }
         }
     }
     for has_file in [false, true] {
@@ -949,9 +1034,9 @@ fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_only_a_library_
             );
         }
     }
-    // What each kind of row offers.
-    let has = |kind: &Kind, op: LibAct| {
-        crate::overlays::library_row_menu(kind, 1, true, 0.0, 0.0, false)
+    // What each kind of row offers. The group is the one with a folder: "Clear" is its own.
+    let has = |kind: &Kind, home: Option<&str>, op: LibAct| {
+        crate::overlays::library_row_menu(kind, home, 1, true, 0.0, 0.0, false)
             .items
             .iter()
             .any(|i| i.id == Act::Library(op, 1))
@@ -968,7 +1053,7 @@ fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_only_a_library_
         LibAct::CopyPath,
         LibAct::Reveal,
     ] {
-        assert!(has(&Kind::Group, op), "group: {op:?}");
+        assert!(has(&Kind::Group, Some("work"), op), "group: {op:?}");
     }
     for op in [
         LibAct::NewNote,
@@ -978,7 +1063,7 @@ fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_only_a_library_
         LibAct::GoToLine,
         LibAct::Remove,
     ] {
-        assert!(has(&Kind::Section, op), "section: {op:?}");
+        assert!(has(&Kind::Section, None, op), "section: {op:?}");
     }
     for op in [
         LibAct::Open,
@@ -990,11 +1075,11 @@ fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_only_a_library_
         LibAct::GoToLine,
         LibAct::Remove,
     ] {
-        assert!(has(&note(false), op), "note: {op:?}");
+        assert!(has(&note(false), None, op), "note: {op:?}");
     }
-    assert!(!has(&note(false), LibAct::FindFile) && has(&note(true), LibAct::FindFile));
+    assert!(!has(&note(false), None, LibAct::FindFile) && has(&note(true), None, LibAct::FindFile));
     // The open document is offered only when it can be written.
-    let add = crate::overlays::library_row_menu(&Kind::Group, 0, false, 0.0, 0.0, false);
+    let add = crate::overlays::library_row_menu(&Kind::Group, None, 0, false, 0.0, 0.0, false);
     assert!(
         !add.items
             .iter()
@@ -1283,7 +1368,7 @@ fn only_a_group_row_offers_to_delete_a_library_file() {
         line: 3,
     };
     let has = |kind: &Kind| {
-        crate::overlays::library_row_menu(kind, 1, true, 0.0, 0.0, false)
+        crate::overlays::library_row_menu(kind, None, 1, true, 0.0, 0.0, false)
             .items
             .iter()
             .any(|i| i.id == Act::Library(LibAct::DeleteFile, 1))

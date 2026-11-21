@@ -195,11 +195,14 @@ fn reveal_label(taken: &str) -> String {
 }
 
 /// The right-click menu of a row of the notes library in the left pane (row `i`): what a group,
-/// a section or a note can be asked to do. `can_add` says the open file can be written under
-/// it (it has a file the library does not list yet). Nothing in it deletes a file on disk: a
-/// note or a section goes from the library file only, and "Reveal" is the way to the file.
+/// a section or a note can be asked to do. `home` is where a group's new notes go, as its
+/// `home:` line writes it; "Clear" is offered only when there is a line to clear. `can_add` says
+/// the open file can be written under it (it has a file the library does not list yet). Nothing
+/// in it deletes a file on disk: a note or a section goes from the library file only, and
+/// "Reveal" is the way to the file.
 pub fn library_row_menu(
     kind: &Kind,
+    home: Option<&str>,
     i: usize,
     can_add: bool,
     x: f32,
@@ -210,28 +213,48 @@ pub fn library_row_menu(
     let item =
         |op: L, label: &str, icon: &'static str| Item::new(Act::Library(op, i), label).icon(icon);
     let items = match kind {
-        Kind::Group => vec![
-            item(L::NewNote, "New &note here\u{2026}", glyph::NEW_FILE),
-            item(L::AddOpen, "&Add the open document", glyph::BOOKMARK).enabled(can_add),
-            item(L::NewSection, "New &section\u{2026}", glyph::PLUS),
-            item(L::SetHome, "Set the &group's folder\u{2026}", glyph::FOLDER).sep(),
-            item(L::ClearHome, "Clear the group's fo&lder", glyph::CLOSE),
-            item(L::Rename, "&Rename group", glyph::EDIT).sep(),
-            item(
-                L::RenameFile,
-                "Rename the library &file\u{2026}",
-                glyph::EDIT,
-            ),
-            item(L::EditFile, "&Edit this library file", glyph::DOC).sep(),
-            item(L::CopyPath, "&Copy path", glyph::COPY),
-            item(L::Reveal, &reveal_label("nasrfec"), glyph::FOLDER_OPEN),
-            item(
-                L::DeleteFile,
-                "&Delete this library file\u{2026}",
-                glyph::DELETE,
-            )
-            .sep(),
-        ],
+        Kind::Group => {
+            // Where the notes go is a statement, not a mode: the folder is in the item when
+            // there is one. `g` stays its access key, on "go".
+            let set_home = match home {
+                Some(home) => format!(
+                    "New notes &go in: {} \u{2014} Change\u{2026}",
+                    escape_access(home)
+                ),
+                None => "Choose where new notes &go\u{2026}".to_string(),
+            };
+            let mut items = vec![
+                item(L::NewNote, "New &note here\u{2026}", glyph::NEW_FILE),
+                item(L::AddOpen, "&Add the open document", glyph::BOOKMARK).enabled(can_add),
+                item(L::NewSection, "New &section\u{2026}", glyph::PLUS),
+                item(L::SetHome, &set_home, glyph::FOLDER).sep(),
+            ];
+            if home.is_some() {
+                items.push(item(
+                    L::ClearHome,
+                    "Clear the group's fo&lder",
+                    glyph::CLOSE,
+                ));
+            }
+            items.extend([
+                item(L::Rename, "&Rename group", glyph::EDIT).sep(),
+                item(
+                    L::RenameFile,
+                    "Rename the library &file\u{2026}",
+                    glyph::EDIT,
+                ),
+                item(L::EditFile, "&Edit this library file", glyph::DOC).sep(),
+                item(L::CopyPath, "&Copy path", glyph::COPY),
+                item(L::Reveal, &reveal_label("nasrfec"), glyph::FOLDER_OPEN),
+                item(
+                    L::DeleteFile,
+                    "&Delete this library file\u{2026}",
+                    glyph::DELETE,
+                )
+                .sep(),
+            ]);
+            items
+        }
         Kind::Section => vec![
             item(L::NewNote, "New &note here\u{2026}", glyph::NEW_FILE),
             item(L::AddOpen, "&Add the open document here", glyph::BOOKMARK).enabled(can_add),

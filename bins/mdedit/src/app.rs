@@ -950,11 +950,11 @@ impl App {
                             ..
                         })
                 );
-                let rows: Vec<(u16, &str)> = ui
+                let rows: Vec<(u16, &str, Option<&str>)> = ui
                     .library
                     .rows
                     .iter()
-                    .map(|r| (r.depth, r.label.as_str()))
+                    .map(|r| (r.depth, r.label.as_str(), r.home.as_deref()))
                     .collect();
                 // The name box and the cursor are drawn in the pane: what is typed, where its
                 // caret and selection are, whether it blinks, and the keyboard's row.

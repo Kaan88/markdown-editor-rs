@@ -45,6 +45,9 @@ pub struct Row {
     pub key: String,
     /// The headings a section is under, itself last; empty for the others.
     pub section: Vec<String>,
+    /// Where a group's new notes go, as its `home:` line writes it; `None` when the line is
+    /// not there, and for every row that is not a group.
+    pub home: Option<String>,
 }
 
 /// What the box over the pane is typing a name for.
@@ -420,6 +423,7 @@ impl LibraryPane {
                     depth: e.depth,
                     key: String::new(),
                     section: Vec::new(),
+                    home: None,
                 },
             );
         }
@@ -448,6 +452,7 @@ fn rows(library: &Library, folded: &HashSet<String>) -> Vec<Row> {
             depth: 0,
             key,
             section: Vec::new(),
+            home: group.home.as_deref().map(|h| home_of(h, &library.dir)),
         });
         if shut {
             continue;
@@ -462,6 +467,7 @@ fn rows(library: &Library, folded: &HashSet<String>) -> Vec<Row> {
             depth,
             key: String::new(),
             section: Vec::new(),
+            home: None,
         };
         // The notes written before the first heading belong to the group itself.
         rows.extend(
@@ -484,6 +490,7 @@ fn rows(library: &Library, folded: &HashSet<String>) -> Vec<Row> {
                 depth,
                 key: key.clone(),
                 section: section.clone(),
+                home: None,
             });
             if folded.contains(&key) {
                 continue;
@@ -623,6 +630,17 @@ pub fn folder_of(path: &std::path::Path) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
+/// Where a group's new notes go, as the group's `home:` line writes it: taken from the library
+/// folder when it is inside it (the relative form the line is written in), whole when it is not.
+pub fn home_of(home: &std::path::Path, dir: &std::path::Path) -> String {
+    let shown = home
+        .strip_prefix(dir)
+        .ok()
+        .filter(|rest| !rest.as_os_str().is_empty())
+        .unwrap_or(home);
+    shown.to_string_lossy().replace('\\', "/")
+}
+
 /// `text` as far as `room` allows, keeping its end and putting an ellipsis where the start was
 /// (the end of a folder's name tells more than its start).
 pub fn elide_left(p: &mut mdshared_ui::gfx::Painter, size: f32, text: &str, room: f32) -> String {
@@ -658,6 +676,30 @@ pub fn folder_fit(
     }
     let w = p.measure(Face::Ui, 11.5, &shown);
     (shown, w)
+}
+
+/// The folder shown at the right of `row`, and the room it takes: a note's own folder, or the
+/// folder a group's new notes go in. Nothing at all on a pane narrower than
+/// [`FOLDER_MIN_PANE`], where the titles need the room.
+fn row_folder(
+    p: &mut mdshared_ui::gfx::Painter,
+    row: &Row,
+    face: Face,
+    pane: f32,
+    room: f32,
+) -> (String, f32) {
+    if pane < FOLDER_MIN_PANE {
+        return (String::new(), 0.0);
+    }
+    let folder = match &row.kind {
+        Kind::Note { path, .. } => folder_of(path),
+        _ => row.home.clone(),
+    };
+    let Some(folder) = folder else {
+        return (String::new(), 0.0);
+    };
+    let title = p.measure(face, 12.5, &row.label);
+    folder_fit(p, &folder, room, title)
 }
 
 /// What the pane says when the library has no rows.
@@ -865,17 +907,12 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         } else {
             let right = rr.right() - 12.0;
             let mut max = (right - x).max(0.0);
-            // A note's folder, dimmed at the right: which taxes.md is this one.
-            if let Kind::Note { path, .. } = &row.kind
-                && r.w >= FOLDER_MIN_PANE
-                && let Some(folder) = folder_of(path)
-            {
-                let title = c.p.measure(face, 12.5, &row.label);
-                let (shown, w) = folder_fit(c.p, &folder, max, title);
-                if w > 0.0 {
-                    c.p.text_right(Face::Ui, 11.5, right, cy, &shown, pal.faint);
-                    max = (max - w - FOLDER_GAP).max(0.0);
-                }
+            // A note's folder, or where a group's new notes go, dimmed at the right: which
+            // taxes.md is this one, and where the next note of this group lands.
+            let (shown, w) = row_folder(c.p, row, face, r.w, max);
+            if w > 0.0 {
+                c.p.text_right(Face::Ui, 11.5, right, cy, &shown, pal.faint);
+                max = (max - w - FOLDER_GAP).max(0.0);
             }
             c.p.text(face, 12.5, x, cy, &row.label, color, max);
         }
@@ -1056,6 +1093,43 @@ mod tests {
         );
         // ...even for a short name, which would fit in the 5 px the title leaves.
         assert_eq!(folder_fit(&mut p, "a", 60.0, 55.0), (String::new(), 0.0));
+    }
+
+    #[test]
+    fn a_group_row_shows_the_folder_its_home_line_names_and_only_on_a_wide_enough_pane() {
+        let (mut bm, mut gfx) = painter();
+        let mut p = mdshared_ui::gfx::Painter::new(&mut bm, &mut gfx, 1.0);
+        let mut row = Row {
+            kind: Kind::Group,
+            label: "Personal".to_string(),
+            depth: 0,
+            key: String::new(),
+            section: Vec::new(),
+            home: Some("work".to_string()),
+        };
+        let (shown, w) = row_folder(&mut p, &row, Face::Semibold, 300.0, 200.0);
+        assert_eq!(shown, "work");
+        assert!(w > 0.0 && w < 200.0);
+        // A pane narrower than FOLDER_MIN_PANE leaves it out, as it does a note's folder.
+        assert_eq!(
+            row_folder(&mut p, &row, Face::Semibold, 200.0, 200.0),
+            (String::new(), 0.0)
+        );
+        assert_eq!(
+            row_folder(&mut p, &row, Face::Semibold, FOLDER_MIN_PANE, 200.0).0,
+            "work"
+        );
+        // A group with no `home:` line shows nothing.
+        row.home = None;
+        assert_eq!(
+            row_folder(&mut p, &row, Face::Semibold, 300.0, 200.0),
+            (String::new(), 0.0)
+        );
+        // A long folder is cut from its left, as a note's is: its end tells more.
+        row.home = Some("Documents-2026-taxes-and-notes".to_string());
+        let (shown, _) = row_folder(&mut p, &row, Face::Semibold, 300.0, 190.0);
+        assert!(shown.starts_with('\u{2026}'), "{shown}");
+        assert!(shown.ends_with("notes"), "{shown}");
     }
 
     #[test]

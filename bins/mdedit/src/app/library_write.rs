@@ -181,6 +181,7 @@ impl App {
         self.ui.library.cursor = self.ui.library.group_file(i);
         let menu = overlays::library_row_menu(
             &row.kind,
+            row.home.as_deref(),
             i,
             self.library_can_add(),
             x + 2.0,
@@ -655,12 +656,14 @@ impl App {
         };
         let parsed = library::parse(&text, &base);
         // A group with no `home:` line gets one the first time a note is made in it (decision
-        // 10), naming a folder after its file as "New note here…" has written them since phase 0.
-        // The line is relative to the library folder, so a library that moves keeps working.
+        // 10), named for the group as its heading writes it, so the folder reads in Explorer as
+        // the group reads in the pane. The line is relative to the library folder, so a library
+        // that moves keeps working.
         let (home, new_home) = match parsed.home {
             Some(home) => (home, None),
             None => {
-                let folder = PathBuf::from(library::folder_name(&own));
+                let named = parsed.name.as_deref().unwrap_or(&own);
+                let folder = PathBuf::from(library::folder_name(named));
                 (base.join(&folder), Some(folder))
             }
         };

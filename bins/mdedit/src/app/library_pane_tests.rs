@@ -5,7 +5,7 @@ use super::files_tests::{app, open_now, scratch};
 use super::*;
 use crate::commands::CommandId as C;
 use crate::library_pane::Kind;
-use crate::ui::Hit;
+use crate::ui::{Hit, LibAct};
 
 fn app_in(dir: &Path) -> App {
     let mut a = app();
@@ -82,6 +82,90 @@ fn the_pane_shows_the_library_as_a_tree_and_folds_a_section() {
     assert!(!a.ui.panes.files);
     a.command(C::ToggleFiles);
     assert!(a.ui.panes.files && !a.ui.library.on);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_group_with_a_folder_shows_it_on_its_row_as_the_home_line_writes_it() {
+    let dir = scratch("libpane-home");
+    let lib = dir.join("library");
+    std::fs::create_dir_all(lib.join("Japan 2025")).unwrap();
+    let outside = dir.join("elsewhere");
+    std::fs::create_dir_all(&outside).unwrap();
+    let tokyo = dir.join("tokyo.md");
+    let plans = dir.join("plans.md");
+    let plain = dir.join("plain.md");
+    for note in [&tokyo, &plans, &plain] {
+        std::fs::write(note, "# A note\n").unwrap();
+    }
+    let link = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    std::fs::write(
+        lib.join("japan.md"),
+        format!("# Japan\nhome: Japan 2025\n\n- {}\n", link(&tokyo)),
+    )
+    .unwrap();
+    std::fs::write(
+        lib.join("work.md"),
+        format!("# Work\nhome: {}\n\n- {}\n", link(&outside), link(&plans)),
+    )
+    .unwrap();
+    std::fs::write(
+        lib.join("plain.md"),
+        format!("# Plain\n\n- {}\n", link(&plain)),
+    )
+    .unwrap();
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    let home = |a: &App, group: &str| {
+        a.ui.library
+            .rows
+            .iter()
+            .find(|r| r.label == group && r.kind == Kind::Group)
+            .and_then(|r| r.home.clone())
+    };
+    assert_eq!(
+        home(&a, "Japan"),
+        Some("Japan 2025".to_string()),
+        "a folder inside the library folder reads as the line's relative form"
+    );
+    assert_eq!(
+        home(&a, "Work"),
+        Some(link(&outside)),
+        "a folder outside it is the line's whole path"
+    );
+    assert_eq!(
+        home(&a, "Plain"),
+        None,
+        "a group with no home line shows none"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_groups_new_folder_repaints_the_pane_its_row_is_in() {
+    let dir = scratch("libpane-home-sig");
+    let (_taxes, _last) = library_in(&dir);
+    let file = dir.join("library").join("personal.md");
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    a.compose();
+    let sig = |a: &App| a.region_sig(crate::ui::Region::Files, a.areas.files);
+    let before = sig(&a);
+    // The same group, the same rows, one new `home:` line: the folder now on its row is a
+    // reason to draw the pane again, as a note's folder in the same place is.
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(
+        &file,
+        text.replacen("# Personal\n", "# Personal\nhome: Personal\n", 1),
+    )
+    .unwrap();
+    a.act(Act::Library(LibAct::Refresh, 0));
+    a.compose();
+    assert_ne!(
+        before,
+        sig(&a),
+        "the frame signature must see the folder the group's row shows"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
