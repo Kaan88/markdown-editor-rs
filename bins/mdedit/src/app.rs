@@ -2370,9 +2370,11 @@ fn barely_seen(session: &Session, i: usize) -> bool {
     };
     let same = |q: &Path| mdshared_app::paths::same_path(q, path);
     let file = |pin: &crate::session::Pin| matches!(pin, crate::session::Pin::File(q) if same(q));
-    let keep = i == session.active
+    // The tab that was showing is kept unless the owner asked for that one to count too.
+    let showing =
+        !p.brief_last && (i == session.active || session.active_tab.as_ref().is_some_and(file));
+    let keep = showing
         || session.pinned.iter().any(file)
-        || session.active_tab.as_ref().is_some_and(file)
         || (session.unsaved.iter()).any(|u| u.path.as_deref().is_some_and(same));
     let counted = session.focus.iter().find(|(q, _)| same(q)).map(|&(_, s)| s);
     mdshared_app::brief::left_out(p.skip_brief, p.brief_secs, counted, keep)
@@ -4847,6 +4849,16 @@ mod tests {
         let back = Session::parse(&s.serialize());
         assert_eq!(back.focus, s.focus);
         assert_eq!(out(&back), [1]);
+        // With the second switch the tab that was showing counts like the rest: a goes too,
+        // while the pinned tab and the one with unsaved text still come back.
+        s.prefs.brief_last = true;
+        assert_eq!(out(&s), [0, 1]);
+        let back = Session::parse(&s.serialize());
+        assert!(back.prefs.brief_last, "the switch goes through the session");
+        assert_eq!(out(&back), [0, 1]);
+        // It does nothing on its own: the rule has to be on.
+        s.prefs.skip_brief = false;
+        assert!(out(&s).is_empty());
     }
 
     /// The session written carries each file tab's focused seconds, read back at the next start.

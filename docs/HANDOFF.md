@@ -5,6 +5,20 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## "Leave out the tab you were last on too" (2026-11-21, on main)
+
+The owner asked for the brief-tabs rule to count the tab that was showing as well: open a file,
+glance at it, close the window on it, and it should not come back. New pref `brief_last`
+(`mdedit-core` prefs, session line `brief_last`, off by default), shown in Settings › Session
+under "Looked at for less than" as `mdshared_app::brief::LAST` ("Leave out the tab you were
+last on too", help "Pinned tabs and unsaved text still always come back"). `barely_seen` in
+`app.rs` no longer keeps `session.active`/`active_tab` when it is on; pinned tabs, unsaved text
+and tabs with no count still come back, and the switch does nothing unless "Don't reopen tabs
+barely looked at" is on. Covered by
+`tabs_barely_looked_at_are_left_out_at_start_when_asked`. The help line under the first switch
+lost its "the tab you left on" clause (it is no longer always true), and the new help had to be
+cut to one short line to pass `every_help_line_fits_in_every_layout` at 1280x800.
+
 ## The notes library in the left pane, and nested headings (2026-11-21, on main)
 
 The owner looked at the first cut and asked for a tree in the left pane, in the Files pane's

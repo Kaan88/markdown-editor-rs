@@ -89,6 +89,11 @@ pub struct Prefs {
     pub skip_brief: bool,
     /// Focused seconds a tab needs to be reopened, 1 to 600 (default 10).
     pub brief_secs: u32,
+    /// The rule above applies to the tab that was showing when the window closed as well, so a
+    /// file glanced at and left on screen is not reopened either. Off by default: that tab is
+    /// the one most likely to be wanted again. Pinned tabs and unsaved text still always come
+    /// back.
+    pub brief_last: bool,
     /// mdview shows the text of a previewed document as it is typed, not only when it is saved.
     pub live_preview: bool,
     /// The word list opens by itself after three letters (Ctrl+Space opens it either way).
@@ -151,6 +156,7 @@ impl Default for Prefs {
             stale_days: STALE_DAYS_DEFAULT,
             skip_brief: false,
             brief_secs: BRIEF_SECS_DEFAULT,
+            brief_last: false,
             live_preview: true,
             complete_auto: false,
             backdrop: Backdrop::Off,
@@ -306,6 +312,7 @@ impl Prefs {
                                 .map_or(d.stale_days, |n| n as u32)
                     }
                     "skip_brief" => p.skip_brief = flag(value).unwrap_or(d.skip_brief),
+                    "brief_last" => p.brief_last = flag(value).unwrap_or(d.brief_last),
                     "brief_secs" => {
                         p.brief_secs =
                             number(value, BRIEF_SECS_MIN as usize, BRIEF_SECS_MAX as usize)
@@ -422,6 +429,7 @@ impl Prefs {
         w.line("stale_days", &p.stale_days.to_string());
         w.line("skip_brief", b(p.skip_brief));
         w.line("brief_secs", &p.brief_secs.to_string());
+        w.line("brief_last", b(p.brief_last));
         w.line("live_preview", b(p.live_preview));
         w.line("complete_auto", b(p.complete_auto));
         w.line("backdrop", p.backdrop.key());
@@ -744,6 +752,7 @@ mod tests {
             stale_days: 30,
             skip_brief: true,
             brief_secs: 45,
+            brief_last: true,
             live_preview: false,
             complete_auto: true,
             backdrop: Backdrop::Acrylic,
@@ -796,7 +805,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 45);
+        assert_eq!(t.lines().count(), 46);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,
