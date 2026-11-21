@@ -338,6 +338,10 @@ for t in "" "-dark"; do
     shot "runs$t" $th --dialog runs
     shot "runs-undo$t" $th --dialog run-undo
     shot "runs-undo-recycled$t" $th --dialog run-undo-recycled
+    # Undo refuses when the original the notes were cut from is gone or has changed, and a record
+    # of a later version is listed with nothing to press.
+    shot "runs-undo-original$t" $th --dialog run-undo-original
+    shot "runs-newer$t" $th --dialog runs-newer
 done
 
 # The "Plan ready" row at the foot of the Notes pane (5.3): a plan Escape kept, with Show and Drop.

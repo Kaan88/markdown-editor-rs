@@ -62,11 +62,11 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
   `mdedit_core::runs` makes the folders, the notes and the group's library file in the order of
   4.3, writes one record per run in `<library>/.runs`, and every library file is updated through
   the window's own `library_attempt` gate. The report takes the results panel with "Undo this
-  run", and `Undo` asks first, takes out the links, then only the files whose SHA-256 is the one
-  recorded, then the group's file when only its heading is left, then the folders while they are
-  empty; nothing outside the library and the group's folder is removed, and a run whose lines
-  could not be taken out stays "links pending" so Undo can be pressed again; a record is marked
-  "undone" and stays. "AI runs…" (the AI menu and the Notes library
+  run", and `Undo` asks first. It refuses unless the original is still the file the notes were cut
+  from (D-071), removes a note only if no library file lists it (D-070), only one this run made
+  (D-069), only inside the library or the group's home (D-072); a later version's record is
+  never pruned.
+  "AI runs…" (the AI menu and the Notes library
   menu) lists the records of the runs, with Show the notes, Undo this run and Finish. The Notes
   pane draws "Plan ready: N notes · Show · Drop" at its foot while a plan is parked. Every refusal
   it can know before the first file is made before it (D2: the group's file's name, both caps, an
@@ -105,9 +105,7 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 
 1. The plan's order: the shared pieces, then the plan card with Split at headings, then Split by
    AI. Its section 12 has the sequence and the cost.
-2. **Audit 3** (Fable), against `docs/review-prompts/audit3-scope.md`, which now covers everything
-   merged since 1.2.1: the notes library, its redesign phases, and phase 0 and 6a.
-3. **1.3.0** is no longer held by phase 0; whether to tag it now is under "Waiting for the owner".
+2. **1.3.0** is no longer held by phase 0; whether to tag it now is under "Waiting for the owner".
 
 ## Known to be wrong on `main`
 
@@ -128,6 +126,7 @@ faults that could lose a note or break a library that moves; these are still tru
 
 ## Known gaps, not planned unless they get in the way
 
+- Undo removes with `remove_file`, not the Recycle Bin: waits for the `trash` crate (D-071).
 - A note that goes missing on disk is marked at the next re-read or Refresh, not at once.
 - The Files and Functions faces of the pane have no keyboard.
 - The notes pane has no sort command and no filter box.
@@ -149,11 +148,13 @@ faults that could lose a note or break a library that moves; these are still tru
   against after, run in turn, means anything.
 - **Reviews.** Audit 1 (Astra, seven rounds) covered up to 1.1.2. Audit 2 (Fable) found faults
   that were all fixed for 1.2.0; the fixes have not been reviewed. Audit 3 (Fable) has run:
-  `docs/review-prompts/audit3-report.md`, 21 probes against `6cdeab2`. The Undo question (A1) and
-  the four-byte name that ended the program (B1, in the shared crates) are fixed; the plan guards
-  (D2 and A6, A7, A8, A11, C1, C2, C3, C5, C7) are on `fix/plan-guards`, not merged. A2–A5, A9
-  and A10 are not fixed yet. Nothing since 1.2.0 has been reviewed by anyone else: that is the
-  whole notes library.
+  `docs/review-prompts/audit3-report.md`, 21 probes against `6cdeab2`. Everything it found is
+  fixed and on `main`: the Undo question (A1), the four-byte name that ended the program (B1, in
+  the shared crates), the plan guards (D2 and A6, A7, A8, A11, C2, C3, C5, C7), and undo's own
+  rules (D1, D4, A2-A5, A9, A10, B2) - except C1, which wants a variant beside the shared
+  `add_note` and is refused before the write until then. Audit 3's own fixes have not been
+  reviewed, and nothing since 1.2.0 has been reviewed by anyone but Fable: that is the whole
+  notes library.
 - **Never checked by hand:** the KDE blur on Linux; pasting image files copied in a Linux file
   manager; the AppImage and the Linux packages on a desktop; the macOS builds on a desktop; the
   Windows installer; an installed copy updating itself and restarting.

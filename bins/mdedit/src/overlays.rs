@@ -1000,7 +1000,7 @@ pub fn draw_dialog(
         DialogKind::Shortcuts => shortcut_help().len(),
         DialogKind::Recent => docs.recents.paths().len(),
         DialogKind::Macros => macros.len(),
-        DialogKind::Runs => runs.list.len(),
+        DialogKind::Runs => runs.list.len() + runs.unread.len(),
     };
     let r = card(d.kind, rows, w, h);
     c.hit(Hit::DlgCard, r);
@@ -1343,9 +1343,9 @@ pub fn draw_dialog(
             let list = list_rect(r, footer);
             d.list = list;
             d.view = list.h;
-            d.content = runs.list.len() as f32 * RUN_ROW + 8.0;
+            d.content = (runs.list.len() + runs.unread.len()) as f32 * RUN_ROW + 8.0;
             d.scroll = d.scroll.clamp(0.0, (d.content - d.view).max(0.0));
-            if runs.list.is_empty() {
+            if runs.list.is_empty() && runs.unread.is_empty() {
                 c.p.text_center(
                     Face::Ui,
                     13.5,
@@ -1397,6 +1397,35 @@ pub fn draw_dialog(
                     if i == runs.sel { pal.text } else { pal.faint },
                     tw,
                 );
+            }
+            // The record files this version cannot use, after the ones it can: shown so that a
+            // run of a later version is known to be there, with nothing in them to press.
+            for (n, file) in runs.unread.iter().enumerate() {
+                let y = list.y + (runs.list.len() + n) as f32 * RUN_ROW - d.scroll;
+                if y + RUN_ROW < list.y || y > list.bottom() {
+                    continue;
+                }
+                let row = Rect::new(list.x + 8.0, y + 2.0, list.w - 16.0, RUN_ROW - 4.0);
+                c.p.icon(glyph::MACRO, 15.0, row.x + 20.0, row.cy(), pal.faint);
+                let tx = row.x + 40.0;
+                let tw = (row.w - 52.0).max(0.0);
+                let name = file
+                    .path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let first = if file.newer {
+                    format!("Written by a newer version of mdedit \u{00B7} {name}")
+                } else {
+                    format!("Not a record this version can read \u{00B7} {name}")
+                };
+                c.p.text(Face::Ui, 13.5, tx, row.y + 15.0, &first, pal.faint, tw);
+                let second = if file.started.is_empty() {
+                    "Not shown or undone here".to_string()
+                } else {
+                    format!("{} \u{00B7} not shown or undone here", when(&file.started))
+                };
+                c.p.text(Face::Ui, 11.5, tx, row.y + 33.0, &second, pal.faint, tw);
             }
             c.p.restore(old);
             dialog_scrollbar(c, d);

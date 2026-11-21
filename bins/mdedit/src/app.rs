@@ -65,6 +65,8 @@ mod completion;
 mod crash;
 #[cfg(test)]
 mod undo_button_tests;
+#[cfg(test)]
+mod undo_rules_tests;
 pub use crash::crash_dir;
 #[cfg(test)]
 mod files_tests;
@@ -1363,6 +1365,11 @@ impl App {
                     d.scroll.to_bits(),
                     self.ui.dlg_hover_row,
                     self.docs.recents.paths().len(),
+                    (
+                        self.ui.runs.sel,
+                        self.ui.runs.list.len(),
+                        self.ui.runs.unread.len(),
+                    ),
                     self.docs.updates.about_label(),
                     self.docs.check_updates,
                     self.ui
@@ -3455,7 +3462,13 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 app.ask(DialogKind::Unsaved, id, After::Nothing);
             }
         }
-        Some(ShotDialog::Runs | ShotDialog::RunUndo | ShotDialog::RunUndoRecycled) => {
+        Some(
+            ShotDialog::Runs
+            | ShotDialog::RunUndo
+            | ShotDialog::RunUndoRecycled
+            | ShotDialog::RunsNewer
+            | ShotDialog::RunUndoOriginal,
+        ) => {
             let which = app.args.dialog;
             app.runs_demo(which);
         }

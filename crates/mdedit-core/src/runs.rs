@@ -5,8 +5,10 @@
 //! picture are created with [`mdshared_app::files::create_new`]: a name that is taken is refused
 //! before a byte is written, and the bytes reach the name by a rename that never replaces a file.
 //! A folder is only ever created, inside the library folder or the group's folder. The one
-//! deletion is undo's, and it goes only to a path the run recorded and only while the file is
-//! byte for byte the one it wrote.
+//! deletion is undo's, and it goes only to what the record says this run created (`created`, set
+//! after the fact, never from the plan), only inside the library folder or the home the group's
+//! library file declares now, only a regular file with the extension a run writes, only while
+//! it is byte for byte the one it wrote, and only when no library file lists it any more.
 //!
 //! The order is the one of 4.3, and every prefix of it is a state that can be lived with: the
 //! record first, then folders, pictures, notes, the read-back, the links, the closed record, and
@@ -30,6 +32,23 @@ pub const KEEP_DAYS: u64 = 90;
 
 /// A record bigger than this is not one of ours.
 const RECORD_MAX: u64 = 4 * 1024 * 1024;
+
+/// The record format this program writes and reads. A record of a later version is not read, not
+/// acted on, and never deleted: it is shown as written by a newer version.
+pub const RECORD_VERSION: u32 = 1;
+
+/// The most of one file undo reads to compare it with its recorded digest, whatever the record
+/// says about it. A note or a source of more is not checked, so it is not removed and undo is not
+/// run against it: a path in a record is not allowed to make the window read without end.
+pub const DIGEST_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The most library files undo reads to find out whether one still lists a note.
+const LISTING_MAX_FILES: usize = 4096;
+
+/// The pictures a run copies: the only extensions undo removes besides a note's `.md`.
+const PICTURE_EXTENSIONS: [&str; 10] = [
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "tif", "tiff",
+];
 
 // ---- time -----------------------------------------------------------------------------------------
 
@@ -202,6 +221,8 @@ pub struct Group {
     /// The name the owner sees, which is what a new library file's heading holds.
     pub name: String,
     pub file: PathBuf,
+    /// In a [`Request`]: the file is to be made. In a [`Record`]: this run made it, which is set
+    /// only after the file was created, so a file that was there is never marked.
     pub created: bool,
     pub home: PathBuf,
 }
@@ -210,6 +231,10 @@ pub struct Group {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NoteRec {
     pub path: PathBuf,
+    /// This run created the file. False for a note that was there already with the same bytes
+    /// (it is linked, and undo takes its line out, but never the file) and for one that was not
+    /// written. Set after the write; a record with no such field says false.
+    pub created: bool,
     pub sha256: String,
     /// The lines of the source, 1-based and inclusive.
     pub ranges: Vec<(usize, usize)>,
@@ -224,6 +249,8 @@ pub struct NoteRec {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PictureRec {
     pub path: PathBuf,
+    /// This run created the file: see [`NoteRec::created`].
+    pub created: bool,
     pub sha256: String,
 }
 
@@ -240,6 +267,8 @@ pub struct Record {
     pub sent: Option<Sent>,
     pub source: Source,
     pub group: Group,
+    /// The folders this run made, parents first: not the folders its notes use, only the ones
+    /// that were not there when it started.
     pub folders: Vec<PathBuf>,
     pub notes: Vec<NoteRec>,
     pub pictures: Vec<PictureRec>,
@@ -644,8 +673,9 @@ impl Record {
                 .map(|x| format!("\"{}\"", esc(x)))
                 .collect();
             s.push_str(&format!(
-                "\n    {{\"path\": \"{}\", \"sha256\": \"{}\", \"ranges\": [{}], \"heading_shift\": {}, \"title_added\": {}, \"sections\": [{}], \"line\": \"{}\"}}",
+                "\n    {{\"path\": \"{}\", \"created\": {}, \"sha256\": \"{}\", \"ranges\": [{}], \"heading_shift\": {}, \"title_added\": {}, \"sections\": [{}], \"line\": \"{}\"}}",
                 esc(&stored(&n.path, library)),
+                n.created,
                 esc(&n.sha256),
                 ranges.join(", "),
                 n.heading_shift,
@@ -675,8 +705,9 @@ impl Record {
             .iter()
             .map(|p| {
                 format!(
-                    "{{\"path\": \"{}\", \"sha256\": \"{}\"}}",
+                    "{{\"path\": \"{}\", \"created\": {}, \"sha256\": \"{}\"}}",
                     esc(&stored(&p.path, library)),
+                    p.created,
                     esc(&p.sha256)
                 )
             })
@@ -690,7 +721,10 @@ impl Record {
     /// a record this program wrote.
     pub fn from_json(text: &str, library: &Path) -> Option<Record> {
         let json = parse_json(text)?;
-        let version = json.get("version")?.uint()? as u32;
+        let version = u32::try_from(json.get("version")?.uint()?).ok()?;
+        if version > RECORD_VERSION {
+            return None;
+        }
         let kind = Kind::parse(json.get("kind")?.str()?)?;
         let started = json.get("started")?.str()?.to_string();
         let started_secs = secs_of(&started).unwrap_or(0);
@@ -780,6 +814,7 @@ impl Record {
                             .unwrap_or_default();
                         Some(NoteRec {
                             path,
+                            created: n.get("created").and_then(Json::bool).unwrap_or(false),
                             sha256: n
                                 .get("sha256")
                                 .and_then(Json::str)
@@ -829,6 +864,7 @@ impl Record {
                     .filter_map(|p| {
                         Some(PictureRec {
                             path: resolved(p.get("path")?.str()?, library),
+                            created: p.get("created").and_then(Json::bool).unwrap_or(false),
                             sha256: p
                                 .get("sha256")
                                 .and_then(Json::str)
@@ -921,42 +957,118 @@ impl Record {
 
 /// Reads one record. `None` when the file is not a record of ours; nothing here can panic.
 pub fn load(path: &Path, library: &Path) -> Option<Record> {
-    let meta = std::fs::metadata(path).ok()?;
+    inspect(path, library).ok()
+}
+
+/// A record file this version could not use: another version wrote it, or it is not a record.
+/// It is listed and never acted on, and never deleted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unread {
+    pub path: PathBuf,
+    /// A later version of this program wrote it: a version this one does not know, or a kind or
+    /// a state it has no word for.
+    pub newer: bool,
+    /// When it was written, from its name (`2026-11-21T14:03:11Z`), or empty.
+    pub started: String,
+}
+
+/// Reads one record; `Err(newer)` when it cannot be used, saying whether a later version wrote it.
+fn inspect(path: &Path, library: &Path) -> Result<Record, bool> {
+    let meta = std::fs::metadata(path).map_err(|_| false)?;
     if !meta.is_file() || meta.len() > RECORD_MAX {
-        return None;
+        return Err(false);
     }
-    let text = std::fs::read_to_string(path).ok()?;
-    Record::from_json(&text, library)
+    let text = std::fs::read_to_string(path).map_err(|_| false)?;
+    match Record::from_json(&text, library) {
+        Some(record) => Ok(record),
+        None => Err(written_by_newer(&text)),
+    }
+}
+
+/// Whether a text that is not a record of this version is one of a later version: valid JSON
+/// whose version is past [`RECORD_VERSION`], or whose kind or state this version has no word for.
+fn written_by_newer(text: &str) -> bool {
+    let Some(json) = parse_json(text) else {
+        return false;
+    };
+    let version = json.get("version").and_then(Json::uint);
+    version.is_some_and(|v| v > u64::from(RECORD_VERSION))
+        || (version.is_some()
+            && (json
+                .get("kind")
+                .and_then(Json::str)
+                .is_some_and(|k| Kind::parse(k).is_none())
+                || json
+                    .get("state")
+                    .and_then(Json::str)
+                    .is_some_and(|s| State::parse(s).is_none())))
+}
+
+/// The time a record's file name holds: `2026-11-21T14-03-11Z-split.json`, as an ISO stamp.
+fn name_stamp(path: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let parts = (|| {
+        let head = stem.get(..20)?;
+        Some(format!(
+            "{}:{}:{}",
+            head.get(..13)?,
+            head.get(14..16)?,
+            head.get(17..)?
+        ))
+    })();
+    parts
+        .filter(|iso| secs_of(iso).is_some())
+        .unwrap_or_default()
 }
 
 /// Every record in `library/.runs`, newest first. The folder is read only when this is asked
 /// for: never at start.
 pub fn list(library: &Path) -> Vec<Run> {
+    list_all(library).0
+}
+
+/// [`list`], and with it the record files this version cannot use, newest first by the time in
+/// their names, so a window can say that they are there.
+pub fn list_all(library: &Path) -> (Vec<Run>, Vec<Unread>) {
     let dir = library.join(RUNS_DIR);
     let Ok(entries) = std::fs::read_dir(&dir) else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
-    let mut runs: Vec<Run> = entries
+    let mut runs: Vec<Run> = Vec::new();
+    let mut unread: Vec<Unread> = Vec::new();
+    for path in entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| {
             p.extension()
                 .is_some_and(|x| x.eq_ignore_ascii_case("json"))
         })
-        .filter_map(|path| {
-            load(&path, library).map(|record| Run {
+    {
+        match inspect(&path, library) {
+            Ok(record) => runs.push(Run {
                 record,
                 path,
                 library: library.to_path_buf(),
-            })
-        })
-        .collect();
+            }),
+            Err(newer) => unread.push(Unread {
+                started: name_stamp(&path),
+                path,
+                newer,
+            }),
+        }
+    }
     runs.sort_by(|a, b| b.record.started.cmp(&a.record.started));
-    runs
+    unread.sort_by(|a, b| b.started.cmp(&a.started).then_with(|| a.path.cmp(&b.path)));
+    (runs, unread)
 }
 
 /// Deletes the records older than the newest [`KEEP_RUNS`] and older than [`KEEP_DAYS`]. Their
-/// notes and their `.done` files beside them go only when the record goes.
+/// notes and their `.done` files beside them go only when the record goes. A file that does not
+/// load as a record of this version is not counted among the newest and is never deleted: it may
+/// be the record of a later version, and its undo with it.
 pub fn prune(library: &Path, now: u64) {
     let dir = library.join(RUNS_DIR);
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -969,9 +1081,9 @@ pub fn prune(library: &Path, now: u64) {
             p.extension()
                 .is_some_and(|x| x.eq_ignore_ascii_case("json"))
         })
-        .map(|p| {
-            let secs = load(&p, library).map_or(0, |r| r.started_secs);
-            (secs, p)
+        .filter_map(|p| {
+            let record = load(&p, library)?;
+            Some((record.started_secs, p))
         })
         .collect();
     all.sort_by_key(|(secs, _)| std::cmp::Reverse(*secs));
@@ -1154,9 +1266,11 @@ pub fn write_at(req: &Request, gate: &mut dyn Gate, secs: u64, started: &str) ->
         report.start_error = Some(format!("The run could not start: {why}"));
         return report;
     }
-    // 1. The record, state "writing", holding the whole plan.
+    // 1. The record, state "writing", holding the whole plan. What the run did is not in it yet:
+    // no folder, no group file and no note is marked as made by this run until it was made, so a
+    // run that stops here leaves a record whose undo touches nothing it did not make.
     let mut record = Record {
-        version: 1,
+        version: RECORD_VERSION,
         kind: Kind::Split,
         started: started.to_string(),
         started_secs: secs,
@@ -1164,18 +1278,17 @@ pub fn write_at(req: &Request, gate: &mut dyn Gate, secs: u64, started: &str) ->
         instruction: req.instruction.clone(),
         sent: req.sent.clone(),
         source,
-        group: req.group.clone(),
-        folders: req
-            .folders
-            .iter()
-            .filter(|f| inside_any(f, req))
-            .cloned()
-            .collect(),
+        group: Group {
+            created: false,
+            ..req.group.clone()
+        },
+        folders: Vec::new(),
         notes: req
             .notes
             .iter()
             .map(|n| NoteRec {
                 path: n.path.clone(),
+                created: false,
                 // The digest of the bytes this note will hold, known before they are written.
                 sha256: mdshared_app::update::sha256_hex(n.text.as_bytes()),
                 ranges: n.ranges.clone(),
@@ -1207,7 +1320,24 @@ pub fn write_at(req: &Request, gate: &mut dyn Gate, secs: u64, started: &str) ->
             ));
             continue;
         }
-        if let Err(e) = std::fs::create_dir_all(folder) {
+        // The folders that are not there yet, deepest first: the ones this run makes. A folder
+        // that was there is never in the record, so undo never removes it.
+        let mut missing: Vec<PathBuf> = Vec::new();
+        let mut at = Some(folder.as_path());
+        while let Some(dir) = at {
+            if dir.symlink_metadata().is_ok() || !inside_any(dir, req) {
+                break;
+            }
+            missing.push(dir.to_path_buf());
+            at = dir.parent();
+        }
+        let made = std::fs::create_dir_all(folder);
+        for dir in missing.into_iter().rev() {
+            if dir.is_dir() && !record.folders.iter().any(|f| same_path(f, &dir)) {
+                record.folders.push(dir);
+            }
+        }
+        if let Err(e) = made {
             report
                 .folder_failures
                 .push(Failure::new(folder, e.to_string()));
@@ -1239,6 +1369,7 @@ pub fn write_at(req: &Request, gate: &mut dyn Gate, secs: u64, started: &str) ->
             Ok((path, true)) => {
                 record.pictures.push(PictureRec {
                     path: path.clone(),
+                    created: true,
                     sha256: mdshared_app::update::sha256_hex(&bytes),
                 });
                 report.pictures_written.push(path.clone());
@@ -1246,9 +1377,10 @@ pub fn write_at(req: &Request, gate: &mut dyn Gate, secs: u64, started: &str) ->
             }
             Ok((path, false)) => {
                 // The same bytes are already there: the picture counts as copied, and the file
-                // is not written again.
+                // is not written again. It is not this run's file, so undo leaves it.
                 record.pictures.push(PictureRec {
                     path: path.clone(),
+                    created: false,
                     sha256: mdshared_app::update::sha256_hex(&bytes),
                 });
                 report.pictures_written.push(path);
@@ -1274,6 +1406,9 @@ pub fn write_at(req: &Request, gate: &mut dyn Gate, secs: u64, started: &str) ->
         match create_new(&note.path, note.text.as_bytes()) {
             Ok(()) => {
                 written.push(i);
+                if let Some(rec) = record.notes.get_mut(i) {
+                    rec.created = true;
+                }
                 report.notes_written.push(note.path.clone());
                 record.note_done(&record_path, &format!("note {}", shown(&note.path)));
             }
@@ -1315,11 +1450,18 @@ pub fn write_at(req: &Request, gate: &mut dyn Gate, secs: u64, started: &str) ->
         }
     }
 
+    // What the run has made so far goes into the record now, before any library file is touched:
+    // a run that stops after this point can be undone, and undo knows exactly which folders and
+    // notes are its own. A failure to write it again is reported by step 7, which tries once more.
+    let _ = record.close(&record_path, &req.library);
+
     // 6. The library: the group's file, then each file's links in one atomic write.
     if !sound.is_empty() {
         let group_ready = if req.group.created {
             match create_group(req) {
                 Ok(()) => {
+                    record.group.created = true;
+                    let _ = record.close(&record_path, &req.library);
                     record.note_done(&record_path, &format!("group {}", shown(&req.group.file)));
                     true
                 }
@@ -1488,13 +1630,34 @@ fn shown(path: &Path) -> String {
 
 /// Whether `path` is in the library folder or in the group's folder. Nothing is written outside
 /// those, and undo removes nothing outside them either: the one rule, in one place.
+///
+/// No library folder, or no home, is nothing: an empty path is not a folder that holds
+/// everything. A path is compared as the disk compares names (part by part, in the platform's
+/// case), after the disk has been asked where its links lead.
 fn inside(library: &Path, home: &Path, path: &Path) -> bool {
+    if library.as_os_str().is_empty() {
+        return false;
+    }
     let path = mdshared_app::paths::canonical_or_absolute(path);
     let library = mdshared_app::paths::canonical_or_absolute(library);
-    let home = mdshared_app::paths::canonical_or_absolute(home);
-    let in_library = path.starts_with(&library) && path != library;
-    let in_home = path.starts_with(&home);
-    in_library || in_home
+    if under(&path, &library) && !same_path(&path, &library) {
+        return true;
+    }
+    if home.as_os_str().is_empty() {
+        return false;
+    }
+    under(&path, &mdshared_app::paths::canonical_or_absolute(home))
+}
+
+/// Whether `path` is `base` or lies below it, part by part, with the case rule of
+/// [`same_path`]. No disk is asked.
+fn under(path: &Path, base: &Path) -> bool {
+    let mut parts = path.components();
+    base.components().all(|b| {
+        parts
+            .next()
+            .is_some_and(|p| same_path(Path::new(p.as_os_str()), Path::new(b.as_os_str())))
+    })
 }
 
 /// [`inside`] for a request's two folders.
@@ -1721,8 +1884,13 @@ pub struct UndoPlan {
     pub links: Vec<(PathBuf, Vec<LinkRemoval>)>,
     /// Lines that are gone already: nothing to do.
     pub links_gone: usize,
-    /// Links the owner edited since: kept, and listed.
+    /// Notes whose line the owner edited or moved since: the line is kept, and so is the note.
     pub links_kept: Vec<PathBuf>,
+    /// Notes that stay because a library line still lists them after this run's lines are out.
+    pub held: Vec<PathBuf>,
+    /// Files the run found there already, with the bytes it would have written: they are linked,
+    /// undo takes their lines out, and the files are not its own to remove.
+    pub before: Vec<PathBuf>,
     /// The files this run wrote, with the digest they had: removed only while it matches.
     pub notes: Vec<PathBuf>,
     pub pictures: Vec<PathBuf>,
@@ -1814,13 +1982,40 @@ impl UndoPlan {
         }
         if !self.links_kept.is_empty() {
             s.push_str(&format!(
-                " {} edited since and {} kept.",
+                " {} edited or moved since and {} kept, with {}.",
                 count(self.links_kept.len(), "line was", "lines were"),
                 if self.links_kept.len() == 1 {
                     "is"
                 } else {
                     "are"
+                },
+                if self.links_kept.len() == 1 {
+                    "its note"
+                } else {
+                    "their notes"
                 }
+            ));
+        }
+        let other: Vec<&PathBuf> = self
+            .held
+            .iter()
+            .filter(|h| !self.links_kept.iter().any(|k| same_path(k, h)))
+            .collect();
+        if !other.is_empty() {
+            s.push_str(&if other.len() == 1 {
+                " 1 note stays, because another line in the library lists it.".to_string()
+            } else {
+                format!(
+                    " {} notes stay, because other lines in the library list them.",
+                    other.len()
+                )
+            });
+        }
+        if !self.before.is_empty() {
+            s.push_str(&format!(
+                " {} there before this run and {} kept.",
+                count(self.before.len(), "file was", "files were"),
+                if self.before.len() == 1 { "is" } else { "are" }
             ));
         }
         s
@@ -1835,135 +2030,422 @@ fn count(n: usize, one: &str, many: &str) -> String {
     }
 }
 
+/// The text of a regular file of at most `max` bytes, read whole and no further; `None` when it
+/// is not a regular file, is bigger, or cannot be read. With `follow` a link is followed, as it
+/// is for a source document; without it a link is not a regular file, which is what undo wants
+/// of anything it is about to delete.
+fn read_regular(path: &Path, max: u64, follow: bool) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let meta = if follow {
+        std::fs::metadata(path)
+    } else {
+        std::fs::symlink_metadata(path)
+    }
+    .ok()?;
+    if !meta.is_file() || meta.len() > max {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(max.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= max).then_some(bytes)
+}
+
 fn digest_of(path: &Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = read_regular(path, DIGEST_MAX_BYTES, false)?;
     Some(mdshared_app::update::sha256_hex(&bytes))
 }
 
-/// The first path the record names that undo would remove or write, when it is outside the
-/// library folder and the group's folder: the check [`outside`] makes for a write, made for a
-/// record. `None` when every one of them is where a run could have put it.
-fn named_outside(record: &Record, library: &Path) -> Option<PathBuf> {
-    let home = record.group.home.as_path();
-    std::iter::once(record.group.file.as_path())
-        .chain(record.folders.iter().map(PathBuf::as_path))
-        .chain(record.notes.iter().map(|n| n.path.as_path()))
-        .chain(record.pictures.iter().map(|p| p.path.as_path()))
-        .find(|path| !inside(library, home, path))
-        .map(Path::to_path_buf)
+fn has_parent_dir(path: &Path) -> bool {
+    path.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+fn has_extension(path: &Path, allowed: &[&str]) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| allowed.iter().any(|a| e.eq_ignore_ascii_case(a)))
+}
+
+/// Where the document a run was cut from stands now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceState {
+    /// The file has the recorded length and digest.
+    Same,
+    Gone,
+    /// There is a file, and it is not the recorded one.
+    Changed,
+    /// It is the recorded length, and too large to be compared.
+    TooLarge,
+}
+
+fn source_state(source: &Source) -> SourceState {
+    let Ok(meta) = std::fs::metadata(&source.path) else {
+        return SourceState::Gone;
+    };
+    if !meta.is_file() || meta.len() != source.len {
+        return SourceState::Changed;
+    }
+    if source.len > DIGEST_MAX_BYTES {
+        return SourceState::TooLarge;
+    }
+    match read_regular(&source.path, DIGEST_MAX_BYTES, true) {
+        Some(bytes)
+            if mdshared_app::update::sha256_hex(&bytes).eq_ignore_ascii_case(&source.sha256) =>
+        {
+            SourceState::Same
+        }
+        Some(_) => SourceState::Changed,
+        None => SourceState::Gone,
+    }
+}
+
+/// Why undo does not run when the original is not the file the run was cut from. The notes may
+/// be the only copy of its text, and undo is the one thing here that deletes.
+fn source_refusal(record: &Record, state: SourceState) -> String {
+    let name = record.source_name();
+    if record.source.recycled {
+        return format!("Put \u{2018}{name}\u{2019} back from the Recycle Bin first, then undo.");
+    }
+    let what = match state {
+        SourceState::Gone => format!(
+            "\u{2018}{name}\u{2019}, the file these notes were cut from, is not where it was"
+        ),
+        SourceState::Changed => {
+            format!("\u{2018}{name}\u{2019} is not the file these notes were cut from any more")
+        }
+        _ => format!("\u{2018}{name}\u{2019} is too large to be checked against this run"),
+    };
+    format!(
+        "{what}, so these notes may be the only copy of its text. Undo will not remove them. \
+         Put the original back, or delete the notes yourself if you do not need them."
+    )
+}
+
+// ---- what a record may reach -------------------------------------------------------------------
+
+/// What a record may name, and so what undo and finish may touch for it: the library folder, and
+/// the home the group's library file declares now. A record is a file on disk like any other, so
+/// it is not given more than write access to the library folder gives: a path in it is never
+/// taken as it stands, and the home is read from the library file and not from the record.
+struct Reach {
+    library: PathBuf,
+    home: Option<PathBuf>,
+}
+
+impl Reach {
+    /// The reach of `record` in `library`, or the sentence that says which path of the record is
+    /// outside it, so that none of the record is acted on.
+    fn of(record: &Record, library: &Path) -> Result<Reach, String> {
+        if !library.is_absolute() {
+            return Err("The library folder is not known, so this run is not undone.".to_string());
+        }
+        let reach = Reach {
+            library: library.to_path_buf(),
+            home: declared_home(&record.group.file, library),
+        };
+        let outside = |path: &Path| {
+            format!(
+                "{} is outside the library and the group's folder, so this run is not undone.",
+                path.display()
+            )
+        };
+        let foreign = |path: &Path| {
+            format!(
+                "{} is not a file a run writes, so this run is not undone.",
+                path.display()
+            )
+        };
+        let file = record.group.file.as_path();
+        if !reach.is_library_file(file) {
+            return Err(outside(file));
+        }
+        for folder in &record.folders {
+            if !reach.allows(folder) {
+                return Err(outside(folder));
+            }
+        }
+        for note in &record.notes {
+            if !reach.allows(&note.path) {
+                return Err(outside(&note.path));
+            }
+            if !has_extension(&note.path, &["md"]) {
+                return Err(foreign(&note.path));
+            }
+        }
+        for picture in &record.pictures {
+            if !reach.allows(&picture.path) {
+                return Err(outside(&picture.path));
+            }
+            if !has_extension(&picture.path, &PICTURE_EXTENSIONS) {
+                return Err(foreign(&picture.path));
+            }
+        }
+        Ok(reach)
+    }
+
+    /// A path with no `..`, inside the library folder (not the folder itself) or inside the home.
+    fn allows(&self, path: &Path) -> bool {
+        !has_parent_dir(path)
+            && inside(
+                &self.library,
+                self.home.as_deref().unwrap_or(Path::new("")),
+                path,
+            )
+    }
+
+    /// A `.md` file directly in the library folder: where a group's library file is, and the one
+    /// place undo writes besides the files a run made.
+    fn is_library_file(&self, path: &Path) -> bool {
+        !has_parent_dir(path)
+            && has_extension(path, &["md"])
+            && path.parent().is_some_and(|dir| {
+                same_path(
+                    &mdshared_app::paths::canonical_or_absolute(dir),
+                    &mdshared_app::paths::canonical_or_absolute(&self.library),
+                )
+            })
+    }
+}
+
+/// The folder the group's library file names with `home:` as it reads now; `None` when the file
+/// is not there, names none, names one with a `..` in it, or names the library folder or a folder
+/// that holds it.
+fn declared_home(group_file: &Path, library: &Path) -> Option<PathBuf> {
+    let bytes = read_regular(group_file, library::MAX_FILE_BYTES as u64, true)?;
+    let text = mdshared_app::files::decode(&bytes).0.into_owned();
+    let home = library::parse(&text, library).home?;
+    if home.as_os_str().is_empty() || has_parent_dir(&home) {
+        return None;
+    }
+    let held = under(
+        &mdshared_app::paths::canonical_or_absolute(library),
+        &mdshared_app::paths::canonical_or_absolute(&home),
+    );
+    (!held).then_some(home)
+}
+
+// ---- what the library lists --------------------------------------------------------------------
+
+/// One note line of one library file, as the file holds it now.
+struct Listing {
+    file: PathBuf,
+    path: PathBuf,
+    /// The name of the file path leads to, in lower case: the cheap test before the real one.
+    name: String,
+    sections: Vec<String>,
+    /// The line's text, as it is in the file.
+    line: String,
+}
+
+/// Every note line of every library file, read from the files and not from what the window has
+/// in memory.
+struct Listed {
+    /// False when the library could not be read in full, so that what is not listed may only be
+    /// what was not seen.
+    complete: bool,
+    entries: Vec<Listing>,
+}
+
+/// Reads the library folder again: every `.md` file directly in it, as the reader takes them, a
+/// file of more than the reader's cap as the reader takes it (it lists nothing). The reader keeps
+/// at most [`library::MAX_FILES`] files; this looks at more, so a note listed by the 513th file is
+/// still seen, and says it is not complete past [`LISTING_MAX_FILES`].
+fn list_library(library: &Path) -> Listed {
+    let mut listed = Listed {
+        complete: true,
+        entries: Vec::new(),
+    };
+    let Ok(dir) = std::fs::read_dir(library) else {
+        listed.complete = false;
+        return listed;
+    };
+    let mut files: Vec<PathBuf> = dir
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| has_extension(p, &["md"]) && p.is_file())
+        .collect();
+    files.sort();
+    if files.len() > LISTING_MAX_FILES {
+        listed.complete = false;
+        files.truncate(LISTING_MAX_FILES);
+    }
+    for file in files {
+        let too_large =
+            std::fs::metadata(&file).is_ok_and(|m| m.len() > library::MAX_FILE_BYTES as u64);
+        if too_large {
+            continue;
+        }
+        let Some(bytes) = read_regular(&file, library::MAX_FILE_BYTES as u64, true) else {
+            listed.complete = false;
+            continue;
+        };
+        let text = mdshared_app::files::decode(&bytes).0.into_owned();
+        let lines: Vec<&str> = text.lines().collect();
+        for e in library::parse(&text, library).entries {
+            listed.entries.push(Listing {
+                name: lower_name(&e.path),
+                line: lines
+                    .get(e.line.saturating_sub(1))
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string(),
+                file: file.clone(),
+                path: e.path,
+                sections: e.sections,
+            });
+        }
+    }
+    listed
+}
+
+fn lower_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default()
+}
+
+/// The lines of listed that name path.
+fn named_in<'a>(listed: &'a Listed, path: &Path) -> Vec<&'a Listing> {
+    let name = lower_name(path);
+    listed
+        .entries
+        .iter()
+        .filter(|l| l.name == name && same_file(&l.path, path))
+        .collect()
+}
+
+/// Whether two paths are one file: spelled alike, or, when their names are alike, leading to the
+/// same place once the disk is asked. A mistake in the first direction keeps a note; one in the
+/// other would delete a note a line still lists, so the disk is asked when in doubt.
+fn same_file(a: &Path, b: &Path) -> bool {
+    if same_path(a, b) {
+        return true;
+    }
+    match (a.file_name(), b.file_name()) {
+        (Some(x), Some(y)) if same_path(Path::new(x), Path::new(y)) => same_path(
+            &mdshared_app::paths::canonical_or_absolute(a),
+            &mdshared_app::paths::canonical_or_absolute(b),
+        ),
+        _ => false,
+    }
 }
 
 /// Works out what undo would do, reading the disk and never writing it.
 pub fn prepare(record: &Record, library: &Path) -> UndoPlan {
+    plan_of(record, library).0
+}
+
+fn plan_of(record: &Record, library: &Path) -> (UndoPlan, Option<Reach>) {
     let mut plan = UndoPlan::default();
     if record.state == State::Undone {
         plan.refusal = Some("This run is undone already.".to_string());
-        return plan;
+        return (plan, None);
     }
-    // Every path the record names must be one a write could have made: in the library folder or
-    // in the group's folder, by the same check the write makes (4.1, 6.2). A record is a file on
-    // disk like any other, and one that names a path outside those is not a record this program
-    // wrote: none of it is acted on, and nothing is removed.
-    if let Some(path) = named_outside(record, library) {
-        plan.refusal = Some(format!(
-            "{} is outside the library and the group's folder, so this run is not undone.",
-            path.display()
-        ));
-        return plan;
-    }
-    // 1. A source in the Recycle Bin must be back before anything else happens. Undo never
-    //    removes a note while the original is not back.
-    if record.source.recycled {
-        let back = std::fs::read(&record.source.path).is_ok_and(|bytes| {
-            bytes.len() as u64 == record.source.len
-                && mdshared_app::update::sha256_hex(&bytes)
-                    .eq_ignore_ascii_case(&record.source.sha256)
-        });
-        if !back {
-            plan.refusal = Some(format!(
-                "Put \u{2018}{}\u{2019} back from the Recycle Bin first, then undo.",
-                record.source_name()
-            ));
-            return plan;
+    // Every path the record names must be one a write could have made, and is checked against
+    // the library folder and the home the group's library file declares now, never against the
+    // record's own word (4.1, 6.2). One that is not makes it a record this program did not
+    // write: none of it is acted on, and nothing is removed.
+    let reach = match Reach::of(record, library) {
+        Ok(reach) => reach,
+        Err(why) => {
+            plan.refusal = Some(why);
+            return (plan, None);
         }
+    };
+    // The original. Undo is the one thing that deletes, so it does not run unless the notes can
+    // not be the only copy: the original is where it was, with the length and the digest it had.
+    // A source in the Recycle Bin must be back for the same reason.
+    let state = source_state(&record.source);
+    if state != SourceState::Same {
+        plan.refusal = Some(source_refusal(record, state));
+        return (plan, None);
     }
-    // 3. First, which files would stay: a note changed since is kept, and so is its line.
+    let listed = list_library(library);
+    if !listed.complete {
+        plan.refusal = Some(
+            "The library could not be read in full, so there is no telling which notes a line \
+             still lists. Nothing was removed."
+                .to_string(),
+        );
+        return (plan, None);
+    }
+    // Each recorded note: its line, then its file.
+    let mut removals: Vec<LinkRemoval> = Vec::new();
     for note in &record.notes {
-        if !note.path.exists() {
+        let named = named_in(&listed, &note.path);
+        let in_group: Vec<&&Listing> = named
+            .iter()
+            .filter(|l| same_path(&l.file, &record.group.file))
+            .collect();
+        let exact = in_group.iter().any(|l| {
+            sections_eq(&l.sections, &note.sections) && l.line.trim_end() == note.line.trim_end()
+        });
+        // The file first: a note changed since is kept, and so is its line.
+        let mut file_goes = false;
+        if !note.created {
+            plan.before.push(note.path.clone());
+        } else if note.path.symlink_metadata().is_err() {
             plan.gone.push(note.path.clone());
-            continue;
-        }
-        if digest_of(&note.path).is_some_and(|d| d.eq_ignore_ascii_case(&note.sha256)) {
-            plan.notes.push(note.path.clone());
+        } else if digest_of(&note.path).is_some_and(|d| d.eq_ignore_ascii_case(&note.sha256)) {
+            file_goes = true;
         } else {
             plan.kept.push(note.path.clone());
             plan.notes_kept.push(note.path.clone());
+            continue;
+        }
+        if exact {
+            removals.push(LinkRemoval {
+                path: note.path.clone(),
+                sections: note.sections.clone(),
+                line: note.line.clone(),
+            });
+        } else if in_group.is_empty() {
+            // Not in the file: the line is gone, or the notes were never linked.
+            plan.links_gone += 1;
+        } else {
+            // The line is there and is not the recorded one, or is under another section: the
+            // owner edited or moved it, and it is kept.
+            plan.links_kept.push(note.path.clone());
+        }
+        // Whatever still lists the note after the removals keeps it: the line of the owner's,
+        // a line in another library file, a second line of the same file.
+        let left = named.len() - usize::from(exact);
+        if file_goes {
+            if left == 0 {
+                plan.notes.push(note.path.clone());
+            } else {
+                plan.held.push(note.path.clone());
+            }
         }
     }
     for picture in &record.pictures {
-        if !picture.path.exists() {
+        if !picture.created {
+            plan.before.push(picture.path.clone());
+        } else if picture.path.symlink_metadata().is_err() {
             plan.gone.push(picture.path.clone());
-            continue;
-        }
-        if digest_of(&picture.path).is_some_and(|d| d.eq_ignore_ascii_case(&picture.sha256)) {
+        } else if digest_of(&picture.path).is_some_and(|d| d.eq_ignore_ascii_case(&picture.sha256))
+        {
             plan.pictures.push(picture.path.clone());
         } else {
             plan.kept.push(picture.path.clone());
             plan.pictures_kept.push(picture.path.clone());
         }
     }
-    // 2. The links, before the files they name go. A note that stays keeps its line: the pane
-    //    must not lose the way to a file the owner changed.
-    let mut by_file: Vec<(PathBuf, Vec<LinkRemoval>)> = Vec::new();
-    let group_text = std::fs::read_to_string(&record.group.file).ok();
-    let parsed = group_text
-        .as_ref()
-        .map(|text| library::parse(text, record.group.file.parent().unwrap_or(Path::new(""))));
-    for note in &record.notes {
-        if plan.kept.iter().any(|p| same_path(p, &note.path)) {
-            continue;
-        }
-        let (Some(text), Some(parsed)) = (group_text.as_ref(), parsed.as_ref()) else {
-            plan.links_gone += 1;
-            continue;
-        };
-        let found = parsed
-            .entries
-            .iter()
-            .find(|e| same_path(&e.path, &note.path) && sections_eq(&e.sections, &note.sections));
-        match found {
-            Some(e) => {
-                let line = text.lines().nth(e.line.saturating_sub(1)).unwrap_or("");
-                if line.trim_end() == note.line.trim_end() {
-                    let removal = LinkRemoval {
-                        path: note.path.clone(),
-                        sections: note.sections.clone(),
-                        line: note.line.clone(),
-                    };
-                    match by_file
-                        .iter_mut()
-                        .find(|(f, _)| same_path(f, &record.group.file))
-                    {
-                        Some((_, list)) => list.push(removal),
-                        None => by_file.push((record.group.file.clone(), vec![removal])),
-                    }
-                } else {
-                    plan.links_kept.push(note.path.clone());
-                }
-            }
-            // Not in the file: the line is gone, or the notes were never linked.
-            None => plan.links_gone += 1,
-        }
+    if !removals.is_empty() {
+        plan.links = vec![(record.group.file.clone(), removals)];
     }
-    plan.links = by_file;
-    // 4 and 5. The group's file when the run made it, and the folders it made, deepest first.
+    // The group's file when this run made it, and the folders this run made, deepest first.
     if record.group.created && record.group.file.is_file() {
         plan.group_file = Some(record.group.file.clone());
     }
     let mut folders = record.folders.clone();
     folders.sort_by_key(|f| std::cmp::Reverse(f.components().count()));
     plan.folders = folders;
-    plan
+    (plan, Some(reach))
 }
 
 /// What undo did.
@@ -1976,8 +2458,10 @@ pub struct UndoReport {
     pub removed_links: usize,
     pub kept: Vec<PathBuf>,
     pub links_kept: Vec<PathBuf>,
-    /// Notes kept because the line naming them could not be taken out of its library file: the
-    /// file is still listed there, so the note stays too.
+    /// Notes this run did not create: they were there already, and stay.
+    pub before: Vec<PathBuf>,
+    /// Notes kept because a library file still lists them, whether the line could not be taken
+    /// out, the owner edited or moved it, or another file lists the note too.
     pub held_back: Vec<PathBuf>,
     pub group_removed: bool,
     pub group_kept: bool,
@@ -1990,20 +2474,35 @@ pub struct UndoReport {
     pub mark_error: Option<String>,
 }
 
+/// The library text with the run's lines taken out and then the section headings the run wrote
+/// that have nothing under them: both removals in one text, `Some` when either changed
+/// anything. The one composition every gate uses, the window's and the tests', so that what the
+/// tests check is what the program does.
+pub fn with_removals(
+    text: &str,
+    links: &[LinkRemoval],
+    headings: &[Vec<String>],
+    base: &Path,
+) -> Option<String> {
+    let without = with_links_removed(text, links, base);
+    let swept = with_headings_removed(without.as_deref().unwrap_or(text), headings, base);
+    swept.or(without)
+}
+
 /// Undoes one run: the links, then the files, then the group's file, then the folders, and the
 /// record is marked "undone" and kept. A run whose links could not be taken out is not undone:
 /// the notes those lines name stay, and the record says "links pending" so it can be tried again.
+/// A note is removed only when, after the links step, no library file lists it: the library is
+/// read again for that, so whatever kept a line (an edit, a move, a refusal) keeps its note.
 pub fn undo(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate) -> UndoReport {
     let mut report = UndoReport::default();
-    let plan = prepare(record, library);
-    if let Some(why) = &plan.refusal {
-        report.refusal = Some(why.clone());
+    let (plan, reach) = plan_of(record, library);
+    let Some(reach) = reach.filter(|_| plan.refusal.is_none()) else {
+        report.refusal = plan.refusal.clone();
         report.plan = Some(plan);
         return report;
-    }
-    // 2. The links first, so the pane never shows a link to a file that is gone. A line that is
-    //    still in the file names a file that stays, so its note is not removed either.
-    let mut held: Vec<PathBuf> = Vec::new();
+    };
+    // 2. The links first, so the pane never shows a link to a file that is gone.
     for (file, removals) in &plan.links {
         let headings = if same_path(file, &record.group.file) {
             record.sections_added.as_slice()
@@ -2012,24 +2511,32 @@ pub fn undo(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate) -
         };
         match gate.remove_links(file, removals, headings) {
             Ok(()) => report.removed_links += removals.len(),
-            Err(why) => {
-                report.failures.push(Failure::new(file, why));
-                held.extend(removals.iter().map(|r| r.path.clone()));
-            }
+            Err(why) => report.failures.push(Failure::new(file, why)),
         }
     }
-    // 3. The files, re-hashed as they are removed: a file changed since is kept.
+    // 3. The library again, from the files: a note is removed only if no library file lists it
+    //    now. The lines the links step could not take out, a line moved or edited since the
+    //    plan was made and a second library file that lists the note all keep it here.
+    let listed = list_library(library);
+    for held in &plan.held {
+        report.held_back.push(held.clone());
+    }
+    let created_note = |p: &Path| {
+        record
+            .notes
+            .iter()
+            .find(|n| n.created && same_path(&n.path, p))
+    };
     for note in &plan.notes {
-        if held.iter().any(|h| same_path(h, note)) {
+        let still_listed = !listed.complete || !named_in(&listed, note).is_empty();
+        if still_listed {
             report.held_back.push(note.clone());
             continue;
         }
-        let matches = digest_of(note).is_some_and(|d| {
-            record
-                .notes
-                .iter()
-                .find(|n| same_path(&n.path, note))
-                .is_some_and(|n| d.eq_ignore_ascii_case(&n.sha256))
+        let matches = created_note(note).is_some_and(|n| {
+            reach.allows(note)
+                && has_extension(note, &["md"])
+                && digest_of(note).is_some_and(|d| d.eq_ignore_ascii_case(&n.sha256))
         });
         if matches && std::fs::remove_file(note).is_ok() {
             report.removed_notes.push(note.clone());
@@ -2038,23 +2545,28 @@ pub fn undo(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate) -
         }
     }
     for picture in &plan.pictures {
-        let matches = digest_of(picture).is_some_and(|d| {
-            record
-                .pictures
-                .iter()
-                .find(|p| same_path(&p.path, picture))
-                .is_some_and(|p| d.eq_ignore_ascii_case(&p.sha256))
-        });
+        let matches = record
+            .pictures
+            .iter()
+            .find(|p| p.created && same_path(&p.path, picture))
+            .is_some_and(|p| {
+                reach.allows(picture)
+                    && has_extension(picture, &PICTURE_EXTENSIONS)
+                    && digest_of(picture).is_some_and(|d| d.eq_ignore_ascii_case(&p.sha256))
+            });
         if matches && std::fs::remove_file(picture).is_ok() {
             report.removed_pictures.push(picture.clone());
         } else {
             report.kept.push(picture.clone());
         }
     }
-    // 4. The group's library file, only when nothing but its heading and its `home:` line is
-    //    left in it.
+    // 4. The group's library file, only when this run made it and nothing but its heading and
+    //    its `home:` line is left in it.
     if let Some(file) = &plan.group_file {
-        if only_heading_and_home(file) {
+        if reach.is_library_file(file)
+            && file.symlink_metadata().is_ok_and(|m| m.is_file())
+            && only_heading_and_home(file)
+        {
             if std::fs::remove_file(file).is_ok() {
                 report.group_removed = true;
             } else {
@@ -2064,9 +2576,12 @@ pub fn undo(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate) -
             report.group_kept = true;
         }
     }
-    // 5. The folders, only while empty.
+    // 5. The folders this run made, only while empty, and never a link to one.
     for folder in &plan.folders {
-        if std::fs::remove_dir(folder).is_ok() {
+        let real = folder
+            .symlink_metadata()
+            .is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink());
+        if real && reach.allows(folder) && std::fs::remove_dir(folder).is_ok() {
             report.folders_removed.push(folder.clone());
         } else {
             report.folders_kept.push(folder.clone());
@@ -2086,15 +2601,17 @@ pub fn undo(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate) -
     }
     report.kept.extend(plan.kept.iter().cloned());
     report.links_kept = plan.links_kept.clone();
+    report.before = plan.before.clone();
     report.plan = Some(plan);
     report
 }
 
 /// Whether a library file holds nothing but its group's heading and its `home:` line.
 fn only_heading_and_home(path: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(path) else {
+    let Some(bytes) = read_regular(path, library::MAX_FILE_BYTES as u64, false) else {
         return false;
     };
+    let text = mdshared_app::files::decode(&bytes).0.into_owned();
     let lines: Vec<&str> = text
         .lines()
         .map(str::trim)
@@ -2127,28 +2644,36 @@ pub fn finish(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate)
         report.error = Some("This run is undone already.".to_string());
         return report;
     }
+    // Finish writes into the group's library file, so it reaches no further than undo does.
+    if let Err(why) = Reach::of(record, library) {
+        report.error = Some(why);
+        return report;
+    }
+    let present = read_regular(&record.group.file, library::MAX_FILE_BYTES as u64, true)
+        .map(|b| library::parse(&mdshared_app::files::decode(&b).0, library));
     let mut links: Vec<Link> = Vec::new();
     for note in &record.notes {
-        let there = std::fs::read(&note.path).ok().is_some_and(|b| {
-            mdshared_app::update::sha256_hex(&b).eq_ignore_ascii_case(&note.sha256)
-        });
-        if !there {
+        if !digest_of(&note.path).is_some_and(|d| d.eq_ignore_ascii_case(&note.sha256)) {
             continue;
         }
-        let already = std::fs::read_to_string(&record.group.file)
-            .ok()
-            .map(|t| library::parse(&t, library))
-            .is_some_and(|p| {
-                p.entries.iter().any(|e| {
-                    same_path(&e.path, &note.path) && sections_eq(&e.sections, &note.sections)
-                })
-            });
+        let already = present.as_ref().is_some_and(|p| {
+            p.entries
+                .iter()
+                .any(|e| same_path(&e.path, &note.path) && sections_eq(&e.sections, &note.sections))
+        });
         if already {
             continue;
         }
-        let (title, _) = link_parts(&note.line);
+        // The link is the recorded line, with the path as the line spells it: the same text a
+        // write of the run would have put in the file, so that undo finds it as the run's own.
+        let (title, written) = link_parts(&note.line);
+        let path = if title.is_empty() || written.is_empty() {
+            note.path.clone()
+        } else {
+            PathBuf::from(written)
+        };
         links.push(Link {
-            path: note.path.clone(),
+            path,
             title,
             sections: note.sections.clone(),
             line: note.line.clone(),
@@ -2180,7 +2705,12 @@ fn link_parts(line: &str) -> (String, String) {
         && let Some((title, after)) = rest.split_once("](")
         && let Some(path) = after.strip_suffix(')')
     {
-        return (title.to_string(), path.to_string());
+        let path = path.trim();
+        let path = path
+            .strip_prefix('<')
+            .and_then(|p| p.strip_suffix('>'))
+            .unwrap_or(path);
+        return (title.to_string(), path.replace("%20", " "));
     }
     (String::new(), t.to_string())
 }
@@ -2275,8 +2805,8 @@ mod tests {
             }
             let text = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
             let base = file.parent().unwrap_or(Path::new(""));
-            let without = with_links_removed(&text, links, base).unwrap_or(text.clone());
-            let new = with_headings_removed(&without, headings, base).unwrap_or(without);
+            let new = with_removals(&text, links, headings, base)
+                .ok_or_else(|| "the file was not changed".to_string())?;
             if !check_links_removed(
                 &library::parse(&text, base),
                 &library::parse(&new, base),
@@ -2698,12 +3228,15 @@ mod tests {
             "{words}"
         );
         assert!(
-            words.contains("1 line was edited since and is kept."),
+            words.contains("1 line was edited or moved since and is kept, with its note."),
             "{words}"
         );
         let mut gate = TestGate::new();
         let done = undo(&record_path, &record, &library, &mut gate);
-        assert_eq!(done.removed_notes, vec![library.join("Trip/Two.md")]);
+        // The line the owner edited is kept, and a note a library line still lists is kept with
+        // it: no line is left naming a file that undo removed.
+        assert!(done.removed_notes.is_empty(), "{:?}", done.removed_notes);
+        assert_eq!(read(&library.join("Trip/Two.md")), "# Two\n");
         assert_eq!(read(&library.join("Trip/One.md")), "# One, changed\n");
         let group = read(&library.join("Trip.md"));
         assert!(
@@ -2839,6 +3372,7 @@ mod tests {
         let mut picture = good.clone();
         picture.pictures.push(PictureRec {
             path: mine.clone(),
+            created: true,
             sha256: digest("words I wrote\n"),
         });
         let mut folder = good.clone();
@@ -2984,6 +3518,7 @@ mod tests {
             folders: vec![library.join("Group").join("Tokyo")],
             notes: vec![NoteRec {
                 path: library.join("Group").join("Tokyo").join("One.md"),
+                created: true,
                 sha256: "def".to_string(),
                 ranges: vec![(1, 5), (7, 9)],
                 heading_shift: 1,
@@ -3118,5 +3653,48 @@ mod tests {
         assert!(!dir.join("Somewhere else.md").exists());
         assert!(!library.join(RUNS_DIR).exists(), "not even a record");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A path with `..` in it is not taken as it stands, even where folding it would land inside
+    /// the library: a run never writes one, so a record that holds one is not a record of a run.
+    #[test]
+    fn a_record_path_with_dots_in_it_is_refused_even_when_it_folds_to_a_path_inside() {
+        let dir = scratch("dots-inside");
+        let library = dir.join("library");
+        write_file(&library.join("Trip/One.md"), "# One\n");
+        let reach = Reach {
+            library: library.clone(),
+            home: None,
+        };
+        assert!(reach.allows(&library.join("Trip/One.md")));
+        assert!(
+            !reach.allows(&library.join("Trip/Other/../One.md")),
+            "it names the note, and still it is refused"
+        );
+        assert!(!reach.allows(&library.join("..").join("library").join("Trip/One.md")));
+        assert!(
+            !reach.allows(&library),
+            "the library folder itself is not a path of a run"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// File names compare as the disk compares them: `C:\Notes` and `c:\notes` are one folder on
+    /// Windows and macOS, so a record that spells the library in another case is not refused for
+    /// it, and `Trip` is not `Trips`.
+    #[test]
+    fn a_path_is_under_a_folder_part_by_part_in_the_case_the_disk_uses() {
+        assert!(under(Path::new("/lib/Trip/One.md"), Path::new("/lib")));
+        assert!(under(Path::new("/lib"), Path::new("/lib")));
+        assert!(!under(Path::new("/library/One.md"), Path::new("/lib")));
+        assert!(!under(Path::new("/lib"), Path::new("/lib/Trip")));
+        if mdshared_app::paths::NAMES_IGNORE_CASE {
+            assert!(under(Path::new("/LIB/trip/One.md"), Path::new("/lib/Trip")));
+        } else {
+            assert!(!under(
+                Path::new("/LIB/trip/One.md"),
+                Path::new("/lib/Trip")
+            ));
+        }
     }
 }

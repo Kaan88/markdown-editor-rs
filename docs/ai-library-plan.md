@@ -250,8 +250,10 @@ After three imports and no undo, a library is a tree of notes with no memory of 
 from, and the library files are plain Markdown that should not carry "made by AI" marks. So the
 memory is beside them: **"AI runs…"** lists the last runs (what kind, on what, how many notes,
 when, in what state), and any of them can be undone, not just the last. Undo is strict: it
-removes a file only if it is byte for byte what the run wrote, a link only if the line is still
-the line it wrote, a folder only if it is empty; everything else is kept and listed. Twenty runs
+removes a file only if this run created it and it is byte for byte what the run wrote, and no
+library line still lists it, a link only if the line is still the line it wrote, a folder only if
+the run made it and it is empty; and it does not run at all if the original is not where it was.
+Everything else is kept and listed. Twenty runs
 or ninety days are kept, whichever is more.
 
 ### 3.9 Splitting the same document twice does not make forty notes
@@ -303,7 +305,8 @@ from what the model returned, after the checks.
 | Links | Adds lines to one library file, all of that file's lines in one atomic write | Refused while that file is open with unsaved changes; refused when the group would pass 2,000 notes |
 | Recycle | Puts one source file in the Recycle Bin | Last, only for a split, only ticked, only when section 5.4's rule holds |
 
-There is no operation that overwrites, moves, renames or permanently deletes anything.
+There is no operation that overwrites, moves or renames anything. The one deletion is undo's, and
+it is not an operation a plan holds: it is a command of its own, and 4.5 says what it may reach.
 
 ### 4.2 Where the code goes
 
@@ -332,14 +335,21 @@ step 6 can then still fail on is a race.
 
 | # | Step | If it fails | What you see |
 |---|---|---|---|
-| 1 | The record is written, state "writing", holding the whole plan; and, when the run makes it, the group's library file (`# Name`, its `home:` line, created exclusively) | Nothing else is done | Toast: "The run could not start: {why}" |
-| 2 | Folders, as needed | The notes that needed it fail at step 4 | In the report |
+| 1 | The record is written, state "writing", holding the plan: each note's path, digest and line, with `created` false everywhere and no folder; and, when the run makes it, the group's library file (`# Name`, its `home:` line, created exclusively), which the record then says the run created | Nothing else is done | Toast: "The run could not start: {why}" |
+| 2 | Folders, as needed. A folder that is not there yet, and each of its parents that is not, are noted as made by this run | The notes that needed it fail at step 4 | In the report |
 | 3 | Pictures, each as `name.part`, then renamed without replacing | That picture is left out of its note | "{picture} could not be copied: {why}" |
 | 4 | Notes, each as `name.md.part`, then renamed without replacing (`move_no_replace` exists in `docs.rs`) | That note is reported; the others go on, as in Replace in files | "{note} was not written: {why}" |
 | 5 | Check: each note is read back and compared with the lines it was made from | The Recycle Bin step is cancelled | "{note} does not read back the same" |
 | 6 | Each library file: all its new lines in one atomic write, after re-reading it and checking the result is exactly the old notes plus the planned ones | The notes exist, unlinked; the record says "links pending" | "The notes are written, but {file} could not be updated: {why}. Try again / Undo" |
-| 7 | The record is closed, state "done", with the SHA-256 of every file written (`mdshared_app::update::sha256_hex`; no new crate) | The run still counts; its undo is refused with the reason | Toast |
+| 7 | The record is closed, state "done", with the SHA-256 of every file written (`mdshared_app::update::sha256_hex`; no new crate). It has been written once already after step 5, and once more when the group's file was made, so a run that stops after step 4 can be undone | The run still counts; its undo is refused with the reason | Toast |
 | 8 | Recycle Bin, if ticked, and only if every ticked row passed steps 3 to 6 and the source is still the file that was read (length and SHA-256) | The original stays where it is | "The notes are written. {name} could not be put in the Recycle Bin: {why}. It is where it was." |
+
+**The record says what happened, not what was planned** (D-069). `created` is set on a note or a
+picture only when this run created the file (`create_new` returned Ok): a note that was there
+already with the same bytes (3.9) is linked and counted, and is not marked. It is set on the group
+only when the run made the library file, and `folders` holds only the folders that did not exist
+when the run began, each parent the run made included. A record with no `created` field says
+false: nothing in it is a file the run may remove.
 
 While it runs, the results panel's title row reads "Writing… 14 of 23" with Cancel, as Replace in
 files does (`Replacing::progress_text`). Cancel acts between files and leaves the record in the
@@ -363,7 +373,7 @@ paths outside are absolute.
   "group": { "file": "Japan 2025.md", "created": true, "home": "Japan 2025" },
   "folders": ["Japan 2025", "Japan 2025/Tokyo"],
   "notes": [
-    { "path": "Japan 2025/Tokyo/Asakusa and the river.md", "sha256": "…",
+    { "path": "Japan 2025/Tokyo/Asakusa and the river.md", "created": true, "sha256": "…",
       "ranges": [[123, 156]], "heading_shift": 1, "title_added": false,
       "sections": ["Tokyo"],
       "line": "- [Asakusa and the river](<Japan 2025/Tokyo/Asakusa and the river.md>)" }
@@ -378,25 +388,58 @@ Records are read when "AI runs…" is opened and after a write, never at start. 
 or everything from the last ninety days if that is more, are kept; older ones are deleted when a
 new run finishes. Their notes are of course not touched.
 
+**A record is a file format, and a file of someone else's** (D-072). Only a record that loads is
+counted, and only one that loads is ever deleted: a file in `.runs` that this version cannot read
+is left where it is, and "AI runs…" lists it, with nothing in the row to press, as "Written by a
+newer version of mdedit" (a `version` past 1, or a `kind` or a `state` this version has no word
+for) or "Not a record this version can read". Two copies of the program on one library, or one
+copy before and after an update, never delete each other's records. What a record names is read
+with the caps of 4.5.
+
 ### 4.5 Undo
 
 "Undo this run", from the report or from "AI runs…", any run, not only the last. It asks first,
 and the question says exactly what will go and what will stay. The rules, in the order they act:
 
-1. If the run put its source in the Recycle Bin, the source must be back at its path with the
-   recorded length and hash before anything else happens. Otherwise undo is refused: "Put 'Japan
-   trip journal.md' back from the Recycle Bin first, then undo." **Undo never removes a note
-   while the original is not back**, so undo can never be the thing that loses the text.
+0. **What a record may reach** (D-072). A record is a file on disk like any other, and it is never
+   given more power than write access to the library folder already gives. Every path in it is
+   checked before anything is planned: no `..` in it, inside the library folder (not the folder
+   itself) or inside the home the group's library file declares **now** (read from that file, not
+   from the record), the group's file a `.md` directly in the library folder, a note a `.md`, a
+   picture one of the image types a run copies. A path that fails refuses the whole record, and the
+   sentence says which. No library folder, or one that is not an absolute path, is no folder at
+   all. Finish writes into the group's file, so it passes the same check. What undo reads of a
+   path a record names is read with a cap (64 MiB), and only a regular file: never a link, a
+   folder or a device.
+1. The original. Undo compares the source with the recorded length and hash **always**, and runs
+   only if it is that file. If the run put its source in the Recycle Bin, it must be back; if it
+   is gone or has changed, undo is refused: "'Japan trip journal.md', the file these notes were
+   cut from, is not where it was, so these notes may be the only copy of its text. Undo will not
+   remove them. Put the original back, or delete the notes yourself if you do not need them." An
+   original too large to compare is refused as well. **Undo never removes a note while the
+   original is not the file it was cut from**, so undo can never be the thing that loses the text
+   (D-071).
 2. Links first, so the pane never shows a link to a file that is gone: a line is removed only if
    it is still exactly the recorded line under the recorded section (`remove_note` by path and
-   text). A line you edited is kept and listed.
-3. Files: a note or picture is removed only if its SHA-256 is the recorded one. A note you have
-   changed since is kept and listed as "changed since, kept". Removal goes to the Recycle Bin
-   once phase T is built, and is a plain delete before that; either way it is a file this run
-   created and nobody has touched.
-4. A library file the run created is removed only if, after its links are gone, it holds nothing
-   but its heading and its `home:` line.
-5. Folders the run created are removed only if empty (`remove_dir` refuses otherwise).
+   text). A line you edited, or moved to another section, is kept and listed, and so is its note.
+   The links and the section headings the run wrote that have nothing under them come out in one
+   write, composed in the core (`runs::with_removals`) for the window's gate and the tests' alike;
+   a write that changes nothing is an error, not success.
+3. Files, and one rule over both of them (D-070): **a note is removed only if no library file
+   lists it any more.** After the links step the library is read again, from its files, every
+   one of them, and a note a line still names stays: the owner's edited or moved line, a line in
+   another library file, a line the links step could not take out. Then the file itself: a note
+   or picture is removed only if this run created it (`created` in the record, 4.3), it is a
+   regular file with the extension a run writes, and its SHA-256 is the recorded one, read again
+   as it goes. A file that was there before the run is not the run's: its line comes out, it
+   stays, and the question says "1 file was there before this run and is kept." A note you have
+   changed since is kept and listed as "changed since, kept". Removal goes to the Recycle Bin once
+   phase T is built, and is a plain delete before that (the `trash` crate is not in yet:
+   D-071); either way it is a file this run created and nobody has touched.
+4. A library file the run created (`group.created`, set only when it made the file) is removed
+   only if, after its links are gone, it holds nothing but its heading and its `home:` line.
+5. Folders the run made (the record lists only those) are removed only if empty (`remove_dir`
+   refuses otherwise), deepest first, and never a link to one.
 6. The record is marked "undone" and stays in the list.
 
 A run in the state "stopped" or "writing" offers Finish as well: the remaining operations are
@@ -982,7 +1025,7 @@ journal.md → Japan 2025 · 23 notes", and under it "today 14:03 · done" (or "
 "Finish" when it stopped. The undo question is built from the rules of 4.5 and says the numbers:
 "Removes 21 notes this run wrote, their lines in Japan 2025, and 3 folders if they are empty.
 2 notes were changed since and are kept." In the palette, the AI menu and the Notes pane's `+`
-menu. **Shots:** `--dialog runs`, `--dialog run-undo`, `--dialog run-undo-recycled`.
+menu. **Shots:** `--dialog runs`, `--dialog run-undo`, `--dialog run-undo-recycled`, `--dialog run-undo-original` (the original is gone or changed) and `--dialog runs-newer` (records this version cannot read).
 
 ### 5.10 While a run is going
 
@@ -1080,15 +1123,17 @@ a folder. Lines added to library files, which are the program's own index. One r
 - No file of yours is overwritten, moved or renamed by a run.
 - No file is deleted by a run. One file may go to the Recycle Bin: the source of a split, when
   you tick the box and every line of it is in a note that was written and read back.
-- Undo, which is a command of its own, removes only files its run created, and only while they
-  are byte for byte what it wrote (4.5).
+- Undo, which is a command of its own, removes only files its run created (the record says so
+  after the fact), only inside the library folder or the home the group's library file declares,
+  only while they are byte for byte what it wrote, and only when no library file lists them
+  (4.5).
 - A model's words reach a file in two ways only. Titles and section names: you see and can edit
   them in the plan, and they pass the same name rule as the ones you type. Rewritten text: it
   goes through the change list first, change by change. The notes of a split are your own lines.
 - No path comes from a model. It returns the numbers it was given.
 - Nothing runs at start, on a timer or in the background. Every request follows a button you
   pressed on a screen that said what would be sent.
-- Undo never removes a note while the original it was made from is not back.
+- Undo never removes a note while the original it was made from is not there, and the same file.
 
 ### 6.4 The limits
 
@@ -1434,7 +1479,7 @@ They are written so they can be copied into a decisions log as they stand.
 | 10 | `home: <path>` exactly, relative to the library folder by default; a group without one gets it with the first note the app creates there | Run: the other spellings are read as notes. Relative keeps a synced library working | A reader that takes other forms safely |
 | 11 | Links to notes inside the library folder are relative to it | The library-folder setting exists so the folder can move | Nothing |
 | 12 | Records live in `.runs` inside the library folder, hold no note text, and are kept for 20 runs or 90 days | Undo must travel with the library it describes, and must not be a second copy of your notes | The owner not wanting them synced |
-| 13 | Undo never removes a note while a recycled original is not back, and removes only files that are byte for byte what the run wrote | Undo must not be able to lose text | Nothing |
+| 13 | Undo never removes a note while the original is not the file it was cut from (gone, changed, or a recycled one not back), and removes only files this run created that are byte for byte what it wrote, and none that a library file still lists (D-069 to D-072) | Undo must not be able to lose text | Nothing |
 | 14 | The first cut of undo after a recycle asks the owner to restore the original; the program does not pick it out of the bin | Rare, and easy to get wrong | It being needed often |
 | 15 | The Recycle Bin uses the `trash` crate, without its default features, behind one function in `mdshared-ui` under a cargo feature, offered only on a local fixed drive | One new line in the lock against three back ends of our own; the feature keeps it out of mdview | The owner saying no to the dependency (question 1) |
 | 16 | A partial rewrite is composed in one pass and applied as one edit; `merge::Splice` per change is not used for it | One undo step, and the text is needed anyway | Nothing |
