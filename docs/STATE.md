@@ -42,8 +42,13 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 
 ## In hand
 
-- **Nothing is being built.** Phase 0 and phase 6a are in `main`; what comes next is under
-  "Next", and what waits on an answer is under "Waiting for the owner".
+- **The plan screen** (`ai-library-plan.md` 5.3), committed on `main` and not pushed: the card
+  that shows a proposed set of notes, built on `mdedit_core::split`, with no AI in it. It opens
+  from `--plan-demo <name>` (eight shots in `tests/shots.sh`) and from `App::plan_open_active`,
+  which no menu or command calls yet. It writes nothing: "Write the notes" only counts that it
+  was pressed. Not built: the Recycle Bin box, "Ask the AI…", the list's per-source headings,
+  the status row's "Plan ready · Show · Drop" (`plan_show` and `plan_drop` exist, nothing draws
+  them), and `replace_ui::draw_confirm` is not converted. Next: the writer, the record and undo.
 - **Mockups** of three AI screens (the split plan, the rewrite review with ticks, the AI task
   window): branch `mock/ai-review`, worktree `..\mdedit-mock`, behind `--mock`, shots in
   `shots\mock\`. A drawing, not an implementation. Not to be merged.

@@ -38,6 +38,10 @@ impl App {
         {
             self.wants_frame = true;
         }
+        if self.plan_is_open() {
+            self.plan_pointer(x, y);
+            return;
+        }
         if self.ai_panel_open() {
             self.ai_pointer(x, y);
             return;
@@ -647,6 +651,10 @@ impl App {
             }
             return;
         }
+        if self.plan_is_open() {
+            self.plan_press();
+            return;
+        }
         if self.ai_panel_open() {
             self.ai_press();
             return;
@@ -884,6 +892,10 @@ impl App {
         }
         let (x, y) = self.ui.mouse;
         self.ui.autoscroll_due = None;
+        if self.plan_is_open() {
+            self.plan_release();
+            return;
+        }
         if self.ai_panel_open() {
             self.ai_release();
             return;
@@ -935,6 +947,10 @@ impl App {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
         self.ui.tip = None;
+        if self.plan_is_open() {
+            self.plan_right_press();
+            return;
+        }
         if self.ui.dialog.is_some()
             || self.palette_open()
             || self.ai_panel_open()
@@ -1031,6 +1047,7 @@ impl App {
             || self.ui.popup.is_some()
             || self.palette_open()
             || self.ai_panel_open()
+            || self.plan_is_open()
             || self.ui.settings.is_some()
         {
             return;
@@ -1048,12 +1065,18 @@ impl App {
             MouseScrollDelta::LineDelta(dx, dy) => (dx as f64, dy as f64, None),
             MouseScrollDelta::PixelDelta(p) => (0.0, 0.0, Some((p.x, p.y))),
         };
-        if self.palette_open() || self.ui.settings.is_some() || self.ai_panel_open() {
+        if self.palette_open()
+            || self.ui.settings.is_some()
+            || self.ai_panel_open()
+            || self.plan_is_open()
+        {
             let dy = match pixels {
                 Some((_, py)) => -(py as f32) / self.scale,
                 None => -(ny as f32) * PANE_WHEEL,
             };
-            if self.ai_panel_open() {
+            if self.plan_is_open() {
+                self.plan_wheel(dy);
+            } else if self.ai_panel_open() {
                 self.ai_wheel(dy);
             } else if self.palette_open() {
                 // Over the palette it scrolls the list; anywhere else it does nothing (and never
@@ -1287,6 +1310,8 @@ impl App {
         let shown = if let Some(f) = self.ui.settings.as_mut() {
             self.ui.overlay_tick += 1;
             f.set_preedit(pre)
+        } else if self.plan_is_open() {
+            self.plan_preedit(pre)
         } else if self.ai_panel_open() {
             self.ai_preedit(pre)
         } else if let Some(open) = self.palette.open.as_mut() {
@@ -1333,7 +1358,11 @@ impl App {
             return;
         }
 
-        // An AI panel, then the palette, take the keyboard before anything else.
+        // The plan screen, an AI panel, then the palette, take the keyboard before anything else.
+        if self.plan_is_open() {
+            self.plan_key(key, typed);
+            return;
+        }
         if self.ai_panel_open() {
             self.ai_key(name, typed);
             return;

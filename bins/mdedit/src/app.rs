@@ -90,6 +90,9 @@ mod library_write;
 mod library_write_tests;
 pub(crate) mod modal;
 mod palette_events;
+mod plan;
+#[cfg(test)]
+mod plan_tests;
 mod preview;
 mod visual;
 pub(crate) use preview::previewable;
@@ -331,6 +334,9 @@ struct App {
     palette: crate::palette::Host,
     /// AI rewriting: the engine once started, a run, its panels and its bar.
     ai: crate::ai::Ai,
+    /// The plan screen (a plan of notes to read and change), and the plan Escape kept.
+    plan: Option<crate::plan_ui::PlanScreen>,
+    plan_parked: Option<crate::plan_ui::PlanScreen>,
     /// `--type-steps`: keystrokes left and typed, each one's time from keystroke to pixels (ms),
     /// and the part of it spent in the edit itself.
     type_steps: Option<u32>,
@@ -482,6 +488,8 @@ impl App {
             macros: crate::macros::Macros::default(),
             palette: Default::default(),
             ai: Default::default(),
+            plan: None,
+            plan_parked: None,
             settled: false,
             load_traced: false,
             colours_traced: false,
@@ -590,6 +598,7 @@ impl App {
             && self.ui.dialog.is_none()
             && !self.palette_open()
             && !self.ai_panel_open()
+            && !self.plan_is_open()
             && self.docs.active_ready().is_some()
     }
 
@@ -1275,7 +1284,11 @@ impl App {
                 bounds.push(s.menu.rect().inset(-20.0));
             }
         }
-        if self.ui.dialog.is_some() || self.ui.settings.is_some() || self.ai_panel_open() {
+        if self.ui.dialog.is_some()
+            || self.ui.settings.is_some()
+            || self.ai_panel_open()
+            || self.plan_is_open()
+        {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
         if let Some(p) = self.palette.open.as_mut() {
@@ -1353,6 +1366,12 @@ impl App {
                 self.ai.pressed,
                 self.ui.caret_on,
             )),
+            // The plan screen raises its tick for every change of what it shows, and the
+            // pointer's place is in its signature; the caret's blink matters only while a name
+            // is being typed.
+            self.plan
+                .as_ref()
+                .map(|s| (s.sig(), s.edit.is_some() && self.ui.caret_on)),
         ));
         let overlay_changed = osig != self.overlay_sig;
         self.overlay_sig = osig;
@@ -1754,6 +1773,9 @@ impl App {
                 for b in &bubbles {
                     b.draw(c.p, &pal);
                 }
+                if let Some(plan) = self.plan.as_mut() {
+                    plan.draw(c.p, &pal, w, h, self.ui.caret_on);
+                }
                 // Last, over everything.
                 if self.ai.panel.is_some() {
                     crate::ai_ui::draw(
@@ -1825,6 +1847,7 @@ impl App {
         let covered = self.ui.dialog.is_some()
             || self.palette_open()
             || self.ai_panel_open()
+            || self.plan_is_open()
             || self.ui.settings.is_some();
         let margin = self.shadow.as_ref().map_or(0, |s| s.margin()) as f32 / self.scale;
         let rect = chrome::snap_button_rect(self.areas.title, margin, self.maximized, covered);
@@ -2024,8 +2047,8 @@ impl App {
     // ---- hit testing -------------------------------------------------------------------------
 
     fn hit_at(&self, x: f32, y: f32) -> Option<Hit> {
-        // The palette and the AI panels do their own hit testing.
-        if self.palette_open() || self.ai_panel_open() {
+        // The palette, the AI panels and the plan screen do their own hit testing.
+        if self.palette_open() || self.ai_panel_open() || self.plan_is_open() {
             return None;
         }
         if self.ui.dialog.is_some() {
@@ -3415,7 +3438,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
     if let Some(kind) = app.args.ai_demo.clone() {
         app.ai_demo(&kind);
     }
-    if app.ui.dialog.is_some() || app.ui.popup.is_some() || app.palette_open() {
+    if let Some(kind) = app.args.plan_demo.clone() {
+        app.plan_demo(&kind);
+    }
+    if app.ui.dialog.is_some() || app.ui.popup.is_some() || app.palette_open() || app.plan_is_open()
+    {
         app.compose();
     }
     if let Some((x, y)) = app.args.hover {

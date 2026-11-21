@@ -3,7 +3,8 @@
 //! 5.3).
 //!
 //! A [`Plan`] is made by [`plan`] from three things the caller has already found: the document's
-//! text (a [`Buffer`], borrowed and read-only), the document's headings, and the level to cut at.
+//! text (a [`Buffer`], read-only; the plan keeps a snapshot of it), the document's headings, and
+//! the level to cut at.
 //! The headings are passed in on purpose: this crate does not depend on the function list, so the
 //! shell scans them (`mdedit_outline::symbols`, whose `depth` is a heading's level minus one) and
 //! this module only cuts. What a heading says is read from its line, so a [`Heading`] is a line
@@ -290,10 +291,12 @@ pub enum Warning {
 }
 
 /// The plan for one document: its notes, the rest, and the counts and warnings of both. It
-/// borrows the document's text and writes nothing, reads nothing and asks nothing.
+/// holds its own snapshot of the document's text (the rope's chunks are shared, so it costs no copy
+/// of the text and no borrow outlives the call that made it) and writes nothing, reads nothing and
+/// asks nothing.
 #[derive(Clone, Debug)]
-pub struct Plan<'a> {
-    doc: &'a Buffer,
+pub struct Plan {
+    doc: Buffer,
     name: String,
     level: u8,
     total: usize,
@@ -316,7 +319,7 @@ pub struct Plan<'a> {
 /// `name` is the document's file name: the rest's title and labels use it. `level` is brought
 /// into [`SPLIT_LEVELS`], because that is all the switch offers. Every note starts ticked, the
 /// rest unticked.
-pub fn plan<'a>(doc: &'a Buffer, name: &str, headings: &[Heading], level: u8) -> Plan<'a> {
+pub fn plan(doc: &Buffer, name: &str, headings: &[Heading], level: u8) -> Plan {
     let total = line_count(doc);
     let level = level.clamp(SPLIT_LEVELS[0], SPLIT_LEVELS[2]);
     let mut heads: Vec<Heading> = headings
@@ -327,7 +330,7 @@ pub fn plan<'a>(doc: &'a Buffer, name: &str, headings: &[Heading], level: u8) ->
     heads.sort_by(|a, b| a.line.cmp(&b.line).then(a.level.cmp(&b.level)));
     heads.dedup_by_key(|h| h.line);
     let mut p = Plan {
-        doc,
+        doc: doc.clone(),
         name: name.to_string(),
         level,
         total,
@@ -342,7 +345,7 @@ pub fn plan<'a>(doc: &'a Buffer, name: &str, headings: &[Heading], level: u8) ->
     p
 }
 
-impl<'a> Plan<'a> {
+impl Plan {
     /// The document's file name, as it was given.
     pub fn name(&self) -> &str {
         &self.name
@@ -354,8 +357,8 @@ impl<'a> Plan<'a> {
     }
 
     /// The document the plan was made from.
-    pub fn document(&self) -> &'a Buffer {
-        self.doc
+    pub fn document(&self) -> &Buffer {
+        &self.doc
     }
 
     /// Lines of the document, as the comparison counts them: a final line break does not make a
@@ -523,6 +526,14 @@ impl<'a> Plan<'a> {
             places: rest.runs.len(),
             document_bytes: self.bytes,
         }
+    }
+
+    /// Whether any line of `r` (0-based, half-open, clipped to the document) is not blank: a
+    /// stretch between two notes that holds only blank lines has nothing to show, and the
+    /// coverage strip does not draw it as a gap of its own.
+    pub fn has_text(&self, r: Range<usize>) -> bool {
+        let r = r.start.min(self.total)..r.end.min(self.total);
+        r.start < r.end && self.non_blank(r) > 0
     }
 
     /// Whether every non-blank line is inside a ticked note: the Recycle Bin rule of 5.4, which
@@ -746,11 +757,11 @@ impl<'a> Plan<'a> {
     /// byte counts are what the notes will write; titles and sections are clean. O(lines) in time
     /// and memory, so it is for tests and a debug build, not for every draw.
     pub fn check(&self) -> Result<(), String> {
-        if self.total != line_count(self.doc) {
+        if self.total != line_count(&self.doc) {
             return Err(format!(
                 "the plan has {} lines, the document {}",
                 self.total,
-                line_count(self.doc)
+                line_count(&self.doc)
             ));
         }
         if self.bytes != self.doc.len_bytes() {
@@ -2218,5 +2229,34 @@ We walked along the Sumida and ate at a stall.
         );
         assert_eq!(p.rest().title(), "Japan trip journal (the rest)");
         assert!(p.rest().title_added());
+    }
+
+    #[test]
+    fn a_plan_outlives_the_buffer_it_was_made_from() {
+        // A screen holds the plan for as long as it is open, long after the tab's text may have
+        // changed: the plan keeps its own snapshot, so it neither borrows nor follows the buffer.
+        let (p, rebuilt) = {
+            let mut doc = buf(FIXTURE);
+            let p = plan(&doc, "Japan trip journal.md", &headings_of(FIXTURE), 2);
+            let before = rebuild(&p, &doc);
+            doc.replace(0..0, "# edited afterwards\n\n");
+            (p, before)
+        };
+        assert_ok(&p);
+        assert_eq!(p.lines(), line_count(&buf(FIXTURE)));
+        assert_eq!(p.document().len_bytes(), FIXTURE.len());
+        assert!(p.note_text(0).starts_with("# Planning the route\n"));
+        assert!(rebuilt.contains("Asakusa and the river"));
+    }
+    #[test]
+    fn a_stretch_of_blank_lines_holds_no_text() {
+        let doc = buf("one\n\n  \n\ntwo\n");
+        let p = plan(&doc, "a.md", &[], 2);
+        assert!(p.has_text(0..1), "line 1 is a word");
+        assert!(!p.has_text(1..4), "three blank lines");
+        assert!(p.has_text(1..5), "and then a word");
+        assert!(!p.has_text(2..2), "nothing at all");
+        assert!(p.has_text(4..400), "past the end is clipped, not counted");
+        assert!(!p.has_text(40..400), "wholly past the end is nothing");
     }
 }

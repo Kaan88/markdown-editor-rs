@@ -211,6 +211,9 @@ pub struct Args {
     /// `--ai-demo instruction|review|preview|stale|closed|result-kept|working|bar|settings`: an AI panel or state
     /// for a shot, with a made-up result and no engine.
     pub ai_demo: Option<String>,
+    /// `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small`:
+    /// the plan screen for a shot, made from a document built in the program.
+    pub plan_demo: Option<String>,
     /// `--compare A B`: open both files, side by side, compared.
     pub compare: Option<(PathBuf, PathBuf)>,
     /// Compare the active document with its file on disk (for a shot: with `--type`).
@@ -383,6 +386,7 @@ impl Args {
                 "--replace" => out.replace = value(&a),
                 "--palette" => out.palette = value(&a),
                 "--ai-demo" => out.ai_demo = value(&a),
+                "--plan-demo" => out.plan_demo = value(&a),
                 "--compare" => {
                     let pair = (value(&a), value(&a));
                     if let (Some(x), Some(y)) = pair {

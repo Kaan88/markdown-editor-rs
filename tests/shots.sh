@@ -313,4 +313,21 @@ shot frame-square-light --light --size 520x300 --frame square "$fx/sample.rs"
 shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
 shot settings-view-dark --dark --dialog settings --settings-section View "$fx/sample.rs"
 
+# The plan screen (docs/ai-library-plan.md 5.3), from documents built in the program, in both
+# themes: headings with every line in a note, calm gaps, the rest ticked and selected, a warning and
+# a moved boundary, the same file split before, the name field open, 160 notes (the density strip),
+# and 800x600 (no preview).
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "plan-split$t" $th --plan-demo split
+    shot "plan-split-gaps$t" $th --plan-demo split-gaps
+    shot "plan-split-rest$t" $th --plan-demo split-rest
+    shot "plan-split-warn$t" $th --plan-demo split-warn
+    shot "plan-split-again$t" $th --plan-demo split-again
+    shot "plan-split-rename$t" $th --plan-demo split-rename
+    shot "plan-split-many$t" $th --plan-demo split-many
+    shot "plan-split-small$t" $th --size 800x600 --plan-demo split-small
+done
+
 ls "$out" | wc -l

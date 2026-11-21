@@ -379,3 +379,22 @@ is never again out of date before the review starts.
 **Overturned by.** The owner naming another reviewer; Fable's limits making a review impossible.
 **From.** The reviews of 2026-11-21 ("Reviews: who audited what" in the old handoff) and the
 audit-3 scope of `df562e8`, which covers everything merged since 1.2.1.
+
+## D-060 - 2026-11-21 - The plan screen: what 5.3 left open
+
+**Decision.** (1) The disabled primary button on the plan screen is drawn as
+`replace_ui::dialog_button` draws a disabled one (radius 6, the plain field fill and line, the
+faint label), not as `overlay::draw_dialog_button_disabled` does (radius 5, a 35 % accent fill).
+Two screens, one look. (2) The options row has no height until something is put in it: it holds
+the Recycle Bin box (phase T) and the pictures box (5.6), neither of which exists. (3) The
+coverage strip gives every note at least 2 px, ticked or not, so that a tick changes the pixels
+of its own note and no other; a stretch of blank lines between two notes is not a gap, it joins
+the note before it. (4) The notes a folder already holds with the same bytes come unticked, and
+the same names with other bytes are numbered (3.9); "the same" is length and FNV-1a, read from
+disk at most 8 MiB a file. (5) The model gained `Plan::has_text`.
+**Why.** (1) `draw_dialog_button_disabled` is to be made to match mdedit later, and a screen
+drawn with it now would differ from Replace until then. (3) A strip that moved when a note was
+ticked would make a tick look like an edit of the document; and the blank lines each note was
+trimmed of are not something to read as left out.
+**Overturned by.** The owner, looking at the shots; the shared button once it matches.
+**From.** The plan-screen task of 2026-11-21.

@@ -2283,3 +2283,30 @@ a made-up result and no engine (`--pref ai_connection=claude-api` to choose the 
 
 **Not run** (2026-11-19): real calls with real keys, the Codex CLI, a signed-in Claude Code
 rewrite, the credential store on Windows and macOS, anything on Windows.
+
+## 69. The plan screen (2026-11-21)
+
+The card of `docs/ai-library-plan.md` 5.3: the notes a split would make, read and changed, and
+nothing written. Four files: `plan_ui.rs` (state, events, the numbers of the layout, the
+strip's arithmetic, the files each note would be written as), `plan_draw.rs` (drawing),
+`plan_demo.rs` (the documents of the shots), `app/plan.rs` (the window's part: opening, closing,
+parking, routing input). The notes, the rest, the warnings and the counts are all
+`mdedit_core::split`; the list's and the preview's row arithmetic is `mdshared_ui::rows`.
+
+- **The screen is over everything**, like the palette: while it is open it takes every key,
+  pointer, wheel and typing event, and its tick, hover, press and caret are in the overlay
+  signature in `app.rs`. A change of the look that does not raise `tick` is never repainted.
+- **Rows** are the notes and then "The rest", one more row than there are notes. The selected
+  row is the preview's; the strip's bands name the same row numbers.
+- **The strip** is `strip_bands(plan, width)`: widths from `widths`, which keeps 2 px for every
+  note and shares out the rest in proportion, falling back to a plain proportion when the
+  minimums do not fit. Edges are whole pixels, so the bands tile. Separators only when every
+  note band is at least 6 px.
+- **Where the notes go** is `retarget`: each note's folder is the group's folder plus its
+  sections, its name is `folder_name(title)`; the disk is asked through a `Reader` (the shots
+  and the tests give a table), once for each name, remembered until the group changes.
+- **Escape** closes the card; a plan that was changed is parked in `App::plan_parked`, and
+  `plan_show` brings the same screen back, scroll and selection included.
+- **"Write the notes"** records `write_pressed` and returns `Act::Write`; the window does
+  nothing with it yet.
+- Shots: `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small`.
