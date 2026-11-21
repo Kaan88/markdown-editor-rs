@@ -96,6 +96,8 @@ pub(crate) use preview::previewable;
 #[cfg(test)]
 mod pin_tests;
 mod replace_files;
+#[cfg(test)]
+mod widget_pixels_tests;
 
 const TIP_DELAY: Duration = Duration::from_millis(500);
 const AUTOSCROLL_TICK: Duration = Duration::from_millis(16);

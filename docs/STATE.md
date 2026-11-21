@@ -35,7 +35,10 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 - "Leave out the tab you were last on too" (Settings › Session).
 - A scrollbar for the page in visual editing; Save As offers `.md` to a note the AI turned into
   Markdown.
-- mdedit is at 511 tests (as recorded at `8522c82`).
+- **One tick box and one switch**: the Replace-in-files confirmation draws its ticks with the
+  shared `mdshared-ui` `check`, and the AI review its Changes / Preview switch with `segments`;
+  a screen test pins each to the pixels the private drawing made.
+- mdedit is at 558 tests (the app's own unit tests; 1196 in the workspace).
 
 ## In hand
 
@@ -109,7 +112,7 @@ faults that could lose a note or break a library that moves; these four are stil
 
 ## Pins, branches, worktrees
 
-- Shared crates at `074e462`. The viewer's crates (`mdview-preview`, `mdview-render`) at viewer
+- Shared crates at `c603b23`. The viewer's crates (`mdview-preview`, `mdview-render`) at viewer
   `e2b3e31`. winit fork `62fa727`, softbuffer fork `dd18fec`. mdview itself pins the shared
   crates at `cb0ffd3`, which is older.
 - Every local `f/…` branch and `release/1.2.0` is merged into `main`. `mock/ai-review` is not

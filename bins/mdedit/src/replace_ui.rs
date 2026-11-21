@@ -20,6 +20,7 @@ use mdedit_core::load::LoadOptions;
 use mdedit_core::replace_files::{
     self, ApplyOptions, Plan, PlanOptions, Report, RevertReport, Source,
 };
+use mdshared_ui::check::{TICK, Tick, draw_tick};
 use mdshared_ui::gfx::{Face, Rect, mix};
 use mdshared_ui::overlay::{
     DIALOG_FOOTER, DIALOG_PAD, dialog_button_w, dialog_card, draw_backdrop, draw_dialog_button,
@@ -786,16 +787,6 @@ pub fn parts(r: Rect) -> Parts {
     }
 }
 
-fn tick_box(c: &mut Ctx, r: Rect, on: bool) {
-    let pal = *c.pal;
-    if on {
-        c.p.rbox(r, 4.0, pal.accent);
-        c.p.icon(glyph::CHECK, 11.0, r.cx(), r.cy(), pal.on_accent);
-    } else {
-        c.p.frame(r, 4.0, pal.field, mix(pal.line, pal.text, 0.3));
-    }
-}
-
 fn dialog_button(c: &mut Ctx, r: Rect, hit: Hit, label: &str, primary: bool, enabled: bool) {
     let pal = *c.pal;
     if enabled {
@@ -885,10 +876,11 @@ pub fn draw_confirm(
             if shown == i {
                 c.p.rbox(row, 6.0, mix(pal.popup, pal.text, 0.05));
             }
-            tick_box(
-                c,
-                Rect::new(row.x + 10.0, row.cy() - 8.0, 16.0, 16.0),
-                cf.ticks[i],
+            draw_tick(
+                c.p,
+                &pal,
+                Rect::new(row.x + 10.0, row.cy() - TICK / 2.0, TICK, TICK),
+                Tick::new(cf.ticks[i]),
             );
             let f = &cf.plan.files[i];
             let count = if f.capped {
@@ -1026,8 +1018,8 @@ pub fn draw_confirm(
     }
 
     // The backup option and the skipped files.
-    let tick = Rect::new(options.x + 2.0, options.cy() - 8.0, 16.0, 16.0);
-    tick_box(c, tick, cf.backup);
+    let tick = Rect::new(options.x + 2.0, options.cy() - TICK / 2.0, TICK, TICK);
+    draw_tick(c.p, &pal, tick, Tick::new(cf.backup));
     let label = "Keep backup copies (.bak)";
     let lw = c.p.text(
         Face::Ui,

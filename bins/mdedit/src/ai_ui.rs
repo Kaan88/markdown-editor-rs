@@ -10,6 +10,7 @@ use mdshared_ui::overlay::{
     DIALOG_FOOTER, DIALOG_PAD, dialog_button_w, dialog_card, draw_backdrop, draw_dialog_button,
     draw_dialog_card,
 };
+use mdshared_ui::segments::{SEGMENT_H, draw_segments, switch_width};
 use mdshared_ui::textfield::FieldColors;
 use mdshared_ui::theme::Palette;
 
@@ -442,33 +443,15 @@ fn review(
         right -= wl + 18.0;
     }
     // The switch.
-    let seg_w = |p: &mut Painter, s: &str| p.measure(Face::Semibold, 13.0, s) + 28.0;
-    let (cw, pw) = (seg_w(p, "Changes"), seg_w(p, "Preview"));
-    let sw = Rect::new(right - cw - pw, cy - 14.0, cw + pw, 28.0);
-    p.frame(sw, 6.0, pal.popup, pal.popup_line);
-    for (k, (label, hit, on)) in [
-        ("Changes", Hit::Changes, !rv.preview),
-        ("Preview", Hit::Preview, rv.preview),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let seg = if k == 0 {
-            Rect::new(sw.x, sw.y, cw, sw.h)
-        } else {
-            Rect::new(sw.x + cw, sw.y, pw, sw.h)
-        };
-        if on {
-            p.rbox(seg.inset(1.0), 5.0, pal.accent);
-            p.text_center(Face::Semibold, 13.0, seg, label, pal.on_accent);
-        } else {
-            if hover == Some(hit) {
-                p.rbox(seg.inset(1.0), 5.0, pal.hover);
-            }
-            p.text_center(Face::Ui, 13.0, seg, label, pal.text);
-        }
-        hits.push((hit, seg));
-    }
+    let labels = ["Changes", "Preview"];
+    let sw_w = switch_width(p, &labels);
+    let sw = Rect::new(right - sw_w, cy - SEGMENT_H / 2.0, sw_w, SEGMENT_H);
+    let hovered = [Hit::Changes, Hit::Preview]
+        .iter()
+        .position(|h| hover == Some(*h));
+    let segs = draw_segments(p, pal, sw, &labels, Some(usize::from(rv.preview)), hovered);
+    hits.push((Hit::Changes, segs[0]));
+    hits.push((Hit::Preview, segs[1]));
     let sub_x = x + tw + 16.0;
     p.text(
         Face::Ui,
