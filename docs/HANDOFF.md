@@ -5,6 +5,77 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## The library redesign: the plan, and phase 1 (2026-11-21, on main)
+
+The owner asked for a plan to approve rather than a build: `docs/library-redesign.md` (what the
+library is for, what similar editors do, the usability faults with their fixes, the filesystem
+options priced, the AI import designed, seven phases with days). §9 of that document holds the
+decisions taken on the owner's behalf — they asked for them to be taken and noted, as they need
+to use the app before answering — and §9 overrides anything earlier in the document. In short:
+links only (no file moves, no deletes from the pane), 2 KB digests capped at 500 files a run for
+the AI import, conversion writing a new `.md` beside the original, no drag and drop, head
+switches for the three pane faces.
+
+**Also fixed first (`31f773a`): the scrollbars in visual editing.** The page (`preview_pane`)
+had no scrollbar at all — no bar, no hit area, no `Scroller` arm — and the bars drawn inside an
+open block's box measured the whole document while `visual_sync` put the view back at the block's
+first line every frame, so they could not move. The page now has a real bar (`Scroller::Page`,
+`Hit::ScrollBar`, an absolute `Pane::scroll_to` that keeps only the latest target because the
+renderer's `Scroll` is relative and a thumb drags faster than the page answers), and
+`Geom::vbar`/`hbar` return `None` while `live::bare()` is set, so the box has no dead bars: the
+page scrolls and the box rides with it. Tests
+`the_page_in_visual_editing_has_a_scrollbar_to_click_and_drag` and
+`the_open_block_s_box_draws_no_scrollbar_that_cannot_move`. The plain preview pane and
+side-by-side still have no bar — one line (`bar: Some(..)` regardless of `visual_on()`) if that
+is wanted.
+
+**Phase 1 (`ddb03d4`, shared `163a403`, pinned by `d4e3ad6`).**
+- "Edit a library file…" opens **one** file: the group of the pane's last-clicked row, else the
+  group of the note in front, else the only group, else a picker. An empty folder still creates
+  `library/notes.md` from `TEMPLATE`.
+- A **Notes** button on the bar (`BarItem::Library`, glyph `BOOKMARK`), lit only while the library
+  is the face showing, degrading with the Files button.
+- **Files / Functions / Notes switches** in the pane's head, replacing the two folder icons that
+  meant different things; `Hit::LibraryFiles` and `Hit::OutlineFiles` became `Hit::PaneFace(..)`,
+  the head's right-hand button belongs to the face (Files: open folder, Functions: none, Notes:
+  `PLUS` → `LibraryAdd`). Labels down to about 211 px, icons alone to `PANE_MIN` 160 px.
+- The pane's **face is restored at start** (`pane=files|functions|notes` in the session,
+  `app::restore_pane`); `--files` and a folder argument still win.
+- Shared side: `mdshared_ui::pane` gained `Switch`, `switch_rects`, `switch_labels_fit`,
+  `draw_head_switches`; **`draw_head` itself is untouched**, so mdview's panes draw exactly as
+  before.
+- A fault found on the way: `set_folder` cleared `outline.on` but not `library.on`, so opening a
+  folder while the Notes face showed left the library up. It goes through `set_pane_face(Files)`
+  now.
+- `session.files` now means "the pane was open, whatever the face"; before, a pane showing the
+  function list was saved as shut.
+
+**Budgets for phase 1, measured on this PC (release builds of `1303755` and `d4e3ad6`, run in
+turn, `--trace --exit-after-ms 2500` on `fixtures/sample.rs`, a fresh settings folder per run,
+7 runs each; medians, min-max):**
+
+| | First frame, ms | Private, MiB | CPU at idle, ms |
+|---|---|---|---|
+| Before, no pane | 91.2 (88.4-95) | 27.7 (27.4-28.1) | 109.4 |
+| After, no pane | 89.7 (87.9-95) | 27.9 (27.7-28) | 109.4 |
+| After, Files face restored | 91.2 (81.6-107) | 27.6 (27.4-27.9) | 109.4 |
+| After, Functions face restored | 90.7 (88.7-96.2) | 27.9 (27.6-28.1) | 109.4 |
+| After, Notes face restored | 90.0 (86.5-98) | 27.9 (27.7-28) | 109.4 |
+
+No change beyond the machine's noise, including the case that worried me (a restored Functions
+face starts the outline worker on the first frame). Under 100 ms and under 30 MiB: both met. One
+outlier of 291.8 ms in the "before, no pane" set was a cold run and is in the min-max only.
+Not measured: macOS, Linux, keystroke and scroll timings.
+
+**Next: phase 2** (the four context menus on the new shared writers, inline rename, "Move to…",
+"Find the file…") plus the library-folder setting, which phase 1 left out: the folder is still
+hardwired to `library/` beside `settings.ini`. The shared writers are in already —
+`mdshared-app` `fada09b`: `remove_note`, `rename_note`, `set_note_path`, `rename_section`,
+`add_section`, `remove_section`, `set_group_name`, `new_group`, `move_note`, all text-in/text-out
+so the app keeps re-parsing before it writes, with per-line fence classification that also fixed
+`add_note` (a `##` or a `- note` inside a code fence no longer ends a section or counts as a
+note).
+
 ## "Leave out the tab you were last on too" (2026-11-21, on main)
 
 The owner asked for the brief-tabs rule to count the tab that was showing as well: open a file,
