@@ -3567,39 +3567,43 @@ mod tests {
 
     #[test]
     fn a_path_written_into_a_record_reads_back_as_the_same_path() {
-        // What a record writes it must read back, on the platform that wrote it, for a name
-        // holding whatever that platform allows in one. Both are tried here whatever this
-        // machine is, because the fault this pins only showed on Linux and a Mac.
-        for windows in [true, false] {
-            let library = PathBuf::from(if windows { "C:\\library" } else { "/library" });
-            let sep = if windows { "\\" } else { "/" };
-            let group = PathBuf::from(format!("{}{sep}Group", library.display()));
-            // On Windows `\` separates the parts, so a name cannot hold one; everywhere else
-            // it is an ordinary character, and writing it as `/` names a different file.
-            let names: &[&str] = if windows {
-                &["One.md", "A 'quoted' file.md"]
-            } else {
-                &["One.md", "A \\ file.md"]
-            };
-            for name in names {
-                let path = PathBuf::from(format!("{}{sep}{name}", group.display()));
-                let text = stored_on(&path, &library, windows);
-                assert_eq!(resolved_on(&text, &library, windows), path, "from {text}");
-            }
-            // The parts are written with `/` between them whatever the platform separates
-            // with, so a library carried to another machine reads the same there.
-            let one = PathBuf::from(format!("{}{sep}One.md", group.display()));
-            assert_eq!(stored_on(&one, &library, windows), "Group/One.md");
+        // A `Path` is the host's: only this machine's rule decides what is absolute and where
+        // one part ends, so the round trip is tried with the host's own paths and names. What
+        // *is* tried both ways is the one thing the record decides for itself — which
+        // character separates the parts in the text it writes.
+        let library = scratch("paths").join("library");
+        let group = library.join("Group");
+        // On Windows `\` separates the parts, so a name cannot hold one; everywhere else it is
+        // an ordinary character of the name.
+        let odd = if cfg!(windows) {
+            "A 'quoted' file.md"
+        } else {
+            "A \\ file.md"
+        };
+        for name in ["One.md", odd] {
+            let path = group.join(name);
+            let text = stored(&path, &library);
+            assert_eq!(resolved(&text, &library), path, "from {text}");
         }
-        // The text itself, because a `Path` on Windows reads `/` and `\` alike and would hide
-        // this: off Windows a backslash in a name is written as it stands.
+        // The parts are written with `/` between them whatever this platform separates with,
+        // so a library carried to another machine reads the same there.
+        assert_eq!(stored(&group.join("One.md"), &library), "Group/One.md");
+
+        // And the rule itself, both ways, on whatever machine runs this. Only a platform that
+        // separates with `\` may turn one into `/`: where a backslash is part of a name,
+        // writing it as `/` would make the record name a different file. A `Path` on Windows
+        // reads `/` and `\` alike and would hide that, so the text is compared directly.
+        let both = Path::new("/library/Group/A \\ file.md");
+        let root = Path::new("/library");
+        assert_eq!(stored_on(both, root, false), "Group/A \\ file.md");
+        assert_eq!(stored_on(both, root, true), "Group/A / file.md");
         assert_eq!(
-            stored_on(
-                Path::new("/library/Group/A \\ file.md"),
-                Path::new("/library"),
-                false
-            ),
-            "Group/A \\ file.md"
+            resolved_on("Group/One.md", root, false),
+            root.join("Group/One.md")
+        );
+        assert_eq!(
+            resolved_on("Group/One.md", root, true),
+            root.join("Group\\One.md")
         );
     }
 
