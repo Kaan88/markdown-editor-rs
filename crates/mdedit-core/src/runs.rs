@@ -288,12 +288,31 @@ pub struct Run {
 // ---- paths in a record -----------------------------------------------------------------------------
 
 fn stored(path: &Path, library: &Path) -> String {
-    let shown = path.strip_prefix(library).unwrap_or(path);
-    shown.to_string_lossy().replace('\\', "/")
+    stored_on(path, library, cfg!(windows))
 }
 
 fn resolved(text: &str, library: &Path) -> PathBuf {
-    let p = if cfg!(windows) {
+    resolved_on(text, library, cfg!(windows))
+}
+
+/// A record is written with `/` between the parts of a path, so a library carried between
+/// machines reads the same everywhere. Only Windows separates with `\`: everywhere else a
+/// backslash is an ordinary character of a file's name, and turning it into a separator would
+/// make the record name a different file. `windows` is the platform, taken as an argument so a
+/// test can try both on either (and it is why the record's paths broke on Linux and a Mac).
+fn stored_on(path: &Path, library: &Path, windows: bool) -> String {
+    let shown = path.strip_prefix(library).unwrap_or(path);
+    let text = shown.to_string_lossy();
+    if windows {
+        text.replace('\\', "/")
+    } else {
+        text.into_owned()
+    }
+}
+
+/// What [`stored_on`] wrote, read back on the platform that is reading it.
+fn resolved_on(text: &str, library: &Path, windows: bool) -> PathBuf {
+    let p = if windows {
         PathBuf::from(text.replace('/', "\\"))
     } else {
         PathBuf::from(text)
@@ -3531,6 +3550,9 @@ mod tests {
         };
         let text = record.to_json(&library);
         let back = Record::from_json(&text, &library).expect("it reads");
+        // The source's name holds a quote and a backslash. On Windows a backslash separates
+        // the parts of a path; everywhere else it is a character of the name and must survive
+        // the round trip as one.
         assert_eq!(back, record);
         assert!(text.contains("\"path\": \"Group/Tokyo/One.md\""), "{text}");
         // Nothing that is not a record, and no depth that can end the process.
@@ -3541,6 +3563,44 @@ mod tests {
         assert!(Record::from_json(&deep, &library).is_none());
         assert!(Record::from_json("{\"version\":1,\"kind\":\"split\"", &library).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_path_written_into_a_record_reads_back_as_the_same_path() {
+        // What a record writes it must read back, on the platform that wrote it, for a name
+        // holding whatever that platform allows in one. Both are tried here whatever this
+        // machine is, because the fault this pins only showed on Linux and a Mac.
+        for windows in [true, false] {
+            let library = PathBuf::from(if windows { "C:\\library" } else { "/library" });
+            let sep = if windows { "\\" } else { "/" };
+            let group = PathBuf::from(format!("{}{sep}Group", library.display()));
+            // On Windows `\` separates the parts, so a name cannot hold one; everywhere else
+            // it is an ordinary character, and writing it as `/` names a different file.
+            let names: &[&str] = if windows {
+                &["One.md", "A 'quoted' file.md"]
+            } else {
+                &["One.md", "A \\ file.md"]
+            };
+            for name in names {
+                let path = PathBuf::from(format!("{}{sep}{name}", group.display()));
+                let text = stored_on(&path, &library, windows);
+                assert_eq!(resolved_on(&text, &library, windows), path, "from {text}");
+            }
+            // The parts are written with `/` between them whatever the platform separates
+            // with, so a library carried to another machine reads the same there.
+            let one = PathBuf::from(format!("{}{sep}One.md", group.display()));
+            assert_eq!(stored_on(&one, &library, windows), "Group/One.md");
+        }
+        // The text itself, because a `Path` on Windows reads `/` and `\` alike and would hide
+        // this: off Windows a backslash in a name is written as it stands.
+        assert_eq!(
+            stored_on(
+                Path::new("/library/Group/A \\ file.md"),
+                Path::new("/library"),
+                false
+            ),
+            "Group/A \\ file.md"
+        );
     }
 
     #[test]

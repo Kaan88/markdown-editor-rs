@@ -748,11 +748,20 @@ fn two_titles_that_differ_only_in_case_are_given_two_files() {
             p.targets[0].path,
             p.targets[1].path
         );
-        assert_eq!(p.targets[1].renamed.as_deref(), Some("notes 2.md"));
-        assert_eq!(
-            p.mark(1),
-            Some(crate::plan_ui::Mark::Renamed("notes 2.md".to_string()))
-        );
+        // On a disk that tells `Notes.md` from `notes.md` the second note needs no other name;
+        // where names ignore case, Windows and a Mac as it formats itself, it is renamed. The
+        // one place that knows which disk this is is `NAMES_IGNORE_CASE`, so the test asks it
+        // rather than naming an operating system.
+        if mdshared_app::paths::NAMES_IGNORE_CASE {
+            assert_eq!(p.targets[1].renamed.as_deref(), Some("notes 2.md"));
+            assert_eq!(
+                p.mark(1),
+                Some(crate::plan_ui::Mark::Renamed("notes 2.md".to_string()))
+            );
+        } else {
+            assert_eq!(p.targets[1].renamed, None);
+            assert_eq!(p.mark(1), None);
+        }
     }
     press(&mut a, KeyName::Enter);
     let folder = dir.join("library").join("Trip");
@@ -763,7 +772,12 @@ fn two_titles_that_differ_only_in_case_are_given_two_files() {
         .collect();
     assert_eq!(files.len(), 2, "{files:?}");
     assert_eq!(read(&folder.join("Notes.md")), "# Notes\n\nfirst\n");
-    assert_eq!(read(&folder.join("notes 2.md")), "# notes\n\nsecond\n");
+    let second = if mdshared_app::paths::NAMES_IGNORE_CASE {
+        "notes 2.md"
+    } else {
+        "notes.md"
+    };
+    assert_eq!(read(&folder.join(second)), "# notes\n\nsecond\n");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
