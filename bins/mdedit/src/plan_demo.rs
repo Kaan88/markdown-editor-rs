@@ -193,6 +193,7 @@ fn init<'a>(
     Init {
         doc,
         name,
+        path: None,
         headings,
         level,
         encoding: None,

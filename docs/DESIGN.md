@@ -2310,3 +2310,47 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
 - **"Write the notes"** records `write_pressed` and returns `Act::Write`; the window does
   nothing with it yet.
 - Shots: `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small`.
+
+## 70. The write, the record and undo (2026-11-21)
+
+`docs/ai-library-plan.md` 4.1, 4.3, 4.4, 4.5, 5.9, 6.2, 6.3. The model is `mdedit_core::runs`
+(no window, no AI: `Request`, `Report`, `Record`, `Run`, `UndoPlan`, `Gate`), the window's part is
+`bins/mdedit/src/app/plan_write.rs` (the request a plan makes, the gate, the report, undo, Finish,
+"AI runs…"), and the screen gains nothing but a `problem()` and `root()`.
+
+- **The order is 4.3's, and every prefix is a state one can live with.** The record first; then
+  the folders; then the pictures; then the notes; then the read-back; then the library file; then
+  the record closed; step 8 (the Recycle Bin) is phase T and not built. Nothing is linked before
+  it exists, and the source is read and never written.
+- **Creating is `mdshared_app::files::create_new`**, which checks the name, writes a temporary
+  beside it and renames without replacing: a file is never overwritten, and a name taken between
+  the check and the rename is refused, not replaced. Pictures are `name.ext`, or `name 2.ext`
+  when that name holds other bytes. The group's library file is made from `# Name` and its
+  `home:` line and refused at 64 library files.
+- **The record** is `<library>/.runs/<UTC>-split.json`, with absolute paths made relative to the
+  library folder first. `state` is `writing`, `links pending`, `done`, `stopped` or `undone`; its
+  `notes[]` holds each note's path, SHA-256, line ranges, heading shift, sections and the exact
+  line that was written into the library file. `prune` keeps the newest 20 or the last 90 days.
+- **The gate.** Every library write goes through `App::library_attempt` (refuses a file open with
+  unsaved changes, re-reads it, checks the new text, writes it atomically), and the check is
+  `runs::check_links_added` / `check_links_removed`: the new file must be the old notes plus (or
+  minus) exactly the planned lines, under their sections — a count is not enough. One call per
+  library file, one write.
+- **Undo** asks first, with the numbers; then links, then files whose SHA-256 is the recorded one,
+  then the group's file when only its heading and `home:` are left, then the folders while they
+  are empty; the record is marked `undone` and stays. A line the owner edited and a note the owner
+  changed are kept and listed. A run whose source is in the Recycle Bin refuses until it is back.
+- **"AI runs…"** lists the records when it is opened (never at start), newest first, with "Show
+  the notes", "Undo this run…" and, for a run that stopped, "Finish".
+- **"Split into notes…"** is in the tab's menu, the palette, the AI menu and the Notes library
+  submenu. It is disabled with "Save {name} first: the notes are made from the file on disk."
+  until the document in front has a file and no unsaved changes.
+- **The Notes pane's foot** draws "Plan ready: N notes · Show · Drop" while a plan is parked; the
+  count and the parked flag are in the Files region's signature.
+- Shots: `--dialog runs|run-undo|run-undo-recycled`, and `--plan-demo split --plan-parked`.
+- Tests: `mdedit_core::runs` (17: one per step of 4.3 that can be forced on disk, the record's
+  read and write, undo's rules, the pruning) and `app::plan_write_tests` (6: the whole write,
+  undo from the report, a group file that cannot be made, a demonstration, the repaint
+  signature, the disabled command).
+- **Not built:** the progress row and Cancel (the write runs between frames), so a run is never
+  left in `stopped` by this program; step 8; "Ask the AI…".

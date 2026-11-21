@@ -140,6 +140,8 @@ pub struct Outcome {
     pub rows: Vec<OutRow>,
     /// Kept for Undo replace; `None` once it was undone (or for the report of an undo).
     pub report: Option<Report>,
+    /// The record of a written plan: "Undo this run" is offered while it is there.
+    pub run: Option<PathBuf>,
 }
 
 fn rel(root: &Path, path: &Path) -> String {
@@ -232,6 +234,7 @@ impl Outcome {
             title,
             rows,
             report: Some(report),
+            run: None,
         }
     }
 
@@ -262,6 +265,182 @@ impl Outcome {
             title,
             rows,
             report: None,
+            run: None,
+        }
+    }
+
+    /// The report of a plan's write: what was written, what was left out, and the way to undo
+    /// the run.
+    pub fn run(report: &mdedit_core::runs::Report, library: &Path) -> Outcome {
+        let root = library;
+        let state = report.state();
+        let mut rows = Vec::new();
+        if let Some(why) = &report.start_error {
+            return Outcome {
+                title: why.clone(),
+                rows: vec![OutRow::Failed {
+                    name: String::new(),
+                    why: why
+                        .trim_start_matches("The run could not start: ")
+                        .to_string(),
+                }],
+                report: None,
+                run: None,
+            };
+        }
+        if !report.notes_written.is_empty() || !report.notes_present.is_empty() {
+            let mut written = report.notes_written.clone();
+            written.extend(report.notes_present.iter().cloned());
+            rows.push(OutRow::Heading(format!("Written ({})", written.len())));
+            rows.extend(written.iter().map(|p| OutRow::Changed {
+                name: rel(root, p),
+                count: 0,
+            }));
+        }
+        if !report.pictures_written.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Pictures ({})",
+                report.pictures_written.len()
+            )));
+            rows.extend(report.pictures_written.iter().map(|p| OutRow::Changed {
+                name: rel(root, p),
+                count: 0,
+            }));
+        }
+        let mut left_out: Vec<(PathBuf, String)> = Vec::new();
+        left_out.extend(
+            report
+                .note_failures
+                .iter()
+                .map(|f| (f.path.clone(), f.why.clone())),
+        );
+        left_out.extend(
+            report
+                .check_failures
+                .iter()
+                .map(|f| (f.path.clone(), f.why.clone())),
+        );
+        left_out.extend(
+            report
+                .folder_failures
+                .iter()
+                .map(|f| (f.path.clone(), f.why.clone())),
+        );
+        left_out.extend(
+            report
+                .picture_failures
+                .iter()
+                .map(|f| (f.path.clone(), f.why.clone())),
+        );
+        if let Some(f) = &report.group_failure {
+            left_out.push((f.path.clone(), f.why.clone()));
+        }
+        left_out.extend(
+            report
+                .link_failures
+                .iter()
+                .map(|f| (f.path.clone(), f.why.clone())),
+        );
+        if let Some(why) = &report.close_error {
+            rows.push(OutRow::Failed {
+                name: "the record".to_string(),
+                why: why.clone(),
+            });
+        }
+        if !left_out.is_empty() {
+            rows.push(OutRow::Heading(format!("Left out ({})", left_out.len())));
+            rows.extend(left_out.into_iter().map(|(path, why)| OutRow::Failed {
+                name: rel(root, &path),
+                why,
+            }));
+        }
+        let written = report.notes();
+        let mut title = if written == 0 {
+            "No note was written".to_string()
+        } else {
+            format!("Wrote {}", plural(written, "note", "notes"))
+        };
+        if let Some(state) = state {
+            title.push_str(&format!(" \u{00B7} {}", state.as_str()));
+        }
+        title.push_str(&tail(
+            0,
+            report.note_failures.len() + report.check_failures.len(),
+            false,
+        ));
+        Outcome {
+            title,
+            rows,
+            report: None,
+            run: report.record_path.clone(),
+        }
+    }
+
+    /// The report of an undo of a plan's run.
+    pub fn undone(done: &mdedit_core::runs::UndoReport, library: &Path) -> Outcome {
+        let root = library;
+        let mut rows = Vec::new();
+        let mut removed = done.removed_notes.clone();
+        removed.extend(done.removed_pictures.iter().cloned());
+        if !removed.is_empty() {
+            rows.push(OutRow::Heading(format!("Removed ({})", removed.len())));
+            rows.extend(removed.iter().map(|p| OutRow::Changed {
+                name: rel(root, p),
+                count: 0,
+            }));
+        }
+        if done.removed_links > 0 {
+            rows.push(OutRow::Heading(
+                "Lines taken out of the library".to_string(),
+            ));
+            rows.push(OutRow::Changed {
+                name: plural(done.removed_links, "line", "lines"),
+                count: 0,
+            });
+        }
+        if !done.kept.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Changed since, kept ({})",
+                done.kept.len()
+            )));
+            rows.extend(done.kept.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "changed since, kept".to_string(),
+            }));
+        }
+        if done.group_kept {
+            rows.push(OutRow::Skipped {
+                name: "the group's library file".to_string(),
+                why: "it holds more than its heading and its home: line".to_string(),
+            });
+        }
+        if !done.folders_kept.is_empty() {
+            rows.push(OutRow::Heading("Folders kept (not empty)".to_string()));
+            rows.extend(done.folders_kept.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "not empty".to_string(),
+            }));
+        }
+        rows.extend(done.failures.iter().map(|f| OutRow::Failed {
+            name: rel(root, &f.path),
+            why: f.why.clone(),
+        }));
+        let title = if let Some(why) = &done.refusal {
+            why.clone()
+        } else if removed.is_empty() && done.removed_links == 0 {
+            "Nothing was removed".to_string()
+        } else {
+            format!(
+                "Undid the run \u{00B7} {} and {}",
+                plural(removed.len(), "file", "files"),
+                plural(done.removed_links, "line", "lines")
+            )
+        };
+        Outcome {
+            title,
+            rows,
+            report: None,
+            run: None,
         }
     }
 
@@ -644,6 +823,12 @@ pub fn draw_head(c: &mut Ctx, ui: &mut Ui, r: Rect, search_done: bool) -> f32 {
         return x;
     }
     if let Some(o) = &rep.outcome {
+        if o.run.is_some() {
+            let w = width(c, "Undo this run");
+            let b = Rect::new(right - w, y, w, CTRL_H);
+            small_button(c, b, Hit::ResultsUndoRun, "Undo this run", true);
+            return b.x;
+        }
         if o.report.is_none() {
             return right;
         }

@@ -183,6 +183,10 @@ pub enum CommandId {
     AiCancel,
     /// Brings back the review of the last result, which Escape closed.
     AiShowResult,
+    /// "Split into notes…" on the document in front: the plan of notes, cut at its headings.
+    SplitIntoNotes,
+    /// "AI runs…": the records of the runs that wrote notes, and undo of any of them.
+    AiRuns,
 }
 
 pub struct Command {
@@ -399,6 +403,8 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::AiSettings, "AI: Settings", &[]),
     cmd(C::AiCancel, "AI: Stop rewriting", &[]),
     cmd(C::AiShowResult, "AI: Show the last result", &[]),
+    cmd(C::SplitIntoNotes, "Split into notes\u{2026}", &[]),
+    cmd(C::AiRuns, "AI runs\u{2026}", &[]),
 ];
 
 pub fn command(id: CommandId) -> &'static Command {

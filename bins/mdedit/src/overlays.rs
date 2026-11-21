@@ -175,6 +175,10 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
         )
         .sep(),
         cmd(C::LibraryEdit, "&Edit a library file…", glyph::DOC),
+        cmd(C::SplitIntoNotes, "Spli&t into notes…", glyph::SPLIT)
+            .sep()
+            .enabled(has_file),
+        cmd(C::AiRuns, "AI &runs…", glyph::MACRO),
     ];
     Menu::new(items, x, y, align_right).access_keys(true)
 }
@@ -546,6 +550,22 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
                 .and_then(|d| d.path.as_deref())
                 .is_some_and(|p| crate::library_pane::lists(&docs.library, p)),
         ),
+        // The document in front, cut at its headings. A document that is not saved has no file
+        // on disk to make the notes from, and the item says so rather than going away.
+        {
+            let doc = docs.tabs.get(index);
+            let on = doc.is_some_and(|d| d.path.is_some() && !d.modified());
+            let mut item = Item::new(
+                Act::TabCmd(C::SplitIntoNotes, index),
+                "Spli&t into notes\u{2026}",
+            )
+            .icon(glyph::SPLIT)
+            .enabled(on);
+            if !on && let Some(d) = doc {
+                item = item.hint(format!("Save {} first", d.name()));
+            }
+            item
+        },
     ]);
     Menu::new(items, x, y, false).access_keys(true)
 }
@@ -764,6 +784,13 @@ pub fn fit_modify_room(menu: &mut Menu<Act>, p: &mut mdshared_ui::gfx::Painter) 
 /// The text menu's AI submenu: the built-in requests (the AI mark), then the saved prompts (play:
 /// the row runs one; its Modify button, at the right, puts it in the instruction panel to be
 /// changed).
+/// Whether the document in front can be split into notes: it has a file and no unsaved changes.
+fn split_ok(docs: &Docs) -> bool {
+    docs.active_doc()
+        .is_some_and(|d| d.path.is_some() && !d.modified())
+}
+
+/// The ai menu: the built-in requests, the saved ones, the settings, and what a run left behind.
 pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let idle = docs.active_ready().is_some() && docs.ai_status.is_none();
     let mut items = vec![
@@ -794,6 +821,10 @@ pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
         items.push(item);
     }
     items.push(cmd(C::AiEditPrompts, "&Edit saved prompts", glyph::DOC).sep());
+    items.push(
+        cmd(C::SplitIntoNotes, "Spli&t into notes\u{2026}", glyph::SPLIT).enabled(split_ok(docs)),
+    );
+    items.push(cmd(C::AiRuns, "AI runs\u{2026}", glyph::MACRO));
     if docs.ai_status.is_some() {
         items.push(cmd(C::AiCancel, "&Stop rewriting", glyph::STOP));
     }
@@ -882,6 +913,8 @@ pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
         DialogKind::Shortcuts => (580.0, list(KEY_ROW, 0.0).min(700.0)),
         DialogKind::Recent => (600.0, list(RECENT_ROW, 80.0).min(560.0)),
         DialogKind::Macros => (480.0, list(MACRO_ROW, 80.0).min(560.0)),
+        DialogKind::Runs => (660.0, list(RUN_ROW, 96.0).min(620.0)),
+        DialogKind::RunUndo => (520.0, 250.0),
         DialogKind::Unsaved
         | DialogKind::Overwrite
         | DialogKind::Discard
@@ -928,10 +961,12 @@ fn list_rect(r: Rect, footer: Rect) -> Rect {
     )
 }
 
+#[allow(clippy::too_many_arguments)] // what each dialog needs, as `ai_ui`'s screens do
 pub fn draw_dialog(
     c: &mut Ctx,
     docs: &Docs,
     macros: &[crate::macros::Named],
+    runs: &mut crate::ui::RunsDialog,
     d: &mut Dialog,
     w: f32,
     h: f32,
@@ -946,12 +981,14 @@ pub fn draw_dialog(
         | DialogKind::Overwrite
         | DialogKind::Discard
         | DialogKind::LibraryRemove
-        | DialogKind::LibraryDelete => 0,
+        | DialogKind::LibraryDelete
+        | DialogKind::RunUndo => 0,
         // Drawn by `replace_ui::draw_confirm`, which has the plan.
         DialogKind::ReplaceFiles => return,
         DialogKind::Shortcuts => shortcut_help().len(),
         DialogKind::Recent => docs.recents.paths().len(),
         DialogKind::Macros => macros.len(),
+        DialogKind::Runs => runs.list.len(),
     };
     let r = card(d.kind, rows, w, h);
     c.hit(Hit::DlgCard, r);
@@ -1289,6 +1326,142 @@ pub fn draw_dialog(
                 );
             }
         }
+        DialogKind::Runs => {
+            title(c, r, "AI runs");
+            let list = list_rect(r, footer);
+            d.list = list;
+            d.view = list.h;
+            d.content = runs.list.len() as f32 * RUN_ROW + 8.0;
+            d.scroll = d.scroll.clamp(0.0, (d.content - d.view).max(0.0));
+            if runs.list.is_empty() {
+                c.p.text_center(
+                    Face::Ui,
+                    13.5,
+                    Rect::new(list.x, list.y + 30.0, list.w, 24.0),
+                    "No run has written notes yet.",
+                    pal.faint,
+                );
+            }
+            runs.sel = runs.sel.min(runs.list.len().saturating_sub(1));
+            let old = c.p.clip(list);
+            for (i, run) in runs.list.iter().enumerate() {
+                let y = list.y + i as f32 * RUN_ROW - d.scroll;
+                if y + RUN_ROW < list.y || y > list.bottom() {
+                    continue;
+                }
+                let row = Rect::new(list.x + 8.0, y + 2.0, list.w - 16.0, RUN_ROW - 4.0);
+                if i == runs.sel {
+                    c.p.rbox(row, 6.0, pal.selection);
+                } else if hover_row == Some(i) {
+                    c.p.rbox(row, 6.0, mix(pal.popup, pal.text, 0.05));
+                }
+                c.hit(Hit::DlgOpen(i), row);
+                c.p.icon(glyph::MACRO, 15.0, row.x + 20.0, row.cy(), pal.accent);
+                let tx = row.x + 40.0;
+                let tw = (row.w - 52.0).max(0.0);
+                let first = format!(
+                    "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
+                    "Split",
+                    run.record.source_name(),
+                    run.record.group_name(),
+                    if run.record.notes.len() == 1 {
+                        "1 note".to_string()
+                    } else {
+                        format!("{} notes", run.record.notes.len())
+                    }
+                );
+                c.p.text(Face::Ui, 13.5, tx, row.y + 15.0, &first, pal.text, tw);
+                let second = format!(
+                    "{} \u{00B7} {}",
+                    when(&run.record.started),
+                    state_label(run.record.state)
+                );
+                c.p.text(
+                    Face::Ui,
+                    11.5,
+                    tx,
+                    row.y + 33.0,
+                    &second,
+                    if i == runs.sel { pal.text } else { pal.faint },
+                    tw,
+                );
+            }
+            c.p.restore(old);
+            dialog_scrollbar(c, d);
+            let mut x = r.right() - PAD;
+            let close = strings::RECENT_DONE;
+            let bw = dialog_button_w(c.p, close);
+            x -= bw;
+            button(
+                c,
+                Rect::new(x, by, bw, 32.0),
+                Hit::DlgButton(0),
+                close,
+                false,
+            );
+            if let Some(run) = runs.list.get(runs.sel) {
+                let finish = matches!(
+                    run.record.state,
+                    mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
+                );
+                let undo = run.record.state.live();
+                let mut items: Vec<(&str, Hit, bool)> = Vec::new();
+                items.push(("Show the notes", Hit::DlgRunShow, true));
+                items.push(("Undo this run\u{2026}", Hit::DlgRunUndo, undo));
+                if finish {
+                    items.push(("Finish", Hit::DlgRunFinish, true));
+                }
+                for (label, hit, enabled) in items.into_iter().rev() {
+                    let w = dialog_button_w(c.p, label);
+                    x -= w + 8.0;
+                    if enabled {
+                        button(c, Rect::new(x, by, w, 32.0), hit, label, false);
+                    } else {
+                        let b = Rect::new(x, by, w, 32.0);
+                        let pal = *c.pal;
+                        c.p.frame(b, 6.0, pal.field, pal.line);
+                        c.p.text_center(Face::Ui, 12.5, b, label, pal.faint);
+                    }
+                }
+            }
+        }
+        DialogKind::RunUndo => {
+            title(c, r, "Undo this run?");
+            let (body, can) = runs
+                .undo
+                .as_ref()
+                .map(|(_, sentence, can)| (sentence.clone(), *can))
+                .unwrap_or_default();
+            c.p.paragraph(
+                Face::Ui,
+                13.5,
+                r.x + PAD,
+                r.y + PAD + 40.0,
+                r.w - 2.0 * PAD,
+                &body,
+                pal.text,
+            );
+            let mut x = r.right() - PAD;
+            // A refused undo has nothing to answer: Close is the only button.
+            let labels: [(&str, bool); 2] = if can {
+                [("Cancel", false), ("Undo", true)]
+            } else {
+                [("Close", true), ("", true)]
+            };
+            let count = if can { 2 } else { 1 };
+            for (n, (label, primary)) in labels.iter().enumerate().take(count).rev() {
+                let bw = dialog_button_w(c.p, label);
+                x -= bw;
+                button(
+                    c,
+                    Rect::new(x, by, bw, 32.0),
+                    Hit::DlgButton(if can { n } else { 0 }),
+                    label,
+                    *primary,
+                );
+                x -= 8.0;
+            }
+        }
     }
 }
 
@@ -1306,12 +1479,40 @@ pub fn dialog_row_at(d: &Dialog, x: f32, y: f32) -> Option<usize> {
     let row = match d.kind {
         DialogKind::Recent => RECENT_ROW,
         DialogKind::Macros => MACRO_ROW,
+        DialogKind::Runs => RUN_ROW,
         _ => return None,
     };
     if !d.list.contains(x, y) {
         return None;
     }
     Some(((y - d.list.y + d.scroll) / row).floor() as usize)
+}
+
+/// The height of one row of "AI runs…": two lines.
+pub const RUN_ROW: f32 = 48.0;
+
+/// A run's time as its row says it: "today 14:03", or the day and the time.
+fn when(started: &str) -> String {
+    let date = started.get(..10).unwrap_or(started);
+    let time = started.get(11..16).unwrap_or("");
+    let today = mdedit_core::runs::utc(mdshared_ui::stale::today() * 86_400);
+    if today.get(..10) == Some(date) {
+        format!("today {time}")
+    } else {
+        format!("{date} {time}")
+    }
+}
+
+/// A run's state as its row says it (5.9).
+fn state_label(state: mdedit_core::runs::State) -> &'static str {
+    use mdedit_core::runs::State;
+    match state {
+        State::Writing => "writing",
+        State::LinksPending => "links pending",
+        State::Done => "done",
+        State::Stopped => "stopped part-way",
+        State::Undone => "undone",
+    }
 }
 
 // ---- empty state -----------------------------------------------------------------------------

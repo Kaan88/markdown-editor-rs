@@ -73,6 +73,11 @@ pub enum ShotDialog {
     Recent,
     /// The "Save changes?" question for the active file.
     Unsaved,
+    /// "AI runs…", the question before undoing a run, and the question when the run's source is
+    /// in the Recycle Bin, with runs that were put there for the shot.
+    Runs,
+    RunUndo,
+    RunUndoRecycled,
 }
 
 /// A line and column as the user types them: 1-based, `12` or `12:5`.
@@ -214,6 +219,9 @@ pub struct Args {
     /// `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small`:
     /// the plan screen for a shot, made from a document built in the program.
     pub plan_demo: Option<String>,
+    /// `--plan-parked`: the notes pane open, with a demonstration plan ticked and left behind, for
+    /// a shot of "Plan ready".
+    pub plan_parked: bool,
     /// `--compare A B`: open both files, side by side, compared.
     pub compare: Option<(PathBuf, PathBuf)>,
     /// Compare the active document with its file on disk (for a shot: with `--type`).
@@ -387,6 +395,7 @@ impl Args {
                 "--palette" => out.palette = value(&a),
                 "--ai-demo" => out.ai_demo = value(&a),
                 "--plan-demo" => out.plan_demo = value(&a),
+                "--plan-parked" => out.plan_parked = true,
                 "--compare" => {
                     let pair = (value(&a), value(&a));
                     if let (Some(x), Some(y)) = pair {
@@ -530,6 +539,9 @@ impl Args {
                         "macros" => Some(ShotDialog::Macros),
                         "settings" => Some(ShotDialog::Settings),
                         "unsaved" => Some(ShotDialog::Unsaved),
+                        "runs" => Some(ShotDialog::Runs),
+                        "run-undo" => Some(ShotDialog::RunUndo),
+                        "run-undo-recycled" => Some(ShotDialog::RunUndoRecycled),
                         _ => None,
                     })
                 }

@@ -419,6 +419,8 @@ pub struct Source {
     pub name: String,
     pub lines: usize,
     pub bytes: usize,
+    /// The file the document was read from. `None` for a plan a demonstration made.
+    pub path: Option<PathBuf>,
     /// "Windows-1254, written as UTF-8", when the file was not UTF-8.
     pub encoding: Option<String>,
 }
@@ -427,6 +429,8 @@ pub struct Source {
 pub struct Init<'a> {
     pub doc: &'a Buffer,
     pub name: &'a str,
+    /// The file on disk the notes are made from; `None` for a demonstration.
+    pub path: Option<&'a Path>,
     pub headings: &'a [Heading],
     /// The level to cut at; `None` for the shallowest that occurs at least twice.
     pub level: Option<u8>,
@@ -628,6 +632,7 @@ impl PlanScreen {
                 name: init.name.to_string(),
                 lines: plan.lines(),
                 bytes: plan.document_bytes(),
+                path: init.path.map(Path::to_path_buf),
                 encoding: init.encoding,
             },
             plan,
@@ -913,6 +918,11 @@ impl PlanScreen {
         }
         s.push(sep);
         s
+    }
+
+    /// The library folder the plan writes into.
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     /// Why "Write the notes" is disabled, or `None` when it can be pressed.
@@ -1591,6 +1601,7 @@ mod tests {
         PlanScreen::new(Init {
             doc: &doc,
             name: "Doc.md",
+            path: None,
             headings: &h,
             level,
             encoding: None,

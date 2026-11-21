@@ -398,3 +398,40 @@ ticked would make a tick look like an edit of the document; and the blank lines 
 trimmed of are not something to read as left out.
 **Overturned by.** The owner, looking at the shots; the shared button once it matches.
 **From.** The plan-screen task of 2026-11-21.
+
+## D-061 - 2026-11-21 - The write, the record and undo
+
+**Decision.** (1) The record is `<library>/.runs/<UTC time>-split.json` (colons written as
+hyphens, since Windows forbids them in a name) with `<same name>.done` beside it, and its text is
+written and read by a small reader and writer in `mdedit_core::runs` with a depth bound, so that no
+dependency is added and no file can end the process. It adds two keys to 4.4's example: the
+group's `name` (the file's stem is not always the name) and `sections_added`, the section paths
+the run wrote into the library file, so undo can take a heading out when nothing is under it.
+(2) A note's text and the same note recomposed from the source's lines are both kept in the plan
+and compared at 4.3's step 5; a writer that wrote anything else is caught there. (3) A note whose
+name is taken is offered as "already there" only when the bytes are identical (3.9), and
+otherwise numbered before the write, so `create_new` never has to refuse a name the plan chose
+unless someone wrote to it in between. (4) Library file limits are checked before the write: the
+group's file is refused at 64 library files, and its links at `MAX_ENTRIES` (2,000). (5) Undo's
+question counts notes, pictures, lines and folders separately, in the words of 5.9, and a refusal
+(the source not back from the Recycle Bin, or a run already undone) opens the same dialog with
+Close as its only button. (6) A demonstration of the plan screen is refused with "A demonstration
+of the plan screen: it writes nothing." rather than by a flag somewhere else.
+**Why.** (1) 4.4 names the folder and the shape; the two keys are what this program needs to undo
+a heading it wrote and to name a group whose file was renamed. (2) 4.3 step 5 asks for a
+comparison with the lines it was made from, which is not the bytes written; both are in the plan,
+so the check can fail. (5) A question with an Undo button that must not be pressed is a trap;
+4.5's refusal is a sentence, and the dialog is where a sentence is read.
+**Overturned by.** The owner, looking at the shots; 4.4 adopting the two keys; phase T, which
+changes what undo does to a file (the Recycle Bin) but not which files it may touch.
+**From.** The writer task of 2026-11-21 (`ai-library-plan.md` 4.1, 4.3, 4.4, 4.5, 5.9, 6.2, 6.3).
+
+## D-062 - 2026-11-21 - The notes pane's status row
+
+**Decision.** The "Plan ready: N notes � Show � Drop" row is one `pane::ROW_H` high at the foot
+of the Notes pane, drawn by `library_pane::draw` from the plan `App` parked, and its state (the
+count, and whether a plan is kept) is part of the Files region's signature in `region_sig`.
+**Why.** 5.3 and 5.10 put it there; a drawn region that is not in the signature is never
+repainted, and the row is the only sign a parked plan exists.
+**Overturned by.** 5.10's fuller set of states, when a run can be going.
+**From.** The writer task of 2026-11-21.

@@ -31,6 +31,7 @@ pub mod prefs;
 pub mod recovery;
 pub mod replace;
 pub mod replace_files;
+pub mod runs;
 pub mod save;
 pub mod search;
 pub mod selection;

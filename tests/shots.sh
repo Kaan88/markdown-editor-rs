@@ -330,4 +330,21 @@ for t in "" "-dark"; do
     shot "plan-split-small$t" $th --size 800x600 --plan-demo split-small
 done
 
+# "AI runs…" (5.9): the list, the question before undoing a run, and the question when the run's
+# source is in the Recycle Bin (that one is never a question: it says what to put back).
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "runs$t" $th --dialog runs
+    shot "runs-undo$t" $th --dialog run-undo
+    shot "runs-undo-recycled$t" $th --dialog run-undo-recycled
+done
+
+# The "Plan ready" row at the foot of the Notes pane (5.3): a plan Escape kept, with Show and Drop.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "plan-ready$t" $th --plan-demo split --plan-parked
+done
+
 ls "$out" | wc -l

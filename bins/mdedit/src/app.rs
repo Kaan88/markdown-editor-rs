@@ -93,6 +93,9 @@ mod palette_events;
 mod plan;
 #[cfg(test)]
 mod plan_tests;
+mod plan_write;
+#[cfg(test)]
+mod plan_write_tests;
 mod preview;
 mod visual;
 pub(crate) use preview::previewable;
@@ -987,6 +990,8 @@ impl App {
                     drag,
                     name,
                     (ui.library.cur, ui.library.focused),
+                    // The "Plan ready" row at the foot: its count, and whether a plan is kept.
+                    self.plan_parked.as_ref().map(|p| p.plan.notes().len()),
                 ))
             }
             Region::Files => {
@@ -1537,7 +1542,8 @@ impl App {
                         crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect)
                     }
                     Region::Files if self.ui.library.on => {
-                        crate::library_pane::draw(&mut c, &self.docs, &mut self.ui, rect)
+                        let ready = self.plan_parked.as_ref().map(|p| p.plan.notes().len());
+                        crate::library_pane::draw(&mut c, &self.docs, &mut self.ui, rect, ready)
                     }
                     Region::Files => panes::draw_files(&mut c, &self.docs, &mut self.ui, rect),
                     Region::Text => match self.docs.active() {
@@ -1750,6 +1756,7 @@ impl App {
                             &mut c,
                             &self.docs,
                             &self.macros.named,
+                            &mut self.ui.runs,
                             d,
                             w,
                             h,
@@ -3428,6 +3435,10 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 app.ask(DialogKind::Unsaved, id, After::Nothing);
             }
         }
+        Some(ShotDialog::Runs | ShotDialog::RunUndo | ShotDialog::RunUndoRecycled) => {
+            let which = app.args.dialog;
+            app.runs_demo(which);
+        }
         None => {}
     }
     if let Some(q) = app.args.palette.clone() {
@@ -3440,6 +3451,15 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     if let Some(kind) = app.args.plan_demo.clone() {
         app.plan_demo(&kind);
+    }
+    // A plan a demonstration opened, ticked and left: the Notes pane's "Plan ready" row (5.3).
+    if app.args.plan_parked && app.plan_is_open() {
+        use crate::keys::{Key, KeyName};
+        app.command(crate::commands::CommandId::ToggleLibraryPane);
+        app.key_pressed(Key::Name(KeyName::Space), None);
+        app.key_pressed(Key::Name(KeyName::Escape), None);
+        // The pane opened after the first frame: every region is painted again for the shot.
+        app.sigs = [0; 10];
     }
     if app.ui.dialog.is_some() || app.ui.popup.is_some() || app.palette_open() || app.plan_is_open()
     {

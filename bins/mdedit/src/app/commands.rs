@@ -144,6 +144,41 @@ impl App {
             Hit::ResultsClose => self.ui.results.close(),
             Hit::ResultsReplaceAll => self.replace_all_in_files(),
             Hit::ResultsUndo => self.replace_undo(),
+            Hit::LibraryPlanShow => {
+                self.plan_show();
+            }
+            Hit::LibraryPlanDrop => self.plan_drop(),
+            Hit::ResultsUndoRun => {
+                if let Some(path) = self
+                    .ui
+                    .results
+                    .replace
+                    .outcome
+                    .as_ref()
+                    .and_then(|o| o.run.clone())
+                {
+                    self.run_undo_ask(path);
+                }
+            }
+            Hit::DlgRunShow => {
+                if let Some(run) = self.ui.runs.list.get(self.ui.runs.sel) {
+                    let path = run.path.clone();
+                    self.run_show(&path);
+                }
+            }
+            Hit::DlgRunUndo => {
+                if let Some(run) = self.ui.runs.list.get(self.ui.runs.sel) {
+                    let path = run.path.clone();
+                    self.run_undo_ask(path);
+                }
+            }
+            Hit::DlgRunFinish => {
+                if let Some(run) = self.ui.runs.list.get(self.ui.runs.sel) {
+                    let path = run.path.clone();
+                    self.run_finish(path);
+                    self.open_runs();
+                }
+            }
             Hit::ResultsCancel => self.ui.results.replace.cancel(),
             Hit::EmptyOpen => self.command(C::OpenFiles),
             Hit::EmptyRecent(i) => {
@@ -154,6 +189,18 @@ impl App {
             Hit::DlgButton(n) => match self.ui.dialog.as_ref().map(|d| d.kind) {
                 Some(kind) if kind.is_confirm() => self.answer(n),
                 Some(DialogKind::ReplaceFiles) => self.replace_dialog_button(n),
+                Some(DialogKind::Runs) if n == 0 => self.close_dialog(),
+                Some(DialogKind::RunUndo) if n == 0 => {
+                    let ask = self.ui.runs.undo.clone();
+                    match ask {
+                        Some((path, _, true)) => {
+                            self.run_undo(path);
+                            self.open_runs();
+                        }
+                        // Refused: the only button closes the question.
+                        _ => self.close_dialog(),
+                    }
+                }
                 Some(DialogKind::Recent) if n == 1 => self.docs.recents.clear(),
                 Some(DialogKind::Macros) if n == 1 => self.macros.delete_all_saved(),
                 Some(DialogKind::About) if n == 1 => {
@@ -172,6 +219,11 @@ impl App {
                 }
                 _ => self.close_dialog(),
             },
+            Hit::DlgOpen(i)
+                if self.ui.dialog.as_ref().map(|d| d.kind) == Some(DialogKind::Runs) =>
+            {
+                self.ui.runs.sel = i;
+            }
             Hit::DlgOpen(i)
                 if self.ui.dialog.as_ref().map(|d| d.kind) == Some(DialogKind::ReplaceFiles) =>
             {
@@ -1962,6 +2014,10 @@ impl App {
             C::AiSettings => self.ai_open_settings(),
             C::AiCancel => self.ai_cancel(),
             C::AiShowResult => self.ai_show_kept(),
+            C::SplitIntoNotes => {
+                self.plan_open_active();
+            }
+            C::AiRuns => self.open_runs(),
             C::Language => self.open_languages(),
             C::Library => self.library_open(),
             C::LibraryAdd => self.library_add(),

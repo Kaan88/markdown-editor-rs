@@ -1445,7 +1445,32 @@ impl App {
                 return;
             }
             match name {
-                Some(KeyName::Escape | KeyName::Enter) => self.close_dialog(),
+                Some(KeyName::Escape) => self.close_dialog(),
+                Some(KeyName::Enter) if kind == DialogKind::Runs => {
+                    if let Some(run) = self.ui.runs.list.get(self.ui.runs.sel) {
+                        let path = run.path.clone();
+                        self.run_show(&path);
+                    }
+                }
+                Some(KeyName::Enter) if kind == DialogKind::RunUndo => {
+                    match self.ui.runs.undo.clone() {
+                        Some((path, _, true)) => {
+                            self.run_undo(path);
+                            self.open_runs();
+                        }
+                        _ => self.close_dialog(),
+                    }
+                }
+                Some(KeyName::Up | KeyName::Down) if kind == DialogKind::Runs => {
+                    let down = name == Some(KeyName::Down);
+                    let last = self.ui.runs.list.len().saturating_sub(1);
+                    self.ui.runs.sel = if down {
+                        (self.ui.runs.sel + 1).min(last)
+                    } else {
+                        self.ui.runs.sel.saturating_sub(1)
+                    };
+                }
+                Some(KeyName::Enter) => self.close_dialog(),
                 Some(KeyName::Up) => self.set_scroll(Scroller::Dialog, scroll - 40.0),
                 Some(KeyName::Down) => self.set_scroll(Scroller::Dialog, scroll + 40.0),
                 Some(KeyName::PageUp) => self.set_scroll(Scroller::Dialog, scroll - 300.0),

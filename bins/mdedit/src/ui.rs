@@ -252,6 +252,8 @@ pub enum Hit {
     ResultsKinds,
     ResultsReplaceAll,
     ResultsUndo,
+    /// "Undo this run" on the report of a plan's write.
+    ResultsUndoRun,
     ResultsCancel,
     /// A row of the function list in the left pane.
     OutlineRow(usize),
@@ -264,6 +266,9 @@ pub enum Hit {
     /// The two buttons of the pane's empty library: a new group, and the open file.
     LibraryNewGroup,
     LibraryAddOpen,
+    /// The Notes pane's "Plan ready" row: the plan Escape kept comes back, or is dropped.
+    LibraryPlanShow,
+    LibraryPlanDrop,
     /// The head's switches: what the left pane shows.
     PaneFace(PaneFace),
     FilesRow(usize),
@@ -297,6 +302,10 @@ pub enum Hit {
     DlgOpen(usize),
     DlgRemove(usize),
     DlgCard,
+    /// "AI runs…": the buttons of the selected run.
+    DlgRunShow,
+    DlgRunUndo,
+    DlgRunFinish,
     Backdrop,
     /// The second text pane of a split view: a click gives it the keyboard.
     Other,
@@ -346,6 +355,7 @@ impl Hit {
             | Hit::ResultsKinds
             | Hit::ResultsReplaceAll
             | Hit::ResultsUndo
+            | Hit::ResultsUndoRun
             | Hit::ResultsCancel
             | Hit::ScrollBar(Scroller::Results) => Region::Results,
             Hit::FilesRow(_)
@@ -355,6 +365,8 @@ impl Hit {
             | Hit::LibraryAdd
             | Hit::LibraryNewGroup
             | Hit::LibraryAddOpen
+            | Hit::LibraryPlanShow
+            | Hit::LibraryPlanDrop
             | Hit::PaneFace(_)
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
@@ -688,6 +700,10 @@ pub enum DialogKind {
     LibraryRemove,
     /// A library file is about to be deleted; the notes it lists stay where they are.
     LibraryDelete,
+    /// "AI runs…": the records of the runs that wrote notes.
+    Runs,
+    /// The question before undoing one of them.
+    RunUndo,
 }
 
 impl DialogKind {
@@ -853,6 +869,17 @@ pub fn new_tree() -> FileTree {
     })
 }
 
+/// "AI runs…": the records read when the dialog opened, the row chosen, and the undo question
+/// that is in front of it.
+#[derive(Default)]
+pub struct RunsDialog {
+    pub list: Vec<mdedit_core::runs::Run>,
+    pub sel: usize,
+    /// The run whose undo is being asked about: its record, the question's sentence, and whether
+    /// the undo can run at all (a refusal says what to put back first).
+    pub undo: Option<(PathBuf, String, bool)>,
+}
+
 pub struct Ui {
     pub panes: Panes,
     /// What "Find in files" found, in the panel under the text.
@@ -860,6 +887,8 @@ pub struct Ui {
     /// The function list, shown in the left pane in the Files tree's place.
     pub outline: crate::outline::Outline,
     pub library: crate::library_pane::LibraryPane,
+    /// "AI runs…".
+    pub runs: RunsDialog,
     pub tree: FileTree,
     pub find: TextField,
     /// A box of the bar has the keyboard; `field` says which.
@@ -975,6 +1004,7 @@ impl Ui {
             results: Default::default(),
             outline: Default::default(),
             library: Default::default(),
+            runs: RunsDialog::default(),
             replace: TextField::new(),
             replace_open: false,
             goto: TextField::new(),

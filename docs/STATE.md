@@ -38,17 +38,26 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 - **One tick box and one switch**: the Replace-in-files confirmation draws its ticks with the
   shared `mdshared-ui` `check`, and the AI review its Changes / Preview switch with `segments`;
   a screen test pins each to the pixels the private drawing made.
-- mdedit is at 558 tests (the app's own unit tests; 1196 in the workspace).
+- mdedit is at 592 tests (the app's own unit tests; 1274 in the workspace).
 
 ## In hand
 
-- **The plan screen** (`ai-library-plan.md` 5.3), committed on `main` and not pushed: the card
-  that shows a proposed set of notes, built on `mdedit_core::split`, with no AI in it. It opens
-  from `--plan-demo <name>` (eight shots in `tests/shots.sh`) and from `App::plan_open_active`,
-  which no menu or command calls yet. It writes nothing: "Write the notes" only counts that it
-  was pressed. Not built: the Recycle Bin box, "Ask the AI…", the list's per-source headings,
-  the status row's "Plan ready · Show · Drop" (`plan_show` and `plan_drop` exist, nothing draws
-  them), and `replace_ui::draw_confirm` is not converted. Next: the writer, the record and undo.
+- **The plan screen** (`ai-library-plan.md` 5.3), of which the writer, the record and undo are in
+  (**no release yet**, `main`): the card that shows a proposed set of notes, built on
+  `mdedit_core::split`, with no AI in it. It opens from `Split into notes…` — the tab's menu, the
+  palette, the AI menu and the Notes library submenu, on the document in front, disabled with
+  "Save {name} first: the notes are made from the file on disk." until that document has a file
+  and no unsaved changes — and from `--plan-demo <name>` (eight shots). "Write the notes" writes:
+  `mdedit_core::runs` makes the folders, the notes and the group's library file in the order of
+  4.3, writes one record per run in `<library>/.runs`, and every library file is updated through
+  the window's own `library_attempt` gate. The report takes the results panel with "Undo this
+  run", and `Undo` asks first, takes out the links, then only the files whose SHA-256 is the one
+  recorded, then the group's file when only its heading is left, then the folders while they are
+  empty; a record is marked "undone" and stays. "AI runs…" (the AI menu and the Notes library
+  menu) lists the records of the runs, with Show the notes, Undo this run and Finish. The Notes
+  pane draws "Plan ready: N notes · Show · Drop" at its foot while a plan is parked. Not built:
+  the Recycle Bin (step 8, phase T), the progress row "Writing… 14 of 23" with Cancel, "Ask the
+  AI…", the list's per-source headings, and `replace_ui::draw_confirm` is not converted.
 - **Mockups** of three AI screens (the split plan, the rewrite review with ticks, the AI task
   window): branch `mock/ai-review`, worktree `..\mdedit-mock`, behind `--mock`, shots in
   `shots\mock\`. A drawing, not an implementation. Not to be merged.

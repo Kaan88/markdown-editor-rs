@@ -436,6 +436,8 @@ fn icon(id: C) -> &'static str {
         C::AiSettings => glyph::SLIDERS,
         C::AiCancel => glyph::STOP,
         C::AiShowResult => crate::chrome::SPARKLE,
+        C::SplitIntoNotes => glyph::SPLIT,
+        C::AiRuns => glyph::MACRO,
         C::Language => glyph::CODE,
         C::Library | C::LibraryAdd | C::ShowInLibrary => glyph::BOOKMARK,
         C::LibraryEdit => glyph::DOC,
@@ -444,6 +446,15 @@ fn icon(id: C) -> &'static str {
 }
 
 /// Whether a command can run now, by the conditions the menus grey their items by.
+/// Why "Split into notes…" cannot run on the document in front, in the words the command uses;
+/// `None` when it can.
+pub fn split_reason(docs: &Docs) -> Option<String> {
+    let doc = docs.active_doc()?;
+    let name = doc.name();
+    (doc.path.is_none() || doc.modified())
+        .then(|| format!("Save {name} first: the notes are made from the file on disk."))
+}
+
 pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
     let ready = docs.active_ready();
     let has_tab = docs.active().is_some();
@@ -519,6 +530,8 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::AiFormat | C::AiFix | C::AiRewrite => ready.is_some() && docs.ai_status.is_none(),
         C::AiCancel => docs.ai_status.is_some(),
         C::AiShowResult => docs.ai_kept,
+        C::SplitIntoNotes => has_file && docs.active_doc().is_some_and(|d| !d.modified()),
+        C::AiRuns => true,
         C::Language => ready.is_some(),
         C::LibraryAdd => has_file,
         C::ShowInLibrary => docs
@@ -579,9 +592,13 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
             continue;
         }
         let on = enabled(c.id, src.docs, src.ui, src.macro_idle);
+        let hint = match (c.id, on) {
+            (C::SplitIntoNotes, false) => split_reason(src.docs).unwrap_or_default(),
+            _ => hint(c.id).to_string(),
+        };
         push(&mut entries, &mut targets, Target::Cmd(c.id), |id| {
             Entry::new(id, c.label)
-                .hint(hint(c.id))
+                .hint(hint.as_str())
                 .icon(icon(c.id))
                 .group(G_PLAIN)
                 .enabled(on)

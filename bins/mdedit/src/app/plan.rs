@@ -37,7 +37,6 @@ impl App {
 
     /// "Split into notes…" on the document in front: the plan, cut at its headings. The document
     /// must have a file and no unsaved changes, because the notes are made from the file on disk.
-    #[allow(dead_code)] // the Split into notes command calls it; it is not in a menu yet
     pub(super) fn plan_open_active(&mut self) -> bool {
         let Some(doc) = self.docs.active_doc() else {
             return false;
@@ -84,6 +83,7 @@ impl App {
         let mut screen = PlanScreen::new(Init {
             doc: &buffer,
             name: &name,
+            path: doc.path.as_deref(),
             headings: &headings,
             level: None,
             encoding,
@@ -100,7 +100,6 @@ impl App {
     /// Why nothing can be written to the group the plan names: its library file is open with
     /// changes not saved, or its folder is a file or cannot be written. Nothing is created to find
     /// out.
-    #[allow(dead_code)] // used by `plan_open_active`
     fn plan_blocked(&self, screen: &PlanScreen) -> Option<String> {
         let home = &screen.dest.home;
         if home.exists() && !home.is_dir() {
@@ -135,7 +134,6 @@ impl App {
     }
 
     /// "Show" on a plan that Escape kept: the same plan, as it was left.
-    #[allow(dead_code)] // the Notes pane's "Plan ready" row calls it
     pub(super) fn plan_show(&mut self) -> bool {
         match self.plan_parked.take() {
             Some(screen) => {
@@ -147,7 +145,6 @@ impl App {
     }
 
     /// "Drop" on a plan that Escape kept.
-    #[allow(dead_code)] // the Notes pane's "Plan ready" row calls it
     pub(super) fn plan_drop(&mut self) {
         self.plan_parked = None;
         self.redraw();
@@ -156,7 +153,8 @@ impl App {
     fn plan_act(&mut self, act: Act) {
         match act {
             Act::Close => self.plan_close(),
-            Act::Write | Act::Nothing => {}
+            Act::Write => self.plan_write(),
+            Act::Nothing => {}
         }
         self.redraw();
     }
@@ -225,10 +223,14 @@ impl App {
             .is_some_and(|e| e.field.set_preedit(pre))
     }
 
-    /// `--plan-demo NAME`: a plan for a shot, made from a document built in the program.
+    /// `--plan-demo NAME`: a plan for a shot, made from a document built in the program. A
+    /// demonstration writes nothing: its library folder is a name in the working folder, which is
+    /// not where the program writes.
     pub(super) fn plan_demo(&mut self, name: &str) -> bool {
         match crate::plan_demo::screen(name) {
-            Some(screen) => {
+            Some(mut screen) => {
+                screen.blocked =
+                    Some("A demonstration of the plan screen: it writes nothing.".to_string());
                 self.plan_open(screen);
                 true
             }

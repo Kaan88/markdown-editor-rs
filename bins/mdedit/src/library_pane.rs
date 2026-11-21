@@ -770,13 +770,19 @@ pub fn list(r: Rect) -> Rect {
     Rect::new(r.x, ry, r.w, (r.bottom() - ry).max(0.0))
 }
 
-pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, plan_ready: Option<usize>) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
     crate::panes::draw_pane_head(c, ui, r);
 
     let dragging = matches!(ui.drag, Some(Drag::Splitter { .. }));
-    let area = list(r);
+    let mut area = list(r);
+    // The "Plan ready" row at the foot, one row high, only while there is a plan to come back to.
+    let foot = plan_ready.map(|_| Rect::new(r.x, r.bottom() - ROW_H, r.w, ROW_H));
+    if let Some(foot) = foot {
+        area.h = (area.h - ROW_H).max(0.0);
+        let _ = foot;
+    }
     let active = docs.active_doc().and_then(|d| d.path.clone());
     let focused = ui.find_focused && ui.field == BarField::Library;
     let caret_on = ui.caret_on;
@@ -935,6 +941,48 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         c.hit(thumb_hit, track);
     }
     crate::panes::edge(c, r, dragging);
+    if let Some(n) = plan_ready {
+        let foot = Rect::new(r.x, r.bottom() - ROW_H, r.w, ROW_H);
+        c.p.fill(Rect::new(foot.x, foot.y, foot.w, c.p.px()), pal.popup_line);
+        let label = format!(
+            "Plan ready: {}",
+            if n == 1 {
+                "1 note".to_string()
+            } else {
+                format!("{n} notes")
+            }
+        );
+        let mut x = r.x + 14.0;
+        let max = (foot.w - 28.0).max(0.0);
+        let ty = foot.y + 8.0;
+        let w = c.p.text(Face::Ui, 12.0, x, ty, &label, pal.text, max);
+        x += w + 6.0;
+        for (label, hit, gap) in [
+            ("\u{00B7}", None, 6.0),
+            ("Show", Some(Hit::LibraryPlanShow), 12.0),
+            ("\u{00B7}", None, 6.0),
+            ("Drop", Some(Hit::LibraryPlanDrop), 0.0),
+        ] {
+            if x > r.right() - 8.0 {
+                break;
+            }
+            match hit {
+                Some(hit) => {
+                    let tw = c.p.measure(Face::Ui, 12.0, label) + 8.0;
+                    let b = Rect::new(x, foot.y + 3.0, tw, 20.0);
+                    if c.hover == Some(hit) {
+                        c.p.rbox(b, 4.0, pal.hover);
+                    }
+                    c.p.text(Face::Ui, 12.0, x + 4.0, ty, label, pal.accent, tw);
+                    c.hit(hit, b);
+                    x += tw + gap;
+                }
+                None => {
+                    x += c.p.text(Face::Ui, 12.0, x, ty, label, pal.faint, 20.0) + gap;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -77,10 +77,11 @@ impl App {
     }
 
     /// Shows a report in the panel and brings the open tabs up to date with the files.
-    fn show_outcome(&mut self, outcome: Outcome) {
+    pub(super) fn show_outcome(&mut self, outcome: Outcome) {
         let res = &mut self.ui.results;
         res.replace.outcome = Some(outcome);
         res.replace.generation += 1;
+        res.open = true;
         res.scroll = 0.0;
         res.selected = None;
         res.generation += 1;
