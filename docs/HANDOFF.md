@@ -67,14 +67,42 @@ face starts the outline worker on the first frame). Under 100 ms and under 30 Mi
 outlier of 291.8 ms in the "before, no pane" set was a cold run and is in the min-max only.
 Not measured: macOS, Linux, keystroke and scroll timings.
 
-**Next: phase 2** (the four context menus on the new shared writers, inline rename, "Move to…",
-"Find the file…") plus the library-folder setting, which phase 1 left out: the folder is still
-hardwired to `library/` beside `settings.ini`. The shared writers are in already —
-`mdshared-app` `fada09b`: `remove_note`, `rename_note`, `set_note_path`, `rename_section`,
-`add_section`, `remove_section`, `set_group_name`, `new_group`, `move_note`, all text-in/text-out
-so the app keeps re-parsing before it writes, with per-line fence classification that also fixed
-`add_note` (a `##` or a `- note` inside a code fence no longer ends a section or counts as a
-note).
+**The shared writers** (`mdshared-app` `fada09b`, plus `section_line` in `1a35e26`):
+`remove_note`, `rename_note`, `set_note_path`, `rename_section`, `add_section`, `remove_section`,
+`set_group_name`, `new_group`, `move_note` — all text-in/text-out, so the app keeps re-parsing
+before it writes, with per-line fence classification that also fixed `add_note` (a `##` or a
+`- note` inside a code fence no longer ends a section or counts as a note). Each returns `None`
+when there is nothing to do or the line is not what it expects, and the app turns that into a
+quiet no-op.
+
+**Phase 2 (`3453a7a`).**
+- **Right-click menus** in the Notes pane: `overlays::library_row_menu` for a group, a section and
+  a note row (with "Find the file…" on a missing one) and `overlays::library_empty_menu` for the
+  space below the rows, which the head's `+` button now opens too. `PopupKind::LibraryRow(i)` and
+  `PopupKind::LibraryEmpty`; `right_press` moves the pane's row to the one under the pointer
+  first. No "Delete the file on disk" anywhere, per §9, and a test asserts no label says it.
+- **Every write goes through `library_write`** in the new `app/library_write.rs`: it refuses while
+  that library file is open and modified (toast), re-parses the new text and compares, writes with
+  `write_atomic`, then re-reads. A two-file move writes the **target first and the removal
+  second**, and the toast says the note is in both places if the removal fails, as §4(a) requires.
+- **Inline rename**, not a dialog: one `TextField` (`BarField::Library`, `Hit::LibraryField`) drawn
+  over the row, serving rename and new group / section / note. Enter commits, Esc drops, a click
+  elsewhere commits; it also goes when the pane changes face or the rows move.
+- **"Move to…" and "New note here…"** pick a heading through the palette (`Target::NoteMoveTo` in
+  the shape of `library_places`); "Go to its line in the library file" opens the file with the
+  caret on the note; "Remove the section?" is a `DialogKind::LibraryRemove` question that says how
+  many notes go with it and never touches the notes themselves.
+- **The library folder is a preference** (`library_dir` in `mdedit-core` prefs; empty means
+  `library/` beside `settings.ini`, a relative path is taken from the settings folder), with a
+  "Notes library" section in Settings and a Choose… button on the existing folder picker. A folder
+  that is not there behaves as an empty library; Edit then creates it. `library_dir_changed`
+  drops the old reading and re-reads while the pane shows.
+- 27 new tests in `app/library_write_tests.rs` plus one in `prefs.rs`; mdedit is at 464 tests.
+- Known gap: a note that goes missing on disk is marked at the next re-read or Refresh, not
+  continuously.
+
+**Next: phase 3** (keyboard in the pane, empty states with buttons, the folder shown per note,
+"Show this file in the notes library"), then phase 4, the AI import.
 
 ## "Leave out the tab you were last on too" (2026-11-21, on main)
 
