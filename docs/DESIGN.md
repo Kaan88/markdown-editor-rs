@@ -2440,3 +2440,58 @@ mode is the window's, not one file's: `bins/mdedit/src/app/visual.rs`.
   `a_file_the_page_cannot_show_leaves_a_pane_the_owner_had_open`,
   `visual_editing_follows_a_closed_tab`, `closing_the_last_tab_ends_visual_editing`) and
   `preview_pane::tests` (`a_block_answer_the_old_text_was_still_owed_is_dropped`).
+
+## 73. Check first, then write: the plan's guards (2026-11-21)
+
+Audit 3's D2 and A6, A7, A8, A11, C1, C2, C3, C5 and C7 (`docs/review-prompts/audit3-report.md`),
+against `docs/ai-library-plan.md` 4.3 and 6.2. The writer is still `mdedit_core::runs`; the checks
+are `bins/mdedit/src/app/plan_write.rs` (`plan_request`, `plan_preflight`, `plan_blocked`), and the
+screen (`plan_ui.rs`) and the window (`app/plan.rs`) carry what they need.
+
+- **Everything that can be refused is checked before the first byte, and the reason is the card's.**
+  `plan_preflight` refuses a library root that is empty or relative, a group's folder that is the
+  library folder, a note that would be a `.md` file directly in the library folder, a new group's
+  file name that is taken, the library's file cap and the group's note cap, a group's library file
+  open with unsaved changes, a source whose length or SHA-256 is not the one the plan was made
+  from, and a link insertion whose dry run (`with_links_added`, then `check_links_added`) would not
+  read back. `plan_blocked` is the same check, worked out when the screen opens, when the
+  destination changes and when a kept plan is shown; the footer draws it and disables the button,
+  and `plan_write` runs it again so a press that gets past the screen is still refused before
+  anything is written.
+- **The group's file is made before the notes.** `plan_write` makes it with `create_new` once the
+  checks pass, then runs `runs::write` with `group.created = false`, and closes the record again
+  with `created = true` when the run started: an empty group is a state one can live with, and
+  undo takes it away. What step 6 can still fail on is a race.
+- **C1, refused rather than fixed.** A note with no section cannot be linked into a group that
+  already has one: the shared `library::add_note` appends it at the end of the file, under the last
+  heading. The fix belongs in the shared crate (a variant beside `add_note`) and is not in this
+  change. The dry run refuses the plan before its notes are written, and the sentence says which
+  two things it is.
+- **C3 is the dry run too.** The shared reader strips a heading's trailing `#`, so `## C#` reads
+  back as `C`; the dry run catches it, and the refusal names it. A group called `C#` is caught by
+  the read-back check the preflight now makes on the text it would write.
+- **The destination carries its file.** `Dest` holds the group's library file, so two groups of one
+  name send the notes and the links to the file that was chosen; nothing is looked up by name
+  again. Two titles that differ only in case are compared with `mdshared_app::paths::same_path` and
+  the second gets `name 2.md` before either is written.
+- **The plan reads the library first.** `plan_open_active` loads the library, so every route into
+  the plan (the tab's menu, the palette, the AI menu, the Notes library submenu) has the groups it
+  already holds, and it refuses for want of a library folder. `open_runs` lists the records from
+  `library_dir()` and the undo paths resolve against it, so one record has one folder.
+- **A kept plan carries its source.** The length and SHA-256 of the file are taken when the plan is
+  made; showing it again after the document changed refuses with "… has changed since this plan was
+  made. Save it, then split it again." A document whose bytes are not text (`info.lossy`) is
+  refused where the plan opens, as Save As refuses it.
+- **A group's folder may not be the library folder.** Refused where the folder is picked, where a
+  `home:` line is read ("New note here…"), and by the plan's check: its notes would be `.md` files
+  the reader takes for library files.
+- **No session, no library.** `snippets_path` (and so `library_dir`, the snippets and the saved
+  prompts) is `None` unless there is a settings file: `--no-session` reads nothing of the owner's,
+  and `MDEDIT_SETTINGS` is the one file such a build reads, with its library beside it. The empty
+  path no longer passes the confinement check, because no plan is opened without a library folder.
+- Tests: `app::plan_write_tests`, one per fault above (the taken name, the destination changed to
+  an unsaved file, a sectionless note into a group with sections, both caps, a `C#` section, two
+  titles in one case, two groups of one name, a kept plan after a save, a lossy document, a plan
+  opened before any read, "AI runs…" before any read, and the group's file made before its notes).
+  The old test of step 6 failing was restaged on a `.tmp` file in the way, since a taken group name
+  no longer reaches the write.

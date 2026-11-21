@@ -197,6 +197,8 @@ fn split_into_notes_needs_the_file_on_disk_to_be_what_is_in_the_tab() {
     let path = dir.join("Trip.md");
     std::fs::write(&path, "# One\n\ntext\n\n# Two\n\nmore\n").expect("a file");
     let mut a = app();
+    // The window needs a settings folder, as a build does (rule 9): no session, no library.
+    a.session_path = Some(dir.join("settings.ini"));
     open_now(&mut a, &path);
     assert!(a.plan_open_active(), "a saved document opens a plan");
     {

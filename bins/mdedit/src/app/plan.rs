@@ -36,7 +36,9 @@ impl App {
     }
 
     /// "Split into notes…" on the document in front: the plan, cut at its headings. The document
-    /// must have a file and no unsaved changes, because the notes are made from the file on disk.
+    /// must have a file, no unsaved changes and text, because the notes are made from the file on
+    /// disk; and there must be a library folder to write them into. The library is read here, so
+    /// a plan opened from any menu knows the groups it already has (A6).
     pub(super) fn plan_open_active(&mut self) -> bool {
         let Some(doc) = self.docs.active_doc() else {
             return false;
@@ -51,13 +53,41 @@ impl App {
         let Some(ready) = doc.ready() else {
             return false;
         };
+        if ready.info.lossy {
+            // Plan 3.11: a file whose bytes are not text is refused, as Save As refuses it.
+            self.docs
+                .set_toast(&crate::commands::strings::split_lossy(&name));
+            return false;
+        }
         let buffer = ready.buffer.clone();
         let encoding = match ready.info.encoding {
             Encoding::Utf8 | Encoding::Utf8Bom => None,
             e => Some(format!("{}, written as UTF-8", e.label())),
         };
+        // The notes are cut from this file: its length and digest are kept with the plan, and a
+        // plan shown again after the file changed refuses to write (A8).
+        let path = doc.path.clone().unwrap_or_default();
+        let (len, sha256) = match std::fs::read(&path) {
+            Ok(bytes) => (bytes.len() as u64, mdshared_app::update::sha256_hex(&bytes)),
+            Err(e) => {
+                self.docs.set_toast(&format!(
+                    "{name} could not be read: {e}. The notes are made from the file on disk."
+                ));
+                return false;
+            }
+        };
+        // Where the notes go: no library folder, no plan. A window with no session has none
+        // (A11), and the empty path would make the confinement check void (A6).
+        let Some(root) = self
+            .library_dir()
+            .filter(|d| !d.as_os_str().is_empty() && d.is_absolute())
+        else {
+            self.docs
+                .set_toast(crate::commands::strings::LIBRARY_NO_FOLDER);
+            return false;
+        };
+        self.library_load();
         let headings = headings_of(&buffer);
-        let root = self.docs.library.dir.clone();
         let stem = std::path::Path::new(&name)
             .file_stem()
             .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned());
@@ -68,6 +98,7 @@ impl App {
             .iter()
             .map(|g| Dest {
                 name: g.name.clone(),
+                file: g.file.clone(),
                 home: g
                     .home
                     .clone()
@@ -83,7 +114,7 @@ impl App {
         let mut screen = PlanScreen::new(Init {
             doc: &buffer,
             name: &name,
-            path: doc.path.as_deref(),
+            path: Some(&path),
             headings: &headings,
             level: None,
             encoding,
@@ -92,34 +123,40 @@ impl App {
             root,
             reader: fs_reader(),
         });
+        screen.source.len = len;
+        screen.source.sha256 = sha256;
         screen.blocked = self.plan_blocked(&screen);
+        screen.blocked_for = Some(screen.dest.clone());
         self.plan_open(screen);
         true
     }
 
-    /// Why nothing can be written to the group the plan names: its library file is open with
-    /// changes not saved, or its folder is a file or cannot be written. Nothing is created to find
-    /// out.
+    /// Why nothing can be written to the group the plan names: the same checks the write makes
+    /// before it writes anything (D2). Nothing is created to find out.
     fn plan_blocked(&self, screen: &PlanScreen) -> Option<String> {
-        let home = &screen.dest.home;
-        if home.exists() && !home.is_dir() {
-            return Some(format!("{} is a file, not a folder.", home.display()));
+        super::plan_write::plan_blocked(self, screen)
+    }
+
+    /// The destination or the plan changed: work the blocked reason out again, and repaint the
+    /// card when it differs (C2: the check used to be made once, when the screen opened).
+    fn plan_recheck(&mut self) {
+        let Some(screen) = self.plan.as_ref() else {
+            return;
+        };
+        // A demonstration writes nothing, and says so: it is never rechecked.
+        if screen.source.path.is_none() {
+            return;
         }
-        if std::fs::metadata(home).is_ok_and(|m| m.permissions().readonly()) {
-            return Some("The folder cannot be written.".to_string());
+        if screen.blocked_for.as_ref() == Some(&screen.dest) {
+            return;
         }
-        let file = self
-            .docs
-            .library
-            .groups
-            .iter()
-            .find(|g| g.name == screen.dest.name)
-            .map(|g| g.file.clone())?;
-        self.docs
-            .tabs
-            .iter()
-            .any(|d| d.modified() && d.path.as_deref() == Some(file.as_path()))
-            .then(|| "The group's library file has unsaved changes. Save it first.".to_string())
+        let blocked = self.plan_blocked(screen);
+        let Some(screen) = self.plan.as_mut() else {
+            return;
+        };
+        screen.blocked = blocked;
+        screen.blocked_for = Some(screen.dest.clone());
+        screen.tick += 1;
     }
 
     /// Closes the screen; a plan that was changed is kept to be shown again.
@@ -133,10 +170,16 @@ impl App {
         self.redraw();
     }
 
-    /// "Show" on a plan that Escape kept: the same plan, as it was left.
+    /// "Show" on a plan that Escape kept: the same plan, as it was left. Everything it was
+    /// blocked on is looked at again: the document may have changed since (A8), and so may the
+    /// group's file or the library.
     pub(super) fn plan_show(&mut self) -> bool {
         match self.plan_parked.take() {
-            Some(screen) => {
+            Some(mut screen) => {
+                if screen.source.path.is_some() {
+                    screen.blocked = self.plan_blocked(&screen);
+                    screen.blocked_for = Some(screen.dest.clone());
+                }
                 self.plan_open(screen);
                 true
             }
@@ -156,6 +199,7 @@ impl App {
             Act::Write => self.plan_write(),
             Act::Nothing => {}
         }
+        self.plan_recheck();
         self.redraw();
     }
 
@@ -181,6 +225,8 @@ impl App {
         if let Some(screen) = self.plan.as_mut() {
             screen.press(x, y);
         }
+        // A press outside a name being typed commits it, and a new group is a new destination.
+        self.plan_recheck();
         self.caret_reset();
         self.redraw();
     }

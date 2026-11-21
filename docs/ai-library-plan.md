@@ -320,9 +320,19 @@ There is no operation that overwrites, moves, renames or permanently deletes any
 Every prefix of this order is a state you can live with. Nothing is linked before it exists; the
 original is touched last or not at all.
 
+**Everything that can be refused is checked before step 1, and the card says why.** With nothing
+written: the group's library file's name is free (when the run would make it), the library's file
+cap and the group's note cap are clear, no library file involved is open with unsaved changes, the
+source is still the file the plan was made from (length and SHA-256), the group's folder is not the
+library folder, and a dry run of step 6's link insertion and its check passes against the group's
+file as it reads now. The same check is what disables "Write the notes", and it is made again when
+the group changes and when a kept plan is shown. The group's library file is made right after the
+record, before the notes: an empty group is a state one can live with, and undo removes it. What
+step 6 can then still fail on is a race.
+
 | # | Step | If it fails | What you see |
 |---|---|---|---|
-| 1 | The record is written, state "writing", holding the whole plan | Nothing else is done | Toast: "The run could not start: {why}" |
+| 1 | The record is written, state "writing", holding the whole plan; and, when the run makes it, the group's library file (`# Name`, its `home:` line, created exclusively) | Nothing else is done | Toast: "The run could not start: {why}" |
 | 2 | Folders, as needed | The notes that needed it fail at step 4 | In the report |
 | 3 | Pictures, each as `name.part`, then renamed without replacing | That picture is left out of its note | "{picture} could not be copied: {why}" |
 | 4 | Notes, each as `name.md.part`, then renamed without replacing (`move_no_replace` exists in `docs.rs`) | That note is reported; the others go on, as in Replace in files | "{note} was not written: {why}" |

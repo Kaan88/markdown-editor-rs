@@ -122,9 +122,24 @@ impl App {
     /// Rewrites a library file. `change` makes the new text from the old, or `None` when there
     /// is nothing to do; `ok` is given the notes of the old text and of the new and must agree
     /// that the new one is the old plus the change. Nothing is said here: the caller decides.
+    /// The paths inside the file resolve against the library folder the pane shows.
     pub(super) fn library_attempt(
         &mut self,
         file: &Path,
+        change: impl FnOnce(&str) -> Option<String>,
+        ok: impl Fn(&Parsed, &Parsed) -> bool,
+    ) -> Wrote {
+        let dir = self.docs.library.dir.clone();
+        self.library_attempt_at(file, &dir, change, ok)
+    }
+
+    /// [`library_attempt`](Self::library_attempt) with the library folder its lines resolve
+    /// against given, so a plan writes its links against the folder it was made from even when
+    /// the setting changed while it was open.
+    pub(super) fn library_attempt_at(
+        &mut self,
+        file: &Path,
+        dir: &Path,
         change: impl FnOnce(&str) -> Option<String>,
         ok: impl Fn(&Parsed, &Parsed) -> bool,
     ) -> Wrote {
@@ -138,8 +153,7 @@ impl App {
         let Some(new) = change(&text) else {
             return Wrote::Nothing;
         };
-        let dir = self.docs.library.dir.clone();
-        if !ok(&library::parse(&text, &dir), &library::parse(&new, &dir)) {
+        if !ok(&library::parse(&text, dir), &library::parse(&new, dir)) {
             return Wrote::Refused(strings::library_failed(
                 "the file would not read back as its notes",
             ));
@@ -550,6 +564,15 @@ impl App {
     /// The folder picker answered: the group's `home:` line names `dir`, relative to the library
     /// folder when it is inside it and by its whole path otherwise. Nothing on disk moves.
     pub(super) fn library_group_home_picked(&mut self, file: &Path, dir: PathBuf) {
+        // A7: a group whose folder is the library folder writes `.md` files there, and the reader
+        // takes each for a library file. The picker cannot make one.
+        if self
+            .library_dir()
+            .is_some_and(|root| same_path(&dir, &root))
+        {
+            self.docs.set_toast(strings::LIBRARY_HOME_IS_LIBRARY);
+            return;
+        }
         let base = file.parent().map(Path::to_path_buf).unwrap_or_default();
         let home = crate::library_pane::link_path(&base, &dir);
         let want = canonical_or_absolute(&dir);
@@ -660,7 +683,18 @@ impl App {
         // the group reads in the pane. The line is relative to the library folder, so a library
         // that moves keeps working.
         let (home, new_home) = match parsed.home {
-            Some(home) => (home, None),
+            Some(home) => {
+                // A7: a `home:` that is the library folder itself (written by hand, or by an
+                // older version) would put this note in the library as a library file.
+                if self
+                    .library_dir()
+                    .is_some_and(|root| same_path(&home, &root))
+                {
+                    self.docs.set_toast(strings::LIBRARY_HOME_IS_LIBRARY);
+                    return;
+                }
+                (home, None)
+            }
             None => {
                 let named = parsed.name.as_deref().unwrap_or(&own);
                 let folder = PathBuf::from(library::folder_name(named));

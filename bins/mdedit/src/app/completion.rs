@@ -66,17 +66,19 @@ pub(super) struct State {
 }
 
 impl App {
-    /// The snippets file: beside the settings file, or in the application's data folder.
+    /// The snippets file: beside the settings file. A window with no session has none -- nothing
+    /// of the owner's is read or written -- unless `MDEDIT_SETTINGS` named a settings file for
+    /// this build (CLAUDE.md rule 9, audit A11).
     pub(super) fn snippets_path(&self) -> Option<PathBuf> {
-        // A shot never reads the user's own files.
-        if self.args.shot.is_some() && self.session_path.is_none() {
-            return None;
-        }
-        let dir = match self.session_path.as_ref().and_then(|p| p.parent()) {
-            Some(d) if !d.as_os_str().is_empty() => Some(d.to_path_buf()),
-            _ => mdshared_app::settings::data_dir("mdedit"),
+        let settings = self
+            .session_path
+            .as_deref()
+            .or(self.settings_override.as_deref())?;
+        let dir = match settings.parent() {
+            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+            _ => return None,
         };
-        dir.map(|d| d.join("snippets.toml"))
+        Some(dir.join("snippets.toml"))
     }
 
     /// Reads the snippets file when it is new or has changed; the built-in snippets stay unless

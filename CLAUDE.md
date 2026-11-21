@@ -68,9 +68,12 @@ shared crates; `..\markdown-shared-rs`).
    a variant beside the old function. Run both apps' `tests/shots.sh` before and after, push,
    then move the `rev` in each app on purpose. Never force-push there.
 9. **Never run a build on the owner's settings.** The owner's own mdedit is usually open on this
-   PC, on `%LOCALAPPDATA%\mdedit\settings.ini`. Start a build with `--no-session`, or with
-   `MDEDIT_SETTINGS` naming a `settings.ini` in a scratch folder when it must read or write
-   settings. A development build once took over a running window's session.
+   PC, on `%LOCALAPPDATA%\mdedit\settings.ini`. Start a build with `--no-session` **and**
+   `MDEDIT_SETTINGS` naming a `settings.ini` in a scratch folder: no session means no library, no
+   snippets and no saved prompts at all — nothing of the owner's is read or written, and
+   "Split into notes…" is refused for want of a library folder — and `MDEDIT_SETTINGS` is the one
+   settings file such a build reads, with its library beside it. A development build once took
+   over a running window's session.
 10. **Other agents may be working in this checkout.** `git status` before you edit. Changes you
     did not make are someone's work: leave them.
 11. **The release build aborts on a panic** (`panic = "abort"`): one panic on any thread ends the
