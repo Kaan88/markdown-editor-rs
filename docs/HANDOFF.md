@@ -5,6 +5,34 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## The notes library in the left pane, and nested headings (2026-11-21, on main)
+
+The owner looked at the first cut and asked for a tree in the left pane, in the Files pane's
+place, and asked how the hierarchy works. Both answered:
+
+- **Headings nest** (shared `67c86db`). `Entry.section: String` became `Entry.sections:
+  Vec<String>`, the headings a note is under, outermost first; `Group.sections` is every
+  heading *path* in the file, in order, including the ones with no note yet. A `###` nests in
+  the `##` above it, a second `#` closes them. So one library file is a tree as deep as it is
+  written: group (the file) › section › subsection › … › notes. `add_note` takes a path and
+  follows it, so `["Trips", "2025"]` finds the right "2025"; a note goes with its heading's own
+  notes, before any heading below it; a heading that is not there yet is written under the part
+  of the path that is (and the whole chain at the end when none of it is).
+- **The pane** (`bins/mdedit/src/library_pane.rs`). The left dock now has three faces: the
+  Files tree, the function list (`ui.outline.on`) and the library (`ui.library.on`), one at a
+  time. `C::ToggleLibraryPane` (Ctrl+Shift+3, View menu "Notes librar&y", the Notes library
+  submenu's "Show in the side &pane"). Rows are groups, sections and notes; a click folds a
+  group or a section (`folded`, open by default) or opens a note; a note that is gone has the
+  warning icon and says so instead of opening. The toolbar's Files button is lit only for the
+  tree now, not for whatever the pane holds. While the pane shows, `library_tick` looks at the
+  folder again at most every `RECHECK` (800 ms) and rebuilds only when a stamp changed.
+- Shots: `--menu library-pane` (with `--menu library`, `library-add`, `main-library`).
+- Tests: `library_pane::tests` (the tree, folding), `app::library_pane_tests` (what the command
+  shows, folding, opening, a missing note, a file saved while the pane shows, adding from the
+  pane) and the shared `a_note_goes_under_a_nested_heading_and_a_missing_one_is_written_under_its_parent`.
+- Not done: no drag and drop in the pane, no "remove from the library" there, no rename; the
+  pane is not restored at start (like the function list); mdview still has none of it.
+
 ## The notes library (2026-11-21, on main, the owner has not seen it)
 
 Quick access to notes kept anywhere, nothing moved (`docs/PLAN.md`, "Notes library"). The owner

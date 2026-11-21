@@ -76,6 +76,8 @@ mod input;
 mod language_tests;
 mod library;
 #[cfg(test)]
+mod library_pane_tests;
+#[cfg(test)]
 mod library_tests;
 pub(crate) mod modal;
 mod palette_events;
@@ -923,6 +925,31 @@ impl App {
                     drag,
                 ))
             }
+            Region::Files if ui.library.on => {
+                let active = self.docs.active_doc().and_then(|d| d.path.clone());
+                let drag = matches!(
+                    ui.drag,
+                    Some(Drag::Splitter { .. })
+                        | Some(Drag::Thumb {
+                            target: Scroller::Files,
+                            ..
+                        })
+                );
+                let rows: Vec<(u16, &str)> = ui
+                    .library
+                    .rows
+                    .iter()
+                    .map(|r| (r.depth, r.label.as_str()))
+                    .collect();
+                sig((
+                    common,
+                    rows,
+                    active,
+                    ui.library.scroll.to_bits(),
+                    ui.library.rows.len(),
+                    drag,
+                ))
+            }
             Region::Files => {
                 let active = self.docs.active_doc().and_then(|d| d.path.clone());
                 let drag = matches!(
@@ -1439,6 +1466,9 @@ impl App {
                     }
                     Region::Files if self.ui.outline.on => {
                         crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect)
+                    }
+                    Region::Files if self.ui.library.on => {
+                        crate::library_pane::draw(&mut c, &self.docs, &mut self.ui, rect)
                     }
                     Region::Files => panes::draw_files(&mut c, &self.docs, &mut self.ui, rect),
                     Region::Text => match self.docs.active() {
@@ -2681,6 +2711,7 @@ impl ApplicationHandler<Wake> for App {
             .map(|d| d.id)
             .filter(|_| self.focused);
         self.docs.focus_tick(showing, Instant::now());
+        self.library_tick(Instant::now());
         if self.drain() {
             self.redraw();
         }
@@ -3212,6 +3243,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
         Some(ShotMenu::Library) => app.command(crate::commands::CommandId::Library),
         Some(ShotMenu::LibraryAdd) => app.command(crate::commands::CommandId::LibraryAdd),
+        Some(ShotMenu::LibraryPane) => {
+            app.command(crate::commands::CommandId::ToggleLibraryPane);
+        }
         Some(ShotMenu::RenameBar) => {
             if let Some(doc) = app.docs.active_doc().map(|d| d.id) {
                 app.ai_made_markdown(doc, None);

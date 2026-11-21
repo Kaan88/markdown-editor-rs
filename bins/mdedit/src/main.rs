@@ -15,6 +15,7 @@ mod frost;
 mod image_paste;
 mod keys;
 mod languages;
+mod library_pane;
 mod link;
 mod live;
 mod macros;

@@ -113,7 +113,8 @@ impl App {
                     self.caret_reset();
                 }
             }
-            Hit::OutlineFiles => self.command(C::ToggleFiles),
+            Hit::OutlineFiles | Hit::LibraryFiles => self.command(C::ToggleFiles),
+            Hit::LibraryRow(i) => self.library_row(i),
             Hit::ResultsRow(i) => {
                 self.go_to_result(i);
                 // A click leaves the keyboard in the panel, for Up and Down from that row.
@@ -1744,13 +1745,21 @@ impl App {
             C::ThemeSystem => self.set_theme(ThemeChoice::System),
             C::ThemeLight => self.set_theme(ThemeChoice::Light),
             C::ThemeDark => self.set_theme(ThemeChoice::Dark),
-            // The left pane shows the Files tree or the function list: each command shows its
-            // own, and hides the pane when that is what shows.
-            C::ToggleFiles | C::ToggleOutline => {
-                let outline = id == C::ToggleOutline;
-                let shown = self.ui.panes.files && self.ui.outline.on == outline;
+            // The left pane shows the Files tree, the function list or the notes library: each
+            // command shows its own, and hides the pane when that is what shows.
+            C::ToggleFiles | C::ToggleOutline | C::ToggleLibraryPane => {
+                let want = match id {
+                    C::ToggleOutline => (true, false),
+                    C::ToggleLibraryPane => (false, true),
+                    _ => (false, false),
+                };
+                let shown = self.ui.panes.files && (self.ui.outline.on, self.ui.library.on) == want;
                 self.ui.panes.files = !shown;
-                self.ui.outline.on = outline && !shown;
+                self.ui.outline.on = !shown && want.0;
+                self.ui.library.on = !shown && want.1;
+                if self.ui.library.on {
+                    self.library_rows();
+                }
             }
             C::CommandPalette => {
                 if self.palette_open() {

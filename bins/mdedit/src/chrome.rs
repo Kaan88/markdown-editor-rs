@@ -906,7 +906,9 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             BarItem::Files,
             glyph::FOLDER,
             lab("Files"),
-            ui.panes.files,
+            // Lit for the tree it opens, not for the pane: the function list and the notes
+            // library stand in the same pane and have their own commands.
+            ui.panes.files && !ui.outline.on && !ui.library.on,
         ) + GAP;
         if let Some(on) = preview_button(docs) {
             x += sep(c, x);

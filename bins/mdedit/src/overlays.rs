@@ -167,7 +167,13 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
     let items = vec![
         cmd(C::Library, "&Open a note…", glyph::BOOKMARK),
         cmd(C::LibraryAdd, "&Add this file…", glyph::NEW_FILE).enabled(has_file),
-        cmd(C::LibraryEdit, "&Edit the library", glyph::DOC).sep(),
+        cmd(
+            C::ToggleLibraryPane,
+            "Show in the side &pane",
+            glyph::SIDEBAR,
+        )
+        .sep(),
+        cmd(C::LibraryEdit, "&Edit the library", glyph::DOC),
     ];
     Menu::new(items, x, y, align_right).access_keys(true)
 }
@@ -231,6 +237,8 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
             .checked(ui.panes.files && !ui.outline.on),
         cmd(C::ToggleOutline, "Function &list", glyph::FUNCTIONS)
             .checked(ui.panes.files && ui.outline.on),
+        cmd(C::ToggleLibraryPane, "Notes librar&y", glyph::BOOKMARK)
+            .checked(ui.panes.files && ui.library.on),
         cmd(C::ToggleWhitespace, "S&how whitespace", glyph::WHITESPACE).checked(docs.whitespace),
         cmd(C::ToggleWrap, "&Word wrap", glyph::WRAP).checked(docs.wrap),
         cmd(C::ToggleMinimap, "&Minimap", glyph::MINIMAP).checked(docs.minimap),

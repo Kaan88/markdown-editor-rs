@@ -29,6 +29,57 @@ impl App {
         self.docs.library = library::read(&dir);
     }
 
+    /// The rows of the pane, with the library read again first. The folder is looked at at
+    /// most every [`crate::library_pane::RECHECK`], so a pane left open costs nothing while
+    /// nothing is clicked.
+    pub(super) fn library_rows(&mut self) {
+        self.library_load();
+        self.ui.library.checked = Some(Instant::now());
+        self.ui.library.build(&self.docs.library);
+    }
+
+    /// A click on a row: a group or a section folds, a note opens, a note that is not there
+    /// says so.
+    pub(super) fn library_row(&mut self, i: usize) {
+        let Some(row) = self.ui.library.rows.get(i).cloned() else {
+            return;
+        };
+        match row.kind {
+            crate::library_pane::Kind::Group | crate::library_pane::Kind::Section => {
+                self.ui.library.fold(&row.key);
+                self.ui.library.build(&self.docs.library);
+            }
+            crate::library_pane::Kind::Note { missing: true, .. } => {
+                self.docs.set_toast(strings::LIBRARY_MISSING_FILE);
+            }
+            crate::library_pane::Kind::Note { path, .. } => self.open(&path),
+        }
+    }
+
+    /// While the pane shows, the library files are looked at again now and then, so a library
+    /// edited in another window (or in a tab here) shows as it is now.
+    pub(super) fn library_tick(&mut self, now: Instant) {
+        if !(self.ui.panes.files && self.ui.library.on) || !self.ui.library.due(now) {
+            return;
+        }
+        self.ui.library.checked = Some(now);
+        let before = self.docs.library.groups.len();
+        let stamps: Vec<_> = self.docs.library.groups.iter().map(|g| g.stamp).collect();
+        self.library_load();
+        let changed = self.docs.library.groups.len() != before
+            || self
+                .docs
+                .library
+                .groups
+                .iter()
+                .zip(&stamps)
+                .any(|(g, s)| g.stamp != *s);
+        if changed {
+            self.ui.library.build(&self.docs.library);
+            self.redraw();
+        }
+    }
+
     /// The "Notes library" command: the list of notes, read again first.
     pub(super) fn library_open(&mut self) {
         self.library_load();
@@ -63,9 +114,9 @@ impl App {
             .open_library_add(&self.docs, &self.ui, &mut self.macros);
     }
 
-    /// Writes the active file into library file `file` under `section` (its end when the
-    /// section is empty), making the file from its template when it is not there yet.
-    pub(super) fn library_put(&mut self, file: &Path, section: &str) {
+    /// Writes the active file into library file `file` under the heading path `section` (its
+    /// end when the path is empty), making the file from its template when it is not there yet.
+    pub(super) fn library_put(&mut self, file: &Path, section: &[String]) {
         let Some(doc) = self.docs.active_doc() else {
             return;
         };
@@ -102,7 +153,6 @@ impl App {
                 return;
             }
         };
-        let section = (!section.is_empty()).then_some(section);
         let new = library::add_note(&text, section, &title, &path);
         // Written only when it reads back as the notes there were and this one at its place.
         let before = library::parse(&text, &self.docs.library.dir).entries;

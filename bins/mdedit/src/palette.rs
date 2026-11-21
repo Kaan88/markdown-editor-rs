@@ -64,7 +64,7 @@ pub enum Target {
     Note(PathBuf),
     /// Where the open file is written in the library: a library file and the heading under it
     /// (empty for the end of the file).
-    NotePlace(PathBuf, String),
+    NotePlace(PathBuf, Vec<String>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -386,6 +386,7 @@ fn icon(id: C) -> &'static str {
         C::SaveMacroAs => glyph::SAVE_AS,
         C::ToggleFiles => glyph::SIDEBAR,
         C::ToggleOutline => glyph::FUNCTIONS,
+        C::ToggleLibraryPane => glyph::SIDEBAR,
         C::ThemeSystem => glyph::SYSTEM,
         C::ThemeLight => glyph::SUN,
         C::ThemeDark => glyph::MOON,
@@ -644,6 +645,11 @@ fn languages(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
     (entries, targets)
 }
 
+/// A note's headings as one line: `Money › 2026`.
+pub fn section_path(sections: &[String]) -> String {
+    sections.join(" \u{203a} ")
+}
+
 /// The notes of the library, each under the group (the library file) it is in: the title is the
 /// row, the section and a note that is no longer on disk are its hint. A missing note cannot be
 /// chosen; the library file is where it is put right.
@@ -651,7 +657,8 @@ fn library(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
     let (mut entries, mut targets) = (Vec::new(), Vec::new());
     for (g, group) in src.docs.library.groups.iter().enumerate() {
         for e in &group.entries {
-            let hint = match (e.section.as_str(), e.missing) {
+            let section = section_path(&e.sections);
+            let hint = match (section.as_str(), e.missing) {
                 ("", false) => String::new(),
                 ("", true) => strings::LIBRARY_MISSING.to_string(),
                 (section, false) => section.to_string(),
@@ -691,10 +698,10 @@ fn library_places(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
     let row = |entries: &mut Vec<Entry>,
                targets: &mut Vec<Target>,
                file: &Path,
-               section: &str,
+               section: &[String],
                label: String,
                hint: String| {
-        let target = Target::NotePlace(file.to_path_buf(), section.to_string());
+        let target = Target::NotePlace(file.to_path_buf(), section.to_vec());
         push(entries, targets, target, |id| {
             Entry::new(id, label.as_str()).hint(hint).group(G_PLAIN)
         });
@@ -706,7 +713,7 @@ fn library_places(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
                 &mut targets,
                 &group.file,
                 section,
-                format!("{} \u{203a} {section}", group.name),
+                format!("{} \u{203a} {}", group.name, section_path(section)),
                 String::new(),
             );
         }
@@ -714,7 +721,7 @@ fn library_places(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
             &mut entries,
             &mut targets,
             &group.file,
-            "",
+            &[],
             group.name.clone(),
             strings::LIBRARY_END.to_string(),
         );
@@ -730,7 +737,7 @@ fn library_places(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
             &mut entries,
             &mut targets,
             &file,
-            "",
+            &[],
             label,
             strings::LIBRARY_NEW_FILE.to_string(),
         );

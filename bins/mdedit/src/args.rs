@@ -45,6 +45,8 @@ pub enum ShotMenu {
     MainLibrary,
     Library,
     LibraryAdd,
+    /// The notes library in the left pane (`--files` is implied).
+    LibraryPane,
     /// The active document made Markdown as the AI's Format as Markdown does, with the bar
     /// offering its `.md` name.
     RenameBar,
@@ -491,6 +493,7 @@ impl Args {
                         "main-library" => Some(ShotMenu::MainLibrary),
                         "library" => Some(ShotMenu::Library),
                         "library-add" => Some(ShotMenu::LibraryAdd),
+                        "library-pane" => Some(ShotMenu::LibraryPane),
                         "rename-bar" => Some(ShotMenu::RenameBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
                         _ => None,

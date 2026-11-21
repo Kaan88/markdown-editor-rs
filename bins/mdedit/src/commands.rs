@@ -117,6 +117,8 @@ pub enum CommandId {
     ClearSearch,
     ToggleFiles,
     ToggleOutline,
+    /// The left pane shows the notes library's tree.
+    ToggleLibraryPane,
     NextTab,
     PreviousTab,
     Escape,
@@ -358,6 +360,11 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::ClearSearch, "Clear search", &[]),
     cmd(C::ToggleFiles, "Files pane", &["Ctrl+Shift+1"]),
     cmd(C::ToggleOutline, "Function list", &["Ctrl+Shift+2"]),
+    cmd(
+        C::ToggleLibraryPane,
+        "Notes library pane",
+        &["Ctrl+Shift+3"],
+    ),
     cmd(C::NextTab, "Next tab", &["Ctrl+Tab"]),
     cmd(C::PreviousTab, "Previous tab", &["Ctrl+Shift+Tab"]),
     cmd(C::Escape, "Close a menu or leave the find box", &["Escape"]),
@@ -498,6 +505,9 @@ pub mod strings {
     pub const LIBRARY_EMPTY: &str =
         "The library is empty. \u{201c}Add this file to the notes library\u{201d} starts it.";
     pub const LIBRARY_NO_FOLDER: &str = "There is no folder for the notes library.";
+    pub const LIBRARY_DOCK: &str = "NOTES";
+    pub const LIBRARY_EMPTY_PANE: &str = "No notes yet";
+    pub const LIBRARY_MISSING_FILE: &str = "That note is not where the library says it is.";
     pub const LIBRARY_NEEDS_FILE: &str = "Save this file first: the library keeps links to files.";
     pub fn library_added(title: &str, group: &str) -> String {
         format!("\u{201c}{title}\u{201d} is in {group} now.")

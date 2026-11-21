@@ -281,6 +281,11 @@ impl App {
                 let list = crate::outline::list(self.areas.files?);
                 Some((list, out.content, out.view, out.scroll))
             }
+            Scroller::Files if self.ui.library.on => {
+                let lib = &self.ui.library;
+                let list = crate::library_pane::list(self.areas.files?);
+                Some((list, lib.content, lib.view, lib.scroll))
+            }
             Scroller::Files => {
                 let list = panes::files_list(self.areas.files?);
                 Some((
@@ -308,6 +313,10 @@ impl App {
             Scroller::Files if self.ui.outline.on => {
                 let cur = self.ui.outline.scroll;
                 self.ui.outline.scroll_by(offset - cur);
+            }
+            Scroller::Files if self.ui.library.on => {
+                let cur = self.ui.library.scroll;
+                self.ui.library.scroll_by(offset - cur);
             }
             Scroller::Files => {
                 let cur = self.ui.panes.files_scroll;
@@ -1055,6 +1064,8 @@ impl App {
             };
             if self.ui.outline.on {
                 self.ui.outline.scroll_by(-dy);
+            } else if self.ui.library.on {
+                self.ui.library.scroll_by(-dy);
             } else {
                 self.ui.panes.scroll_by(-dy);
             }

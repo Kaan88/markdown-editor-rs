@@ -208,6 +208,9 @@ pub enum Hit {
     /// back.
     OutlineRow(usize),
     OutlineFiles,
+    /// A row of the notes library in the left pane, and its way back to the Files tree.
+    LibraryRow(usize),
+    LibraryFiles,
     FilesRow(usize),
     FilesFolder,
     FilesOpenFolder,
@@ -293,6 +296,8 @@ impl Hit {
             Hit::FilesRow(_)
             | Hit::OutlineRow(_)
             | Hit::OutlineFiles
+            | Hit::LibraryRow(_)
+            | Hit::LibraryFiles
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
             | Hit::Splitter
@@ -749,6 +754,7 @@ pub struct Ui {
     pub results: crate::results::Results,
     /// The function list, shown in the left pane in the Files tree's place.
     pub outline: crate::outline::Outline,
+    pub library: crate::library_pane::LibraryPane,
     pub tree: FileTree,
     pub find: TextField,
     /// A box of the bar has the keyboard; `field` says which.
@@ -819,6 +825,7 @@ impl Ui {
             regex: false,
             results: Default::default(),
             outline: Default::default(),
+            library: Default::default(),
             replace: TextField::new(),
             replace_open: false,
             goto: TextField::new(),

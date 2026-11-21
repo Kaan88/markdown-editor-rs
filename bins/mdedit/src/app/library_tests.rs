@@ -68,7 +68,7 @@ fn the_library_lists_the_notes_of_its_files_and_opens_one() {
     assert_eq!(a.docs.library.groups[0].name, "Personal");
     let entries = &a.docs.library.groups[0].entries;
     assert_eq!(entries[0].title, "Taxes 2026");
-    assert_eq!(entries[0].section, "Money");
+    assert_eq!(entries[0].sections, vec!["Money".to_string()]);
     assert!(entries[1].missing, "the note that is not on disk");
     assert_eq!(entries[2].title, "Japan");
 
@@ -98,9 +98,9 @@ fn the_open_file_is_added_to_the_library_under_a_chosen_heading() {
     assert_eq!(rows.len(), 3, "the two headings and the end: {rows:?}");
     assert_eq!(
         rows[0],
-        Target::NotePlace(file.clone(), "Money".to_string())
+        Target::NotePlace(file.clone(), vec!["Money".to_string()])
     );
-    assert_eq!(rows[2], Target::NotePlace(file.clone(), String::new()));
+    assert_eq!(rows[2], Target::NotePlace(file.clone(), Vec::new()));
 
     choose(&mut a, "Money");
     assert!(!a.palette_open());
@@ -113,7 +113,7 @@ fn the_open_file_is_added_to_the_library_under_a_chosen_heading() {
     let parsed = mdshared_app::library::parse(&written, &lib);
     assert_eq!(parsed.name.as_deref(), Some("Personal"));
     assert_eq!(parsed.entries.len(), 1);
-    assert_eq!(parsed.entries[0].section, "Money");
+    assert_eq!(parsed.entries[0].sections, vec!["Money".to_string()]);
     assert!(
         a.docs
             .toast(Instant::now())
@@ -155,7 +155,7 @@ fn an_empty_library_is_started_by_the_first_file_added_or_edited() {
     let file = dir.join("library").join("notes.md");
     assert_eq!(
         listed(&a),
-        vec![Target::NotePlace(file.clone(), String::new())]
+        vec![Target::NotePlace(file.clone(), Vec::new())]
     );
     choose(&mut a, "notes");
     let written = std::fs::read_to_string(&file).unwrap();
