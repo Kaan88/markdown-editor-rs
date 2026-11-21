@@ -653,3 +653,34 @@ and must be measured for idle CPU with a plan on screen.
    the same job in a tenth of that and works from the keyboard? *Blocks phase 7.*
 7. **Three pane faces: head switches (my proposal, §3.3), a dropdown, or three toolbar buttons?**
    This one only needs a look at the phase 1 screenshots.
+
+---
+
+## 9. Decisions, 2026-11-21
+
+The owner answered §8 with "do what you think is best and note the decisions separately; I need to
+see the app itself to be able to answer these". So each question is decided here, with its reason,
+and each is written so it can be overturned cheaply once the app has been used. Where a decision
+is "no", nothing is built for it — that is the cheap direction.
+
+| # | Decision | Reason | Overturning it costs |
+|---|---|---|---|
+| 1 | **No deleting files from disk in the pane.** Links only; "Reveal in File Explorer" is the way out to a real delete | A new dependency (`trash`, nothing equivalent on Linux) and a destructive action, for one menu item nobody has missed | The item plus the dependency, half a day |
+| 2 | **Links only (option a).** No managed folder, no `home:` line yet | §4's recommendation: the pain is an unindexed disk, which the import solves, not a storage layout | Phase 6 as written, 4 days |
+| 3 | **Digests go to the provider, 2 KB a file, hard cap 500 files a run**, and the confirmation names the bytes and the number of runs before anything leaves the machine | The project's rule is that only what a command is run on is sent, and the owner must be able to check it | A smaller cap is a constant |
+| 4 | **Conversion writes a new `.md` beside the original; the original is never touched** | Moving originals brings §4(b)'s failure modes into a feature that otherwise has none | An `originals/` move needs phase 6's machinery |
+| 5 | **Phase 4 is developed against a generated sample folder**, not the owner's files; the real folder is picked in the app when they try it | It unblocks the work now and keeps their data out of a development loop | Nothing |
+| 6 | **No drag and drop.** "Move to…" instead | 3–4 days for what a menu item does in a tenth of that, and it is unreachable from the keyboard | Phase 7 as written |
+| 7 | **Head switches**, as §3.3 proposes | It is where every editor in §2 puts this control, and it kills the two-folder-icons confusion in one change | The dropdown or bar buttons, a day, after the shots |
+
+Three corrections found reviewing the plan, folded into phase 1:
+
+1. **`draw_head` gets a variant, not a changed signature.** `mdshared_ui::pane::draw_head` draws
+   mdview's panes too; the switches go behind a new argument shape that leaves every existing
+   caller drawing exactly what it draws today, so mdview is untouched until it wants them.
+2. **Where the library folder lives becomes a setting.** It is fixed at `library/` beside
+   `settings.ini` (`mdshared_app::library`), which is wrong for a folder kept in OneDrive or
+   beside the notes themselves, and phase 4's import leans on it. A path preference with the usual
+   empty-means-the-default rule.
+3. **The pane's face is restored at start** in phase 1 rather than phase 3: one session line each
+   side, and without it the new switches look broken at the next launch.
