@@ -27,7 +27,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -55,7 +55,7 @@ jobs:
           bash tests/print-pngs.sh \
             target/typing/screen.png target/typing/open-panel.png target/typing/edit-menu.png target/typing/full-screen.png target/typing/edited.png target/typing/quit.png target/window/rs/window.png target/window/md-dark/window.png \
             target/shots/rs-light.png target/shots/menu-main.png target/shots/cjk.png
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: mac-look

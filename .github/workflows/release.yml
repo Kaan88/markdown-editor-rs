@@ -44,7 +44,7 @@ jobs:
       publish: ${{ steps.meta.outputs.publish }}
       attach: ${{ steps.meta.outputs.attach }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: meta
         run: .github/scripts/meta.sh
         env:
@@ -57,7 +57,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # tools\release.ps1 asks which remote branch holds HEAD
       - uses: dtolnay/rust-toolchain@master
@@ -87,7 +87,7 @@ jobs:
           cd target/dist/${{ needs.meta.outputs.version }}
           ls -l
           sha256sum *.exe *.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-files
           path: |
@@ -101,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Host tools (appimagetool, squashfs, fonts for the smoke test)
         run: |
           sudo apt-get update
@@ -114,7 +114,7 @@ jobs:
           (cd /tmp && ./appimagetool.AppImage --appimage-extract >/dev/null)
           sudo ln -s /tmp/squashfs-root/AppRun /usr/local/bin/appimagetool
           appimagetool --version | head -1
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/md-build/mdedit/cargo
@@ -135,7 +135,7 @@ jobs:
           test -x "$d/prefix/lib/mdedit/mdedit-ai"
           "$d/mdedit-$v-linux-x86_64/uninstall.sh" "$d/prefix"
           test ! -e "$d/prefix/bin/mdedit" && test ! -e "$d/prefix/lib/mdedit"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-files
           path: |
@@ -159,7 +159,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -180,7 +180,7 @@ jobs:
           zip="target/dist/mdedit-${{ needs.meta.outputs.version }}-macos-${{ matrix.arch }}.zip"
           ditto -c -k --keepParent target/dist/mdedit.app "$zip"
           shasum -a 256 "$zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-files-${{ matrix.arch }}
           path: target/dist/*.zip
@@ -198,8 +198,8 @@ jobs:
       TAG: ${{ needs.meta.outputs.attach }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: macos-files-*
           merge-multiple: true
@@ -229,7 +229,7 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: System packages (the manifest test builds the app)
         run: |
           sudo apt-get update
@@ -244,7 +244,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-publish
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: parts
       - name: Assemble target/release-files-all
@@ -295,7 +295,7 @@ jobs:
             --notes-file "$GITHUB_WORKSPACE/notes/release-notes.md" --latest
       - name: Dry run, everything as one artifact
         if: needs.meta.outputs.publish != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-files-all
           path: |
