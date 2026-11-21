@@ -5,7 +5,21 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## Tabs barely looked at, and the AI menu's Modify room (2026-11-21, branch `f/brief-tabs`, for 1.2.1)
+## Release 1.2.1 (2026-11-21, released)
+
+mdedit 1.2.1 is released: tag `v1.2.1` at `528446a`, release run 44850785598 green, manifests,
+hashes and `--check-update` verified (`docs/RELEASE.md`). 1.2.0 stays published.
+
+## Sharing with mdview (2026-11-21, branches, not merged)
+
+The owner: the two apps are sisters, more apps may join; what they can share goes in the shared
+crates. Moved to markdown-shared-rs (`mdshared-app`, at `cb0ffd3`): `brief` (the focus clock, the
+rule and the `focus` lines), `folder_lock` (was mdedit's `instance.rs`), and `settings::read` /
+`read_patiently` (an unreadable file is an error, not an empty one). mdedit uses them on
+`f/shared-brief`; mdview has the brief setting on its `f/brief-tabs`, with Settings in
+categories (as mdedit's, the card at most 640 px tall). See mdview's HANDOFF for its side.
+
+## Tabs barely looked at, and the AI menu's Modify room (2026-11-21, released in 1.2.1)
 
 The owner: "an option that does not reopen files that were open less n second ... this will only
 count in focus time. so minimizing or switching tabs won't count."

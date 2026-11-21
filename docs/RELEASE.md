@@ -264,6 +264,28 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.2.1 (published 2026-11-21 by the release workflow, from the tag at commit 528446a)
+
+Release run 44850785598, every job green; `ci` run 44848935863 on the commit passed (Linux,
+Windows, both Macs). The first `ci` run on 1.2.1 (44846981681, commit e82d360) failed in two
+tests: the Modify room was a count of spaces, narrower in the runners' fallback fonts (fixed: the
+room is measured in the font in use), and the focus test compared a path the tab had made
+canonical. Release notes: `docs/release-notes/1.2.1.md`.
+
+What's in it: the setting not to reopen tabs barely looked at (focused time), and the AI menu's
+narrower Modify button, its room measured in the font in use.
+
+Verified against the live release:
+- 15 assets;
+- `mdedit-update.txt`, `mdedit-update-2.txt` and `mdedit-update-macos.txt` all name 1.2.1;
+- every file they name (Windows exe, `mdedit-ai.exe`, `mdview-engine.exe`, AppImage, both Mac
+  zips) downloaded with the SHA-256 the manifests name;
+- the published 1.2.1 exe's `--check-update` answered "nothing newer"; the published 1.2.0 exe's
+  answered "mdedit 1.2.1 is available".
+
+Not verified: the installer run, a 1.2.0 install updating itself, the Mac and Linux files on a
+desktop, the Modify room in a Mac or Linux font (measured, not seen).
+
 ## v1.2.0 (published 2026-11-21 by the release workflow, from the tag at commit bd9cac3)
 
 Release run 44840555985, every job green; `ci` run 44839022973 on the commit passed (Linux,
