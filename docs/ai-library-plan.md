@@ -997,6 +997,43 @@ write, each library file is read again and the plan's links are checked against 
 | 6 | Not every file is text | 5.6: text, picture, other; what the window says of each and what each kind of task does with it |
 | 7 | The tick box, the switch, the monospace face, strikethrough | 7.3: all four go to the shared crates, as leaves, in phase S |
 
+### 5.12 Moving notes (phase 6b, widened)
+
+Added 2026-11-21 after the owner asked for "a move library" beside the group's folder. Three
+asks that look different and are one machine.
+
+| Kind | What it is for | What moves |
+|---|---|---|
+| **Move a group's notes into its folder** | You point `Work` at `D:\notes\work` and want the notes it already lists to join the ones there | Each note of that group, into `note_folder(home, its heading path)` |
+| **Move the notes to match the headings** | A heading was renamed or a note was moved to another section, so the note's folder no longer matches where it sits in the tree. This is 6b as first written | Only the notes whose folder disagrees with their heading path |
+| **Move the library** | The library folder setting changes and the library should go with it, not be left behind | The library files, the group folders inside the library folder, and nothing outside it |
+
+They differ only in which rows the plan starts with. So one command, **"Move the notes…"**, on the
+group row menu and in Settings for the library itself, opening the plan card of 5.3 with a row
+per file: its name, where it is, where it would go, and why (the heading path, or the new library
+folder). Ticked rows move; the rest stay. Nothing is written until Move.
+
+The rules, which are the whole of the safety of this:
+
+- **A file is moved, never copied and deleted.** A rename within a volume, and across volumes a
+  copy, a flush, a read-back comparison and only then the removal of the source.
+- **Nothing is ever overwritten.** A name already taken at the destination makes the row read
+  "there is already a file called this" and come unticked; it is never resolved by a number.
+- **The link is rewritten in the same write as the move**, through the existing `library_write`
+  gate, so a library file open and modified refuses the move rather than leaving a dangling link.
+  A move whose link cannot be written is put back.
+- **A note outside the library's own area is never moved without being named.** Its row says
+  where it lives and what the move would do to a file the owner keeps elsewhere, and it comes
+  unticked.
+- **Folders left empty by a move are removed; folders holding anything are left.**
+- **The record of 4.4 is written first**, so "AI runs…" lists a move like any other run and can
+  undo it: each file back to where it came from, each link back to what it said.
+
+**Where it sits in the order.** It is the second user of the plan card and wants nothing of the
+AI, so it is built after phase R1 and before phase 4b, and it is what proves the card, the
+record and undo on an input that cannot hallucinate. 6b's two days become three for the three
+kinds and the cross-volume path.
+
 ---
 
 ## 6. Safety
