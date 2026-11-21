@@ -733,6 +733,22 @@ pub mod strings {
         format!("Some bytes in {name} could not be read and are shown as \u{FFFD}.")
     }
 
+    /// "Split into notes…" refuses a document whose bytes are not text (plan 3.11).
+    pub fn split_lossy(name: &str) -> String {
+        format!("{name} holds bytes that are not text: it cannot be split into notes.")
+    }
+
+    /// A group whose folder is the library folder: its notes would be library files.
+    pub const LIBRARY_HOME_IS_LIBRARY: &str =
+        "The library folder cannot be a group's folder: its notes would be library files.";
+
+    /// The plan's new group, when the library folder already has a file of that name.
+    pub fn plan_group_taken(name: &str) -> String {
+        format!(
+            "\u{201C}{name}\u{201D} is already in the library folder, so this new group cannot be made there. Choose another name, or send the notes to that group."
+        )
+    }
+
     pub const PREVIEW_UNSAVED_TOO_LARGE: &str =
         "This document is too large to preview before it is saved.";
     pub const PREVIEW_VIEWER_OLDER: &str =

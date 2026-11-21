@@ -481,3 +481,59 @@ which today it must not: the group's folder is still the record's own word, as i
 word when a plan is written. Phase T's Recycle Bin would make a wrong removal recoverable, but not
 the reason for the check.
 **From.** The review of 2026-11-21 and faults F1 and F2.
+
+## D-065 - 2026-11-21 - A write is checked before it writes, and its group's file is made first
+
+**Decision.** "Write the notes" refuses before the first byte when anything that is known before
+the write would refuse it: the group's file's name is free, the library's file cap and the group's
+note cap are clear, no library file involved has unsaved changes, the group's folder is not the
+library folder, the source is still the file the plan was made from (its length and SHA-256), and
+a dry run of `runs::with_links_added` and `runs::check_links_added` against the group's file as it
+reads now passes. The same check is what disables the button and what the card says, worked out
+again when the destination changes and when a kept plan is shown. Once it passes, the group's file
+is made with `create_new` before the notes; a run left "links pending" still owns it, and undo
+takes an empty one away. What step 6 can still fail on is a race.
+
+**Why.** 4.3's step 6 held two things, one a precondition (the group's file), and the other its
+links; a refusal there left every note on disk and nothing listing it (audit 3's C1, C2, C3). Every
+prefix of D2's order is a state one can live with, and an empty group is one of them.
+
+**Overturned by.** The shared writer gaining a variant that places a note with no section before
+the first heading, which would let C1's case be written instead of refused; or a check that needs
+something only a written file can tell.
+
+**From.** Audit 3 (`docs/review-prompts/audit3-report.md`) D2, C1, C2, C3 and 4.3.
+
+## D-066 - 2026-11-21 - No session, no library
+
+**Decision.** A window with no settings file has no library folder, no snippets file and no saved
+prompts: `snippets_path` returns `None` unless there is a session or a settings file named by
+`MDEDIT_SETTINGS`, and `library_dir` is built on it. `--no-session` therefore gives a build nothing
+of the owner's to read or write, and a build that wants a library gives `MDEDIT_SETTINGS` naming a
+scratch `settings.ini`, whose folder's `library` is used. A plan is refused when there is no
+library folder, and the empty path is never a library root the confinement check can pass.
+
+**Why.** CLAUDE.md rule 9 offers `--no-session` as the safe way to start a build, and until now such
+a build read and wrote the owner's real library (`%LOCALAPPDATA%\mdedit\library`); a window whose
+settings could not be had wrote into the default folder too. A build that can write dozens of the
+owner's files is not safe, whatever flag it was given.
+
+**Overturned by.** A separate, explicit `--library` argument that names a folder for a build.
+
+**From.** Audit 3's A11 and A6, and rule 9.
+
+## D-067 - 2026-11-21 - A destination carries its group's file
+
+**Decision.** `plan_ui::Dest` holds the group's library file beside its name and folder, and the
+write, the blocked check and the group menu all use that file. Nothing looks a group up by name
+again; two titles that differ only in case are compared with `mdshared_app::paths::same_path`, as
+the disk compares them.
+
+**Why.** A library may hold two groups of one name; the screen matched them by name three ways
+(ignoring case, exactly, and first match), so the notes went to one group's folder and the links to
+another's file (C7). `HashSet<PathBuf>` told `Notes.md` from `notes.md`, which Windows does not, so
+the second note was offered no other name and was left out (C5).
+
+**Overturned by.** The library gaining a rule that a group's name is unique; it has none.
+
+**From.** Audit 3's C5 and C7.

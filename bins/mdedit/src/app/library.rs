@@ -12,8 +12,9 @@ use mdshared_app::library;
 
 impl App {
     /// The library folder: the one the preference names (a path with no root is taken from the
-    /// settings folder), else `library` beside the settings file (the application's data folder
-    /// when the window runs without one). `None` while a shot runs on the user's own folder.
+    /// settings folder), else `library` beside the settings file. `None` while the window has no
+    /// session -- a shot, `--no-session` without `MDEDIT_SETTINGS`, or a settings file that could
+    /// not be had -- so a build never reads or writes the owner's library (A11).
     pub(super) fn library_dir(&self) -> Option<PathBuf> {
         let beside = self.snippets_path()?.parent()?.to_path_buf();
         let set = self.docs.prefs.library_dir.trim();

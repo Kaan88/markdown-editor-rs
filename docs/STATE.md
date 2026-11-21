@@ -1,9 +1,9 @@
 # State of the work
 
 Rewritten, not appended to: when a line here stops being true, replace it. Last rewritten
-2026-11-21, with the notes-pane rework (a worker-thread re-read, the 512-file count and the slim
-staleness copy). If `git log -1` shows something newer than that, the lines under "In hand" are
-the first to doubt.
+2026-11-21, with the plan's guards: a write is checked before it writes, and a window without a
+settings file has no library. If `git log -1` shows something newer than that, the lines under
+"In hand" are the first to doubt.
 
 ## Released
 
@@ -45,7 +45,8 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 - **One tick box and one switch**: the Replace-in-files confirmation draws its ticks with the
   shared `mdshared-ui` `check`, and the AI review its Changes / Preview switch with `segments`;
   a screen test pins each to the pixels the private drawing made.
-- mdedit is at 603 tests (the app's own unit tests; 1289 in the workspace).
+- mdedit is at 603 tests on `main` (1289 in the workspace), and 621 in the app on the
+  `fix/plan-guards` branch, where audit 3's plan guards are (1307 in the workspace).
 
 ## In hand
 
@@ -64,9 +65,16 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
   could not be taken out stays "links pending" so Undo can be pressed again; a record is marked
   "undone" and stays. "AI runs…" (the AI menu and the Notes library
   menu) lists the records of the runs, with Show the notes, Undo this run and Finish. The Notes
-  pane draws "Plan ready: N notes · Show · Drop" at its foot while a plan is parked. Not built:
-  the Recycle Bin (step 8, phase T), the progress row "Writing… 14 of 23" with Cancel, "Ask the
-  AI…", the list's per-source headings, and `replace_ui::draw_confirm` is not converted.
+  pane draws "Plan ready: N notes · Show · Drop" at its foot while a plan is parked. Every refusal
+  it can know before the first file is made before it (D2: the group's file's name, both caps, an
+  unsaved library file, the source's length and SHA-256, and a dry run of the links), the group's
+  file is made before the notes, the plan reads the library where it opens and refuses without a
+  library folder (`--no-session` has none unless `MDEDIT_SETTINGS` names one), a group's folder
+  cannot be the library folder, and a destination carries its group's file. A note with no section
+  into a group that already has sections is refused there, until the shared writer can place it
+  (audit 3 C1). Not built: the Recycle Bin (step 8, phase T), the progress row "Writing… 14 of 23"
+  with Cancel, "Ask the AI…", the list's per-source headings, and `replace_ui::draw_confirm` is not
+  converted.
 - **Mockups** of three AI screens (the split plan, the rewrite review with ticks, the AI task
   window): branch `mock/ai-review`, worktree `..\mdedit-mock`, behind `--mock`, shots in
   `shots\mock\`. A drawing, not an implementation. Not to be merged.
@@ -106,6 +114,11 @@ faults that could lose a note or break a library that moves; these are still tru
 - **The 512-file limit.** More than 512 `.md` files directly in the library folder, and those
   that sort last drop out; the pane's foot now says how many groups it shows of how many there
   are, but the rest cannot be listed. Notes flat in the folder count against it.
+- **A note with no section into a group that has sections.** The shared `library::add_note`
+  appends it under the last heading, so it could not read back as its own section; "Write the
+  notes" now refuses the plan before writing rather than writing its notes and failing its links
+  (audit 3 C1). The fix belongs in the shared crate: a variant beside `add_note` that places a
+  note with no section before the first heading.
 - Opening Settings during an AI review discards the result.
 - The AI review has no scrollbar and cuts long lines.
 - The editor never reads the AI engine's version.
@@ -132,9 +145,12 @@ faults that could lose a note or break a library that moves; these are still tru
   take its result. The first-frame figure on this PC still moves with the day, so only before
   against after, run in turn, means anything.
 - **Reviews.** Audit 1 (Astra, seven rounds) covered up to 1.1.2. Audit 2 (Fable) found faults
-  that were all fixed for 1.2.0; the fixes have not been reviewed. Audit 3 was scoped
-  (`docs/review-prompts/audit3-scope.md`) and there is no record that it ran. Nothing since 1.2.0
-  has been reviewed by anyone: that is the whole notes library.
+  that were all fixed for 1.2.0; the fixes have not been reviewed. Audit 3 (Fable) has run:
+  `docs/review-prompts/audit3-report.md`, 21 probes against `6cdeab2`. The Undo question (A1) and
+  the four-byte name that ended the program (B1, in the shared crates) are fixed; the plan guards
+  (D2 and A6, A7, A8, A11, C1, C2, C3, C5, C7) are on `fix/plan-guards`, not merged. A2–A5, A9
+  and A10 are not fixed yet. Nothing since 1.2.0 has been reviewed by anyone else: that is the
+  whole notes library.
 - **Never checked by hand:** the KDE blur on Linux; pasting image files copied in a Linux file
   manager; the AppImage and the Linux packages on a desktop; the macOS builds on a desktop; the
   Windows installer; an installed copy updating itself and restarting.
@@ -145,6 +161,7 @@ faults that could lose a note or break a library that moves; these are still tru
   `e2b3e31`. winit fork `62fa727`, softbuffer fork `dd18fec`. mdview itself pins the shared
   crates at `cb0ffd3`, which is older.
 - Every local `f/…` branch and `release/1.2.0` is merged into `main`. `mock/ai-review` is not
-  and should not be.
+  and should not be. `fix/plan-guards` holds audit 3's plan guards, not merged.
 - Worktrees on this PC: `..\mdedit-mock` (the mockups), `..\md-wt\p1-before` and `p1-after` (the
-  phase 1 budget builds), `..\mdedit-four-fixes` (merged, prunable).
+  phase 1 budget builds), `..\mdedit-four-fixes` (merged, prunable), `..\md-wt\plan-guards` (the
+  plan guards).

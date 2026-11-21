@@ -262,6 +262,9 @@ struct App {
     crash_key: crash::CrashKey,
     watcher: Option<FileWatcher>,
     session_path: Option<PathBuf>,
+    /// The settings file `MDEDIT_SETTINGS` named for a `--no-session` build: the one thing such a
+    /// window may read settings beside, and its library with them. `None` otherwise.
+    settings_override: Option<PathBuf>,
     /// Write the session on exit (not in `--shot`).
     save: bool,
     session: Session,
@@ -412,6 +415,7 @@ impl App {
         trace: Trace,
         session_path: Option<PathBuf>,
         session: Session,
+        settings_override: Option<PathBuf>,
     ) -> App {
         let system_dark = platform::system_is_dark();
         App {
@@ -448,6 +452,7 @@ impl App {
             crash_key: Default::default(),
             watcher: None,
             session_path,
+            settings_override,
             session,
             screen: Bitmap::new(1, 1),
             format: None,
@@ -3557,6 +3562,15 @@ pub fn run() -> i32 {
         categories: &["Utility", "TextEditor", "Development"],
     });
     let explicit = std::env::var_os("MDEDIT_SETTINGS").map(PathBuf::from);
+    // A `--no-session` window reads no settings at all -- so it has no library, no snippets and
+    // no saved prompts -- unless `MDEDIT_SETTINGS` names a settings file for this build. That
+    // file is read for settings and its library is used; the session itself is still not read or
+    // written (CLAUDE.md rule 9).
+    let settings_override = if args.no_session {
+        explicit.clone()
+    } else {
+        None
+    };
     // A shot never touches the user's session; it may read a scratch one named by MDEDIT_SETTINGS.
     let mut session_path = match (args.no_session, args.shot.is_some()) {
         (true, _) => None,
@@ -3731,7 +3745,7 @@ pub fn run() -> i32 {
     }
     let w = waker.clone();
     let service = HighlightService::spawn(move || w(Wake::Highlight));
-    let mut app = App::new(args, docs, trace, session_path, session);
+    let mut app = App::new(args, docs, trace, session_path, session, settings_override);
     app.compare_wait = compare_ids;
     app.recovery = recovery;
     let recovered_count = app.args.demo_recovered.unwrap_or(recovered);
@@ -3895,7 +3909,7 @@ mod tests {
             on: false,
             started: Instant::now(),
         };
-        App::new(args, docs, trace, None, Session::default())
+        App::new(args, docs, trace, None, Session::default(), None)
     }
 
     /// The update bar offers Restart in the installed state only, and only with a file to start.

@@ -137,11 +137,12 @@ fn undo_from_the_report_takes_the_run_back_and_marks_the_record() {
 }
 
 #[test]
-fn a_group_file_that_cannot_be_made_leaves_the_notes_unlinked_and_the_record_says_so() {
+fn a_group_file_that_cannot_be_written_leaves_the_notes_unlinked_and_the_record_says_so() {
     let dir = scratch("plan-links");
     let mut a = app_in(&dir);
-    // A folder where the group's library file would go: the library cannot be updated.
-    std::fs::create_dir_all(dir.join("library").join("Trip.md")).expect("the folder");
+    // A folder where the library file's own temporary file would go: everything D2 checks
+    // passes, and the atomic write at step 6 is the one thing that fails -- a race, in the field.
+    std::fs::create_dir_all(dir.join("library").join("Trip.md.tmp")).expect("the folder");
     let source = dir.join("Trip.md");
     std::fs::write(
         &source,
@@ -150,6 +151,11 @@ fn a_group_file_that_cannot_be_made_leaves_the_notes_unlinked_and_the_record_say
     .expect("the source");
     open_now(&mut a, &source);
     assert!(a.plan_open_active());
+    assert_eq!(
+        a.plan.as_ref().expect("open").problem(),
+        None,
+        "nothing is known against it before the write"
+    );
     press(&mut a, KeyName::Enter);
     // The note is there, with nothing listing it.
     assert_eq!(
@@ -161,6 +167,10 @@ fn a_group_file_that_cannot_be_made_leaves_the_notes_unlinked_and_the_record_say
     assert_eq!(runs[0].record.state, mdedit_core::runs::State::LinksPending);
     assert!(runs[0].record.notes[0].path.is_file());
     assert_eq!(runs[0].record.notes.len(), 2);
+    // The group's file was made before the notes, and the record says this run made it: undo
+    // takes the empty group away even though its links never went in.
+    assert!(dir.join("library/Trip.md").is_file());
+    assert!(runs[0].record.group.created);
     // The toast says so, in the words of 4.3.
     let said = toast(&a);
     assert!(
@@ -388,5 +398,544 @@ fn a_run_that_cannot_start_keeps_the_plan_and_its_edits_on_screen() {
         read(&source),
         "# Tokyo\n\nintro\n\n## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- D2: everything that can be refused is refused before the first file ------------------------
+
+/// A heading above the notes: the run writes a section heading into the library file.
+const SECTIONED: &str = "# Tokyo\n\nintro\n\n## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n";
+/// No heading above the notes: the notes have no section.
+const FLAT: &str = "## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n";
+
+/// `Trip.md` holding `text`, split and written through the plan screen: the window, the library
+/// folder, the record and the scratch folder.
+fn written(tag: &str, text: &str) -> (App, PathBuf, PathBuf, PathBuf) {
+    let dir = scratch(tag);
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, text).expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active(), "the plan opens");
+    a.compose();
+    press(&mut a, KeyName::Enter);
+    assert!(a.plan.is_none(), "the card closes when it writes");
+    let record =
+        a.ui.results
+            .replace
+            .outcome
+            .as_ref()
+            .and_then(|o| o.run.clone())
+            .expect("the record");
+    (a, dir.join("library"), record, dir)
+}
+
+/// The blocked reason the open plan gives, or a panic naming what was written instead.
+fn blocked(a: &App) -> String {
+    a.plan
+        .as_ref()
+        .expect("the plan is open")
+        .problem()
+        .expect("the plan says why it cannot be written")
+}
+
+/// D2: the group's file is made before the notes, so a note that could not be written still
+/// leaves a group one can live with (and undo takes away).
+#[test]
+fn the_groups_file_is_made_before_its_notes_even_when_every_note_fails() {
+    let dir = scratch("plan-group-first");
+    let library = dir.join("library");
+    // A file where the notes' section folder would go: both notes cannot be written at step 4.
+    std::fs::create_dir_all(library.join("Trip")).expect("the group's folder");
+    std::fs::write(library.join("Trip").join("Tokyo"), "not a folder\n").expect("a file");
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, SECTIONED).expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    press(&mut a, KeyName::Enter);
+    // The notes could not be written, and the file in their way is untouched.
+    assert_eq!(
+        read(&library.join("Trip").join("Tokyo")),
+        "not a folder\n",
+        "the file in the way is not touched"
+    );
+    // The group's file was made first, and the record says this run made it.
+    let group = library.join("Trip.md");
+    assert!(group.is_file(), "the group's file is made before the notes");
+    assert!(read(&group).starts_with("# Trip\n"), "{}", read(&group));
+    let runs = mdedit_core::runs::list(&library);
+    assert_eq!(runs.len(), 1);
+    assert!(runs[0].record.group.created);
+    assert_eq!(runs[0].record.state, mdedit_core::runs::State::Done);
+    assert!(!library.join("Trip/Tokyo/Asakusa.md").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A7: a group whose folder is the library folder, refused where it is picked.
+#[test]
+fn a_group_folder_that_is_the_library_folder_is_refused_where_it_is_picked() {
+    let dir = scratch("plan-home-pick");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    let file = library.join("Work.md");
+    std::fs::write(&file, "# Work\n").expect("a library file");
+    let mut a = app_in(&dir);
+    // "Set the group's folder…" with the library folder itself picked: refused, nothing written.
+    a.library_group_home_picked(&file, library.clone());
+    assert_eq!(read(&file), "# Work\n", "the group file is untouched");
+    assert!(
+        toast(&a).contains("cannot be a group's folder"),
+        "{}",
+        toast(&a)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A7: a `home:` line that names the library folder, refused where it is read.
+#[test]
+fn a_home_line_that_names_the_library_folder_makes_no_note_there() {
+    let dir = scratch("plan-home-read");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    let file = library.join("Work.md");
+    std::fs::write(&file, "# Work\nhome: .\n").expect("a home line");
+    let mut a = app_in(&dir);
+    a.library_rows();
+    a.library_new_note(&file, &[], "Idea");
+    assert!(
+        !library.join("Idea.md").exists(),
+        "no library file was made"
+    );
+    assert!(
+        toast(&a).contains("cannot be a group's folder"),
+        "{}",
+        toast(&a)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A7: and the plan refuses to send its notes there.
+#[test]
+fn a_plan_refuses_a_group_whose_folder_is_the_library_folder() {
+    let dir = scratch("plan-home-plan");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    let file = library.join("Work.md");
+    std::fs::write(&file, "# Work\nhome: .\n").expect("a home line");
+    let mut a = app_in(&dir);
+    let source = dir.join("Work.md");
+    std::fs::write(&source, FLAT).expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    // Enter, the owner's one press that writes: nothing is written, and the card stays.
+    press(&mut a, KeyName::Enter);
+    assert!(
+        !library.join("Asakusa.md").exists(),
+        "no note was written in the library folder"
+    );
+    assert!(a.plan.is_some(), "the card stays");
+    let said = blocked(&a);
+    assert!(said.contains("library folder itself"), "{said}");
+    assert_eq!(read(&file), "# Work\nhome: .\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C2: a new group whose file name is taken, found before the notes are written.
+#[test]
+fn a_new_group_whose_file_is_taken_is_refused_before_the_notes_are_written() {
+    let dir = scratch("plan-taken");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    std::fs::write(library.join("Trip.md"), "# Japan 2025\n").expect("a library file");
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, FLAT).expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    assert!(a.plan.as_ref().expect("open").dest.is_new);
+    // The card's button is disabled: Enter does nothing, and nothing is written.
+    press(&mut a, KeyName::Enter);
+    assert!(!library.join("Trip").exists(), "no folder, no note");
+    assert!(a.plan.is_some(), "the card stays");
+    assert_eq!(read(&library.join("Trip.md")), "# Japan 2025\n");
+    assert!(mdedit_core::runs::list(&library).is_empty(), "no record");
+    let said = blocked(&a);
+    assert!(
+        said.contains("Trip.md") && said.contains("already"),
+        "{said}"
+    );
+    // A press of the button that is disabled anyway (the keyboard path) says the same, and is
+    // refused by the write itself as well.
+    a.plan_write();
+    let said = toast(&a);
+    assert!(
+        said.starts_with("The run could not start: ") && said.contains("already"),
+        "{said}"
+    );
+    assert!(!library.join("Trip").exists(), "still nothing");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C2: the unsaved-change check is made when the destination changes, not only when the screen
+/// opens.
+#[test]
+fn a_group_file_with_unsaved_changes_is_found_when_the_destination_changes() {
+    let dir = scratch("plan-dest");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    std::fs::write(library.join("Trip.md"), "# Trip\n").expect("a library file");
+    let mut a = app_in(&dir);
+    // The group's library file is open with changes not saved.
+    open_now(&mut a, &library.join("Trip.md"));
+    type_text(&mut a, "mine\n");
+    assert!(a.docs.active_doc().is_some_and(|d| d.modified()));
+    // A plan on a new group of its own, then the destination is moved to Trip, as the menu does.
+    let source = dir.join("Day.md");
+    std::fs::write(&source, FLAT).expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    assert_eq!(a.plan.as_ref().expect("open").problem(), None);
+    let dest = a
+        .plan
+        .as_ref()
+        .expect("open")
+        .groups
+        .iter()
+        .find(|g| g.name == "Trip")
+        .cloned()
+        .expect("the group");
+    a.plan.as_mut().expect("open").set_dest(dest);
+    // The next key goes through the screen, as any event does: the reason is worked out again.
+    press(&mut a, KeyName::Down);
+    press(&mut a, KeyName::Enter);
+    assert!(!library.join("Day").exists(), "no note was written");
+    assert!(a.plan.is_some(), "the card stays");
+    assert_eq!(read(&library.join("Trip.md")), "# Trip\n", "untouched");
+    assert!(mdedit_core::runs::list(&library).is_empty(), "no record");
+    let said = blocked(&a);
+    assert!(said.contains("changes that are not saved"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C1: a note with no section cannot be linked into a group that already has one. The dry run
+/// refuses before the notes are written, instead of after the last one.
+#[test]
+fn a_note_with_no_section_into_a_group_with_one_is_refused_before_the_notes_are_written() {
+    let (mut a, library, _record, dir) = written("plan-again", SECTIONED);
+    let group = library.join("Trip.md");
+    let before = read(&group);
+    assert!(before.contains("## Tokyo"), "{before}");
+    // Another document for the same group, with no heading above its notes: every note of it has
+    // no section, and a note with no section goes at the end of the file, under the last heading.
+    let more = dir.join("more");
+    std::fs::create_dir_all(&more).expect("a folder");
+    let second = more.join("Trip.md");
+    std::fs::write(&second, FLAT).expect("a file");
+    open_now(&mut a, &second);
+    assert!(a.plan_open_active(), "the plan opens");
+    assert!(!a.plan.as_ref().expect("open").dest.is_new);
+    press(&mut a, KeyName::Enter);
+    assert!(
+        !library.join("Trip").join("Asakusa.md").exists(),
+        "no note was written"
+    );
+    assert!(a.plan.is_some(), "the card stays");
+    assert_eq!(read(&group), before, "the library file is untouched");
+    assert_eq!(mdedit_core::runs::list(&library).len(), 1, "one record");
+    let said = blocked(&a);
+    assert!(
+        said.contains("has sections") && said.contains("no section"),
+        "{said}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C2: the library's two caps, found before the first note instead of after the last.
+#[test]
+fn the_librarys_two_caps_are_found_before_anything_is_written() {
+    // The files the library holds.
+    let dir = scratch("plan-cap-files");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    for i in 0..mdshared_app::library::MAX_FILES {
+        std::fs::write(library.join(format!("G{i}.md")), format!("# G{i}\n")).expect("a file");
+    }
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, FLAT).expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    press(&mut a, KeyName::Enter);
+    assert!(!library.join("Trip.md").exists(), "no group file was made");
+    assert!(a.plan.is_some(), "the card stays");
+    let said = blocked(&a);
+    assert!(
+        said.contains(&format!("{} files", mdshared_app::library::MAX_FILES)),
+        "{said}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // The notes one group holds.
+    let dir = scratch("plan-cap-notes");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    let mut text = String::from("# Trip\nhome: Trip\n");
+    for i in 0..mdshared_app::library::MAX_ENTRIES {
+        text.push_str(&format!("- [N{i}](Trip/N{i}.md)\n"));
+    }
+    std::fs::write(library.join("Trip.md"), &text).expect("a library file");
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, FLAT).expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    press(&mut a, KeyName::Enter);
+    assert!(!library.join("Trip").exists(), "no note was written");
+    assert!(a.plan.is_some(), "the card stays");
+    assert_eq!(read(&library.join("Trip.md")), text);
+    let said = blocked(&a);
+    assert!(
+        said.contains(&format!(
+            "more than {} notes",
+            mdshared_app::library::MAX_ENTRIES
+        )),
+        "{said}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C3: a heading that ends in `#` does not read back; the dry run says so before the notes exist.
+#[test]
+fn a_section_called_c_sharp_is_refused_before_the_notes_are_written() {
+    let dir = scratch("plan-csharp");
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(
+        &source,
+        "# C#\n\nthe language\n\n## Generics\n\nthe lists\n\n## Records\n\nthe shapes\n",
+    )
+    .expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    press(&mut a, KeyName::Enter);
+    let library = dir.join("library");
+    assert!(!library.join("Trip").exists(), "no note was written");
+    assert!(a.plan.is_some(), "the card stays");
+    assert!(!library.join("Trip.md").exists(), "no group file was made");
+    assert!(mdedit_core::runs::list(&library).is_empty(), "no record");
+    let said = blocked(&a);
+    assert!(said.contains("ends in '#'"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C5: two titles that differ only in case are one file on the disk, so the second gets another
+/// name before anything is written.
+#[test]
+fn two_titles_that_differ_only_in_case_are_given_two_files() {
+    let dir = scratch("plan-case");
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, "## Notes\n\nfirst\n\n## notes\n\nsecond\n").expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    {
+        let p = a.plan.as_ref().expect("open");
+        assert_eq!(p.targets.len(), 2);
+        assert!(
+            !mdshared_app::paths::same_path(&p.targets[0].path, &p.targets[1].path),
+            "the two notes are two files: {:?} {:?}",
+            p.targets[0].path,
+            p.targets[1].path
+        );
+        assert_eq!(p.targets[1].renamed.as_deref(), Some("notes 2.md"));
+        assert_eq!(
+            p.mark(1),
+            Some(crate::plan_ui::Mark::Renamed("notes 2.md".to_string()))
+        );
+    }
+    press(&mut a, KeyName::Enter);
+    let folder = dir.join("library").join("Trip");
+    let files: Vec<String> = std::fs::read_dir(&folder)
+        .expect("the folder")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert_eq!(read(&folder.join("Notes.md")), "# Notes\n\nfirst\n");
+    assert_eq!(read(&folder.join("notes 2.md")), "# notes\n\nsecond\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C7: two groups of one name are two files; the notes and their links go to the one chosen.
+#[test]
+fn two_groups_of_one_name_send_the_notes_and_the_links_to_the_chosen_file() {
+    let dir = scratch("plan-two-groups");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    std::fs::write(library.join("A.md"), "# Trip\nhome: A\n").expect("a library file");
+    std::fs::write(library.join("B.md"), "# Trip\nhome: B\n").expect("a library file");
+    let mut a = app_in(&dir);
+    let source = dir.join("Doc.md");
+    std::fs::write(&source, FLAT).expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    let dest = a
+        .plan
+        .as_ref()
+        .expect("open")
+        .groups
+        .iter()
+        .find(|g| g.file.ends_with("B.md"))
+        .cloned()
+        .expect("the second group");
+    a.plan.as_mut().expect("open").set_dest(dest);
+    press(&mut a, KeyName::Down);
+    assert_eq!(a.plan.as_ref().expect("open").problem(), None);
+    press(&mut a, KeyName::Enter);
+    assert_eq!(
+        read(&library.join("A.md")),
+        "# Trip\nhome: A\n",
+        "untouched"
+    );
+    let b = read(&library.join("B.md"));
+    assert!(b.contains("[Asakusa]") && b.contains("[Nara]"), "{b}");
+    assert!(library.join("B/Asakusa.md").is_file(), "the note is in B");
+    assert!(!library.join("A/Asakusa.md").exists(), "nothing went to A");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A8: a plan kept by Escape, shown again after the document was saved with a change, refuses to
+/// write the text it was made from.
+#[test]
+fn a_kept_plan_refuses_to_write_after_the_document_changed() {
+    let dir = scratch("plan-parked");
+    let library = dir.join("library");
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, "## One\n\nalpha\n\n## Two\n\nbeta\n").expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    a.compose();
+    // A change, so that Escape keeps the plan: the second note is unticked.
+    press(&mut a, KeyName::Down);
+    press(&mut a, KeyName::Space);
+    press(&mut a, KeyName::Escape);
+    assert!(a.plan.is_none() && a.plan_parked.is_some());
+    // The owner goes on writing in the document, and saves it.
+    type_text(&mut a, "x");
+    a.command(C::Save);
+    let now = std::fs::read(&source).expect("the source");
+    assert!(
+        now.starts_with(b"x## One"),
+        "{:?}",
+        String::from_utf8_lossy(&now)
+    );
+    // Show: Enter writes nothing, and the card says the document changed.
+    assert!(a.plan_show());
+    press(&mut a, KeyName::Enter);
+    assert!(!library.join("Trip").exists(), "no note was written");
+    assert!(a.plan.is_some(), "the card stays; toast: {:?}", toast(&a));
+    assert!(mdedit_core::runs::list(&library).is_empty(), "no record");
+    let library = dir.join("library");
+    assert!(!library.join("Trip").exists(), "no note was written");
+    assert!(mdedit_core::runs::list(&library).is_empty(), "no record");
+    let said = blocked(&a);
+    assert!(
+        said.contains("has changed since this plan was made"),
+        "{said}"
+    );
+    // The write itself refuses too, with the same words on the bar.
+    a.plan_write();
+    let said = toast(&a);
+    assert!(
+        said.starts_with("The run could not start: ") && said.contains("has changed since"),
+        "{said}"
+    );
+    assert!(!library.join("Trip").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A8: a document whose bytes are not text is refused, as plan 3.11 requires.
+#[test]
+fn a_document_whose_bytes_are_not_text_is_refused_by_split_into_notes() {
+    let dir = scratch("plan-lossy");
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    // Not text: UTF-16's byte-order mark and a NUL, which the reader fills in with U+FFFD.
+    std::fs::write(&source, [0xFF, 0xFE, b'a', 0, b'b']).expect("the source");
+    open_now(&mut a, &source);
+    assert!(
+        a.docs
+            .active_doc()
+            .and_then(|d| d.ready())
+            .is_some_and(|r| r.info.lossy),
+        "the document is lossy"
+    );
+    assert!(!a.plan_open_active());
+    assert!(a.plan.is_none());
+    assert_eq!(toast(&a), crate::commands::strings::split_lossy("Trip.md"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A11: a build with no session has no library at all -- nothing of the owner's is read or
+/// written -- and Split into notes refuses for want of a folder.
+#[test]
+fn a_build_with_no_session_has_no_library() {
+    let dir = scratch("plan-no-session");
+    let mut a = app();
+    a.args.no_session = true;
+    assert_eq!(a.library_dir(), None, "a build with no session has none");
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, FLAT).expect("the source");
+    open_now(&mut a, &source);
+    assert!(!a.plan_open_active(), "no library folder, no plan");
+    assert!(a.plan.is_none());
+    assert_eq!(toast(&a), crate::commands::strings::LIBRARY_NO_FOLDER);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A6: the plan uses the library folder the window knows, read as the plan opens, even when
+/// nothing has read the library yet.
+#[test]
+fn split_into_notes_reads_the_library_first() {
+    let dir = scratch("plan-read-first");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    let source = dir.join("Trip.md");
+    std::fs::write(&source, FLAT).expect("the source");
+    open_now(&mut a, &source);
+    assert!(
+        a.docs.library_stamp.dir.as_os_str().is_empty(),
+        "the library was never read"
+    );
+    assert!(a.plan_open_active(), "the plan opens");
+    assert_eq!(a.plan.as_ref().expect("open").root(), dir.join("library"));
+    assert_eq!(a.docs.library.dir, dir.join("library"), "read as it opened");
+    a.compose();
+    press(&mut a, KeyName::Enter);
+    assert!(
+        dir.join("library")
+            .join("Trip")
+            .join("Asakusa.md")
+            .is_file()
+    );
+    assert!(!dir.join("Trip").exists(), "nothing in the starting folder");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A6: "AI runs…" lists the records of the one library folder, read now, before anything else
+/// loaded the library.
+#[test]
+fn ai_runs_lists_the_library_folders_records_before_the_library_was_read() {
+    let (_a, library, _record, dir) = written("plan-open-runs", SECTIONED);
+    assert_eq!(mdedit_core::runs::list(&library).len(), 1);
+    // A fresh window that never showed the Notes pane: its library folder is empty until now.
+    let mut b = app();
+    b.session_path = Some(dir.join("settings.ini"));
+    assert!(b.docs.library_stamp.dir.as_os_str().is_empty());
+    b.open_runs();
+    assert_eq!(b.ui.runs.list.len(), 1, "the record is listed");
+    assert_eq!(b.ui.dialog.as_ref().map(|d| d.kind), Some(DialogKind::Runs));
     let _ = std::fs::remove_dir_all(&dir);
 }

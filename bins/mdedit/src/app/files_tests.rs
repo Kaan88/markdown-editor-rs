@@ -32,6 +32,7 @@ pub(super) fn app() -> App {
         Trace::new(false, Instant::now()),
         None,
         Session::default(),
+        None,
     );
     app.size = (1280, 800);
     app

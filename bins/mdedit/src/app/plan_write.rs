@@ -9,11 +9,13 @@
 
 use super::library_write::{Wrote, file_stem_for};
 use super::*;
+use crate::commands::strings;
 use crate::library_pane::{RowId, key_of};
 use crate::plan_ui::PlanScreen;
 use crate::replace_ui::Outcome;
 use crate::ui::PaneFace;
 use mdedit_core::runs::{self, Gate, Group, LinkRemoval, NewNote, NewPicture, Request};
+use mdshared_app::files::create_new;
 use mdshared_app::library;
 use mdshared_app::paths::same_path;
 
@@ -36,8 +38,9 @@ impl Gate for PlanGate<'_> {
                 ));
             }
         }
-        match self.app.library_attempt(
+        match self.app.library_attempt_at(
             file,
+            &base,
             |text| Some(runs::with_links_added(text, links)),
             |old, new| runs::check_links_added(old, new, links, &base),
         ) {
@@ -54,8 +57,9 @@ impl Gate for PlanGate<'_> {
         headings: &[Vec<String>],
     ) -> Result<(), String> {
         let base = self.library.clone();
-        match self.app.library_attempt(
+        match self.app.library_attempt_at(
             file,
+            &base,
             |text| {
                 let without = runs::with_links_removed(text, links, &base)
                     .unwrap_or_else(|| text.to_string());
@@ -71,12 +75,13 @@ impl Gate for PlanGate<'_> {
 
 impl App {
     /// "Write the notes": the plan is written, the card closes, the report takes the results
-    /// panel and the Notes pane opens on the first new note.
+    /// panel and the Notes pane opens on the first new note. Everything that could be refused is
+    /// checked first, and the group's file is made before the notes (D2).
     pub(super) fn plan_write(&mut self) {
         let Some(screen) = self.plan.take() else {
             return;
         };
-        let request = match self.plan_request(&screen) {
+        let mut request = match plan_request(&screen) {
             Ok(request) => request,
             Err(why) => {
                 self.plan = Some(screen);
@@ -86,20 +91,76 @@ impl App {
                 return;
             }
         };
-        let library = self.docs.library.dir.clone();
-        let mut gate = PlanGate {
-            app: self,
-            library: library.clone(),
+        // D2: the group's file's name is free, the two caps are clear, no library file involved
+        // has unsaved changes, the source is still the file the plan was made from, and the links
+        // would read back. All of it before a byte is written.
+        if let Err(why) = plan_preflight(self, &screen, &request) {
+            self.plan = Some(screen);
+            self.docs
+                .set_toast(&format!("The run could not start: {why}"));
+            self.redraw();
+            return;
+        }
+        // The group's file, before the notes: an empty group is a state one can live with, and
+        // undo already takes it away. `runs` would make it at step 6, after every note is on
+        // disk, so it is made here; the record is told afterwards that this run made it.
+        let group_text = if request.group.created {
+            let text = match new_group_text(&request) {
+                Ok(text) => text,
+                Err(why) => return self.plan_write_refused(screen, &why),
+            };
+            // The library folder itself, when this is its first file: `create_new` makes a file
+            // in a folder, never the folder.
+            if let Err(e) = std::fs::create_dir_all(&request.library) {
+                return self.plan_write_refused(
+                    screen,
+                    &format!("{} could not be made: {e}", request.library.display()),
+                );
+            }
+            match create_new(&request.group.file, text.as_bytes()) {
+                Ok(()) => Some(text),
+                Err(e) => {
+                    return self.plan_write_refused(
+                        screen,
+                        &format!("{} could not be made: {e}", shown(&request.group.file)),
+                    );
+                }
+            }
+        } else {
+            None
         };
-        let report = runs::write(&request, &mut gate);
+        if group_text.is_some() {
+            request.group.created = false;
+        }
+        let library = request.library.clone();
+        let mut report = {
+            let mut gate = PlanGate {
+                app: self,
+                library: library.clone(),
+            };
+            runs::write(&request, &mut gate)
+        };
         // The gate's borrow ends here: the window is the window's again.
         if let Some(why) = &report.start_error {
             // Nothing was written, and nothing after step 1 could have been: the card stays
             // open with the plan, every tick, rename and merge in it, and the reason on the bar.
+            // The group's file made a moment ago is taken away again, unless it changed.
+            if let Some(text) = &group_text {
+                remove_own_file(&request.group.file, text);
+            }
             self.plan = Some(screen);
             self.docs.set_toast(why);
             self.redraw();
             return;
+        }
+        if group_text.is_some()
+            && let (Some(record), Some(path)) =
+                (report.record.as_mut(), report.record_path.as_ref())
+        {
+            // The record says the run made the group's file, so undo takes it away when the run
+            // is undone, and a run left "links pending" still owns it.
+            record.group.created = true;
+            let _ = record.close(path, &library);
         }
         self.plan = None;
         self.plan_parked = None;
@@ -127,116 +188,296 @@ impl App {
         self.redraw();
     }
 
-    /// The request a plan makes: every ticked note and the rest, at the names the screen worked
-    /// out, and nothing else.
-    fn plan_request(&self, screen: &PlanScreen) -> Result<Request, String> {
-        let source = screen
-            .source
-            .path
-            .clone()
-            .ok_or_else(|| "this is a demonstration of the plan screen.".to_string())?;
-        let root = screen.root().to_path_buf();
-        let home = screen.dest.home.clone();
-        let (file, created) = if screen.dest.is_new {
-            let stem = match file_stem_for(&screen.dest.name) {
-                Some(stem) => stem,
-                None => return Err("the group has no name.".to_string()),
-            };
-            (root.join(format!("{stem}.md")), true)
-        } else {
-            let group = self
-                .docs
-                .library
-                .groups
-                .iter()
-                .find(|g| g.name.eq_ignore_ascii_case(&screen.dest.name))
-                .ok_or_else(|| format!("there is no group called {}.", screen.dest.name))?;
-            (group.file.clone(), false)
-        };
-        let mut notes = Vec::new();
-        let mut taken: Vec<PathBuf> = Vec::new();
-        for (i, note) in screen.plan.notes().iter().enumerate() {
-            if !note.ticked() {
-                continue;
-            }
-            let Some(target) = screen.targets.get(i) else {
-                continue;
-            };
-            let text = screen.plan.note_text(i);
-            taken.push(target.path.clone());
-            notes.push(NewNote {
-                path: target.path.clone(),
-                from_source: text.clone(),
-                text,
-                title: note.title().to_string(),
-                link_path: crate::library_pane::link_path(&root, &target.path),
-                sections: note.sections().to_vec(),
-                ranges: vec![(note.first_line(), note.last_line())],
-                heading_shift: note.heading_shift(),
-                title_added: note.title_added(),
-                already: target.already,
-            });
-        }
-        // The rest, when it is ticked: the document's own name, in the group's folder.
-        if screen.plan.rest_ticked() && screen.rest.lines() > 0 {
-            let title = screen.rest.title().to_string();
-            let stem = match file_stem_for(&title) {
-                Some(stem) => stem,
-                None => return Err("the note of the rest has no name.".to_string()),
-            };
-            let folder = library::note_folder(&home, &[]);
-            let text = screen.plan.rest_text();
-            let (path, already) = free_or_same(&folder, &stem, &text, &taken)?;
-            taken.push(path.clone());
-            notes.push(NewNote {
-                path: path.clone(),
-                from_source: text.clone(),
-                text,
-                title,
-                link_path: crate::library_pane::link_path(&root, &path),
-                sections: Vec::new(),
-                ranges: screen
-                    .rest
-                    .runs()
-                    .iter()
-                    .map(|r| (r.start.saturating_add(1), r.end))
-                    .collect(),
-                heading_shift: 0,
-                title_added: true,
-                already,
-            });
-        }
-        if notes.is_empty() {
-            return Err("nothing is ticked.".to_string());
-        }
-        // The folders: the group's, then each note's, parents first.
-        let mut folders: Vec<PathBuf> = notes
-            .iter()
-            .filter_map(|n| n.path.parent().map(Path::to_path_buf))
-            .filter(|p| p.starts_with(&home) || p.starts_with(&root))
-            .collect();
-        if home.starts_with(&root) || home == root {
-            folders.push(home.clone());
-        }
-        folders.sort_by_key(|f| f.components().count());
-        folders.dedup();
-        Ok(Request {
-            library: root,
-            source,
-            instruction: String::new(),
-            sent: None,
-            group: Group {
-                name: screen.dest.name.clone(),
-                file,
-                created,
-                home,
-            },
-            folders,
-            notes,
-            pictures: Vec::<NewPicture>::new(),
-        })
+    /// "Write the notes" refused before anything was written: the card stays with the plan, and
+    /// the reason is on the bar.
+    fn plan_write_refused(&mut self, screen: PlanScreen, why: &str) {
+        self.plan = Some(screen);
+        self.docs
+            .set_toast(&format!("The run could not start: {why}"));
+        self.redraw();
     }
+}
 
+/// The request a plan makes: every ticked note and the rest, at the names the screen worked out.
+fn plan_request(screen: &PlanScreen) -> Result<Request, String> {
+    let source = screen
+        .source
+        .path
+        .clone()
+        .ok_or_else(|| "this is a demonstration of the plan screen.".to_string())?;
+    let root = screen.root().to_path_buf();
+    let home = screen.dest.home.clone();
+    let (file, created) = if screen.dest.is_new {
+        let stem = match file_stem_for(&screen.dest.name) {
+            Some(stem) => stem,
+            None => return Err("the group has no name.".to_string()),
+        };
+        (root.join(format!("{stem}.md")), true)
+    } else {
+        (screen.dest.file.clone(), false)
+    };
+    let mut notes = Vec::new();
+    let mut taken: Vec<PathBuf> = Vec::new();
+    for (i, note) in screen.plan.notes().iter().enumerate() {
+        if !note.ticked() {
+            continue;
+        }
+        let Some(target) = screen.targets.get(i) else {
+            continue;
+        };
+        let text = screen.plan.note_text(i);
+        taken.push(target.path.clone());
+        notes.push(NewNote {
+            path: target.path.clone(),
+            from_source: text.clone(),
+            text,
+            title: note.title().to_string(),
+            link_path: crate::library_pane::link_path(&root, &target.path),
+            sections: note.sections().to_vec(),
+            ranges: vec![(note.first_line(), note.last_line())],
+            heading_shift: note.heading_shift(),
+            title_added: note.title_added(),
+            already: target.already,
+        });
+    }
+    // The rest, when it is ticked: the document's own name, in the group's folder.
+    if screen.plan.rest_ticked() && screen.rest.lines() > 0 {
+        let title = screen.rest.title().to_string();
+        let stem = match file_stem_for(&title) {
+            Some(stem) => stem,
+            None => return Err("the note of the rest has no name.".to_string()),
+        };
+        let folder = library::note_folder(&home, &[]);
+        let text = screen.plan.rest_text();
+        let (path, already) = free_or_same(&folder, &stem, &text, &taken)?;
+        taken.push(path.clone());
+        notes.push(NewNote {
+            path: path.clone(),
+            from_source: text.clone(),
+            text,
+            title,
+            link_path: crate::library_pane::link_path(&root, &path),
+            sections: Vec::new(),
+            ranges: screen
+                .rest
+                .runs()
+                .iter()
+                .map(|r| (r.start.saturating_add(1), r.end))
+                .collect(),
+            heading_shift: 0,
+            title_added: true,
+            already,
+        });
+    }
+    if notes.is_empty() {
+        return Err("nothing is ticked.".to_string());
+    }
+    // The folders: the group's, then each note's, parents first.
+    let mut folders: Vec<PathBuf> = notes
+        .iter()
+        .filter_map(|n| n.path.parent().map(Path::to_path_buf))
+        .filter(|p| p.starts_with(&home) || p.starts_with(&root))
+        .collect();
+    if home.starts_with(&root) || home == root {
+        folders.push(home.clone());
+    }
+    folders.sort_by_key(|f| f.components().count());
+    folders.dedup();
+    Ok(Request {
+        library: root,
+        source,
+        instruction: String::new(),
+        sent: None,
+        group: Group {
+            name: screen.dest.name.clone(),
+            file,
+            created,
+            home,
+        },
+        folders,
+        notes,
+        pictures: Vec::<NewPicture>::new(),
+    })
+}
+
+/// Why the plan cannot be written, or `None` when it can: the destination-dependent half of D2,
+/// worked out again whenever the group the notes go to changes.
+pub(super) fn plan_blocked(app: &App, screen: &PlanScreen) -> Option<String> {
+    match plan_request(screen) {
+        Ok(request) => plan_preflight(app, screen, &request).err(),
+        Err(why) => Some(why),
+    }
+}
+
+/// Everything D2 checks before the first byte is written: the group's file's name is free, the
+/// two caps are clear, no library file involved has unsaved changes, the source is still the
+/// file the plan was made from, and a dry run of the link insertion and its check passes against
+/// the library file as it reads now. `Err` is the reason, as the card says it.
+pub(super) fn plan_preflight(app: &App, screen: &PlanScreen, req: &Request) -> Result<(), String> {
+    let library = &req.library;
+    // A6: an empty or relative library root makes every path "inside" it. A plan never reaches
+    // here without one, because it is refused where it opens.
+    if library.as_os_str().is_empty() || !library.is_absolute() {
+        return Err("there is no library folder to write the notes into.".to_string());
+    }
+    // A7: the group's folder must not be the library folder itself: its notes would be files the
+    // reader takes for library files.
+    if same_path(&req.group.home, library) {
+        return Err(format!(
+            "{} is the library folder itself, so the notes would be library files. Choose another folder for the group.",
+            shown(&req.group.home)
+        ));
+    }
+    for note in &req.notes {
+        if note.path.parent().is_some_and(|p| same_path(p, library)) {
+            return Err(format!(
+                "{} would be a library file, not a note.",
+                shown(&note.path)
+            ));
+        }
+    }
+    // The group's library file, as it reads now, or as it will read once made.
+    let group_text = if req.group.created {
+        if req.group.file.exists() {
+            return Err(strings::plan_group_taken(&shown(&req.group.file)));
+        }
+        if library_files(library) >= library::MAX_FILES {
+            return Err(format!(
+                "the library already holds its {} files.",
+                library::MAX_FILES
+            ));
+        }
+        let text = new_group_text(req)?;
+        let read = library::parse(&text, library);
+        if read.name.as_deref() != Some(req.group.name.trim()) || read.home.is_none() {
+            return Err(format!(
+                "{} would not read back as its notes.",
+                shown(&req.group.file)
+            ));
+        }
+        text
+    } else {
+        match std::fs::read_to_string(&req.group.file) {
+            Ok(text) => text,
+            Err(e) => {
+                return Err(format!("{} could not be read: {e}", shown(&req.group.file)));
+            }
+        }
+    };
+    let parsed = library::parse(&group_text, library);
+    // The library's own 2,000.
+    if parsed.entries.len().saturating_add(req.notes.len()) > library::MAX_ENTRIES {
+        return Err(format!(
+            "the group would have more than {} notes.",
+            library::MAX_ENTRIES
+        ));
+    }
+    // No library file involved has unsaved changes, at the destination the plan names now (C2).
+    app.library_file_free(&req.group.file)?;
+    // The source is still the file the plan was made from (A8).
+    let bytes = std::fs::read(&req.source)
+        .map_err(|e| format!("{} could not be read: {e}", shown(&req.source)))?;
+    if bytes.len() as u64 != screen.source.len
+        || !mdshared_app::update::sha256_hex(&bytes).eq_ignore_ascii_case(&screen.source.sha256)
+    {
+        return Err(format!(
+            "{} has changed since this plan was made. Save it, then split it again.",
+            shown(&req.source)
+        ));
+    }
+    // The dry run: the links exactly as step 6 would write them, against the file as it reads
+    // now. C1 and C3 are refused here instead of after the notes are on disk.
+    let links: Vec<runs::Link> = req.notes.iter().map(runs::Link::new).collect();
+    let new = runs::with_links_added(&group_text, &links);
+    if !runs::check_links_added(&parsed, &library::parse(&new, library), &links, library) {
+        return Err(why_links_would_not_read_back(
+            &parsed,
+            &links,
+            &shown(&req.group.file),
+        ));
+    }
+    // The group's folder, as the write will find it: a file where it should be.
+    if req.group.home.exists() && !req.group.home.is_dir() {
+        return Err(format!(
+            "{} is a file, not a folder.",
+            req.group.home.display()
+        ));
+    }
+    Ok(())
+}
+
+/// The text a new group's library file is made from, the same one `runs` makes at step 6.
+fn new_group_text(req: &Request) -> Result<String, String> {
+    let name = req.group.name.trim();
+    let home = written_home(&req.group.home, &req.library);
+    library::set_group_home(&format!("# {name}\n"), &home)
+        .ok_or_else(|| "the group has no name.".to_string())
+}
+
+/// A folder as a library file writes it: relative to the library when it is inside it, so the
+/// library can be moved as a whole (`runs::written_home`).
+fn written_home(home: &Path, library: &Path) -> PathBuf {
+    match home.strip_prefix(library) {
+        Ok(inside) if !inside.as_os_str().is_empty() => inside.to_path_buf(),
+        _ => home.to_path_buf(),
+    }
+}
+
+/// How many Markdown files are directly in the library folder: what `library::MAX_FILES` counts.
+fn library_files(dir: &Path) -> usize {
+    match std::fs::read_dir(dir) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .is_some_and(|x| x.eq_ignore_ascii_case("md"))
+            })
+            .count(),
+        Err(_) => 0,
+    }
+}
+
+/// Why the links would not read back, in the words of the fault that is known: the dry run
+/// cannot say more than that the file would not be its old notes plus the new ones.
+fn why_links_would_not_read_back(
+    old: &library::Parsed,
+    links: &[runs::Link],
+    file: &str,
+) -> String {
+    // C1: a link with no section is appended at the end of the file, under its last heading. The
+    // shared writer cannot place it before the first section yet, so this is refused up front.
+    if !old.sections.is_empty() && links.iter().any(|l| l.sections.is_empty()) {
+        return format!(
+            "{file} has sections, and a note with no section cannot be linked into it. Move the note under a section, or split it into a group that has none yet."
+        );
+    }
+    // C3: the shared reader takes a heading's closing '#' off, so `## C#` reads back as `C`.
+    if links.iter().any(|l| {
+        l.title.trim_end().ends_with('#') || l.sections.iter().any(|s| s.trim_end().ends_with('#'))
+    }) {
+        return format!(
+            "{file} would not read back: a heading that ends in '#' loses its last '#' when the library is read."
+        );
+    }
+    format!("{file} would not read back as its old notes plus the new ones.")
+}
+
+/// The name of a file as a person reads it: its own name, or its whole path when it has none.
+fn shown(path: &Path) -> String {
+    path.file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+/// Takes away a file this function made, when it still holds exactly what was put in it.
+fn remove_own_file(path: &Path, text: &str) {
+    if std::fs::read(path).is_ok_and(|bytes| bytes == text.as_bytes()) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+impl App {
     /// Opens the Notes pane on the group the report names, its cursor on the first note written.
     fn open_notes_of(&mut self, report: &runs::Report, request: &Request) {
         if report.notes() == 0 {
@@ -296,9 +537,13 @@ fn free_or_same(
 // ---- undo, from the report and from "AI runs…" ------------------------------------------------
 
 impl App {
-    /// "AI runs…": the records read now, newest first.
+    /// "AI runs…": the records read now, newest first, out of the one folder every run of this
+    /// window is resolved against (A6).
     pub(super) fn open_runs(&mut self) {
-        let library = self.docs.library.dir.clone();
+        let Some(library) = self.library_dir() else {
+            self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
+            return;
+        };
         self.ui.runs.list = mdedit_core::runs::list(&library);
         self.ui.runs.sel = 0;
         self.ui.runs.undo = None;
@@ -339,7 +584,7 @@ impl App {
     pub(super) fn runs_demo(&mut self, which: Option<crate::args::ShotDialog>) {
         use crate::args::ShotDialog;
         use mdedit_core::runs::{Group, NoteRec, Record, Run, Sent, Source, State};
-        let root = self.docs.library.dir.clone();
+        let root = self.library_dir().unwrap_or_default();
         let make =
             |started: &str, secs: u64, state: State, group: &str, notes: usize, recycled: bool| {
                 let home = root.join(group);
@@ -466,7 +711,10 @@ impl App {
 
     /// "Undo this run" on the report: the question first, then the undo.
     pub(super) fn run_undo_ask(&mut self, path: PathBuf) {
-        let library = self.library_dir().unwrap_or_default();
+        let Some(library) = self.library_dir() else {
+            self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
+            return;
+        };
         let Some(record) = runs::load(&path, &library) else {
             self.docs
                 .set_toast("The record of that run cannot be read.");

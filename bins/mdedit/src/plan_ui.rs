@@ -26,7 +26,7 @@ use mdshared_ui::overlay::{DIALOG_FOOTER, DIALOG_PAD, dialog_card};
 use mdshared_ui::rows::{Nav, Rows};
 use mdshared_ui::scroll::offset_for_thumb;
 use mdshared_ui::textfield::TextField;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 // ---- the numbers measured from the mockups (5.3) -------------------------------------------------
@@ -138,10 +138,14 @@ pub fn fs_reader() -> Reader {
     })
 }
 
-/// A group the notes go to: its name and its folder.
+/// A group the notes go to: its name, its library file and its folder. The file is carried and
+/// never looked up by name again: two groups of one name are two files, and the notes and their
+/// links must go to the one that was chosen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Dest {
     pub name: String,
+    /// The group's library file.
+    pub file: PathBuf,
     pub home: PathBuf,
     /// The group does not exist yet: writing makes it.
     pub is_new: bool,
@@ -150,9 +154,11 @@ pub struct Dest {
 impl Dest {
     /// The group `name` in the library at `root`; its folder is named by the library's one rule.
     pub fn new(root: &Path, name: &str, is_new: bool) -> Dest {
+        let stem = folder_name(name);
         Dest {
             name: name.trim().to_string(),
-            home: root.join(folder_name(name)),
+            file: root.join(format!("{stem}.md")),
+            home: root.join(stem),
             is_new,
         }
     }
@@ -421,6 +427,10 @@ pub struct Source {
     pub bytes: usize,
     /// The file the document was read from. `None` for a plan a demonstration made.
     pub path: Option<PathBuf>,
+    /// The file's length and SHA-256 when the plan was made: the notes are cut from that file,
+    /// so a plan that is shown again refuses to write when the file has changed since.
+    pub len: u64,
+    pub sha256: String,
     /// "Windows-1254, written as UTF-8", when the file was not UTF-8.
     pub encoding: Option<String>,
 }
@@ -591,6 +601,9 @@ pub struct PlanScreen {
     /// Why nothing can be written, when a library file involved has unsaved changes or the
     /// group's folder cannot be written.
     pub blocked: Option<String>,
+    /// The destination `blocked` was worked out for: the window works it out again when the
+    /// group the notes go to changes (C2).
+    pub blocked_for: Option<Dest>,
     pub win: (f32, f32),
     pub scale: f32,
     pub spots: Vec<(PHit, Rect)>,
@@ -633,6 +646,8 @@ impl PlanScreen {
                 lines: plan.lines(),
                 bytes: plan.document_bytes(),
                 path: init.path.map(Path::to_path_buf),
+                len: 0,
+                sha256: String::new(),
                 encoding: init.encoding,
             },
             plan,
@@ -658,6 +673,7 @@ impl PlanScreen {
             edited: false,
             write_pressed: 0,
             blocked: None,
+            blocked_for: None,
             win: (1280.0, 800.0),
             scale: 1.0,
             spots: Vec::new(),
@@ -718,7 +734,9 @@ impl PlanScreen {
 
     /// The file each note would be written as, and which of them are there already.
     pub fn retarget(&mut self) {
-        let mut taken: HashSet<PathBuf> = HashSet::new();
+        // A list of paths, compared the way the disk compares them: `Notes.md` and `notes.md`
+        // are one file here, and the second note must not be given the first one's name (C5).
+        let mut taken: Vec<PathBuf> = Vec::new();
         let mut next: HashMap<PathBuf, usize> = HashMap::new();
         let mut out = Vec::with_capacity(self.plan.notes().len());
         for i in 0..self.plan.notes().len() {
@@ -737,7 +755,10 @@ impl PlanScreen {
                     format!("{stem} {k}.md")
                 };
                 let path = folder.join(&name);
-                if taken.contains(&path) {
+                if taken
+                    .iter()
+                    .any(|p| mdshared_app::paths::same_path(p, &path))
+                {
                     continue;
                 }
                 match lookup(&mut self.disk, &self.reader, &path) {
@@ -761,7 +782,7 @@ impl PlanScreen {
                 chosen.unwrap_or_else(|| (first.clone(), format!("{stem}.md"), 1, false));
             next.insert(first, k + 1);
             if ticked {
-                taken.insert(path.clone());
+                taken.push(path.clone());
             }
             out.push(Target {
                 path,
@@ -1361,7 +1382,9 @@ impl PlanScreen {
         };
         let mut items: Vec<Item<MAct>> = Vec::new();
         for (i, g) in self.groups.iter().enumerate() {
-            items.push(Item::new(MAct::Group(i), g.name.clone()).checked(g.name == self.dest.name));
+            items.push(Item::new(MAct::Group(i), g.name.clone()).checked(
+                !self.dest.is_new && mdshared_app::paths::same_path(&g.file, &self.dest.file),
+            ));
         }
         items.push(Item::new(MAct::NewGroup, "New group\u{2026}").sep());
         self.menu = Some(Pop {
@@ -2405,6 +2428,7 @@ mod tests {
         let mut s = screen_of(&japan(), Some(2));
         s.set_dest(Dest {
             name: "Work".to_string(),
+            file: PathBuf::from("Work.md"),
             home: outside.clone(),
             is_new: false,
         });
