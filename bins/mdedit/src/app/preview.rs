@@ -26,9 +26,17 @@ impl App {
 
     /// Opens the preview pane beside the text, or closes it. A split view gives way to it.
     pub(super) fn toggle_preview_pane(&mut self) {
-        // Visual editing is drawn on the pane: it ends with it.
+        // Visual editing is drawn on the pane: it ends with it. The pane is the reason for this
+        // call, so it goes either way, opened by visual editing or not.
         if self.preview.is_some() && self.visual.is_some() {
-            self.end_visual();
+            self.stop_visual();
+            if self.preview.take().is_some() {
+                self.docs.pane_open = false;
+            }
+            self.relayout_areas();
+            self.full = true;
+            self.redraw();
+            return;
         }
         if self.preview.take().is_some() {
             self.docs.pane_open = false;
@@ -1448,6 +1456,260 @@ Last.
             .filter(|(h, _)| matches!(h, Hit::ScrollBar(Scroller::Text | Scroller::TextH)))
             .collect();
         assert!(bars.is_empty(), "the box draws {bars:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The page has the text of document `id` and every request about it is answered.
+    fn page_shows(a: &App, id: DocId) -> bool {
+        a.preview
+            .as_ref()
+            .is_some_and(|p| p.shown() == Some(id) && p.idle())
+    }
+
+    /// A Markdown document: a heading named `name`, then `n` paragraphs of a few words each.
+    fn paragraphs(name: &str, n: usize) -> String {
+        let mut text = format!("# {name}\n\n");
+        text.extend((0..n).map(|i| format!("{name} paragraph {i}, a few words long.\n\n")));
+        text
+    }
+
+    /// The owner: in visual editing, switching to another tab dropped the window into the text
+    /// beside the page, and switching back did not bring the mode back either. The mode is the
+    /// window's, not the file's: another Markdown tab is followed.
+    #[test]
+    fn visual_editing_follows_the_tab_to_another_markdown_document() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-follow-tab");
+        let first = dir.join("a.md");
+        let second = dir.join("b.md");
+        std::fs::write(&first, paragraphs("A", 90)).unwrap();
+        std::fs::write(&second, paragraphs("B", 90)).unwrap();
+        let mut a = app();
+        open_now(&mut a, &first);
+        open_now(&mut a, &second);
+        a.viewer_path = Some(Some(viewer));
+        a.docs.activate(0);
+        a.compose();
+        let id_first = a.docs.active_doc().unwrap().id;
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id_first));
+        assert!(a.visual_on() && a.docs.visual_open);
+        let page = a.areas.preview.expect("the page takes the text area");
+        assert_eq!(a.areas.text.w, 0.0, "no text view beside it");
+        let first_page = pane_pixels(&a);
+
+        // A block of the first document is open when the tab is switched.
+        if let Some(v) = a.visual.as_mut() {
+            v.pending = Some(super::super::visual::Ask::Line(3));
+        }
+        pump(&mut a, |a| {
+            a.visual_block().is_some_and(|b| b.first == 2) && a.areas.text.w > 0.0
+        });
+
+        // The tab switched to was left reading far down its text.
+        a.docs.activate(1);
+        let id_second = a.docs.active_doc().unwrap().id;
+        {
+            let r = a.docs.active_ready_mut().unwrap();
+            let at = r.buffer.line_range(60).start;
+            r.view.sel = mdedit_core::selection::Selection::at(at);
+        }
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id_second));
+
+        assert!(a.visual_on() && a.docs.visual_open, "the mode stays on");
+        assert_eq!(a.visual.as_ref().unwrap().doc, id_second);
+        assert!(
+            a.visual_block().is_none(),
+            "a block of the old document is still open"
+        );
+        assert!(a.preview.as_ref().unwrap().sent_gap().is_none());
+        assert_eq!(
+            a.areas.preview,
+            Some(page),
+            "the page still takes the text area"
+        );
+        assert_eq!(a.areas.text.w, 0.0, "no text view beside it");
+        assert!(pane_pixels(&a) != first_page, "the page drew the new text");
+        let top = a.preview.as_ref().unwrap().top;
+        assert!(
+            top > 200.0,
+            "the page starts where the tab's text was: {top}"
+        );
+
+        // And back: still visual editing, showing the first document.
+        a.docs.activate(0);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id_first));
+        assert!(a.visual_on() && a.docs.visual_open, "the mode stays on");
+        assert_eq!(a.visual.as_ref().unwrap().doc, id_first);
+        assert_eq!(a.areas.text.w, 0.0, "no text view beside it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The owner: switching to a tab the page cannot show must not leave the window in the mode
+    /// with no page to edit. It ends the mode, and gives back the pane as it was: one visual
+    /// editing opened goes.
+    #[test]
+    fn a_file_the_page_cannot_show_ends_visual_editing_and_closes_the_pane_it_opened() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-follow-off");
+        let md = dir.join("a.md");
+        let rs = dir.join("b.rs");
+        std::fs::write(&md, "# Title\n\nSome text.\n").unwrap();
+        std::fs::write(&rs, "fn main() {}\n").unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        open_now(&mut a, &rs);
+        a.viewer_path = Some(Some(viewer));
+        a.docs.activate(0);
+        a.compose();
+        assert!(a.preview.is_none(), "the pane starts closed");
+        let id_md = a.docs.active_doc().unwrap().id;
+        a.command(C::VisualEdit);
+        a.compose();
+        assert!(a.visual_on() && a.docs.visual_open);
+        assert!(a.preview.is_some() && a.docs.pane_open);
+        pump(&mut a, |a| page_shows(a, id_md));
+
+        a.docs.activate(1);
+        a.compose();
+        pump(&mut a, |a| !a.visual_on());
+        assert!(!a.docs.visual_open, "the mode ended");
+        assert!(
+            a.preview.is_none() && !a.docs.pane_open,
+            "the pane visual editing opened is closed"
+        );
+        assert!(a.areas.preview.is_none(), "no page");
+        assert!(a.areas.text.w > 0.0, "the text is back");
+
+        // Back to the Markdown: the mode is not put on again by itself.
+        a.docs.activate(0);
+        a.compose();
+        a.preview_sync();
+        a.compose();
+        assert!(!a.visual_on() && !a.docs.visual_open, "off until asked for");
+        assert!(
+            a.preview.is_none() && !a.docs.pane_open,
+            "the pane stays closed"
+        );
+        assert!(a.areas.text.w > 0.0 && a.areas.preview.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same file, with the pane already open: ending the mode leaves the pane the owner had
+    /// open alone.
+    #[test]
+    fn a_file_the_page_cannot_show_leaves_a_pane_the_owner_had_open() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-follow-keep");
+        let md = dir.join("a.md");
+        let rs = dir.join("b.rs");
+        std::fs::write(&md, "# Title\n\nSome text.\n").unwrap();
+        std::fs::write(&rs, "fn main() {}\n").unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        open_now(&mut a, &rs);
+        a.viewer_path = Some(Some(viewer));
+        a.docs.activate(0);
+        a.command(C::PreviewPane);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        assert!(a.preview.is_some() && a.docs.pane_open);
+
+        a.command(C::VisualEdit);
+        a.compose();
+        assert!(a.visual_on());
+        a.docs.activate(1);
+        a.compose();
+        pump(&mut a, |a| !a.visual_on());
+        assert!(!a.visual_on() && !a.docs.visual_open, "the mode ended");
+        assert!(
+            a.preview.is_some() && a.docs.pane_open,
+            "the pane was open before visual editing and stays"
+        );
+        assert!(a.areas.text.w > 0.0 && a.areas.preview.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Closing the tab visual editing is on follows the tab that takes its place.
+    #[test]
+    fn visual_editing_follows_a_closed_tab() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-follow-close");
+        let first = dir.join("a.md");
+        let second = dir.join("b.md");
+        std::fs::write(&first, paragraphs("A", 20)).unwrap();
+        std::fs::write(&second, paragraphs("B", 20)).unwrap();
+        let mut a = app();
+        open_now(&mut a, &first);
+        open_now(&mut a, &second);
+        a.viewer_path = Some(Some(viewer));
+        a.docs.activate(0);
+        a.compose();
+        let id_first = a.docs.active_doc().unwrap().id;
+        let id_second = a.docs.tabs[1].id;
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id_first));
+
+        // The tab the mode is on closes: the next one is shown, and the mode goes with it.
+        a.command(C::CloseTab);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id_second));
+        assert!(
+            a.visual_on() && a.docs.visual_open,
+            "the mode follows the tab"
+        );
+        assert_eq!(a.visual.as_ref().unwrap().doc, id_second);
+        assert_eq!(a.areas.text.w, 0.0, "the page still takes the text area");
+        assert!(a.areas.preview.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Closing the last tab ends the mode, with nothing left half on: the pane visual editing
+    /// opened goes and the text area is the window's again.
+    #[test]
+    fn closing_the_last_tab_ends_visual_editing() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-follow-last");
+        let md = dir.join("a.md");
+        std::fs::write(&md, paragraphs("A", 20)).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.compose();
+        let id = a.docs.active_doc().unwrap().id;
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id));
+
+        a.command(C::CloseTab);
+        a.compose();
+        pump(&mut a, |a| !a.visual_on());
+        assert!(a.docs.tabs.is_empty());
+        assert!(!a.docs.visual_open);
+        assert!(
+            a.preview.is_none() && !a.docs.pane_open,
+            "the pane visual editing opened is closed"
+        );
+        assert!(a.areas.preview.is_none() && a.areas.text.w > 0.0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

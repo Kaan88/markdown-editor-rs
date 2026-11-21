@@ -2404,3 +2404,39 @@ the window does with them is `bins/mdedit/src/app/library.rs`, `library_pane.rs`
 - Measured in `docs/measurements/2026-11-21-library-rework.md`: a library change's event-loop
   pass 40.3–48.9 ms before against 2.3–2.6 ms to start the read and 5.8–6.2 ms to take its
   result; private memory 31.50 MiB against 30.90 on one 60-file library.
+
+## 72. Visual editing follows the tab (2026-11-21)
+
+The owner, using it: in visual editing (`Ctrl+E`) switching to another tab dropped the window
+into the text and the page side by side, and switching back did not bring the mode back. The
+mode is the window's, not one file's: `bins/mdedit/src/app/visual.rs`.
+
+- **Another tab the page can show is followed.** `visual_sync` compares the active document with
+  `Visual::doc`; when they differ and the new document is `previewable`, `follow_tab` takes it:
+  the old document's block closes (its room in the page and the question about it go with it),
+  no block is open on the new one, and the page starts where that document's text was, at its
+  caret, as `toggle_visual` starts a fresh pane.
+- **The placement waits for the text.** `Visual::place` is set on every hand-over and cleared by
+  `place_page` once the pane has that document's text (`Pane::shown`, and not `held`), so a tab
+  whose file is still being read is placed when its text arrives rather than showing the top.
+  The page is asked for the caret's line and then told to forget it, so the reader's own
+  scrolling is left alone from there on, as in the mode.
+- **A document the page cannot show ends the mode** (a `.rs` file; also no tab at all), and the
+  pane goes back to what it was before visual editing: `Visual::pane_opened` says whether visual
+  editing opened it. `end_visual` closes a pane it opened and leaves one the owner had open;
+  `toggle_preview_pane` closes the pane in either case, because that is what it was asked to do
+  (`stop_visual` is the shared half that does not touch the pane).
+- **It does not come back by itself.** Nothing turns the mode on when a Markdown tab is shown;
+  only `Ctrl+E` does.
+- **Closing tabs.** Closing the tab the mode is on follows the tab that takes its place; closing
+  the last one ends the mode, and the pane it opened goes with it.
+- **An answer about the old text is dropped.** A block answer the page still owed when another
+  document took the page is about the old text: `Pane::set_text` clears the answer it holds and
+  sets `block_stale`, `poll` drops the one still to come, and an ask about the new text clears
+  it. Without that, switching tabs right after a click on the page could open a block of the old
+  document's lines in the new one.
+- Tests: `app::preview::tests` (`visual_editing_follows_the_tab_to_another_markdown_document`,
+  `a_file_the_page_cannot_show_ends_visual_editing_and_closes_the_pane_it_opened`,
+  `a_file_the_page_cannot_show_leaves_a_pane_the_owner_had_open`,
+  `visual_editing_follows_a_closed_tab`, `closing_the_last_tab_ends_visual_editing`) and
+  `preview_pane::tests` (`a_block_answer_the_old_text_was_still_owed_is_dropped`).

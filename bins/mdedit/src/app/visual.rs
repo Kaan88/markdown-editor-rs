@@ -2,7 +2,8 @@
 //! whole text area. A click on a block opens it: the renderer leaves room for it
 //! (`mdview_preview` `Request::Gap`) and the document's own view is drawn there, scrolled to the
 //! block's lines, so typing, undo, find and every command work as in the text. Esc, a click
-//! elsewhere on the page or the caret leaving the block closes it. DESIGN.md section 70.
+//! elsewhere on the page or the caret leaving the block closes it. The mode is the window's: it
+//! follows the active tab while the page can show it (DESIGN.md section 72).
 
 use super::App;
 use crate::app::preview::previewable;
@@ -42,6 +43,12 @@ pub(crate) struct Visual {
     /// The caret offset the page was last scrolled for, so the reader's own scrolling is left
     /// alone until the caret moves.
     pub caret_seen: Option<usize>,
+    /// Visual editing opened the preview pane: ending it closes the pane again. A pane that was
+    /// open before visual editing stays.
+    pub pane_opened: bool,
+    /// The page has still to be placed at this document's text: it is asked once the pane has
+    /// that text, which a tab whose file is still being read has not sent yet.
+    pub place: bool,
 }
 
 /// A question for the page about the current text.
@@ -191,7 +198,8 @@ impl App {
             return;
         };
         let id = doc.id;
-        if self.preview.is_none() {
+        let pane_was_open = self.preview.is_some();
+        if !pane_was_open {
             self.toggle_preview_pane();
         }
         if self.preview.is_none() {
@@ -202,6 +210,8 @@ impl App {
             block: None,
             pending: None,
             caret_seen: None,
+            pane_opened: !pane_was_open,
+            place: true,
         });
         self.docs.visual_open = true;
         // The page starts where the text was; from then on the reader scrolls it, and a new
@@ -215,14 +225,25 @@ impl App {
         self.redraw();
     }
 
-    /// Back to the text: the open block is closed and the pane stays as it was before.
+    /// Back to the text: the mode goes, the open block closes, and the preview pane is left as
+    /// it was before visual editing: closed if visual editing opened it, open if it was open.
     pub(super) fn end_visual(&mut self) {
-        self.close_block();
-        self.visual = None;
-        self.docs.visual_open = false;
+        let opened_pane = self.visual.as_ref().is_some_and(|v| v.pane_opened);
+        self.stop_visual();
+        if opened_pane && self.preview.take().is_some() {
+            self.docs.pane_open = false;
+        }
         self.relayout_areas();
         self.full = true;
         self.redraw();
+    }
+
+    /// Visual editing stops: the open block closes and the mode's own state goes. The pane is
+    /// left alone; [`end_visual`](Self::end_visual) gives it back as it was.
+    pub(super) fn stop_visual(&mut self) {
+        self.close_block();
+        self.visual = None;
+        self.docs.visual_open = false;
     }
 
     /// Visual editing is on for the active document.
@@ -287,20 +308,32 @@ impl App {
         self.redraw();
     }
 
-    /// Keeps visual editing in step, once per frame before the layout: ends it when its
-    /// document is no longer the active one, opens the block the page named, follows edits in
-    /// the open block (its last line, the room's height) and closes it when the caret left it.
+    /// Keeps visual editing in step, once per frame before the layout: follows the active tab
+    /// while the page can show it (ending it when the page cannot, and when there is no tab),
+    /// opens the block the page named, follows edits in the open block (its last line, the
+    /// room's height) and closes it when the caret left it.
     pub(super) fn visual_sync(&mut self) {
         let Some(v) = self.visual.clone() else {
             return;
         };
-        let current = self
-            .docs
-            .active_doc()
-            .is_some_and(|d| d.id == v.doc && previewable(d));
-        if !current || self.preview.is_none() {
+        let current = self.docs.active_doc().map(|d| (d.id, previewable(d)));
+        if self.preview.is_none() {
             self.end_visual();
             return;
+        }
+        match current {
+            Some((id, true)) if id == v.doc => {}
+            // Visual editing is a mode of the window, not of one file: another document the
+            // page can show is followed.
+            Some((id, true)) => self.follow_tab(id),
+            // A document the page cannot show (a .rs file), or no tab at all.
+            _ => {
+                self.end_visual();
+                return;
+            }
+        }
+        if self.visual.as_ref().is_some_and(|v| v.place) {
+            self.place_page();
         }
         let answer = self.preview.as_mut().and_then(|p| p.take_block());
         if let Some(Some(b)) = answer {
@@ -422,6 +455,54 @@ impl App {
             if let Some(v) = self.visual.as_mut() {
                 v.caret_seen = Some(caret_offset);
             }
+        }
+    }
+
+    /// Visual editing moves to the document of the tab just made active: the old document's
+    /// block closes, and the page starts where the new document's text was, as `toggle_visual`
+    /// starts it.
+    fn follow_tab(&mut self, id: DocId) {
+        // The open block is the old document's: it goes, and the question about it with it.
+        self.close_block();
+        if let Some(v) = self.visual.as_mut() {
+            v.doc = id;
+            v.block = None;
+            v.pending = None;
+            v.caret_seen = None;
+            v.place = true;
+        }
+        if let Some(p) = self.preview.as_mut() {
+            p.editor_leads();
+            p.unfollow();
+        }
+        self.relayout_areas();
+        self.full = true;
+        self.redraw();
+    }
+
+    /// Puts the page at the active document's caret, once the pane has that document's text:
+    /// what `toggle_visual` starts a fresh pane with. The pane forgets the line afterwards, so
+    /// the reader's scrolling is left alone from there on.
+    fn place_page(&mut self) {
+        let Some(doc) = self.docs.active_doc() else {
+            return;
+        };
+        let Some(r) = doc.ready() else {
+            return;
+        };
+        let line = r.buffer.line_of(r.view.sel.caret);
+        let column = r.view.sel.caret - r.buffer.line_range(line).start;
+        let Some(p) = self.preview.as_mut() else {
+            return;
+        };
+        // A tab whose file is still being read has sent no text yet: it comes next frame.
+        if p.shown() != Some(doc.id) || p.held {
+            return;
+        }
+        p.follow(line as u32 + 1, column as u32);
+        p.unfollow();
+        if let Some(v) = self.visual.as_mut() {
+            v.place = false;
         }
     }
 
