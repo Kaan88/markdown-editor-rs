@@ -17,7 +17,7 @@ unicode-segmentation = "1.12"
 memchr = "2.7"
 # Guesses the legacy code page of a file that is not UTF-8 (Firefox's detector, by the author of
 # encoding_rs).
-chardetng = "0.1.17"
+chardetng = "1.0.0"
 # Wide (East Asian) and zero-width characters, for the horizontal position estimates of long
 # lines. The ambiguous-width ("cjk") tables are left out.
 unicode-width = { version = "0.2", default-features = false }
