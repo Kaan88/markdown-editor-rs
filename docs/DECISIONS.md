@@ -481,3 +481,20 @@ which today it must not: the group's folder is still the record's own word, as i
 word when a plan is written. Phase T's Recycle Bin would make a wrong removal recoverable, but not
 the reason for the check.
 **From.** The review of 2026-11-21 and faults F1 and F2.
+
+## D-065 - 2026-11-21 - Visual editing belongs to the window, not to the one file
+
+**Decision.** Visual editing (`Ctrl+E`) stays on when another tab is made active, and follows it:
+the page shows the new document, no block is open, and it starts at that document's caret once
+the tab's text has reached the page. A tab the page cannot show (not Markdown) ends the mode, and
+the preview pane goes back to what it was before the mode: closed if the mode opened it, open if
+the owner had it open. Showing a Markdown tab again never turns the mode on.
+**Why.** The mode is a way of looking at the window - the page takes the text area - and its
+pane and its commands belong to the window; a tab switch is navigation, not a request to leave
+it. The owner met the other reading as a fault: switching away dropped them into side-by-side
+text and page, and switching back left them there. D-017 keeps the mode's editing rule (one block
+at a time); this only says whose the mode is. A pane the owner opened before `Ctrl+E` is theirs
+to keep open after it, and a pane the mode opened is not left behind.
+**Overturned by.** A window that edits two documents on the page at once (D-017's rule would
+need a block per document), or a pane that can show two documents.
+**From.** The owner's report of 2026-11-21, and the fix on `fix/visual-follow`.

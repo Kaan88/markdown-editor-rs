@@ -42,10 +42,14 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 - "Leave out the tab you were last on too" (Settings › Session).
 - A scrollbar for the page in visual editing; Save As offers `.md` to a note the AI turned into
   Markdown.
+- **Visual editing follows the tab.** `Ctrl+E` stays on across tabs: another Markdown tab shows
+  its page, with no block open and at the place that tab's text was; a file the page cannot show
+  ends the mode; and the preview pane goes back to what it was before the mode — closed if the
+  mode opened it, open if it was open. Closing the tab the mode is on follows the next one.
 - **One tick box and one switch**: the Replace-in-files confirmation draws its ticks with the
   shared `mdshared-ui` `check`, and the AI review its Changes / Preview switch with `segments`;
   a screen test pins each to the pixels the private drawing made.
-- mdedit is at 603 tests (the app's own unit tests; 1289 in the workspace).
+- mdedit is at 611 tests (the app's own unit tests; 1297 in the workspace).
 
 ## In hand
 

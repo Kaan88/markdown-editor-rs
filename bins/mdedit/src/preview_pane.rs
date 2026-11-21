@@ -118,6 +118,9 @@ pub struct Pane {
     /// before that is about the gap before it.
     gap_due: u32,
     block: Option<Option<mdview_preview::wire::BlockLines>>,
+    /// Another document has taken the page: a block answer still to come is about the old text,
+    /// and is dropped until the page is asked about the new one.
+    block_stale: bool,
 }
 
 /// The pane needs no mdview: this build draws it itself.
@@ -196,6 +199,7 @@ impl Pane {
             gap_y: None,
             gap_due: 0,
             block: None,
+            block_stale: false,
         }
     }
 
@@ -243,6 +247,9 @@ impl Pane {
             self.sent.follow = None;
             self.sent.align = None;
             self.lead = Lead::Editor;
+            // A block answer still to come is about the old text.
+            self.block = None;
+            self.block_stale = true;
         }
         self.sent.doc = Some(doc);
         self.sent.version = Some(version);
@@ -250,6 +257,11 @@ impl Pane {
             text: text(),
             base_dir,
         });
+    }
+
+    /// The document whose text the page has, as last sent.
+    pub fn shown(&self) -> Option<DocId> {
+        self.sent.doc
     }
 
     /// Sends the caret's line (from 1) and byte column (from 0) when it moved.
@@ -373,11 +385,13 @@ impl Pane {
     /// Visual editing: asks which top-level block is at `x, y` (device pixels from the page's
     /// top left); [`take_block`](Self::take_block) has the answer.
     pub fn block_at(&mut self, x: f32, y: f32) {
+        self.block_stale = false;
         self.send(Request::BlockAt { x, y });
     }
 
     /// Visual editing: asks which top-level block holds source line `line` (from 1).
     pub fn block_of_line(&mut self, line: u32) {
+        self.block_stale = false;
         self.send(Request::BlockOfLine { line });
     }
 
@@ -468,7 +482,9 @@ impl Pane {
                         self.last_round_trip = Some(at.elapsed());
                         self.round_trips.push(at.elapsed());
                     }
-                    if let Some(b) = u.block.take() {
+                    if let Some(b) = u.block.take()
+                        && !self.block_stale
+                    {
                         self.block = Some(b);
                         changed = true;
                     }
@@ -729,5 +745,56 @@ mod engine_tests {
             assert_eq!(at.len(), 1);
         }
         assert!(own_engines(None).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Waits for every answer the pane was owed, as the window's frames do.
+    fn settle(p: &mut Pane) {
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end {
+            p.poll();
+            if p.idle() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Another tab is another text: a block answer the old text was still owed must not open a
+    /// block of that text in the new document.
+    #[test]
+    fn a_block_answer_the_old_text_was_still_owed_is_dropped() {
+        let viewer = viewer();
+        if !STANDALONE && viewer.is_none() {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        }
+        let wake: Waker = std::sync::Arc::new(|_| {});
+        let mut p = Pane::open(viewer.as_deref(), wake);
+        p.set_view(800, 600, 1.0, false);
+        p.set_text(1, (1, 1), None, || "# Title\n\n- one\n- two\n".into());
+        settle(&mut p);
+        assert!(p.ended.is_none(), "{:?}", p.ended);
+        assert_eq!(p.shown(), Some(1));
+
+        // Asked about the first text; the second document takes the page before the answer is
+        // taken in.
+        p.block_of_line(3);
+        p.set_text(2, (1, 1), None, || "# Other\n\nA paragraph.\n".into());
+        settle(&mut p);
+        assert_eq!(p.shown(), Some(2));
+        assert_eq!(p.take_block(), None, "the old text's answer is dropped");
+
+        // An ask about the new text is answered.
+        p.block_of_line(3);
+        settle(&mut p);
+        assert!(
+            matches!(p.take_block(), Some(Some(_))),
+            "the new text's answer"
+        );
     }
 }
