@@ -74,10 +74,10 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
   file is made before the notes, the plan reads the library where it opens and refuses without a
   library folder (`--no-session` has none unless `MDEDIT_SETTINGS` names one), a group's folder
   cannot be the library folder, and a destination carries its group's file. A note with no section
-  into a group that already has sections is refused there, until the shared writer can place it
-  (audit 3 C1). Not built: the Recycle Bin (step 8, phase T), the progress row "Writing… 14 of 23"
-  with Cancel, "Ask the AI…", the list's per-source headings, and `replace_ui::draw_confirm` is not
-  converted.
+  into a group that already has sections is written in the group's own notes, above its first
+  section (audit 3 C1). Not built: the Recycle Bin (step 8, phase T), the progress row
+  "Writing… 14 of 23" with Cancel, "Ask the AI…", the list's per-source headings, and
+  `replace_ui::draw_confirm` is not converted.
 - **Mockups** of three AI screens (the split plan, the rewrite review with ticks, the AI task
   window): branch `mock/ai-review`, worktree `..\mdedit-mock`, behind `--mock`, shots in
   `shots\mock\`. A drawing, not an implementation. Not to be merged.
@@ -115,11 +115,6 @@ faults that could lose a note or break a library that moves; these are still tru
 - **The 512-file limit.** More than 512 `.md` files directly in the library folder, and those
   that sort last drop out; the pane's foot now says how many groups it shows of how many there
   are, but the rest cannot be listed. Notes flat in the folder count against it.
-- **A note with no section into a group that has sections.** The shared `library::add_note`
-  appends it under the last heading, so it could not read back as its own section; "Write the
-  notes" now refuses the plan before writing rather than writing its notes and failing its links
-  (audit 3 C1). The fix belongs in the shared crate: a variant beside `add_note` that places a
-  note with no section before the first heading.
 - Opening Settings during an AI review discards the result.
 - The AI review has no scrollbar and cuts long lines.
 - The editor never reads the AI engine's version.
@@ -150,18 +145,17 @@ faults that could lose a note or break a library that moves; these are still tru
   that were all fixed for 1.2.0; the fixes have not been reviewed. Audit 3 (Fable) has run:
   `docs/review-prompts/audit3-report.md`, 21 probes against `6cdeab2`. Everything it found is
   fixed and on `main`: the Undo question (A1), the four-byte name that ended the program (B1, in
-  the shared crates), the plan guards (D2 and A6, A7, A8, A11, C2, C3, C5, C7), and undo's own
-  rules (D1, D4, A2-A5, A9, A10, B2) - except C1, which wants a variant beside the shared
-  `add_note` and is refused before the write until then. Audit 3's own fixes have not been
-  reviewed, and nothing since 1.2.0 has been reviewed by anyone but Fable: that is the whole
-  notes library.
+  the shared crates), the plan guards (D2 and A6, A7, A8, A11, C2, C3, C5, C7), C1 (the shared
+  `add_note_in_group` writes a note with no section above the group's first section), and undo's
+  own rules (D1, D4, A2-A5, A9, A10, B2). Audit 3's own fixes have not been reviewed, and nothing
+  since 1.2.0 has been reviewed by anyone but Fable: that is the whole notes library.
 - **Never checked by hand:** the KDE blur on Linux; pasting image files copied in a Linux file
   manager; the AppImage and the Linux packages on a desktop; the macOS builds on a desktop; the
   Windows installer; an installed copy updating itself and restarting.
 
 ## Pins, branches, worktrees
 
-- Shared crates at `fb7777c`. The viewer's crates (`mdview-preview`, `mdview-render`) at viewer
+- Shared crates at `b4b2182`. The viewer's crates (`mdview-preview`, `mdview-render`) at viewer
   `e2b3e31`. winit fork `62fa727`, softbuffer fork `dd18fec`. mdview itself pins the shared
   crates at `cb0ffd3`, which is older.
 - Every local `f/…` branch and `release/1.2.0` is merged into `main`. `mock/ai-review` is not

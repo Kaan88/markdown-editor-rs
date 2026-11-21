@@ -385,12 +385,11 @@ pub(super) fn plan_preflight(app: &App, screen: &PlanScreen, req: &Request) -> R
         ));
     }
     // The dry run: the links exactly as step 6 would write them, against the file as it reads
-    // now. C1 and C3 are refused here instead of after the notes are on disk.
+    // now. C3 is refused here instead of after the notes are on disk.
     let links: Vec<runs::Link> = req.notes.iter().map(runs::Link::new).collect();
     let new = runs::with_links_added(&group_text, &links);
     if !runs::check_links_added(&parsed, &library::parse(&new, library), &links, library) {
         return Err(why_links_would_not_read_back(
-            &parsed,
             &links,
             &shown(&req.group.file),
         ));
@@ -439,18 +438,7 @@ fn library_files(dir: &Path) -> usize {
 
 /// Why the links would not read back, in the words of the fault that is known: the dry run
 /// cannot say more than that the file would not be its old notes plus the new ones.
-fn why_links_would_not_read_back(
-    old: &library::Parsed,
-    links: &[runs::Link],
-    file: &str,
-) -> String {
-    // C1: a link with no section is appended at the end of the file, under its last heading. The
-    // shared writer cannot place it before the first section yet, so this is refused up front.
-    if !old.sections.is_empty() && links.iter().any(|l| l.sections.is_empty()) {
-        return format!(
-            "{file} has sections, and a note with no section cannot be linked into it. Move the note under a section, or split it into a group that has none yet."
-        );
-    }
+fn why_links_would_not_read_back(links: &[runs::Link], file: &str) -> String {
     // C3: the shared reader takes a heading's closing '#' off, so `## C#` reads back as `C`.
     if links.iter().any(|l| {
         l.title.trim_end().ends_with('#') || l.sections.iter().any(|s| s.trim_end().ends_with('#'))

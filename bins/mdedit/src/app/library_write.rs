@@ -737,7 +737,7 @@ impl App {
                     }
                     None => t.to_string(),
                 };
-                Some(library::add_note(&with_home, section, name, &link))
+                Some(library::add_note_in_group(&with_home, section, name, &link))
             },
             |b, a| a.entries.len() == b.entries.len() + 1,
         );
@@ -953,7 +953,13 @@ impl App {
                     if !note_at(t, &dir, line, note) {
                         return None;
                     }
-                    library::move_note(t, line, section)
+                    // The group's own row has no section heading: the line goes in the group's
+                    // own notes rather than at the end of the file, under its last section.
+                    if section.is_empty() {
+                        library::move_note_in_group(t, line)
+                    } else {
+                        library::move_note(t, line, section)
+                    }
                 },
                 |b, a| {
                     a.entries.len() == b.entries.len()
@@ -976,7 +982,7 @@ impl App {
         let link = crate::library_pane::link_path(to.parent().unwrap_or(Path::new("")), note);
         let added = self.library_write(
             to,
-            |t| Some(library::add_note(t, section, title, &link)),
+            |t| Some(library::add_note_in_group(t, section, title, &link)),
             |b, a| a.entries.len() == b.entries.len() + 1,
         );
         if !added {

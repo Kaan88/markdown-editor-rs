@@ -660,3 +660,22 @@ undo; the next phases add kinds and it can only be fixed in the version that shi
 inside a folder the owner controls; or a record format that needs a path outside the library (a
 home elsewhere with its group file gone), which today cannot be undone from here and says why.
 **From.** Audit 3 A9, A10, B2, D5.
+
+## D-073 · 2026-11-22 · A note with no section goes in the group's own notes, as a variant
+
+**Decision.** A note with no heading path is written into a library file after the group's `#`
+heading and its `home:` line, after the notes already there, and before the first section heading.
+In `markdown-shared-rs` these are `library::add_note_in_group` and `library::move_note_in_group`,
+new functions beside `add_note` and `move_note`; `add_note` and `move_note` are unchanged, byte for
+byte, because mdview pins the shared crates and rule 8 says a shared change must not change what an
+existing caller writes. Every mdedit writer that can place a note with no section uses the variant:
+the run's links (`runs::with_links_added`), "Add this file" (`library_put`), "New note here…"
+(`library_new_note`) and "Move to…" (`library_move`). A file with no section heading takes the note
+at the end exactly as `add_note` writes it.
+**Why.** Audit 3 C1: `add_note` appended the note at the end of the file, which is under the last
+heading, so it read back with a section and the check refused it before the write; the note of "the
+rest" in a split always has no section, so a second split into a group with sections could not be
+written at all, and the pane's group row had the same fault.
+**Overturned by.** A group file format that gives the group's own notes a heading of their own, or
+the owner deciding the old placement was right.
+**From.** Audit 3 C1, `docs/review-prompts/audit3-report.md`.

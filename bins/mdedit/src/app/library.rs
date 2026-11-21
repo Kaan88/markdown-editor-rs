@@ -478,7 +478,7 @@ impl App {
             }
         };
         let base = file.parent().map(Path::to_path_buf).unwrap_or_default();
-        let new = library::add_note(
+        let new = library::add_note_in_group(
             &text,
             section,
             &title,

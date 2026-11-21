@@ -1721,15 +1721,15 @@ fn outside(req: &Request) -> Option<String> {
 }
 
 /// The library text with every link added, in the order given, one call of the library's own
-/// writer per link. A note under no section goes first, so that it lands before the first
-/// section heading rather than at the end of the file under the last one. Undo removes them in
-/// the reverse order.
+/// writer per link. A note under no section goes in the group's own notes, before the first
+/// section heading; those are written first, so a heading another link makes is made below them.
+/// Undo removes them in the reverse order.
 pub fn with_links_added(text: &str, links: &[Link]) -> String {
     let mut out = text.to_string();
     let mut ordered: Vec<&Link> = links.iter().filter(|l| l.sections.is_empty()).collect();
     ordered.extend(links.iter().filter(|l| !l.sections.is_empty()));
     for link in ordered {
-        out = library::add_note(&out, &link.sections, &link.title, &link.path);
+        out = library::add_note_in_group(&out, &link.sections, &link.title, &link.path);
     }
     out
 }

@@ -606,6 +606,105 @@ fn a_note_moves_to_another_library_file_with_the_target_written_first() {
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
+/// C1 in the pane: "Add this file" on a group's own row writes the note in the group's own
+/// notes, above its first section, not under its last one.
+#[test]
+fn adding_a_file_to_a_groups_own_row_puts_it_before_the_first_section() {
+    let (mut a, l) = lib("libw-put-group");
+    let folder = l.dir.join("notes");
+    std::fs::create_dir_all(&folder).unwrap();
+    let extra = folder.join("extra.md");
+    std::fs::write(&extra, "# Extra\n").unwrap();
+    open_now(&mut a, &extra);
+    a.library_put(&l.file, &[]);
+    let text = read(&l.file);
+    let parsed = mdshared_app::library::parse(&text, &l.dir.join("library"));
+    let entry = parsed
+        .entries
+        .iter()
+        .find(|e| e.title == "Extra")
+        .unwrap_or_else(|| panic!("the link is not there: {text}"));
+    assert!(entry.sections.is_empty(), "{:?}", entry.sections);
+    let section = mdshared_app::library::section_line(&text, &["Money".to_string()]).unwrap();
+    assert!(entry.line < section, "above the first section: {text}");
+    // The notes the file already listed are untouched.
+    assert!(
+        text.contains(&format!("- [Taxes 2026]({})", slash(&l.taxes))),
+        "{text}"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// C1 in the pane: "New note here…" on a group's own row makes the note in the group's own
+/// notes, above its first section.
+#[test]
+fn a_new_note_in_a_groups_own_row_is_written_before_its_first_section() {
+    let (mut a, l) = lib("libw-new-group");
+    a.library_new_note(&l.file, &[], "Idea");
+    let text = read(&l.file);
+    assert!(text.contains("- [Idea](Personal/Idea.md)"), "{text}");
+    assert!(l.dir.join("library/Personal/Idea.md").is_file());
+    let parsed = mdshared_app::library::parse(&text, &l.dir.join("library"));
+    let idea = parsed.entries.iter().find(|e| e.title == "Idea").unwrap();
+    assert!(idea.sections.is_empty(), "{:?}", idea.sections);
+    let section = mdshared_app::library::section_line(&text, &["Money".to_string()]).unwrap();
+    assert!(idea.line < section, "above the first section: {text}");
+    assert!(
+        text.find("home: Personal").unwrap() < text.find("(Personal/Idea.md)").unwrap(),
+        "the `home:` line stays above the note: {text}"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// C1 in the pane: "Move to…" on a group's own row writes the note in the group's own notes,
+/// above its first section, in the same file and in another one.
+#[test]
+fn a_note_moved_to_a_groups_own_row_goes_before_its_first_section() {
+    let (mut a, l) = lib("libw-move-group");
+    assert!(
+        a.library_move(&l.file, 5, "Taxes 2026", &l.taxes, &l.file, &[]),
+        "{}",
+        toast(&a)
+    );
+    let text = read(&l.file);
+    let parsed = mdshared_app::library::parse(&text, &l.dir.join("library"));
+    let taxes = parsed
+        .entries
+        .iter()
+        .find(|e| e.title == "Taxes 2026")
+        .unwrap();
+    assert!(taxes.sections.is_empty(), "{:?}", taxes.sections);
+    let section = mdshared_app::library::section_line(&text, &["Money".to_string()]).unwrap();
+    assert!(taxes.line < section, "above the first section: {text}");
+    assert!(
+        text.contains("- [Last year]"),
+        "the other note stays: {text}"
+    );
+
+    // Another file's own row, with a section below it.
+    let (mut a2, l2) = lib("libw-move-group-two");
+    let work = l2.dir.join("library").join("work.md");
+    std::fs::write(&work, "# Work\n\n## Projects\n").unwrap();
+    assert!(
+        a2.library_move(&l2.file, 5, "Taxes 2026", &l2.taxes, &work, &[]),
+        "{}",
+        toast(&a2)
+    );
+    let text = read(&work);
+    let parsed = mdshared_app::library::parse(&text, &l2.dir.join("library"));
+    let taxes = parsed
+        .entries
+        .iter()
+        .find(|e| e.title == "Taxes 2026")
+        .unwrap();
+    assert!(taxes.sections.is_empty(), "{:?}", taxes.sections);
+    assert!(
+        taxes.line < mdshared_app::library::section_line(&text, &["Projects".to_string()]).unwrap(),
+        "above the first section: {text}"
+    );
+    let _ = std::fs::remove_dir_all(&l2.dir);
+}
+
 #[test]
 fn when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so() {
     let (mut a, l) = lib("libw-move-half");

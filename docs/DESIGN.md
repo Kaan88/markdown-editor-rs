@@ -2482,11 +2482,15 @@ screen (`plan_ui.rs`) and the window (`app/plan.rs`) carry what they need.
   checks pass, then runs `runs::write` with `group.created = false`, and closes the record again
   with `created = true` when the run started: an empty group is a state one can live with, and
   undo takes it away. What step 6 can still fail on is a race.
-- **C1, refused rather than fixed.** A note with no section cannot be linked into a group that
-  already has one: the shared `library::add_note` appends it at the end of the file, under the last
-  heading. The fix belongs in the shared crate (a variant beside `add_note`) and is not in this
-  change. The dry run refuses the plan before its notes are written, and the sentence says which
-  two things it is.
+- **C1, fixed in the shared writer.** A note with no section is written in the group's own notes:
+  after the file's `#` heading and its `home:` line, after the notes already there, and before the
+  first section heading. It is `library::add_note_in_group` (and `move_note_in_group` for "Move
+  to…" on a group's own row), a variant beside `add_note`, which is unchanged byte for byte
+  because mdview pins the shared crates (rule 8). The run's links (`runs::with_links_added`), "Add
+  this file" (`library_put`), "New note here…" (`library_new_note`) and "Move to…" (`library_move`)
+  all use it; the refusal the dry run made for this case is gone. A file with no section heading
+  still takes the note at the end, exactly as `add_note` does, and the `home:` line is never
+  written above.
 - **C3 is the dry run too.** The shared reader strips a heading's trailing `#`, so `## C#` reads
   back as `C`; the dry run catches it, and the refusal names it. A group called `C#` is caught by
   the read-back check the preflight now makes on the text it would write.
@@ -2510,8 +2514,10 @@ screen (`plan_ui.rs`) and the window (`app/plan.rs`) carry what they need.
   and `MDEDIT_SETTINGS` is the one file such a build reads, with its library beside it. The empty
   path no longer passes the confinement check, because no plan is opened without a library folder.
 - Tests: `app::plan_write_tests`, one per fault above (the taken name, the destination changed to
-  an unsaved file, a sectionless note into a group with sections, both caps, a `C#` section, two
-  titles in one case, two groups of one name, a kept plan after a save, a lossy document, a plan
-  opened before any read, "AI runs…" before any read, and the group's file made before its notes).
+  an unsaved file, a sectionless note written into a group with sections, both caps, a `C#` section,
+  two titles in one case, two groups of one name, a kept plan after a save, a lossy document, a plan
+  opened before any read, "AI runs…" before any read, and the group's file made before its notes);
+  `app::library_write_tests`, one for each pane writer on a group's own row ("Add this file", "New
+  note here…", "Move to…", in one file and in two).
   The old test of step 6 failing was restaged on a `.tmp` file in the way, since a taken group name
   no longer reaches the write.

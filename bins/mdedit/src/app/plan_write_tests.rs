@@ -618,16 +618,16 @@ fn a_group_file_with_unsaved_changes_is_found_when_the_destination_changes() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// C1: a note with no section cannot be linked into a group that already has one. The dry run
-/// refuses before the notes are written, instead of after the last one.
+/// C1: a note with no section goes into a group that already has sections, in the group's own
+/// notes and before its first section, instead of being refused.
 #[test]
-fn a_note_with_no_section_into_a_group_with_one_is_refused_before_the_notes_are_written() {
+fn a_note_with_no_section_is_written_into_the_groups_own_notes_before_its_first_section() {
     let (mut a, library, _record, dir) = written("plan-again", SECTIONED);
     let group = library.join("Trip.md");
     let before = read(&group);
     assert!(before.contains("## Tokyo"), "{before}");
     // Another document for the same group, with no heading above its notes: every note of it has
-    // no section, and a note with no section goes at the end of the file, under the last heading.
+    // no section, and goes in the group's own notes, above its first section.
     let more = dir.join("more");
     std::fs::create_dir_all(&more).expect("a folder");
     let second = more.join("Trip.md");
@@ -635,19 +635,55 @@ fn a_note_with_no_section_into_a_group_with_one_is_refused_before_the_notes_are_
     open_now(&mut a, &second);
     assert!(a.plan_open_active(), "the plan opens");
     assert!(!a.plan.as_ref().expect("open").dest.is_new);
+    assert_eq!(
+        a.plan.as_ref().expect("open").problem(),
+        None,
+        "nothing is known against it"
+    );
     press(&mut a, KeyName::Enter);
-    assert!(
-        !library.join("Trip").join("Asakusa.md").exists(),
-        "no note was written"
+    assert!(a.plan.is_none(), "the card closes when it writes");
+    // The notes are written, in the group's own folder.
+    assert!(library.join("Trip/Asakusa.md").is_file());
+    assert!(library.join("Trip/Nara.md").is_file());
+    // Their links are above the group's first section, not under its last one.
+    let after = read(&group);
+    let first_link = after
+        .find("(Trip/Asakusa.md)")
+        .unwrap_or_else(|| panic!("no link for the note of the rest: {after}"));
+    let first_section = after
+        .find("## Tokyo")
+        .unwrap_or_else(|| panic!("the group lost its section: {after}"));
+    assert!(first_link < first_section, "{after}");
+    // They read back with no section, and the notes the file already had did not move.
+    let parsed = mdshared_app::library::parse(&after, &library);
+    let own: Vec<&str> = parsed
+        .entries
+        .iter()
+        .filter(|e| e.sections.is_empty())
+        .map(|e| e.title.as_str())
+        .collect();
+    assert_eq!(own, vec!["Asakusa", "Nara"], "{after}");
+    assert_eq!(
+        parsed
+            .entries
+            .iter()
+            .filter(|e| e.sections == ["Tokyo".to_string()])
+            .count(),
+        2,
+        "the first run's notes are still under Tokyo: {after}"
     );
-    assert!(a.plan.is_some(), "the card stays");
-    assert_eq!(read(&group), before, "the library file is untouched");
-    assert_eq!(mdedit_core::runs::list(&library).len(), 1, "one record");
-    let said = blocked(&a);
-    assert!(
-        said.contains("has sections") && said.contains("no section"),
-        "{said}"
-    );
+    // The run is done, and its record says so.
+    let record_path =
+        a.ui.results
+            .replace
+            .outcome
+            .as_ref()
+            .and_then(|o| o.run.clone())
+            .expect("the second record");
+    let record = mdedit_core::runs::load(&record_path, &library).expect("the record reads back");
+    assert_eq!(record.state, mdedit_core::runs::State::Done);
+    assert_eq!(record.notes.len(), 2);
+    assert_eq!(mdedit_core::runs::list(&library).len(), 2, "two records");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
