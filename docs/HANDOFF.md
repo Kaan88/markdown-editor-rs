@@ -22,10 +22,12 @@ count in focus time. so minimizing or switching tabs won't count."
   `focused_time_counts_only_the_tab_in_front_of_a_focused_window`,
   `the_session_keeps_each_file_tab_s_focused_time`, prefs parse/round trip. The first and third
   fail with the pinned exemption or the session write removed.
-- AI menu: a long saved prompt's name ran under its Modify button. `MENU_MODIFY_ROOM` (the blank
-  hint the shared menu elides the label at) is wider: 102 px for the 88 px button with its
-  margins. Test `a_saved_prompt_s_name_stops_before_its_modify_button` (fails at the old 74 px).
-  The menu grows by about 40 px to make that room.
+- AI menu: a long saved prompt's name ran under its Modify button: the menu elides a label at
+  its blank hint (`MENU_MODIFY_ROOM`, 74 px), narrower than the 88 px button. Widening the room
+  widened the menu, which the owner did not like; the menu's button is now narrower instead
+  (`MENU_MODIFY_W`, 64 px, pencil and word closer: `draw_modify(.., compact)`), the menu as wide
+  as before. The rewrite panel's button is unchanged. Test
+  `a_saved_prompt_s_name_stops_before_its_modify_button` (the room, the button, the word).
 - Checks (Windows): fmt, clippy both ways, all tests (mdedit 412, core 514). Budgets, 15 runs of
   `sample.rs`, published 1.2.0 against this branch: first frame 95.1 / 97.1 ms, memory 27.8 / 27.6
   MiB, keystroke p50 0.55 / 0.51 ms, scroll p50 0.46 / 0.41 ms: within noise.

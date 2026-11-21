@@ -911,20 +911,19 @@ fn placed_menu(a: &mut App, kind: PopupKind, h: f32) -> Rect {
 /// elides a label at its hint, so the blank hint is wider than the button and a gap.
 #[test]
 fn a_saved_prompt_s_name_stops_before_its_modify_button() {
+    use mdshared_ui::gfx::Face;
     let mut bm = Bitmap::new(64, 64);
     let mut gfx = Gfx::new();
     let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
-    // As the shared menu measures a hint: its width and 28 px around it.
-    let room = p.measure(
-        mdshared_ui::gfx::Face::Ui,
-        12.0,
-        crate::overlays::MENU_MODIFY_ROOM,
-    ) + 28.0;
-    assert!(
-        room >= crate::ai_ui::MODIFY_W + 4.0 + 8.0,
-        "room {room} for a {} px button",
-        crate::ai_ui::MODIFY_W
-    );
+    // As the shared menu measures a hint: its width and 28 px around it. The menu's button,
+    // its 4 px margin and a 6 px gap fit in it (the owner: the menu is not to grow for it).
+    let room = p.measure(Face::Ui, 12.0, crate::overlays::MENU_MODIFY_ROOM) + 28.0;
+    let w = crate::ai_ui::MENU_MODIFY_W;
+    assert!(room >= w + 4.0 + 6.0, "room {room} for a {w} px button");
+    assert!(room < 80.0, "the menu's room is as wide as before: {room}");
+    // The word fits in the narrow button, after the pencil.
+    let word = p.measure(Face::Ui, 12.5, crate::ai_ui::MODIFY);
+    assert!(21.0 + word + 4.0 <= w, "\"Modify\" needs {word} px");
 }
 
 #[test]

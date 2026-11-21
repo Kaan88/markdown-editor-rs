@@ -563,7 +563,7 @@ pub fn table_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
 /// A saved AI prompt's hint in the AI menu: room kept at the row's right, under the Modify
 /// button drawn there (`ai_ui::draw_menu_modify`), so a long name ends in "…" a little before it
 /// (the menu elides a label at its hint) and never runs beneath it.
-pub const MENU_MODIFY_ROOM: &str = "                            ";
+pub const MENU_MODIFY_ROOM: &str = "              ";
 
 /// The text menu's AI submenu: the built-in requests (the AI mark), then the saved prompts (play:
 /// the row runs one; its Modify button, at the right, puts it in the instruction panel to be

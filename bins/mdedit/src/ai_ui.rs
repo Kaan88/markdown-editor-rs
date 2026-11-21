@@ -104,13 +104,25 @@ pub fn pencil_rect(row: Rect) -> Rect {
 
 /// The Modify button's width.
 pub const MODIFY_W: f32 = 88.0;
+/// The AI menu's narrower Modify button: it fits in the room the menu's rows keep at their
+/// right (`overlays::MENU_MODIFY_ROOM`), so the menu is no wider for it.
+pub const MENU_MODIFY_W: f32 = 64.0;
 /// What it says.
 pub const MODIFY: &str = "Modify";
 
 /// A saved prompt's Modify button in `r`: a framed button with a pencil and the word, so it
 /// reads as a control of its own on a row that runs the prompt. The rewrite panel's rows and
 /// the AI menu's (drawn over the shared menu, [`draw_menu_modify`]) both have it.
-pub fn draw_modify(p: &mut Painter, pal: &Palette, r: Rect, hovered: bool, pressed: bool) {
+/// `compact` for the AI menu's narrower button ([`MENU_MODIFY_W`]): the pencil and the word
+/// closer together.
+pub fn draw_modify(
+    p: &mut Painter,
+    pal: &Palette,
+    r: Rect,
+    hovered: bool,
+    pressed: bool,
+    compact: bool,
+) {
     let fill = if hovered && pressed {
         pal.press
     } else if hovered {
@@ -120,24 +132,25 @@ pub fn draw_modify(p: &mut Painter, pal: &Palette, r: Rect, hovered: bool, press
     };
     let line = if hovered { pal.accent } else { pal.popup_line };
     p.frame(r, 5.0, fill, line);
-    p.icon(glyph::EDIT, 13.0, r.x + 17.0, r.cy(), pal.text);
+    let (icon, text) = if compact { (12.0, 21.0) } else { (17.0, 29.0) };
+    p.icon(glyph::EDIT, 13.0, r.x + icon, r.cy(), pal.text);
     p.text(
         Face::Ui,
         12.5,
-        r.x + 29.0,
+        r.x + text,
         r.cy(),
         MODIFY,
         pal.text,
-        r.w - 33.0,
+        r.w - text - 4.0,
     );
 }
 
 /// The Modify button of a saved prompt's `row` in the AI menu.
 pub fn menu_modify_rect(row: Rect) -> Rect {
     Rect::new(
-        row.right() - 4.0 - MODIFY_W,
+        row.right() - 4.0 - MENU_MODIFY_W,
         row.y + 3.0,
-        MODIFY_W,
+        MENU_MODIFY_W,
         row.h - 6.0,
     )
 }
@@ -169,7 +182,7 @@ pub fn draw_menu_modify(
             continue;
         }
         let r = menu_modify_rect(menu.row_rect(i));
-        draw_modify(p, pal, r, r.contains(mouse.0, mouse.1), false);
+        draw_modify(p, pal, r, r.contains(mouse.0, mouse.1), false, true);
     }
     p.restore(old);
 }
@@ -314,7 +327,14 @@ fn instruction(
             // does not run (the rest of the row runs it).
             let pencil = pencil_rect(row);
             let edit = Hit::EditPrompt(k);
-            draw_modify(p, pal, pencil, hover == Some(edit), pressed == Some(edit));
+            draw_modify(
+                p,
+                pal,
+                pencil,
+                hover == Some(edit),
+                pressed == Some(edit),
+                false,
+            );
             hits.push((edit, pencil));
         }
         p.restore(old);
