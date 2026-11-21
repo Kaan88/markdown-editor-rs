@@ -1052,7 +1052,16 @@ impl App {
                 self.minimap_sig(common, pane, doc, Some((ready, v)))
             }
             Region::Preview => match &self.preview {
-                Some(p) => sig((common, p.generation, p.ended.as_deref(), self.dark())),
+                Some(p) => {
+                    let drag = matches!(
+                        ui.drag,
+                        Some(Drag::Thumb {
+                            target: Scroller::Page,
+                            ..
+                        })
+                    );
+                    sig((common, p.generation, p.ended.as_deref(), self.dark(), drag))
+                }
                 None => sig((common, "closed")),
             },
             Region::Status => sig((
@@ -1385,6 +1394,17 @@ impl App {
                     })
                 ),
         };
+        // The page has a scrollbar when it fills the text area; no other mode draws one.
+        let page_bar = self.visual_on().then(|| {
+            hover == Some(Hit::ScrollBar(Scroller::Page))
+                || matches!(
+                    self.ui.drag,
+                    Some(Drag::Thumb {
+                        target: Scroller::Page,
+                        ..
+                    })
+                )
+        });
         let mut damage = Vec::new();
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
@@ -1530,7 +1550,13 @@ impl App {
                         }
                     }
                     Region::Preview => {
-                        crate::preview_pane::draw(&mut c, self.preview.as_ref(), &self.docs, rect);
+                        crate::preview_pane::draw(
+                            &mut c,
+                            self.preview.as_ref(),
+                            &self.docs,
+                            rect,
+                            page_bar,
+                        );
                         if let Some(b) = visual_box {
                             c.p.frame(b, 6.0, visual::box_fill(&pal), pal.accent);
                         }
@@ -2041,7 +2067,7 @@ impl App {
             && matches!(
                 self.hit_at(x, y),
                 Some(Hit::ScrollBar(
-                    Scroller::Text | Scroller::OtherText | Scroller::Results
+                    Scroller::Text | Scroller::OtherText | Scroller::Results | Scroller::Page
                 ))
             )
         {

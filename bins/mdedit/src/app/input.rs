@@ -84,7 +84,10 @@ impl App {
                 self.redraw();
             }
         }
-        let on_page = edge.is_none() && !in_menu && self.on_page(x, y);
+        let on_page = edge.is_none()
+            && !in_menu
+            && self.on_page(x, y)
+            && hit != Some(Hit::ScrollBar(Scroller::Page));
         let cursor = match (edge, hit) {
             _ if on_page => self.preview_hover(x, y),
             (Some(dir), _) => CursorIcon::from(dir),
@@ -304,6 +307,10 @@ impl App {
                 let list = res.list_area(self.areas.results?);
                 Some((list, res.content, res.view, res.scroll))
             }
+            Scroller::Page => {
+                let (content, view, top) = self.preview.as_ref()?.extent(self.scale);
+                Some((self.areas.preview?, content, view, top))
+            }
             Scroller::Text | Scroller::TextH | Scroller::OtherText | Scroller::OtherTextH => None,
         }
     }
@@ -330,6 +337,12 @@ impl App {
             Scroller::Results => {
                 let cur = self.ui.results.scroll;
                 self.ui.results.scroll_by(offset - cur);
+            }
+            Scroller::Page => {
+                let scale = self.scale;
+                if let Some(pane) = self.preview.as_mut() {
+                    pane.scroll_to(offset * scale);
+                }
             }
             Scroller::Text | Scroller::TextH | Scroller::OtherText | Scroller::OtherTextH => {}
         }
@@ -656,6 +669,12 @@ impl App {
             return;
         }
         // Not under a dialog: its buttons come first (About's OK lay on the page and did nothing).
+        // The page's scrollbar lies on the page too, and is not a press on it.
+        if self.on_page(x, y) && self.hit_at(x, y) == Some(Hit::ScrollBar(Scroller::Page)) {
+            self.scrollbar_press(Scroller::Page, x, y);
+            self.redraw();
+            return;
+        }
         if self.visual_on() && !self.areas.text.contains(x, y) && self.on_page(x, y) {
             self.visual_press(x, y);
             return;

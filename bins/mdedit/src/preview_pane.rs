@@ -107,6 +107,9 @@ pub struct Pane {
     pub pointer: mdview_preview::Pointer,
     /// A place to ask the cursor for once nothing is awaited (only the latest is kept).
     hover_due: Option<(f32, f32)>,
+    /// A row to scroll the page to (device pixels) once nothing is awaited, as a scrollbar's
+    /// thumb moves faster than the page answers (only the latest is kept).
+    scroll_due: Option<f32>,
     page_line: Option<f32>,
     /// Visual editing: the page row where the room for the open block starts, as the last
     /// update gave it, and the answer to the last [`block_at`](Self::block_at) until taken.
@@ -189,6 +192,7 @@ impl Pane {
             task: None,
             pointer: mdview_preview::Pointer::Arrow,
             hover_due: None,
+            scroll_due: None,
             gap_y: None,
             gap_due: 0,
             block: None,
@@ -262,6 +266,28 @@ impl Pane {
             self.lead = Lead::Page;
             self.send(Request::Scroll { by });
         }
+    }
+
+    /// Scrolls the page to the row `top` (device pixels), at once when nothing is awaited, else
+    /// once the answers are in, so a thumb dragged fast does not queue requests that each
+    /// measure from a row the page has not reached yet.
+    pub fn scroll_to(&mut self, top: f32) {
+        if self.waiting == 0 {
+            self.scroll_due = None;
+            self.scroll(top - self.top);
+        } else {
+            self.scroll_due = Some(top);
+        }
+    }
+
+    /// What a scrollbar on the page measures, in logical px at `scale`: the page's height, the
+    /// pane's, and the row at the pane's top.
+    pub fn extent(&self, scale: f32) -> (f32, f32, f32) {
+        (
+            self.total / scale,
+            self.frame.height as f32 / scale,
+            self.top / scale,
+        )
     }
 
     /// The reader turned to the editor (a key, a click, its own wheel): it leads again, and the
@@ -389,7 +415,7 @@ impl Pane {
     /// Nothing is awaited from the page, and no cursor question is held back.
     #[cfg(test)]
     pub fn idle(&self) -> bool {
-        self.waiting == 0 && self.hover_due.is_none()
+        self.waiting == 0 && self.hover_due.is_none() && self.scroll_due.is_none()
     }
 
     /// The task box clicked on the page: the document and version of the text it is about, the
@@ -483,6 +509,12 @@ impl Pane {
             && let Some((x, y)) = self.hover_due.take()
         {
             self.send(Request::Hover { x, y });
+        }
+        if self.waiting == 0
+            && self.ended.is_none()
+            && let Some(top) = self.scroll_due.take()
+        {
+            self.scroll(top - self.top);
         }
         changed
     }
@@ -624,7 +656,15 @@ fn start(
 }
 
 /// Draws the pane: the line that parts it from the text, then the page, or why there is none.
-pub fn draw(c: &mut crate::chrome::Ctx, pane: Option<&Pane>, docs: &crate::docs::Docs, rect: Rect) {
+/// `bar` is `Some(active)` when the page has a scrollbar (visual editing), `active` while the
+/// pointer is on it or its thumb is held.
+pub fn draw(
+    c: &mut crate::chrome::Ctx,
+    pane: Option<&Pane>,
+    docs: &crate::docs::Docs,
+    rect: Rect,
+    bar: Option<bool>,
+) {
     use mdshared_ui::gfx::Face;
     let pal = c.pal;
     c.p.fill(rect, pal.page);
@@ -662,6 +702,13 @@ pub fn draw(c: &mut crate::chrome::Ctx, pane: Option<&Pane>, docs: &crate::docs:
         let (t, u) = (top.max(y0), (top + h.round() as i32).min(y1));
         if a < b && t < u {
             c.p.fill_dev(a, t, b, u, color, alpha);
+        }
+    }
+    if let Some(active) = bar {
+        let (content, view, top) = pane.extent(1.0 / px);
+        if let Some((track, thumb)) = mdshared_ui::scroll::scrollbar(rect, content, view, top) {
+            mdshared_ui::scroll::draw_scrollbar(c.p, pal, track, thumb, active);
+            c.hit(crate::ui::Hit::ScrollBar(crate::ui::Scroller::Page), track);
         }
     }
 }

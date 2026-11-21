@@ -431,14 +431,21 @@ impl Geom {
         )
     }
 
-    /// The vertical scrollbar's track and thumb.
+    /// The vertical scrollbar's track and thumb. None in visual editing: the box shows its block
+    /// whole, held at the block's first line, so a bar there could not move; the page scrolls.
     pub fn vbar(&self) -> Option<(Rect, Rect)> {
+        if crate::live::bare() {
+            return None;
+        }
         let (content, view) = self.vscroll();
         scroll::scrollbar(self.area, content, view, self.top as f32)
     }
 
     /// The horizontal scrollbar's track and thumb, the same geometry turned on its side.
     pub fn hbar(&self, left: f64) -> Option<(Rect, Rect)> {
+        if crate::live::bare() {
+            return None;
+        }
         let t = self.text_rect();
         hscrollbar(
             Rect::new(t.x, t.y, (t.w - HBAR_H).max(0.0), t.h),

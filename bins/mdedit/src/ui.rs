@@ -71,6 +71,8 @@ pub enum Scroller {
     /// The second pane's text, vertically and horizontally.
     OtherText,
     OtherTextH,
+    /// The preview page when it fills the text area (visual editing), vertically.
+    Page,
 }
 
 /// The command bar's buttons.
@@ -303,6 +305,7 @@ impl Hit {
             | Hit::Splitter
             | Hit::ScrollBar(Scroller::Files) => Region::Files,
             Hit::ScrollBar(Scroller::OtherText | Scroller::OtherTextH) => Region::Other,
+            Hit::ScrollBar(Scroller::Page) => Region::Preview,
             Hit::CopyChange { other: true, .. } => Region::Other,
             Hit::ScrollBar(Scroller::Text | Scroller::TextH)
             | Hit::Text

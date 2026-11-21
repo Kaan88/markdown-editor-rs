@@ -1295,4 +1295,159 @@ Last.
         a.compose();
         assert!(!a.visual_on() && a.areas.text.w > 0.0);
     }
+
+    /// A long document in visual editing with its page drawn; the viewer's path, or none.
+    fn visual_long(tag: &str, text: String) -> Option<(App, PathBuf)> {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return None;
+        };
+        let dir = scratch(tag);
+        let md = dir.join("a.md");
+        std::fs::write(&md, text).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.compose();
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| generation(a) > 0);
+        Some((a, dir))
+    }
+
+    /// Eighty paragraphs, and from line 21 a list of twelve items: a block taller than a line.
+    fn long_with_a_list() -> String {
+        let mut text: String = (0..10).map(|i| format!("Paragraph {i}.\n\n")).collect();
+        text.extend((0..12).map(|i| format!("- item {i}\n")));
+        text.push('\n');
+        text.extend((10..80).map(|i| format!("Paragraph {i}.\n\n")));
+        text
+    }
+
+    /// The scrollbar on the page: its track and thumb as the drawing places them.
+    fn page_bar(a: &App) -> Option<(Rect, Rect)> {
+        let p = a.preview.as_ref()?;
+        let s = a.scale;
+        mdshared_ui::scroll::scrollbar(
+            a.areas.preview?,
+            p.total / s,
+            p.frame.height as f32 / s,
+            p.top / s,
+        )
+    }
+
+    /// Pump until the pane has answered everything and the page stands still.
+    fn settle(a: &mut App) {
+        let mut last = f32::NAN;
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end {
+            a.preview_sync();
+            a.compose();
+            let p = a.preview.as_ref().unwrap();
+            if p.idle() && p.top == last {
+                return;
+            }
+            last = p.top;
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// The owner: "full preview edit mode lacks scroll bar". The page that fills the window had
+    /// none: nothing to see where it is, nothing to click or drag.
+    #[test]
+    fn the_page_in_visual_editing_has_a_scrollbar_to_click_and_drag() {
+        let Some((mut a, dir)) = visual_long("visual-page-bar", long_with_a_list()) else {
+            return;
+        };
+        let (track, thumb) = page_bar(&a).expect("the page is longer than the window");
+        let hit = a.hits[Region::Preview.index()]
+            .iter()
+            .find_map(|(h, r)| matches!(h, Hit::ScrollBar(_)).then_some(*r));
+        assert_eq!(hit, Some(track), "the bar is a hit area of the page");
+        assert_eq!(thumb.y, track.y, "at the top to begin with");
+        // The thumb is on the screen: a column of it differs from the page beside it.
+        let pixel = |x: f32, y: f32| {
+            let (x, y) = ((x * a.scale) as usize, (y * a.scale) as usize);
+            let at = (y * a.screen.width as usize + x) * 4;
+            a.screen.pixels[at..at + 4].to_vec()
+        };
+        let y = thumb.y + 20.0;
+        assert_ne!(pixel(track.right() - 4.5, y), pixel(track.x - 20.0, y));
+        let (content, view) = {
+            let p = a.preview.as_ref().unwrap();
+            (p.total / a.scale, p.frame.height as f32 / a.scale)
+        };
+
+        // The wheel over the bar scrolls the page as over the rest of it.
+        a.pointer_moved(track.cx(), track.y + 40.0);
+        a.wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -2.0));
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top > 0.0);
+        assert!(a.preview.as_ref().unwrap().top > 0.0, "the wheel scrolled");
+        settle(&mut a);
+
+        // A click on the track below the thumb pages down.
+        let before = a.preview.as_ref().unwrap().top;
+        let (track, thumb) = page_bar(&a).unwrap();
+        a.pointer_moved(track.cx(), track.bottom() - 6.0);
+        a.left_press();
+        a.left_release();
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top > before);
+        let paged = a.preview.as_ref().unwrap().top;
+        assert!(
+            (paged - before) / a.scale > view * 0.5,
+            "a page: {before} -> {paged}"
+        );
+        settle(&mut a);
+
+        // The thumb dragged in steps, with the page answering only afterwards: it ends where
+        // the thumb is, not past it.
+        let (track, thumb2) = page_bar(&a).unwrap();
+        assert!(thumb2.y > thumb.y, "the thumb moved down");
+        let grab = thumb2.h / 2.0;
+        a.pointer_moved(thumb2.cx(), thumb2.y + grab);
+        a.left_press();
+        assert!(matches!(a.ui.drag, Some(Drag::Thumb { .. })), "held");
+        let to = track.y + track.h * 0.4 + grab;
+        for y in [thumb2.y + grab - 30.0, thumb2.y + grab - 60.0, to] {
+            a.pointer_moved(thumb2.cx(), y);
+        }
+        a.left_release();
+        settle(&mut a);
+        let want = mdshared_ui::scroll::offset_for_thumb(track, thumb2.h, to - grab, content, view);
+        let top = a.preview.as_ref().unwrap().top / a.scale;
+        assert!((top - want).abs() < 2.0, "dragged to {want}, page at {top}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The owner: "the scrollbars in the editable boxes in this mode does not work. not with
+    /// mouse wheel, or click. can't drag them." The box shows exactly its block, and the view is
+    /// put back at the block's first line every frame, so a bar drawn there (its thumb
+    /// measuring the whole document) could never move.
+    #[test]
+    fn the_open_block_s_box_draws_no_scrollbar_that_cannot_move() {
+        let Some((mut a, dir)) = visual_long("visual-box-bar", long_with_a_list()) else {
+            return;
+        };
+        if let Some(v) = a.visual.as_mut() {
+            v.pending = Some(super::super::visual::Ask::Line(21));
+        }
+        pump(&mut a, |a| {
+            a.visual_block().is_some() && a.areas.text.w > 0.0
+        });
+        let end = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < end {
+            a.preview_sync();
+            a.compose();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(a.visual_block().is_some(), "a block is open");
+        let bars: Vec<_> = a
+            .hits
+            .iter()
+            .flat_map(|v| v.iter())
+            .filter(|(h, _)| matches!(h, Hit::ScrollBar(Scroller::Text | Scroller::TextH)))
+            .collect();
+        assert!(bars.is_empty(), "the box draws {bars:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
