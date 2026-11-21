@@ -134,6 +134,8 @@ impl App {
                 }
             }
             Hit::LibraryRow(i) => self.library_row(i),
+            Hit::LibraryNewGroup => self.library_act(crate::ui::LibAct::NewGroup, 0),
+            Hit::LibraryAddOpen => self.command(C::LibraryAdd),
             Hit::ResultsRow(i) => {
                 self.go_to_result(i);
                 // A click leaves the keyboard in the panel, for Up and Down from that row.
@@ -1094,6 +1096,10 @@ impl App {
             self.library_remove_answer(n);
             return;
         }
+        if kind == Some(DialogKind::LibraryDelete) {
+            self.library_delete_answer(n);
+            return;
+        }
         let Some(p) = self.ui.pending.take() else {
             self.close_dialog();
             return;
@@ -1141,6 +1147,7 @@ impl App {
             | C::PreviewInViewer
             | C::PreviewSideBySide
             | C::PreviewPane
+            | C::ShowInLibrary
             | C::VisualEdit => {
                 self.docs.activate(index);
                 self.command(id);
@@ -1337,6 +1344,7 @@ impl App {
         }
         self.ui.dialog = None;
         self.ui.library.removing = None;
+        self.ui.library.deleting = None;
         self.ui.pressed = None;
         self.ui.dlg_hover_row = None;
         self.ui.hover = None;
@@ -1952,6 +1960,7 @@ impl App {
             C::Library => self.library_open(),
             C::LibraryAdd => self.library_add(),
             C::LibraryEdit => self.library_edit(),
+            C::ShowInLibrary => self.library_show_file(),
             C::NextTab => self.docs.step_tab(true),
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),

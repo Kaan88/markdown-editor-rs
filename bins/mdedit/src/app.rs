@@ -76,6 +76,8 @@ mod input;
 mod language_tests;
 mod library;
 #[cfg(test)]
+mod library_keys_tests;
+#[cfg(test)]
 mod library_pane_tests;
 #[cfg(test)]
 mod library_tests;
@@ -576,6 +578,7 @@ impl App {
             && !self.ui.find_focused
             && !self.preview_focused()
             && !self.ui.results.focused
+            && !self.ui.library.focused
             && self.ui.dialog.is_none()
             && !self.palette_open()
             && !self.ai_panel_open()
@@ -947,13 +950,26 @@ impl App {
                     .iter()
                     .map(|r| (r.depth, r.label.as_str()))
                     .collect();
+                // The name box and the cursor are drawn in the pane: what is typed, where its
+                // caret and selection are, whether it blinks, and the keyboard's row.
+                let boxed = ui.find_focused && ui.field == crate::ui::BarField::Library;
+                let name = ui.library.edit.as_ref().map(|e| {
+                    (
+                        e.at,
+                        e.depth,
+                        ui.library.field.text(),
+                        ui.library.field.caret(),
+                        ui.library.field.preedit().map(|p| (&p.text, p.cursor)),
+                        (boxed, boxed && ui.caret_on),
+                    )
+                });
                 sig((
-                    common,
-                    rows,
-                    active,
+                    (common, rows, active),
                     ui.library.scroll.to_bits(),
                     ui.library.rows.len(),
                     drag,
+                    name,
+                    (ui.library.cur, ui.library.focused),
                 ))
             }
             Region::Files => {
@@ -3279,11 +3295,21 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotMenu::LibraryPane) => {
             app.command(crate::commands::CommandId::ToggleLibraryPane);
         }
+        Some(ShotMenu::LibraryCursor) => {
+            app.command(crate::commands::CommandId::ToggleLibraryPane);
+            app.compose();
+            app.library_focus();
+            for _ in 0..4 {
+                app.ui.library.step(true);
+            }
+            app.compose();
+        }
         Some(
             m @ (ShotMenu::LibraryRow
             | ShotMenu::LibrarySection
             | ShotMenu::LibraryEmpty
             | ShotMenu::LibraryRename
+            | ShotMenu::LibraryNewGroup
             | ShotMenu::LibraryRemove),
         ) => {
             use crate::library_pane::Kind;
@@ -3311,6 +3337,10 @@ fn shot(mut app: App, path: &Path) -> i32 {
                         app.act(Act::Library(LibAct::Rename, i));
                         app.ui.library.field.set_text("Receipts 2026");
                     }
+                }
+                ShotMenu::LibraryNewGroup => {
+                    app.act(Act::Library(LibAct::NewGroup, 0));
+                    app.ui.library.field.set_text("Work: 2026");
                 }
                 ShotMenu::LibraryRemove => {
                     if let Some(i) = first(&app, false) {

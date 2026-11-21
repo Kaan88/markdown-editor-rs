@@ -6,6 +6,8 @@
 
 use super::*;
 use crate::commands::strings;
+use crate::keys::{self, KeyName};
+use crate::ui::PaneFace;
 use mdshared_app::library;
 
 impl App {
@@ -98,24 +100,191 @@ impl App {
         self.ui.library.build(&self.docs.library);
     }
 
-    /// A click on a row: a group or a section folds, a note opens, a note that is not there
-    /// says so.
+    /// A click or Enter on a row: a group or a section folds, a note opens, a note that is not
+    /// there says so. The keyboard stays in the pane after a fold, and goes to the text when a
+    /// note opened.
     pub(super) fn library_row(&mut self, i: usize) {
+        use crate::library_pane::Kind;
         let Some(row) = self.ui.library.rows.get(i).cloned() else {
             return;
         };
         self.ui.library.cursor = self.ui.library.group_file(i);
+        self.ui.library.set_cur(i);
         match row.kind {
-            crate::library_pane::Kind::Group | crate::library_pane::Kind::Section => {
+            Kind::Group | Kind::Section => {
+                self.ui.library.focused = true;
                 self.ui.library.fold(&row.key);
                 self.ui.library.build(&self.docs.library);
             }
-            crate::library_pane::Kind::Note { missing: true, .. } => {
+            Kind::Note { missing: true, .. } => {
+                self.ui.library.focused = true;
                 self.docs.set_toast(strings::LIBRARY_MISSING_FILE);
             }
-            crate::library_pane::Kind::Note { path, .. } => self.open(&path),
-            crate::library_pane::Kind::Editing => {}
+            Kind::Note { path, .. } => {
+                self.ui.library.focused = false;
+                self.open(&path);
+                self.caret_reset();
+            }
+            Kind::Editing => {}
         }
+    }
+
+    /// Gives the keyboard to the pane when it shows the notes and does not have it: the cursor
+    /// is where it was, else on the open note, else on the first row. False when the pane is
+    /// not showing the notes or already has the keyboard, which leaves the command to close it.
+    pub(super) fn library_focus(&mut self) -> bool {
+        if !(self.ui.panes.files && self.ui.library.on) || self.ui.library.focused {
+            return false;
+        }
+        if self.ui.library.rows.is_empty() {
+            return false;
+        }
+        self.ui.find_focused = false;
+        self.ui.results.set_focus(false);
+        if self.ui.library.cur.is_none() {
+            let open = self.docs.active_doc().and_then(|d| d.path.clone());
+            let at = open
+                .and_then(|p| {
+                    self.ui.library.rows.iter().position(|r| match &r.kind {
+                        crate::library_pane::Kind::Note { path, .. } => {
+                            crate::library_pane::same_note(path, &p)
+                        }
+                        _ => false,
+                    })
+                })
+                .unwrap_or(0);
+            self.ui.library.set_cur(at);
+        } else if let Some(c) = self.ui.library.cur {
+            self.ui.library.set_cur(c);
+        }
+        self.ui.library.focused = true;
+        self.redraw();
+        true
+    }
+
+    /// Keys for the pane while it has the keyboard. True when the key was used; the shortcuts
+    /// (Ctrl or Alt with a key, F3 and the rest) are left to the commands.
+    pub(super) fn library_key(&mut self, key: &keys::Key, mods: Mods, typed: Option<&str>) -> bool {
+        use crate::library_pane::{Go, Kind};
+        use crate::ui::LibAct;
+        if mods.ctrl || mods.alt {
+            return false;
+        }
+        let cur = self.ui.library.cur;
+        let page = (self.ui.library.view / crate::panes::ROW).floor().max(1.0) as isize;
+        let name = match key {
+            keys::Key::Name(n) => n.clone(),
+            // The menu key asks for the row's menu, as Shift+F10 does.
+            keys::Key::Menu => {
+                self.library_key_menu();
+                return true;
+            }
+            keys::Key::Insert => return false,
+        };
+        match name {
+            KeyName::Up => self.ui.library.step(false),
+            KeyName::Down => self.ui.library.step(true),
+            KeyName::Home => self.ui.library.go(Go::Home),
+            KeyName::End => self.ui.library.go(Go::End),
+            KeyName::PageUp => self.ui.library.go(Go::Page(-page)),
+            KeyName::PageDown => self.ui.library.go(Go::Page(page)),
+            KeyName::Left => self.ui.library.left(&self.docs.library),
+            KeyName::Right => self.ui.library.right(&self.docs.library),
+            KeyName::Enter => {
+                if let Some(c) = cur {
+                    self.library_row(c);
+                }
+            }
+            KeyName::F(2) => {
+                if let Some(c) = cur {
+                    self.library_act(LibAct::Rename, c);
+                }
+            }
+            KeyName::F(10) if mods.shift => self.library_key_menu(),
+            KeyName::Delete if !mods.shift => {
+                // Notes and sections come out of the library file; a group is a file of its own,
+                // which its menu deletes after asking.
+                let removable = cur
+                    .and_then(|c| self.ui.library.rows.get(c))
+                    .is_some_and(|r| matches!(r.kind, Kind::Note { .. } | Kind::Section));
+                if let (true, Some(c)) = (removable, cur) {
+                    self.library_act(LibAct::Remove, c);
+                }
+            }
+            KeyName::Escape => {
+                self.ui.library.focused = false;
+                self.caret_reset();
+            }
+            KeyName::Char(_) => {
+                if let Some(ch) = typed
+                    .and_then(|t| t.chars().next())
+                    .filter(|c| !c.is_control())
+                {
+                    self.ui.library.jump(ch);
+                }
+            }
+            // Keys of the text that the pane keeps from it.
+            KeyName::Tab | KeyName::Backspace | KeyName::Space | KeyName::Delete => {}
+            KeyName::F(_) => return false,
+        }
+        self.redraw();
+        true
+    }
+
+    /// The menu of the cursor's row, opened under the row by the keyboard.
+    fn library_key_menu(&mut self) {
+        let Some(c) = self.ui.library.cur else { return };
+        self.library_with_rows_drawn();
+        let at = self
+            .hit_rect(Hit::LibraryRow(c))
+            .or(self.areas.files)
+            .map_or((0.0, 0.0), |r| {
+                (r.x + 40.0, r.bottom().min(r.y + mdshared_ui::pane::ROW_H))
+            });
+        self.library_row_menu(c, at.0 - 2.0, at.1 - 2.0, true);
+    }
+
+    /// The hit rectangles are those of the last frame; a key pressed before any was drawn
+    /// (a test, or the first frame) has them made.
+    fn library_with_rows_drawn(&mut self) {
+        if self
+            .ui
+            .library
+            .cur
+            .is_some_and(|c| self.hit_rect(Hit::LibraryRow(c)).is_none())
+        {
+            self.compose_layout_only();
+        }
+    }
+
+    /// "Show this file in the notes library": the pane shows the notes, opened down to the open
+    /// file's note, with the cursor on it and scrolled to it.
+    pub(super) fn library_show_file(&mut self) {
+        let Some(path) = self.docs.active_doc().and_then(|d| d.path.clone()) else {
+            self.docs.set_toast(strings::LIBRARY_NEEDS_FILE);
+            return;
+        };
+        self.library_load();
+        let found = self
+            .docs
+            .library
+            .groups
+            .iter()
+            .flat_map(|g| g.entries.iter().map(move |e| (g, e)))
+            .find(|(_, e)| crate::library_pane::same_note(&e.path, &path))
+            .map(|(g, e)| (g.file.clone(), e.sections.clone(), e.path.clone()));
+        let Some((file, sections, note)) = found else {
+            self.docs.set_toast(strings::LIBRARY_NOT_LISTED);
+            return;
+        };
+        self.ui.set_pane_face(PaneFace::Notes);
+        self.ui.library.unfold_to(&file, &sections);
+        self.library_rows();
+        let under = crate::library_pane::key_of(&file, &sections);
+        self.ui
+            .library
+            .follow(crate::library_pane::RowId::Note(under, note));
+        self.redraw();
     }
 
     /// While the pane shows, the library files are looked at again now and then, so a library
@@ -266,7 +435,7 @@ impl App {
             && let Some(group) = groups.iter().find(|g| {
                 g.entries
                     .iter()
-                    .any(|e| mdshared_app::paths::same_path(&e.path, open))
+                    .any(|e| crate::library_pane::same_note(&e.path, open))
             })
         {
             return Some(group.file.clone());

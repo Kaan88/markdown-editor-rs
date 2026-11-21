@@ -261,6 +261,9 @@ pub enum Hit {
     /// The box a name is typed in, over a row of the notes library.
     LibraryField,
     LibraryAdd,
+    /// The two buttons of the pane's empty library: a new group, and the open file.
+    LibraryNewGroup,
+    LibraryAddOpen,
     /// The head's switches: what the left pane shows.
     PaneFace(PaneFace),
     FilesRow(usize),
@@ -350,6 +353,8 @@ impl Hit {
             | Hit::LibraryRow(_)
             | Hit::LibraryField
             | Hit::LibraryAdd
+            | Hit::LibraryNewGroup
+            | Hit::LibraryAddOpen
             | Hit::PaneFace(_)
             | Hit::FilesFolder
             | Hit::FilesOpenFolder
@@ -470,6 +475,8 @@ pub enum LibAct {
     GoToLine,
     EditFile,
     Remove,
+    /// Delete the library file of a group, after asking.
+    DeleteFile,
     RevealFolder,
     Refresh,
 }
@@ -676,6 +683,8 @@ pub enum DialogKind {
     ReplaceFiles,
     /// A section of the notes library is about to be taken out, with the links under it.
     LibraryRemove,
+    /// A library file is about to be deleted; the notes it lists stay where they are.
+    LibraryDelete,
 }
 
 impl DialogKind {
@@ -688,6 +697,7 @@ impl DialogKind {
                 | DialogKind::Overwrite
                 | DialogKind::Discard
                 | DialogKind::LibraryRemove
+                | DialogKind::LibraryDelete
         )
     }
 }
@@ -918,6 +928,7 @@ impl Ui {
         self.library.on = face == PaneFace::Notes;
         if face != PaneFace::Notes {
             self.library.cursor = None;
+            self.library.focused = false;
             self.library.stop_edit();
             self.drop_library_field_focus();
         }
@@ -937,6 +948,7 @@ impl Ui {
         self.outline.on = false;
         self.library.on = false;
         self.library.cursor = None;
+        self.library.focused = false;
         self.library.stop_edit();
         self.drop_library_field_focus();
     }

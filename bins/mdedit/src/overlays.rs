@@ -223,6 +223,12 @@ pub fn library_row_menu(
             item(L::EditFile, "&Edit this library file", glyph::DOC).sep(),
             item(L::CopyPath, "&Copy path", glyph::COPY),
             item(L::Reveal, &reveal_label("nasrfec"), glyph::FOLDER_OPEN),
+            item(
+                L::DeleteFile,
+                "&Delete this library file\u{2026}",
+                glyph::DELETE,
+            )
+            .sep(),
         ],
         Kind::Section => vec![
             item(L::NewNote, "New &note here\u{2026}", glyph::NEW_FILE),
@@ -504,6 +510,17 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
         )
         .icon(glyph::FOLDER_OPEN)
         .enabled(has_file),
+        Item::new(
+            Act::TabCmd(C::ShowInLibrary, index),
+            "Show in the notes &library",
+        )
+        .icon(glyph::BOOKMARK)
+        .enabled(
+            docs.tabs
+                .get(index)
+                .and_then(|d| d.path.as_deref())
+                .is_some_and(|p| crate::library_pane::lists(&docs.library, p)),
+        ),
     ]);
     Menu::new(items, x, y, false).access_keys(true)
 }
@@ -836,7 +853,8 @@ pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
         DialogKind::Unsaved
         | DialogKind::Overwrite
         | DialogKind::Discard
-        | DialogKind::LibraryRemove => (460.0, 196.0),
+        | DialogKind::LibraryRemove
+        | DialogKind::LibraryDelete => (460.0, 196.0),
         DialogKind::ReplaceFiles => return crate::replace_ui::card(w, h),
     };
     dialog_card(cw, ch, w, h)
@@ -895,7 +913,8 @@ pub fn draw_dialog(
         | DialogKind::Unsaved
         | DialogKind::Overwrite
         | DialogKind::Discard
-        | DialogKind::LibraryRemove => 0,
+        | DialogKind::LibraryRemove
+        | DialogKind::LibraryDelete => 0,
         // Drawn by `replace_ui::draw_confirm`, which has the plan.
         DialogKind::ReplaceFiles => return,
         DialogKind::Shortcuts => shortcut_help().len(),
@@ -975,8 +994,14 @@ pub fn draw_dialog(
         DialogKind::Unsaved
         | DialogKind::Overwrite
         | DialogKind::Discard
-        | DialogKind::LibraryRemove => {
+        | DialogKind::LibraryRemove
+        | DialogKind::LibraryDelete => {
             let (heading, body, buttons): (&str, String, &[&str]) = match d.kind {
+                DialogKind::LibraryDelete => (
+                    strings::LIBRARY_DELETE_TITLE,
+                    d.subject.clone(),
+                    &[strings::LIBRARY_DELETE, strings::CANCEL],
+                ),
                 DialogKind::Unsaved => (
                     strings::UNSAVED_TITLE,
                     strings::unsaved_body(&d.subject),
@@ -1402,6 +1427,7 @@ mod tests {
             DialogKind::Overwrite,
             DialogKind::Discard,
             DialogKind::LibraryRemove,
+            DialogKind::LibraryDelete,
         ] {
             let r = card(kind, 30, 520.0, 360.0);
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.right() <= 520.0 && r.bottom() <= 360.0);

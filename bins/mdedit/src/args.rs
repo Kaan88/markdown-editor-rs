@@ -51,9 +51,13 @@ pub enum ShotMenu {
     /// section, in the empty space below the rows; a name being typed over the first note; and
     /// the question about removing the first section.
     LibraryRow,
+    /// The notes library pane with the keyboard in it, the cursor on the note under "Money".
+    LibraryCursor,
     LibrarySection,
     LibraryEmpty,
     LibraryRename,
+    /// The box of a new group, with a name typed in it.
+    LibraryNewGroup,
     LibraryRemove,
     /// The active document made Markdown as the AI's Format as Markdown does, with the bar
     /// offering its `.md` name.
@@ -503,9 +507,11 @@ impl Args {
                         "library-add" => Some(ShotMenu::LibraryAdd),
                         "library-pane" => Some(ShotMenu::LibraryPane),
                         "library-row" => Some(ShotMenu::LibraryRow),
+                        "library-cursor" => Some(ShotMenu::LibraryCursor),
                         "library-section" => Some(ShotMenu::LibrarySection),
                         "library-empty" => Some(ShotMenu::LibraryEmpty),
                         "library-rename" => Some(ShotMenu::LibraryRename),
+                        "library-newgroup" => Some(ShotMenu::LibraryNewGroup),
                         "library-remove" => Some(ShotMenu::LibraryRemove),
                         "rename-bar" => Some(ShotMenu::RenameBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),

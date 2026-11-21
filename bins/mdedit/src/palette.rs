@@ -436,7 +436,7 @@ fn icon(id: C) -> &'static str {
         C::AiSettings => glyph::SLIDERS,
         C::AiCancel => glyph::STOP,
         C::Language => glyph::CODE,
-        C::Library | C::LibraryAdd => glyph::BOOKMARK,
+        C::Library | C::LibraryAdd | C::ShowInLibrary => glyph::BOOKMARK,
         C::LibraryEdit => glyph::DOC,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
@@ -519,6 +519,10 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::AiCancel => docs.ai_status.is_some(),
         C::Language => ready.is_some(),
         C::LibraryAdd => has_file,
+        C::ShowInLibrary => docs
+            .active_doc()
+            .and_then(|d| d.path.as_deref())
+            .is_some_and(|p| crate::library_pane::lists(&docs.library, p)),
         C::CopyFilePath | C::ShowInFileManager => has_file,
         // A document that has no file is previewed from its text.
         C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane | C::VisualEdit => has_tab,

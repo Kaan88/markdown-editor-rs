@@ -10,6 +10,8 @@ use winit::keyboard::{Key as WKey, NamedKey};
 pub enum Key {
     Name(KeyName),
     Insert,
+    /// The context-menu key, which the shared parser has no name for.
+    Menu,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +24,9 @@ pub struct Chord {
 pub fn key_of(key: &WKey) -> Option<Key> {
     if let WKey::Named(NamedKey::Insert) = key {
         return Some(Key::Insert);
+    }
+    if let WKey::Named(NamedKey::ContextMenu) = key {
+        return Some(Key::Menu);
     }
     mdshared_ui::keys::key_name(key).map(Key::Name)
 }

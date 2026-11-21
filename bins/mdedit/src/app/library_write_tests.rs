@@ -9,35 +9,35 @@ use crate::keys::{Key, KeyName};
 use crate::library_pane::{EditKind, Kind};
 use crate::ui::{BarItem, LibAct, PopupKind};
 
-fn app_in(dir: &Path) -> App {
+pub(super) fn app_in(dir: &Path) -> App {
     let mut a = app();
     a.session_path = Some(dir.join("settings.ini"));
     a
 }
 
-fn slash(path: &Path) -> String {
+pub(super) fn slash(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn press(a: &mut App, key: KeyName) {
+pub(super) fn press(a: &mut App, key: KeyName) {
     a.key_pressed(Key::Name(key), None);
 }
 
-fn read(path: &Path) -> String {
+pub(super) fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
 /// Two notes on disk and one library file listing them:
 /// rows are Personal, Money, Taxes 2026, 2025, Last year, Trips.
-struct Lib {
-    dir: PathBuf,
-    file: PathBuf,
-    taxes: PathBuf,
-    last: PathBuf,
+pub(super) struct Lib {
+    pub(super) dir: PathBuf,
+    pub(super) file: PathBuf,
+    pub(super) taxes: PathBuf,
+    pub(super) last: PathBuf,
 }
 
 impl Lib {
-    fn text(&self) -> String {
+    pub(super) fn text(&self) -> String {
         format!(
             "# Personal\n\n## Money\n\n- [Taxes 2026]({})\n\n### 2025\n\n- [Last year]({})\n\n## Trips\n",
             slash(&self.taxes),
@@ -46,7 +46,7 @@ impl Lib {
     }
 }
 
-fn lib(tag: &str) -> (App, Lib) {
+pub(super) fn lib(tag: &str) -> (App, Lib) {
     let dir = scratch(tag);
     let folder = dir.join("library");
     std::fs::create_dir_all(&folder).unwrap();
@@ -64,23 +64,23 @@ fn lib(tag: &str) -> (App, Lib) {
     (a, l)
 }
 
-fn labels(a: &App) -> Vec<String> {
+pub(super) fn labels(a: &App) -> Vec<String> {
     a.ui.library.rows.iter().map(|r| r.label.clone()).collect()
 }
 
-fn pick(a: &mut App, op: LibAct, row: usize) {
+pub(super) fn pick(a: &mut App, op: LibAct, row: usize) {
     a.act(Act::Library(op, row));
 }
 
 /// Types `name` into the box over the pane and presses Enter.
-fn name_it(a: &mut App, name: &str) {
+pub(super) fn name_it(a: &mut App, name: &str) {
     assert!(a.ui.library.edit.is_some(), "the name box is open");
     type_text(a, name);
     press(a, KeyName::Enter);
     assert!(a.ui.library.edit.is_none(), "Enter closes the box");
 }
 
-fn toast(a: &App) -> String {
+pub(super) fn toast(a: &App) -> String {
     a.docs
         .toast(Instant::now())
         .map(str::to_string)
@@ -624,7 +624,7 @@ fn renaming_the_library_file_keeps_its_group_and_refuses_a_name_in_use() {
 
 // ---- the menus -------------------------------------------------------------------------------
 
-fn right_click_at(a: &mut App, x: f32, y: f32) {
+pub(super) fn right_click_at(a: &mut App, x: f32, y: f32) {
     a.compose();
     a.ui.mouse = (x, y);
     a.right_press();
@@ -693,7 +693,7 @@ fn a_menu_item_runs_what_it_says_and_a_letter_picks_it() {
 }
 
 #[test]
-fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_no_file() {
+fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_only_a_library_file() {
     use mdshared_ui::menu::{access_key_of, parse_access};
     let note = |missing: bool| Kind::Note {
         path: PathBuf::from("D:/n.md"),
@@ -725,9 +725,14 @@ fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_no_file() {
                 "{name}: two items with the key {key}: {:?}",
                 item.label
             );
+            // Nothing deletes a note or a section's file; the one deletion is of the group's
+            // own library file, which is the app's index and not a document of the owner's.
             let text = parse_access(&item.label).text.to_lowercase();
+            let deletes = text.contains("delete") || text.contains("on disk");
+            let library_file = matches!(item.id, Act::Library(LibAct::DeleteFile, _));
             assert!(
-                !text.contains("delete") && !text.contains("on disk"),
+                !deletes
+                    || (library_file && name.starts_with("Group") && text.contains("library file")),
                 "{name}: {text}"
             );
         }
@@ -806,4 +811,276 @@ fn go_to_opens_the_library_file_with_the_caret_on_the_note_or_the_heading() {
         Some(l.file.as_path())
     );
     let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+// ---- the name box draws what is typed ---------------------------------------------------------
+
+/// The box on screen, drawn now: its pixels, to tell one drawing of it from another.
+fn box_pixels(a: &mut App) -> Vec<u8> {
+    a.compose();
+    let f = a
+        .hit_rect(Hit::LibraryField)
+        .expect("the name box is on screen");
+    let s = a.scale;
+    let (x0, y0) = ((f.x * s).ceil() as usize + 4, (f.y * s).ceil() as usize + 3);
+    let (x1, y1) = (
+        ((f.right() * s) as usize).saturating_sub(4),
+        ((f.bottom() * s) as usize).saturating_sub(3),
+    );
+    assert!(x1 > x0 && y1 > y0, "the box has room: {f:?}");
+    let w = a.screen.width as usize;
+    let mut out = Vec::new();
+    for y in y0..y1 {
+        out.extend_from_slice(&a.screen.pixels[(y * w + x0) * 4..(y * w + x1) * 4]);
+    }
+    out
+}
+
+/// Types in the open box, and checks that the drawing of it follows the text: the typed text
+/// is drawn, and not the same as another text or none.
+fn assert_box_draws(a: &mut App, what: &str) {
+    assert_eq!(
+        a.ui.library.field.text(),
+        "",
+        "{what}: the box starts empty"
+    );
+    let none = box_pixels(a);
+    type_text(a, "Work");
+    assert_eq!(
+        a.ui.library.field.text(),
+        "Work",
+        "{what}: the keys reach the box"
+    );
+    let typed = box_pixels(a);
+    assert!(typed != none, "{what}: nothing of what was typed is drawn");
+    a.ui.library.field.set_text("Wxrk");
+    assert!(
+        box_pixels(a) != typed,
+        "{what}: the text drawn is not the text typed"
+    );
+    a.ui.library.field.set_text("Work");
+    assert!(
+        box_pixels(a) == typed,
+        "{what}: the same text draws the same"
+    );
+}
+
+#[test]
+fn a_new_group_box_opened_from_the_menu_draws_what_is_typed() {
+    let (mut a, l) = lib("libw-draw-newgroup");
+    a.compose();
+    let pane = a.areas.files.expect("the pane is drawn");
+    right_click_at(&mut a, pane.cx(), pane.bottom() - 20.0);
+    assert_eq!(a.ui.popup_kind(), Some(PopupKind::LibraryEmpty));
+    a.key_pressed(Key::Name(KeyName::Char('g')), Some("g"));
+    assert!(a.ui.library.edit.is_some(), "New group opens the box");
+    assert_box_draws(&mut a, "new group by its letter");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn every_way_of_opening_the_name_box_draws_what_is_typed() {
+    for (name, op, row) in [
+        ("new group", LibAct::NewGroup, 0),
+        ("new section", LibAct::NewSection, 1),
+        ("new note", LibAct::NewNote, 1),
+        ("new section in a group", LibAct::NewSection, 0),
+        ("new note in a group", LibAct::NewNote, 0),
+    ] {
+        let (mut a, l) = lib("libw-draw-new");
+        pick(&mut a, op, row);
+        assert_box_draws(&mut a, name);
+        let _ = std::fs::remove_dir_all(&l.dir);
+    }
+    for (name, row, text) in [
+        ("rename a group", 0, "Personal"),
+        ("rename a section", 1, "Money"),
+        ("rename a note", 2, "Taxes 2026"),
+    ] {
+        let (mut a, l) = lib("libw-draw-rename");
+        pick(&mut a, LibAct::Rename, row);
+        assert_eq!(a.ui.library.field.text(), text);
+        a.ui.library.field.set_text("");
+        assert_box_draws(&mut a, name);
+        let _ = std::fs::remove_dir_all(&l.dir);
+    }
+}
+
+#[test]
+fn a_new_group_box_in_an_empty_library_draws_what_is_typed() {
+    let dir = scratch("libw-draw-empty");
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    assert!(a.ui.library.rows.is_empty());
+    pick(&mut a, LibAct::NewGroup, 0);
+    assert_box_draws(&mut a, "new group, nothing in the library");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- deleting a library file ------------------------------------------------------------------
+
+#[test]
+fn deleting_a_library_file_asks_then_removes_only_that_file_and_reads_the_library_again() {
+    let (mut a, l) = lib("libw-delete");
+    let work = l.dir.join("library").join("work.md");
+    std::fs::write(&work, "# Work\n\n- [Taxes work](x.md)\n").unwrap();
+    a.act(Act::Library(LibAct::Refresh, 0));
+    assert_eq!(labels(&a)[0], "Personal");
+    assert!(labels(&a).contains(&"Work".to_string()));
+
+    pick(&mut a, LibAct::DeleteFile, 0);
+    assert_eq!(
+        a.ui.dialog.as_ref().map(|d| d.kind),
+        Some(crate::ui::DialogKind::LibraryDelete)
+    );
+    assert!(l.file.exists(), "nothing is deleted before the answer");
+    // Escape is no.
+    press(&mut a, KeyName::Escape);
+    assert!(a.ui.dialog.is_none() && l.file.exists());
+    assert!(a.ui.library.deleting.is_none());
+
+    pick(&mut a, LibAct::DeleteFile, 0);
+    press(&mut a, KeyName::Enter);
+    assert!(a.ui.dialog.is_none());
+    assert!(!l.file.exists(), "the library file is gone");
+    assert!(work.exists(), "another library file is not touched");
+    assert_eq!(
+        labels(&a),
+        vec!["Work", "Taxes work"],
+        "the pane read again"
+    );
+    assert!(
+        toast(&a).contains("Personal") && toast(&a).contains("untouched"),
+        "{}",
+        toast(&a)
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn the_notes_a_deleted_library_file_listed_are_still_on_disk() {
+    let (mut a, l) = lib("libw-delete-notes");
+    pick(&mut a, LibAct::DeleteFile, 0);
+    press(&mut a, KeyName::Enter);
+    assert!(!l.file.exists());
+    assert_eq!(read(&l.taxes), "# Taxes 2026\n");
+    assert_eq!(read(&l.last), "# Last year\n");
+    assert!(a.ui.library.rows.is_empty(), "no group is left");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn the_question_about_a_library_file_says_its_name_and_how_many_notes_it_lists() {
+    let (mut a, l) = lib("libw-delete-count");
+    let none = l.dir.join("library").join("empty.md");
+    std::fs::write(&none, "# Empty\n").unwrap();
+    let one = l.dir.join("library").join("one.md");
+    std::fs::write(&one, format!("# One\n\n- [Taxes](<{}>)\n", slash(&l.taxes))).unwrap();
+    a.act(Act::Library(LibAct::Refresh, 0));
+    let row_of = |a: &App, name: &str| {
+        a.ui.library
+            .rows
+            .iter()
+            .position(|r| r.kind == Kind::Group && r.label == name)
+            .unwrap()
+    };
+    for (group, file, says) in [
+        ("Personal", "personal.md", "lists 2 notes"),
+        ("One", "one.md", "lists 1 note."),
+        ("Empty", "empty.md", "lists no notes"),
+    ] {
+        let at = row_of(&a, group);
+        pick(&mut a, LibAct::DeleteFile, at);
+        let body = a.ui.dialog.as_ref().expect("the question").subject.clone();
+        assert!(body.contains(group) && body.contains(file), "{body}");
+        assert!(body.contains(says), "{group}: {body}");
+        assert!(body.contains("themselves are not touched"), "{body}");
+        press(&mut a, KeyName::Escape);
+    }
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn a_library_file_open_with_unsaved_changes_is_not_deleted() {
+    let (mut a, l) = lib("libw-delete-busy");
+    open_now(&mut a, &l.file);
+    type_text(&mut a, "x");
+    assert!(a.docs.active_doc().unwrap().modified());
+    // The menu item refuses before it asks...
+    pick(&mut a, LibAct::DeleteFile, 0);
+    assert!(
+        a.ui.dialog.is_none(),
+        "no question for a file that cannot go"
+    );
+    assert!(toast(&a).contains("not saved"), "{}", toast(&a));
+    // ...and the deletion itself refuses too.
+    assert!(!a.library_delete_file(&l.file));
+    assert!(l.file.exists());
+    assert!(
+        read(&l.file).starts_with("# Personal"),
+        "not a byte of it changed"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn only_a_markdown_file_directly_in_the_library_folder_is_ever_deleted() {
+    let (mut a, l) = lib("libw-delete-outside");
+    let library = l.dir.join("library");
+    // A Markdown file outside the folder, one in a folder inside it, a file that is not Markdown
+    // inside it, and one that is not there.
+    let outside = l.dir.join("outside.md");
+    std::fs::write(&outside, "# Outside\n").unwrap();
+    let deeper = library.join("sub");
+    std::fs::create_dir_all(&deeper).unwrap();
+    let inner = deeper.join("inner.md");
+    std::fs::write(&inner, "# Inner\n").unwrap();
+    let text = library.join("readme.txt");
+    std::fs::write(&text, "not a library file").unwrap();
+    // A path that climbs out of the folder and comes back to a file beside it.
+    let climbing = library.join("..").join("outside.md");
+    for path in [
+        &outside,
+        &inner,
+        &text,
+        &climbing,
+        &library.join("gone.md"),
+        &library,
+    ] {
+        assert!(!a.library_delete_file(path), "{path:?}");
+        assert!(toast(&a).contains("left alone"), "{path:?}: {}", toast(&a));
+    }
+    assert!(outside.exists() && inner.exists() && text.exists() && l.file.exists());
+    assert!(!a.library_own_file(&outside) && a.library_own_file(&l.file));
+    // The same refusal from the menu: a group whose file is not one of the folder's.
+    a.docs.library.groups[0].file = outside.clone();
+    a.ui.library.build(&a.docs.library);
+    pick(&mut a, LibAct::DeleteFile, 0);
+    assert!(a.ui.dialog.is_none());
+    assert!(outside.exists());
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn only_a_group_row_offers_to_delete_a_library_file() {
+    let note = Kind::Note {
+        path: PathBuf::from("D:/n.md"),
+        missing: false,
+        line: 3,
+    };
+    let has = |kind: &Kind| {
+        crate::overlays::library_row_menu(kind, 1, true, 0.0, 0.0, false)
+            .items
+            .iter()
+            .any(|i| i.id == Act::Library(LibAct::DeleteFile, 1))
+    };
+    assert!(has(&Kind::Group));
+    assert!(!has(&Kind::Section) && !has(&note));
+    let empty = crate::overlays::library_empty_menu(true, 0.0, 0.0, false);
+    assert!(
+        !empty
+            .items
+            .iter()
+            .any(|i| matches!(i.id, Act::Library(LibAct::DeleteFile, _)))
+    );
 }

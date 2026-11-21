@@ -100,8 +100,47 @@ pub struct Removal {
     pub section: Vec<String>,
 }
 
+/// What a row is, apart from where it is: how the keyboard's cursor finds its row again after
+/// the library was read again and the rows were made anew.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RowId {
+    /// A group or a section, by its folding key.
+    Fold(String),
+    /// A note, by the folding key of the heading (or group) it is under, and its file.
+    Note(String, PathBuf),
+}
+
+impl RowId {
+    /// The heading or group this row is under.
+    fn parent(&self) -> Option<RowId> {
+        match self {
+            RowId::Note(under, _) => Some(RowId::Fold(under.clone())),
+            RowId::Fold(key) => key
+                .rfind('\u{1}')
+                .map(|at| RowId::Fold(key[..at].to_string())),
+        }
+    }
+}
+
+/// Where a key moves the cursor, other than to the row before or after.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Go {
+    Home,
+    End,
+    /// A page up or down, in rows.
+    Page(isize),
+}
+
 #[derive(Default)]
 pub struct LibraryPane {
+    /// The keyboard is in the pane: its keys move the cursor, and none reaches the text.
+    pub focused: bool,
+    /// The cursor's row, and what the row is (see [`RowId`]) so that it stays on the same note
+    /// or heading when the rows are made again.
+    pub cur: Option<usize>,
+    cur_id: Option<RowId>,
+    /// The cursor moved: the next frame scrolls it into view, when the pane's height is known.
+    reveal_cur: bool,
     /// The left pane shows the library, not the Files tree or the function list.
     pub on: bool,
     /// The groups and sections folded shut; everything else is open, so a new library reads
@@ -124,6 +163,8 @@ pub struct LibraryPane {
     pub moving: Option<Moving>,
     pub finding: Option<Moving>,
     pub removing: Option<Removal>,
+    /// The library file waiting for "Delete" in its question.
+    pub deleting: Option<PathBuf>,
 }
 
 impl LibraryPane {
@@ -183,6 +224,188 @@ impl LibraryPane {
             .is_none_or(|t| now.duration_since(t) >= RECHECK)
     }
 
+    /// Whether row `i` is what `id` names.
+    fn is(&self, i: usize, id: &RowId) -> bool {
+        let Some(row) = self.rows.get(i) else {
+            return false;
+        };
+        match (id, &row.kind) {
+            (RowId::Fold(key), Kind::Group | Kind::Section) => row.key == *key,
+            (RowId::Note(under, path), Kind::Note { path: p, .. }) => {
+                p == path
+                    && self
+                        .parent_of(i)
+                        .is_some_and(|at| self.rows[at].key == *under)
+            }
+            _ => false,
+        }
+    }
+
+    /// What row `i` is, or `None` for the row a name is typed in.
+    pub fn id_at(&self, i: usize) -> Option<RowId> {
+        let row = self.rows.get(i)?;
+        match &row.kind {
+            Kind::Group | Kind::Section => Some(RowId::Fold(row.key.clone())),
+            Kind::Note { path, .. } => Some(RowId::Note(
+                self.rows[self.parent_of(i)?].key.clone(),
+                path.clone(),
+            )),
+            Kind::Editing => None,
+        }
+    }
+
+    /// The group or section row `i` stands under: the nearest row above it that is less deep.
+    pub fn parent_of(&self, i: usize) -> Option<usize> {
+        let depth = self.rows.get(i)?.depth;
+        (0..i).rev().find(|&at| self.rows[at].depth < depth)
+    }
+
+    /// Puts the cursor on row `i` and has the next frame show it.
+    pub fn set_cur(&mut self, i: usize) {
+        if let Some(id) = self.id_at(i) {
+            self.cur = Some(i);
+            self.cur_id = Some(id);
+            self.reveal_cur = true;
+        }
+    }
+
+    /// Puts the cursor on what `id` names, if the rows have it.
+    pub fn follow(&mut self, id: RowId) {
+        if let Some(at) = (0..self.rows.len()).find(|&i| self.is(i, &id)) {
+            self.set_cur(at);
+        }
+    }
+
+    /// Scrolls the cursor into view when it moved since the last frame.
+    pub fn show_cur(&mut self) {
+        if std::mem::take(&mut self.reveal_cur)
+            && let Some(at) = self.cur
+        {
+            self.reveal(at);
+        }
+    }
+
+    /// The cursor's row after the rows were made anew: the same note or heading; when that is
+    /// gone, the heading or group it was under; when that is gone too, the same place.
+    fn restore_cur(&mut self) {
+        let n = self.rows.len();
+        let Some(mut id) = self.cur_id.clone() else {
+            self.cur = None;
+            return;
+        };
+        loop {
+            if let Some(at) = (0..n).find(|&i| self.is(i, &id)) {
+                (self.cur, self.cur_id) = (Some(at), Some(id));
+                return;
+            }
+            match id.parent() {
+                Some(up) => id = up,
+                None => break,
+            }
+        }
+        let at = self.cur.unwrap_or(0).min(n.saturating_sub(1));
+        match self.id_at(at) {
+            Some(id) => (self.cur, self.cur_id) = (Some(at), Some(id)),
+            None => (self.cur, self.cur_id) = (None, None),
+        }
+    }
+
+    /// The row a key moves the cursor to, from where it is (none: the ends).
+    fn target(&self, go: Go) -> Option<usize> {
+        let n = self.rows.len();
+        if n == 0 {
+            return None;
+        }
+        let ok = |i: &usize| self.rows[*i].kind != Kind::Editing;
+        match (go, self.cur) {
+            (Go::Home, _) => (0..n).find(ok),
+            (Go::End, _) => (0..n).rev().find(ok),
+            (Go::Page(by), Some(c)) => {
+                let to = (c as isize + by).clamp(0, n as isize - 1) as usize;
+                Some(to).filter(ok)
+            }
+            (Go::Page(by), None) if by > 0 => (0..n).find(ok),
+            (Go::Page(_), None) => (0..n).rev().find(ok),
+        }
+    }
+
+    /// Up or down one row; with no cursor yet, to the first or the last.
+    pub fn step(&mut self, down: bool) {
+        let n = self.rows.len();
+        let ok = |i: &usize| self.rows[*i].kind != Kind::Editing;
+        let to = match (self.cur, down) {
+            (None, true) => (0..n).find(ok),
+            (None, false) => (0..n).rev().find(ok),
+            (Some(c), true) => (c + 1..n).find(ok),
+            (Some(c), false) => (0..c).rev().find(ok),
+        };
+        if let Some(to) = to {
+            self.set_cur(to);
+        }
+    }
+
+    /// Home, End, a page.
+    pub fn go(&mut self, go: Go) {
+        if let Some(to) = self.target(go) {
+            self.set_cur(to);
+        }
+    }
+
+    /// Left: shuts an open group or section, else goes to the group or section it is under.
+    pub fn left(&mut self, library: &Library) {
+        let Some(c) = self.cur else { return };
+        let Some(row) = self.rows.get(c) else { return };
+        if matches!(row.kind, Kind::Group | Kind::Section) && !self.is_folded(&row.key) {
+            let key = row.key.clone();
+            self.fold(&key);
+            self.build(library);
+        } else if let Some(up) = self.parent_of(c) {
+            self.set_cur(up);
+        }
+    }
+
+    /// Right: opens a shut group or section, else goes to its first row.
+    pub fn right(&mut self, library: &Library) {
+        let Some(c) = self.cur else { return };
+        let Some(row) = self.rows.get(c) else { return };
+        if !matches!(row.kind, Kind::Group | Kind::Section) {
+            return;
+        }
+        if self.is_folded(&row.key) {
+            let key = row.key.clone();
+            self.fold(&key);
+            self.build(library);
+        } else if self.rows.get(c + 1).is_some_and(|r| r.depth > row.depth) {
+            self.set_cur(c + 1);
+        }
+    }
+
+    /// A typed letter: the next row (going round) whose label starts with it.
+    pub fn jump(&mut self, ch: char) {
+        let n = self.rows.len();
+        let from = self.cur.map_or(0, |c| c + 1);
+        let want = ch.to_lowercase().next().unwrap_or(ch);
+        let hit = (0..n).map(|k| (from + k) % n).find(|&i| {
+            let row = &self.rows[i];
+            row.kind != Kind::Editing
+                && row
+                    .label
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.to_lowercase().next() == Some(want))
+        });
+        if let Some(i) = hit {
+            self.set_cur(i);
+        }
+    }
+
+    /// Opens what is folded above the note under `section` in `file`, so that its row is there.
+    pub fn unfold_to(&mut self, file: &std::path::Path, section: &[String]) {
+        for n in 0..=section.len() {
+            self.folded.remove(&key_of(file, &section[..n]));
+        }
+    }
+
     /// The rows of `library`, in the order the files are written, leaving out what is folded.
     pub fn build(&mut self, library: &Library) {
         self.rows = rows(library, &self.folded);
@@ -200,11 +423,12 @@ impl LibraryPane {
                 },
             );
         }
+        self.restore_cur();
     }
 }
 
 /// The key a group or a section is remembered by: the library file, then the headings.
-fn key_of(file: &std::path::Path, section: &[String]) -> String {
+pub fn key_of(file: &std::path::Path, section: &[String]) -> String {
     let mut key = file.to_string_lossy().into_owned();
     for s in section {
         key.push('\u{1}');
@@ -298,6 +522,142 @@ pub fn field_area(frame: Rect) -> Rect {
     )
 }
 
+/// A path with its `.` and `..` folded away, by its text alone: a note linked as
+/// `../notes/a.md` from the library folder and the tab that opened `notes/a.md` are one file.
+fn lexical(path: &std::path::Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Whether two paths are the same note: the same file once `.` and `..` are folded away, with
+/// the platform's idea of case. Text only, so a row can ask it every frame.
+pub fn same_note(a: &std::path::Path, b: &std::path::Path) -> bool {
+    mdshared_app::paths::same_path(&lexical(a), &lexical(b))
+}
+
+/// Whether the library lists the file `path` as a note, in any group.
+pub fn lists(library: &Library, path: &std::path::Path) -> bool {
+    library.entries().any(|(_, e)| same_note(&e.path, path))
+}
+
+/// A pane narrower than this leaves the notes' folders out: the titles need the room.
+pub const FOLDER_MIN_PANE: f32 = 210.0;
+const FOLDER_GAP: f32 = 10.0;
+
+/// The name of the folder a note is in, as the recent files' menu shows it.
+pub fn folder_of(path: &std::path::Path) -> Option<String> {
+    let name = path.parent()?.file_name()?.to_string_lossy().into_owned();
+    (!name.is_empty()).then_some(name)
+}
+
+/// `text` as far as `room` allows, keeping its end and putting an ellipsis where the start was
+/// (the end of a folder's name tells more than its start).
+pub fn elide_left(p: &mut mdshared_ui::gfx::Painter, size: f32, text: &str, room: f32) -> String {
+    if p.measure(Face::Ui, size, text) <= room {
+        return text.to_string();
+    }
+    let starts: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+    for &at in &starts {
+        let tail = format!("\u{2026}{}", &text[at..]);
+        if p.measure(Face::Ui, size, &tail) <= room {
+            return tail;
+        }
+    }
+    String::new()
+}
+
+/// The folder as it is shown on a row whose title is `title` wide and which has `room` for
+/// both, and the room it takes with its gap (0 when there is none to spare). The title keeps
+/// what it needs unless that leaves the folder under a third of the row.
+pub fn folder_fit(
+    p: &mut mdshared_ui::gfx::Painter,
+    folder: &str,
+    room: f32,
+    title: f32,
+) -> (String, f32) {
+    let spare = (room - title - FOLDER_GAP).max(room * 0.3 - FOLDER_GAP);
+    if spare < 24.0 {
+        return (String::new(), 0.0);
+    }
+    let shown = elide_left(p, 11.5, folder, spare);
+    if shown.is_empty() {
+        return (shown, 0.0);
+    }
+    let w = p.measure(Face::Ui, 11.5, &shown);
+    (shown, w)
+}
+
+/// What the pane says when the library has no rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Empty {
+    /// The folder is not there (nothing was ever made, or the setting points nowhere).
+    NoFolder,
+    /// The folder is there and holds no library file.
+    NoNotes,
+}
+
+pub fn empty_state(dir: &std::path::Path) -> Empty {
+    if dir.as_os_str().is_empty() || !dir.is_dir() {
+        Empty::NoFolder
+    } else {
+        Empty::NoNotes
+    }
+}
+
+/// A line and the buttons under it, as the Files pane has when no folder is open.
+fn draw_empty(c: &mut Ctx, r: Rect, area: Rect, state: Empty, has_file: bool) {
+    let pal = *c.pal;
+    let cy = area.y + 40.0;
+    let text = match state {
+        Empty::NoFolder => strings::LIBRARY_PANE_NO_FOLDER,
+        Empty::NoNotes => strings::LIBRARY_EMPTY_PANE,
+    };
+    c.p.text_center(
+        Face::Ui,
+        13.0,
+        Rect::new(r.x + 8.0, cy - 10.0, r.w - 16.0, 20.0),
+        text,
+        pal.muted,
+    );
+    let mut buttons = vec![(
+        Hit::LibraryNewGroup,
+        strings::LIBRARY_NEW_GROUP_BUTTON,
+        true,
+    )];
+    if state == Empty::NoNotes {
+        buttons.push((Hit::LibraryAddOpen, strings::LIBRARY_ADD_BUTTON, has_file));
+    }
+    let mut y = cy + 18.0;
+    for (hit, label, enabled) in buttons {
+        let w = c.p.measure(Face::Ui, 13.0, label) + 28.0;
+        let b = Rect::new((r.cx() - w / 2.0).round(), y, w, 30.0);
+        let fill = if enabled {
+            c.fill_for(hit, false, false).unwrap_or(pal.bar)
+        } else {
+            pal.bar
+        };
+        c.p.frame(b, 6.0, fill, pal.line);
+        let ink = if enabled { pal.text } else { pal.faint };
+        c.p.text_center(Face::Ui, 13.0, b, label, ink);
+        if enabled {
+            c.hit(hit, b);
+        }
+        y += 38.0;
+    }
+}
+
 /// The rows below the head.
 pub fn list(r: Rect) -> Rect {
     let ry = r.y + HEAD;
@@ -323,18 +683,16 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     lib.content = lib.rows.len() as f32 * ROW + 8.0;
     lib.view = area.h;
     lib.scroll = lib.scroll.clamp(0.0, (lib.content - area.h).max(0.0));
+    lib.show_cur();
+    lib.scroll = lib.scroll.clamp(0.0, (lib.content - area.h).max(0.0));
     let scroll = lib.scroll;
     // Before the folder has been read (the pane came back at start) there is nothing to say yet.
     if lib.rows.is_empty() && lib.checked.is_some() {
-        let text = if docs.library.dir.as_os_str().is_empty() {
-            strings::LIBRARY_NO_FOLDER
-        } else {
-            strings::LIBRARY_EMPTY_PANE
-        };
-        let at = Rect::new(r.x + 8.0, area.y + 24.0, r.w - 16.0, 20.0);
-        c.p.text_center(Face::Ui, 12.5, at, text, pal.muted);
+        let has_file = docs.active_doc().is_some_and(|d| d.path.is_some());
+        draw_empty(c, r, area, empty_state(&docs.library.dir), has_file);
     }
     let quiet = mix(pal.text, pal.muted, 0.35);
+    let cursor_on = lib.focused && !focused;
     let old = c.p.clip(area);
     let first = (scroll / ROW).floor() as usize;
     for (i, row) in lib.rows.iter().enumerate().skip(first) {
@@ -345,19 +703,31 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         let rr = Rect::new(r.x + 6.0, y, r.w - 12.0, ROW_H);
         let hit = Hit::LibraryRow(i);
         let selected = match &row.kind {
-            Kind::Note { path, .. } => active
-                .as_deref()
-                .is_some_and(|a| mdshared_app::paths::same_path(a, path)),
+            Kind::Note { path, .. } => active.as_deref().is_some_and(|a| same_note(a, path)),
             _ => false,
         };
-        draw_row_fill(
-            c.p,
-            &pal,
-            rr,
-            c.hover == Some(hit) || menu_row == Some(i),
-            c.pressed == Some(hit),
-            selected,
-        );
+        // The keyboard's row: an outline in the accent colour, as the pane's focus.
+        if cursor_on && lib.cur == Some(i) {
+            c.p.rbox(rr, 5.0, pal.accent);
+            let inner = Rect::new(rr.x + 1.0, rr.y + 1.0, rr.w - 2.0, rr.h - 2.0);
+            c.p.rbox(inner, 4.0, if selected { pal.on } else { pal.hover });
+            if selected {
+                c.p.rbox(
+                    Rect::new(rr.x, rr.y + 7.0, 3.0, rr.h - 14.0),
+                    1.5,
+                    pal.accent,
+                );
+            }
+        } else {
+            draw_row_fill(
+                c.p,
+                &pal,
+                rr,
+                c.hover == Some(hit) || menu_row == Some(i),
+                c.pressed == Some(hit),
+                selected,
+            );
+        }
         let ix = r.x + 14.0 + (row.depth as f32 + 1.0) * 14.0;
         let cy = rr.cy();
         let (face, color) = match &row.kind {
@@ -432,7 +802,20 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
                 .draw(c.p, area, Face::Ui, 13.0, &colors, hint, focused, caret_on);
             c.hit(Hit::LibraryField, frame);
         } else {
-            let max = (rr.right() - x - 12.0).max(0.0);
+            let right = rr.right() - 12.0;
+            let mut max = (right - x).max(0.0);
+            // A note's folder, dimmed at the right: which taxes.md is this one.
+            if let Kind::Note { path, .. } = &row.kind
+                && r.w >= FOLDER_MIN_PANE
+                && let Some(folder) = folder_of(path)
+            {
+                let title = c.p.measure(face, 12.5, &row.label);
+                let (shown, w) = folder_fit(c.p, &folder, max, title);
+                if w > 0.0 {
+                    c.p.text_right(Face::Ui, 11.5, right, cy, &shown, pal.faint);
+                    max = (max - w - FOLDER_GAP).max(0.0);
+                }
+            }
             c.p.text(face, 12.5, x, cy, &row.label, color, max);
         }
     }
@@ -545,5 +928,145 @@ mod tests {
         pane.fold(&money);
         pane.build(&lib);
         assert_eq!(shown(&pane).len(), 8);
+    }
+    #[test]
+    fn a_folder_is_the_last_part_of_the_path_before_the_file() {
+        assert_eq!(
+            folder_of(std::path::Path::new("D:/notes/taxes/taxes.md")).as_deref(),
+            Some("taxes")
+        );
+        assert_eq!(folder_of(std::path::Path::new("taxes.md")), None);
+        assert_eq!(folder_of(std::path::Path::new("/taxes.md")), None);
+    }
+
+    fn painter() -> (mdshared_text::Bitmap, mdshared_ui::gfx::Gfx) {
+        (
+            mdshared_text::Bitmap::new(8, 8),
+            mdshared_ui::gfx::Gfx::new(),
+        )
+    }
+
+    #[test]
+    fn a_folder_name_is_cut_from_its_left_to_fit_and_keeps_its_end() {
+        let (mut bm, mut gfx) = painter();
+        let mut p = mdshared_ui::gfx::Painter::new(&mut bm, &mut gfx, 1.0);
+        let whole = "Documents-2026-taxes";
+        let full = p.measure(Face::Ui, 11.5, whole);
+        assert_eq!(elide_left(&mut p, 11.5, whole, full + 1.0), whole);
+        let cut = elide_left(&mut p, 11.5, whole, full * 0.5);
+        assert!(
+            cut.starts_with('\u{2026}') && whole.ends_with(&cut[3..]),
+            "{cut}"
+        );
+        assert!(p.measure(Face::Ui, 11.5, &cut) <= full * 0.5, "{cut}");
+        assert!(cut.chars().count() < whole.chars().count());
+        assert_eq!(
+            elide_left(&mut p, 11.5, whole, 2.0),
+            "",
+            "no room, no folder"
+        );
+    }
+
+    #[test]
+    fn the_title_keeps_its_room_and_the_folder_gets_what_is_left_or_a_third() {
+        let (mut bm, mut gfx) = painter();
+        let mut p = mdshared_ui::gfx::Painter::new(&mut bm, &mut gfx, 1.0);
+        // Plenty of room: the whole folder.
+        let (shown, w) = folder_fit(&mut p, "taxes", 300.0, 60.0);
+        assert_eq!(shown, "taxes");
+        assert!(w > 0.0 && w < 60.0);
+        // A long title leaves little: the folder still gets about a third, cut from the left.
+        let (shown, w) = folder_fit(&mut p, "Documents-2026-taxes", 200.0, 190.0);
+        assert!(shown.starts_with('\u{2026}'), "{shown}");
+        assert!(w <= 200.0 * 0.3 + 1.0, "{w}");
+        // A row too narrow for even that leaves the folder out.
+        assert_eq!(
+            folder_fit(&mut p, "taxes", 60.0, 55.0),
+            (String::new(), 0.0)
+        );
+        // ...even for a short name, which would fit in the 5 px the title leaves.
+        assert_eq!(folder_fit(&mut p, "a", 60.0, 55.0), (String::new(), 0.0));
+    }
+
+    #[test]
+    fn the_cursor_follows_its_note_through_new_rows_and_falls_back_to_its_heading() {
+        let mut lib = library();
+        let mut pane = LibraryPane::default();
+        pane.build(&lib);
+        let taxes = pane.rows.iter().position(|r| r.label == "Taxes").unwrap();
+        pane.set_cur(taxes);
+        // A note added above it: its row moves, the cursor with it.
+        lib.groups[0]
+            .entries
+            .insert(1, entry("Aardvark", &["Money"]));
+        pane.build(&lib);
+        assert_eq!(pane.cur.map(|c| pane.rows[c].label.as_str()), Some("Taxes"));
+        assert_eq!(pane.cur, Some(taxes + 1));
+        // The note gone: the heading it was under.
+        lib.groups[0].entries.retain(|e| e.title != "Taxes");
+        pane.build(&lib);
+        assert_eq!(pane.cur.map(|c| pane.rows[c].label.as_str()), Some("Money"));
+        // The heading folded away inside its group: the group.
+        let money = pane.rows[pane.cur.unwrap()].key.clone();
+        pane.set_cur(pane.rows.iter().position(|r| r.label == "2026").unwrap());
+        pane.fold(&money);
+        pane.build(&lib);
+        assert_eq!(pane.cur.map(|c| pane.rows[c].label.as_str()), Some("Money"));
+        // Every row gone: no cursor.
+        lib.groups.clear();
+        pane.build(&lib);
+        assert_eq!(pane.cur, None);
+    }
+
+    #[test]
+    fn the_keys_move_the_cursor_by_the_tree() {
+        let lib = library();
+        let mut pane = LibraryPane::default();
+        pane.build(&lib);
+        let at = |p: &LibraryPane| p.cur.map(|c| p.rows[c].label.clone()).unwrap_or_default();
+        pane.step(false);
+        assert_eq!(at(&pane), "Japan", "no cursor yet: Up goes to the last row");
+        pane.go(Go::Home);
+        assert_eq!(at(&pane), "Personal");
+        pane.right(&lib);
+        assert_eq!(at(&pane), "Inbox");
+        pane.jump('t');
+        assert_eq!(at(&pane), "Taxes");
+        pane.jump('t');
+        assert_eq!(at(&pane), "This year");
+        pane.jump('t');
+        assert_eq!(at(&pane), "Trips");
+        pane.left(&lib);
+        assert_eq!(pane.rows.len(), 7, "Trips shut");
+        assert_eq!(at(&pane), "Trips");
+        pane.left(&lib);
+        assert_eq!(at(&pane), "Personal");
+    }
+
+    #[test]
+    fn the_pane_with_no_rows_has_no_cursor_to_move() {
+        let mut pane = LibraryPane::default();
+        pane.step(true);
+        pane.step(false);
+        pane.go(Go::End);
+        pane.go(Go::Page(5));
+        pane.jump('a');
+        pane.set_cur(0);
+        assert_eq!(pane.cur, None);
+        // A cursor left over from rows that are gone moves nowhere, and does not panic.
+        pane.cur = Some(3);
+        pane.go(Go::Page(5));
+        pane.go(Go::Page(-5));
+        assert_eq!(pane.cur, Some(3));
+    }
+
+    #[test]
+    fn a_library_with_no_folder_or_an_empty_one_is_told_apart() {
+        assert_eq!(empty_state(std::path::Path::new("")), Empty::NoFolder);
+        assert_eq!(
+            empty_state(&std::env::temp_dir().join("mdedit-no-such-library-folder")),
+            Empty::NoFolder
+        );
+        assert_eq!(empty_state(&std::env::temp_dir()), Empty::NoNotes);
     }
 }

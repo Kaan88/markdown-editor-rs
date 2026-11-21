@@ -317,6 +317,7 @@ impl App {
                 self.library_remove_note(file, *line, path, &row.label);
             }
             (LibAct::Remove, Kind::Section) => self.library_ask_remove(file, section),
+            (LibAct::DeleteFile, Kind::Group) => self.library_ask_delete(file),
             _ => {}
         }
     }
@@ -399,7 +400,18 @@ impl App {
         match edit.kind {
             EditKind::RenameGroup => self.library_rename_group(&edit.file, &name),
             EditKind::RenameSection => {
-                self.library_rename_section(&edit.file, &edit.section, &name)
+                self.library_rename_section(&edit.file, &edit.section, &name);
+                // The keyboard's row is the section still, under the name it has now.
+                let mut renamed = edit.section.clone();
+                if let Some(last) = renamed.last_mut() {
+                    *last = name.clone();
+                }
+                let key = crate::library_pane::key_of(&edit.file, &renamed);
+                if self.ui.library.cur.is_some() {
+                    self.ui
+                        .library
+                        .follow(crate::library_pane::RowId::Fold(key));
+                }
             }
             EditKind::RenameNote => {
                 self.library_rename_note(&edit.file, edit.line, &edit.note, &name)
@@ -652,6 +664,83 @@ impl App {
             },
             |b, a| a.sections.len() < b.sections.len() && a.entries.len() <= b.entries.len(),
         );
+    }
+
+    /// Whether `file` is one of the library folder's own Markdown files: a regular file that is
+    /// directly in the folder (as the folder is really spelled, so a link out of it does not
+    /// count) and ends in `.md`. The only files the window ever deletes.
+    pub(super) fn library_own_file(&self, file: &Path) -> bool {
+        let Some(dir) = self.library_dir().and_then(|d| d.canonicalize().ok()) else {
+            return false;
+        };
+        let Ok(real) = file.canonicalize() else {
+            return false;
+        };
+        real.is_file()
+            && real
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+            && real.parent() == Some(dir.as_path())
+    }
+
+    /// Asks before a library file is deleted, saying its group and how many notes it lists. It
+    /// is refused at once while a tab holds changes to it that are not saved.
+    fn library_ask_delete(&mut self, file: &Path) {
+        if let Err(why) = self.library_file_free(file) {
+            self.docs.set_toast(&why);
+            return;
+        }
+        if !self.library_own_file(file) {
+            self.docs.set_toast(strings::LIBRARY_NOT_IN_FOLDER);
+            return;
+        }
+        let (name, notes) = self
+            .docs
+            .library
+            .groups
+            .iter()
+            .find(|g| same_path(&g.file, file))
+            .map_or((String::new(), 0), |g| (g.name.clone(), g.entries.len()));
+        let shown = file
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        self.ui.library.deleting = Some(file.to_path_buf());
+        self.open_dialog(DialogKind::LibraryDelete);
+        if let Some(d) = self.ui.dialog.as_mut() {
+            d.subject = strings::library_delete_body(&name, &shown, notes);
+        }
+    }
+
+    /// The answer to the question about deleting a library file: button 0 is "Delete".
+    pub(super) fn library_delete_answer(&mut self, n: usize) {
+        let file = self.ui.library.deleting.take();
+        self.close_dialog();
+        if let (Some(file), 0) = (file, n) {
+            self.library_delete_file(&file);
+        }
+    }
+
+    /// Deletes a library file with `std::fs::remove_file`, and reads the library again. Refused,
+    /// with a toast, while a tab holds unsaved changes to it and for a file that is not one of
+    /// the folder's own. The notes it listed are not touched.
+    pub(super) fn library_delete_file(&mut self, file: &Path) -> bool {
+        if let Err(why) = self.library_file_free(file) {
+            self.docs.set_toast(&why);
+            return false;
+        }
+        if !self.library_own_file(file) {
+            self.docs.set_toast(strings::LIBRARY_NOT_IN_FOLDER);
+            return false;
+        }
+        let group = self.library_group_name(file);
+        if let Err(e) = std::fs::remove_file(file) {
+            self.docs
+                .set_toast(&strings::library_failed(&e.to_string()));
+            return false;
+        }
+        self.library_changed();
+        self.docs.set_toast(&strings::library_deleted(&group));
+        true
     }
 
     /// The picker answered: the note waiting for a place goes there.

@@ -21,6 +21,8 @@ impl App {
         self.ui.hover = None;
         self.ui.find_focused = false;
         self.ai_load_prompts();
+        // "Show this file in the notes library" is listed by whether the library has it.
+        self.library_load();
         self.palette
             .open(query, &self.docs, &self.ui, &mut self.macros);
         self.caret_reset();

@@ -269,6 +269,7 @@ fn decode(s: &str) -> Option<String> {
 fn key_token(key: &Key) -> String {
     match key {
         Key::Insert => "insert".into(),
+        Key::Menu => "menu".into(),
         Key::Name(n) => match n {
             KeyName::Char(c) => format!("c{:x}", *c as u32),
             KeyName::F(n) => format!("f{n}"),
@@ -293,6 +294,7 @@ fn key_token(key: &Key) -> String {
 fn key_from(token: &str) -> Option<Key> {
     let name = match token {
         "insert" => return Some(Key::Insert),
+        "menu" => return Some(Key::Menu),
         "tab" => KeyName::Tab,
         "escape" => KeyName::Escape,
         "enter" => KeyName::Enter,

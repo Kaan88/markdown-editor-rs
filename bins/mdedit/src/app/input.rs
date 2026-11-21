@@ -729,6 +729,11 @@ impl App {
             ))
             || hit == Hit::ResultsEdge;
         self.ui.results.set_focus(in_panel);
+        // The notes pane keeps the keyboard through a press on its rows and its name box (a
+        // click on a row settles it); a press anywhere else takes it away.
+        if !matches!(hit, Hit::LibraryRow(_) | Hit::LibraryField) {
+            self.ui.library.focused = false;
+        }
         let clicks = self.click_count(x, y);
         self.redraw();
         match hit {
@@ -948,6 +953,8 @@ impl App {
         let cues = self.ui.keyboard;
         match self.hit_at(x, y) {
             Some(Hit::Tab(i) | Hit::TabClose(i)) => {
+                // "Show in the notes library" is greyed unless the library lists the file.
+                self.library_load();
                 self.ui.popup = Some(Popup::with_cues(
                     PopupKind::Tab(i),
                     overlays::tab_menu(&self.docs, i, x, y + 2.0),
@@ -1317,7 +1324,7 @@ impl App {
         self.redraw();
         let name = match &key {
             keys::Key::Name(n) => Some(n.clone()),
-            keys::Key::Insert => None,
+            keys::Key::Insert | keys::Key::Menu => None,
         };
         if self.ui.settings.is_some() {
             if let Some(n) = &name {
@@ -1435,6 +1442,14 @@ impl App {
         {
             return;
         }
+        // The notes pane, while it has the keyboard; its keys never reach the text.
+        if self.ui.library.focused
+            && !self.ui.find_focused
+            && !self.ui.results.focused
+            && self.library_key(&key, mods, typed)
+        {
+            return;
+        }
         if name == Some(KeyName::Tab)
             && !mods.ctrl
             && !mods.alt
@@ -1447,6 +1462,11 @@ impl App {
             return;
         }
         if let Some(id) = keys::command_for(&key, mods) {
+            // Its shortcut, with the notes pane showing and the keyboard elsewhere, takes the
+            // keyboard there; pressed again it closes the pane as the command does.
+            if id == C::ToggleLibraryPane && self.library_focus() {
+                return;
+            }
             self.command(id);
             return;
         }

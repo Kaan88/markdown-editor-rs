@@ -170,6 +170,8 @@ pub enum CommandId {
     Library,
     LibraryAdd,
     LibraryEdit,
+    /// Shows the open file's note in the pane of the notes library.
+    ShowInLibrary,
     /// AI rewriting of the selection, or of the whole document when nothing is selected:
     /// the two built-in requests, one typed, the saved prompts file, the AI settings, and
     /// stopping a rewrite that is running.
@@ -387,6 +389,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::Library, "Notes library", &["Ctrl+Shift+N"]),
     cmd(C::LibraryAdd, "Add this file to the notes library…", &[]),
     cmd(C::LibraryEdit, "Edit a notes library file…", &[]),
+    cmd(C::ShowInLibrary, "Show this file in the notes library", &[]),
     cmd(C::AiFormat, "AI: Format as Markdown", &[]),
     cmd(C::AiFix, "AI: Fix Markdown", &[]),
     cmd(C::AiRewrite, "AI: Rewrite with instruction…", &[]),
@@ -506,6 +509,10 @@ pub mod strings {
     pub const LIBRARY_EMPTY: &str =
         "The library is empty. \u{201c}Add this file to the notes library\u{201d} starts it.";
     pub const LIBRARY_NO_FOLDER: &str = "There is no folder for the notes library.";
+    pub const LIBRARY_PANE_NO_FOLDER: &str = "No library folder yet";
+    pub const LIBRARY_NEW_GROUP_BUTTON: &str = "New group\u{2026}";
+    pub const LIBRARY_ADD_BUTTON: &str = "Add this file";
+    pub const LIBRARY_NOT_LISTED: &str = "That file is not in the notes library.";
     pub const LIBRARY_NO_FOLDER_YET: &str = "The library folder is not made yet: nothing is in it.";
     pub const LIBRARY_MOVE_PLACEHOLDER: &str = "Where to move it";
     pub const LIBRARY_NAME_PLACEHOLDER: &str = "Name";
@@ -514,6 +521,23 @@ pub mod strings {
     pub const LIBRARY_NEW_NOTE_PLACEHOLDER: &str = "Name of the note";
     pub const LIBRARY_REMOVE_TITLE: &str = "Remove the section?";
     pub const LIBRARY_REMOVE: &str = "Remove";
+    pub const LIBRARY_DELETE_TITLE: &str = "Delete the library file?";
+    pub const LIBRARY_DELETE: &str = "Delete";
+    pub const LIBRARY_NOT_IN_FOLDER: &str =
+        "That file is not one of the library folder's own Markdown files: it is left alone.";
+    pub fn library_delete_body(group: &str, file: &str, notes: usize) -> String {
+        let listed = match notes {
+            0 => "It lists no notes.".to_string(),
+            1 => "It lists 1 note.".to_string(),
+            n => format!("It lists {n} notes."),
+        };
+        format!(
+            "The library file {file} (the group \u{201c}{group}\u{201d}) will be deleted from the library folder. {listed} The notes themselves are not touched."
+        )
+    }
+    pub fn library_deleted(group: &str) -> String {
+        format!("The library file of \u{201c}{group}\u{201d} is deleted. Its notes are untouched.")
+    }
     pub const LIBRARY_CHOOSE: &str = "Choose a folder\u{2026}";
     pub fn library_remove_body(section: &str, notes: usize) -> String {
         let links = match notes {
