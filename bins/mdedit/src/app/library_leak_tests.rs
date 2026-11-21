@@ -76,16 +76,22 @@ fn a_note_made_with_new_note_here_is_not_written_in_the_library_folder() {
         vec!["personal.md"],
         "only library files are directly in the library folder"
     );
-    // In a folder of its own beside them, named for the group's file.
+    // In a folder of its own beside them, named for the group's file, under the heading's folder.
     assert_eq!(
-        read(&library.join("personal").join("Budget.md")),
+        read(&library.join("personal").join("Money").join("Budget.md")),
         "# Budget\n"
     );
     // A second note of the same name does not overwrite the first.
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Budget");
     assert_eq!(md_files(&library), vec!["personal.md"]);
-    assert!(library.join("personal").join("Budget 2.md").exists());
+    assert!(
+        library
+            .join("personal")
+            .join("Money")
+            .join("Budget 2.md")
+            .exists()
+    );
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
@@ -314,7 +320,10 @@ fn a_note_made_inside_the_library_folder_is_linked_without_a_drive_and_survives_
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Budget");
     let text = read(&l.file);
-    assert!(text.contains("- [Budget](personal/Budget.md)"), "{text}");
+    assert!(
+        text.contains("- [Budget](personal/Money/Budget.md)"),
+        "{text}"
+    );
     let link = text.lines().find(|t| t.contains("[Budget]")).unwrap();
     assert!(!link.contains(':') && !link.contains("//"), "{link}");
 
@@ -394,7 +403,7 @@ fn a_relative_link_is_written_with_forward_slashes_and_brackets_for_a_space() {
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "My plan");
     assert!(
-        read(&l.file).contains("](<personal/My plan.md>)"),
+        read(&l.file).contains("](<personal/Money/My plan.md>)"),
         "{}",
         read(&l.file)
     );
@@ -432,7 +441,12 @@ fn a_note_named_with_a_percent_is_written_under_a_name_the_reader_reads_back() {
     let (mut a, l) = lib("libl-percent");
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "50%20off");
-    let note = l.dir.join("library").join("personal").join("50_20off.md");
+    let note = l
+        .dir
+        .join("library")
+        .join("personal")
+        .join("Money")
+        .join("50_20off.md");
     assert_eq!(read(&note), "# 50%20off\n");
     let at = note_row(&a, "50%20off");
     let Kind::Note { path, missing, .. } = &a.ui.library.rows[at].kind else {

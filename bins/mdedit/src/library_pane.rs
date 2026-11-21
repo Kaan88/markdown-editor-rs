@@ -999,6 +999,14 @@ mod tests {
         );
         assert_eq!(folder_of(std::path::Path::new("taxes.md")), None);
         assert_eq!(folder_of(std::path::Path::new("/taxes.md")), None);
+        // A note under a group's home and its section folders shows the folder it is in.
+        assert_eq!(
+            folder_of(std::path::Path::new(
+                "D:/library/Japan 2025/Tokyo/Food/ramen.md"
+            ))
+            .as_deref(),
+            Some("Food")
+        );
     }
 
     fn painter() -> (mdshared_text::Bitmap, mdshared_ui::gfx::Gfx) {

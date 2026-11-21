@@ -463,6 +463,9 @@ pub enum LibAct {
     Rename,
     /// Rename the library file of a group.
     RenameFile,
+    /// Point a group at a folder of the owner's, or clear that folder again.
+    SetHome,
+    ClearHome,
     NewNote,
     NewSection,
     NewGroup,

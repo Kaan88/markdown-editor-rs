@@ -859,6 +859,11 @@ impl App {
                     self.library_dir_picked(dir);
                 }
             }
+            Picked::GroupHome(file, dir) => {
+                if let Some(dir) = dir {
+                    self.library_group_home_picked(&file, dir);
+                }
+            }
             Picked::CompareFile(paths) => {
                 if let Some(path) = paths.first() {
                     self.compare_with(path);

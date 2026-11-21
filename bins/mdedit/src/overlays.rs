@@ -214,6 +214,8 @@ pub fn library_row_menu(
             item(L::NewNote, "New &note here\u{2026}", glyph::NEW_FILE),
             item(L::AddOpen, "&Add the open document", glyph::BOOKMARK).enabled(can_add),
             item(L::NewSection, "New &section\u{2026}", glyph::PLUS),
+            item(L::SetHome, "Set the &group's folder\u{2026}", glyph::FOLDER).sep(),
+            item(L::ClearHome, "Clear the group's fo&lder", glyph::CLOSE),
             item(L::Rename, "&Rename group", glyph::EDIT).sep(),
             item(
                 L::RenameFile,

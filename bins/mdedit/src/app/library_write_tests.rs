@@ -268,7 +268,8 @@ fn a_new_group_makes_a_library_file_from_the_template() {
     assert!(text.starts_with("# Work: 2026\n"), "{text}");
     assert_eq!(
         text,
-        mdshared_app::library::new_group("Work: 2026").unwrap()
+        mdshared_app::library::new_group_with_home("Work: 2026", Some(Path::new("Work_ 2026")))
+            .unwrap()
     );
     assert!(labels(&a).contains(&"Work: 2026".to_string()));
 
@@ -286,16 +287,24 @@ fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened()
     let (mut a, l) = lib("libw-new-note");
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Budget");
-    let note = l.dir.join("library").join("personal").join("Budget.md");
+    let note = l
+        .dir
+        .join("library")
+        .join("personal")
+        .join("Money")
+        .join("Budget.md");
     assert_eq!(read(&note), "# Budget\n");
-    assert_eq!(
-        read(&l.file),
-        l.text().replacen(
-            "\n\n### 2025",
-            "\n- [Budget](personal/Budget.md)\n\n### 2025",
-            1
-        )
+    // The group got its `home:` line with its first note, and the note is in the heading's
+    // folder inside it.
+    let mut want = l
+        .text()
+        .replacen("# Personal\n", "# Personal\nhome: personal\n", 1);
+    want = want.replacen(
+        "\n\n### 2025",
+        "\n- [Budget](personal/Money/Budget.md)\n\n### 2025",
+        1,
     );
+    assert_eq!(read(&l.file), want);
     assert!(labels(&a).contains(&"Budget".to_string()));
     assert_eq!(
         a.docs.active_doc().and_then(|d| d.path.clone()).as_deref(),
@@ -310,9 +319,206 @@ fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened()
         l.dir
             .join("library")
             .join("personal")
+            .join("Money")
             .join("Budget 2.md")
             .exists()
     );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn a_new_note_under_a_heading_goes_in_the_folder_that_heading_names() {
+    let (mut a, l) = lib("libw-home-note");
+    // Inside the library folder, the group's folder is written relative to it.
+    std::fs::write(
+        &l.file,
+        l.text()
+            .replacen("# Personal\n", "# Personal\nhome: Personal notes\n", 1),
+    )
+    .unwrap();
+    a.act(Act::Library(LibAct::Refresh, 0));
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Budget");
+    let inside = l.dir.join("library").join("Personal notes");
+    assert_eq!(
+        read(&inside.join("Money").join("Budget.md")),
+        "# Budget\n",
+        "the folder is made for the note"
+    );
+    let text = read(&l.file);
+    assert!(text.contains("home: Personal notes"), "{text}");
+    assert!(
+        text.contains("- [Budget](<Personal notes/Money/Budget.md>)"),
+        "{text}"
+    );
+
+    // Outside it, the line is the whole path and so is the link.
+    let outside = l.dir.join("outside notes");
+    std::fs::write(
+        &l.file,
+        l.text().replacen(
+            "# Personal\n",
+            &format!("# Personal\nhome: {}\n", slash(&outside)),
+            1,
+        ),
+    )
+    .unwrap();
+    a.act(Act::Library(LibAct::Refresh, 0));
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Plans");
+    let note = outside.join("Money").join("Plans.md");
+    assert_eq!(read(&note), "# Plans\n");
+    assert!(
+        read(&l.file).contains(&format!("- [Plans](<{}>)", slash(&note))),
+        "{}",
+        read(&l.file)
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn the_first_note_a_group_gets_writes_its_home_and_says_where_the_notes_go() {
+    let (mut a, l) = lib("libw-first-home");
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Budget");
+    let note = l
+        .dir
+        .join("library")
+        .join("personal")
+        .join("Money")
+        .join("Budget.md");
+    assert_eq!(read(&note), "# Budget\n");
+    let text = read(&l.file);
+    assert!(text.starts_with("# Personal\nhome: personal\n"), "{text}");
+    assert!(
+        text.contains("- [Budget](personal/Money/Budget.md)"),
+        "{text}"
+    );
+    let says = toast(&a);
+    assert!(
+        says.contains("Personal") && says.contains("personal"),
+        "{says}"
+    );
+    // Nothing that was already there was moved, and the second note adds no second line.
+    assert_eq!(read(&l.taxes), "# Taxes 2026\n");
+    assert_eq!(read(&l.last), "# Last year\n");
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Plans");
+    assert_eq!(read(&l.file).matches("home:").count(), 1);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn a_folder_that_cannot_be_made_is_a_toast_and_no_note_is_written() {
+    let (mut a, l) = lib("libw-home-blocked");
+    // A file where the group's folder goes: the folder cannot be made.
+    std::fs::write(l.dir.join("library").join("personal"), "not a folder").unwrap();
+    let before = read(&l.file);
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Budget");
+    assert!(toast(&a).contains("cannot be made"), "{}", toast(&a));
+    assert_eq!(read(&l.file), before);
+    assert!(
+        !l.dir
+            .join("library")
+            .join("personal")
+            .join("Money")
+            .exists()
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn a_group_is_pointed_at_a_folder_the_owner_already_has() {
+    let (mut a, l) = lib("libw-set-home");
+    let notes = l.dir.join("library").join("Japan 2025");
+    std::fs::create_dir_all(&notes).unwrap();
+    a.library_group_home_picked(&l.file, notes.clone());
+    assert_eq!(
+        read(&l.file),
+        l.text()
+            .replacen("# Personal\n", "# Personal\nhome: Japan 2025\n", 1)
+    );
+    assert!(toast(&a).contains("Japan 2025"), "{}", toast(&a));
+    // A folder inside the library folder is named relative to it, and the note follows it.
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Tokyo");
+    assert_eq!(read(&notes.join("Money").join("Tokyo.md")), "# Tokyo\n");
+    assert!(
+        read(&l.file).contains("](<Japan 2025/Money/Tokyo.md>)"),
+        "{}",
+        read(&l.file)
+    );
+
+    // Outside it, the line and the link are whole paths.
+    let outside = l.dir.join("elsewhere");
+    std::fs::create_dir_all(&outside).unwrap();
+    a.library_group_home_picked(&l.file, outside.clone());
+    assert!(
+        read(&l.file).contains(&format!("home: {}\n", slash(&outside))),
+        "{}",
+        read(&l.file)
+    );
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Plans");
+    let note = outside.join("Money").join("Plans.md");
+    assert_eq!(read(&note), "# Plans\n");
+    assert!(
+        read(&l.file).contains(&mdshared_app::library::link_line("Plans", &note)),
+        "{}",
+        read(&l.file)
+    );
+    // What was written under the old folder is still there.
+    assert!(notes.join("Money").join("Tokyo.md").exists());
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn clearing_the_groups_folder_leaves_the_notes_where_they_are() {
+    let (mut a, l) = lib("libw-clear-home");
+    std::fs::write(
+        &l.file,
+        l.text()
+            .replacen("# Personal\n", "# Personal\nhome: elsewhere\n", 1),
+    )
+    .unwrap();
+    a.act(Act::Library(LibAct::Refresh, 0));
+    pick(&mut a, LibAct::ClearHome, 0);
+    let text = read(&l.file);
+    assert!(!text.contains("home:"), "{text}");
+    assert!(text.starts_with("# Personal\n\n## Money"), "{text}");
+    assert!(a.docs.library.groups[0].home.is_none());
+    assert_eq!(read(&l.taxes), "# Taxes 2026\n");
+    assert!(l.taxes.exists() && l.last.exists());
+    assert!(toast(&a).contains("not moved"), "{}", toast(&a));
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+#[test]
+fn a_new_group_is_written_with_the_folder_its_notes_go_in() {
+    let (mut a, l) = lib("libw-new-group-home");
+    a.act(Act::Library(LibAct::NewGroup, 0));
+    name_it(&mut a, "Japan 2025");
+    let made = l.dir.join("library").join("Japan 2025.md");
+    let text = read(&made);
+    assert!(
+        text.starts_with("# Japan 2025\nhome: Japan 2025\n"),
+        "{text}"
+    );
+    // Its first note goes into that folder without a second `home:` line.
+    let at =
+        a.ui.library
+            .rows
+            .iter()
+            .position(|r| r.kind == Kind::Group && r.label == "Japan 2025")
+            .unwrap();
+    pick(&mut a, LibAct::NewNote, at);
+    name_it(&mut a, "Tokyo");
+    assert_eq!(
+        read(&l.dir.join("library").join("Japan 2025").join("Tokyo.md")),
+        "# Tokyo\n"
+    );
+    assert_eq!(read(&made).matches("home:").count(), 1);
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
@@ -754,6 +960,8 @@ fn the_pane_menus_mark_every_item_with_its_own_letter_and_delete_only_a_library_
         LibAct::NewNote,
         LibAct::NewSection,
         LibAct::AddOpen,
+        LibAct::SetHome,
+        LibAct::ClearHome,
         LibAct::Rename,
         LibAct::RenameFile,
         LibAct::EditFile,

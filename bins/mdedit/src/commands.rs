@@ -588,6 +588,19 @@ pub mod strings {
     pub fn library_added(title: &str, group: &str) -> String {
         format!("\u{201c}{title}\u{201d} is in {group} now.")
     }
+    /// Where a group's notes go now, said when its `home:` line is written.
+    pub fn library_home_now(group: &str, folder: &str) -> String {
+        format!("Notes in \u{201c}{group}\u{201d} now go to {folder}.")
+    }
+    /// The `home:` line is gone. Said plainly: no note was moved.
+    pub fn library_home_cleared(group: &str) -> String {
+        format!(
+            "Notes in \u{201c}{group}\u{201d} go to the library folder again. The notes already written are not moved."
+        )
+    }
+    pub fn library_home_failed(e: &str) -> String {
+        format!("The group's folder cannot be made: {e}")
+    }
     pub fn library_has(title: &str) -> String {
         format!("\u{201c}{title}\u{201d} is already in the library.")
     }

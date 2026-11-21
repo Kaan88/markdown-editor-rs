@@ -165,6 +165,8 @@ pub enum Picked {
     /// The file a note of the notes library was found at, and the folder chosen for it.
     LibraryFile(Vec<PathBuf>),
     LibraryFolder(Option<PathBuf>),
+    /// The folder chosen for a group's notes, and the library file it is for.
+    GroupHome(PathBuf, Option<PathBuf>),
     /// Save as for document `doc`; `after` is what waits for the save (`After::Nothing` for the
     /// plain command).
     Save {

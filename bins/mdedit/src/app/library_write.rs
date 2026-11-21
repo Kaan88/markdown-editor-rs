@@ -54,6 +54,14 @@ fn free_name(dir: &Path, stem: &str) -> PathBuf {
         .unwrap_or(first)
 }
 
+/// Removes the folders made for a note that could not be linked, deepest first, while they are
+/// empty. A folder holding anything is left as it is.
+fn remove_empty_folders(made: &[PathBuf]) {
+    for folder in made {
+        let _ = std::fs::remove_dir(folder);
+    }
+}
+
 impl App {
     /// The name of the group whose library file is `file`.
     fn library_group_name(&self, file: &Path) -> String {
@@ -265,6 +273,8 @@ impl App {
                     &stem,
                 );
             }
+            (LibAct::SetHome, Kind::Group) => self.library_choose_group_home(file),
+            (LibAct::ClearHome, Kind::Group) => self.library_clear_group_home(file),
             (LibAct::NewNote, Kind::Group | Kind::Section) => {
                 self.library_start_in(EditKind::NewNote, i + 1, row, file, "");
             }
@@ -508,17 +518,80 @@ impl App {
         self.library_changed();
     }
 
-    /// Makes a library file for a new group, from the template with the group's name on it.
+    /// "Set the group's folder…": a folder picker, starting on the folder the group has or the
+    /// library folder, then the group's `home:` line names the folder chosen.
+    fn library_choose_group_home(&mut self, file: &Path) {
+        let start = self
+            .docs
+            .library
+            .groups
+            .iter()
+            .find(|g| same_path(&g.file, file))
+            .and_then(|g| g.home.clone())
+            .filter(|d| d.is_dir())
+            .or_else(|| self.library_dir().filter(|d| d.is_dir()))
+            .or_else(|| self.start_dir());
+        #[cfg(windows)]
+        if let Some(dir) = platform::pick_folder(start.as_deref()) {
+            self.library_group_home_picked(file, dir);
+        }
+        #[cfg(not(windows))]
+        if !self.dialog_busy {
+            self.dialog_busy = true;
+            let wake = self.docs.waker();
+            let file = file.to_path_buf();
+            platform::pick_folder_async(start.as_deref(), move |dir| {
+                wake(Wake::Dialog(Picked::GroupHome(file, dir)));
+            });
+        }
+    }
+
+    /// The folder picker answered: the group's `home:` line names `dir`, relative to the library
+    /// folder when it is inside it and by its whole path otherwise. Nothing on disk moves.
+    pub(super) fn library_group_home_picked(&mut self, file: &Path, dir: PathBuf) {
+        let base = file.parent().map(Path::to_path_buf).unwrap_or_default();
+        let home = crate::library_pane::link_path(&base, &dir);
+        let want = canonical_or_absolute(&dir);
+        let done = self.library_write(
+            file,
+            |t| library::set_group_home(t, &home),
+            |b, a| {
+                a.entries.len() == b.entries.len()
+                    && a.home
+                        .as_deref()
+                        .is_some_and(|h| same_path(&canonical_or_absolute(h), &want))
+            },
+        );
+        if done {
+            let group = self.library_group_name(file);
+            self.docs
+                .set_toast(&strings::library_home_now(&group, &dir.to_string_lossy()));
+        }
+    }
+
+    /// "Clear the group's folder": the `home:` line goes and the notes are left where they are.
+    fn library_clear_group_home(&mut self, file: &Path) {
+        let done = self.library_write(file, library::clear_group_home, |b, a| {
+            b.home.is_some() && a.home.is_none() && a.entries.len() == b.entries.len()
+        });
+        if done {
+            let group = self.library_group_name(file);
+            self.docs.set_toast(&strings::library_home_cleared(&group));
+        }
+    }
+
+    /// Makes a library file for a new group, with the group's name on it and the folder its
+    /// notes are written in (`home:`), named for the group.
     pub(super) fn library_new_group(&mut self, name: &str) {
         let Some(dir) = self.library_dir() else {
             self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
             return;
         };
-        let Some(text) = library::new_group(name) else {
-            return;
-        };
         let Some(stem) = file_stem_for(name) else {
             self.docs.set_toast(&strings::library_not_a_name(name));
+            return;
+        };
+        let Some(text) = library::new_group_with_home(name, Some(Path::new(&stem))) else {
             return;
         };
         let file = dir.join(format!("{stem}.md"));
@@ -528,7 +601,7 @@ impl App {
             return;
         }
         let read = library::parse(&text, &dir);
-        if read.name.as_deref() != Some(name.trim()) {
+        if read.name.as_deref() != Some(name.trim()) || read.home.is_none() {
             self.docs.set_toast(&strings::library_failed(
                 "the file would not read back as its notes",
             ));
@@ -553,10 +626,12 @@ impl App {
         );
     }
 
-    /// Makes `<name>.md` in a folder of its own beside the library file (named for the file, so
-    /// the library folder holds library files and nothing else) with `# <name>` in it, lists it
-    /// under the heading by a link relative to the library folder, and opens it. The note is made
-    /// only once the library file may be written, and taken away again if the link could not be.
+    /// Makes `<name>.md` in the folder its group's `home:` line names, one folder deeper for
+    /// each heading of `section`, lists it under that heading by a link relative to the library
+    /// folder when it is inside it, and opens it. A group with no `home:` line gets one in the
+    /// same write, naming a folder derived from its file name; nothing already on disk moves.
+    /// The note is made only once the library file may be written, and taken away again with
+    /// the folders made for it if the link could not be.
     pub(super) fn library_new_note(&mut self, file: &Path, section: &[String], name: &str) {
         if let Err(why) = self.library_file_free(file) {
             self.docs.set_toast(&why);
@@ -566,25 +641,51 @@ impl App {
             self.docs.set_toast(&strings::library_not_a_name(name));
             return;
         };
-        // In a folder of its own, named for the group's file: the library folder holds the
-        // library files and nothing else, since every `.md` in it is read as one.
         let base = file.parent().map(Path::to_path_buf).unwrap_or_default();
         let own = file
             .file_stem()
             .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-        let dir = base.join(library::folder_name(&own));
-        let made = !dir.exists();
+        let text = match std::fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(e) => {
+                self.docs
+                    .set_toast(&strings::library_failed(&e.to_string()));
+                return;
+            }
+        };
+        let parsed = library::parse(&text, &base);
+        // A group with no `home:` line gets one the first time a note is made in it (decision
+        // 10), naming a folder after its file as "New note here…" has written them since phase 0.
+        // The line is relative to the library folder, so a library that moves keeps working.
+        let (home, new_home) = match parsed.home {
+            Some(home) => (home, None),
+            None => {
+                let folder = PathBuf::from(library::folder_name(&own));
+                (base.join(&folder), Some(folder))
+            }
+        };
+        let dir = library::note_folder(&home, section);
+        // The folders this note has to make, deepest first, so a refused link can take them
+        // away again while they are empty.
+        let mut made = Vec::new();
+        let mut at = dir.as_path();
+        while !at.exists() {
+            made.push(at.to_path_buf());
+            match at.parent() {
+                Some(parent) => at = parent,
+                None => break,
+            }
+        }
         if let Err(e) = std::fs::create_dir_all(&dir) {
+            remove_empty_folders(&made);
             self.docs
-                .set_toast(&strings::library_failed(&e.to_string()));
+                .set_toast(&strings::library_home_failed(&e.to_string()));
             return;
         }
         let note = free_name(&dir, &stem);
         let heading = name.replace(['[', ']'], "");
         if let Err(e) = std::fs::write(&note, format!("# {}\n", heading.trim())) {
-            if made {
-                let _ = std::fs::remove_dir(&dir);
-            }
+            remove_empty_folders(&made);
             self.docs
                 .set_toast(&strings::library_failed(&e.to_string()));
             return;
@@ -592,16 +693,27 @@ impl App {
         let link = crate::library_pane::link_path(&base, &note);
         let done = self.library_write(
             file,
-            |t| Some(library::add_note(t, section, name, &link)),
+            |t| {
+                let with_home = match &new_home {
+                    Some(folder) => {
+                        library::set_group_home(t, folder).unwrap_or_else(|| t.to_string())
+                    }
+                    None => t.to_string(),
+                };
+                Some(library::add_note(&with_home, section, name, &link))
+            },
             |b, a| a.entries.len() == b.entries.len() + 1,
         );
         if done {
+            if new_home.is_some() {
+                let group = self.library_group_name(file);
+                self.docs
+                    .set_toast(&strings::library_home_now(&group, &home.to_string_lossy()));
+            }
             self.open(&note);
         } else {
             let _ = std::fs::remove_file(&note);
-            if made {
-                let _ = std::fs::remove_dir(&dir);
-            }
+            remove_empty_folders(&made);
         }
     }
 
