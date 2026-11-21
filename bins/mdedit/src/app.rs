@@ -79,6 +79,9 @@ mod library;
 mod library_pane_tests;
 #[cfg(test)]
 mod library_tests;
+mod library_write;
+#[cfg(test)]
+mod library_write_tests;
 pub(crate) mod modal;
 mod palette_events;
 mod preview;
@@ -153,6 +156,9 @@ pub enum Picked {
     Folder(Option<PathBuf>),
     /// The file to compare the active one with.
     CompareFile(Vec<PathBuf>),
+    /// The file a note of the notes library was found at, and the folder chosen for it.
+    LibraryFile(Vec<PathBuf>),
+    LibraryFolder(Option<PathBuf>),
     /// Save as for document `doc`; `after` is what waits for the save (`After::Nothing` for the
     /// plain command).
     Save {
@@ -3272,6 +3278,55 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotMenu::LibraryAdd) => app.command(crate::commands::CommandId::LibraryAdd),
         Some(ShotMenu::LibraryPane) => {
             app.command(crate::commands::CommandId::ToggleLibraryPane);
+        }
+        Some(
+            m @ (ShotMenu::LibraryRow
+            | ShotMenu::LibrarySection
+            | ShotMenu::LibraryEmpty
+            | ShotMenu::LibraryRename
+            | ShotMenu::LibraryRemove),
+        ) => {
+            use crate::library_pane::Kind;
+            use crate::ui::LibAct;
+            app.command(crate::commands::CommandId::ToggleLibraryPane);
+            app.compose();
+            let first = |app: &App, note: bool| {
+                app.ui.library.rows.iter().position(|r| {
+                    if note {
+                        matches!(r.kind, Kind::Note { .. })
+                    } else {
+                        r.kind == Kind::Section
+                    }
+                })
+            };
+            match m {
+                ShotMenu::LibraryEmpty => {
+                    if let Some(r) = app.areas.files {
+                        app.ui.mouse = (r.cx(), r.bottom() - 40.0);
+                        app.right_press();
+                    }
+                }
+                ShotMenu::LibraryRename => {
+                    if let Some(i) = first(&app, true) {
+                        app.act(Act::Library(LibAct::Rename, i));
+                        app.ui.library.field.set_text("Receipts 2026");
+                    }
+                }
+                ShotMenu::LibraryRemove => {
+                    if let Some(i) = first(&app, false) {
+                        app.act(Act::Library(LibAct::Remove, i));
+                    }
+                }
+                _ => {
+                    let note = m == ShotMenu::LibraryRow;
+                    if let Some(r) =
+                        first(&app, note).and_then(|i| app.hit_rect(Hit::LibraryRow(i)))
+                    {
+                        app.ui.mouse = (r.x + 80.0, r.cy());
+                        app.right_press();
+                    }
+                }
+            }
         }
         Some(ShotMenu::RenameBar) => {
             if let Some(doc) = app.docs.active_doc().map(|d| d.id) {

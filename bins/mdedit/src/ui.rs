@@ -43,6 +43,8 @@ pub enum BarField {
     /// The results panel's boxes for the folder and the kinds of file a search looks in.
     ResultsFolder,
     ResultsKinds,
+    /// The box the notes library's pane draws over a row, for a name being typed.
+    Library,
 }
 
 impl BarField {
@@ -53,6 +55,7 @@ impl BarField {
             BarField::ResultsReplace => Hit::ResultsReplace,
             BarField::ResultsFolder => Hit::ResultsFolder,
             BarField::ResultsKinds => Hit::ResultsKinds,
+            BarField::Library => Hit::LibraryField,
         }
     }
 }
@@ -255,6 +258,8 @@ pub enum Hit {
     /// A row of the notes library in the left pane, and the button of its head that adds the
     /// open document.
     LibraryRow(usize),
+    /// The box a name is typed in, over a row of the notes library.
+    LibraryField,
     LibraryAdd,
     /// The head's switches: what the left pane shows.
     PaneFace(PaneFace),
@@ -343,6 +348,7 @@ impl Hit {
             Hit::FilesRow(_)
             | Hit::OutlineRow(_)
             | Hit::LibraryRow(_)
+            | Hit::LibraryField
             | Hit::LibraryAdd
             | Hit::PaneFace(_)
             | Hit::FilesFolder
@@ -391,6 +397,7 @@ impl Hit {
                 | Hit::ResultsReplace
                 | Hit::ResultsFolder
                 | Hit::ResultsKinds
+                | Hit::LibraryField
                 | Hit::Tab(_)
                 | Hit::DlgCard
         )
@@ -412,6 +419,8 @@ pub enum Act {
     MacroMenu,
     /// Open the notes library's menu beside the open one.
     LibraryMenu,
+    /// What a notes library pane menu does to row `n` (the empty-space menu's items ignore it).
+    Library(LibAct, usize),
     /// Open the text menu's Lines, Convert, Markdown and Table submenus beside it.
     LinesMenu,
     ConvertMenu,
@@ -438,6 +447,31 @@ pub enum Act {
     Opt(FindOpt),
     /// Row `n` of the completion list.
     Complete(usize),
+}
+
+/// The items of the notes library pane's menus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibAct {
+    Open,
+    OpenOther,
+    /// Rename the group, section or note the row is, in a box over it.
+    Rename,
+    /// Rename the library file of a group.
+    RenameFile,
+    NewNote,
+    NewSection,
+    NewGroup,
+    /// Write the open file under the row's group or section.
+    AddOpen,
+    MoveTo,
+    FindFile,
+    CopyPath,
+    Reveal,
+    GoToLine,
+    EditFile,
+    Remove,
+    RevealFolder,
+    Refresh,
 }
 
 impl Act {
@@ -476,6 +510,10 @@ pub enum PopupKind {
     Macro,
     /// The notes library: the list, adding this file, and the library files.
     Library,
+    /// The right-click menu of row `n` of the notes library in the left pane, and of the pane's
+    /// empty space (also the Notes head's plus button).
+    LibraryRow(usize),
+    LibraryEmpty,
     /// The status strip's menus.
     Eol,
     Encoding,
@@ -636,14 +674,20 @@ pub enum DialogKind {
     Discard,
     /// Replace in files: the files to change, ticked, before anything is written.
     ReplaceFiles,
+    /// A section of the notes library is about to be taken out, with the links under it.
+    LibraryRemove,
 }
 
 impl DialogKind {
-    /// A question whose answer something waits for (`Ui::pending`).
+    /// A question whose answer something waits for (`Ui::pending`, or for the library's own,
+    /// `LibraryPane::removing`).
     pub fn is_confirm(self) -> bool {
         matches!(
             self,
-            DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard
+            DialogKind::Unsaved
+                | DialogKind::Overwrite
+                | DialogKind::Discard
+                | DialogKind::LibraryRemove
         )
     }
 }
@@ -874,6 +918,16 @@ impl Ui {
         self.library.on = face == PaneFace::Notes;
         if face != PaneFace::Notes {
             self.library.cursor = None;
+            self.library.stop_edit();
+            self.drop_library_field_focus();
+        }
+    }
+
+    /// The keyboard was in the pane's name box, which is gone: it goes back to the text.
+    pub fn drop_library_field_focus(&mut self) {
+        if self.field == BarField::Library {
+            self.field = BarField::Find;
+            self.find_focused = false;
         }
     }
 
@@ -883,6 +937,8 @@ impl Ui {
         self.outline.on = false;
         self.library.on = false;
         self.library.cursor = None;
+        self.library.stop_edit();
+        self.drop_library_field_focus();
     }
 
     pub fn new() -> Ui {
@@ -940,6 +996,7 @@ impl Ui {
             BarField::ResultsReplace => &self.results.replace.field,
             BarField::ResultsFolder => &self.results.folder,
             BarField::ResultsKinds => &self.results.kinds,
+            BarField::Library => &self.library.field,
         }
     }
 
@@ -956,6 +1013,7 @@ impl Ui {
             BarField::ResultsReplace => &self.results.replace.field,
             BarField::ResultsFolder => &self.results.folder,
             BarField::ResultsKinds => &self.results.kinds,
+            BarField::Library => &self.library.field,
         }
     }
 
@@ -982,6 +1040,7 @@ impl Ui {
             BarField::ResultsReplace => &mut self.results.replace.field,
             BarField::ResultsFolder => &mut self.results.folder,
             BarField::ResultsKinds => &mut self.results.kinds,
+            BarField::Library => &mut self.library.field,
         }
     }
 

@@ -124,7 +124,15 @@ impl App {
             }
             // The switch of the face already shown does nothing: it never closes the pane.
             Hit::PaneFace(face) => self.show_pane_face(face),
-            Hit::LibraryAdd => self.command(C::LibraryAdd),
+            // The plus button of the Notes head opens the pane's empty-space menu under itself.
+            Hit::LibraryAdd => {
+                if self.ui.popup_kind() == Some(PopupKind::LibraryEmpty) {
+                    self.ui.popup = None;
+                } else if let Some(r) = self.hit_rect(Hit::LibraryAdd) {
+                    let cues = self.ui.keyboard;
+                    self.library_empty_menu(r.right(), r.bottom() + 4.0, true, cues);
+                }
+            }
             Hit::LibraryRow(i) => self.library_row(i),
             Hit::ResultsRow(i) => {
                 self.go_to_result(i);
@@ -459,6 +467,7 @@ impl App {
             Act::LibraryMenu => self.open_popup(PopupKind::Library),
             Act::AiPrompt(k) => self.ai_saved(k),
             Act::AiEditPrompt(k) => self.ai_edit_saved(k),
+            Act::Library(op, i) => self.library_act(op, i),
             Act::LinesMenu
             | Act::ConvertMenu
             | Act::MarkdownMenu
@@ -842,6 +851,12 @@ impl App {
                     self.set_folder(dir);
                 }
             }
+            Picked::LibraryFile(paths) => self.library_found(paths.into_iter().next()),
+            Picked::LibraryFolder(dir) => {
+                if let Some(dir) = dir {
+                    self.library_dir_picked(dir);
+                }
+            }
             Picked::CompareFile(paths) => {
                 if let Some(path) = paths.first() {
                     self.compare_with(path);
@@ -1074,6 +1089,11 @@ impl App {
     /// The answer to the question dialog: button `n`, the first being its default.
     pub(super) fn answer(&mut self, n: usize) {
         let kind = self.ui.dialog.as_ref().map(|d| d.kind);
+        // The library's own question is about a section, not a document.
+        if kind == Some(DialogKind::LibraryRemove) {
+            self.library_remove_answer(n);
+            return;
+        }
         let Some(p) = self.ui.pending.take() else {
             self.close_dialog();
             return;
@@ -1316,6 +1336,7 @@ impl App {
             self.ui.results.replace.confirm = None;
         }
         self.ui.dialog = None;
+        self.ui.library.removing = None;
         self.ui.pressed = None;
         self.ui.dlg_hover_row = None;
         self.ui.hover = None;

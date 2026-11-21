@@ -65,6 +65,8 @@ pub enum Target {
     /// Where the open file is written in the library: a library file and the heading under it
     /// (empty for the end of the file).
     NotePlace(PathBuf, Vec<String>),
+    /// Where the note the pane is moving goes: a library file and the heading under it.
+    NoteMoveTo(PathBuf, Vec<String>),
     /// A library file, to be opened as the Markdown file it is.
     LibraryFile(PathBuf),
 }
@@ -83,6 +85,8 @@ pub enum Mode {
     /// their command, never by a prefix.
     Library,
     LibraryAdd,
+    /// Where a note of the pane is moved to: the same places, asked for another way.
+    LibraryMove,
     /// The library's files, to open one for editing.
     LibraryFiles,
 }
@@ -213,7 +217,8 @@ impl PaletteState {
                     languages(src)
                 }
                 Mode::Library => library(src),
-                Mode::LibraryAdd => library_places(src),
+                Mode::LibraryAdd => library_places(src, false),
+                Mode::LibraryMove => library_places(src, true),
                 Mode::LibraryFiles => library_files(src),
             };
             self.targets = targets;
@@ -698,7 +703,7 @@ fn library_groups(docs: &Docs) -> Vec<(u8, String)> {
 
 /// Where the open file can be written in the library: every section of every group, each
 /// group's end, and, while the library has no file at all, the first one to make.
-fn library_places(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
+fn library_places(src: &Sources, moving: bool) -> (Vec<Entry>, Vec<Target>) {
     let (mut entries, mut targets) = (Vec::new(), Vec::new());
     let row = |entries: &mut Vec<Entry>,
                targets: &mut Vec<Target>,
@@ -706,7 +711,11 @@ fn library_places(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
                section: &[String],
                label: String,
                hint: String| {
-        let target = Target::NotePlace(file.to_path_buf(), section.to_vec());
+        let target = if moving {
+            Target::NoteMoveTo(file.to_path_buf(), section.to_vec())
+        } else {
+            Target::NotePlace(file.to_path_buf(), section.to_vec())
+        };
         push(entries, targets, target, |id| {
             Entry::new(id, label.as_str()).hint(hint).group(G_PLAIN)
         });
@@ -900,6 +909,19 @@ impl Host {
             .set_placeholder(strings::LIBRARY_ADD_PLACEHOLDER);
         state.palette.set_groups(Vec::new());
         state.fixed = Some(Mode::LibraryAdd);
+        self.open = Some(state);
+        self.sync(docs, ui, macros, true);
+        self.tick += 1;
+    }
+
+    /// Opens the list of places a note of the pane can be moved to.
+    pub fn open_library_move(&mut self, docs: &Docs, ui: &Ui, macros: &mut Macros) {
+        let mut state = PaletteState::new("");
+        state
+            .palette
+            .set_placeholder(strings::LIBRARY_MOVE_PLACEHOLDER);
+        state.palette.set_groups(Vec::new());
+        state.fixed = Some(Mode::LibraryMove);
         self.open = Some(state);
         self.sync(docs, ui, macros, true);
         self.tick += 1;

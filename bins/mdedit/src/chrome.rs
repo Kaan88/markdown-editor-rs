@@ -304,7 +304,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         Hit::StatusIndent => crate::status::indent_tip(docs)?,
         Hit::StatusLanguage => "Language (click to change)".into(),
         Hit::FilesFolder => with("Open folder", CommandId::OpenFolder),
-        Hit::LibraryAdd => with("Add this file to the notes library", CommandId::LibraryAdd),
+        Hit::LibraryAdd => "Add to the notes library".into(),
         Hit::PaneFace(PaneFace::Files) => with("Files pane", CommandId::ToggleFiles),
         Hit::PaneFace(PaneFace::Functions) => with("Function list", CommandId::ToggleOutline),
         Hit::PaneFace(PaneFace::Notes) => with("Notes library", CommandId::ToggleLibraryPane),
@@ -505,6 +505,7 @@ pub fn field_parts(which: BarField, frame: Rect, has_text: bool) -> (Rect, Optio
         // The replacement's box has the find box's left inset (its icon is in the same place) and
         // no clear button.
         BarField::Replace => (find_parts(frame, false).0, None),
+        BarField::Library => (crate::library_pane::field_area(frame), None),
         BarField::Goto
         | BarField::ResultsReplace
         | BarField::ResultsFolder
@@ -1056,6 +1057,7 @@ pub(crate) fn draw_field(
             BarField::ResultsReplace => strings::RESULTS_REPLACE_PLACEHOLDER,
             BarField::ResultsFolder => strings::RESULTS_FOLDER_PLACEHOLDER,
             BarField::ResultsKinds => strings::RESULTS_KINDS_PLACEHOLDER,
+            BarField::Library => strings::LIBRARY_NAME_PLACEHOLDER,
             BarField::Goto if naming => strings::MACRO_NAME_PLACEHOLDER,
             BarField::Goto => strings::GOTO_PLACEHOLDER,
         },

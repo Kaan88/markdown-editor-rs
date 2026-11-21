@@ -6,11 +6,12 @@
 use crate::chrome::{Ctx, glyph};
 use crate::commands::strings;
 use crate::docs::Docs;
-use crate::ui::{Drag, Hit, Scroller, Ui};
+use crate::ui::{BarField, Drag, Hit, Scroller, Ui};
 use mdshared_app::library::Library;
 use mdshared_ui::gfx::{Face, Rect, mix};
 use mdshared_ui::pane::{HEAD, ROW, ROW_H, draw_row_fill};
 use mdshared_ui::scroll::{draw_scrollbar, scrollbar};
+use mdshared_ui::textfield::{FieldColors, TextField};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -25,8 +26,14 @@ pub enum Kind {
     Group,
     /// A heading inside one.
     Section,
-    /// A note: the file it opens, and whether that file is gone.
-    Note { path: PathBuf, missing: bool },
+    /// A note: the file it opens, whether that file is gone, and its line in the library file.
+    Note {
+        path: PathBuf,
+        missing: bool,
+        line: usize,
+    },
+    /// The row a name is being typed in for something that is not there yet.
+    Editing,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,6 +43,61 @@ pub struct Row {
     pub depth: u16,
     /// What folding remembers this row by; empty for a note.
     pub key: String,
+    /// The headings a section is under, itself last; empty for the others.
+    pub section: Vec<String>,
+}
+
+/// What the box over the pane is typing a name for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditKind {
+    RenameGroup,
+    RenameSection,
+    RenameNote,
+    RenameFile,
+    NewGroup,
+    NewSection,
+    NewNote,
+}
+
+impl EditKind {
+    /// A name for something that is not there yet, drawn in a row of its own.
+    pub fn is_new(self) -> bool {
+        matches!(
+            self,
+            EditKind::NewGroup | EditKind::NewSection | EditKind::NewNote
+        )
+    }
+}
+
+/// A name being typed: what for, where it is drawn (a row to cover, or the place a new row
+/// goes) and what it applies to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Edit {
+    pub kind: EditKind,
+    pub at: usize,
+    pub depth: u16,
+    /// The library file, the heading path (the section itself, or the one a new note or section
+    /// goes under) and, for a note, its line and the file it names.
+    pub file: PathBuf,
+    pub section: Vec<String>,
+    pub line: usize,
+    pub note: PathBuf,
+}
+
+/// A note waiting for the group and section picker to say where it goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Moving {
+    pub file: PathBuf,
+    pub line: usize,
+    pub title: String,
+    pub note: PathBuf,
+}
+
+/// A section waiting for "Remove" in its question.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Removal {
+    pub file: PathBuf,
+    pub section: Vec<String>,
 }
 
 #[derive(Default)]
@@ -54,9 +116,44 @@ pub struct LibraryPane {
     /// The library file of the row last clicked, while the pane shows: where "Edit a library
     /// file" goes first.
     pub cursor: Option<PathBuf>,
+    /// The name being typed, and the box it is typed in.
+    pub edit: Option<Edit>,
+    pub field: TextField,
+    /// The note waiting for the picker to say where it goes, the note waiting for the file
+    /// picker to say where it went, and the section waiting for the answer to its question.
+    pub moving: Option<Moving>,
+    pub finding: Option<Moving>,
+    pub removing: Option<Removal>,
 }
 
 impl LibraryPane {
+    /// Scrolls so that row `at` shows.
+    pub fn reveal(&mut self, at: usize) {
+        let top = at as f32 * ROW;
+        let bottom = top + ROW + 8.0;
+        if top < self.scroll {
+            self.scroll = top;
+        } else if bottom > self.scroll + self.view {
+            self.scroll = (bottom - self.view).max(0.0);
+        }
+    }
+
+    /// Gives up the name being typed. The rows are the ones the files say again.
+    pub fn stop_edit(&mut self) {
+        if self.edit.take().is_some() {
+            self.field.clear();
+            self.rows.retain(|r| r.kind != Kind::Editing);
+        }
+    }
+
+    /// Starts typing a name over row `at` (a rename) or in a row of its own at `at` (a new one).
+    pub fn start_edit(&mut self, edit: Edit, text: &str, library: &Library) {
+        self.edit = Some(edit);
+        self.field.set_text(text);
+        self.field.select_all();
+        self.build(library);
+    }
+
     /// The library file the group of row `i` is: the row itself, or the one above it that
     /// starts the group.
     pub fn group_file(&self, i: usize) -> Option<PathBuf> {
@@ -89,6 +186,20 @@ impl LibraryPane {
     /// The rows of `library`, in the order the files are written, leaving out what is folded.
     pub fn build(&mut self, library: &Library) {
         self.rows = rows(library, &self.folded);
+        // What is being named and is not there yet has a row of its own, where it will be.
+        if let Some(e) = self.edit.as_ref().filter(|e| e.kind.is_new()) {
+            let at = e.at.min(self.rows.len());
+            self.rows.insert(
+                at,
+                Row {
+                    kind: Kind::Editing,
+                    label: String::new(),
+                    depth: e.depth,
+                    key: String::new(),
+                    section: Vec::new(),
+                },
+            );
+        }
     }
 }
 
@@ -112,6 +223,7 @@ fn rows(library: &Library, folded: &HashSet<String>) -> Vec<Row> {
             label: group.name.clone(),
             depth: 0,
             key,
+            section: Vec::new(),
         });
         if shut {
             continue;
@@ -120,10 +232,12 @@ fn rows(library: &Library, folded: &HashSet<String>) -> Vec<Row> {
             kind: Kind::Note {
                 path: e.path.clone(),
                 missing: e.missing,
+                line: e.line,
             },
             label: e.title.clone(),
             depth,
             key: String::new(),
+            section: Vec::new(),
         };
         // The notes written before the first heading belong to the group itself.
         rows.extend(
@@ -145,6 +259,7 @@ fn rows(library: &Library, folded: &HashSet<String>) -> Vec<Row> {
                 label: section.last().cloned().unwrap_or_default(),
                 depth,
                 key: key.clone(),
+                section: section.clone(),
             });
             if folded.contains(&key) {
                 continue;
@@ -161,6 +276,28 @@ fn rows(library: &Library, folded: &HashSet<String>) -> Vec<Row> {
     rows
 }
 
+impl EditKind {
+    /// What the empty box says it is for.
+    pub fn placeholder(self) -> &'static str {
+        match self {
+            EditKind::NewGroup => strings::LIBRARY_NEW_GROUP_PLACEHOLDER,
+            EditKind::NewSection => strings::LIBRARY_NEW_SECTION_PLACEHOLDER,
+            EditKind::NewNote => strings::LIBRARY_NEW_NOTE_PLACEHOLDER,
+            _ => strings::LIBRARY_NAME_PLACEHOLDER,
+        }
+    }
+}
+
+/// Where the text of the name box goes inside its frame.
+pub fn field_area(frame: Rect) -> Rect {
+    Rect::new(
+        frame.x + 6.0,
+        frame.y + 1.0,
+        (frame.w - 12.0).max(0.0),
+        frame.h - 2.0,
+    )
+}
+
 /// The rows below the head.
 pub fn list(r: Rect) -> Rect {
     let ry = r.y + HEAD;
@@ -175,6 +312,13 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let dragging = matches!(ui.drag, Some(Drag::Splitter { .. }));
     let area = list(r);
     let active = docs.active_doc().and_then(|d| d.path.clone());
+    let focused = ui.find_focused && ui.field == BarField::Library;
+    let caret_on = ui.caret_on;
+    // The row whose menu is up stays lit.
+    let menu_row = match ui.popup_kind() {
+        Some(crate::ui::PopupKind::LibraryRow(i)) => Some(i),
+        _ => None,
+    };
     let lib = &mut ui.library;
     lib.content = lib.rows.len() as f32 * ROW + 8.0;
     lib.view = area.h;
@@ -210,7 +354,7 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             c.p,
             &pal,
             rr,
-            c.hover == Some(hit),
+            c.hover == Some(hit) || menu_row == Some(i),
             c.pressed == Some(hit),
             selected,
         );
@@ -249,15 +393,48 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
                 };
                 (Face::Ui, color)
             }
+            Kind::Editing => {
+                match lib.edit.as_ref().map(|e| e.kind) {
+                    Some(EditKind::NewNote) => {
+                        c.p.icon(glyph::DOC, 13.0, ix + 9.0, cy, pal.muted);
+                    }
+                    Some(EditKind::NewSection) => {
+                        c.p.icon(glyph::DOWN, 8.0, ix - 8.0, cy, pal.faint);
+                    }
+                    _ => c.p.icon(glyph::BOOKMARK, 13.0, ix + 9.0, cy, pal.folder),
+                }
+                (Face::Ui, pal.text)
+            }
         };
         let x = if matches!(row.kind, Kind::Section) {
             ix + 4.0
         } else {
             ix + 23.0
         };
-        let max = (rr.right() - x - 12.0).max(0.0);
-        c.p.text(face, 12.5, x, cy, &row.label, color, max);
         c.hit(hit, rr);
+        if lib.edit.as_ref().is_some_and(|e| e.at == i) {
+            let frame = Rect::new(
+                x - 6.0,
+                rr.y + 1.0,
+                (rr.right() - x + 2.0).max(40.0),
+                rr.h - 2.0,
+            );
+            let hint = lib.edit.as_ref().map_or("", |e| e.kind.placeholder());
+            c.p.frame(frame, 4.0, pal.field, pal.accent);
+            let colors = FieldColors {
+                text: pal.text,
+                placeholder: pal.faint,
+                selection: pal.selection,
+                caret: pal.text,
+            };
+            let area = field_area(frame);
+            lib.field
+                .draw(c.p, area, Face::Ui, 13.0, &colors, hint, focused, caret_on);
+            c.hit(Hit::LibraryField, frame);
+        } else {
+            let max = (rr.right() - x - 12.0).max(0.0);
+            c.p.text(face, 12.5, x, cy, &row.label, color, max);
+        }
     }
     c.p.restore(old);
     let thumb_hit = Hit::ScrollBar(Scroller::Files);

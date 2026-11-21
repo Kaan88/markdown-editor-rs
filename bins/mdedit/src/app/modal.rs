@@ -47,6 +47,8 @@ pub const STALE_DAYS: u32 = 25;
 pub const SKIP_BRIEF: u32 = 26;
 pub const BRIEF_SECS: u32 = 27;
 pub const BRIEF_LAST: u32 = 28;
+pub const LIBRARY_DIR: u32 = 29;
+pub const LIBRARY_CHOOSE: u32 = 30;
 pub const AI_CONNECTION: u32 = 90;
 pub const AI_PROGRAM: u32 = 91;
 pub const AI_CHECK: u32 = 92;
@@ -240,6 +242,11 @@ pub fn rows(
         .help("Only while the tab is in front and mdedit has focus."),
         Row::toggle(BRIEF_LAST, mdshared_app::brief::LAST, prefs.brief_last)
             .help(mdshared_app::brief::LAST_HELP),
+        Row::header("Notes library"),
+        Row::text(LIBRARY_DIR, "Library folder", prefs.library_dir.clone())
+            .placeholder("Beside the settings file")
+            .help("Such as a OneDrive folder."),
+        Row::action(LIBRARY_CHOOSE, strings::LIBRARY_CHOOSE, "Choose\u{2026}"),
         Row::header("Updates"),
         Row::toggle(
             CHECK_AT_LAUNCH,
@@ -407,6 +414,11 @@ impl App {
                 self.apply_setting(id, value);
                 self.modal_changed();
             }
+            // The folder picker opens over the form, which stays to show the answer.
+            Out::Action(LIBRARY_CHOOSE) => {
+                self.library_choose_folder();
+                self.modal_changed();
+            }
             Out::Action(id) if (AI_CONNECTION..=AI_LAST).contains(&id) => {
                 self.ai_settings_action(id);
                 self.modal_changed();
@@ -462,6 +474,10 @@ impl App {
             (BRIEF_LAST, Value::Bool(on)) => p.brief_last = on,
             (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
             (COMPLETE_AUTO, Value::Bool(on)) => p.complete_auto = on,
+            (LIBRARY_DIR, Value::Text(t)) => {
+                self.set_library_dir(&t);
+                return;
+            }
             (BACKDROP, Value::Choice(i)) => {
                 p.backdrop = mdshared_app::backdrop::Backdrop::from_index(i)
             }

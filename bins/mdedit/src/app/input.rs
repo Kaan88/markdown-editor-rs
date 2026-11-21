@@ -684,7 +684,17 @@ impl App {
             self.preview_press(x, y, clicks);
             return;
         }
-        let Some(hit) = self.hit_at(x, y) else { return };
+        let hit = self.hit_at(x, y);
+        // A click anywhere but in the name box over the library pane uses the name typed.
+        if self.ui.library.edit.is_some() && hit != Some(Hit::LibraryField) {
+            self.library_edit_commit();
+            // The rows may have moved under the pointer: this click only used the name.
+            if matches!(hit, Some(Hit::LibraryRow(_))) {
+                self.redraw();
+                return;
+            }
+        }
+        let Some(hit) = hit else { return };
         // A press in the text, or on anything that takes the keyboard, takes it from the page.
         if matches!(
             hit,
@@ -702,6 +712,7 @@ impl App {
                 | Hit::ResultsReplace
                 | Hit::ResultsFolder
                 | Hit::ResultsKinds
+                | Hit::LibraryField
                 | Hit::ReplaceOne
                 | Hit::ReplaceAll
                 | Hit::InSelection
@@ -804,9 +815,12 @@ impl App {
             | Hit::Replace
             | Hit::ResultsReplace
             | Hit::ResultsFolder
-            | Hit::ResultsKinds => {
+            | Hit::ResultsKinds
+            | Hit::LibraryField => {
                 self.ui.focus_field(if hit == Hit::ResultsReplace {
                     BarField::ResultsReplace
+                } else if hit == Hit::LibraryField {
+                    BarField::Library
                 } else if hit == Hit::ResultsFolder {
                     BarField::ResultsFolder
                 } else if hit == Hit::ResultsKinds {
@@ -947,6 +961,16 @@ impl App {
                     overlays::minimap_menu(x + 2.0, y + 2.0),
                     cues,
                 ));
+            }
+            // A row of the notes library: the pane's row moves to it, and its menu opens.
+            Some(Hit::LibraryRow(i)) => {
+                self.library_edit_commit();
+                self.library_row_menu(i, x, y, cues);
+            }
+            // The pane's empty space, below the rows.
+            None if self.library_pane_at(x, y) => {
+                self.library_edit_commit();
+                self.library_empty_menu(x + 2.0, y + 2.0, false, cues);
             }
             Some(Hit::Text | Hit::Gutter) => {
                 // A right-click outside the selection moves the caret there first.
@@ -1637,6 +1661,16 @@ impl App {
                 self.replace_all_in_files();
                 return true;
             }
+            // The name typed over the library pane: Enter uses it, Escape drops it.
+            (KeyName::Enter, _) if which == BarField::Library => {
+                self.library_edit_commit();
+                return true;
+            }
+            (KeyName::Escape, _) if which == BarField::Library => {
+                self.library_edit_cancel();
+                return true;
+            }
+            (KeyName::Tab, _) if which == BarField::Library => return true,
             // The boxes of the folder and the kinds: Enter searches again with them.
             (KeyName::Enter, _)
                 if matches!(which, BarField::ResultsFolder | BarField::ResultsKinds) =>

@@ -202,6 +202,7 @@ impl App {
             Target::Language(lang) => self.choose_language(lang),
             Target::Note(path) | Target::LibraryFile(path) => self.open(&path),
             Target::NotePlace(file, section) => self.library_put(&file, &section),
+            Target::NoteMoveTo(file, section) => self.library_move_to(&file, &section),
             Target::Prefix(_) => {}
         }
         self.redraw();

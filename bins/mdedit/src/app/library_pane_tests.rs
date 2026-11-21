@@ -268,7 +268,7 @@ fn the_three_switches_are_hit_targets_in_the_head_at_the_narrowest_pane_and_the_
 }
 
 #[test]
-fn the_notes_head_button_asks_where_to_add_the_open_file() {
+fn the_notes_head_button_opens_a_menu_whose_add_item_asks_where_to_add_the_open_file() {
     let dir = scratch("libpane-plus");
     let (_taxes, _last) = library_in(&dir);
     let note = dir.join("new.md");
@@ -276,7 +276,11 @@ fn the_notes_head_button_asks_where_to_add_the_open_file() {
     let mut a = app_in(&dir);
     open_now(&mut a, &note);
     a.command(C::ToggleLibraryPane);
+    a.compose();
     a.activate(Hit::LibraryAdd);
+    assert_eq!(a.ui.popup_kind(), Some(crate::ui::PopupKind::LibraryEmpty));
+    assert!(!a.palette_open(), "the menu comes first");
+    a.choose(Act::Cmd(C::LibraryAdd), false);
     assert!(a.palette_open(), "it asks where the open file goes");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -377,5 +381,5 @@ fn the_notes_button_and_the_head_switches_say_what_they_are_with_their_keys() {
         tip(Hit::PaneFace(PaneFace::Notes)),
         "Notes library (Ctrl+Shift+3)"
     );
-    assert!(tip(Hit::LibraryAdd).starts_with("Add this file to the notes library"));
+    assert!(tip(Hit::LibraryAdd).starts_with("Add to the notes library"));
 }

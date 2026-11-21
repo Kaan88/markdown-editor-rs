@@ -506,6 +506,45 @@ pub mod strings {
     pub const LIBRARY_EMPTY: &str =
         "The library is empty. \u{201c}Add this file to the notes library\u{201d} starts it.";
     pub const LIBRARY_NO_FOLDER: &str = "There is no folder for the notes library.";
+    pub const LIBRARY_NO_FOLDER_YET: &str = "The library folder is not made yet: nothing is in it.";
+    pub const LIBRARY_MOVE_PLACEHOLDER: &str = "Where to move it";
+    pub const LIBRARY_NAME_PLACEHOLDER: &str = "Name";
+    pub const LIBRARY_NEW_GROUP_PLACEHOLDER: &str = "Name of the group";
+    pub const LIBRARY_NEW_SECTION_PLACEHOLDER: &str = "Name of the section";
+    pub const LIBRARY_NEW_NOTE_PLACEHOLDER: &str = "Name of the note";
+    pub const LIBRARY_REMOVE_TITLE: &str = "Remove the section?";
+    pub const LIBRARY_REMOVE: &str = "Remove";
+    pub const LIBRARY_CHOOSE: &str = "Choose a folder\u{2026}";
+    pub fn library_remove_body(section: &str, notes: usize) -> String {
+        let links = match notes {
+            0 => "It has no notes in it.".to_string(),
+            1 => "The 1 note listed in it goes from the library with it.".to_string(),
+            n => format!("The {n} notes listed in it go from the library with it."),
+        };
+        format!(
+            "\u{201c}{section}\u{201d} and everything written under it will be taken out of the library file. {links} The notes themselves are not touched."
+        )
+    }
+    pub fn library_took_out(title: &str, group: &str) -> String {
+        format!("\u{201c}{title}\u{201d} is out of {group}. The file itself is untouched.")
+    }
+    pub fn library_moved(title: &str, group: &str) -> String {
+        format!("\u{201c}{title}\u{201d} is in {group} now.")
+    }
+    pub fn library_move_half(title: &str, there: &str, here: &str, why: &str) -> String {
+        format!(
+            "\u{201c}{title}\u{201d} is in {there} now, but it could not be taken out of {here} ({why}). It is listed in both."
+        )
+    }
+    pub fn library_busy_file(name: &str) -> String {
+        format!("Close {name} first: the library file is open in a tab.")
+    }
+    pub fn library_exists(name: &str) -> String {
+        format!("\u{201c}{name}\u{201d} is already there.")
+    }
+    pub fn library_not_a_name(name: &str) -> String {
+        format!("\u{201c}{name}\u{201d} cannot be used as a file name.")
+    }
     pub const LIBRARY_EMPTY_PANE: &str = "No notes yet";
     pub const LIBRARY_MISSING_FILE: &str = "That note is not where the library says it is.";
     pub const LIBRARY_NEEDS_FILE: &str = "Save this file first: the library keeps links to files.";

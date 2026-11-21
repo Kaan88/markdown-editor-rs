@@ -4,6 +4,7 @@
 use crate::chrome::{Ctx, glyph, logo};
 use crate::commands::{CommandId as C, command, hint, shortcut_help, strings};
 use crate::docs::Docs;
+use crate::library_pane::Kind;
 use crate::session::ThemeChoice;
 use crate::ui::{Act, Dialog, DialogKind, EditAct, FindOpt, Hit, Scroller, Ui};
 use mdedit_core::find::FindOptions;
@@ -174,6 +175,111 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
         )
         .sep(),
         cmd(C::LibraryEdit, "&Edit a library file…", glyph::DOC),
+    ];
+    Menu::new(items, x, y, align_right).access_keys(true)
+}
+
+/// The label of "Show in the file manager", with its access key on the first letter that no
+/// other item of the menu (`taken`: their keys) has.
+fn reveal_label(taken: &str) -> String {
+    let label = command(C::ShowInFileManager).label;
+    let at = label
+        .char_indices()
+        .skip(1)
+        .find(|(_, ch)| ch.is_alphabetic() && !taken.contains(ch.to_ascii_lowercase()))
+        .map(|(i, _)| i);
+    match at {
+        Some(i) => format!("{}&{}", &label[..i], &label[i..]),
+        None => label.to_string(),
+    }
+}
+
+/// The right-click menu of a row of the notes library in the left pane (row `i`): what a group,
+/// a section or a note can be asked to do. `can_add` says the open file can be written under
+/// it (it has a file the library does not list yet). Nothing in it deletes a file on disk: a
+/// note or a section goes from the library file only, and "Reveal" is the way to the file.
+pub fn library_row_menu(
+    kind: &Kind,
+    i: usize,
+    can_add: bool,
+    x: f32,
+    y: f32,
+    align_right: bool,
+) -> Menu<Act> {
+    use crate::ui::LibAct as L;
+    let item =
+        |op: L, label: &str, icon: &'static str| Item::new(Act::Library(op, i), label).icon(icon);
+    let items = match kind {
+        Kind::Group => vec![
+            item(L::NewNote, "New &note here\u{2026}", glyph::NEW_FILE),
+            item(L::AddOpen, "&Add the open document", glyph::BOOKMARK).enabled(can_add),
+            item(L::NewSection, "New &section\u{2026}", glyph::PLUS),
+            item(L::Rename, "&Rename group", glyph::EDIT).sep(),
+            item(
+                L::RenameFile,
+                "Rename the library &file\u{2026}",
+                glyph::EDIT,
+            ),
+            item(L::EditFile, "&Edit this library file", glyph::DOC).sep(),
+            item(L::CopyPath, "&Copy path", glyph::COPY),
+            item(L::Reveal, &reveal_label("nasrfec"), glyph::FOLDER_OPEN),
+        ],
+        Kind::Section => vec![
+            item(L::NewNote, "New &note here\u{2026}", glyph::NEW_FILE),
+            item(L::AddOpen, "&Add the open document here", glyph::BOOKMARK).enabled(can_add),
+            item(L::NewSection, "New su&bsection\u{2026}", glyph::PLUS),
+            item(L::Rename, "&Rename section", glyph::EDIT).sep(),
+            item(L::GoToLine, "&Go to this heading", glyph::GO_TO_LINE).sep(),
+            item(L::Remove, "Remove this &section\u{2026}", glyph::DELETE).sep(),
+        ],
+        Kind::Note { missing, .. } => {
+            let mut items = vec![
+                item(L::Open, "&Open", glyph::DOC).enabled(!missing),
+                item(L::OpenOther, "Open in the other &pane", glyph::OTHER_PANE).enabled(!missing),
+                item(L::Rename, "&Rename in the library", glyph::EDIT).sep(),
+                item(L::MoveTo, "&Move to\u{2026}", glyph::FORWARD),
+            ];
+            if *missing {
+                items.push(item(L::FindFile, "&Find the file\u{2026}", glyph::SEARCH));
+            }
+            items.extend([
+                item(L::CopyPath, "Copy pat&h", glyph::COPY).sep(),
+                item(L::Reveal, &reveal_label("orpmfhly"), glyph::FOLDER_OPEN).enabled(!missing),
+                item(
+                    L::GoToLine,
+                    "Go to its &line in the library file",
+                    glyph::GO_TO_LINE,
+                ),
+                item(L::Remove, "Remove from the librar&y", glyph::DELETE).sep(),
+            ]);
+            items
+        }
+        Kind::Editing => Vec::new(),
+    };
+    Menu::new(items, x, y, align_right).access_keys(true)
+}
+
+/// The notes library pane's menu for its empty space, and the Notes head's plus button.
+/// `has_file` greys "Add the open document": it needs a file to link to.
+pub fn library_empty_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    use crate::ui::LibAct as L;
+    let items = vec![
+        Item::new(Act::Library(L::NewGroup, 0), "New &group\u{2026}").icon(glyph::PLUS),
+        cmd(
+            C::LibraryAdd,
+            "&Add the open document\u{2026}",
+            glyph::BOOKMARK,
+        )
+        .enabled(has_file),
+        cmd(C::LibraryEdit, "&Edit a library file\u{2026}", glyph::DOC).sep(),
+        Item::new(
+            Act::Library(L::RevealFolder, 0),
+            "Reveal the library fol&der",
+        )
+        .icon(glyph::FOLDER_OPEN),
+        Item::new(Act::Library(L::Refresh, 0), "Re&fresh")
+            .icon(glyph::RELOAD)
+            .sep(),
     ];
     Menu::new(items, x, y, align_right).access_keys(true)
 }
@@ -727,7 +833,10 @@ pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
         DialogKind::Shortcuts => (580.0, list(KEY_ROW, 0.0).min(700.0)),
         DialogKind::Recent => (600.0, list(RECENT_ROW, 80.0).min(560.0)),
         DialogKind::Macros => (480.0, list(MACRO_ROW, 80.0).min(560.0)),
-        DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => (460.0, 196.0),
+        DialogKind::Unsaved
+        | DialogKind::Overwrite
+        | DialogKind::Discard
+        | DialogKind::LibraryRemove => (460.0, 196.0),
         DialogKind::ReplaceFiles => return crate::replace_ui::card(w, h),
     };
     dialog_card(cw, ch, w, h)
@@ -782,7 +891,11 @@ pub fn draw_dialog(
     c.hit(Hit::Backdrop, Rect::new(0.0, 0.0, w, h));
     draw_backdrop(c.p, &pal, w, h);
     let rows = match d.kind {
-        DialogKind::About | DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => 0,
+        DialogKind::About
+        | DialogKind::Unsaved
+        | DialogKind::Overwrite
+        | DialogKind::Discard
+        | DialogKind::LibraryRemove => 0,
         // Drawn by `replace_ui::draw_confirm`, which has the plan.
         DialogKind::ReplaceFiles => return,
         DialogKind::Shortcuts => shortcut_help().len(),
@@ -859,12 +972,20 @@ pub fn draw_dialog(
             );
         }
         DialogKind::ReplaceFiles => {}
-        DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => {
+        DialogKind::Unsaved
+        | DialogKind::Overwrite
+        | DialogKind::Discard
+        | DialogKind::LibraryRemove => {
             let (heading, body, buttons): (&str, String, &[&str]) = match d.kind {
                 DialogKind::Unsaved => (
                     strings::UNSAVED_TITLE,
                     strings::unsaved_body(&d.subject),
                     &[strings::SAVE, strings::DONT_SAVE, strings::CANCEL],
+                ),
+                DialogKind::LibraryRemove => (
+                    strings::LIBRARY_REMOVE_TITLE,
+                    d.subject.clone(),
+                    &[strings::LIBRARY_REMOVE, strings::CANCEL],
                 ),
                 DialogKind::Overwrite => (
                     strings::OVERWRITE_TITLE,
@@ -1280,6 +1401,7 @@ mod tests {
             DialogKind::Unsaved,
             DialogKind::Overwrite,
             DialogKind::Discard,
+            DialogKind::LibraryRemove,
         ] {
             let r = card(kind, 30, 520.0, 360.0);
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.right() <= 520.0 && r.bottom() <= 360.0);

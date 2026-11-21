@@ -47,6 +47,14 @@ pub enum ShotMenu {
     LibraryAdd,
     /// The notes library in the left pane (`--files` is implied).
     LibraryPane,
+    /// The notes library pane with a right-click menu open: on the first note, on the first
+    /// section, in the empty space below the rows; a name being typed over the first note; and
+    /// the question about removing the first section.
+    LibraryRow,
+    LibrarySection,
+    LibraryEmpty,
+    LibraryRename,
+    LibraryRemove,
     /// The active document made Markdown as the AI's Format as Markdown does, with the bar
     /// offering its `.md` name.
     RenameBar,
@@ -494,6 +502,11 @@ impl Args {
                         "library" => Some(ShotMenu::Library),
                         "library-add" => Some(ShotMenu::LibraryAdd),
                         "library-pane" => Some(ShotMenu::LibraryPane),
+                        "library-row" => Some(ShotMenu::LibraryRow),
+                        "library-section" => Some(ShotMenu::LibrarySection),
+                        "library-empty" => Some(ShotMenu::LibraryEmpty),
+                        "library-rename" => Some(ShotMenu::LibraryRename),
+                        "library-remove" => Some(ShotMenu::LibraryRemove),
                         "rename-bar" => Some(ShotMenu::RenameBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
                         _ => None,

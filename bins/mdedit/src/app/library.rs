@@ -9,10 +9,70 @@ use crate::commands::strings;
 use mdshared_app::library;
 
 impl App {
-    /// The library folder, beside the settings file (the application's data folder when the
-    /// window runs without one). `None` while a shot runs on the user's own folder.
+    /// The library folder: the one the preference names (a path with no root is taken from the
+    /// settings folder), else `library` beside the settings file (the application's data folder
+    /// when the window runs without one). `None` while a shot runs on the user's own folder.
     pub(super) fn library_dir(&self) -> Option<PathBuf> {
-        self.snippets_path().map(|p| p.with_file_name(library::DIR))
+        let beside = self.snippets_path()?.parent()?.to_path_buf();
+        let set = self.docs.prefs.library_dir.trim();
+        if set.is_empty() {
+            return Some(beside.join(library::DIR));
+        }
+        let set = Path::new(set);
+        Some(if set.is_absolute() {
+            set.to_path_buf()
+        } else {
+            beside.join(set)
+        })
+    }
+
+    /// The preference changed: what was read from the old folder and what the pane held of it
+    /// go, and the new folder is read when it is next listed (at once, if the pane shows).
+    pub(super) fn library_dir_changed(&mut self) {
+        self.docs.library = library::Library::default();
+        self.ui.library.cursor = None;
+        self.ui.library.stop_edit();
+        self.ui.drop_library_field_focus();
+        self.ui.library.rows.clear();
+        self.ui.library.checked = None;
+        if self.ui.panes.files && self.ui.library.on {
+            self.library_rows();
+        }
+    }
+
+    /// Settings › Notes library › Choose: a folder picker, then the preference is that folder.
+    pub(super) fn library_choose_folder(&mut self) {
+        let start = self
+            .library_dir()
+            .filter(|d| d.is_dir())
+            .or_else(|| self.start_dir());
+        #[cfg(windows)]
+        if let Some(dir) = platform::pick_folder(start.as_deref()) {
+            self.library_dir_picked(dir);
+        }
+        #[cfg(not(windows))]
+        if !self.dialog_busy {
+            self.dialog_busy = true;
+            let wake = self.docs.waker();
+            platform::pick_folder_async(start.as_deref(), move |dir| {
+                wake(Wake::Dialog(Picked::LibraryFolder(dir)));
+            });
+        }
+    }
+
+    /// A folder was chosen for the library.
+    pub(super) fn library_dir_picked(&mut self, dir: PathBuf) {
+        self.set_library_dir(&dir.to_string_lossy());
+        self.ai_settings_refresh();
+    }
+
+    /// Sets the library folder preference (empty: the default) and starts reading from it.
+    pub(super) fn set_library_dir(&mut self, dir: &str) {
+        let mut p = self.docs.prefs.clone();
+        p.library_dir = dir.to_string();
+        p.clamp();
+        self.set_prefs(p);
+        self.library_dir_changed();
     }
 
     /// Reads the library when it is listed for the first time, and again whenever a library
@@ -54,6 +114,7 @@ impl App {
                 self.docs.set_toast(strings::LIBRARY_MISSING_FILE);
             }
             crate::library_pane::Kind::Note { path, .. } => self.open(&path),
+            crate::library_pane::Kind::Editing => {}
         }
     }
 
@@ -76,6 +137,10 @@ impl App {
                 .zip(&stamps)
                 .any(|(g, s)| g.stamp != *s);
         if changed {
+            // The rows moved under a name being typed: it is dropped rather than put on the
+            // wrong row.
+            self.ui.library.stop_edit();
+            self.ui.drop_library_field_focus();
             self.ui.library.build(&self.docs.library);
             self.redraw();
         }
@@ -128,14 +193,8 @@ impl App {
         let title = library::title_of(&path);
         // Open in a tab with changes not saved: writing the file under them would be lost to
         // that tab's next save, as the saved prompts file is protected (audit 1 round 5).
-        if let Some(open) = self.docs.tabs.iter().find(|d| {
-            d.modified()
-                && d.path
-                    .as_deref()
-                    .is_some_and(|p| mdshared_app::paths::same_path(p, file))
-        }) {
-            let name = open.name();
-            self.docs.set_toast(&strings::library_unsaved(&name));
+        if let Err(why) = self.library_file_free(file) {
+            self.docs.set_toast(&why);
             return;
         }
         if let Some(parent) = file.parent()

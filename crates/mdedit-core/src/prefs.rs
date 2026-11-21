@@ -122,6 +122,9 @@ pub struct Prefs {
     /// The Claude Code and Codex programs; empty finds them.
     pub ai_claude_path: String,
     pub ai_codex_path: String,
+    /// The folder of the notes library's files; empty is the default, `library` beside the
+    /// settings file.
+    pub library_dir: String,
 }
 
 /// A setting's text longer than this many bytes is not a setting: the default is used.
@@ -170,6 +173,7 @@ impl Default for Prefs {
             ai_custom: 0,
             ai_claude_path: String::new(),
             ai_codex_path: String::new(),
+            library_dir: String::new(),
         }
     }
 }
@@ -221,7 +225,11 @@ impl Prefs {
             .ai_models
             .iter_mut()
             .chain(self.ai_efforts.iter_mut())
-            .chain([&mut self.ai_claude_path, &mut self.ai_codex_path])
+            .chain([
+                &mut self.ai_claude_path,
+                &mut self.ai_codex_path,
+                &mut self.library_dir,
+            ])
             .chain(
                 self.ai_customs
                     .iter_mut()
@@ -343,6 +351,7 @@ impl Prefs {
                     "ai_custom" => p.ai_custom = value.trim().parse().unwrap_or(0),
                     "ai_claude_path" => p.ai_claude_path = ai_text(value),
                     "ai_codex_path" => p.ai_codex_path = ai_text(value),
+                    "library_dir" => p.library_dir = ai_text(value),
                     k => {
                         let per = |prefix: &str| {
                             k.strip_prefix(prefix)
@@ -455,6 +464,7 @@ impl Prefs {
         }
         w.line("ai_claude_path", &escape(&p.ai_claude_path));
         w.line("ai_codex_path", &escape(&p.ai_codex_path));
+        w.line("library_dir", &escape(&p.library_dir));
         w.finish()
     }
 
@@ -630,6 +640,22 @@ mod tests {
     }
 
     #[test]
+    fn the_library_folder_is_empty_by_default_and_kept_when_set() {
+        assert_eq!(Prefs::default().library_dir, "");
+        assert_eq!(Prefs::parse("").library_dir, "");
+        let p = Prefs::parse("[preferences]\nlibrary_dir=D:\\One%20Drive\\library\n");
+        assert_eq!(p.library_dir, "D:\\One Drive\\library");
+        assert_eq!(Prefs::parse(&p.serialize()).library_dir, p.library_dir);
+        // Empty is written as empty, so the default is what comes back.
+        let d = Prefs::default().serialize();
+        assert!(d.contains("library_dir=\n"), "{d}");
+        assert_eq!(Prefs::parse(&d).library_dir, "");
+        // A path no one typed (too long, or over two lines) is the default again.
+        let long = format!("library_dir={}", "x".repeat(3000));
+        assert_eq!(Prefs::parse(&long).library_dir, "");
+    }
+
+    #[test]
     fn sections_are_respected() {
         let text =
             "[mdedit]\ntab_width=9\nwrap=1\n[preferences]\ntab_width=3\n[other]\ntab_width=7\n";
@@ -783,6 +809,7 @@ mod tests {
             ai_custom: 1,
             ai_claude_path: "C:\\Program Files\\claude.exe".into(),
             ai_codex_path: "/opt/codex = 2".into(),
+            library_dir: "D:\\Notes = 1\\library".into(),
         };
         let t = p.serialize();
         assert_eq!(Prefs::parse(&t), p);
@@ -805,7 +832,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 46);
+        assert_eq!(t.lines().count(), 47);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,

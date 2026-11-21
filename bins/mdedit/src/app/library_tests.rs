@@ -19,7 +19,7 @@ fn slash(path: &Path) -> String {
 }
 
 /// Types `text` in the open palette and presses Enter.
-fn choose(a: &mut App, text: &str) {
+pub(super) fn choose(a: &mut App, text: &str) {
     a.compose();
     for ch in text.chars() {
         a.key_pressed(Key::Name(KeyName::Char(ch)), Some(&ch.to_string()));
