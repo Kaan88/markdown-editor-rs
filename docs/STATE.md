@@ -72,9 +72,13 @@ in the core, the workspace green.
 
 ## Waiting for the owner
 
-- **`docs/ai-library-plan.md`**: 33.5 days in thirteen phases after phase 3. Blocking: the
-  `trash` crate for the Recycle Bin. Also the owner's: whether 1.3.0 is tagged now. Its section 11
-  lists 26 decisions taken for the owner, entries D-032 to D-057, marked as waiting.
+- **`docs/ai-library-plan.md`**: its 26 decisions were answered on 2026-11-22: 17 confirmed, the
+  `trash` crate approved (phase T is unblocked), nine replaced by D-074 to D-082. The plan's
+  phases and days do not yet reflect the nine: rewrites in place with an undo copy in the record,
+  lower-case-hyphen note names everywhere (the split writer and "New note here…" already built do
+  not do it), P2 with R2, phase V (its resizer still to be asked for), pictures into existing
+  notes behind a setting, parallel requests, everything shared, drag and drop. **No release for
+  now** (the owner, 2026-11-22): 1.3.0 is not tagged.
 - **`docs/settings-redesign.md`**: both apps' Settings as a category list, one page each, nothing
   scrolling. Designed and drawn (80 shots, `mock/settings`), 8.5 days: 5 shared, 2 mdedit, 1
   mdview, 0.5 platforms. Approved by the owner; the shared half died with the credits (above) and
@@ -92,8 +96,9 @@ in the core, the workspace green.
 3. Then read the two dead agents' trees and decide per tree. "Move the notes…" has 2,545 lines of
    model and 1,316 of tests nobody has run — run them first; if they pass, the window side is a
    well-specified job. The settings half needs a restart on `pages`.
-4. The plan's order afterwards: the shared pieces, then Split by AI (section 12), then tag
-   1.3.0 or not, under "Waiting for the owner".
+4. Fold D-074 to D-082 into `ai-library-plan.md` (phases, days, section 11), and rename notes to
+   lower case with hyphens in the writers already built (D-075).
+5. The plan's order afterwards: the shared pieces, then Split by AI (section 12). No release.
 
 ## Known to be wrong on `main`
 

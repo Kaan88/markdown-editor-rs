@@ -352,6 +352,12 @@ decision 1). **All are waiting.** The plan has the full reasoning for each.
 | D-056 | mdview gets no AI and nothing that writes the owner's documents | It is a reader, and its network sentence is worth keeping | The owner deciding otherwise, knowingly |
 | D-057 | Drag and drop stays out | As the redesign decided; nothing here changes the reasons | A drag layer existing for another reason |
 
+Answered by the owner 2026-11-22. Confirmed: D-032, D-033, D-035 to D-039, D-041, D-042, D-044
+(in its widened form, D-069 to D-072), D-045, D-046 (the `trash` crate is approved), D-047, D-051,
+D-053, D-055, D-056 ("keep it out for now": mdview will have libraries, so it may come back).
+Replaced: D-034 by D-074, D-040 by D-075, D-043 by D-076, D-048 by D-077, D-049 by D-078, D-050 by
+D-079, D-052 by D-080, D-054 by D-081, D-057 by D-082.
+
 ## D-058 · 2026-11-21 · How these documents are kept
 
 **Decision.** `CLAUDE.md` is the entry and is always true. `docs/STATE.md` is the state of the
@@ -679,3 +685,93 @@ written at all, and the pane's group row had the same fault.
 **Overturned by.** A group file format that gives the group's own notes a heading of their own, or
 the owner deciding the old placement was right.
 **From.** Audit 3 C1, `docs/review-prompts/audit3-report.md`.
+
+## D-074 · 2026-11-22 · Rewriting files that are not open edits them in place, with the original kept for undo
+
+**Decision.** "Rewrite them" in the AI task window overwrites each file in place, and only after
+the owner has gone through that file's changes and accepted them. Before a file is overwritten its
+original is written into the run's record in `.runs`, so the run's undo puts it back. Replaces
+D-034 (new notes only, never the files themselves).
+**Why.** The owner: new notes only "would limit ai too much", and would never do anything with an
+existing library: rewriting notes already in a library left a second copy of each.
+**Overturned by.** An in-place rewrite losing text despite the review and the undo copy.
+**From.** The owner's answers to the plan's section 11, 2026-11-22.
+
+## D-075 · 2026-11-22 · Note files are named in lower case with hyphens, everywhere
+
+**Decision.** A note's file name is its title in lower case, words joined by hyphens
+(`pasta-notes.md`), the mockup's names. It is one rule for the whole program: the split writer,
+"New note here…" and every other place that names a new note. Replaces D-040 (the title as
+written). Existing files are not renamed.
+**Why.** The owner chose the mockup's names; D-040's own reason, one naming rule, holds if the rule
+is applied everywhere.
+**Overturned by.** The owner.
+**From.** The owner's answers to the plan's section 11, 2026-11-22.
+
+## D-076 · 2026-11-22 · A record may hold the originals of the files a run rewrote
+
+**Decision.** Records stay in `.runs` inside the library folder and are kept for 20 runs or 90
+days, as D-043 said, but a record now also holds the original text of every file the run
+overwrote (D-074), and of no other file. Replaces D-043's "hold no note text".
+**Why.** Undo of an in-place rewrite needs the original, and undo must travel with the library it
+describes. The owner accepted that the copies sync with the library.
+**Overturned by.** The owner not wanting the copies synced.
+**From.** The owner's answers to the plan's section 11, 2026-11-22.
+
+## D-077 · 2026-11-22 · The tinted, level preview is built with the review
+
+**Decision.** Phase P2, the tinted and level Preview view of the mockup (3 days), moves out of
+"waits for a yes" and is built with phase R2. Replaces D-048.
+**Why.** The owner asked for it now.
+**Overturned by.** The owner.
+**From.** The owner's answers to the plan's section 11, 2026-11-22.
+
+## D-078 · 2026-11-22 · Phase V, pictures the model can see, is planned
+
+**Decision.** Phase V goes into the plan: the model may be sent pictures, at the owner's choice,
+which changes what leaves the machine and is said so where it is chosen. Replaces D-049. The
+resizer it needs is a new dependency and is still asked for and priced under rule 7 before it is
+added.
+**Why.** The owner said yes to phase V.
+**Overturned by.** The owner.
+**From.** The owner's answers to the plan's section 11, 2026-11-22.
+
+## D-079 · 2026-11-22 · A run may add pictures to existing notes, behind a setting
+
+**Decision.** A run may put a picture link into a note it did not write, only when an AI setting
+for it is turned on (off by default), only after the owner has seen that change in the review, and
+with the note's original kept in the record as D-074 keeps it. With the setting off, D-050's rule
+holds: the picture is listed in the library beside the note. Replaces D-050.
+**Why.** The owner: "could be useful to add just pictures via ai to library. behind an ai security
+setting maybe", and left the rule to be decided. The setting, the review and the undo copy keep it
+as safe as an in-place rewrite.
+**Overturned by.** The owner.
+**From.** The owner's answers to the plan's section 11, 2026-11-22; the rule decided by Claude.
+
+## D-080 · 2026-11-22 · AI requests run in parallel, three at a time by default
+
+**Decision.** A run may have several model requests in flight: a setting per connection, three by
+default and one for a local model (Ollama, LM Studio). Results are still shown in the order of the
+files. A model run that stops still restarts and never resumes from disk; a write still resumes.
+Replaces D-052's "one request at a time".
+**Why.** The owner chose parallel requests and a setting with a default of three.
+**Overturned by.** Rate limits making it worse than one at a time in practice.
+**From.** The owner's answers to the plan's section 11, 2026-11-22.
+
+## D-081 · 2026-11-22 · All of the library and AI pieces start shared
+
+**Decision.** Everything D-054 kept in mdedit starts in `markdown-shared-rs` too: the plan card
+from the start (phase S2 goes away), the split checker, the record, the change list and the strip.
+Only mdedit's own wiring stays in mdedit. Rule 8 holds: a shared change must not change what an
+existing caller draws or does. Replaces D-054.
+**Why.** The owner chose "share all of it"; it is the rule of 2026-11-13 applied without exceptions.
+**Overturned by.** The owner.
+**From.** The owner's answers to the plan's section 11, 2026-11-22.
+
+## D-082 · 2026-11-22 · Drag and drop is planned
+
+**Decision.** Drag and drop of notes and files in the library goes into the plan (3 to 4 days).
+Replaces D-057 and the redesign's decision 6.
+**Why.** The owner asked for it.
+**Overturned by.** The owner.
+**From.** The owner's answers to the plan's section 11, 2026-11-22.
