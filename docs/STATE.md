@@ -81,6 +81,33 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 - **Mockups** of three AI screens (the split plan, the rewrite review with ticks, the AI task
   window): branch `mock/ai-review`, worktree `..\mdedit-mock`, behind `--mock`, shots in
   `shots\mock\`. A drawing, not an implementation. Not to be merged.
+- **Being built right now, by three agents, none sharing a tree.** Each commits on its own
+  branch or repository and reports; none of it is reviewed or merged.
+  - **"Move the notes…"** (`ai-library-plan.md` 5.12), branch `f/move-notes`, worktree
+    `..\md-wt\move-notes`, from `0c41787`. The plan card's second user and the first that is not
+    a split: a group's notes into its folder, the notes to match renamed headings, or the whole
+    library when the library folder changes. Moved never copied-and-deleted, nothing overwritten,
+    the link rewritten in the same write as the move, a record so it can be undone.
+  - **The settings redesign, the shared half** — `markdown-shared-rs` on `main`, to be pushed by
+    the agent. A variant beside the single-page form, not a rewrite, because both apps draw
+    settings with the old one (rule 8). Its point is the page-fit test that fails naming the page
+    and the pixels over.
+  - **A triage of the five dependabot pull requests**, open since 2026-11-16 with `ci` red:
+    `rfd` 0.15→0.18, `chardetng` 0.1→1.0, `windows-sys` 0.59→0.61, `parley` 0.12→0.13, and the
+    actions group. Read and report only, to
+    `%TEMP%\opencode\dependabot-triage.md`; nothing merged. `parley` is text layout and sits on
+    the launch path.
+- **A terminal for this ecosystem, drawn**: branch `mock/terminal`, worktree `..\mdedit-term`,
+  behind `--mock term-<name>`, 20 shots in `shots\mock-term\`, layout numbers in
+  `numbers.txt`. Output divided into one block per command — command, exit code, duration,
+  output — which can be collapsed, searched, opened in mdedit or saved into the notes library.
+  `ecosystem-ideas.md` 12 says **Don't**; the owner has asked for that verdict to be reconsidered
+  as *possible* in a document of its own that points at these shots. **That document is not
+  written yet**, and it is the first thing to do. What the drawing established: blocks need the
+  shell to emit OSC 133 marks, so `plain-*.png` (no marks: one undivided stream, every block
+  action dead) is the case the product has to survive; a block costs about 46 px of overhead;
+  only failure should carry a mark; the charter says "no terminal", so this is a third app or a
+  written exception; and the settings form cannot hold two apps' categories at the minimum size.
 
 ## Waiting for the owner
 
@@ -103,9 +130,16 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 
 ## Next
 
-1. The plan's order: the shared pieces, then the plan card with Split at headings, then Split by
+1. **The terminal document**, as the owner asked: a document of its own that upgrades
+   `ecosystem-ideas.md` 12 from "Don't" to possible and points at `shots\mock-term\` on
+   `mock/terminal`. `ecosystem-ideas.md` itself has someone else's uncommitted work in it, so
+   its pointer waits until that is committed or dropped.
+2. Review and land the three pieces being built, in this order: "Move the notes…", the shared
+   settings half (then brief the app side, which is 2 days for mdedit and 1 for mdview), the
+   dependabot triage.
+3. The plan's order: the shared pieces, then the plan card with Split at headings, then Split by
    AI. Its section 12 has the sequence and the cost.
-2. **1.3.0** is no longer held by phase 0; whether to tag it now is under "Waiting for the owner".
+4. **1.3.0** is no longer held by phase 0; whether to tag it now is under "Waiting for the owner".
 
 ## Known to be wrong on `main`
 
@@ -118,6 +152,14 @@ faults that could lose a note or break a library that moves; these are still tru
 - Opening Settings during an AI review discards the result.
 - The AI review has no scrollbar and cuts long lines.
 - The editor never reads the AI engine's version.
+- **Deleting a library file orphans its notes.** "Delete this library file…" removes the group's
+  list and never a note, so the folder keeps every note with nothing listing them; splitting the
+  same document again then writes nothing, because every note reads "already there" with the
+  same bytes and comes unticked. Two fixes, both wanting the Recycle Bin: the question should
+  name what it leaves and offer to recycle the notes with the list, and an "already there with
+  the same text" row should offer *link it anyway*. Found by the owner, 2026-11-21.
+- A pane the owner opened keeps painting the last document's page once every tab is closed, and
+  `ui.page_selected` is not cleared when the pane closes.
 
 ## Known gaps, not planned unless they get in the way
 
