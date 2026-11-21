@@ -5,6 +5,12 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Release 1.2.0 (2026-11-21, released)
+
+mdedit 1.2.0 is released: tag `v1.2.0` at `bd9cac3`, release run 44840555985 green, manifests and
+downloads verified (`docs/RELEASE.md`). Open: the visual box not following the wheel as the owner
+sees it (not reproduced). Next review round: `docs/review-prompts/audit3-scope.md`.
+
 ## Reviews: who audited what (2026-11-21)
 
 - Audit 1, rounds 1 to 7 (2026-11-19 to 11-20, up to `09c5f93`, released as 1.1.2): all by Astra

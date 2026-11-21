@@ -264,6 +264,26 @@ Wine and gave no output; the manifest grammar it reads is unchanged); the Window
 hand on a Windows desktop; the deb, rpm, tar.gz and PKGBUILD of this exact build installed (the
 dry-run builds of the same commit's parent were installed in Debian 12 and Fedora containers).
 
+## v1.2.0 (published 2026-11-21 by the release workflow, from the tag at commit bd9cac3)
+
+Release run 44840555985, every job green; `ci` run 44839022973 on the commit passed (Linux,
+Windows, both Macs). Release notes: `docs/release-notes/1.2.0.md`.
+
+What's in it: visual editing (Ctrl+E), the language switch and the .md offer, several custom AI
+providers with or without a key, Modify for saved prompts, the caret kept per file, the stale
+days setting, and every audit 2 fix (see `docs/HANDOFF.md`).
+
+Verified against the live release:
+- the release is not a draft or pre-release and names 15 assets;
+- `releases/latest/download/` `mdedit-update.txt`, `mdedit-update-2.txt` and
+  `mdedit-update-macos.txt` all name 1.2.0;
+- the Windows exe (8,399,872 bytes), `mdedit-ai.exe`, `mdview-engine.exe` and the AppImage
+  (17,504,760 bytes) downloaded with the SHA-256 the manifests name;
+- the published exe's `--check-update` answered "nothing newer", exit 0.
+
+Not verified: the installer run on Windows, a 1.1.2 install updating itself, the Mac and Linux
+files on a desktop.
+
 ## v1.1.2 (published 2026-11-20 by the release workflow, from the tag at commit f8dce9b)
 
 Release run 44651603606, every job green; `ci` run 44649826322 on the commit passed. Release
