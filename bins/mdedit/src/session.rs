@@ -325,25 +325,15 @@ impl Default for Session {
 impl Session {
     /// The session in `path`: none yet (no file) is an empty one; a file that cannot be read is
     /// an error, never taken as empty (the next exit would write over it and drop its drafts).
+    #[cfg(test)]
     pub fn read(path: &Path) -> std::io::Result<Session> {
-        match std::fs::read(path) {
-            Ok(b) => Ok(Session::parse(&String::from_utf8_lossy(&b))),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Session::default()),
-            Err(e) => Err(e),
-        }
+        Ok(settings::read(path)?.map_or_else(Session::default, |t| Session::parse(&t)))
     }
 
     /// [`read`](Self::read), tried again for up to two seconds while it fails: another program
     /// (a scanner, a sync client) may have the file open a moment.
     pub fn read_patiently(path: &Path) -> std::io::Result<Session> {
-        let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        loop {
-            match Session::read(path) {
-                Ok(s) => return Ok(s),
-                Err(e) if std::time::Instant::now() >= end => return Err(e),
-                Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
-            }
-        }
+        Ok(settings::read_patiently(path)?.map_or_else(Session::default, |t| Session::parse(&t)))
     }
 
     pub fn parse(text: &str) -> Session {

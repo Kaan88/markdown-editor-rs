@@ -3339,7 +3339,7 @@ pub fn run() -> i32 {
     // The settings path this window listens on for other launches, kept even when the session
     // itself is not used (`session_path` set to `None` below).
     let instance_path = session_path.clone().filter(|_| args.shot.is_none());
-    // Held while the window runs: this launch has the settings folder (crate::instance).
+    // Held while the window runs: this launch has the settings folder (mdshared_app::folder_lock).
     let mut _folder_lock = None;
     // Why this window runs without its session, to say once it is open.
     let mut no_session_note: Option<String> = None;
@@ -3369,10 +3369,10 @@ pub fn run() -> i32 {
             }
         };
         // A window that is still starting is waited for, not run beside.
-        match crate::instance::claim(settings, forward, crate::instance::WAIT) {
-            crate::instance::Claim::Own(lock) => _folder_lock = lock,
-            crate::instance::Claim::Handed => return 0,
-            crate::instance::Claim::Busy => {
+        match mdshared_app::folder_lock::claim(settings, forward, mdshared_app::folder_lock::WAIT) {
+            mdshared_app::folder_lock::Claim::Own(lock) => _folder_lock = lock,
+            mdshared_app::folder_lock::Claim::Handed => return 0,
+            mdshared_app::folder_lock::Claim::Busy => {
                 session_path = None;
                 no_session_note = Some(crate::commands::strings::SESSION_BUSY.to_string());
             }

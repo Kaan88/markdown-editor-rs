@@ -13,7 +13,6 @@ mod docs;
 mod format_bar;
 mod frost;
 mod image_paste;
-mod instance;
 mod keys;
 mod languages;
 mod link;
