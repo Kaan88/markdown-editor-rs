@@ -446,24 +446,30 @@ fn the_notes_button_is_lit_only_while_the_library_is_what_the_pane_shows() {
 #[test]
 fn the_notes_button_and_the_head_switches_say_what_they_are_with_their_keys() {
     use crate::chrome::tooltip;
+    use crate::commands::hint;
     use crate::ui::{BarItem, PaneFace};
     let a = app();
     let tip = |hit| tooltip(hit, &a.docs, false).unwrap_or_default();
+    // The keys as this platform prints them: a Mac says ⌘⇧3 where Windows says Ctrl+Shift+3.
+    let files = hint(C::ToggleFiles);
+    let functions = hint(C::ToggleOutline);
+    let notes = hint(C::ToggleLibraryPane);
+    assert!(notes.contains('3'), "{notes}");
     assert_eq!(
         tip(Hit::Bar(BarItem::Library)),
-        "Notes library (Ctrl+Shift+3)"
+        format!("Notes library ({notes})")
     );
     assert_eq!(
         tip(Hit::PaneFace(PaneFace::Files)),
-        "Files pane (Ctrl+Shift+1)"
+        format!("Files pane ({files})")
     );
     assert_eq!(
         tip(Hit::PaneFace(PaneFace::Functions)),
-        "Function list (Ctrl+Shift+2)"
+        format!("Function list ({functions})")
     );
     assert_eq!(
         tip(Hit::PaneFace(PaneFace::Notes)),
-        "Notes library (Ctrl+Shift+3)"
+        format!("Notes library ({notes})")
     );
     assert!(tip(Hit::LibraryAdd).starts_with("Add to the notes library"));
 }

@@ -605,9 +605,11 @@ pub fn without_notes(full: &Library) -> Library {
 /// How a note is written into a library file: relative to the library folder `dir` when it is
 /// inside it (so the library can be moved or synced as a whole), as it is otherwise.
 pub fn link_path(dir: &std::path::Path, note: &std::path::Path) -> PathBuf {
+    // Folded by text as well: a folder that is not on disk yet cannot be canonicalised, and
+    // `std::path::absolute` leaves `..` in place on Unix, where it may cross a symlink.
     let (base, real) = (
-        mdshared_app::paths::canonical_or_absolute(dir),
-        mdshared_app::paths::canonical_or_absolute(note),
+        lexical(&mdshared_app::paths::canonical_or_absolute(dir)),
+        lexical(&mdshared_app::paths::canonical_or_absolute(note)),
     );
     match real.strip_prefix(&base) {
         Ok(inside) if !inside.as_os_str().is_empty() => inside.to_path_buf(),
