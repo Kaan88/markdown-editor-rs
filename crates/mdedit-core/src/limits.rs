@@ -102,6 +102,16 @@ pub const REPLACE_REVERT_BYTES: u64 = 64 << 20;
 /// Backup names `name.bak`, `name.bak1` .. `name.bak99`; with all taken the file is not changed.
 pub const REPLACE_BACKUPS: usize = 99;
 
+/// The names and caps of a split (`docs/ai-library-plan.md` 5.2 and 5.1): the most notes a plan
+/// holds (past this the lines stay in the rest and the plan says it was capped), the longest
+/// title in bytes (120, the length the function list cuts a name to), the longest section name in
+/// bytes (64, the length `mdshared_app::library::folder_name` allows), and the most section names
+/// a note keeps.
+pub const SPLIT_MAX_NOTES: usize = 2_000;
+pub const SPLIT_TITLE_MAX: usize = 120;
+pub const SPLIT_SECTION_MAX: usize = 64;
+pub const SPLIT_MAX_SECTIONS: usize = 3;
+
 /// Word completion reads at most this many bytes of the active document (around the caret, cut
 /// at line breaks) and of each other open document (from its start), and at most
 /// [`COMPLETE_OTHER_BYTES`] of all the others together, when its list is made (the shortcut or

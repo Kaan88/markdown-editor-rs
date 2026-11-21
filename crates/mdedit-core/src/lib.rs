@@ -35,6 +35,7 @@ pub mod save;
 pub mod search;
 pub mod selection;
 pub mod snippets;
+pub mod split;
 pub mod table;
 #[cfg(test)]
 mod testutil;
