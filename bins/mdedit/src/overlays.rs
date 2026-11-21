@@ -563,7 +563,31 @@ pub fn table_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
 /// A saved AI prompt's hint in the AI menu: room kept at the row's right, under the Modify
 /// button drawn there (`ai_ui::draw_menu_modify`), so a long name ends in "…" a little before it
 /// (the menu elides a label at its hint) and never runs beneath it.
+/// The spaces are a marker: [`fit_modify_room`] widens or narrows them to the font in use before
+/// the menu is placed, as a space's width differs between fonts.
 pub const MENU_MODIFY_ROOM: &str = "              ";
+
+/// The hint giving the Modify button its room in the font in use: the fewest spaces whose width,
+/// with the 28 px the menu adds around a hint, holds the button, its 4 px margin and a 6 px gap.
+pub fn modify_room(p: &mut mdshared_ui::gfx::Painter) -> String {
+    let need = crate::ai_ui::MENU_MODIFY_W + 4.0 + 6.0;
+    let mut room = String::from(" ");
+    while p.measure(mdshared_ui::gfx::Face::Ui, 12.0, &room) + 28.0 < need && room.len() < 64 {
+        room.push(' ');
+    }
+    room
+}
+
+/// Gives each saved prompt's row in `menu` its Modify room in the font in use ([`modify_room`]).
+pub fn fit_modify_room(menu: &mut Menu<Act>, p: &mut mdshared_ui::gfx::Painter) {
+    if !menu.items.iter().any(|i| i.hint == MENU_MODIFY_ROOM) {
+        return;
+    }
+    let room = modify_room(p);
+    for item in menu.items.iter_mut().filter(|i| i.hint == MENU_MODIFY_ROOM) {
+        item.hint = room.clone();
+    }
+}
 
 /// The text menu's AI submenu: the built-in requests (the AI mark), then the saved prompts (play:
 /// the row runs one; its Modify button, at the right, puts it in the instruction panel to be

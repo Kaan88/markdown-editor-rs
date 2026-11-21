@@ -917,13 +917,17 @@ fn a_saved_prompt_s_name_stops_before_its_modify_button() {
     let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
     // As the shared menu measures a hint: its width and 28 px around it. The menu's button,
     // its 4 px margin and a 6 px gap fit in it (the owner: the menu is not to grow for it).
-    let room = p.measure(Face::Ui, 12.0, crate::overlays::MENU_MODIFY_ROOM) + 28.0;
+    let hint = crate::overlays::modify_room(&mut p);
+    let room = p.measure(Face::Ui, 12.0, &hint) + 28.0;
     let w = crate::ai_ui::MENU_MODIFY_W;
     assert!(room >= w + 4.0 + 6.0, "room {room} for a {w} px button");
     assert!(room < 80.0, "the menu's room is as wide as before: {room}");
-    // The word fits in the narrow button, after the pencil.
+    // The word fits in the narrow button, after the pencil, in the Windows UI font (other
+    // systems fall back to fonts the runners may not match).
     let word = p.measure(Face::Ui, 12.5, crate::ai_ui::MODIFY);
-    assert!(21.0 + word + 4.0 <= w, "\"Modify\" needs {word} px");
+    if cfg!(windows) {
+        assert!(21.0 + word + 4.0 <= w, "\"Modify\" needs {word} px");
+    }
 }
 
 #[test]

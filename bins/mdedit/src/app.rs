@@ -1190,8 +1190,10 @@ impl App {
             }
             if let Some(popup) = self.ui.popup.as_mut() {
                 let room = menu_room(self.areas.title, w, h);
+                overlays::fit_modify_room(&mut popup.menu, &mut p);
                 popup.menu.place_in(&mut p, room);
                 if let Some(s) = popup.sub.as_mut() {
+                    overlays::fit_modify_room(&mut s.menu, &mut p);
                     s.menu.place_in(&mut p, room);
                 }
             }
@@ -4826,7 +4828,9 @@ mod tests {
         assert!(app.save_session());
         let back = Session::read(&dir.join("session.ini")).unwrap();
         assert_eq!(back.focus.len(), 1);
-        assert!(mdshared_app::paths::same_path(&back.focus[0].0, &file));
+        // The tab holds the file's canonical path (/private/var on macOS, a long name on Windows).
+        let held = app.docs.tabs[k].path.clone().unwrap();
+        assert!(mdshared_app::paths::same_path(&back.focus[0].0, &held));
         assert_eq!(back.focus[0].1, 12);
         let mut docs = r4_docs();
         docs.add_pending(&file);
