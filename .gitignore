@@ -5,3 +5,6 @@ spikes/*/target/
 .claude/worktrees/
 
 timings.txt
+
+# Magic Context's own folder, not part of the app.
+.cortexkit/
