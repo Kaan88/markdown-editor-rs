@@ -397,8 +397,9 @@ fn the_first_note_a_group_gets_writes_its_home_and_says_where_the_notes_go() {
     // The toast names the group and the folder its notes now go in, which is the group's own
     // name: the folder reads in Explorer as the group reads in the pane.
     let says = toast(&a);
+    let folder = std::path::Path::new("library").join("Personal");
     assert!(
-        says.contains("Personal") && says.contains("library\\Personal"),
+        says.contains("Personal") && says.contains(&*folder.to_string_lossy()),
         "{says}"
     );
     // Nothing that was already there was moved, and the second note adds no second line.
