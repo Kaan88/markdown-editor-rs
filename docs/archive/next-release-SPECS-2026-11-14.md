@@ -1,3 +1,5 @@
+> Archived 2026-11-21 from `docs/next-release/SPECS.md` at commit `2b407d2`. History, not the current state: read `docs/STATE.md`. Nothing below this line was changed.
+
 # Next-release work: rules and feature specs
 
 Written for agents on the Linux machine on 2026-11-14. Paths such as `~/src/md/wt/<repo>-<key>` were that machine's git worktrees: on a fresh clone use the branch `f/<key>` instead, and any shared build folder you like. See "START HERE" in `docs/HANDOFF.md` for the state of each branch.

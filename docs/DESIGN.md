@@ -1,18 +1,71 @@
-# Design: mdedit phase 1 (read-only)
+# Design: how each part is built
 
-Written 2026-11-12. Phase 1 of `docs/PLAN.md`: "Read-only: open a file in the shared shell, tabs,
-scrolling, selection, copy, find, highlighting, encodings detected and shown. Done when
-first-frame, memory and scroll budgets are met on the small and the 100 MB file." Editing is phase
-2; this design keeps the places editing will plug into (section 13) but builds none of it.
+Reference. One section per part, written when the part was built and numbered in the order they
+were written, so the numbers are a history and not an outline: use the table below to find a
+subject. When a part changes, **correct its section in place**; do not add a dated note under it.
+What is being worked on is in `docs/STATE.md`, and why things were decided is in
+`docs/DECISIONS.md`.
 
-The starting points are the four spike results in `spikes/*/RESULTS.md` (buffer, highlight,
-longlines, ime), the shared crates in `../markdown-shared-rs/crates`, and the viewer's shell in
-`../mv/bins/mdv-app/src`, which the editor's shell follows closely: the shared plan's step 4 (a
-window framework in `mdshared-ui`) was not done, so its fallback applies and mdedit writes its own
-window loop on the shared widgets, modelled on the viewer's.
+## Before you trust a section
 
-Nothing here is approved by the user; the user approves the interface by looking at the running
-application. Every number marked "spike" was measured on a loaded machine and is noisy.
+- **Sections 1 to 15 are the design of phase 1**, written on 2026-11-12 before anything was
+  built, for a program that could only read. Most of it still describes the code. What does not:
+  section 1 says the shared crates are path dependencies (they are pinned by commit, see
+  `docs/CODE.md`); sections 13, 14 and 15 (what phase 2 was to add, the test plan, the work
+  packages) are history.
+- **Some subjects have two or three sections**, the core first and the interface later: typing
+  help (30, 45), Markdown commands (31, 46), compare (35, 51, 58), replace in files (36, 52).
+  Section 43 amends 37 and 41. Section 19 sits after 28. Read all of a subject's sections.
+- **A section's date is when it was written**, and "not published", "branch `f/…`" or "core
+  only" in a heading was true that day. Everything up to section 68 has been released.
+- **Not written yet.** These are built and have no section here: the notes library and its pane
+  (on `main` for 1.3.0), visual editing (1.2.0), the preview pane as a pane (1.0.0; sections 54,
+  65 and 66 cover the hand-off and the live preview), pinned tabs, and the tabs left out at
+  start. Until their sections exist, the code and its tests are the reference, and the old
+  handoff in `docs/archive/` has the story. Whoever next changes one of them writes its section.
+
+## Find a subject
+
+| Subject | Sections |
+|---|---|
+| Crates, threads, how bytes become pixels, the first frame | 1, 3, 4, 5 |
+| The decisions of the phase 1 design | 2 |
+| Loading, encodings, line endings, saving, indentation | 6, 7, 16, 23, 34, 56 |
+| The text view, selection, carets, column selection | 8, 10, 25, 57, 59 |
+| Zoom, whitespace, matching bracket, word wrap, folding, the minimap | 20, 21, 22, 24, 27, 28, 37, 43 |
+| Find, replace, find in files | 9, 18, 26, 32, 40, 41, 43 |
+| Compare two files | 35, 51, 58 |
+| Replace in files | 36, 52 |
+| Line commands, typing help, Markdown commands, tables, completion | 29, 30, 31, 44, 45, 46, 60, 63 |
+| The shell: title row, bar, panes, the command line, the palette, settings | 11, 12, 33, 42, 47, 50 |
+| Split view, two views of one document | 38, 53 |
+| Macros | 39 |
+| Unsaved text across a close, crash recovery | 19, 61 |
+| mdview: the hand-off, the live preview | 54, 65, 66 |
+| The window: shadow, corners, the frosted backdrop | 48, 55, 64, 67 |
+| Paste an image | 62 |
+| Updates | 17 |
+| AI rewriting | 68 |
+| History: what phase 2 was to add, the test plan, work packages, review fixes | 13, 14, 15, 49 |
+
+## 0. How sections 1 to 15 began (2026-11-12)
+
+The opening of this document as it was first written, under the title "Design: mdedit phase 1
+(read-only)". Kept as it was.
+
+> Written 2026-11-12. Phase 1 of `docs/PLAN.md`: "Read-only: open a file in the shared shell, tabs,
+> scrolling, selection, copy, find, highlighting, encodings detected and shown. Done when
+> first-frame, memory and scroll budgets are met on the small and the 100 MB file." Editing is phase
+> 2; this design keeps the places editing will plug into (section 13) but builds none of it.
+>
+> The starting points are the four spike results in `spikes/*/RESULTS.md` (buffer, highlight,
+> longlines, ime), the shared crates in `../markdown-shared-rs/crates`, and the viewer's shell in
+> `../mv/bins/mdv-app/src`, which the editor's shell follows closely: the shared plan's step 4 (a
+> window framework in `mdshared-ui`) was not done, so its fallback applies and mdedit writes its own
+> window loop on the shared widgets, modelled on the viewer's.
+>
+> Nothing here is approved by the user; the user approves the interface by looking at the running
+> application. Every number marked "spike" was measured on a loaded machine and is noisy.
 
 ## 1. Crates and ownership
 
@@ -2230,4 +2283,3 @@ a made-up result and no engine (`--pref ai_connection=claude-api` to choose the 
 
 **Not run** (2026-11-19): real calls with real keys, the Codex CLI, a signed-in Claude Code
 rewrite, the credential store on Windows and macOS, anything on Windows.
-

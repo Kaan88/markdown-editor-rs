@@ -1,3 +1,5 @@
+> Archived 2026-11-21 from `docs/library-redesign.md` at commit `2b407d2`. History, not the current state: read `docs/STATE.md`. Nothing below this line was changed.
+
 # The notes library: redesign plan
 
 Written 2026-11-21 for the owner to approve or reject. Nothing in it is built. Every statement
