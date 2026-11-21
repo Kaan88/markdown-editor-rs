@@ -93,11 +93,17 @@ impl App {
         };
         let report = runs::write(&request, &mut gate);
         // The gate's borrow ends here: the window is the window's again.
+        if let Some(why) = &report.start_error {
+            // Nothing was written, and nothing after step 1 could have been: the card stays
+            // open with the plan, every tick, rename and merge in it, and the reason on the bar.
+            self.plan = Some(screen);
+            self.docs.set_toast(why);
+            self.redraw();
+            return;
+        }
         self.plan = None;
         self.plan_parked = None;
-        if let Some(why) = &report.start_error {
-            self.docs.set_toast(why);
-        } else if let Some(failure) = report
+        if let Some(failure) = report
             .link_failures
             .first()
             .or(report.group_failure.as_ref())
@@ -419,7 +425,7 @@ impl App {
                 let (sentence, can) = if which == Some(ShotDialog::RunUndoRecycled) {
                     // The source is not on disk and the record says it went to the Recycle Bin:
                     // `prepare` reads the disk and refuses, as it would for a real run.
-                    let plan = mdedit_core::runs::prepare(&run.record);
+                    let plan = mdedit_core::runs::prepare(&run.record, &root);
                     (
                         plan.sentence(&run.record.group_name()),
                         plan.refusal.is_none(),
@@ -460,12 +466,13 @@ impl App {
 
     /// "Undo this run" on the report: the question first, then the undo.
     pub(super) fn run_undo_ask(&mut self, path: PathBuf) {
-        let Some(record) = runs::load(&path, &self.library_dir().unwrap_or_default()) else {
+        let library = self.library_dir().unwrap_or_default();
+        let Some(record) = runs::load(&path, &library) else {
             self.docs
                 .set_toast("The record of that run cannot be read.");
             return;
         };
-        let plan = runs::prepare(&record);
+        let plan = runs::prepare(&record, &library);
         if let Some(why) = &plan.refusal {
             self.docs.set_toast(why);
         }
@@ -496,9 +503,9 @@ impl App {
             self.docs.set_toast(why);
         }
         self.library_rows();
-        self.ui.results.replace.outcome = Some(Outcome::undone(&report, &library));
-        self.ui.results.open = true;
-        self.ui.results.scroll = 0.0;
+        // The report takes the panel, and it is a new one: a run whose links could not be taken
+        // out says so there, with the reason, and stays undone-able.
+        self.show_outcome(Outcome::undone(&report, &library));
         self.redraw();
     }
 

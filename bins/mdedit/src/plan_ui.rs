@@ -886,37 +886,35 @@ impl PlanScreen {
             .collect()
     }
 
+    /// `library\Japan 2025\Tokyo\Asakusa.md`, as the preview shows it: the library folder's name
+    /// and then the path inside it. A note outside the library (a group whose folder is
+    /// elsewhere, 5.1) shows its own path: it is where the note is written, and `library\` in
+    /// front of `D:\notes\work` would name a path that is nowhere.
+    fn written_path(&self, path: &Path) -> String {
+        let sep = std::path::MAIN_SEPARATOR;
+        let Ok(rel) = path.strip_prefix(&self.root) else {
+            return path.display().to_string();
+        };
+        let mut s = library::DIR.to_string();
+        for part in rel.components() {
+            s.push(sep);
+            s.push_str(&part.as_os_str().to_string_lossy());
+        }
+        s
+    }
+
     /// `library\Japan 2025\Tokyo\Asakusa.md`, as the preview shows it.
     pub fn target_text(&self, i: usize) -> String {
-        let sep = std::path::MAIN_SEPARATOR;
         match self.targets.get(i) {
-            Some(t) => {
-                let rel = t.path.strip_prefix(&self.root).unwrap_or(&t.path);
-                let mut s = library::DIR.to_string();
-                for part in rel.components() {
-                    s.push(sep);
-                    s.push_str(&part.as_os_str().to_string_lossy());
-                }
-                s
-            }
+            Some(t) => self.written_path(&t.path),
             None => String::new(),
         }
     }
 
     /// `library\Japan 2025\`: the folder of the group.
     pub fn dest_text(&self) -> String {
-        let sep = std::path::MAIN_SEPARATOR;
-        let rel = self
-            .dest
-            .home
-            .strip_prefix(&self.root)
-            .unwrap_or(&self.dest.home);
-        let mut s = library::DIR.to_string();
-        for part in rel.components() {
-            s.push(sep);
-            s.push_str(&part.as_os_str().to_string_lossy());
-        }
-        s.push(sep);
+        let mut s = self.written_path(&self.dest.home);
+        s.push(std::path::MAIN_SEPARATOR);
         s
     }
 
@@ -2392,5 +2390,50 @@ mod tests {
                 .unwrap_or(0);
             assert!(plain < 6, "an unchanged line has no strike ({plain})");
         }
+    }
+
+    /// A group can live outside the library folder ("Set the group's folder…", 5.1). The plan
+    /// then shows where the notes really go, never `library\` in front of a path that is not in
+    /// the library: `library\D:\notes\work\…` names nothing at all.
+    #[test]
+    fn a_group_outside_the_library_shows_its_own_path_and_the_header_and_rows_agree() {
+        let outside = if cfg!(windows) {
+            PathBuf::from(r"D:\notes\work")
+        } else {
+            PathBuf::from("/notes/work")
+        };
+        let mut s = screen_of(&japan(), Some(2));
+        s.set_dest(Dest {
+            name: "Work".to_string(),
+            home: outside.clone(),
+            is_new: false,
+        });
+        let dest = s.dest_text();
+        let mut want = outside.display().to_string();
+        want.push(std::path::MAIN_SEPARATOR);
+        assert_eq!(dest, want, "the header shows the group's own folder");
+        let target = s.target_text(0);
+        assert!(
+            target.starts_with(&outside.display().to_string()),
+            "the row shows the note's own path: {target}"
+        );
+        for text in [&dest, &target] {
+            assert!(
+                !text.contains(library::DIR),
+                "no library prefix on a path outside it: {text}"
+            );
+        }
+        // A group inside the library still reads the way 5.3 draws it.
+        let inside = screen_of(&japan(), Some(2));
+        assert!(
+            inside.dest_text().starts_with(library::DIR),
+            "{}",
+            inside.dest_text()
+        );
+        assert!(
+            inside.target_text(0).starts_with(library::DIR),
+            "{}",
+            inside.target_text(0)
+        );
     }
 }

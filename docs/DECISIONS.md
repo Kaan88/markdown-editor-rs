@@ -454,3 +454,30 @@ the owner's to forgive.
 **Overturned by.** The figure growing on a library of ordinary size, where no feature explains
 it; or idle CPU proving to cost battery on a laptop, which nobody has measured.
 **From.** The measurement pass of 2026-11-21 and the owner's answer to it.
+
+## D-064 - 2026-11-21 - Undo confines what it removes, and a run whose lines stay is not undone
+
+**Decision.** Undo removes or writes nothing a record names until that path has passed the same
+`inside` check the write makes: the library folder, or the group's folder, in one function used by
+both (`inside_any` is that function for a request). The check is made once in `prepare`, before
+anything is planned for removal, and a record naming a path outside those two folders is refused
+whole, the way the Recycle Bin refusal is: the sentence names the path, and Close is the dialog's
+only button. Separately, a run whose links could not be taken out of a library file — the ordinary
+case of that file being open with unsaved changes — keeps the notes those lines name, and its
+record goes to `links pending` instead of `undone`, so Undo is offered again and finishes the job
+once the file can be written.
+**Why.** A record is a file in `.runs` like any other, and undo deletes and writes what it names.
+One that names `C:\...` or `D:\notes\work\...` was not written by this program, whose writes refuse
+those paths (4.1, 6.2, 6.3), so none of its paths can be trusted, and a partial undo would be the
+half-act 4.3 forbids. A per-row "kept" was rejected for that reason: it would still act on the rows
+that happen to look sound in a record already known to be wrong. On the second fault, 4.5.2 exists
+so that the pane never shows a link to a file that is gone: a line that stays in the file means its
+note stays with it. `links pending` is already 4.4's state for "the files are dealt with but a
+library file would not take its lines", and it is live, so "AI runs…" keeps "Undo this run…" where
+the owner left it and the panel says "The run is not undone" with the reason.
+**Overturned by.** A record that can prove its own origin — the group's folder read back from the
+group's library file, which is inside the library — would let undo trust a path outside the library,
+which today it must not: the group's folder is still the record's own word, as it is the owner's
+word when a plan is written. Phase T's Recycle Bin would make a wrong removal recoverable, but not
+the reason for the check.
+**From.** The review of 2026-11-21 and faults F1 and F2.

@@ -38,7 +38,7 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 - **One tick box and one switch**: the Replace-in-files confirmation draws its ticks with the
   shared `mdshared-ui` `check`, and the AI review its Changes / Preview switch with `segments`;
   a screen test pins each to the pixels the private drawing made.
-- mdedit is at 592 tests (the app's own unit tests; 1274 in the workspace).
+- mdedit is at 595 tests (the app's own unit tests; 1281 in the workspace).
 
 ## In hand
 
@@ -53,7 +53,9 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
   the window's own `library_attempt` gate. The report takes the results panel with "Undo this
   run", and `Undo` asks first, takes out the links, then only the files whose SHA-256 is the one
   recorded, then the group's file when only its heading is left, then the folders while they are
-  empty; a record is marked "undone" and stays. "AI runs…" (the AI menu and the Notes library
+  empty; nothing outside the library and the group's folder is removed, and a run whose lines
+  could not be taken out stays "links pending" so Undo can be pressed again; a record is marked
+  "undone" and stays. "AI runs…" (the AI menu and the Notes library
   menu) lists the records of the runs, with Show the notes, Undo this run and Finish. The Notes
   pane draws "Plan ready: N notes · Show · Drop" at its foot while a plan is parked. Not built:
   the Recycle Bin (step 8, phase T), the progress row "Writing… 14 of 23" with Cancel, "Ask the
