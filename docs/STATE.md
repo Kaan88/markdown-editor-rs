@@ -38,8 +38,7 @@ in the core, the workspace green.
   built: the Recycle Bin, the progress row with Cancel, "Ask the AI…", per-source headings.
 - **Mockups** of three AI screens (plan, rewrite review, task window): branch `mock/ai-review`,
   worktree `..\mdedit-mock`, `--mock`, shots in `shots\mock\`. A drawing; not to be merged.
-- **The Claude credits ran out on 2026-11-22**, so two agents died mid-work and everything from
-  now goes to deepseek until they are restored (D-284's mode, with no Claude at all). What they
+- **Two agents died mid-work on 2026-11-22** when the Claude credits ran out. What they
   left is uncommitted and unreviewed: a stranger's draft, to be read, run, and never committed as
   finished. **Nothing has been built since they stopped**, so neither tree is known to compile.
   - **"Move the notes…"** (`ai-library-plan.md` 5.12) died part-way: branch `f/move-notes`,
@@ -65,11 +64,11 @@ in the core, the workspace green.
   `--mock term-<name>`, 20 shots in `shots\mock-term\`, numbers in `numbers.txt`. Output in one
   block per command — command, exit code, duration, output — each collapsible, searchable,
   openable in mdedit, or savable as a note. `ecosystem-ideas.md` 12 says **Don't**; the owner
-  wants that reconsidered as *possible* in a document of its own pointing at the shots, and
-  **that document is not written**. Established by drawing: blocks need the shell to emit OSC 133
-  marks, so `plain-*.png` (no marks, one stream, every block action dead) is the case to survive;
-  a block costs ~46 px; only failure deserves a mark; and "no terminal" in the charter makes this
-  a third app or a written exception.
+  asked for that to be reconsidered in a document of its own: **`docs/terminal.md`**, which says
+  *possible*, as a third app, for the block version only (10-17 pw, an estimate), and waits for
+  the owner. Established by drawing: blocks need OSC 133 marks from the shell, so `plain-*.png`
+  (no marks, one stream) is the case to survive; a block costs ~46 px; only failure deserves a
+  mark; and "no terminal" in the charter makes this a third app or a written exception.
 
 ## Waiting for the owner
 
@@ -86,15 +85,13 @@ in the core, the workspace green.
 
 ## Next
 
-1. **The terminal document**, as the owner asked: a document of its own that upgrades
-   `ecosystem-ideas.md` 12 from "Don't" to possible and points at `shots\mock-term\` on
-   `mock/terminal`. `ecosystem-ideas.md` itself has someone else's uncommitted work in it, so
-   its pointer waits until that is committed or dropped.
+1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
+   in that file (§6b-6d, someone else's) is committed or dropped.
 2. Clear the dependabot queue per the triage (above): merge two after a rebase, close three, raise
-   the PR limit. No Claude needed.
+   the PR limit.
 3. Then read the two dead agents' trees and decide per tree. "Move the notes…" has 2,545 lines of
    model and 1,316 of tests nobody has run — run them first; if they pass, the window side is a
-   well-specified job for a deepseek agent. The settings half needs a restart on `pages`.
+   well-specified job. The settings half needs a restart on `pages`.
 4. The plan's order afterwards: the shared pieces, then Split by AI (section 12), then tag
    1.3.0 or not, under "Waiting for the owner".
 
