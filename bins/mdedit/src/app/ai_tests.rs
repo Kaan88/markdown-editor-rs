@@ -955,3 +955,19 @@ fn only_a_whole_text_file_formatted_is_switched() {
     assert!(a.docs.rename_offer.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_new_run_drops_the_result_escape_kept() {
+    let (mut a, dir) = ai_app("plain words\n");
+    a.command(C::AiFormat);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.key_pressed(keys::Key::Name(KeyName::Escape), None);
+    assert!(a.ai.panel.is_none() && a.docs.ai_kept && a.ai.kept.is_some());
+    // Another run: the old result is no longer the last one, from the moment it starts.
+    a.command(C::AiFormat);
+    assert!(a.ai.running());
+    assert!(a.ai.kept.is_none() && !a.docs.ai_kept);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    assert!(a.ai.kept.is_none() && !a.docs.ai_kept);
+    let _ = std::fs::remove_dir_all(&dir);
+}

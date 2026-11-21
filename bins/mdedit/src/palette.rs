@@ -435,6 +435,7 @@ fn icon(id: C) -> &'static str {
         C::AiEditPrompts => glyph::DOC,
         C::AiSettings => glyph::SLIDERS,
         C::AiCancel => glyph::STOP,
+        C::AiShowResult => crate::chrome::SPARKLE,
         C::Language => glyph::CODE,
         C::Library | C::LibraryAdd | C::ShowInLibrary => glyph::BOOKMARK,
         C::LibraryEdit => glyph::DOC,
@@ -517,6 +518,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::PinTab => has_tab,
         C::AiFormat | C::AiFix | C::AiRewrite => ready.is_some() && docs.ai_status.is_none(),
         C::AiCancel => docs.ai_status.is_some(),
+        C::AiShowResult => docs.ai_kept,
         C::Language => ready.is_some(),
         C::LibraryAdd => has_file,
         C::ShowInLibrary => docs

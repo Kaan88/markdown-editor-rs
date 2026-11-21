@@ -1956,6 +1956,7 @@ impl App {
             C::AiEditPrompts => self.ai_edit_prompts(),
             C::AiSettings => self.ai_open_settings(),
             C::AiCancel => self.ai_cancel(),
+            C::AiShowResult => self.ai_show_kept(),
             C::Language => self.open_languages(),
             C::Library => self.library_open(),
             C::LibraryAdd => self.library_add(),

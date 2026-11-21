@@ -398,6 +398,9 @@ pub struct Ai {
     pending: HashMap<u64, Ask>,
     pub run: Option<Run>,
     pub panel: Option<Panel>,
+    /// The review that Escape closed: its result stays until it is shown again and applied or
+    /// discarded, replaced by another run, or the program ends.
+    pub kept: Option<Review>,
     pub bar: Option<Bar>,
     /// The last run asked, for Try again.
     pub last: Option<Spec>,

@@ -31,7 +31,7 @@ impl App {
     /// The preference changed: what was read from the old folder and what the pane held of it
     /// go, and the new folder is read when it is next listed (at once, if the pane shows).
     pub(super) fn library_dir_changed(&mut self) {
-        self.docs.library = library::Library::default();
+        self.docs.forget_library();
         self.ui.library.cursor = None;
         self.ui.library.stop_edit();
         self.ui.drop_library_field_focus();
@@ -82,13 +82,13 @@ impl App {
     /// list pays for it.
     pub(super) fn library_load(&mut self) {
         let Some(dir) = self.library_dir() else {
-            self.docs.library = library::Library::default();
+            self.docs.forget_library();
             return;
         };
-        if self.docs.library.dir == dir && !self.docs.library.changed() {
+        if self.docs.library_read.dir == dir && !self.docs.library_read.changed() {
             return;
         }
-        self.docs.library = library::read(&dir);
+        self.docs.hold_library(library::read(&dir));
     }
 
     /// The rows of the pane, with the library read again first. The folder is looked at at
@@ -382,7 +382,13 @@ impl App {
                 return;
             }
         };
-        let new = library::add_note(&text, section, &title, &path);
+        let base = file.parent().map(Path::to_path_buf).unwrap_or_default();
+        let new = library::add_note(
+            &text,
+            section,
+            &title,
+            &crate::library_pane::link_path(&base, &path),
+        );
         // Written only when it reads back as the notes there were and this one at its place.
         let before = library::parse(&text, &self.docs.library.dir).entries;
         let after = library::parse(&new, &self.docs.library.dir).entries;

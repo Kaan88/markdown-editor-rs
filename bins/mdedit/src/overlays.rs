@@ -751,6 +751,13 @@ pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
         )
         .enabled(idle),
     ];
+    if docs.ai_kept {
+        items.push(cmd(
+            C::AiShowResult,
+            "Show the &last result",
+            crate::chrome::SPARKLE,
+        ));
+    }
     for (k, p) in docs.ai_prompts.iter().enumerate() {
         let mut item = Item::new(Act::AiPrompt(k), p.name.replace('&', "&&"))
             .icon(glyph::PLAY)

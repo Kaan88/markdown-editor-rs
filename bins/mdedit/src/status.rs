@@ -2,6 +2,7 @@
 //! load progress on the left. 26 logical px across the window's bottom.
 
 use crate::chrome::{Ctx, glyph};
+use crate::commands::strings;
 use crate::docs::{DocState, Docs};
 use crate::ui::{Act, Hit};
 use mdedit_core::typing::Indent;
@@ -141,7 +142,11 @@ pub fn fields(docs: &Docs) -> (String, Vec<String>) {
                     .map(|a| a.summary())
                     .unwrap_or_default()
             };
-            let left = docs.ai_status.clone().unwrap_or(left);
+            let left = docs
+                .ai_status
+                .clone()
+                .or_else(|| docs.ai_kept.then(|| strings::AI_RESULT_READY.to_string()))
+                .unwrap_or(left);
             let mut right = Vec::new();
             if docs.recording {
                 right.push("Recording".to_string());

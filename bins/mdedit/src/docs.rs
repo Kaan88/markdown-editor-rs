@@ -1495,8 +1495,15 @@ pub struct Docs {
     /// The notes library, as the palette lists it: read when it is first shown and whenever a
     /// library file has been saved since ([`App::library_load`](crate::app::App)).
     pub library: mdshared_app::library::Library,
+    /// What the reader found, with the library files that only name a note still in it: the
+    /// folder is compared to this to know whether anything was saved, added or removed since
+    /// (`library` leaves those files out, see `library_pane::without_notes`).
+    pub library_read: mdshared_app::library::Library,
     /// What a running AI rewrite has done so far, shown at the left of the status strip.
     pub ai_status: Option<String>,
+    /// A result of the AI is kept (Escape closed its review): the status strip says so, and the
+    /// last result can be shown again.
+    pub ai_kept: bool,
     /// The step of the moving strip over the status bar while a rewrite runs.
     pub ai_phase: u32,
     pub tabs: Vec<Doc>,
@@ -1572,6 +1579,18 @@ pub struct Docs {
 }
 
 impl Docs {
+    /// Nothing of the notes library is held: it is read when it is next listed.
+    pub fn forget_library(&mut self) {
+        self.library = mdshared_app::library::Library::default();
+        self.library_read = mdshared_app::library::Library::default();
+    }
+
+    /// Holds what the reader found, and the library the app shows from it.
+    pub fn hold_library(&mut self, read: mdshared_app::library::Library) {
+        self.library = crate::library_pane::without_notes(&read);
+        self.library_read = read;
+    }
+
     pub fn new(code_page: u32, waker: Waker) -> Docs {
         Docs {
             tabs: Vec::new(),
@@ -1610,7 +1629,9 @@ impl Docs {
             crash: None,
             ai_prompts: Vec::new(),
             library: mdshared_app::library::Library::default(),
+            library_read: mdshared_app::library::Library::default(),
             ai_status: None,
+            ai_kept: false,
             ai_phase: 0,
             check_updates: true,
             prefs: Prefs::default(),

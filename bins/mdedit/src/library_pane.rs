@@ -547,6 +547,67 @@ pub fn same_note(a: &std::path::Path, b: &std::path::Path) -> bool {
     mdshared_app::paths::same_path(&lexical(a), &lexical(b))
 }
 
+/// The note entry of any group that names the file `file`, and its group. The spellings of the
+/// path may differ (`./a.md`, `../library/a.md`, links and drive letters in another case), so
+/// the text is folded first, and the disk is asked for the files that share a name with it
+/// ([`mdshared_app::paths::canonical_or_absolute`]: links resolved).
+pub fn listing<'a>(
+    library: &'a Library,
+    file: &std::path::Path,
+) -> Option<(
+    &'a mdshared_app::library::Group,
+    &'a mdshared_app::library::Entry,
+)> {
+    let name = file.file_name()?;
+    let real = std::cell::OnceCell::new();
+    library.entries().find(|(_, e)| {
+        same_note(&e.path, file)
+            || (e.path.file_name().is_some_and(|n| {
+                n.to_string_lossy().to_lowercase() == name.to_string_lossy().to_lowercase()
+            }) && {
+                let wanted = real.get_or_init(|| mdshared_app::paths::canonical_or_absolute(file));
+                mdshared_app::paths::same_path(
+                    &mdshared_app::paths::canonical_or_absolute(&e.path),
+                    wanted,
+                )
+            })
+    })
+}
+
+/// The library as the app shows it: a library file that only names a note is not a group. A
+/// note made in the library folder (by an older version, or by hand) is a `.md` file the reader
+/// takes for a library file; when another library file lists it as a note and it lists no note
+/// of its own, it is that note and nothing else, and is left out here. Headings in it are not
+/// sections of a group (a note is written in with headings at once). A library file that lists
+/// notes of its own is kept even when another lists it: a library may link one file from
+/// another on purpose.
+pub fn without_notes(full: &Library) -> Library {
+    let mut groups = Vec::with_capacity(full.groups.len());
+    for group in &full.groups {
+        let hidden = group.entries.is_empty() && listing(full, &group.file).is_some();
+        if !hidden {
+            groups.push(group.clone());
+        }
+    }
+    Library {
+        dir: full.dir.clone(),
+        groups,
+    }
+}
+
+/// How a note is written into a library file: relative to the library folder `dir` when it is
+/// inside it (so the library can be moved or synced as a whole), as it is otherwise.
+pub fn link_path(dir: &std::path::Path, note: &std::path::Path) -> PathBuf {
+    let (base, real) = (
+        mdshared_app::paths::canonical_or_absolute(dir),
+        mdshared_app::paths::canonical_or_absolute(note),
+    );
+    match real.strip_prefix(&base) {
+        Ok(inside) if !inside.as_os_str().is_empty() => inside.to_path_buf(),
+        _ => note.to_path_buf(),
+    }
+}
+
 /// Whether the library lists the file `path` as a note, in any group.
 pub fn lists(library: &Library, path: &std::path::Path) -> bool {
     library.entries().any(|(_, e)| same_note(&e.path, path))
@@ -1069,5 +1130,97 @@ mod tests {
             Empty::NoFolder
         );
         assert_eq!(empty_state(&std::env::temp_dir()), Empty::NoNotes);
+    }
+
+    #[test]
+    fn a_link_is_relative_inside_the_library_folder_and_as_it_is_outside_it() {
+        let lib = std::env::temp_dir()
+            .join("mdedit-link-path")
+            .join("library");
+        let inside = lib.join("Home").join("Budget.md");
+        assert_eq!(
+            link_path(&lib, &inside),
+            PathBuf::from("Home").join("Budget.md")
+        );
+        assert_eq!(link_path(&lib, &lib.join("a.md")), PathBuf::from("a.md"));
+        // Spelled with a `..` that comes back in.
+        let climbing = lib.join("..").join("library").join("a.md");
+        assert_eq!(link_path(&lib, &climbing), PathBuf::from("a.md"));
+        // Outside, beside it or above it, the path stays whole.
+        let beside = lib.with_file_name("library2").join("a.md");
+        assert_eq!(link_path(&lib, &beside), beside);
+        let above = lib.parent().unwrap().join("a.md");
+        assert_eq!(link_path(&lib, &above), above);
+        // The folder itself is not a note inside it.
+        assert_eq!(link_path(&lib, &lib), lib);
+    }
+
+    fn group_of(file: &str, notes: &[(&str, &str)]) -> mdshared_app::library::Group {
+        let mut g = library().groups[0].clone();
+        g.file = PathBuf::from(file);
+        g.sections.clear();
+        g.entries = notes
+            .iter()
+            .enumerate()
+            .map(|(line, (title, path))| {
+                let mut e = entry(title, &[]);
+                e.path = PathBuf::from(path);
+                e.line = line + 3;
+                e
+            })
+            .collect();
+        g
+    }
+
+    #[test]
+    fn a_library_file_that_lists_no_note_and_is_listed_by_another_is_not_shown() {
+        let full = Library {
+            dir: PathBuf::from("/lib"),
+            groups: vec![
+                group_of(
+                    "/lib/a.md",
+                    &[("Budget", "/lib/b.md"), ("Plan", "/lib/c.md")],
+                ),
+                group_of("/lib/b.md", &[]),
+                group_of("/lib/c.md", &[("Own", "/other/own.md")]),
+                group_of("/lib/d.md", &[]),
+            ],
+        };
+        let shown: Vec<_> = without_notes(&full)
+            .groups
+            .iter()
+            .map(|g| g.file.to_string_lossy().into_owned())
+            .collect();
+        // b is a note and nothing else; c is listed too but has notes of its own; d is listed
+        // by nobody.
+        assert_eq!(shown, vec!["/lib/a.md", "/lib/c.md", "/lib/d.md"]);
+        assert_eq!(without_notes(&full).dir, full.dir);
+        // A file that lists only itself is not hidden by that.
+        let own = Library {
+            dir: PathBuf::from("/lib"),
+            groups: vec![group_of("/lib/a.md", &[("Me", "/lib/a.md")])],
+        };
+        assert_eq!(without_notes(&own).groups.len(), 1);
+        let empty_alone = Library {
+            dir: PathBuf::from("/lib"),
+            groups: vec![group_of("/lib/z.md", &[])],
+        };
+        assert_eq!(without_notes(&empty_alone).groups.len(), 1);
+    }
+
+    #[test]
+    fn a_note_is_found_in_the_library_by_any_spelling_of_its_path() {
+        let full = Library {
+            dir: PathBuf::from("/lib"),
+            groups: vec![group_of(
+                "/lib/a.md",
+                &[("One", "/lib/../notes/one.md"), ("Two", "/lib/./two.md")],
+            )],
+        };
+        let found = |p: &str| listing(&full, std::path::Path::new(p)).map(|(_, e)| e.title.clone());
+        assert_eq!(found("/notes/one.md").as_deref(), Some("One"));
+        assert_eq!(found("/lib/two.md").as_deref(), Some("Two"));
+        assert_eq!(found("/lib/three.md"), None);
+        assert_eq!(found("/notes/two.md"), None);
     }
 }

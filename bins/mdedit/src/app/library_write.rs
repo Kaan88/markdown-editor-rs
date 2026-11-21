@@ -30,29 +30,16 @@ fn note_at(text: &str, dir: &Path, line: usize, path: &Path) -> bool {
         .any(|e| e.line == line && same_path(&e.path, path))
 }
 
-/// A name as a file name: nothing the file system refuses, no dots at the ends, not a name
-/// Windows keeps for devices. `None` when nothing is left.
+/// A name as a file name, by the one rule of the shared crate
+/// ([`library::folder_name`]): nothing the file system refuses, no `%` for the reader to take for
+/// `%20`, no dots at the end, not a name Windows keeps for devices. `None` when nothing is left
+/// to name it by: no text, or nothing but characters that were replaced.
 pub(super) fn file_stem_for(name: &str) -> Option<String> {
-    let stem: String = name
-        .chars()
-        .map(|c| {
-            if c.is_control() || "\\/:*?\"<>|".contains(c) {
-                '-'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let stem = stem.trim().trim_matches('.').trim();
-    let stem: String = stem.chars().take(100).collect();
-    if stem.is_empty() || stem.chars().all(|c| c == '-') {
-        return None;
-    }
-    const DEVICES: [&str; 8] = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "LPT1", "LPT2"];
-    if DEVICES.iter().any(|d| stem.eq_ignore_ascii_case(d)) {
-        return Some(format!("{stem}_"));
-    }
-    Some(stem)
+    let stem = library::folder_name(name);
+    // `folder_name` always gives something: `Untitled` for no name, `_` for what was replaced.
+    let no_name = name.trim().trim_end_matches(['.', ' ']).is_empty();
+    let all_replaced = stem.chars().all(|c| c == '_') && !name.contains('_');
+    (!no_name && !all_replaced).then_some(stem)
 }
 
 /// `stem.md` in `dir`, or `stem 2.md`, `stem 3.md` … when that is taken.
@@ -227,7 +214,7 @@ impl App {
                 }
             }
             LibAct::Refresh => {
-                self.docs.library = library::Library::default();
+                self.docs.forget_library();
                 self.library_changed();
             }
             _ => {
@@ -566,9 +553,10 @@ impl App {
         );
     }
 
-    /// Makes `<name>.md` beside the library file with `# <name>` in it, lists it under the
-    /// heading and opens it. The note is made only once the library file may be written, and
-    /// taken away again if the link could not be.
+    /// Makes `<name>.md` in a folder of its own beside the library file (named for the file, so
+    /// the library folder holds library files and nothing else) with `# <name>` in it, lists it
+    /// under the heading by a link relative to the library folder, and opens it. The note is made
+    /// only once the library file may be written, and taken away again if the link could not be.
     pub(super) fn library_new_note(&mut self, file: &Path, section: &[String], name: &str) {
         if let Err(why) = self.library_file_free(file) {
             self.docs.set_toast(&why);
@@ -578,23 +566,42 @@ impl App {
             self.docs.set_toast(&strings::library_not_a_name(name));
             return;
         };
-        let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
-        let note = free_name(&dir, &stem);
-        let heading = name.replace(['[', ']'], "");
-        if let Err(e) = std::fs::write(&note, format!("# {}\n", heading.trim())) {
+        // In a folder of its own, named for the group's file: the library folder holds the
+        // library files and nothing else, since every `.md` in it is read as one.
+        let base = file.parent().map(Path::to_path_buf).unwrap_or_default();
+        let own = file
+            .file_stem()
+            .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+        let dir = base.join(library::folder_name(&own));
+        let made = !dir.exists();
+        if let Err(e) = std::fs::create_dir_all(&dir) {
             self.docs
                 .set_toast(&strings::library_failed(&e.to_string()));
             return;
         }
+        let note = free_name(&dir, &stem);
+        let heading = name.replace(['[', ']'], "");
+        if let Err(e) = std::fs::write(&note, format!("# {}\n", heading.trim())) {
+            if made {
+                let _ = std::fs::remove_dir(&dir);
+            }
+            self.docs
+                .set_toast(&strings::library_failed(&e.to_string()));
+            return;
+        }
+        let link = crate::library_pane::link_path(&base, &note);
         let done = self.library_write(
             file,
-            |t| Some(library::add_note(t, section, name, &note)),
+            |t| Some(library::add_note(t, section, name, &link)),
             |b, a| a.entries.len() == b.entries.len() + 1,
         );
         if done {
             self.open(&note);
         } else {
             let _ = std::fs::remove_file(&note);
+            if made {
+                let _ = std::fs::remove_dir(&dir);
+            }
         }
     }
 
@@ -683,6 +690,25 @@ impl App {
             && real.parent() == Some(dir.as_path())
     }
 
+    /// Whether a library file lists `file` as a note, in any group: then it is a note and not a
+    /// library file, and it is not deleted (the toast says where it is listed). The folder is read
+    /// as it is on disk now, so a list drawn before another window changed it is no excuse.
+    fn library_lists_as_note(&mut self, file: &Path) -> bool {
+        let Some(dir) = self.library_dir() else {
+            return false;
+        };
+        let read = library::read(&dir);
+        let Some((group, entry)) = crate::library_pane::listing(&read, file) else {
+            return false;
+        };
+        let shown = file
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        let says = strings::library_is_a_note(&shown, &group.name, &entry.sections);
+        self.docs.set_toast(&says);
+        true
+    }
+
     /// Asks before a library file is deleted, saying its group and how many notes it lists. It
     /// is refused at once while a tab holds changes to it that are not saved.
     fn library_ask_delete(&mut self, file: &Path) {
@@ -692,6 +718,9 @@ impl App {
         }
         if !self.library_own_file(file) {
             self.docs.set_toast(strings::LIBRARY_NOT_IN_FOLDER);
+            return;
+        }
+        if self.library_lists_as_note(file) {
             return;
         }
         let (name, notes) = self
@@ -730,6 +759,9 @@ impl App {
         }
         if !self.library_own_file(file) {
             self.docs.set_toast(strings::LIBRARY_NOT_IN_FOLDER);
+            return false;
+        }
+        if self.library_lists_as_note(file) {
             return false;
         }
         let group = self.library_group_name(file);
@@ -792,9 +824,10 @@ impl App {
                 return false;
             }
         }
+        let link = crate::library_pane::link_path(to.parent().unwrap_or(Path::new("")), note);
         let added = self.library_write(
             to,
-            |t| Some(library::add_note(t, section, title, note)),
+            |t| Some(library::add_note(t, section, title, &link)),
             |b, a| a.entries.len() == b.entries.len() + 1,
         );
         if !added {
@@ -887,20 +920,21 @@ impl App {
         path: &Path,
     ) {
         let dir = self.docs.library.dir.clone();
+        let link = crate::library_pane::link_path(file.parent().unwrap_or(Path::new("")), path);
         self.library_write(
             file,
             |t| {
                 if !note_at(t, &dir, line, old) {
                     return None;
                 }
-                library::set_note_path(t, line, path)
+                library::set_note_path(t, line, &link)
             },
             |b, a| {
                 a.entries.len() == b.entries.len()
                     && a.entries
                         .iter()
                         .find(|e| e.line == line)
-                        .is_some_and(|e| same_path(&e.path, path))
+                        .is_some_and(|e| crate::library_pane::same_note(&e.path, path))
             },
         );
     }

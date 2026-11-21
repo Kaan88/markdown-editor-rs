@@ -181,6 +181,8 @@ pub enum CommandId {
     AiEditPrompts,
     AiSettings,
     AiCancel,
+    /// Brings back the review of the last result, which Escape closed.
+    AiShowResult,
 }
 
 pub struct Command {
@@ -396,6 +398,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::AiEditPrompts, "AI: Edit saved prompts", &[]),
     cmd(C::AiSettings, "AI: Settings", &[]),
     cmd(C::AiCancel, "AI: Stop rewriting", &[]),
+    cmd(C::AiShowResult, "AI: Show the last result", &[]),
 ];
 
 pub fn command(id: CommandId) -> &'static Command {
@@ -509,6 +512,7 @@ pub mod strings {
     pub const LIBRARY_EMPTY: &str =
         "The library is empty. \u{201c}Add this file to the notes library\u{201d} starts it.";
     pub const LIBRARY_NO_FOLDER: &str = "There is no folder for the notes library.";
+    pub const AI_RESULT_READY: &str = "AI result ready";
     pub const LIBRARY_PANE_NO_FOLDER: &str = "No library folder yet";
     pub const LIBRARY_NEW_GROUP_BUTTON: &str = "New group\u{2026}";
     pub const LIBRARY_ADD_BUTTON: &str = "Add this file";
@@ -523,6 +527,15 @@ pub mod strings {
     pub const LIBRARY_REMOVE: &str = "Remove";
     pub const LIBRARY_DELETE_TITLE: &str = "Delete the library file?";
     pub const LIBRARY_DELETE: &str = "Delete";
+    pub fn library_is_a_note(file: &str, group: &str, sections: &[String]) -> String {
+        let place = crate::palette::section_path(sections);
+        let place = if place.is_empty() {
+            group.to_string()
+        } else {
+            format!("{group} \u{203a} {place}")
+        };
+        format!("\u{201c}{file}\u{201d} is a note in {place}, not a library file. Remove it there.")
+    }
     pub const LIBRARY_NOT_IN_FOLDER: &str =
         "That file is not one of the library folder's own Markdown files: it is left alone.";
     pub fn library_delete_body(group: &str, file: &str, notes: usize) -> String {

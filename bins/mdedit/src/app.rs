@@ -56,6 +56,8 @@ use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, Wind
 mod access_tests;
 mod ai_events;
 #[cfg(test)]
+mod ai_kept_tests;
+#[cfg(test)]
 mod ai_tests;
 mod commands;
 mod compare_events;
@@ -77,6 +79,8 @@ mod language_tests;
 mod library;
 #[cfg(test)]
 mod library_keys_tests;
+#[cfg(test)]
+mod library_leak_tests;
 #[cfg(test)]
 mod library_pane_tests;
 #[cfg(test)]

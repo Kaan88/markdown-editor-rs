@@ -334,6 +334,7 @@ impl App {
                 info: false,
             }),
             Ok(id) => {
+                self.ai_drop_kept();
                 self.ai.last = Some(spec.clone());
                 self.ai.run = Some(Run {
                     id,
@@ -561,6 +562,7 @@ impl App {
     /// A finished run: shown for review, or applied at once when the setting says so and the
     /// text is still as it was.
     fn ai_finish(&mut self, run: Run, reply: &str) {
+        self.ai_drop_kept();
         // A document closed (or being read again) meanwhile still gets the review, blocked, so
         // the result can be copied.
         let doc = self.docs.index_of_id(run.doc).map(|i| &self.docs.tabs[i]);
@@ -738,6 +740,36 @@ impl App {
             via: self.ai_via(),
             scroll: 0.0,
         }));
+        self.caret_reset();
+        self.ai.tick += 1;
+        self.redraw();
+    }
+
+    /// Escape on a review: it closes, and its result is kept to be shown again (a stray click
+    /// beside it is ignored for the same reason). Discard is the button that throws it away.
+    fn ai_keep_review(&mut self) {
+        if let Some(Panel::Review(rv)) = self.ai.panel.take() {
+            self.ai.kept = Some(rv);
+            self.docs.ai_kept = true;
+        }
+        self.ai_close_panel();
+    }
+
+    /// The kept result is dropped: another run began or ended with a result of its own.
+    fn ai_drop_kept(&mut self) {
+        self.ai.kept = None;
+        self.docs.ai_kept = false;
+    }
+
+    /// "AI: Show the last result": the review Escape closed, as it was.
+    pub(super) fn ai_show_kept(&mut self) {
+        let Some(rv) = self.ai.kept.take() else {
+            return;
+        };
+        self.docs.ai_kept = false;
+        self.close_for_ai_panel();
+        self.ai.panel = Some(Panel::Review(rv));
+        self.ai_review_sync();
         self.caret_reset();
         self.ai.tick += 1;
         self.redraw();
@@ -988,7 +1020,7 @@ impl App {
                 }
             },
             Some(Panel::Review(rv)) => match name {
-                KeyName::Escape => self.ai_close_panel(),
+                KeyName::Escape => self.ai_keep_review(),
                 KeyName::Enter => {
                     let hit = if rv.blocked.is_some() {
                         AiHit::Copy
@@ -1201,7 +1233,7 @@ impl App {
             }
             "bar" => self.ai_failed("rate", "Claude API is busy (429).".into(), Some(40)),
             "settings" => self.ai_open_settings(),
-            "review" | "preview" | "stale" | "closed" => {
+            "review" | "preview" | "stale" | "closed" | "result-kept" => {
                 let text = result(&scope.text);
                 if kind == "stale" {
                     let mut p = self.docs.prefs.clone();
@@ -1227,6 +1259,9 @@ impl App {
                         && let Some(rv) = self.ai.review()
                     {
                         rv.blocked = Some(core_ai::BLOCKED_CLOSED.into());
+                    }
+                    if kind == "result-kept" {
+                        self.ai_keep_review();
                     }
                 }
             }

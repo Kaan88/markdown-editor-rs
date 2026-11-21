@@ -263,7 +263,7 @@ fn a_new_group_makes_a_library_file_from_the_template() {
     );
     name_it(&mut a, "Work: 2026");
     // The file name is the name made fit for a file; the group's name is the heading.
-    let made = l.dir.join("library").join("Work- 2026.md");
+    let made = l.dir.join("library").join("Work_ 2026.md");
     let text = read(&made);
     assert!(text.starts_with("# Work: 2026\n"), "{text}");
     assert_eq!(
@@ -282,17 +282,17 @@ fn a_new_group_makes_a_library_file_from_the_template() {
 }
 
 #[test]
-fn a_new_note_is_made_beside_the_library_file_listed_under_its_heading_and_opened() {
+fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened() {
     let (mut a, l) = lib("libw-new-note");
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Budget");
-    let note = l.dir.join("library").join("Budget.md");
+    let note = l.dir.join("library").join("personal").join("Budget.md");
     assert_eq!(read(&note), "# Budget\n");
     assert_eq!(
         read(&l.file),
         l.text().replacen(
             "\n\n### 2025",
-            &format!("\n- [Budget]({})\n\n### 2025", slash(&note)),
+            "\n- [Budget](personal/Budget.md)\n\n### 2025",
             1
         )
     );
@@ -306,7 +306,13 @@ fn a_new_note_is_made_beside_the_library_file_listed_under_its_heading_and_opene
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Budget");
     assert_eq!(read(&note), "# Budget\n");
-    assert!(l.dir.join("library").join("Budget 2.md").exists());
+    assert!(
+        l.dir
+            .join("library")
+            .join("personal")
+            .join("Budget 2.md")
+            .exists()
+    );
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
