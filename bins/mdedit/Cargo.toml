@@ -45,7 +45,7 @@ rfd = { version = "0.15.4", default-features = false }
 # GetACP (Globalization), the memory figures --trace prints (ProcessStatus, Threading) and the
 # first line of the clipboard for the find box (DataExchange, Memory), and the rename that never
 # replaces a file (Storage_FileSystem's MoveFileExW).
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_Storage_FileSystem",
