@@ -226,15 +226,11 @@ pub fn rows(
         )
         .unit("days")
         .help("Counted in days you use mdedit, not calendar days."),
-        Row::toggle(
-            SKIP_BRIEF,
-            "Don't reopen tabs barely looked at",
-            prefs.skip_brief,
-        )
-        .help("At start. Pinned tabs, the tab you left on and unsaved text always come back."),
+        Row::toggle(SKIP_BRIEF, mdshared_app::brief::SWITCH, prefs.skip_brief)
+            .help("At start. Pinned tabs, the tab you left on and unsaved text always come back."),
         Row::number(
             BRIEF_SECS,
-            "Looked at for less than",
+            mdshared_app::brief::SECONDS,
             prefs.brief_secs as i32,
             BRIEF_SECS_MIN as i32,
             BRIEF_SECS_MAX as i32,
