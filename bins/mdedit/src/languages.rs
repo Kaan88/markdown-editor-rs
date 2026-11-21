@@ -5,9 +5,13 @@
 //! variants for one framework (Rails, ASP).
 
 use mdedit_highlight::Language;
+use std::path::Path;
 
 /// What a document with no language is called.
 pub const PLAIN: &str = "Plain text";
+
+/// The extension a document with no language of its own is saved under.
+pub const PLAIN_EXT: &str = "txt";
 
 /// One name or extension per language offered.
 const TOKENS: &[&str] = &[
@@ -109,6 +113,23 @@ pub fn markdown() -> Option<Language> {
     Language::by_token("md")
 }
 
+/// The extension Save offers a document that has no file yet: the first token that leads back to
+/// the document's language as a file name does, so the file saved keeps the language it is shown
+/// in. [`PLAIN_EXT`] for plain text, and for a language no token here names as an extension.
+pub fn extension_of(language: Option<Language>) -> &'static str {
+    let Some(language) = language else {
+        return PLAIN_EXT;
+    };
+    TOKENS
+        .iter()
+        .copied()
+        .find(|token| {
+            Language::for_path(Path::new(&format!("x.{token}")), "")
+                .is_some_and(|l| l.name() == language.name())
+        })
+        .unwrap_or(PLAIN_EXT)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +152,26 @@ mod tests {
         assert_eq!(by_name("Klingon"), None);
         assert_eq!(markdown().map(Language::name), Some("Markdown"));
         assert_eq!(static_name("Rust"), Some("Rust"));
+    }
+
+    #[test]
+    fn a_languages_extension_leads_back_to_it_and_plain_text_is_txt() {
+        assert_eq!(extension_of(None), PLAIN_EXT);
+        assert_eq!(extension_of(markdown()), "md");
+        assert_eq!(extension_of(Language::by_token("rs")), "rs");
+        assert_eq!(extension_of(Language::by_token("toml")), "toml");
+        for language in all() {
+            let ext = extension_of(Some(language));
+            if ext == PLAIN_EXT {
+                continue;
+            }
+            let back = Language::for_path(Path::new(&format!("note.{ext}")), "");
+            assert_eq!(
+                back.map(Language::name),
+                Some(language.name()),
+                "note.{ext} for {}",
+                language.name()
+            );
+        }
     }
 }

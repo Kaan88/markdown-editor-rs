@@ -5,11 +5,18 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
-## Open: Save offers .txt for a note converted to Markdown (2026-11-21, owner)
+## Save offers a new note the extension of its language (2026-11-21, fixed on main)
 
-A new note converted to Markdown is still offered `<name>.txt` by Save: `save_as`
-(`app/commands.rs`) always names a new document `.txt`. It should take the extension from the
-document's language (`.md` once it is Markdown). Not fixed yet.
+A new note the AI made Markdown was still offered `<name>.txt` by Save: `save_as`
+(`app/commands.rs`) named every new document `.txt`. The name the dialog opens on is now
+`App::offered_save_name`: the document's own file, or its name under
+`languages::extension_of(language)` in the folder in use. `extension_of` takes the first of
+`languages::TOKENS` that leads back to that language as a file name does
+(`Language::for_path`), so the file saved keeps the language it is shown in; a language no
+token names as an extension, and plain text, keep `txt` (`PLAIN_EXT`). Tests
+`a_new_note_made_markdown_is_offered_a_md_name` (ai_tests; fails with the fix reverted: `txt`
+where `md` is wanted) and `a_languages_extension_leads_back_to_it_and_plain_text_is_txt`
+(languages). A tab with a file is unchanged; the rename bar still covers a file on disk.
 
 ## Release 1.2.1 (2026-11-21, released)
 

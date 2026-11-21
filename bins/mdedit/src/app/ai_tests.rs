@@ -819,6 +819,43 @@ fn a_text_file_formatted_as_markdown_is_markdown_and_offered_its_name() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A new note the AI makes Markdown has no file to rename, so Save offers it a `.md` name
+/// instead of the `.txt` every new document used to be offered.
+#[test]
+fn a_new_note_made_markdown_is_offered_a_md_name() {
+    engine();
+    let mut a = app();
+    a.command(C::NewFile);
+    let i = a.docs.active().unwrap();
+    super::files_tests::type_text(&mut a, "plain words");
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    let offered = |a: &App| {
+        let doc = a.docs.active_doc().unwrap();
+        a.offered_save_name(doc)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_string)
+    };
+    assert!(!a.docs.tabs[i].is_markdown());
+    assert_eq!(offered(&a).as_deref(), Some("txt"));
+
+    a.command(C::AiFormat);
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.compose();
+    a.key_pressed(keys::Key::Name(KeyName::Enter), None);
+    assert_eq!(text(&a), "# Done");
+    assert!(a.docs.tabs[i].is_markdown());
+    // Nothing to rename (no file yet), and the name Save opens on is the note's, as Markdown.
+    assert!(a.docs.rename_bar().is_none());
+    assert_eq!(offered(&a).as_deref(), Some("md"));
+    let doc = a.docs.active_doc().unwrap();
+    let offered = a.offered_save_name(doc);
+    assert_eq!(
+        offered.file_stem().and_then(|s| s.to_str()),
+        Some(doc.name().as_str())
+    );
+}
+
 /// Fable review #3: undoing the AI's change takes back the switch to Markdown and the bar, and
 /// nothing is kept for the file.
 #[test]

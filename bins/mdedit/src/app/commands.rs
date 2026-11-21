@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::commands::CommandId as C;
-use crate::docs::{EditOp, SaveFailed};
+use crate::docs::{Doc, EditOp, SaveFailed};
 use crate::image_paste;
 use crate::ui::{Act, After, BarField, BarItem, EditAct, Pending, Popup};
 use crate::updater;
@@ -750,12 +750,7 @@ impl App {
         let Some(doc) = self.docs.tabs.get(i).filter(|d| d.ready().is_some()) else {
             return SaveAs::Cancelled;
         };
-        // A new document is offered its name as a text file, in the folder in use.
-        let current = doc.path.clone().unwrap_or_else(|| {
-            self.start_dir()
-                .unwrap_or_default()
-                .join(format!("{}.txt", doc.name()))
-        });
+        let current = self.offered_save_name(doc);
         #[cfg(windows)]
         {
             let Some(to) = platform::pick_save(&current) else {
@@ -780,6 +775,18 @@ impl App {
             });
             SaveAs::Waiting
         }
+    }
+
+    /// The file the Save As dialog opens on: the document's own, or, for one that has no file
+    /// yet, its name under its language's extension (`.md` for a note the AI made Markdown,
+    /// `.txt` for plain text) in the folder in use.
+    pub(super) fn offered_save_name(&self, doc: &Doc) -> PathBuf {
+        doc.path.clone().unwrap_or_else(|| {
+            let ext = crate::languages::extension_of(doc.ready().and_then(|r| r.language));
+            self.start_dir()
+                .unwrap_or_default()
+                .join(format!("{}.{ext}", doc.name()))
+        })
     }
 
     /// Writes tab `i` to `to`; the toast says why when it fails. True when the file was written.
