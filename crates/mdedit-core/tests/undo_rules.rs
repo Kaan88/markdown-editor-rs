@@ -236,22 +236,33 @@ fn a_line_moved_to_another_section_keeps_its_note_and_the_question_says_so() {
     let moved = library::move_note(&with_section, line, &["Later".to_string()]).expect("moved");
     write_file(&group, &moved);
     let plan = runs::prepare(&record, &library);
+    let words = plan.sentence("Trip");
+    let mut gate = FileGate::new();
+    let done = runs::undo(&path, &record, &library, &mut gate);
+    // What is on disk: the note is there, with the line that lists it.
+    assert_eq!(
+        read(&library.join("Trip/One.md")),
+        "# One\n",
+        "the note is where it was"
+    );
+    assert!(read(&group).contains("[One]"), "its line stays too");
+    assert!(
+        done.removed_notes.is_empty(),
+        "undo removed {:?}",
+        done.removed_notes
+    );
+    // What the question said.
     assert!(
         plan.notes.is_empty(),
-        "the note is not to be removed: {plan:?}"
+        "the note is not to be removed: {:?}",
+        plan.notes
     );
     assert_eq!(plan.links_kept.len(), 1);
     assert_eq!(plan.held.len(), 1);
-    let words = plan.sentence("Trip");
     assert!(
         words.contains("1 line was edited or moved since and is kept, with its note."),
         "{words}"
     );
-    let mut gate = FileGate::new();
-    let done = runs::undo(&path, &record, &library, &mut gate);
-    assert!(done.removed_notes.is_empty(), "{done:?}");
-    assert_eq!(read(&library.join("Trip/One.md")), "# One\n");
-    assert!(read(&group).contains("[One]"), "its line stays too");
 }
 
 #[test]
@@ -276,7 +287,11 @@ fn a_line_that_appears_while_undo_runs_keeps_its_note() {
         }
     }));
     let done = runs::undo(&path, &record, &library, &mut gate);
-    assert!(done.removed_notes.is_empty(), "{done:?}");
+    assert!(
+        done.removed_notes.is_empty(),
+        "undo removed {:?}",
+        done.removed_notes
+    );
     assert_eq!(done.held_back, vec![note_path.clone()]);
     assert_eq!(
         read(&note_path),
@@ -295,20 +310,26 @@ fn another_library_file_that_lists_the_note_keeps_it() {
         "# Mine\n\n- [Mine, One](Trip/One.md)\n",
     );
     let plan = runs::prepare(&record, &library);
+    let words = plan.sentence("Trip");
+    let mut gate = FileGate::new();
+    let done = runs::undo(&path, &record, &library, &mut gate);
+    // What is on disk: the note stays for the owner's line, which is not touched either.
+    assert_eq!(read(&note_path), "# One\n", "the note is where it was");
+    assert!(read(&library.join("Mine.md")).contains("[Mine, One]"));
+    assert!(
+        done.removed_notes.is_empty(),
+        "undo removed {:?}",
+        done.removed_notes
+    );
+    // The run's own line is out.
+    assert!(!library.join("Trip.md").exists() || !read(&library.join("Trip.md")).contains("[One]"));
+    // What the question said.
     assert_eq!(plan.held, vec![note_path.clone()], "{plan:?}");
     assert!(plan.notes.is_empty());
-    let words = plan.sentence("Trip");
     assert!(
         words.contains("1 note stays, because another line in the library lists it."),
         "{words}"
     );
-    let mut gate = FileGate::new();
-    let done = runs::undo(&path, &record, &library, &mut gate);
-    assert!(done.removed_notes.is_empty(), "{done:?}");
-    assert_eq!(read(&note_path), "# One\n");
-    // The run's own line is out, and the owner's is not touched.
-    assert!(!read(&library.join("Trip.md")).contains("[One]") || !library.join("Trip.md").exists());
-    assert!(read(&library.join("Mine.md")).contains("[Mine, One]"));
 }
 
 #[test]
@@ -328,7 +349,11 @@ fn a_line_in_the_six_hundredth_library_file_keeps_the_note() {
     );
     let mut gate = FileGate::new();
     let done = runs::undo(&path, &record, &library, &mut gate);
-    assert!(done.removed_notes.is_empty(), "{done:?}");
+    assert!(
+        done.removed_notes.is_empty(),
+        "undo removed {:?}",
+        done.removed_notes
+    );
     assert_eq!(read(&library.join("Trip/One.md")), "# One\n");
 }
 
@@ -444,24 +469,31 @@ fn a_note_that_was_there_already_is_not_removed_by_undo_and_its_line_is() {
     assert_eq!(report.notes_present, vec![mine.clone()]);
     let path = report.record_path.clone().expect("a record");
     let record = runs::load(&path, &library).expect("the record");
+    let plan = runs::prepare(&record, &library);
+    let words = plan.sentence("Trip");
+    let done = runs::undo(&path, &record, &library, &mut gate);
+    // What is on disk first: the owner's file is where it was, and the run's line is gone.
+    assert_eq!(read(&mine), "# One\n", "the owner's file is where it was");
+    assert!(
+        done.removed_notes.is_empty(),
+        "undo removed {:?}",
+        done.removed_notes
+    );
+    assert_eq!(done.removed_links, 1, "the line the run added is taken out");
+    assert!(
+        !library.join("Trip.md").exists(),
+        "and nothing is left in the group's file"
+    );
+    // And what the record and the question said.
     assert!(
         !record.notes[0].created,
         "the record says it did not make it"
     );
-    let plan = runs::prepare(&record, &library);
     assert_eq!(plan.before, vec![mine.clone()]);
-    assert!(plan.notes.is_empty());
     assert!(
-        plan.sentence("Trip")
-            .contains("1 file was there before this run and is kept."),
-        "{}",
-        plan.sentence("Trip")
+        words.contains("1 file was there before this run and is kept."),
+        "{words}"
     );
-    let done = runs::undo(&path, &record, &library, &mut gate);
-    assert!(done.removed_notes.is_empty(), "{done:?}");
-    assert_eq!(done.removed_links, 1, "the line the run added is taken out");
-    assert_eq!(read(&mine), "# One\n", "the owner's file is where it was");
-    assert!(!read(&library.join("Trip.md")).contains("[One]") || !library.join("Trip.md").exists());
 }
 
 #[test]
@@ -554,12 +586,19 @@ fn a_group_file_that_was_there_is_not_removed_though_it_holds_only_a_heading_and
     );
     let path = report.record_path.clone().expect("a record");
     let record = runs::load(&path, &library).expect("the record");
-    assert!(!record.group.created, "and the record does not say it did");
     runs::undo(&path, &record, &library, &mut gate);
-    assert_eq!(read(&library.join("Trip.md")), "# Trip\nhome: Trip\n");
+    assert_eq!(
+        read(&library.join("Trip.md")),
+        "# Trip\nhome: Trip\n",
+        "the group's file was there before the run and is as it was"
+    );
     assert!(
         !library.join("Trip/One.md").exists(),
         "the note the run made goes"
+    );
+    assert!(
+        !record.group.created,
+        "and the record does not say the run made the file"
     );
 }
 
@@ -579,7 +618,11 @@ fn a_record_with_no_created_field_removes_no_file() {
     );
     let mut gate = FileGate::new();
     let done = runs::undo(&path, &record_old, &library, &mut gate);
-    assert!(done.removed_notes.is_empty(), "{done:?}");
+    assert!(
+        done.removed_notes.is_empty(),
+        "undo removed {:?}",
+        done.removed_notes
+    );
     assert_eq!(read(&library.join("Trip/One.md")), "# One\n");
     assert!(
         library.join("Trip.md").exists(),
@@ -797,7 +840,7 @@ fn a_directory_where_a_note_was_is_kept_and_not_removed() {
     );
     let record = Record::from_json(&json, &library).expect("a record");
     let plan = runs::prepare(&record, &library);
-    assert!(plan.notes.is_empty(), "{plan:?}");
+    assert!(plan.notes.is_empty(), "undo would remove {:?}", plan.notes);
     assert_eq!(plan.kept, vec![library.join("Trip/inner.md")]);
 }
 
@@ -861,32 +904,89 @@ fn a_note_larger_than_undo_reads_is_kept_unread() {
     assert!(big.exists());
 }
 
-#[cfg(unix)]
+#[test]
+fn an_original_larger_than_undo_reads_is_not_read_and_undo_is_refused() {
+    let (library, _req, path, mut record) = one_note_run("big-source");
+    let big = library.parent().expect("a parent").join("Big source.md");
+    let size = runs::DIGEST_MAX_BYTES + 1;
+    std::fs::File::create(&big)
+        .expect("a file")
+        .set_len(size)
+        .expect("its length");
+    record.source.path = big;
+    record.source.len = size;
+    let plan = runs::prepare(&record, &library);
+    let why = plan.refusal.clone().expect("refused");
+    assert!(why.contains("too large to be checked"), "{why}");
+    let mut gate = FileGate::new();
+    let done = runs::undo(&path, &record, &library, &mut gate);
+    assert!(done.removed_notes.is_empty());
+    assert_eq!(read(&library.join("Trip/One.md")), "# One\n");
+}
+/// A link at `link` to the file `target`, when this account may make one (Windows asks for a
+/// privilege or developer mode); `false` when it may not.
+fn make_file_link(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(target, link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_file(target, link);
+    made.is_ok()
+}
+
 #[test]
 fn a_link_where_a_note_was_is_not_followed_and_not_removed() {
     let dir = scratch("link");
     let library = dir.join("library");
     write_file(&library.join("Trip.md"), "# Trip\nhome: Trip\n");
-    let target = dir.join("elsewhere.md");
-    write_file(&target, "# One\n");
-    std::fs::create_dir_all(library.join("Trip")).expect("a folder");
-    std::os::unix::fs::symlink(&target, library.join("Trip/One.md")).expect("a link");
     let source = source_in(&dir);
-    let notes = format!(
-        "{{\"path\": \"Trip/One.md\", \"created\": true, \"sha256\": \"{}\", \"line\": \"- [x](x.md)\"}}",
-        digest("# One\n")
-    );
-    let json = hostile_record(
-        &library,
-        &source,
-        "{\"file\": \"Trip.md\", \"home\": \"Trip\", \"created\": true}",
-        &notes,
-    );
-    let record = Record::from_json(&json, &library).expect("a record");
+    let json = |digest: &str| {
+        hostile_record(
+            &library,
+            &source,
+            "{\"file\": \"Trip.md\", \"home\": \"Trip\", \"created\": true}",
+            &format!(
+                "{{\"path\": \"Trip/One.md\", \"created\": true, \"sha256\": \"{digest}\", \"line\": \"- [x](x.md)\"}}"
+            ),
+        )
+    };
+    // A link inside the library to a note that is inside it: the link is not a regular file.
+    let inside = library.join("Trip/real.md");
+    write_file(&inside, "# One\n");
+    if !make_file_link(&inside, &library.join("Trip/One.md")) {
+        eprintln!("skipped: this account may not make a symbolic link");
+        return;
+    }
+    let record = Record::from_json(&json(&digest("# One\n")), &library).expect("a record");
     let plan = runs::prepare(&record, &library);
-    assert!(plan.notes.is_empty(), "{plan:?}");
+    assert!(plan.notes.is_empty(), "undo would remove {:?}", plan.notes);
+    assert_eq!(plan.kept, vec![library.join("Trip/One.md")]);
+    // A link to a file outside the library: the whole record is refused.
+    std::fs::remove_file(library.join("Trip/One.md")).expect("the link goes");
+    let outside = dir.join("elsewhere.md");
+    write_file(&outside, "# One\n");
+    assert!(make_file_link(&outside, &library.join("Trip/One.md")));
+    let plan = runs::prepare(&record, &library);
+    assert!(plan.refusal.is_some(), "{plan:?}");
+    assert_eq!(
+        read(&outside),
+        "# One\n",
+        "what the link leads to is where it was"
+    );
 }
-
+#[test]
+fn a_library_too_large_to_read_in_full_is_not_a_library_undo_acts_on() {
+    let (library, _req, path, record) = one_note_run("incomplete");
+    for i in 0..4100 {
+        write_file(&library.join(format!("g{i:05}.md")), "# G\n");
+    }
+    let plan = runs::prepare(&record, &library);
+    let why = plan.refusal.clone().expect("refused");
+    assert!(why.contains("could not be read in full"), "{why}");
+    let mut gate = FileGate::new();
+    let done = runs::undo(&path, &record, &library, &mut gate);
+    assert!(done.removed_notes.is_empty());
+    assert_eq!(read(&library.join("Trip/One.md")), "# One\n");
+}
 // ---- A10: records of a later version ---------------------------------------------------------------
 
 #[test]

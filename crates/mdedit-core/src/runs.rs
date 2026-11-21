@@ -3654,4 +3654,47 @@ mod tests {
         assert!(!library.join(RUNS_DIR).exists(), "not even a record");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A path with `..` in it is not taken as it stands, even where folding it would land inside
+    /// the library: a run never writes one, so a record that holds one is not a record of a run.
+    #[test]
+    fn a_record_path_with_dots_in_it_is_refused_even_when_it_folds_to_a_path_inside() {
+        let dir = scratch("dots-inside");
+        let library = dir.join("library");
+        write_file(&library.join("Trip/One.md"), "# One\n");
+        let reach = Reach {
+            library: library.clone(),
+            home: None,
+        };
+        assert!(reach.allows(&library.join("Trip/One.md")));
+        assert!(
+            !reach.allows(&library.join("Trip/Other/../One.md")),
+            "it names the note, and still it is refused"
+        );
+        assert!(!reach.allows(&library.join("..").join("library").join("Trip/One.md")));
+        assert!(
+            !reach.allows(&library),
+            "the library folder itself is not a path of a run"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// File names compare as the disk compares them: `C:\Notes` and `c:\notes` are one folder on
+    /// Windows and macOS, so a record that spells the library in another case is not refused for
+    /// it, and `Trip` is not `Trips`.
+    #[test]
+    fn a_path_is_under_a_folder_part_by_part_in_the_case_the_disk_uses() {
+        assert!(under(Path::new("/lib/Trip/One.md"), Path::new("/lib")));
+        assert!(under(Path::new("/lib"), Path::new("/lib")));
+        assert!(!under(Path::new("/library/One.md"), Path::new("/lib")));
+        assert!(!under(Path::new("/lib"), Path::new("/lib/Trip")));
+        if mdshared_app::paths::NAMES_IGNORE_CASE {
+            assert!(under(Path::new("/LIB/trip/One.md"), Path::new("/lib/Trip")));
+        } else {
+            assert!(!under(
+                Path::new("/LIB/trip/One.md"),
+                Path::new("/lib/Trip")
+            ));
+        }
+    }
 }

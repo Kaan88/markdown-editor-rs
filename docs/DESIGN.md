@@ -2330,24 +2330,45 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
 - **The record** is `<library>/.runs/<UTC>-split.json`, with absolute paths made relative to the
   library folder first. `state` is `writing`, `links pending`, `done`, `stopped` or `undone`; its
   `notes[]` holds each note's path, SHA-256, line ranges, heading shift, sections and the exact
-  line that was written into the library file. `prune` keeps the newest 20 or the last 90 days.
+  line that was written into the library file. **It says what happened, not what was planned**
+  (D-065): `created` is on each note and picture and on the group, set only when this run made
+  the file, and `folders` lists only the folders that were not there, each parent the run made
+  included; the record is written at step 1 with `created` false and no folder, again after the
+  notes are written, and again when the group's file is made. A record with no `created` says
+  false. `RECORD_VERSION` is 1: `prune` keeps the newest 20 or the last 90 days **of the records
+  that load**, and a file that does not (a later version's, or not a record) is never counted and
+  never deleted; `list_all` gives those as `Unread`, which "AI runs..." draws with nothing in the
+  row to press.
 - **The gate.** Every library write goes through `App::library_attempt` (refuses a file open with
   unsaved changes, re-reads it, checks the new text, writes it atomically), and the check is
   `runs::check_links_added` / `check_links_removed`: the new file must be the old notes plus (or
   minus) exactly the planned lines, under their sections — a count is not enough. One call per
   library file, one write.
-- **Undo** asks first, with the numbers; then it confines every path the record names to the
-  library folder or the group's folder by the same `inside` check the write makes, refusing the
-  whole undo (with the path) when one is outside, before anything is planned for removal; then
-  links, then files whose SHA-256 is the recorded one, then the group's file when only its heading
-  and `home:` are left, then the folders while they are empty; the record is marked `undone` and
-  stays. A line the owner edited and a note the owner changed are kept and listed. A run whose
-  source is in the Recycle Bin refuses until it is back. A link that could not be taken out (the
-  library file open with unsaved changes) keeps its note, and the record goes to `links pending`,
-  which is live, so Undo can be pressed again; the panel's title reads "The run is not undone ·
-  {why} Try again." and the held notes are listed. `with_headings_removed` joins with the file's
-  own line ending, as every writer in `mdshared_app::library` does, so a CRLF library file stays
-  CRLF.
+- **Undo** asks first, with the numbers, and acts by these rules, all in `runs::undo` and
+  `runs::prepare` and none in the window. (0) **What the record may reach** (`Reach`, D-068): the
+  library folder, or the home the group's library file declares now, read from that file; no `..`
+  in a path; the group's file a `.md` directly in the library; notes `.md`, pictures an image
+  extension; an empty or relative library is none; a path that fails refuses the whole record,
+  naming it; `inside` compares part by part in the platform's case after the disk has been asked
+  where links lead, and an empty folder is nothing, not everything. (1) **The original** is
+  compared by length and SHA-256 always (`source_state`): gone, changed, or too large to compare,
+  undo is refused (D-067); a recycled one must be back. (2) The links, first: the exact recorded
+  line under the recorded section; a line edited or moved is kept with its note. The links and the
+  headings come out in one text, `runs::with_removals`, which the window's gate and the tests' gate
+  both call; the gate says an error when nothing was written. (3) **The library is read again from
+  its files** (`list_library`: every `.md` directly in the folder, past the reader's 512, up to
+  4,096, a file over 1 MiB as the reader takes it) and **a note is removed only if no library file
+  lists it** (D-066): the plan says so beforehand (`held`, `links_kept`), and `undo` checks again
+  after the links step. Then only a note or picture with `created` true, a regular file
+  (`symlink_metadata`, never a link), with the recorded SHA-256 read through a 64 MiB cap, and
+  re-read as it goes. A file that was there before the run is `before`: its line comes out, it
+  stays. (4) The group's file when `group.created` and only its heading and `home:` are left.
+  (5) The folders the record lists, deepest first, while empty, never a link. (6) The record is
+  marked `undone`, or `links pending` when a link could not be taken out. The panel's title reads
+  "The run is not undone · {why} Try again." and the held notes are listed. `with_headings_removed`
+  joins with the file's own line ending, as every writer in `mdshared_app::library` does.
+  **Finish** writes the line the record holds (not the absolute path) through the same `Reach`.
+  The Recycle Bin for undo's removals is not built (D-067).
 - **"AI runs…"** lists the records when it is opened (never at start), newest first, with "Show
   the notes", "Undo this run…" and, for a run that stopped, "Finish".
 - **"Split into notes…"** is in the tab's menu, the palette, the AI menu and the Notes library
@@ -2355,12 +2376,11 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
   until the document in front has a file and no unsaved changes.
 - **The Notes pane's foot** draws "Plan ready: N notes · Show · Drop" while a plan is parked; the
   count and the parked flag are in the Files region's signature.
-- Shots: `--dialog runs|run-undo|run-undo-recycled`, and `--plan-demo split --plan-parked`.
-- Tests: `mdedit_core::runs` (21: one per step of 4.3 that can be forced on disk, the record's
-  read and write, undo's rules, the confinement of every path it names, a CRLF library file, the
-  pruning) and `app::plan_write_tests` (8: the whole write, undo from the report, undo refused by
-  an unsaved library file and pressed again, a run that cannot start keeping its plan, a group
-  file that cannot be made, a demonstration, the repaint signature, the disabled command).
+- Shots: `--dialog runs|run-undo|run-undo-recycled|run-undo-original|runs-newer`, and `--plan-demo split --plan-parked`.
+- Tests: `mdedit_core::runs` (23 in the module) and `crates/mdedit-core/tests/undo_rules.rs` (27: each
+  of D-065 to D-068 forced on disk, and each one fails with its fix reverted), `app::plan_write_tests`
+  (8) and `app::undo_rules_tests` (5: the window's gate, the flat undo, the refusal when the
+  original is gone, the list of unreadable records).
 - **Not built:** the progress row and Cancel (the write runs between frames), so a run is never
   left in `stopped` by this program; step 8; "Ask the AI…".
 

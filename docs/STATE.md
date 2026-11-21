@@ -58,11 +58,11 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
   `mdedit_core::runs` makes the folders, the notes and the group's library file in the order of
   4.3, writes one record per run in `<library>/.runs`, and every library file is updated through
   the window's own `library_attempt` gate. The report takes the results panel with "Undo this
-  run", and `Undo` asks first, takes out the links, then only the files whose SHA-256 is the one
-  recorded, then the group's file when only its heading is left, then the folders while they are
-  empty; nothing outside the library and the group's folder is removed, and a run whose lines
-  could not be taken out stays "links pending" so Undo can be pressed again; a record is marked
-  "undone" and stays. "AI runs…" (the AI menu and the Notes library
+  run", and `Undo` asks first. It refuses unless the original is still the file the notes were cut
+  from (D-067), removes a note only if no library file lists it (D-066), only one this run made
+  (D-065), only inside the library or the group's home (D-068); a later version's record is
+  never pruned.
+  "AI runs…" (the AI menu and the Notes library
   menu) lists the records of the runs, with Show the notes, Undo this run and Finish. The Notes
   pane draws "Plan ready: N notes · Show · Drop" at its foot while a plan is parked. Not built:
   the Recycle Bin (step 8, phase T), the progress row "Writing… 14 of 23" with Cancel, "Ask the
@@ -94,8 +94,7 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 
 1. The plan's order: the shared pieces, then the plan card with Split at headings, then Split by
    AI. Its section 12 has the sequence and the cost.
-2. **Audit 3** (Fable), against `docs/review-prompts/audit3-scope.md`, which now covers everything
-   merged since 1.2.1: the notes library, its redesign phases, and phase 0 and 6a.
+2. **Audit 3**'s undo faults (A2 to A5, A9, A10, B2) are fixed on `fix/undo-rules`: D-065 to D-068.
 3. **1.3.0** is no longer held by phase 0; whether to tag it now is under "Waiting for the owner".
 
 ## Known to be wrong on `main`
@@ -112,6 +111,7 @@ faults that could lose a note or break a library that moves; these are still tru
 
 ## Known gaps, not planned unless they get in the way
 
+- Undo removes with `remove_file`, not the Recycle Bin: waits for the `trash` crate (D-067).
 - A note that goes missing on disk is marked at the next re-read or Refresh, not at once.
 - The Files and Functions faces of the pane have no keyboard.
 - The notes pane has no sort command and no filter box.
@@ -133,8 +133,8 @@ faults that could lose a note or break a library that moves; these are still tru
   against after, run in turn, means anything.
 - **Reviews.** Audit 1 (Astra, seven rounds) covered up to 1.1.2. Audit 2 (Fable) found faults
   that were all fixed for 1.2.0; the fixes have not been reviewed. Audit 3 was scoped
-  (`docs/review-prompts/audit3-scope.md`) and there is no record that it ran. Nothing since 1.2.0
-  has been reviewed by anyone: that is the whole notes library.
+  (`docs/review-prompts/audit3-scope.md`) and ran at `6cdeab2`; nothing since 1.2.0 has been reviewed
+  by anyone but it, and its fixes have not been reviewed: that is the whole notes library.
 - **Never checked by hand:** the KDE blur on Linux; pasting image files copied in a Linux file
   manager; the AppImage and the Linux packages on a desktop; the macOS builds on a desktop; the
   Windows installer; an installed copy updating itself and restarting.

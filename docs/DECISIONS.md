@@ -481,3 +481,109 @@ which today it must not: the group's folder is still the record's own word, as i
 word when a plan is written. Phase T's Recycle Bin would make a wrong removal recoverable, but not
 the reason for the check.
 **From.** The review of 2026-11-21 and faults F1 and F2.
+
+## D-065 - 2026-11-21 - The record holds what happened, not what was planned
+
+**Decision.** `created` is a field of each note and each picture in a record and of the group, set
+only after the run made the file (`create_new` returned Ok; `create_group` returned Ok), and
+`folders` lists only the folders that did not exist when the run began, each parent it made
+included, parents first. The record is written at step 1 with `created` false and no folder, and
+again after the notes are written and again when the group's file is made, so a run that stops
+part-way can be undone and undo knows its own files. A record with no `created` says false: it
+removes no file. Undo touches a file, a folder or a group's library file only when the record says
+the run made it; a note that was there already with the same bytes (3.9) is linked, counted, and
+never removed, and its line comes out, and the question says "1 file was there before this run and
+is kept." This replaces the sentence of D-061 (1) and plan 4.3 step 1 that the record holds "the
+whole plan", and the list of `record.folders` that was every folder a note uses.
+**Why.** Audit 3, A4 and D4. The record was made at step 1 from the plan, so a note that was
+already there (counted as written by 3.9), a group file `create_group` refused to make, and an
+empty folder that existed before were all deleted by undo, and the folders made on the way
+(`Trip/Japan` for a note in `Trip/Japan/Tokyo`) were left behind. "Only files this run created"
+was true of the write and not of the record undo reads.
+**Overturned by.** A record format that stores the operations as they were done, one by one, in
+which `created` would be implied; the phases that add operations (a text note, a recycle) will
+need the same field on their own rows.
+**From.** Audit 3 (`docs/review-prompts/audit3-report.md`) A4, D4.
+
+## D-066 - 2026-11-21 - A note is removed only if no library file lists it any more
+
+**Decision.** Undo is two steps and one rule. After the links step, the library is read again
+from its files (every `.md` directly in the library folder, not only the 512 the pane keeps, a
+file over the reader's cap as the reader takes it) and **a note is removed only if no library file
+lists it**: the owner's edited or moved line, a line in another library file, a line the links
+step could not take out all keep their note. The question says so beforehand (`held`, "1 line was
+edited or moved since and is kept, with its note."), and `undo` checks again after the links step,
+so what changes in between is caught. The links and the headings come out in one text,
+`runs::with_removals`, used by the window's gate and the tests' gate alike, and a gate whose write
+changes nothing says an error, not success; `Wrote::Nothing` is no longer `Ok`. A library that
+could not be read in full (more than 4,096 library files, or one that cannot be read) is no basis
+for removing a note: undo is refused, and the backstop holds every note. Finish writes the line
+the record holds, not the absolute path, so what it adds is what undo looks for. This replaces
+plan 4.5's two rules for lines and for files, which were independent, and the sentence of 4.5.2
+that a line the owner edited "is kept" with no word about its note.
+**Why.** Audit 3, A2, A5, D1, D6. The window's gate threw away the text with the links taken out
+whenever no heading went with them, and read "nothing written" as success, so undo deleted every
+note and left every line; the core's test gate composed the two removals correctly, so the tests
+exercised a gate the program does not use. A line the owner edited was kept and its note was
+deleted, by the plan's own two rules, which together produce the thing 4.5.2 exists to prevent.
+Whatever causes a line to stay, the rule makes the note stay too.
+**Overturned by.** A way for the library to say which notes it lists that costs less than reading
+every library file (an index), which would still have to be asked after the links step and never
+trusted from before it.
+**From.** Audit 3 A2, A5, D1, D6.
+
+## D-067 - 2026-11-21 - Undo is refused when the original is not the file the notes were cut from
+
+**Decision.** Undo compares the source with the recorded length and SHA-256 always, not only for
+a run that recycled it. Gone, changed, or too large to compare (a source over 64 MiB), undo does
+not run: "'Japan 2025.md', the file these notes were cut from, is not where it was, so these notes
+may be the only copy of its text. Undo will not remove them. Put the original back, or delete the
+notes yourself if you do not need them." Close is the dialog's only button, as for the Recycle
+Bin case. A second question that lets the owner go on was considered and not built. Undo's
+removals stay `remove_file`; the Recycle Bin for them waits. This replaces the sentence of plan
+4.5 rule 1 and decision 13 of the plan that read "while a recycled original is not back", and
+D-061 (5) in so far as the refusal is for a source that was only deleted by hand.
+**Why.** Audit 3, A3, D3. "Undo can never be the thing that loses the text" was written for an
+original the app itself recycled, and nothing sets `recycled` before phase T; an owner who deletes
+the document by hand after a split (what they do today) then presses Undo deleted the only copy
+behind a question that did not mention it. With a refusal, the sentence tells them exactly what
+holds. A second question needs the deletion to be recoverable to be a fair thing to offer, which
+is the Recycle Bin: the plan (decision 15) puts the `trash` crate behind one function in
+`mdshared-ui`, under a cargo feature so that mdview never builds it, and the shared crates are not
+changed by this work, so the crate, the second question and "Undo's removals go to the bin" are
+one separate task, together with phase T's recycle of the original.
+**Overturned by.** The Recycle Bin for undo's removals being built: then "gone" and "changed" can
+become a second question ("These notes are the only copy. Undo anyway?") because the answer is
+recoverable. The owner wanting Undo for a run whose original was edited afterwards, which today is
+refused; the second question is the answer to that.
+**From.** Audit 3 A3, D3.
+
+## D-068 - 2026-11-21 - A record is a file format: it reaches no further than the library folder does
+
+**Decision.** A record must never give more power than write access to the library folder already
+gives. Before anything is planned, every path a record names is checked: no `..` (a run never
+writes one, and folding it by text crosses links the disk has not been asked about); inside the
+library folder, not the folder itself, or inside the home the group's library file declares now,
+which is read from that file when undo or Finish is asked and not from the record; the group's
+file a `.md` directly in the library folder (it is written, so it is confined too); a note a
+`.md`, a picture an image extension a run copies. A path that fails refuses the whole record, and
+the sentence names it. An empty library folder, or one that is not absolute, is no folder at all
+(and `inside` is false for it, in the write as well). Only regular files are removed
+(`symlink_metadata`), only folders that are real folders and empty, and a file undo reads of a
+record is read through a 64 MiB cap. A record whose `version` is past 1, or whose kind or state
+this version has no word for, is not loaded and is shown as "Written by a newer version of
+mdedit", nothing in the row to press; a file that is no record is shown as such; `prune` counts
+and deletes only records that load, and never the others. This replaces D-064's check "the library
+folder, or the group's folder" where the group's folder was the record's own word, which its
+**Overturned by** paragraph named; the group's folder is now what the group's library file says
+now. It replaces plan 4.4's sentence that older records are deleted without saying which.
+**Why.** Audit 3 A9, A10, B2, D5. The first fix (D-064) made undo refuse a path outside the
+library and the group's folder, but the group's folder came from the same record, a relative path
+was joined as it stood, the group's file (which undo writes) was not confined, and nothing said
+what a deletion may be of. `prune` took the newest twenty by a time that an unreadable record
+does not have (0), so a finished run deleted a later version's records, newest first, with their
+undo; the next phases add kinds and it can only be fixed in the version that ships first.
+**Overturned by.** A signed record, or a record that proves its own origin better than being
+inside a folder the owner controls; or a record format that needs a path outside the library (a
+home elsewhere with its group file gone), which today cannot be undone from here and says why.
+**From.** Audit 3 A9, A10, B2, D5.
