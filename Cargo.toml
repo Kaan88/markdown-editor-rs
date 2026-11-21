@@ -25,7 +25,7 @@ unicode-width = { version = "0.2", default-features = false }
 # fancy-regex (syntect): the meta engine, and Unicode case folding, \w/\d/\s and general
 # categories, scripts and Unicode word boundaries (all of `unicode`).
 regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "nfa-pikevm", "nfa-backtrack", "dfa-onepass", "hybrid", "perf-literal", "unicode"] }
-parley = "=0.12.0"
+parley = "=0.13.0"
 bytemuck = "1.25"
 mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "b4b21824bd72c2e47574291c32800f2b6b6a4385" }
 mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "b4b21824bd72c2e47574291c32800f2b6b6a4385" }
