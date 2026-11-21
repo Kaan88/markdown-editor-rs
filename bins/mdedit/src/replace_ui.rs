@@ -408,6 +408,16 @@ impl Outcome {
                 why: "changed since, kept".to_string(),
             }));
         }
+        if !done.held_back.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Kept, because the line could not be taken out ({})",
+                done.held_back.len()
+            )));
+            rows.extend(done.held_back.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "its line is still in the library".to_string(),
+            }));
+        }
         if done.group_kept {
             rows.push(OutRow::Skipped {
                 name: "the group's library file".to_string(),
@@ -427,6 +437,10 @@ impl Outcome {
         }));
         let title = if let Some(why) = &done.refusal {
             why.clone()
+        } else if let Some(failure) = done.failures.first() {
+            // The lines are still in the library file, so the notes stayed with them, the record
+            // is not undone, and Undo can be pressed again once the reason is gone.
+            format!("The run is not undone \u{00B7} {} Try again.", failure.why)
         } else if removed.is_empty() && done.removed_links == 0 {
             "Nothing was removed".to_string()
         } else {

@@ -1487,14 +1487,19 @@ fn shown(path: &Path) -> String {
 }
 
 /// Whether `path` is in the library folder or in the group's folder. Nothing is written outside
-/// those, whatever a caller asked for.
-fn inside_any(path: &Path, req: &Request) -> bool {
+/// those, and undo removes nothing outside them either: the one rule, in one place.
+fn inside(library: &Path, home: &Path, path: &Path) -> bool {
     let path = mdshared_app::paths::canonical_or_absolute(path);
-    let library = mdshared_app::paths::canonical_or_absolute(&req.library);
-    let home = mdshared_app::paths::canonical_or_absolute(&req.group.home);
+    let library = mdshared_app::paths::canonical_or_absolute(library);
+    let home = mdshared_app::paths::canonical_or_absolute(home);
     let in_library = path.starts_with(&library) && path != library;
     let in_home = path.starts_with(&home);
     in_library || in_home
+}
+
+/// [`inside`] for a request's two folders.
+fn inside_any(path: &Path, req: &Request) -> bool {
+    inside(&req.library, &req.group.home, path)
 }
 
 /// Why the request must not be written, or `None`.
@@ -1680,9 +1685,12 @@ pub fn with_headings_removed(text: &str, headings: &[Vec<String>], base: &Path) 
             continue;
         }
         lines.remove(line - 1);
-        let mut new = lines.join("\n");
+        // The file's own line ending, found the way `mdshared_app::library`'s writers find it,
+        // so a CRLF file stays CRLF and a file that ended with no newline keeps none.
+        let eol = if out.contains("\r\n") { "\r\n" } else { "\n" };
+        let mut new = lines.join(eol);
         if out.ends_with('\n') {
-            new.push('\n');
+            new.push_str(eol);
         }
         out = new;
         changed = true;
@@ -1832,11 +1840,35 @@ fn digest_of(path: &Path) -> Option<String> {
     Some(mdshared_app::update::sha256_hex(&bytes))
 }
 
+/// The first path the record names that undo would remove or write, when it is outside the
+/// library folder and the group's folder: the check [`outside`] makes for a write, made for a
+/// record. `None` when every one of them is where a run could have put it.
+fn named_outside(record: &Record, library: &Path) -> Option<PathBuf> {
+    let home = record.group.home.as_path();
+    std::iter::once(record.group.file.as_path())
+        .chain(record.folders.iter().map(PathBuf::as_path))
+        .chain(record.notes.iter().map(|n| n.path.as_path()))
+        .chain(record.pictures.iter().map(|p| p.path.as_path()))
+        .find(|path| !inside(library, home, path))
+        .map(Path::to_path_buf)
+}
+
 /// Works out what undo would do, reading the disk and never writing it.
-pub fn prepare(record: &Record) -> UndoPlan {
+pub fn prepare(record: &Record, library: &Path) -> UndoPlan {
     let mut plan = UndoPlan::default();
     if record.state == State::Undone {
         plan.refusal = Some("This run is undone already.".to_string());
+        return plan;
+    }
+    // Every path the record names must be one a write could have made: in the library folder or
+    // in the group's folder, by the same check the write makes (4.1, 6.2). A record is a file on
+    // disk like any other, and one that names a path outside those is not a record this program
+    // wrote: none of it is acted on, and nothing is removed.
+    if let Some(path) = named_outside(record, library) {
+        plan.refusal = Some(format!(
+            "{} is outside the library and the group's folder, so this run is not undone.",
+            path.display()
+        ));
         return plan;
     }
     // 1. A source in the Recycle Bin must be back before anything else happens. Undo never
@@ -1944,6 +1976,9 @@ pub struct UndoReport {
     pub removed_links: usize,
     pub kept: Vec<PathBuf>,
     pub links_kept: Vec<PathBuf>,
+    /// Notes kept because the line naming them could not be taken out of its library file: the
+    /// file is still listed there, so the note stays too.
+    pub held_back: Vec<PathBuf>,
     pub group_removed: bool,
     pub group_kept: bool,
     pub folders_removed: Vec<PathBuf>,
@@ -1956,16 +1991,19 @@ pub struct UndoReport {
 }
 
 /// Undoes one run: the links, then the files, then the group's file, then the folders, and the
-/// record is marked "undone" and kept.
+/// record is marked "undone" and kept. A run whose links could not be taken out is not undone:
+/// the notes those lines name stay, and the record says "links pending" so it can be tried again.
 pub fn undo(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate) -> UndoReport {
     let mut report = UndoReport::default();
-    let plan = prepare(record);
+    let plan = prepare(record, library);
     if let Some(why) = &plan.refusal {
         report.refusal = Some(why.clone());
         report.plan = Some(plan);
         return report;
     }
-    // 2. The links first, so the pane never shows a link to a file that is gone.
+    // 2. The links first, so the pane never shows a link to a file that is gone. A line that is
+    //    still in the file names a file that stays, so its note is not removed either.
+    let mut held: Vec<PathBuf> = Vec::new();
     for (file, removals) in &plan.links {
         let headings = if same_path(file, &record.group.file) {
             record.sections_added.as_slice()
@@ -1974,11 +2012,18 @@ pub fn undo(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate) -
         };
         match gate.remove_links(file, removals, headings) {
             Ok(()) => report.removed_links += removals.len(),
-            Err(why) => report.failures.push(Failure::new(file, why)),
+            Err(why) => {
+                report.failures.push(Failure::new(file, why));
+                held.extend(removals.iter().map(|r| r.path.clone()));
+            }
         }
     }
     // 3. The files, re-hashed as they are removed: a file changed since is kept.
     for note in &plan.notes {
+        if held.iter().any(|h| same_path(h, note)) {
+            report.held_back.push(note.clone());
+            continue;
+        }
         let matches = digest_of(note).is_some_and(|d| {
             record
                 .notes
@@ -2027,9 +2072,14 @@ pub fn undo(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate) -
             report.folders_kept.push(folder.clone());
         }
     }
-    // 6. The record is marked and stays in the list.
+    // 6. The record is marked and stays in the list, but only when its links went: a run whose
+    //    lines are still in a library file is not undone, and undo can be pressed again.
     let mut marked = record.clone();
-    marked.state = State::Undone;
+    marked.state = if report.failures.is_empty() {
+        State::Undone
+    } else {
+        State::LinksPending
+    };
     match marked.close(path, library) {
         Ok(()) => report.marked = true,
         Err(e) => report.mark_error = Some(e.to_string()),
@@ -2569,7 +2619,7 @@ mod tests {
         // As if phase T had put the source away.
         record.source.recycled = true;
         record.source.sha256 = mdshared_app::update::sha256_hex(b"another file");
-        let plan = prepare(&record);
+        let plan = prepare(&record, &library);
         let why = plan.refusal.clone().expect("refused");
         assert_eq!(
             why,
@@ -2614,7 +2664,7 @@ mod tests {
         // The record is marked and stays.
         let again = load(&record_path, &library).expect("the record stays");
         assert_eq!(again.state, State::Undone);
-        assert!(prepare(&again).refusal.is_some());
+        assert!(prepare(&again, &library).refusal.is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2638,7 +2688,7 @@ mod tests {
         let edited = group.replace("[Two]", "[Two, renamed]");
         write_file(&library.join("Trip.md"), &edited);
         let record = load(&record_path, &library).expect("the record");
-        let plan = prepare(&record);
+        let plan = prepare(&record, &library);
         assert_eq!(plan.kept.len(), 1, "{:?}", plan.kept);
         assert_eq!(plan.notes_kept.len(), 1, "{:?}", plan.notes_kept);
         assert_eq!(plan.links_kept.len(), 1, "{:?}", plan.links_kept);
@@ -2684,7 +2734,7 @@ mod tests {
         let record_path = report.record_path.clone().expect("a record");
         let record = load(&record_path, &library).expect("the record");
         // Worked out while both notes are untouched: undo would remove both.
-        let plan = prepare(&record);
+        let plan = prepare(&record, &library);
         assert_eq!(plan.notes.len(), 2, "{:?}", plan.notes);
         assert!(plan.kept.is_empty(), "{:?}", plan.kept);
         // The owner saves over one of them before pressing Undo.
@@ -2732,6 +2782,177 @@ mod tests {
         assert!(!group.contains("[One]"), "{group}");
         // The folder held no file of the owner's own, so it went.
         assert!(done.folders_removed.contains(&library.join("Trip")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A record is a file in `.runs`, and undo deletes and writes what it names. One that names
+    /// a path outside the library folder and the group's folder is not a record this program
+    /// wrote (the write refuses those, 4.1 and 6.2), so undo acts on none of it.
+    #[test]
+    fn undo_removes_nothing_when_the_record_names_a_path_outside_the_library_and_the_groups_folder()
+    {
+        let dir = scratch("undo-outside");
+        let library = dir.join("library");
+        std::fs::create_dir_all(&library).expect("the library");
+        let source = source(&dir);
+        let req = plan(&library, &source, &[("One", "# One\n", &[])]);
+        let mut gate = TestGate::new();
+        let report = write_at(&req, &mut gate, 13, "2026-11-21T14:03:11Z");
+        let record_path = report.record_path.clone().expect("a record");
+        let good = load(&record_path, &library).expect("the record");
+        // The owner's own files, with the digests a hostile record would carry: what it takes is
+        // the path, not the hash.
+        let mine = dir.join("My own notes.md");
+        write_file(&mine, "words I wrote\n");
+        let own_group = dir.join("My own group.md");
+        write_file(&own_group, "# Mine\nhome: Mine\n");
+        let outside_folder = dir.join("work");
+        std::fs::create_dir_all(&outside_folder).expect("the folder");
+        let digest = |text: &str| mdshared_app::update::sha256_hex(text.as_bytes());
+        // The record a hostile `.runs` file holds: the owner's own note, with its real digest.
+        let mut note = good.clone();
+        note.notes[0].path = mine.clone();
+        note.notes[0].sha256 = digest("words I wrote\n");
+        // Undo refuses, and removes neither the owner's file nor the run's own note, which it
+        // would otherwise take.
+        let mut gate = TestGate::new();
+        let done = undo(&record_path, &note, &library, &mut gate);
+        assert!(done.refusal.is_some());
+        assert!(gate.removed.is_empty(), "{:?}", gate.removed);
+        assert_eq!(
+            read(&mine),
+            "words I wrote\n",
+            "the owner's file is untouched"
+        );
+        assert_eq!(
+            read(&library.join("Trip/One.md")),
+            "# One\n",
+            "and the run's own note is not removed either"
+        );
+        assert!(read(&library.join("Trip.md")).contains("[One]"));
+        assert_eq!(
+            load(&record_path, &library).expect("the record").state,
+            State::Done
+        );
+        // The same refusal for a picture, a folder and the group's library file, and nothing is
+        // planned for any of them either: the confinement is decided before any removal.
+        let mut picture = good.clone();
+        picture.pictures.push(PictureRec {
+            path: mine.clone(),
+            sha256: digest("words I wrote\n"),
+        });
+        let mut folder = good.clone();
+        folder.folders = vec![outside_folder.clone()];
+        let mut group = good.clone();
+        group.group.file = own_group.clone();
+        for record in [&note, &picture, &folder, &group] {
+            let plan = prepare(record, &library);
+            let why = plan.refusal.clone().expect("refused");
+            assert!(
+                why.ends_with(
+                    "is outside the library and the group's folder, so this run is not undone."
+                ),
+                "{why}"
+            );
+            assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+            assert!(plan.pictures.is_empty(), "{:?}", plan.pictures);
+            assert!(plan.folders.is_empty(), "{:?}", plan.folders);
+            assert!(plan.links.is_empty(), "{:?}", plan.links);
+            assert!(plan.group_file.is_none(), "{:?}", plan.group_file);
+        }
+        assert_eq!(read(&own_group), "# Mine\nhome: Mine\n");
+        assert!(outside_folder.is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A library file the owner's editor wrote with CRLF comes back with CRLF: undo's own
+    /// removal of a section heading keeps the file's endings, as every writer in
+    /// `mdshared_app::library` does.
+    #[test]
+    fn undo_keeps_the_line_endings_of_a_crlf_library_file() {
+        let dir = scratch("undo-crlf");
+        let library = dir.join("library");
+        std::fs::create_dir_all(&library).expect("the library");
+        let source = source(&dir);
+        // A group that is there already, so undo keeps its file and takes the heading out of it.
+        write_file(&library.join("Trip.md"), "# Trip\nhome: Trip\n");
+        let mut req = plan(&library, &source, &[("One", "# One\n", &["Tokyo"])]);
+        req.group.created = false;
+        let mut gate = TestGate::new();
+        let report = write_at(&req, &mut gate, 14, "2026-11-21T14:03:11Z");
+        let record_path = report.record_path.clone().expect("a record");
+        let lf = read(&library.join("Trip.md"));
+        assert!(lf.contains("\n\n## Tokyo\n"), "{lf:?}");
+        // The file with the endings the owner's editor gives it.
+        write_file(&library.join("Trip.md"), &lf.replace('\n', "\r\n"));
+        let record = load(&record_path, &library).expect("the record");
+        let mut gate = TestGate::new();
+        let done = undo(&record_path, &record, &library, &mut gate);
+        assert_eq!(done.removed_links, 1);
+        assert_eq!(done.removed_notes.len(), 1);
+        let after = String::from_utf8(
+            std::fs::read(library.join("Trip.md")).expect("the group's file stays"),
+        )
+        .expect("utf-8");
+        assert!(
+            !after.replace("\r\n", "").contains('\n'),
+            "every line keeps CRLF: {after:?}"
+        );
+        assert!(after.starts_with("# Trip\r\nhome: Trip\r\n"), "{after:?}");
+        assert!(!after.contains("## Tokyo"), "{after:?}");
+        assert!(!after.contains("[One]"), "{after:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The group's library file is open with unsaved changes, so the gate refuses to take the
+    /// lines out. The notes must stay, because their lines are still in the file, and the record
+    /// must not say "undone": the press can be made again.
+    #[test]
+    fn an_undo_whose_links_could_not_be_taken_out_keeps_the_notes_and_is_not_undone() {
+        let dir = scratch("undo-refused");
+        let library = dir.join("library");
+        std::fs::create_dir_all(&library).expect("the library");
+        let source = source(&dir);
+        let req = plan(
+            &library,
+            &source,
+            &[("One", "# One\n", &[]), ("Two", "# Two\n", &[])],
+        );
+        let mut gate = TestGate::new();
+        let report = write_at(&req, &mut gate, 12, "2026-11-21T14:03:11Z");
+        let record_path = report.record_path.clone().expect("a record");
+        let record = load(&record_path, &library).expect("the record");
+        let mut gate = TestGate::new();
+        gate.refusals.push(library.join("Trip.md"));
+        let done = undo(&record_path, &record, &library, &mut gate);
+        assert_eq!(done.removed_links, 0);
+        assert!(done.removed_notes.is_empty(), "{:?}", done.removed_notes);
+        assert_eq!(done.held_back.len(), 2, "{:?}", done.held_back);
+        assert_eq!(done.failures.len(), 1, "{:?}", done.failures);
+        // Exactly what is left: both notes, both lines, and a record that can be tried again.
+        assert_eq!(read(&library.join("Trip/One.md")), "# One\n");
+        assert_eq!(read(&library.join("Trip/Two.md")), "# Two\n");
+        let group = read(&library.join("Trip.md"));
+        assert!(group.contains("[One]"), "{group}");
+        assert!(group.contains("[Two]"), "{group}");
+        let again = load(&record_path, &library).expect("the record stays");
+        assert_eq!(again.state, State::LinksPending);
+        assert!(again.state.live(), "Undo is offered again");
+        // With the file saved or closed, the same press finishes the job.
+        let mut gate = TestGate::new();
+        let done = undo(&record_path, &again, &library, &mut gate);
+        assert!(done.failures.is_empty(), "{:?}", done.failures);
+        assert_eq!(done.removed_links, 2);
+        assert_eq!(done.removed_notes.len(), 2);
+        assert!(done.marked);
+        assert!(!library.join("Trip/One.md").exists());
+        assert!(!library.join("Trip/Two.md").exists());
+        assert_eq!(
+            load(&record_path, &library)
+                .expect("the record stays")
+                .state,
+            State::Undone
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

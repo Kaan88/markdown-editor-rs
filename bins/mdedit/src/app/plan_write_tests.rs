@@ -296,3 +296,97 @@ fn split_into_notes_is_disabled_with_its_reason_until_the_file_on_disk_is_what_t
     assert!(a.plan.is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn an_undo_whose_library_file_has_unsaved_changes_keeps_the_notes_and_can_be_pressed_again() {
+    let (mut a, library, _source, dir) = planned("plan-undo-again");
+    press(&mut a, KeyName::Enter);
+    let record_path =
+        a.ui.results
+            .replace
+            .outcome
+            .as_ref()
+            .and_then(|o| o.run.clone())
+            .expect("the record");
+    // The owner opens the group's library file and types in it: unsaved changes, which is the
+    // ordinary reason the gate refuses to write that file.
+    let file = library.join("Trip.md");
+    open_now(&mut a, &file);
+    a.mods = crate::keys::Mods {
+        ctrl: true,
+        ..Default::default()
+    };
+    press(&mut a, KeyName::End);
+    a.mods = crate::keys::Mods::default();
+    type_text(&mut a, "mine\n");
+    let on_disk = read(&file);
+    a.run_undo(record_path.clone());
+    // Nothing went: the lines are still there, so the notes stay with them.
+    assert!(library.join("Trip/Tokyo/Asakusa.md").is_file());
+    assert!(library.join("Trip/Tokyo/Nara.md").is_file());
+    assert_eq!(read(&file), on_disk, "the library file was not written");
+    assert!(read(&file).contains("[Asakusa]"));
+    let record = mdedit_core::runs::load(&record_path, &library).expect("the record");
+    assert_eq!(record.state, mdedit_core::runs::State::LinksPending);
+    // The report says what happened, and why, and that it can be tried again.
+    let outcome = a.ui.results.replace.outcome.as_ref().expect("the report");
+    assert!(
+        outcome.title.starts_with("The run is not undone"),
+        "{}",
+        outcome.title
+    );
+    assert!(
+        outcome.title.contains("Save or close Trip.md first"),
+        "{}",
+        outcome.title
+    );
+    // Saved, the same press finishes the job.
+    a.command(C::Save);
+    assert!(!a.docs.active_doc().is_some_and(|d| d.modified()));
+    a.run_undo(record_path.clone());
+    assert!(!library.join("Trip/Tokyo/Asakusa.md").exists());
+    assert!(!library.join("Trip/Tokyo/Nara.md").exists());
+    assert!(!read(&file).contains("[Asakusa]"), "{}", read(&file));
+    let record = mdedit_core::runs::load(&record_path, &library).expect("the record");
+    assert_eq!(record.state, mdedit_core::runs::State::Undone);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_run_that_cannot_start_keeps_the_plan_and_its_edits_on_screen() {
+    let (mut a, library, source, dir) = planned("plan-start");
+    std::fs::create_dir_all(&library).expect("the library");
+    // A file where the records' folder would go: step 1 cannot make the record, so the run
+    // cannot start and nothing is written.
+    std::fs::write(library.join(".runs"), "not a folder").expect("in the way");
+    {
+        let s = a.plan.as_mut().expect("the plan is open");
+        s.rename(0, "Mine");
+        assert!(
+            s.target_text(0).ends_with("Mine.md"),
+            "{}",
+            s.target_text(0)
+        );
+    }
+    let notes = a.plan.as_ref().expect("open").plan.notes().len();
+    press(&mut a, KeyName::Enter);
+    // The card stays, with the plan and the rename still in it, and says why.
+    let s = a.plan.as_ref().expect("the card stays");
+    assert_eq!(s.plan.notes().len(), notes);
+    assert!(
+        s.target_text(0).ends_with("Mine.md"),
+        "the rename is still there: {}",
+        s.target_text(0)
+    );
+    let said = toast(&a);
+    assert!(
+        said.starts_with("The run could not start: "),
+        "the reason is on the bar: {said}"
+    );
+    assert!(!library.join("Trip").exists(), "no note was written");
+    assert_eq!(
+        read(&source),
+        "# Tokyo\n\nintro\n\n## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

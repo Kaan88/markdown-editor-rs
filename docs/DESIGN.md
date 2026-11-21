@@ -2336,10 +2336,18 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
   `runs::check_links_added` / `check_links_removed`: the new file must be the old notes plus (or
   minus) exactly the planned lines, under their sections — a count is not enough. One call per
   library file, one write.
-- **Undo** asks first, with the numbers; then links, then files whose SHA-256 is the recorded one,
-  then the group's file when only its heading and `home:` are left, then the folders while they
-  are empty; the record is marked `undone` and stays. A line the owner edited and a note the owner
-  changed are kept and listed. A run whose source is in the Recycle Bin refuses until it is back.
+- **Undo** asks first, with the numbers; then it confines every path the record names to the
+  library folder or the group's folder by the same `inside` check the write makes, refusing the
+  whole undo (with the path) when one is outside, before anything is planned for removal; then
+  links, then files whose SHA-256 is the recorded one, then the group's file when only its heading
+  and `home:` are left, then the folders while they are empty; the record is marked `undone` and
+  stays. A line the owner edited and a note the owner changed are kept and listed. A run whose
+  source is in the Recycle Bin refuses until it is back. A link that could not be taken out (the
+  library file open with unsaved changes) keeps its note, and the record goes to `links pending`,
+  which is live, so Undo can be pressed again; the panel's title reads "The run is not undone ·
+  {why} Try again." and the held notes are listed. `with_headings_removed` joins with the file's
+  own line ending, as every writer in `mdshared_app::library` does, so a CRLF library file stays
+  CRLF.
 - **"AI runs…"** lists the records when it is opened (never at start), newest first, with "Show
   the notes", "Undo this run…" and, for a run that stopped, "Finish".
 - **"Split into notes…"** is in the tab's menu, the palette, the AI menu and the Notes library
@@ -2348,9 +2356,10 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
 - **The Notes pane's foot** draws "Plan ready: N notes · Show · Drop" while a plan is parked; the
   count and the parked flag are in the Files region's signature.
 - Shots: `--dialog runs|run-undo|run-undo-recycled`, and `--plan-demo split --plan-parked`.
-- Tests: `mdedit_core::runs` (17: one per step of 4.3 that can be forced on disk, the record's
-  read and write, undo's rules, the pruning) and `app::plan_write_tests` (6: the whole write,
-  undo from the report, a group file that cannot be made, a demonstration, the repaint
-  signature, the disabled command).
+- Tests: `mdedit_core::runs` (21: one per step of 4.3 that can be forced on disk, the record's
+  read and write, undo's rules, the confinement of every path it names, a CRLF library file, the
+  pruning) and `app::plan_write_tests` (8: the whole write, undo from the report, undo refused by
+  an unsaved library file and pressed again, a run that cannot start keeping its plan, a group
+  file that cannot be made, a demonstration, the repaint signature, the disabled command).
 - **Not built:** the progress row and Cancel (the write runs between frames), so a run is never
   left in `stopped` by this program; step 8; "Ask the AI…".
