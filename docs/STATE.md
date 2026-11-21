@@ -1,8 +1,9 @@
 # State of the work
 
 Rewritten, not appended to: when a line here stops being true, replace it. Last rewritten
-2026-11-21, with `main` at `487e184`. If `git log -1` shows something newer than that, the lines
-under "In hand" are the first to doubt.
+2026-11-21, with the notes-pane rework (a worker-thread re-read, the 512-file count and the slim
+staleness copy). If `git log -1` shows something newer than that, the lines under "In hand" are
+the first to doubt.
 
 ## Released
 
@@ -32,13 +33,19 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
   `home:` line names, one folder deeper for each heading of its section; a group without that
   line gets one, named after its file, in the same write; "Set the group's folder…" writes the
   line and "Clear the group's folder" removes it, and no file on disk moves either way.
+- **The notes pane on a large library** (`fb7777c` shared pin): a library file saved in another
+  window is read on a worker thread (`mdshared_app::job`), so the event loop no longer stalls for
+  the read; the rows and the keyboard's cursor stay while it runs, and a result whose folder
+  moved under it is dropped. A folder with more `.md` files than the reader keeps (now 512) says
+  at the pane's foot how many groups it shows ("512 of 583 groups shown"). The staleness check
+  keeps the file list and their stamps, not a second full library (`docs/measurements/2026-11-21-library-rework.md`).
 - "Leave out the tab you were last on too" (Settings › Session).
 - A scrollbar for the page in visual editing; Save As offers `.md` to a note the AI turned into
   Markdown.
 - **One tick box and one switch**: the Replace-in-files confirmation draws its ticks with the
   shared `mdshared-ui` `check`, and the AI review its Changes / Preview switch with `segments`;
   a screen test pins each to the pixels the private drawing made.
-- mdedit is at 595 tests (the app's own unit tests; 1281 in the workspace).
+- mdedit is at 603 tests (the app's own unit tests; 1289 in the workspace).
 
 ## In hand
 
@@ -94,10 +101,11 @@ Release notes so far: `docs/release-notes/1.3.0.md`.
 ## Known to be wrong on `main`
 
 Found 2026-11-21 while writing the plan (its section 2 has three of them). Phase 0 fixed the
-faults that could lose a note or break a library that moves; these four are still true.
+faults that could lose a note or break a library that moves; these are still true.
 
-- **The 64-file limit.** More than 64 `.md` files directly in the library folder, and those that
-  sort last drop out of the pane without a message. Notes flat in the folder count against it.
+- **The 512-file limit.** More than 512 `.md` files directly in the library folder, and those
+  that sort last drop out; the pane's foot now says how many groups it shows of how many there
+  are, but the rest cannot be listed. Notes flat in the folder count against it.
 - Opening Settings during an AI review discards the result.
 - The AI review has no scrollbar and cuts long lines.
 - The editor never reads the AI engine's version.
@@ -114,10 +122,15 @@ faults that could lose a note or break a library that moves; these four are stil
 
 ## Not measured, not reviewed, not checked by hand
 
-- **Budgets** were last measured for phase 1 (`d4e3ad6`, 2026-11-21): first frame 89.7 to 91.2 ms
-  (medians of 7), 27.6 to 27.9 MiB, no change from before. Phases 2, 2b and 3 have no recorded
-  measurement. The first-frame figure on this PC moves with the day (about 90 ms on some, about
-  111 on others), so only before against after, run in turn on the same day, means anything.
+- **Budgets.** The full pass since phase 1 is `docs/measurements/2026-11-21-since-phase-1.md`:
+  the first frame could not be compared (the machine moved fourfold that evening); private
+  memory rose to 30.4 MiB with the 2,000-note library, which the owner then forgave (D-063,
+  2026-11-21). The notes-pane rework was measured after it, same method
+  (`docs/measurements/2026-11-21-library-rework.md`): private 31.0 MiB with the 70-file library;
+  on one 60-file library 31.50 MiB before against 30.90 after; and a library change's
+  event-loop pass 40.3–48.9 ms before against 2.3–2.6 ms to start the read and 5.8–6.2 ms to
+  take its result. The first-frame figure on this PC still moves with the day, so only before
+  against after, run in turn, means anything.
 - **Reviews.** Audit 1 (Astra, seven rounds) covered up to 1.1.2. Audit 2 (Fable) found faults
   that were all fixed for 1.2.0; the fixes have not been reviewed. Audit 3 was scoped
   (`docs/review-prompts/audit3-scope.md`) and there is no record that it ran. Nothing since 1.2.0
@@ -128,7 +141,7 @@ faults that could lose a note or break a library that moves; these four are stil
 
 ## Pins, branches, worktrees
 
-- Shared crates at `c603b23`. The viewer's crates (`mdview-preview`, `mdview-render`) at viewer
+- Shared crates at `fb7777c`. The viewer's crates (`mdview-preview`, `mdview-render`) at viewer
   `e2b3e31`. winit fork `62fa727`, softbuffer fork `dd18fec`. mdview itself pins the shared
   crates at `cb0ffd3`, which is older.
 - Every local `f/…` branch and `release/1.2.0` is merged into `main`. `mock/ai-review` is not

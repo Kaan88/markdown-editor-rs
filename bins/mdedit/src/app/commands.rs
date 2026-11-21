@@ -33,6 +33,10 @@ impl App {
 
     /// The left pane shows `face`, opened if it was shut. The library is read when it is shown.
     pub(super) fn show_pane_face(&mut self, face: PaneFace) {
+        if face != PaneFace::Notes {
+            // A read of the notes the pane no longer shows is not wanted.
+            self.library_read_abandon();
+        }
         self.ui.set_pane_face(face);
         if face == PaneFace::Notes {
             self.library_rows();
@@ -1425,6 +1429,7 @@ impl App {
         self.ui.tree.set_root(Some(dir));
         self.ui.panes.files_scroll = 0.0;
         self.last_active = None;
+        self.library_read_abandon();
         self.ui.set_pane_face(PaneFace::Files);
     }
 
@@ -1850,6 +1855,7 @@ impl App {
                     _ => PaneFace::Files,
                 };
                 if self.ui.panes.files && self.ui.pane_face() == face {
+                    self.library_read_abandon();
                     self.ui.hide_pane();
                 } else {
                     self.show_pane_face(face);
@@ -2202,6 +2208,8 @@ impl App {
                 self.ui.results.poll();
                 self.replace_poll();
             }
+            // Taken for a read that has finished; a pane hidden meanwhile drops it.
+            Wake::Library => self.library_read_take(),
             Wake::Outline => {
                 self.ui.outline.poll();
             }

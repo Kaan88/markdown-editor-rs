@@ -31,6 +31,7 @@ impl App {
     /// The preference changed: what was read from the old folder and what the pane held of it
     /// go, and the new folder is read when it is next listed (at once, if the pane shows).
     pub(super) fn library_dir_changed(&mut self) {
+        self.library_read_abandon();
         self.docs.forget_library();
         self.ui.library.cursor = None;
         self.ui.library.stop_edit();
@@ -85,10 +86,91 @@ impl App {
             self.docs.forget_library();
             return;
         };
-        if self.docs.library_read.dir == dir && !self.docs.library_read.changed() {
+        if self.docs.library_stamp.dir == dir && !self.docs.library_stamp.changed() {
             return;
         }
         self.docs.hold_library(library::read(&dir));
+    }
+
+    /// Reads the library on its own thread; the rows on screen stay as they are until a result
+    /// is taken. One read at a time: a caller that finds one running waits for its result.
+    fn library_start_read(&mut self) {
+        let Some(dir) = self.library_dir() else {
+            return;
+        };
+        let wake = self.docs.waker();
+        let started = mdshared_app::job::Job::start(
+            move || wake(Wake::Library),
+            move |cancel, _progress| {
+                // The read itself cannot be cut short, so the flag is looked at before it and
+                // after: a read the pane no longer wants is dropped rather than handed back.
+                if cancel.cancelled() {
+                    return None;
+                }
+                let read = library::read(&dir);
+                (!cancel.cancelled()).then_some(read)
+            },
+        );
+        match started {
+            Ok(job) => self.library_job = Some(job),
+            Err(_) => {
+                // A thread could not be made: read here rather than leave the pane stale.
+                self.library_load();
+                self.ui.library.stop_edit();
+                self.ui.drop_library_field_focus();
+                self.ui.library.build(&self.docs.library);
+                self.redraw();
+            }
+        }
+    }
+
+    /// Asks a read still running to stop and forgets it: its result will not be looked at, and
+    /// nothing of it reaches the rows.
+    pub(super) fn library_read_abandon(&mut self) {
+        if let Some(job) = self.library_job.take() {
+            job.cancel();
+        }
+    }
+
+    /// Takes a read that has finished, on every pass of the loop: the wake that says it is done
+    /// can arrive after the pane was hidden or pointed at another folder.
+    pub(super) fn library_read_take(&mut self) {
+        let Some(job) = self.library_job.as_ref() else {
+            return;
+        };
+        let read = job.take();
+        if read.is_none() && job.running() {
+            return;
+        }
+        self.library_job = None;
+        if let Some(Some(read)) = read {
+            self.library_accept(read);
+        }
+    }
+
+    /// Shows a library a thread read, unless the folder moved under it, or the pane no longer
+    /// shows the notes or no longer reads that folder: then nothing is touched and it is false.
+    /// The keyboard's cursor follows its note or heading by identity, in `build`.
+    pub(super) fn library_accept(&mut self, read: mdshared_app::library::Library) -> bool {
+        if read.changed() {
+            // A stamp moved while it was read, so the result mixes two states. It is dropped,
+            // and the next pass reads again at once rather than wait out the interval.
+            self.ui.library.checked = None;
+            return false;
+        }
+        if !(self.ui.panes.files && self.ui.library.on)
+            || self.library_dir().as_deref() != Some(read.dir.as_path())
+        {
+            return false;
+        }
+        self.docs.hold_library(read);
+        // The rows moved under a name being typed: it is dropped rather than put on the wrong
+        // row.
+        self.ui.library.stop_edit();
+        self.ui.drop_library_field_focus();
+        self.ui.library.build(&self.docs.library);
+        self.redraw();
+        true
     }
 
     /// The rows of the pane, with the library read again first. The folder is looked at at
@@ -288,31 +370,43 @@ impl App {
     }
 
     /// While the pane shows, the library files are looked at again now and then, so a library
-    /// edited in another window (or in a tab here) shows as it is now.
+    /// edited in another window (or in a tab here) shows as it is now. The look is the cheap
+    /// list of names and stamps; a read it finds worth starting runs on a thread, so a save in
+    /// another window no longer stalls the event loop for the whole library's read.
     pub(super) fn library_tick(&mut self, now: Instant) {
+        // A finished read is taken first, whatever else this pass does.
+        self.library_read_take();
         if !(self.ui.panes.files && self.ui.library.on) || !self.ui.library.due(now) {
             return;
         }
         self.ui.library.checked = Some(now);
-        let before = self.docs.library.groups.len();
-        let stamps: Vec<_> = self.docs.library.groups.iter().map(|g| g.stamp).collect();
-        self.library_load();
-        let changed = self.docs.library.groups.len() != before
-            || self
-                .docs
-                .library
-                .groups
-                .iter()
-                .zip(&stamps)
-                .any(|(g, s)| g.stamp != *s);
-        if changed {
-            // The rows moved under a name being typed: it is dropped rather than put on the
-            // wrong row.
-            self.ui.library.stop_edit();
-            self.ui.drop_library_field_focus();
-            self.ui.library.build(&self.docs.library);
-            self.redraw();
+        // The first list is read here, once, as it always was; every later re-read is a job.
+        if self.docs.library_stamp.dir.as_os_str().is_empty() {
+            let before = self.docs.library.groups.len();
+            let stamps: Vec<_> = self.docs.library.groups.iter().map(|g| g.stamp).collect();
+            self.library_load();
+            let changed = self.docs.library.groups.len() != before
+                || self
+                    .docs
+                    .library
+                    .groups
+                    .iter()
+                    .zip(&stamps)
+                    .any(|(g, s)| g.stamp != *s);
+            if changed {
+                // The rows moved under a name being typed: it is dropped rather than put on the
+                // wrong row.
+                self.ui.library.stop_edit();
+                self.ui.drop_library_field_focus();
+                self.ui.library.build(&self.docs.library);
+                self.redraw();
+            }
+            return;
         }
+        if self.library_job.is_some() || !self.docs.library_stamp.changed() {
+            return;
+        }
+        self.library_start_read();
     }
 
     /// The "Notes library" command: the list of notes, read again first.

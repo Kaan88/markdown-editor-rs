@@ -146,6 +146,8 @@ pub enum Wake {
     Found,
     /// The search of a folder has matches or finished.
     Results,
+    /// The library read on its own thread has finished: the pass after this takes its result.
+    Library,
     /// The function list of a document is made.
     Outline,
     /// The palette's list of the folder's files, or of a document's symbols, is made.
@@ -340,6 +342,9 @@ struct App {
     /// The plan screen (a plan of notes to read and change), and the plan Escape kept.
     plan: Option<crate::plan_ui::PlanScreen>,
     plan_parked: Option<crate::plan_ui::PlanScreen>,
+    /// The library being read again on its own thread after a library file was saved, with at
+    /// most one running at a time. The rows on screen stay until the result is taken.
+    library_job: Option<mdshared_app::job::Job<Option<mdshared_app::library::Library>>>,
     /// `--type-steps`: keystrokes left and typed, each one's time from keystroke to pixels (ms),
     /// and the part of it spent in the edit itself.
     type_steps: Option<u32>,
@@ -493,6 +498,7 @@ impl App {
             ai: Default::default(),
             plan: None,
             plan_parked: None,
+            library_job: None,
             settled: false,
             load_traced: false,
             colours_traced: false,
@@ -992,6 +998,12 @@ impl App {
                     (ui.library.cur, ui.library.focused),
                     // The "Plan ready" row at the foot: its count, and whether a plan is kept.
                     self.plan_parked.as_ref().map(|p| p.plan.notes().len()),
+                    // The row that says how many groups a capped folder shows: the count, and
+                    // the groups the reader kept (a file that only names a note is not drawn).
+                    (
+                        self.docs.library.omitted,
+                        self.docs.library_stamp.groups.len(),
+                    ),
                 ))
             }
             Region::Files => {
@@ -3100,6 +3112,7 @@ impl App {
             }
         }
         if a.outline {
+            self.library_read_abandon();
             self.ui.set_pane_face(crate::ui::PaneFace::Functions);
             self.ui.outline.fill_now(&self.docs);
         }

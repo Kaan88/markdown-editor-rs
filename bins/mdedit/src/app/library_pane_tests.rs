@@ -41,6 +41,18 @@ fn shown(a: &App) -> Vec<(u16, String)> {
         .collect()
 }
 
+/// The loop's passes until the read that runs on its own thread has been taken in. The wake a
+/// job sends is a no-op in tests (the waker `app()` makes), so the test's own passes are its
+/// wake; the real loop is woken by `Wake::Library`.
+fn wait_for_read(a: &mut App) {
+    let end = Instant::now() + std::time::Duration::from_secs(10);
+    while a.library_job.is_some() {
+        assert!(Instant::now() < end, "the library read did not finish");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        a.library_tick(Instant::now());
+    }
+}
+
 #[test]
 fn the_pane_shows_the_library_as_a_tree_and_folds_a_section() {
     let dir = scratch("libpane-tree");
@@ -225,6 +237,14 @@ fn a_library_file_saved_while_the_pane_shows_is_read_again() {
     a.library_tick(Instant::now());
     assert_eq!(shown(&a).len(), 5, "too soon to look again");
     a.library_tick(Instant::now() + crate::library_pane::RECHECK);
+    // The read runs on its own thread: the rows on screen stay until its result is ready.
+    assert_eq!(
+        shown(&a).len(),
+        5,
+        "the old rows stay while the new ones are read"
+    );
+    assert!(a.library_job.is_some(), "the read was started");
+    wait_for_read(&mut a);
     assert_eq!(
         shown(&a).last().map(|(_, l)| l.as_str()),
         Some("Another note"),
@@ -472,4 +492,153 @@ fn the_notes_button_and_the_head_switches_say_what_they_are_with_their_keys() {
         format!("Notes library ({notes})")
     );
     assert!(tip(Hit::LibraryAdd).starts_with("Add to the notes library"));
+}
+
+// ---- a re-read that runs on its own thread ----------------------------------------------------
+
+#[test]
+fn a_read_that_finishes_after_the_folder_moved_is_dropped_not_shown() {
+    let dir = scratch("libpane-stale");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    let before = shown(&a);
+    // What a thread read; the file is saved again before its result can be taken.
+    let read = mdshared_app::library::read(&dir.join("library"));
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let file = dir.join("library").join("personal.md");
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, format!("{text}\n## Later\n")).unwrap();
+    assert!(
+        !a.library_accept(read),
+        "a read that started before the save is not shown"
+    );
+    assert_eq!(shown(&a), before, "the rows stayed as they were");
+    assert!(
+        a.ui.library.checked.is_none(),
+        "the next pass reads again at once instead of waiting out the interval"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_cursor_stays_on_its_note_when_the_rows_arrive_from_a_thread() {
+    let dir = scratch("libpane-cursor-thread");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    let at =
+        a.ui.library
+            .rows
+            .iter()
+            .position(|r| r.label == "Last year")
+            .expect("the note is listed");
+    a.ui.library.focused = true;
+    a.ui.library.set_cur(at);
+    // A section and a note above it move every row below down.
+    let file = dir.join("library").join("personal.md");
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(
+        &file,
+        text.replacen(
+            "## Money",
+            "## Added\n\n- [New one](../new.md)\n\n## Money",
+            1,
+        ),
+    )
+    .unwrap();
+    a.library_tick(Instant::now() + crate::library_pane::RECHECK);
+    wait_for_read(&mut a);
+    let now =
+        a.ui.library
+            .rows
+            .iter()
+            .position(|r| r.label == "Last year")
+            .expect("the note is still listed");
+    assert_ne!(now, at, "the rows moved under the cursor");
+    assert_eq!(a.ui.library.cur, Some(now), "the cursor followed its note");
+    assert!(a.ui.library.focused, "the keyboard stayed in the pane");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn closing_the_pane_drops_a_read_that_is_running() {
+    let dir = scratch("libpane-close-read");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    let file = dir.join("library").join("personal.md");
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, format!("{text}\n## Later\n")).unwrap();
+    a.library_tick(Instant::now() + crate::library_pane::RECHECK);
+    assert!(a.library_job.is_some(), "the read was started");
+    a.command(C::ToggleLibraryPane);
+    assert!(!a.ui.panes.files, "the pane was closed");
+    assert!(a.library_job.is_none(), "the read was let go");
+    let before = shown(&a);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    a.library_tick(Instant::now());
+    assert_eq!(shown(&a), before, "nothing of the read reached the rows");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn changing_the_face_away_from_the_notes_drops_a_read_that_is_running() {
+    let dir = scratch("libpane-face-read");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    let file = dir.join("library").join("personal.md");
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, format!("{text}\n## Later\n")).unwrap();
+    a.library_tick(Instant::now() + crate::library_pane::RECHECK);
+    assert!(a.library_job.is_some(), "the read was started");
+    a.show_pane_face(crate::ui::PaneFace::Files);
+    assert!(a.library_job.is_none(), "the read was let go");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_staleness_copy_holds_the_files_and_stamps_and_no_notes() {
+    let dir = scratch("libpane-stamp");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    assert!(!a.docs.library.groups.is_empty());
+    assert_eq!(
+        a.docs.library_stamp.groups.len(),
+        a.docs.library.groups.len(),
+        "the same groups, for the comparison"
+    );
+    for group in &a.docs.library_stamp.groups {
+        assert!(
+            group.entries.is_empty() && group.sections.is_empty(),
+            "only what changed() compares: the file and its stamp"
+        );
+    }
+    // It still answers the question it is kept for.
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    let file = dir.join("library").join("personal.md");
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, format!("{text}\n")).unwrap();
+    assert!(a.docs.library_stamp.changed());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_omitted_count_is_in_the_pane_frame_signature() {
+    let dir = scratch("libpane-omitted-sig");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    a.compose();
+    let sig = |a: &App| a.region_sig(crate::ui::Region::Files, a.areas.files);
+    let before = sig(&a);
+    a.docs.library.omitted = 71;
+    assert_ne!(
+        before,
+        sig(&a),
+        "the row saying how many groups are shown must repaint the pane"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -598,6 +598,7 @@ pub fn without_notes(full: &Library) -> Library {
     }
     Library {
         dir: full.dir.clone(),
+        omitted: full.omitted,
         groups,
     }
 }
@@ -722,6 +723,14 @@ pub fn empty_state(dir: &std::path::Path) -> Empty {
     }
 }
 
+/// The foot the pane gives a folder the reader could not read whole: how many groups it shows of
+/// how many there are, as "512 of 583 groups shown". `None` when every library file was read.
+/// `shown` is what the pane draws, `read` the groups the reader kept (a library file that only
+/// names a note is not drawn), and `omitted` the files past the reader's limit.
+pub fn omitted_label(shown: usize, read: usize, omitted: usize) -> Option<String> {
+    (omitted > 0).then(|| format!("{shown} of {} groups shown", read + omitted))
+}
+
 /// A line and the buttons under it, as the Files pane has when no folder is open.
 fn draw_empty(c: &mut Ctx, r: Rect, area: Rect, state: Empty, has_file: bool) {
     let pal = *c.pal;
@@ -777,12 +786,23 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, plan_ready: Option<u
 
     let dragging = matches!(ui.drag, Some(Drag::Splitter { .. }));
     let mut area = list(r);
-    // The "Plan ready" row at the foot, one row high, only while there is a plan to come back to.
-    let foot = plan_ready.map(|_| Rect::new(r.x, r.bottom() - ROW_H, r.w, ROW_H));
-    if let Some(foot) = foot {
-        area.h = (area.h - ROW_H).max(0.0);
-        let _ = foot;
+    // The pane's foot rows, each one row high and taken from the list so that no note shows
+    // under them: "Plan ready" at the very bottom, and above it the count of a folder too large
+    // for the reader ("512 of 583 groups shown").
+    let mut bottom = r.bottom();
+    if plan_ready.is_some() {
+        bottom -= ROW_H;
     }
+    let omitted = omitted_label(
+        docs.library.groups.len(),
+        docs.library_stamp.groups.len(),
+        docs.library.omitted,
+    );
+    let omitted_foot = omitted.as_ref().map(|_| {
+        bottom -= ROW_H;
+        Rect::new(r.x, bottom, r.w, ROW_H)
+    });
+    area.h = (bottom - area.y).max(0.0);
     let active = docs.active_doc().and_then(|d| d.path.clone());
     let focused = ui.find_focused && ui.field == BarField::Library;
     let caret_on = ui.caret_on;
@@ -941,6 +961,18 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, plan_ready: Option<u
         c.hit(thumb_hit, track);
     }
     crate::panes::edge(c, r, dragging);
+    if let (Some(foot), Some(label)) = (omitted_foot, &omitted) {
+        c.p.fill(Rect::new(foot.x, foot.y, foot.w, c.p.px()), pal.popup_line);
+        c.p.text(
+            Face::Ui,
+            12.0,
+            r.x + 14.0,
+            foot.y + 8.0,
+            label,
+            pal.muted,
+            (foot.w - 28.0).max(0.0),
+        );
+    }
     if let Some(n) = plan_ready {
         let foot = Rect::new(r.x, r.bottom() - ROW_H, r.w, ROW_H);
         c.p.fill(Rect::new(foot.x, foot.y, foot.w, c.p.px()), pal.popup_line);
@@ -1021,6 +1053,7 @@ mod tests {
         Library {
             dir: PathBuf::from("D:/lib"),
             groups: vec![group],
+            omitted: 0,
         }
     }
 
@@ -1309,6 +1342,7 @@ mod tests {
     fn a_library_file_that_lists_no_note_and_is_listed_by_another_is_not_shown() {
         let full = Library {
             dir: PathBuf::from("/lib"),
+            omitted: 0,
             groups: vec![
                 group_of(
                     "/lib/a.md",
@@ -1331,11 +1365,13 @@ mod tests {
         // A file that lists only itself is not hidden by that.
         let own = Library {
             dir: PathBuf::from("/lib"),
+            omitted: 0,
             groups: vec![group_of("/lib/a.md", &[("Me", "/lib/a.md")])],
         };
         assert_eq!(without_notes(&own).groups.len(), 1);
         let empty_alone = Library {
             dir: PathBuf::from("/lib"),
+            omitted: 0,
             groups: vec![group_of("/lib/z.md", &[])],
         };
         assert_eq!(without_notes(&empty_alone).groups.len(), 1);
@@ -1345,6 +1381,7 @@ mod tests {
     fn a_note_is_found_in_the_library_by_any_spelling_of_its_path() {
         let full = Library {
             dir: PathBuf::from("/lib"),
+            omitted: 0,
             groups: vec![group_of(
                 "/lib/a.md",
                 &[("One", "/lib/../notes/one.md"), ("Two", "/lib/./two.md")],
@@ -1355,5 +1392,37 @@ mod tests {
         assert_eq!(found("/lib/two.md").as_deref(), Some("Two"));
         assert_eq!(found("/lib/three.md"), None);
         assert_eq!(found("/notes/two.md"), None);
+    }
+
+    #[test]
+    fn a_capped_library_keeps_the_count_of_the_groups_it_left_out() {
+        let full = Library {
+            dir: PathBuf::from("/lib"),
+            omitted: 71,
+            groups: vec![
+                group_of("/lib/a.md", &[("Two", "/lib/b.md")]),
+                group_of("/lib/b.md", &[]),
+            ],
+        };
+        let shown = without_notes(&full);
+        assert_eq!(shown.groups.len(), 1, "the note is still not a group");
+        assert_eq!(
+            shown.omitted, 71,
+            "the count is copied, not silently dropped with the hidden group"
+        );
+    }
+
+    #[test]
+    fn the_omitted_count_says_how_many_groups_the_pane_shows() {
+        assert_eq!(
+            omitted_label(512, 512, 71).as_deref(),
+            Some("512 of 583 groups shown")
+        );
+        // A library file that only names a note is read but not drawn: the total still counts it.
+        assert_eq!(
+            omitted_label(511, 512, 71).as_deref(),
+            Some("511 of 583 groups shown")
+        );
+        assert_eq!(omitted_label(3, 3, 0), None, "nothing left out, no row");
     }
 }

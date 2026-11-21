@@ -2326,7 +2326,7 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
   beside it and renames without replacing: a file is never overwritten, and a name taken between
   the check and the rename is refused, not replaced. Pictures are `name.ext`, or `name 2.ext`
   when that name holds other bytes. The group's library file is made from `# Name` and its
-  `home:` line and refused at 64 library files.
+  `home:` line and refused at 512 library files.
 - **The record** is `<library>/.runs/<UTC>-split.json`, with absolute paths made relative to the
   library folder first. `state` is `writing`, `links pending`, `done`, `stopped` or `undone`; its
   `notes[]` holds each note's path, SHA-256, line ranges, heading shift, sections and the exact
@@ -2363,3 +2363,44 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
   file that cannot be made, a demonstration, the repaint signature, the disabled command).
 - **Not built:** the progress row and Cancel (the write runs between frames), so a run is never
   left in `stopped` by this program; step 8; "Ask the AI…".
+
+## 71. The notes pane on a large library (2026-11-21)
+
+The shared pin moved to `fb7777c`: `mdshared_app::library::Library` gained `omitted` and reads
+512 files rather than 64, and `mdshared_app::paths::same_path` compares paths part by part. What
+the window does with them is `bins/mdedit/src/app/library.rs`, `library_pane.rs` and `docs.rs`.
+
+- **The re-read runs on a job, never in the event loop.** `library_tick` still does the cheap
+  look (`Library::changed`: the folder's names and their stamps, 2.25 ms on the big library) and
+  decides whether a read is worth starting. The first read after the pane is shown stays where it
+  was; every later one is `mdshared_app::job::Job::start`, with `Wake::Library` as its wake. At
+  most one is kept (`library_job`): a tick that finds one running waits for its result, and the
+  next tick after it finishes reads again if the folder moved meanwhile.
+- **A stale result is dropped.** `library_accept` calls `read.changed()` first: when a stamp moved
+  while the thread read, the result mixes two states, is not shown, and `checked` is cleared so
+  the next pass reads at once instead of waiting out the interval.
+- **The rows do not flicker.** Nothing touches `ui.library.rows` until `library_accept` has a
+  result worth showing; the rows, the scroll and the keyboard's cursor are the ones on screen
+  while the read runs. `build` restores the cursor by `RowId` (the note's path under its heading,
+  or the heading's key), so it follows its note when the rows arrive from the thread.
+- **Nothing is left behind.** Closing the pane, switching its face away from Notes, and changing
+  the library folder cancel the job; a result that arrives after one of those is dropped by
+  `library_accept`'s pane and folder check. A cancelled job returns nothing to show (`None`), and
+  a finished one is taken once.
+- **The staleness check keeps no notes.** `Docs::library_stamp` is a slim `Library`: the same
+  groups with their file and stamp and `omitted`, with no name, home, sections or entries.
+  `Library::changed` is the same call over it, so a hidden flat note still does not make the
+  pane re-read; the second whole library that used to be kept for this is gone (`stamp_of`).
+- **A capped folder says what it left out.** When `omitted > 0` the pane reserves one row at its
+  foot (above the "Plan ready" row when both show) and draws, in its dim style and with a
+  separating line, "512 of 583 groups shown": `omitted_label(shown, read, omitted)`. The shown
+  count is the groups drawn, the total is the groups the reader kept plus those it left out. The
+  count and the kept groups are in the Files region's signature.
+- Tests: `library_pane::tests` (the omitted count is copied by `without_notes`, and the label's
+  two numbers) and `app::library_pane_tests` (the text arrives from the thread with the old rows
+  still on screen, a stale result is dropped and `checked` cleared, the cursor follows its note,
+  closing the pane and switching the face drop a running read, the slim copy holds no notes, and
+  the omitted count repaints the pane).
+- Measured in `docs/measurements/2026-11-21-library-rework.md`: a library change's event-loop
+  pass 40.3–48.9 ms before against 2.3–2.6 ms to start the read and 5.8–6.2 ms to take its
+  result; private memory 31.50 MiB against 30.90 on one 60-file library.
