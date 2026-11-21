@@ -389,14 +389,7 @@ impl Session {
                             s.use_days = (n, d);
                         }
                     }
-                    "focus" => {
-                        if let Some((secs, path)) = value.split_once(' ')
-                            && let Ok(secs) = secs.parse()
-                            && !path.is_empty()
-                        {
-                            s.focus.push((decode_path(path), secs));
-                        }
-                    }
+                    "focus" => s.focus.extend(mdshared_app::brief::parse(value)),
                     "seen" => {
                         if let Some((day, pin)) = value.split_once(' ')
                             && let (Ok(day), Some(pin)) = (day.parse(), Pin::parse(pin))
@@ -523,7 +516,7 @@ impl Session {
             out.line("seen", &format!("{day} {}", p.serialize()));
         }
         for (path, secs) in &self.focus {
-            out.line("focus", &format!("{secs} {}", encode_path(path)));
+            out.line("focus", &mdshared_app::brief::to_setting(*secs, path));
         }
         if let Some(split) = &self.split {
             out.line("split", &split.serialize());

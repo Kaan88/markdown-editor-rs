@@ -2336,25 +2336,13 @@ fn barely_seen(session: &Session, i: usize) -> bool {
         return false;
     };
     let same = |q: &Path| mdshared_app::paths::same_path(q, path);
-    p.skip_brief
-        && i != session.active
-        && !session
-            .pinned
-            .iter()
-            .any(|pin| matches!(pin, crate::session::Pin::File(q) if same(q)))
-        && !session
-            .active_tab
-            .as_ref()
-            .is_some_and(|pin| matches!(pin, crate::session::Pin::File(q) if same(q)))
-        && !session
-            .unsaved
-            .iter()
-            .any(|u| u.path.as_deref().is_some_and(same))
-        && session
-            .focus
-            .iter()
-            .find(|(q, _)| same(q))
-            .is_some_and(|&(_, secs)| secs < p.brief_secs as u64)
+    let file = |pin: &crate::session::Pin| matches!(pin, crate::session::Pin::File(q) if same(q));
+    let keep = i == session.active
+        || session.pinned.iter().any(file)
+        || session.active_tab.as_ref().is_some_and(file)
+        || (session.unsaved.iter()).any(|u| u.path.as_deref().is_some_and(same));
+    let counted = session.focus.iter().find(|(q, _)| same(q)).map(|&(_, s)| s);
+    mdshared_app::brief::left_out(p.skip_brief, p.brief_secs, counted, keep)
 }
 
 fn backup_dir_of(session: &Path) -> Option<PathBuf> {

@@ -41,9 +41,10 @@ pub const STALE_DAYS_DEFAULT: u32 = 7;
 pub const STALE_DAYS_MIN: u32 = 1;
 pub const STALE_DAYS_MAX: u32 = 365;
 /// Focused seconds under which a tab is not reopened at the next start, when that is on.
-pub const BRIEF_SECS_DEFAULT: u32 = 10;
-pub const BRIEF_SECS_MIN: u32 = 1;
-pub const BRIEF_SECS_MAX: u32 = 600;
+/// (Shared with mdview: [`mdshared_app::brief`].)
+pub const BRIEF_SECS_DEFAULT: u32 = mdshared_app::brief::SECS_DEFAULT;
+pub const BRIEF_SECS_MIN: u32 = mdshared_app::brief::SECS_MIN;
+pub const BRIEF_SECS_MAX: u32 = mdshared_app::brief::SECS_MAX;
 /// A font family name longer than this many bytes is not a name: the default is used.
 pub const FONT_FAMILY_MAX: usize = 256;
 
