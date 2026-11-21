@@ -262,12 +262,14 @@ means read again, text not understood is left out, missing files are shown as mi
     ## Money
     - [Taxes 2026](D:/misc/taxes.md)
     - D:/misc/receipts.md            (title from its first heading)
-    - folder: D:/notes/journal       (every .md in it; open question)
+Quick open searches titles and file names across all groups; a command adds the current file
+under a chosen heading. Both apps read the same files (code in the shared crates).
 
-Quick open (Ctrl+P, if free in the key tables) searches titles and file names across all
-groups; a command adds the current file under a chosen heading. Both apps read the same files
-(code in the shared crates). Open: whether `folder:` lines are wanted (they need a background
-scan, never on the launch path); whether quick open also searches inside notes.
+**Built in mdedit on 2026-11-21** (`mdshared_app::library`, `app/library.rs`; see the handoff).
+The owner's answers to the two open questions: no `folder:` lines (nothing scans in the
+background), and quick open searches titles and file names only, not the text of the notes. The
+list is Ctrl+Shift+N (Ctrl+P is the command palette). Still to do: mdview's side, and a way to
+take a note out of the library from the list.
 
 ## What it is
 

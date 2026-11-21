@@ -163,6 +163,11 @@ pub enum CommandId {
     OpenSnippets,
     /// The language list: the document's language, chosen over its extension's.
     Language,
+    /// The notes library: the list of notes kept in the `library` folder, adding the open file
+    /// to it under a heading, and the library files themselves.
+    Library,
+    LibraryAdd,
+    LibraryEdit,
     /// AI rewriting of the selection, or of the whole document when nothing is selected:
     /// the two built-in requests, one typed, the saved prompts file, the AI settings, and
     /// stopping a rewrite that is running.
@@ -372,6 +377,9 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::CompleteWord, "Complete word", &["Ctrl+Space", "Alt+/"]),
     cmd(C::OpenSnippets, "Open snippets file", &[]),
     cmd(C::Language, "Language", &[]),
+    cmd(C::Library, "Notes library", &["Ctrl+Shift+N"]),
+    cmd(C::LibraryAdd, "Add this file to the notes library…", &[]),
+    cmd(C::LibraryEdit, "Edit the notes library", &[]),
     cmd(C::AiFormat, "AI: Format as Markdown", &[]),
     cmd(C::AiFix, "AI: Fix Markdown", &[]),
     cmd(C::AiRewrite, "AI: Rewrite with instruction…", &[]),
@@ -480,6 +488,29 @@ pub mod strings {
     pub const PALETTE_NO_SYMBOLS: &str = "This kind of file has no symbols to list.";
     pub const PALETTE_NO_SYMBOLS_FOUND: &str = "No symbols found in this file.";
     pub const NO_OTHER_PANE: &str = "One pane only. Shift+F8 shows two files side by side.";
+
+    // ---- the notes library ----
+    pub const LIBRARY_PLACEHOLDER: &str = "Type the name of a note";
+    pub const LIBRARY_ADD_PLACEHOLDER: &str = "Where to keep it";
+    pub const LIBRARY_MISSING: &str = "missing";
+    pub const LIBRARY_END: &str = "at the end";
+    pub const LIBRARY_NEW_FILE: &str = "a new library file";
+    pub const LIBRARY_EMPTY: &str =
+        "The library is empty. \u{201c}Add this file to the notes library\u{201d} starts it.";
+    pub const LIBRARY_NO_FOLDER: &str = "There is no folder for the notes library.";
+    pub const LIBRARY_NEEDS_FILE: &str = "Save this file first: the library keeps links to files.";
+    pub fn library_added(title: &str, group: &str) -> String {
+        format!("\u{201c}{title}\u{201d} is in {group} now.")
+    }
+    pub fn library_has(title: &str) -> String {
+        format!("\u{201c}{title}\u{201d} is already in the library.")
+    }
+    pub fn library_failed(e: &str) -> String {
+        format!("The library file could not be written: {e}")
+    }
+    pub fn library_unsaved(name: &str) -> String {
+        format!("Save or close {name} first: it has changes that are not saved.")
+    }
     pub const MACRO_RECORDING: &str = "Recording the keys you press. Ctrl+Shift+R stops.";
     pub const MACRO_EMPTY: &str = "No key was pressed: nothing recorded.";
     pub const NO_MACRO: &str = "No macro yet. Ctrl+Shift+R records one.";

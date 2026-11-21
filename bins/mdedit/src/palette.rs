@@ -40,6 +40,8 @@ const MAX_SYMBOLS: usize = crate::outline::SYMBOLS_MAX;
 const G_TABS: u8 = 0;
 const G_RECENT: u8 = 1;
 const G_FILES: u8 = 2;
+/// The notes library: one group per library file, from this number up.
+const G_LIBRARY: u8 = 10;
 /// Commands, symbols and the help rows have no header.
 const G_PLAIN: u8 = 100;
 
@@ -58,6 +60,11 @@ pub enum Target {
     AiPrompt(usize),
     /// A language for the current document (`None`: plain text).
     Language(Option<mdedit_highlight::Language>),
+    /// A note of the library: opened as any file is.
+    Note(PathBuf),
+    /// Where the open file is written in the library: a library file and the heading under it
+    /// (empty for the end of the file).
+    NotePlace(PathBuf, String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +77,10 @@ pub enum Mode {
     /// The language list: opened by itself (the status bar's language field, the "Language"
     /// command), never by a prefix.
     Languages,
+    /// The notes of the library, and where in it the open file is written. Both are opened by
+    /// their command, never by a prefix.
+    Library,
+    LibraryAdd,
 }
 
 /// The mode a query is in and how many chars of it are the prefix.
@@ -197,6 +208,8 @@ impl PaletteState {
                     self.note = Some(language_note(src.docs));
                     languages(src)
                 }
+                Mode::Library => library(src),
+                Mode::LibraryAdd => library_places(src),
             };
             self.targets = targets;
             self.palette.set_message(match mode {
@@ -207,6 +220,7 @@ impl PaletteState {
                 Mode::Symbols if entries.is_empty() => {
                     Some(strings::PALETTE_NO_SYMBOLS_FOUND.to_string())
                 }
+                Mode::Library if entries.is_empty() => Some(strings::LIBRARY_EMPTY.to_string()),
                 _ => None,
             });
             self.palette.set_entries(entries);
@@ -411,6 +425,8 @@ fn icon(id: C) -> &'static str {
         C::AiSettings => glyph::SLIDERS,
         C::AiCancel => glyph::STOP,
         C::Language => glyph::CODE,
+        C::Library | C::LibraryAdd => glyph::BOOKMARK,
+        C::LibraryEdit => glyph::DOC,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
 }
@@ -491,6 +507,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::AiFormat | C::AiFix | C::AiRewrite => ready.is_some() && docs.ai_status.is_none(),
         C::AiCancel => docs.ai_status.is_some(),
         C::Language => ready.is_some(),
+        C::LibraryAdd => has_file,
         C::CopyFilePath | C::ShowInFileManager => has_file,
         // A document that has no file is previewed from its text.
         C::PreviewInViewer | C::PreviewSideBySide | C::PreviewPane | C::VisualEdit => has_tab,
@@ -627,6 +644,100 @@ fn languages(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
     (entries, targets)
 }
 
+/// The notes of the library, each under the group (the library file) it is in: the title is the
+/// row, the section and a note that is no longer on disk are its hint. A missing note cannot be
+/// chosen; the library file is where it is put right.
+fn library(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
+    let (mut entries, mut targets) = (Vec::new(), Vec::new());
+    for (g, group) in src.docs.library.groups.iter().enumerate() {
+        for e in &group.entries {
+            let hint = match (e.section.as_str(), e.missing) {
+                ("", false) => String::new(),
+                ("", true) => strings::LIBRARY_MISSING.to_string(),
+                (section, false) => section.to_string(),
+                (section, true) => format!("{section} · {}", strings::LIBRARY_MISSING),
+            };
+            let group_id = G_LIBRARY.saturating_add(g as u8);
+            push(
+                &mut entries,
+                &mut targets,
+                Target::Note(e.path.clone()),
+                |id| {
+                    Entry::new(id, e.title.as_str())
+                        .hint(hint)
+                        .group(group_id)
+                        .enabled(!e.missing)
+                },
+            );
+        }
+    }
+    (entries, targets)
+}
+
+/// The group headers of the library list, one per library file.
+fn library_groups(docs: &Docs) -> Vec<(u8, String)> {
+    docs.library
+        .groups
+        .iter()
+        .enumerate()
+        .map(|(g, group)| (G_LIBRARY.saturating_add(g as u8), group.name.clone()))
+        .collect()
+}
+
+/// Where the open file can be written in the library: every section of every group, each
+/// group's end, and, while the library has no file at all, the first one to make.
+fn library_places(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
+    let (mut entries, mut targets) = (Vec::new(), Vec::new());
+    let row = |entries: &mut Vec<Entry>,
+               targets: &mut Vec<Target>,
+               file: &Path,
+               section: &str,
+               label: String,
+               hint: String| {
+        let target = Target::NotePlace(file.to_path_buf(), section.to_string());
+        push(entries, targets, target, |id| {
+            Entry::new(id, label.as_str()).hint(hint).group(G_PLAIN)
+        });
+    };
+    for group in &src.docs.library.groups {
+        for section in &group.sections {
+            row(
+                &mut entries,
+                &mut targets,
+                &group.file,
+                section,
+                format!("{} \u{203a} {section}", group.name),
+                String::new(),
+            );
+        }
+        row(
+            &mut entries,
+            &mut targets,
+            &group.file,
+            "",
+            group.name.clone(),
+            strings::LIBRARY_END.to_string(),
+        );
+    }
+    if src.docs.library.groups.is_empty() {
+        let file = src
+            .docs
+            .library
+            .dir
+            .join(mdshared_app::library::DEFAULT_FILE);
+        let label = mdshared_app::library::DEFAULT_FILE.to_string();
+        row(
+            &mut entries,
+            &mut targets,
+            &file,
+            "",
+            label,
+            strings::LIBRARY_NEW_FILE.to_string(),
+        );
+    }
+    (entries, targets)
+}
+
 /// What the language list says under its rows: a choice is kept for the file, and the
 /// extension's language is the way back.
 pub fn language_note(docs: &Docs) -> String {
@@ -730,6 +841,30 @@ impl Host {
         state.palette.set_groups(Vec::new());
         state.fixed = Some(Mode::Languages);
         state.anchored = true;
+        self.open = Some(state);
+        self.sync(docs, ui, macros, true);
+        self.tick += 1;
+    }
+
+    /// Opens the notes library: its notes under a header per library file.
+    pub fn open_library(&mut self, docs: &Docs, ui: &Ui, macros: &mut Macros) {
+        let mut state = PaletteState::new("");
+        state.palette.set_placeholder(strings::LIBRARY_PLACEHOLDER);
+        state.palette.set_groups(library_groups(docs));
+        state.fixed = Some(Mode::Library);
+        self.open = Some(state);
+        self.sync(docs, ui, macros, true);
+        self.tick += 1;
+    }
+
+    /// Opens the list of places the open file can be written in the library.
+    pub fn open_library_add(&mut self, docs: &Docs, ui: &Ui, macros: &mut Macros) {
+        let mut state = PaletteState::new("");
+        state
+            .palette
+            .set_placeholder(strings::LIBRARY_ADD_PLACEHOLDER);
+        state.palette.set_groups(Vec::new());
+        state.fixed = Some(Mode::LibraryAdd);
         self.open = Some(state);
         self.sync(docs, ui, macros, true);
         self.tick += 1;

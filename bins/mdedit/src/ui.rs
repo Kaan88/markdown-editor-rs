@@ -357,6 +357,8 @@ pub enum Act {
     ViewMenu,
     /// Open the Macro menu beside the open one.
     MacroMenu,
+    /// Open the notes library's menu beside the open one.
+    LibraryMenu,
     /// Open the text menu's Lines, Convert, Markdown and Table submenus beside it.
     LinesMenu,
     ConvertMenu,
@@ -392,6 +394,7 @@ impl Act {
             Act::RecentMenu => Some(PopupKind::Recent),
             Act::ViewMenu => Some(PopupKind::View),
             Act::MacroMenu => Some(PopupKind::Macro),
+            Act::LibraryMenu => Some(PopupKind::Library),
             Act::LinesMenu => Some(PopupKind::Lines),
             Act::ConvertMenu => Some(PopupKind::Convert),
             Act::MarkdownMenu => Some(PopupKind::Markdown),
@@ -418,6 +421,8 @@ pub enum PopupKind {
     View,
     /// Record and play.
     Macro,
+    /// The notes library: the list, adding this file, and the library files.
+    Library,
     /// The status strip's menus.
     Eol,
     Encoding,

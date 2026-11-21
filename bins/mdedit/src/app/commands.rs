@@ -444,6 +444,7 @@ impl App {
             Act::RecentMenu => self.open_popup(PopupKind::Recent),
             Act::ViewMenu => self.open_popup(PopupKind::View),
             Act::MacroMenu => self.open_popup(PopupKind::Macro),
+            Act::LibraryMenu => self.open_popup(PopupKind::Library),
             Act::AiPrompt(k) => self.ai_saved(k),
             Act::AiEditPrompt(k) => self.ai_edit_saved(k),
             Act::LinesMenu
@@ -1215,6 +1216,10 @@ impl App {
                     self.macros.saved().iter().map(|n| n.name.clone()).collect();
                 overlays::macro_menu(recording, any, &names, x, y, right)
             }
+            PopupKind::Library => {
+                let has_file = self.docs.active_doc().is_some_and(|d| d.path.is_some());
+                overlays::library_menu(has_file, x, y, right)
+            }
             PopupKind::Lines => overlays::lines_menu(&self.docs, x, y, right),
             PopupKind::Convert => overlays::convert_menu(&self.docs, x, y, right),
             PopupKind::Markdown => overlays::markdown_menu(&self.docs, x, y, right),
@@ -1906,6 +1911,9 @@ impl App {
             C::AiSettings => self.ai_open_settings(),
             C::AiCancel => self.ai_cancel(),
             C::Language => self.open_languages(),
+            C::Library => self.library_open(),
+            C::LibraryAdd => self.library_add(),
+            C::LibraryEdit => self.library_edit(),
             C::NextTab => self.docs.step_tab(true),
             C::PreviousTab => self.docs.step_tab(false),
             C::Escape => self.escape(),

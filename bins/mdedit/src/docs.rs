@@ -1492,6 +1492,9 @@ pub struct Docs {
     pub prefs: Prefs,
     /// The saved AI prompts, as the palette and the AI menu list them.
     pub ai_prompts: Vec<mdedit_core::ai::SavedPrompt>,
+    /// The notes library, as the palette lists it: read when it is first shown and whenever a
+    /// library file has been saved since ([`App::library_load`](crate::app::App)).
+    pub library: mdshared_app::library::Library,
     /// What a running AI rewrite has done so far, shown at the left of the status strip.
     pub ai_status: Option<String>,
     /// The step of the moving strip over the status bar while a rewrite runs.
@@ -1606,6 +1609,7 @@ impl Docs {
             updates: crate::updater::Updates::default(),
             crash: None,
             ai_prompts: Vec::new(),
+            library: mdshared_app::library::Library::default(),
             ai_status: None,
             ai_phase: 0,
             check_updates: true,

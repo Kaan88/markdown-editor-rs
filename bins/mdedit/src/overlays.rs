@@ -56,6 +56,9 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         Item::new(Act::MacroMenu, "&Macro")
             .icon(glyph::MACRO)
             .hint("›"),
+        Item::new(Act::LibraryMenu, "Not&es library")
+            .icon(glyph::BOOKMARK)
+            .hint("›"),
         theme(ThemeChoice::System, "S&ystem theme", glyph::SYSTEM).sep(),
         theme(ThemeChoice::Light, "Lig&ht theme", glyph::SUN),
         theme(ThemeChoice::Dark, "Dar&k theme", glyph::MOON),
@@ -73,7 +76,8 @@ pub fn main_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
         items.push(cmd(C::MakeDefault, strings::MAKE_DEFAULT, glyph::CHECK));
     }
     items.push(cmd(C::About, "About mded&it", glyph::INFO));
-    items.push(cmd(C::Exit, "&Exit", glyph::POWER).sep());
+    // "E&xit": the notes library took "e", and Alt+X is the other common letter for Exit.
+    items.push(cmd(C::Exit, "E&xit", glyph::POWER).sep());
     Menu::new(items, x, y, true).access_keys(true)
 }
 
@@ -153,6 +157,18 @@ pub fn macro_menu(
     if !saved.is_empty() {
         items.push(cmd(C::DeleteMacros, "&Delete saved macros…", glyph::DELETE).sep());
     }
+    Menu::new(items, x, y, align_right).access_keys(true)
+}
+
+/// The notes library's menu, opened from the main menu in its place: the list of notes, the
+/// open file into it, and the library files themselves. `has_file` greys the middle one: the
+/// library keeps links, so a document with no file cannot go in it yet.
+pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    let items = vec![
+        cmd(C::Library, "&Open a note…", glyph::BOOKMARK),
+        cmd(C::LibraryAdd, "&Add this file…", glyph::NEW_FILE).enabled(has_file),
+        cmd(C::LibraryEdit, "&Edit the library", glyph::DOC).sep(),
+    ];
     Menu::new(items, x, y, align_right).access_keys(true)
 }
 

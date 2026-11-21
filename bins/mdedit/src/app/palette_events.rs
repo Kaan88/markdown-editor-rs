@@ -200,6 +200,8 @@ impl App {
             Target::Symbol(line) => self.go_to_line(line + 1, 1),
             Target::AiPrompt(k) => self.ai_saved(k),
             Target::Language(lang) => self.choose_language(lang),
+            Target::Note(path) => self.open(&path),
+            Target::NotePlace(file, section) => self.library_put(&file, &section),
             Target::Prefix(_) => {}
         }
         self.redraw();

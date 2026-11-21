@@ -1,0 +1,170 @@
+//! The notes library: the `library` folder beside the settings file, listed by the palette
+//! ("Notes library"), written to by "Add this file to the notes library" and edited as the
+//! Markdown files it is. Reading, the format and the writing are
+//! [`mdshared_app::library`], shared with the viewer; what is here is when it is read, where
+//! the folder is, and what the window does with it.
+
+use super::*;
+use crate::commands::strings;
+use mdshared_app::library;
+
+impl App {
+    /// The library folder, beside the settings file (the application's data folder when the
+    /// window runs without one). `None` while a shot runs on the user's own folder.
+    pub(super) fn library_dir(&self) -> Option<PathBuf> {
+        self.snippets_path().map(|p| p.with_file_name(library::DIR))
+    }
+
+    /// Reads the library when it is listed for the first time, and again whenever a library
+    /// file has been saved, added or removed since. Nothing is read at the start: the first
+    /// list pays for it.
+    pub(super) fn library_load(&mut self) {
+        let Some(dir) = self.library_dir() else {
+            self.docs.library = library::Library::default();
+            return;
+        };
+        if self.docs.library.dir == dir && !self.docs.library.changed() {
+            return;
+        }
+        self.docs.library = library::read(&dir);
+    }
+
+    /// The "Notes library" command: the list of notes, read again first.
+    pub(super) fn library_open(&mut self) {
+        self.library_load();
+        self.palette
+            .open_library(&self.docs, &self.ui, &mut self.macros);
+    }
+
+    /// "Add this file to the notes library": asks where to keep it, once there is a file to
+    /// keep. The answer is a [`crate::palette::Target::NotePlace`].
+    pub(super) fn library_add(&mut self) {
+        let Some(path) = self.docs.active_doc().and_then(|d| d.path.clone()) else {
+            self.docs.set_toast(strings::LIBRARY_NEEDS_FILE);
+            return;
+        };
+        if self.library_dir().is_none() {
+            self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
+            return;
+        }
+        self.library_load();
+        let same = mdshared_app::paths::canonical_or_absolute(&path);
+        let listed = self
+            .docs
+            .library
+            .entries()
+            .find(|(_, e)| mdshared_app::paths::canonical_or_absolute(&e.path) == same)
+            .map(|(_, e)| e.title.clone());
+        if let Some(title) = listed {
+            self.docs.set_toast(&strings::library_has(&title));
+            return;
+        }
+        self.palette
+            .open_library_add(&self.docs, &self.ui, &mut self.macros);
+    }
+
+    /// Writes the active file into library file `file` under `section` (its end when the
+    /// section is empty), making the file from its template when it is not there yet.
+    pub(super) fn library_put(&mut self, file: &Path, section: &str) {
+        let Some(doc) = self.docs.active_doc() else {
+            return;
+        };
+        let Some(path) = doc.path.clone() else {
+            self.docs.set_toast(strings::LIBRARY_NEEDS_FILE);
+            return;
+        };
+        let title = library::title_of(&path);
+        // Open in a tab with changes not saved: writing the file under them would be lost to
+        // that tab's next save, as the saved prompts file is protected (audit 1 round 5).
+        if let Some(open) = self.docs.tabs.iter().find(|d| {
+            d.modified()
+                && d.path
+                    .as_deref()
+                    .is_some_and(|p| mdshared_app::paths::same_path(p, file))
+        }) {
+            let name = open.name();
+            self.docs.set_toast(&strings::library_unsaved(&name));
+            return;
+        }
+        if let Some(parent) = file.parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            self.docs
+                .set_toast(&strings::library_failed(&e.to_string()));
+            return;
+        }
+        let text = match std::fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => library::TEMPLATE.to_string(),
+            Err(e) => {
+                self.docs
+                    .set_toast(&strings::library_failed(&e.to_string()));
+                return;
+            }
+        };
+        let section = (!section.is_empty()).then_some(section);
+        let new = library::add_note(&text, section, &title, &path);
+        // Written only when it reads back as the notes there were and this one at its place.
+        let before = library::parse(&text, &self.docs.library.dir).entries;
+        let after = library::parse(&new, &self.docs.library.dir).entries;
+        let same = mdshared_app::paths::canonical_or_absolute(&path);
+        let added = after.len() == before.len() + 1
+            && after
+                .iter()
+                .any(|e| mdshared_app::paths::canonical_or_absolute(&e.path) == same);
+        if !added {
+            self.docs.set_toast(&strings::library_failed(
+                "the file would not read back as its notes",
+            ));
+            return;
+        }
+        if let Err(e) = mdshared_app::settings::write_atomic(file, &new) {
+            self.docs
+                .set_toast(&strings::library_failed(&e.to_string()));
+            return;
+        }
+        self.library_load();
+        let group = self
+            .docs
+            .library
+            .groups
+            .iter()
+            .find(|g| mdshared_app::paths::same_path(&g.file, file))
+            .map(|g| g.name.clone())
+            .unwrap_or_default();
+        self.docs.set_toast(&strings::library_added(&title, &group));
+    }
+
+    /// "Edit the notes library": opens the library files in tabs, making the first one from
+    /// its template when the folder is empty.
+    pub(super) fn library_edit(&mut self) {
+        let Some(dir) = self.library_dir() else {
+            self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
+            return;
+        };
+        self.library_load();
+        let files: Vec<PathBuf> = self
+            .docs
+            .library
+            .groups
+            .iter()
+            .map(|g| g.file.clone())
+            .collect();
+        if files.is_empty() {
+            let file = dir.join(library::DEFAULT_FILE);
+            if let Err(e) = std::fs::create_dir_all(&dir)
+                .and_then(|()| std::fs::write(&file, library::TEMPLATE))
+            {
+                self.docs
+                    .set_toast(&strings::library_failed(&e.to_string()));
+                return;
+            }
+            self.open(&file);
+            self.library_load();
+            return;
+        }
+        for file in files {
+            self.open(&file);
+        }
+    }
+}

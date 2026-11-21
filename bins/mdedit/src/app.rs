@@ -74,6 +74,9 @@ mod ime_tests;
 mod input;
 #[cfg(test)]
 mod language_tests;
+mod library;
+#[cfg(test)]
+mod library_tests;
 pub(crate) mod modal;
 mod palette_events;
 mod preview;

@@ -5,6 +5,41 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## The notes library (2026-11-21, on main, the owner has not seen it)
+
+Quick access to notes kept anywhere, nothing moved (`docs/PLAN.md`, "Notes library"). The owner
+chose: link lines only (no `folder:` lines, so nothing scans in the background), quick open over
+titles and file names, and the code in the shared crates from the start.
+
+- Shared: `mdshared_app::library` (markdown-shared-rs `bb33a59`). A `library` folder beside
+  `settings.ini`; each `.md` file in it is one group, its first `# heading` the group's name
+  (its file name otherwise), each deeper heading a section, each list item a note:
+  `- [Taxes 2026](D:/misc/taxes.md)` or a path on its own. Prose and code fences are left out.
+  A bare path line needs `<>` around a path with spaces, or it reads as prose
+  (`looks_like_path`). A relative path is the library folder's. A note with no title written
+  takes the first heading of the note itself (at most `TITLE_BYTES`, 8 KiB, read), else its file
+  name. A note that is not on disk is listed as missing, not dropped. `read` does folder, files,
+  titles and stamps; `Library::changed()` says whether a file has been saved, added or removed
+  since; `add_note` writes a note under a heading (keeping the file's line ending) and
+  `parse`/`Parsed` reads it back. Limits: 64 files, 1 MiB each, 2000 notes per group.
+- mdedit (`app/library.rs`): nothing is read at the start — the first list pays for it, and
+  `library_load` reads again only when a library file has changed. Commands "Notes library"
+  (Ctrl+Shift+N; the palette lists every note under a header per group, the section and
+  "missing" as the hint, Enter opens it), "Add this file to the notes library…" (asks where:
+  every heading of every group, each group's end, or the first file to make), and "Edit the
+  notes library" (opens the library files, making `library/notes.md` from its template when
+  there is none). Main menu: "Not&es library" with the three. A file already listed is not
+  added twice; a library file open with unsaved changes is not written under them; the new text
+  is written only when it reads back as the notes there were plus this one.
+- The main menu's Exit is "E&xit" now: the library took "e", and every other letter of "Notes
+  library" was taken.
+- Tests: `app::library_tests` (list and open, add under a heading, the empty library started by
+  the first add and by Edit, a file saved meanwhile read again) and `library::tests` in the
+  shared crate (the format, the folder, adding a note).
+- Not done: mdview does not use it yet (the shared crate is ready for it); no setting for the
+  library folder; no "remove from the library" command; `folder:` lines left out by the owner's
+  choice; budgets not measured again (nothing new runs at start); the owner has not seen it.
+
 ## Save offers a new note the extension of its language (2026-11-21, fixed on main)
 
 A new note the AI made Markdown was still offered `<name>.txt` by Save: `save_as`
