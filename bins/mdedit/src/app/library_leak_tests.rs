@@ -327,9 +327,20 @@ fn a_note_made_inside_the_library_folder_is_linked_without_a_drive_and_survives_
     let link = text.lines().find(|t| t.contains("[Budget]")).unwrap();
     assert!(!link.contains(':') && !link.contains("//"), "{link}");
 
-    // The folder is renamed (moved, synced elsewhere): the note is still found.
+    // The folder is renamed (moved, synced elsewhere): the note is still found. Windows refuses
+    // to rename a folder while anything still holds a handle inside it — an indexer or a virus
+    // scanner that opened the note we just wrote — so the attempt is given a moment, which is
+    // what any program that moves a folder on Windows has to do.
     let moved = l.dir.join("library-moved");
-    std::fs::rename(l.dir.join("library"), &moved).unwrap();
+    let mut renamed = std::fs::rename(l.dir.join("library"), &moved);
+    for _ in 0..50 {
+        if renamed.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        renamed = std::fs::rename(l.dir.join("library"), &moved);
+    }
+    renamed.expect("the library folder is renamed");
     let read_again = mdshared_app::library::read(&moved);
     let note = read_again
         .entries()

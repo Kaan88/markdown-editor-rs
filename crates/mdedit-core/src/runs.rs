@@ -2664,6 +2664,52 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `prepare` reads the disk and `undo` reads it again, which looks like the same question
+    /// asked twice until the file changes between them: the editor asks, the owner saves over a
+    /// note while the question is on screen, and the answer is already stale. The second hash is
+    /// the one that decides, so a note written to between the two calls is kept.
+    #[test]
+    fn a_note_changed_after_undo_was_worked_out_is_still_kept() {
+        let dir = scratch("undo-raced");
+        let library = dir.join("library");
+        std::fs::create_dir_all(&library).expect("the library");
+        let source = source(&dir);
+        let req = plan(
+            &library,
+            &source,
+            &[("One", "# One\n", &[]), ("Two", "# Two\n", &[])],
+        );
+        let mut gate = TestGate::new();
+        let report = write_at(&req, &mut gate, 9, "2026-11-21T14:03:11Z");
+        let record_path = report.record_path.clone().expect("a record");
+        let record = load(&record_path, &library).expect("the record");
+        // Worked out while both notes are untouched: undo would remove both.
+        let plan = prepare(&record);
+        assert_eq!(plan.notes.len(), 2, "{:?}", plan.notes);
+        assert!(plan.kept.is_empty(), "{:?}", plan.kept);
+        // The owner saves over one of them before pressing Undo.
+        let one = library.join("Trip").join("One.md");
+        write_file(&one, "# One, saved while the question was up\n");
+        let mut gate = TestGate::new();
+        let done = undo(&record_path, &record, &library, &mut gate);
+        assert_eq!(
+            done.removed_notes,
+            vec![library.join("Trip/Two.md")],
+            "only the note that is still ours goes"
+        );
+        assert_eq!(
+            read(&one),
+            "# One, saved while the question was up\n",
+            "the note written between the two reads is kept, whatever the plan said"
+        );
+        assert!(
+            done.kept.iter().any(|p| same_path(p, &one)),
+            "{:?}",
+            done.kept
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn undo_leaves_a_group_file_that_holds_more_than_its_heading_and_its_home() {
         let dir = scratch("undo-group");
