@@ -185,6 +185,18 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
 
 /// The label of "Show in the file manager", with its access key on the first letter that no
 /// other item of the menu (`taken`: their keys) has.
+/// The buttons of the "Undo this run?" question, in the order every other question in this
+/// program uses: the answer first, because `Hit::DlgButton(0)` is the one the handler acts on,
+/// and Cancel after it. Drawn the other way round, Cancel was the button that undid the run.
+/// A refused undo has nothing to answer, so Close is its only button.
+pub fn run_undo_buttons(can: bool) -> [(&'static str, bool); 2] {
+    if can {
+        [("Undo", true), (strings::CANCEL, false)]
+    } else {
+        [("Close", true), ("", true)]
+    }
+}
+
 fn reveal_label(taken: &str) -> String {
     let label = command(C::ShowInFileManager).label;
     let at = label
@@ -1442,12 +1454,7 @@ pub fn draw_dialog(
                 pal.text,
             );
             let mut x = r.right() - PAD;
-            // A refused undo has nothing to answer: Close is the only button.
-            let labels: [(&str, bool); 2] = if can {
-                [("Cancel", false), ("Undo", true)]
-            } else {
-                [("Close", true), ("", true)]
-            };
+            let labels = run_undo_buttons(can);
             let count = if can { 2 } else { 1 };
             for (n, (label, primary)) in labels.iter().enumerate().take(count).rev() {
                 let bw = dialog_button_w(c.p, label);

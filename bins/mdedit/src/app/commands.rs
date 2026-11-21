@@ -194,6 +194,7 @@ impl App {
                 Some(kind) if kind.is_confirm() => self.answer(n),
                 Some(DialogKind::ReplaceFiles) => self.replace_dialog_button(n),
                 Some(DialogKind::Runs) if n == 0 => self.close_dialog(),
+                // Button 0 is the answer, as the drawing puts it first; anything else closes.
                 Some(DialogKind::RunUndo) if n == 0 => {
                     let ask = self.ui.runs.undo.clone();
                     match ask {

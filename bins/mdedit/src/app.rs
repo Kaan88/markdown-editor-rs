@@ -63,6 +63,8 @@ mod commands;
 mod compare_events;
 mod completion;
 mod crash;
+#[cfg(test)]
+mod undo_button_tests;
 pub use crash::crash_dir;
 #[cfg(test)]
 mod files_tests;

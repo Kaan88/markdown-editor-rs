@@ -1,0 +1,965 @@
+diff --git a/bins/mdedit/src/app.rs b/bins/mdedit/src/app.rs
+index 9e1f3b2..dba611e 100644
+--- a/bins/mdedit/src/app.rs
++++ b/bins/mdedit/src/app.rs
+@@ -54,6 +54,8 @@ use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, Wind
+ 
+ #[cfg(test)]
+ mod access_tests;
++#[cfg(test)]
++mod audit3_probe_tests;
+ mod ai_events;
+ #[cfg(test)]
+ mod ai_kept_tests;
+diff --git a/bins/mdedit/src/app/audit3_probe_tests.rs b/bins/mdedit/src/app/audit3_probe_tests.rs
+new file mode 100644
+index 0000000..07f7b2b
+--- /dev/null
++++ b/bins/mdedit/src/app/audit3_probe_tests.rs
+@@ -0,0 +1,391 @@
++//! Audit 3 probes through the window, against 6cdeab2.
++//!
++//! Every test here PASSES on the tree under review and asserts the fault: the assert that carries
++//! the finding is marked `FAULT`. Turned round, each is the regression test for its fix. They
++//! write only under scratch folders in the temp folder.
++
++use super::files_tests::{app, open_now, scratch, type_text};
++use super::*;
++use crate::commands::CommandId as C;
++use crate::keys::{Key, KeyName};
++use crate::ui::Hit;
++use mdedit_core::runs::{self, State};
++
++/// A heading above the notes: the run writes a section heading into the library file.
++const SECTIONED: &str = "# Tokyo\n\nintro\n\n## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n";
++/// No heading above the notes: the notes have no section.
++const FLAT: &str = "## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n";
++
++fn press(a: &mut App, key: KeyName) {
++    a.key_pressed(Key::Name(key), None);
++}
++
++fn app_in(dir: &Path) -> App {
++    let mut a = app();
++    a.session_path = Some(dir.join("settings.ini"));
++    a.library_rows();
++    a
++}
++
++fn read(path: &Path) -> String {
++    std::fs::read_to_string(path).unwrap_or_default()
++}
++
++fn toast(a: &App) -> String {
++    a.docs
++        .toast(Instant::now())
++        .map(str::to_string)
++        .unwrap_or_default()
++}
++
++fn hit_rect(a: &App, hit: Hit) -> Option<Rect> {
++    a.overlay_hits
++        .iter()
++        .chain(a.hits.iter().flatten())
++        .find(|(h, _)| *h == hit)
++        .map(|(_, r)| *r)
++}
++
++fn click(a: &mut App, r: Rect) {
++    a.pointer_moved(r.cx(), r.cy());
++    a.left_press();
++    a.left_release();
++}
++
++/// `Trip.md` holding `text`, split and written through the plan screen: the window, the library
++/// folder, the record and the scratch folder.
++fn written(tag: &str, text: &str) -> (App, PathBuf, PathBuf, PathBuf) {
++    let dir = scratch(tag);
++    let mut a = app_in(&dir);
++    let source = dir.join("Trip.md");
++    std::fs::write(&source, text).expect("the source");
++    open_now(&mut a, &source);
++    assert!(a.plan_open_active(), "the plan opens");
++    a.compose();
++    press(&mut a, KeyName::Enter);
++    assert!(a.plan.is_none(), "the card closes when it writes");
++    let record =
++        a.ui.results
++            .replace
++            .outcome
++            .as_ref()
++            .and_then(|o| o.run.clone())
++            .expect("the record");
++    (a, dir.join("library"), record, dir)
++}
++
++// ---- N23: the question before an undo answers the wrong way round ---------------------------------
++
++#[test]
++fn n23_cancel_in_undo_this_run_undoes_the_run() {
++    let (mut a, library, record, dir) = written("probe-cancel", SECTIONED);
++    let note = library.join("Trip").join("Tokyo").join("Asakusa.md");
++    assert!(note.is_file());
++    a.run_undo_ask(record.clone());
++    assert_eq!(
++        a.ui.dialog.as_ref().map(|d| d.kind),
++        Some(DialogKind::RunUndo)
++    );
++    a.compose();
++    let zero = hit_rect(&a, Hit::DlgButton(0)).expect("button 0 is drawn");
++    let one = hit_rect(&a, Hit::DlgButton(1)).expect("button 1 is drawn");
++    // overlays.rs:1446-1461 draws labels[n] with Hit::DlgButton(n), from the right: button 1 is
++    // "Undo" (the primary, at the right) and button 0 is "Cancel" (at its left).
++    assert!(zero.x < one.x, "{zero:?} {one:?}");
++    click(&mut a, zero);
++    // FAULT: the owner pressed Cancel and the run is undone.
++    assert!(!note.exists(), "Cancel deleted the note");
++    assert!(!library.join("Trip.md").exists(), "and the group's file");
++    assert_eq!(
++        runs::load(&record, &library).expect("the record").state,
++        State::Undone
++    );
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++#[test]
++fn n23_undo_in_undo_this_run_only_closes_the_question() {
++    let (mut a, library, record, dir) = written("probe-undo", SECTIONED);
++    let note = library.join("Trip").join("Tokyo").join("Asakusa.md");
++    a.run_undo_ask(record.clone());
++    a.compose();
++    let one = hit_rect(&a, Hit::DlgButton(1)).expect("button 1 is drawn");
++    click(&mut a, one);
++    // FAULT: the owner pressed Undo and nothing was undone.
++    assert!(note.is_file(), "Undo left the note");
++    assert_eq!(
++        runs::load(&record, &library).expect("the record").state,
++        State::Done
++    );
++    assert!(a.ui.dialog.is_none(), "the question closed");
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N1: undo through the window's own gate -------------------------------------------------------
++
++#[test]
++fn n1_undo_of_notes_under_no_section_deletes_them_and_leaves_their_lines() {
++    let (mut a, library, record, dir) = written("probe-flat", FLAT);
++    let group = library.join("Trip.md");
++    let note = library.join("Trip").join("Asakusa.md");
++    assert!(note.is_file());
++    assert!(read(&group).contains("[Asakusa]"));
++    a.run_undo(record.clone());
++    assert!(!note.exists(), "the notes are deleted");
++    assert!(!library.join("Trip").join("Nara.md").exists());
++    let after = read(&group);
++    // FAULT: both lines are still in the library file, each naming a file that is gone.
++    assert!(after.contains("[Asakusa]") && after.contains("[Nara]"), "{after}");
++    assert_eq!(
++        runs::load(&record, &library).expect("the record").state,
++        State::Undone,
++        "and the run cannot be undone again"
++    );
++    let title =
++        a.ui.results
++            .replace
++            .outcome
++            .as_ref()
++            .map(|o| o.title.clone())
++            .unwrap_or_default();
++    // FAULT: the report says the lines were taken out.
++    assert!(title.contains("2 lines"), "{title}");
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N16: a second split into the same group ------------------------------------------------------
++
++#[test]
++fn n16_a_split_into_a_group_that_has_a_section_writes_its_notes_and_links_none() {
++    let (mut a, library, _record, dir) = written("probe-again", SECTIONED);
++    assert!(read(&library.join("Trip.md")).contains("## Tokyo"));
++    // Another document for the same group, with no heading above its notes.
++    let more = dir.join("more");
++    std::fs::create_dir_all(&more).expect("a folder");
++    let second = more.join("Trip.md");
++    std::fs::write(&second, "## Kyoto\n\nthe temples\n\n## Osaka\n\nthe food\n").expect("a file");
++    open_now(&mut a, &second);
++    assert!(a.plan_open_active(), "the plan opens");
++    {
++        let p = a.plan.as_ref().expect("open");
++        assert!(!p.dest.is_new, "the group is the one that is there");
++        assert_eq!(p.problem(), None, "and nothing is said against writing");
++    }
++    a.compose();
++    press(&mut a, KeyName::Enter);
++    assert!(
++        library.join("Trip").join("Kyoto.md").is_file(),
++        "the notes are written"
++    );
++    let said = toast(&a);
++    // FAULT: and then the library file is refused.
++    assert!(
++        said.starts_with("The notes are written, but Trip.md could not be updated"),
++        "{said}"
++    );
++    assert!(!read(&library.join("Trip.md")).contains("Kyoto"));
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N7: a new group whose file name is taken -----------------------------------------------------
++
++#[test]
++fn n7_a_new_group_whose_file_is_there_is_found_out_after_the_notes_are_written() {
++    let dir = scratch("probe-stem");
++    let library = dir.join("library");
++    std::fs::create_dir_all(&library).expect("the library");
++    // A library file called Trip.md whose group has another name.
++    std::fs::write(library.join("Trip.md"), "# Japan 2025\n").expect("a library file");
++    let mut a = app_in(&dir);
++    let source = dir.join("Trip.md");
++    std::fs::write(&source, FLAT).expect("the source");
++    open_now(&mut a, &source);
++    assert!(a.plan_open_active());
++    {
++        let p = a.plan.as_ref().expect("open");
++        assert!(p.dest.is_new, "the screen takes the group for a new one");
++        assert_eq!(p.problem(), None, "and nothing is said against writing");
++    }
++    a.compose();
++    press(&mut a, KeyName::Enter);
++    // FAULT: the notes are on disk and the library cannot list them.
++    assert!(library.join("Trip").join("Asakusa.md").is_file());
++    let said = toast(&a);
++    assert!(
++        said.starts_with("The notes are written, but Trip.md could not be updated"),
++        "{said}"
++    );
++    assert_eq!(read(&library.join("Trip.md")), "# Japan 2025\n");
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N20: a plan kept by Escape, shown again after the document changed ----------------------------
++
++#[test]
++fn n20_a_kept_plan_writes_the_text_it_was_made_from_after_the_document_was_saved_again() {
++    let dir = scratch("probe-parked");
++    let mut a = app_in(&dir);
++    let source = dir.join("Trip.md");
++    std::fs::write(&source, "## One\n\nalpha\n\n## Two\n\nbeta\n").expect("the source");
++    open_now(&mut a, &source);
++    assert!(a.plan_open_active());
++    a.compose();
++    // A change, so that Escape keeps the plan: the second note is unticked.
++    press(&mut a, KeyName::Down);
++    press(&mut a, KeyName::Space);
++    press(&mut a, KeyName::Escape);
++    assert!(a.plan.is_none() && a.plan_parked.is_some());
++    // The owner goes on writing in the document, and saves it.
++    type_text(&mut a, "x");
++    a.command(C::Save);
++    let now = std::fs::read(&source).expect("the source");
++    assert!(now.starts_with(b"x## One"), "{:?}", String::from_utf8_lossy(&now));
++    // Show, then Write the notes.
++    assert!(a.plan_show());
++    assert_eq!(
++        a.plan.as_ref().expect("open").problem(),
++        None,
++        "nothing says the document changed"
++    );
++    a.compose();
++    press(&mut a, KeyName::Enter);
++    let library = dir.join("library");
++    // FAULT: the note is cut from the text of before; line 1 of the file is no heading now.
++    assert_eq!(
++        read(&library.join("Trip").join("One.md")),
++        "# One\n\nalpha\n"
++    );
++    // FAULT: the record names the digest of the file as it is now, which the notes do not hold.
++    let list = runs::list(&library);
++    assert_eq!(list.len(), 1);
++    assert_eq!(
++        list[0].record.source.sha256,
++        mdshared_app::update::sha256_hex(&now)
++    );
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N21: two names that are one file --------------------------------------------------------------
++
++#[cfg(windows)]
++#[test]
++fn n21_two_titles_that_differ_only_in_case_are_given_one_file() {
++    let dir = scratch("probe-case");
++    let mut a = app_in(&dir);
++    let source = dir.join("Trip.md");
++    std::fs::write(&source, "## Notes\n\nfirst\n\n## notes\n\nsecond\n").expect("the source");
++    open_now(&mut a, &source);
++    assert!(a.plan_open_active());
++    {
++        let p = a.plan.as_ref().expect("open");
++        assert_eq!(p.targets.len(), 2);
++        assert!(
++            mdshared_app::paths::same_path(&p.targets[0].path, &p.targets[1].path),
++            "the two names are one file here"
++        );
++        // FAULT: the screen offers the second no other name, as it does for two equal titles.
++        assert_eq!(p.targets[1].renamed, None);
++        assert_eq!(p.mark(1), None);
++    }
++    a.compose();
++    press(&mut a, KeyName::Enter);
++    let folder = dir.join("library").join("Trip");
++    let files: Vec<String> = std::fs::read_dir(&folder)
++        .expect("the folder")
++        .filter_map(|e| e.ok())
++        .map(|e| e.file_name().to_string_lossy().into_owned())
++        .collect();
++    // FAULT: one note is written, the other is left out.
++    assert_eq!(files.len(), 1, "{files:?}");
++    assert_eq!(read(&folder.join("Notes.md")), "# Notes\n\nfirst\n");
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N22: a group's folder that is the library folder ----------------------------------------------
++
++#[test]
++fn n22_a_group_whose_folder_is_the_library_folder_gets_its_notes_as_library_files() {
++    let dir = scratch("probe-home");
++    let library = dir.join("library");
++    std::fs::create_dir_all(&library).expect("the library");
++    let file = library.join("Work.md");
++    std::fs::write(&file, "# Work\n").expect("a library file");
++    let mut a = app_in(&dir);
++    // "Set the group's folderΓÇª", and the folder picked is the library folder itself.
++    a.library_group_home_picked(&file, library.clone());
++    let text = read(&file);
++    // FAULT: accepted.
++    assert!(text.contains("home:"), "{text}");
++    a.library_rows();
++    a.library_new_note(&file, &[], "Idea");
++    // FAULT: the note is a `.md` directly in the library folder, which the reader takes for a
++    // library file of its own.
++    assert!(library.join("Idea.md").is_file());
++    let whole = mdshared_app::library::read(&library);
++    assert!(
++        whole
++            .groups
++            .iter()
++            .any(|g| g.file.file_name().is_some_and(|n| n == "Idea.md")),
++        "{:?}",
++        whole.groups.iter().map(|g| &g.file).collect::<Vec<_>>()
++    );
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N15: a file name that ends the program --------------------------------------------------------
++
++#[cfg(windows)]
++#[test]
++fn n15_opening_a_file_called_bes_ends_the_program() {
++    let dir = scratch("probe-name");
++    // "five" in Turkish.
++    let path = dir.join("be\u{15f}.md");
++    std::fs::write(&path, "# Be\u{15f}\n").expect("a file");
++    let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++        let mut a = app();
++        open_now(&mut a, &path);
++    }));
++    // FAULT: a panic, which the release build turns into the end of the process.
++    assert!(opened.is_err());
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N19: the library was never read ---------------------------------------------------------------
++
++/// Changes the process's working folder, so it runs alone:
++/// `cargo test -p mdedit n19_ -- --ignored --exact --test-threads=1` with the full name.
++#[test]
++#[ignore = "changes the working folder of the process: run it alone"]
++fn n19_split_into_notes_before_the_library_is_read_writes_into_the_working_folder() {
++    let dir = scratch("probe-cwd");
++    let cwd = dir.join("started here");
++    std::fs::create_dir_all(&cwd).expect("a folder");
++    std::env::set_current_dir(&cwd).expect("the working folder");
++    let mut a = app();
++    a.session_path = Some(dir.join("settings.ini"));
++    // No `library_rows()`: the Notes pane was never shown and the palette never opened.
++    let docs = dir.join("docs");
++    std::fs::create_dir_all(&docs).expect("a folder");
++    let source = docs.join("Trip.md");
++    std::fs::write(&source, FLAT).expect("the source");
++    open_now(&mut a, &source);
++    a.command(C::SplitIntoNotes);
++    let root = a.plan.as_ref().expect("the plan opens").root().to_path_buf();
++    // FAULT: the plan's library folder is no folder at all.
++    assert_eq!(root, PathBuf::new());
++    assert_eq!(
++        a.library_dir(),
++        Some(dir.join("library")),
++        "though the window knows where its library is"
++    );
++    a.compose();
++    press(&mut a, KeyName::Enter);
++    // FAULT: the notes, a group file and the records are where the program was started.
++    assert!(cwd.join("Trip").join("Asakusa.md").is_file());
++    assert!(cwd.join("Trip.md").is_file());
++    assert!(cwd.join(".runs").is_dir());
++    assert!(!dir.join("library").join("Trip.md").exists());
++    assert!(!dir.join("library").join("Trip").exists());
++    let _ = std::env::set_current_dir(&dir);
++}
+diff --git a/crates/mdedit-core/tests/audit3_probe.rs b/crates/mdedit-core/tests/audit3_probe.rs
+new file mode 100644
+index 0000000..b9ef286
+--- /dev/null
++++ b/crates/mdedit-core/tests/audit3_probe.rs
+@@ -0,0 +1,549 @@
++//! Audit 3 probes for `mdedit_core::runs` and the shared library writers, against 6cdeab2.
++//!
++//! Every test here PASSES on the tree under review, and each one asserts the fault: the assert
++//! that carries the finding is marked `FAULT`. Turned round, each is the regression test for its
++//! fix. Nothing here touches a file outside a scratch folder under the temp folder.
++
++use mdedit_core::runs::{self, Gate, Group, Kind, Link, LinkRemoval, NewNote, Record, Request, Source, State};
++use mdshared_app::library;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++static NEXT: AtomicUsize = AtomicUsize::new(0);
++
++fn scratch(tag: &str) -> PathBuf {
++    let n = NEXT.fetch_add(1, Ordering::Relaxed);
++    let dir = std::env::temp_dir()
++        .join("opencode")
++        .join(format!("audit3-probe-{tag}-{}-{n}", std::process::id()));
++    let _ = std::fs::remove_dir_all(&dir);
++    std::fs::create_dir_all(&dir).expect("a scratch folder");
++    dir
++}
++
++fn write_file(path: &Path, text: &str) {
++    if let Some(dir) = path.parent() {
++        std::fs::create_dir_all(dir).expect("its folder");
++    }
++    std::fs::write(path, text).expect("a file");
++}
++
++fn read(path: &Path) -> String {
++    std::fs::read_to_string(path).unwrap_or_default()
++}
++
++/// The gate as the tests of `runs.rs` have it (`TestGate`): the right composition.
++struct FileGate {
++    refuse: bool,
++}
++
++impl Gate for FileGate {
++    fn add_links(&mut self, file: &Path, links: &[Link]) -> Result<(), String> {
++        if self.refuse {
++            return Err("The group's library file has unsaved changes.".to_string());
++        }
++        let text = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
++        let base = file.parent().unwrap_or(Path::new(""));
++        let new = runs::with_links_added(&text, links);
++        if !runs::check_links_added(
++            &library::parse(&text, base),
++            &library::parse(&new, base),
++            links,
++            base,
++        ) {
++            return Err("the file would not read back as its notes".to_string());
++        }
++        mdshared_app::settings::write_atomic(file, &new).map_err(|e| e.to_string())
++    }
++
++    fn remove_links(
++        &mut self,
++        file: &Path,
++        links: &[LinkRemoval],
++        headings: &[Vec<String>],
++    ) -> Result<(), String> {
++        let text = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
++        let base = file.parent().unwrap_or(Path::new(""));
++        let without = runs::with_links_removed(&text, links, base).unwrap_or(text.clone());
++        let new = runs::with_headings_removed(&without, headings, base).unwrap_or(without);
++        if !runs::check_links_removed(
++            &library::parse(&text, base),
++            &library::parse(&new, base),
++            links,
++            base,
++        ) {
++            return Err("the file would not read back as its notes".to_string());
++        }
++        mdshared_app::settings::write_atomic(file, &new).map_err(|e| e.to_string())
++    }
++}
++
++fn note(library: &Path, rel: &str, title: &str, text: &str, sections: &[&str]) -> NewNote {
++    let path = library.join(rel);
++    NewNote {
++        link_path: PathBuf::from(rel),
++        path,
++        text: text.to_string(),
++        from_source: text.to_string(),
++        title: title.to_string(),
++        sections: sections.iter().map(|s| s.to_string()).collect(),
++        ranges: vec![(1, 1)],
++        heading_shift: 0,
++        title_added: false,
++        already: false,
++    }
++}
++
++/// A request as `plan_write::plan_request` builds it: the folders are every note's parent and
++/// the group's folder, sorted by depth.
++fn request(library: &Path, group: &str, created: bool, notes: Vec<NewNote>) -> Request {
++    let source = library.parent().expect("a parent").join("Source.md");
++    if !source.exists() {
++        write_file(&source, "# One\n\ntext\n");
++    }
++    let home = library.join(group);
++    let mut folders: Vec<PathBuf> = notes
++        .iter()
++        .filter_map(|n| n.path.parent().map(Path::to_path_buf))
++        .collect();
++    folders.push(home.clone());
++    folders.sort_by_key(|f| f.components().count());
++    folders.dedup();
++    Request {
++        library: library.to_path_buf(),
++        source,
++        instruction: String::new(),
++        sent: None,
++        group: Group {
++            name: group.to_string(),
++            file: library.join(format!("{group}.md")),
++            created,
++            home,
++        },
++        folders,
++        notes,
++        pictures: Vec::new(),
++    }
++}
++
++const STAMP: &str = "2026-11-21T14:03:11Z";
++
++// ---- N16 -----------------------------------------------------------------------------------------
++
++#[test]
++fn n16_a_note_under_no_section_cannot_be_linked_into_a_group_that_has_a_section() {
++    let dir = scratch("n16");
++    let library = dir.join("library");
++    // The group is there already, with one section: what any earlier split leaves behind.
++    write_file(
++        &library.join("Trip.md"),
++        "# Trip\nhome: Trip\n\n## Tokyo\n\n- [Asakusa](Trip/Tokyo/Asakusa.md)\n",
++    );
++    write_file(&library.join("Trip/Tokyo/Asakusa.md"), "# Asakusa\n");
++    // The pure half first: where the shared writer puts a link that has no section.
++    let link = Link {
++        path: PathBuf::from("Trip/Packing.md"),
++        title: "Packing".to_string(),
++        sections: Vec::new(),
++        line: library::link_line("Packing", Path::new("Trip/Packing.md")),
++    };
++    let old = read(&library.join("Trip.md"));
++    let new = runs::with_links_added(&old, std::slice::from_ref(&link));
++    let parsed = library::parse(&new, &library);
++    let landed = parsed
++        .entries
++        .iter()
++        .find(|e| e.title == "Packing")
++        .expect("the link is written");
++    // FAULT: a link with no section is appended at the end of the file, under the last heading.
++    assert_eq!(landed.sections, vec!["Tokyo".to_string()], "{new}");
++    assert!(
++        !runs::check_links_added(
++            &library::parse(&old, &library),
++            &parsed,
++            std::slice::from_ref(&link),
++            &library
++        ),
++        "FAULT: the check then refuses the write"
++    );
++    // And through the writer: the note is written, the link is refused, for good.
++    let req = request(
++        &library,
++        "Trip",
++        false,
++        vec![note(&library, "Trip/Packing.md", "Packing", "# Packing\n", &[])],
++    );
++    let mut gate = FileGate { refuse: false };
++    let report = runs::write_at(&req, &mut gate, 1, STAMP);
++    assert_eq!(report.notes_written.len(), 1, "the note is on disk");
++    assert_eq!(report.link_failures.len(), 1, "FAULT: and is not linked");
++    assert_eq!(report.state(), Some(State::LinksPending));
++    let record_path = report.record_path.clone().expect("a record");
++    let record = runs::load(&record_path, &library).expect("the record");
++    let again = runs::finish(&record_path, &record, &library, &mut gate);
++    assert_eq!(again.added, 0, "FAULT: Finish fails the same way");
++    assert_eq!(again.failures.len(), 1);
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N17 -----------------------------------------------------------------------------------------
++
++#[test]
++fn n17_a_section_or_a_group_called_c_sharp_does_not_read_back_and_is_found_out_after_the_notes() {
++    let dir = scratch("n17");
++    let library = dir.join("library");
++    std::fs::create_dir_all(&library).expect("the library");
++    // A section: the document's `# C#` heading above its `##` notes.
++    let link = Link {
++        path: PathBuf::from("Langs/C#/Generics.md"),
++        title: "Generics".to_string(),
++        sections: vec!["C#".to_string()],
++        line: library::link_line("Generics", Path::new("Langs/C#/Generics.md")),
++    };
++    let old = "# Langs\nhome: Langs\n";
++    let new = runs::with_links_added(old, std::slice::from_ref(&link));
++    assert!(new.contains("## C#"), "{new}");
++    let parsed = library::parse(&new, &library);
++    // FAULT: the library's reader takes the closing '#' off, so the section is "C".
++    assert_eq!(parsed.sections, vec![vec!["C".to_string()]], "{new}");
++    assert!(!runs::check_links_added(
++        &library::parse(old, &library),
++        &parsed,
++        std::slice::from_ref(&link),
++        &library
++    ));
++    // A group: the document is `C#.md`. The writer finds out at step 6, after step 4.
++    let req = request(
++        &library,
++        "C#",
++        true,
++        vec![note(&library, "C#/Generics.md", "Generics", "# Generics\n", &[])],
++    );
++    let mut gate = FileGate { refuse: false };
++    let report = runs::write_at(&req, &mut gate, 2, STAMP);
++    assert_eq!(report.notes_written.len(), 1, "the note is written first");
++    let failure = report.group_failure.clone().expect("FAULT: then the group file is refused");
++    assert!(failure.why.contains("would not read back"), "{}", failure.why);
++    assert!(!library.join("C#.md").exists());
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N2 ------------------------------------------------------------------------------------------
++
++#[test]
++fn n2_finish_links_by_the_whole_path_and_undo_then_keeps_the_lines_and_deletes_the_notes() {
++    let dir = scratch("n2");
++    let library = dir.join("library");
++    std::fs::create_dir_all(&library).expect("the library");
++    let req = request(
++        &library,
++        "Trip",
++        true,
++        vec![note(&library, "Trip/One.md", "One", "# One\n", &[])],
++    );
++    // The library write is refused: the run is left with its notes and no links.
++    let mut refusing = FileGate { refuse: true };
++    let report = runs::write_at(&req, &mut refusing, 3, STAMP);
++    assert_eq!(report.state(), Some(State::LinksPending));
++    let record_path = report.record_path.clone().expect("a record");
++    let record = runs::load(&record_path, &library).expect("the record");
++    assert_eq!(record.notes[0].line, "- [One](Trip/One.md)");
++    // Finish.
++    let mut gate = FileGate { refuse: false };
++    let done = runs::finish(&record_path, &record, &library, &mut gate);
++    assert_eq!(done.added, 1, "{:?}", done.failures);
++    let group = read(&library.join("Trip.md"));
++    // FAULT: the link Finish wrote is the absolute path, not the recorded relative line.
++    assert!(!group.contains("- [One](Trip/One.md)"), "{group}");
++    let whole = library.join("Trip/One.md").to_string_lossy().replace('\\', "/");
++    assert!(group.contains(&whole), "{group}");
++    // Undo: the line does not match the record, so it counts as edited and stays; the note goes.
++    let record = runs::load(&record_path, &library).expect("the record");
++    let plan = runs::prepare(&record);
++    assert_eq!(plan.links_kept.len(), 1, "FAULT: the line reads as edited by the owner");
++    assert_eq!(plan.notes.len(), 1);
++    let undone = runs::undo(&record_path, &record, &library, &mut gate);
++    assert_eq!(undone.removed_notes.len(), 1);
++    assert!(!library.join("Trip/One.md").exists(), "the note is deleted");
++    assert!(
++        read(&library.join("Trip.md")).contains("[One]"),
++        "FAULT: and its line is left, pointing at nothing"
++    );
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N3 ------------------------------------------------------------------------------------------
++
++#[test]
++fn n3_undo_deletes_a_file_the_run_did_not_write_when_it_was_already_there() {
++    let dir = scratch("n3");
++    let library = dir.join("library");
++    // The owner's own file, made before the run, with the bytes the note would have.
++    let mine = library.join("Trip/One.md");
++    write_file(&mine, "# One\n");
++    let req = request(
++        &library,
++        "Trip",
++        true,
++        vec![note(&library, "Trip/One.md", "One", "# One\n", &[])],
++    );
++    let mut gate = FileGate { refuse: false };
++    let report = runs::write_at(&req, &mut gate, 4, STAMP);
++    assert!(report.notes_written.is_empty(), "the run wrote no note");
++    assert_eq!(report.notes_present, vec![mine.clone()], "it found one there");
++    let record_path = report.record_path.clone().expect("a record");
++    let record = runs::load(&record_path, &library).expect("the record");
++    let undone = runs::undo(&record_path, &record, &library, &mut gate);
++    // FAULT: the file was there before the run, and undo removes it.
++    assert_eq!(undone.removed_notes, vec![mine.clone()]);
++    assert!(!mine.exists());
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N5 ------------------------------------------------------------------------------------------
++
++#[test]
++fn n5_undo_leaves_the_folders_between_the_group_and_a_nested_section() {
++    let dir = scratch("n5");
++    let library = dir.join("library");
++    std::fs::create_dir_all(&library).expect("the library");
++    let req = request(
++        &library,
++        "Trip",
++        true,
++        vec![note(
++            &library,
++            "Trip/Japan/Tokyo/Asakusa.md",
++            "Asakusa",
++            "# Asakusa\n",
++            &["Japan", "Tokyo"],
++        )],
++    );
++    // What `plan_request` lists: the note's own folder and the group's, not `Trip/Japan`.
++    assert_eq!(
++        req.folders,
++        vec![library.join("Trip"), library.join("Trip/Japan/Tokyo")]
++    );
++    let mut gate = FileGate { refuse: false };
++    let report = runs::write_at(&req, &mut gate, 5, STAMP);
++    assert_eq!(report.state(), Some(State::Done));
++    let record_path = report.record_path.clone().expect("a record");
++    let record = runs::load(&record_path, &library).expect("the record");
++    let undone = runs::undo(&record_path, &record, &library, &mut gate);
++    assert_eq!(undone.removed_notes.len(), 1);
++    assert!(undone.group_removed);
++    assert!(!library.join("Trip/Japan/Tokyo").exists());
++    // FAULT: the run made `Trip/Japan`, never recorded it, and so leaves it and `Trip`.
++    assert!(library.join("Trip/Japan").is_dir());
++    assert!(library.join("Trip").is_dir());
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N6 ------------------------------------------------------------------------------------------
++
++#[test]
++fn n6_prune_deletes_a_record_this_version_cannot_read() {
++    let dir = scratch("n6");
++    let library = dir.join("library");
++    std::fs::create_dir_all(library.join(runs::RUNS_DIR)).expect("the runs folder");
++    let now = runs::now_utc().0;
++    let record = |secs: u64| Record {
++        version: 1,
++        kind: Kind::Split,
++        started: runs::utc(secs),
++        started_secs: secs,
++        state: State::Done,
++        instruction: String::new(),
++        sent: None,
++        source: Source {
++            path: dir.join("Source.md"),
++            len: 0,
++            sha256: String::new(),
++            recycled: false,
++        },
++        group: Group {
++            name: "Trip".to_string(),
++            file: library.join("Trip.md"),
++            created: false,
++            home: library.join("Trip"),
++        },
++        folders: Vec::new(),
++        notes: Vec::new(),
++        pictures: Vec::new(),
++        sections_added: Vec::new(),
++    };
++    // Twenty runs of this week.
++    for i in 0..runs::KEEP_RUNS as u64 {
++        record(now - 60 * (i + 1)).create(&library).expect("a record");
++    }
++    // And one written a minute ago by the next version, whose kind this one does not know.
++    let newer = library.join(runs::RUNS_DIR).join("2026-11-21T14-03-11Z-import.json");
++    let text = record(now - 30)
++        .to_json(&library)
++        .replace("\"kind\": \"split\"", "\"kind\": \"import\"")
++        .replace("\"version\": 1", "\"version\": 2");
++    write_file(&newer, &text);
++    write_file(&newer.with_extension("done"), "started\n");
++    assert!(runs::load(&newer, &library).is_none(), "this version cannot read it");
++    runs::prune(&library, now);
++    // FAULT: the newest record in the folder is deleted, with its .done file.
++    assert!(!newer.exists());
++    assert!(!newer.with_extension("done").exists());
++    assert_eq!(runs::list(&library).len(), runs::KEEP_RUNS, "the twenty stay");
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N13 (F1, by another road) -------------------------------------------------------------------
++
++#[test]
++fn n13_a_record_reaches_outside_the_library_with_a_relative_path_too() {
++    let dir = scratch("n13");
++    let library = dir.join("library");
++    std::fs::create_dir_all(library.join(runs::RUNS_DIR)).expect("the runs folder");
++    // The owner's file, beside the library folder and not in it.
++    let taxes = dir.join("taxes.md");
++    write_file(&taxes, "what I owe\n");
++    let digest = mdshared_app::update::sha256_hex(b"what I owe\n");
++    let json = format!(
++        "{{\"version\": 1, \"kind\": \"split\", \"started\": \"{STAMP}\", \"state\": \"done\",\n\
++         \"source\": {{\"path\": \"s.md\", \"len\": 0}},\n\
++         \"group\": {{\"file\": \"Trip.md\", \"home\": \"Trip\"}},\n\
++         \"notes\": [{{\"path\": \"../taxes.md\", \"sha256\": \"{digest}\", \"line\": \"- [x](x.md)\"}}]}}"
++    );
++    let record = Record::from_json(&json, &library).expect("it reads as a record");
++    // No absolute path anywhere in the file: `is_absolute` alone would pass it.
++    assert!(!json.contains(&dir.to_string_lossy().replace('\\', "/")));
++    let plan = runs::prepare(&record);
++    // FAULT: undo would remove a file outside the library.
++    assert_eq!(plan.notes.len(), 1, "{plan:?}");
++    let named = std::fs::canonicalize(&plan.notes[0]).expect("it is on disk");
++    assert_eq!(named, std::fs::canonicalize(&taxes).expect("the file"));
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- N1, the pure half ---------------------------------------------------------------------------
++
++#[test]
++fn n1_the_windows_gate_drops_the_link_removal_when_no_heading_goes_with_it() {
++    let dir = scratch("n1");
++    let library = dir.join("library");
++    let text = "# Trip\nhome: Trip\n\n- [One](Trip/One.md)\n- [Two](Trip/Two.md)\n";
++    let removals = vec![LinkRemoval {
++        path: library.join("Trip/One.md"),
++        sections: Vec::new(),
++        line: "- [One](Trip/One.md)".to_string(),
++    }];
++    // `PlanGate::remove_links` (bins/mdedit/src/app/plan_write.rs:59-63), word for word:
++    let change = |text: &str| -> Option<String> {
++        let without = runs::with_links_removed(text, &removals, &library)
++            .unwrap_or_else(|| text.to_string());
++        runs::with_headings_removed(&without, &[], &library)
++    };
++    // The removal itself works.
++    let without = runs::with_links_removed(text, &removals, &library).expect("the line goes");
++    assert!(!without.contains("[One]"), "{without}");
++    // FAULT: the closure gives `None`, which `library_attempt` reads as "nothing to do".
++    assert_eq!(change(text), None);
++}
++
++// ---- N15 -----------------------------------------------------------------------------------------
++
++#[cfg(windows)]
++#[test]
++fn n15_a_file_name_of_four_bytes_that_ends_in_a_two_byte_letter_panics() {
++    let dir = scratch("n15");
++    // "five" in Turkish: b, e, s-cedilla. Four bytes, and byte 3 is inside the last letter.
++    let file = dir.join("be\u{15f}.md");
++    write_file(&file, "# Be\u{15f}\n");
++    let on_disk = std::panic::catch_unwind(|| mdshared_app::paths::canonical_or_absolute(&file));
++    assert!(on_disk.is_err(), "FAULT: a file that exists");
++    // A file that does not exist panics as well, once any folder above it does.
++    let missing = dir.join("not made").join("ta\u{15f}.md");
++    let not_there = std::panic::catch_unwind(|| mdshared_app::paths::canonical_or_absolute(&missing));
++    assert!(not_there.is_err(), "FAULT: a path that is only a name");
++    // The writer asks the same of every note's path before step 1.
++    let library = dir.join("library");
++    std::fs::create_dir_all(&library).expect("the library");
++    let req = request(
++        &library,
++        "Trip",
++        true,
++        vec![note(&library, "Trip/Be\u{15f}.md", "Be\u{15f}", "# Be\u{15f}\n", &[])],
++    );
++    let run = std::panic::catch_unwind(move || {
++        let mut gate = FileGate { refuse: false };
++        runs::write_at(&req, &mut gate, 6, STAMP).notes()
++    });
++    assert!(run.is_err(), "FAULT: a note called Be\u{15f} ends the program at Write the notes");
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- The original is gone ------------------------------------------------------------------------
++
++#[test]
++fn a_undo_deletes_the_only_copy_when_the_original_is_no_longer_there() {
++    let dir = scratch("gone");
++    let library = dir.join("library");
++    std::fs::create_dir_all(&library).expect("the library");
++    let req = request(
++        &library,
++        "Trip",
++        true,
++        vec![note(&library, "Trip/One.md", "One", "# One\n", &[])],
++    );
++    let mut gate = FileGate { refuse: false };
++    let report = runs::write_at(&req, &mut gate, 7, STAMP);
++    assert_eq!(report.state(), Some(State::Done));
++    let record_path = report.record_path.clone().expect("a record");
++    // The owner has the notes now, and deletes the document they were cut from.
++    std::fs::remove_file(&req.source).expect("the original goes");
++    let record = runs::load(&record_path, &library).expect("the record");
++    let plan = runs::prepare(&record);
++    // FAULT: the question is the same as if the original were there.
++    assert_eq!(plan.refusal, None);
++    let words = plan.sentence("Trip");
++    assert_eq!(words, "Removes 1 note this run wrote, their 1 lines in Trip, and 1 folder if it is empty.");
++    let undone = runs::undo(&record_path, &record, &library, &mut gate);
++    assert_eq!(undone.removed_notes.len(), 1);
++    // FAULT: the text is now nowhere on disk.
++    assert!(!library.join("Trip/One.md").exists());
++    assert!(!req.source.exists());
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
++// ---- A line the owner moved ------------------------------------------------------------------------
++
++#[test]
++fn d1_a_line_moved_to_another_section_stays_and_its_note_is_deleted_without_a_word() {
++    let dir = scratch("moved");
++    let library = dir.join("library");
++    std::fs::create_dir_all(&library).expect("the library");
++    let req = request(
++        &library,
++        "Trip",
++        true,
++        vec![note(&library, "Trip/One.md", "One", "# One\n", &[])],
++    );
++    let mut gate = FileGate { refuse: false };
++    let report = runs::write_at(&req, &mut gate, 8, STAMP);
++    let record_path = report.record_path.clone().expect("a record");
++    // The owner tidies the library: a section of their own, and the note moved under it, as
++    // "New section" and "Move toΓÇª" in the pane do.
++    let group = library.join("Trip.md");
++    let with_section = library::add_section(&read(&group), &[], "Later").expect("a section");
++    let line = library::parse(&with_section, &library).entries[0].line;
++    let moved = library::move_note(&with_section, line, &["Later".to_string()]).expect("moved");
++    write_file(&group, &moved);
++    let record = runs::load(&record_path, &library).expect("the record");
++    let plan = runs::prepare(&record);
++    // FAULT: the line counts as gone, is not listed as kept, and the note is still to be removed.
++    assert!(plan.links.is_empty(), "{:?}", plan.links);
++    assert_eq!(plan.links_gone, 1);
++    assert!(plan.links_kept.is_empty());
++    assert_eq!(plan.notes.len(), 1);
++    let undone = runs::undo(&record_path, &record, &library, &mut gate);
++    assert_eq!(undone.removed_notes.len(), 1);
++    assert!(!library.join("Trip/One.md").exists());
++    assert!(read(&group).contains("[One]"), "FAULT: the line stays, naming a file that is gone");
++    let _ = std::fs::remove_dir_all(&dir);
++}
