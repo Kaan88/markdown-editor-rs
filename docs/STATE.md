@@ -158,8 +158,10 @@ faults that could lose a note or break a library that moves; these are still tru
 - Shared crates at `b4b2182`. The viewer's crates (`mdview-preview`, `mdview-render`) at viewer
   `e2b3e31`. winit fork `62fa727`, softbuffer fork `dd18fec`. mdview itself pins the shared
   crates at `cb0ffd3`, which is older.
-- Every local `f/…` branch and `release/1.2.0` is merged into `main`. `mock/ai-review` is not
-  and should not be. `fix/plan-guards` holds audit 3's plan guards, not merged.
-- Worktrees on this PC: `..\mdedit-mock` (the mockups), `..\md-wt\p1-before` and `p1-after` (the
-  phase 1 budget builds), `..\mdedit-four-fixes` (merged, prunable), `..\md-wt\plan-guards` (the
-  plan guards).
+- Every local `f/…` branch and `release/1.2.0` is merged into `main`. The mock branches are not
+  and should not be: `mock/ai-review` (the AI review screens), `mock/settings` (the settings
+  redesign), `mock/terminal` (a terminal for the ecosystem, drawn to be looked at, not built).
+  `f/move-notes` is "Move the notes…", being built.
+- Worktrees on this PC: `..\mdedit-mock`, `..\mdedit-settings` and `..\mdedit-term` (the three
+  mockup branches), `..\md-wt\move-notes` (the move), `..\md-wt\p1-before` and `p1-after` (the
+  phase 1 budget builds), `..\mdedit-four-fixes` (merged, prunable).
