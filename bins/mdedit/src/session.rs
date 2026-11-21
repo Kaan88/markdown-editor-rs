@@ -232,6 +232,9 @@ pub struct Session {
     pub use_days: (u32, u64),
     /// The day of use each tab was last shown on: one `seen` line each.
     pub seen: Vec<(Pin, u32)>,
+    /// Each file tab's focused time in seconds (`focus=<seconds> <path>`), for the setting that
+    /// leaves out tabs barely looked at.
+    pub focus: Vec<(PathBuf, u64)>,
     /// The split view, when two tabs were side by side.
     pub split: Option<Split>,
     /// The find options (match case, whole word, regular expression).
@@ -288,6 +291,7 @@ impl Default for Session {
             last_pinned: None,
             use_days: (0, 0),
             seen: Vec::new(),
+            focus: Vec::new(),
             unsaved: Vec::new(),
             active: 0,
             split: None,
@@ -383,6 +387,14 @@ impl Session {
                         let d = parts.next().and_then(|d| d.parse().ok());
                         if let (Some(n), Some(d)) = (n, d) {
                             s.use_days = (n, d);
+                        }
+                    }
+                    "focus" => {
+                        if let Some((secs, path)) = value.split_once(' ')
+                            && let Ok(secs) = secs.parse()
+                            && !path.is_empty()
+                        {
+                            s.focus.push((decode_path(path), secs));
                         }
                     }
                     "seen" => {
@@ -509,6 +521,9 @@ impl Session {
         }
         for (p, day) in &self.seen {
             out.line("seen", &format!("{day} {}", p.serialize()));
+        }
+        for (path, secs) in &self.focus {
+            out.line("focus", &format!("{secs} {}", encode_path(path)));
         }
         if let Some(split) = &self.split {
             out.line("split", &split.serialize());

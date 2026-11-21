@@ -907,6 +907,26 @@ fn placed_menu(a: &mut App, kind: PopupKind, h: f32) -> Rect {
     popup.menu.rect()
 }
 
+/// The owner: a long saved prompt's name ran under its Modify button in the AI menu. The menu
+/// elides a label at its hint, so the blank hint is wider than the button and a gap.
+#[test]
+fn a_saved_prompt_s_name_stops_before_its_modify_button() {
+    let mut bm = Bitmap::new(64, 64);
+    let mut gfx = Gfx::new();
+    let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+    // As the shared menu measures a hint: its width and 28 px around it.
+    let room = p.measure(
+        mdshared_ui::gfx::Face::Ui,
+        12.0,
+        crate::overlays::MENU_MODIFY_ROOM,
+    ) + 28.0;
+    assert!(
+        room >= crate::ai_ui::MODIFY_W + 4.0 + 8.0,
+        "room {room} for a {} px button",
+        crate::ai_ui::MODIFY_W
+    );
+}
+
 #[test]
 fn the_wheel_while_a_menu_is_open_belongs_to_the_menus() {
     let dir = scratch("wheelmenu");

@@ -9,8 +9,8 @@ use crate::commands::CommandId as C;
 use crate::{keys, updater};
 use mdedit_core::ai::{self as core_ai, Connection};
 use mdedit_core::prefs::{
-    FONT_PT_MAX, FONT_PT_MIN, INDENT_SIZE_MAX, MINIMAP_WIDTH_MAX, MINIMAP_WIDTH_MIN, Prefs,
-    STALE_DAYS_MAX, STALE_DAYS_MIN, TAB_WIDTH_MAX,
+    BRIEF_SECS_MAX, BRIEF_SECS_MIN, FONT_PT_MAX, FONT_PT_MIN, INDENT_SIZE_MAX, MINIMAP_WIDTH_MAX,
+    MINIMAP_WIDTH_MIN, Prefs, STALE_DAYS_MAX, STALE_DAYS_MIN, TAB_WIDTH_MAX,
 };
 use mdshared_ui::corners::{self, Corners};
 use mdshared_ui::keys::{KeyName, Mods};
@@ -44,6 +44,8 @@ pub const BACKDROP: u32 = 80;
 pub const START_ON_PINNED: u32 = 23;
 pub const OFFER_STALE: u32 = 24;
 pub const STALE_DAYS: u32 = 25;
+pub const SKIP_BRIEF: u32 = 26;
+pub const BRIEF_SECS: u32 = 27;
 pub const AI_CONNECTION: u32 = 90;
 pub const AI_PROGRAM: u32 = 91;
 pub const AI_CHECK: u32 = 92;
@@ -224,6 +226,21 @@ pub fn rows(
         )
         .unit("days")
         .help("Counted in days you use mdedit, not calendar days."),
+        Row::toggle(
+            SKIP_BRIEF,
+            "Don't reopen tabs barely looked at",
+            prefs.skip_brief,
+        )
+        .help("At start. Pinned tabs, the tab you left on and unsaved text always come back."),
+        Row::number(
+            BRIEF_SECS,
+            "Looked at for less than",
+            prefs.brief_secs as i32,
+            BRIEF_SECS_MIN as i32,
+            BRIEF_SECS_MAX as i32,
+        )
+        .unit("seconds")
+        .help("Only while the tab is in front and mdedit has focus."),
         Row::header("Updates"),
         Row::toggle(
             CHECK_AT_LAUNCH,
@@ -441,6 +458,8 @@ impl App {
             (START_ON_PINNED, Value::Bool(on)) => p.start_on_pinned = on,
             (OFFER_STALE, Value::Bool(on)) => p.offer_stale = on,
             (STALE_DAYS, Value::Number(n)) => p.stale_days = n.max(0) as u32,
+            (SKIP_BRIEF, Value::Bool(on)) => p.skip_brief = on,
+            (BRIEF_SECS, Value::Number(n)) => p.brief_secs = n.max(0) as u32,
             (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
             (COMPLETE_AUTO, Value::Bool(on)) => p.complete_auto = on,
             (BACKDROP, Value::Choice(i)) => {

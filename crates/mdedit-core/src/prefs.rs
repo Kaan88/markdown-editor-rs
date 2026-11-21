@@ -40,6 +40,10 @@ pub const MINIMAP_WIDTH_MAX: usize = 240;
 pub const STALE_DAYS_DEFAULT: u32 = 7;
 pub const STALE_DAYS_MIN: u32 = 1;
 pub const STALE_DAYS_MAX: u32 = 365;
+/// Focused seconds under which a tab is not reopened at the next start, when that is on.
+pub const BRIEF_SECS_DEFAULT: u32 = 10;
+pub const BRIEF_SECS_MIN: u32 = 1;
+pub const BRIEF_SECS_MAX: u32 = 600;
 /// A font family name longer than this many bytes is not a name: the default is used.
 pub const FONT_FAMILY_MAX: usize = 256;
 
@@ -79,6 +83,11 @@ pub struct Prefs {
     pub offer_stale: bool,
     /// Days of use before an unopened tab is offered, 1 to 365 (default 7).
     pub stale_days: u32,
+    /// At start, leave out the tabs looked at for less than [`brief_secs`](Self::brief_secs)
+    /// in all, counted while the tab showed in a focused window. Off by default.
+    pub skip_brief: bool,
+    /// Focused seconds a tab needs to be reopened, 1 to 600 (default 10).
+    pub brief_secs: u32,
     /// mdview shows the text of a previewed document as it is typed, not only when it is saved.
     pub live_preview: bool,
     /// The word list opens by itself after three letters (Ctrl+Space opens it either way).
@@ -139,6 +148,8 @@ impl Default for Prefs {
             start_on_pinned: false,
             offer_stale: true,
             stale_days: STALE_DAYS_DEFAULT,
+            skip_brief: false,
+            brief_secs: BRIEF_SECS_DEFAULT,
             live_preview: true,
             complete_auto: false,
             backdrop: Backdrop::Off,
@@ -195,6 +206,7 @@ impl Prefs {
             .minimap_width
             .clamp(MINIMAP_WIDTH_MIN, MINIMAP_WIDTH_MAX);
         self.stale_days = self.stale_days.clamp(STALE_DAYS_MIN, STALE_DAYS_MAX);
+        self.brief_secs = self.brief_secs.clamp(BRIEF_SECS_MIN, BRIEF_SECS_MAX);
         if self.font_family.len() > FONT_FAMILY_MAX || self.font_family.contains(['\n', '\r']) {
             self.font_family.clear();
         }
@@ -291,6 +303,12 @@ impl Prefs {
                         p.stale_days =
                             number(value, STALE_DAYS_MIN as usize, STALE_DAYS_MAX as usize)
                                 .map_or(d.stale_days, |n| n as u32)
+                    }
+                    "skip_brief" => p.skip_brief = flag(value).unwrap_or(d.skip_brief),
+                    "brief_secs" => {
+                        p.brief_secs =
+                            number(value, BRIEF_SECS_MIN as usize, BRIEF_SECS_MAX as usize)
+                                .map_or(d.brief_secs, |n| n as u32)
                     }
                     "start_on_pinned" => {
                         p.start_on_pinned = flag(value).unwrap_or(d.start_on_pinned)
@@ -401,6 +419,8 @@ impl Prefs {
         w.line("start_on_pinned", b(p.start_on_pinned));
         w.line("offer_stale", b(p.offer_stale));
         w.line("stale_days", &p.stale_days.to_string());
+        w.line("skip_brief", b(p.skip_brief));
+        w.line("brief_secs", &p.brief_secs.to_string());
         w.line("live_preview", b(p.live_preview));
         w.line("complete_auto", b(p.complete_auto));
         w.line("backdrop", p.backdrop.key());
@@ -721,6 +741,8 @@ mod tests {
             start_on_pinned: true,
             offer_stale: false,
             stale_days: 30,
+            skip_brief: true,
+            brief_secs: 45,
             live_preview: false,
             complete_auto: true,
             backdrop: Backdrop::Acrylic,
@@ -773,7 +795,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 43);
+        assert_eq!(t.lines().count(), 45);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,
@@ -799,6 +821,17 @@ mod tests {
             (days("14"), days("0"), days("9999"), days("x")),
             (14, STALE_DAYS_MIN, STALE_DAYS_MAX, STALE_DAYS_DEFAULT)
         );
+        // The seconds before a tab is reopened: the same.
+        let secs = |v: &str| Prefs::parse(&format!("[preferences]\nbrief_secs={v}\n")).brief_secs;
+        assert_eq!(
+            (secs("30"), secs("0"), secs("9999"), secs("x")),
+            (30, BRIEF_SECS_MIN, BRIEF_SECS_MAX, BRIEF_SECS_DEFAULT)
+        );
+        let on = Prefs::parse("[preferences]\nskip_brief=1\nbrief_secs=25\n");
+        assert!(on.skip_brief);
+        let back = Prefs::parse(&on.serialize());
+        assert!(back.skip_brief);
+        assert_eq!(back.brief_secs, 25);
         // Random fractions survive.
         let mut rng = Rng::new(9);
         for _ in 0..200 {

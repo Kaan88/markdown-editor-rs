@@ -5,6 +5,32 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Tabs barely looked at, and the AI menu's Modify room (2026-11-21, branch `f/brief-tabs`, for 1.2.1)
+
+The owner: "an option that does not reopen files that were open less n second ... this will only
+count in focus time. so minimizing or switching tabs won't count."
+- `Doc::focus_ms` (`Option`: `None` for a file the session has no count for, so a tab from before
+  the count is never left out), `Docs::focus_tick` (called at every turn of the loop in
+  `about_to_wait` with the active tab while `App::focused`; Windows sends `Focused(false)` on
+  minimize), `focus_flush` before each session write, `start_focus`, `focus()`. Session
+  `focus=<seconds> <encoded path>` per file tab.
+- `Prefs::skip_brief` (off) and `brief_secs` (1 to 600, default 10); Settings > Session, "Don't
+  reopen tabs barely looked at" / "Looked at for less than … seconds". `barely_seen` (`app.rs`)
+  leaves a session tab out at start unless it was showing (`active`, `active_tab`), is pinned, has
+  an unsaved entry, or has no count.
+- Tests `tabs_barely_looked_at_are_left_out_at_start_when_asked`,
+  `focused_time_counts_only_the_tab_in_front_of_a_focused_window`,
+  `the_session_keeps_each_file_tab_s_focused_time`, prefs parse/round trip. The first and third
+  fail with the pinned exemption or the session write removed.
+- AI menu: a long saved prompt's name ran under its Modify button. `MENU_MODIFY_ROOM` (the blank
+  hint the shared menu elides the label at) is wider: 102 px for the 88 px button with its
+  margins. Test `a_saved_prompt_s_name_stops_before_its_modify_button` (fails at the old 74 px).
+  The menu grows by about 40 px to make that room.
+- Checks (Windows): fmt, clippy both ways, all tests (mdedit 412, core 514). Budgets, 15 runs of
+  `sample.rs`, published 1.2.0 against this branch: first frame 95.1 / 97.1 ms, memory 27.8 / 27.6
+  MiB, keystroke p50 0.55 / 0.51 ms, scroll p50 0.46 / 0.41 ms: within noise.
+- Not done: the owner has not seen either; nothing run by hand.
+
 ## Release 1.2.0 (2026-11-21, released)
 
 mdedit 1.2.0 is released: tag `v1.2.0` at `bd9cac3`, release run 44840555985 green, manifests and

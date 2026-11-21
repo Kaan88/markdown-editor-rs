@@ -1112,6 +1112,10 @@ pub struct Doc {
     pub pinned: bool,
     /// The day of use the tab was last shown on ([`mdshared_ui::stale`]).
     pub seen: u32,
+    /// How long the tab has shown in a focused window, in milliseconds, added up across runs
+    /// (`focus` in the session); `None` for a file the session has no count for (from before
+    /// the count, so never left out for it). See [`Docs::focus_tick`].
+    pub focus_ms: Option<u64>,
 }
 
 impl pins::Pinnable for Doc {
@@ -1157,6 +1161,7 @@ impl Doc {
             title: None,
             pinned: false,
             seen: 0,
+            focus_ms: Some(0),
         }
     }
 
@@ -1507,6 +1512,8 @@ pub struct Docs {
     day: u32,
     /// The tabs offered for closing at start, while the bar offering them shows.
     pub stale: Vec<DocId>,
+    /// The tab whose focused time is being counted, and since when ([`Docs::focus_tick`]).
+    focus_clock: Option<(DocId, std::time::Instant)>,
     /// The tab whose file the rename bar offers a `.md` name, after the AI made its text
     /// Markdown ([`Docs::rename_bar`]).
     pub rename_offer: Option<DocId>,
@@ -1572,6 +1579,7 @@ impl Docs {
             last_pinned: None,
             day: 0,
             stale: Vec::new(),
+            focus_clock: None,
             rename_offer: None,
             next_id: 1,
             recents: Recents::default(),
@@ -1739,6 +1747,7 @@ impl Docs {
             title: None,
             pinned: false,
             seen: self.day,
+            focus_ms: Some(0),
         });
         let i = self.tabs.len() - 1;
         self.active = Some(i);
@@ -2176,6 +2185,52 @@ impl Docs {
                 .and_then(|p| session.seen.iter().find(|(q, _)| *q == p));
             doc.seen = seen.map_or(used.count, |&(_, day)| day);
         }
+    }
+
+    /// Counts focused time: `showing` is the tab in front while the window has the focus
+    /// (`None` while it has not, or is minimized). The tab counted until now gets the time since
+    /// the last call; the clock then runs for `showing`. Called on every turn of the loop.
+    pub fn focus_tick(&mut self, showing: Option<DocId>, now: std::time::Instant) {
+        if self.focus_clock.map(|(id, _)| id) == showing {
+            return;
+        }
+        self.focus_flush(now);
+        self.focus_clock = showing.map(|id| (id, now));
+    }
+
+    /// Adds the time counted so far to its tab, the clock still running (before a session
+    /// write).
+    pub fn focus_flush(&mut self, now: std::time::Instant) {
+        let Some((id, since)) = self.focus_clock else {
+            return;
+        };
+        if let Some(i) = self.index_of_id(id) {
+            let d = &mut self.tabs[i];
+            let ms = now.saturating_duration_since(since).as_millis() as u64;
+            d.focus_ms = Some(d.focus_ms.unwrap_or(0).saturating_add(ms));
+        }
+        self.focus_clock = Some((id, now));
+    }
+
+    /// At start: each file tab's focused time from the session.
+    pub fn start_focus(&mut self, session: &crate::session::Session) {
+        for d in &mut self.tabs {
+            if let Some(path) = &d.path {
+                d.focus_ms = session
+                    .focus
+                    .iter()
+                    .find(|(p, _)| mdshared_app::paths::same_path(p, path))
+                    .map(|&(_, s)| s.saturating_mul(1000));
+            }
+        }
+    }
+
+    /// Each file tab's focused time in seconds, for the session; a tab with no count from
+    /// before and none since has none.
+    pub fn focus(&self) -> Vec<(PathBuf, u64)> {
+        (self.tabs.iter())
+            .filter_map(|d| Some((d.path.clone()?, d.focus_ms? / 1000)))
+            .collect()
     }
 
     /// Each tab's day of use, for the session.

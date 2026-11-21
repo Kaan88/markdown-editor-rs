@@ -2144,6 +2144,8 @@ impl App {
         s.active_tab = self.docs.active_pin();
         s.last_pinned = self.docs.last_pinned();
         s.seen = self.docs.seen();
+        self.docs.focus_flush(Instant::now());
+        s.focus = self.docs.focus();
         s.split = split;
         s.recent = self.docs.recents.clone();
         if !self.theme_from_args {
@@ -2321,6 +2323,36 @@ fn restore_unsaved(
         }
     }
     (restored, changed)
+}
+
+/// Whether the session's tab `i` is left out at start: the setting is on and the tab was looked
+/// at for less than its seconds in all. The tab that was showing, a pinned one and one with unsaved
+/// text always come back, and so does one the session has no count for (from before the count).
+fn barely_seen(session: &Session, i: usize) -> bool {
+    let p = &session.prefs;
+    let Some(path) = session.tabs.get(i) else {
+        return false;
+    };
+    let same = |q: &Path| mdshared_app::paths::same_path(q, path);
+    p.skip_brief
+        && i != session.active
+        && !session
+            .pinned
+            .iter()
+            .any(|pin| matches!(pin, crate::session::Pin::File(q) if same(q)))
+        && !session
+            .active_tab
+            .as_ref()
+            .is_some_and(|pin| matches!(pin, crate::session::Pin::File(q) if same(q)))
+        && !session
+            .unsaved
+            .iter()
+            .any(|u| u.path.as_deref().is_some_and(same))
+        && session
+            .focus
+            .iter()
+            .find(|(q, _)| same(q))
+            .is_some_and(|&(_, secs)| secs < p.brief_secs as u64)
 }
 
 fn backup_dir_of(session: &Path) -> Option<PathBuf> {
@@ -2649,6 +2681,13 @@ impl ApplicationHandler<Wake> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Focused time: the tab in front while the window has the focus.
+        let showing = self
+            .docs
+            .active_doc()
+            .map(|d| d.id)
+            .filter(|_| self.focused);
+        self.docs.focus_tick(showing, Instant::now());
         if self.drain() {
             self.redraw();
         }
@@ -3418,7 +3457,7 @@ pub fn run() -> i32 {
     let mut active = None;
     let restore = session.prefs.restore_session;
     for (i, path) in session.tabs.iter().enumerate().filter(|_| restore) {
-        if path.is_file() {
+        if path.is_file() && !barely_seen(&session, i) {
             let k = docs.add_pending(path);
             if i == session.active {
                 active = Some(k);
@@ -3440,6 +3479,7 @@ pub fn run() -> i32 {
         backups.as_deref(),
     );
     docs.start_day(&mut session);
+    docs.start_focus(&session);
     // The pinned tabs are marked now and put first once every index taken here is used.
     if restore {
         docs.mark_pinned(&session.pinned);
@@ -4731,6 +4771,96 @@ mod tests {
         app.finish_session();
         assert_eq!(count(), 1, "the copy is the only place the text is");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The owner's setting: tabs looked at for less than n seconds (focused time, added up
+    /// across runs) are left out at start; the tab that was showing, pinned ones, ones with
+    /// unsaved text and ones with no count from before always come back.
+    #[test]
+    fn tabs_barely_looked_at_are_left_out_at_start_when_asked() {
+        use crate::session::Pin;
+        let p = |n: &str| PathBuf::from(format!("C:/t/{n}.txt"));
+        let mut s = Session {
+            tabs: ["a", "b", "c", "d", "e", "f"].map(p).to_vec(),
+            active: 0,
+            pinned: vec![Pin::File(p("e"))],
+            focus: vec![
+                (p("a"), 3),
+                (p("b"), 3),
+                (p("c"), 50),
+                (p("e"), 2),
+                (p("f"), 1),
+            ],
+            unsaved: vec![Unsaved {
+                file: "1.txt".into(),
+                untitled: 0,
+                path: Some(p("f")),
+                draft: None,
+            }],
+            ..Default::default()
+        };
+        s.prefs.brief_secs = 10;
+        let out = |s: &Session| -> Vec<usize> { (0..6).filter(|&i| barely_seen(s, i)).collect() };
+        // Off (the default): every tab comes back.
+        assert!(out(&s).is_empty());
+        s.prefs.skip_brief = true;
+        // a showing, c long enough, d no count, e pinned, f unsaved: only b is left out.
+        assert_eq!(out(&s), [1]);
+        // The count goes through the session file.
+        let back = Session::parse(&s.serialize());
+        assert_eq!(back.focus, s.focus);
+        assert_eq!(out(&back), [1]);
+    }
+
+    /// The session written carries each file tab's focused seconds, read back at the next start.
+    #[test]
+    fn the_session_keeps_each_file_tab_s_focused_time() {
+        let (dir, _backups) = r4_dir("focus-save");
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "text").unwrap();
+        let mut app = app();
+        app.save = true;
+        app.session_path = Some(dir.join("session.ini"));
+        let k = app.docs.add_pending(&file);
+        app.docs.tabs[k].focus_ms = Some(12_345);
+        assert!(app.save_session());
+        let back = Session::read(&dir.join("session.ini")).unwrap();
+        assert_eq!(back.focus.len(), 1);
+        assert!(mdshared_app::paths::same_path(&back.focus[0].0, &file));
+        assert_eq!(back.focus[0].1, 12);
+        let mut docs = r4_docs();
+        docs.add_pending(&file);
+        docs.start_focus(&back);
+        assert_eq!(docs.tabs[0].focus_ms, Some(12_000));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Focused time is counted for the tab in front while the window has the focus, and only
+    /// then; a tab from before the count has none until it is shown.
+    #[test]
+    fn focused_time_counts_only_the_tab_in_front_of_a_focused_window() {
+        use std::time::{Duration, Instant};
+        let mut docs = r4_docs();
+        let a = docs.new_untitled();
+        let b = docs.new_untitled();
+        let (ida, idb) = (docs.tabs[a].id, docs.tabs[b].id);
+        docs.tabs[b].focus_ms = None;
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        docs.focus_tick(Some(ida), at(0));
+        docs.focus_tick(Some(ida), at(2));
+        // The window loses the focus (another program, minimized): a's clock stops.
+        docs.focus_tick(None, at(3));
+        docs.focus_tick(None, at(60));
+        assert_eq!(docs.tabs[a].focus_ms, Some(3000));
+        assert_eq!(docs.tabs[b].focus_ms, None);
+        // Back, on b: a session write in between counts b so far.
+        docs.focus_tick(Some(idb), at(60));
+        docs.focus_flush(at(65));
+        assert_eq!(docs.tabs[b].focus_ms, Some(5000));
+        docs.focus_tick(Some(ida), at(70));
+        assert_eq!(docs.tabs[b].focus_ms, Some(10_000));
+        assert_eq!(docs.tabs[a].focus_ms, Some(3000));
     }
 
     /// Audit 2: an exit that wrote the backups and the session, then stopped before it removed
