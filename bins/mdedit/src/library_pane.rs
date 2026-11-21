@@ -854,6 +854,7 @@ mod tests {
     fn library() -> Library {
         let group = Group {
             name: "Personal".to_string(),
+            home: None,
             file: PathBuf::from("D:/lib/personal.md"),
             stamp: mdshared_app::files::FileStamp::Missing,
             sections: vec![
