@@ -428,10 +428,29 @@ changes what undo does to a file (the Recycle Bin) but not which files it may to
 
 ## D-062 - 2026-11-21 - The notes pane's status row
 
-**Decision.** The "Plan ready: N notes � Show � Drop" row is one `pane::ROW_H` high at the foot
+**Decision.** The "Plan ready: N notes · Show · Drop" row is one `pane::ROW_H` high at the foot
 of the Notes pane, drawn by `library_pane::draw` from the plan `App` parked, and its state (the
 count, and whether a plan is kept) is part of the Files region's signature in `region_sig`.
 **Why.** 5.3 and 5.10 put it there; a drawn region that is not in the signature is never
 repainted, and the row is the only sign a parked plan exists.
 **Overturned by.** 5.10's fuller set of states, when a run can be going.
 **From.** The writer task of 2026-11-21.
+## D-063 - 2026-11-21 - Over 30 MiB is accepted on a library of thousands of notes
+
+**Decision.** The private-memory budget of 30 MiB stands for the app as it is normally used, and
+a library of 2,000 notes held open in the pane may cross it: measured at 30.4 MiB on `main`
+against 29.4 at phase 1 (`docs/measurements/2026-11-21-since-phase-1.md`). The owner, told the
+figure and its cause: "ram increase seems fine, with so many features added." The same message
+left the idle-CPU figure open rather than accepted: about 0.4 % of a core, 2.25 ms of stat work
+roughly once a second, and only while the Notes pane shows a library of that size.
+**What is still done anyway.** The extra megabyte is phase 0 (`f00ee60`) keeping a second,
+unfiltered `Library` beside the filtered one only to answer "has anything changed". That is waste,
+not a trade, and it goes: the staleness check keeps the file list and the stamps it compares, not
+a second copy of every group and note. The budget being forgiven does not make a redundant copy
+worth keeping.
+**Why.** A budget exists to stop the app growing heavy for everyone, not to forbid a large
+library from costing what a large library costs. The figure is reported, not hidden, and it is
+the owner's to forgive.
+**Overturned by.** The figure growing on a library of ordinary size, where no feature explains
+it; or idle CPU proving to cost battery on a laptop, which nobody has measured.
+**From.** The measurement pass of 2026-11-21 and the owner's answer to it.
