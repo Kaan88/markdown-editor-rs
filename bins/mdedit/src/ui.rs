@@ -874,6 +874,8 @@ pub fn new_tree() -> FileTree {
 #[derive(Default)]
 pub struct RunsDialog {
     pub list: Vec<mdedit_core::runs::Run>,
+    /// The record files of a later version, or that are no record, listed with nothing enabled.
+    pub unread: Vec<mdedit_core::runs::Unread>,
     pub sel: usize,
     /// The run whose undo is being asked about: its record, the question's sentence, and whether
     /// the undo can run at all (a refusal says what to put back first).

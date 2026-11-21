@@ -18,9 +18,9 @@ use mdshared_app::library;
 use mdshared_app::paths::same_path;
 
 /// The window's half of [`runs::Gate`]: the same library writer every other command uses.
-struct PlanGate<'a> {
-    app: &'a mut App,
-    library: PathBuf,
+pub(super) struct PlanGate<'a> {
+    pub(super) app: &'a mut App,
+    pub(super) library: PathBuf,
 }
 
 impl Gate for PlanGate<'_> {
@@ -56,14 +56,13 @@ impl Gate for PlanGate<'_> {
         let base = self.library.clone();
         match self.app.library_attempt(
             file,
-            |text| {
-                let without = runs::with_links_removed(text, links, &base)
-                    .unwrap_or_else(|| text.to_string());
-                runs::with_headings_removed(&without, headings, &base)
-            },
+            |text| runs::with_removals(text, links, headings, &base),
             |old, new| runs::check_links_removed(old, new, links, &base),
         ) {
-            Wrote::Done | Wrote::Nothing => Ok(()),
+            Wrote::Done => Ok(()),
+            // Nothing to take out is not success: the notes of those lines stay, and the run
+            // says it is not undone.
+            Wrote::Nothing => Err("none of the run's lines is in it any more".to_string()),
             Wrote::Refused(why) => Err(why),
         }
     }
@@ -299,7 +298,7 @@ impl App {
     /// "AI runs…": the records read now, newest first.
     pub(super) fn open_runs(&mut self) {
         let library = self.docs.library.dir.clone();
-        self.ui.runs.list = mdedit_core::runs::list(&library);
+        (self.ui.runs.list, self.ui.runs.unread) = mdedit_core::runs::list_all(&library);
         self.ui.runs.sel = 0;
         self.ui.runs.undo = None;
         self.open_dialog(DialogKind::Runs);
@@ -339,7 +338,15 @@ impl App {
     pub(super) fn runs_demo(&mut self, which: Option<crate::args::ShotDialog>) {
         use crate::args::ShotDialog;
         use mdedit_core::runs::{Group, NoteRec, Record, Run, Sent, Source, State};
-        let root = self.docs.library.dir.clone();
+        // The records are in memory and name folders a real run would; a shot has no library
+        // folder, so they sit in a made-up absolute one, and `prepare` reads the disk as it is.
+        let root = Some(self.docs.library.dir.clone())
+            .filter(|d| d.is_absolute())
+            .unwrap_or_else(|| {
+                std::env::temp_dir()
+                    .join("mdedit-runs-demo")
+                    .join("library")
+            });
         let make =
             |started: &str, secs: u64, state: State, group: &str, notes: usize, recycled: bool| {
                 let home = root.join(group);
@@ -347,6 +354,7 @@ impl App {
                 let items: Vec<NoteRec> = (0..notes)
                     .map(|i| NoteRec {
                         path: home.join(format!("Note {}.md", i + 1)),
+                        created: true,
                         sha256: String::new(),
                         ranges: vec![(1 + i * 8, 7 + i * 8)],
                         heading_shift: 1,
@@ -412,8 +420,29 @@ impl App {
             make(&now.1, now.0, State::Done, "Work notes", 3, true),
         ];
         self.ui.runs.sel = 0;
+        self.ui.runs.unread = Vec::new();
         match which {
-            Some(ShotDialog::RunUndo | ShotDialog::RunUndoRecycled) => {
+            Some(ShotDialog::RunsNewer) => {
+                // One run of this version, so that the files after it are in the window.
+                self.ui.runs.list.truncate(1);
+                let dir = root.join(".runs");
+                self.ui.runs.unread = vec![
+                    mdedit_core::runs::Unread {
+                        path: dir.join("2026-11-21T09-12-40Z-import.json"),
+                        newer: true,
+                        started: "2026-11-21T09:12:40Z".to_string(),
+                    },
+                    mdedit_core::runs::Unread {
+                        path: dir.join("notes.json"),
+                        newer: false,
+                        started: String::new(),
+                    },
+                ];
+                self.open_dialog(DialogKind::Runs);
+            }
+            Some(
+                ShotDialog::RunUndo | ShotDialog::RunUndoRecycled | ShotDialog::RunUndoOriginal,
+            ) => {
                 let last = self.ui.runs.list.len().saturating_sub(1);
                 let pick = if which == Some(ShotDialog::RunUndoRecycled) {
                     last
@@ -422,9 +451,13 @@ impl App {
                 };
                 self.ui.runs.sel = pick;
                 let run = &self.ui.runs.list[pick];
-                let (sentence, can) = if which == Some(ShotDialog::RunUndoRecycled) {
-                    // The source is not on disk and the record says it went to the Recycle Bin:
-                    // `prepare` reads the disk and refuses, as it would for a real run.
+                let (sentence, can) = if matches!(
+                    which,
+                    Some(ShotDialog::RunUndoRecycled | ShotDialog::RunUndoOriginal)
+                ) {
+                    // The source is not on disk (the record says it went to the Recycle Bin, or
+                    // the owner deleted it): `prepare` reads the disk and refuses, as it would
+                    // for a real run.
                     let plan = mdedit_core::runs::prepare(&run.record, &root);
                     (
                         plan.sentence(&run.record.group_name()),

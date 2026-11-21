@@ -78,6 +78,10 @@ pub enum ShotDialog {
     Runs,
     RunUndo,
     RunUndoRecycled,
+    /// "AI runs…" with record files a later version wrote, listed with nothing to press.
+    RunsNewer,
+    /// The question when the original the notes were cut from is gone: what undo says instead.
+    RunUndoOriginal,
 }
 
 /// A line and column as the user types them: 1-based, `12` or `12:5`.
@@ -542,6 +546,8 @@ impl Args {
                         "runs" => Some(ShotDialog::Runs),
                         "run-undo" => Some(ShotDialog::RunUndo),
                         "run-undo-recycled" => Some(ShotDialog::RunUndoRecycled),
+                        "runs-newer" => Some(ShotDialog::RunsNewer),
+                        "run-undo-original" => Some(ShotDialog::RunUndoOriginal),
                         _ => None,
                     })
                 }
@@ -658,6 +664,14 @@ mod tests {
             Some(ShotDialog::Shortcuts)
         );
         assert_eq!(parse("--dialog recent").dialog, Some(ShotDialog::Recent));
+        assert_eq!(
+            parse("--dialog runs-newer").dialog,
+            Some(ShotDialog::RunsNewer)
+        );
+        assert_eq!(
+            parse("--dialog run-undo-original").dialog,
+            Some(ShotDialog::RunUndoOriginal)
+        );
         assert_eq!(parse("--scroll-steps 0").scroll_steps, Some(0));
     }
 

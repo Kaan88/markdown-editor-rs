@@ -410,12 +410,22 @@ impl Outcome {
         }
         if !done.held_back.is_empty() {
             rows.push(OutRow::Heading(format!(
-                "Kept, because the line could not be taken out ({})",
+                "Kept, because a line in the library still lists them ({})",
                 done.held_back.len()
             )));
             rows.extend(done.held_back.iter().map(|p| OutRow::Skipped {
                 name: rel(root, p),
-                why: "its line is still in the library".to_string(),
+                why: "a line in the library still lists it".to_string(),
+            }));
+        }
+        if !done.before.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "There before this run, kept ({})",
+                done.before.len()
+            )));
+            rows.extend(done.before.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "not made by this run".to_string(),
             }));
         }
         if done.group_kept {
