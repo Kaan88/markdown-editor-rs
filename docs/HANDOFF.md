@@ -5,6 +5,12 @@ the release of 0.5.0 on 2026-11-14 (see "Release 0.5.0" below section 7). Read t
 `docs/PLAN.md` (goals, budgets, phases, feature roadmap) and `docs/DESIGN.md` (the design of
 phase 1, and section 16 on editing and saving as built).
 
+## Open: Save offers .txt for a note converted to Markdown (2026-11-21, owner)
+
+A new note converted to Markdown is still offered `<name>.txt` by Save: `save_as`
+(`app/commands.rs`) always names a new document `.txt`. It should take the extension from the
+document's language (`.md` once it is Markdown). Not fixed yet.
+
 ## Release 1.2.1 (2026-11-21, released)
 
 mdedit 1.2.1 is released: tag `v1.2.1` at `528446a`, release run 44850785598 green, manifests,
