@@ -684,3 +684,133 @@ Three corrections found reviewing the plan, folded into phase 1:
    empty-means-the-default rule.
 3. **The pane's face is restored at start** in phase 1 rather than phase 3: one session line each
    side, and without it the new switches look broken at the next launch.
+
+---
+
+## 10. After the first real use (2026-11-21)
+
+The owner used phases 1 and 2 against their own library and came back with two things. Both
+change the plan, so they are written here rather than folded in silently; where this section
+disagrees with §4, §5, §6 or §9, this section wins.
+
+> "I still don't like the idea of having all files in one folder."
+>
+> "I want ai to be able to also take one document and split organize as I ask it to. a long
+> single document can be a library on its own with one prompt with many files."
+
+### 10.1 A folder per group, and per section — the default, not an option
+
+**What they are reacting to.** A note made from the pane is written beside the library file
+(`library_new_note`, `app/library_write.rs:557-569`: `file.parent()`), so every new note of every
+group lands in the one library folder, flat. The index nests; the disk does not. §9 decided
+"links only, no managed folder" and that was right about not *moving* the owner's existing files —
+it was wrong about where *new* files go.
+
+**The rule from here.** A group owns a folder, and a note made under a heading is written in the
+folder of that heading path:
+
+```
+library/                     the library folder (a setting since phase 2)
+  personal.md                the group file: the index
+  Personal/                  the group's folder
+    taxes.md                 a note written directly under # Personal
+    Money/
+      receipts.md            a note written under ## Money
+      2025/
+        last-year.md         a note written under ### 2025
+```
+
+- The folder is named from the group's own name, with the characters a file name cannot hold
+  replaced; a clash gets a `-2`.
+- **Declared, not inferred.** The group file gains one line under its `#` heading:
+  `home: Personal`, relative to the library folder, absolute allowed. Anything that is not a
+  heading or a note line is already ignored by the parser (`library.rs:18-19, 307-320`), so an
+  older mdedit and today's mdview read such a file unharmed — they simply keep writing new notes
+  beside the index, which is what they do now.
+- **A group with no `home:` keeps today's behaviour exactly.** Nothing on disk moves when this
+  ships.
+- **A new group writes its `home:` line** and creates the folder lazily, with its first note.
+- **Section folders are made as needed**, one per heading in the path. A heading with no notes of
+  its own never makes a folder.
+- **Renaming a heading does not move files.** The links hold paths, so the notes keep working and
+  the folder name simply stops matching the heading — the same drift a file manager has. The
+  repair is an explicit "Move the notes to match the headings…", with a preview and an undo
+  record, never automatic.
+- **Existing notes elsewhere on disk are left where they are**, as §9 decided. What is offered is
+  explicit and one note at a time ("Move the file into this group's folder"), plus a bulk
+  "Move the notes of this group into its folder…" behind the same preview-and-undo machinery the
+  AI import uses. §4(b)'s failure modes — cross-volume moves, a tab open on a moving file — apply
+  to those two commands and to nothing else.
+- **"Set the group's folder…"** on the group row menu points a group at an existing folder, which
+  is §4(c) and the answer for someone whose `D:\notes\work` already exists.
+
+**Cost.** 3 days: the `home:` line in the shared reader and writers (with a test that an unknown
+line is still ignored), the folder derivation and creation, `library_new_note` writing into it,
+the group menu item, the pane showing a group's folder in its tooltip. The two move commands are
+a further 2 days and come after the AI import, because they share its preview-and-undo panel.
+
+### 10.2 Splitting one document into a library
+
+A single long document — a journal, a year of meeting notes, a manual — becomes a group of notes
+in one pass, with the owner's own instruction shaping the split ("one note per chapter", "a note
+per recipe, grouped by course").
+
+**The safety property, and the reason this is cheap.** The model never writes the notes. It
+returns **line ranges over the document the app already holds**, with a title and a heading path
+for each; the app writes the document's own bytes. A hallucinated sentence cannot enter a file,
+because no sentence comes back from the model. This is the sister of §5.3's "ids, never paths".
+
+**What is sent.** The document's **outline**, not its text, whenever the outline carries enough:
+every heading with its level, its line number and the first 200 bytes under it (mdedit has this
+already — `mdedit-outline`). A document with no headings sends a line-numbered digest instead:
+the first 80 bytes of every non-blank line, capped at the usual 200 KB; for anything larger the
+owner is told to split it by hand first. The owner's instruction goes into the prompt verbatim.
+
+**What comes back**, one JSON object and nothing else:
+
+```json
+{"version": 1,
+ "group": "Japan 2025",
+ "notes": [
+   {"from": 12, "to": 240, "title": "Arriving in Tokyo", "sections": ["Tokyo"]},
+   {"from": 241, "to": 388, "title": "Kyoto by train", "sections": ["Kyoto"]}
+ ]}
+```
+
+**The validator refuses, and says which rule it hit:** a range outside the document; `from` after
+`to`; ranges that overlap; a title that is not one line or holds a path separator; more than 200
+notes; a heading path deeper than 4. Gaps between ranges are allowed and reported ("18 lines are
+in no note") — a preamble usually belongs nowhere. The model's titles are used for the links and
+for the file names; the file names are sanitised as group folders are.
+
+**What the owner sees before anything is written:** the plan in the results panel, one row per
+note — title, heading path, line range, size — ticked, with the gaps listed at the end. Untick a
+row and that range stays only in the original. The buttons are "Write the notes" and "Cancel".
+
+**What is written:** one `.md` per ticked row in the group's folder (§10.1), each starting with
+`# <title>` and holding its lines verbatim; a new group file, or a heading in an existing one;
+and a run record for the undo, as §5 specifies. **The source document is never changed** — it
+keeps every line it had. Offering to replace it with a stub that links the pieces is a separate,
+later, explicitly asked-for command.
+
+**Cost.** 4 days on top of phase 4's shared parts — the plan panel, the record, the undo. Worth
+doing before the folder import: it is one run rather than thirteen, and the owner has documents
+like this today.
+
+### 10.3 The plan from here
+
+| # | What ships | Days | State |
+|---|---|---|---|
+| 1 | One-file Edit, toolbar button, head switches, face restored | 3 | **done** (`ddb03d4`) |
+| 2 | Context menus, the shared writers, inline rename, the library-folder setting | 6 | **done** (`3453a7a`) |
+| 2b | The two faults the owner found: the name box drawing no text, and no way to delete a library file | 1 | in hand |
+| 3 | Keyboard in the pane, empty states, folder per note, "Show in the library" | 3 | in hand |
+| 6a | A folder per group and per section (§10.1) | 3 | next |
+| 4b | Split a document into a library (§10.2) | 4+ | after 6a |
+| 4 | AI organise a folder: scan, digests, two passes, validator, plan, record, undo | 8 | after 4b |
+| 5 | Conversion to Markdown, ticked files only | 3 | later |
+| 6b | "Move the file into this group's folder" and the bulk move (§10.1) | 2 | later |
+| 7 | Drag and drop | 3-4 | §9: no |
+
+Phase 4b before phase 4 is deliberate: one document split is a single run, it exercises the plan
+panel, the validator and the undo record that phase 4 needs, and it is useful on its own.
