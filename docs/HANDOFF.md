@@ -16,7 +16,7 @@ document's language (`.md` once it is Markdown). Not fixed yet.
 mdedit 1.2.1 is released: tag `v1.2.1` at `528446a`, release run 44850785598 green, manifests,
 hashes and `--check-update` verified (`docs/RELEASE.md`). 1.2.0 stays published.
 
-## Sharing with mdview (2026-11-21, branches, not merged)
+## Sharing with mdview (2026-11-21, merged to main)
 
 The owner: the two apps are sisters, more apps may join; what they can share goes in the shared
 crates. Moved to markdown-shared-rs (`mdshared-app`, at `cb0ffd3`): `brief` (the focus clock, the
@@ -24,6 +24,10 @@ rule and the `focus` lines), `folder_lock` (was mdedit's `instance.rs`), and `se
 `read_patiently` (an unreadable file is an error, not an empty one). mdedit uses them on
 `f/shared-brief`; mdview has the brief setting on its `f/brief-tabs`, with Settings in
 categories (as mdedit's, the card at most 640 px tall). See mdview's HANDOFF for its side.
+
+Budgets after the merge, 15 interleaved runs of `sample.rs`, published 1.2.1 against main:
+first frame 110.7 / 111.9 ms (both over the 100 ms budget, as on other days on this PC), memory
+27.7 / 27.7 MiB, keystroke p50 0.56 / 0.55 ms, scroll p50 0.44 / 0.46 ms: within noise.
 
 ## Tabs barely looked at, and the AI menu's Modify room (2026-11-21, released in 1.2.1)
 
