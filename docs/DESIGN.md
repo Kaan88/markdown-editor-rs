@@ -1414,8 +1414,9 @@ path in a help line keeps its last 40 characters of folders (`short_path`). The 
 `Form::fit` at 1280x800 and 520x360, scale 1, 1.5 and 2, in seven states (tab rules on and off,
 an update offered, every connection, a failed model list with a typed model, a refused key) and
 fails naming the page and the pixels over; the closest is Tabs with both rules off, 7 px at
-520x360. A Choice with three options or fewer is a segmented group (the shared rule), so Model
-is one ("Default | Other…") while no list has been fetched. A
+520x360. A Choice with three options or fewer is a segmented group (the shared rule), but Model
+and Effort are marked `Item::dropdown()`: their option count follows the fetched list and the
+model, and a row that changed shape with it would read as another setting. A
 Font family row is a single string; an unknown family falls back to the monospace stack. Changes
 apply live: tab width, font size, line numbers and highlight-line through process-wide atomics in
 `live.rs` (caches are cleared in `relayout_all`), the others through `Docs::set_prefs`. They are

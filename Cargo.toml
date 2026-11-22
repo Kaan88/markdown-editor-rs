@@ -27,11 +27,11 @@ unicode-width = { version = "0.2", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "nfa-pikevm", "nfa-backtrack", "dfa-onepass", "hybrid", "perf-literal", "unicode"] }
 parley = "=0.12.0"
 bytemuck = "1.25"
-mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7a6f01325513d741f3b81c3e032f14d91fb1224e" }
-mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7a6f01325513d741f3b81c3e032f14d91fb1224e" }
-mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7a6f01325513d741f3b81c3e032f14d91fb1224e" }
-mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7a6f01325513d741f3b81c3e032f14d91fb1224e", features = ["client-margin"] }
-mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7a6f01325513d741f3b81c3e032f14d91fb1224e" }
+mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "8395f91385a5726f3ed0940f1f5a10d57da36651" }
+mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "8395f91385a5726f3ed0940f1f5a10d57da36651" }
+mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "8395f91385a5726f3ed0940f1f5a10d57da36651" }
+mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "8395f91385a5726f3ed0940f1f5a10d57da36651", features = ["client-margin"] }
+mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "8395f91385a5726f3ed0940f1f5a10d57da36651" }
 
 # The Wayland client-drawn window shadow (mdshared-ui's `client-margin`): winit gets a content margin
 # and softbuffer honours alpha on Wayland. Both are the stock 0.30.13 / 0.4.8 plus one patch; see

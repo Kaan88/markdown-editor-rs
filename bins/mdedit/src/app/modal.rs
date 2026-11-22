@@ -1015,7 +1015,8 @@ impl App {
             (Connection::Codex, _) => "Default is the model Codex is set to use.".into(),
             _ => String::new(),
         };
-        let mut model = Item::new(Row::choice(AI_MODEL, "Model", &labels, models.value).help(help));
+        let mut model =
+            Item::new(Row::choice(AI_MODEL, "Model", &labels, models.value).help(help)).dropdown();
         if matches!(c, Connection::ClaudeApi | Connection::OpenAi) {
             model = model.icon_button(
                 AI_FETCH,
@@ -1045,7 +1046,8 @@ impl App {
         rewrite.push(why(Item::new(
             Row::choice(AI_EFFORT, "Effort", &labels, at)
                 .help("Higher thinks longer before answering. Default is the model's own."),
-        )));
+        )
+        .dropdown()));
         rewrite.push(why(Item::new(
             Row::toggle(AI_REVIEW, "Show changes before applying", p.ai_review)
                 .help("Off: the result replaces the text at once, and Undo brings it back."),
@@ -1493,6 +1495,33 @@ mod tests {
         assert_eq!(a.ui.settings.as_ref().unwrap().focus_id(), Some(AUTO_PAIR));
         press(&mut a, KeyName::Space);
         assert_eq!(a.session.prefs.auto_pair, !was);
+    }
+
+    /// Model and Effort are dropdowns even with two options ("Default", "Other…"), so the rows
+    /// keep their shape when a model list is fetched.
+    #[test]
+    fn model_and_effort_are_dropdowns_whatever_their_option_count() {
+        let mut a = app();
+        a.open_settings();
+        let f = a.ui.settings.as_mut().unwrap();
+        let at = f
+            .page_names()
+            .iter()
+            .position(|n| *n == AI_REWRITE)
+            .unwrap();
+        f.show_page(at);
+        let mut bmp = Bitmap::new(1280, 800);
+        let mut gfx = Gfx::new();
+        let mut p = Painter::new(&mut bmp, &mut gfx, 1.0);
+        f.layout(&mut p, Rect::new(0.0, 0.0, 1280.0, 800.0));
+        for id in [AI_MODEL, AI_EFFORT] {
+            assert_ne!(f.control_rect(id), Rect::default(), "{id} is on the page");
+            assert_eq!(
+                f.segment_rect(id, 0),
+                Rect::default(),
+                "{id} has no segments"
+            );
+        }
     }
 
     /// `--settings-section` names a page, or the group a row was in before the pages.
