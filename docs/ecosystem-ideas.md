@@ -1,5 +1,8 @@
 # New applications for the mdview / mdedit ecosystem
 
+> The plans written since for the ideas the owner asked about, and where each stands, are in
+> `docs/ideas/` (its `README.md` is the index).
+
 Reviewed 2026-11-21. This is an architecture and feasibility review of the twelve ideas in the
 owner's list, against the code that exists on this PC.
 
@@ -30,7 +33,10 @@ subsystem I price at 1-2 pw is one where the happy path is a day and the edge ca
 | 2 | Mail over JMAP | One Stalwart account: read, thread, search, attach, compose, send | 12-16 | ~30% | **Build next** |
 | 2b | JMAP calendar + contacts | Two more views in the same app, no reminders at first | +6-9 | ~20% | Build later |
 | 3 | Photo culling | Folder cull: grid + loupe, flags/stars, XMP sidecars | 6-9 | ~20-25% | Build later; better as a file-manager mode |
-| 6 | Usenet reader + downloader | Reader only; downloader is a second product | 9-13 reader, 10-14 downloader | ~25% / ~10% | Reader later; **downloader: don't** |
+| 6 | Usenet reader + downloader | Reader only; downloader is a second product | 9-13 reader, 10-14 downloader | ~25% / ~10% | Reader later; **downloader: don't** (built anyway: NewsQueue, §6b) |
+| 6b | NewsQueue window on the shared stack | Beside the Win32 window, same in-process engine | 9.5-17.5 (~12) | engine done; frame, settings, menus shared | Costing only; see 6d |
+| 6c | Inbound window on the shared stack | Rust client of the C# Host: list, add, progress, tray | 14-22.5 after 6b | Host and protocol done; DTOs by hand | Costing only; see 6d |
+| 6d | **One downloader window over both engines** | Rust window, NewsQueue core linked, Inbound Host bundled; list, add, progress, tray | 12-20.5 (~15) | both engines done; frame, settings, menus shared | **Plan: replaces 6b and 6c** |
 | 10 | Feed reader | OPML, refresh, list, read state, renderer pane | 3-5 | ~40-45% | **Build next (second)** |
 | 8 | Local-LLM workbench | N models on one prompt, side by side, runs saved as .md | 2-3 as a feature | ~85% as a feature | **Only as a feature of mdedit** |
 | 14 | Document archive | Text-PDF index + tags + search; OCR later | 10-16 (6-8 text-only) | ~25-30% | Build later |
@@ -345,6 +351,294 @@ abstractions generalise beyond mail). **Downloader: don't.**
 
 ---
 
+## 6b. A window for NewsQueue on the shared stack
+
+Reviewed 2026-11-22, from a shallow clone of `Kaan88/newsqueue` at `0fc1db6` (release 1.0.10), and
+`markdown-shared-rs` at `a2a2031`. No build, no run, nothing of the installed copy touched. §6's
+"downloader: don't" priced *building* a downloader; NewsQueue is built, so the question is only
+its window.
+
+### What it really is
+
+A fourth front end on an engine that already takes several. `newsqueue-core` (~10.7k lines with
+its tests: download, par2, unrar, rss, model) has no UI and no Win32. A front end sends a
+`Command` (39 of them: queue edits, pause, speed, settings, servers, RSS) and reads a secret-free
+`Snapshot` through an `EngineHandle`; the engine ticks on its own thread and reports five
+`Event`s (toast, message, notify, password needed, feeds needed). The Win32 desktop, the headless
+server and the egui web UI already sit on that boundary. A winit + softbuffer window would be a
+new Rust binary that **links the engine directly**, in process, with no IPC: the same shape as
+mdedit owning its document and asking `mdedit-ai` for the network.
+
+It is the same threading model as ours (std threads, blocking sockets, no async), and par2 and RAR
+are child processes (`par2.exe`, `UnRAR.exe`), so the window inherits none of §6's correctness
+risk.
+
+### What the window has to show
+
+From `app/src` (desktop, ~8.8k lines) and its 21 golden shots:
+
+| Surface | In NewsQueue | In the shared crates | Gap |
+|---|---|---|---|
+| Frame, menu bar, toolbar, status bar | Win32 | `chrome`, `menu_bar`, `menu`, `keys`, `platform`, `theme`, `frost` | copy a loop (1-3 pw, §"The shell gap") |
+| Queue: collections that expand into files, 15+ columns, progress bars, reorder, header drag | owner-data ListView | `rows` (one height, no columns), `tree` (folders only) | **a table**: columns, resize, expand, progress cells |
+| Connections, PAR2, Log, RSS lists | four ListViews | same | the same table |
+| Tabs (Queue, PAR2, Log, RSS) | Tab control | document tabs in `chrome` | small |
+| Setup: 15 pages of fields | `FIELDS` table | `settings` (header, toggle, choice, number, text, action) | servers editor, scheduler grid |
+| ~17 dialogs (speed, pause for, rename, password, shutdown, notes, stats, columns, RSS feeds...) | `dialogs.rs` | `overlay`, `textfield`, `notice`, `settings` | each one drawn |
+| Statistics charts, speed graph | GDI | nothing | a chart, small |
+| Tray icon, balloons, close-to-tray | `tray.rs` | nothing | **a tray**, per platform |
+| Single instance forwarding NZBs, self-update, crash log | own | `single`, `updater`/`selfupdate`, `crash` | wire up |
+| File and folder pickers | `IFileOpenDialog` | `rfd` already in `mdshared-ui` | none |
+
+### What it would take
+
+| Piece | pw |
+|---|---|
+| Copy the event loop from mdview (frame, damage, timers, dropped files) | 1-3 |
+| Table widget: columns, resize, sort, expandable rows, progress cells, range selection, virtualised | 2.5-4 |
+| Main window: tabs, toolbars, status bar, splitter, keyboard | 1-2 |
+| Setup on `settings` rows, plus servers editor and scheduler grid | 1.5-2.5 |
+| The dialogs | 1.5-2.5 |
+| Charts | 0.5-1 |
+| Tray (Windows first; Linux and macOS each later) | 0.5-1 |
+| Shots in both themes, tests, budgets measured | 1-1.5 |
+| **Total** | **9.5-17.5**, about 12 likely |
+
+The table and the tray are the expensive part, and they are exactly what §"New shared crates" says
+mail would need (`mdshared-ui::list` + `table`). NewsQueue would be their **first user**, ahead of
+mail, with simpler rows (no variable heights, no HTML).
+
+### What it gains
+
+- **One look with mdview and mdedit**, and **dark mode**: the Win32 desktop is light only.
+- **A Linux and macOS desktop.** The core builds and tests on Debian already; today Linux gets only
+  the server and the browser. (macOS: not checked.)
+- **The budgets.** First frame under 100 ms and private memory under 30 MiB become the window's
+  rules. Not measured: the Win32 window is likely already light, so this is not a speed win on
+  Windows, and should not be sold as one.
+- **The table and the tray, built once** for the apps after it.
+
+### What it costs, besides the weeks
+
+- **Two desktop windows to keep, or a replacement.** The Win32 Compact window is approved and
+  released. The new window can run beside it on the same engine until it reaches parity; then one
+  goes. Keeping both forever doubles every UI change.
+- **The house rules come with it.** `panic = "abort"` means auditing the engine's outside-input
+  paths first (NZB XML, NNTP replies, yEnc, RSS, UnRAR output; ~40 `unwrap`/`expect` in
+  `download.rs` alone), or one bad article kills the app mid-download. A `ci` workflow (it has only
+  `docker-release.yml`). Shots in both themes.
+- **The binary count.** It is the third winit app. §"Recommendation" says extract the frame before
+  a fifth; a third copy of the loop is allowed but should be made knowingly.
+- **Dependencies.** The engine brings `ureq`, `native-tls`, `quick-xml`, `chrono`, `fs2`,
+  `serde_json` into a winit binary. They are NewsQueue's own and already shipped; none enter mdview
+  or mdedit.
+
+### Verdict
+
+**Possible, and the better of the two download-manager windows to build first** (§6c): Rust to
+Rust, in process, a bounded surface, and it pays for the table and the tray. About 12 pw. Build it
+as a new binary beside the Win32 window, not over it, and retire one only at parity.
+
+---
+
+## 6c. A window for Inbound on the shared stack
+
+Reviewed 2026-11-22, from a shallow clone of `Kaan88/inbound` at `8c8fa86` (release 0.9.0). No
+build, no run.
+
+### What it really is
+
+Inbound is a C#/.NET 10 download manager: HTTP with segments and resume, queues and scheduler,
+torrents (a libtorrent child process), TorBox, archives, Remote files over rclone (SFTP, FTP,
+WebDAV, S3, Drive, OneDrive, Dropbox), browser extensions for Chrome, Edge and Firefox. About 145k
+lines of C#; the WinUI window is 59.7k of them, `Runtime` 34.5k.
+
+**The engine is a separate process.** One per-user Host owns the engine, the store, the scheduler
+and the tray; every window is a client. The WinUI window, an Uno build for Linux and macOS, the
+CLI, the native-messaging host and a Svelte web UI already are. The repository even has
+`docs/new-frontend-guide.md`, written for exactly this: a new GUI in any toolkit.
+
+So a winit + softbuffer window is a **Rust client of a C# Host**:
+
+- Transport: a per-user named pipe `\\.\pipe\DownloadManager-<hash>`, owner-checked; each frame
+  a 4-byte little-endian length and UTF-8 JSON, 8 MB at most. The Linux Host and the server have
+  their own transports. A blocking pipe client in Rust is small.
+- Protocol: version 1, 105 message types, `server.hello` with capabilities, then `jobs.snapshot`,
+  then events. The DTOs (`DownloadManager.Contracts`, 8.2k lines) are mirrored by hand in Rust;
+  nothing is generated.
+- Rules: which action applies to which state lives in C# rule classes in the WinUI project
+  (`FileMenuRules`, `SelectionCommands`, ...). The guide says copy them, do not invent. In Rust
+  that is a port, with their tests.
+
+### What the window has to show
+
+The guide's own checklist, which a window must meet or list as `partial`:
+
+- the list (8 columns, sortable, resizable, packages that expand, state views and queues in a
+  sidebar, search, multiselect, bulk actions);
+- adding (URL check, batch URLs, clipboard watch, duplicates policy, site logins);
+- progress details with a segment map and a speed graph;
+- queues, scheduler, quotas, completion actions;
+- Options, many pages, one OK/Cancel/Apply;
+- tray, notifications, updater, shell open/reveal;
+- browser extension status;
+- TorBox, containers and archives, torrents (file choice);
+- **Remote files**: remotes, sign-in questions, paged browsing, two panes, transfers;
+- managing another Inbound server.
+
+### What it would take
+
+| Piece | pw |
+|---|---|
+| Pipe client, framing, hello/capabilities, reconnect | 0.5-1 |
+| Mirror the Contracts DTOs (105 messages) | 1.5-2.5 |
+| Port the rule classes and their tests | 1-2 |
+| Loop, table, tray | from §6b if built first; else 4-8 |
+| Main list, sidebar, packages, search, bulk actions | 2-3 |
+| Add flows, details with segment map, graph | 1.5-2.5 |
+| Queues, scheduler, Options | 2-3 |
+| Torrents, TorBox, archives | 1.5-2.5 |
+| Remote files (two panes, transfers, sign-ins) | 2.5-4 (the file manager, §21, would share it) |
+| Shots, tests against an isolated Host and `tools/TestServer` | 1.5-2 |
+| **Total** | **14-22.5 after §6b**, **18-30.5 without it** |
+
+### What it gains
+
+- **The lightest Inbound window.** The install is about 200 MB (its own figure; how much is WinUI and
+  how much .NET was not checked); a
+  winit client is a few MB. Its launch and memory would meet our budgets. Not measured: what
+  WinUI costs today is a guess until someone times it.
+- **One look across the three**, and a native Linux and macOS window without Uno.
+
+What it does not gain: the Host stays .NET and keeps running; the total memory of "Inbound
+running" falls only by the window's share.
+
+### What it costs
+
+- **Two languages, one protocol, by hand.** Every new message or field in C# needs a Rust mirror,
+  or the Rust window falls behind (the guide's rule: hide what you cannot do). This is the
+  permanent cost, and it grows with every Inbound release.
+- **The rule classes drift.** Ported rules are a second copy; a fix in C# must be made in Rust too.
+- **A third window to keep**, beside WinUI and Uno, on a product that changes weekly (Remote files
+  landed in the last week).
+- **A JSON dependency in a winit app.** `serde` + `serde_json` (or a hand parser). Rule 7: ask, and
+  price it.
+
+### Verdict
+
+**Possible, because the Host was built for it, but expensive and never finished**: about 18 pw
+after §6b, and a protocol to follow forever. Build it only after the NewsQueue window, reusing its
+table and tray, and start with a **smaller window** the guide allows as `partial`: the list,
+adding, progress, pause/resume, tray. Leave Remote files, torrents and TorBox in the WinUI window
+until the list is daily.
+
+---
+
+## 6d. One downloader window over both engines (the owner's direction)
+
+Added 2026-11-22. The owner: keep NewsQueue and Inbound as they are, and build one Rust window on
+the shared stack for both; the combined app will probably **ship the two engines itself**. This
+section replaces 6b and 6c as the plan; they stay as the costing of each half. Same evidence as
+6b and 6c: read, not built, not run, not measured.
+
+### What it is
+
+One app, one window, one tray, for every download: URLs and torrents through Inbound's engine,
+NZBs through NewsQueue's. NewsQueue and Inbound stay released apps with their own windows; the
+combined app is a third product that carries both engines inside its install.
+
+| | NewsQueue's engine | Inbound's engine |
+|---|---|---|
+| Language | Rust (`newsqueue-core`) | C#/.NET 10 (the Host, with `Runtime`, `Engine`, `Persistence`...) |
+| How the app carries it | linked into the exe, in process | the Host's self-contained publish shipped beside the exe, started by the app |
+| How the window talks to it | `EngineHandle`: `Command` in, `Snapshot` out, no IPC | the named pipe: 4-byte length + JSON, protocol 1 |
+| Its external tools | `par2`, `UnRAR` (vendored) | `inbound-torrent.exe` (libtorrent), 7-Zip, rclone |
+
+### The one hard question: whose data
+
+Both engines are single writers of their state folder, and the standalone apps may be running.
+
+- **NewsQueue** keeps its state beside the exe (`app_base()`, or `NQ_CONFIG`) and has **no lock** on
+  that folder: two engines on one folder corrupt the queue. The combined app needs its own folder,
+  or a lock added to the core first (a lock file with `fs2`, which the core already depends on).
+- **Inbound** has one Host per user, held by a mutex and a per-user pipe. A second Host with the
+  same instance name refuses to start; `DOWNLOADMANAGER_INSTANCE` and `DOWNLOADMANAGER_DATA` give a
+  separate one.
+
+Two ways. **Open: the owner left this undecided (2026-11-22).** It is decided before any code:
+
+1. **Own engines, own data.** The combined app runs its own Inbound instance and its own NewsQueue
+   folder. No clash, ever. Servers, logins and queues are not shared with the standalone apps; the
+   user moves to the combined app rather than using both.
+2. **One engine per user, whoever starts it.** For Inbound, connect to the Host if one answers
+   on the pipe, else start the bundled one: the Host already supports this (the WinUI window, the
+   CLI and the extension all do it). For NewsQueue, the same needs the core to become a host too
+   (a lock, and the combined app attaching through `newsqueue-server`'s API when the desktop owns
+   the folder). More work, and it ties the combined app's release to both apps'.
+
+1 needs no change in either repository except the NewsQueue lock as a guard; 2 lets the owner keep
+using the standalone apps on the same queues. Either way, the NewsQueue lock goes in first.
+
+### The smallest useful version
+
+- One list over both engines: name, engine, size, progress, speed, state, time left; filters
+  (Active, Queued, Failed, Done) across both; multiselect; keyboard.
+- One Add: a URL or magnet goes to Inbound, an `.nzb` (file, drop or the shell's Open with) to
+  NewsQueue.
+- Pause, resume, remove, retry; pause all; speed limit per engine.
+- A details pane: Inbound's segment map, NewsQueue's files, PAR2 and unpack stage.
+- Tray, notifications, single instance, self-update.
+- Settings: the servers, logins and folders each engine needs to run, on `mdshared-ui::settings`
+  rows. Nothing else at first.
+
+Left out, and said so in the window: Inbound's Remote files, TorBox, the scheduler, the browser
+extension pairing; NewsQueue's RSS and statistics. They stay in the standalone apps until the list
+is daily.
+
+### What it would take
+
+| Piece | pw |
+|---|---|
+| Copy the event loop from mdview | 1-3 |
+| Table widget (the one §6b prices) | 2.5-4 |
+| Tray | 0.5-1 |
+| NewsQueue side: link the core, map `Snapshot` rows, commands, its settings pages | 1-1.5 |
+| Inbound side: pipe client, reconnect, the DTOs the small version uses (not all 105), the state rules it needs, ported with their tests | 2-3 |
+| Start, watch and stop the bundled Host; its instance and data folder | 0.5-1 |
+| One list over two engines: a common row, states mapped, add routing | 1-1.5 |
+| Details pane, both kinds | 1-1.5 |
+| Install: the Rust exe, the self-contained Host, the vendored tools; update of all three | 1-2 |
+| Shots in both themes, tests against an isolated Host, `tools/TestServer` and NewsQueue's mock NNTP server | 1.5-2 |
+| **Total** | **12-20.5**, about 15 likely |
+
+The table and the tray are built once here and are the ones mail would use next.
+
+### What it costs, besides the weeks
+
+- **The install is no longer light.** A self-contained .NET Host is tens of MB on disk (Inbound's
+  own install is about 200 MB with WinUI; the Host alone was not measured). The window can meet
+  the budgets; the app as a whole cannot claim "under 30 MiB" while the Host runs. Say so in
+  PLAN.md's terms: the budgets are the window's.
+- **Two engines to keep in step.** Inbound's DTOs are mirrored by hand; NewsQueue's `Snapshot` is
+  a Rust type and can be used directly. Every release of either engine is a release decision for
+  the combined app: pin a version of each, as the shared crates are pinned.
+- **Two languages in one install**, with .NET's own updates and CVEs to follow.
+- **The house rules.** `panic = "abort"` in the combined exe means NewsQueue's engine runs under it:
+  audit its outside-input paths first (~40 `unwrap`/`expect` in `download.rs`). The Inbound Host is
+  a separate process, so its crash ends a download, not the window: the window shows the Host
+  gone and restarts it.
+- **The binary count.** The third winit app. Allowed by §"Recommendation"; extract the frame before
+  a fifth.
+
+### Verdict
+
+**Plan it as the ecosystem's downloader**, the smallest version above, about 15 pw, with the data
+model still open. It replaces building separate windows for NewsQueue (§6b) and Inbound (§6c). Before code:
+the owner picks the data model (1 or 2), the NewsQueue lock goes into its core, and the bundled
+Host's size is measured.
+
+---
+
 ## 10. Feed reader (RSS/Atom/JSON Feed)
 
 ### What it really is
@@ -502,6 +796,9 @@ on the owner's actual documents.
 
 ## 19. Tasks and projects over Markdown
 
+> Proposed 2026-11-23 as the quickest first release, as a Tasks view in mdview:
+> `docs/ideas/first-release-plan.md`.
+
 ### What it really is
 
 A lens over task lines that already exist in `.md` files: `- [ ]` with a documented metadata
@@ -590,6 +887,9 @@ an ecosystem app, and it should not delay mail.
 ---
 
 ## 12. Terminal emulator
+
+> Reopened 2026-11-22: the verdict below is history. `docs/ideas/terminal.md` says why a terminal
+> is possible after all, and `docs/ideas/terminal-plan.md` is the plan, Windows first.
 
 ### What it really is
 
@@ -683,6 +983,10 @@ but it is security software, and it should start read-mostly with a strict inter
 ---
 
 ## 21. Two-pane file manager
+
+> The owner asked (2026-11-22) for a standard file manager first, with split view, and a commander
+> layout only later: `docs/ideas/file-manager-plan.md`, its mock-up and questions, and
+> `docs/ideas/commander-plugins.md`.
 
 ### What it really is
 
@@ -842,15 +1146,18 @@ These numbers are why mail is 12-16 pw and not 6: the domain is half, the surfac
    rather than change mdview. Budget 12-16 pw, and treat compose as the gating risk: if a 2-3 pw
    multi-line field cannot reach "pleasant", stop and reconsider before the rest of the app is
    built.
-2. **Then feeds (3-5 pw)**, which turns those crates into shared ones with two real users, and then
-   the Usenet **reader** if it is still wanted. Skip the downloader; SABnzbd already exists.
-3. **Count the binaries.** mdview and mdedit are two; mail is the third; feeds the fourth. Do not
-   start a fifth before the window frame is shared, or the maintenance multiplier (installers,
+2. **The downloader (§6d, ~15 pw)**: one window on the shared stack over NewsQueue's and Inbound's
+   engines, both shipped inside it. It builds the table and the tray mail needs, so it may go
+   before mail if the owner wants a daily app sooner; decide the data model first.
+3. **Then feeds (3-5 pw)**, which turns those crates into shared ones with two real users. The Usenet
+   reader (§6) is dropped: the owner does not want one (2026-11-22).
+4. **Count the binaries.** mdview and mdedit are two; the downloader and mail are the third and
+   fourth, in whichever order; feeds would be the fifth. Do not start a fifth before the window frame is shared, or the maintenance multiplier (installers,
    manifests, AppImages, audits, three pin updates per shared fix) will eat the gains.
-4. **File manager and vault are the best "later" bets** (55-60% and ~40% reuse, no network, bounded
+5. **File manager and vault are the best "later" bets** (55-60% and ~40% reuse, no network, bounded
    protocols). Calendar/contacts come after mail is daily, and only with a decision about
    notifications when the app is closed.
-5. **Tasks and the LLM workbench are features**, not apps. Terminal and the archive are the ones to
+6. **Tasks and the LLM workbench are features**, not apps. Terminal and the archive are the ones to
    leave alone until something changes (a pure-Rust PDF renderer good enough for OCR, or a real
    need for a terminal pane in mdedit).
 

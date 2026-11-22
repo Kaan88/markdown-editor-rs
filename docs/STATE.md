@@ -65,7 +65,7 @@ the 74 tests of the record and the move run in the shared repo.
 - **mdview closed by hand** (D-097, DESIGN 54) is noticed: mdview sends `?closed`, mdedit checks
   on focus and on a link menu. Merged in both apps; not yet tried by the owner.
 - **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
-- **A terminal, drawn**: `mock/terminal`, `..\mdedit-term`, 20 shots; verdict in `docs/terminal.md`.
+- **A terminal, drawn**: `mock/terminal`, `..\mdedit-term`, 20 shots; verdict in `docs/ideas/terminal.md`.
 - **A downloader window, drawn**: `mock/downloader`, `..\mdedit-dl`, 11 states in
   `shots\mock-dl\`; lessons in its README, costing in the uncommitted `ecosystem-ideas.md` 6b-6d.
 - **A local-LLM workbench, drawn**: branch `mock/workbench`, worktree `..\mdedit-llm`, `--mock
@@ -83,7 +83,7 @@ the 74 tests of the record and the move run in the shared repo.
   section 8 is 16 phases, 49 to 50 days, about 11 done. Open: the resizer for phase V, a new
   crate to be priced. **No release for now** (the owner, 2026-11-22): 1.3.0 is not tagged.
 - **D-083 to D-089**, taken by Claude with the owner away, as asked; each says what overturns it.
-- **`docs/settings-redesign.md`**: both apps' Settings as a category list, one page each, nothing
+- **`docs/archive/settings-redesign.md`**: both apps' Settings as a category list, one page each, nothing
   scrolling. Designed and drawn (80 shots, `mock/settings`), 8.5 days: 5 shared, 2 mdedit, 1
   mdview, 0.5 platforms. Approved by the owner; the copy on `main` is the first round, the
   approved one is on `mock/settings`. The shared half and mdedit's are built and merged (above).
@@ -93,7 +93,7 @@ the 74 tests of the record and the move run in the shared repo.
 
 ## Next
 
-1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
+1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/ideas/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
 2. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
 

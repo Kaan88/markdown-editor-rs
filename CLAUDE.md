@@ -24,7 +24,8 @@ shared crates; `..\markdown-shared-rs`).
    - `docs/DESIGN.md`: how each part is built, one section per part. Read its first screen.
    - `docs/CI.md` and `docs/RELEASE.md`: the workflows, and how a release is cut.
    - `docs/ai-library-plan.md`: the plan the library and AI work is built from.
-   - `docs/ecosystem-ideas.md`: the apps that may join these three.
+   - `docs/ecosystem-ideas.md`: the apps that may join these three; the plans written for some of
+     them are in `docs/ideas/` (its `README.md` is the index).
 
 `docs/archive/` is history. Nothing in it is current. Do not start there, and do not act on it.
 

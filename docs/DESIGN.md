@@ -1384,7 +1384,7 @@ The function list already outlines Markdown headings (`mdedit-outline`, `Flavor:
 ## 47. Settings (2026-11-14)
 
 `Settings…` (Ctrl+,, main menu, SLIDERS glyph) opens the shared paged form
-`settings::pages::Form` (D-086; the design is `docs/settings-redesign.md` on `mock/settings`)
+`settings::pages::Form` (D-086; the design is `docs/archive/settings-redesign.md` on `mock/settings`)
 over rows from `mdedit_core::prefs::Prefs`. Nine pages, nothing scrolls: Appearance (Theme,
 Window backdrop on Windows, Window corners where offered; Font, Font size), Editor (Line numbers,
 Highlight the current line, Word wrap, Minimap, Minimap width as its child; Live preview),

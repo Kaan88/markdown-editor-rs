@@ -1,5 +1,8 @@
 # A terminal for this ecosystem
 
+> The owner asked on 2026-11-22 for a standard terminal first, blocks later. The plan built on
+> that is `docs/ideas/terminal-plan.md`; this document's verdict on the plain terminal is history.
+
 Written 2026-11-22, at the owner's request, to reopen `ecosystem-ideas.md` §12. That section's
 verdict was **Don't**. This document moves it to **possible**, says what changed, and says what
 would still have to be decided before any of it is built. Nothing here is a decision to build;
@@ -29,7 +32,7 @@ code to merge.
 | `menu-*` | A block's menu, on the failed block |
 | `save-*` | Save as a note: the library's places beside the note's preview |
 | `find-*` | Find over the grid, the count, and matches hidden inside a folded block |
-| `settings-shell-*`, `settings-appearance-*` | Settings in the category design of `settings-redesign.md` |
+| `settings-shell-*`, `settings-appearance-*` | Settings in the category design of `docs/archive/settings-redesign.md` |
 | `plain-*` | No shell marks: one stream, the offer to install them, every block action greyed |
 | `alt-*` | A full-screen program (htop) on the alternate screen: blocks paused, the status says so |
 | `ai-*`, `ai-placed-*` | Explain this block, and the AI's suggestion placed at the prompt, not run |
