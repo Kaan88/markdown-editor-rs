@@ -859,3 +859,17 @@ fetched. That wants a shared `Item::dropdown()` beside the old constructor.
 with its data reads as a different setting.
 **Overturned by.** The owner, on looking at the `settings-*` shots or using the branch.
 **From.** The agent that built it, recorded by Claude with the owner away.
+
+## D-088 · 2026-11-22 · S3 done: the split checker and the plan card are shared
+
+**Decision.** `mdshared_app::split` holds the checker; it reads the document through a small
+trait, `split::Lines`, which mdedit-core implements for its `Buffer`, so ropey stays out of the
+shared crates. A plan holds its document as an `Arc<dyn Lines>` rather than being generic over it.
+`mdshared_ui::plan` holds the card (with `plan::draw` and `plan::demo`); it takes a key's name and
+a menu-key flag instead of mdedit's `Key`. mdedit keeps the wiring, `headings_of` (it uses the
+function list) and `--plan-demo`. The moved card tests find headings with their own fence-aware
+scan. Shared `842ec3f`; all mdedit shots byte-identical but the clock.
+**Why.** The smallest seam: one trait of nine methods, no new dependency, call sites unchanged
+through re-exports.
+**Overturned by.** A second app using the card in a way the trait or the key mapping does not fit.
+**From.** The agent that moved it, recorded by Claude with the owner away.
