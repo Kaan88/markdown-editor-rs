@@ -627,6 +627,7 @@ impl App {
                         notes: items,
                         pictures: Vec::new(),
                         sections_added: vec![vec!["Part one".to_string()]],
+                        moved: None,
                     },
                     path: root.join(".runs").join(format!("{started}-split.json")),
                     library: root.clone(),
