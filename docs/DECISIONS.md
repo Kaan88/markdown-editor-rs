@@ -873,3 +873,18 @@ scan. Shared `842ec3f`; all mdedit shots byte-identical but the clock.
 through re-exports.
 **Overturned by.** A second app using the card in a way the trait or the key mapping does not fit.
 **From.** The agent that moved it, recorded by Claude with the owner away.
+
+## D-089 · 2026-11-22 · Split by AI: the contract is shared, parallel requests wait for phase W
+
+**Decision.** Phase 4b is built (DESIGN 76). The split contract (the outline sent, the system
+text, the prompt, the answer reader and checks 4 to 10 of 5.2) is `mdshared_app::split::answer`;
+the `mdedit-ai` engine learns nothing of splits. Split prompts are their own list (`kind: split`);
+the prompts template is unchanged. Titles are cut at 120 bytes. "At headings" recuts at the plan's
+own level. **D-080's per-connection setting for parallel requests is not built in 4b**: a split of
+one document makes one request, so nothing would use it; it is built with phase W, the first that
+sends several. "Show what is sent" (3.10) is not built. Known faults left: the instruction panel
+hides the plan instead of drawing over it, and a long header line is cut ("effort hi…").
+**Why.** One request per document is what 5.2 specifies; a setting with no user is dead weight.
+**Overturned by.** The owner, on looking at the `plan-split-ai*` shots or running it on a real
+provider (never done).
+**From.** The agent that built it, recorded by Claude with the owner away.

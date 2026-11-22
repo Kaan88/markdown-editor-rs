@@ -1,7 +1,7 @@
 # State of the work
 
 Rewritten, not appended to: when a line here stops being true, replace it. Last rewritten
-2026-11-22, late, with the owner asleep; Claude took D-083 to D-088 meanwhile. If `git log -1`
+2026-11-22, late, with the owner asleep; Claude took D-083 to D-089 meanwhile. If `git log -1`
 shows something newer, the lines under "In hand" are the first to doubt.
 
 ## Released
@@ -32,8 +32,10 @@ the 74 tests of the record and the move run in the shared repo.
   library submenu, refused with "Save {name} first" until the document is on disk and saved;
   `--plan-demo <name>` draws eight shots. Every refusal it can know is made before the first
   file (D2, D-069 to D-073), the group's file is made before the notes, and undo re-reads the
-  library and removes a note only if nothing lists it. Audit 3 is closed, C1 included. Not
-  built: the Recycle Bin, the progress row with Cancel, "Ask the AI…", per-source headings.
+  library and removes a note only if nothing lists it. Audit 3 is closed, C1 included. **Split
+  by AI** (phase 4b, D-089, DESIGN 76): "Ask the AI…" on the card, the contract in
+  `mdshared_app::split::answer`, 12 shots `plan-split-ai*`, never run on a real provider. Not
+  built: the Recycle Bin, the progress row with Cancel, per-source headings, parallel requests.
 - **"Move the notes…"** (`ai-library-plan.md` 5.12, phase 6b): the core is on `main` as
   `mdshared_app::moves` (50 tests; DESIGN 74), and the window on a group's row menu: the move
   card, the write through the library gate, the results, undo from "AI runs…", tabs following
@@ -77,7 +79,7 @@ the 74 tests of the record and the move run in the shared repo.
 - **`docs/ai-library-plan.md`**: answered on 2026-11-22 and rewritten to match (D-074 to D-082):
   section 8 is 16 phases, 49 to 50 days, about 11 done. Open: the resizer for phase V, a new
   crate to be priced. **No release for now** (the owner, 2026-11-22): 1.3.0 is not tagged.
-- **D-083 to D-088**, taken by Claude with the owner away, as asked; each says what overturns it.
+- **D-083 to D-089**, taken by Claude with the owner away, as asked; each says what overturns it.
   D-087 lists what to look at in the settings branch.
 - **`docs/settings-redesign.md`**: both apps' Settings as a category list, one page each, nothing
   scrolling. Designed and drawn (80 shots, `mock/settings`), 8.5 days: 5 shared, 2 mdedit, 1
@@ -94,7 +96,7 @@ the 74 tests of the record and the move run in the shared repo.
 2. "Move the notes…": the owner looks at its three shots; then the pictures question.
 3. The settings redesign: the owner looks at the `settings-*` shots of the mdedit branch; merge;
    then mdview's half.
-4. Then section 8's order: 4b, T, R2, W, V, 4a, 4, 5, drag and drop. No release.
+4. Then section 8's order: T, R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`
 
@@ -139,7 +141,7 @@ lines on typing only; no compare arrows with wrap on; the Markdown menu needs mo
 
 ## Pins, branches, worktrees
 
-- Shared crates at `ecfcdf9` (the settings draft above sits uncommitted in the shared checkout,
+- Shared crates at `9d61d76` (the settings draft above sits uncommitted in the shared checkout,
   at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview still pins `cb0ffd3`.
 - Merged into `main`: every `f/…` and `release/1.2.0`. Drawings that must not merge:
   `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` is merged; its copy on
