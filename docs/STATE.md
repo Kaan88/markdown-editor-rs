@@ -53,11 +53,11 @@ the 74 tests of the record and the move run in the shared repo.
   1, 1.5, 2; 52 specimen pictures (`cargo test -p mdshared-ui specimen -- --ignored`) looked at
   by Claude, **not yet by the owner**. The dead draft still sits uncommitted in the shared
   repo's own checkout; it is superseded and can be dropped.
-- **mdedit's Settings on the paged form** (D-087): branch `f/settings-pages-mdedit`, not pushed,
+- **mdedit's Settings on the paged form** (D-087): branch `f/settings-pages-mdedit` (pushed),
   **not merged**, waiting for the owner. Nine pages; fit test at both sizes and three scales;
   32 shots `settings-*` in both themes, looked at by Claude; every other shot byte-identical;
-  first frame, memory and keystroke unchanged, exe +18 KB. Left before merge: Model and Effort
-  as dropdowns whatever their option count (a shared `Item::dropdown()`). Then mdview's half.
+  first frame, memory and keystroke unchanged, exe +18 KB. Model and Effort are dropdowns in
+  every state (shared `Item::dropdown()`, `8395f91`, pinned on the branch). Then mdview's half.
 - **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
 - **A terminal, drawn**: `mock/terminal`, `..\mdedit-term`, 20 shots; verdict in `docs/terminal.md`.
 - **A downloader window, drawn**: `mock/downloader`, `..\mdedit-dl`, 11 states in
@@ -93,8 +93,8 @@ the 74 tests of the record and the move run in the shared repo.
 2. The rest of S3: the split checker and the plan card into the shared crates, mdedit's shots
    unchanged. Work in a worktree of the shared repo, never in its own checkout.
 3. "Move the notes…": the owner looks at its three shots; then the pictures question.
-4. The settings redesign: the owner looks at the `settings-*` shots of the mdedit branch; the
-   shared dropdown; merge; then mdview's half.
+4. The settings redesign: the owner looks at the `settings-*` shots of the mdedit branch; merge;
+   then mdview's half.
 5. Then section 8's order: S, 4b, T, R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`
