@@ -37,15 +37,15 @@ the 74 tests of the record and the move run in the shared repo.
   library and removes a note only if nothing lists it. Audit 3 is closed, C1 included. Not
   built: the Recycle Bin, the progress row with Cancel, "Ask the AI…", per-source headings.
 - **"Move the notes…"** (`ai-library-plan.md` 5.12, phase 6b): the core is on `main` as
-  `mdshared_app::moves` (50 tests; `docs/DESIGN.md` 74), with no window yet. Reviewed line by
-  line on 2026-11-22 and fixed (D-084): a library file not in UTF-8 refuses the move; undo
-  refuses before the first file goes back; a note from outside stays where the move put it; a
-  library move carries the newest 400 records; a rolled-back run keeps in its record the folders
-  it could not remove. **Left from the review:** a moved note's pictures and its own relative
-  links are not carried (5.12 wants group folders moved whole; wants a design line); a crash
-  between the library rewrites and the digest update gives a half-undo; emptied folders in a
-  home outside the library stay; the atomic no-replace rename is the window side's to supply.
-  **Not begun:** the window side (`plan_ui`, `plan_write`, the group row's menu).
+  `mdshared_app::moves` (50 tests; DESIGN 74), and the window on a group's row menu: the move
+  card, the write through the library gate, the results, undo from "AI runs…", tabs following
+  their file (DESIGN 75, D-085; 12 tests; shots `move-notes`, `move-notes-small`,
+  `move-results`, both themes, looked at by Claude, **not yet by the owner**). Never clicked
+  through in a live window; a move across volumes never run. The library move from Settings is
+  not offered. Review fixes in D-084. **Left from the review:** a moved note's pictures and its
+  own relative links are not carried (5.12 wants group folders moved whole; wants a design
+  line); a crash between the library rewrites and the digest update gives a half-undo; emptied
+  folders in a home outside the library stay.
 - **Phase S3** (D-081), half done: `runs` and `moves` moved to `mdshared-app` at shared `9545607`
   and re-exported by `mdedit-core` under their old names; all 232 mdedit shots byte-identical
   but for the clock and the checkout's path. Left: the split checker and the plan card.
@@ -94,7 +94,7 @@ the 74 tests of the record and the move run in the shared repo.
 2. The rest of S3: the split checker and the plan card into the shared crates, mdedit's shots
    unchanged. The shared checkout holds the settings draft uncommitted on its `main`: work in a
    worktree of it (`..\md-wt\shared-runs` is one), never on top of that draft.
-3. "Move the notes…": the pictures question, then the window side.
+3. "Move the notes…": the owner looks at its three shots; then the pictures question.
 4. The settings redesign's shared half, restarted on `pages`.
 5. Then section 8's order: S, 4b, T, R2, W, V, 4a, 4, 5, drag and drop. No release.
 
