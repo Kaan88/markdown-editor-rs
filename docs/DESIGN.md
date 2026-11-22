@@ -2397,6 +2397,11 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
 The shared pin moved to `fb7777c`: `mdshared_app::library::Library` gained `omitted` and reads
 512 files rather than 64, and `mdshared_app::paths::same_path` compares paths part by part. What
 the window does with them is `bins/mdedit/src/app/library.rs`, `library_pane.rs` and `docs.rs`.
+The rows the pane lists (`Row`, `Kind`, `rows()`, the fold keys `key_of`) and what it asks of a
+path (`same_note`, `listing`, `lists`, `link_path`, `without_notes`, `folder_of`, `home_of`,
+`empty_state`, `omitted_label`) are `mdshared_app::library::tree` since phase S (shared
+`ecfcdf9`), so mdview's Notes face can list the same tree; `library_pane.rs` re-exports them and
+keeps the drawing, the cursor, folding and the name box.
 
 - **The re-read runs on a job, never in the event loop.** `library_tick` still does the cheap
   look (`Library::changed`: the folder's names and their stamps, 2.25 ms on the big library) and
@@ -2424,8 +2429,8 @@ the window does with them is `bins/mdedit/src/app/library.rs`, `library_pane.rs`
   separating line, "512 of 583 groups shown": `omitted_label(shown, read, omitted)`. The shown
   count is the groups drawn, the total is the groups the reader kept plus those it left out. The
   count and the kept groups are in the Files region's signature.
-- Tests: `library_pane::tests` (the omitted count is copied by `without_notes`, and the label's
-  two numbers) and `app::library_pane_tests` (the text arrives from the thread with the old rows
+- Tests: `mdshared_app::library::tree::tests` (the omitted count is copied by `without_notes`,
+  and the label's two numbers) and `app::library_pane_tests` (the text arrives from the thread with the old rows
   still on screen, a stale result is dropped and `checked` cleared, the cursor follows its note,
   closing the pane and switching the face drop a running read, the slim copy holds no notes, and
   the omitted count repaints the pane).

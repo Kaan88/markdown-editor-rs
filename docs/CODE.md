@@ -77,7 +77,7 @@ that drive the whole app headless.
 
 | Crate | What |
 |---|---|
-| `mdshared-app` | Plumbing with no window: paths, the settings file, recent files, single instance and the folder lock, file watching, fuzzy matching, crash reports, the updater, the hand-off protocol, the notes scan, the notes library (`library.rs`), folder search |
+| `mdshared-app` | Plumbing with no window: paths, the settings file, recent files, single instance and the folder lock, file watching, fuzzy matching, crash reports, the updater, the hand-off protocol, the notes scan, the notes library (`library.rs`) and the rows its pane lists (`library/tree.rs`), folder search |
 | `mdshared-ui` | Everything drawn that both apps have: the `Painter` and palettes, menus, the command palette, the settings form, the single-line text field, the folder tree, pane heads and rows, scrollbars, dialog cards and buttons, tooltips and toasts, notice bars, the window shadow, corners, frost, snap, and the platform code |
 | `mdshared-text` | Fonts, the text engine, glyph bitmaps |
 | `mdshared-highlight` | The syntect set-up, the incremental line highlighter, Vue and Svelte |
