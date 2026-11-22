@@ -36,8 +36,7 @@ in the core, the workspace green.
   file (D2, D-069 to D-073), the group's file is made before the notes, and undo re-reads the
   library and removes a note only if nothing lists it. Audit 3 is closed, C1 included. Not
   built: the Recycle Bin, the progress row with Cancel, "Ask the AI…", per-source headings.
-- **Mockups** of three AI screens (plan, rewrite review, task window): branch `mock/ai-review`,
-  worktree `..\mdedit-mock`, `--mock`, shots in `shots\mock\`. A drawing; not to be merged.
+- **Mockups** of three AI screens: branch `mock/ai-review`, worktree `..\mdedit-mock`, `shots\mock\`.
 - **Two agents died mid-work on 2026-11-22** and left uncommitted drafts:
   - **"Move the notes…"** (`ai-library-plan.md` 5.12): branch `f/move-notes`, worktree
     `..\md-wt\move-notes`, still uncommitted on `0c41787` (behind `main`). **Run on 2026-11-22: it
@@ -55,8 +54,7 @@ in the core, the workspace green.
     `settings.rs`. **Uncommitted in the shared repo's own checkout, on `main` at `b4b2182`.**
     The categorised form was not written: no page host, no row kinds, no page-fit test;
     `unchanged.rs` links `super::pages`, which does not exist.
-- **Dependabot**: the triage is done (two merged, three closed, limit 10). Left: the parley PRs in
-  the shared repo and mdview, and `regex-automata` #9, green and not measured.
+- **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
 - **A terminal, drawn**: branch `mock/terminal`, worktree `..\mdedit-term`, 20 shots in
   `shots\mock-term\`. What it established, and the verdict (possible, as a third app, blocks
   only), are in `docs/terminal.md`.
