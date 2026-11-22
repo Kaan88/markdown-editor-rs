@@ -114,11 +114,10 @@ faults that could lose a note or break a library that moves; these are still tru
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
 
-- **A development build writes crash reports into the owner's folder.** `app::crash_dir` is
-  `%LOCALAPPDATA%\mdedit\crashes` whatever `MDEDIT_SETTINGS` says, against rule 9; three reports
-  from a mockup build of 2026-11-22 sit there now.
-- **mdedit dies when stderr is a closed pipe**: `eprintln!` panics ("failed printing to stderr",
-  os error 232) and the release build aborts. Seen when a shell closed the pipe of a `--trace` run.
+- **The shared updater can still abort mdedit on a closed stderr**: `mdshared_app::updater`
+  prints with `std`'s `eprintln!` when a check or an install fails. mdedit's own prints no longer
+  can (its `eprintln!` ignores a gone stderr, `tests/closed_stderr.rs`); the shared lines want a
+  change there under rule 8.
 
 ## Known gaps, not planned unless they get in the way
 

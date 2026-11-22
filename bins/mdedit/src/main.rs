@@ -2,6 +2,16 @@
 //! crate or by mdshared-ui. Phase 1 is read-only.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+/// `eprintln!` for this crate, shadowing `std`'s in every module below: a stderr that is gone (a
+/// closed pipe) is ignored instead of being a panic, which the release build (`panic = "abort"`)
+/// would turn into the end of the program. `tests/closed_stderr.rs` holds it.
+macro_rules! eprintln {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
+
 mod ai;
 mod ai_ui;
 mod app;
@@ -44,7 +54,7 @@ mod view;
 
 fn main() {
     // First: a crash from here on leaves a report for the next start.
-    if let Some(dir) = app::crash_dir() {
+    if let Some(dir) = app::crash_dir_of_this_launch() {
         mdshared_app::crash::install("mdedit", env!("CARGO_PKG_VERSION"), dir);
     }
     std::process::exit(app::run());

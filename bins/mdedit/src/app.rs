@@ -69,7 +69,7 @@ mod crash;
 mod undo_button_tests;
 #[cfg(test)]
 mod undo_rules_tests;
-pub use crash::crash_dir;
+pub use crash::crash_dir_of_this_launch;
 #[cfg(test)]
 mod files_tests;
 #[cfg(test)]

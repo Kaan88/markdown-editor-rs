@@ -4,9 +4,36 @@
 use super::*;
 use mdshared_app::crash;
 
-/// The folder of mdedit's crash reports, under its data folder.
-pub fn crash_dir() -> Option<PathBuf> {
-    mdshared_app::settings::data_dir("mdedit").map(|d| d.join("crashes"))
+/// The folder of this launch's crash reports: [`crash_dir`] for the environment and the
+/// arguments mdedit was started with.
+pub fn crash_dir_of_this_launch() -> Option<PathBuf> {
+    let flag = |f: &str| std::env::args().skip(1).any(|a| a == f);
+    crash_dir(
+        std::env::var_os("MDEDIT_SETTINGS").map(PathBuf::from),
+        flag("--no-session") || flag("--shot"),
+        mdshared_app::settings::data_dir("mdedit"),
+    )
+}
+
+/// Where crash reports go. Beside the settings file `MDEDIT_SETTINGS` names, when it names one:
+/// a development build then writes into its own scratch folder. Otherwise in `crashes` under
+/// the data folder, except for a `--no-session` window or a shot, which keep none: they must
+/// read and write nothing of the owner's (CLAUDE.md rule 9), and a report from the owner's own
+/// folder would be offered to them as theirs.
+pub fn crash_dir(
+    settings_named: Option<PathBuf>,
+    no_session: bool,
+    data_dir: Option<PathBuf>,
+) -> Option<PathBuf> {
+    match settings_named {
+        Some(file) => Some(
+            file.parent()
+                .map_or_else(PathBuf::new, Path::to_path_buf)
+                .join("crashes"),
+        ),
+        None if no_session => None,
+        None => data_dir.map(|d| d.join("crashes")),
+    }
 }
 
 /// What a report says mdedit was doing, as a key that changes only when the text would: the
@@ -40,7 +67,7 @@ impl App {
 
     /// Once settled: the report of a crash last time, if there is one, gets its bar.
     pub(super) fn look_for_crash(&mut self) {
-        let found = crash_dir().and_then(|d| crash::pending(&d));
+        let found = crash_dir_of_this_launch().and_then(|d| crash::pending(&d));
         if found != self.docs.crash {
             self.docs.crash = found;
             self.relayout_areas();
@@ -95,6 +122,32 @@ fn context_text(k: &CrashKey) -> String {
 mod tests {
     use super::super::files_tests::{app, open_now, scratch};
     use super::*;
+
+    #[test]
+    fn crash_reports_go_beside_a_named_settings_file_and_never_to_the_owner_from_a_test_run() {
+        let data = Some(PathBuf::from("data").join("mdedit"));
+        let named = PathBuf::from("scratch").join("settings.ini");
+        // A settings file named: its folder, with or without a session, never the data folder.
+        for no_session in [true, false] {
+            assert_eq!(
+                crash_dir(Some(named.clone()), no_session, data.clone()),
+                Some(PathBuf::from("scratch").join("crashes"))
+            );
+        }
+        // A bare file name: beside it, in the folder it was started in.
+        assert_eq!(
+            crash_dir(Some(PathBuf::from("settings.ini")), true, data.clone()),
+            Some(PathBuf::from("crashes"))
+        );
+        // `--no-session` or a shot without one: no reports at all.
+        assert_eq!(crash_dir(None, true, data.clone()), None);
+        // The owner's own launch: the data folder, as before.
+        assert_eq!(
+            crash_dir(None, false, data),
+            Some(PathBuf::from("data").join("mdedit").join("crashes"))
+        );
+        assert_eq!(crash_dir(None, false, None), None);
+    }
 
     #[test]
     fn the_context_names_kinds_and_sizes_only() {
