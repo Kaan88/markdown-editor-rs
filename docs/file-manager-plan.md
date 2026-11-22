@@ -371,7 +371,7 @@ README there says what each is for. Regenerate with `shots/mock-fm/make.ps1`.
 - Defaults of section 3, in particular: extensions shown, hidden files hidden, folders first in
   natural order, sizes in KB = 1024, folder sizes on request, ISO dates, Recycle Bin with Undo,
   **view remembered only on request**.
-- The context menu is ours; Windows' own is behind More options (option B).
+- The context menu is ours; Windows' own is behind More options (option B). **Approved by the owner, 2026-11-22.**
 - `mdshared-fileops` is a new shared crate; the table, the grid and the crumbs go in
   `mdshared-ui`; menu cascades are a variant beside the old menu.
 - The window never runs elevated; an elevated job runner is the only elevation.
@@ -382,7 +382,7 @@ README there says what each is for. Regenerate with `shots/mock-fm/make.ps1`.
 1. **Name.** "mdfiles" is a working name. Something shorter that fits the other three?
 2. **Where does it live?** A new repository like mdview and mdedit (recommended), or a new binary
    in this one?
-3. **The shell context menu: B or C?** B (ours first, Windows' behind More options, 2 days) is
+3. **ANSWERED 2026-11-22: B.** (The shell context menu: B or C?) B (ours first, Windows' behind More options, 2 days) is
    recommended. C (one merged menu, +5 days, a slower right-click) only if you want one menu.
 4. **May the app depend on the `windows` crate directly** for COM (drag and drop, shell menu,
    thumbnails)? It is already in `Cargo.lock` through `trash`, so it adds no new entry; what it
