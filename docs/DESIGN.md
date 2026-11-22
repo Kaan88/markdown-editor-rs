@@ -2787,7 +2787,10 @@ preview tests, `prefs` and `chrome` tests, and `html_md`'s 14 in the shared repo
   click does, so the three agree: in the mdview mode it is lit while the document is previewed in
   mdview at all, side by side or not, since `App::preview` stops either; in the side-by-side mode
   while the windows are arranged so (a click gives the arrangement up), and unlit while the
-  document is only previewed (a click arranges the windows). The button and the arrow show for
+  document is only previewed (a click arranges the windows). "Arranged" is what the click finds
+  (`App::side_by_side`: this window still where the arrangement put it): `compose` makes
+  `links.side_by_side` agree with it (`sync_side_by_side`) beside the bar's other state, before
+  the frame is laid out, so a window the user moved shows the button unlit. The button and the arrow show for
   what `chrome::previewable` offers the preview for, as the tab menu does: a Markdown file, a
   document with no file, or one previewed in mdview now. A file of another language shows the
   button only while the pane is open, and then `chrome::button_mode` is the pane whatever the

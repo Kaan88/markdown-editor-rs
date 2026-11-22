@@ -451,6 +451,42 @@ fn the_preview_button_shows_what_a_click_does_in_every_mode() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// Side by side, the button is lit only while the windows are still arranged as a click finds
+/// them (`App::side_by_side`): a window moved since, or never placed, is not, and the next frame
+/// shows the button, its tooltip and the menus' mark off before anything is clicked.
+#[test]
+fn the_side_by_side_button_is_lit_only_while_a_click_would_give_the_arrangement_up() {
+    use crate::chrome::{preview_button, tooltip};
+    let (mut a, dir) = md_doc(
+        "button-tiling",
+        "# T
+",
+    );
+    let id = a.docs.active_doc().unwrap().id;
+    let path = a.docs.active_doc().unwrap().path.clone().unwrap();
+    a.docs.prefs.preview_mode = PreviewMode::SideBySide;
+    a.docs.viewer = true;
+    let target = crate::link::Target::File(path);
+    a.docs.links.link(id, target, Some(1), None, Instant::now());
+    // Marked side by side, but this window is not where an arrangement put it (here: it has
+    // none, as after the user moved it): a click would arrange the windows, not stop.
+    a.docs.links.side_by_side = true;
+    a.compose();
+    assert_eq!(preview_button(&a.docs), Some(false));
+    let tip = tooltip(Hit::Bar(BarItem::Preview), &a.docs, false).unwrap();
+    assert_eq!(tip, "Preview side by side");
+    let m = crate::overlays::preview_menu(&a.docs, 0.0, 0.0, false);
+    let side = m
+        .items
+        .iter()
+        .find(|it| it.id == Act::Cmd(C::PreviewSideBySide));
+    assert!(!side.unwrap().checked);
+    // As a click finds it; and the preview itself goes on.
+    assert!(!a.side_by_side());
+    assert!(a.docs.links.contains(id));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// A file that is not Markdown is not offered the preview in mdview: with the pane open (from a
 /// Markdown tab) the button only closes the pane, and the arrow lists the pane alone, as the
 /// tab menu lists nothing. Previewed in mdview already, it can be stopped.

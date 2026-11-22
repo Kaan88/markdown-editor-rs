@@ -1242,6 +1242,7 @@ impl App {
         let (w, h) = self.logical();
         self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
+        self.sync_side_by_side();
         self.relayout_areas();
         // Lay the text out first: it clamps the scroll and says which lines want colours.
         let text = self.areas.text;
@@ -3068,6 +3069,7 @@ impl App {
     fn compose_layout_only(&mut self) {
         self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
+        self.sync_side_by_side();
         self.sync_theme();
         self.compare_sync();
         self.docs.sync_wrap();

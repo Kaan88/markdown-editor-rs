@@ -188,6 +188,16 @@ impl App {
         right
     }
 
+    /// The bar's Preview button and the menus' check mark read `links.side_by_side`: it is made
+    /// to agree with what a click finds ([`side_by_side`](Self::side_by_side)) here, with the
+    /// bar's state before the frame is laid out, not while it is drawn. Nothing is asked while
+    /// no arrangement is marked.
+    pub(super) fn sync_side_by_side(&mut self) {
+        if self.docs.links.side_by_side {
+            self.side_by_side();
+        }
+    }
+
     /// Whether this window is where "Preview side by side" put it. A window the user has moved
     /// since is no longer part of an arrangement.
     pub(super) fn side_by_side(&mut self) -> bool {

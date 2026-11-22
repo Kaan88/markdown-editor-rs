@@ -52,8 +52,8 @@ edit (the AI menu) while the AI is on.
   copied from a web page or a document puts its headings, bold, italic, links, lists, quotes
   and code in a Markdown file (or a new document whose language was not chosen) as Markdown; a
   table's rows come out as lines with `|` between the cells, not as a Markdown table; text with
-  nothing to mark is pasted as it is. Windows reads the clipboard's HTML Format; Linux and macOS the HTML that
-  the system clipboard offers (not yet tried there).
+  nothing to mark is pasted as it is. Windows reads the clipboard's HTML Format; Linux and
+  macOS the HTML that the system clipboard offers (not yet tried there).
 - **Finding:** find and replace with match case, whole word and regular expressions (Ctrl+F,
   Ctrl+H), replace in the selection, find in files and open tabs (Ctrl+Shift+F, F4), and replace in
   files with a confirmation, backups and an undo. The results panel takes the keyboard (F6, or
