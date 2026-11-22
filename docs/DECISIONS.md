@@ -955,3 +955,15 @@ The owner looked at the 20 shots and said to merge. This finishes the settings r
 **Why.** The design approved for both apps; rule 6.
 **Overturned by.** The owner, on using it.
 **From.** The owner, 2026-11-22; built by an agent, recorded by Claude.
+
+## D-095 · 2026-11-22 · The Recycle Bin approved; issues #7 and #8 built on a branch for a look
+
+**Decision.** The owner looked at the Recycle Bin's 24 shots (D-092) and said "all done". Before
+phase R2, every part of GitHub issues #7 and #8 (from TheGed) is built on one branch,
+`f/issues-7-8`, and merged only once the owner approves it: the Preview button's dropdown with a
+default mode (#7); "New file" on the empty screen; plain-text paste on Ctrl+Shift+V, with
+"Preview in mdview" moved to another shortcut; New, Save and AI Edit buttons on the command bar;
+and "Paste rich text as Markdown", off by default, with no new dependency.
+**Why.** The owner chose all four; CLAUDE.md lets a feature in only when the owner asks.
+**Overturned by.** The owner, on looking at the branch.
+**From.** The owner, 2026-11-22.

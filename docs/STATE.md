@@ -1,7 +1,7 @@
 # State of the work
 
 Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089, D-092 and D-093 are
-Claude's; D-090, D-091 and D-094 the owner's). If `git log -1` is newer, doubt "In hand" first.
+Claude's; D-090, D-091, D-094 and D-095 the owner's). If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -35,7 +35,7 @@ the 74 tests of the record and the move run in the shared repo.
   by AI** (phase 4b, D-089, DESIGN 76): "Ask the AI…" on the card, the contract in
   `mdshared_app::split::answer`, 12 shots `plan-split-ai*` (approved, D-090), never run on a real provider. Not
   built: the progress row with Cancel, per-source headings, parallel requests. **The original in
-  the Recycle Bin** (phase T, D-092, DESIGN 77): 18 shots, not yet looked at by the owner.
+  the Recycle Bin** (phase T, D-092, DESIGN 77): approved by the owner (D-095).
 - **"Move the notes…"** (`ai-library-plan.md` 5.12, phase 6b): the core is on `main` as
   `mdshared_app::moves` (50 tests; DESIGN 74), and the window on a group's row menu: the move
   card, the write through the library gate, the results, undo from "AI runs…", tabs following
@@ -89,7 +89,8 @@ the 74 tests of the record and the move run in the shared repo.
 
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
-2. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
+2. Issues #7 and #8, on `f/issues-7-8` for the owner's look (D-095).
+3. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`
 
