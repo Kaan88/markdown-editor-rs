@@ -979,6 +979,8 @@ impl App {
             Some(Hit::Tab(i) | Hit::TabClose(i)) => {
                 // "Show in the notes library" is greyed unless the library lists the file.
                 self.library_load();
+                // "Preview in mdview" is checked while previewing: is the viewer still there?
+                self.docs.links.check(Instant::now());
                 self.ui.popup = Some(Popup::with_cues(
                     PopupKind::Tab(i),
                     overlays::tab_menu(&self.docs, i, x, y + 2.0),

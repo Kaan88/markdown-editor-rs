@@ -56,6 +56,10 @@ const RETRY: Duration = Duration::from_millis(250);
 pub const COLUMN_STEP: u32 = 32;
 /// How long the exit waits for the courier to tell the viewer the links are over.
 const FINISH_WAIT: Duration = Duration::from_millis(300);
+/// After a check finds the viewer running, how long until it is asked once more: a viewer whose
+/// window was just closed still answers while its process ends, and closing it is what handed
+/// this window the focus that asked.
+const RECHECK: Duration = Duration::from_secs(1);
 
 /// A document's text as it is: the load it came from and the edits since.
 pub type Version = (u64, u64);
@@ -216,6 +220,8 @@ pub struct Links {
     courier: Option<Courier>,
     /// The windows were put side by side and have not been sent back: the menu's check mark.
     pub side_by_side: bool,
+    /// A link ended since the last [`take_ended`](Self::take_ended), however it ended.
+    ended: bool,
 }
 
 impl Links {
@@ -290,7 +296,9 @@ impl Links {
     pub fn take_older(&mut self) -> bool {
         let older = self.courier.as_ref().is_some_and(Courier::take_older);
         if older {
+            let before = self.linked.len();
             self.linked.retain(|l| !l.target.is_untitled());
+            self.ended |= self.linked.len() != before;
             if self.linked.is_empty() {
                 self.courier = None;
             }
@@ -303,9 +311,11 @@ impl Links {
         self.courier.get_or_insert_with(|| {
             Courier::spawn(
                 |request| sister::deliver(VIEWER, request),
+                || sister::alive(VIEWER),
                 Timing {
                     retry: RETRY,
                     text_retry: TEXT_RETRY,
+                    recheck: RECHECK,
                 },
                 move || waker(Wake::Link),
             )
@@ -316,6 +326,32 @@ impl Links {
         self.keep(|l| l.id != id);
     }
 
+    /// The viewer closed its tab of the file `path`, or of the document without a file it knows
+    /// as `doc`: that link is over. (It is told to go back to the file if it was sent text, which
+    /// for a tab it no longer has does nothing.)
+    pub fn closed(&mut self, path: &Path, doc: Option<&str>) {
+        self.keep(|l| match &l.target {
+            Target::File(file) => path.as_os_str().is_empty() || file != path,
+            Target::Untitled { doc: name, .. } => doc != Some(name.as_str()),
+        });
+    }
+
+    /// Asks the courier whether the viewer still runs, for a viewer closed while nothing was
+    /// sent to it: when it does not, the links end as for a send nobody answers. Called at moments
+    /// the user acts (the window gains focus, a menu opens), never on a timer; nothing is asked
+    /// while nothing is linked, or while a viewer started for a link may still be starting.
+    /// Whether it was asked.
+    pub fn check(&self, now: Instant) -> bool {
+        let Some(courier) = &self.courier else {
+            return false;
+        };
+        if self.linked.iter().any(|l| now < l.retry_until) {
+            return false;
+        }
+        courier.check();
+        true
+    }
+
     /// Ends the links `keep` says no to, telling the viewer to go back to their files.
     fn keep(&mut self, mut keep: impl FnMut(&Linked) -> bool) {
         let courier = &self.courier;
@@ -324,11 +360,21 @@ impl Links {
             if let Some(c) = courier.as_ref().filter(|_| !kept) {
                 c.off(&l.target);
             }
+            if !kept {
+                self.ended = true;
+            }
             kept
         });
         if self.linked.is_empty() {
             self.courier = None;
         }
+    }
+
+    /// Whether a link ended since the last call, in any way (stopped, its tab closed, the
+    /// viewer's tab of it closed, the viewer gone): what shows the links, an open menu's check
+    /// mark, is to be listed again.
+    pub fn take_ended(&mut self) -> bool {
+        std::mem::take(&mut self.ended)
     }
 
     /// The editor exits: ends every link, and gives the courier a moment to tell the viewer.
@@ -346,6 +392,7 @@ impl Links {
     pub fn take_gone(&mut self) -> bool {
         let gone = self.courier.as_ref().is_some_and(Courier::is_gone);
         if gone {
+            self.ended |= !self.linked.is_empty();
             self.linked.clear();
             self.courier = None;
         }
@@ -473,6 +520,8 @@ struct Timing {
     retry: Duration,
     /// How long text is left out after a send with text was not answered.
     text_retry: Duration,
+    /// After a check found the viewer running, until it is asked once more.
+    recheck: Duration,
 }
 
 /// The thread that sends to the viewer, and the one slot it takes from.
@@ -496,17 +545,20 @@ struct State {
     offs: Vec<Target>,
     /// Documents without a file that were saved, and the file each is now.
     saved: Vec<(Target, PathBuf)>,
+    /// Whether the viewer still runs is to be asked ([`Courier::check`]).
+    check: bool,
     closed: bool,
     /// The thread has done all it was asked and returned.
     ended: bool,
 }
 
 impl Courier {
-    /// `send` hands a request to the viewer's window and says how it was received; `ended` is
-    /// called once when the viewer is found gone, and each time it turns out to be too old for a
-    /// document without a file.
+    /// `send` hands a request to the viewer's window and says how it was received; `alive` says
+    /// whether a viewer window runs, sending it nothing; `ended` is called once when the viewer
+    /// is found gone, and each time it turns out to be too old for a document without a file.
     fn spawn(
         send: impl Fn(&Request) -> Delivery + Send + 'static,
+        alive: impl Fn() -> bool + Send + 'static,
         timing: Timing,
         ended: impl Fn() + Send + 'static,
     ) -> Courier {
@@ -515,7 +567,7 @@ impl Courier {
         let older = Arc::new(AtomicBool::new(false));
         let (s, g, o) = (slot.clone(), gone.clone(), older.clone());
         std::thread::spawn(move || {
-            run(&s, (&g, &o), send, timing, ended);
+            run(&s, (&g, &o), (send, alive), timing, ended);
             s.state.lock().unwrap().ended = true;
             s.wake.notify_all();
         });
@@ -549,6 +601,13 @@ impl Courier {
             state.next = None;
         }
         state.saved.push((was, path));
+        self.slot.wake.notify_all();
+    }
+
+    /// Asks the thread to find out whether the viewer still runs, once it has sent what waits.
+    /// Of several asks that wait, one is made.
+    fn check(&self) {
+        self.slot.state.lock().unwrap().check = true;
         self.slot.wake.notify_all();
     }
 
@@ -589,12 +648,15 @@ enum Job {
     Off(Target),
     Saved(Target, PathBuf),
     Update(Update),
+    /// Whether the viewer still runs; when it does and this is true, it is asked once more
+    /// after [`Timing::recheck`].
+    Check(bool),
 }
 
 fn run(
     slot: &Slot,
     (gone, older): (&AtomicBool, &AtomicBool),
-    send: impl Fn(&Request) -> Delivery,
+    (send, alive): (impl Fn(&Request) -> Delivery, impl Fn() -> bool),
     timing: Timing,
     ended: impl Fn(),
 ) {
@@ -602,6 +664,8 @@ fn run(
     let mut live: Vec<(Target, Version)> = Vec::new();
     // Until when text is left out: the viewer did not take the last.
     let mut text_after: Option<Instant> = None;
+    // When a check that found the viewer running is made once more: one only, then nothing.
+    let mut recheck: Option<Instant> = None;
     loop {
         let job = {
             let mut state = slot.state.lock().unwrap();
@@ -615,10 +679,24 @@ fn run(
                 if let Some(update) = state.next.take() {
                     break Job::Update(update);
                 }
+                if std::mem::take(&mut state.check) && !state.closed {
+                    break Job::Check(true);
+                }
                 if state.closed {
                     return;
                 }
-                state = slot.wake.wait(state).unwrap();
+                state = match recheck {
+                    Some(at) => match at.checked_duration_since(Instant::now()) {
+                        Some(left) if !left.is_zero() => {
+                            slot.wake.wait_timeout(state, left).unwrap().0
+                        }
+                        _ => {
+                            recheck = None;
+                            break Job::Check(false);
+                        }
+                    },
+                    None => slot.wake.wait(state).unwrap(),
+                };
             }
         };
         let update = match job {
@@ -638,6 +716,21 @@ fn run(
                 continue;
             }
             Job::Update(update) => update,
+            Job::Check(again) => {
+                // A viewer that was closed while nothing was sent to it: nobody answers the
+                // bare connection, and the links are over as for an update nobody answered.
+                // One that answers may be a window closed a moment ago whose process has not
+                // ended yet: it is asked once more, a little later.
+                if alive() {
+                    if again {
+                        recheck = Some(Instant::now() + timing.recheck);
+                    }
+                    continue;
+                }
+                gone.store(true, Ordering::Release);
+                ended();
+                return;
+            }
         };
         match deliver(&update, &mut live, &mut text_after, &send, timing) {
             Delivery::Taken => continue,
@@ -925,6 +1018,7 @@ mod tests {
     const FAST: Timing = Timing {
         retry: Duration::from_millis(1),
         text_retry: Duration::from_secs(60),
+        recheck: Duration::from_millis(50),
     };
 
     /// What a test courier reports: each request that was sent and whether it was answered.
@@ -949,6 +1043,7 @@ mod tests {
                     false => Delivery::Nobody,
                 }
             },
+            || true,
             timing,
             move || _ = ended_tx.send(()),
         );
@@ -1058,6 +1153,7 @@ mod tests {
                 }
                 Delivery::Taken
             },
+            || true,
             FAST,
             || {},
         );
@@ -1137,6 +1233,85 @@ mod tests {
     }
 
     #[test]
+    fn a_viewer_closed_while_nothing_was_sent_ends_the_links_when_checked() {
+        let alive = Arc::new(AtomicBool::new(true));
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ended_tx, ended) = channel();
+        let (a, n) = (alive.clone(), asked.clone());
+        let c = Courier::spawn(
+            |_| Delivery::Taken,
+            move || {
+                n.fetch_add(1, Ordering::AcqRel);
+                a.load(Ordering::Acquire)
+            },
+            FAST,
+            move || _ = ended_tx.send(()),
+        );
+        let base = Instant::now();
+        let mut links = Links::default();
+        links.link(1, "/a.md".into(), Some(5), None, base);
+        links.courier = Some(c);
+        // A viewer just started may not answer yet: nothing is asked during the grace time.
+        assert!(!links.check(base));
+        // Running: asked, once more a little later (`recheck`), then no more, and nothing ends.
+        assert!(links.check(base + GRACE));
+        let end = Instant::now() + WAIT;
+        while asked.load(Ordering::Acquire) < 2 && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(ended.recv_timeout(FAST.recheck * 4).is_err());
+        assert_eq!(asked.load(Ordering::Acquire), 2);
+        assert!(!links.take_gone() && links.contains(1));
+        // Closed: the next check finds nobody, and the links are over.
+        alive.store(false, Ordering::Release);
+        assert!(links.check(base + GRACE));
+        ended.recv_timeout(WAIT).unwrap();
+        assert!(links.take_gone() && links.is_empty() && links.courier.is_none());
+        // Nothing linked: nothing is asked.
+        assert!(!links.check(base + GRACE));
+    }
+
+    #[test]
+    fn a_viewer_still_ending_when_checked_is_found_gone_when_asked_once_more() {
+        // The window gained the focus because the viewer's window was just closed: its process
+        // still answers at the first ask, and is gone a moment later. No second check is made.
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ended_tx, ended) = channel();
+        let n = asked.clone();
+        let c = Courier::spawn(
+            |_| Delivery::Taken,
+            move || n.fetch_add(1, Ordering::AcqRel) == 0,
+            FAST,
+            move || _ = ended_tx.send(()),
+        );
+        let base = Instant::now();
+        let mut links = Links::default();
+        links.link(1, "/a.md".into(), Some(5), None, base);
+        links.courier = Some(c);
+        assert!(links.check(base + GRACE));
+        ended.recv_timeout(WAIT).unwrap();
+        assert_eq!(asked.load(Ordering::Acquire), 2);
+        assert!(links.take_gone() && links.is_empty());
+    }
+
+    #[test]
+    fn the_viewer_closing_its_tab_ends_that_link_alone() {
+        let base = Instant::now();
+        let mut links = linked(base);
+        links.link(2, "/b.md".into(), Some(1), None, base);
+        links.link_untitled(3, "Untitled 1".into(), Opening::default(), base);
+        links.closed(Path::new("/b.md"), None);
+        assert!(links.contains(1) && !links.contains(2) && links.contains(3));
+        links.closed(Path::new("/c.md"), None);
+        links.closed(Path::new(""), Some("mdedit-0-3"));
+        assert!(links.contains(1) && links.contains(3));
+        links.closed(Path::new(""), Some(&doc_name(3)));
+        assert!(links.contains(1) && !links.contains(3));
+        links.closed(Path::new("/a.md"), None);
+        assert!(links.is_empty());
+    }
+
+    #[test]
     fn dropping_the_courier_ends_its_thread() {
         let (c, sent, _ended) = courier(vec![], true, FAST);
         let slot = c.slot.clone();
@@ -1169,6 +1344,7 @@ mod tests {
                 _ = sent_tx.send(r.clone());
                 answers.lock().unwrap().next().unwrap_or(Delivery::Taken)
             },
+            || true,
             FAST,
             move || _ = ended_tx.send(()),
         );
@@ -1263,6 +1439,7 @@ mod tests {
                 _ = sent_tx.send(r.clone());
                 answers.lock().unwrap().recv().unwrap_or(Delivery::Taken)
             },
+            || true,
             FAST,
             || {},
         );
@@ -1383,6 +1560,7 @@ mod tests {
                 }
                 Delivery::Taken
             },
+            || true,
             FAST,
             || {},
         );

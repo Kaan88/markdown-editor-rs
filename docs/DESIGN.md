@@ -1728,6 +1728,34 @@ again at the next change. A save sends nothing: the viewer sees the file change 
 file itself (its rule in SISTER.md). The viewer, for its part, asks `sister::alive("mdedit")` every
 5 s while a tab is live, so an editor that crashed does not leave the preview frozen.
 
+**A viewer closed while nothing is sent (2026-11-22).** A send nobody answers finds a viewer gone
+only when there is something to send; a viewer the user closed, or that crashed, while the caret
+stood still left the menu's check mark and "Previewing" up for good. Two things end such links
+now, and the menus follow them:
+
+- `Links::check` asks the courier to try `sister::alive("mdview")` (a bare connection, up to
+  300 ms, on the courier's thread, after whatever waits to be sent); when nobody answers, the
+  links end exactly as for an unanswered send (`take_gone` at `Wake::Link`). When the viewer does
+  answer it is asked once more `RECHECK` (1 s) later, and no more: closing mdview's window is
+  what hands this window the focus, and a viewer whose window was just closed still answers until
+  its process ends. The check is asked when the window gains focus (`focus_gained`), when a menu
+  opens from the menu bar or a key (`open_popup`; a submenu opened from it with `open_sub` asks
+  nothing of its own, the check made for the menu it hangs from covers it), when a tab's menu
+  opens, and never on a timer, never while nothing is linked (no courier), and not during the
+  first `GRACE` after a link was made, while a viewer just started may not answer yet.
+- The viewer's tab closing while the viewer runs: the viewer sends `?closed` (`Request::closed`,
+  SISTER.md "A view closed") with the file, or with `?doc=` for a document without a file, for
+  each tab the editor asked it to show (its `editor_shown`), however the tab went; when its whole
+  window closes it sends one for each such tab still open before its process ends. `handed_over`
+  ends that link alone (`Links::closed`; the path is made canonical first). An older viewer never
+  sends it, and an older editor does nothing with it (a live update with no line).
+- However a link ends (stopped, its tab closed, `?closed`, the viewer found gone or too old), the
+  links note it (`Links::take_ended`) and `follow_links` lists the open menu again in place
+  (`relist_preview_menus`; it recurses into an open submenu, and a menu whose items changed in
+  number is closed), so a check mark does not outlive its link. It runs at `Wake::Link`, after a
+  `?closed`, and after every pass of the loop. `Menu::chosen` and `Menu::pointer` also ignore a
+  row that names no item, so a menu listed with fewer items cannot pick one that is gone.
+
 **Setting.** "Live preview while typing" (`live_preview`, default on) under "Preview" in Settings;
 off: "mdview shows the file when you save". The settings form has a test that every help line fits
 in the default window, a narrow one and at scale 1.5, and that this row is there.

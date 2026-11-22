@@ -2782,11 +2782,7 @@ impl ApplicationHandler<Wake> for App {
                     self.redraw();
                 }
                 if focused {
-                    // mdview may have been installed or removed meanwhile.
-                    if self.settled {
-                        self.look_for_viewer();
-                    }
-                    self.caret_reset();
+                    self.focus_gained();
                 } else {
                     self.ui.caret_on = true;
                     self.ui.tip = None;
@@ -2927,6 +2923,8 @@ impl ApplicationHandler<Wake> for App {
         self.persist_if_changed();
         self.recover_due = self.recovery.poll(&self.docs, Instant::now());
         self.link_due = self.docs.link_poll(Instant::now());
+        // However a link ended in this pass, an open menu no longer checks it.
+        self.follow_links();
         if self.preview.is_some() && self.preview_sync() {
             self.trace_preview_page();
             self.redraw();
