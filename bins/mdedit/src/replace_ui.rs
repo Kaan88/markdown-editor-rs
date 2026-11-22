@@ -198,6 +198,27 @@ fn problems(
     }
 }
 
+/// The files that went with a moved note, or back with it, because only it linked to them
+/// (D-091), under `head`.
+fn move_carried(
+    rows: &mut Vec<OutRow>,
+    report: &mdedit_core::moves::Report,
+    shown: &dyn Fn(&Path) -> String,
+    head: &str,
+) {
+    if report.carried.is_empty() {
+        return;
+    }
+    rows.push(OutRow::Heading(format!(
+        "{head} ({})",
+        report.carried.len()
+    )));
+    rows.extend(report.carried.iter().map(|(from, to)| OutRow::Changed {
+        name: format!("{} \u{2192} {}", shown(from), shown(to)),
+        count: 0,
+    }));
+}
+
 /// What a move or its undo could not do, each file with its reason: the files that did not move,
 /// the ones a rollback put back and the ones it could not, the copies left in two places, and a
 /// record that could not be closed.
@@ -598,6 +619,17 @@ impl Outcome {
                 count: 0,
             }));
         }
+        move_carried(&mut rows, report, &shown, "Went with their notes");
+        if !report.rewritten.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Links rewritten to the files that stay ({})",
+                report.links
+            )));
+            rows.extend(report.rewritten.iter().map(|p| OutRow::Changed {
+                name: shown(p),
+                count: 0,
+            }));
+        }
         move_problems(&mut rows, report, &shown);
         if !kept.is_empty() {
             rows.push(OutRow::Heading(format!(
@@ -658,6 +690,7 @@ impl Outcome {
                 count: 0,
             }));
         }
+        move_carried(&mut rows, report, &shown, "Put back with their notes");
         move_problems(&mut rows, report, &shown);
         if !report.kept.is_empty() {
             rows.push(OutRow::Heading(format!(

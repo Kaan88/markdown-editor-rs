@@ -317,3 +317,55 @@ fn the_move_demo_draws_and_moves_nothing() {
         a.compose();
     }
 }
+
+#[test]
+fn a_moved_note_takes_its_picture_rewrites_its_other_link_and_undo_puts_both_back() {
+    let (mut a, l) = lib("move-pics");
+    let inbox = l.dir.join("Work").join("Inbox");
+    let note = "# Plan\n\n![](img/p.png)\n![](img/s.png)\n";
+    std::fs::write(&l.plan, note).unwrap();
+    std::fs::create_dir_all(inbox.join("img")).unwrap();
+    std::fs::write(inbox.join("img").join("p.png"), "only the plan's").unwrap();
+    std::fs::write(inbox.join("img").join("s.png"), "shared").unwrap();
+    // Another note in the folder uses `s.png` too.
+    std::fs::write(inbox.join("other.md"), "![](img/s.png)\n").unwrap();
+    open_card(&mut a);
+    let card = a.mover.as_ref().expect("the card is open");
+    assert_eq!(
+        crate::move_ui::aside(&card.plan.rows[0]).as_deref(),
+        Some("and 1 picture \u{00B7} 1 link rewritten")
+    );
+    press(&mut a, KeyName::Enter);
+    let projects = l.dir.join("Work").join("Projects");
+    assert_eq!(read(&projects.join("img").join("p.png")), "only the plan's");
+    assert!(!inbox.join("img").join("p.png").exists());
+    assert!(
+        inbox.join("img").join("s.png").is_file(),
+        "the shared one stays"
+    );
+    assert_eq!(
+        read(&projects.join("plan.md")),
+        "# Plan\n\n![](img/p.png)\n![](../Inbox/img/s.png)\n"
+    );
+    let outcome = a.ui.results.replace.outcome.as_ref().expect("the report");
+    for head in [
+        "Went with their notes (1)",
+        "Links rewritten to the files that stay (1)",
+    ] {
+        assert!(
+            outcome
+                .rows
+                .iter()
+                .any(|r| matches!(r, crate::replace_ui::OutRow::Heading(h) if h == head)),
+            "{head}"
+        );
+    }
+    a.open_runs();
+    let path = a.ui.runs.list[0].path.clone();
+    a.run_undo_ask(path.clone());
+    a.run_undo(path);
+    assert_eq!(read(&l.plan), note, "the links say what they said");
+    assert_eq!(read(&inbox.join("img").join("p.png")), "only the plan's");
+    assert!(!projects.join("img").exists());
+    let _ = std::fs::remove_dir_all(&l.dir);
+}

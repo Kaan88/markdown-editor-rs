@@ -2,7 +2,7 @@
 //! tick boxes, the list's arithmetic, the scrollbar and the buttons are the ones the split's plan
 //! card draws with, so the two cards read as one family.
 
-use crate::move_ui::{Geo, MHit, MoveCard, from_to, kind_text, name, subtitle, title, why};
+use crate::move_ui::{Geo, MHit, MoveCard, aside, from_to, name, subtitle, title, why};
 use mdshared_ui::check::{TICK, Tick, draw_tick};
 use mdshared_ui::gfx::{Face, Painter, Rect};
 use mdshared_ui::overlay::{
@@ -226,7 +226,8 @@ impl MoveCard {
         let x = row.x + 42.0;
         let max = (row.right() - 14.0 - x).max(0.0);
         let (c1, c2, c3) = (row.y + 16.0, row.y + 34.0, row.y + 51.0);
-        // The name, and what kind of file it is when it is not a note.
+        // The name, what kind of file it is when it is not a note, and what a note carries and
+        // rewrites (D-091).
         let nw = p.text(
             Face::Semibold,
             13.5,
@@ -236,13 +237,13 @@ impl MoveCard {
             if r.ticked { pal.text } else { pal.muted },
             max,
         );
-        if let Some(kind) = kind_text(r) {
+        if let Some(kind) = aside(r) {
             p.text(
                 Face::Ui,
                 12.0,
                 x + nw + 8.0,
                 c1,
-                kind,
+                &kind,
                 pal.faint,
                 (max - nw - 8.0).max(0.0),
             );

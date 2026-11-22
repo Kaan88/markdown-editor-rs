@@ -55,6 +55,13 @@ impl MoveGate for MovesGate<'_> {
             Wrote::Refused(why) => Err(why),
         }
     }
+
+    /// A moved note whose links change (D-091): refused while a tab holds unsaved changes to
+    /// it, then written whole, only while it says what the move read.
+    fn rewrite(&mut self, file: &Path, before: &str, after: &str) -> Result<(), String> {
+        self.app.library_file_free(file)?;
+        moves::rewrite_note(file, before, after)
+    }
 }
 
 /// A rename that never replaces a file at `to`: the one "Rename file" uses (`MoveFileExW`
@@ -118,7 +125,9 @@ impl App {
         else {
             return;
         };
-        let plan = moves::plan_group(&library, &group);
+        let mut plan = moves::plan_group(&library, &group);
+        // A note takes the pictures only it links to, and its other links are rewritten (D-091).
+        moves::carry(&mut plan);
         if plan.rows.is_empty() {
             let why = plan.blocked.clone().unwrap_or_else(|| {
                 format!(
@@ -245,6 +254,7 @@ impl App {
             })
             .collect();
         self.follow_moves(&report.moved);
+        self.follow_moves(&report.carried);
         self.library_rows();
         let bases = crate::move_ui::bases(&card.plan);
         self.show_outcome(Outcome::moved(&report, &bases, &kept));
@@ -282,6 +292,7 @@ impl App {
             self.docs.set_toast(why);
         }
         self.follow_moves(&report.moved);
+        self.follow_moves(&report.carried);
         self.library_rows();
         let from = record.moved.as_ref().and_then(|m| m.library_from.clone());
         let mut bases: Vec<&Path> = vec![&record.group.home];
@@ -335,6 +346,21 @@ impl App {
                     .collect(),
                 edited: vec![library.join("Work.md")],
                 lines: ticked.len(),
+                carried: ticked
+                    .iter()
+                    .flat_map(|r| r.carry.iter().flat_map(|c| &c.files))
+                    .map(|c| (c.from.clone(), c.to.clone()))
+                    .collect(),
+                rewritten: ticked
+                    .iter()
+                    .filter(|r| r.carry.as_ref().is_some_and(|c| c.rewrites > 0))
+                    .map(|r| r.to.clone())
+                    .collect(),
+                links: ticked
+                    .iter()
+                    .filter_map(|r| r.carry.as_ref())
+                    .map(|c| c.rewrites)
+                    .sum(),
                 emptied: plan
                     .group
                     .as_ref()

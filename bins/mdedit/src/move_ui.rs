@@ -7,7 +7,7 @@
 //! and footer buttons, with no preview, no strip and no editing.
 
 use crate::keys::Key;
-use mdedit_core::moves::{FileKind, Plan, Row, Start, Verdict};
+use mdedit_core::moves::{Carried, Carry, FileKind, Plan, Row, Start, Verdict};
 use mdshared_app::paths::same_path;
 use mdshared_ui::gfx::Rect;
 use mdshared_ui::keys::{KeyName, Mods};
@@ -172,7 +172,25 @@ pub fn kind_text(row: &Row) -> Option<&'static str> {
         FileKind::Note => None,
         FileKind::Library => Some("library file"),
         FileKind::Record => Some("record"),
+        FileKind::Carried => Some("carried file"),
     }
+}
+
+/// What a row says beside its name: the kind of file when it is not a note, and what a note
+/// takes with it and rewrites (D-091): "and 2 pictures · 1 link rewritten".
+pub fn aside(row: &Row) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(kind) = kind_text(row) {
+        parts.push(kind.to_string());
+    }
+    if let Some(c) = &row.carry {
+        parts.extend(
+            [c.carried_text(), c.rewrites_text()]
+                .into_iter()
+                .filter(|s| !s.is_empty()),
+        );
+    }
+    (!parts.is_empty()).then(|| parts.join(" \u{00B7} "))
 }
 
 // ---- state ----------------------------------------------------------------------------------------------
@@ -487,24 +505,52 @@ pub fn demo_plan() -> Plan {
             len: 2_048,
             sha256: String::new(),
             outside,
+            carry: Some(Carry::default()),
         }
     };
+    // What a note takes with it: these files, from its folder to its new one.
+    let carrying = |mut r: Row, files: &[&str], rewrites: usize| {
+        let (Some(from), Some(to)) = (r.from.parent(), r.to.parent()) else {
+            return r;
+        };
+        r.carry = Some(Carry {
+            files: files
+                .iter()
+                .map(|f| Carried {
+                    from: from.join(f),
+                    to: to.join(f),
+                    len: 40_960,
+                    sha256: String::new(),
+                })
+                .collect(),
+            rewrites,
+        });
+        r
+    };
     let rows = vec![
-        row(
-            "Quarterly plan",
-            home.join("Inbox").join("quarterly-plan.md"),
-            home.join("Projects").join("quarterly-plan.md"),
-            &["Projects"],
-            "its section is Projects",
-            Verdict::Ready,
+        carrying(
+            row(
+                "Quarterly plan",
+                home.join("Inbox").join("quarterly-plan.md"),
+                home.join("Projects").join("quarterly-plan.md"),
+                &["Projects"],
+                "its section is Projects",
+                Verdict::Ready,
+            ),
+            &["chart.png", "timeline.png"],
+            0,
         ),
-        row(
-            "Standup notes",
-            home.join("standup.md"),
-            home.join("Meetings").join("Weekly").join("standup.md"),
-            &["Meetings", "Weekly"],
-            "its section is Meetings \u{203A} Weekly",
-            Verdict::Ready,
+        carrying(
+            row(
+                "Standup notes",
+                home.join("standup.md"),
+                home.join("Meetings").join("Weekly").join("standup.md"),
+                &["Meetings", "Weekly"],
+                "its section is Meetings \u{203A} Weekly",
+                Verdict::Ready,
+            ),
+            &[],
+            1,
         ),
         row(
             "Budget",
@@ -514,6 +560,18 @@ pub fn demo_plan() -> Plan {
             "its section is Projects",
             Verdict::Taken,
         ),
+        carrying(
+            row(
+                "Trip photos",
+                home.join("Inbox").join("trip.md"),
+                home.join("Travel").join("trip.md"),
+                &["Travel"],
+                "its section is Travel",
+                Verdict::CarriedTaken("map.png".to_string()),
+            ),
+            &["map.png", "beach.jpg"],
+            0,
+        ),
         row(
             "Interview questions",
             downloads.join("interview-questions.md"),
@@ -522,13 +580,17 @@ pub fn demo_plan() -> Plan {
             "not in the group's folder",
             Verdict::Outside(downloads.display().to_string()),
         ),
-        row(
-            "Offsite agenda",
-            home.join("Misc").join("offsite-agenda.md"),
-            home.join("offsite-agenda.md"),
-            &[],
-            "it has no section, so it belongs in the group's own folder",
-            Verdict::Ready,
+        carrying(
+            row(
+                "Offsite agenda",
+                home.join("Misc").join("offsite-agenda.md"),
+                home.join("offsite-agenda.md"),
+                &[],
+                "it has no section, so it belongs in the group's own folder",
+                Verdict::Ready,
+            ),
+            &["venue.pdf"],
+            2,
         ),
         row(
             "Roadmap",

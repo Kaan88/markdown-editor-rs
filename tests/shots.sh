@@ -400,9 +400,10 @@ for t in "" "-dark"; do
     shot "plan-ready$t" $th --plan-demo split --plan-parked
 done
 
-# "Move the notes…" (5.12), from a plan made in the program: the card with ready rows, a taken
-# name, a note listed twice, a link and a note outside the library; the same card at 800x600; and
-# the results panel after a move.
+# "Move the notes…" (5.12), from a plan made in the program: the card with ready rows (notes that
+# carry pictures and rewrite links, D-091), a taken name, a picture whose name is taken, a note
+# listed twice, a link and a note outside the library; the same card at 800x600; and the results
+# panel after a move, with the files that went with their notes and the links rewritten.
 for t in "" "-dark"; do
     th=--light
     [ -n "$t" ] && th=--dark
