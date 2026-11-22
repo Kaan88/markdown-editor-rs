@@ -1,8 +1,7 @@
 # State of the work
 
-Rewritten, not appended to: when a line here stops being true, replace it. Last rewritten
-2026-11-22, late, with the owner asleep; Claude took D-083 to D-089 meanwhile. If `git log -1`
-shows something newer, the lines under "In hand" are the first to doubt.
+Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089 are
+Claude's). If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
