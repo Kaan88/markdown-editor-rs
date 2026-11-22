@@ -58,15 +58,17 @@ in the core, the workspace green.
   `shots\mock-term\`. What it established, and the verdict (possible, as a third app, blocks
   only), are in `docs/terminal.md`.
 - **A downloader window over NewsQueue and Inbound, drawn**: branch `mock/downloader`, worktree
-  `..\mdedit-dl`, `--mock dl-<name>`, 11 states in both themes in `shots\mock-dl\` (README says
-  what each shows). One table, a Source chip per row; the details pane is the only place the
-  engines differ, so its tabs follow the row; an absent engine dims its rows and veils the pane as
-  "last reported". Not drawn: Files and Log tabs, Remote files, TorBox, first run. Costing is in the
-  uncommitted `ecosystem-ideas.md` 6b-6d.
+  `..\mdedit-dl`, 11 states in `shots\mock-dl\`; what drawing taught is in its README. Costing is
+  in the uncommitted `ecosystem-ideas.md` 6b-6d.
 - **A local-LLM workbench, drawn**: branch `mock/workbench`, worktree `..\mdedit-llm`, `--mock
   llm-<name>`, 12 states plus a real-editor `saved` shot in `shots\mock-llm\`. Holds up as a tab
   of mdedit, as `ecosystem-ideas.md` 8 said; columns under 300 px need a narrow form, five is the
   most at 1280 px; the picker has to say "one GPU" and offer one model at a time.
+
+- **A launcher and updater for every app with a setup, drawn**: branch `mock/launcher`, worktree
+  `..\mdedit-hub`, `--mock hub-<name>`, 12 states in both themes (four also at 860x600) in
+  `shots\mock-hub\`. Its README lists the eight apps with installers on GitHub and their four
+  manifest formats (two have none). Wants to be its own small tray app, not part of mdedit.
 
 ## Waiting for the owner
 
@@ -113,6 +115,11 @@ faults that could lose a note or break a library that moves; these are still tru
   anyway*. Found by the owner.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
+
+- **A debug build still aborts on a closed stderr** (a release build does not): something that
+  runs only in debug prints with `std`'s `eprintln!`, not yet found. A plain debug `cargo test`
+  fails `closed_stderr`; CI runs release and is unaffected.
+- **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
 
 ## Known gaps, not planned unless they get in the way
 
