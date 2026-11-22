@@ -108,9 +108,10 @@ impl App {
         }
     }
 
-    /// The open menus that list "Preview in mdview" (the View menu, a tab's menu) list it again,
-    /// in place: the links changed while they were open (the viewer was found gone), and a check
-    /// mark that stays would say a preview runs when choosing the item starts one.
+    /// The open menus that list "Preview in mdview" (the Preview button's menu, a tab's menu)
+    /// list it again, in place: the links changed while they were open (the viewer was found
+    /// gone), and a check mark or a "Stop the preview" that stays would say a preview runs when
+    /// choosing the item starts one.
     pub(super) fn relist_preview_menus(&mut self) {
         if let Some(popup) = self.ui.popup.take() {
             self.ui.popup = self.relisted(popup);
@@ -126,6 +127,7 @@ impl App {
         }
         let items = match popup.kind {
             PopupKind::View => overlays::view_menu(&self.docs, &self.ui, 0.0, 0.0, false).items,
+            PopupKind::Preview => overlays::preview_menu(&self.docs, 0.0, 0.0, false).items,
             PopupKind::Tab(i) => overlays::tab_menu(&self.docs, i, 0.0, 0.0).items,
             _ => return Some(popup),
         };
@@ -1294,20 +1296,21 @@ mod tests {
                 ..Request::new(path)
             })
         };
+        // Whether the Preview button's menu offers to stop the preview in mdview.
         let preview = |a: &App| {
             let popup = a.ui.popup.as_ref().expect("the menu stays open");
             let items = popup.menu.items.iter();
             let mut rows = items.filter(|it| it.id == Act::Cmd(C::PreviewInViewer));
-            rows.next().map(|it| it.checked)
+            rows.next().map(|it| it.label.starts_with("&Stop"))
         };
-        // A Markdown file: the View menu stays open, its rows as they were, the mark gone.
+        // A Markdown file: the menu stays open, its rows as they were, "Stop" gone.
         let i = open_now(&mut a, &md);
         let id = a.docs.tabs[i].id;
         let path = a.docs.tabs[i].path.clone().unwrap();
         a.docs
             .links
             .link(id, path.into(), Some(1), None, Instant::now());
-        a.open_popup(PopupKind::View);
+        a.open_popup(PopupKind::Preview);
         assert_eq!(preview(&a), Some(true));
         let rows = a.ui.popup.as_ref().unwrap().menu.items.len();
         a.handed_over(closed(&md));
@@ -1323,7 +1326,7 @@ mod tests {
         a.docs
             .links
             .link(jd, path.into(), Some(1), None, Instant::now());
-        a.open_popup(PopupKind::View);
+        a.open_popup(PopupKind::Preview);
         assert_eq!(preview(&a), Some(true));
         let last = a.ui.popup.as_ref().unwrap().menu.items.len() - 1;
         a.ui.popup.as_mut().unwrap().menu.hover = Some(last);
@@ -1378,21 +1381,21 @@ mod tests {
                 .1
                 .contains(&"Previewing".to_string())
         );
-        // Opening the View menu asks too, and the open menu no longer checks the item.
+        // Opening the Preview button's menu asks too, and the open menu no longer offers to stop.
         link(&mut a);
-        a.open_popup(PopupKind::View);
+        a.open_popup(PopupKind::Preview);
         let checked = |a: &App| {
             let popup = a.ui.popup.as_ref().expect("the menu stays open");
             let items = popup.menu.items.iter();
             items
                 .filter(|it| it.id == Act::Cmd(C::PreviewInViewer))
-                .any(|it| it.checked)
+                .any(|it| it.label.starts_with("&Stop"))
         };
         assert!(checked(&a), "opened while the link was still there");
         settle(&mut a);
         assert!(a.docs.links.is_empty());
         assert!(!checked(&a));
-        // A tab's menu too.
+        // A tab's menu too: it says "Stop the preview" while one runs.
         link(&mut a);
         a.ui.popup = None;
         a.compose();
@@ -1405,7 +1408,7 @@ mod tests {
             let items = popup.menu.items.iter();
             items
                 .filter(|it| it.id == Act::TabCmd(C::PreviewInViewer, i))
-                .any(|it| it.checked)
+                .any(|it| it.label.starts_with("Sto&p"))
         };
         assert!(tab_checked(&a));
         settle(&mut a);

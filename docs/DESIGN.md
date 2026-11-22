@@ -1730,7 +1730,7 @@ file itself (its rule in SISTER.md). The viewer, for its part, asks `sister::ali
 
 **A viewer closed while nothing is sent (2026-11-22).** A send nobody answers finds a viewer gone
 only when there is something to send; a viewer the user closed, or that crashed, while the caret
-stood still left the menu's check mark and "Previewing" up for good. Two things end such links
+stood still left the menu's "Stop the preview" and "Previewing" up for good. Two things end such links
 now, and the menus follow them:
 
 - `Links::check` asks the courier to try `sister::alive("mdview")` (a bare connection, up to
@@ -1752,7 +1752,9 @@ now, and the menus follow them:
 - However a link ends (stopped, its tab closed, `?closed`, the viewer found gone or too old), the
   links note it (`Links::take_ended`) and `follow_links` lists the open menu again in place
   (`relist_preview_menus`; it recurses into an open submenu, and a menu whose items changed in
-  number is closed), so a check mark does not outlive its link. It runs at `Wake::Link`, after a
+  number is closed), so a "Stop the preview" does not outlive its link. The menus it lists
+  again are the Preview button's menu and a tab's menu (the View menu no longer lists the
+  preview, DESIGN 78; it is still relisted for anything it may show). It runs at `Wake::Link`, after a
   `?closed`, and after every pass of the loop. `Menu::chosen` and `Menu::pointer` also ignore a
   row that names no item, so a menu listed with fewer items cannot pick one that is gone.
 
