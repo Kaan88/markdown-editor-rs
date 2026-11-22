@@ -2303,7 +2303,8 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
   minimums do not fit. Edges are whole pixels, so the bands tile. Separators only when every
   note band is at least 6 px.
 - **Where the notes go** is `retarget`: each note's folder is the group's folder plus its
-  sections, its name is `folder_name(title)`; the disk is asked through a `Reader` (the shots
+  sections, its name is `folder_name(note_slug(title))`, the title in lower case with hyphens
+  (D-075, D-083); the disk is asked through a `Reader` (the shots
   and the tests give a table), once for each name, remembered until the group changes.
 - **Escape** closes the card; a plan that was changed is parked in `App::plan_parked`, and
   `plan_show` brings the same screen back, scroll and selection included.

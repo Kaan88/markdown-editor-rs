@@ -42,6 +42,11 @@ pub(super) fn file_stem_for(name: &str) -> Option<String> {
     (!no_name && !all_replaced).then_some(stem)
 }
 
+/// A new note's title as a file name: lower case with hyphens (D-075), then [`file_stem_for`].
+pub(super) fn note_stem_for(title: &str) -> Option<String> {
+    file_stem_for(&mdedit_core::split::note_slug(title))
+}
+
 /// `stem.md` in `dir`, or `stem 2.md`, `stem 3.md` … when that is taken.
 fn free_name(dir: &Path, stem: &str) -> PathBuf {
     let first = dir.join(format!("{stem}.md"));
@@ -661,7 +666,7 @@ impl App {
             self.docs.set_toast(&why);
             return;
         }
-        let Some(stem) = file_stem_for(name) else {
+        let Some(stem) = note_stem_for(name) else {
             self.docs.set_toast(&strings::library_not_a_name(name));
             return;
         };

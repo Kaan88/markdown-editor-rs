@@ -570,7 +570,7 @@ impl PlanScreen {
                 format!(
                     "\u{2192} {}{}.md",
                     self.dest_text(),
-                    folder_name(self.rest.title())
+                    folder_name(&mdedit_core::split::note_slug(self.rest.title()))
                 ),
             ),
         };

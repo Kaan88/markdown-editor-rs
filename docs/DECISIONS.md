@@ -775,3 +775,16 @@ Replaces D-057 and the redesign's decision 6.
 **Why.** The owner asked for it.
 **Overturned by.** The owner.
 **From.** The owner's answers to the plan's section 11, 2026-11-22.
+
+## D-083 · 2026-11-22 · Only a new note's file is named in lower case with hyphens
+
+**Decision.** D-075's rule applies where the program names a new note's file: "New note here…",
+the notes a split writes, and the note of the rest. A group's library file, a folder, and a file
+the owner renames keep the name as written, with only the library's rule for what a file system
+takes (`folder_name`). The rule is `mdedit_core::split::note_slug`: lower case, each run of spaces
+one hyphen; punctuation is left to `folder_name`. Moves to the shared crates with phase S3.
+**Why.** D-075 speaks of notes. A group's file name is what the owner sees in Explorer beside its
+folder, and a rename is the owner typing the name they want; changing it under them would surprise.
+Kept in mdedit for now, against D-081, because the slug is one line and S3 moves the whole writer.
+**Overturned by.** The owner wanting groups and renames slugged too.
+**From.** Claude, building D-075 with the owner away (they asked that decisions be made and noted).

@@ -742,7 +742,7 @@ impl PlanScreen {
         for i in 0..self.plan.notes().len() {
             let Some(n) = self.plan.note(i) else { break };
             let folder = note_folder(&self.dest.home, n.sections());
-            let stem = folder_name(n.title());
+            let stem = folder_name(&mdedit_core::split::note_slug(n.title()));
             let ticked = n.ticked();
             let first = folder.join(format!("{stem}.md"));
             let start = next.get(&first).copied().filter(|&k| k > 8).unwrap_or(1);
@@ -1937,11 +1937,11 @@ mod tests {
         assert_ne!(*t, old);
         assert_eq!(
             t.file_name().and_then(|n| n.to_str()),
-            Some("A new name_.md"),
+            Some("a-new-name_.md"),
             "the file is named by the one rule of the library"
         );
         assert!(
-            s.target_text(0).ends_with("A new name_.md"),
+            s.target_text(0).ends_with("a-new-name_.md"),
             "the link shows it"
         );
         assert_eq!(
@@ -1992,17 +1992,17 @@ mod tests {
         );
         assert_eq!(
             s.targets[1].renamed.as_deref(),
-            Some("Packing and money 2.md")
+            Some("packing-and-money 2.md")
         );
         assert_eq!(
             s.mark(1).map(|m| m.text()),
-            Some("will be written as \u{2018}Packing and money 2.md\u{2019}".to_string())
+            Some("will be written as \u{2018}packing-and-money 2.md\u{2019}".to_string())
         );
         assert!(s.plan.note(1).expect("a note").ticked(), "and looks normal");
         assert_eq!(s.mark(2), None);
         // Two notes of one name in one plan: the second is numbered, until the first is unticked.
         let mut t = screen_of("## Same\n\na\n\n## Same\n\nb\n", Some(2));
-        assert_eq!(t.targets[1].renamed.as_deref(), Some("Same 2.md"));
+        assert_eq!(t.targets[1].renamed.as_deref(), Some("same 2.md"));
         t.toggle(0);
         assert_eq!(t.targets[1].renamed, None, "the name is free again");
     }

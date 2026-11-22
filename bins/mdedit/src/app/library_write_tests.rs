@@ -292,7 +292,7 @@ fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened()
         .join("library")
         .join("Personal")
         .join("Money")
-        .join("Budget.md");
+        .join("budget.md");
     assert_eq!(read(&note), "# Budget\n");
     // The group got its `home:` line with its first note, and the note is in the heading's
     // folder inside it.
@@ -301,7 +301,7 @@ fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened()
         .replacen("# Personal\n", "# Personal\nhome: Personal\n", 1);
     want = want.replacen(
         "\n\n### 2025",
-        "\n- [Budget](Personal/Money/Budget.md)\n\n### 2025",
+        "\n- [Budget](Personal/Money/budget.md)\n\n### 2025",
         1,
     );
     assert_eq!(read(&l.file), want);
@@ -341,14 +341,14 @@ fn a_new_note_under_a_heading_goes_in_the_folder_that_heading_names() {
     name_it(&mut a, "Budget");
     let inside = l.dir.join("library").join("Personal notes");
     assert_eq!(
-        read(&inside.join("Money").join("Budget.md")),
+        read(&inside.join("Money").join("budget.md")),
         "# Budget\n",
         "the folder is made for the note"
     );
     let text = read(&l.file);
     assert!(text.contains("home: Personal notes"), "{text}");
     assert!(
-        text.contains("- [Budget](<Personal notes/Money/Budget.md>)"),
+        text.contains("- [Budget](<Personal notes/Money/budget.md>)"),
         "{text}"
     );
 
@@ -366,7 +366,7 @@ fn a_new_note_under_a_heading_goes_in_the_folder_that_heading_names() {
     a.act(Act::Library(LibAct::Refresh, 0));
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Plans");
-    let note = outside.join("Money").join("Plans.md");
+    let note = outside.join("Money").join("plans.md");
     assert_eq!(read(&note), "# Plans\n");
     assert!(
         read(&l.file).contains(&format!("- [Plans](<{}>)", slash(&note))),
@@ -386,12 +386,12 @@ fn the_first_note_a_group_gets_writes_its_home_and_says_where_the_notes_go() {
         .join("library")
         .join("Personal")
         .join("Money")
-        .join("Budget.md");
+        .join("budget.md");
     assert_eq!(read(&note), "# Budget\n");
     let text = read(&l.file);
     assert!(text.starts_with("# Personal\nhome: Personal\n"), "{text}");
     assert!(
-        text.contains("- [Budget](Personal/Money/Budget.md)"),
+        text.contains("- [Budget](Personal/Money/budget.md)"),
         "{text}"
     );
     // The toast names the group and the folder its notes now go in, which is the group's own
@@ -446,9 +446,9 @@ fn a_group_is_pointed_at_a_folder_the_owner_already_has() {
     // A folder inside the library folder is named relative to it, and the note follows it.
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Tokyo");
-    assert_eq!(read(&notes.join("Money").join("Tokyo.md")), "# Tokyo\n");
+    assert_eq!(read(&notes.join("Money").join("tokyo.md")), "# Tokyo\n");
     assert!(
-        read(&l.file).contains("](<Japan 2025/Money/Tokyo.md>)"),
+        read(&l.file).contains("](<Japan 2025/Money/tokyo.md>)"),
         "{}",
         read(&l.file)
     );
@@ -464,7 +464,7 @@ fn a_group_is_pointed_at_a_folder_the_owner_already_has() {
     );
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "Plans");
-    let note = outside.join("Money").join("Plans.md");
+    let note = outside.join("Money").join("plans.md");
     assert_eq!(read(&note), "# Plans\n");
     assert!(
         read(&l.file).contains(&mdshared_app::library::link_line("Plans", &note)),
@@ -472,7 +472,7 @@ fn a_group_is_pointed_at_a_folder_the_owner_already_has() {
         read(&l.file)
     );
     // What was written under the old folder is still there.
-    assert!(notes.join("Money").join("Tokyo.md").exists());
+    assert!(notes.join("Money").join("tokyo.md").exists());
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
@@ -518,7 +518,7 @@ fn a_new_group_is_written_with_the_folder_its_notes_go_in() {
     pick(&mut a, LibAct::NewNote, at);
     name_it(&mut a, "Tokyo");
     assert_eq!(
-        read(&l.dir.join("library").join("Japan 2025").join("Tokyo.md")),
+        read(&l.dir.join("library").join("Japan 2025").join("tokyo.md")),
         "# Tokyo\n"
     );
     assert_eq!(read(&made).matches("home:").count(), 1);
@@ -642,15 +642,15 @@ fn a_new_note_in_a_groups_own_row_is_written_before_its_first_section() {
     let (mut a, l) = lib("libw-new-group");
     a.library_new_note(&l.file, &[], "Idea");
     let text = read(&l.file);
-    assert!(text.contains("- [Idea](Personal/Idea.md)"), "{text}");
-    assert!(l.dir.join("library/Personal/Idea.md").is_file());
+    assert!(text.contains("- [Idea](Personal/idea.md)"), "{text}");
+    assert!(l.dir.join("library/Personal/idea.md").is_file());
     let parsed = mdshared_app::library::parse(&text, &l.dir.join("library"));
     let idea = parsed.entries.iter().find(|e| e.title == "Idea").unwrap();
     assert!(idea.sections.is_empty(), "{:?}", idea.sections);
     let section = mdshared_app::library::section_line(&text, &["Money".to_string()]).unwrap();
     assert!(idea.line < section, "above the first section: {text}");
     assert!(
-        text.find("home: Personal").unwrap() < text.find("(Personal/Idea.md)").unwrap(),
+        text.find("home: Personal").unwrap() < text.find("(Personal/idea.md)").unwrap(),
         "the `home:` line stays above the note: {text}"
     );
     let _ = std::fs::remove_dir_all(&l.dir);

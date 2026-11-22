@@ -101,6 +101,17 @@ impl Levels {
     }
 }
 
+/// A note's title as its file name, before the library's rule for what a file system takes:
+/// lower case, each run of spaces one hyphen (D-075: `Pasta Notes` is `pasta-notes`). Only new
+/// notes are named so; groups, folders and files that exist keep their names.
+pub fn note_slug(title: &str) -> String {
+    title
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 /// The headings of `headings` counted at each level the switch offers.
 pub fn levels(headings: &[Heading]) -> Levels {
     let mut counts = [0usize; SPLIT_LEVELS.len()];
@@ -1448,6 +1459,19 @@ mod tests {
     use super::*;
     use crate::testutil::{Rng, lines_of};
     use std::time::Instant;
+
+    #[test]
+    fn a_note_slug_is_lower_case_with_one_hyphen_for_each_run_of_spaces() {
+        assert_eq!(note_slug("Pasta Notes"), "pasta-notes");
+        assert_eq!(note_slug("  Day  One\tin Kyoto "), "day-one-in-kyoto");
+        assert_eq!(note_slug("Ünïcode Straße"), "ünïcode-straße");
+        assert_eq!(
+            note_slug("a/b: c"),
+            "a/b:-c",
+            "the file rule is the library's, after"
+        );
+        assert_eq!(note_slug("   "), "");
+    }
 
     /// `# Japan trip journal`, a preamble, two `##` chapters (one holding a fenced code block
     /// with a heading in it), a `#` section and a chapter under it.

@@ -7,7 +7,7 @@
 //! `mdedit_core::runs`, which never replaces a name that is taken, and the source document is
 //! read and never touched.
 
-use super::library_write::{Wrote, file_stem_for};
+use super::library_write::{Wrote, file_stem_for, note_stem_for};
 use super::*;
 use crate::commands::strings;
 use crate::library_pane::{RowId, key_of};
@@ -242,7 +242,7 @@ fn plan_request(screen: &PlanScreen) -> Result<Request, String> {
     // The rest, when it is ticked: the document's own name, in the group's folder.
     if screen.plan.rest_ticked() && screen.rest.lines() > 0 {
         let title = screen.rest.title().to_string();
-        let stem = match file_stem_for(&title) {
+        let stem = match note_stem_for(&title) {
             Some(stem) => stem,
             None => return Err("the note of the rest has no name.".to_string()),
         };

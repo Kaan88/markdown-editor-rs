@@ -78,7 +78,7 @@ fn a_note_made_with_new_note_here_is_not_written_in_the_library_folder() {
     );
     // In a folder of its own beside them, named for the group's file, under the heading's folder.
     assert_eq!(
-        read(&library.join("Personal").join("Money").join("Budget.md")),
+        read(&library.join("Personal").join("Money").join("budget.md")),
         "# Budget\n"
     );
     // A second note of the same name does not overwrite the first.
@@ -321,7 +321,7 @@ fn a_note_made_inside_the_library_folder_is_linked_without_a_drive_and_survives_
     name_it(&mut a, "Budget");
     let text = read(&l.file);
     assert!(
-        text.contains("- [Budget](Personal/Money/Budget.md)"),
+        text.contains("- [Budget](Personal/Money/budget.md)"),
         "{text}"
     );
     let link = text.lines().find(|t| t.contains("[Budget]")).unwrap();
@@ -409,12 +409,12 @@ fn find_the_file_inside_the_library_folder_writes_a_relative_link() {
 }
 
 #[test]
-fn a_relative_link_is_written_with_forward_slashes_and_brackets_for_a_space() {
+fn a_new_notes_link_is_relative_with_forward_slashes_and_its_name_has_hyphens_for_spaces() {
     let (mut a, l) = lib("libl-relative-space");
     pick(&mut a, LibAct::NewNote, 1);
     name_it(&mut a, "My plan");
     assert!(
-        read(&l.file).contains("](<Personal/Money/My plan.md>)"),
+        read(&l.file).contains("](Personal/Money/my-plan.md)"),
         "{}",
         read(&l.file)
     );
@@ -437,10 +437,10 @@ fn a_new_note_in_a_library_folder_that_is_not_there_yet_is_made_with_its_folder(
     pick(&mut a, LibAct::NewNote, 0);
     name_it(&mut a, "Budget");
     assert_eq!(
-        read(&dir.join("library").join("Home").join("Budget.md")),
+        read(&dir.join("library").join("Home").join("budget.md")),
         "# Budget\n"
     );
-    assert!(read(&dir.join("library").join("Home.md")).contains("](Home/Budget.md)"));
+    assert!(read(&dir.join("library").join("Home.md")).contains("](Home/budget.md)"));
     assert_eq!(group_rows(&a), vec!["Home"]);
     let _ = std::fs::remove_dir_all(&dir);
 }

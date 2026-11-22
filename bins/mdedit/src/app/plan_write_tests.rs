@@ -53,11 +53,11 @@ fn write_the_notes_writes_the_notes_their_links_and_a_record_and_not_the_source(
     assert!(a.plan_parked.is_none());
     // The notes, with their headings promoted, in the group's folder and its section's.
     assert_eq!(
-        read(&library.join("Trip").join("Tokyo").join("Asakusa.md")),
+        read(&library.join("Trip").join("Tokyo").join("asakusa.md")),
         "# Asakusa\n\nthe river\n"
     );
     assert_eq!(
-        read(&library.join("Trip").join("Tokyo").join("Nara.md")),
+        read(&library.join("Trip").join("Tokyo").join("nara.md")),
         "# Nara\n\nthe deer\n"
     );
     // The group's library file and its links.
@@ -65,8 +65,8 @@ fn write_the_notes_writes_the_notes_their_links_and_a_record_and_not_the_source(
     assert!(group.starts_with("# Trip\n"), "{group}");
     assert!(group.contains("home:"), "{group}");
     assert!(
-        group.contains("- [Asakusa](<Trip/Tokyo/Asakusa.md>)")
-            || group.contains("- [Asakusa](Trip/Tokyo/Asakusa.md)"),
+        group.contains("- [Asakusa](<Trip/Tokyo/asakusa.md>)")
+            || group.contains("- [Asakusa](Trip/Tokyo/asakusa.md)"),
         "{group}"
     );
     // The record: state done, the source's digest, every note's digest.
@@ -75,7 +75,7 @@ fn write_the_notes_writes_the_notes_their_links_and_a_record_and_not_the_source(
     let record = &runs[0].record;
     assert_eq!(record.state, mdedit_core::runs::State::Done);
     assert_eq!(record.notes.len(), 2);
-    assert_eq!(record.notes[0].line, "- [Asakusa](Trip/Tokyo/Asakusa.md)");
+    assert_eq!(record.notes[0].line, "- [Asakusa](Trip/Tokyo/asakusa.md)");
     assert_eq!(
         record.notes[0].sha256,
         mdshared_app::update::sha256_hex(b"# Asakusa\n\nthe river\n")
@@ -121,11 +121,11 @@ fn undo_from_the_report_takes_the_run_back_and_marks_the_record() {
     let question = a.ui.runs.undo.clone().expect("the question").1;
     assert!(question.contains("2 notes"), "{question}");
     assert!(question.contains("Trip"), "{question}");
-    assert!(library.join("Trip/Tokyo/Asakusa.md").is_file());
+    assert!(library.join("Trip/Tokyo/asakusa.md").is_file());
     // The answer.
     a.run_undo(record_path.clone());
-    assert!(!library.join("Trip/Tokyo/Asakusa.md").exists());
-    assert!(!library.join("Trip/Tokyo/Nara.md").exists());
+    assert!(!library.join("Trip/Tokyo/asakusa.md").exists());
+    assert!(!library.join("Trip/Tokyo/nara.md").exists());
     assert!(!library.join("Trip.md").exists());
     let record = mdedit_core::runs::load(&record_path, &library).expect("the record stays");
     assert_eq!(record.state, mdedit_core::runs::State::Undone);
@@ -159,7 +159,7 @@ fn a_group_file_that_cannot_be_written_leaves_the_notes_unlinked_and_the_record_
     press(&mut a, KeyName::Enter);
     // The note is there, with nothing listing it.
     assert_eq!(
-        read(&dir.join("library/Trip/Tokyo/Asakusa.md")),
+        read(&dir.join("library/Trip/Tokyo/asakusa.md")),
         "# Asakusa\n\nthe river\n"
     );
     let runs = mdedit_core::runs::list(&dir.join("library"));
@@ -332,8 +332,8 @@ fn an_undo_whose_library_file_has_unsaved_changes_keeps_the_notes_and_can_be_pre
     let on_disk = read(&file);
     a.run_undo(record_path.clone());
     // Nothing went: the lines are still there, so the notes stay with them.
-    assert!(library.join("Trip/Tokyo/Asakusa.md").is_file());
-    assert!(library.join("Trip/Tokyo/Nara.md").is_file());
+    assert!(library.join("Trip/Tokyo/asakusa.md").is_file());
+    assert!(library.join("Trip/Tokyo/nara.md").is_file());
     assert_eq!(read(&file), on_disk, "the library file was not written");
     assert!(read(&file).contains("[Asakusa]"));
     let record = mdedit_core::runs::load(&record_path, &library).expect("the record");
@@ -354,8 +354,8 @@ fn an_undo_whose_library_file_has_unsaved_changes_keeps_the_notes_and_can_be_pre
     a.command(C::Save);
     assert!(!a.docs.active_doc().is_some_and(|d| d.modified()));
     a.run_undo(record_path.clone());
-    assert!(!library.join("Trip/Tokyo/Asakusa.md").exists());
-    assert!(!library.join("Trip/Tokyo/Nara.md").exists());
+    assert!(!library.join("Trip/Tokyo/asakusa.md").exists());
+    assert!(!library.join("Trip/Tokyo/nara.md").exists());
     assert!(!read(&file).contains("[Asakusa]"), "{}", read(&file));
     let record = mdedit_core::runs::load(&record_path, &library).expect("the record");
     assert_eq!(record.state, mdedit_core::runs::State::Undone);
@@ -373,7 +373,7 @@ fn a_run_that_cannot_start_keeps_the_plan_and_its_edits_on_screen() {
         let s = a.plan.as_mut().expect("the plan is open");
         s.rename(0, "Mine");
         assert!(
-            s.target_text(0).ends_with("Mine.md"),
+            s.target_text(0).ends_with("mine.md"),
             "{}",
             s.target_text(0)
         );
@@ -384,7 +384,7 @@ fn a_run_that_cannot_start_keeps_the_plan_and_its_edits_on_screen() {
     let s = a.plan.as_ref().expect("the card stays");
     assert_eq!(s.plan.notes().len(), notes);
     assert!(
-        s.target_text(0).ends_with("Mine.md"),
+        s.target_text(0).ends_with("mine.md"),
         "the rename is still there: {}",
         s.target_text(0)
     );
@@ -468,7 +468,7 @@ fn the_groups_file_is_made_before_its_notes_even_when_every_note_fails() {
     assert_eq!(runs.len(), 1);
     assert!(runs[0].record.group.created);
     assert_eq!(runs[0].record.state, mdedit_core::runs::State::Done);
-    assert!(!library.join("Trip/Tokyo/Asakusa.md").exists());
+    assert!(!library.join("Trip/Tokyo/asakusa.md").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -504,7 +504,7 @@ fn a_home_line_that_names_the_library_folder_makes_no_note_there() {
     a.library_rows();
     a.library_new_note(&file, &[], "Idea");
     assert!(
-        !library.join("Idea.md").exists(),
+        !library.join("idea.md").exists(),
         "no library file was made"
     );
     assert!(
@@ -531,7 +531,7 @@ fn a_plan_refuses_a_group_whose_folder_is_the_library_folder() {
     // Enter, the owner's one press that writes: nothing is written, and the card stays.
     press(&mut a, KeyName::Enter);
     assert!(
-        !library.join("Asakusa.md").exists(),
+        !library.join("asakusa.md").exists(),
         "no note was written in the library folder"
     );
     assert!(a.plan.is_some(), "the card stays");
@@ -643,12 +643,12 @@ fn a_note_with_no_section_is_written_into_the_groups_own_notes_before_its_first_
     press(&mut a, KeyName::Enter);
     assert!(a.plan.is_none(), "the card closes when it writes");
     // The notes are written, in the group's own folder.
-    assert!(library.join("Trip/Asakusa.md").is_file());
-    assert!(library.join("Trip/Nara.md").is_file());
+    assert!(library.join("Trip/asakusa.md").is_file());
+    assert!(library.join("Trip/nara.md").is_file());
     // Their links are above the group's first section, not under its last one.
     let after = read(&group);
     let first_link = after
-        .find("(Trip/Asakusa.md)")
+        .find("(Trip/asakusa.md)")
         .unwrap_or_else(|| panic!("no link for the note of the rest: {after}"));
     let first_section = after
         .find("## Tokyo")
