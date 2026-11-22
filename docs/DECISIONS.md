@@ -788,3 +788,24 @@ folder, and a rename is the owner typing the name they want; changing it under t
 Kept in mdedit for now, against D-081, because the slug is one line and S3 moves the whole writer.
 **Overturned by.** The owner wanting groups and renames slugged too.
 **From.** Claude, building D-075 with the owner away (they asked that decisions be made and noted).
+
+## D-084 · 2026-11-22 · A move refuses a library file it cannot rewrite, and undo of a move keeps to the library
+
+**Decision.** Three rules for "Move the notes…" (`moves.rs`), from the review of its draft:
+(1) a library file that is not UTF-8, which the reader still lists from (as cp1252, or UTF-16),
+refuses the move by name before the first file moves, and stops a run that meets it, which puts
+back what it moved; a file past the reader's 1 MiB lists nothing and is passed over, as the reader
+does. (2) Undo of a move makes every refusal a write makes (a file or library file open with
+unsaved changes, a library file that would not take its lines) before the first file goes back.
+(3) A note the owner brought into the library from outside stays where the move put it when the
+move is undone, listed as kept with the reason; undo writes nothing outside the library folder,
+the group's folder, or the folder a library move left. D-072 holds for moves: a record's own
+word that a file came from outside no longer lets undo write there.
+**Why.** (1) and (2): without them notes moved and their links pointed at nothing, or undo moved
+every file back and only then refused. (3): a record lives in a synced folder, and D-072 says it
+gives no more power than write access to the library. Converting a file's encoding was the other
+way for (1); a move is the wrong place to change how the owner's file is saved.
+**Overturned by.** The owner wanting notes from outside put back by undo; then the place should
+come from something other than the record (asked at undo, or confirmed by the owner).
+**From.** Claude, with the owner away (they asked that decisions be made and noted); the review
+of the move-notes draft, 2026-11-22.
