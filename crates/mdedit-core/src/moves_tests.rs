@@ -212,6 +212,9 @@ impl Files for Flaky {
     }
 
     fn remove_dir(&mut self, path: &Path) -> io::Result<()> {
+        if self.fail_remove.iter().any(|p| same_path(p, path)) {
+            return Err(io::Error::other("the disk refused"));
+        }
         self.disk.remove_dir(path)
     }
 }
@@ -1723,5 +1726,59 @@ home: {}
         !text(&w.file).contains("Documents"),
         "its line still names where it is: {}",
         text(&w.file)
+    );
+}
+
+#[test]
+fn a_library_move_past_the_records_it_carries_takes_the_newest() {
+    let (_dir, old, new) = old_library("libnewest");
+    let runs_dir = old.join(runs::RUNS_DIR);
+    for i in 0..RECORDS_MAX {
+        put(
+            &runs_dir.join(format!("2026-06-{:02}T00-00-00Z-{i:03}.json", i % 28 + 1)),
+            "{}",
+        );
+    }
+    let plan = plan_library(&old, &new);
+    let records: Vec<&Row> = plan
+        .rows
+        .iter()
+        .filter(|r| r.kind == FileKind::Record)
+        .collect();
+    assert_eq!(records.len(), RECORDS_MAX);
+    assert!(
+        records
+            .iter()
+            .all(|r| !r.from.to_string_lossy().contains("2026-01-01")),
+        "the two January files are the oldest and are the ones left"
+    );
+}
+
+#[test]
+fn a_folder_a_rolled_back_run_could_not_remove_stays_in_its_record() {
+    let w = world("rollback-folder");
+    let plan = group_plan(&w);
+    let mut g = gate();
+    g.fail_edit = Some(1);
+    let mut files = flaky();
+    files.fail_remove = vec![w.work.join("Tokyo")];
+    let report = do_write(&plan.request(), &mut g, &mut files);
+    assert!(report.rolled_back.is_some(), "{report:?}");
+    assert!(w.work.join("Tokyo").is_dir(), "the folder would not go");
+    let record = runs::load(&report.record_path.expect("a record"), &w.library).expect("it reads");
+    assert!(
+        record
+            .folders
+            .iter()
+            .any(|d| same_path(d, &w.work.join("Tokyo"))),
+        "the record still names it as the run's: {:?}",
+        record.folders
+    );
+    assert!(
+        !record
+            .folders
+            .iter()
+            .any(|d| same_path(d, &w.work.join("Food"))),
+        "and not the one that went"
     );
 }

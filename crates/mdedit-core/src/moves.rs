@@ -622,8 +622,10 @@ pub fn plan_library(old: &Path, new: &Path) -> Plan {
                 .collect()
         })
         .unwrap_or_default();
+    // Their names start with the time, so the newest are the last: those are the ones kept.
     records.sort();
-    records.truncate(RECORDS_MAX);
+    let past = records.len().saturating_sub(RECORDS_MAX);
+    records.drain(..past);
     for file in &records {
         let Some(name) = file.file_name() else {
             continue;
@@ -1673,8 +1675,9 @@ fn run(
             for dir in gone {
                 let _ = files.remove_dir(&dir);
             }
+            // A folder that would not go stays in the record, so undo still knows it is the run's.
             if let Some(j) = journal.as_deref_mut() {
-                j.record.folders.clear();
+                j.record.folders.retain(|d| d.is_dir());
             }
         }
         if let Some(j) = journal.as_deref_mut() {
