@@ -25,14 +25,12 @@ pub mod lines;
 pub mod load;
 pub mod markdown;
 pub mod merge;
-pub mod moves;
 pub mod multi;
 pub mod multiline;
 pub mod prefs;
 pub mod recovery;
 pub mod replace;
 pub mod replace_files;
-pub mod runs;
 pub mod save;
 pub mod search;
 pub mod selection;
@@ -43,6 +41,9 @@ pub mod table;
 mod testutil;
 pub mod typing;
 pub mod vcol;
+/// The run record and Move the notes live in the shared crates (D-081); kept here by their old
+/// names so `mdedit_core::runs` and `mdedit_core::moves` read as before.
+pub use mdshared_app::{moves, runs};
 
 pub use buffer::{Buffer, Change, Position};
 pub use encoding::Encoding;

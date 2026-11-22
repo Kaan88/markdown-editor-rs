@@ -2314,8 +2314,8 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
 
 ## 70. The write, the record and undo (2026-11-21)
 
-`docs/ai-library-plan.md` 4.1, 4.3, 4.4, 4.5, 5.9, 6.2, 6.3. The model is `mdedit_core::runs`
-(no window, no AI: `Request`, `Report`, `Record`, `Run`, `UndoPlan`, `Gate`), the window's part is
+`docs/ai-library-plan.md` 4.1, 4.3, 4.4, 4.5, 5.9, 6.2, 6.3. The model is `mdshared_app::runs`,
+re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no AI: `Request`, `Report`, `Record`, `Run`, `UndoPlan`, `Gate`), the window's part is
 `bins/mdedit/src/app/plan_write.rs` (the request a plan makes, the gate, the report, undo, Finish,
 "AI runs…"), and the screen gains nothing but a `problem()` and `root()`.
 
@@ -2378,7 +2378,7 @@ parking, routing input). The notes, the rest, the warnings and the counts are al
 - **The Notes pane's foot** draws "Plan ready: N notes · Show · Drop" while a plan is parked; the
   count and the parked flag are in the Files region's signature.
 - Shots: `--dialog runs|run-undo|run-undo-recycled|run-undo-original|runs-newer`, and `--plan-demo split --plan-parked`.
-- Tests: `mdedit_core::runs` (23 in the module) and `crates/mdedit-core/tests/undo_rules.rs` (27: each
+- Tests: `mdshared_app::runs` (24 in the module, in the shared repo) and `crates/mdedit-core/tests/undo_rules.rs` (27: each
   of D-069 to D-072 forced on disk, and each one fails with its fix reverted), `app::plan_write_tests`
   (8) and `app::undo_rules_tests` (5: the window's gate, the flat undo, the refusal when the
   original is gone, the list of unreadable records).
@@ -2522,3 +2522,31 @@ screen (`plan_ui.rs`) and the window (`app/plan.rs`) carry what they need.
   note here…", "Move to…", in one file and in two).
   The old test of step 6 failing was restaged on a `.tmp` file in the way, since a taken group name
   no longer reaches the write.
+
+
+## 74. Move the notes: the core (2026-11-22)
+
+`docs/ai-library-plan.md` 5.12. `mdshared_app::moves` (shared from the start of phase S3, D-081),
+headless, beside the record it writes to (`runs`). The window side is not built.
+
+- **Plans.** `plan_group(library, group)` has a row per listed note that is not where its group's
+  folder and headings put it (`Start::Folder` or `Start::Headings`); `plan_library(old, new)` has
+  the library files, the notes inside the old folder and up to `RECORDS_MAX` (400) records, the
+  newest. A row is blocked, not dropped, for a taken name (case folded where the disk folds it),
+  two notes going to one name, a note listed twice, a symlink, a missing file; a note from outside
+  the library comes unticked and says where it lives.
+- **Preflight** refuses before the first file: the folders and every file as planned (digest and
+  length), every destination free, no library file or note open with unsaved changes (the gate's
+  `free`), and every library file read as UTF-8 and dry-run with the lines it would get. A file
+  the reader lists from but that is not UTF-8 is refused by name (D-084).
+- **The write**: the record first, with every file marked done; the folders; each file by a rename
+  that never replaces, or across a volume a copy made new, read back and compared; the library
+  files through the gate, each edit checked against the line it replaces; the old copies after
+  the lines name the new ones; the emptied folders, deepest first. A refused library file rolls
+  everything back to the byte and the record says so, keeping any folder it could not remove.
+- **Undo** reads the record's paths through `reach_of` (D-072): a note that came from outside the
+  library stays where the move put it (D-084); every other file goes back only while its digest
+  is the one moved, nothing is at its old place, and its line is the run's (D-070). `undo_preflight`
+  makes a write's refusals before the first file goes back.
+- Tests: `mdshared_app::moves` (50, `moves_tests.rs`), one per rule of 5.12 and per failure point,
+  each failing with its fix reverted. Not yet carried: a moved note's pictures and its own links.
