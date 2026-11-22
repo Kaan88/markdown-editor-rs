@@ -7,11 +7,13 @@
 //!
 //! Names: `hub-main`, `hub-menu`, `hub-updating`, `hub-running`, `hub-notes`, `hub-failed`,
 //! `hub-rollback`, `hub-first-run`, `hub-tray`, `hub-settings-updates`, `hub-settings-general`,
-//! `hub-self-update`, `hub-linux`, and `hub-report`, which prints the layout numbers to stderr.
+//! `hub-self-update`, `hub-linux`; the icon views `hub-icons` (large), `hub-icons-small`,
+//! `hub-icons-updating` (large) and `hub-icons-failed` (small); and `hub-report`, which prints the layout numbers to stderr.
 
 mod data;
 mod dialogs;
 mod engine;
+mod grid;
 mod pages;
 mod panes;
 mod report;
@@ -21,7 +23,7 @@ mod win;
 use data::St;
 use mdshared_ui::gfx::Painter;
 use mdshared_ui::theme::Palette;
-use win::{Banner, Bar, Pane, Scene};
+use win::{Banner, Bar, Pane, Scene, View};
 
 fn show(p: &mut Painter, pal: &Palette, w: f32, h: f32, s: Scene) {
     win::window(p, pal, w, h, &s);
@@ -41,34 +43,43 @@ pub fn draw(p: &mut Painter, pal: &Palette, name: &str, w: f32, h: f32) {
                 ..d()
             },
         ),
-        "hub-menu" => dialogs::row_menu(p, pal, w, h),
-        "hub-updating" => {
-            let mut s = d();
-            s.st[data::MDEDIT] = St::Downloading(0.64, "Downloading \u{b7} 6.2 MB/s");
-            s.st[data::SPRAWL] = St::Verifying;
-            s.st[data::INBOUND] = St::Waiting("Open: close it, or Hub asks you");
-            s.bar = Bar::Busy("2 of 3 updates running, 1 waiting");
-            s.pane = Pane::Steps;
+        "hub-icons" => show(
+            p,
+            pal,
+            w,
+            h,
+            Scene {
+                hover: Some(data::SPRAWL),
+                view: View::Large,
+                ..d()
+            },
+        ),
+        "hub-icons-small" => show(
+            p,
+            pal,
+            w,
+            h,
+            Scene {
+                hover: Some(data::SPRAWL),
+                view: View::Small,
+                ..d()
+            },
+        ),
+        "hub-icons-updating" => {
+            let mut s = updating();
+            s.view = View::Large;
             show(p, pal, w, h, s);
         }
+        "hub-icons-failed" => {
+            let mut s = failed();
+            s.view = View::Small;
+            show(p, pal, w, h, s);
+        }
+        "hub-menu" => dialogs::row_menu(p, pal, w, h),
+        "hub-updating" => show(p, pal, w, h, updating()),
         "hub-running" => dialogs::running(p, pal, w, h),
         "hub-notes" => dialogs::notes(p, pal, w, h),
-        "hub-failed" => {
-            let mut s = d();
-            s.st[data::MDEDIT] = St::Done("1.2.1, reopened");
-            s.inst[data::MDEDIT] = Some("1.2.1");
-            s.st[data::SPRAWL] = St::Failed("SHA-256 does not match");
-            s.sel = data::SPRAWL;
-            s.pane = Pane::Failure;
-            s.bar = Bar::Updates(2);
-            s.banner = Some(Banner {
-                text: "Sprawl 1.0.5 was not installed: the file does not match its SHA-256. 1.0.3 is unchanged.",
-                yes: "Try again",
-                no: "Details",
-                warn: true,
-            });
-            show(p, pal, w, h, s);
-        }
+        "hub-failed" => show(p, pal, w, h, failed()),
         "hub-rollback" => dialogs::rollback(p, pal, w, h),
         "hub-first-run" => dialogs::first_run(p, pal, w, h),
         "hub-tray" => dialogs::tray(p, pal, w, h),
@@ -120,4 +131,31 @@ pub fn draw(p: &mut Painter, pal: &Palette, name: &str, w: f32, h: f32) {
         }
         other => eprintln!("mdedit: no mock named {other}"),
     }
+}
+
+fn updating() -> Scene {
+    let mut s = Scene::default();
+    s.st[data::MDEDIT] = St::Downloading(0.64, "Downloading \u{b7} 6.2 MB/s");
+    s.st[data::SPRAWL] = St::Verifying;
+    s.st[data::INBOUND] = St::Waiting("Open: close it, or Hub asks you");
+    s.bar = Bar::Busy("2 of 3 updates running, 1 waiting");
+    s.pane = Pane::Steps;
+    s
+}
+
+fn failed() -> Scene {
+    let mut s = Scene::default();
+    s.st[data::MDEDIT] = St::Done("1.2.1, reopened");
+    s.inst[data::MDEDIT] = Some("1.2.1");
+    s.st[data::SPRAWL] = St::Failed("SHA-256 does not match");
+    s.sel = data::SPRAWL;
+    s.pane = Pane::Failure;
+    s.bar = Bar::Updates(2);
+    s.banner = Some(Banner {
+        text: "Sprawl 1.0.5 was not installed: the file does not match its SHA-256. 1.0.3 is unchanged.",
+        yes: "Try again",
+        no: "Details",
+        warn: true,
+    });
+    s
 }

@@ -53,13 +53,28 @@ only (named under Settings > Updates).
 | `rollback-*` | Go back to an earlier mdedit: the kept copy of 1.2.0 (no download) or older releases (download and check). Skip 1.2.1. | Needs a policy: Hub keeps one previous version per app. |
 | `first-run-*` | Nothing installed yet: pick apps, one install folder (per user), start with Windows, a found install (NewsQueue) offered for adoption. | The only screen that is not the list. |
 | `tray-*` | The tray icon with a "3" badge, its tooltip, and the menu: update all, update one, open an app. | Hub lives in the tray; most days that is all the owner sees. |
-| `settings-updates-*`, `settings-general-*` | Settings in the category design: look every 6 hours, pre-releases, install by itself for closed apps, versions kept, update Hub; install folder, start with Windows, tray, notifications; and the list of what Hub contacts. | The four settings asked for, and the network promise in plain words. |
+| `settings-updates-*`, `settings-general-*` | Settings in the category design: look every 6 hours, pre-releases, install by itself for closed apps, versions kept, update Hub; install folder, start with Windows, tray, notifications, show apps as list or icons; and the list of what Hub contacts. | The four settings asked for, and the network promise in plain words. |
 | `self-update-*` | Hub 0.4.0 downloaded; a bar and the first row say "restart to finish"; the pane explains that Hub finishes last and puts its old exe back if the swap fails. | The launcher must keep itself current without breaking an install in flight. |
 | `linux-*` | The same window on Linux: mdedit from apt (update it with apt), AppImage updates, Sprawl has no Linux build (dimmed, disabled, why). | Platform rows differ in what Install means. |
+| `icons-*` | The main state as large icons: seven tiles in one row at 1280 (four to a row at 860, where the pane gives way as in the list). Each tile has the icon with its badges, name, blurb, `installed → latest`, the status line and the row's one action; the rest is in the `⋯` menu. | The view the owner asked for beside the list. Every state of the list still has its words and its button. |
+| `icons-small-*` | The same as small icons: icon, name and one word (Update, the version, Not installed, Not by Hub). Badges carry the rest: blue arrow for an update, green dot when the app is open. | All seven fit one row even at 860, so the pane under them stays on the compact size too. It is a launcher first, an updater second. |
+| `icons-updating-*` | Update all in progress, as large icons: mdedit's progress bar on its tile, Sprawl checking its SHA-256, Inbound waiting because it is open. | Waiting and progress have to read on a tile as well as in a row. |
+| `icons-failed-*` | The failed update as small icons: a red `!` badge on Sprawl and "Not updated", a green check on mdedit, the bar and the pane as in `failed-*`. | A failure must be seen even when the tile has one word. |
+
 
 `numbers.txt` is the layout report (`--mock hub-report`).
 
+## The view switch
+
+Three buttons left of the platform picker, in every window state: list, large icons, small icons.
+Settings > General keeps the same choice ("Show apps as"). The icon views keep the list's order
+(newest release first, the strip above the tiles says so), its selection and its pane; only the
+columns go. Large tiles are at least 164 px wide and 196 px tall; small ones at least 108 by 104.
+Neither view adds a state the list does not have.
+
 ## Open questions the drawing raised
+
+- Which view Hub opens in the first time: the list (it says the most) or small icons (a launcher)?
 
 - First install: run each app's own Setup silently, or place the exe? Setups write the uninstall
   entry; the exe alone is what the updater swaps. mdedit's update downloads 35 MB (exe, engine, AI

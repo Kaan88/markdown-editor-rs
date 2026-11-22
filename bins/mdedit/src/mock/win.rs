@@ -39,6 +39,15 @@ pub enum Pane {
     None,
 }
 
+/// How the apps are shown: the list, or a grid of large or small icons.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum View {
+    #[default]
+    List,
+    Large,
+    Small,
+}
+
 #[derive(Clone)]
 pub struct Banner {
     pub text: &'static str,
@@ -61,6 +70,7 @@ pub struct Scene {
     pub bar: Bar,
     pub hover: Option<usize>,
     pub checked: &'static str,
+    pub view: View,
 }
 
 impl Default for Scene {
@@ -96,6 +106,7 @@ impl Default for Scene {
             bar: Bar::Updates(3),
             hover: None,
             checked: "Checked 4 minutes ago",
+            view: View::List,
         }
     }
 }
@@ -170,7 +181,10 @@ pub fn window(p: &mut Painter, pal: &Palette, w: f32, h: f32, sc: &Scene) -> Out
     let status_y = h - STATUS_H;
     let mut out = Out::default();
     let rs = rows(sc);
-    let list_h = HEAD_H + rs.len() as f32 * ROW_H;
+    let list_h = match sc.view {
+        View::List => HEAD_H + rs.len() as f32 * ROW_H,
+        v => super::grid::height(v, w, rs.len()),
+    };
     let room = status_y - top;
     let pane_h = if sc.pane == Pane::None || room - list_h < PANE_MIN {
         0.0
@@ -179,7 +193,10 @@ pub fn window(p: &mut Painter, pal: &Palette, w: f32, h: f32, sc: &Scene) -> Out
     };
     let list = Rect::new(0.0, top, w, room - pane_h);
     out.list = list;
-    out.rows = list_draw(p, pal, list, sc, &rs, w, &mut out.name_w);
+    out.rows = match sc.view {
+        View::List => list_draw(p, pal, list, sc, &rs, w, &mut out.name_w),
+        _ => super::grid::draw(p, pal, list, sc, &rs),
+    };
     if pane_h > 0.0 {
         let pane = Rect::new(0.0, list.bottom(), w, pane_h);
         out.pane = pane;
@@ -312,6 +329,36 @@ fn bar(p: &mut Painter, pal: &Palette, w: f32, sc: &Scene) {
     rx -= lw;
     bar_button(p, pal, rx, y, glyph::SYSTEM, Some(lab), true);
     p.icon(glyph::DOWN, 9.0, rx + lw - 8.0, cy, pal.muted);
+    // The view switch: list, large icons, small icons.
+    let seg = 30.0;
+    rx -= 8.0 + 3.0 * seg + 2.0;
+    let sr = Rect::new(rx, y, 3.0 * seg + 2.0, 32.0);
+    p.frame(sr, 6.0, pal.field, pal.line);
+    for (k, (g, v)) in [
+        (super::grid::LIST, View::List),
+        (super::grid::LARGE, View::Large),
+        (super::grid::SMALL, View::Small),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let b = Rect::new(sr.x + 1.0 + k as f32 * seg, y + 1.0, seg, 30.0);
+        let on = sc.view == v;
+        if on {
+            p.rbox(
+                Rect::new(b.x + 2.0, b.y + 2.0, b.w - 4.0, b.h - 4.0),
+                4.0,
+                pal.on,
+            );
+        }
+        p.icon(
+            g,
+            14.0,
+            b.cx(),
+            b.cy(),
+            if on { pal.accent } else { pal.muted },
+        );
+    }
     if w >= 900.0 {
         rx -= 8.0;
         let fw = 220.0;
@@ -332,20 +379,20 @@ fn bar(p: &mut Painter, pal: &Palette, w: f32, sc: &Scene) {
 
 // ---- the list ---------------------------------------------------------------------------------
 
-fn dot(p: &mut Painter, x: f32, cy: f32, c: Rgb) {
+pub fn dot(p: &mut Painter, x: f32, cy: f32, c: Rgb) {
     p.rbox(Rect::new(x, cy - 3.5, 7.0, 7.0), 3.5, c);
 }
 
-struct Status {
-    dot: Option<Rgb>,
-    line: String,
-    line_col: Rgb,
-    sub: String,
-    sub_col: Rgb,
-    bar: Option<(f32, Rgb)>,
+pub struct Status {
+    pub dot: Option<Rgb>,
+    pub line: String,
+    pub line_col: Rgb,
+    pub sub: String,
+    pub sub_col: Rgb,
+    pub bar: Option<(f32, Rgb)>,
 }
 
-fn status_of(pal: &Palette, sc: &Scene, i: usize, compact: bool) -> Status {
+pub fn status_of(pal: &Palette, sc: &Scene, i: usize, compact: bool) -> Status {
     let app = &APPS[i];
     let s = |dot, line: &str, lc, sub: &str, sc_| Status {
         dot,

@@ -89,6 +89,13 @@ pub fn pages() -> Vec<Page> {
                 true,
             ))),
             Item::Row(R::new(choice(5, "Theme", "", &["Light", "Dark", "System"], 2))),
+            Item::Row(R::new(choice(
+                6,
+                "Show apps as",
+                "The same switch as the three buttons beside Filter apps.",
+                &["List", "Large icons", "Small icons"],
+                0,
+            ))),
         ],
     );
     let updates = page(

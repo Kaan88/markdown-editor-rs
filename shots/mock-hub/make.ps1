@@ -7,14 +7,14 @@ $exe = Join-Path $root "target\release\mdedit.exe"
 $scratch = Join-Path $env:TEMP "mock-hub-settings"
 New-Item -ItemType Directory -Force $scratch | Out-Null
 $env:MDEDIT_SETTINGS = Join-Path $scratch "settings.ini"
-$names = "main","menu","updating","running","notes","failed","rollback","first-run","tray","settings-updates","settings-general","self-update","linux"
+$names = "main","menu","updating","running","notes","failed","rollback","first-run","tray","settings-updates","settings-general","self-update","linux","icons","icons-small","icons-updating","icons-failed"
 foreach ($n in $names) {
   foreach ($t in "light","dark") {
     & $exe --behind --no-session --shot (Join-Path $root "$Out\$n-$t.png") --size 1280x800 --$t --mock "hub-$n"
   }
 }
 # The compact size (860x600) for the states that matter when the window is small.
-foreach ($n in "main","updating","failed","first-run") {
+foreach ($n in "main","updating","failed","first-run","icons","icons-small","icons-updating") {
   foreach ($t in "light","dark") {
     & $exe --behind --no-session --shot (Join-Path $root "$Out\$n-compact-$t.png") --size 860x600 --$t --mock "hub-$n"
   }
