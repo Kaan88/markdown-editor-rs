@@ -39,16 +39,15 @@ were shortened so `ci` passes on Linux again (D-099).
 - **Budgets: no change against 1.2.1.** `docs/measurements/2026-11-23-1.3.0-against-1.2.1.md`:
   `sample.rs` 94.1 ms and 27.3 MiB in both; `sample.md` 121.5 ms and 36.4 MiB against 120.4 and
   36.6, over the first-frame and memory budgets in 1.2.1 already.
-- **`ci` on `main`**: red on Linux since the paged Settings (two labels too wide); fixed in
-  `ee18685`, not yet seen green.
-- **The owner's hand check**: `target\for-owner\9-release-1.3.0\CHECKLIST.md`. Settings, the
-  split and its undo, the Recycle Bin, the move, the dropdown and a closed mdview were approved by
-  pictures or tested in code and never used in a live window. Split by AI was never run against a
-  real provider: try it or leave it out of the notes.
+- **`ci` on `main`**: green on all four platforms at `2e57cfa` (the Linux label fault fixed in
+  `ee18685`).
+- **The owner's hand check is done** (D-101, `target\for-owner\9-release-1.3.0\CHECKLIST.md`):
+  no blocker. Everything tried works, Split by AI against a real provider included; "Move the
+  notes" was not tried. Four faults found go to the next release (below).
 - **Not reviewed**: nothing since 1.2.0 has had an outside review (audit 3's fixes included).
 - **mdview 1.0.5** is on its `main` too (`docs/release-notes/1.0.5.md` there): Settings as pages,
   `?closed`, the version resource and `hub.txt`. Its `ci` on Linux had the same label fault,
-  fixed in `e41ea3f`, not yet seen green.
+  fixed in `e41ea3f`; green at `40d147e`.
 - Then the tag `v1.3.0` (`docs/RELEASE.md`), only when the owner says so.
 
 ## In hand
@@ -73,10 +72,19 @@ were shortened so `ci` passes on Linux again (D-099).
 
 ## Next
 
-1. `ci` green on both `main`s; the owner's hand check; then the tags, when the owner says.
-2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
+1. The tags `v1.3.0` and mdview `v1.0.5`, when the owner says.
+2. The owner's four faults from the hand check (D-101), for the next release.
+3. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
+
+- **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
+  leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
+  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
+- "Add this file to the notes library…" adds it, but the tree shows the note only after its group
+  is folded and opened again.
+- Browsing the library in the full preview keeps the preview for two or three files, then falls
+  back to editing.
 
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
@@ -85,7 +93,8 @@ were shortened so `ci` passes on Linux again (D-099).
 - The editor never reads the AI engine's version.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note with nothing listing them and splitting that document again writes nothing
-  (every note reads "already there" and comes unticked). Found by the owner.
+  (every note reads "already there" and comes unticked). Found by the owner, who asks that the
+  question at least say the notes stay on disk.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;
