@@ -39,7 +39,6 @@ mod palette;
 mod panes;
 mod places;
 mod plan_demo;
-mod plan_draw;
 mod plan_ui;
 mod platform;
 mod preview_pane;

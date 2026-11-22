@@ -1,4 +1,4 @@
-//! The plan screen as the window hosts it (`plan_ui.rs` is the screen, `plan_draw.rs` draws it):
+//! The plan screen as the window hosts it (the screen and its drawing are `mdshared_ui::plan`):
 //! it is drawn over everything, as the palette and the AI panels are, and while it is open it
 //! takes every key, pointer and wheel event. It writes nothing: "Write the notes" records that it
 //! was pressed.
@@ -114,7 +114,7 @@ impl App {
             .cloned()
             .unwrap_or_else(|| Dest::new(&root, &stem, true));
         let mut screen = PlanScreen::new(Init {
-            doc: &buffer,
+            doc: mdedit_core::split::document(&buffer),
             name: &name,
             path: Some(&path),
             headings: &headings,
@@ -213,7 +213,12 @@ impl App {
         let Some(screen) = self.plan.as_mut() else {
             return;
         };
-        let act = screen.key(&key, mods, typed);
+        let (name, menu_key) = match &key {
+            PlanKey::Name(n) => (Some(n), false),
+            PlanKey::Insert => (None, false),
+            PlanKey::Menu => (None, true),
+        };
+        let act = screen.key(name, menu_key, mods, typed);
         self.caret_reset();
         self.plan_act(act);
     }

@@ -2287,11 +2287,18 @@ rewrite, the credential store on Windows and macOS, anything on Windows.
 ## 69. The plan screen (2026-11-21)
 
 The card of `docs/ai-library-plan.md` 5.3: the notes a split would make, read and changed, and
-nothing written. Four files: `plan_ui.rs` (state, events, the numbers of the layout, the
-strip's arithmetic, the files each note would be written as), `plan_draw.rs` (drawing),
-`plan_demo.rs` (the documents of the shots), `app/plan.rs` (the window's part: opening, closing,
-parking, routing input). The notes, the rest, the warnings and the counts are all
-`mdedit_core::split`; the list's and the preview's row arithmetic is `mdshared_ui::rows`.
+nothing written. Since phase S3 (D-081) the card is shared: `mdshared_ui::plan` (`plan.rs`:
+state, events, the numbers of the layout, the strip's arithmetic, the files each note would be
+written as; `plan/draw.rs`: drawing; `plan/demo.rs`: the documents of the shots and its tests)
+in markdown-shared-rs. It takes the document as an `Arc<dyn mdshared_app::split::Lines>` and a
+key as its name plus whether it was the context-menu key. What stays in mdedit: `plan_ui.rs`
+(re-exports the card and finds the headings with the function list, `headings_of`),
+`plan_demo.rs` (`--plan-demo`), `app/plan.rs` (the window's part: opening, closing, parking,
+routing input). The notes, the rest, the warnings and the counts are all `mdshared_app::split`,
+kept in mdedit-core as `mdedit_core::split`, which adds `Lines` for `Buffer` (the rope's lines
+and chunks) and `split::document`; the caps (`SPLIT_MAX_NOTES` and the rest) are the shared
+ones, re-exported by `limits`. The list's and the preview's row arithmetic is
+`mdshared_ui::rows`.
 
 - **The screen is over everything**, like the palette: while it is open it takes every key,
   pointer, wheel and typing event, and its tick, hover, press and caret are in the overlay
@@ -2467,7 +2474,8 @@ mode is the window's, not one file's: `bins/mdedit/src/app/visual.rs`.
 Audit 3's D2 and A6, A7, A8, A11, C1, C2, C3, C5 and C7 (`docs/review-prompts/audit3-report.md`),
 against `docs/ai-library-plan.md` 4.3 and 6.2. The writer is still `mdedit_core::runs`; the checks
 are `bins/mdedit/src/app/plan_write.rs` (`plan_request`, `plan_preflight`, `plan_blocked`), and the
-screen (`plan_ui.rs`) and the window (`app/plan.rs`) carry what they need.
+screen (`mdshared_ui::plan`, re-exported by `plan_ui.rs`) and the window (`app/plan.rs`) carry
+what they need.
 
 - **Everything that can be refused is checked before the first byte, and the reason is the card's.**
   `plan_preflight` refuses a library root that is empty or relative, a group's folder that is the
