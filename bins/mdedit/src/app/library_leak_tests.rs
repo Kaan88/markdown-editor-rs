@@ -89,7 +89,7 @@ fn a_note_made_with_new_note_here_is_not_written_in_the_library_folder() {
         library
             .join("Personal")
             .join("Money")
-            .join("Budget 2.md")
+            .join("budget 2.md")
             .exists()
     );
     let _ = std::fs::remove_dir_all(&l.dir);

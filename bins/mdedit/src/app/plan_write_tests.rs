@@ -784,20 +784,12 @@ fn two_titles_that_differ_only_in_case_are_given_two_files() {
             p.targets[0].path,
             p.targets[1].path
         );
-        // On a disk that tells `Notes.md` from `notes.md` the second note needs no other name;
-        // where names ignore case, Windows and a Mac as it formats itself, it is renamed. The
-        // one place that knows which disk this is is `NAMES_IGNORE_CASE`, so the test asks it
-        // rather than naming an operating system.
-        if mdshared_app::paths::NAMES_IGNORE_CASE {
-            assert_eq!(p.targets[1].renamed.as_deref(), Some("notes 2.md"));
-            assert_eq!(
-                p.mark(1),
-                Some(crate::plan_ui::Mark::Renamed("notes 2.md".to_string()))
-            );
-        } else {
-            assert_eq!(p.targets[1].renamed, None);
-            assert_eq!(p.mark(1), None);
-        }
+        // Both titles are named `notes.md` (D-075), on every disk, so the second is numbered.
+        assert_eq!(p.targets[1].renamed.as_deref(), Some("notes 2.md"));
+        assert_eq!(
+            p.mark(1),
+            Some(crate::plan_ui::Mark::Renamed("notes 2.md".to_string()))
+        );
     }
     press(&mut a, KeyName::Enter);
     let folder = dir.join("library").join("Trip");
@@ -807,13 +799,10 @@ fn two_titles_that_differ_only_in_case_are_given_two_files() {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(files.len(), 2, "{files:?}");
-    assert_eq!(read(&folder.join("Notes.md")), "# Notes\n\nfirst\n");
-    let second = if mdshared_app::paths::NAMES_IGNORE_CASE {
-        "notes 2.md"
-    } else {
-        "notes.md"
-    };
-    assert_eq!(read(&folder.join(second)), "# notes\n\nsecond\n");
+    assert!(files.iter().any(|f| f == "notes.md"), "{files:?}");
+    assert!(files.iter().any(|f| f == "notes 2.md"), "{files:?}");
+    assert_eq!(read(&folder.join("notes.md")), "# Notes\n\nfirst\n");
+    assert_eq!(read(&folder.join("notes 2.md")), "# notes\n\nsecond\n");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -850,8 +839,8 @@ fn two_groups_of_one_name_send_the_notes_and_the_links_to_the_chosen_file() {
     );
     let b = read(&library.join("B.md"));
     assert!(b.contains("[Asakusa]") && b.contains("[Nara]"), "{b}");
-    assert!(library.join("B/Asakusa.md").is_file(), "the note is in B");
-    assert!(!library.join("A/Asakusa.md").exists(), "nothing went to A");
+    assert!(library.join("B/asakusa.md").is_file(), "the note is in B");
+    assert!(!library.join("A/asakusa.md").exists(), "nothing went to A");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -967,7 +956,7 @@ fn split_into_notes_reads_the_library_first() {
     assert!(
         dir.join("library")
             .join("Trip")
-            .join("Asakusa.md")
+            .join("asakusa.md")
             .is_file()
     );
     assert!(!dir.join("Trip").exists(), "nothing in the starting folder");

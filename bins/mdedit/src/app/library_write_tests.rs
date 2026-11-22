@@ -320,7 +320,7 @@ fn a_new_note_is_made_in_its_groups_folder_listed_under_its_heading_and_opened()
             .join("library")
             .join("Personal")
             .join("Money")
-            .join("Budget 2.md")
+            .join("budget 2.md")
             .exists()
     );
     let _ = std::fs::remove_dir_all(&l.dir);

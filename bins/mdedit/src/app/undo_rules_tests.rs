@@ -62,14 +62,14 @@ fn title(a: &App) -> String {
 fn undo_of_notes_under_no_section_takes_their_lines_out_through_the_window() {
     let (mut a, library, record, _source, dir) = written("undo-flat", FLAT);
     let group = library.join("Trip.md");
-    assert!(library.join("Trip/Asakusa.md").is_file());
+    assert!(library.join("Trip/asakusa.md").is_file());
     assert!(read(&group).contains("[Asakusa]"));
     a.run_undo(record.clone());
     assert!(
-        !library.join("Trip/Asakusa.md").exists(),
+        !library.join("Trip/asakusa.md").exists(),
         "the notes are removed"
     );
-    assert!(!library.join("Trip/Nara.md").exists());
+    assert!(!library.join("Trip/nara.md").exists());
     // No line is left naming a file that is gone: the group's file went with them.
     assert!(
         !group.exists(),
@@ -115,7 +115,7 @@ fn undo_of_notes_into_a_group_that_was_there_leaves_the_groups_other_lines() {
             .expect("the record");
     assert!(read(&library.join("Trip.md")).contains("[Nara]"));
     a.run_undo(record);
-    assert!(!library.join("Trip/Nara.md").exists());
+    assert!(!library.join("Trip/nara.md").exists());
     assert_eq!(
         read(&library.join("Trip.md")),
         "# Trip\nhome: Trip\n\n- [Mine](Trip/Mine.md)\n",
@@ -161,10 +161,10 @@ fn the_question_of_a_run_whose_original_is_gone_is_a_refusal_and_nothing_is_remo
     // Even when the answer is sent as it would be from the keyboard.
     a.run_undo(record.clone());
     assert!(
-        library.join("Trip/Asakusa.md").is_file(),
+        library.join("Trip/asakusa.md").is_file(),
         "the only copy is still there"
     );
-    assert!(library.join("Trip/Nara.md").is_file());
+    assert!(library.join("Trip/nara.md").is_file());
     assert!(read(&library.join("Trip.md")).contains("[Asakusa]"));
     assert_eq!(
         runs::load(&record, &library).expect("it").state,

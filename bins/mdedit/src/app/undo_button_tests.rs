@@ -64,7 +64,7 @@ fn written(tag: &str, text: &str) -> (App, PathBuf, PathBuf, PathBuf) {
 #[test]
 fn the_right_hand_button_of_undo_this_run_is_cancel_and_undoes_nothing() {
     let (mut a, library, record, dir) = written("probe-cancel", SECTIONED);
-    let note = library.join("Trip").join("Tokyo").join("Asakusa.md");
+    let note = library.join("Trip").join("Tokyo").join("asakusa.md");
     assert!(note.is_file());
     a.run_undo_ask(record.clone());
     assert_eq!(
@@ -91,7 +91,7 @@ fn the_right_hand_button_of_undo_this_run_is_cancel_and_undoes_nothing() {
 #[test]
 fn the_left_hand_button_of_undo_this_run_is_undo_and_does_it() {
     let (mut a, library, record, dir) = written("probe-undo", SECTIONED);
-    let note = library.join("Trip").join("Tokyo").join("Asakusa.md");
+    let note = library.join("Trip").join("Tokyo").join("asakusa.md");
     a.run_undo_ask(record.clone());
     a.compose();
     let zero = hit_rect(&a, Hit::DlgButton(0)).expect("button 0 is drawn");
