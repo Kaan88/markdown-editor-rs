@@ -52,21 +52,11 @@ in the core, the workspace green.
     `settings.rs`. **Uncommitted in the shared repo's own checkout, on `main` at `b4b2182`.**
     The categorised form was not written: no page host, no row kinds, no page-fit test;
     `unchanged.rs` links `super::pages`, which does not exist.
-- **Dependabot cleared** per `docs/dependabot-triage-2026-11-22.md`: the actions group and
-  `windows-sys` 0.61.2 merged (measured before and after: no change past noise, 1.5 KB smaller),
-  `rfd`, `chardetng` and `parley` closed here with reasons, the open-PR limit raised to 10. The
-  parley PRs in the shared repo and mdview are still open. `regex-automata` 0.4.19 (#9) arrived
-  after and is green, not measured, not merged.
-- **A terminal for this ecosystem, drawn**: branch `mock/terminal`, worktree `..\mdedit-term`,
-  `--mock term-<name>`, 20 shots in `shots\mock-term\`, numbers in `numbers.txt`. Output in one
-  block per command — command, exit code, duration, output — each collapsible, searchable,
-  openable in mdedit, or savable as a note. `ecosystem-ideas.md` 12 says **Don't**; the owner
-  asked for that to be reconsidered in a document of its own: **`docs/terminal.md`**, which says
-  *possible*, as a third app, for the block version only (10-17 pw, an estimate), and waits for
-  the owner. Established by drawing: blocks need OSC 133 marks from the shell, so `plain-*.png`
-  (no marks, one stream) is the case to survive; a block costs ~46 px; only failure deserves a
-  mark; and "no terminal" in the charter makes this a third app or a written exception.
-
+- **Dependabot**: the triage is done (two merged, three closed, limit 10). Left: the parley PRs in
+  the shared repo and mdview, and `regex-automata` #9, green and not measured.
+- **A terminal, drawn**: branch `mock/terminal`, worktree `..\mdedit-term`, 20 shots in
+  `shots\mock-term\`. What it established, and the verdict (possible, as a third app, blocks
+  only), are in `docs/terminal.md`.
 - **A downloader window over NewsQueue and Inbound, drawn**: branch `mock/downloader`, worktree
   `..\mdedit-dl`, `--mock dl-<name>`, 11 states in both themes in `shots\mock-dl\` (README says
   what each shows). One table, a Source chip per row; the details pane is the only place the
@@ -99,14 +89,12 @@ in the core, the workspace green.
 
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
-2. Clear the dependabot queue per the triage (above): merge two after a rebase, close three, raise
-   the PR limit.
-3. Then read the two dead agents' trees and decide per tree. "Move the notes…" has 2,545 lines of
+2. Then read the two dead agents' trees and decide per tree. "Move the notes…" has 2,545 lines of
    model and 1,316 of tests nobody has run — run them first; if they pass, the window side is a
    well-specified job. The settings half needs a restart on `pages`.
-4. Fold D-074 to D-082 into `ai-library-plan.md` (phases, days, section 11), and rename notes to
+3. Fold D-074 to D-082 into `ai-library-plan.md` (phases, days, section 11), and rename notes to
    lower case with hyphens in the writers already built (D-075).
-5. The plan's order afterwards: the shared pieces, then Split by AI (section 12). No release.
+4. The plan's order afterwards: the shared pieces, then Split by AI (section 12). No release.
 
 ## Known to be wrong on `main`
 
