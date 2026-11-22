@@ -54,6 +54,10 @@ pub const OFFER_STALE: u32 = 24;
 pub const STALE_DAYS: u32 = 25;
 pub const SKIP_BRIEF: u32 = 26;
 pub const BRIEF_SECS: u32 = 27;
+/// The seconds' label under "Don't reopen tabs barely looked at". Shorter than the shared
+/// `brief::SECONDS` ("Looked at for less than"), which needs 145 px of the row's 139 with Linux's
+/// fonts at the smallest window.
+const BRIEF_SECS_LABEL: &str = "Shown for less than";
 pub const BRIEF_LAST: u32 = 28;
 pub const LIBRARY_DIR: u32 = 29;
 pub const LIBRARY_CHOOSE: u32 = 30;
@@ -411,7 +415,7 @@ pub fn pages(
             Item::new(
                 Row::number(
                     BRIEF_SECS,
-                    mdshared_app::brief::SECONDS,
+                    BRIEF_SECS_LABEL,
                     prefs.brief_secs as i32,
                     BRIEF_SECS_MIN as i32,
                     BRIEF_SECS_MAX as i32,
@@ -442,11 +446,10 @@ pub fn pages(
         Item::new(Row::action(CHECK_NOW, "Look for a newer version", look)),
     ];
     if offer_default {
-        updates.push(Item::new(Row::action(
-            DEFAULT_APP,
-            "Make mdedit the default for text files",
-            "Make default",
-        )));
+        updates.push(Item::new(
+            Row::action(DEFAULT_APP, "Make mdedit the default", "Make default")
+                .help("For text files."),
+        ));
     }
 
     vec![
