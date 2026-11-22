@@ -743,6 +743,10 @@ impl App {
                 .set_toast("The record of that run cannot be read.");
             return;
         };
+        // A move is undone by its own machine (`moves::undo`), under the same gate.
+        if record.kind == runs::Kind::Move {
+            return self.move_undo_ask(path, &record, &library);
+        }
         let plan = runs::prepare(&record, &library);
         if let Some(why) = &plan.refusal {
             self.docs.set_toast(why);
@@ -763,6 +767,9 @@ impl App {
         let Some(record) = runs::load(&path, &library) else {
             return;
         };
+        if record.kind == runs::Kind::Move {
+            return self.move_undo(path, &record, &library);
+        }
         let mut gate = PlanGate {
             app: self,
             library: library.clone(),
@@ -788,6 +795,9 @@ impl App {
         let Some(record) = runs::load(record_path, &library) else {
             return;
         };
+        if record.kind == runs::Kind::Move {
+            return self.move_show(&record);
+        }
         let Some(note) = record.notes.iter().find(|n| n.path.is_file()) else {
             self.docs.set_toast("None of that run's notes is there.");
             return;

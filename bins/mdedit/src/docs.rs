@@ -1304,7 +1304,7 @@ pub struct FindDone {
 /// Moves `from` to `to`, never replacing a file at `to` (`AlreadyExists` then): a file that
 /// appears there between a look and the move is not lost.
 #[cfg(windows)]
-fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(crate) fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
     let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(Some(0)).collect() };
@@ -1320,7 +1320,7 @@ fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
 /// Elsewhere a hard link, which fails when `to` exists, then the old name removed; a file
 /// system without hard links falls back to a rename after a look.
 #[cfg(not(windows))]
-fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(crate) fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     match std::fs::hard_link(from, to) {
         Ok(()) => std::fs::remove_file(from).inspect_err(|_| {
             let _ = std::fs::remove_file(to);
@@ -3451,6 +3451,17 @@ impl Docs {
             changed = true;
         }
         changed
+    }
+
+    /// A file open in a tab was moved by "Move the notes…" from `from` to `to`: the tab follows
+    /// it, so it does not read as gone. Its text, changes and history are kept; nothing is read.
+    pub fn follow_move(&mut self, from: &Path, to: &Path) {
+        for doc in &mut self.tabs {
+            if doc.path.as_deref().is_some_and(|p| same_path(p, from)) {
+                doc.path = Some(canonical_or_absolute(to));
+                self.watch_changed = true;
+            }
+        }
     }
 
     /// What the rename bar offers while it shows: the tab offered is the active one, has a file

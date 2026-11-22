@@ -252,6 +252,11 @@ pub fn library_row_menu(
                     glyph::CLOSE,
                 ));
             }
+            items.push(item(
+                L::MoveNotes,
+                "&Move the notes\u{2026}",
+                glyph::FORWARD,
+            ));
             items.extend([
                 item(L::Rename, "&Rename group", glyph::EDIT).sep(),
                 item(
@@ -1371,17 +1376,22 @@ pub fn draw_dialog(
                 c.p.icon(glyph::MACRO, 15.0, row.x + 20.0, row.cy(), pal.accent);
                 let tx = row.x + 40.0;
                 let tw = (row.w - 52.0).max(0.0);
-                let first = format!(
-                    "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
-                    "Split",
-                    run.record.source_name(),
-                    run.record.group_name(),
-                    if run.record.notes.len() == 1 {
-                        "1 note".to_string()
-                    } else {
-                        format!("{} notes", run.record.notes.len())
-                    }
-                );
+                let first = if run.record.kind == mdedit_core::runs::Kind::Move {
+                    // "Move · the notes of Work into their folder · 5 files".
+                    mdedit_core::moves::headline(&run.record)
+                } else {
+                    format!(
+                        "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
+                        "Split",
+                        run.record.source_name(),
+                        run.record.group_name(),
+                        if run.record.notes.len() == 1 {
+                            "1 note".to_string()
+                        } else {
+                            format!("{} notes", run.record.notes.len())
+                        }
+                    )
+                };
                 c.p.text(Face::Ui, 13.5, tx, row.y + 15.0, &first, pal.text, tw);
                 let second = format!(
                     "{} \u{00B7} {}",
@@ -1441,10 +1451,12 @@ pub fn draw_dialog(
                 false,
             );
             if let Some(run) = runs.list.get(runs.sel) {
-                let finish = matches!(
-                    run.record.state,
-                    mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
-                );
+                // A move has nothing to finish: it is put back or undone.
+                let finish = run.record.kind != mdedit_core::runs::Kind::Move
+                    && matches!(
+                        run.record.state,
+                        mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
+                    );
                 let undo = run.record.state.live();
                 let mut items: Vec<(&str, Hit, bool)> = Vec::new();
                 items.push(("Show the notes", Hit::DlgRunShow, true));

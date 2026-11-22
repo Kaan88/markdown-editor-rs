@@ -478,6 +478,8 @@ pub enum LibAct {
     /// Point a group at a folder of the owner's, or clear that folder again.
     SetHome,
     ClearHome,
+    /// "Move the notes…": the group's notes into its folder, or to match its headings.
+    MoveNotes,
     NewNote,
     NewSection,
     NewGroup,

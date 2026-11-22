@@ -295,6 +295,7 @@ impl App {
             }
             (LibAct::SetHome, Kind::Group) => self.library_choose_group_home(file),
             (LibAct::ClearHome, Kind::Group) => self.library_clear_group_home(file),
+            (LibAct::MoveNotes, Kind::Group) => self.move_open_group(file),
             (LibAct::NewNote, Kind::Group | Kind::Section) => {
                 self.library_start_in(EditKind::NewNote, i + 1, row, file, "");
             }

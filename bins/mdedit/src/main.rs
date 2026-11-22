@@ -31,6 +31,8 @@ mod live;
 mod macros;
 mod marks;
 mod minimap;
+mod move_draw;
+mod move_ui;
 mod outline;
 mod overlays;
 mod palette;

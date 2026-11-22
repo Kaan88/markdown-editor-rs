@@ -351,4 +351,15 @@ for t in "" "-dark"; do
     shot "plan-ready$t" $th --plan-demo split --plan-parked
 done
 
+# "Move the notes…" (5.12), from a plan made in the program: the card with ready rows, a taken
+# name, a note listed twice, a link and a note outside the library; the same card at 800x600; and
+# the results panel after a move.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "move-notes$t" $th --move-demo move
+    shot "move-notes-small$t" $th --size 800x600 --move-demo move
+    shot "move-results$t" $th --move-demo results
+done
+
 ls "$out" | wc -l

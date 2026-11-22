@@ -95,6 +95,9 @@ mod library_write;
 #[cfg(test)]
 mod library_write_tests;
 pub(crate) mod modal;
+mod moving;
+#[cfg(test)]
+mod moving_tests;
 mod palette_events;
 mod plan;
 #[cfg(test)]
@@ -351,6 +354,8 @@ struct App {
     /// The plan screen (a plan of notes to read and change), and the plan Escape kept.
     plan: Option<crate::plan_ui::PlanScreen>,
     plan_parked: Option<crate::plan_ui::PlanScreen>,
+    /// "Move the notes…": the card of a move's plan, while it is open.
+    mover: Option<crate::move_ui::MoveCard>,
     /// The library being read again on its own thread after a library file was saved, with at
     /// most one running at a time. The rows on screen stay until the result is taken.
     library_job: Option<mdshared_app::job::Job<Option<mdshared_app::library::Library>>>,
@@ -509,6 +514,7 @@ impl App {
             ai: Default::default(),
             plan: None,
             plan_parked: None,
+            mover: None,
             library_job: None,
             settled: false,
             load_traced: false,
@@ -1405,6 +1411,8 @@ impl App {
             self.plan
                 .as_ref()
                 .map(|s| (s.sig(), s.edit.is_some() && self.ui.caret_on)),
+            // The move card raises its tick for every change, as the plan screen does.
+            self.mover.as_ref().map(|m| m.sig()),
         ));
         let overlay_changed = osig != self.overlay_sig;
         self.overlay_sig = osig;
@@ -1810,6 +1818,9 @@ impl App {
                 }
                 if let Some(plan) = self.plan.as_mut() {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
+                }
+                if let Some(card) = self.mover.as_mut() {
+                    card.draw(c.p, &pal, w, h);
                 }
                 // Last, over everything.
                 if self.ai.panel.is_some() {
@@ -3498,6 +3509,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     if let Some(kind) = app.args.plan_demo.clone() {
         app.plan_demo(&kind);
+    }
+    if let Some(kind) = app.args.move_demo.clone() {
+        app.move_demo(&kind);
     }
     // A plan a demonstration opened, ticked and left: the Notes pane's "Plan ready" row (5.3).
     if app.args.plan_parked && app.plan_is_open() {

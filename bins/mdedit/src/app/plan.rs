@@ -13,8 +13,10 @@ use mdedit_core::encoding::Encoding;
 use mdshared_app::library::folder_name;
 
 impl App {
+    /// The plan screen or the move card is open: either is over everything and takes every
+    /// event, and each route below hands the move card's to `app/moving.rs`.
     pub(super) fn plan_is_open(&self) -> bool {
-        self.plan.is_some()
+        self.plan.is_some() || self.move_is_open()
     }
 
     /// Opens `screen` over the window.
@@ -204,6 +206,9 @@ impl App {
     }
 
     pub(super) fn plan_key(&mut self, key: PlanKey, typed: Option<&str>) {
+        if self.move_is_open() {
+            return self.move_key(key);
+        }
         let mods = self.mods;
         let Some(screen) = self.plan.as_mut() else {
             return;
@@ -214,6 +219,9 @@ impl App {
     }
 
     pub(super) fn plan_pointer(&mut self, x: f32, y: f32) {
+        if self.move_is_open() {
+            return self.move_pointer(x, y);
+        }
         if let Some(screen) = self.plan.as_mut() {
             screen.pointer(x, y);
         }
@@ -221,6 +229,9 @@ impl App {
     }
 
     pub(super) fn plan_press(&mut self) {
+        if self.move_is_open() {
+            return self.move_press();
+        }
         let (x, y) = self.ui.mouse;
         if let Some(screen) = self.plan.as_mut() {
             screen.press(x, y);
@@ -232,6 +243,9 @@ impl App {
     }
 
     pub(super) fn plan_release(&mut self) {
+        if self.move_is_open() {
+            return self.move_release();
+        }
         let (x, y) = self.ui.mouse;
         let Some(screen) = self.plan.as_mut() else {
             return;
@@ -250,6 +264,9 @@ impl App {
 
     /// `dy` in logical px, positive towards the end.
     pub(super) fn plan_wheel(&mut self, dy: f32) {
+        if self.move_is_open() {
+            return self.move_wheel(dy);
+        }
         let (x, y) = self.ui.mouse;
         if let Some(screen) = self.plan.as_mut() {
             screen.wheel(x, y, dy);

@@ -198,6 +198,44 @@ fn problems(
     }
 }
 
+/// What a move or its undo could not do, each file with its reason: the files that did not move,
+/// the ones a rollback put back and the ones it could not, the copies left in two places, and a
+/// record that could not be closed.
+fn move_problems(
+    rows: &mut Vec<OutRow>,
+    report: &mdedit_core::moves::Report,
+    shown: &dyn Fn(&Path) -> String,
+) {
+    let mut list = |head: &str, items: &[mdedit_core::runs::Failure]| {
+        if !items.is_empty() {
+            rows.push(OutRow::Heading(format!("{head} ({})", items.len())));
+            rows.extend(items.iter().map(|f| OutRow::Failed {
+                name: shown(&f.path),
+                why: f.why.clone(),
+            }));
+        }
+    };
+    list("Not moved", &report.failed);
+    list("Could not be put back", &report.not_put_back);
+    list("In two places", &report.leftovers);
+    if !report.put_back.is_empty() {
+        rows.push(OutRow::Heading(format!(
+            "Put back where they were ({})",
+            report.put_back.len()
+        )));
+        rows.extend(report.put_back.iter().map(|p| OutRow::Skipped {
+            name: shown(p),
+            why: "put back".to_string(),
+        }));
+    }
+    if let Some(why) = &report.close_error {
+        rows.push(OutRow::Failed {
+            name: "the record".to_string(),
+            why: why.clone(),
+        });
+    }
+}
+
 impl Outcome {
     /// The report of an apply. Failures are listed, never left out.
     pub fn applied(report: Report, root: &Path) -> Outcome {
@@ -460,6 +498,123 @@ impl Outcome {
                 plural(done.removed_links, "line", "lines")
             )
         };
+        Outcome {
+            title,
+            rows,
+            report: None,
+            run: None,
+        }
+    }
+
+    /// The report of a move: what moved, where to; what was kept where it was, and why; what
+    /// could not move or was put back. Paths are shown below the nearest of `bases`.
+    pub fn moved(
+        report: &mdedit_core::moves::Report,
+        bases: &[&Path],
+        kept: &[(PathBuf, String)],
+    ) -> Outcome {
+        let shown = |p: &Path| crate::move_ui::short(p, bases);
+        let mut rows = Vec::new();
+        if let Some(why) = &report.start_error {
+            return Outcome {
+                title: why.clone(),
+                rows: vec![OutRow::Failed {
+                    name: String::new(),
+                    why: why.clone(),
+                }],
+                report: None,
+                run: None,
+            };
+        }
+        let title = if let Some(f) = &report.rolled_back {
+            format!("Nothing was moved \u{00B7} {}: {}", shown(&f.path), f.why)
+        } else if report.moved.is_empty() {
+            "Nothing was moved".to_string()
+        } else {
+            format!(
+                "Moved {} \u{00B7} {} in the library rewritten",
+                plural(report.moved.len(), "file", "files"),
+                plural(report.lines, "line", "lines")
+            )
+        };
+        if !report.moved.is_empty() {
+            rows.push(OutRow::Heading(format!("Moved ({})", report.moved.len())));
+            rows.extend(report.moved.iter().map(|(from, to)| OutRow::Changed {
+                name: format!("{} \u{2192} {}", shown(from), shown(to)),
+                count: 0,
+            }));
+        }
+        move_problems(&mut rows, report, &shown);
+        if !kept.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Kept where they were ({})",
+                kept.len()
+            )));
+            rows.extend(kept.iter().map(|(p, why)| OutRow::Skipped {
+                name: shown(p),
+                why: why.clone(),
+            }));
+        }
+        if !report.emptied.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Folders left empty and removed ({})",
+                report.emptied.len()
+            )));
+            rows.extend(report.emptied.iter().map(|p| OutRow::Changed {
+                name: shown(p),
+                count: 0,
+            }));
+        }
+        Outcome {
+            title,
+            rows,
+            report: None,
+            run: report.record_path.clone(),
+        }
+    }
+
+    /// The report of a move's undo.
+    pub fn move_undone(report: &mdedit_core::moves::Report, bases: &[&Path]) -> Outcome {
+        let shown = |p: &Path| crate::move_ui::short(p, bases);
+        let mut rows = Vec::new();
+        let title = if let Some(why) = &report.start_error {
+            why.clone()
+        } else if let Some(f) = &report.rolled_back {
+            format!(
+                "The move is not undone \u{00B7} {}: {} Try again.",
+                shown(&f.path),
+                f.why
+            )
+        } else if report.moved.is_empty() {
+            "Nothing was put back".to_string()
+        } else {
+            format!(
+                "Undid the move \u{00B7} put back {} and {}",
+                plural(report.moved.len(), "file", "files"),
+                plural(report.lines, "line", "lines")
+            )
+        };
+        if !report.moved.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Put back ({})",
+                report.moved.len()
+            )));
+            rows.extend(report.moved.iter().map(|(from, to)| OutRow::Changed {
+                name: format!("{} \u{2192} {}", shown(from), shown(to)),
+                count: 0,
+            }));
+        }
+        move_problems(&mut rows, report, &shown);
+        if !report.kept.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Left where they are ({})",
+                report.kept.len()
+            )));
+            rows.extend(report.kept.iter().map(|(p, why)| OutRow::Skipped {
+                name: shown(p),
+                why: why.clone(),
+            }));
+        }
         Outcome {
             title,
             rows,

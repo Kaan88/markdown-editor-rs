@@ -2550,3 +2550,39 @@ headless, beside the record it writes to (`runs`). The window side is not built.
   makes a write's refusals before the first file goes back.
 - Tests: `mdshared_app::moves` (50, `moves_tests.rs`), one per rule of 5.12 and per failure point,
   each failing with its fix reverted. Not yet carried: a moved note's pictures and its own links.
+
+## 75. Move the notes: the window (2026-11-22)
+
+The card, the write and undo of section 74's core, in the window. `move_ui.rs` (state, events,
+the layout's numbers, what a row says, the shots' plan), `move_draw.rs` (drawing) and
+`app/moving.rs` (the window's part: the gate, the disk, opening, the write, undo, `--move-demo`).
+
+- **Where it is offered.** "Move the notes…" on a group row's menu (`LibAct::MoveNotes`) runs
+  `moves::plan_group`. A plan with no row opens nothing: its `blocked` reason, or "Every note of
+  Work is already where it belongs", is a toast. The library move is not offered: the Settings row
+  for the library folder is a text field and a picker, with no place for a second step.
+- **The card** is the plan card's family made small: 880 x 620 through `dialog_card`, a 92 px
+  header (the kind of move, where the files go, and the notes the plan keeps: missing notes,
+  files that stay behind), "FILES (n)" with Tick all and Untick all, 62 px three-line rows (the
+  tick, the name; from → to, each shown below the group's folder or the library and cut from the
+  front when the two do not fit; why it moves, or the core's verdict in the warning colour), and
+  the footer ("3 of 7 files · 3 cannot move", Cancel, **Move**). A blocked row draws a disabled
+  tick and `Plan::set_ticked` keeps it unticked; an outside row comes unticked and is ticked by
+  hand. Move is disabled with its reason while nothing is ticked. Escape closes it. It is routed
+  through the plan screen's entry points (`plan_is_open` is true for either) and has its own
+  signature in the overlay's.
+- **The write.** `preflight`, then `write`, through `MovesGate`: `free` is
+  `library_file_free` (a tab with unsaved changes refuses), `edit` is `library_attempt_at` with
+  `moves::apply_edits` as the change. A refusal keeps the card, its ticks and the sentence in the
+  footer and on the bar; nothing has moved. The disk is `Disk` with `docs::move_no_replace`
+  (`MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`; a hard link and an unlink elsewhere), whose
+  `ERROR_NOT_SAME_DEVICE` is given to the core as `CrossesDevices` so it copies. After it: tabs
+  open on a moved file follow it (`Docs::follow_move`), the library is read again, and the results
+  panel lists what moved, what was kept and why, what could not move, and the folders removed,
+  with "Undo this run".
+- **"AI runs…"** lists a move by `moves::headline`; "Undo this run…" asks with `moves::prepare`'s
+  sentence and answers with `moves::undo` through the same gate; "Show the notes" opens the first
+  moved note where it is; Finish is not offered for a move.
+- Shots: `--move-demo move` (`move-notes`, and `move-notes-small` at 800x600) and `--move-demo
+  results` (`move-results`), both themes, from a plan made in the program.
+- Tests: `move_ui::tests` (4) and `app::moving_tests` (8).
