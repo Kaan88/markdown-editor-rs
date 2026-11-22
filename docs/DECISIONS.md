@@ -809,3 +809,18 @@ way for (1); a move is the wrong place to change how the owner's file is saved.
 come from something other than the record (asked at undo, or confirmed by the owner).
 **From.** Claude, with the owner away (they asked that decisions be made and noted); the review
 of the move-notes draft, 2026-11-22.
+
+## D-085 · 2026-11-22 · The move card: a click ticks, a tab follows its file, the demo refuses
+
+**Decision.** Four choices in the window side of "Move the notes…" (DESIGN 75): a click anywhere
+on a row toggles its tick, since the card has no preview to select for; a tab open on a moved file
+follows it to its new path, after a move and after its undo (`Docs::follow_move`); Move is refused
+while nothing is ticked or the plan has a `blocked` reason, and the core's refusal stays in the
+card's footer; in `--move-demo` the Move button is drawn enabled and refuses when pressed, so the
+shot shows the real button. The library move from Settings is not offered: the library-folder
+row has no natural place for it.
+**Why.** A tab left on a path that no longer exists would save a second copy where the note was.
+The rest keep the card as simple as the plan card it imitates.
+**Overturned by.** The owner, on looking at the shots `move-notes`, `move-notes-small`,
+`move-results`.
+**From.** The agent that built the window, recorded by Claude with the owner away.
