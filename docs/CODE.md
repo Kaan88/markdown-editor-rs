@@ -179,6 +179,11 @@ target/release/mdedit.exe --no-session --trace --scroll-steps 300 fixtures/sampl
 `--trace` prints the stage times, the first frame, memory and CPU time. `target/data/100mb.txt`
 is made by the first run of `tests/shots.sh`.
 
+Every test window is started with `--behind` (the owner, 2026-11-22): it opens without the focus
+and stays under every other window, so a run does not cover the owner's work. For
+`tools/compare-builds.py` pass it as `MDEDIT_ARGS=--behind`; a build older than the flag ignores
+it (with a line on stderr) and opens in front.
+
 **The method.** Two release builds, before and after, in two worktrees. Run them in turn, not
 one after the other, with a fresh settings folder per run, at least seven runs each. Report the
 median and the range of each, and say what was not measured. `tools/compare-builds.py EXE_A

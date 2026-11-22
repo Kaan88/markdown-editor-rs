@@ -186,6 +186,9 @@ pub struct Args {
     pub zoom: Option<u32>,
     /// `--maximize`: start maximized.
     pub maximize: bool,
+    /// `--behind`: open without taking the focus, under every other window, so that a test run
+    /// does not cover what the owner is working in.
+    pub behind: bool,
     /// `--trace`: print start-up stages, load and first-frame times, memory and frame times on
     /// stderr.
     pub trace: bool,
@@ -338,6 +341,7 @@ impl Args {
                 "--files" => out.files_pane = Some(true),
                 "--no-files" => out.files_pane = Some(false),
                 "--maximize" => out.maximize = true,
+                "--behind" => out.behind = true,
                 "--whitespace" => out.whitespace = true,
                 "--wrap" => out.wrap = true,
                 "--minimap" => out.minimap = true,
@@ -598,6 +602,8 @@ mod tests {
         assert!(a.no_session && a.maximize && a.match_case && a.trace);
         assert_eq!(a.files_pane, Some(true));
         assert_eq!(parse("--light --no-files").dark, Some(false));
+        assert!(parse("--no-session --behind a.rs").behind);
+        assert!(!parse("a.rs").behind);
         assert_eq!(parse("--no-files").files_pane, Some(false));
     }
 

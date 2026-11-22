@@ -50,7 +50,9 @@ use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key, NamedKey};
-use winit::window::{CursorIcon, ResizeDirection, Theme as WinTheme, Window, WindowId};
+use winit::window::{
+    CursorIcon, ResizeDirection, Theme as WinTheme, Window, WindowId, WindowLevel,
+};
 
 #[cfg(test)]
 mod access_tests;
@@ -1937,6 +1939,12 @@ impl App {
             self.trace.stage("first frame presented hidden");
             if let Some(w) = &self.window {
                 w.set_visible(true);
+                // Showing a window raises it, so a test run's window is sent under the others
+                // again (winit skips a level that has not changed, hence Normal first).
+                if self.args.behind {
+                    w.set_window_level(WindowLevel::Normal);
+                    w.set_window_level(WindowLevel::AlwaysOnBottom);
+                }
             }
             self.trace.stage("window shown");
             // The first frame went to a hidden window, which shows nothing: send it again.
@@ -2536,6 +2544,12 @@ impl ApplicationHandler<Wake> for App {
             .with_visible(false)
             .with_inner_size(LogicalSize::new(w.max(520) as f64, h.max(360) as f64))
             .with_maximized(max || self.args.maximize);
+        // A test run: shown without the focus and kept under every other window.
+        if self.args.behind {
+            attributes = attributes
+                .with_active(false)
+                .with_window_level(WindowLevel::AlwaysOnBottom);
+        }
         // The window class and icon: off Linux this returns the attributes unchanged.
         attributes = mdshared_ui::window::identify(
             attributes,
