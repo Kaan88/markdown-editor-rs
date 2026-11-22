@@ -25,6 +25,7 @@ pub mod lines;
 pub mod load;
 pub mod markdown;
 pub mod merge;
+pub mod moves;
 pub mod multi;
 pub mod multiline;
 pub mod prefs;

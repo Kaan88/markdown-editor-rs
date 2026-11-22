@@ -130,22 +130,30 @@ fn stamp(secs: u64, kind: Kind) -> String {
 
 // ---- the record -----------------------------------------------------------------------------------
 
-/// What a run was: the one kind there is so far.
+/// What a run was: a split into notes, or a move of notes that exist (5.12).
+///
+/// A kind is part of the file format (D-072): a version that has no word for one lists the record
+/// and never touches it, so adding one is a change older copies see only as "written by a newer
+/// version". [`Kind::Move`] was added after the format's first version and did not need a new
+/// `version`: the older readers already treat an unknown kind that way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Split,
+    Move,
 }
 
 impl Kind {
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::Split => "split",
+            Kind::Move => "move",
         }
     }
 
     fn parse(text: &str) -> Option<Kind> {
         match text {
             "split" => Some(Kind::Split),
+            "move" => Some(Kind::Move),
             _ => None,
         }
     }
@@ -275,6 +283,9 @@ pub struct Record {
     /// The section headings the run wrote into a library file, outermost first, so undo can take
     /// them out when nothing is under them.
     pub sections_added: Vec<Vec<String>>,
+    /// What a [`Kind::Move`] did: the files it moved, the lines it rewrote and the folders it
+    /// removed. `None` for a split, whose record has no such part.
+    pub moved: Option<crate::moves::Moved>,
 }
 
 /// A record read from disk.
@@ -287,11 +298,11 @@ pub struct Run {
 
 // ---- paths in a record -----------------------------------------------------------------------------
 
-fn stored(path: &Path, library: &Path) -> String {
+pub(crate) fn stored(path: &Path, library: &Path) -> String {
     stored_on(path, library, cfg!(windows))
 }
 
-fn resolved(text: &str, library: &Path) -> PathBuf {
+pub(crate) fn resolved(text: &str, library: &Path) -> PathBuf {
     resolved_on(text, library, cfg!(windows))
 }
 
@@ -329,7 +340,7 @@ fn resolved_on(text: &str, library: &Path, windows: bool) -> PathBuf {
 /// A small JSON value, enough for a record and no more. Nothing here recurses without a depth
 /// bound, so a hostile file cannot exhaust the stack; the release build aborts on a panic, so
 /// every index is checked.
-enum Json {
+pub(crate) enum Json {
     Null,
     Bool(bool),
     Num(f64),
@@ -339,45 +350,45 @@ enum Json {
 }
 
 impl Json {
-    fn get(&self, key: &str) -> Option<&Json> {
+    pub(crate) fn get(&self, key: &str) -> Option<&Json> {
         match self {
             Json::Obj(items) => items.iter().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
         }
     }
 
-    fn str(&self) -> Option<&str> {
+    pub(crate) fn str(&self) -> Option<&str> {
         match self {
             Json::Str(s) => Some(s),
             _ => None,
         }
     }
 
-    fn num(&self) -> Option<f64> {
+    pub(crate) fn num(&self) -> Option<f64> {
         match self {
             Json::Num(n) if n.is_finite() => Some(*n),
             _ => None,
         }
     }
 
-    fn uint(&self) -> Option<u64> {
+    pub(crate) fn uint(&self) -> Option<u64> {
         let n = self.num()?;
         (n >= 0.0 && n <= u64::MAX as f64).then_some(n as u64)
     }
 
-    fn usize(&self) -> Option<usize> {
+    pub(crate) fn usize(&self) -> Option<usize> {
         let n = self.uint()?;
         usize::try_from(n).ok()
     }
 
-    fn bool(&self) -> Option<bool> {
+    pub(crate) fn bool(&self) -> Option<bool> {
         match self {
             Json::Bool(b) => Some(*b),
             _ => None,
         }
     }
 
-    fn arr(&self) -> Option<&[Json]> {
+    pub(crate) fn arr(&self) -> Option<&[Json]> {
         match self {
             Json::Arr(items) => Some(items),
             _ => None,
@@ -608,14 +619,14 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn parse_json(text: &str) -> Option<Json> {
+pub(crate) fn parse_json(text: &str) -> Option<Json> {
     let mut r = Reader::new(text);
     let value = r.value(JSON_DEPTH)?;
     r.skip();
     Some(value)
 }
 
-fn esc(text: &str) -> String {
+pub(crate) fn esc(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     for c in text.chars() {
         match c {
@@ -636,6 +647,9 @@ fn esc(text: &str) -> String {
 impl Record {
     /// The JSON this record is written as, with the library folder's paths relative to it.
     pub fn to_json(&self, library: &Path) -> String {
+        if self.kind == Kind::Move {
+            return crate::moves::record_json(self, library);
+        }
         let mut s = String::new();
         s.push_str("{\n");
         s.push_str(&format!("  \"version\": {},\n", self.version));
@@ -753,6 +767,13 @@ impl Record {
             .and_then(Json::str)
             .unwrap_or_default()
             .to_string();
+        if kind == Kind::Move {
+            return crate::moves::record_from_json(
+                &json,
+                library,
+                (version, started, started_secs, state, instruction),
+            );
+        }
         let sent = json.get("sent").and_then(|s| {
             Some(Sent {
                 connection: s.get("connection")?.str()?.to_string(),
@@ -908,6 +929,7 @@ impl Record {
             notes,
             pictures,
             sections_added,
+            moved: None,
         })
     }
 
@@ -1319,6 +1341,7 @@ pub fn write_at(req: &Request, gate: &mut dyn Gate, secs: u64, started: &str) ->
             .collect(),
         pictures: Vec::new(),
         sections_added: Vec::new(),
+        moved: None,
     };
     let record_path = match record.create(&req.library) {
         Ok(path) => path,
@@ -1641,7 +1664,7 @@ impl Group {
     }
 }
 
-fn shown(path: &Path) -> String {
+pub(crate) fn shown(path: &Path) -> String {
     path.file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
@@ -1653,7 +1676,7 @@ fn shown(path: &Path) -> String {
 /// No library folder, or no home, is nothing: an empty path is not a folder that holds
 /// everything. A path is compared as the disk compares names (part by part, in the platform's
 /// case), after the disk has been asked where its links lead.
-fn inside(library: &Path, home: &Path, path: &Path) -> bool {
+pub(crate) fn inside(library: &Path, home: &Path, path: &Path) -> bool {
     if library.as_os_str().is_empty() {
         return false;
     }
@@ -1670,7 +1693,7 @@ fn inside(library: &Path, home: &Path, path: &Path) -> bool {
 
 /// Whether `path` is `base` or lies below it, part by part, with the case rule of
 /// [`same_path`]. No disk is asked.
-fn under(path: &Path, base: &Path) -> bool {
+pub(crate) fn under(path: &Path, base: &Path) -> bool {
     let mut parts = path.components();
     base.components().all(|b| {
         parts
@@ -1880,7 +1903,7 @@ pub fn with_headings_removed(text: &str, headings: &[Vec<String>], base: &Path) 
     changed.then_some(out)
 }
 
-fn sections_eq(a: &[String], b: &[String]) -> bool {
+pub(crate) fn sections_eq(a: &[String], b: &[String]) -> bool {
     a.len() == b.len()
         && a.iter()
             .zip(b)
@@ -1888,7 +1911,7 @@ fn sections_eq(a: &[String], b: &[String]) -> bool {
 }
 
 /// A link's path as the library file resolves it.
-fn link_target(path: &Path, base: &Path) -> PathBuf {
+pub(crate) fn link_target(path: &Path, base: &Path) -> PathBuf {
     resolved(&path.to_string_lossy(), base)
 }
 
@@ -2053,7 +2076,7 @@ fn count(n: usize, one: &str, many: &str) -> String {
 /// is not a regular file, is bigger, or cannot be read. With `follow` a link is followed, as it
 /// is for a source document; without it a link is not a regular file, which is what undo wants
 /// of anything it is about to delete.
-fn read_regular(path: &Path, max: u64, follow: bool) -> Option<Vec<u8>> {
+pub(crate) fn read_regular(path: &Path, max: u64, follow: bool) -> Option<Vec<u8>> {
     use std::io::Read;
     let meta = if follow {
         std::fs::metadata(path)
@@ -2073,17 +2096,17 @@ fn read_regular(path: &Path, max: u64, follow: bool) -> Option<Vec<u8>> {
     (bytes.len() as u64 <= max).then_some(bytes)
 }
 
-fn digest_of(path: &Path) -> Option<String> {
+pub(crate) fn digest_of(path: &Path) -> Option<String> {
     let bytes = read_regular(path, DIGEST_MAX_BYTES, false)?;
     Some(mdshared_app::update::sha256_hex(&bytes))
 }
 
-fn has_parent_dir(path: &Path) -> bool {
+pub(crate) fn has_parent_dir(path: &Path) -> bool {
     path.components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
 }
 
-fn has_extension(path: &Path, allowed: &[&str]) -> bool {
+pub(crate) fn has_extension(path: &Path, allowed: &[&str]) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| allowed.iter().any(|a| e.eq_ignore_ascii_case(a)))
@@ -2091,7 +2114,7 @@ fn has_extension(path: &Path, allowed: &[&str]) -> bool {
 
 /// Where the document a run was cut from stands now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SourceState {
+pub(crate) enum SourceState {
     /// The file has the recorded length and digest.
     Same,
     Gone,
@@ -2150,9 +2173,9 @@ fn source_refusal(record: &Record, state: SourceState) -> String {
 /// the home the group's library file declares now. A record is a file on disk like any other, so
 /// it is not given more than write access to the library folder gives: a path in it is never
 /// taken as it stands, and the home is read from the library file and not from the record.
-struct Reach {
-    library: PathBuf,
-    home: Option<PathBuf>,
+pub(crate) struct Reach {
+    pub(crate) library: PathBuf,
+    pub(crate) home: Option<PathBuf>,
 }
 
 impl Reach {
@@ -2207,7 +2230,7 @@ impl Reach {
     }
 
     /// A path with no `..`, inside the library folder (not the folder itself) or inside the home.
-    fn allows(&self, path: &Path) -> bool {
+    pub(crate) fn allows(&self, path: &Path) -> bool {
         !has_parent_dir(path)
             && inside(
                 &self.library,
@@ -2218,7 +2241,7 @@ impl Reach {
 
     /// A `.md` file directly in the library folder: where a group's library file is, and the one
     /// place undo writes besides the files a run made.
-    fn is_library_file(&self, path: &Path) -> bool {
+    pub(crate) fn is_library_file(&self, path: &Path) -> bool {
         !has_parent_dir(path)
             && has_extension(path, &["md"])
             && path.parent().is_some_and(|dir| {
@@ -2233,7 +2256,7 @@ impl Reach {
 /// The folder the group's library file names with `home:` as it reads now; `None` when the file
 /// is not there, names none, names one with a `..` in it, or names the library folder or a folder
 /// that holds it.
-fn declared_home(group_file: &Path, library: &Path) -> Option<PathBuf> {
+pub(crate) fn declared_home(group_file: &Path, library: &Path) -> Option<PathBuf> {
     let bytes = read_regular(group_file, library::MAX_FILE_BYTES as u64, true)?;
     let text = mdshared_app::files::decode(&bytes).0.into_owned();
     let home = library::parse(&text, library).home?;
@@ -2250,30 +2273,30 @@ fn declared_home(group_file: &Path, library: &Path) -> Option<PathBuf> {
 // ---- what the library lists --------------------------------------------------------------------
 
 /// One note line of one library file, as the file holds it now.
-struct Listing {
-    file: PathBuf,
-    path: PathBuf,
+pub(crate) struct Listing {
+    pub(crate) file: PathBuf,
+    pub(crate) path: PathBuf,
     /// The name of the file path leads to, in lower case: the cheap test before the real one.
-    name: String,
-    sections: Vec<String>,
+    pub(crate) name: String,
+    pub(crate) sections: Vec<String>,
     /// The line's text, as it is in the file.
-    line: String,
+    pub(crate) line: String,
 }
 
 /// Every note line of every library file, read from the files and not from what the window has
 /// in memory.
-struct Listed {
+pub(crate) struct Listed {
     /// False when the library could not be read in full, so that what is not listed may only be
     /// what was not seen.
-    complete: bool,
-    entries: Vec<Listing>,
+    pub(crate) complete: bool,
+    pub(crate) entries: Vec<Listing>,
 }
 
 /// Reads the library folder again: every `.md` file directly in it, as the reader takes them, a
 /// file of more than the reader's cap as the reader takes it (it lists nothing). The reader keeps
 /// at most [`library::MAX_FILES`] files; this looks at more, so a note listed by the 513th file is
 /// still seen, and says it is not complete past [`LISTING_MAX_FILES`].
-fn list_library(library: &Path) -> Listed {
+pub(crate) fn list_library(library: &Path) -> Listed {
     let mut listed = Listed {
         complete: true,
         entries: Vec::new(),
@@ -2321,14 +2344,14 @@ fn list_library(library: &Path) -> Listed {
     listed
 }
 
-fn lower_name(path: &Path) -> String {
+pub(crate) fn lower_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().to_lowercase())
         .unwrap_or_default()
 }
 
 /// The lines of listed that name path.
-fn named_in<'a>(listed: &'a Listed, path: &Path) -> Vec<&'a Listing> {
+pub(crate) fn named_in<'a>(listed: &'a Listed, path: &Path) -> Vec<&'a Listing> {
     let name = lower_name(path);
     listed
         .entries
@@ -2340,7 +2363,7 @@ fn named_in<'a>(listed: &'a Listed, path: &Path) -> Vec<&'a Listing> {
 /// Whether two paths are one file: spelled alike, or, when their names are alike, leading to the
 /// same place once the disk is asked. A mistake in the first direction keeps a note; one in the
 /// other would delete a note a line still lists, so the disk is asked when in doubt.
-fn same_file(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     if same_path(a, b) {
         return true;
     }
@@ -2362,6 +2385,12 @@ fn plan_of(record: &Record, library: &Path) -> (UndoPlan, Option<Reach>) {
     let mut plan = UndoPlan::default();
     if record.state == State::Undone {
         plan.refusal = Some("This run is undone already.".to_string());
+        return (plan, None);
+    }
+    // A move holds files that were carried from one place to another, not files a run made: the
+    // rules below would read it as a split with no notes. It has its own undo (`moves::undo`).
+    if record.kind == Kind::Move {
+        plan.refusal = Some("A move is undone by its own command.".to_string());
         return (plan, None);
     }
     // Every path the record names must be one a write could have made, and is checked against
@@ -2661,6 +2690,10 @@ pub fn finish(path: &Path, record: &Record, library: &Path, gate: &mut dyn Gate)
     let mut report = FinishReport::default();
     if !record.state.live() {
         report.error = Some("This run is undone already.".to_string());
+        return report;
+    }
+    if record.kind == Kind::Move {
+        report.error = Some("A move has nothing to finish: it is put back or undone.".to_string());
         return report;
     }
     // Finish writes into the group's library file, so it reaches no further than undo does.
@@ -3547,6 +3580,7 @@ mod tests {
             }],
             pictures: Vec::new(),
             sections_added: vec![vec!["Tokyo".to_string()]],
+            moved: None,
         };
         let text = record.to_json(&library);
         let back = Record::from_json(&text, &library).expect("it reads");
