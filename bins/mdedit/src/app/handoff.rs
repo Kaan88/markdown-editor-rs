@@ -32,6 +32,7 @@ impl App {
                     .map(|p| canonical_or_absolute(p))
                     .unwrap_or_default();
                 (self.docs.links).closed(&path, request.doc.as_deref());
+                self.follow_links();
                 continue;
             }
             if request.unplace {
@@ -96,6 +97,14 @@ impl App {
         {
             self.docs
                 .go_to(line as usize, request.column.map_or(1, |c| c as usize));
+        }
+    }
+
+    /// When a link ended since the last call, in whatever way, the open menus are listed again
+    /// ([`relist_preview_menus`](Self::relist_preview_menus)).
+    pub(super) fn follow_links(&mut self) {
+        if self.docs.links.take_ended() {
+            self.relist_preview_menus();
         }
     }
 
@@ -1245,6 +1254,58 @@ mod tests {
             ..Request::document(link::doc_name(untitled), "Untitled 9")
         }));
         assert!(a.docs.links.contains(id) && !a.docs.links.contains(untitled));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_viewer_closing_its_tab_relists_or_closes_an_open_menu() {
+        let dir = scratch("hand-closed-menu");
+        let (md, txt) = (file(&dir, "a.md"), file(&dir, "b.txt"));
+        let mut a = app();
+        a.docs.viewer = true;
+        let closed = |path: &Path| {
+            arrived(&Request {
+                closed: true,
+                from: Some("mdview".into()),
+                ..Request::new(path)
+            })
+        };
+        let preview = |a: &App| {
+            let popup = a.ui.popup.as_ref().expect("the menu stays open");
+            let items = popup.menu.items.iter();
+            let mut rows = items.filter(|it| it.id == Act::Cmd(C::PreviewInViewer));
+            rows.next().map(|it| it.checked)
+        };
+        // A Markdown file: the View menu stays open, its rows as they were, the mark gone.
+        let i = open_now(&mut a, &md);
+        let id = a.docs.tabs[i].id;
+        let path = a.docs.tabs[i].path.clone().unwrap();
+        a.docs
+            .links
+            .link(id, path.into(), Some(1), None, Instant::now());
+        a.open_popup(PopupKind::View);
+        assert_eq!(preview(&a), Some(true));
+        let rows = a.ui.popup.as_ref().unwrap().menu.items.len();
+        a.handed_over(closed(&md));
+        assert!(!a.docs.links.contains(id));
+        assert_eq!(preview(&a), Some(false));
+        assert_eq!(a.ui.popup.as_ref().unwrap().menu.items.len(), rows);
+        // A file that is not Markdown lists the preview only while it runs: its rows would be
+        // fewer, so the menu is closed rather than left with rows for items that are gone.
+        a.ui.popup = None;
+        let j = open_now(&mut a, &txt);
+        let jd = a.docs.tabs[j].id;
+        let path = a.docs.tabs[j].path.clone().unwrap();
+        a.docs
+            .links
+            .link(jd, path.into(), Some(1), None, Instant::now());
+        a.open_popup(PopupKind::View);
+        assert_eq!(preview(&a), Some(true));
+        let last = a.ui.popup.as_ref().unwrap().menu.items.len() - 1;
+        a.ui.popup.as_mut().unwrap().menu.hover = Some(last);
+        a.handed_over(closed(&txt));
+        assert!(!a.docs.links.contains(jd));
+        assert!(a.ui.popup.is_none(), "closed, not left with stale rows");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

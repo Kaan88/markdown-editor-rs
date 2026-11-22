@@ -2908,6 +2908,8 @@ impl ApplicationHandler<Wake> for App {
         self.persist_if_changed();
         self.recover_due = self.recovery.poll(&self.docs, Instant::now());
         self.link_due = self.docs.link_poll(Instant::now());
+        // However a link ended in this pass, an open menu no longer checks it.
+        self.follow_links();
         if self.preview.is_some() && self.preview_sync() {
             self.trace_preview_page();
             self.redraw();

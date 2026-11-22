@@ -2193,9 +2193,8 @@ impl App {
             Wake::Link => {
                 // The links are over; the next frame no longer shows the mark, and an open menu
                 // that checks "Preview in mdview" no longer does.
-                if self.docs.links.take_gone() {
-                    self.relist_preview_menus();
-                }
+                self.docs.links.take_gone();
+                self.follow_links();
                 // Or the viewer is one that cannot show a document without a file.
                 if self.docs.links.take_older() {
                     self.docs.set_toast(strings::PREVIEW_VIEWER_OLDER);
