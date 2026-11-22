@@ -38,14 +38,17 @@ in the core, the workspace green.
   built: the Recycle Bin, the progress row with Cancel, "Ask the AI…", per-source headings.
 - **Mockups** of three AI screens (plan, rewrite review, task window): branch `mock/ai-review`,
   worktree `..\mdedit-mock`, `--mock`, shots in `shots\mock\`. A drawing; not to be merged.
-- **Two agents died mid-work on 2026-11-22** when the Claude credits ran out. What they
-  left is uncommitted and unreviewed: a stranger's draft, to be read, run, and never committed as
-  finished. **Nothing has been built since they stopped**, so neither tree is known to compile.
-  - **"Move the notes…"** (`ai-library-plan.md` 5.12) died part-way: branch `f/move-notes`,
-    worktree `..\md-wt\move-notes`, last commit `0c41787`, nothing of its own committed. It left
-    a new `crates/mdedit-core/src/moves.rs` (2,545 lines), `moves_tests.rs` (1,316), one line in
-    `lib.rs` and 118 changed lines in `runs.rs`. The window side (`plan_ui`, `plan_write`, the
-    group row's menu) was not reached.
+- **Two agents died mid-work on 2026-11-22** and left uncommitted drafts:
+  - **"Move the notes…"** (`ai-library-plan.md` 5.12): branch `f/move-notes`, worktree
+    `..\md-wt\move-notes`, still uncommitted on `0c41787` (behind `main`). **Run on 2026-11-22: it
+    builds, and all 611 core tests pass** (45 new in `moves_tests.rs`, none ignored). Read in
+    outline: preflight refuses before the first file, the record is written first, no overwrite,
+    undo under D-069 to D-072; worth keeping, not yet reviewed line by line. `cargo fmt` has been
+    applied and `make_row` allows `too_many_arguments`; two clippy errors are left:
+    `needless_option_as_deref` at `moves.rs` ~1763 (the *second* `journal.as_deref_mut()`, not
+    the one at ~1752) and `useless_format` at `moves_tests.rs` ~275. Before the window side:
+    rebase on `main`, a review, and D-081 (the record starts shared) decides where `runs.rs` and
+    `moves.rs` live. The window side (`plan_ui`, `plan_write`, the group row's menu) is not begun.
   - **The settings half** died earlier still, after only the proof that the old form is
     unchanged: `crates/mdshared-ui/src/settings/frozen.rs` (1,734 lines, the form copied whole),
     `unchanged.rs` (255, drives both and compares every pixel in both themes) and five lines in
@@ -91,9 +94,8 @@ in the core, the workspace green.
 
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
-2. Then read the two dead agents' trees and decide per tree. "Move the notes…" has 2,545 lines of
-   model and 1,316 of tests nobody has run — run them first; if they pass, the window side is a
-   well-specified job. The settings half needs a restart on `pages`.
+2. "Move the notes…": the two clippy errors, rebase, a review (above). The settings half needs a
+   restart on `pages`.
 3. Fold D-074 to D-082 into `ai-library-plan.md` (phases, days, section 11), and rename notes to
    lower case with hyphens in the writers already built (D-075).
 4. The plan's order afterwards: the shared pieces, then Split by AI (section 12). No release.
