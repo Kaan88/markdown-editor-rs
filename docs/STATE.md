@@ -1,10 +1,8 @@
 # State of the work
 
 Rewritten, not appended to: when a line here stops being true, replace it. Last rewritten
-2026-11-22, late, with the owner asleep: the move-notes core reviewed, fixed, moved to the shared
-crates and merged; D-075 on `main`; the plan rewritten for D-074 to D-082. Claude took D-083 and
-D-084 meanwhile. If `git log -1` shows something newer, the lines under "In hand" are the first to
-doubt.
+2026-11-22, late, with the owner asleep; Claude took D-083 to D-087 meanwhile. If `git log -1`
+shows something newer, the lines under "In hand" are the first to doubt.
 
 ## Released
 
@@ -53,14 +51,17 @@ the 74 tests of the record and the move run in the shared repo.
   `mdshared_ui::settings::pages` beside the old `Form` (proved unchanged frame for frame), built
   from the approved design on `mock/settings` (D-086). Fit test at 520x360 and 1280x800, scales
   1, 1.5, 2; 52 specimen pictures (`cargo test -p mdshared-ui specimen -- --ignored`) looked at
-  by Claude, **not yet by the owner**. No app pins it yet. Left: `settings::common` builders,
-  and the mdedit (2 days) and mdview (1 day) halves. The dead draft still sits uncommitted in
-  the shared repo's own checkout; it is superseded and can be dropped.
+  by Claude, **not yet by the owner**. The dead draft still sits uncommitted in the shared
+  repo's own checkout; it is superseded and can be dropped.
+- **mdedit's Settings on the paged form** (D-087): branch `f/settings-pages-mdedit`, not pushed,
+  **not merged**, waiting for the owner. Nine pages; fit test at both sizes and three scales;
+  32 shots `settings-*` in both themes, looked at by Claude; every other shot byte-identical;
+  first frame, memory and keystroke unchanged, exe +18 KB. Left before merge: Model and Effort
+  as dropdowns whatever their option count (a shared `Item::dropdown()`). Then mdview's half.
 - **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
 - **A terminal, drawn**: `mock/terminal`, `..\mdedit-term`, 20 shots; verdict in `docs/terminal.md`.
-- **A downloader window over NewsQueue and Inbound, drawn**: branch `mock/downloader`, worktree
-  `..\mdedit-dl`, 11 states in `shots\mock-dl\`; what drawing taught is in its README. Costing is
-  in the uncommitted `ecosystem-ideas.md` 6b-6d.
+- **A downloader window, drawn**: `mock/downloader`, `..\mdedit-dl`, 11 states in
+  `shots\mock-dl\`; lessons in its README, costing in the uncommitted `ecosystem-ideas.md` 6b-6d.
 - **A local-LLM workbench, drawn**: branch `mock/workbench`, worktree `..\mdedit-llm`, `--mock
   llm-<name>`, 12 states plus a real-editor `saved` shot in `shots\mock-llm\`. Holds up as a tab
   of mdedit, as `ecosystem-ideas.md` 8 said; columns under 300 px need a narrow form, five is the
@@ -75,13 +76,12 @@ the 74 tests of the record and the move run in the shared repo.
 - **`docs/ai-library-plan.md`**: answered on 2026-11-22 and rewritten to match (D-074 to D-082):
   section 8 is 16 phases, 49 to 50 days, about 11 done. Open: the resizer for phase V, a new
   crate to be priced. **No release for now** (the owner, 2026-11-22): 1.3.0 is not tagged.
-- **D-083 and D-084**, taken by Claude with the owner away, as asked: only a new note's file is
-  slugged (groups, folders and renames keep their names); a move refuses a library file it cannot
-  rewrite, and undo of a move never writes outside the library. Each says what overturns it.
+- **D-083 to D-087**, taken by Claude with the owner away, as asked; each says what overturns it.
+  D-087 lists what to look at in the settings branch.
 - **`docs/settings-redesign.md`**: both apps' Settings as a category list, one page each, nothing
   scrolling. Designed and drawn (80 shots, `mock/settings`), 8.5 days: 5 shared, 2 mdedit, 1
   mdview, 0.5 platforms. Approved by the owner; the copy on `main` is the first round, the
-  approved one is on `mock/settings`. The shared half is built (above); the app halves are not.
+  approved one is on `mock/settings`. The shared half and mdedit's are built (above).
 - **This arrangement of the documents** (D-058), listed in `docs\REORG.md` on `mock/ai-review`.
 - The notes library has been used by the owner in a real build and its two faults fixed, but it
   is not recorded anywhere as approved.
@@ -93,7 +93,8 @@ the 74 tests of the record and the move run in the shared repo.
 2. The rest of S3: the split checker and the plan card into the shared crates, mdedit's shots
    unchanged. Work in a worktree of the shared repo, never in its own checkout.
 3. "Move the notes…": the owner looks at its three shots; then the pictures question.
-4. The settings redesign: the owner looks at the pages; then mdedit's half, then mdview's.
+4. The settings redesign: the owner looks at the `settings-*` shots of the mdedit branch; the
+   shared dropdown; merge; then mdview's half.
 5. Then section 8's order: S, 4b, T, R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`

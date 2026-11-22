@@ -840,3 +840,22 @@ the shared disabled style; page geometry is valid after the next layout or draw.
 form, and a ring with no move cost a keystroke.
 **Overturned by.** The owner, on using the paged form in either app.
 **From.** The agent that built it, recorded by Claude with the owner away.
+
+## D-087 · 2026-11-22 · mdedit's Settings on the paged form, kept on a branch
+
+**Decision.** mdedit's half of the settings redesign is built on branch `f/settings-pages-mdedit`
+(shared pinned at `7a6f013`) and is **not merged**: it changes a screen the owner uses every day,
+so it waits for the owner's look. Nine pages, every old setting kept under its id. Choices taken
+while building: the update button reads "Check now" or "Update" to fit 96 px; a detected program
+path keeps its last 40 characters after "…"; the key's Save is live only with a key typed, Remove
+only with one stored; the remove-provider icon shows only for a custom provider; the dialog reopens
+on the page last shown this run; the old section names still work for `--settings-section`;
+Provider and Name have no help line (today's lines do not fit at 520x360); with both tab rules off
+the days row is dimmed without a reason line (4 px over at the minimum). **To do before merge:**
+Model and Effort must stay dropdowns whatever their option count; today the shared rule draws two
+options as a segmented "Default | Other…", so the control changes shape once a model list is
+fetched. That wants a shared `Item::dropdown()` beside the old constructor.
+**Why.** The mock's layout, kept at the minimum size and every scale; a control that changes shape
+with its data reads as a different setting.
+**Overturned by.** The owner, on looking at the `settings-*` shots or using the branch.
+**From.** The agent that built it, recorded by Claude with the owner away.
