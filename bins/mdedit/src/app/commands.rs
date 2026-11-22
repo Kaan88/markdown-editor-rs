@@ -176,6 +176,7 @@ impl App {
                     self.run_undo_ask(path);
                 }
             }
+            Hit::DlgOpenBin => self.open_bin(),
             Hit::DlgRunFinish => {
                 if let Some(run) = self.ui.runs.list.get(self.ui.runs.sel) {
                     let path = run.path.clone();

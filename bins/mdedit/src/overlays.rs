@@ -1509,6 +1509,18 @@ pub fn draw_dialog(
                 );
                 x -= 8.0;
             }
+            // The original is in the Recycle Bin and undo waits for it: the bin, opened (5.4).
+            if runs.bin {
+                let label = "Open the Recycle Bin";
+                let bw = dialog_button_w(c.p, label);
+                button(
+                    c,
+                    Rect::new(r.x + PAD, by, bw, 32.0),
+                    Hit::DlgOpenBin,
+                    label,
+                    false,
+                );
+            }
         }
     }
 }

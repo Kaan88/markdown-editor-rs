@@ -3,7 +3,10 @@
 //! the shots in `docs/ai-library-plan.md` 5.3, without the `plan-` in front.
 
 use crate::plan_ui::demo::{japan, log, many, recipes};
-use crate::plan_ui::{Dest, Found, Init, PlanScreen, Reader, fingerprint, headings_of};
+use crate::plan_ui::{
+    Dest, Found, Init, PlanScreen, RECYCLE_NO_BIN, RECYCLE_ONE_DOCUMENT, Reader, RecycleBox,
+    fingerprint, headings_of, recycle_unavailable,
+};
 use mdedit_core::buffer::Buffer;
 use mdedit_core::split::{Heading, document};
 use std::collections::HashMap;
@@ -11,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 /// Every name `--plan-demo` takes.
 #[cfg(test)]
-pub const NAMES: [&str; 14] = [
+pub const NAMES: [&str; 21] = [
     "split",
     "split-gaps",
     "split-rest",
@@ -26,7 +29,19 @@ pub const NAMES: [&str; 14] = [
     "split-ai-long",
     "split-ai-asking",
     "split-ai-ask",
+    "split-bin-offered",
+    "split-bin",
+    "split-bin-gaps",
+    "split-bin-wanted",
+    "split-bin-drive",
+    "split-bin-several",
+    "split-bin-system",
 ];
+
+/// The report shots of a split that put its original in the Recycle Bin (5.4): the window draws
+/// them in the results panel, with no card.
+#[cfg(test)]
+pub const REPORTS: [&str; 2] = ["split-bin-report", "split-bin-kept"];
 
 /// The answer of the `split-ai-unreadable` shot: what a model says when it will not do as asked.
 pub const BAD_ANSWER: &str = "I'm sorry, but I can't split this document without seeing all of it.";
@@ -358,6 +373,47 @@ pub fn screen(kind: &str) -> Option<PlanScreen> {
                 empty(),
             ));
             s.ai_offer = true;
+            s
+        }
+        // The Recycle Bin box (5.4), on the journal: offered and not ticked; ticked with every line in a note; disabled
+        // for lines in no note, with the one-click answer; ticked and then blocked by the rest
+        // unticked again (the gaps in the warning colour); and each reason the application gives.
+        "split-bin-offered" | "split-bin" | "split-bin-gaps" | "split-bin-wanted"
+        | "split-bin-drive" | "split-bin-several" | "split-bin-system" => {
+            let doc = Buffer::from_text(&japan());
+            let h = headings_of(&doc);
+            let mut s = PlanScreen::new(init(
+                &doc,
+                "Japan trip journal.md",
+                &h,
+                Some(2),
+                dest(),
+                &root,
+                empty(),
+            ));
+            let refused = match kind {
+                "split-bin-drive" => Some(RECYCLE_NO_BIN.to_string()),
+                "split-bin-several" => Some(RECYCLE_ONE_DOCUMENT.to_string()),
+                "split-bin-system" => Some(recycle_unavailable(
+                    "a policy on this PC deletes files instead",
+                )),
+                _ => None,
+            };
+            s.recycle = Some(RecycleBox {
+                wanted: false,
+                refused,
+            });
+            if kind != "split-bin-gaps" {
+                s.keep_the_rest();
+            }
+            if matches!(kind, "split-bin" | "split-bin-wanted") {
+                s.toggle_recycle();
+            }
+            if kind == "split-bin-wanted" {
+                let rest = s.plan.notes().len();
+                s.toggle(rest);
+            }
+            s.select(1);
             s
         }
         _ => return None,

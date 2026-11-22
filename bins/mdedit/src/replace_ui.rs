@@ -414,6 +414,44 @@ impl Outcome {
         }
     }
 
+    /// Step 8 in the report of a split (5.4): the original in the Recycle Bin, and, when a library
+    /// file lists it, that its line now leads nowhere; or why it stayed where it was.
+    pub fn recycled(&mut self, source: &Path, result: &Result<(), String>, listed: &[String]) {
+        let name = source
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| source.display().to_string());
+        match result {
+            Ok(()) => {
+                self.title
+                    .push_str(" \u{00B7} the original in the Recycle Bin");
+                self.rows
+                    .push(OutRow::Heading("In the Recycle Bin (1)".to_string()));
+                self.rows.push(OutRow::Changed {
+                    name: source.display().to_string(),
+                    count: 0,
+                });
+                if !listed.is_empty() {
+                    self.rows.push(OutRow::Skipped {
+                        name: format!("\u{2018}{name}\u{2019}"),
+                        why: format!(
+                            "is still listed under {}; it will show as missing.",
+                            listed.join(", ")
+                        ),
+                    });
+                }
+            }
+            Err(why) => {
+                self.rows
+                    .push(OutRow::Heading("Not in the Recycle Bin (1)".to_string()));
+                self.rows.push(OutRow::Failed {
+                    name,
+                    why: format!("could not be put in the Recycle Bin: {why}. It is where it was."),
+                });
+            }
+        }
+    }
+
     /// The report of an undo of a plan's run.
     pub fn undone(done: &mdedit_core::runs::UndoReport, library: &Path) -> Outcome {
         let root = library;
@@ -436,14 +474,30 @@ impl Outcome {
                 count: 0,
             });
         }
-        if !done.kept.is_empty() {
+        // A file the Recycle Bin would not take is kept for that reason, not for a change.
+        let changed: Vec<&PathBuf> = done
+            .kept
+            .iter()
+            .filter(|p| !done.bin_failures.iter().any(|f| &f.path == *p))
+            .collect();
+        if !changed.is_empty() {
             rows.push(OutRow::Heading(format!(
                 "Changed since, kept ({})",
-                done.kept.len()
+                changed.len()
             )));
-            rows.extend(done.kept.iter().map(|p| OutRow::Skipped {
+            rows.extend(changed.iter().map(|p| OutRow::Skipped {
                 name: rel(root, p),
                 why: "changed since, kept".to_string(),
+            }));
+        }
+        if !done.bin_failures.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Not put in the Recycle Bin, kept ({})",
+                done.bin_failures.len()
+            )));
+            rows.extend(done.bin_failures.iter().map(|f| OutRow::Failed {
+                name: rel(root, &f.path),
+                why: f.why.clone(),
             }));
         }
         if !done.held_back.is_empty() {

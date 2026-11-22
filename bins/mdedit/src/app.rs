@@ -106,6 +106,8 @@ mod plan_write;
 #[cfg(test)]
 mod plan_write_tests;
 mod preview;
+#[cfg(test)]
+mod recycle_tests;
 mod visual;
 pub(crate) use preview::previewable;
 #[cfg(test)]
@@ -361,6 +363,9 @@ struct App {
     plan_behind: Option<crate::plan_ui::PlanScreen>,
     /// The last split asked of the AI, for "Run again".
     split_last: Option<crate::ai::Spec>,
+    /// The Recycle Bin (5.4): the system's, or in a test a bin of the test's own, so no test can
+    /// reach the system's.
+    recycle: Box<dyn crate::recycle::RecycleBin>,
     /// "Move the notes…": the card of a move's plan, while it is open.
     mover: Option<crate::move_ui::MoveCard>,
     /// The library being read again on its own thread after a library file was saved, with at
@@ -523,6 +528,10 @@ impl App {
             plan_parked: None,
             plan_behind: None,
             split_last: None,
+            #[cfg(not(test))]
+            recycle: Box::new(crate::recycle::SystemBin),
+            #[cfg(test)]
+            recycle: Box::new(crate::recycle::NoBin),
             mover: None,
             library_job: None,
             settled: false,

@@ -330,6 +330,25 @@ for t in "" "-dark"; do
     shot "plan-split-small$t" $th --size 800x600 --plan-demo split-small
 done
 
+# The original in the Recycle Bin (5.4): the box offered, ticked with its sentence and the footer's,
+# wanted while lines are in no note (the strip's gaps in the warning colour, and the one-click
+# answer), and each reason the window can draw: a drive with no bin, a run of more than one
+# document, a bin the system does not offer. Then the report of a split that put its original in
+# the bin, still listed in a group, and of one whose original stayed, with the reason.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "plan-split-bin-offered$t" $th --plan-demo split-bin-offered
+    shot "plan-split-bin$t" $th --plan-demo split-bin
+    shot "plan-split-bin-gaps$t" $th --plan-demo split-bin-gaps
+    shot "plan-split-bin-wanted$t" $th --plan-demo split-bin-wanted
+    shot "plan-split-bin-drive$t" $th --plan-demo split-bin-drive
+    shot "plan-split-bin-several$t" $th --plan-demo split-bin-several
+    shot "plan-split-bin-system$t" $th --plan-demo split-bin-system
+    shot "plan-split-bin-report$t" $th --plan-demo split-bin-report
+    shot "plan-split-bin-kept$t" $th --plan-demo split-bin-kept
+done
+
 # Split by AI (5.2), with a connection chosen and a made-up answer (no request is made): the panel
 # with split prompts, the line while it asks, a plan from the AI with a boundary moved to a
 # paragraph's edge and an overlap, 240 notes of which 54 are dropped, an answer that could not be

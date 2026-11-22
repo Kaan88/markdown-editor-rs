@@ -161,13 +161,19 @@ impl App {
             record.group.created = true;
             let _ = record.close(path, &library);
         }
+        // 8. The original in the Recycle Bin, when the box was ticked (5.4): last, and only when
+        //    every note was written, read back and listed, the record is closed, and the source is
+        //    still the file that was read.
+        let binned = screen
+            .recycle_on()
+            .then(|| self.plan_recycle(&mut report, &request, &library));
         self.plan = None;
         self.plan_parked = None;
-        if let Some(failure) = report
+        let link_failure = report
             .link_failures
             .first()
-            .or(report.group_failure.as_ref())
-        {
+            .or(report.group_failure.as_ref());
+        if let Some(failure) = link_failure {
             let name = failure
                 .path
                 .file_name()
@@ -177,14 +183,48 @@ impl App {
                 "The notes are written, but {name} could not be updated: {}. Try again / Undo",
                 failure.why
             ));
+        } else if let Some(Err(why)) = &binned {
+            self.docs.set_toast(&format!(
+                "The notes are written. {} could not be put in the Recycle Bin: {why}. It is where it was.",
+                shown(&request.source)
+            ));
         }
         self.docs.check_changed();
         self.ui.tree.refresh();
         self.library_rows();
-        let outcome = Outcome::run(&report, &library);
+        let mut outcome = Outcome::run(&report, &library);
+        if let Some(result) = &binned {
+            // A source that is itself a note of the library: its line now leads nowhere (5.4).
+            let listed = if result.is_ok() {
+                runs::listed_in(&library, &request.source)
+            } else {
+                Vec::new()
+            };
+            outcome.recycled(&request.source, result, &listed);
+        }
         self.show_outcome(outcome);
         self.open_notes_of(&report, &request);
         self.redraw();
+    }
+
+    /// Step 8 of 4.3: the source of the run in `report` to the Recycle Bin. Its drive is asked
+    /// again first, since the card's answer may be a while old. `Err` follows "could not be put in
+    /// the Recycle Bin: ", and the source is then where it was.
+    fn plan_recycle(
+        &mut self,
+        report: &mut runs::Report,
+        request: &Request,
+        library: &Path,
+    ) -> Result<(), String> {
+        if let Some(why) = self.recycle.refusal(&request.source) {
+            return Err(lower_first(&why));
+        }
+        runs::recycle_source(
+            report,
+            request,
+            library,
+            &mut crate::recycle::Through(&mut *self.recycle),
+        )
     }
 
     /// "Write the notes" refused before anything was written: the card stays with the plan, and
@@ -471,6 +511,15 @@ fn shown(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
+/// A sentence of the card ("This drive has no Recycle Bin") as the middle of another one.
+fn lower_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_lowercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 /// Takes away a file this function made, when it still holds exactly what was put in it.
 fn remove_own_file(path: &Path, text: &str) {
     if std::fs::read(path).is_ok_and(|bytes| bytes == text.as_bytes()) {
@@ -709,7 +758,7 @@ impl App {
                     // for a real run.
                     let plan = mdedit_core::runs::prepare(&run.record, &root);
                     (
-                        plan.sentence(&run.record.group_name()),
+                        self.undo_sentence(&plan, &run.record.group_name()),
                         plan.refusal.is_none(),
                     )
                 } else {
@@ -736,8 +785,11 @@ impl App {
                         ],
                         ..Default::default()
                     };
-                    (plan.sentence(&run.record.group_name()), true)
+                    (self.undo_sentence(&plan, &run.record.group_name()), true)
                 };
+                self.ui.runs.bin = which == Some(ShotDialog::RunUndoRecycled)
+                    && run.record.source.recycled
+                    && self.recycle.can_open();
                 self.ui.runs.undo = Some((run.path.clone(), sentence, can));
                 self.open_dialog(DialogKind::RunUndo);
             }
@@ -757,6 +809,7 @@ impl App {
                 .set_toast("The record of that run cannot be read.");
             return;
         };
+        self.ui.runs.bin = false;
         // A move is undone by its own machine (`moves::undo`), under the same gate.
         if record.kind == runs::Kind::Move {
             return self.move_undo_ask(path, &record, &library);
@@ -765,12 +818,36 @@ impl App {
         if let Some(why) = &plan.refusal {
             self.docs.set_toast(why);
         }
-        self.ui.runs.undo = Some((
-            path,
-            plan.sentence(&record.group_name()),
-            plan.refusal.is_none(),
-        ));
+        let sentence = self.undo_sentence(&plan, &record.group_name());
+        self.ui.runs.undo = Some((path, sentence, plan.refusal.is_none()));
+        // A run that put its original in the Recycle Bin waits for it to be back: the question
+        // offers to open the bin, where the system can (5.4).
+        self.ui.runs.bin =
+            record.source.recycled && plan.refusal.is_some() && self.recycle.can_open();
         self.open_dialog(DialogKind::RunUndo);
+    }
+
+    /// The undo question's sentence: what goes and what stays, and where the files go when the
+    /// drive has a Recycle Bin (4.5, rule 3).
+    fn undo_sentence(&self, plan: &runs::UndoPlan, group: &str) -> String {
+        let mut sentence = plan.sentence(group);
+        let first = plan.notes.first().or(plan.pictures.first());
+        if plan.refusal.is_none() && first.is_some_and(|p| self.recycle.refusal(p).is_none()) {
+            sentence.push_str(if plan.pictures.is_empty() {
+                " The notes go to the Recycle Bin."
+            } else {
+                " The notes and pictures go to the Recycle Bin."
+            });
+        }
+        sentence
+    }
+
+    /// "Open the Recycle Bin" on the undo question.
+    pub(super) fn open_bin(&mut self) {
+        if !self.recycle.open() {
+            self.docs
+                .set_toast("The Recycle Bin could not be opened here.");
+        }
     }
 
     /// The question's answer: undo the run whose record it holds.
@@ -784,13 +861,26 @@ impl App {
         if record.kind == runs::Kind::Move {
             return self.move_undo(path, &record, &library);
         }
-        let mut gate = PlanGate {
-            app: self,
-            library: library.clone(),
+        // Undo's removals go to the Recycle Bin where the drive has one (4.5, rule 3; D-071). The
+        // bin is taken out of the window for the length of the undo, since the gate holds it.
+        let mut bin = std::mem::replace(&mut self.recycle, Box::new(crate::recycle::Taken));
+        let report = {
+            let mut gate = PlanGate {
+                app: self,
+                library: library.clone(),
+            };
+            runs::undo_with(
+                &path,
+                &record,
+                &library,
+                &mut gate,
+                &mut crate::recycle::ForUndo(&mut *bin),
+            )
         };
-        let report = runs::undo(&path, &record, &library, &mut gate);
+        self.recycle = bin;
         self.ui.dialog = None;
         self.ui.runs.undo = None;
+        self.ui.runs.bin = false;
         if let Some(why) = &report.refusal {
             self.docs.set_toast(why);
         }

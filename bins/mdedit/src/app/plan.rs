@@ -128,6 +128,12 @@ impl App {
         screen.source.len = len;
         screen.source.sha256 = sha256;
         screen.ai_offer = self.docs.prefs.ai_connection != mdedit_core::ai::Connection::Off;
+        // The Recycle Bin box (5.4), for this one document: disabled when its drive has no bin or
+        // the system refuses, and otherwise while lines are in no note (the card works that out).
+        screen.recycle = Some(crate::plan_ui::RecycleBox {
+            wanted: false,
+            refused: self.recycle.refusal(&path),
+        });
         screen.blocked = self.plan_blocked(&screen);
         screen.blocked_for = Some(screen.dest.clone());
         self.plan_open(screen);
@@ -314,6 +320,10 @@ impl App {
     /// demonstration writes nothing: its library folder is a name in the working folder, which is
     /// not where the program writes.
     pub(super) fn plan_demo(&mut self, name: &str) -> bool {
+        if matches!(name, "split-bin-report" | "split-bin-kept") {
+            self.plan_bin_report_demo(name == "split-bin-report");
+            return true;
+        }
         match crate::plan_demo::screen(name) {
             Some(mut screen) => {
                 screen.blocked =
@@ -324,5 +334,100 @@ impl App {
             }
             None => false,
         }
+    }
+
+    /// `--plan-demo split-bin-report|split-bin-kept`: the report of a split whose original was
+    /// put in the Recycle Bin, and is still listed in a group of the library; or whose original
+    /// stayed, with the reason. Made in memory: nothing is read or written.
+    fn plan_bin_report_demo(&mut self, recycled: bool) {
+        use mdedit_core::runs::{Group, Kind, NoteRec, Record, Report, Source, State};
+        let library = std::env::temp_dir()
+            .join("mdedit-runs-demo")
+            .join("library");
+        let home = library.join("Japan 2025");
+        let docs = if cfg!(windows) {
+            r"D:\Docs"
+        } else {
+            "/home/me/Docs"
+        };
+        let source = PathBuf::from(docs).join("Japan trip journal.md");
+        let titles = [
+            ("Tokyo", "asakusa-and-the-river"),
+            ("Kyoto", "the-temples-in-the-rain"),
+            ("", "japan-trip-journal-the-rest"),
+        ];
+        let notes: Vec<PathBuf> = titles
+            .iter()
+            .map(|(section, name)| {
+                let folder = if section.is_empty() {
+                    home.clone()
+                } else {
+                    home.join(section)
+                };
+                folder.join(format!("{name}.md"))
+            })
+            .collect();
+        let record = Record {
+            version: 1,
+            kind: Kind::Split,
+            started: "2026-11-22T09:30:00Z".to_string(),
+            started_secs: 0,
+            state: State::Done,
+            instruction: String::new(),
+            sent: None,
+            source: Source {
+                path: source.clone(),
+                len: 18_204,
+                sha256: String::new(),
+                recycled,
+            },
+            group: Group {
+                name: "Japan 2025".to_string(),
+                file: library.join("Japan 2025.md"),
+                created: true,
+                home: home.clone(),
+            },
+            folders: Vec::new(),
+            notes: notes
+                .iter()
+                .map(|p| NoteRec {
+                    path: p.clone(),
+                    created: true,
+                    sha256: String::new(),
+                    ranges: Vec::new(),
+                    heading_shift: 0,
+                    title_added: false,
+                    sections: Vec::new(),
+                    line: String::new(),
+                })
+                .collect(),
+            pictures: Vec::new(),
+            sections_added: Vec::new(),
+            moved: None,
+        };
+        let report = Report {
+            record: Some(record),
+            record_path: Some(
+                library
+                    .join(mdedit_core::runs::RUNS_DIR)
+                    .join("2026-11-22T09-30-00Z-split.json"),
+            ),
+            notes_written: notes,
+            linked: vec![library.join("Japan 2025.md")],
+            closed: true,
+            ..Default::default()
+        };
+        let mut outcome = crate::replace_ui::Outcome::run(&report, &library);
+        if recycled {
+            outcome.recycled(&source, &Ok(()), &["Trips".to_string()]);
+        } else {
+            outcome.recycled(
+                &source,
+                &Err("it has changed since the notes were cut from it".to_string()),
+                &[],
+            );
+        }
+        self.show_outcome(outcome);
+        self.redraw();
     }
 }

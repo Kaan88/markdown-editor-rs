@@ -44,6 +44,7 @@ mod platform;
 mod preview_pane;
 mod recall;
 mod recovery;
+mod recycle;
 mod replace_ui;
 mod results;
 mod session;

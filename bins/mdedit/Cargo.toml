@@ -24,7 +24,9 @@ mdedit-outline = { path = "../../crates/mdedit-outline" }
 mdshared-app.workspace = true
 mdshared-fetch.workspace = true
 mdshared-text.workspace = true
-mdshared-ui.workspace = true
+# `recycle`: the Recycle Bin for a split's original and undo's removals (D-046). It brings in the
+# `trash` crate, one line in the lock; mdview leaves it off.
+mdshared-ui = { workspace = true, features = ["recycle"] }
 parley.workspace = true
 # Views softbuffer's u32 pixels as bytes, so presenting is a row memcpy.
 bytemuck.workspace = true

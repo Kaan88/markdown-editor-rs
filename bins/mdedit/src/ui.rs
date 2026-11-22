@@ -306,6 +306,8 @@ pub enum Hit {
     DlgRunShow,
     DlgRunUndo,
     DlgRunFinish,
+    /// "Open the Recycle Bin" on the undo question of a run whose original is in it (5.4).
+    DlgOpenBin,
     Backdrop,
     /// The second text pane of a split view: a click gives it the keyboard.
     Other,
@@ -882,6 +884,9 @@ pub struct RunsDialog {
     /// The run whose undo is being asked about: its record, the question's sentence, and whether
     /// the undo can run at all (a refusal says what to put back first).
     pub undo: Option<(PathBuf, String, bool)>,
+    /// The question's run put its original in the Recycle Bin and undo waits for it: the
+    /// question offers "Open the Recycle Bin" (5.4), where the system can open it.
+    pub bin: bool,
 }
 
 pub struct Ui {
