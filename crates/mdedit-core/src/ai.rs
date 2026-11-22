@@ -347,6 +347,47 @@ pub const PROMPTS_FILE: &str = "ai-prompts.md";
 pub struct SavedPrompt {
     pub name: String,
     pub instruction: String,
+    /// What the prompt is for: its optional `kind:` line (`docs/ai-library-plan.md` 3.4, 5.6).
+    pub kind: PromptKind,
+}
+
+/// The kind of work a saved prompt does. A prompt with no `kind:` line is a rewrite, which is
+/// what every prompt meant before kinds; a kind this version has no word for is kept apart and
+/// offered nowhere, so it can never do another kind of thing than its line says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PromptKind {
+    #[default]
+    Rewrite,
+    Split,
+    Other,
+}
+
+impl PromptKind {
+    /// The word of its `kind:` line.
+    pub fn word(self) -> &'static str {
+        match self {
+            PromptKind::Rewrite => "rewrite",
+            PromptKind::Split => "split",
+            PromptKind::Other => "other",
+        }
+    }
+}
+
+/// The kind a line names, when it is a `kind:` line: `kind: split`, in any case, blanks around.
+fn kind_line(line: &str) -> Option<PromptKind> {
+    let (key, value) = line.trim().split_once(':')?;
+    if !key.trim().eq_ignore_ascii_case("kind") {
+        return None;
+    }
+    let value = value.trim();
+    if value.is_empty() || value.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(match value.to_ascii_lowercase().as_str() {
+        "rewrite" => PromptKind::Rewrite,
+        "split" => PromptKind::Split,
+        _ => PromptKind::Other,
+    })
 }
 
 impl SavedPrompt {
@@ -429,10 +470,22 @@ pub fn parse_prompts(text: &str) -> Vec<SavedPrompt> {
     let mut cur: Option<(String, Vec<String>)> = None;
     let mut fence: Option<String> = None;
     let flush = |cur: &mut Option<(String, Vec<String>)>, out: &mut Vec<SavedPrompt>| {
-        if let Some((name, lines)) = cur.take() {
+        if let Some((name, mut lines)) = cur.take() {
+            // The first line with text may say the prompt's kind; it is not the instruction.
+            let mut kind = PromptKind::Rewrite;
+            if let Some(i) = lines.iter().position(|l| !l.trim().is_empty())
+                && let Some(k) = kind_line(&lines[i])
+            {
+                kind = k;
+                lines.drain(..=i);
+            }
             let instruction = lines.join("\n").trim().to_string();
             if !name.is_empty() && !instruction.is_empty() {
-                out.push(SavedPrompt { name, instruction });
+                out.push(SavedPrompt {
+                    name,
+                    instruction,
+                    kind,
+                });
             }
         }
     };
@@ -517,6 +570,13 @@ pub fn prompt_name(instruction: &str, saved: &[SavedPrompt]) -> String {
 /// when the file has one). Whether it reads back is the caller's to check: a file that ends
 /// inside a code fence takes the heading as text.
 pub fn append_prompt(file: &str, name: &str, instruction: &str) -> String {
+    append_prompt_of(file, name, instruction, PromptKind::Rewrite)
+}
+
+/// [`append_prompt`] for a prompt of `kind`: a split gets its `kind: split` line under the
+/// heading. A rewrite gets none, unless its first line would read as one, when it gets
+/// `kind: rewrite` first so that it reads back as typed.
+pub fn append_prompt_of(file: &str, name: &str, instruction: &str, kind: PromptKind) -> String {
     let eol = if file.contains("\r\n") { "\r\n" } else { "\n" };
     let mut out = file.to_string();
     if !out.is_empty() {
@@ -529,6 +589,13 @@ pub fn append_prompt(file: &str, name: &str, instruction: &str) -> String {
     out.push_str(name.trim());
     out.push_str(eol);
     out.push_str(eol);
+    let first = instruction.trim().lines().next().unwrap_or("");
+    if kind != PromptKind::Rewrite || kind_line(first).is_some() {
+        out.push_str("kind: ");
+        out.push_str(kind.word());
+        out.push_str(eol);
+        out.push_str(eol);
+    }
     for line in instruction.trim().lines() {
         out.push_str(&escape_line(line));
         out.push_str(eol);
@@ -800,7 +867,8 @@ mod tests {
             one,
             [SavedPrompt {
                 name: "A".into(),
-                instruction: "Do it.".into()
+                instruction: "Do it.".into(),
+                kind: PromptKind::Rewrite,
             }]
         );
     }
@@ -899,5 +967,52 @@ mod tests {
         // Nothing changed: no removed or added lines.
         let (_, r, a) = review("x\n", "x\n");
         assert_eq!((r, a), (0, 0));
+    }
+
+    /// 5.6: a prompt carries its kind on an optional `kind:` line; none is a rewrite, and a kind
+    /// this version does not know is kept apart.
+    #[test]
+    fn a_prompt_carries_its_kind_and_none_is_a_rewrite() {
+        let file = "# Prompts\n\n## Chapters\n\nkind: split\n\nOne note per chapter.\n\n## Fix\n\nFix it.\n\n## File\n\n  Kind: File  \nBy topic.\n\n## Says kind\n\nkind: two words\nKeep it.\n";
+        let p = parse_prompts(file);
+        let kinds: Vec<(&str, PromptKind, &str)> = p
+            .iter()
+            .map(|p| (p.name.as_str(), p.kind, p.instruction.as_str()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("Chapters", PromptKind::Split, "One note per chapter."),
+                ("Fix", PromptKind::Rewrite, "Fix it."),
+                ("File", PromptKind::Other, "By topic."),
+                (
+                    "Says kind",
+                    PromptKind::Rewrite,
+                    "kind: two words\nKeep it."
+                ),
+            ]
+        );
+        // The template's prompts are all rewrites.
+        assert!(
+            parse_prompts(PROMPTS_TEMPLATE)
+                .iter()
+                .all(|p| p.kind == PromptKind::Rewrite)
+        );
+    }
+
+    #[test]
+    fn a_prompt_is_saved_with_its_kind_and_reads_back_as_typed() {
+        let out = append_prompt_of("", "Chapters", "One note per chapter.", PromptKind::Split);
+        assert_eq!(out, "## Chapters\n\nkind: split\n\nOne note per chapter.\n");
+        let back = parse_prompts(&out);
+        assert_eq!(back[0].kind, PromptKind::Split);
+        assert_eq!(back[0].instruction, "One note per chapter.");
+        // A rewrite whose first line would read as a kind line gets its own kind line first.
+        let out = append_prompt("", "Odd", "kind: split\nthe rest");
+        let back = parse_prompts(&out);
+        assert_eq!(back[0].kind, PromptKind::Rewrite);
+        assert_eq!(back[0].instruction, "kind: split\nthe rest");
+        // A plain rewrite is written as before, with no kind line.
+        assert_eq!(append_prompt("", "A", "Do it."), "## A\n\nDo it.\n");
     }
 }

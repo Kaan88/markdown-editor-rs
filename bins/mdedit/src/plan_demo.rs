@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// Every name `--plan-demo` takes.
 #[cfg(test)]
-pub const NAMES: [&str; 8] = [
+pub const NAMES: [&str; 14] = [
     "split",
     "split-gaps",
     "split-rest",
@@ -20,7 +20,125 @@ pub const NAMES: [&str; 8] = [
     "split-rename",
     "split-many",
     "split-small",
+    "split-ai",
+    "split-ai-dropped",
+    "split-ai-unreadable",
+    "split-ai-long",
+    "split-ai-asking",
+    "split-ai-ask",
 ];
+
+/// The answer of the `split-ai-unreadable` shot: what a model says when it will not do as asked.
+pub const BAD_ANSWER: &str = "I'm sorry, but I can't split this document without seeing all of it.";
+
+/// What the split shots asked the AI.
+pub const INSTRUCTION: &str = "Two chapters to a note, under the city they are in";
+
+/// Saved prompts of the kind "split", for the panel's shot (a shot reads no prompts file).
+pub fn split_prompts() -> Vec<mdedit_core::ai::SavedPrompt> {
+    mdedit_core::ai::parse_prompts(concat!(
+        "## One note per chapter\n\nkind: split\n\n",
+        "One note per chapter, under the part it is in.\n\n",
+        "## One note per day\n\nkind: split\n\n",
+        "One note per day of a journal; a day starts at its date.\n\n",
+        "## By topic\n\nkind: split\n\n",
+        "Group the paragraphs by topic, one note per topic, in the order they first appear.\n",
+    ))
+}
+
+/// A plain text of 31,000 lines and no heading: too long to send even as an outline.
+fn long_plain() -> String {
+    let mut s = String::with_capacity(31_000 * 40);
+    for k in 0..15_500usize {
+        s.push_str(&format!(
+            "Reading {k}: the gauge said {} and nothing moved.\n\n",
+            k % 97
+        ));
+    }
+    s
+}
+
+/// The answer of the `split-ai` and `split-ai-dropped` shots, made from the document's own
+/// headings as a model would: line numbers, titles, sections. In `split-ai` one note starts in
+/// the middle of a paragraph and one overlaps the note before; in `split-ai-dropped` there are
+/// 240 notes, some of them past the end.
+pub fn answer_for(kind: &str, screen: &PlanScreen) -> String {
+    let mut notes: Vec<String> = Vec::new();
+    match kind {
+        "split-ai" => {
+            let heads = screen.headings();
+            let parts: Vec<(usize, String)> = heads
+                .iter()
+                .filter(|h| h.level == 1)
+                .map(|h| (h.line, heading_words(screen, h.line)))
+                .collect();
+            let chapters: Vec<usize> = heads
+                .iter()
+                .filter(|h| h.level == 2)
+                .map(|h| h.line)
+                .collect();
+            let part_of = |line: usize| {
+                parts
+                    .iter()
+                    .rev()
+                    .find(|(l, _)| *l < line)
+                    .map(|(_, n)| n.clone())
+                    .unwrap_or_default()
+            };
+            let mut prev_to = 0usize;
+            for (k, pair) in chapters.chunks(2).enumerate() {
+                let first = pair[0];
+                let end = chapters
+                    .get(k * 2 + 2)
+                    .copied()
+                    .unwrap_or(screen.plan.lines())
+                    .min(
+                        parts
+                            .iter()
+                            .map(|(l, _)| *l)
+                            .find(|&l| l > first)
+                            .unwrap_or(usize::MAX),
+                    );
+                // 1-based, inclusive.
+                let mut from = first + 1;
+                let to = end;
+                if k == 2 {
+                    // The second line of the chapter's first paragraph: inside it.
+                    from = first + 4;
+                }
+                if k == 4 {
+                    from = prev_to.saturating_sub(3);
+                }
+                prev_to = to;
+                notes.push(format!(
+                    r#"{{"from":{from},"to":{to},"title":"{} and the next","sections":["{}"]}}"#,
+                    heading_words(screen, first),
+                    part_of(first)
+                ));
+            }
+        }
+        _ => {
+            for k in 0..240usize {
+                let from = k * 6 + 1;
+                notes.push(format!(
+                    r#"{{"from":{from},"to":{},"title":"Part {k}","sections":["Archive"]}}"#,
+                    from + 3
+                ));
+            }
+        }
+    }
+    format!(
+        "Here is the plan.\n```json\n{{\"version\":1,\"notes\":[{}]}}\n```",
+        notes.join(",")
+    )
+}
+
+/// The words of the heading on `line`.
+fn heading_words(screen: &PlanScreen, line: usize) -> String {
+    let mut s = String::new();
+    screen.plan.document().line_text(line, &mut s);
+    s.trim_start_matches('#').trim().replace('"', "'")
+}
 
 fn init<'a>(
     doc: &Buffer,
@@ -195,6 +313,51 @@ pub fn screen(kind: &str) -> Option<PlanScreen> {
                 s.toggle(i);
             }
             s.select(37);
+            s
+        }
+        "split-ai" | "split-ai-unreadable" | "split-ai-asking" | "split-ai-ask" => {
+            let doc = Buffer::from_text(&japan());
+            let h = headings_of(&doc);
+            let mut s = PlanScreen::new(init(
+                &doc,
+                "Japan trip journal.md",
+                &h,
+                Some(2),
+                dest(),
+                &root,
+                empty(),
+            ));
+            s.ai_offer = true;
+            s
+        }
+        "split-ai-dropped" => {
+            let doc = Buffer::from_text(&many());
+            let h = headings_of(&doc);
+            let mut s = PlanScreen::new(init(
+                &doc,
+                "Notes archive.md",
+                &h,
+                None,
+                Dest::new(&root, "Work notes", false),
+                &root,
+                empty(),
+            ));
+            s.ai_offer = true;
+            s
+        }
+        "split-ai-long" => {
+            let doc = Buffer::from_text(&long_plain());
+            let h = headings_of(&doc);
+            let mut s = PlanScreen::new(init(
+                &doc,
+                "Field log.txt",
+                &h,
+                None,
+                Dest::new(&root, "Work notes", false),
+                &root,
+                empty(),
+            ));
+            s.ai_offer = true;
             s
         }
         _ => return None,

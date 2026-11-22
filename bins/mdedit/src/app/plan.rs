@@ -127,6 +127,7 @@ impl App {
         });
         screen.source.len = len;
         screen.source.sha256 = sha256;
+        screen.ai_offer = self.docs.prefs.ai_connection != mdedit_core::ai::Connection::Off;
         screen.blocked = self.plan_blocked(&screen);
         screen.blocked_for = Some(screen.dest.clone());
         self.plan_open(screen);
@@ -163,6 +164,11 @@ impl App {
 
     /// Closes the screen; a plan that was changed is kept to be shown again.
     pub(super) fn plan_close(&mut self) {
+        // A split still out is for this screen: it stops with it.
+        if self.ai.split.is_some() {
+            self.ai.cancel_split();
+            self.docs.ai_status = None;
+        }
         if let Some(screen) = self.plan.take()
             && screen.edited
         {
@@ -178,6 +184,7 @@ impl App {
     pub(super) fn plan_show(&mut self) -> bool {
         match self.plan_parked.take() {
             Some(mut screen) => {
+                screen.ai_offer = self.docs.prefs.ai_connection != mdedit_core::ai::Connection::Off;
                 if screen.source.path.is_some() {
                     screen.blocked = self.plan_blocked(&screen);
                     screen.blocked_for = Some(screen.dest.clone());
@@ -199,6 +206,7 @@ impl App {
         match act {
             Act::Close => self.plan_close(),
             Act::Write => self.plan_write(),
+            Act::Ai(a) => self.plan_ai(a),
             Act::Nothing => {}
         }
         self.plan_recheck();
@@ -210,6 +218,17 @@ impl App {
             return self.move_key(key);
         }
         let mods = self.mods;
+        // Escape while the AI is asked stops the request and leaves the screen open.
+        if self.ai.split.is_some()
+            && matches!(&key, PlanKey::Name(crate::keys::KeyName::Escape))
+            && self
+                .plan
+                .as_ref()
+                .is_some_and(|s| s.edit.is_none() && s.menu.is_none())
+        {
+            self.split_stop();
+            return;
+        }
         let Some(screen) = self.plan.as_mut() else {
             return;
         };
@@ -300,6 +319,7 @@ impl App {
                 screen.blocked =
                     Some("A demonstration of the plan screen: it writes nothing.".to_string());
                 self.plan_open(screen);
+                self.split_demo(name);
                 true
             }
             None => false,

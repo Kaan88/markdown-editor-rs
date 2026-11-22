@@ -330,6 +330,22 @@ for t in "" "-dark"; do
     shot "plan-split-small$t" $th --size 800x600 --plan-demo split-small
 done
 
+# Split by AI (5.2), with a connection chosen and a made-up answer (no request is made): the panel
+# with split prompts, the line while it asks, a plan from the AI with a boundary moved to a
+# paragraph's edge and an overlap, 240 notes of which 54 are dropped, an answer that could not be
+# read, and a document too long to send.
+ai="--pref ai_connection=claude-api --pref ai_model_claude-api=claude-opus-5-5 --pref ai_effort_claude-api=high"
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "plan-split-ai-ask$t" $th $ai --plan-demo split-ai-ask
+    shot "plan-split-ai-asking$t" $th $ai --plan-demo split-ai-asking
+    shot "plan-split-ai$t" $th $ai --plan-demo split-ai
+    shot "plan-split-ai-dropped$t" $th $ai --plan-demo split-ai-dropped
+    shot "plan-split-ai-unreadable$t" $th $ai --plan-demo split-ai-unreadable
+    shot "plan-split-ai-long$t" $th $ai --plan-demo split-ai-long
+done
+
 # "AI runs…" (5.9): the list, the question before undoing a run, and the question when the run's
 # source is in the Recycle Bin (that one is never a question: it says what to put back).
 for t in "" "-dark"; do

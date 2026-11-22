@@ -7,7 +7,7 @@ use super::*;
 use crate::ai::{Ask, Bar, BarAction, Event, Hit as AiHit, Instruction, Panel, Review, Run, Spec};
 use crate::keys::KeyName;
 use crate::preview_pane::Pane;
-use mdedit_core::ai::{self as core_ai, Connection};
+use mdedit_core::ai::{self as core_ai, Connection, PromptKind, SavedPrompt};
 use mdshared_ui::textfield::TextField;
 use serde_json::json;
 
@@ -46,10 +46,29 @@ impl App {
             return;
         }
         self.ai.prompts_stamp = Some(stamp);
-        self.docs.ai_prompts = match (path, stamp) {
+        let all = match (path, stamp) {
             (Some(p), Some((_, len))) if len <= PROMPTS_BYTES => crate::ai::read_prompts(&p),
             _ => Vec::new(),
         };
+        let of = |kind: PromptKind| -> Vec<SavedPrompt> {
+            all.iter().filter(|p| p.kind == kind).cloned().collect()
+        };
+        self.docs.ai_prompts = of(PromptKind::Rewrite);
+        self.docs.ai_split_prompts = of(PromptKind::Split);
+    }
+
+    /// Whether the instruction panel is the split's (5.2).
+    fn ai_panel_splits(&self) -> bool {
+        matches!(&self.ai.panel, Some(Panel::Instruction(i)) if i.split.is_some())
+    }
+
+    /// The saved prompts the open panel lists: the split's for a split, the rewrites otherwise.
+    fn ai_panel_prompts(&self) -> &[SavedPrompt] {
+        if self.ai_panel_splits() {
+            &self.docs.ai_split_prompts
+        } else {
+            &self.docs.ai_prompts
+        }
     }
 
     /// The instruction panel's Save prompt (or Ctrl+S): what is typed goes at the end of the
@@ -89,10 +108,14 @@ impl App {
                 .set_toast(&format!("Could not save the prompt: {e}"));
             return;
         }
+        let kind = if self.ai_panel_splits() {
+            PromptKind::Split
+        } else {
+            PromptKind::Rewrite
+        };
         self.ai_load_prompts();
         if let Some(p) = self
-            .docs
-            .ai_prompts
+            .ai_panel_prompts()
             .iter()
             .find(|p| p.instruction.trim() == text)
         {
@@ -108,8 +131,10 @@ impl App {
                 return;
             }
         };
-        let name = core_ai::prompt_name(&text, &self.docs.ai_prompts);
-        let new = core_ai::append_prompt(&file, &name, &text);
+        let mut every = self.docs.ai_prompts.clone();
+        every.extend(self.docs.ai_split_prompts.iter().cloned());
+        let name = core_ai::prompt_name(&text, &every);
+        let new = core_ai::append_prompt_of(&file, &name, &text, kind);
         // Written only when the list reads it back: every prompt there was, and this one.
         if new.len() as u64 > PROMPTS_BYTES {
             self.docs.set_toast(&format!(
@@ -125,7 +150,7 @@ impl App {
             && back[..before.len()] == before[..]
             && back
                 .last()
-                .is_some_and(|p| p.name == name && p.instruction == text);
+                .is_some_and(|p| p.name == name && p.instruction == text && p.kind == kind);
         if !reads_back {
             self.docs.set_toast(&format!(
                 "The prompt was not saved: the end of {} would not read as a prompt (a code block left open?). Edit saved prompts to fix it.",
@@ -137,7 +162,7 @@ impl App {
         match written {
             Ok(()) => {
                 self.ai_load_prompts();
-                let k = self.docs.ai_prompts.iter().position(|p| p.name == name);
+                let k = self.ai_panel_prompts().iter().position(|p| p.name == name);
                 if let Some(i) = self.ai.instruction() {
                     i.selected = k;
                 }
@@ -168,7 +193,7 @@ impl App {
 
     // ---- starting ----------------------------------------------------------------------------
 
-    fn ai_conn(&self) -> Connection {
+    pub(super) fn ai_conn(&self) -> Connection {
         self.docs.prefs.ai_connection
     }
 
@@ -278,7 +303,7 @@ impl App {
     /// Puts saved prompt `k` in the instruction panel's box, the caret at its end, and runs
     /// nothing: Rewrite runs it (under the prompt's name while the text is unchanged).
     fn ai_put_prompt(&mut self, k: usize) {
-        let Some(p) = self.docs.ai_prompts.get(k).cloned() else {
+        let Some(p) = self.ai_panel_prompts().get(k).cloned() else {
             return;
         };
         let Some(i) = self.ai.instruction() else {
@@ -457,11 +482,16 @@ impl App {
                     if let Some(r) = self.ai.run.as_mut().filter(|r| r.id == id) {
                         r.chars = chars;
                         self.ai_status();
+                    } else if let Some(r) = self.ai.split.as_mut().filter(|r| r.id == id) {
+                        r.chars = chars;
+                        self.split_status();
                     }
                 }
                 Event::Done { id, text } => {
                     self.ai.answered(id, true);
-                    if self.ai.run.as_ref().is_some_and(|r| r.id == id) {
+                    if self.ai.split.as_ref().is_some_and(|r| r.id == id) {
+                        self.split_done(&text);
+                    } else if self.ai.run.as_ref().is_some_and(|r| r.id == id) {
                         let run = self.ai.run.take().expect("checked");
                         self.docs.ai_status = None;
                         self.ai_finish(run, &text);
@@ -478,6 +508,11 @@ impl App {
                             self.ai.run = None;
                             self.docs.ai_status = None;
                             self.ai_failed(&kind, message, retry_after);
+                        }
+                    }
+                    Some(Ask::Split) => {
+                        if self.ai.split.as_ref().is_some_and(|r| r.id == id) {
+                            self.split_failed(&kind, &message);
                         }
                     }
                     Some(Ask::Models(key)) => {
@@ -518,6 +553,9 @@ impl App {
                     }
                 }
                 Event::Ended(why) => {
+                    if self.ai.split.is_some() {
+                        self.split_failed("ended", &why);
+                    }
                     if self.ai.run.take().is_some() {
                         self.docs.ai_status = None;
                         self.ai_set_bar(Bar {
@@ -735,6 +773,7 @@ impl App {
             spec: None,
             source: (scope.doc, scope.start, scope.end, scope.text),
             changed: false,
+            split: None,
             selected: None,
             scope: scope.label,
             via: self.ai_via(),
@@ -781,6 +820,8 @@ impl App {
         self.ai.pressed = None;
         self.set_cursor(CursorIcon::Default);
         self.ai.tick += 1;
+        // The split panel's plan screen comes back.
+        self.split_panel_closed();
         self.redraw();
     }
 
@@ -790,11 +831,12 @@ impl App {
             return;
         };
         let typed = i.field.text().trim().to_string();
-        let picked = i
-            .selected
-            .and_then(|k| self.docs.ai_prompts.get(k))
-            .cloned();
+        let selected = i.selected;
         let again = i.spec.clone().filter(|s| typed == s.instruction.trim());
+        let splits = self.ai_panel_splits();
+        let picked = selected
+            .and_then(|k| self.ai_panel_prompts().get(k))
+            .cloned();
         let spec = match picked {
             _ if let Some(s) = again => s,
             Some(p) if typed.is_empty() || typed == p.instruction.trim() => Spec {
@@ -802,11 +844,16 @@ impl App {
                 instruction: p.instruction,
             },
             _ if !typed.is_empty() => Spec {
-                title: "Rewrite".into(),
+                title: if splits { "Split" } else { "Rewrite" }.into(),
                 instruction: typed,
             },
             _ => return,
         };
+        // A split sends the plan's outline, not a scope of the editor.
+        if splits {
+            self.split_start(spec);
+            return;
+        }
         // Only what the panel shows is sent: another tab, another selection or other text since
         // (a file opened or dropped, an edit) is shown first and waits for Rewrite again.
         let now = self.ai_scope();
@@ -836,8 +883,8 @@ impl App {
 
     /// Moves the pick in the saved prompts and puts its instruction in the box.
     fn ai_pick(&mut self, down: bool) {
-        let n = self.docs.ai_prompts.len();
-        let prompts = self.docs.ai_prompts.clone();
+        let prompts = self.ai_panel_prompts().to_vec();
+        let n = prompts.len();
         let Some(i) = self.ai.instruction() else {
             return;
         };
@@ -1101,7 +1148,7 @@ impl App {
         }
         match pressed {
             AiHit::Prompt(k) => {
-                let prompts = self.docs.ai_prompts.clone();
+                let prompts = self.ai_panel_prompts().to_vec();
                 if let Some(i) = self.ai.instruction()
                     && let Some(p) = prompts.get(k)
                 {

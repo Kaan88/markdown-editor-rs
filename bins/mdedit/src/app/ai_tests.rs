@@ -1,6 +1,7 @@
 //! Headless tests of AI rewriting with a stand-in engine: a shell script that speaks the
 //! engine's protocol and answers every rewrite with "# Done", or with a refused key when the
-//! prompt says FAILPLEASE.
+//! prompt says FAILPLEASE. A split (`split_ai_tests`) is answered with a plan when its prompt
+//! says SPLITOK, with words that are not one when it says SPLITJUNK, and never for SPLITSLOW.
 
 use super::files_tests::{app, open_now, scratch};
 use super::*;
@@ -15,6 +16,12 @@ echo '{"ev":"hello","version":1,"engine":"fake"}'
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
   case "$line" in
+    *'"op":"run"'*SPLITOK*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"Here it is:\n{\"version\":1,\"notes\":[{\"from\":5,\"to\":11,\"title\":\"Both\",\"sections\":[\"Tokyo\"]}]}"}';;
+    *'"op":"run"'*SPLITJUNK*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"I would rather not."}';;
+    *'"op":"run"'*SPLITSLOW*)
+      ;;
     *'"op":"run"'*FAILPLEASE*)
       echo "{\"ev\":\"error\",\"id\":$id,\"kind\":\"auth\",\"message\":\"Claude API refused the key (401).\"}";;
     *'"op":"run"'*)
@@ -28,7 +35,7 @@ while IFS= read -r line; do
 done
 "##;
 
-fn engine() {
+pub(super) fn engine() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let dir = scratch("ai-engine");
@@ -78,7 +85,7 @@ fn ai_app(text: &str) -> (App, PathBuf) {
 }
 
 /// Takes the engine's answers until `done` holds.
-fn wait(a: &mut App, done: impl Fn(&App) -> bool) {
+pub(super) fn wait(a: &mut App, done: impl Fn(&App) -> bool) {
     let until = Instant::now() + Duration::from_secs(10);
     while !done(a) {
         assert!(Instant::now() < until, "the engine did not answer");

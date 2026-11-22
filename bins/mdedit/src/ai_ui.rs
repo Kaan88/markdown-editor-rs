@@ -216,12 +216,27 @@ fn instruction(
     let footer = draw_dialog_card(p, pal, r);
     let x = r.x + PAD;
     let inner = r.w - 2.0 * PAD;
+    // The same panel asks for a split of a plan's document (5.2): its own words, its own prompts.
+    let split = i.split.is_some();
+    let (title, placeholder, run_label) = if split {
+        (
+            "Split into notes by AI",
+            "How should it be cut? For example: one note per chapter",
+            "Split",
+        )
+    } else {
+        (
+            "Rewrite with instruction",
+            "What should change? For example: make the prices a table",
+            "Rewrite",
+        )
+    };
     p.text(
         Face::Semibold,
         17.0,
         x,
         r.y + PAD + 10.0,
-        "Rewrite with instruction",
+        title,
         pal.text,
         inner,
     );
@@ -250,7 +265,7 @@ fn instruction(
         Face::Ui,
         13.5,
         &colors,
-        "What should change? For example: make the prices a table",
+        placeholder,
         true,
         caret_on,
     );
@@ -273,7 +288,11 @@ fn instruction(
             12.5,
             x,
             y + 16.0,
-            "None yet. Settings › AI › Saved prompts › Edit adds some.",
+            if split {
+                "None of this kind yet. Save prompt keeps what you type for next time."
+            } else {
+                "None yet. Settings › AI › Saved prompts › Edit adds some."
+            },
             pal.faint,
             inner,
         );
@@ -342,7 +361,7 @@ fn instruction(
     }
     // The footer: where the text goes, then the buttons.
     let by = footer.y + (DIALOG_FOOTER - 32.0) / 2.0;
-    let run_w = dialog_button_w(p, "Rewrite");
+    let run_w = dialog_button_w(p, run_label);
     let run = Rect::new(r.right() - PAD - run_w, by, run_w, 32.0);
     let cancel_w = dialog_button_w(p, "Cancel");
     let cancel = Rect::new(run.x - 8.0 - cancel_w, by, cancel_w, 32.0);
@@ -388,7 +407,7 @@ fn instruction(
         hits,
         run,
         Hit::Rewrite,
-        "Rewrite",
+        run_label,
         true,
         hover,
         pressed,
