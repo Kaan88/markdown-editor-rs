@@ -49,12 +49,13 @@ the 74 tests of the record and the move run in the shared repo.
 - **Phase S3** (D-081), half done: `runs` and `moves` moved to `mdshared-app` at shared `9545607`
   and re-exported by `mdedit-core` under their old names; all 232 mdedit shots byte-identical
   but for the clock and the checkout's path. Left: the split checker and the plan card.
-- **The settings redesign's shared half** died with the credits on 2026-11-22, after only the
-  proof that the old form is unchanged: `crates/mdshared-ui/src/settings/frozen.rs` (1,734 lines, the form copied whole),
-    `unchanged.rs` (255, drives both and compares every pixel in both themes) and five lines in
-    `settings.rs`. **Uncommitted in the shared repo's own checkout, on `main` at `b4b2182`.**
-    The categorised form was not written: no page host, no row kinds, no page-fit test;
-    `unchanged.rs` links `super::pages`, which does not exist.
+- **The settings redesign's shared half** is on shared `main` at `9df8bc8`:
+  `mdshared_ui::settings::pages` beside the old `Form` (proved unchanged frame for frame), built
+  from the approved design on `mock/settings` (D-086). Fit test at 520x360 and 1280x800, scales
+  1, 1.5, 2; 52 specimen pictures (`cargo test -p mdshared-ui specimen -- --ignored`) looked at
+  by Claude, **not yet by the owner**. No app pins it yet. Left: `settings::common` builders,
+  and the mdedit (2 days) and mdview (1 day) halves. The dead draft still sits uncommitted in
+  the shared repo's own checkout; it is superseded and can be dropped.
 - **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
 - **A terminal, drawn**: branch `mock/terminal`, worktree `..\mdedit-term`, 20 shots in
   `shots\mock-term\`. What it established, and the verdict (possible, as a third app, blocks
@@ -81,8 +82,8 @@ the 74 tests of the record and the move run in the shared repo.
   rewrite, and undo of a move never writes outside the library. Each says what overturns it.
 - **`docs/settings-redesign.md`**: both apps' Settings as a category list, one page each, nothing
   scrolling. Designed and drawn (80 shots, `mock/settings`), 8.5 days: 5 shared, 2 mdedit, 1
-  mdview, 0.5 platforms. Approved by the owner; the shared half died with the credits (above) and
-  the app halves are not briefed.
+  mdview, 0.5 platforms. Approved by the owner; the copy on `main` is the first round, the
+  approved one is on `mock/settings`. The shared half is built (above); the app halves are not.
 - **This arrangement of the documents** (D-058), listed in `docs\REORG.md` on `mock/ai-review`.
 - The notes library has been used by the owner in a real build and its two faults fixed, but it
   is not recorded anywhere as approved.
@@ -92,10 +93,9 @@ the 74 tests of the record and the move run in the shared repo.
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
 2. The rest of S3: the split checker and the plan card into the shared crates, mdedit's shots
-   unchanged. The shared checkout holds the settings draft uncommitted on its `main`: work in a
-   worktree of it (`..\md-wt\shared-runs` is one), never on top of that draft.
+   unchanged. Work in a worktree of the shared repo, never in its own checkout.
 3. "Move the notes…": the owner looks at its three shots; then the pictures question.
-4. The settings redesign's shared half, restarted on `pages`.
+4. The settings redesign: the owner looks at the pages; then mdedit's half, then mdview's.
 5. Then section 8's order: S, 4b, T, R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`
@@ -115,8 +115,9 @@ the 74 tests of the record and the move run in the shared repo.
 - **A debug build still aborts on a closed stderr** (a release build does not): something that
   runs only in debug prints with `std`'s `eprintln!`, not yet found. A plain debug `cargo test`
   fails `closed_stderr`; CI runs release and is unaffected.
-- **The shared repo's CI is red on Linux and both Macs** since `a2a2031` at least: four
-  `mdshared_app::library` tests write `D:/…` paths, which are not absolute off Windows.
+- **Shared CI on Linux:** the `D:/…` library tests are fixed (shared `7a6f013`; green on the
+  Macs and Windows), but `pane::tests::names_show_while_they_fit…` measured 230 px on one Linux
+  run and passed on the one before: it depends on the runner's fonts.
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
 
 ## Known gaps, not planned unless they get in the way

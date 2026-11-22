@@ -824,3 +824,19 @@ The rest keep the card as simple as the plan card it imitates.
 **Overturned by.** The owner, on looking at the shots `move-notes`, `move-notes-small`,
 `move-results`.
 **From.** The agent that built the window, recorded by Claude with the owner away.
+
+## D-086 · 2026-11-22 · The paged settings form: how its keys and checks behave
+
+**Decision.** The shared half of the settings redesign (`mdshared_ui::settings::pages`, shared
+`9df8bc8`) is built from the approved design on `mock/settings` (466db6f), not from the first-round
+copy of `docs/settings-redesign.md` on `main`. Its choices: the first Tab moves at once (the old
+form's "first Tab only shows the ring" is dropped); Up and Down stop at a page's first and last
+control; Ctrl+PageUp/PageDown stop at the first and last page; a list click acts on release; rows
+have no hover fill, controls keep theirs; the fit check measures a dropdown by the option shown;
+text buttons are 96 px and a longer label is reported by `fit`, not widened; disabled buttons use
+the shared disabled style; page geometry is valid after the next layout or draw. The old
+`settings::Form` is unchanged, proved by a frozen copy compared frame for frame.
+**Why.** The smallest API that draws what the owner approved; wrapping keys surprised in the old
+form, and a ring with no move cost a keystroke.
+**Overturned by.** The owner, on using the paged form in either app.
+**From.** The agent that built it, recorded by Claude with the owner away.
