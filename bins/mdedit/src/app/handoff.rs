@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::link;
+use crate::ui::Popup;
 use mdshared_app::sister::{self, Rect};
 use mdshared_ui::place;
 
@@ -23,6 +24,16 @@ impl App {
     /// keyboard.
     pub(super) fn handed_over(&mut self, requests: Vec<Request>) {
         for request in &requests {
+            if request.closed {
+                // The viewer closed its tab of this file or document: that preview is over.
+                // (When the viewer is gone altogether it says nothing: see `Links::check`.)
+                let path = Some(&request.path)
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .map(|p| canonical_or_absolute(p))
+                    .unwrap_or_default();
+                (self.docs.links).closed(&path, request.doc.as_deref());
+                continue;
+            }
             if request.unplace {
                 // The viewer gave up the side-by-side arrangement (its tab or its window was
                 // closed): this window goes back too. The viewer is not told; it knows.
@@ -86,6 +97,46 @@ impl App {
             self.docs
                 .go_to(line as usize, request.column.map_or(1, |c| c as usize));
         }
+    }
+
+    /// The open menus that list "Preview in mdview" (the View menu, a tab's menu) list it again,
+    /// in place: the links changed while they were open (the viewer was found gone), and a check
+    /// mark that stays would say a preview runs when choosing the item starts one.
+    pub(super) fn relist_preview_menus(&mut self) {
+        if let Some(popup) = self.ui.popup.take() {
+            self.ui.popup = self.relisted(popup);
+        }
+    }
+
+    /// `popup` and its submenu listed again. A menu whose items are now more or fewer (the
+    /// items are listed for a file that is not Markdown only while it is previewed) is closed:
+    /// its rows were laid out for the old ones.
+    fn relisted(&self, mut popup: Popup) -> Option<Popup> {
+        if let Some(sub) = popup.sub.take() {
+            popup.sub = self.relisted(*sub).map(Box::new);
+        }
+        let items = match popup.kind {
+            PopupKind::View => overlays::view_menu(&self.docs, &self.ui, 0.0, 0.0, false).items,
+            PopupKind::Tab(i) => overlays::tab_menu(&self.docs, i, 0.0, 0.0).items,
+            _ => return Some(popup),
+        };
+        if items.len() != popup.menu.items.len() {
+            return None;
+        }
+        // Same items in the same rows: only the check marks differ.
+        popup.menu.items = items;
+        Some(popup)
+    }
+
+    /// The window has the keyboard again. mdview may have been installed or removed meanwhile,
+    /// or the viewer a preview follows closed while this window was away (that is asked off
+    /// this thread: [`link::Links::check`]).
+    pub(super) fn focus_gained(&mut self) {
+        if self.settled {
+            self.look_for_viewer();
+        }
+        self.docs.links.check(Instant::now());
+        self.caret_reset();
     }
 
     /// Moves and resizes the window to `rect` (physical screen px), or says it cannot be done.
@@ -1152,6 +1203,131 @@ mod tests {
             std::env::remove_var("MD_SISTER_MDVIEW");
             std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the viewer sends, as this window's listener reads it.
+    fn arrived(request: &Request) -> Vec<Request> {
+        let message = request.encode("mdedit");
+        Request::parse(message.lines().skip(1).take_while(|l| !l.is_empty()))
+    }
+
+    #[test]
+    fn the_viewer_closing_its_tab_ends_that_preview_and_opens_nothing() {
+        let dir = scratch("hand-closed");
+        let (one, two) = (file(&dir, "a.md"), file(&dir, "b.md"));
+        let mut a = app();
+        let i = open_now(&mut a, &one);
+        let j = open_now(&mut a, &two);
+        let (id, jd) = (a.docs.tabs[i].id, a.docs.tabs[j].id);
+        let now = Instant::now();
+        for k in [i, j] {
+            let (kd, path) = (a.docs.tabs[k].id, a.docs.tabs[k].path.clone().unwrap());
+            a.docs.links.link(kd, path.into(), Some(1), None, now);
+        }
+        let untitled = 999;
+        (a.docs.links).link_untitled(untitled, "Untitled 9".into(), Default::default(), now);
+        let tabs = a.docs.tabs.len();
+        // The viewer's tab of b.md closed; it names the file as it was given it.
+        a.handed_over(arrived(&Request {
+            closed: true,
+            from: Some("mdview".into()),
+            ..Request::new(&two)
+        }));
+        assert!(a.docs.links.contains(id) && !a.docs.links.contains(jd));
+        assert!(a.docs.links.contains(untitled));
+        assert_eq!(a.docs.tabs.len(), tabs, "nothing was opened or closed");
+        assert_eq!(a.docs.active(), Some(j), "nothing was switched to");
+        // Its tab of a document without a file, by that document's name.
+        a.handed_over(arrived(&Request {
+            closed: true,
+            from: Some("mdview".into()),
+            ..Request::document(link::doc_name(untitled), "Untitled 9")
+        }));
+        assert!(a.docs.links.contains(id) && !a.docs.links.contains(untitled));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_viewer_closed_while_nothing_was_sent_is_found_out_on_focus_and_in_a_menu() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("hand-gone");
+        let path = file(&dir, "a.md");
+        let _viewer = viewer(&dir);
+        let mut a = app();
+        a.docs.viewer = true;
+        let i = open_now(&mut a, &path);
+        let id = a.docs.tabs[i].id;
+        let file = a.docs.tabs[i].path.clone().unwrap();
+        // Linked long enough ago that the viewer is past starting.
+        let started = Instant::now().checked_sub(link::GRACE).unwrap();
+        let link = |a: &mut App| {
+            a.docs
+                .links
+                .link(id, file.clone().into(), Some(1), None, started);
+            a.docs.links.start(a.docs.waker());
+        };
+        let settle = |a: &mut App| {
+            let end = Instant::now() + Duration::from_secs(5);
+            while !a.docs.links.is_empty() && Instant::now() < end {
+                std::thread::sleep(Duration::from_millis(5));
+                a.woken(Wake::Link);
+            }
+        };
+        link(&mut a);
+        // The viewer runs: the window gaining focus asks, and the preview goes on.
+        a.focus_gained();
+        std::thread::sleep(Duration::from_millis(300));
+        a.woken(Wake::Link);
+        assert!(a.docs.links.contains(id));
+        // The viewer is closed, and nothing is sent to it: the next focus finds it gone.
+        // (The port is recorded beside the settings file: another folder has none.)
+        let gone = dir.join("gone").join("viewer.ini");
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", gone) };
+        a.focus_gained();
+        settle(&mut a);
+        assert!(a.docs.links.is_empty());
+        assert!(
+            !crate::status::fields(&a.docs)
+                .1
+                .contains(&"Previewing".to_string())
+        );
+        // Opening the View menu asks too, and the open menu no longer checks the item.
+        link(&mut a);
+        a.open_popup(PopupKind::View);
+        let checked = |a: &App| {
+            let popup = a.ui.popup.as_ref().expect("the menu stays open");
+            let items = popup.menu.items.iter();
+            items
+                .filter(|it| it.id == Act::Cmd(C::PreviewInViewer))
+                .any(|it| it.checked)
+        };
+        assert!(checked(&a), "opened while the link was still there");
+        settle(&mut a);
+        assert!(a.docs.links.is_empty());
+        assert!(!checked(&a));
+        // A tab's menu too.
+        link(&mut a);
+        a.ui.popup = None;
+        a.compose();
+        let tab = a.hit_rect(Hit::Tab(i)).expect("the tab is on screen");
+        a.ui.mouse = (tab.cx(), tab.cy());
+        a.right_press();
+        let tab_checked = |a: &App| {
+            let popup = a.ui.popup.as_ref().expect("the tab menu stays open");
+            assert_eq!(popup.kind, PopupKind::Tab(i));
+            let items = popup.menu.items.iter();
+            items
+                .filter(|it| it.id == Act::TabCmd(C::PreviewInViewer, i))
+                .any(|it| it.checked)
+        };
+        assert!(tab_checked(&a));
+        settle(&mut a);
+        assert!(a.docs.links.is_empty());
+        assert!(!tab_checked(&a));
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

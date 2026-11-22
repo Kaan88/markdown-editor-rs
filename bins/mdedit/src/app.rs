@@ -2767,11 +2767,7 @@ impl ApplicationHandler<Wake> for App {
                     self.redraw();
                 }
                 if focused {
-                    // mdview may have been installed or removed meanwhile.
-                    if self.settled {
-                        self.look_for_viewer();
-                    }
-                    self.caret_reset();
+                    self.focus_gained();
                 } else {
                     self.ui.caret_on = true;
                     self.ui.tip = None;

@@ -1283,6 +1283,8 @@ impl App {
             self.ui.popup = None;
             return;
         }
+        // The menus show whether a preview runs: a viewer closed meanwhile is found out.
+        self.docs.links.check(Instant::now());
         // From the main menu, Recent replaces it in place.
         let (x, y, right) = match (&self.ui.popup, kind) {
             (Some(p), PopupKind::Recent | PopupKind::View | PopupKind::Macro)
@@ -2189,8 +2191,11 @@ impl App {
             Wake::Preview => self.ai_poll_panes(),
             Wake::Ai => self.ai_wake(),
             Wake::Link => {
-                // The links are over; the next frame no longer shows the mark.
-                self.docs.links.take_gone();
+                // The links are over; the next frame no longer shows the mark, and an open menu
+                // that checks "Preview in mdview" no longer does.
+                if self.docs.links.take_gone() {
+                    self.relist_preview_menus();
+                }
                 // Or the viewer is one that cannot show a document without a file.
                 if self.docs.links.take_older() {
                     self.docs.set_toast(strings::PREVIEW_VIEWER_OLDER);
