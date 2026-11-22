@@ -1,7 +1,7 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089, D-092 and D-093 are
-Claude's; D-090, D-091, D-094 and D-095 the owner's). If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089, D-092, D-093 and
+D-097 are Claude's; D-090, D-091, D-094 to D-096 the owner's). If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -58,6 +58,11 @@ the 74 tests of the record and the move run in the shared repo.
 - **mdedit's Settings on the paged form** (D-087, D-090): **merged into `main`**, approved by the
   owner by its shots. Never clicked through in a live window. mdview's half is merged too
   (mdview `29bf0ab`, D-094): the settings redesign is done.
+- **Issues #7 and #8** (D-096, DESIGN 78): the Preview dropdown, "New file" on the empty screen,
+  plain paste on Ctrl+Shift+V (mdview preview on Ctrl+Shift+L), New, Save and AI edit on the
+  bar, rich paste as Markdown (off by default). Approved by the owner on a build and merged.
+- **mdview closed by hand** (D-097, DESIGN 54) is noticed: mdview sends `?closed`, mdedit checks
+  on focus and on a link menu. Merged in both apps; not yet tried by the owner.
 - **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
 - **A terminal, drawn**: `mock/terminal`, `..\mdedit-term`, 20 shots; verdict in `docs/terminal.md`.
 - **A downloader window, drawn**: `mock/downloader`, `..\mdedit-dl`, 11 states in
@@ -89,8 +94,7 @@ the 74 tests of the record and the move run in the shared repo.
 
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
-2. Issues #7 and #8, on `f/issues-7-8` for the owner's look (D-095).
-3. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
+2. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`
 
@@ -135,8 +139,8 @@ lines on typing only; no compare arrows with wrap on; the Markdown menu needs mo
 
 ## Pins, branches, worktrees
 
-- Shared crates at `be0192d` (the settings draft above sits uncommitted in the shared checkout,
-  at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview pins shared `be0192d`.
+- Shared crates at `09c67cd` (the settings draft above sits uncommitted in the shared checkout,
+  at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview pins shared `09c67cd` (mdview `63919af`).
 - Merged into `main`: every `f/…` and `release/1.2.0`. Drawings that must not merge:
   `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` is merged; its copy on
   GitHub is the pre-rebase draft (a force-push was refused) and can be deleted.

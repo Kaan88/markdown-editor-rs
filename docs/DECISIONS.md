@@ -967,3 +967,30 @@ and "Paste rich text as Markdown", off by default, with no new dependency.
 **Why.** The owner chose all four; CLAUDE.md lets a feature in only when the owner asks.
 **Overturned by.** The owner, on looking at the branch.
 **From.** The owner, 2026-11-22.
+
+## D-096 · 2026-11-22 · Issues #7 and #8 approved and merged
+
+**Decision.** The owner tried the build of `f/issues-7-8` ("preview build looked awesome") and it
+is merged into `main` as built (DESIGN 78): the Preview button opens a dropdown and remembers a
+default mode (`preview_mode`), and the preview entries left the View menu; "New file" on the
+empty screen; Ctrl+Shift+V pastes plain text and "Preview in mdview" moved to Ctrl+Shift+L; New
+and Save as icon buttons on the bar, and "AI edit" there only while the AI is on; "Paste rich
+text as Markdown" (Settings › Typing, off by default) only in a Markdown or untitled tab, through
+`mdshared_app::html_md`, which writes a table's rows as "a | b" lines, not a Markdown table.
+**Why.** The owner's approval by looking, rule 6; the converter is shared so mdview may use it.
+**Overturned by.** The owner, on using it.
+**From.** The owner, 2026-11-22; built by agents, recorded by Claude.
+
+## D-097 · 2026-11-22 · mdedit notices an mdview closed by hand
+
+**Decision.** mdedit no longer keeps "Stop preview in mdview" lit after the owner closes mdview.
+mdview now sends `?closed` (shared `Request::closed`) for every tab mdedit asked it to show, when
+the tab is closed and when the window closes (waiting at most 500 ms). mdedit also checks that
+its mdview is alive on its courier thread when its window gains focus and when a link menu opens,
+and once more a second later; there is no idle timer. A menu open when a link ends is relisted,
+or closed if nothing is left. `Menu::chosen` and `Menu::pointer` became bounds-safe. Shared pin
+`09c67cd` in both apps.
+**Why.** The owner's report: it never noticed, since the beginning. Rule 1 forbids CPU at idle,
+so the checks ride on events.
+**Overturned by.** The owner, if a closed mdview is still missed.
+**From.** The owner's report, 2026-11-22; built by agents, recorded by Claude.
