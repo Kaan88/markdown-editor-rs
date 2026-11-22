@@ -840,3 +840,51 @@ the shared disabled style; page geometry is valid after the next layout or draw.
 form, and a ring with no move cost a keystroke.
 **Overturned by.** The owner, on using the paged form in either app.
 **From.** The agent that built it, recorded by Claude with the owner away.
+
+## D-087 · 2026-11-22 · mdedit's Settings on the paged form, kept on a branch
+
+**Decision.** mdedit's half of the settings redesign is built on branch `f/settings-pages-mdedit`
+(shared pinned at `7a6f013`) and is **not merged**: it changes a screen the owner uses every day,
+so it waits for the owner's look. Nine pages, every old setting kept under its id. Choices taken
+while building: the update button reads "Check now" or "Update" to fit 96 px; a detected program
+path keeps its last 40 characters after "…"; the key's Save is live only with a key typed, Remove
+only with one stored; the remove-provider icon shows only for a custom provider; the dialog reopens
+on the page last shown this run; the old section names still work for `--settings-section`;
+Provider and Name have no help line (today's lines do not fit at 520x360); with both tab rules off
+the days row is dimmed without a reason line (4 px over at the minimum). **To do before merge:**
+Model and Effort must stay dropdowns whatever their option count; today the shared rule draws two
+options as a segmented "Default | Other…", so the control changes shape once a model list is
+fetched. That wants a shared `Item::dropdown()` beside the old constructor.
+**Why.** The mock's layout, kept at the minimum size and every scale; a control that changes shape
+with its data reads as a different setting.
+**Overturned by.** The owner, on looking at the `settings-*` shots or using the branch.
+**From.** The agent that built it, recorded by Claude with the owner away.
+
+## D-088 · 2026-11-22 · S3 done: the split checker and the plan card are shared
+
+**Decision.** `mdshared_app::split` holds the checker; it reads the document through a small
+trait, `split::Lines`, which mdedit-core implements for its `Buffer`, so ropey stays out of the
+shared crates. A plan holds its document as an `Arc<dyn Lines>` rather than being generic over it.
+`mdshared_ui::plan` holds the card (with `plan::draw` and `plan::demo`); it takes a key's name and
+a menu-key flag instead of mdedit's `Key`. mdedit keeps the wiring, `headings_of` (it uses the
+function list) and `--plan-demo`. The moved card tests find headings with their own fence-aware
+scan. Shared `842ec3f`; all mdedit shots byte-identical but the clock.
+**Why.** The smallest seam: one trait of nine methods, no new dependency, call sites unchanged
+through re-exports.
+**Overturned by.** A second app using the card in a way the trait or the key mapping does not fit.
+**From.** The agent that moved it, recorded by Claude with the owner away.
+
+## D-089 · 2026-11-22 · Split by AI: the contract is shared, parallel requests wait for phase W
+
+**Decision.** Phase 4b is built (DESIGN 76). The split contract (the outline sent, the system
+text, the prompt, the answer reader and checks 4 to 10 of 5.2) is `mdshared_app::split::answer`;
+the `mdedit-ai` engine learns nothing of splits. Split prompts are their own list (`kind: split`);
+the prompts template is unchanged. Titles are cut at 120 bytes. "At headings" recuts at the plan's
+own level. **D-080's per-connection setting for parallel requests is not built in 4b**: a split of
+one document makes one request, so nothing would use it; it is built with phase W, the first that
+sends several. "Show what is sent" (3.10) is not built. Known faults left: the instruction panel
+hides the plan instead of drawing over it, and a long header line is cut ("effort hi…").
+**Why.** One request per document is what 5.2 specifies; a setting with no user is dead weight.
+**Overturned by.** The owner, on looking at the `plan-split-ai*` shots or running it on a real
+provider (never done).
+**From.** The agent that built it, recorded by Claude with the owner away.

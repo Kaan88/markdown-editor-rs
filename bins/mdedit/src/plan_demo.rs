@@ -1,15 +1,17 @@
-//! `--plan-demo NAME`: a plan screen for a shot, made from a document built here, with no file
-//! on disk read or written (the library is a table of what "is there"). The names are those of
+//! `--plan-demo NAME`: a plan screen for a shot, made from a document built by
+//! `mdshared_ui::plan::demo`, with no file on disk read or written (the library is a table of what "is there"). The names are those of
 //! the shots in `docs/ai-library-plan.md` 5.3, without the `plan-` in front.
 
+use crate::plan_ui::demo::{japan, log, many, recipes};
 use crate::plan_ui::{Dest, Found, Init, PlanScreen, Reader, fingerprint, headings_of};
 use mdedit_core::buffer::Buffer;
+use mdedit_core::split::{Heading, document};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Every name `--plan-demo` takes.
 #[cfg(test)]
-pub const NAMES: [&str; 8] = [
+pub const NAMES: [&str; 14] = [
     "split",
     "split-gaps",
     "split-rest",
@@ -18,180 +20,137 @@ pub const NAMES: [&str; 8] = [
     "split-rename",
     "split-many",
     "split-small",
+    "split-ai",
+    "split-ai-dropped",
+    "split-ai-unreadable",
+    "split-ai-long",
+    "split-ai-asking",
+    "split-ai-ask",
 ];
 
-const PARTS: [(&str, &[&str]); 6] = [
-    ("Planning", &["Planning the route", "Packing and money"]),
-    (
-        "Tokyo",
-        &[
-            "Arriving at Haneda",
-            "Asakusa and the river",
-            "Shibuya at night",
-            "Tsukiji breakfast",
-            "Ueno and the museums",
-            "Day trip to Nikko",
-            "Shinjuku in the rain",
-        ],
-    ),
-    (
-        "Kyoto",
-        &[
-            "The night train",
-            "Fushimi Inari before dawn",
-            "Kinkaku-ji",
-            "Gion in the evening",
-            "Arashiyama bamboo",
-            "The philosopher's path",
-        ],
-    ),
-    (
-        "Osaka",
-        &[
-            "Dotonbori",
-            "Osaka castle",
-            "Street food, again",
-            "The aquarium",
-        ],
-    ),
-    ("Nara", &["Deer in the park", "Todai-ji"]),
-    ("Home", &["The last day", "What I would do differently"]),
-];
+/// The answer of the `split-ai-unreadable` shot: what a model says when it will not do as asked.
+pub const BAD_ANSWER: &str = "I'm sorry, but I can't split this document without seeing all of it.";
 
-const SENTENCES: [&str; 12] = [
-    "We left early and the train was already full of people going to work.",
-    "The river was grey and flat, and the boats went past without a sound.",
-    "Lunch was a bowl of noodles at a counter with eight seats.",
-    "It rained for an hour, then the street steamed in the sun.",
-    "I wrote this on the platform while we waited for the next one.",
-    "Every shop had a small shrine above the door, with fresh flowers.",
-    "We walked until the maps stopped helping and then walked further.",
-    "The evening was warm, and the lanterns came on one by one.",
-    "A woman at the stall showed us how to fold the paper properly.",
-    "The ticket machine had no English, so we guessed, and guessed right.",
-    "Tomorrow is a long day, so tonight is for sleeping early.",
-    "Nothing here was planned, and that was the best of it.",
-];
+/// What the split shots asked the AI.
+pub const INSTRUCTION: &str = "Two chapters to a note, under the city they are in";
 
-/// The Japan trip journal: a title and a contents list before the first heading, `#` parts
-/// with `##` chapters under them, some `###` headings, and a sign-off after the last chapter.
-pub fn japan() -> String {
-    let mut s = String::new();
-    s.push_str("**Japan trip journal**\n\nNotes from two weeks in October, written on trains and in\nguesthouses.\n\nContents\n");
-    for (part, chapters) in PARTS {
-        s.push_str(&format!("- {part} ({} chapters)\n", chapters.len()));
-    }
-    s.push('\n');
-    let mut n = 0usize;
-    for (part, chapters) in PARTS {
-        s.push_str(&format!("# {part}\n\n"));
-        for title in chapters {
-            s.push_str(&format!("## {title}\n\n"));
-            for p in 0..(3 + n % 4) {
-                let a = SENTENCES[(n * 5 + p * 3) % SENTENCES.len()];
-                let b = SENTENCES[(n * 7 + p * 5 + 1) % SENTENCES.len()];
-                s.push_str(&format!("{a}\n{b}\n\n"));
-            }
-            if n.is_multiple_of(3) {
-                s.push_str("### What we did\n\n");
-                for k in 0..3 {
-                    s.push_str(&format!("- {}\n", SENTENCES[(n + k * 4) % SENTENCES.len()]));
-                }
-                s.push('\n');
-            }
-            n += 1;
-        }
-    }
-    s.push_str(
-        "# Afterword\n\nThanks for reading this far.\nSee the photographs in the other folder.\n",
-    );
-    s
+/// Saved prompts of the kind "split", for the panel's shot (a shot reads no prompts file).
+pub fn split_prompts() -> Vec<mdedit_core::ai::SavedPrompt> {
+    mdedit_core::ai::parse_prompts(concat!(
+        "## One note per chapter\n\nkind: split\n\n",
+        "One note per chapter, under the part it is in.\n\n",
+        "## One note per day\n\nkind: split\n\n",
+        "One note per day of a journal; a day starts at its date.\n\n",
+        "## By topic\n\nkind: split\n\n",
+        "Group the paragraphs by topic, one note per topic, in the order they first appear.\n",
+    ))
 }
 
-/// Recipes: every line is in a note, so the strip is full.
-pub fn recipes() -> String {
-    let names = [
-        "Lemon tart",
-        "Lentil soup",
-        "Flatbread",
-        "Pickled onions",
-        "Granola",
-        "Plum jam",
-        "Shakshuka",
-        "Carrot cake",
-        "Miso aubergine",
-        "Sourdough starter",
-        "Hummus",
-        "Rice pudding",
-    ];
-    let mut s = String::new();
-    for (i, name) in names.iter().enumerate() {
-        s.push_str(&format!("## {name}\n\n### Ingredients\n\n"));
-        for k in 0..(3 + i % 3) {
-            s.push_str(&format!(
-                "- {} g of something good ({})\n",
-                50 + k * 25,
-                k + 1
-            ));
-        }
-        s.push_str("\n### Method\n\n");
-        for p in 0..(1 + i % 3) {
-            s.push_str(&format!(
-                "{}\n{}\n\n",
-                SENTENCES[(i * 3 + p) % SENTENCES.len()],
-                SENTENCES[(i * 5 + p + 2) % SENTENCES.len()]
-            ));
-        }
-    }
-    s
-}
-
-/// One long note, a code block with a heading inside it, and two short ones.
-pub fn log() -> String {
-    let mut s = String::from("## Decisions\n\n");
-    for k in 0..34 {
-        s.push_str(&format!("{}\n", SENTENCES[k % SENTENCES.len()]));
-    }
-    s.push_str("\n```\n## not a heading, a line of the build log\nstep 1 ok\nstep 2 ok\nstep 3 ok\n```\n\n");
-    for k in 0..10 {
-        s.push_str(&format!("{}\n", SENTENCES[(k * 2) % SENTENCES.len()]));
-    }
-    s.push_str("\n## Todo\n\n- call the printer\n- book the room\n\n## Links\n\n- the wiki\n- the tracker\n");
-    s
-}
-
-/// A hundred and sixty small notes.
-pub fn many() -> String {
-    let words = [
-        "Harbour", "Orchard", "Lantern", "Bridge", "Garden", "Market", "Station", "Temple",
-        "Meadow", "Quarry",
-    ];
-    let mut s = String::new();
-    for i in 0..160usize {
+/// A plain text of 31,000 lines and no heading: too long to send even as an outline.
+fn long_plain() -> String {
+    let mut s = String::with_capacity(31_000 * 40);
+    for k in 0..15_500usize {
         s.push_str(&format!(
-            "## {} {}\n\n",
-            words[i % words.len()],
-            words[(i / words.len() + 3) % words.len()]
+            "Reading {k}: the gauge said {} and nothing moved.\n\n",
+            k % 97
         ));
-        for k in 0..(2 + (i * 7) % 6) {
-            s.push_str(&format!("{}\n", SENTENCES[(i + k) % SENTENCES.len()]));
-        }
-        s.push('\n');
     }
     s
+}
+
+/// The answer of the `split-ai` and `split-ai-dropped` shots, made from the document's own
+/// headings as a model would: line numbers, titles, sections. In `split-ai` one note starts in
+/// the middle of a paragraph and one overlaps the note before; in `split-ai-dropped` there are
+/// 240 notes, some of them past the end.
+pub fn answer_for(kind: &str, screen: &PlanScreen) -> String {
+    let mut notes: Vec<String> = Vec::new();
+    match kind {
+        "split-ai" => {
+            let heads = screen.headings();
+            let parts: Vec<(usize, String)> = heads
+                .iter()
+                .filter(|h| h.level == 1)
+                .map(|h| (h.line, heading_words(screen, h.line)))
+                .collect();
+            let chapters: Vec<usize> = heads
+                .iter()
+                .filter(|h| h.level == 2)
+                .map(|h| h.line)
+                .collect();
+            let part_of = |line: usize| {
+                parts
+                    .iter()
+                    .rev()
+                    .find(|(l, _)| *l < line)
+                    .map(|(_, n)| n.clone())
+                    .unwrap_or_default()
+            };
+            let mut prev_to = 0usize;
+            for (k, pair) in chapters.chunks(2).enumerate() {
+                let first = pair[0];
+                let end = chapters
+                    .get(k * 2 + 2)
+                    .copied()
+                    .unwrap_or(screen.plan.lines())
+                    .min(
+                        parts
+                            .iter()
+                            .map(|(l, _)| *l)
+                            .find(|&l| l > first)
+                            .unwrap_or(usize::MAX),
+                    );
+                // 1-based, inclusive.
+                let mut from = first + 1;
+                let to = end;
+                if k == 2 {
+                    // The second line of the chapter's first paragraph: inside it.
+                    from = first + 4;
+                }
+                if k == 4 {
+                    from = prev_to.saturating_sub(3);
+                }
+                prev_to = to;
+                notes.push(format!(
+                    r#"{{"from":{from},"to":{to},"title":"{} and the next","sections":["{}"]}}"#,
+                    heading_words(screen, first),
+                    part_of(first)
+                ));
+            }
+        }
+        _ => {
+            for k in 0..240usize {
+                let from = k * 6 + 1;
+                notes.push(format!(
+                    r#"{{"from":{from},"to":{},"title":"Part {k}","sections":["Archive"]}}"#,
+                    from + 3
+                ));
+            }
+        }
+    }
+    format!(
+        "Here is the plan.\n```json\n{{\"version\":1,\"notes\":[{}]}}\n```",
+        notes.join(",")
+    )
+}
+
+/// The words of the heading on `line`.
+fn heading_words(screen: &PlanScreen, line: usize) -> String {
+    let mut s = String::new();
+    screen.plan.document().line_text(line, &mut s);
+    s.trim_start_matches('#').trim().replace('"', "'")
 }
 
 fn init<'a>(
-    doc: &'a Buffer,
+    doc: &Buffer,
     name: &'a str,
-    headings: &'a [mdedit_core::split::Heading],
+    headings: &'a [Heading],
     level: Option<u8>,
     dest: Dest,
     root: &Path,
     reader: Reader,
 ) -> Init<'a> {
     Init {
-        doc,
+        doc: document(doc),
         name,
         path: None,
         headings,
@@ -354,6 +313,51 @@ pub fn screen(kind: &str) -> Option<PlanScreen> {
                 s.toggle(i);
             }
             s.select(37);
+            s
+        }
+        "split-ai" | "split-ai-unreadable" | "split-ai-asking" | "split-ai-ask" => {
+            let doc = Buffer::from_text(&japan());
+            let h = headings_of(&doc);
+            let mut s = PlanScreen::new(init(
+                &doc,
+                "Japan trip journal.md",
+                &h,
+                Some(2),
+                dest(),
+                &root,
+                empty(),
+            ));
+            s.ai_offer = true;
+            s
+        }
+        "split-ai-dropped" => {
+            let doc = Buffer::from_text(&many());
+            let h = headings_of(&doc);
+            let mut s = PlanScreen::new(init(
+                &doc,
+                "Notes archive.md",
+                &h,
+                None,
+                Dest::new(&root, "Work notes", false),
+                &root,
+                empty(),
+            ));
+            s.ai_offer = true;
+            s
+        }
+        "split-ai-long" => {
+            let doc = Buffer::from_text(&long_plain());
+            let h = headings_of(&doc);
+            let mut s = PlanScreen::new(init(
+                &doc,
+                "Field log.txt",
+                &h,
+                None,
+                Dest::new(&root, "Work notes", false),
+                &root,
+                empty(),
+            ));
+            s.ai_offer = true;
             s
         }
         _ => return None,

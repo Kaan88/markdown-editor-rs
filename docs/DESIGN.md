@@ -2319,11 +2319,18 @@ rewrite, the credential store on Windows and macOS, anything on Windows.
 ## 69. The plan screen (2026-11-21)
 
 The card of `docs/ai-library-plan.md` 5.3: the notes a split would make, read and changed, and
-nothing written. Four files: `plan_ui.rs` (state, events, the numbers of the layout, the
-strip's arithmetic, the files each note would be written as), `plan_draw.rs` (drawing),
-`plan_demo.rs` (the documents of the shots), `app/plan.rs` (the window's part: opening, closing,
-parking, routing input). The notes, the rest, the warnings and the counts are all
-`mdedit_core::split`; the list's and the preview's row arithmetic is `mdshared_ui::rows`.
+nothing written. Since phase S3 (D-081) the card is shared: `mdshared_ui::plan` (`plan.rs`:
+state, events, the numbers of the layout, the strip's arithmetic, the files each note would be
+written as; `plan/draw.rs`: drawing; `plan/demo.rs`: the documents of the shots and its tests)
+in markdown-shared-rs. It takes the document as an `Arc<dyn mdshared_app::split::Lines>` and a
+key as its name plus whether it was the context-menu key. What stays in mdedit: `plan_ui.rs`
+(re-exports the card and finds the headings with the function list, `headings_of`),
+`plan_demo.rs` (`--plan-demo`), `app/plan.rs` (the window's part: opening, closing, parking,
+routing input). The notes, the rest, the warnings and the counts are all `mdshared_app::split`,
+kept in mdedit-core as `mdedit_core::split`, which adds `Lines` for `Buffer` (the rope's lines
+and chunks) and `split::document`; the caps (`SPLIT_MAX_NOTES` and the rest) are the shared
+ones, re-exported by `limits`. The list's and the preview's row arithmetic is
+`mdshared_ui::rows`.
 
 - **The screen is over everything**, like the palette: while it is open it takes every key,
   pointer, wheel and typing event, and its tick, hover, press and caret are in the overlay
@@ -2415,13 +2422,18 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   (8) and `app::undo_rules_tests` (5: the window's gate, the flat undo, the refusal when the
   original is gone, the list of unreadable records).
 - **Not built:** the progress row and Cancel (the write runs between frames), so a run is never
-  left in `stopped` by this program; step 8; "Ask the AI…".
+  left in `stopped` by this program; step 8. ("Ask the AI…" is section 76.)
 
 ## 71. The notes pane on a large library (2026-11-21)
 
 The shared pin moved to `fb7777c`: `mdshared_app::library::Library` gained `omitted` and reads
 512 files rather than 64, and `mdshared_app::paths::same_path` compares paths part by part. What
 the window does with them is `bins/mdedit/src/app/library.rs`, `library_pane.rs` and `docs.rs`.
+The rows the pane lists (`Row`, `Kind`, `rows()`, the fold keys `key_of`) and what it asks of a
+path (`same_note`, `listing`, `lists`, `link_path`, `without_notes`, `folder_of`, `home_of`,
+`empty_state`, `omitted_label`) are `mdshared_app::library::tree` since phase S (shared
+`ecfcdf9`), so mdview's Notes face can list the same tree; `library_pane.rs` re-exports them and
+keeps the drawing, the cursor, folding and the name box.
 
 - **The re-read runs on a job, never in the event loop.** `library_tick` still does the cheap
   look (`Library::changed`: the folder's names and their stamps, 2.25 ms on the big library) and
@@ -2449,8 +2461,8 @@ the window does with them is `bins/mdedit/src/app/library.rs`, `library_pane.rs`
   separating line, "512 of 583 groups shown": `omitted_label(shown, read, omitted)`. The shown
   count is the groups drawn, the total is the groups the reader kept plus those it left out. The
   count and the kept groups are in the Files region's signature.
-- Tests: `library_pane::tests` (the omitted count is copied by `without_notes`, and the label's
-  two numbers) and `app::library_pane_tests` (the text arrives from the thread with the old rows
+- Tests: `mdshared_app::library::tree::tests` (the omitted count is copied by `without_notes`,
+  and the label's two numbers) and `app::library_pane_tests` (the text arrives from the thread with the old rows
   still on screen, a stale result is dropped and `checked` cleared, the cursor follows its note,
   closing the pane and switching the face drop a running read, the slim copy holds no notes, and
   the omitted count repaints the pane).
@@ -2499,7 +2511,8 @@ mode is the window's, not one file's: `bins/mdedit/src/app/visual.rs`.
 Audit 3's D2 and A6, A7, A8, A11, C1, C2, C3, C5 and C7 (`docs/review-prompts/audit3-report.md`),
 against `docs/ai-library-plan.md` 4.3 and 6.2. The writer is still `mdedit_core::runs`; the checks
 are `bins/mdedit/src/app/plan_write.rs` (`plan_request`, `plan_preflight`, `plan_blocked`), and the
-screen (`plan_ui.rs`) and the window (`app/plan.rs`) carry what they need.
+screen (`mdshared_ui::plan`, re-exported by `plan_ui.rs`) and the window (`app/plan.rs`) carry
+what they need.
 
 - **Everything that can be refused is checked before the first byte, and the reason is the card's.**
   `plan_preflight` refuses a library root that is empty or relative, a group's folder that is the
@@ -2618,3 +2631,50 @@ the layout's numbers, what a row says, the shots' plan), `move_draw.rs` (drawing
 - Shots: `--move-demo move` (`move-notes`, and `move-notes-small` at 800x600) and `--move-demo
   results` (`move-results`), both themes, from a plan made in the program.
 - Tests: `move_ui::tests` (4) and `app::moving_tests` (8).
+
+## 76. Split by AI (2026-11-22, branch `f/split-ai`)
+
+`docs/ai-library-plan.md` 5.2, phase 4b: "Ask the AI…" on the plan card. The plan at headings
+opens first, with no request; the AI is a second step on the same screen.
+
+- **The contract is one shared module.** `mdshared_app::split::answer` holds the system text
+  (`SYSTEM`), the outline (`outline`: each heading in full up to 200 bytes, the first 80 bytes of
+  each paragraph, fence-aware, with line numbers; headings only when that passes 200 KB; refused
+  as `TooLong` when even the headings do), the prompt (`<instruction>` and `<document name lines>`
+  tags, the name's `"<>` and controls turned into `_`), the retry prompt, the reader (`read`: the
+  first `{…}` in the text through the depth-bounded `runs::parse_json`, every field optional, at
+  most 200 notes kept) and `plan`, which turns an answer into a `Plan` by checks 4 to 10 in order:
+  whole numbers in the document, an end not before the start; a boundary inside a code block or a
+  table moves past it, inside a paragraph to its nearer edge; in order, an overlap starts after
+  the note before; blank ends trimmed; a heading's words are the title, else the model's, cleaned
+  and cut to 120 bytes, else "Lines a-b"; three sections at most, dot-only names dropped, the
+  group's existing spelling wins without regard to case. What was dropped is counted
+  (`Dropped`). Nothing in it can panic; a fuzz test feeds it 400 random answers. The engine is told
+  `system` and `prompt` and nothing about splits.
+- **The card.** `PlanScreen.ai_offer` (off unless the window sets it: a connection is chosen)
+  draws "Ask the AI…" beside the level switch. `set_ai_plan` puts a plan from the AI on the screen
+  with an `AiCut`: the header shows the instruction, "N notes · by {connection · model · effort}"
+  ("· sent the headings only" when so) and "At headings", which cuts at headings again. A row
+  whose boundary the checks moved says why (`Fix`: a code block, a table, a paragraph's edge, an
+  overlap). `ai_notice` is the window's line above the list (asking, unreadable, too long, a
+  failure), with its links (`AiAct`: Stop, Run again, At headings); it comes before the dropped
+  line, which comes before the warnings.
+- **The window** (`app/split_ai.rs`). "Ask the AI…" opens the instruction panel in split mode
+  (`Instruction.split`); the plan waits in `App::plan_behind` and comes back when the panel
+  closes. The panel lists only prompts of `kind: split` (`ai-prompts.md` gains an optional
+  `kind:` line; Save prompt writes it), and says what is sent and its size. Split sends one
+  request (`Ask::Split`); the screen says it is asking, with Stop, and Esc stops it too. An answer
+  that cannot be read is asked for once more with the fault named; a second says so, with "Run
+  again" and "Split at headings instead". The record of the write keeps the instruction and
+  `sent` (connection, model, bytes, requests).
+- **One request, so no parallel setting.** A document is one request; D-080's per-connection
+  number of requests in flight has nothing to run here and is left for the first phase that sends
+  several.
+- **Not built:** "Show what is sent" (3.10); merging or moving a note from the AI's plan beyond
+  what the card already offers.
+- Shots: `--plan-demo split-ai-ask|split-ai-asking|split-ai|split-ai-dropped|split-ai-unreadable|split-ai-long`,
+  with a connection given by `--pref`, both themes; the answers are made in the program and read
+  by the same reader, and no request is made.
+- Tests: `split::answer` (shared: every check of 5.2 has an answer that trips it), the card's AI
+  tests in `mdshared_ui::plan` (5), `app::split_ai_tests` (6, with the stand-in engine of
+  `ai_tests`), and `mdedit_core::ai`'s `kind:` tests (2).

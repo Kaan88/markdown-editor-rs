@@ -1492,6 +1492,8 @@ pub struct Docs {
     pub prefs: Prefs,
     /// The saved AI prompts, as the palette and the AI menu list them.
     pub ai_prompts: Vec<mdedit_core::ai::SavedPrompt>,
+    /// The saved prompts of the kind "split", which only the split panel lists (5.2).
+    pub ai_split_prompts: Vec<mdedit_core::ai::SavedPrompt>,
     /// The notes library, as the palette lists it: read when it is first shown and whenever a
     /// library file has been saved since ([`App::library_load`](crate::app::App)).
     pub library: mdshared_app::library::Library,
@@ -1651,6 +1653,7 @@ impl Docs {
             updates: crate::updater::Updates::default(),
             crash: None,
             ai_prompts: Vec::new(),
+            ai_split_prompts: Vec::new(),
             library: mdshared_app::library::Library::default(),
             library_stamp: mdshared_app::library::Library::default(),
             ai_status: None,

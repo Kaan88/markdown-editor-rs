@@ -282,11 +282,25 @@ fn plan_request(screen: &PlanScreen) -> Result<Request, String> {
     }
     folders.sort_by_key(|f| f.components().count());
     folders.dedup();
+    // A plan from a model records what it was asked and what was sent (4.4); a cut at headings
+    // sent nothing.
+    let (instruction, sent) = match &screen.ai_cut {
+        Some(cut) => (
+            cut.instruction.clone(),
+            Some(mdedit_core::runs::Sent {
+                connection: cut.connection.clone(),
+                model: cut.model.clone(),
+                bytes: cut.bytes,
+                requests: cut.requests,
+            }),
+        ),
+        None => (String::new(), None),
+    };
     Ok(Request {
         library: root,
         source,
-        instruction: String::new(),
-        sent: None,
+        instruction,
+        sent,
         group: Group {
             name: screen.dest.name.clone(),
             file,

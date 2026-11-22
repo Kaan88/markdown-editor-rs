@@ -30,12 +30,11 @@ fn every_demo_opens_a_sound_plan_and_draws_in_both_themes() {
     for name in plan_demo::NAMES {
         let mut a = app();
         assert!(a.plan_demo(name), "{name}");
-        let plan = &a.plan.as_ref().expect("the screen is open").plan;
-        assert_eq!(plan.check(), Ok(()), "{name}");
-        assert!(
-            !a.plan.as_ref().expect("open").edited,
-            "{name} opens unchanged"
-        );
+        // `split-ai-ask` is the split panel, with the screen behind it.
+        let screen = a.plan.as_ref().or(a.plan_behind.as_ref());
+        let screen = screen.expect("the screen is open");
+        assert_eq!(screen.plan.check(), Ok(()), "{name}");
+        assert!(!screen.edited, "{name} opens unchanged");
         for dark in [false, true] {
             a.pal = if dark { theme::DARK } else { theme::LIGHT };
             a.full = true;

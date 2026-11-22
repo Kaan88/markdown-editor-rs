@@ -1362,12 +1362,12 @@ release builds run in turn with a fresh settings folder, as phase 1 did it).
 |---|---|---|---|
 | 0 | Stop the leak (5.0) | 1 | **Done** |
 | 6a | A folder per group and per section (5.1) | 3 | **Done** |
-| S | The shared pieces (7.2) | 2.5 | Tick box and switch done |
+| S | The shared pieces (7.2) | 2.5 | **Done**: tick box and switch; the library tree's rows (`Row`, `Kind`, `rows()`, the fold keys, `same_note` and the path questions) in `mdshared_app::library::tree` at shared `ecfcdf9`; mdedit's shots unchanged |
 | R1 | The plan card, the writer, the record, undo, "AI runs…", shipped with **Split at headings** (5.2, 5.3, 5.9, 5.10) | 4 | **Built, on `main`**; progress row with Cancel and per-source headings not built |
-| N | Note names in lower case with hyphens in the writers already built: the split writer, "New note here…" (D-075) | 0.5 | |
-| S3 | What R1 built in mdedit moves to the shared crates: the plan card, the split checker, the record (`runs`) and the move (`moves`); mdedit's shots unchanged (D-081, replaces S2) | 1.5 | |
-| 6b | "Move the notes…", and the flat notes into their group's folder (5.12) | 2 | Core drafted on `f/move-notes`; the window not begun |
-| 4b | Split by AI, with requests in parallel (5.2, 3.5, 3.6, D-080) | 3.5 | |
+| N | Note names in lower case with hyphens in the writers already built: the split writer, "New note here…" (D-075) | 0.5 | **Done** (D-075, D-083) |
+| S3 | What R1 built in mdedit moves to the shared crates: the plan card, the split checker, the record (`runs`) and the move (`moves`); mdedit's shots unchanged (D-081, replaces S2) | 1.5 | **Done**, on `main` (D-088): `runs` and `moves` at shared `9545607`; the split checker (`mdshared_app::split`) and the plan card (`mdshared_ui::plan`) at shared `842ec3f`; shots unchanged |
+| 6b | "Move the notes…", and the flat notes into their group's folder (5.12) | 2 | **Built, on `main`** (D-084, D-085); the owner's look and the pictures question left |
+| 4b | Split by AI, with requests in parallel (5.2, 3.5, 3.6, D-080) | 3.5 | **Done** on branch `f/split-ai`, not merged: "Ask the AI…" on the plan card, the outline, the answer's checks and the panel's split prompts (`mdshared_app::split::answer`, `mdshared_ui::plan`). One document is one request, so the per-connection parallel setting is not built here: it goes with the first phase that sends several |
 | T | The original in the Recycle Bin (5.4) | 1.5 | `trash` approved |
 | R2 | The review with changes and ticks, and the tinted, level preview (5.5, D-077) | 6 | |
 | W | The AI task window over files; "Rewrite them" edits in place after the review, the original kept in the record (5.6, D-074, D-076) | 5.5 | |

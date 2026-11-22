@@ -1,4 +1,4 @@
-//! The plan screen as the window hosts it (`plan_ui.rs` is the screen, `plan_draw.rs` draws it):
+//! The plan screen as the window hosts it (the screen and its drawing are `mdshared_ui::plan`):
 //! it is drawn over everything, as the palette and the AI panels are, and while it is open it
 //! takes every key, pointer and wheel event. It writes nothing: "Write the notes" records that it
 //! was pressed.
@@ -114,7 +114,7 @@ impl App {
             .cloned()
             .unwrap_or_else(|| Dest::new(&root, &stem, true));
         let mut screen = PlanScreen::new(Init {
-            doc: &buffer,
+            doc: mdedit_core::split::document(&buffer),
             name: &name,
             path: Some(&path),
             headings: &headings,
@@ -127,6 +127,7 @@ impl App {
         });
         screen.source.len = len;
         screen.source.sha256 = sha256;
+        screen.ai_offer = self.docs.prefs.ai_connection != mdedit_core::ai::Connection::Off;
         screen.blocked = self.plan_blocked(&screen);
         screen.blocked_for = Some(screen.dest.clone());
         self.plan_open(screen);
@@ -163,6 +164,11 @@ impl App {
 
     /// Closes the screen; a plan that was changed is kept to be shown again.
     pub(super) fn plan_close(&mut self) {
+        // A split still out is for this screen: it stops with it.
+        if self.ai.split.is_some() {
+            self.ai.cancel_split();
+            self.docs.ai_status = None;
+        }
         if let Some(screen) = self.plan.take()
             && screen.edited
         {
@@ -178,6 +184,7 @@ impl App {
     pub(super) fn plan_show(&mut self) -> bool {
         match self.plan_parked.take() {
             Some(mut screen) => {
+                screen.ai_offer = self.docs.prefs.ai_connection != mdedit_core::ai::Connection::Off;
                 if screen.source.path.is_some() {
                     screen.blocked = self.plan_blocked(&screen);
                     screen.blocked_for = Some(screen.dest.clone());
@@ -199,6 +206,7 @@ impl App {
         match act {
             Act::Close => self.plan_close(),
             Act::Write => self.plan_write(),
+            Act::Ai(a) => self.plan_ai(a),
             Act::Nothing => {}
         }
         self.plan_recheck();
@@ -210,10 +218,26 @@ impl App {
             return self.move_key(key);
         }
         let mods = self.mods;
+        // Escape while the AI is asked stops the request and leaves the screen open.
+        if self.ai.split.is_some()
+            && matches!(&key, PlanKey::Name(crate::keys::KeyName::Escape))
+            && self
+                .plan
+                .as_ref()
+                .is_some_and(|s| s.edit.is_none() && s.menu.is_none())
+        {
+            self.split_stop();
+            return;
+        }
         let Some(screen) = self.plan.as_mut() else {
             return;
         };
-        let act = screen.key(&key, mods, typed);
+        let (name, menu_key) = match &key {
+            PlanKey::Name(n) => (Some(n), false),
+            PlanKey::Insert => (None, false),
+            PlanKey::Menu => (None, true),
+        };
+        let act = screen.key(name, menu_key, mods, typed);
         self.caret_reset();
         self.plan_act(act);
     }
@@ -295,6 +319,7 @@ impl App {
                 screen.blocked =
                     Some("A demonstration of the plan screen: it writes nothing.".to_string());
                 self.plan_open(screen);
+                self.split_demo(name);
                 true
             }
             None => false,

@@ -269,6 +269,8 @@ impl Drop for Client {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ask {
     Run,
+    /// A split by AI (5.2): the answer goes to the plan screen.
+    Split,
     /// A model list, under its key in [`Ai::models`].
     Models(String),
     Detect(Connection),
@@ -332,11 +334,35 @@ pub struct Instruction {
     pub source: (DocId, usize, usize, String),
     /// The scope changed since the panel showed it: the line says so.
     pub changed: bool,
+    /// The panel asks for a split of the plan's document, not a rewrite (5.2): what it sends.
+    pub split: Option<SplitAsk>,
     /// The saved prompt the keyboard is on.
     pub selected: Option<usize>,
     pub scope: String,
     pub via: String,
     pub scroll: f32,
+}
+
+/// What the instruction panel sends when it asks for a split (5.2): the document's name and its
+/// outline, never its text.
+#[derive(Clone, Debug)]
+pub struct SplitAsk {
+    pub name: String,
+    pub outline: mdedit_core::split::answer::Outline,
+}
+
+/// A split by AI in flight. Its answer goes to the plan screen that asked for it.
+#[derive(Clone, Debug)]
+pub struct SplitRun {
+    pub id: u64,
+    pub spec: Spec,
+    pub ask: SplitAsk,
+    /// The request's text as first sent; a retry adds the fault to it.
+    pub prompt: String,
+    pub via: String,
+    pub chars: usize,
+    /// Requests made for this split: 2 after the retry of check 2.
+    pub requests: u64,
 }
 
 /// The review panel.
@@ -397,6 +423,8 @@ pub struct Ai {
     next: u64,
     pending: HashMap<u64, Ask>,
     pub run: Option<Run>,
+    /// A split by AI in flight (5.2).
+    pub split: Option<SplitRun>,
     pub panel: Option<Panel>,
     /// The review that Escape closed: its result stays until it is shown again and applied or
     /// discarded, replaced by another run, or the program ends.
@@ -433,7 +461,7 @@ pub struct Ai {
 
 impl Ai {
     pub fn running(&self) -> bool {
-        self.run.is_some()
+        self.run.is_some() || self.split.is_some()
     }
 
     /// Sends a request, starting the engine first if needed. On failure the reason.
@@ -474,6 +502,18 @@ impl Ai {
 
     pub fn cancel(&mut self) {
         if let Some(run) = self.run.take() {
+            self.pending.remove(&run.id);
+            if let Some(c) = &self.client {
+                c.send(json!({"op": "cancel", "id": run.id}));
+            }
+        }
+        self.cancel_split();
+        self.tick += 1;
+    }
+
+    /// Stops a split in flight; its answer, if it still comes, is not read.
+    pub fn cancel_split(&mut self) {
+        if let Some(run) = self.split.take() {
             self.pending.remove(&run.id);
             if let Some(c) = &self.client {
                 c.send(json!({"op": "cancel", "id": run.id}));

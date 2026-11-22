@@ -111,6 +111,9 @@ pub(crate) use preview::previewable;
 #[cfg(test)]
 mod pin_tests;
 mod replace_files;
+mod split_ai;
+#[cfg(test)]
+mod split_ai_tests;
 #[cfg(test)]
 mod widget_pixels_tests;
 
@@ -354,6 +357,10 @@ struct App {
     /// The plan screen (a plan of notes to read and change), and the plan Escape kept.
     plan: Option<crate::plan_ui::PlanScreen>,
     plan_parked: Option<crate::plan_ui::PlanScreen>,
+    /// The plan screen while the split panel ("Ask the AI…") is in front of it (5.2).
+    plan_behind: Option<crate::plan_ui::PlanScreen>,
+    /// The last split asked of the AI, for "Run again".
+    split_last: Option<crate::ai::Spec>,
     /// "Move the notes…": the card of a move's plan, while it is open.
     mover: Option<crate::move_ui::MoveCard>,
     /// The library being read again on its own thread after a library file was saved, with at
@@ -514,6 +521,8 @@ impl App {
             ai: Default::default(),
             plan: None,
             plan_parked: None,
+            plan_behind: None,
+            split_last: None,
             mover: None,
             library_job: None,
             settled: false,
@@ -1824,11 +1833,19 @@ impl App {
                 }
                 // Last, over everything.
                 if self.ai.panel.is_some() {
+                    let split = matches!(
+                        &self.ai.panel,
+                        Some(crate::ai::Panel::Instruction(i)) if i.split.is_some()
+                    );
                     crate::ai_ui::draw(
                         c.p,
                         &pal,
                         &mut self.ai,
-                        &self.docs.ai_prompts,
+                        if split {
+                            &self.docs.ai_split_prompts
+                        } else {
+                            &self.docs.ai_prompts
+                        },
                         w,
                         h,
                         self.ui.caret_on,

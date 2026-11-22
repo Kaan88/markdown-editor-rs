@@ -106,11 +106,10 @@ pub const REPLACE_BACKUPS: usize = 99;
 /// holds (past this the lines stay in the rest and the plan says it was capped), the longest
 /// title in bytes (120, the length the function list cuts a name to), the longest section name in
 /// bytes (64, the length `mdshared_app::library::folder_name` allows), and the most section names
-/// a note keeps.
-pub const SPLIT_MAX_NOTES: usize = 2_000;
-pub const SPLIT_TITLE_MAX: usize = 120;
-pub const SPLIT_SECTION_MAX: usize = 64;
-pub const SPLIT_MAX_SECTIONS: usize = 3;
+/// a note keeps. They live with the checker in `mdshared_app::split` (D-081).
+pub use mdshared_app::split::{
+    SPLIT_MAX_NOTES, SPLIT_MAX_SECTIONS, SPLIT_SECTION_MAX, SPLIT_TITLE_MAX,
+};
 
 /// Word completion reads at most this many bytes of the active document (around the caret, cut
 /// at line breaks) and of each other open document (from its start), and at most
