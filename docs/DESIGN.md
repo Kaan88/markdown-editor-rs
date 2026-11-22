@@ -2594,8 +2594,39 @@ headless, beside the record it writes to (`runs`). The window side is not built.
   library stays where the move put it (D-084); every other file goes back only while its digest
   is the one moved, nothing is at its old place, and its line is the run's (D-070). `undo_preflight`
   makes a write's refusals before the first file goes back.
-- Tests: `mdshared_app::moves` (50, `moves_tests.rs`), one per rule of 5.12 and per failure point,
-  each failing with its fix reverted. Not yet carried: a moved note's pictures and its own links.
+- **A note's pictures and links (D-091)**, `moves::carry(&mut plan)` after a plan is made, and
+  `moves_links.rs`. A row it has not seen (`Row::carry` is `None`) moves as before D-091. It reads
+  each movable note (UTF-8, up to 8 MiB; another note's links are left alone) for its relative
+  inline links, pictures and reference definitions with `wikilink::scan` (so fenced code and code
+  spans are skipped), and passes over absolute paths, schemes, `#anchors`, wiki-links, HTML,
+  folders and targets that are not there. Who else links is read from every library file, every
+  note of every group, and every `.md` in the folders the notes and their targets are in (up to
+  10,000 files; past that, or one that cannot be read, nothing is carried); a wiki-link counts by
+  name. A target is **carried** when this note is its only user (two links from the note are one
+  user), it is a plain file inside the note's folder, not a `.md`, not in `.runs`: it goes to the
+  same place below the note's new folder, a `Carried` row on the note with its digest. A taken
+  name, two files going to one name, a path too long or a file in the way blocks the note's row
+  (`Verdict::CarriedTaken`, "there is already a file called map.png where its picture would go").
+  Every other target stays and the link is counted in `Carry::rewrites`.
+- **Carrying in the write.** A note's carried files are rows of their own after it in the record
+  (`FileKind::Carried`, `with` naming the note), moved and checked like the note (`preflight`
+  makes the same refusals for them), never moved when their note did not move, and put back with
+  it in a rollback. After the files move, each moved note with `links` is read again and every
+  link whose target exists, before or after, is pointed at where its file is now
+  (`links::rewrite`): forward slashes, the characters the source escaped with `%` escaped again
+  (a space always outside `<…>`), a relative path, or the absolute one on another drive. The new
+  text is written whole through `MoveGate::rewrite` (default `rewrite_note`: one atomic write,
+  only while the file says what was read), after the library files and in the same unit: a
+  refusal rolls everything back. The lines are recorded as `ChangeKind::Link` changes, and the
+  note's digest is the rewritten one. A record with carried files or link lines is not read by
+  builds before D-091, so they cannot half-undo it.
+- **Undoing it.** A carried file goes back only while its note does, else it is kept ("the note it
+  went with stays where it is"); the note's lines go back to the exact words the record holds when
+  those still lead where the recomputed line does, so `<./pics/../pics/s x.png>` comes back as it
+  was written.
+- Tests: `mdshared_app::moves` (61, `moves_tests.rs`, and 2 in `moves_links.rs`), one per rule of
+  5.12 and of D-091 and per failure point, each failing with its fix reverted. Not done: links
+  from other notes *into* a moved note, `<img src>` and wiki-links are not rewritten.
 
 ## 75. Move the notes: the window (2026-11-22)
 
@@ -2604,13 +2635,14 @@ the layout's numbers, what a row says, the shots' plan), `move_draw.rs` (drawing
 `app/moving.rs` (the window's part: the gate, the disk, opening, the write, undo, `--move-demo`).
 
 - **Where it is offered.** "Move the notes…" on a group row's menu (`LibAct::MoveNotes`) runs
-  `moves::plan_group`. A plan with no row opens nothing: its `blocked` reason, or "Every note of
+  `moves::plan_group` and then `moves::carry` (D-091). A plan with no row opens nothing: its `blocked` reason, or "Every note of
   Work is already where it belongs", is a toast. The library move is not offered: the Settings row
   for the library folder is a text field and a picker, with no place for a second step.
 - **The card** is the plan card's family made small: 880 x 620 through `dialog_card`, a 92 px
   header (the kind of move, where the files go, and the notes the plan keeps: missing notes,
   files that stay behind), "FILES (n)" with Tick all and Untick all, 62 px three-line rows (the
-  tick, the name; from → to, each shown below the group's folder or the library and cut from the
+  tick, the name and beside it, faint, what the note carries and rewrites, "and 2 pictures · 1
+  link rewritten" (`move_ui::aside`); from → to, each shown below the group's folder or the library and cut from the
   front when the two do not fit; why it moves, or the core's verdict in the warning colour), and
   the footer ("3 of 7 files · 3 cannot move", Cancel, **Move**). A blocked row draws a disabled
   tick and `Plan::set_ticked` keeps it unticked; an outside row comes unticked and is ticked by
@@ -2619,19 +2651,22 @@ the layout's numbers, what a row says, the shots' plan), `move_draw.rs` (drawing
   signature in the overlay's.
 - **The write.** `preflight`, then `write`, through `MovesGate`: `free` is
   `library_file_free` (a tab with unsaved changes refuses), `edit` is `library_attempt_at` with
-  `moves::apply_edits` as the change. A refusal keeps the card, its ticks and the sentence in the
+  `moves::apply_edits` as the change, `rewrite` (a moved note's links) is `library_file_free` then
+  `moves::rewrite_note`. A refusal keeps the card, its ticks and the sentence in the
   footer and on the bar; nothing has moved. The disk is `Disk` with `docs::move_no_replace`
   (`MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`; a hard link and an unlink elsewhere), whose
   `ERROR_NOT_SAME_DEVICE` is given to the core as `CrossesDevices` so it copies. After it: tabs
-  open on a moved file follow it (`Docs::follow_move`), the library is read again, and the results
-  panel lists what moved, what was kept and why, what could not move, and the folders removed,
-  with "Undo this run".
+  open on a moved or carried file follow it (`Docs::follow_move`), the library is read again, and
+  the results panel lists what moved, what went with the notes, the notes whose links were
+  rewritten, what was kept and why, what could not move, and the folders removed, with "Undo this
+  run". Undo's panel lists the carried files under "Put back with their notes".
 - **"AI runs…"** lists a move by `moves::headline`; "Undo this run…" asks with `moves::prepare`'s
   sentence and answers with `moves::undo` through the same gate; "Show the notes" opens the first
   moved note where it is; Finish is not offered for a move.
 - Shots: `--move-demo move` (`move-notes`, and `move-notes-small` at 800x600) and `--move-demo
-  results` (`move-results`), both themes, from a plan made in the program.
-- Tests: `move_ui::tests` (4) and `app::moving_tests` (8).
+  results` (`move-results`), both themes, from a plan made in the program: three notes carry
+  pictures or a file or rewrite links, and "Trip photos" is blocked because `map.png` is taken.
+- Tests: `move_ui::tests` (4) and `app::moving_tests` (9).
 
 ## 76. Split by AI (2026-11-22, branch `f/split-ai`)
 
