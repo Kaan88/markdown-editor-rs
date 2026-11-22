@@ -917,7 +917,9 @@ pub struct Ui {
     /// The Go to box is asking for a macro's name instead of a line.
     pub naming: bool,
     /// The settings dialog, while it is open.
-    pub settings: Option<mdshared_ui::settings::Form>,
+    pub settings: Option<mdshared_ui::settings::pages::Form>,
+    /// The settings page shown last this run: the dialog opens on it again.
+    pub settings_page: usize,
     /// Counts what changed in the dialog, so the overlay is drawn again.
     pub overlay_tick: u64,
     pub caret_on: bool,
@@ -1021,6 +1023,7 @@ impl Ui {
             replace_recall: crate::recall::Recall::default(),
             naming: false,
             settings: None,
+            settings_page: 0,
             overlay_tick: 0,
             caret_on: true,
             caret_due: None,

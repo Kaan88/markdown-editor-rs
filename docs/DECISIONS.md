@@ -888,3 +888,26 @@ hides the plan instead of drawing over it, and a long header line is cut ("effor
 **Overturned by.** The owner, on looking at the `plan-split-ai*` shots or running it on a real
 provider (never done).
 **From.** The agent that built it, recorded by Claude with the owner away.
+
+## D-090 · 2026-11-22 · The owner approves Settings, "Move the notes…" and Split by AI by their shots
+
+**Decision.** The owner looked at the shots of three pieces and said "they look great": the new
+Settings (32 `settings-*` shots, D-087), "Move the notes…" (`move-notes`, `move-notes-small`,
+`move-results`, D-085) and Split by AI (12 `plan-split-ai*`, D-089). Settings is merged into
+`main` with it. Still open: what a moved note's pictures and relative links do (5.12), and the
+small faults D-089 lists.
+**Why.** Rule 6: the owner approves the interface by looking at it.
+**Overturned by.** The owner, on using any of the three in a real window.
+**From.** The owner, 2026-11-22.
+
+## D-091 · 2026-11-22 · A moved note carries its pictures; its other relative links are rewritten
+
+**Decision.** "Move the notes…" carries what a note's relative links point at: a picture (or other
+file) that only this note links to moves with it, to the same place relative to the note; a
+target that other notes or files also use stays where it is, and the note's link to it is
+rewritten to the new relative path. Undo puts the files and the link text back. Links that are
+absolute, web addresses, or point at nothing are left as they are. Replaces the open question
+left by D-084 and the review of the move.
+**Why.** The owner chose it: nothing breaks, and a note and its pictures stay together.
+**Overturned by.** The owner, on using it.
+**From.** The owner, 2026-11-22, asked by Claude.

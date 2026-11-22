@@ -1383,8 +1383,40 @@ The function list already outlines Markdown headings (`mdedit-outline`, `Flavor:
 
 ## 47. Settings (2026-11-14)
 
-`Settings…` (Ctrl+,, main menu, SLIDERS glyph) opens the shared `settings::Form` over rows from
-`mdedit_core::prefs::Prefs`: Editing, Saving, View, Session, Updates, and System (AppImage). A
+`Settings…` (Ctrl+,, main menu, SLIDERS glyph) opens the shared paged form
+`settings::pages::Form` (D-086; the design is `docs/settings-redesign.md` on `mock/settings`)
+over rows from `mdedit_core::prefs::Prefs`. Nine pages, nothing scrolls: Appearance (Theme,
+Window backdrop on Windows, Window corners where offered; Font, Font size), Editor (Line numbers,
+Highlight the current line, Word wrap, Minimap, Minimap width as its child; Live preview),
+Indentation (Tab width, Detect indentation, its two children Indent with spaces and Indent
+size), Typing (Close brackets, Automatic indent, Suggest words; Trim trailing spaces, End with a
+line break), Notes library (the folder, stacked, with Choose… beside it), Tabs (Restore tabs,
+Start on the last pinned tab, Offer to close + its days, Don't reopen tabs barely looked at + its
+seconds and Leave out the last tab too), AI service, AI rewrite (section 63's rows) and Updates
+(Check at launch, Look for a newer version, and on an AppImage Make mdedit the default).
+`modal::pages` builds all but the AI pages, `App::ai_pages` those two (help always under its row,
+since the engine writes it); `settings_pages` puts them before Updates. Ids, `Value` and
+`Outcome` are the old form's, so `apply_setting` is unchanged. The four action rows of the old
+form are buttons on their rows with the same ids: Choose… (Library folder), Save/Remove (API key,
+live only when it would do something), the remove icon (Provider, a custom one chosen), the
+fetch icon (Model, API connections). A row under a switch is disabled while the switch is off,
+with "Needs the switch above." (seconds, last tab) or dimmed without a reason (the days row: a
+second reason is the 11 px the smallest window lacks with both tab rules off); AI rewrite's rows
+stay, disabled with "Choose a connection on AI service first.", while the connection is off. So
+the pages are made again after every change (`ai_settings_refresh`, `set_pages`, which keeps the
+page, the focus and a text box's caret). The dialog opens with the keyboard in the list, on the
+page last shown this run (`Ui::settings_page`); AI: Settings and the AI bar open AI service
+(`open_settings_at`). `--settings-section` names a page (`ai-service`) or an old group (`View`,
+`Preview`, `Editing`, `Session`, `AI`, `System`) and is applied after `--ai-demo`. The update
+button says "Check now" or "Update" (96 px), the About box's longer words stay there. A program's
+path in a help line keeps its last 40 characters of folders (`short_path`). The test
+`every_page_fits_at_the_default_and_the_minimum_at_every_scale` lays every page out with
+`Form::fit` at 1280x800 and 520x360, scale 1, 1.5 and 2, in seven states (tab rules on and off,
+an update offered, every connection, a failed model list with a typed model, a refused key) and
+fails naming the page and the pixels over; the closest is Tabs with both rules off, 7 px at
+520x360. A Choice with three options or fewer is a segmented group (the shared rule), but Model
+and Effort are marked `Item::dropdown()`: their option count follows the fetched list and the
+model, and a row that changed shape with it would read as another setting. A
 Font family row is a single string; an unknown family falls back to the monospace stack. Changes
 apply live: tab width, font size, line numbers and highlight-line through process-wide atomics in
 `live.rs` (caches are cleared in `relayout_all`), the others through `Docs::set_prefs`. They are

@@ -202,7 +202,8 @@ fn settings_has_an_ai_group_that_asks_for_the_key() {
     let (mut a, dir) = ai_app("text\n");
     a.command(C::AiSettings);
     let f = a.ui.settings.as_ref().expect("settings");
-    assert!(f.categories().contains(&"AI"));
+    // It opens on the AI service page.
+    assert_eq!(f.page_names()[f.page()], super::modal::AI_SERVICE);
     wait(&mut a, |a| a.ai.keys.get("claude-api") == Some(&true));
     // Audit 1: the key found, the models are asked for and arrive.
     wait(&mut a, |a| {
@@ -212,10 +213,83 @@ fn settings_has_an_ai_group_that_asks_for_the_key() {
         })
     });
     let f = a.ui.settings.as_ref().unwrap();
+    assert_eq!(
+        f.page_of(super::modal::AI_KEY),
+        Some(f.page()),
+        "the key is asked for on the page shown"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The AI actions are buttons on the rows they belong to: each still does what its row did.
+/// Fetch again (beside Model) asks for the list again, Save (beside the key) stores what was
+/// typed, Remove (beside Provider) removes the provider, Edit… opens the saved prompts.
+#[test]
+fn the_ai_buttons_on_their_rows_do_what_the_rows_did() {
+    use super::modal::{AI_CUSTOM_REMOVE, AI_FETCH, AI_KEY, AI_KEY_SAVE, AI_PROMPTS, AI_REWRITE};
+    let (mut a, dir) = ai_app("t\n");
+    // A settings file, so the saved prompts have a folder.
+    a.session_path = Some(dir.join("settings.ini"));
+    a.command(C::AiSettings);
+    wait(&mut a, |a| {
+        a.ai.models
+            .values()
+            .any(|m| m.as_ref().is_ok_and(|l| !l.is_empty()))
+    });
+    let enter = |a: &mut App| a.key_pressed(keys::Key::Name(KeyName::Enter), None);
+    // Fetch again, on AI rewrite.
+    let f = a.ui.settings.as_mut().unwrap();
+    assert!(f.focus_row(AI_FETCH));
+    assert_eq!(f.page_names()[f.page()], AI_REWRITE);
+    enter(&mut a);
+    assert!(a.ai.fetching.is_some(), "the list is asked for again");
+    wait(&mut a, |a| a.ai.fetching.is_none());
+    assert!(a.ai.models.values().any(|m| m.is_ok()));
+    // The key: typed into its box, then Save beside it.
+    let f = a.ui.settings.as_mut().unwrap();
+    assert!(f.focus_row(AI_KEY));
+    for c in "sk-test-key".chars() {
+        let s = c.to_string();
+        a.key_pressed(keys::Key::Name(KeyName::Char(c)), Some(&s));
+    }
+    assert_eq!(a.ai.key_draft, "sk-test-key");
+    let f = a.ui.settings.as_mut().unwrap();
+    assert!(f.focus_row(AI_KEY_SAVE), "Save is live with a key typed");
+    enter(&mut a);
+    assert!(a.ai.key_draft.is_empty(), "sent to the store");
+    assert!(a.ai.pending_key("claude-api"));
+    // Remove, beside a custom provider.
+    let mut p = a.docs.prefs.clone();
+    p.ai_connection = Connection::OpenAi;
+    p.ai_preset = "custom".into();
+    p.ai_customs = vec![mdedit_core::ai::CustomProvider {
+        base_url: "http://localhost:1234/v1".into(),
+        ..Default::default()
+    }];
+    a.set_prefs(p);
+    a.ai_settings_refresh();
+    let f = a.ui.settings.as_mut().unwrap();
+    assert!(f.focus_row(AI_CUSTOM_REMOVE));
+    enter(&mut a);
     assert!(
-        f.rows()
-            .iter()
-            .any(|r| r.id() == Some(super::modal::AI_KEY))
+        a.docs.prefs.ai_customs.is_empty(),
+        "the provider is removed"
+    );
+    assert!(
+        !a.ui.settings.as_mut().unwrap().focus_row(AI_CUSTOM_REMOVE),
+        "no button without a custom provider"
+    );
+    // Edit… closes the dialog and opens the saved prompts, made from the template.
+    let prompts = dir.join(mdedit_core::ai::PROMPTS_FILE);
+    assert!(!prompts.exists());
+    let f = a.ui.settings.as_mut().unwrap();
+    assert!(f.focus_row(AI_PROMPTS));
+    enter(&mut a);
+    assert!(a.ui.settings.is_none());
+    assert!(
+        prompts.is_file(),
+        "the prompts file is made to be opened: {:?}",
+        a.docs.toast(Instant::now())
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -419,7 +493,8 @@ fn custom_providers_are_added_chosen_and_removed_and_need_no_key() {
     assert_eq!(p.ai_customs[1].name, "Custom provider 1");
     let rows = rows_of(&mut a);
     assert!(provider(&rows).ends_with("|LM Studio|Custom provider 1|Add a custom provider…"));
-    assert!(rows.iter().any(|r| r == "Remove this provider"));
+    // The button that removes it is beside the provider list.
+    assert!(a.ui.settings.as_mut().unwrap().focus_row(AI_CUSTOM_REMOVE));
     // Choose the first again: its own URL and model.
     a.ai_setting(AI_PROVIDER, Value::Choice(presets));
     assert_eq!(a.docs.prefs.ai_url(), "http://localhost:1234/v1");

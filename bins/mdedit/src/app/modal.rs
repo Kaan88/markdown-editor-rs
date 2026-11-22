@@ -1,7 +1,10 @@
-//! The settings dialog as the window hosts it: the form is `mdshared_ui::settings::Form`, built
-//! from the preferences each time it opens; every change comes back as an outcome, is applied to
-//! every open document at once and is written to the settings file (the `[preferences]` section).
-//! Keys, the pointer and the wheel go to the form while it is open, and the page does not see them.
+//! The settings dialog as the window hosts it: the form is `mdshared_ui::settings::pages::Form`,
+//! a list of pages at the left and one page at a time (docs/settings-redesign.md on
+//! `mock/settings`). It is built from the preferences when it opens and again after every change,
+//! so a switch turned off disables the rows that depend on it; every change comes back as an
+//! outcome, is applied to every open document at once and is written to the settings file (the
+//! `[preferences]` section). Keys, the pointer and the wheel go to the form while it is open, and
+//! the page does not see them.
 
 use super::*;
 use crate::ai::Ask;
@@ -13,8 +16,10 @@ use mdedit_core::prefs::{
     MINIMAP_WIDTH_MIN, Prefs, STALE_DAYS_MAX, STALE_DAYS_MIN, TAB_WIDTH_MAX,
 };
 use mdshared_ui::corners::{self, Corners};
+use mdshared_ui::glyph;
 use mdshared_ui::keys::{KeyName, Mods};
-use mdshared_ui::settings::{Form, Outcome as Out, Row, Value};
+use mdshared_ui::settings::pages::{Form, Item, Page};
+use mdshared_ui::settings::{Outcome as Out, Row, Value};
 use serde_json::json;
 
 pub const FONT_FAMILY: u32 = 1;
@@ -85,8 +90,8 @@ fn theme_of(i: usize) -> ThemeChoice {
     }
 }
 
-/// Whether the System group (make mdedit the default for text files) is offered: off Windows,
-/// from an AppImage, until it is the default (as the main menu has it).
+/// Whether "Make mdedit the default" is offered: off Windows, from an AppImage, until it is the
+/// default (as the main menu has it).
 fn can_offer_default_app() -> bool {
     #[cfg(not(windows))]
     {
@@ -102,165 +107,74 @@ fn can_offer_default_app() -> bool {
     }
 }
 
-/// The rows, from the preferences and what else the window knows. `corners` is the window's corner
-/// setting, or `None` where the system gives the window no way to round them (the row is left out).
-pub fn rows(
+// The pages, in the list's order. The two AI pages are made by the window, which knows what the
+// engine said (`App::ai_pages`); they go between Tabs and Updates.
+pub const APPEARANCE: &str = "Appearance";
+pub const EDITOR: &str = "Editor";
+pub const INDENTATION: &str = "Indentation";
+pub const TYPING: &str = "Typing";
+pub const NOTES_LIBRARY: &str = "Notes library";
+pub const TABS: &str = "Tabs";
+pub const AI_SERVICE: &str = "AI service";
+pub const AI_REWRITE: &str = "AI rewrite";
+pub const UPDATES: &str = "Updates";
+const PAGES: [&str; 9] = [
+    APPEARANCE,
+    EDITOR,
+    INDENTATION,
+    TYPING,
+    NOTES_LIBRARY,
+    TABS,
+    AI_SERVICE,
+    AI_REWRITE,
+    UPDATES,
+];
+
+/// The reason a row under a switch gives while the switch is off.
+pub const NEEDS_SWITCH: &str = "Needs the switch above.";
+/// The reason the AI rewrite page gives while the connection is off.
+pub const NEEDS_CONNECTION: &str = "Choose a connection on AI service first.";
+
+/// The page `--settings-section` names: a page's name, as it is or with hyphens for spaces
+/// (`ai-service`), or the group the setting was in before the pages (`Preview`, `View`).
+pub fn page_for_section(name: &str) -> Option<&'static str> {
+    let key = name.trim().to_ascii_lowercase().replace('-', " ");
+    if let Some(p) = PAGES.iter().find(|p| p.to_ascii_lowercase() == key) {
+        return Some(p);
+    }
+    Some(match key.as_str() {
+        "view" => APPEARANCE,
+        "preview" => EDITOR,
+        "editing" | "saving" => TYPING,
+        "session" => TABS,
+        "ai" => AI_SERVICE,
+        "system" => UPDATES,
+        _ => return None,
+    })
+}
+
+/// The pages but the two AI ones, from the preferences and what else the window knows. `corners`
+/// is the window's corner setting, or `None` where the system gives the window no way to round
+/// them (the row is left out); `offer_default` adds "Make mdedit the default" to Updates.
+pub fn pages(
     prefs: &Prefs,
     theme: ThemeChoice,
     corners: Option<Corners>,
     check_updates: bool,
     look: &str,
-) -> Vec<Row> {
-    let mut rows = vec![
-        Row::header("Editing"),
-        Row::text(FONT_FAMILY, "Font", prefs.font_family.clone())
-            .placeholder("Default")
-            .help("Any installed monospace family."),
-        Row::number(
-            FONT_SIZE,
-            "Font size",
-            prefs.font_pt.round() as i32,
-            FONT_PT_MIN as i32,
-            FONT_PT_MAX as i32,
-        )
-        .unit("pt")
-        .help("At 100 % zoom. Zoom (Ctrl and the wheel) scales it."),
-        Row::number(
-            TAB_WIDTH,
-            "Tab width",
-            prefs.tab_width as i32,
-            1,
-            TAB_WIDTH_MAX as i32,
-        )
-        .unit("columns"),
-        Row::toggle(
-            DETECT_INDENT,
-            "Detect indentation from the file",
-            prefs.detect_indent,
-        )
-        .help("The two rows below apply when a file has no clear style."),
-        Row::toggle(
-            INDENT_SPACES,
-            "Indent with spaces",
-            prefs.indent_with_spaces,
-        )
-        .help("Tab and the automatic indent add spaces, not a tab character."),
-        Row::number(
-            INDENT_SIZE,
-            "Indent size",
-            prefs.indent_size as i32,
-            1,
-            INDENT_SIZE_MAX as i32,
-        )
-        .unit("spaces"),
-        Row::toggle(AUTO_PAIR, "Close brackets and quotes", prefs.auto_pair)
-            .help("Typing ( or \" adds the other half."),
-        Row::toggle(AUTO_INDENT, "Automatic indent", prefs.auto_indent)
-            .help("Enter keeps the indent and opens a block after a bracket."),
-        Row::toggle(
-            COMPLETE_AUTO,
-            "Suggest words while typing",
-            prefs.complete_auto,
-        )
-        .help(format!(
-            "A list of words opens after three letters. {} opens it anyway.",
-            crate::commands::hint(crate::commands::CommandId::CompleteWord)
-        )),
-        Row::header("Saving"),
-        Row::toggle(
-            TRIM_ON_SAVE,
-            "Trim trailing spaces on save",
-            prefs.trim_on_save,
-        ),
-        Row::toggle(
-            FINAL_NEWLINE,
-            "End the file with a line break on save",
-            prefs.final_newline_on_save,
-        ),
-        Row::header("View"),
-        Row::toggle(LINE_NUMBERS, "Line numbers", prefs.line_numbers),
-        Row::toggle(
-            HIGHLIGHT_LINE,
-            "Highlight the current line",
-            prefs.highlight_line,
-        ),
-        Row::toggle(MINIMAP, "Minimap for new windows", prefs.minimap)
-            .help("View > Minimap changes the window you are in."),
-        Row::number(
-            MINIMAP_WIDTH,
-            "Minimap width",
-            prefs.minimap_width as i32,
-            MINIMAP_WIDTH_MIN as i32,
-            MINIMAP_WIDTH_MAX as i32,
-        )
-        .unit("px"),
-        Row::toggle(WORD_WRAP, "Word wrap for new documents", prefs.word_wrap).help(format!(
-            "{} changes the document you are in.",
-            crate::commands::hint(crate::commands::CommandId::ToggleWrap)
-        )),
-        Row::choice(THEME, "Theme", &THEMES, theme_index(theme)),
-        Row::header("Preview"),
-        Row::toggle(
-            LIVE_PREVIEW,
-            "Live preview while typing",
-            prefs.live_preview,
-        )
-        .help("mdview shows the text as you type it. Off: it shows the file when you save."),
-        Row::header("Session"),
-        Row::toggle(RESTORE_TABS, "Restore tabs at start", prefs.restore_session),
-        Row::toggle(
-            START_ON_PINNED,
-            "Start on the last pinned tab",
-            prefs.start_on_pinned,
-        )
-        .help("The pinned tab you used last shows at start, not the tab you left on."),
-        Row::toggle(
-            OFFER_STALE,
-            "Offer to close tabs left unopened",
-            prefs.offer_stale,
-        )
-        .help("At start. Pinned and changed tabs are never offered."),
-        Row::number(
-            STALE_DAYS,
-            "Offer them after",
-            prefs.stale_days as i32,
-            STALE_DAYS_MIN as i32,
-            STALE_DAYS_MAX as i32,
-        )
-        .unit("days")
-        .help("Counted in days you use mdedit, not calendar days."),
-        Row::toggle(SKIP_BRIEF, mdshared_app::brief::SWITCH, prefs.skip_brief)
-            .help("At start. Pinned tabs and unsaved text always come back."),
-        Row::number(
-            BRIEF_SECS,
-            mdshared_app::brief::SECONDS,
-            prefs.brief_secs as i32,
-            BRIEF_SECS_MIN as i32,
-            BRIEF_SECS_MAX as i32,
-        )
-        .unit("seconds")
-        .help("Only while the tab is in front and mdedit has focus."),
-        Row::toggle(BRIEF_LAST, mdshared_app::brief::LAST, prefs.brief_last)
-            .help(mdshared_app::brief::LAST_HELP),
-        Row::header("Notes library"),
-        Row::text(LIBRARY_DIR, "Library folder", prefs.library_dir.clone())
-            .placeholder("Beside the settings file")
-            .help("Such as a OneDrive folder."),
-        Row::action(LIBRARY_CHOOSE, strings::LIBRARY_CHOOSE, "Choose\u{2026}"),
-        Row::header("Updates"),
-        Row::toggle(
-            CHECK_AT_LAUNCH,
-            "Check for updates at launch",
-            check_updates,
-        ),
-        Row::action(CHECK_NOW, "Look for a newer version", look),
-    ];
-    // The backdrop is Windows 11's: the row is offered, under the theme, where it can do something.
+    offer_default: bool,
+) -> Vec<Page> {
+    let mut appearance = vec![Item::new(Row::choice(
+        THEME,
+        "Theme",
+        &THEMES,
+        theme_index(theme),
+    ))];
+    // The backdrop is Windows 11's: the row is offered where it can do something.
     #[cfg(windows)]
-    if let Some(at) = rows.iter().position(|r| r.id() == Some(THEME)) {
+    {
         use mdshared_app::backdrop::Backdrop;
-        rows.insert(
-            at + 1,
+        appearance.push(Item::new(
             Row::choice(
                 BACKDROP,
                 Backdrop::TITLE,
@@ -268,16 +182,10 @@ pub fn rows(
                 prefs.backdrop.index(),
             )
             .help(Backdrop::HELP),
-        );
+        ));
     }
     if let Some(c) = corners {
-        // After Theme, in the View group.
-        let at = rows
-            .iter()
-            .position(|r| matches!(r, Row::Choice { id, .. } if *id == THEME))
-            .map_or(rows.len(), |i| i + 1);
-        rows.insert(
-            at,
+        appearance.push(Item::new(
             Row::choice(
                 WINDOW_CORNERS,
                 Corners::SETTING_LABEL,
@@ -285,17 +193,265 @@ pub fn rows(
                 c.index(),
             )
             .help(corners::setting_help()),
-        );
+        ));
     }
-    if can_offer_default_app() {
-        rows.push(Row::header("System"));
-        rows.push(Row::action(
+    appearance.extend([
+        Item::gap(),
+        Item::new(
+            Row::text(FONT_FAMILY, "Font", prefs.font_family.clone())
+                .placeholder("Default")
+                .help("Any installed monospace family."),
+        ),
+        Item::new(
+            Row::number(
+                FONT_SIZE,
+                "Font size",
+                prefs.font_pt.round() as i32,
+                FONT_PT_MIN as i32,
+                FONT_PT_MAX as i32,
+            )
+            .unit("pt")
+            .help("At 100 % zoom. Zoom (Ctrl and the wheel) scales it."),
+        ),
+    ]);
+
+    let editor = vec![
+        Item::new(Row::toggle(
+            LINE_NUMBERS,
+            "Line numbers",
+            prefs.line_numbers,
+        )),
+        Item::new(Row::toggle(
+            HIGHLIGHT_LINE,
+            "Highlight the current line",
+            prefs.highlight_line,
+        )),
+        Item::new(
+            Row::toggle(WORD_WRAP, "Word wrap for new documents", prefs.word_wrap).help(format!(
+                "{} changes the document you are in.",
+                crate::commands::hint(crate::commands::CommandId::ToggleWrap)
+            )),
+        ),
+        Item::new(
+            Row::toggle(MINIMAP, "Minimap for new windows", prefs.minimap)
+                .help("View > Minimap changes the window you are in."),
+        ),
+        // The width a minimap gets, wherever one is shown: it stays enabled with the switch off.
+        Item::new(
+            Row::number(
+                MINIMAP_WIDTH,
+                "Minimap width",
+                prefs.minimap_width as i32,
+                MINIMAP_WIDTH_MIN as i32,
+                MINIMAP_WIDTH_MAX as i32,
+            )
+            .unit("px"),
+        )
+        .child(),
+        Item::gap(),
+        Item::new(
+            Row::toggle(
+                LIVE_PREVIEW,
+                "Live preview while typing",
+                prefs.live_preview,
+            )
+            .help("mdview shows the text as you type it. Off: it shows the file when you save."),
+        ),
+    ];
+
+    // The two rows under detection are what a file with no clear style gets: never disabled.
+    let indentation = vec![
+        Item::new(
+            Row::number(
+                TAB_WIDTH,
+                "Tab width",
+                prefs.tab_width as i32,
+                1,
+                TAB_WIDTH_MAX as i32,
+            )
+            .unit("columns"),
+        ),
+        Item::new(
+            Row::toggle(
+                DETECT_INDENT,
+                "Detect indentation from the file",
+                prefs.detect_indent,
+            )
+            .help("The two rows below apply when a file has no clear style."),
+        ),
+        Item::new(
+            Row::toggle(
+                INDENT_SPACES,
+                "Indent with spaces",
+                prefs.indent_with_spaces,
+            )
+            .help("Tab and the automatic indent add spaces, not a tab character."),
+        )
+        .child(),
+        Item::new(
+            Row::number(
+                INDENT_SIZE,
+                "Indent size",
+                prefs.indent_size as i32,
+                1,
+                INDENT_SIZE_MAX as i32,
+            )
+            .unit("spaces"),
+        )
+        .child(),
+    ];
+
+    let typing = vec![
+        Item::new(
+            Row::toggle(AUTO_PAIR, "Close brackets and quotes", prefs.auto_pair)
+                .help("Typing ( or \" adds the other half."),
+        ),
+        Item::new(
+            Row::toggle(AUTO_INDENT, "Automatic indent", prefs.auto_indent)
+                .help("Enter keeps the indent and opens a block after a bracket."),
+        ),
+        Item::new(
+            Row::toggle(
+                COMPLETE_AUTO,
+                "Suggest words while typing",
+                prefs.complete_auto,
+            )
+            .help(format!(
+                "A list of words opens after three letters. {} opens it anyway.",
+                crate::commands::hint(crate::commands::CommandId::CompleteWord)
+            )),
+        ),
+        Item::gap(),
+        Item::new(Row::toggle(
+            TRIM_ON_SAVE,
+            "Trim trailing spaces on save",
+            prefs.trim_on_save,
+        )),
+        Item::new(Row::toggle(
+            FINAL_NEWLINE,
+            "End the file with a line break on save",
+            prefs.final_newline_on_save,
+        )),
+    ];
+
+    let library = vec![
+        Item::new(
+            Row::text(LIBRARY_DIR, "Library folder", prefs.library_dir.clone())
+                .placeholder("Beside the settings file")
+                .help("Such as a OneDrive folder."),
+        )
+        .stacked()
+        .button(LIBRARY_CHOOSE, "Choose\u{2026}", true),
+    ];
+
+    // A row under a switch is disabled, with the reason, while the switch is off. The help lines
+    // are the design's shorter wording, one line each at the smallest window.
+    let under = |it: Item, on: bool| if on { it } else { it.disabled(NEEDS_SWITCH) };
+    // The days row is the one row under its switch, so it is dimmed without saying why: with
+    // both rules off, a reason here too is the 11 px the smallest window does not have.
+    let days_under = |it: Item, on: bool| if on { it } else { it.disabled("") };
+    let tabs = vec![
+        Item::new(Row::toggle(
+            RESTORE_TABS,
+            "Restore tabs at start",
+            prefs.restore_session,
+        )),
+        Item::new(
+            Row::toggle(
+                START_ON_PINNED,
+                "Start on the last pinned tab",
+                prefs.start_on_pinned,
+            )
+            .help("Not the tab you left on."),
+        ),
+        Item::new(
+            Row::toggle(
+                OFFER_STALE,
+                "Offer to close tabs left unopened",
+                prefs.offer_stale,
+            )
+            .help("Pinned and changed tabs are never offered."),
+        ),
+        days_under(
+            Item::new(
+                Row::number(
+                    STALE_DAYS,
+                    "Offer them after",
+                    prefs.stale_days as i32,
+                    STALE_DAYS_MIN as i32,
+                    STALE_DAYS_MAX as i32,
+                )
+                .unit("days of use"),
+            )
+            .child(),
+            prefs.offer_stale,
+        ),
+        Item::new(
+            Row::toggle(SKIP_BRIEF, mdshared_app::brief::SWITCH, prefs.skip_brief)
+                .help("Pinned tabs and unsaved text always come back."),
+        ),
+        under(
+            Item::new(
+                Row::number(
+                    BRIEF_SECS,
+                    mdshared_app::brief::SECONDS,
+                    prefs.brief_secs as i32,
+                    BRIEF_SECS_MIN as i32,
+                    BRIEF_SECS_MAX as i32,
+                )
+                .unit("sec")
+                .help("Counted only while in front."),
+            )
+            .child(),
+            prefs.skip_brief,
+        ),
+        under(
+            Item::new(Row::toggle(
+                BRIEF_LAST,
+                "Leave out the last tab too",
+                prefs.brief_last,
+            ))
+            .child(),
+            prefs.skip_brief,
+        ),
+    ];
+
+    let mut updates = vec![
+        Item::new(Row::toggle(
+            CHECK_AT_LAUNCH,
+            "Check for updates at launch",
+            check_updates,
+        )),
+        Item::new(Row::action(CHECK_NOW, "Look for a newer version", look)),
+    ];
+    if offer_default {
+        updates.push(Item::new(Row::action(
             DEFAULT_APP,
             "Make mdedit the default for text files",
             "Make default",
-        ));
+        )));
     }
-    rows
+
+    vec![
+        Page::new(APPEARANCE, appearance),
+        Page::new(EDITOR, editor),
+        Page::new(INDENTATION, indentation),
+        Page::new(TYPING, typing),
+        Page::new(NOTES_LIBRARY, library),
+        Page::new(TABS, tabs),
+        Page::new(UPDATES, updates),
+    ]
+}
+
+/// Every setting and action row of `pages`, in order, gaps left out: what a test reads.
+#[cfg(test)]
+pub fn rows_of(pages: &[Page]) -> Vec<Row> {
+    pages
+        .iter()
+        .flat_map(|p| p.items.iter())
+        .map(|it| it.row().clone())
+        .filter(|r| r.id().is_some())
+        .collect()
 }
 
 impl App {
@@ -311,32 +467,86 @@ impl App {
         self.ui.dialog = None;
         self.ai.key_draft.clear();
         self.ai.key_error = None;
-        let rows = self.settings_rows();
-        self.ui.settings = Some(Form::new("Settings", rows));
+        let pages = self.settings_pages();
+        let mut form = Form::new("Settings", pages);
+        // The page last shown this run; the keyboard starts in the list.
+        form.show_page(self.ui.settings_page);
+        self.ui.settings = Some(form);
         self.ai_settings_needs();
         self.modal_changed();
     }
 
-    /// The form's rows from the preferences, with the AI group before Updates.
-    pub(super) fn settings_rows(&mut self) -> Vec<Row> {
-        let look = self.docs.updates.about_label();
-        let mut rows = rows(
+    /// Opens Settings on the page called `name` (`AI service`), or on the page it was last on
+    /// when there is none.
+    /// `--settings-section`: shows the page it names in the open dialog. False when no page has
+    /// that name or the dialog is not open.
+    pub(super) fn show_settings_section(&mut self, name: &str) -> bool {
+        let Some(page) = page_for_section(name) else {
+            return false;
+        };
+        let Some(f) = self.ui.settings.as_mut() else {
+            return false;
+        };
+        let Some(c) = f.page_names().iter().position(|n| *n == page) else {
+            return false;
+        };
+        f.show_page(c);
+        self.modal_changed();
+        true
+    }
+
+    pub(super) fn open_settings_at(&mut self, name: &str) {
+        self.open_settings();
+        if let Some(f) = self.ui.settings.as_mut()
+            && let Some(c) = f.page_names().iter().position(|n| *n == name)
+        {
+            f.show_page(c);
+        }
+    }
+
+    /// The form's pages from the preferences, with the two AI pages before Updates.
+    pub(super) fn settings_pages(&mut self) -> Vec<Page> {
+        self.settings_pages_offering(can_offer_default_app())
+    }
+
+    /// The pages, with "Make mdedit the default" or without it (a test asks for the most rows).
+    pub(super) fn settings_pages_offering(&mut self, offer_default: bool) -> Vec<Page> {
+        // The button is 96 px wide: the About box's "Check for updates" and "Update to 1.4.0"
+        // are said in fewer words here, beside a label that says the rest.
+        let look = match self.docs.updates.stage() {
+            updater::Stage::Available(_) => "Update".to_string(),
+            _ => match self.docs.updates.about_label() {
+                l if l == mdshared_app::updater::CHECK => "Check now".to_string(),
+                l => l,
+            },
+        };
+        let mut pages = pages(
             &self.docs.prefs,
             self.docs.theme,
             self.corners_offered().then_some(self.session.corners),
             self.docs.check_updates,
             &look,
+            offer_default,
         );
         self.ai_load_prompts();
-        let at = rows
+        let at = pages
             .iter()
-            .position(|r| matches!(r, Row::Header(h) if h == "Updates"))
-            .unwrap_or(rows.len());
-        rows.splice(at..at, self.ai_rows());
-        rows
+            .position(|p| p.name == UPDATES)
+            .unwrap_or(pages.len());
+        pages.splice(at..at, self.ai_pages());
+        pages
+    }
+
+    /// Every row the form has now, in order: what a test reads.
+    #[cfg(test)]
+    pub(super) fn settings_rows(&mut self) -> Vec<Row> {
+        rows_of(&self.settings_pages())
     }
 
     pub(super) fn close_settings(&mut self) {
+        if let Some(f) = &self.ui.settings {
+            self.ui.settings_page = f.page();
+        }
         self.ui.settings = None;
         self.ui.pressed = None;
         self.ui.hover = None;
@@ -412,7 +622,8 @@ impl App {
             Out::Closed => self.close_settings(),
             Out::Changed { id, value } => {
                 self.apply_setting(id, value);
-                self.modal_changed();
+                // A switch turned off or on disables or enables the rows under it.
+                self.ai_settings_refresh();
             }
             // The folder picker opens over the form, which stays to show the answer.
             Out::Action(LIBRARY_CHOOSE) => {
@@ -580,6 +791,27 @@ fn ai_providers(p: &Prefs) -> (Vec<String>, usize) {
     (names, at)
 }
 
+/// A path for a help line, which wraps only between words: one longer than a line at the
+/// smallest window keeps its last folders and file, after an ellipsis.
+fn short_path(path: &str) -> String {
+    const MAX: usize = 40;
+    if path.chars().count() <= MAX {
+        return path.to_string();
+    }
+    let mut tail = String::new();
+    for part in path.split_inclusive(['/', '\\']).rev() {
+        if tail.chars().count() + part.chars().count() > MAX - 1 {
+            break;
+        }
+        tail.insert_str(0, part);
+    }
+    if tail.is_empty() {
+        let n = path.chars().count();
+        tail = path.chars().skip(n - (MAX - 1)).collect();
+    }
+    format!("\u{2026}{tail}")
+}
+
 /// What the Model row offers: (the model's id, its label), "Default" first and "Other…" last.
 struct Models {
     list: Vec<(String, String)>,
@@ -655,60 +887,81 @@ impl App {
         c.efforts().iter().map(|e| e.to_string()).collect()
     }
 
-    fn ai_rows(&self) -> Vec<Row> {
+    /// The two AI pages: AI service (who the text is sent to and how you sign in) and AI rewrite
+    /// (what the rewrite does once connected). Their help is written at run time (where the text
+    /// goes, what the server said), so it is always under its row: a new message does not re-lay
+    /// the page.
+    fn ai_pages(&self) -> Vec<Page> {
         let p = &self.docs.prefs;
         let c = p.ai_connection;
         let labels: Vec<&str> = Connection::ALL.iter().map(|c| c.label()).collect();
         let at = Connection::ALL.iter().position(|x| *x == c).unwrap_or(0);
-        let mut rows = vec![
-            Row::header("AI"),
+        let mut service = vec![Item::new(
             Row::choice(AI_CONNECTION, "Connection", &labels, at).help(core_ai::destination(
                 c,
                 &p.ai_preset,
                 p.ai_url(),
             )),
-        ];
+        )];
         if c.is_cli() {
             let (value, name) = match c {
                 Connection::ClaudeCode => (&p.ai_claude_path, "claude"),
                 _ => (&p.ai_codex_path, "codex"),
             };
             let help = match self.ai.detected.get(c.key()) {
-                Some(Ok((path, version))) if version.is_empty() => format!("Found at {path}."),
-                Some(Ok((path, version))) => format!("Found {version} at {path}."),
+                Some(Ok((path, version))) if version.is_empty() => {
+                    format!("Found at {}.", short_path(path))
+                }
+                Some(Ok((path, version))) => format!("Found {version} at {}.", short_path(path)),
                 Some(Err(why)) => why.clone(),
                 None => "Looking for it…".into(),
             };
-            rows.push(
-                Row::text(AI_PROGRAM, "Program", value.clone())
-                    .placeholder(format!("Found by itself: {name}"))
-                    .help(help),
+            service.push(
+                Item::new(
+                    Row::text(AI_PROGRAM, "Program", value.clone())
+                        .placeholder(format!("Found by itself: {name}"))
+                        .help(help),
+                )
+                .stacked()
+                .button(AI_CHECK, "Check", true),
             );
-            rows.push(Row::action(AI_CHECK, "Check the program", "Check"));
-        }
-        if c == Connection::OpenAi {
-            let (names, at) = ai_providers(p);
-            let names: Vec<&str> = names.iter().map(String::as_str).collect();
-            rows.push(
-                Row::choice(AI_PROVIDER, "Provider", &names, at)
-                    .help("Add a custom provider for any OpenAI-compatible server."),
-            );
-            if let Some(x) = p.ai_custom_chosen() {
-                rows.push(
-                    Row::text(AI_CUSTOM_NAME, "Name", x.name.clone())
-                        .placeholder(x.label(p.ai_custom))
-                        .help("As the provider list and the rewrite panel show it."),
-                );
-                rows.push(
-                    Row::text(AI_BASE_URL, "Base URL", x.base_url.clone())
-                        .placeholder("http://localhost:1234/v1")
-                        .help("The address before /chat/completions."),
-                );
-            }
         }
         // A custom provider's key is optional: a local server (LM Studio, Ollama) takes none, and
         // is then sent no key at all.
         let optional = p.ai_custom_chosen().is_some();
+        if c == Connection::OpenAi {
+            let (names, at) = ai_providers(p);
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            // The list's last item adds a custom provider; the button beside it removes the one
+            // chosen.
+            let mut provider = Item::new(Row::choice(AI_PROVIDER, "Provider", &names, at));
+            if optional {
+                provider = provider.icon_button(
+                    AI_CUSTOM_REMOVE,
+                    glyph::DELETE,
+                    "Remove this provider",
+                    true,
+                );
+            }
+            service.push(provider);
+            if let Some(x) = p.ai_custom_chosen() {
+                service.push(
+                    Item::new(
+                        Row::text(AI_CUSTOM_NAME, "Name", x.name.clone())
+                            .placeholder(x.label(p.ai_custom)),
+                    )
+                    .child(),
+                );
+                service.push(
+                    Item::new(
+                        Row::text(AI_BASE_URL, "Base URL", x.base_url.clone())
+                            .placeholder("http://localhost:1234/v1")
+                            .help("The address before /chat/completions."),
+                    )
+                    .stacked(),
+                );
+            }
+        }
         if let Some(slot) = self.ai_key_slot() {
             let stored = self.ai.keys.get(&slot).copied();
             let placeholder = match stored {
@@ -721,74 +974,95 @@ impl App {
                 _ if optional => "Optional. Leave it empty for a server that takes none, such as LM Studio or Ollama. A key is kept in the system's credential store.".into(),
                 _ => "Kept in the system's credential store, never in the settings file.".into(),
             });
-            rows.push(
-                Row::text(AI_KEY, "API key", self.ai.key_draft.clone())
-                    .secret()
-                    .placeholder(placeholder)
-                    .help(help),
+            let typed = !self.ai.key_draft.trim().is_empty();
+            // Save stores what is typed; with nothing typed, Remove takes a stored key out of the
+            // store. With neither, there is nothing to do.
+            let (button, live) = match (typed, stored) {
+                (false, Some(true)) => ("Remove", true),
+                (typed, _) => ("Save", typed),
+            };
+            service.push(
+                Item::new(
+                    Row::text(AI_KEY, "API key", self.ai.key_draft.clone())
+                        .secret()
+                        .placeholder(placeholder)
+                        .help(help),
+                )
+                .stacked()
+                .button(AI_KEY_SAVE, button, live),
             );
-            let button = if self.ai.key_draft.trim().is_empty() && stored == Some(true) {
-                "Remove"
+        }
+
+        // The rewrite's rows stay while the connection is off, disabled with the reason, so the
+        // page keeps its shape.
+        let off = c == Connection::Off;
+        let why = |it: Item| {
+            if off {
+                it.disabled(NEEDS_CONNECTION)
             } else {
-                "Save"
-            };
-            rows.push(Row::action(AI_KEY_SAVE, "Store the key", button));
+                it
+            }
+        };
+        let models = self.ai_model_options();
+        let labels: Vec<&str> = models.list.iter().map(|(_, l)| l.as_str()).collect();
+        let help = match (c, self.ai_fetched()) {
+            (Connection::ClaudeApi | Connection::OpenAi, _) if self.ai.fetching.is_some() => {
+                "Fetching the models…".to_string()
+            }
+            (_, Some(Err(why))) => why.clone(),
+            (_, Some(Ok(list))) => format!("{} models offered.", list.len()),
+            (Connection::ClaudeCode, _) => "Claude Code's names for its latest models.".into(),
+            (Connection::Codex, _) => "Default is the model Codex is set to use.".into(),
+            _ => String::new(),
+        };
+        let mut model =
+            Item::new(Row::choice(AI_MODEL, "Model", &labels, models.value).help(help)).dropdown();
+        if matches!(c, Connection::ClaudeApi | Connection::OpenAi) {
+            model = model.icon_button(
+                AI_FETCH,
+                glyph::RELOAD,
+                "Fetch the list of models again",
+                true,
+            );
         }
-        if optional {
-            rows.push(Row::action(
-                AI_CUSTOM_REMOVE,
-                "Remove this provider",
-                "Remove",
-            ));
-        }
-        if c != Connection::Off {
-            let models = self.ai_model_options();
-            let labels: Vec<&str> = models.list.iter().map(|(_, l)| l.as_str()).collect();
-            let help = match (c, self.ai_fetched()) {
-                (Connection::ClaudeApi | Connection::OpenAi, _) if self.ai.fetching.is_some() => {
-                    "Fetching the models…".to_string()
-                }
-                (_, Some(Err(why))) => why.clone(),
-                (_, Some(Ok(list))) => format!("{} models offered.", list.len()),
-                (Connection::ClaudeCode, _) => "Claude Code's names for its latest models.".into(),
-                (Connection::Codex, _) => "Default is the model Codex is set to use.".into(),
-                _ => String::new(),
-            };
-            rows.push(Row::choice(AI_MODEL, "Model", &labels, models.value).help(help));
-            if models.other {
-                rows.push(
+        let mut rewrite = vec![why(model)];
+        if models.other && !off {
+            rewrite.push(
+                Item::new(
                     Row::text(AI_MODEL_NAME, "Model name", p.ai_model(c).to_string())
                         .placeholder("The model's id"),
-                );
-            }
-            if matches!(c, Connection::ClaudeApi | Connection::OpenAi) {
-                rows.push(Row::action(AI_FETCH, "The list of models", "Fetch again"));
-            }
-            let efforts = self.ai_effort_options();
-            let mut labels = vec!["Default".to_string()];
-            labels.extend(efforts.iter().map(|e| core_ai::effort_label(e)));
-            let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
-            let at = efforts
-                .iter()
-                .position(|e| e == p.ai_effort(c))
-                .map_or(0, |i| i + 1);
-            rows.push(
-                Row::choice(AI_EFFORT, "Effort", &labels, at)
-                    .help("Higher thinks longer before answering. Default is the model's own."),
+                )
+                .child(),
             );
-            rows.push(
-                Row::toggle(AI_REVIEW, "Show changes before applying", p.ai_review)
-                    .help("Off: the result replaces the text at once, and Undo brings it back."),
-            );
-            let n = self.docs.ai_prompts.len();
-            let s = if n == 1 { "" } else { "s" };
-            rows.push(Row::action(
-                AI_PROMPTS,
-                format!("Saved prompts ({n} prompt{s})"),
-                "Edit…",
-            ));
         }
-        rows
+        let efforts = self.ai_effort_options();
+        let mut labels = vec!["Default".to_string()];
+        labels.extend(efforts.iter().map(|e| core_ai::effort_label(e)));
+        let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let at = efforts
+            .iter()
+            .position(|e| e == p.ai_effort(c))
+            .map_or(0, |i| i + 1);
+        rewrite.push(why(Item::new(
+            Row::choice(AI_EFFORT, "Effort", &labels, at)
+                .help("Higher thinks longer before answering. Default is the model's own."),
+        )
+        .dropdown()));
+        rewrite.push(why(Item::new(
+            Row::toggle(AI_REVIEW, "Show changes before applying", p.ai_review)
+                .help("Off: the result replaces the text at once, and Undo brings it back."),
+        )));
+        let n = self.docs.ai_prompts.len();
+        let s = if n == 1 { "" } else { "s" };
+        rewrite.push(why(Item::new(Row::action(
+            AI_PROMPTS,
+            format!("Saved prompts ({n} prompt{s})"),
+            "Edit…",
+        ))));
+        vec![
+            Page::new(AI_SERVICE, service).help_under(),
+            Page::new(AI_REWRITE, rewrite).help_under(),
+        ]
     }
 
     /// Asks the engine for what Settings › AI shows and does not know yet: whether the program is
@@ -856,14 +1130,14 @@ impl App {
         self.ai_settings_refresh();
     }
 
-    /// Settings › AI is made again from what is known now.
+    /// The pages are made again from what is known now (the AI pages from what the engine said).
     pub(super) fn ai_settings_refresh(&mut self) {
         if self.ui.settings.is_none() {
             return;
         }
-        let rows = self.settings_rows();
+        let pages = self.settings_pages();
         if let Some(f) = self.ui.settings.as_mut() {
-            f.set_rows(rows);
+            f.set_pages(pages);
         }
         self.modal_changed();
     }
@@ -1055,86 +1329,254 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use super::super::files_tests::app;
     use super::*;
     use mdshared_text::Bitmap;
-    use mdshared_ui::gfx::{Face, Gfx, Painter, Rect};
+    use mdshared_ui::gfx::{Gfx, Painter, Rect};
+    use std::collections::HashSet;
 
-    fn help_of(row: &Row) -> &str {
-        match row {
-            Row::Toggle { help, .. }
-            | Row::Choice { help, .. }
-            | Row::Number { help, .. }
-            | Row::Text { help, .. } => help,
-            _ => "",
-        }
-    }
-
-    fn label_of(row: &Row) -> &str {
-        match row {
-            Row::Toggle { label, .. }
-            | Row::Choice { label, .. }
-            | Row::Number { label, .. }
-            | Row::Text { label, .. }
-            | Row::Action { label, .. } => label,
-            _ => "",
-        }
-    }
-
-    /// Every help line fits the space the form gives it (what is left of the row after the
-    /// control), at the default window, a narrow one and scale 1.5: none is cut with an ellipsis.
-    #[test]
-    fn every_help_line_fits_in_every_layout() {
-        let prefs = Prefs::default();
-        for (w, h, scale) in [
-            (1280.0, 800.0, 1.0),
-            (560.0, 640.0, 1.0),
-            (1280.0 / 1.5, 800.0 / 1.5, 1.5),
-        ] {
-            let mut form = Form::new(
-                "Settings",
-                rows(
-                    &prefs,
-                    ThemeChoice::System,
-                    Some(Corners::Round),
-                    true,
-                    "Check",
+    /// The states that give each page its most rows and its longest help, made up as the engine
+    /// would have answered: the tab rules on and off, every AI connection (a custom provider with
+    /// no key stored, a program found at a long path, a model list that failed with a long
+    /// message and a typed model name).
+    fn tallest_states() -> Vec<(&'static str, Vec<Page>)> {
+        let mut out = Vec::new();
+        let mut state = |name: &'static str, set: &dyn Fn(&mut App)| {
+            let mut a = app();
+            set(&mut a);
+            out.push((name, a.settings_pages_offering(true)));
+        };
+        state("the tab rules off, an update offered", &|a| {
+            a.docs.prefs.offer_stale = false;
+            a.docs.prefs.skip_brief = false;
+            a.docs.updates.preview("available");
+        });
+        state("the tab rules on", &|a| {
+            a.docs.prefs.offer_stale = true;
+            a.docs.prefs.skip_brief = true;
+        });
+        state("Claude Code found at a long path", &|a| {
+            a.docs.prefs.ai_connection = Connection::ClaudeCode;
+            a.ai.detected.insert(
+                Connection::ClaudeCode.key(),
+                Ok((
+                    r"C:\Users\someone\AppData\Local\Programs\claude-code\bin\claude.exe".into(),
+                    "2.1.328".into(),
+                )),
+            );
+        });
+        state("Codex not found", &|a| {
+            a.docs.prefs.ai_connection = Connection::Codex;
+            a.ai.detected.insert(
+                Connection::Codex.key(),
+                Err("Codex was not found. Install it, or type where it is.".into()),
+            );
+        });
+        state("Claude API, no key stored", &|a| {
+            a.docs.prefs.ai_connection = Connection::ClaudeApi;
+            a.ai.keys.insert("claude-api".into(), false);
+        });
+        state("a custom provider, a failed list, a typed model", &|a| {
+            a.docs.prefs.ai_connection = Connection::OpenAi;
+            a.docs.prefs.ai_preset = "custom".into();
+            a.docs.prefs.ai_customs = vec![core_ai::CustomProvider {
+                name: "LM Studio (local)".into(),
+                base_url: "http://localhost:1234/v1".into(),
+                ..Default::default()
+            }];
+            a.docs
+                .prefs
+                .set_ai_model(Connection::OpenAi, "gpt-4.1-mini-2025-04-14");
+            let slot = a.ai_key_slot().expect("a custom provider's key slot");
+            a.ai.keys.insert(slot, false);
+            let key = a.ai_models_key();
+            a.ai.models.insert(
+                key,
+                Err(
+                    "Could not list the models: connection refused (os error 10061). Is the \
+                     server running?"
+                        .into(),
                 ),
             );
-            let mut bmp = Bitmap::new(100, 100);
-            let mut gfx = Gfx::new();
-            let mut p = Painter::new(&mut bmp, &mut gfx, scale);
-            form.layout(&mut p, Rect::new(0.0, 0.0, w, h));
-            // The Preview section's row is among the rows checked below, with its help line.
-            let live = form
-                .rows()
-                .iter()
-                .position(|r| matches!(r, Row::Toggle { id, .. } if *id == LIVE_PREVIEW))
-                .expect("the live preview row");
-            assert!(!help_of(&form.rows()[live]).is_empty());
-            for i in 0..form.rows().len() {
-                let help = help_of(&form.rows()[i]);
-                let (row, ctrl) = (form.rect_of_row(i), form.control_rect(i));
-                if ctrl.w > 0.0 {
-                    let label = label_of(&form.rows()[i]);
-                    let room = (ctrl.x - row.x - 12.0 - 16.0).max(40.0);
-                    let need = p.measure(Face::Ui, 13.5, label);
+        });
+        state("a key the store refused", &|a| {
+            a.docs.prefs.ai_connection = Connection::OpenAi;
+            a.docs.prefs.ai_preset = "openai".into();
+            a.ai.key_error =
+                Some("The system's credential store refused the key: the store is locked.".into());
+        });
+        out
+    }
+
+    /// The design's promise, tested: every page fits its area at the default window and at the
+    /// smallest, at scale 1, 1.5 and 2, in its tallest state; nothing on it is cut, and the list
+    /// holds every page.
+    #[test]
+    fn every_page_fits_at_the_default_and_the_minimum_at_every_scale() {
+        let states = tallest_states();
+        // Every row the dialog has is in one of the states above.
+        let mut seen = HashSet::new();
+        for (_, pages) in &states {
+            seen.extend(rows_of(pages).iter().filter_map(Row::id));
+        }
+        for id in (FONT_FAMILY..=LIBRARY_CHOOSE).chain([COMPLETE_AUTO, BACKDROP]) {
+            // The folder's button is not a row; the window rows are offered on Windows.
+            let windows_only = [BACKDROP, WINDOW_CORNERS].contains(&id);
+            if id == LIBRARY_CHOOSE || (windows_only && cfg!(not(windows))) {
+                continue;
+            }
+            assert!(seen.contains(&id), "row {id} is in no state");
+        }
+        for id in AI_CONNECTION..=AI_LAST {
+            // The four action rows that are buttons now are not rows.
+            if [AI_CHECK, AI_KEY_SAVE, AI_FETCH, AI_CUSTOM_REMOVE].contains(&id) {
+                continue;
+            }
+            assert!(seen.contains(&id), "AI row {id} is in no state");
+        }
+        for (name, pages) in states {
+            let names: Vec<&str> = pages.iter().map(|p| p.name.as_str()).collect();
+            assert_eq!(names, PAGES, "{name}");
+            let form = Form::new("Settings", pages);
+            for (w, h) in [(1280.0, 800.0), (520.0, 360.0)] {
+                for scale in [1.0f32, 1.5, 2.0] {
+                    let mut bmp = Bitmap::new((w * scale) as u32, (h * scale) as u32);
+                    let mut gfx = Gfx::new();
+                    let mut p = Painter::new(&mut bmp, &mut gfx, scale);
+                    let fit = form.fit(&mut p, Rect::new(0.0, 0.0, w, h));
+                    let problems = fit.problems();
                     assert!(
-                        need <= room,
-                        "label {label:?} needs {need} of {room} px at {w}x{h}"
+                        problems.is_empty(),
+                        "{name}, {w}x{h} at {scale}: {problems:#?}"
                     );
                 }
-                if help.is_empty() {
-                    continue;
-                }
-                // The form's own rule: the text runs from the row's inset to 16 px before the
-                // control.
-                let room = (ctrl.x - row.x - 12.0 - 16.0).max(40.0);
-                let need = p.measure(Face::Ui, 11.5, help);
-                assert!(
-                    need <= room,
-                    "help {help:?} needs {need} of {room} px at {w}x{h} scale {scale}"
-                );
             }
         }
+    }
+
+    fn press(a: &mut App, k: KeyName) {
+        a.key_pressed(keys::Key::Name(k), None);
+    }
+
+    fn page(a: &App) -> &str {
+        let f = a.ui.settings.as_ref().expect("the dialog");
+        f.page_names()[f.page()]
+    }
+
+    /// A value set on its page is applied and saved, and a switch turned on enables the rows
+    /// under it at once (the pages are made again after each change).
+    #[test]
+    fn a_value_set_on_a_page_is_saved_and_enables_the_rows_under_it() {
+        let mut a = app();
+        a.docs.prefs.skip_brief = false;
+        a.open_settings();
+        let f = a.ui.settings.as_mut().unwrap();
+        assert!(f.focus_in_list(), "the keyboard starts in the list");
+        assert!(!f.focus_row(BRIEF_SECS), "disabled while the switch is off");
+        assert!(f.focus_row(SKIP_BRIEF));
+        assert_eq!(page(&a), TABS);
+        press(&mut a, KeyName::Space);
+        assert!(a.docs.prefs.skip_brief && a.session.prefs.skip_brief);
+        assert!(a.session.serialize().contains("skip_brief=1"));
+        let f = a.ui.settings.as_mut().unwrap();
+        assert!(f.focus_row(BRIEF_SECS), "enabled once the switch is on");
+        press(&mut a, KeyName::Right);
+        assert_eq!(
+            a.session.prefs.brief_secs,
+            Prefs::default().brief_secs + 1,
+            "the stepper's value is kept"
+        );
+        // A page shown from the list, then Tab to its first switch.
+        let f = a.ui.settings.as_mut().unwrap();
+        let typing = f.page_names().iter().position(|n| *n == TYPING).unwrap();
+        f.show_page(typing);
+        let was = a.docs.prefs.auto_pair;
+        press(&mut a, KeyName::Tab);
+        assert_eq!(a.ui.settings.as_ref().unwrap().focus_id(), Some(AUTO_PAIR));
+        press(&mut a, KeyName::Space);
+        assert_eq!(a.session.prefs.auto_pair, !was);
+    }
+
+    /// Model and Effort are dropdowns even with two options ("Default", "Other…"), so the rows
+    /// keep their shape when a model list is fetched.
+    #[test]
+    fn model_and_effort_are_dropdowns_whatever_their_option_count() {
+        let mut a = app();
+        a.open_settings();
+        let f = a.ui.settings.as_mut().unwrap();
+        let at = f
+            .page_names()
+            .iter()
+            .position(|n| *n == AI_REWRITE)
+            .unwrap();
+        f.show_page(at);
+        let mut bmp = Bitmap::new(1280, 800);
+        let mut gfx = Gfx::new();
+        let mut p = Painter::new(&mut bmp, &mut gfx, 1.0);
+        f.layout(&mut p, Rect::new(0.0, 0.0, 1280.0, 800.0));
+        for id in [AI_MODEL, AI_EFFORT] {
+            assert_ne!(f.control_rect(id), Rect::default(), "{id} is on the page");
+            assert_eq!(
+                f.segment_rect(id, 0),
+                Rect::default(),
+                "{id} has no segments"
+            );
+        }
+    }
+
+    /// `--settings-section` names a page, or the group a row was in before the pages.
+    #[test]
+    fn a_section_names_a_page_or_the_group_before_the_pages() {
+        assert_eq!(page_for_section("Preview"), Some(EDITOR));
+        assert_eq!(page_for_section("view"), Some(APPEARANCE));
+        assert_eq!(page_for_section("ai-rewrite"), Some(AI_REWRITE));
+        assert_eq!(page_for_section("Notes library"), Some(NOTES_LIBRARY));
+        assert_eq!(page_for_section("nonsense"), None);
+    }
+
+    /// A program's path that is longer than a help line keeps its end.
+    #[test]
+    fn a_long_path_keeps_its_last_folders() {
+        assert_eq!(short_path("/usr/local/bin/claude"), "/usr/local/bin/claude");
+        assert_eq!(
+            short_path(r"C:\Users\someone\AppData\Local\Programs\claude-code\bin\claude.exe"),
+            "\u{2026}Programs\\claude-code\\bin\\claude.exe"
+        );
+        let long = "x".repeat(60);
+        assert_eq!(short_path(&long).chars().count(), 40);
+    }
+
+    /// The dialog shows the page a section names, and opens again on the page it was closed on.
+    #[test]
+    fn a_section_shows_its_page_and_the_dialog_reopens_on_the_last_page() {
+        let mut a = app();
+        assert!(!a.show_settings_section("Tabs"), "no dialog open");
+        a.open_settings();
+        assert_eq!(page(&a), APPEARANCE, "the first page the first time");
+        assert!(a.show_settings_section("Tabs"));
+        assert_eq!(page(&a), TABS);
+        assert!(a.show_settings_section("ai-service"));
+        assert_eq!(page(&a), AI_SERVICE);
+        assert!(!a.show_settings_section("nonsense"));
+        assert_eq!(page(&a), AI_SERVICE);
+        press(&mut a, KeyName::Escape);
+        assert!(a.ui.settings.is_none());
+        a.open_settings();
+        assert_eq!(page(&a), AI_SERVICE);
+        assert!(a.ui.settings.as_ref().unwrap().focus_in_list());
+    }
+
+    /// The library folder's Choose… is a button on the folder's row now, on its page.
+    #[test]
+    fn the_library_folder_row_has_its_choose_button() {
+        let mut a = app();
+        a.open_settings();
+        let f = a.ui.settings.as_mut().unwrap();
+        assert!(f.focus_row(LIBRARY_CHOOSE));
+        assert_eq!(page(&a), NOTES_LIBRARY);
+        assert_eq!(
+            a.ui.settings.as_ref().unwrap().page_of(LIBRARY_DIR),
+            a.ui.settings.as_ref().unwrap().page_of(LIBRARY_CHOOSE)
+        );
     }
 }
