@@ -929,3 +929,17 @@ bin, and the "Only for one document" reason (nothing makes a plan over several f
 **Overturned by.** The owner on looking at the 18 new shots; a Linux bin that rejects entries
 with no deletion date (the crate writes none without `jiff`; never tried).
 **From.** The agent that built it, recorded by Claude.
+
+## D-093 · 2026-11-22 · How a moved note carries its pictures (D-091), as built
+
+**Decision.** Built in `mdshared_app::moves` (`carry`, `moves_links`, shared `be0192d`) and the
+move card (DESIGN 74, 75). Only a file inside the note's own folder is carried, and never a `.md`
+file. If any other file that might link to it cannot be read, or there are more than 10,000,
+nothing is carried (the note still moves, its links rewritten). A wiki-link counts as a user by
+file name. A note not saved as UTF-8, and a link to a folder, are not rewritten. On another drive
+a rewritten link becomes an absolute path with forward slashes. Old builds cannot read a record
+that carried files or rewrote links, so they cannot half-undo it. Not built: links from other
+notes into a moved note, `<img src>` and wiki-links as links to rewrite.
+**Why.** Carry only what is surely the note's own; when in doubt, rewrite rather than move.
+**Overturned by.** The owner, on using it.
+**From.** The agent that built it, recorded by Claude.

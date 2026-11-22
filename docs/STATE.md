@@ -1,6 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089 and D-092 are
+Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089, D-092 and D-093 are
 Claude's; D-090 and D-091 the owner's). If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
@@ -42,9 +42,8 @@ the 74 tests of the record and the move run in the shared repo.
   their file (DESIGN 75, D-085; 12 tests; shots `move-notes`, `move-notes-small`,
   `move-results`, both themes, **approved by the owner**, D-090). Never clicked
   through in a live window; a move across volumes never run. The library move from Settings is
-  not offered. Review fixes in D-084. **Left from the review:** a moved note's pictures and its
-  own relative links are not carried (5.12 wants group folders moved whole; wants a design
-  line); a crash between the library rewrites and the digest update gives a half-undo; emptied
+  not offered. Review fixes in D-084. A moved note carries its own pictures and rewrites its
+  other relative links (D-091, D-093). **Left from the review:** a crash between the library rewrites and the digest update gives a half-undo; emptied
   folders in a home outside the library stay.
 - **Phase S3** (D-081, D-088) is done: `runs`, `moves`, the split checker (`split::Lines` over
   `Buffer`) and the plan card (`mdshared_ui::plan`) are shared, at shared `842ec3f`. **Phase S**
@@ -89,9 +88,8 @@ the 74 tests of the record and the move run in the shared repo.
 
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
-2. "Move the notes…": carry a note's pictures and rewrite its relative links (D-091).
-3. The settings redesign: mdview's half.
-4. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
+2. The settings redesign: mdview's half.
+3. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`
 
@@ -136,10 +134,10 @@ lines on typing only; no compare arrows with wrap on; the Markdown menu needs mo
 
 ## Pins, branches, worktrees
 
-- Shared crates at `8614dea` (the settings draft above sits uncommitted in the shared checkout,
+- Shared crates at `be0192d` (the settings draft above sits uncommitted in the shared checkout,
   at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview still pins `cb0ffd3`.
 - Merged into `main`: every `f/…` and `release/1.2.0`. Drawings that must not merge:
   `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` is merged; its copy on
   GitHub is the pre-rebase draft (a force-push was refused) and can be deleted.
 - Worktrees: the `mock/…` drawings (`..\mdedit-mock`, `-settings`, `-term`, `-dl`, `-llm`, `-hub`;
-  build folders deleted), `..\md-wt\move-pics` and `move-pics-shared` (D-091, being built).
+  build folders deleted).
