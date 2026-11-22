@@ -1032,3 +1032,20 @@ and asked for 1.3.0 to be made ready first. D waits for R2, whose dialog code it
 **Why.** The owner's answer, 2026-11-23: "m1: yes, add it / m2: yes / d: do it."
 **Overturned by.** The owner.
 **From.** The owner, 2026-11-23.
+
+## D-101 · 2026-11-23 · The owner's hand check: no blocker for 1.3.0
+
+**Decision.** The owner tried `main` (`2e57cfa`) in a live window, on scratch settings and an empty
+library, item by item from the checklist: Settings, the notes library, Split into notes and its
+undo, the original in the Recycle Bin, the Preview dropdown, Ctrl+Shift+V and Ctrl+Shift+L, New
+file and the bar buttons, Split by AI against a real provider, and rich paste all work. "Not
+perfect but no blocker for release." Not checked: "Move the notes". Found, for the next release:
+closing mdview by hand still leaves "Stop the preview" in mdedit (with the installed mdview 1.0.4,
+so only the focus check could find it, and it did not: D-097 does not hold); "Add this file to
+the notes library" adds the file but the tree shows it only after its group is folded and opened
+again; browsing the library in the full preview keeps the preview for two or three files, then
+falls back to editing; deleting a library file should say that its notes stay on disk. The
+release waits only for the owner's word to tag.
+**Why.** Rule 6: the owner approves by looking.
+**Overturned by.** The owner.
+**From.** The owner, 2026-11-23.
