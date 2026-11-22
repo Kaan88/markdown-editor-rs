@@ -557,7 +557,6 @@ pub mod strings {
     pub fn library_deleted(group: &str) -> String {
         format!("The library file of \u{201c}{group}\u{201d} is deleted. Its notes are untouched.")
     }
-    pub const LIBRARY_CHOOSE: &str = "Choose a folder\u{2026}";
     pub fn library_remove_body(section: &str, notes: usize) -> String {
         let links = match notes {
             0 => "It has no notes in it.".to_string(),

@@ -181,16 +181,38 @@ shot menu-macro-saved --light --demo-macros --menu macro "$fx/sample.rs"
 shot menu-macro-saved-dark --dark --demo-macros --menu macro "$fx/sample.rs"
 shot dialog-macros --dark --demo-macros --dialog macros "$fx/sample.rs"
 shot dialog-macros-light --light --demo-macros --dialog macros --size 700x400 "$fx/sample.rs"
-shot settings --light --dialog settings "$fx/sample.rs"
-shot settings-dark --dark --dialog settings "$fx/sample.rs"
-shot settings-scale --light --scale 1.5 --dialog settings "$fx/sample.rs"
-shot settings-narrow --light --size 560x640 --dialog settings "$fx/sample.rs"
-# The Preview section (the live preview row and its help line), scrolled into view.
-shot settings-preview --light --dialog settings --settings-section Preview "$fx/sample.rs"
-shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
-shot settings-preview-dark --dark --dialog settings --settings-section Preview "$fx/sample.rs"
-shot settings-preview-scale --light --scale 1.5 --dialog settings --settings-section Preview "$fx/sample.rs"
-shot settings-preview-narrow --light --size 560x640 --dialog settings --settings-section Preview "$fx/sample.rs"
+# Settings, a page at a time (docs/settings-redesign.md on mock/settings): every page in both
+# themes at 1280x800, the AI pages with a custom provider and the answers the engine would give
+# (--ai-demo), and the tallest pages at the smallest window, 520x360.
+custom=(--pref ai_connection=openai --pref ai_preset=custom --pref "ai_custom_0_name=LM Studio (local)" --pref ai_custom_0_url=http://localhost:1234/v1)
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    for page in appearance editor indentation typing notes-library tabs updates; do
+        shot "settings-$page$t" $th --dialog settings --settings-section "$page" "$fx/sample.rs"
+    done
+    shot "settings-ai-service$t" $th "${custom[@]}" --ai-demo settings "$fx/sample.rs"
+    shot "settings-ai-rewrite$t" $th --pref ai_connection=claude-api --ai-demo settings --settings-section ai-rewrite "$fx/sample.rs"
+done
+# The other states: the tab rules on (the rows under them enabled), the connection off (AI
+# rewrite's rows disabled with the reason), Claude Code found, a model list that failed with a
+# model typed, and the window backdrop set to Mica (a shot has no window, so the chrome is flat).
+shot settings-tabs-on --light --pref skip_brief=1 --dialog settings --settings-section tabs "$fx/sample.rs"
+shot settings-ai-rewrite-off --light --dialog settings --settings-section ai-rewrite "$fx/sample.rs"
+shot settings-ai-service-cli --light --pref ai_connection=claude-code --ai-demo settings "$fx/sample.rs"
+shot settings-ai-rewrite-error --light "${custom[@]}" --pref ai_custom_0_model=gpt-4.1-mini --ai-demo settings-error --settings-section ai-rewrite "$fx/sample.rs"
+shot settings-appearance-mica --dark --pref backdrop=mica --dialog settings "$fx/sample.rs"
+shot settings-scale --light --scale 1.5 --dialog settings --settings-section editor "$fx/sample.rs"
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "settings-min-tabs$t" $th --size 520x360 --dialog settings --settings-section tabs "$fx/sample.rs"
+    shot "settings-min-ai-service$t" $th --size 520x360 "${custom[@]}" --ai-demo settings "$fx/sample.rs"
+done
+shot settings-min-editor --light --size 520x360 --dialog settings --settings-section editor "$fx/sample.rs"
+shot settings-min-appearance --light --size 520x360 --dialog settings "$fx/sample.rs"
+shot settings-min-ai-rewrite-error --light --size 520x360 "${custom[@]}" --pref ai_custom_0_model=gpt-4.1-mini --ai-demo settings-error --settings-section ai-rewrite "$fx/sample.rs"
+shot settings-min-scale2 --light --size 520x360 --scale 2 --dialog settings --settings-section tabs "$fx/sample.rs"
 shot pref-tab8 --light --pref tab_width=8 "$fx/tabs-controls.txt"
 shot pref-no-numbers --light --pref line_numbers=0 --pref highlight_line=0 --goto 12:5 "$fx/sample.rs"
 shot pref-font18 --light --pref font_size=18 "$fx/sample.rs"
@@ -294,24 +316,16 @@ shot complete-snippet-dark --dark --goto 10:4 --menu complete "$fx/complete.md"
 shot complete-snippet-taken --light --goto 10:4 --menu complete-snippet "$fx/complete.md"
 shot complete-snippet-taken-dark --dark --goto 10:4 --menu complete-snippet "$fx/complete.md"
 shot complete-above --light --size 900x340 --goto 8:4 --menu complete "$fx/complete.md"
-shot settings-complete --light --dialog settings --settings-section Editing "$fx/sample.rs"
-# The Window backdrop row (offered on Windows). A shot has no window, so there is no backdrop to
-# show: the chrome is flat whatever the setting says, which the third shot shows.
-shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
-shot settings-view-dark --dark --dialog settings --settings-section View "$fx/sample.rs"
-shot settings-view-backdrop --dark --pref backdrop=mica --dialog settings --settings-section View "$fx/sample.rs"
 
 # The window as the client-drawn margin shows it (--frame): the shadow and the rounded corners over
 # a flat backdrop, at scale 1 and 2 in both themes, and the other two choices of Window corners.
-# The Settings dialog's View group has the row.
+# The Settings dialog's Appearance page has the row.
 shot frame-round-light --light --size 520x300 --frame round "$fx/sample.rs"
 shot frame-round-dark --dark --size 520x300 --frame round "$fx/sample.rs"
 shot frame-round-light-2x --light --size 520x300 --scale 2 --frame round "$fx/sample.rs"
 shot frame-round-dark-2x --dark --size 520x300 --scale 2 --frame round "$fx/sample.rs"
 shot frame-small-light --light --size 520x300 --frame small "$fx/sample.rs"
 shot frame-square-light --light --size 520x300 --frame square "$fx/sample.rs"
-shot settings-view --light --dialog settings --settings-section View "$fx/sample.rs"
-shot settings-view-dark --dark --dialog settings --settings-section View "$fx/sample.rs"
 
 # The plan screen (docs/ai-library-plan.md 5.3), from documents built in the program, in both
 # themes: headings with every line in a note, calm gaps, the rest ticked and selected, a warning and

@@ -3466,22 +3466,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotDialog::Shortcuts) => app.open_dialog(DialogKind::Shortcuts),
         Some(ShotDialog::Recent) => app.open_dialog(DialogKind::Recent),
         Some(ShotDialog::Macros) => app.open_dialog(DialogKind::Macros),
-        Some(ShotDialog::Settings) => {
-            app.open_settings();
-            if let Some(name) = app.args.settings_section.clone() {
-                // The form lays its rows out when it is drawn: once, then scroll to the section.
-                app.compose();
-                if let Some(f) = app.ui.settings.as_mut() {
-                    let at = f
-                        .categories()
-                        .iter()
-                        .position(|c| c.eq_ignore_ascii_case(&name));
-                    if let Some(at) = at {
-                        f.jump_to_category(at);
-                    }
-                }
-            }
-        }
+        Some(ShotDialog::Settings) => app.open_settings(),
         Some(ShotDialog::Unsaved) => {
             if let Some(id) = app.docs.active_doc().map(|d| d.id) {
                 app.ask(DialogKind::Unsaved, id, After::Nothing);
@@ -3506,6 +3491,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
     app.shot_replace();
     if let Some(kind) = app.args.ai_demo.clone() {
         app.ai_demo(&kind);
+    }
+    // After the AI demonstration, which opens Settings on AI service and fills what the engine
+    // would have said: a section named shows its page.
+    if let Some(name) = app.args.settings_section.clone() {
+        app.show_settings_section(&name);
     }
     if let Some(kind) = app.args.plan_demo.clone() {
         app.plan_demo(&kind);

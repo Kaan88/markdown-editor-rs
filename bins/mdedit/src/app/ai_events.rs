@@ -388,13 +388,7 @@ impl App {
 
     pub(super) fn ai_open_settings(&mut self) {
         self.ai.panel = None;
-        self.open_settings();
-        // The form is not laid out yet: it keeps the jump for its first layout.
-        if let Some(f) = self.ui.settings.as_mut()
-            && let Some(cat) = f.categories().iter().position(|c| *c == "AI")
-        {
-            f.jump_to_category(cat);
-        }
+        self.open_settings_at(super::modal::AI_SERVICE);
         self.ai_settings_needs();
     }
 
@@ -1164,14 +1158,18 @@ impl App {
                 .to_vec(),
         };
         let key = self.ai_models_key_now();
-        self.ai.models.insert(
-            key,
+        // `settings-error`: the server did not answer the list (Settings' hardest page).
+        let models = if kind == "settings-error" {
+            Err("Could not list the models: connection refused (os error 10061). Is the server                  running?"
+                .into())
+        } else {
             Ok(vec![
                 model("claude-opus-5-5", "Claude Opus 5.5"),
                 model("claude-sonnet-5-5", "Claude Sonnet 5.5"),
                 model("claude-haiku-5-5", "Claude Haiku 5.5"),
-            ]),
-        );
+            ])
+        };
+        self.ai.models.insert(key, models);
         for c in [Connection::ClaudeCode, Connection::Codex] {
             self.ai.detected.insert(
                 c.key(),
@@ -1232,7 +1230,7 @@ impl App {
                 self.docs.ai_phase = 14;
             }
             "bar" => self.ai_failed("rate", "Claude API is busy (429).".into(), Some(40)),
-            "settings" => self.ai_open_settings(),
+            "settings" | "settings-error" => self.ai_open_settings(),
             "review" | "preview" | "stale" | "closed" | "result-kept" => {
                 let text = result(&scope.text);
                 if kind == "stale" {
