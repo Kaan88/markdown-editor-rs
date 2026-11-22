@@ -381,7 +381,7 @@ pub fn pages(
                     STALE_DAYS_MIN as i32,
                     STALE_DAYS_MAX as i32,
                 )
-                .unit("days of use"),
+                .unit("days used"),
             )
             .child(),
             prefs.offer_stale,
