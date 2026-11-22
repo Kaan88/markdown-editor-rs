@@ -1,9 +1,9 @@
 # State of the work
 
 Rewritten, not appended to: when a line here stops being true, replace it. Last rewritten
-2026-11-22, late, with the owner asleep: the move-notes draft reviewed, fixed and pushed on its
-branch, D-075 on `main`, the plan rewritten for D-074 to D-082. Claude took D-083 and D-084
-meanwhile. If `git log -1` shows something newer, the lines under "In hand" are the first to
+2026-11-22, late, with the owner asleep: the move-notes core reviewed, fixed, moved to the shared
+crates and merged; D-075 on `main`; the plan rewritten for D-074 to D-082. Claude took D-083 and
+D-084 meanwhile. If `git log -1` shows something newer, the lines under "In hand" are the first to
 doubt.
 
 ## Released
@@ -22,13 +22,14 @@ doubt.
 stamps kept for the staleness check, "512 of 583 groups shown"), **visual editing** (a page
 scrollbar, and `Ctrl+E` follows the tab), "Leave out the tab you were last on too", Save As
 offering `.md` to an AI-made note, and the shared tick box and switch. The **split feature** is
-on `main` too but is under "In hand" below, because none of it is released. New notes are named in lower case
-with hyphens (D-075, D-083). 636 app tests and 567 in the core, the workspace green.
+on `main` too but is under "In hand" below, because none of it is released. New notes are named
+in lower case with hyphens (D-075, D-083). 636 app tests and 543 in the core, the workspace green;
+the 74 tests of the record and the move run in the shared repo.
 
 ## In hand
 
 - **The split feature** (`ai-library-plan.md` 5.3; **no release yet**): the plan card on
-  `mdedit_core::split`, the writer (`mdedit_core::runs`, a record per run in `<library>/.runs`)
+  `mdedit_core::split`, the writer (`mdshared_app::runs`, a record per run in `<library>/.runs`)
   and undo. "Split into notes…" is in the tab menu, the palette, the AI menu and the Notes
   library submenu, refused with "Save {name} first" until the document is on disk and saved;
   `--plan-demo <name>` draws eight shots. Every refusal it can know is made before the first
@@ -36,18 +37,19 @@ with hyphens (D-075, D-083). 636 app tests and 567 in the core, the workspace gr
   library and removes a note only if nothing lists it. Audit 3 is closed, C1 included. Not
   built: the Recycle Bin, the progress row with Cancel, "Ask the AI…", per-source headings.
 - **Mockups** of three AI screens: branch `mock/ai-review`, worktree `..\mdedit-mock`, `shots\mock\`.
-- **"Move the notes…"** (`ai-library-plan.md` 5.12, phase 6b): the core, `moves.rs` and
-  `moves_tests.rs` (50 tests), on branch `f/move-notes`, pushed, rebased on `main` at `4f01013`,
-  worktree `..\md-wt\move-notes`. Clippy clean; 614 core and 636 app tests green. Reviewed line
-  by line on 2026-11-22 and fixed (D-084): a library file not in UTF-8 refuses the move; undo
+- **"Move the notes…"** (`ai-library-plan.md` 5.12, phase 6b): the core is on `main` as
+  `mdshared_app::moves` (50 tests; `docs/DESIGN.md` 74), with no window yet. Reviewed line by
+  line on 2026-11-22 and fixed (D-084): a library file not in UTF-8 refuses the move; undo
   refuses before the first file goes back; a note from outside stays where the move put it; a
   library move carries the newest 400 records; a rolled-back run keeps in its record the folders
   it could not remove. **Left from the review:** a moved note's pictures and its own relative
   links are not carried (5.12 wants group folders moved whole; wants a design line); a crash
   between the library rewrites and the digest update gives a half-undo; emptied folders in a
   home outside the library stay; the atomic no-replace rename is the window side's to supply.
-  **Not begun:** phase S3 (`runs.rs` and `moves.rs` into the shared crates, D-081), which comes
-  before the window side (`plan_ui`, `plan_write`, the group row's menu).
+  **Not begun:** the window side (`plan_ui`, `plan_write`, the group row's menu).
+- **Phase S3** (D-081), half done: `runs` and `moves` moved to `mdshared-app` at shared `9545607`
+  and re-exported by `mdedit-core` under their old names; all 232 mdedit shots byte-identical
+  but for the clock and the checkout's path. Left: the split checker and the plan card.
 - **The settings redesign's shared half** died with the credits on 2026-11-22, after only the
   proof that the old form is unchanged: `crates/mdshared-ui/src/settings/frozen.rs` (1,734 lines, the form copied whole),
     `unchanged.rs` (255, drives both and compares every pixel in both themes) and five lines in
@@ -90,10 +92,10 @@ with hyphens (D-075, D-083). 636 app tests and 567 in the core, the workspace gr
 
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
-2. Phase S3 (D-081): `runs.rs`, `moves.rs`, the split checker and the plan card into
-   `markdown-shared-rs`, mdedit's shots unchanged. The shared checkout holds the settings draft
-   uncommitted on its `main`: work in a worktree of it, never on top of that draft.
-3. "Move the notes…": the pictures question, then the window side, then merge `f/move-notes`.
+2. The rest of S3: the split checker and the plan card into the shared crates, mdedit's shots
+   unchanged. The shared checkout holds the settings draft uncommitted on its `main`: work in a
+   worktree of it (`..\md-wt\shared-runs` is one), never on top of that draft.
+3. "Move the notes…": the pictures question, then the window side.
 4. The settings redesign's shared half, restarted on `pages`.
 5. Then section 8's order: S, 4b, T, R2, W, V, 4a, 4, 5, drag and drop. No release.
 
@@ -141,9 +143,11 @@ lines on typing only; no compare arrows with wrap on; the Markdown menu needs mo
 
 ## Pins, branches, worktrees
 
-- Shared crates at `a315707` (the settings draft above sits uncommitted in the shared checkout,
+- Shared crates at `9545607` (the settings draft above sits uncommitted in the shared checkout,
   at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview still pins `cb0ffd3`.
 - Merged into `main`: every `f/…` and `release/1.2.0`. Drawings that must not merge:
-  `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` holds the dead draft.
+  `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` is merged; its copy on
+  GitHub is the pre-rebase draft (a force-push was refused) and can be deleted.
 - Worktrees: `..\mdedit-mock`, `..\mdedit-settings`, `..\mdedit-term`, `..\md-wt\move-notes`,
+  `..\md-wt\shared-runs` (shared repo),
   `..\md-wt\p1-before`/`p1-after`, `..\mdedit-four-fixes` (prunable).
