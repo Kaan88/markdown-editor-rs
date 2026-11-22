@@ -100,8 +100,6 @@ the 74 tests of the record and the move run in the shared repo.
 
 ## Known to be wrong on `main`
 
-Found 2026-11-21 (the plan's section 2 has three); phase 0 fixed those that could lose a note.
-
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
@@ -117,6 +115,8 @@ Found 2026-11-21 (the plan's section 2 has three); phase 0 fixed those that coul
 - **A debug build still aborts on a closed stderr** (a release build does not): something that
   runs only in debug prints with `std`'s `eprintln!`, not yet found. A plain debug `cargo test`
   fails `closed_stderr`; CI runs release and is unaffected.
+- **The shared repo's CI is red on Linux and both Macs** since `a2a2031` at least: four
+  `mdshared_app::library` tests write `D:/…` paths, which are not absolute off Windows.
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
 
 ## Known gaps, not planned unless they get in the way
