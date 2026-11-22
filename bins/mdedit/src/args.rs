@@ -229,6 +229,8 @@ pub struct Args {
     /// `--plan-parked`: the notes pane open, with a demonstration plan ticked and left behind, for
     /// a shot of "Plan ready".
     pub plan_parked: bool,
+    /// `--mock <name>`: a throwaway mockup screen drawn over the window for a shot (`mock.rs`).
+    pub mock: Option<String>,
     /// `--compare A B`: open both files, side by side, compared.
     pub compare: Option<(PathBuf, PathBuf)>,
     /// Compare the active document with its file on disk (for a shot: with `--type`).
@@ -402,6 +404,7 @@ impl Args {
                 "--replace" => out.replace = value(&a),
                 "--palette" => out.palette = value(&a),
                 "--ai-demo" => out.ai_demo = value(&a),
+                "--mock" => out.mock = value(&a),
                 "--plan-demo" => out.plan_demo = value(&a),
                 "--plan-parked" => out.plan_parked = true,
                 "--compare" => {

@@ -31,6 +31,7 @@ mod live;
 mod macros;
 mod marks;
 mod minimap;
+mod mock;
 mod outline;
 mod overlays;
 mod palette;

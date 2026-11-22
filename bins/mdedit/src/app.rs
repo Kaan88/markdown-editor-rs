@@ -1316,6 +1316,7 @@ impl App {
             || self.ui.settings.is_some()
             || self.ai_panel_open()
             || self.plan_is_open()
+            || self.args.mock.is_some()
         {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
@@ -1812,6 +1813,9 @@ impl App {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
                 // Last, over everything.
+                if let Some(name) = self.args.mock.as_deref() {
+                    crate::mock::draw(c.p, &pal, name, w, h);
+                }
                 if self.ai.panel.is_some() {
                     crate::ai_ui::draw(
                         c.p,

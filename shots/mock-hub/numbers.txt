@@ -1,0 +1,11 @@
+window 1280 x 800
+at 1280: installed 92 latest 84 released 84 download 90 status 250 actions 200, app column 480 px
+at 860: installed 78 latest 70 released 0 download 0 status 200 actions 178, app column 334 px
+at 760: installed 78 latest 70 released 0 download 0 status 200 actions 178, app column 234 px
+widest name or blurb: Inbound at 243 px
+rows: 7 of 52 px, list 392 px
+window height 800: room 690, pane 298 px
+window height 800 with a banner: room 656, pane 264 px
+window height 600: room 490, pane hidden (under 150 px)
+with the Hub row (8 rows) and a banner at 800: pane 212 px
+hub row index 7
