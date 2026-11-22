@@ -2783,7 +2783,16 @@ preview tests, `prefs` and `chrome` tests, and `html_md`'s 14 in the shared repo
   side-by-side`, default `window`) is what a click on Preview does: the pane, Preview in mdview or
   Preview side by side (`preview_command`). `chrome::preview_mode` falls back to the pane while
   mdview is not found, and to mdview in a build that offers no pane of its own. The button is
-  lit while its own mode's preview is on, and its tooltip names the mode. A 20 px arrow beside it
+  lit when a click on it would close or stop its own mode's preview, and its tooltip says what the
+  click does, so the three agree: in the mdview mode it is lit while the document is previewed in
+  mdview at all, side by side or not, since `App::preview` stops either; in the side-by-side mode
+  while the windows are arranged so (a click gives the arrangement up), and unlit while the
+  document is only previewed (a click arranges the windows). The button and the arrow show for
+  what `chrome::previewable` offers the preview for, as the tab menu does: a Markdown file, a
+  document with no file, or one previewed in mdview now. A file of another language shows the
+  button only while the pane is open, and then `chrome::button_mode` is the pane whatever the
+  setting: the button closes the pane, and the arrow lists the pane and the radio, not the mdview
+  commands. A 20 px arrow beside it
   (`BarItem::PreviewMenu`) opens `PopupKind::Preview`: the three modes as commands that run once
   and leave the setting alone, labelled for what a click does ("Close the preview", "Stop the
   preview in mdview"), with no tick; then a disabled header, "The Preview button opens", and the
@@ -2802,14 +2811,21 @@ preview tests, `prefs` and `chrome` tests, and `html_md`'s 14 in the shared repo
   with that group at narrow widths. The bar's signature (`region_sig`) carries the unsaved state,
   the AI setting and the preview mode: without it Save stayed grey after an edit.
 - **The empty window** has "New file" beside "Open file…" (`Hit::EmptyNew`, the `NewFile`
-  command, caret in the new tab), and its hint says a new one can be started.
+  command, caret in the new tab), and its hint says a new one can be started: "Open a file, drag
+  one in, or start a new one.", short enough for one line in the narrowest text area (360 px, a
+  520 px window with the Files pane), which a test measures on Windows.
 - **Ctrl+Shift+V pastes plain text** (`PastePlain`): the clipboard's text as it is, never an
   image link, a file link or a conversion. Preview in mdview moved to Ctrl+Shift+L: free in the
   table and the palette, and not taken by the desktops (Ctrl+Shift+E is IBus's emoji key on
   Linux; Cmd+Shift+Q logs out on macOS). A test checks that no two commands share a shortcut.
+  The text menu has "Paste as plain text" too. Ctrl+V and Ctrl+Shift+V read the clipboard through
+  `app::commands::clipboard`, which a test replaces with its own on its thread, so the commands
+  themselves are tested without a system clipboard.
 - **Rich text pasted as Markdown** (`paste_rich`, Settings > Typing, off). Ctrl+V reads the
-  clipboard's HTML only when the setting is on, the document is Markdown or has no file yet, and
-  the clipboard has text; nothing is read at start. `html_md::to_markdown` turns it into Markdown
+  clipboard's HTML only when the setting is on, the document is Markdown or has no file yet (and
+  no language other than Markdown was chosen for it), and the clipboard has text; nothing is read
+  at start. A table is not a Markdown table: its rows come out as lines with ` | ` between the
+  cells. `html_md::to_markdown` turns it into Markdown
   (headings, bold, italic, strikethrough, code, fenced code with its language, links, images that
   are not `data:`, lists to 16 levels, quotes, rules, line breaks, tables as `a | b` rows) and
   answers `None` when there is nothing to mark or the HTML is `white-space: pre` (a code editor's
@@ -2822,4 +2838,9 @@ preview tests, `prefs` and `chrome` tests, and `html_md`'s 14 in the shared repo
 - Shots: `preview-menu`, `preview-menu-mdview`, `bar-new-save-ai`, `bar-ai-menu`, `bar-900`,
   `bar-560`, `settings-editor-preview`, `settings-typing-rich`, `settings-min-typing`, each in
   both themes, and `settings-min-editor-dark`; `empty`, the `menu-view-*` and `menu-tab-*` shots
-  changed.
+  changed. After the review: `preview-lit-mdview` and `preview-lit-side` (the button lit; the two
+  pictures are the same, the tooltips differ), `preview-menu-open-mdview` and
+  `preview-menu-open-side` (the arrow offering to stop), and `empty-min-files` (the hint at
+  520x400 with the Files pane), each in both themes. `--demo-link` with an mdview mode chosen
+  draws as with mdview found, and side by side in that mode. The shorter hint changes every shot
+  of the empty window (`empty`, `move-results`, `plan-*`, `runs*`, `update-installed*`).

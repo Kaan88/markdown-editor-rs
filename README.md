@@ -49,9 +49,10 @@ edit (the AI menu) while the AI is on.
   files copied in the file manager are pasted the same way (needs `wl-paste` or `xclip`).
 - **Paste as plain text (Ctrl+Shift+V):** the clipboard's text as it is, never a link or a
   conversion. **Paste rich text as Markdown** (Settings > Typing, off at first): Ctrl+V of text
-  copied from a web page or a document puts its headings, bold, italic, links, lists, quotes,
-  code and tables in a Markdown file (or a new document) as Markdown; text with nothing to mark
-  is pasted as it is. Windows reads the clipboard's HTML Format; Linux and macOS the HTML that
+  copied from a web page or a document puts its headings, bold, italic, links, lists, quotes
+  and code in a Markdown file (or a new document whose language was not chosen) as Markdown; a
+  table's rows come out as lines with `|` between the cells, not as a Markdown table; text with
+  nothing to mark is pasted as it is. Windows reads the clipboard's HTML Format; Linux and macOS the HTML that
   the system clipboard offers (not yet tried there).
 - **Finding:** find and replace with match case, whole word and regular expressions (Ctrl+F,
   Ctrl+H), replace in the selection, find in files and open tabs (Ctrl+Shift+F, F4), and replace in
