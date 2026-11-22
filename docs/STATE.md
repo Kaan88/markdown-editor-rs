@@ -52,14 +52,11 @@ in the core, the workspace green.
     `settings.rs`. **Uncommitted in the shared repo's own checkout, on `main` at `b4b2182`.**
     The categorised form was not written: no page host, no row kinds, no page-fit test;
     `unchanged.rs` links `super::pages`, which does not exist.
-- **Dependabot, triaged and not merged**: `docs/dependabot-triage-2026-11-22.md`. Three of the
-  five "red for six days" were `main` being red when dependabot reran, not the bumps. **Take**
-  `windows-sys` 0.61.2 (compiles, 1.5 KB smaller) and the **actions group** (ran green once).
-  **Close** `chardetng` 1.0 (removed `guess_assess`, the "not sure, so use the system code page"
-  rule the loader is built on) and `parley` 0.13 (breaks in three repos, moves layout, on the
-  launch path — a planned change, shared first, shots and budgets). **Close `rfd` 0.18 as
-  mdedit-only**: in the shared crate first, or the exe carries two file dialogs. Raise the open-PR
-  limit of 5; the shared repo is already full.
+- **Dependabot cleared** per `docs/dependabot-triage-2026-11-22.md`: the actions group and
+  `windows-sys` 0.61.2 merged (measured before and after: no change past noise, 1.5 KB smaller),
+  `rfd`, `chardetng` and `parley` closed here with reasons, the open-PR limit raised to 10. The
+  parley PRs in the shared repo and mdview are still open. `regex-automata` 0.4.19 (#9) arrived
+  after and is green, not measured, not merged.
 - **A terminal for this ecosystem, drawn**: branch `mock/terminal`, worktree `..\mdedit-term`,
   `--mock term-<name>`, 20 shots in `shots\mock-term\`, numbers in `numbers.txt`. Output in one
   block per command — command, exit code, duration, output — each collapsible, searchable,
@@ -69,6 +66,17 @@ in the core, the workspace green.
   the owner. Established by drawing: blocks need OSC 133 marks from the shell, so `plain-*.png`
   (no marks, one stream) is the case to survive; a block costs ~46 px; only failure deserves a
   mark; and "no terminal" in the charter makes this a third app or a written exception.
+
+- **A downloader window over NewsQueue and Inbound, drawn**: branch `mock/downloader`, worktree
+  `..\mdedit-dl`, `--mock dl-<name>`, 11 states in both themes in `shots\mock-dl\` (README says
+  what each shows). One table, a Source chip per row; the details pane is the only place the
+  engines differ, so its tabs follow the row; an absent engine dims its rows and veils the pane as
+  "last reported". Not drawn: Files and Log tabs, Remote files, TorBox, first run. Costing is in the
+  uncommitted `ecosystem-ideas.md` 6b-6d.
+- **A local-LLM workbench, drawn**: branch `mock/workbench`, worktree `..\mdedit-llm`, `--mock
+  llm-<name>`, 12 states plus a real-editor `saved` shot in `shots\mock-llm\`. Holds up as a tab
+  of mdedit, as `ecosystem-ideas.md` 8 said; columns under 300 px need a narrow form, five is the
+  most at 1280 px; the picker has to say "one GPU" and offer one model at a time.
 
 ## Waiting for the owner
 
@@ -117,6 +125,12 @@ faults that could lose a note or break a library that moves; these are still tru
   anyway*. Found by the owner.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
+
+- **A development build writes crash reports into the owner's folder.** `app::crash_dir` is
+  `%LOCALAPPDATA%\mdedit\crashes` whatever `MDEDIT_SETTINGS` says, against rule 9; three reports
+  from a mockup build of 2026-11-22 sit there now.
+- **mdedit dies when stderr is a closed pipe**: `eprintln!` panics ("failed printing to stderr",
+  os error 232) and the release build aborts. Seen when a shell closed the pipe of a `--trace` run.
 
 ## Known gaps, not planned unless they get in the way
 
