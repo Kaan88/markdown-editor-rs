@@ -36,7 +36,6 @@ the 74 tests of the record and the move run in the shared repo.
   file (D2, D-069 to D-073), the group's file is made before the notes, and undo re-reads the
   library and removes a note only if nothing lists it. Audit 3 is closed, C1 included. Not
   built: the Recycle Bin, the progress row with Cancel, "Ask the AI…", per-source headings.
-- **Mockups** of three AI screens: branch `mock/ai-review`, worktree `..\mdedit-mock`, `shots\mock\`.
 - **"Move the notes…"** (`ai-library-plan.md` 5.12, phase 6b): the core is on `main` as
   `mdshared_app::moves` (50 tests; `docs/DESIGN.md` 74), with no window yet. Reviewed line by
   line on 2026-11-22 and fixed (D-084): a library file not in UTF-8 refuses the move; undo
@@ -101,8 +100,7 @@ the 74 tests of the record and the move run in the shared repo.
 
 ## Known to be wrong on `main`
 
-Found 2026-11-21 while writing the plan (its section 2 has three of them). Phase 0 fixed the
-faults that could lose a note or break a library that moves; these are still true.
+Found 2026-11-21 (the plan's section 2 has three); phase 0 fixed those that could lose a note.
 
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
@@ -116,7 +114,6 @@ faults that could lose a note or break a library that moves; these are still tru
   anyway*. Found by the owner.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
-
 - **A debug build still aborts on a closed stderr** (a release build does not): something that
   runs only in debug prints with `std`'s `eprintln!`, not yet found. A plain debug `cargo test`
   fails `closed_stderr`; CI runs release and is unaffected.
