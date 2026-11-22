@@ -15,8 +15,6 @@ doubt.
 
 ## On `main`, not released (the version in `Cargo.toml` is 1.3.0)
 
-Release notes so far: `docs/release-notes/1.3.0.md`.
-
 `docs/release-notes/1.3.0.md` lists it in full; in short: **the notes library** and its redesign
 (phases 1, 2, 2b, 3 — the Notes pane, its menus, the keyboard, the library folder as a setting),
 **phase 0** (a note is no longer read as an empty group; delete refuses a note), **phase 6a** (a
@@ -67,7 +65,6 @@ with hyphens (D-075, D-083). 636 app tests and 567 in the core, the workspace gr
   llm-<name>`, 12 states plus a real-editor `saved` shot in `shots\mock-llm\`. Holds up as a tab
   of mdedit, as `ecosystem-ideas.md` 8 said; columns under 300 px need a narrow form, five is the
   most at 1280 px; the picker has to say "one GPU" and offer one model at a time.
-
 - **A launcher and updater for every app with a setup, drawn**: branch `mock/launcher`, worktree
   `..\mdedit-hub`, `--mock hub-<name>`, 12 states in both themes (four also at 860x600) in
   `shots\mock-hub\`. Its README lists the eight apps with installers on GitHub and their four
