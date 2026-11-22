@@ -911,3 +911,21 @@ left by D-084 and the review of the move.
 **Why.** The owner chose it: nothing breaks, and a note and its pictures stay together.
 **Overturned by.** The owner, on using it.
 **From.** The owner, 2026-11-22, asked by Claude.
+
+## D-092 · 2026-11-22 · The original in the Recycle Bin (phase T), as built
+
+**Decision.** Phase T is built and merged (DESIGN 77): the box on the plan card with every reason
+of 5.4, recycling as step 8 after every note is written, read back and listed and the source is
+seen unchanged; undo refuses while the source is in the bin and offers "Open the Recycle Bin";
+undo's own removals go to the bin, or are deleted where the drive has none. Choices: the box is
+opt-in on the shared card (`Option`), so other callers draw as before; the owner's tick is kept
+while the box is disabled; the one-click answer only ticks "The rest"; a system set to delete
+instead of recycling counts as no bin; `trash` runs on a fresh thread because its COM start
+panics on failure; on Linux a mount path that is not UTF-8 counts as no bin, because the crate
+unwraps it; `trash` is pinned exactly (`=5.4.0`), one line in the lock, +30 KiB to the exe,
+nothing at launch, never in mdview's build. Not built: D-071's "undo anyway", restoring from the
+bin, and the "Only for one document" reason (nothing makes a plan over several files yet).
+**Why.** 5.4 and D-046, kept to the letter where the crate allowed.
+**Overturned by.** The owner on looking at the 18 new shots; a Linux bin that rejects entries
+with no deletion date (the crate writes none without `jiff`; never tried).
+**From.** The agent that built it, recorded by Claude.
