@@ -467,7 +467,8 @@ pub mod strings {
     /// On a Mac Option+Shift+Left and Right select by word, so the column takes Command too.
     pub const COLUMN_KEYS_MAC: &str = "\u{2325}\u{21e7}\u{2318}Arrows, \u{2325}Drag";
     pub const MANAGE_RECENT_TITLE: &str = "Manage recent files";
-    pub const EMPTY_HINT: &str = "Open a file, drag one into this window, or start a new one.";
+    /// One line in the narrowest text area (`ui::PAGE_MIN`, a 520 px window with the Files pane).
+    pub const EMPTY_HINT: &str = "Open a file, drag one in, or start a new one.";
     pub const EMPTY_BUTTON: &str = "Open file…";
     pub const EMPTY_NEW: &str = "New file";
     pub const RECENT_EMPTY: &str = "No recent files";

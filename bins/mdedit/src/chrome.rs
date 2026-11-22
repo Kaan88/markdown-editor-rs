@@ -302,7 +302,7 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
             BarItem::Library => with("Notes library", CommandId::ToggleLibraryPane),
             BarItem::Preview => {
                 let on = preview_button(docs) == Some(true);
-                match (preview_mode(docs), on) {
+                match (button_mode(docs), on) {
                     (PreviewMode::Window, true) => "Close the preview".into(),
                     (PreviewMode::Window, false) => {
                         with("Preview in this window", CommandId::PreviewPane)
@@ -483,23 +483,46 @@ pub fn find_label(docs: &Docs) -> (String, bool) {
     }
 }
 
-/// The measured text widths the bar's fit depends on.
-/// The bar's Preview button, which opens the pane: hidden (None) unless the pane is offered and
-/// the active document can be previewed (as the View menu lists it), pressed (true) while open.
+/// The bar's Preview button: hidden (None) unless a preview is offered and the active document
+/// can be previewed (as the arrow and the tab menu list it), or the pane is open so that it can be
+/// closed; pressed (true) while a click on it would close or stop the preview of its mode, so
+/// that what it shows, its tooltip and its click agree in every mode.
 pub fn preview_button(docs: &Docs) -> Option<bool> {
     if !docs.pane && !docs.viewer {
         return None;
     }
     let doc = docs.active_doc()?;
     let linked = docs.links.contains(doc.id);
-    if !(doc.is_markdown() || linked || doc.path.is_none() || docs.pane_open) {
+    if !(previewable(docs) || docs.pane_open) {
         return None;
     }
-    Some(match preview_mode(docs) {
+    Some(match button_mode(docs) {
         PreviewMode::Window => docs.pane_open,
-        PreviewMode::Viewer => linked && !docs.links.side_by_side,
+        // A click stops any preview in mdview, side by side or not (`App::preview`).
+        PreviewMode::Viewer => linked,
+        // A click gives the arrangement up while there is one; otherwise it makes one.
         PreviewMode::SideBySide => linked && docs.links.side_by_side,
     })
+}
+
+/// Whether the active document is one the preview is offered for: a Markdown file, a document
+/// that has no file yet (no name to tell its kind by), or one that is previewed in mdview now
+/// (so that it can be stopped). The commands work for any document from the shortcut and the
+/// palette; the menus and the button offer them for these.
+pub fn previewable(docs: &Docs) -> bool {
+    docs.active_doc()
+        .is_some_and(|d| d.is_markdown() || d.path.is_none() || docs.links.contains(d.id))
+}
+
+/// What the Preview button opens for the active document: [`preview_mode`], or the pane for a
+/// document the preview is not offered for (shown only while the pane is open, the button
+/// then closes it, as it did before it had modes).
+pub fn button_mode(docs: &Docs) -> PreviewMode {
+    if previewable(docs) {
+        preview_mode(docs)
+    } else {
+        PreviewMode::Window
+    }
 }
 
 /// The mode the Preview button opens: the preferences' choice, or the other way when that one
@@ -515,6 +538,7 @@ pub fn preview_mode(docs: &Docs) -> PreviewMode {
 /// The label of the bar's AI button.
 pub const AI_EDIT: &str = "AI edit";
 
+/// The measured text widths the bar's fit depends on.
 pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
     let (count, _) = find_label(docs);
     BarText {

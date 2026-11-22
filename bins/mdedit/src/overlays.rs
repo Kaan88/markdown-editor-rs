@@ -401,7 +401,9 @@ fn preview_labels(docs: &Docs, linked: bool, letters: Letters) -> [&'static str;
 /// The menu of the Preview button's arrow (issue #7): the modes, each of which opens the
 /// preview that way once (or closes it, when it is open so), then which one the button itself
 /// opens, a choice kept in the preferences. Modes this window cannot use are left out (mdview
-/// not found), and the choice with them when one is left.
+/// not found), and the choice with them when one is left. For a document the preview is not
+/// offered for (a file that is not Markdown, shown here only while the pane is open), the
+/// mdview modes are left out as the tab menu leaves them out; the choice stays.
 pub fn preview_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     use mdedit_core::prefs::PreviewMode;
     let linked = docs.active_doc().is_some_and(|d| docs.links.contains(d.id));
@@ -413,8 +415,10 @@ pub fn preview_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act>
         modes.push((PreviewMode::Window, "In &this window"));
     }
     if docs.viewer {
-        items.push(cmd(C::PreviewInViewer, preview, glyph::VIEW));
-        items.push(cmd(C::PreviewSideBySide, side, glyph::VIEW));
+        if crate::chrome::previewable(docs) {
+            items.push(cmd(C::PreviewInViewer, preview, glyph::VIEW));
+            items.push(cmd(C::PreviewSideBySide, side, glyph::VIEW));
+        }
         modes.push((PreviewMode::Viewer, "In m&dview"));
         modes.push((PreviewMode::SideBySide, "Side by s&ide"));
     }

@@ -972,7 +972,7 @@ impl App {
                         self.docs.active_doc().is_some_and(|d| d.modified()),
                         self.docs.active_ready().is_some(),
                         self.docs.prefs.ai_connection == mdedit_core::ai::Connection::Off,
-                        chrome::preview_mode(&self.docs),
+                        chrome::button_mode(&self.docs),
                     ),
                     (
                         self.docs
@@ -3276,7 +3276,13 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     app.compose_layout_only();
     app.apply_positions();
-    // The mark of a preview, with nothing started or sent.
+    // The mark of a preview, with nothing started or sent. With an mdview mode chosen for the
+    // Preview button, drawn as with mdview found (the same on every machine) and side by side
+    // when that is the mode, so that the shot shows the button lit.
+    if app.args.demo_link && app.docs.prefs.preview_mode != mdedit_core::prefs::PreviewMode::Window
+    {
+        app.docs.viewer = true;
+    }
     if app.args.demo_link
         && let Some((id, path, name)) = app
             .docs
@@ -3288,6 +3294,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
             Some(path) => app.docs.links.link(id, path.into(), None, None, now),
             None => (app.docs.links).link_untitled(id, name, crate::link::Opening::default(), now),
         }
+        app.docs.links.side_by_side =
+            chrome::preview_mode(&app.docs) == mdedit_core::prefs::PreviewMode::SideBySide;
     }
     app.shot_compare();
     // Wait for the colours of the visible lines.

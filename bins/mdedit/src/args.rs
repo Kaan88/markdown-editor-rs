@@ -266,8 +266,8 @@ pub struct Args {
     /// `--run <command>`: run one command (its name as the code has it, `PreviewInViewer`) half
     /// a second after the first frame of a window, for tests and scripts.
     pub run: Option<CommandId>,
-    /// `--demo-link`: the first document shows as previewed in mdview, with nothing started or
-    /// sent, for a shot.
+    /// `--demo-link`: the first document shows as previewed in mdview (side by side, with
+    /// `--pref preview_mode=side-by-side`), with nothing started or sent, for a shot.
     pub demo_link: bool,
     /// `--settings-section <name>`: with `--dialog settings`, the form scrolled to that section
     /// (`Preview`), for a shot.

@@ -31,6 +31,35 @@ impl Clip {
     }
 }
 
+/// The clipboard's text and HTML for Ctrl+V and Ctrl+Shift+V: the system's, or in a test the
+/// one it set ([`clipboard::set`]), since not every CI machine has a clipboard and the tests run
+/// side by side.
+pub(super) mod clipboard {
+    #[cfg(not(test))]
+    pub use crate::platform::{clipboard_html as html, clipboard_text as text};
+
+    #[cfg(test)]
+    thread_local! {
+        static CLIP: std::cell::RefCell<Option<super::Clip>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// Puts `clip` on this test thread's clipboard.
+    #[cfg(test)]
+    pub fn set(clip: super::Clip) {
+        CLIP.with(|c| *c.borrow_mut() = Some(clip));
+    }
+
+    #[cfg(test)]
+    pub fn text() -> Option<String> {
+        CLIP.with(|c| c.borrow().as_ref().map(|c| c.text.clone()))
+    }
+
+    #[cfg(test)]
+    pub fn html() -> Option<String> {
+        CLIP.with(|c| c.borrow().as_ref().and_then(|c| c.html.clone()))
+    }
+}
+
 /// The command for the mode the Preview button opens.
 pub(super) fn preview_command(mode: mdedit_core::prefs::PreviewMode) -> C {
     use mdedit_core::prefs::PreviewMode;
@@ -108,7 +137,7 @@ impl App {
                 BarItem::Files => self.command(C::ToggleFiles),
                 BarItem::Library => self.command(C::ToggleLibraryPane),
                 BarItem::Preview => {
-                    self.command(preview_command(crate::chrome::preview_mode(&self.docs)))
+                    self.command(preview_command(crate::chrome::button_mode(&self.docs)))
                 }
                 BarItem::PreviewMenu => self.open_popup(PopupKind::Preview),
                 BarItem::AiEdit => self.open_popup(PopupKind::Ai),
@@ -723,14 +752,14 @@ impl App {
     }
 
     fn paste(&mut self) {
-        let Some(text) = platform::clipboard_text().filter(|t| !t.is_empty()) else {
+        let Some(text) = clipboard::text().filter(|t| !t.is_empty()) else {
             self.paste_image();
             return;
         };
         // The HTML is read only when it can be used: the setting is on and the document is
         // Markdown or has no file yet.
         let html = if self.rich_paste_here() {
-            platform::clipboard_html()
+            clipboard::html()
         } else {
             None
         };
@@ -738,13 +767,14 @@ impl App {
     }
 
     /// Whether Ctrl+V turns rich text into Markdown in the document in front: "Paste rich text
-    /// as Markdown" is on, and the document is Markdown or has no file yet (a new note).
+    /// as Markdown" is on, and the document is Markdown or has no file yet (a new note). A new
+    /// document whose language was chosen, and is not Markdown, is not: it takes the plain text
+    /// as a saved file of that language does.
     fn rich_paste_here(&self) -> bool {
         self.docs.prefs.paste_rich
-            && self
-                .docs
-                .active_doc()
-                .is_some_and(|d| d.is_markdown() || d.path.is_none())
+            && self.docs.active_doc().is_some_and(|d| {
+                d.is_markdown() || (d.path.is_none() && !d.ready().is_some_and(|r| r.language_set))
+            })
     }
 
     /// Pastes clipboard text at the caret. `plain` (Ctrl+Shift+V) puts it in as it is; otherwise
@@ -1687,7 +1717,7 @@ impl App {
             }
             C::Paste => self.paste(),
             C::PastePlain => {
-                if let Some(text) = platform::clipboard_text() {
+                if let Some(text) = clipboard::text() {
                     self.paste_clip(Clip::text(text), true);
                 }
             }

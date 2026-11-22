@@ -313,6 +313,13 @@ for t in "" "-dark"; do
     shot "settings-editor-preview$t" $th --dialog settings --settings-section editor "$fx/sample.md"
     shot "settings-typing-rich$t" $th --pref paste_rich=true --dialog settings --settings-section typing "$fx/sample.md"
     shot "settings-min-typing$t" $th --size 520x360 --dialog settings --settings-section typing "$fx/sample.md"
+    # The Preview button lit while its own mode's preview is on: in mdview, and side by side;
+    # the arrow then offers to stop it. The empty screen's hint in the smallest text area.
+    shot "preview-lit-mdview$t" $th --pref preview_mode=mdview --demo-link "$fx/sample.md"
+    shot "preview-lit-side$t" $th --pref preview_mode=side-by-side --demo-link "$fx/sample.md"
+    shot "preview-menu-open-mdview$t" $th --pref preview_mode=mdview --demo-link --menu preview "$fx/sample.md"
+    shot "preview-menu-open-side$t" $th --pref preview_mode=side-by-side --demo-link --menu preview "$fx/sample.md"
+    shot "empty-min-files$t" $th --size 520x400 --files
 done
 shot settings-min-editor-dark --dark --size 520x360 --dialog settings --settings-section editor "$fx/sample.rs"
 
