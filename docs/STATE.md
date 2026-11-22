@@ -1,7 +1,7 @@
 # State of the work
 
 Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089 are
-Claude's; D-090 the owner's). If `git log -1` is newer, doubt "In hand" first.
+Claude's; D-090 and D-091 the owner's). If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -88,7 +88,7 @@ the 74 tests of the record and the move run in the shared repo.
 
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
-2. "Move the notes…": the pictures question (5.12).
+2. "Move the notes…": carry a note's pictures and rewrite its relative links (D-091).
 3. The settings redesign: mdview's half.
 4. Then section 8's order: T, R2, W, V, 4a, 4, 5, drag and drop. No release.
 

@@ -899,3 +899,15 @@ small faults D-089 lists.
 **Why.** Rule 6: the owner approves the interface by looking at it.
 **Overturned by.** The owner, on using any of the three in a real window.
 **From.** The owner, 2026-11-22.
+
+## D-091 · 2026-11-22 · A moved note carries its pictures; its other relative links are rewritten
+
+**Decision.** "Move the notes…" carries what a note's relative links point at: a picture (or other
+file) that only this note links to moves with it, to the same place relative to the note; a
+target that other notes or files also use stays where it is, and the note's link to it is
+rewritten to the new relative path. Undo puts the files and the link text back. Links that are
+absolute, web addresses, or point at nothing are left as they are. Replaces the open question
+left by D-084 and the review of the move.
+**Why.** The owner chose it: nothing breaks, and a note and its pictures stay together.
+**Overturned by.** The owner, on using it.
+**From.** The owner, 2026-11-22, asked by Claude.
