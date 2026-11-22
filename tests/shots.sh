@@ -279,8 +279,9 @@ shot same-file-split-dark --dark --minimap --split-same --goto 3:1 --other-goto 
 shot same-file-split-left --light --split-same --split-left --split-ratio 0.55 --wrap --size 900x600 --other-goto 60:1 "$fx/sample.md"
 shot same-file-split-find --dark --minimap --split-same --find self --other-goto 60:1 "$fx/sample.rs"
 
-# Preview in mdview: the commands in the View menu and the tab menu of a Markdown file (a file of
-# another language lists them only while it is previewed), and the mark of a previewed document.
+# Preview in mdview: the View menu no longer lists the preview (issue #7), the tab menu of a
+# Markdown file says what a click does (a file of another language lists the preview only while it
+# is previewed), and the mark of a previewed document.
 shot menu-view-md --light --menu view "$fx/sample.md"
 shot menu-view-md-linked-dark --dark --demo-link --menu view "$fx/sample.md"
 shot menu-view-rs-linked --light --demo-link --menu view "$fx/sample.rs"
@@ -294,6 +295,26 @@ shot menu-view-untitled --light --new --menu view
 shot menu-tab-untitled-linked-dark --dark --new --demo-link --menu tab "$fx/sample.md"
 shot previewing-untitled --light --new --demo-link --type $'# Draft\n\nNot saved yet.\n'
 shot previewing-untitled-dark --dark --new --demo-link --type $'# Draft\n\nNot saved yet.\n'
+
+# Issues #7 and #8. The Preview button's arrow: the three modes to open once, then the button's
+# own as a radio (drawn as with mdview found); mdview chosen for the button. The bar with New,
+# Save (lit by an edit) and AI edit while the AI is on, the AI menu under AI edit, and the bar at
+# 900 and 560 px. The settings rows: the preview mode on Editor, the rich paste on Typing, both at
+# 520x360 too.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "preview-menu$t" $th --menu preview "$fx/sample.md"
+    shot "preview-menu-mdview$t" $th --pref preview_mode=mdview --menu preview "$fx/sample.md"
+    shot "bar-new-save-ai$t" $th --pref ai_connection=claude-api --type x "$fx/sample.md"
+    shot "bar-ai-menu$t" $th --pref ai_connection=claude-api --menu bar-ai "$fx/sample.md"
+    shot "bar-900$t" $th --size 900x500 --pref ai_connection=claude-api --type x "$fx/sample.md"
+    shot "bar-560$t" $th --size 560x500 --pref ai_connection=claude-api --type x "$fx/sample.md"
+    shot "settings-editor-preview$t" $th --dialog settings --settings-section editor "$fx/sample.md"
+    shot "settings-typing-rich$t" $th --pref paste_rich=true --dialog settings --settings-section typing "$fx/sample.md"
+    shot "settings-min-typing$t" $th --size 520x360 --dialog settings --settings-section typing "$fx/sample.md"
+done
+shot settings-min-editor-dark --dark --size 520x360 --dialog settings --settings-section editor "$fx/sample.rs"
 
 # Emoji presentation: the first line is colour clusters, the second the bare characters (text
 # glyphs); the caret after the keycap on line 3 must sit right after it.

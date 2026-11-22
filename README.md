@@ -16,7 +16,9 @@ been tried.
 
 It opens files in tabs, scrolls, selects, finds, highlights syntax, detects encodings and line
 endings, edits with undo and redo, and saves in the file's own encoding and line endings without
-touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks a name for.
+touching any other byte. New file (Ctrl+N, the New button on the bar, or New file on the empty
+window) opens an untitled tab that Save asks a name for. The bar has New, Open and Save, and AI
+edit (the AI menu) while the AI is on.
 
 - **Editing:** line commands (duplicate, move, delete, toggle comment, change case, sort, reverse,
   remove duplicates, join, trim, tabs to spaces), which act at every caret or selection as one
@@ -45,6 +47,12 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   Image files copied in Explorer (Windows) are pasted as links to the files where they are
   (`![](img/photo.jpg)`); a file on another drive is copied beside the document first. On Linux
   files copied in the file manager are pasted the same way (needs `wl-paste` or `xclip`).
+- **Paste as plain text (Ctrl+Shift+V):** the clipboard's text as it is, never a link or a
+  conversion. **Paste rich text as Markdown** (Settings > Typing, off at first): Ctrl+V of text
+  copied from a web page or a document puts its headings, bold, italic, links, lists, quotes,
+  code and tables in a Markdown file (or a new document) as Markdown; text with nothing to mark
+  is pasted as it is. Windows reads the clipboard's HTML Format; Linux and macOS the HTML that
+  the system clipboard offers (not yet tried there).
 - **Finding:** find and replace with match case, whole word and regular expressions (Ctrl+F,
   Ctrl+H), replace in the selection, find in files and open tabs (Ctrl+Shift+F, F4), and replace in
   files with a confirmation, backups and an undo. The results panel takes the keyboard (F6, or
@@ -60,7 +68,10 @@ touching any other byte. New file (Ctrl+N) opens an untitled tab that Save asks 
   to the other side" copies one line of a changed block.
 - **Command palette (Ctrl+P)** for tabs, files, commands, line numbers and symbols, and
   **Settings (Ctrl+,)** for the preferences.
-- **With mdview:** Preview in mdview (Ctrl+Shift+V) opens the file in the viewer at the caret's
+- **Preview:** the Preview button opens the preview the way Settings > Editor > Preview button
+  chooses (in this window, the default; in mdview; or side by side); its arrow opens any of the
+  three once and chooses the button's own.
+- **With mdview:** Preview in mdview (Ctrl+Shift+L) opens the file in the viewer at the caret's
   line, and keeps the viewer on your unsaved text while you type (live preview, up to 2 MiB);
   Preview side by side also puts the two windows next to each other. The preview follows the
   caret line by line inside long paragraphs, lists, code blocks and tables, and along a paragraph

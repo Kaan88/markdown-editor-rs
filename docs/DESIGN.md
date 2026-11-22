@@ -37,13 +37,13 @@ What is being worked on is in `docs/STATE.md`, and why things were decided is in
 | Compare two files | 35, 51, 58 |
 | Replace in files | 36, 52 |
 | Line commands, typing help, Markdown commands, tables, completion | 29, 30, 31, 44, 45, 46, 60, 63 |
-| The shell: title row, bar, panes, the command line, the palette, settings | 11, 12, 33, 42, 47, 50 |
+| The shell: title row, bar, panes, the command line, the palette, settings | 11, 12, 33, 42, 47, 50, 78 |
 | Split view, two views of one document | 38, 53 |
 | Macros | 39 |
 | Unsaved text across a close, crash recovery | 19, 61 |
-| mdview: the hand-off, the live preview | 54, 65, 66 |
+| mdview: the hand-off, the live preview, the Preview button's modes | 54, 65, 66, 78 |
 | The window: shadow, corners, the frosted backdrop | 48, 55, 64, 67 |
-| Paste an image | 62 |
+| Paste an image, plain paste, rich text pasted as Markdown | 62, 78 |
 | Updates | 17 |
 | AI rewriting | 68 |
 | History: what phase 2 was to add, the test plan, work packages, review fixes | 13, 14, 15, 49 |
@@ -1687,10 +1687,11 @@ applied with `mdshared_ui::place::set`, which takes the window-geometry rectangl
 X11 the outer one, on KDE Wayland `frameGeometry`), so the shadow's margin (section 55) does not
 change what the viewer asked for; where a desktop cannot place a window the toast says so.
 
-**Sending ("Preview in mdview", Ctrl+Shift+V, View menu, tab menu, palette).** On a saved file:
+**Sending ("Preview in mdview", Ctrl+Shift+L, the Preview button's arrow, tab menu, palette;
+section 78).** On a saved file:
 `sister::open("mdview", ...)` at the caret's line, then the document is linked. The same command
-again ends the link; the menu entry is checked while it lasts and the status strip says
-"Previewing". "Preview side by side" always opens, and first puts this window on the left half of
+again ends the link; while it lasts the menus name the entry "Stop the preview in mdview" and the
+status strip says "Previewing". "Preview side by side" always opens, and first puts this window on the left half of
 its screen (`place::halves` of `work_area`) and asks for the right half for the viewer; where
 placing is impossible it says so, sends no place, and the viewer opens where it would. A document
 without a file cannot be previewed (a toast says so): the viewer reads the disk.
@@ -2768,3 +2769,57 @@ were cut from in the Recycle Bin, as step 8 of the write, last.
   `runs-undo-recycled` now show the sentence and the button (they ask this machine's bin).
 - Tests: `platform::recycle` (shared, 4, and 1 ignored), the card's `recycle_*` (6),
   `runs`' step 8 and undo (9), and `app::recycle_tests` (11).
+
+## 78. The Preview button's modes, New and Save on the bar, plain and rich paste (2026-11-22, branch `f/issues-7-8`)
+
+GitHub issues #7 and #8. Code: `chrome.rs` (the bar), `overlays.rs` (`preview_menu`, the empty
+screen), `app/commands.rs` (`paste`, `paste_clip`, `preview_command`), `app/modal.rs` (two rows),
+`mdedit-core/src/prefs.rs` (`PreviewMode`, `paste_rich`); in `markdown-shared-rs`,
+`mdshared-app/src/html_md.rs` and `mdshared-ui` `platform::clipboard_html`, `cf_html::fragment`.
+Tests: `app/issues_tests.rs`, `keys::tests::no_two_commands_share_a_shortcut`, the handoff and
+preview tests, `prefs` and `chrome` tests, and `html_md`'s 14 in the shared repo.
+
+- **The Preview button and its arrow.** `prefs.preview_mode` (`preview_mode = window | mdview |
+  side-by-side`, default `window`) is what a click on Preview does: the pane, Preview in mdview or
+  Preview side by side (`preview_command`). `chrome::preview_mode` falls back to the pane while
+  mdview is not found, and to mdview in a build that offers no pane of its own. The button is
+  lit while its own mode's preview is on, and its tooltip names the mode. A 20 px arrow beside it
+  (`BarItem::PreviewMenu`) opens `PopupKind::Preview`: the three modes as commands that run once
+  and leave the setting alone, labelled for what a click does ("Close the preview", "Stop the
+  preview in mdview"), with no tick; then a disabled header, "The Preview button opens", and the
+  three as radio rows (`Act::PreviewDefault`), which save the setting and close the menu. Without
+  mdview the menu has only the pane, and no radio. Settings > Editor has the same choice as
+  "Preview button: Here | mdview | Beside" (short, to fit 520 px).
+- **The View menu no longer lists the preview.** Its entries were ticks on commands that open a
+  window, read as switches, and duplicated the button. The tab menu keeps them, worded like the
+  arrow's. Visual editing keeps its tick: it is a mode of the window.
+- **The bar: New, Open, Save, and AI edit.** New and Save are icon buttons either side of Open, at
+  every width (as Reload is), so the labels of the other buttons still fit at 1280. Save is
+  enabled while the document has unsaved changes (as the main menu has it) and runs the same
+  `Save` command. AI edit (label "AI edit") sits after the preview group only while an AI
+  connection is chosen, is enabled while a document is ready, and opens the AI menu under itself
+  (the same `ai_menu`, with its Modify button). It is in the Files group of `bar_plan`, so it goes
+  with that group at narrow widths. The bar's signature (`region_sig`) carries the unsaved state,
+  the AI setting and the preview mode: without it Save stayed grey after an edit.
+- **The empty window** has "New file" beside "Open file…" (`Hit::EmptyNew`, the `NewFile`
+  command, caret in the new tab), and its hint says a new one can be started.
+- **Ctrl+Shift+V pastes plain text** (`PastePlain`): the clipboard's text as it is, never an
+  image link, a file link or a conversion. Preview in mdview moved to Ctrl+Shift+L: free in the
+  table and the palette, and not taken by the desktops (Ctrl+Shift+E is IBus's emoji key on
+  Linux; Cmd+Shift+Q logs out on macOS). A test checks that no two commands share a shortcut.
+- **Rich text pasted as Markdown** (`paste_rich`, Settings > Typing, off). Ctrl+V reads the
+  clipboard's HTML only when the setting is on, the document is Markdown or has no file yet, and
+  the clipboard has text; nothing is read at start. `html_md::to_markdown` turns it into Markdown
+  (headings, bold, italic, strikethrough, code, fenced code with its language, links, images that
+  are not `data:`, lists to 16 levels, quotes, rules, line breaks, tables as `a | b` rows) and
+  answers `None` when there is nothing to mark or the HTML is `white-space: pre` (a code editor's
+  copy), and the plain text is pasted. It is a linear tokenizer with no recursion, no indexing
+  that can panic, input capped at 16 MiB, output at 8 times the input; tests feed it 25,000
+  generated and random inputs and every cut of a real copy. Windows reads "HTML Format" and takes
+  its fragment (`cf_html::fragment`); Linux and macOS ask arboard for `get().html()`, which reads
+  `text/html` (X11, Wayland) and the pasteboard's HTML (macOS): not run there yet. Word's own
+  list paragraphs (`mso-list`) come out as paragraphs.
+- Shots: `preview-menu`, `preview-menu-mdview`, `bar-new-save-ai`, `bar-ai-menu`, `bar-900`,
+  `bar-560`, `settings-editor-preview`, `settings-typing-rich`, `settings-min-typing`, each in
+  both themes, and `settings-min-editor-dark`; `empty`, the `menu-view-*` and `menu-tab-*` shots
+  changed.
