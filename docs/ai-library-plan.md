@@ -1367,7 +1367,7 @@ release builds run in turn with a fresh settings folder, as phase 1 did it).
 | N | Note names in lower case with hyphens in the writers already built: the split writer, "New note here…" (D-075) | 0.5 | **Done** (D-075, D-083) |
 | S3 | What R1 built in mdedit moves to the shared crates: the plan card, the split checker, the record (`runs`) and the move (`moves`); mdedit's shots unchanged (D-081, replaces S2) | 1.5 | **Done**, on `main` (D-088): `runs` and `moves` at shared `9545607`; the split checker (`mdshared_app::split`) and the plan card (`mdshared_ui::plan`) at shared `842ec3f`; shots unchanged |
 | 6b | "Move the notes…", and the flat notes into their group's folder (5.12) | 2 | **Built, on `main`** (D-084, D-085); the owner's look and the pictures question left |
-| 4b | Split by AI, with requests in parallel (5.2, 3.5, 3.6, D-080) | 3.5 | |
+| 4b | Split by AI, with requests in parallel (5.2, 3.5, 3.6, D-080) | 3.5 | **Done** on branch `f/split-ai`, not merged: "Ask the AI…" on the plan card, the outline, the answer's checks and the panel's split prompts (`mdshared_app::split::answer`, `mdshared_ui::plan`). One document is one request, so the per-connection parallel setting is not built here: it goes with the first phase that sends several |
 | T | The original in the Recycle Bin (5.4) | 1.5 | `trash` approved |
 | R2 | The review with changes and ticks, and the tinted, level preview (5.5, D-077) | 6 | |
 | W | The AI task window over files; "Rewrite them" edits in place after the review, the original kept in the record (5.6, D-074, D-076) | 5.5 | |
