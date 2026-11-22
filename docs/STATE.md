@@ -114,11 +114,6 @@ faults that could lose a note or break a library that moves; these are still tru
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
 
-- **The shared updater can still abort mdedit on a closed stderr**: `mdshared_app::updater`
-  prints with `std`'s `eprintln!` when a check or an install fails. mdedit's own prints no longer
-  can (its `eprintln!` ignores a gone stderr, `tests/closed_stderr.rs`); the shared lines want a
-  change there under rule 8.
-
 ## Known gaps, not planned unless they get in the way
 
 Undo removes with `remove_file`, not the Recycle Bin (waits for `trash`, D-071); a note missing on
@@ -140,8 +135,8 @@ lines on typing only; no compare arrows with wrap on; the Markdown menu needs mo
 
 ## Pins, branches, worktrees
 
-- Shared crates at `b4b2182` (whose checkout holds the settings draft above). Viewer crates at
-  viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview still pins `cb0ffd3`.
+- Shared crates at `a315707` (the settings draft above sits uncommitted in the shared checkout,
+  at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview still pins `cb0ffd3`.
 - Merged into `main`: every `f/…` and `release/1.2.0`. Drawings that must not merge:
   `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` holds the dead draft.
 - Worktrees: `..\mdedit-mock`, `..\mdedit-settings`, `..\mdedit-term`, `..\md-wt\move-notes`,
