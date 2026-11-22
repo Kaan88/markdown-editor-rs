@@ -1,7 +1,7 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089, D-092, D-093 and
-D-097 are Claude's; D-090, D-091, D-094 to D-096 the owner's). If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-23, while 1.3.0 is being made ready (D-096 to
+D-100). If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -9,141 +9,120 @@ D-097 are Claude's; D-090, D-091, D-094 to D-096 the owner's). If `git log -1` i
   zip, the Linux AppImage, tar.gz, deb, rpm and PKGBUILD, two macOS zips, three update manifests,
   `mdedit-ai.exe`, `mdview-engine.exe`. Record: `docs/release-log.md`.
 - mdview is at 1.0.4. The shared crates are not released; the apps pin them by commit.
+- **Hub**, the launcher and updater, is built as its own app (`Kaan88/mdhub`, `Desktop\hub`; its
+  `docs/STATE.md` is its record; 0.1.0 notes written, no tag).
 
-## On `main`, not released (the version in `Cargo.toml` is 1.3.0)
+## On `main`, not released: 1.3.0 (the version in `Cargo.toml`)
 
-`docs/release-notes/1.3.0.md` lists it in full; in short: **the notes library** and its redesign
-(phases 1, 2, 2b, 3 — the Notes pane, its menus, the keyboard, the library folder as a setting),
-**phase 0** (a note is no longer read as an empty group; delete refuses a note), **phase 6a** (a
-`home:` folder per group), **the notes pane on a large library** (the re-read on a worker thread,
-stamps kept for the staleness check, "512 of 583 groups shown"), **visual editing** (a page
-scrollbar, and `Ctrl+E` follows the tab), "Leave out the tab you were last on too", Save As
-offering `.md` to an AI-made note, and the shared tick box and switch. For Hub (D-096): a version resource in
-`mdedit.exe`, the uninstall key in `updater.rs`, and `hub.txt` in the release (branch `hub/installer-requirements`, not run by a release). The **split feature** is
-on `main` too but is under "In hand" below, because none of it is released. New notes are named
-in lower case with hyphens (D-075, D-083). 636 app tests and 543 in the core, the workspace green;
-the 74 tests of the record and the move run in the shared repo.
+`docs/release-notes/1.3.0.md` lists it in full. In short:
+- **The notes library**: the Notes pane, its menus and keyboard, the library folder as a setting,
+  a `home:` folder per group (6a), the re-read on a worker thread, phase 0's protections.
+- **Split into notes** (R1, 5.3): the plan card, the writer with a record per run in
+  `<library>/.runs`, undo, "AI runs…". **Split by AI** (4b, D-089). **The original in the Recycle
+  Bin** (T, D-092). **Move the notes** (6b, D-085), carrying their pictures (D-091, D-093).
+- **Settings as pages** in both apps (D-086, D-087, D-094), every page fitting at 520x360.
+- **Issues #7 and #8** (D-096): the Preview dropdown and default mode, "New file" on the empty
+  window, plain paste on Ctrl+Shift+V (mdview preview moved to Ctrl+Shift+L), New, Save and AI
+  edit on the bar, rich paste as Markdown (off by default).
+- **A closed mdview is noticed** (D-097): mdview sends `?closed`; mdedit checks on focus and when
+  a menu opens; nothing runs while idle.
+- **For Hub** (D-098): a version resource in `mdedit.exe`, the uninstall key with its hive, and
+  `hub.txt` as the release's sixteenth asset; the workflow step has never run in a release.
+- Visual editing's scrollbar and `Ctrl+E` following the tab; "Leave out the tab you were last on
+  too"; new notes named in lower case with hyphens (D-075, D-083).
+
+The workspace's tests: 1338 pass, fmt and clippy clean (2026-11-23, Windows). Two Settings labels
+were shortened so `ci` passes on Linux again (D-099).
+
+## Making 1.3.0 ready (the owner, 2026-11-23: "Ready 1.3.0 first")
+
+- **Budgets: no change against 1.2.1.** `docs/measurements/2026-11-23-1.3.0-against-1.2.1.md`:
+  `sample.rs` 94.1 ms and 27.3 MiB in both; `sample.md` 121.5 ms and 36.4 MiB against 120.4 and
+  36.6, over the first-frame and memory budgets in 1.2.1 already.
+- **`ci` on `main`**: red on Linux since the paged Settings (two labels too wide); fixed in
+  `ee18685`, not yet seen green.
+- **The owner's hand check**: `target\for-owner\9-release-1.3.0\CHECKLIST.md`. Settings, the
+  split and its undo, the Recycle Bin, the move, the dropdown and a closed mdview were approved by
+  pictures or tested in code and never used in a live window. Split by AI was never run against a
+  real provider: try it or leave it out of the notes.
+- **Not reviewed**: nothing since 1.2.0 has had an outside review (audit 3's fixes included).
+- **mdview 1.0.5** is on its `main` too (`docs/release-notes/1.0.5.md` there): Settings as pages,
+  `?closed`, the version resource and `hub.txt`. Its `ci` on Linux had the same label fault,
+  fixed in `e41ea3f`, not yet seen green.
+- Then the tag `v1.3.0` (`docs/RELEASE.md`), only when the owner says so.
 
 ## In hand
 
-- **The split feature** (`ai-library-plan.md` 5.3; **no release yet**): the plan card on
-  `mdedit_core::split`, the writer (`mdshared_app::runs`, a record per run in `<library>/.runs`)
-  and undo. "Split into notes…" is in the tab menu, the palette, the AI menu and the Notes
-  library submenu, refused with "Save {name} first" until the document is on disk and saved;
-  `--plan-demo <name>` draws eight shots. Every refusal it can know is made before the first
-  file (D2, D-069 to D-073), the group's file is made before the notes, and undo re-reads the
-  library and removes a note only if nothing lists it. Audit 3 is closed, C1 included. **Split
-  by AI** (phase 4b, D-089, DESIGN 76): "Ask the AI…" on the card, the contract in
-  `mdshared_app::split::answer`, 12 shots `plan-split-ai*` (approved, D-090), never run on a real provider. Not
-  built: the progress row with Cancel, per-source headings, parallel requests. **The original in
-  the Recycle Bin** (phase T, D-092, DESIGN 77): approved by the owner (D-095).
-- **"Move the notes…"** (`ai-library-plan.md` 5.12, phase 6b): the core is on `main` as
-  `mdshared_app::moves` (50 tests; DESIGN 74), and the window on a group's row menu: the move
-  card, the write through the library gate, the results, undo from "AI runs…", tabs following
-  their file (DESIGN 75, D-085; 12 tests; shots `move-notes`, `move-notes-small`,
-  `move-results`, both themes, **approved by the owner**, D-090). Never clicked
-  through in a live window; a move across volumes never run. The library move from Settings is
-  not offered. Review fixes in D-084. A moved note carries its own pictures and rewrites its
-  other relative links (D-091, D-093). **Left from the review:** a crash between the library rewrites and the digest update gives a half-undo; emptied
-  folders in a home outside the library stay.
-- **Phase S3** (D-081, D-088) is done: `runs`, `moves`, the split checker (`split::Lines` over
-  `Buffer`) and the plan card (`mdshared_ui::plan`) are shared, at shared `842ec3f`. **Phase S**
-  is done too: the library tree's rows are `mdshared_app::library::tree`, shared `ecfcdf9`. All
-  mdedit shots byte-identical but the clock, both times.
-- **The settings redesign's shared half** is on shared `main` at `9df8bc8`:
-  `mdshared_ui::settings::pages` beside the old `Form` (proved unchanged frame for frame), built
-  from the approved design on `mock/settings` (D-086). Fit test at 520x360 and 1280x800, scales
-  1, 1.5, 2; 52 specimen pictures (`cargo test -p mdshared-ui specimen -- --ignored`) looked at
-  by Claude (the owner approved mdedit's use of them, D-090). The dead draft still sits uncommitted in the shared
-  repo's own checkout; it is superseded and can be dropped.
-- **mdedit's Settings on the paged form** (D-087, D-090): **merged into `main`**, approved by the
-  owner by its shots. Never clicked through in a live window. mdview's half is merged too
-  (mdview `29bf0ab`, D-094): the settings redesign is done.
-- **Issues #7 and #8** (D-096, DESIGN 78): the Preview dropdown, "New file" on the empty screen,
-  plain paste on Ctrl+Shift+V (mdview preview on Ctrl+Shift+L), New, Save and AI edit on the
-  bar, rich paste as Markdown (off by default). Approved by the owner on a build and merged.
-- **mdview closed by hand** (D-097, DESIGN 54) is noticed: mdview sends `?closed`, mdedit checks
-  on focus and on a link menu. Merged in both apps; not yet tried by the owner.
-- **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
-- **A terminal, drawn**: `mock/terminal`, `..\mdedit-term`, 20 shots; verdict in `docs/ideas/terminal.md`.
-- **A downloader window, drawn**: `mock/downloader`, `..\mdedit-dl`, 11 states in
-  `shots\mock-dl\`; lessons in its README, costing in the uncommitted `ecosystem-ideas.md` 6b-6d.
-- **A local-LLM workbench, drawn**: branch `mock/workbench`, worktree `..\mdedit-llm`, `--mock
-  llm-<name>`, 12 states plus a real-editor `saved` shot in `shots\mock-llm\`. Holds up as a tab
-  of mdedit, as `ecosystem-ideas.md` 8 said; columns under 300 px need a narrow form, five is the
-  most at 1280 px; the picker has to say "one GPU" and offer one model at a time.
-- **A launcher and updater for every app with a setup, drawn**: branch `mock/launcher`, worktree
-  `..\mdedit-hub`, `--mock hub-<name>`, 12 states in both themes (four also at 860x600) in
-  `shots\mock-hub\`. Its README lists the eight apps with installers on GitHub and their four
-  manifest formats (two have none). Wants to be its own small tray app, not part of mdedit.
+- **Phase R2**, the review with ticks and the tinted, level preview (`ai-library-plan.md` 5.5,
+  D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
+  of it exists.
+- **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
 
-- **`docs/ai-library-plan.md`**: answered on 2026-11-22 and rewritten to match (D-074 to D-082):
-  section 8 is 16 phases, 49 to 50 days, about 11 done. Open: the resizer for phase V, a new
-  crate to be priced. **No release for now** (the owner, 2026-11-22): 1.3.0 is not tagged.
-- **D-083 to D-089**, taken by Claude with the owner away, as asked; each says what overturns it.
-- **`docs/archive/settings-redesign.md`**: both apps' Settings as a category list, one page each, nothing
-  scrolling. Designed and drawn (80 shots, `mock/settings`), 8.5 days: 5 shared, 2 mdedit, 1
-  mdview, 0.5 platforms. Approved by the owner; the copy on `main` is the first round, the
-  approved one is on `mock/settings`. The shared half and mdedit's are built and merged (above).
-- **This arrangement of the documents** (D-058), listed in `docs\REORG.md` on `mock/ai-review`.
-- The notes library has been used by the owner in a real build and its two faults fixed, but it
-  is not recorded anywhere as approved.
+- The hand check and the tag (above).
+- **`docs/ai-library-plan.md`** section 8, in order after R2: W, V, 4a, 4, 5, drag and drop.
+  Open: the resizer for phase V, a new crate to be priced first (rule 7).
+- **The apps that may join**: `docs/ideas/README.md` lists each plan and drawing (terminal, file
+  manager, task manager, downloader, workbench, and the quickest first release).
+- **Dependabot**: open PRs (mdedit #9 regex-automata; mdview #2 to #6; shared #2 to #7) and a
+  `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Best left until
+  after the release.
+- The notes library has been used in a real build and its two faults fixed, but it is not
+  recorded anywhere as approved.
 
 ## Next
 
-1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/ideas/terminal.md`, once the uncommitted work
-   in that file (§6b-6d, someone else's) is committed or dropped.
-2. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
+1. `ci` green on both `main`s; the owner's hand check; then the tags, when the owner says.
+2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
 
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
-- The AI review has no scrollbar and cuts long lines.
+- The AI review has no scrollbar and cuts long lines (R2 ends this).
 - The editor never reads the AI engine's version.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note with nothing listing them and splitting that document again writes nothing
-  (every note reads "already there" and comes unticked). Both fixes want the Recycle Bin: the
-  question should offer to take the notes with the list, and such a row should offer *link it
-  anyway*. Found by the owner.
+  (every note reads "already there" and comes unticked). Found by the owner.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
+- **The move**: a crash between the library rewrites and the digest update gives a half-undo;
+  folders emptied in a home outside the library stay.
 - **A debug build still aborts on a closed stderr** (a release build does not): something that
-  runs only in debug prints with `std`'s `eprintln!`, not yet found. A plain debug `cargo test`
-  fails `closed_stderr`; CI runs release and is unaffected.
-- **Shared CI on Linux:** the `D:/…` library tests are fixed (shared `7a6f013`; green on the
-  Macs and Windows), but `pane::tests::names_show_while_they_fit…` measured 230 px on one Linux
+  runs only in debug prints with `std`'s `eprintln!`. A plain debug `cargo test` fails
+  `closed_stderr`; CI runs release and is unaffected.
+- **Shared CI on Linux:** `pane::tests::names_show_while_they_fit…` measured 230 px on one Linux
   run and passed on the one before: it depends on the runner's fonts.
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
+- The uninstall entry of an installed copy says the version it was installed at (1.0.6 on the
+  owner's PC); from 1.3.0 an update the app installs itself records the new one (D-098).
 
 ## Known gaps, not planned unless they get in the way
 
-A Linux trash entry gets no deletion date (D-092); a note missing on
-disk is marked at the next re-read; the Files and Functions faces have no keyboard; the notes pane
-has no sort or filter; the plain preview and side-by-side have no scrollbar; no access keys in the
-line-ending and encoding menus; no function list for Vue or Svelte; column selection pads short
-lines on typing only; no compare arrows with wrap on; the Markdown menu needs more than 800 px.
+A Linux trash entry gets no deletion date (D-092); a note missing on disk is marked at the next
+re-read; the Files and Functions faces have no keyboard; the notes pane has no sort or filter; the
+plain preview and side-by-side have no scrollbar; no access keys in the line-ending and encoding
+menus; no function list for Vue or Svelte; column selection pads short lines on typing only; no
+compare arrows with wrap on; the Markdown menu needs more than 800 px. Split by AI has no progress
+row with Cancel and no headings per source; the Recycle Bin cannot restore an original (D-071).
 
-## Not measured, not reviewed, not checked by hand
+## Not checked by hand
 
-- **Budgets.** Private memory is over the 30 MiB budget with a big library (30.4 MiB at 2,000
-  notes; 31.0 with 70) and the owner forgave it (D-063). The first-frame figure here moves with
-  the day, so only before against after, run in turn, means anything:
-  `docs/measurements/2026-11-21-since-phase-1.md`, `…-library-rework.md`.
-- **Reviews.** Audit 3 (Fable, `docs/review-prompts/`) found nine live faults; all fixed on
-  `main`. None of those fixes, nor anything since 1.2.0, has been reviewed.
-- **Never checked by hand:** Linux blur, image paste on Linux, the AppImage and packages, the
-  macOS builds, the Windows installer, and an installed copy updating itself.
+Linux blur, image paste on Linux, the AppImage and packages, the macOS builds, the Windows
+installer, an installed copy updating itself, and `hub.txt` read by Hub from a real release.
 
-## Pins, branches, worktrees
+## Pins, branches, worktrees (tidied 2026-11-23)
 
-- Shared crates at `09c67cd` (the settings draft above sits uncommitted in the shared checkout,
-  at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview pins shared `09c67cd` (mdview `63919af`).
-- Merged into `main`: every `f/…` and `release/1.2.0`. Drawings that must not merge:
-  `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` is merged; its copy on
-  GitHub is the pre-rebase draft (a force-push was refused) and can be deleted.
-- Worktrees: the `mock/…` drawings (`..\mdedit-mock`, `-settings`, `-term`, `-dl`, `-llm`, `-hub`;
-  build folders deleted).
+- Shared crates at `09c67cd` in both apps. Viewer crates at viewer `e2b3e31`; winit `62fa727`,
+  softbuffer `dd18fec`.
+- Branches here: `main`; the drawings `mock/ai-review`, `mock/settings`, `mock/terminal`,
+  `mock/downloader`, `mock/workbench` (local only), `mock/launcher`, `mock/file-manager`,
+  `mock/task-manager` (also on GitHub), never to be merged; `archive/doc-reorg-draft` (local:
+  the D-058 rearrangement as drafted); on GitHub, `spike/frosted-window` and `chore/dependabot`.
+  Every merged branch was deleted, here and on GitHub, in all three repos.
+- Kept as found, local, unpushed: the shared repo's `archive/settings-draft-uncommitted`, Hub's
+  `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
+- Worktrees: none but `main`. The folders three finished sessions still hold under
+  `.claude\worktrees\` are empty.
