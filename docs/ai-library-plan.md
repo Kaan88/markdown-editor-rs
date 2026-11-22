@@ -440,9 +440,9 @@ and the question says exactly what will go and what will stay. The rules, in the
    regular file with the extension a run writes, and its SHA-256 is the recorded one, read again
    as it goes. A file that was there before the run is not the run's: its line comes out, it
    stays, and the question says "1 file was there before this run and is kept." A note you have
-   changed since is kept and listed as "changed since, kept". Removal goes to the Recycle Bin once
-   phase T is built, and is a plain delete before that (the `trash` crate is not in yet:
-   D-071); either way it is a file this run created and nobody has touched.
+   changed since is kept and listed as "changed since, kept". Removal goes to the Recycle Bin
+   where the file's drive has one, and is a plain delete where it has none (phase T, D-071);
+   either way it is a file this run created and nobody has touched.
 4. A library file the run created (`group.created`, set only when it made the file) is removed
    only if, after its links are gone, it holds nothing but its heading and its `home:` line.
 5. Folders the run made (the record lists only those) are removed only if empty (`remove_dir`
@@ -1368,7 +1368,7 @@ release builds run in turn with a fresh settings folder, as phase 1 did it).
 | S3 | What R1 built in mdedit moves to the shared crates: the plan card, the split checker, the record (`runs`) and the move (`moves`); mdedit's shots unchanged (D-081, replaces S2) | 1.5 | **Done**, on `main` (D-088): `runs` and `moves` at shared `9545607`; the split checker (`mdshared_app::split`) and the plan card (`mdshared_ui::plan`) at shared `842ec3f`; shots unchanged |
 | 6b | "Move the notes…", and the flat notes into their group's folder (5.12) | 2 | **Built, on `main`** (D-084, D-085); the owner's look and the pictures question left |
 | 4b | Split by AI, with requests in parallel (5.2, 3.5, 3.6, D-080) | 3.5 | **Done** on branch `f/split-ai`, not merged: "Ask the AI…" on the plan card, the outline, the answer's checks and the panel's split prompts (`mdshared_app::split::answer`, `mdshared_ui::plan`). One document is one request, so the per-connection parallel setting is not built here: it goes with the first phase that sends several |
-| T | The original in the Recycle Bin (5.4) | 1.5 | `trash` approved |
+| T | The original in the Recycle Bin (5.4) | 1.5 | **Done** on branch `f/recycle`, not merged: the box on the plan card with every reason of 5.4, step 8 last, the report's lines, undo waiting for the original and its removals to the bin (`mdshared_ui::platform::recycle` under the feature `recycle`, `trash` 5.4.0; `runs::recycle_source`). Not built: D-071's second question, restoring from the bin |
 | R2 | The review with changes and ticks, and the tinted, level preview (5.5, D-077) | 6 | |
 | W | The AI task window over files; "Rewrite them" edits in place after the review, the original kept in the record (5.6, D-074, D-076) | 5.5 | |
 | V | Pictures the model can see, at the owner's choice (5.6, D-078) | 0.5 to try, then 4.5; 6.5 with the resizer | The resizer is asked for and priced first (rule 7) |

@@ -2328,8 +2328,8 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
 
 - **The order is 4.3's, and every prefix is a state one can live with.** The record first; then
   the folders; then the pictures; then the notes; then the read-back; then the library file; then
-  the record closed; step 8 (the Recycle Bin) is phase T and not built. Nothing is linked before
-  it exists, and the source is read and never written.
+  the record closed; step 8, the original in the Recycle Bin when the card's box is ticked, last
+  (77). Nothing is linked before it exists, and the source is otherwise read and never written.
 - **Creating is `mdshared_app::files::create_new`**, which checks the name, writes a temporary
   beside it and renames without replacing: a file is never overwritten, and a name taken between
   the check and the rename is refused, not replaced. Pictures are `name.ext`, or `name 2.ext`
@@ -2376,7 +2376,8 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   "The run is not undone · {why} Try again." and the held notes are listed. `with_headings_removed`
   joins with the file's own line ending, as every writer in `mdshared_app::library` does.
   **Finish** writes the line the record holds (not the absolute path) through the same `Reach`.
-  The Recycle Bin for undo's removals is not built (D-071).
+  Undo's removals go to the Recycle Bin where the file's drive has one, and are a plain delete
+  where it has none (77).
 - **"AI runs…"** lists the records when it is opened (never at start), newest first, with "Show
   the notes", "Undo this run…" and, for a run that stopped, "Finish".
 - **"Split into notes…"** is in the tab's menu, the palette, the AI menu and the Notes library
@@ -2646,3 +2647,57 @@ opens first, with no request; the AI is a second step on the same screen.
 - Tests: `split::answer` (shared: every check of 5.2 has an answer that trips it), the card's AI
   tests in `mdshared_ui::plan` (5), `app::split_ai_tests` (6, with the stand-in engine of
   `ai_tests`), and `mdedit_core::ai`'s `kind:` tests (2).
+
+## 77. The original in the Recycle Bin (2026-11-22, branch `f/recycle`)
+
+`docs/ai-library-plan.md` 5.4, phase T, D-046: a box on the plan card puts the document the notes
+were cut from in the Recycle Bin, as step 8 of the write, last.
+
+- **The dependency is `trash` 5.4.0, pinned exact, behind `mdshared_ui::platform::recycle`** under
+  the cargo feature `recycle`, off by default: mdview never builds it, mdedit opts in. Its default
+  features are off (no `chrono`, no `jiff`), `coinit_apartmentthreaded` and `freedesktop` on. It
+  adds one package to `Cargo.lock` and 30 KiB to the exe, and nothing runs at start.
+- **What the system is asked** (`platform/recycle.rs`). `recycle_refusal(path)` says why a file
+  cannot go, in the card's words (`BinRefusal`): on Windows a UNC path, or a drive that is not a
+  local fixed one (`GetVolumePathNameW`, `GetDriveTypeW`), has no bin; the `NoRecycleFiles` policy,
+  the volume's "delete instead" setting (`BitBucket\Volume\{GUID}\NukeOnDelete`) and a failing
+  `SHQueryRecycleBinW` make it unavailable, with the reason. Elsewhere the file must be on the same
+  device as the home bin (`$XDG_DATA_HOME/Trash` or `~/.local/share/Trash`; `~/.Trash` on macOS).
+  `recycle(path)` asks again, takes only a regular file, runs `trash::delete` on a thread of its
+  own (the crate's COM start panics on failure, and a panic ends the release build: on a fresh
+  thread there is nothing to fail against), and checks the file is gone. On Linux it first checks
+  `/proc/mounts` is text, since the crate unwraps it. `open_recycle_bin()` opens it in Explorer;
+  elsewhere it says it cannot.
+- **The card** (`mdshared_ui::plan`). `PlanScreen.recycle: Option<RecycleBox>`, `None` unless the
+  window sets it, so a caller that does not is drawn as before. The row reads "Put {name} in the
+  Recycle Bin"; ticked, "Every line is in a note, so nothing is lost. It can be restored from the
+  Recycle Bin.", and the footer's sentence ends "then puts {name} in the Recycle Bin.". Disabled,
+  it gives the reason: the window's (`refused`: no bin on this drive, only for one document at a
+  time, not available here) or "N lines are in no note." with the one-click answer "Keep them in a
+  note called 'The rest'", which ticks the rest and nothing else. The owner's wish (`wanted`) is
+  kept while the box is disabled; then the strip's gaps, the legend's swatch and the reason are in
+  the warning colour.
+- **Step 8** (`runs::recycle_source`, shared). Only when every planned note was written, read back
+  and listed, the record is closed as done, and the source is still the length and SHA-256 that
+  was read; then `Bin::recycle`, then `source.recycled` in the record and a `recycled` step line.
+  The window asks the drive again first, since the card's answer may be old. A refusal leaves the
+  source where it was and says so in the toast and in the report ("Not in the Recycle Bin");
+  success adds "In the Recycle Bin" and, when a library file lists the source as a note
+  (`runs::listed_in`), "is still listed under {group}; it will show as missing."
+- **Undo** (`runs::undo_with`). A run whose source is in the bin is refused until it is back
+  ("Put '{name}' back from the Recycle Bin first, then undo."), and the question then has "Open the
+  Recycle Bin". Its removals go to the bin where the drive has one (`recycle::ForUndo`), with "The
+  notes go to the Recycle Bin." in the question, and are a plain delete where it has none, as
+  before. A file the bin refuses is kept and listed apart ("Not put in the Recycle Bin, kept").
+  D-071's second question ("undo anyway") is not built: the bin emptied means undo stays refused.
+- **The window holds a `Box<dyn RecycleBin>`** (`bins/mdedit/src/recycle.rs`): the system's in a
+  build, `NoBin` in a test window, and a test's `FolderBin` (a folder files are moved into, with
+  its calls counted) where a test wants one. No test reaches the system's bin, except the shared
+  `#[ignore]` test that recycles a temporary file of its own and is run by hand.
+- **Not built:** restoring from the bin (the owner does it in Explorer); a run of several documents
+  (the reason exists, and nothing sets it yet).
+- Shots: `--plan-demo split-bin-offered|split-bin|split-bin-gaps|split-bin-wanted|split-bin-drive|split-bin-several|split-bin-system`
+  and the reports `split-bin-report|split-bin-kept`, both themes; `runs-undo` and
+  `runs-undo-recycled` now show the sentence and the button (they ask this machine's bin).
+- Tests: `platform::recycle` (shared, 4, and 1 ignored), the card's `recycle_*` (6),
+  `runs`' step 8 and undo (9), and `app::recycle_tests` (11).
