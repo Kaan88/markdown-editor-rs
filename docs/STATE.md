@@ -45,8 +45,9 @@ the 74 tests of the record and the move run in the shared repo.
   line); a crash between the library rewrites and the digest update gives a half-undo; emptied
   folders in a home outside the library stay.
 - **Phase S3** (D-081, D-088) is done: `runs`, `moves`, the split checker (`split::Lines` over
-  `Buffer`) and the plan card (`mdshared_ui::plan`) are shared, at shared `842ec3f`; all mdedit
-  shots byte-identical but the clock.
+  `Buffer`) and the plan card (`mdshared_ui::plan`) are shared, at shared `842ec3f`. **Phase S**
+  is done too: the library tree's rows are `mdshared_app::library::tree`, shared `ecfcdf9`. All
+  mdedit shots byte-identical but the clock, both times.
 - **The settings redesign's shared half** is on shared `main` at `9df8bc8`:
   `mdshared_ui::settings::pages` beside the old `Form` (proved unchanged frame for frame), built
   from the approved design on `mock/settings` (D-086). Fit test at 520x360 and 1280x800, scales
@@ -93,7 +94,7 @@ the 74 tests of the record and the move run in the shared repo.
 2. "Move the notes…": the owner looks at its three shots; then the pictures question.
 3. The settings redesign: the owner looks at the `settings-*` shots of the mdedit branch; merge;
    then mdview's half.
-4. Then section 8's order: S, 4b, T, R2, W, V, 4a, 4, 5, drag and drop. No release.
+4. Then section 8's order: 4b, T, R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`
 
@@ -138,7 +139,7 @@ lines on typing only; no compare arrows with wrap on; the Markdown menu needs mo
 
 ## Pins, branches, worktrees
 
-- Shared crates at `842ec3f` (the settings draft above sits uncommitted in the shared checkout,
+- Shared crates at `ecfcdf9` (the settings draft above sits uncommitted in the shared checkout,
   at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview still pins `cb0ffd3`.
 - Merged into `main`: every `f/…` and `release/1.2.0`. Drawings that must not merge:
   `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` is merged; its copy on
