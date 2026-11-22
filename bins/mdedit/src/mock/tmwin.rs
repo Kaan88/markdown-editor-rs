@@ -568,7 +568,7 @@ fn head_title(c: C) -> &'static str {
         C::Cpu => "CPU",
         C::Mem => "Memory",
         C::Commit => "Commit",
-        C::Disk => "Disk",
+        C::Disk => "Disk I/O",
         C::Net => "Network",
         C::Gpu => "GPU",
         C::Handles => "Handles",
@@ -1048,8 +1048,13 @@ fn table(p: &mut Painter, pal: &Palette, r: Rect, sc: &Scene, v: &[P]) -> Vec<(u
                             );
                         }
                         C::Net => {
-                            let t = if sc.elevated || true {
-                                d::fmt_rate(agg(v, *i, collapsed, |q| q.net), "Mbps")
+                            // Standard user: Windows gives the connections of each program, not
+                            // its bytes. Bytes need a trace session, which needs administrator.
+                            let n = agg(v, *i, collapsed, |q| q.net);
+                            let t = if sc.elevated {
+                                d::fmt_rate(n, "Mbps")
+                            } else if n > 0.0 {
+                                format!("{} conn", (n * 3.0) as u32 + 2)
                             } else {
                                 "\u{2014}".into()
                             };
