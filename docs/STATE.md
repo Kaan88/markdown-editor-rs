@@ -57,9 +57,7 @@ the 74 tests of the record and the move run in the shared repo.
   and the mdedit (2 days) and mdview (1 day) halves. The dead draft still sits uncommitted in
   the shared repo's own checkout; it is superseded and can be dropped.
 - **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
-- **A terminal, drawn**: branch `mock/terminal`, worktree `..\mdedit-term`, 20 shots in
-  `shots\mock-term\`. What it established, and the verdict (possible, as a third app, blocks
-  only), are in `docs/terminal.md`.
+- **A terminal, drawn**: `mock/terminal`, `..\mdedit-term`, 20 shots; verdict in `docs/terminal.md`.
 - **A downloader window over NewsQueue and Inbound, drawn**: branch `mock/downloader`, worktree
   `..\mdedit-dl`, 11 states in `shots\mock-dl\`; what drawing taught is in its README. Costing is
   in the uncommitted `ecosystem-ideas.md` 6b-6d.
