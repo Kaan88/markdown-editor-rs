@@ -18,7 +18,8 @@ D-097 are Claude's; D-090, D-091, D-094 to D-096 the owner's). If `git log -1` i
 `home:` folder per group), **the notes pane on a large library** (the re-read on a worker thread,
 stamps kept for the staleness check, "512 of 583 groups shown"), **visual editing** (a page
 scrollbar, and `Ctrl+E` follows the tab), "Leave out the tab you were last on too", Save As
-offering `.md` to an AI-made note, and the shared tick box and switch. The **split feature** is
+offering `.md` to an AI-made note, and the shared tick box and switch. For Hub (D-096): a version resource in
+`mdedit.exe`, the uninstall key in `updater.rs`, and `hub.txt` in the release (branch `hub/installer-requirements`, not run by a release). The **split feature** is
 on `main` too but is under "In hand" below, because none of it is released. New notes are named
 in lower case with hyphens (D-075, D-083). 636 app tests and 543 in the core, the workspace green;
 the 74 tests of the record and the move run in the shared repo.

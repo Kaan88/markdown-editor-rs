@@ -994,3 +994,41 @@ or closed if nothing is left. `Menu::chosen` and `Menu::pointer` became bounds-s
 so the checks ride on events.
 **Overturned by.** The owner, if a closed mdview is still missed.
 **From.** The owner's report, 2026-11-22; built by agents, recorded by Claude.
+
+## D-098 · 2026-11-22 · What mdedit gives Hub: a version resource, its uninstall key, and hub.txt
+
+**Decision.** For the owner's launcher and updater Hub (its `docs/APP-CHANGES.md`, mdedit section): `build.rs` embeds a VERSIONINFO
+resource (file and product version from `Cargo.toml`) with the icon, no new dependency; `updater.rs` names the installer's entry with
+its hive (`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{AppId}_is1`), so the shared `record_version` writes
+`DisplayVersion` after the app's own update; the `publish` job writes `hub.txt` with `tools/write-hub-txt.ps1` (a copy of Hub's
+script, first line naming Hub's commit) and uploads it as the sixteenth asset. `mdedit-update*.txt` stay: builds up to 1.2.1 read them.
+Not done here: the `close` request (waits for a shared-crate change) and standing down when Hub manages the app (the owner's question 3).
+**Why.** Hub detects by the exe's version resource first and the uninstall entry second, and checks `releases/latest/download/hub.txt`.
+**Overturned by.** The owner, or Hub's own decisions D-004 and D-007 changing the format or the stand-down.
+**From.** The owner, 2026-11-22 ("write pr's for installer requirements"); written by Claude.
+
+## D-099 · 2026-11-23 · Hub's installer PRs merged; two Settings labels shortened for Linux
+
+**Decision.** The owner said to merge the installer PRs: mdedit's `hub/installer-requirements`
+(D-098, its D-096 renumbered) and mdview's, both into `main`. With them, the two Settings labels
+that failed `ci` on Linux since the paged Settings (wider fonts: "needs 145 of 139", "needs 235 of
+223") are shortened in both apps: the seconds under "Don't reopen tabs barely looked at" read
+"Shown for less than" (each app's own label; the shared `brief::SECONDS` is left as it is, rule
+8), and "Make mdedit the default for text files" became "Make mdedit the default" with the help
+line "For text files.", as mdview's did (D-094). The palette's command keeps its long name.
+**Why.** `ci` must be green on `main` before a release, and the owner asked for 1.3.0 to be made
+ready first.
+**Overturned by.** The owner, on the wording.
+**From.** The owner, 2026-11-23 ("merge the installer related one", "merge the one for mdview
+too"); the labels by Claude.
+
+## D-100 · 2026-11-23 · mdview's Notes face, its "Add to the notes library", and the code written twice: yes
+
+**Decision.** The owner said yes to the three items of `ai-library-plan.md` 7.4 and 7.5 that
+waited for one: M1, a read-only Notes face in mdview's left pane (3 days); M2, "Add this file to
+the notes library…" in mdview (1 day, after M1); D, the dialog skeleton, the crash bar's glue and
+`frost.rs` moved into the shared crates (1.5 days). Not started: the owner then stopped all work
+and asked for 1.3.0 to be made ready first. D waits for R2, whose dialog code it would cross.
+**Why.** The owner's answer, 2026-11-23: "m1: yes, add it / m2: yes / d: do it."
+**Overturned by.** The owner.
+**From.** The owner, 2026-11-23.

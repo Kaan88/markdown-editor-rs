@@ -760,7 +760,7 @@ mdedit updates itself with the code mdview uses, all of it in `markdown-shared-r
 
 | Where | What |
 |---|---|
-| `bins/mdedit/src/updater.rs` | `APP` (name, version, manifest address, no engine, no installer entry), `fetch` with the user agent `mdedit`, `--check-update` |
+| `bins/mdedit/src/updater.rs` | `APP` (name, version, manifest address, the engine and the AI engine, the installer's uninstall key), `fetch` with the user agent `mdedit`, `--check-update` |
 | `docs.rs` | `Docs::updates` (the shared `Updates`) and `Docs::check_updates` (the setting), so drawing code sees them |
 | `session.rs` | `check_updates=0\|1` (default 1) and `update_checked=<seconds since 1970>` |
 | `ui.rs` | `Areas::compute` takes the height of a bar under the command bar; it is part of the Bar region. `Hit::UpdateGo`, `Hit::UpdateClose` |

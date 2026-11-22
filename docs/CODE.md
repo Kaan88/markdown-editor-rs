@@ -38,7 +38,7 @@ Version 1.3.0, edition 2024. Lines counted on 2026-11-21, tests included.
 | `bins/mdedit-ai` | 3,786 | The AI engine, a separate program. JSON lines on stdin and stdout (`proto.rs`); it holds the keys (`keys.rs`) and makes every request (`api.rs`, `cli.rs`). The editor starts it with the first request it has for it (`Ai::ask`), never at launch |
 | `fixtures/` | | Small test files with exact bytes; `fixtures/make_fixtures.py` writes them and `.gitattributes` keeps git from converting them |
 | `tests/` | | `shots.sh` and `shots-check.sh` (below), and scripts for the Mac runners |
-| `tools/` | | `release.ps1`, `release-all.sh`, `write-manifest.sh` (releases); `compare-builds.py` (budgets) |
+| `tools/` | | `release.ps1`, `release-all.sh`, `write-manifest.sh`, `write-hub-txt.ps1` (releases; the last is a copy from Hub); `compare-builds.py` (budgets) |
 | `packaging/` | | The Windows installer and zip, the Linux packages, the Mac bundle |
 | `shots/` | | Pictures committed for the owner to look at |
 | `spikes/` | | Throwaway code from phase 0 and from the visual-editing spike, kept for reference |
