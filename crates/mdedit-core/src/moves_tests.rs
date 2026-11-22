@@ -1620,3 +1620,108 @@ fn the_machine_never_overwrites_with_a_portable_rename_either() {
     assert_eq!(text(&dir.join("b.md")), "two");
     assert_eq!(text(&dir.join("a.md")), "one");
 }
+
+// ---- found by the review of 2026-11-22 ------------------------------------------------------------
+
+#[test]
+fn a_library_file_not_saved_as_utf8_refuses_the_move_before_the_first_file() {
+    let w = world("cp1252");
+    // The reader takes a byte that is not UTF-8 as cp1252 and lists both notes; a move could
+    // not rewrite this file's lines, so it must not move the notes they name.
+    let mut bytes = w.original.clone().into_bytes();
+    let at = w.original.find("[A]").expect("the line") + 2;
+    bytes.splice(at..at, [b' ', 0xE9]);
+    std::fs::write(&w.file, &bytes).expect("the file");
+    let plan = group_plan(&w);
+    assert_eq!(plan.rows.len(), 2, "the plan sees both notes");
+    let report = do_write(&plan.request(), &mut gate(), &mut flaky());
+    let why = report.start_error.expect("refused");
+    assert!(why.contains("Work.md") && why.contains("UTF-8"), "{why}");
+    assert!(w.library.join("Work/Tokyo/a.md").is_file() && w.library.join("Work/b.md").is_file());
+    assert!(!w.work.exists(), "nothing moved, not even a folder made");
+    assert_eq!(std::fs::read(&w.file).expect("the file"), bytes);
+    assert!(records(&w.library).is_empty());
+}
+
+#[test]
+fn undo_is_refused_before_any_file_goes_back_when_the_group_file_has_unsaved_changes() {
+    let w = world("undo-open");
+    let plan = group_plan(&w);
+    let report = do_write(&plan.request(), &mut gate(), &mut flaky());
+    let path = report.record_path.expect("record");
+    let record = runs::load(&path, &w.library).expect("record");
+    let moved_text = text(&w.file);
+    let mut g = gate();
+    g.open = vec![w.file.clone()];
+    let back = undo(&path, &record, &w.library, &mut g, &mut flaky());
+    let why = back.start_error.expect("refused");
+    assert!(
+        why.contains("Work.md") && why.contains("not saved"),
+        "{why}"
+    );
+    assert_eq!(g.edits, 0, "the gate was never asked to write");
+    assert!(
+        back.rolled_back.is_none(),
+        "nothing to roll back: nothing moved"
+    );
+    assert!(w.work.join("Tokyo/a.md").is_file() && w.work.join("Food/b.md").is_file());
+    assert!(!w.library.join("Work/Tokyo/a.md").exists());
+    assert_eq!(text(&w.file), moved_text);
+    assert_ne!(
+        runs::load(&path, &w.library).expect("record").state,
+        State::Undone
+    );
+}
+
+#[test]
+fn undo_leaves_a_note_from_outside_the_library_where_the_move_put_it() {
+    let w = world("undo-outside");
+    let elsewhere = w.dir.join("Documents/old");
+    put(
+        &elsewhere.join("plan.md"),
+        "# Plan
+",
+    );
+    put(
+        &w.file,
+        &format!(
+            "# Work
+
+home: {}
+
+- [Plan]({})
+",
+            slashes(&w.work),
+            slashes(&elsewhere.join("plan.md"))
+        ),
+    );
+    let mut plan = group_plan(&w);
+    plan.set_ticked(0, true);
+    let report = do_write(&plan.request(), &mut gate(), &mut flaky());
+    let path = report.record_path.expect("record");
+    let record = runs::load(&path, &w.library).expect("record");
+    let back = undo(&path, &record, &w.library, &mut gate(), &mut flaky());
+    assert_eq!(back.start_error, None, "{back:?}");
+    assert_eq!(
+        text(&w.work.join("plan.md")),
+        "# Plan
+",
+        "it stays"
+    );
+    assert!(
+        !elsewhere.exists(),
+        "undo makes nothing outside the library"
+    );
+    assert!(
+        back.kept
+            .iter()
+            .any(|(p, why)| p.ends_with("plan.md") && why.contains("outside")),
+        "{:?}",
+        back.kept
+    );
+    assert!(
+        !text(&w.file).contains("Documents"),
+        "its line still names where it is: {}",
+        text(&w.file)
+    );
+}

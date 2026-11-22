@@ -1583,9 +1583,18 @@ fn run(
             .copied()
             .find(|&i| same_path(&rows[i].from, file));
         let at = own.map_or_else(|| file.clone(), |i| rows[i].to.clone());
-        // A library file that is not text lists nothing that can be rewritten.
-        let Ok(text) = std::fs::read_to_string(&at) else {
-            continue;
+        // A file that is gone lists nothing; one that cannot be rewritten stops the run, which
+        // puts back what it moved.
+        let text = match read_library(&at) {
+            Ok(Some(text)) => text,
+            Ok(None) => continue,
+            Err(why) => {
+                failure = Some(Failure {
+                    path: file.clone(),
+                    why,
+                });
+                break;
+            }
         };
         let base_before = file.parent().unwrap_or(Path::new(""));
         let base_after = at.parent().unwrap_or(Path::new(""));
@@ -1876,6 +1885,28 @@ fn rollback(
 
 // ---- refusing before the first file moves -------------------------------------------------------
 
+/// A library file's text, for a move to rewrite. `Ok(None)` when it is not there, or past the
+/// size the library's reader reads (so it lists nothing). A file the reader can read but this
+/// cannot rewrite, one not saved as UTF-8, is refused by name: its lines may list a note that
+/// moves, and a move that cannot rewrite them would leave them naming nothing (D-084).
+fn read_library(path: &Path) -> Result<Option<String>, String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{} could not be read: {e}.", shown(path))),
+    };
+    if bytes.len() > mdshared_app::library::MAX_FILE_BYTES {
+        return Ok(None);
+    }
+    String::from_utf8(bytes).map(Some).map_err(|_| {
+        format!(
+            "{} is not saved as UTF-8, so its lines could not be rewritten. Save it as UTF-8, \
+             then move the notes.",
+            shown(path)
+        )
+    })
+}
+
 /// The library files a request can touch: those in the library folder, and, for a library move,
 /// those in the folder it leaves.
 fn files_of(req: &Request) -> Vec<PathBuf> {
@@ -2026,7 +2057,7 @@ pub fn preflight(req: &Request, gate: &mut dyn MoveGate) -> Result<(), String> {
     for file in files_of(req) {
         let own = req.rows.iter().position(|r| same_path(&r.from, &file));
         let at = own.map_or_else(|| file.clone(), |i| req.rows[i].to.clone());
-        let Ok(text) = std::fs::read_to_string(&file) else {
+        let Some(text) = read_library(&file)? else {
             continue;
         };
         let base_before = file.parent().unwrap_or(Path::new(""));
@@ -2194,7 +2225,7 @@ pub fn write_at(
 /// or is inside the folder a library move left, or was said to be outside by the run. A path
 /// with a `..` in it, a file that would change its name, or a kind of file the run does not
 /// carry refuses the whole record, and the sentence says which.
-fn reach_of(record: &Record, library: &Path) -> Result<Moved, String> {
+fn reach_of(record: &Record, library: &Path) -> Result<(Moved, Vec<usize>), String> {
     if !library.is_absolute() {
         return Err("The library folder is not known, so this run is not undone.".to_string());
     }
@@ -2238,21 +2269,27 @@ fn reach_of(record: &Record, library: &Path) -> Result<Moved, String> {
     } else if m.start == Start::Library {
         return Err("This record does not say which folder the library left.".to_string());
     }
-    let from_ok = |path: &Path, said_outside: bool| {
+    let from_ok = |path: &Path| {
         !has_parent_dir(path)
             && path.is_absolute()
             && (reach.allows(path)
                 || m.library_from.as_ref().is_some_and(|f| {
                     let (p, f) = (canon(path), canon(f));
                     under(&p, &f) && !same_path(&p, &f)
-                })
-                || said_outside)
+                }))
     };
-    for file in &m.files {
+    // A note the owner brought in from outside stays where the move put it: undo writes nothing
+    // outside the library and the group's folder, whatever a record says (D-072, D-084).
+    let mut stay: Vec<usize> = Vec::new();
+    for (i, file) in m.files.iter().enumerate() {
         if !reach.allows(&file.to) {
             return Err(outside(&file.to));
         }
-        if !from_ok(&file.from, file.outside) {
+        if !from_ok(&file.from) {
+            if file.outside && file.kind == FileKind::Note {
+                stay.push(i);
+                continue;
+            }
             return Err(outside(&file.from));
         }
         let same_name = file
@@ -2305,12 +2342,13 @@ fn reach_of(record: &Record, library: &Path) -> Result<Moved, String> {
     }
     // A folder undo may make again is one that holds the place of a file it puts back.
     for dir in &m.emptied {
+        // One that held only a note that stays is never made: nothing goes back into it.
         let holds = m.files.iter().any(|f| under(&canon(&f.from), &canon(dir)));
         if has_parent_dir(dir) || !dir.is_absolute() || !holds {
             return Err(outside(dir));
         }
     }
-    Ok(m.clone())
+    Ok((m.clone(), stay))
 }
 
 /// What undo would do to one move, worked out from the record and the disk as they are now.
@@ -2407,8 +2445,8 @@ fn plan_undo(record: &Record, library: &Path) -> (UndoPlan, Option<Moved>) {
         plan.refusal = Some("This is not a move.".to_string());
         return (plan, None);
     }
-    let m = match reach_of(record, library) {
-        Ok(m) => m,
+    let (m, stay) = match reach_of(record, library) {
+        Ok(found) => found,
         Err(why) => {
             plan.refusal = Some(why);
             return (plan, None);
@@ -2429,6 +2467,13 @@ fn plan_undo(record: &Record, library: &Path) -> (UndoPlan, Option<Moved>) {
     }
     for (i, file) in m.files.iter().enumerate() {
         if !file.done {
+            continue;
+        }
+        if stay.contains(&i) {
+            plan.kept.push((
+                file.to.clone(),
+                "it came from outside the library, and undo writes nothing there".to_string(),
+            ));
             continue;
         }
         match std::fs::symlink_metadata(&file.to) {
@@ -2518,6 +2563,38 @@ fn plan_undo(record: &Record, library: &Path) -> (UndoPlan, Option<Moved>) {
     (plan, Some(m))
 }
 
+/// What a write's [`preflight`] refuses, refused for undo before the first file goes back: every
+/// file and every library file it would rewrite is free, and every library file would take its
+/// lines. Without it a refusal came from the gate after every file had moved back.
+fn undo_preflight(rows: &[ExecRow], setup: &Setup, gate: &mut dyn MoveGate) -> Result<(), String> {
+    for row in rows {
+        gate.free(&row.from)?;
+    }
+    let map = Mapping {
+        pairs: rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i, r.from.clone(), r.to.clone()))
+            .collect(),
+        dirs: setup.dirs.clone(),
+    };
+    for file in &setup.library_files {
+        let own = rows.iter().position(|r| same_path(&r.from, file));
+        let at = own.map_or_else(|| file.clone(), |i| rows[i].to.clone());
+        let Some(text) = read_library(file)? else {
+            continue;
+        };
+        let base_before = file.parent().unwrap_or(Path::new(""));
+        let base_after = at.parent().unwrap_or(Path::new(""));
+        let planned = plan_edits(&text, base_before, base_after, &map, &setup.prefer, own)
+            .map_err(|why| format!("{}: {why}.", shown(file)))?;
+        if planned.is_some() || own.is_some() {
+            gate.free(file)?;
+        }
+    }
+    Ok(())
+}
+
 /// Undoes one move: the files that are still the ones it moved go back, the lines are put back
 /// as they said, and the record is marked "undone". It is the machine of a write run the other
 /// way, so it is refused, rolled back and reported the same.
@@ -2568,6 +2645,10 @@ pub fn undo(
         prefer: m.changes.iter().map(|c| c.edit.clone()).collect(),
         removable: &removable,
     };
+    if let Err(why) = undo_preflight(&rows, &setup, gate) {
+        report.start_error = Some(why);
+        return report;
+    }
     run(&rows, &setup, gate, files, None, &mut report);
     let mut marked = record.clone();
     marked.state = if report.rolled_back.is_some() || !report.failed.is_empty() {
