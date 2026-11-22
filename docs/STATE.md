@@ -1,7 +1,7 @@
 # State of the work
 
 Rewritten, not appended to. Last rewritten 2026-11-22, late, the owner asleep (D-083 to D-089, D-092 and D-093 are
-Claude's; D-090 and D-091 the owner's). If `git log -1` is newer, doubt "In hand" first.
+Claude's; D-090, D-091 and D-094 the owner's). If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -56,7 +56,8 @@ the 74 tests of the record and the move run in the shared repo.
   by Claude (the owner approved mdedit's use of them, D-090). The dead draft still sits uncommitted in the shared
   repo's own checkout; it is superseded and can be dropped.
 - **mdedit's Settings on the paged form** (D-087, D-090): **merged into `main`**, approved by the
-  owner by its shots. Never clicked through in a live window. Left: mdview's half (1 day).
+  owner by its shots. Never clicked through in a live window. mdview's half is merged too
+  (mdview `29bf0ab`, D-094): the settings redesign is done.
 - **Dependabot**: triage done. Left: parley PRs in shared and mdview; `regex-automata` #9 unmeasured.
 - **A terminal, drawn**: `mock/terminal`, `..\mdedit-term`, 20 shots; verdict in `docs/terminal.md`.
 - **A downloader window, drawn**: `mock/downloader`, `..\mdedit-dl`, 11 states in
@@ -88,8 +89,7 @@ the 74 tests of the record and the move run in the shared repo.
 
 1. `ecosystem-ideas.md` 12 gets a line pointing at `docs/terminal.md`, once the uncommitted work
    in that file (§6b-6d, someone else's) is committed or dropped.
-2. The settings redesign: mdview's half.
-3. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
+2. Then section 8's order: R2, W, V, 4a, 4, 5, drag and drop. No release.
 
 ## Known to be wrong on `main`
 
@@ -135,7 +135,7 @@ lines on typing only; no compare arrows with wrap on; the Markdown menu needs mo
 ## Pins, branches, worktrees
 
 - Shared crates at `be0192d` (the settings draft above sits uncommitted in the shared checkout,
-  at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview still pins `cb0ffd3`.
+  at `b4b2182`). Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`; mdview pins shared `be0192d`.
 - Merged into `main`: every `f/…` and `release/1.2.0`. Drawings that must not merge:
   `mock/ai-review`, `mock/settings`, `mock/terminal`. `f/move-notes` is merged; its copy on
   GitHub is the pre-rebase draft (a force-push was refused) and can be deleted.

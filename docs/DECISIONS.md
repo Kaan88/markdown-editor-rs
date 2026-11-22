@@ -943,3 +943,15 @@ notes into a moved note, `<img src>` and wiki-links as links to rewrite.
 **Why.** Carry only what is surely the note's own; when in doubt, rewrite rather than move.
 **Overturned by.** The owner, on using it.
 **From.** The agent that built it, recorded by Claude.
+
+## D-094 · 2026-11-22 · mdview's Settings on the paged form, approved and merged
+
+**Decision.** mdview's Settings is the shared paged form (mdview `29bf0ab`, its shared pin moved
+from `cb0ffd3` to `be0192d` with all 118 of its shots byte-identical): Appearance, Reading (was
+Content), Tabs, Updates. "Make mdview the default for Markdown files" became "Make mdview the
+default" with the help line "For Markdown files.", to fit at 520x360. The dialog reopens on the
+page last shown; a `--settings-section` switch was added for shots and takes the old group names.
+The owner looked at the 20 shots and said to merge. This finishes the settings redesign.
+**Why.** The design approved for both apps; rule 6.
+**Overturned by.** The owner, on using it.
+**From.** The owner, 2026-11-22; built by an agent, recorded by Claude.
