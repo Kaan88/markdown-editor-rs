@@ -967,3 +967,15 @@ and "Paste rich text as Markdown", off by default, with no new dependency.
 **Why.** The owner chose all four; CLAUDE.md lets a feature in only when the owner asks.
 **Overturned by.** The owner, on looking at the branch.
 **From.** The owner, 2026-11-22.
+
+## D-096 · 2026-11-22 · What mdedit gives Hub: a version resource, its uninstall key, and hub.txt
+
+**Decision.** For the owner's launcher and updater Hub (its `docs/APP-CHANGES.md`, mdedit section): `build.rs` embeds a VERSIONINFO
+resource (file and product version from `Cargo.toml`) with the icon, no new dependency; `updater.rs` names the installer's entry with
+its hive (`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{AppId}_is1`), so the shared `record_version` writes
+`DisplayVersion` after the app's own update; the `publish` job writes `hub.txt` with `tools/write-hub-txt.ps1` (a copy of Hub's
+script, first line naming Hub's commit) and uploads it as the sixteenth asset. `mdedit-update*.txt` stay: builds up to 1.2.1 read them.
+Not done here: the `close` request (waits for a shared-crate change) and standing down when Hub manages the app (the owner's question 3).
+**Why.** Hub detects by the exe's version resource first and the uninstall entry second, and checks `releases/latest/download/hub.txt`.
+**Overturned by.** The owner, or Hub's own decisions D-004 and D-007 changing the format or the stand-down.
+**From.** The owner, 2026-11-22 ("write pr's for installer requirements"); written by Claude.

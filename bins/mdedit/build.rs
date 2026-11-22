@@ -1,6 +1,7 @@
 //! Embeds the application icon on Windows when a resource compiler can be found: the SDK's
 //! `rc.exe`, or, when cross-compiling from Linux, LLVM's `llvm-rc` (from the `MD_LLVM_RC`
-//! variable or PATH). Without either the build still succeeds; the exe just has no icon.
+//! variable or PATH). The same resource carries the exe's version (Hub reads it). Without either
+//! the build still succeeds; the exe just has no icon and no version.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -23,9 +24,24 @@ fn main() {
     let icon = manifest.join("../../assets/mdedit.ico");
     let script = out.join("mdedit.rc");
     let res = out.join("mdedit.res");
-    // Resource 1 is the icon Explorer and the taskbar show.
+    // Resource 1 is the icon Explorer and the taskbar show; VERSIONINFO is the version Hub and
+    // Explorer's Details tab read. Numbers only, no #include, so llvm-rc takes it too.
+    let part = |name: &str| std::env::var(name).unwrap_or_default();
+    let numeric = format!(
+        "{},{},{},0",
+        part("CARGO_PKG_VERSION_MAJOR"),
+        part("CARGO_PKG_VERSION_MINOR"),
+        part("CARGO_PKG_VERSION_PATCH")
+    );
+    let version = part("CARGO_PKG_VERSION");
     let text = format!(
-        "1 ICON \"{}\"\n",
+        "1 ICON \"{}\"\n\
+         1 VERSIONINFO\nFILEVERSION {numeric}\nPRODUCTVERSION {numeric}\nFILEOS 0x40004\nFILETYPE 0x1\n{{\n\
+         BLOCK \"StringFileInfo\" {{ BLOCK \"040904B0\" {{\n\
+         VALUE \"CompanyName\", \"Kaan88\"\nVALUE \"FileDescription\", \"mdedit\"\n\
+         VALUE \"FileVersion\", \"{version}\"\nVALUE \"ProductVersion\", \"{version}\"\n\
+         VALUE \"InternalName\", \"mdedit\"\nVALUE \"OriginalFilename\", \"mdedit.exe\"\nVALUE \"ProductName\", \"mdedit\"\n\
+         }} }}\nBLOCK \"VarFileInfo\" {{ VALUE \"Translation\", 0x0409, 0x04B0 }}\n}}\n",
         icon.display().to_string().replace('\\', "/")
     );
     if std::fs::write(&script, text).is_err() {

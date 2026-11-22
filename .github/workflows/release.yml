@@ -278,6 +278,26 @@ jobs:
           # The macOS builds read a manifest of their own.
           packaging/macos/write-manifest.sh mdedit Kaan88/markdown-editor-rs "$VERSION" "$(cat notes/notes-line.txt)" "$all" \
             "$all/mdedit-$VERSION-macos-aarch64.zip" "$all/mdedit-$VERSION-macos-x86_64.zip"
+      - name: hub.txt (for Hub), checked
+        shell: pwsh
+        run: |
+          # The manifest Hub reads (tools/write-hub-txt.ps1, a copy of Hub's script). It refuses, and
+          # writes nothing, anything Hub's parser would refuse, which fails the release here.
+          # The older manifests above stay: builds up to 1.2.1 read them.
+          $all = 'target/release-files-all'
+          $v = $env:VERSION
+          $silent = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+          ./tools/write-hub-txt.ps1 -App mdedit -Repo markdown-editor-rs -Version $v `
+            -Notes (Get-Content notes/notes-line.txt -Raw) `
+            -Kind files -Exe mdedit.exe -Uninstall '{C58A9AB1-8337-4056-9953-04E92C05F414}_is1' `
+            -Wait mdedit-ai.exe, mdview-engine.exe `
+            -Files @(
+              @{ Name = 'mdedit.exe'; Asset = "mdedit-$v-windows-x86_64.exe"; Path = "$all/mdedit-$v-windows-x86_64.exe" },
+              @{ Name = 'mdview-engine.exe'; Path = "$all/mdview-engine.exe" },
+              @{ Name = 'mdedit-ai.exe'; Path = "$all/mdedit-ai.exe" },
+              @{ Name = "mdedit-setup-$v.exe"; Role = 'setup'; Path = "$all/mdedit-setup-$v.exe"; Silent = $silent; Scope = 'user' }
+            ) -Out "$all/hub.txt"
+          Get-Content "$all/hub.txt"
       - name: The manifest test, run against the assembled folder
         run: cargo test --release -p mdedit --test release_manifest -- --nocapture
       - name: Create the GitHub release
@@ -289,7 +309,7 @@ jobs:
             "mdedit-$VERSION-linux-x86_64.AppImage" "mdedit-$VERSION-linux-x86_64.tar.gz" \
             "mdedit_${VERSION}_amd64.deb" "mdedit-$VERSION-1.x86_64.rpm" PKGBUILD \
             "mdedit-$VERSION-windows-x86_64.exe" "mdview-engine.exe" "mdedit-ai.exe" "mdedit-$VERSION-windows-x86_64.zip" \
-            "mdedit-setup-$VERSION.exe" "mdedit-update.txt" "mdedit-update-2.txt" \
+            "mdedit-setup-$VERSION.exe" "mdedit-update.txt" "mdedit-update-2.txt" "hub.txt" \
             "mdedit-$VERSION-macos-aarch64.zip" "mdedit-$VERSION-macos-x86_64.zip" "mdedit-update-macos.txt" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "mdedit $VERSION" \
             --notes-file "$GITHUB_WORKSPACE/notes/release-notes.md" --latest

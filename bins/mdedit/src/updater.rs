@@ -11,8 +11,8 @@ pub use shared::{
 
 /// mdedit as the updater knows it: the executable and, on Windows, the two programs beside it:
 /// the engine for the preview pane's formulas and diagrams (`mdview-engine.exe`, built from the
-/// viewer at the revision mdedit pins) and the AI engine (`mdedit-ai.exe`). No installer entry
-/// yet.
+/// viewer at the revision mdedit pins) and the AI engine (`mdedit-ai.exe`). The installer's entry
+/// is the one the `AppId` of `packaging/windows/mdedit.iss` names.
 ///
 /// Windows reads `mdedit-update-2.txt`, the format-2 manifest that can list `mdedit-ai`;
 /// `mdedit-update.txt` stays format 1 for the builds up to 1.0.6, which refuse any key they do not
@@ -25,7 +25,10 @@ pub const APP: shared::App = shared::App {
     manifest_env: "MDEDIT_UPDATE_MANIFEST",
     engine: Some("mdview-engine"),
     extras: &["mdedit-ai"],
-    uninstall_key: None,
+    // The installer's entry in Windows' list of installed apps (`AppId` in `mdedit.iss`).
+    uninstall_key: Some(
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{C58A9AB1-8337-4056-9953-04E92C05F414}_is1",
+    ),
 };
 
 /// The manifest this build reads (see [`APP`]).
@@ -210,6 +213,30 @@ mod tests {
             MANIFEST_URL.ends_with("/mdedit-update-2.txt"),
             cfg!(windows),
             "{MANIFEST_URL}"
+        );
+    }
+
+    /// The updater records the new version under the installer's own entry, hive included
+    /// (`reg query` and `reg add` take the key as written), and Hub finds the app by the same
+    /// entry: it must be the `AppId` of the installer script, in the per-user hive it installs to.
+    #[test]
+    fn the_uninstall_key_is_the_installers_own_entry() {
+        let iss = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../packaging/windows/mdedit.iss"
+        ))
+        .unwrap();
+        let id = iss
+            .lines()
+            .find_map(|l| l.strip_prefix("AppId={"))
+            .expect("AppId in mdedit.iss");
+        assert!(iss.contains("PrivilegesRequired=lowest"), "per user: HKCU");
+        assert_eq!(
+            APP.uninstall_key,
+            Some(
+                format!(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{id}_is1")
+                    .as_str()
+            )
         );
     }
 
