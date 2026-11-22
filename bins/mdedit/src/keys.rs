@@ -197,6 +197,22 @@ mod tests {
         assert_eq!(c(n(KeyName::Char('y')), CTRL), Some(CommandId::Redo));
     }
 
+    /// No shortcut runs two commands (Ctrl+Shift+V went to plain paste in issue #8, and Preview
+    /// in mdview to Ctrl+Shift+L): the first in the table would win, silently.
+    #[test]
+    fn no_two_commands_share_a_shortcut() {
+        let mut seen: Vec<(Chord, CommandId)> = Vec::new();
+        for c in COMMANDS {
+            for s in c.keys {
+                let chord = parse(mdshared_ui::keys::for_platform(s)).unwrap();
+                if let Some((_, other)) = seen.iter().find(|(k, _)| *k == chord) {
+                    panic!("{s} is {other:?} and {:?}", c.id);
+                }
+                seen.push((chord, c.id));
+            }
+        }
+    }
+
     #[test]
     fn parses_insert() {
         assert_eq!(

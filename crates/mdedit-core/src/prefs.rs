@@ -96,6 +96,12 @@ pub struct Prefs {
     pub brief_last: bool,
     /// mdview shows the text of a previewed document as it is typed, not only when it is saved.
     pub live_preview: bool,
+    /// What the command bar's Preview button opens (issue #7); the pane in this window by
+    /// default, as before the choice.
+    pub preview_mode: PreviewMode,
+    /// Ctrl+V turns the clipboard's HTML into Markdown in a Markdown document (issue #8). Off by
+    /// default.
+    pub paste_rich: bool,
     /// The word list opens by itself after three letters (Ctrl+Space opens it either way).
     pub complete_auto: bool,
     /// A system backdrop behind the chrome (Windows 11); off is the flat colours.
@@ -125,6 +131,61 @@ pub struct Prefs {
     /// The folder of the notes library's files; empty is the default, `library` beside the
     /// settings file.
     pub library_dir: String,
+}
+
+/// Where the Preview button shows a document: the pane beside the text, mdview, or mdview
+/// placed beside this window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum PreviewMode {
+    #[default]
+    Window,
+    Viewer,
+    SideBySide,
+}
+
+impl PreviewMode {
+    /// In the order of [`PreviewMode::LABELS`].
+    pub const ALL: [PreviewMode; 3] = [
+        PreviewMode::Window,
+        PreviewMode::Viewer,
+        PreviewMode::SideBySide,
+    ];
+    /// The choices as the settings row and the Preview button's menu name them.
+    pub const LABELS: [&'static str; 3] = ["In this window", "In mdview", "Side by side"];
+
+    /// The value in the settings file.
+    pub fn key(self) -> &'static str {
+        match self {
+            PreviewMode::Window => "window",
+            PreviewMode::Viewer => "mdview",
+            PreviewMode::SideBySide => "side-by-side",
+        }
+    }
+
+    /// Reads [`PreviewMode::key`]; anything else is `None` (the default).
+    pub fn parse(value: &str) -> Option<PreviewMode> {
+        let v = value.trim();
+        PreviewMode::ALL
+            .into_iter()
+            .find(|m| m.key().eq_ignore_ascii_case(v))
+    }
+
+    /// The place in [`PreviewMode::LABELS`].
+    pub fn index(self) -> usize {
+        PreviewMode::ALL
+            .iter()
+            .position(|m| *m == self)
+            .unwrap_or(0)
+    }
+
+    /// The mode at `index` of [`PreviewMode::LABELS`]; out of range is the default.
+    pub fn from_index(index: usize) -> PreviewMode {
+        PreviewMode::ALL.get(index).copied().unwrap_or_default()
+    }
+
+    pub fn label(self) -> &'static str {
+        PreviewMode::LABELS[self.index()]
+    }
 }
 
 /// A setting's text longer than this many bytes is not a setting: the default is used.
@@ -161,6 +222,8 @@ impl Default for Prefs {
             brief_secs: BRIEF_SECS_DEFAULT,
             brief_last: false,
             live_preview: true,
+            preview_mode: PreviewMode::Window,
+            paste_rich: false,
             complete_auto: false,
             backdrop: Backdrop::Off,
             ai_connection: Connection::Off,
@@ -330,6 +393,10 @@ impl Prefs {
                         p.start_on_pinned = flag(value).unwrap_or(d.start_on_pinned)
                     }
                     "live_preview" => p.live_preview = flag(value).unwrap_or(d.live_preview),
+                    "preview_mode" => {
+                        p.preview_mode = PreviewMode::parse(value).unwrap_or(d.preview_mode)
+                    }
+                    "paste_rich" => p.paste_rich = flag(value).unwrap_or(d.paste_rich),
                     "complete_auto" => p.complete_auto = flag(value).unwrap_or(d.complete_auto),
                     "backdrop" => p.backdrop = Backdrop::parse(value).unwrap_or(d.backdrop),
                     "ai_connection" => {
@@ -440,6 +507,8 @@ impl Prefs {
         w.line("brief_secs", &p.brief_secs.to_string());
         w.line("brief_last", b(p.brief_last));
         w.line("live_preview", b(p.live_preview));
+        w.line("preview_mode", p.preview_mode.key());
+        w.line("paste_rich", b(p.paste_rich));
         w.line("complete_auto", b(p.complete_auto));
         w.line("backdrop", p.backdrop.key());
         w.line("ai_connection", p.ai_connection.key());
@@ -655,6 +724,47 @@ mod tests {
         assert_eq!(Prefs::parse(&long).library_dir, "");
     }
 
+    /// Issues #7 and #8: the Preview button's mode and the rich paste are kept, and a file
+    /// without them (an older build's) reads as before: the pane, plain paste.
+    #[test]
+    fn the_preview_mode_and_rich_paste_are_kept_and_default_as_before() {
+        let d = Prefs::parse(
+            "[preferences]
+live_preview=1
+",
+        );
+        assert_eq!((d.preview_mode, d.paste_rich), (PreviewMode::Window, false));
+        for m in PreviewMode::ALL {
+            let p = Prefs {
+                preview_mode: m,
+                paste_rich: true,
+                ..Prefs::default()
+            };
+            let back = Prefs::parse(&p.serialize());
+            assert_eq!((back.preview_mode, back.paste_rich), (m, true));
+            assert_eq!(PreviewMode::from_index(m.index()), m);
+        }
+        let odd = Prefs::parse(
+            "[preferences]
+preview_mode=bogus
+paste_rich=maybe
+",
+        );
+        assert_eq!(
+            (odd.preview_mode, odd.paste_rich),
+            (PreviewMode::Window, false)
+        );
+        assert_eq!(
+            Prefs::parse(
+                "[preferences]
+preview_mode= MDVIEW 
+"
+            )
+            .preview_mode,
+            PreviewMode::Viewer
+        );
+    }
+
     #[test]
     fn sections_are_respected() {
         let text =
@@ -780,6 +890,8 @@ mod tests {
             brief_secs: 45,
             brief_last: true,
             live_preview: false,
+            preview_mode: PreviewMode::SideBySide,
+            paste_rich: true,
             complete_auto: true,
             backdrop: Backdrop::Acrylic,
             ai_connection: Connection::OpenAi,
@@ -832,7 +944,7 @@ mod tests {
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 47);
+        assert_eq!(t.lines().count(), 49);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,

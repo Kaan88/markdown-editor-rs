@@ -13,7 +13,7 @@ use crate::{keys, updater};
 use mdedit_core::ai::{self as core_ai, Connection};
 use mdedit_core::prefs::{
     BRIEF_SECS_MAX, BRIEF_SECS_MIN, FONT_PT_MAX, FONT_PT_MIN, INDENT_SIZE_MAX, MINIMAP_WIDTH_MAX,
-    MINIMAP_WIDTH_MIN, Prefs, STALE_DAYS_MAX, STALE_DAYS_MIN, TAB_WIDTH_MAX,
+    MINIMAP_WIDTH_MIN, Prefs, PreviewMode, STALE_DAYS_MAX, STALE_DAYS_MIN, TAB_WIDTH_MAX,
 };
 use mdshared_ui::corners::{self, Corners};
 use mdshared_ui::glyph;
@@ -45,6 +45,9 @@ pub const DETECT_INDENT: u32 = 20;
 pub const WINDOW_CORNERS: u32 = 21;
 pub const MINIMAP_WIDTH: u32 = 22;
 pub const COMPLETE_AUTO: u32 = 70;
+/// What the Preview button opens (issue #7), and Ctrl+V's rich text as Markdown (issue #8).
+pub const PREVIEW_MODE: u32 = 71;
+pub const PASTE_RICH: u32 = 72;
 pub const BACKDROP: u32 = 80;
 pub const START_ON_PINNED: u32 = 23;
 pub const OFFER_STALE: u32 = 24;
@@ -257,6 +260,14 @@ pub fn pages(
             )
             .help("mdview shows the text as you type it. Off: it shows the file when you save."),
         ),
+        // Short, to fit the row at 520 px: the pane in this window, mdview, or mdview beside
+        // this window. The button's arrow says them in full.
+        Item::new(Row::choice(
+            PREVIEW_MODE,
+            "Preview button",
+            &["Here", "mdview", "Beside"],
+            prefs.preview_mode.index(),
+        )),
     ];
 
     // The two rows under detection are what a file with no clear style gets: never disabled.
@@ -319,6 +330,12 @@ pub fn pages(
             .help(format!(
                 "A list of words opens after three letters. {} opens it anyway.",
                 crate::commands::hint(crate::commands::CommandId::CompleteWord)
+            )),
+        ),
+        Item::new(
+            Row::toggle(PASTE_RICH, "Paste rich text as Markdown", prefs.paste_rich).help(format!(
+                "In Markdown files. {} pastes plain text.",
+                crate::commands::hint(crate::commands::CommandId::PastePlain)
             )),
         ),
         Item::gap(),
@@ -685,6 +702,8 @@ impl App {
             (BRIEF_LAST, Value::Bool(on)) => p.brief_last = on,
             (LIVE_PREVIEW, Value::Bool(on)) => p.live_preview = on,
             (COMPLETE_AUTO, Value::Bool(on)) => p.complete_auto = on,
+            (PREVIEW_MODE, Value::Choice(i)) => p.preview_mode = PreviewMode::from_index(i),
+            (PASTE_RICH, Value::Bool(on)) => p.paste_rich = on,
             (LIBRARY_DIR, Value::Text(t)) => {
                 self.set_library_dir(&t);
                 return;
@@ -1419,7 +1438,12 @@ mod tests {
         for (_, pages) in &states {
             seen.extend(rows_of(pages).iter().filter_map(Row::id));
         }
-        for id in (FONT_FAMILY..=LIBRARY_CHOOSE).chain([COMPLETE_AUTO, BACKDROP]) {
+        for id in (FONT_FAMILY..=LIBRARY_CHOOSE).chain([
+            COMPLETE_AUTO,
+            PREVIEW_MODE,
+            PASTE_RICH,
+            BACKDROP,
+        ]) {
             // The folder's button is not a row; the window rows are offered on Windows.
             let windows_only = [BACKDROP, WINDOW_CORNERS].contains(&id);
             if id == LIBRARY_CHOOSE || (windows_only && cfg!(not(windows))) {

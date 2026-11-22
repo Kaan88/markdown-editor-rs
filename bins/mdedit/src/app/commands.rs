@@ -19,6 +19,28 @@ pub(super) const REFIND_DELAY: Duration = Duration::from_millis(300);
 /// What `--type-steps` types, over and over.
 const TYPE_TEXT: &str = "the quick brown fox jumps over the lazy dog ";
 
+/// What a paste takes from the clipboard: its text, and the HTML beside it when that was read.
+pub(super) struct Clip {
+    pub text: String,
+    pub html: Option<String>,
+}
+
+impl Clip {
+    pub fn text(text: String) -> Clip {
+        Clip { text, html: None }
+    }
+}
+
+/// The command for the mode the Preview button opens.
+pub(super) fn preview_command(mode: mdedit_core::prefs::PreviewMode) -> C {
+    use mdedit_core::prefs::PreviewMode;
+    match mode {
+        PreviewMode::Window => C::PreviewPane,
+        PreviewMode::Viewer => C::PreviewInViewer,
+        PreviewMode::SideBySide => C::PreviewSideBySide,
+    }
+}
+
 /// How a Save as went: written, not done, or (off Windows) asked of a dialog still open.
 enum SaveAs {
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -78,12 +100,18 @@ impl App {
             Hit::StatusEol => self.open_popup(PopupKind::Eol),
             Hit::StatusEncoding => self.open_popup(PopupKind::Encoding),
             Hit::Bar(item) => match item {
+                BarItem::New => self.command(C::NewFile),
                 BarItem::Open => self.command(C::OpenFiles),
+                BarItem::Save => self.command(C::Save),
                 BarItem::Reload => self.command(C::Reload),
                 BarItem::Recent => self.command(C::OpenRecent),
                 BarItem::Files => self.command(C::ToggleFiles),
                 BarItem::Library => self.command(C::ToggleLibraryPane),
-                BarItem::Preview => self.command(C::PreviewPane),
+                BarItem::Preview => {
+                    self.command(preview_command(crate::chrome::preview_mode(&self.docs)))
+                }
+                BarItem::PreviewMenu => self.open_popup(PopupKind::Preview),
+                BarItem::AiEdit => self.open_popup(PopupKind::Ai),
                 BarItem::FindPrev => self.command(C::FindPrevious),
                 BarItem::FindNext => self.command(C::FindNext),
                 BarItem::Theme => self.command(C::Theme),
@@ -186,6 +214,7 @@ impl App {
             }
             Hit::ResultsCancel => self.ui.results.replace.cancel(),
             Hit::EmptyOpen => self.command(C::OpenFiles),
+            Hit::EmptyNew => self.command(C::NewFile),
             Hit::EmptyRecent(i) => {
                 if let Some(p) = self.docs.recents.paths().get(i).cloned() {
                     self.open(&p);
@@ -556,6 +585,11 @@ impl App {
                 }
             }
             Act::Theme(choice) => self.set_theme(choice),
+            Act::PreviewDefault(mode) => {
+                let mut p = self.docs.prefs.clone();
+                p.preview_mode = mode;
+                self.set_prefs(p);
+            }
             Act::Complete(n) => self.accept_completion(n),
             Act::Opt(opt) => {
                 self.ui.toggle_option(opt);
@@ -689,22 +723,58 @@ impl App {
     }
 
     fn paste(&mut self) {
-        if let Some(text) = platform::clipboard_text().filter(|t| !t.is_empty()) {
-            // The path of an image file, as text (Explorer's Copy as path, a terminal): in a saved
-            // Markdown document it becomes a link to the image, as the copied file itself does.
-            let doc = self
+        let Some(text) = platform::clipboard_text().filter(|t| !t.is_empty()) else {
+            self.paste_image();
+            return;
+        };
+        // The HTML is read only when it can be used: the setting is on and the document is
+        // Markdown or has no file yet.
+        let html = if self.rich_paste_here() {
+            platform::clipboard_html()
+        } else {
+            None
+        };
+        self.paste_clip(Clip { text, html }, false);
+    }
+
+    /// Whether Ctrl+V turns rich text into Markdown in the document in front: "Paste rich text
+    /// as Markdown" is on, and the document is Markdown or has no file yet (a new note).
+    fn rich_paste_here(&self) -> bool {
+        self.docs.prefs.paste_rich
+            && self
                 .docs
                 .active_doc()
-                .filter(|d| d.is_markdown())
-                .and_then(|d| d.path.clone());
-            if let Some((doc, file)) = doc.zip(image_paste::image_path_in_text(&text)) {
-                self.paste_image_files(Some(&doc), &[file]);
-                return;
-            }
-            self.edit(EditOp::Paste(&text));
-        } else {
-            self.paste_image();
+                .is_some_and(|d| d.is_markdown() || d.path.is_none())
+    }
+
+    /// Pastes clipboard text at the caret. `plain` (Ctrl+Shift+V) puts it in as it is; otherwise
+    /// the path of an image file becomes a link to the image in a saved Markdown document, and
+    /// HTML beside the text becomes Markdown when that setting is on.
+    pub(super) fn paste_clip(&mut self, clip: Clip, plain: bool) {
+        if clip.text.is_empty() {
+            return;
         }
+        if plain {
+            self.edit(EditOp::Paste(&clip.text));
+            return;
+        }
+        // The path of an image file, as text (Explorer's Copy as path, a terminal): in a saved
+        // Markdown document it becomes a link to the image, as the copied file itself does.
+        let doc = self
+            .docs
+            .active_doc()
+            .filter(|d| d.is_markdown())
+            .and_then(|d| d.path.clone());
+        if let Some((doc, file)) = doc.zip(image_paste::image_path_in_text(&clip.text)) {
+            self.paste_image_files(Some(&doc), &[file]);
+            return;
+        }
+        let markdown = clip
+            .html
+            .as_deref()
+            .filter(|_| self.rich_paste_here())
+            .and_then(mdshared_app::html_md::to_markdown);
+        self.edit(EditOp::Paste(markdown.as_deref().unwrap_or(&clip.text)));
     }
 
     /// A paste with no text on the clipboard: an image goes beside a saved Markdown document as
@@ -1256,6 +1326,17 @@ impl App {
                     return below(r, true);
                 }
             }
+            // Under their bar buttons, from the button's left edge.
+            PopupKind::Preview => {
+                if let Some(r) = self.hit_rect(Hit::Bar(BarItem::Preview)) {
+                    return below(r, false);
+                }
+            }
+            PopupKind::Ai => {
+                if let Some(r) = self.hit_rect(Hit::Bar(BarItem::AiEdit)) {
+                    return below(r, false);
+                }
+            }
             PopupKind::Markdown => {
                 if let Some(r) = self.hit_rect(Hit::FormatMore) {
                     return below(r, true);
@@ -1330,6 +1411,7 @@ impl App {
                 self.ai_load_prompts();
                 overlays::ai_menu(&self.docs, x, y, right)
             }
+            PopupKind::Preview => overlays::preview_menu(&self.docs, x, y, right),
             PopupKind::Eol => status::eol_menu(&self.docs, x, y),
             PopupKind::Encoding => status::encoding_menu(&self.docs, x, y),
             _ => return None,
@@ -1448,6 +1530,7 @@ impl App {
                 | C::Redo
                 | C::Cut
                 | C::Paste
+                | C::PastePlain
                 | C::SelectNextOccurrence
                 | C::DuplicateLine
                 | C::MoveLineUp
@@ -1603,6 +1686,11 @@ impl App {
                 }
             }
             C::Paste => self.paste(),
+            C::PastePlain => {
+                if let Some(text) = platform::clipboard_text() {
+                    self.paste_clip(Clip::text(text), true);
+                }
+            }
             C::DuplicateLine => {
                 self.edit(EditOp::DuplicateLines);
             }

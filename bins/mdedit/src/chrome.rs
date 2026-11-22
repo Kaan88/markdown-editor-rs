@@ -6,6 +6,7 @@ use crate::commands::{CommandId, hint, strings};
 use crate::docs::Docs;
 use crate::session::ThemeChoice;
 use crate::ui::{BarField, BarItem, Drag, FindOpt, Hit, PaneFace, PopupKind, Ui};
+use mdedit_core::prefs::PreviewMode;
 use mdshared_ui::chrome::{
     BAR_H, DRAG_MIN, NATIVE_FRAME, NEW_TAB_W, TABS_LEFT, TITLE_H, TabState, WIN_BTN_W, WinButton,
     button_fill, draw_new_tab_button, draw_tab, draw_win_button, tab_natural_width, tab_widths,
@@ -18,6 +19,12 @@ pub use mdshared_ui::glyph;
 /// marked. Drawn as the shared icons are (`glyph`: strokes on a 16 by 16 grid), kept here until
 /// mdview needs it too.
 pub const SPARKLE: &str = "M6.5 4.5Q7 9 11.5 9.5Q7 10 6.5 14.5Q6 10 1.5 9.5Q6 9 6.5 4.5zM12.5 1.5Q12.7 3.3 14.5 3.5Q12.7 3.7 12.5 5.5Q12.3 3.7 10.5 3.5Q12.3 3.3 12.5 1.5z";
+/// The arrow of a button that opens a menu (the Preview button's).
+pub const CHEVRON: &str = "M4.5 6.5L8 10l3.5-3.5";
+/// A choice of a set, chosen and not: a ring with a dot, and the ring alone.
+pub const RADIO_ON: &str =
+    "M2 8a6 6 0 1 0 12 0a6 6 0 1 0-12 0zM6.6 8a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0z";
+pub const RADIO_OFF: &str = "M2 8a6 6 0 1 0 12 0a6 6 0 1 0-12 0z";
 use mdshared_ui::textfield::{FieldColors, TextField};
 use mdshared_ui::theme::Palette;
 
@@ -105,7 +112,7 @@ pub fn logo(p: &mut Painter, r: Rect) {
 pub struct BarPlan {
     pub labels: bool,
     pub find_w: f32,
-    /// The Files and Notes toggles, and the Preview slot.
+    /// The Files and Notes toggles, the Preview slot and AI edit.
     pub panes: bool,
     /// Reload and Recent.
     pub recent: bool,
@@ -120,6 +127,8 @@ pub struct BarText {
     pub files: f32,
     pub library: f32,
     pub preview: f32,
+    /// "AI edit", 0 while the AI is off (no button then, and no room kept for it).
+    pub ai: f32,
     pub theme: f32,
     /// The match counter, 0 when empty.
     pub count: f32,
@@ -129,6 +138,8 @@ const ICON_BTN: f32 = 36.0;
 const GAP: f32 = 2.0;
 const SEP: f32 = 13.0;
 const MARGIN: f32 = 8.0;
+/// The Preview button's arrow, joined to its right.
+const CHEVRON_W: f32 = 20.0;
 
 fn labelled(label: f32, on: bool) -> f32 {
     if on { 44.0 + label } else { ICON_BTN }
@@ -138,14 +149,18 @@ fn labelled(label: f32, on: bool) -> f32 {
 fn plan_width(plan: &BarPlan, t: &BarText) -> f32 {
     let l = plan.labels;
     let mut w = 2.0 * MARGIN;
-    w += labelled(t.open, l) + GAP;
+    // New, Open, Save: New and Save are icons at every width, as Reload is.
+    w += ICON_BTN + GAP + labelled(t.open, l) + GAP + ICON_BTN + GAP;
     if plan.recent {
         w += ICON_BTN + GAP + labelled(t.recent, l) + GAP;
     }
     if plan.panes {
         w += SEP + labelled(t.files, l) + GAP + labelled(t.library, l) + GAP;
         // Kept free when the button is hidden, so the find box does not move between tabs.
-        w += SEP + labelled(t.preview, l) + GAP;
+        w += SEP + labelled(t.preview, l) + CHEVRON_W + GAP;
+        if t.ai > 0.0 {
+            w += labelled(t.ai, l) + GAP;
+        }
     }
     // Right group: more, theme, separator, next, previous, find box, counter.
     w += ICON_BTN + GAP + labelled(t.theme, l) + SEP + 2.0 * (ICON_BTN + GAP) + plan.find_w;
@@ -155,8 +170,9 @@ fn plan_width(plan: &BarPlan, t: &BarText) -> f32 {
     w + 16.0
 }
 
-/// Drops labels first, then narrows the find box, then hides the Files toggle and Reload/Recent
-/// (all of which stay in the main menu and on the keyboard), so nothing overlaps.
+/// Drops labels first, then narrows the find box, then hides the Files group (Files, Notes,
+/// Preview, AI edit) and Reload/Recent (all of which stay in the menus and on the keyboard), so
+/// nothing overlaps. New, Open and Save stay at every width.
 pub fn bar_plan(avail: f32, t: &BarText) -> BarPlan {
     let full = BarPlan {
         labels: true,
@@ -277,13 +293,32 @@ pub fn tooltip(hit: Hit, docs: &Docs, maximized: bool) -> Option<String> {
         Hit::WinMax => "Maximize".into(),
         Hit::WinClose => "Close".into(),
         Hit::Bar(b) => match b {
+            BarItem::New => with("New file", CommandId::NewFile),
             BarItem::Open => with("Open files", CommandId::OpenFiles),
+            BarItem::Save => with("Save", CommandId::Save),
             BarItem::Reload => with("Reload", CommandId::Reload),
             BarItem::Recent => "Recent files".into(),
             BarItem::Files => with("Files pane", CommandId::ToggleFiles),
             BarItem::Library => with("Notes library", CommandId::ToggleLibraryPane),
-            BarItem::Preview if docs.pane_open => "Close the preview".into(),
-            BarItem::Preview => with("Preview in this window", CommandId::PreviewPane),
+            BarItem::Preview => {
+                let on = preview_button(docs) == Some(true);
+                match (preview_mode(docs), on) {
+                    (PreviewMode::Window, true) => "Close the preview".into(),
+                    (PreviewMode::Window, false) => {
+                        with("Preview in this window", CommandId::PreviewPane)
+                    }
+                    (PreviewMode::Viewer, true) => {
+                        with("Stop the preview in mdview", CommandId::PreviewInViewer)
+                    }
+                    (PreviewMode::Viewer, false) => {
+                        with("Preview in mdview", CommandId::PreviewInViewer)
+                    }
+                    (PreviewMode::SideBySide, true) => "Stop side by side".into(),
+                    (PreviewMode::SideBySide, false) => "Preview side by side".into(),
+                }
+            }
+            BarItem::PreviewMenu => "Preview modes".into(),
+            BarItem::AiEdit => AI_EDIT.into(),
             BarItem::FindPrev => with("Previous match", CommandId::FindPrevious),
             BarItem::FindNext => with("Next match", CommandId::FindNext),
             BarItem::Theme => format!("Theme: {} (click to change)", theme_label(docs.theme)),
@@ -452,13 +487,33 @@ pub fn find_label(docs: &Docs) -> (String, bool) {
 /// The bar's Preview button, which opens the pane: hidden (None) unless the pane is offered and
 /// the active document can be previewed (as the View menu lists it), pressed (true) while open.
 pub fn preview_button(docs: &Docs) -> Option<bool> {
-    if !docs.pane {
+    if !docs.pane && !docs.viewer {
         return None;
     }
     let doc = docs.active_doc()?;
     let linked = docs.links.contains(doc.id);
-    (doc.is_markdown() || linked || doc.path.is_none() || docs.pane_open).then_some(docs.pane_open)
+    if !(doc.is_markdown() || linked || doc.path.is_none() || docs.pane_open) {
+        return None;
+    }
+    Some(match preview_mode(docs) {
+        PreviewMode::Window => docs.pane_open,
+        PreviewMode::Viewer => linked && !docs.links.side_by_side,
+        PreviewMode::SideBySide => linked && docs.links.side_by_side,
+    })
 }
+
+/// The mode the Preview button opens: the preferences' choice, or the other way when that one
+/// cannot be had (no mdview found, or no pane in this build).
+pub fn preview_mode(docs: &Docs) -> PreviewMode {
+    match docs.prefs.preview_mode {
+        PreviewMode::Viewer | PreviewMode::SideBySide if !docs.viewer => PreviewMode::Window,
+        PreviewMode::Window if !docs.pane && docs.viewer => PreviewMode::Viewer,
+        m => m,
+    }
+}
+
+/// The label of the bar's AI button.
+pub const AI_EDIT: &str = "AI edit";
 
 pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
     let (count, _) = find_label(docs);
@@ -468,6 +523,11 @@ pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
         files: p.measure(Face::Ui, 13.0, "Files"),
         library: p.measure(Face::Ui, 13.0, "Notes"),
         preview: p.measure(Face::Ui, 13.0, "Preview"),
+        ai: if docs.prefs.ai_connection == mdedit_core::ai::Connection::Off {
+            0.0
+        } else {
+            p.measure(Face::Ui, 13.0, AI_EDIT)
+        },
         theme: p.measure(Face::Ui, 13.0, theme_label(docs.theme)),
         count: if count.is_empty() {
             0.0
@@ -862,12 +922,18 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let has_matches = docs
         .active_ready()
         .is_some_and(|r| !r.match_window().is_empty());
+    // As the main menu and the text menu have them: Save while there is something to save, AI
+    // edit while there is text to edit.
+    let modified = docs.active_doc().is_some_and(|d| d.modified());
+    let ready = docs.active_ready().is_some();
     let button =
         |c: &mut Ctx, x: f32, item: BarItem, g: &str, label: Option<&str>, on: bool| -> f32 {
             // Reload needs a document and match stepping needs matches; without them they show
             // greyed and do nothing.
             let enabled = match item {
                 BarItem::Reload => has_tab,
+                BarItem::Save => modified,
+                BarItem::AiEdit => ready,
                 BarItem::FindPrev | BarItem::FindNext => has_matches,
                 _ => true,
             };
@@ -879,7 +945,9 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             let hit = Hit::Bar(item);
             let menu_open = matches!(
                 (item, open),
-                (BarItem::Recent, Some(PopupKind::Recent)) | (BarItem::More, Some(PopupKind::Main))
+                (BarItem::Recent, Some(PopupKind::Recent))
+                    | (BarItem::More, Some(PopupKind::Main))
+                    | (BarItem::AiEdit, Some(PopupKind::Ai))
             );
             if let Some(fill) = c.fill_for(hit, on, menu_open).filter(|_| enabled) {
                 c.p.rbox(b, 6.0, fill);
@@ -912,7 +980,9 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
 
     // Left group.
     let mut x = r.x + MARGIN;
+    x += button(c, x, BarItem::New, glyph::NEW_FILE, None, false) + GAP;
     x += button(c, x, BarItem::Open, glyph::OPEN, lab("Open"), false) + GAP;
+    x += button(c, x, BarItem::Save, glyph::SAVE, None, false) + GAP;
     if plan.recent {
         x += button(c, x, BarItem::Reload, glyph::RELOAD, None, false) + GAP;
         x += button(c, x, BarItem::Recent, glyph::RECENT, lab("Recent"), false) + GAP;
@@ -935,9 +1005,27 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             lab("Notes"),
             pane_button_on(ui, BarItem::Library),
         ) + GAP;
-        if let Some(on) = preview_button(docs) {
-            x += sep(c, x);
-            button(c, x, BarItem::Preview, glyph::VIEW, lab("Preview"), on);
+        let preview = preview_button(docs);
+        if preview.is_some() || t.ai > 0.0 {
+            sep(c, x);
+        }
+        x += SEP;
+        if let Some(on) = preview {
+            let w = button(c, x, BarItem::Preview, glyph::VIEW, lab("Preview"), on);
+            // The arrow, joined to the button: the modes and the button's own.
+            let b = Rect::new(x + w, y, CHEVRON_W, 32.0);
+            let hit = Hit::Bar(BarItem::PreviewMenu);
+            let menu_open = open == Some(PopupKind::Preview);
+            if let Some(fill) = c.fill_for(hit, false, menu_open) {
+                c.p.rbox(b, 6.0, fill);
+            }
+            c.p.icon(CHEVRON, 12.0, b.cx(), cy, pal.muted);
+            c.hit(hit, b);
+        }
+        // The slot is kept while the button is hidden, so AI edit does not move between tabs.
+        x += labelled(t.preview, plan.labels) + CHEVRON_W + GAP;
+        if t.ai > 0.0 {
+            button(c, x, BarItem::AiEdit, SPARKLE, lab(AI_EDIT), false);
         }
     }
 
@@ -1111,6 +1199,7 @@ mod tests {
             files: 30.0,
             library: 36.0,
             preview: 50.0,
+            ai: 0.0,
             theme: 32.0,
             count: 0.0,
         };
@@ -1166,6 +1255,7 @@ mod tests {
             files: 28.0,
             library: 34.0,
             preview: 50.0,
+            ai: 46.0,
             theme: 44.0,
             count: 50.0,
         }
@@ -1210,14 +1300,59 @@ mod tests {
             panes: false,
             ..icons
         };
+        // Files, Notes, the Preview slot with its arrow, and AI edit.
         assert_eq!(
             plan_width(&icons, &t) - plan_width(&hidden, &t),
-            SEP + ICON_BTN + GAP + ICON_BTN + GAP + SEP + ICON_BTN + GAP
+            SEP + ICON_BTN
+                + GAP
+                + ICON_BTN
+                + GAP
+                + SEP
+                + ICON_BTN
+                + CHEVRON_W
+                + GAP
+                + ICON_BTN
+                + GAP
         );
         // The labelled plan needs more room than before the button, so the labels go at a
         // width where they used to stay.
         let width = plan_width(&full, &none) + 1.0;
         assert!(bar_plan(width, &none).labels && !bar_plan(width, &t).labels);
+    }
+
+    /// Issue #8: New and Save are icons beside Open at every width; AI edit takes room only
+    /// while the AI is on, goes with the Files group, and the labelled bar still fits the default
+    /// window with it.
+    #[test]
+    fn new_save_and_ai_edit_take_their_room() {
+        let t = text();
+        let off = BarText { ai: 0.0, ..t };
+        let full = bar_plan(2000.0, &t);
+        assert_eq!(
+            plan_width(&full, &t) - plan_width(&full, &off),
+            labelled(t.ai, true) + GAP
+        );
+        let icons = BarPlan {
+            labels: false,
+            ..full
+        };
+        assert_eq!(
+            plan_width(&icons, &t) - plan_width(&icons, &off),
+            ICON_BTN + GAP
+        );
+        let bare = BarPlan {
+            labels: false,
+            find_w: 0.0,
+            panes: false,
+            recent: false,
+            count: false,
+        };
+        // Nothing but New, Open, Save on the left; the AI's width no longer counts.
+        assert_eq!(plan_width(&bare, &t), plan_width(&bare, &off));
+        let left = 2.0 * MARGIN + 3.0 * (ICON_BTN + GAP);
+        let right = ICON_BTN + GAP + ICON_BTN + SEP + 2.0 * (ICON_BTN + GAP) + 16.0;
+        assert_eq!(plan_width(&bare, &t), left + right);
+        assert!(bar_plan(1280.0, &t).labels, "{}", plan_width(&full, &t));
     }
 
     #[test]

@@ -31,10 +31,18 @@ impl App {
         self.ui.mouse = (x, y);
         // A saved prompt's Modify button in the AI menu lights up under the pointer: a frame
         // when the pointer crosses its edge, though the menu's row stays the same.
-        if let Some(s) = self.ui.popup.as_ref().and_then(|p| p.sub.as_ref())
-            && s.kind == PopupKind::Ai
-            && crate::ai_ui::menu_modify_at(&s.menu, was)
-                != crate::ai_ui::menu_modify_at(&s.menu, (x, y))
+        let ai_menu = self.ui.popup.as_ref().and_then(|p| {
+            if p.kind == PopupKind::Ai {
+                Some(&p.menu)
+            } else {
+                p.sub
+                    .as_ref()
+                    .filter(|s| s.kind == PopupKind::Ai)
+                    .map(|s| &s.menu)
+            }
+        });
+        if let Some(menu) = ai_menu
+            && crate::ai_ui::menu_modify_at(menu, was) != crate::ai_ui::menu_modify_at(menu, (x, y))
         {
             self.wants_frame = true;
         }

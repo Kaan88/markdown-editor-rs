@@ -123,14 +123,23 @@ impl PaneFace {
 /// The command bar's buttons.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum BarItem {
+    /// A new untitled document, as Ctrl+N (issue #8).
+    New,
     Open,
+    /// The document in front saved, as Ctrl+S; greyed while it has nothing to save.
+    Save,
     Reload,
     Recent,
     Files,
     /// The notes library in the left pane; lit while that is what the pane shows.
     Library,
-    /// Preview in mdview, side by side; pressed while the document is previewed.
+    /// The preview in the mode the preferences name (issue #7); lit while the document is
+    /// previewed that way.
     Preview,
+    /// The arrow beside it: the menu of the three modes, and which one the button opens.
+    PreviewMenu,
+    /// The AI menu, under the button; there while the AI is on.
+    AiEdit,
     FindPrev,
     FindNext,
     Theme,
@@ -297,6 +306,8 @@ pub enum Hit {
     /// The line that parts the two panes of a split view: drag to resize, double click to halve.
     Divider,
     EmptyOpen,
+    /// "New file" beside "Open file…" (issue #8).
+    EmptyNew,
     EmptyRecent(usize),
     DlgButton(usize),
     DlgOpen(usize),
@@ -385,6 +396,7 @@ impl Hit {
             | Hit::Bookmark(_)
             | Hit::CopyChange { .. }
             | Hit::EmptyOpen
+            | Hit::EmptyNew
             | Hit::EmptyRecent(_) => Region::Text,
             Hit::Other => Region::Other,
             Hit::Minimap => Region::Minimap,
@@ -460,6 +472,8 @@ pub enum Act {
     /// Read the file again as this encoding, or as its bytes suggest.
     ReadAs(Option<Encoding>),
     Theme(ThemeChoice),
+    /// The mode the Preview button opens, kept in the preferences.
+    PreviewDefault(mdedit_core::prefs::PreviewMode),
     /// An editing command for the focused box of the bar.
     Edit(EditAct),
     /// Turns a search option on or off.
@@ -553,6 +567,8 @@ pub enum PopupKind {
     Table,
     /// AI rewriting: the built-in requests and the saved prompts.
     Ai,
+    /// The Preview button's arrow: the modes, each opened once, and the button's own.
+    Preview,
     /// The find box's editing menu.
     Find,
     /// The word completion list at the caret; typing goes on in the text.

@@ -972,7 +972,8 @@ mod tests {
             standalone
         );
         assert_eq!(chrome::preview_button(&a.docs).is_some(), standalone);
-        let view = crate::overlays::view_menu(&a.docs, &a.ui, 0.0, 0.0, false);
+        // The modes are on the Preview button's arrow now (issue #7), not in the View menu.
+        let view = crate::overlays::preview_menu(&a.docs, 0.0, 0.0, false);
         let tab = crate::overlays::tab_menu(&a.docs, 0, 0.0, 0.0);
         let has = |m: &mdshared_ui::menu::Menu<Act>, ids: &[C]| {
             m.items.iter().any(|it| match it.id {

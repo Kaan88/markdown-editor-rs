@@ -20,6 +20,9 @@ pub enum CommandId {
     Cut,
     Copy,
     Paste,
+    /// The clipboard's text as it is: no image, no link made of an image's path, no
+    /// conversion of rich text (issue #8).
+    PastePlain,
     SelectAll,
     /// With several carets: adds the next match of the selected text (the word at a caret).
     SelectNextOccurrence,
@@ -230,6 +233,7 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::Cut, "Cut", &["Ctrl+X", "Shift+Delete"]),
     cmd(C::Copy, "Copy", &["Ctrl+C", "Ctrl+Insert"]),
     cmd(C::Paste, "Paste", &["Ctrl+V", "Shift+Insert"]),
+    cmd(C::PastePlain, "Paste as plain text", &["Ctrl+Shift+V"]),
     cmd(C::SelectAll, "Select all", &["Ctrl+A"]),
     cmd(
         C::SelectNextOccurrence,
@@ -347,7 +351,8 @@ pub const COMMANDS: &[Command] = &[
     cmd(
         C::PreviewInViewer,
         "Preview in mdview, or stop",
-        &["Ctrl+Shift+V"],
+        // Ctrl+Shift+V is plain-text paste, as in most editors (issue #8).
+        &["Ctrl+Shift+L"],
     ),
     cmd(C::PreviewSideBySide, "Preview side by side", &[]),
     cmd(C::PreviewPane, "Preview in this window, or close it", &[]),
@@ -462,8 +467,9 @@ pub mod strings {
     /// On a Mac Option+Shift+Left and Right select by word, so the column takes Command too.
     pub const COLUMN_KEYS_MAC: &str = "\u{2325}\u{21e7}\u{2318}Arrows, \u{2325}Drag";
     pub const MANAGE_RECENT_TITLE: &str = "Manage recent files";
-    pub const EMPTY_HINT: &str = "Open a file or drag one into this window.";
+    pub const EMPTY_HINT: &str = "Open a file, drag one into this window, or start a new one.";
     pub const EMPTY_BUTTON: &str = "Open file…";
+    pub const EMPTY_NEW: &str = "New file";
     pub const RECENT_EMPTY: &str = "No recent files";
     pub const RECENT_CLEAR_LIST: &str = "Clear list";
     pub const RECENT_DONE: &str = "Done";

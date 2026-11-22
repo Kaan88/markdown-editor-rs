@@ -355,7 +355,7 @@ fn icon(id: C) -> &'static str {
         C::Redo => glyph::REDO,
         C::Cut => glyph::CUT,
         C::Copy | C::CopyFilePath => glyph::COPY,
-        C::Paste => glyph::PASTE,
+        C::Paste | C::PastePlain => glyph::PASTE,
         C::SelectAll | C::SelectNextOccurrence => glyph::SELECT_ALL,
         C::DuplicateLine => glyph::DUPLICATE_LINE,
         C::MoveLineUp | C::PreviousTab | C::PreviousBookmark | C::PreviousResult => glyph::UP,
@@ -465,6 +465,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::Save => docs.active_doc().is_some_and(|d| d.modified()),
         C::SaveAs
         | C::Paste
+        | C::PastePlain
         | C::SelectAll
         | C::SelectNextOccurrence
         | C::DuplicateLine

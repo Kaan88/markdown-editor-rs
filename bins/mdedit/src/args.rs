@@ -62,6 +62,10 @@ pub enum ShotMenu {
     /// The active document made Markdown as the AI's Format as Markdown does, with the bar
     /// offering its `.md` name.
     RenameBar,
+    /// The menu of the Preview button's arrow, drawn as it is when mdview is found.
+    Preview,
+    /// The AI menu under the bar's AI edit button (needs `--pref ai_connection=…`).
+    BarAi,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -540,6 +544,8 @@ impl Args {
                         "library-remove" => Some(ShotMenu::LibraryRemove),
                         "rename-bar" => Some(ShotMenu::RenameBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
+                        "preview" => Some(ShotMenu::Preview),
+                        "bar-ai" => Some(ShotMenu::BarAi),
                         _ => None,
                     })
                 }
@@ -666,6 +672,8 @@ mod tests {
             ("macro-rec", ShotMenu::MacroRec),
             ("complete", ShotMenu::Complete),
             ("complete-snippet", ShotMenu::CompleteSnippet),
+            ("preview", ShotMenu::Preview),
+            ("bar-ai", ShotMenu::BarAi),
         ] {
             assert_eq!(parse(&format!("--menu {name}")).menu, Some(m));
         }

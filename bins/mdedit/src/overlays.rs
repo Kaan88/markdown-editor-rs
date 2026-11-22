@@ -350,19 +350,8 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
     if !doc.is_markdown() && !linked && doc.path.is_some() {
         return Vec::new();
     }
-    // Different letters in the View menu and the tab menu, where the other items take the rest.
-    let (here, preview, side) = match index {
-        Some(_) => (
-            "Preview in t&his window",
-            "&Preview in mdview",
-            "Preview side &by side",
-        ),
-        None => (
-            "Preview in thi&s window",
-            "&Preview in mdview",
-            "Pre&view side by side",
-        ),
-    };
+    // Each item says what a click does (issue #7): no tick, which read as a setting.
+    let [here, preview, side] = preview_labels(docs, linked, TAB_LETTERS);
     let item = |id: C, label: &str| {
         let item = match index {
             Some(i) => Item::new(Act::TabCmd(id, i), label),
@@ -372,20 +361,80 @@ fn preview_items(docs: &Docs, index: Option<usize>) -> Vec<Item<Act>> {
     };
     let mut items = Vec::new();
     if docs.pane {
-        items.push(item(C::PreviewPane, here).checked(docs.pane_open));
-        // The View menu has no letter left for it: the tab menu, the palette and Ctrl+E.
+        items.push(item(C::PreviewPane, here));
+        // Visual editing is a way of working, not a window: it keeps its tick.
         if index.is_some() {
             items.push(item(C::VisualEdit, "Edit on the pa&ge").checked(docs.visual_open));
         }
     }
     if docs.viewer {
-        items.push(item(C::PreviewInViewer, preview).checked(linked));
-        items.push(item(C::PreviewSideBySide, side).checked(linked && docs.links.side_by_side));
+        items.push(item(C::PreviewInViewer, preview));
+        items.push(item(C::PreviewSideBySide, side));
     }
     if let Some(first) = items.first_mut() {
         first.separator_before = true;
     }
     items
+}
+
+/// The labels of the three preview commands, each as what a click on it does now: open the
+/// preview that way, or close the one that is open. `letters` are the access-key spellings,
+/// opening then closing, for a menu whose other items take other letters.
+type Letters = [[&'static str; 2]; 3];
+
+const TAB_LETTERS: Letters = [
+    ["Preview in t&his window", "Close t&he preview"],
+    ["&Preview in mdview", "Sto&p the preview in mdview"],
+    ["Preview side &by side", "Stop side &by side"],
+];
+const MENU_LETTERS: Letters = [
+    ["Preview in this &window", "&Close the preview"],
+    ["Preview in &mdview", "&Stop the preview in mdview"],
+    ["Preview side &by side", "Stop side &by side"],
+];
+
+fn preview_labels(docs: &Docs, linked: bool, letters: Letters) -> [&'static str; 3] {
+    let open = [docs.pane_open, linked, linked && docs.links.side_by_side];
+    [0, 1, 2].map(|k| letters[k][usize::from(open[k])])
+}
+
+/// The menu of the Preview button's arrow (issue #7): the modes, each of which opens the
+/// preview that way once (or closes it, when it is open so), then which one the button itself
+/// opens, a choice kept in the preferences. Modes this window cannot use are left out (mdview
+/// not found), and the choice with them when one is left.
+pub fn preview_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
+    use mdedit_core::prefs::PreviewMode;
+    let linked = docs.active_doc().is_some_and(|d| docs.links.contains(d.id));
+    let [here, preview, side] = preview_labels(docs, linked, MENU_LETTERS);
+    let mut items = Vec::new();
+    let mut modes = Vec::new();
+    if docs.pane {
+        items.push(cmd(C::PreviewPane, here, glyph::VIEW));
+        modes.push((PreviewMode::Window, "In &this window"));
+    }
+    if docs.viewer {
+        items.push(cmd(C::PreviewInViewer, preview, glyph::VIEW));
+        items.push(cmd(C::PreviewSideBySide, side, glyph::VIEW));
+        modes.push((PreviewMode::Viewer, "In m&dview"));
+        modes.push((PreviewMode::SideBySide, "Side by s&ide"));
+    }
+    if modes.len() > 1 {
+        let chosen = crate::chrome::preview_mode(docs);
+        items.push(
+            Item::new(Act::PreviewDefault(chosen), "The Preview button opens")
+                .sep()
+                .enabled(false),
+        );
+        for (mode, label) in modes {
+            let icon = if mode == chosen {
+                crate::chrome::RADIO_ON
+            } else {
+                crate::chrome::RADIO_OFF
+            };
+            items.push(Item::new(Act::PreviewDefault(mode), label).icon(icon));
+        }
+    }
+    Menu::new(items, x, y, align_right).access_keys(true)
 }
 
 /// The View menu, opened from the main menu in its place.
@@ -453,7 +502,8 @@ pub fn view_menu(docs: &Docs, ui: &Ui, x: f32, y: f32, align_right: bool) -> Men
                 .enabled(crate::compare::enabled(C::CompareSaved, docs)),
         ]);
     }
-    items.extend(preview_items(docs, None));
+    // The preview's three ways are on the Preview button's arrow (issue #7), the tab menu, the
+    // palette and their keys: here they read as switches, which they are not.
     items.extend([
         cmd(C::ToggleFold, "Fold or ope&n the block", glyph::FOLD).sep(),
         cmd(C::FoldAll, "Fold all &blocks", glyph::FOLD_ALL),
@@ -608,6 +658,7 @@ pub fn text_menu(docs: &Docs, x: f32, y: f32) -> Menu<Act> {
             .icon(glyph::COPY)
             .enabled(has_selection),
         cmd(C::Paste, "Pa&ste", glyph::PASTE).enabled(ready),
+        cmd(C::PastePlain, "Paste as plain te&xt", glyph::PASTE).enabled(ready),
         Item::new(Act::Cmd(C::SelectAll), "Select &all")
             .hint(hint(C::SelectAll))
             .icon(glyph::SELECT_ALL)
@@ -1613,9 +1664,13 @@ pub fn draw_empty(c: &mut Ctx, docs: &Docs, r: Rect) {
         pal.muted,
     );
     y += 20.0 + 28.0;
+    // "Open file…" leads; "New file" beside it is the quieter of the two (issue #8).
     let label = strings::EMPTY_BUTTON;
-    let bw = c.p.measure(Face::Semibold, 13.5, label) + 56.0;
-    let b = Rect::new((cx - bw / 2.0).round(), y, bw.round(), 36.0);
+    let new_label = strings::EMPTY_NEW;
+    let bw = (c.p.measure(Face::Semibold, 13.5, label) + 56.0).round();
+    let nw = (c.p.measure(Face::Semibold, 13.5, new_label) + 56.0).round();
+    let left = (cx - (bw + 12.0 + nw) / 2.0).round();
+    let b = Rect::new(left, y, bw, 36.0);
     let fill = match (
         c.hover == Some(Hit::EmptyOpen),
         c.pressed == Some(Hit::EmptyOpen),
@@ -1636,6 +1691,27 @@ pub fn draw_empty(c: &mut Ctx, docs: &Docs, r: Rect) {
         f32::INFINITY,
     );
     c.hit(Hit::EmptyOpen, b);
+    let n = Rect::new(b.right() + 12.0, y, nw, 36.0);
+    let fill = match (
+        c.hover == Some(Hit::EmptyNew),
+        c.pressed == Some(Hit::EmptyNew),
+    ) {
+        (true, true) => pal.press,
+        (true, false) => pal.hover,
+        _ => mix(pal.page, pal.text, 0.04),
+    };
+    c.p.frame(n, 6.0, fill, pal.line);
+    c.p.icon(glyph::NEW_FILE, 14.0, n.x + 24.0, n.cy(), pal.text);
+    c.p.text(
+        Face::Semibold,
+        13.5,
+        n.x + 38.0,
+        n.cy(),
+        new_label,
+        pal.text,
+        f32::INFINITY,
+    );
+    c.hit(Hit::EmptyNew, n);
     y += 36.0;
     if recents.is_empty() {
         return;

@@ -111,6 +111,8 @@ mod recycle_tests;
 mod visual;
 pub(crate) use preview::previewable;
 #[cfg(test)]
+mod issues_tests;
+#[cfg(test)]
 mod pin_tests;
 mod replace_files;
 mod split_ai;
@@ -963,9 +965,15 @@ impl App {
                     ),
                     chrome::find_label(&self.docs),
                     ui.panes.files,
-                    ui.popup_kind(),
-                    self.docs.active().is_some(),
-                    has_matches,
+                    (ui.popup_kind(), self.docs.active().is_some(), has_matches),
+                    // New, Save and AI edit (issue #8): Save is lit by an edit, AI edit is there
+                    // while the AI is on; the Preview button's tooltip follows its mode.
+                    (
+                        self.docs.active_doc().is_some_and(|d| d.modified()),
+                        self.docs.active_ready().is_some(),
+                        self.docs.prefs.ai_connection == mdedit_core::ai::Connection::Off,
+                        chrome::preview_mode(&self.docs),
+                    ),
                     (
                         self.docs
                             .updates
@@ -1368,6 +1376,8 @@ impl App {
                     p.kind,
                     (p.menu.hover, p.menu.scroll().to_bits()),
                     p.menu.items.len(),
+                    (p.kind == PopupKind::Ai)
+                        .then(|| crate::ai_ui::menu_modify_at(&p.menu, self.ui.mouse)),
                     p.sub.as_ref().map(|s| {
                         (
                             s.kind,
@@ -1824,6 +1834,10 @@ impl App {
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
                     popup.menu.draw_in(c.p, &pal, room);
+                    // The AI menu stands on its own under the bar's AI edit button.
+                    if popup.kind == PopupKind::Ai {
+                        crate::ai_ui::draw_menu_modify(c.p, &pal, &popup.menu, self.ui.mouse);
+                    }
                     if let Some(s) = popup.sub.as_mut() {
                         s.menu.draw_in(c.p, &pal, room);
                         if s.kind == PopupKind::Ai {
@@ -3319,6 +3333,13 @@ fn shot(mut app: App, path: &Path) -> i32 {
             }
         }
         Some(ShotMenu::Recent) => app.open_popup(PopupKind::Recent),
+        Some(ShotMenu::Preview) => {
+            // The picture is the same on every machine: as it is with mdview found.
+            app.docs.viewer = true;
+            app.compose();
+            app.open_popup(PopupKind::Preview);
+        }
+        Some(ShotMenu::BarAi) => app.open_popup(PopupKind::Ai),
         Some(ShotMenu::MainView) => {
             app.open_popup(PopupKind::Main);
             app.compose();

@@ -559,23 +559,34 @@ mod tests {
                 .1
                 .contains(&"Previewing".to_string())
         );
-        // The View menu lists it, checked; the tab menu too.
-        let view = crate::overlays::view_menu(&a.docs, &a.ui, 0.0, 0.0, false);
-        let item = view
+        // The Preview button's arrow offers to stop it, as a command with no tick (issue #7).
+        let menu = crate::overlays::preview_menu(&a.docs, 0.0, 0.0, false);
+        let item = menu
             .items
             .iter()
             .find(|it| it.id == Act::Cmd(C::PreviewInViewer));
-        assert!(item.is_some_and(|it| it.checked && it.enabled));
+        assert!(item.is_some_and(|it| {
+            it.label == "&Stop the preview in mdview" && !it.checked && it.enabled
+        }));
         // The same command again stops the link and starts nothing.
         a.command(C::PreviewInViewer);
         assert!(!a.docs.links.contains(id) && a.docs.links.is_empty());
         std::thread::sleep(Duration::from_millis(100));
         assert_eq!(recorded(&record, 5).len(), 5);
+        // With mdview chosen for it, the Preview button starts the viewer, and stops it.
+        a.docs.prefs.preview_mode = mdedit_core::prefs::PreviewMode::Viewer;
+        a.activate(crate::ui::Hit::Bar(crate::ui::BarItem::Preview));
+        assert!(a.docs.links.contains(id) && a.preview.is_none());
+        let r = recorded(&record, 10);
+        assert_eq!(r[5..], r[..5]);
+        a.activate(crate::ui::Hit::Bar(crate::ui::BarItem::Preview));
+        assert!(a.docs.links.is_empty());
+        a.docs.prefs.preview_mode = mdedit_core::prefs::PreviewMode::Window;
         // Side by side with no window to measure: the viewer is started without a place, and
         // the hint says what to do instead.
         a.command(C::PreviewSideBySide);
-        assert_eq!(recorded(&record, 10).len(), 10);
-        assert!(!recorded(&record, 10).contains(&"--place".to_string()));
+        assert_eq!(recorded(&record, 15).len(), 15);
+        assert!(!recorded(&record, 15).contains(&"--place".to_string()));
         assert!(a.docs.links.contains(id));
         // A tab that closes ends its link at the next pass; with nothing linked a pass does
         // nothing and asks for no timer.
@@ -746,11 +757,12 @@ mod tests {
             link::Opening::default(),
             Instant::now(),
         );
+        // Linked, the item offers to stop it, with no tick (issue #7).
         let item = crate::overlays::tab_menu(&a.docs, u, 0.0, 0.0)
             .items
             .into_iter()
             .find(|it| it.id == Act::TabCmd(C::PreviewInViewer, u));
-        assert!(item.is_some_and(|it| it.enabled && it.checked));
+        assert!(item.is_some_and(|it| it.enabled && !it.checked && it.label.starts_with("Sto&p")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -901,11 +913,13 @@ mod tests {
             shift: true,
             ..Mods::default()
         };
+        // Ctrl+Shift+V is plain paste since issue #8; the preview took Ctrl+Shift+L.
         let key = Key::Name(KeyName::Char('v'));
         assert_eq!(
-            crate::keys::command_for(&key, both),
+            crate::keys::command_for(&Key::Name(KeyName::Char('l')), both),
             Some(C::PreviewInViewer)
         );
+        assert_eq!(crate::keys::command_for(&key, both), Some(C::PastePlain));
         let ctrl = Mods {
             ctrl: true,
             ..Mods::default()
