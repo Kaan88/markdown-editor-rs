@@ -32,6 +32,13 @@ compared. Nothing was measured against the budgets; each phase says what it must
 uses the names that commit introduced and says what is still missing. The faults of section 2
 were found at `63e7095` and nothing since has touched them.
 
+**What the owner's answers changed** (2026-11-22). Of section 11's 26 decisions, 17 were
+confirmed, the `trash` crate was approved, and nine were replaced by D-074 to D-082 in
+`docs/DECISIONS.md`. Sections 8 to 11 are rewritten to match. Sections 3 to 7 are left as they
+were argued; where their prose says otherwise (in-place rewrites, what a record holds, note
+names, the preview, pictures, one request at a time, what stays in mdedit), the decision named
+in section 11 is what is built.
+
 ---
 
 ## 1. What you asked for
@@ -314,7 +321,7 @@ it is not an operation a plan holds: it is a command of its own, and 4.5 says wh
 |---|---|---|
 | `home:` reading and writing and where a note of a group and section goes (there since `f75b4c5`); adding many links at once and the rule that names a note's file (to add) | `mdshared_app::library` | It is the format two apps must read the same way (section 7) |
 | The plan as data, the split checker, the composer that turns ranges into a note's text, the digest of a file, the record and the undo rules | `mdedit-core` (`plan.rs`, `split.rs`, `digest.rs`, `runs.rs`) | Pure, headless, tested without a window, like `diff.rs` and `replace_files.rs` |
-| The plan card | `bins/mdedit/src/plan_ui.rs` while it is being shaped, then `mdshared-ui` (phase S2) | Takes a `Painter`, a `Palette`, rectangles and plain state; returns hits. No `App`, no `Ctx`, so the move is a move |
+| The plan card | `mdshared-ui` (D-081; phase S3 moves what R1 built in mdedit) | Takes a `Painter`, a `Palette`, rectangles and plain state; returns hits. No `App`, no `Ctx`, so the move is a move |
 | Wiring, the write job, the record's files | `bins/mdedit/src/app/plan_events.rs` | The pattern of `app/replace_files.rs` |
 | The worker | `Job<T>` out of `replace_ui.rs`, into `mdshared-app::job` | It is already exactly this: a thread, progress, cancel, a wake at most every 40 ms |
 
@@ -1229,7 +1236,7 @@ Your rule is the rule. The review's point survives as a question of *when in the
 | Strikethrough | `Painter::strike_range`, phase S | The mirror of `underline_range`, which the access keys added. Mail and feeds want it for read and deleted rows |
 | A monospace face | `gfx::Face::Mono`, phase S | The shared painter has interface faces only, so a note's source in the plan is drawn in the interface font. Plain-text mail is monospace |
 | The arithmetic of a list of equal rows: what is visible, the cursor, reveal, the keys, the hit, the scrollbar's numbers | `mdshared-ui::rows`, phase S | This plan has four new lists (the plan, the files, the runs, the changes' headers) and both shells already repeat it. It is not the virtual table with columns and ranges that yesterday's review left for the mail app to shape; that is a larger thing and may one day swallow this one |
-| The plan card | Shaped in `bins/mdedit` (`plan_ui.rs`) through R1 and 4b, then moved to `mdshared-ui::plan` in **phase S2**, half a day | The file manager's batch rename and the feed reader's OPML import are both "a ticked list, a preview of the selected row, options, a footer". It is moved once the split at headings, the split by AI and the Replace in files confirmation have all used it, which is three shapes and enough. The coverage strip is an optional slot in it from the start, because neither of those apps has one |
+| The plan card | `mdshared-ui::plan` from the start (D-081). R1 shaped it in `bins/mdedit`; **phase S3** moves it | The file manager's batch rename and the feed reader's OPML import are both "a ticked list, a preview of the selected row, options, a footer". It is moved once the split at headings, the split by AI and the Replace in files confirmation have all used it, which is three shapes and enough. The coverage strip is an optional slot in it from the start, because neither of those apps has one |
 | The Recycle Bin call | `mdshared-ui::platform`, behind a cargo feature `recycle`, as `client-margin` is | Its second user is known: the file manager. The feature keeps the `trash` crate out of mdview's build until mdview asks for it, which it should not |
 | The plan as data, the split checker, the composer, the digest, the record, the undo rules | `mdedit-core`. **Not shared, against the letter of the rule** | They are pure and headless, but they are mdedit's policy: how much of a file leaves the machine, what a split is, what undo may remove. A second app would have its own |
 | The change list | `bins/mdedit` (`hunks_ui.rs`), written to be liftable. **Not shared** | No second user I can name: the viewer does not compare, mail and feeds do not either |
@@ -1351,33 +1358,35 @@ fails with its fix reverted, fmt and clippy clean, the shots taken and looked at
 and the budgets measured before and after (first frame and memory on `fixtures/sample.rs`,
 release builds run in turn with a fresh settings folder, as phase 1 did it).
 
-| # | What ships | Days | Needs your answer | In 10.3 of the redesign |
-|---|---|---|---|---|
-| 0 | Stop the leak: a note is not a group, Delete refuses a note, relative links inside the library, the name rule, Esc keeps a result (5.0) | 1 | No | New. Faults in what phases 2 and 2b shipped |
-| 6a | A folder per group and per section (5.1) | 3 | No | 6a, 3 days: the same. In hand; its shared half is `f75b4c5` |
-| S | The shared pieces: tick box, switch, disabled button, strikethrough, monospace face, the list arithmetic, the worker, the safe new file, the library's rows (7.2) | 2.5 | No | New |
-| R1 | The plan card, the writer, the record, undo, "AI runs…", the pane's status row, shipped with **Split at headings**, which needs no AI (4, 5.2, 5.3, 5.9, 5.10) | 4 | Look at the shots | Part of 4b |
-| 4b | Split by AI: the request, the checks, "the rest", editing the plan, the warnings (5.2, 3.5, 3.6) | 3 | No | 4b, "4+" |
-| S2 | The plan card moves to `mdshared-ui`, with mdedit's shots unchanged (7.2) | 0.5 | No | New |
-| T | The original in the Recycle Bin (5.4) | 1.5 | **Yes: the `trash` crate** | New |
-| R2 | The review with changes and ticks, and the cheap partial preview (5.5) | 3 | Look at the shots | New |
-| W | The AI task window over files (5.6) | 4 | Look at the shots | New |
-| 4a | Add a folder to the library by its subfolders, no AI (5.7) | 2 | No | Part of 4 |
-| 4 | Sort a folder by AI: the scheme, the batches, confidence (5.7) | 5 | No | 4, 8 days |
-| 5 | Markdown notes from text files (5.8) | 2 | No | 5, 3 days |
-| 6b | "Move the notes to match the headings…", and the flat notes into their group's folder | 2 | No | 6b, 2 days: the same |
-| | **Total** | **33.5** | | |
-
-And the ones that wait for a yes:
-
-| # | What | Days | Note |
+| # | What ships | Days | State |
 |---|---|---|---|
-| V | Pictures the model can see (5.6) | 0.5 to try, then 4.5; 6.5 with the resizer | One new crate with the resizer. My advice is not yet |
-| P2 | The tinted, level preview of the mockup (5.5) | 3 | Ask after using R2 |
-| M1 | mdview: a read-only Notes face (7.5) | 3 | mdview is in maintenance; the plan of 2026-11-20 lists mdview's side as still to do |
-| M2 | mdview: "Add this file to the notes library…" (7.5) | 1 | After M1 |
-| D | The dialog, crash and frost code written twice (7.4) | 1.5 | Not needed here. The first job of the next app |
-| 7 | Drag and drop | 3 to 4 | Decision 6 of the redesign's section 9 said no. Still no |
+| 0 | Stop the leak (5.0) | 1 | **Done** |
+| 6a | A folder per group and per section (5.1) | 3 | **Done** |
+| S | The shared pieces (7.2) | 2.5 | Tick box and switch done |
+| R1 | The plan card, the writer, the record, undo, "AI runs…", shipped with **Split at headings** (5.2, 5.3, 5.9, 5.10) | 4 | **Built, on `main`**; progress row with Cancel and per-source headings not built |
+| N | Note names in lower case with hyphens in the writers already built: the split writer, "New note here…" (D-075) | 0.5 | |
+| S3 | What R1 built in mdedit moves to the shared crates: the plan card, the split checker, the record (`runs`) and the move (`moves`); mdedit's shots unchanged (D-081, replaces S2) | 1.5 | |
+| 6b | "Move the notes…", and the flat notes into their group's folder (5.12) | 2 | Core drafted on `f/move-notes`; the window not begun |
+| 4b | Split by AI, with requests in parallel (5.2, 3.5, 3.6, D-080) | 3.5 | |
+| T | The original in the Recycle Bin (5.4) | 1.5 | `trash` approved |
+| R2 | The review with changes and ticks, and the tinted, level preview (5.5, D-077) | 6 | |
+| W | The AI task window over files; "Rewrite them" edits in place after the review, the original kept in the record (5.6, D-074, D-076) | 5.5 | |
+| V | Pictures the model can see, at the owner's choice (5.6, D-078) | 0.5 to try, then 4.5; 6.5 with the resizer | The resizer is asked for and priced first (rule 7) |
+| 4a | Add a folder to the library by its subfolders, no AI (5.7) | 2 | |
+| 4 | Sort a folder by AI, and pictures into existing notes behind a setting (5.7, D-079) | 6 | |
+| 5 | Markdown notes from text files (5.8) | 2 | |
+| DD | Drag and drop of notes and files in the library (D-082) | 3 to 4 | |
+| | **Total** | **49 to 50** (55 to 56 with V whole) | about 11 done |
+
+Still waiting for a yes: M1, mdview's read-only Notes face (3 days); M2, "Add this file to the
+notes library…" in mdview (1, after M1); D, the dialog, crash and frost code written twice (1.5,
+the first job of the next app).
+
+**What the answers added** to the 33.5 days first proposed: S2 (0.5) became S3 (1.5), because R1
+was built in mdedit before D-081; N (0.5); P2 (3) joined R2; the in-place rewrite and its undo
+copy (1.5) in W; parallel requests and pictures into existing notes (1.5) in 4b and 4; V (5) and
+drag and drop (3 to 4) from the waiting list. 6b moved ahead of 4b: its core was drafted first
+and it needs no AI.
 
 **Against the redesign's table.** Its remaining rows were 6a (3), 4b (4+), 4 (8), 5 (3) and 6b
 (2): twenty days. The same scope here is 6a (3), R1 and 4b (7), 4a and 4 (7), 5 (2) and 6b (2):
@@ -1405,9 +1414,9 @@ nothing in this plan adds work at start, and that is to be shown, not assumed. R
 the library read at 500 and at 2,000 notes (fault I), and moves it to a worker if it costs more
 than a frame. T reports the exe size with and without the crate.
 
-**Releases**, as a suggestion only: 1.3.0 is phases 1 to 3 as built, with 0 and 6a, so the first
-library anyone has installed already has folders and cannot delete a note by its own menu. Then
-split (S, R1, 4b, S2, T), then the review and the window (R2, W), then folders (4a, 4, 5, 6b).
+**Releases.** None for now (the owner, 2026-11-22): 1.3.0 is on `main`, not tagged. When the
+owner says so: split first (S, R1, N, S3, 6b, 4b, T), then the review and the window (R2, W, V),
+then folders (4a, 4, 5) and drag and drop.
 
 ---
 
@@ -1417,9 +1426,6 @@ Where your enthusiasm would cost you, and why.
 
 - **"Do whatever it can."** The model choosing the kind of operation. You choose the kind; it
   works inside it (3.4).
-- **Rewriting files in place without opening them.** A wrong result written over twelve files is
-  the worst thing this feature could do. The result is a new note; in-place is what the open
-  document's rewrite is for, with its undo (3.3).
 - **Any move, rename or delete of your files by a run.** Phase 6b moves notes, by a plan, on your
   command, with undo; no AI is involved in it.
 - **Tools for the model.** It keeps getting a text and returning a text. No file access, no
@@ -1429,16 +1435,15 @@ Where your enthusiasm would cost you, and why.
 - **Filing in the background.** No watched folder, no "new files are filed for you". The
   redesign said this; it still holds.
 - **Half-finished answers saved to disk.** Restart the request instead (3.7).
-- **Several requests at once.** The engine can. The rate limits and your reading order cannot.
 - **Restoring the original from the Recycle Bin by program**, in the first cut (5.4).
 - **Reading PDFs and Word files.** Extracting their text is the document archive's problem and a
   class of dependency this program does not have. They are linked by name or left out, and the
   window says which.
-- **A resizer for pictures, before pictures are sent at all** (5.6).
+- **A resizer for pictures without asking first** (D-078, rule 7).
 - **A rendered page for each note in the split plan.** The source with line numbers is what shows
   your lines are your lines. The page is one click away after writing.
-- **Dragging**: rows in the plan, files from the Files pane into the window, anything in the
-  tree. There is no drag layer, and building one for this is the wrong reason.
+- **Dragging rows in the plan.** Drag and drop in the library is planned (D-082); reordering a
+  plan by dragging is not part of it.
 - **"Made by AI" marks in the library files, tags, an index, a database of runs.** The records
   beside the library are the memory; the library files stay plain Markdown you can write by hand.
 - **Any AI in mdview** (7.5).
@@ -1448,15 +1453,11 @@ Where your enthusiasm would cost you, and why.
 
 ## 10. Questions
 
-Only the ones that stop work. Everything else is decided in section 11 and can be overturned.
+Answered 2026-11-22: the `trash` crate is approved; 1.3.0 is not released until the owner says
+so; V, P2 and drag and drop are yes and in section 8. M1 and M2 still wait.
 
-1. **The `trash` crate, yes or no?** It blocks phase T and nothing else. Without an answer the
-   box is not built and a split leaves the original where it is, which is the safe default.
-2. **Is 1.3.0 held for phase 0?** I would hold it. As `main` stands, a note made from the pane
-   shows up as a group, and that group's Delete removes the note. It is one day.
-
-Not blocking, yours whenever you like: pictures the model can see (V); the tinted preview (P2);
-the Notes face and "Add this file" in mdview (M1, M2).
+Open, blocking only its own piece: **the resizer for phase V**, a new crate, asked for with its
+price before V goes past its half-day try.
 
 ---
 
@@ -1469,27 +1470,27 @@ They are written so they can be copied into a decisions log as they stand.
 |---|---|---|---|
 | 1 | An AI run creates files only inside the library folder or a group folder the owner set, and changes or deletes nothing elsewhere. Replaces decision 4 of the redesign's section 9 (a converted file beside its original) | With a folder per group there is a right place for a new note, and one sentence covers every feature | The owner wanting results beside their sources |
 | 2 | The kind of a file task is chosen by the owner (file, split, rewrite), never by the model | What gets written must not be the model's choice | Nothing I can think of |
-| 3 | A task that changes text, run on files that are not open, writes new notes and never the files themselves | A bad result over many files with no undo | A real need for in-place fixes of many files, with backups |
+| 3 | **Replaced by D-074:** a text task on files that are not open rewrites them in place, after the owner accepts that file's changes, the original kept in the record | New notes only would never change an existing library | An in-place rewrite losing text |
 | 4 | Splitting and adding a folder each open with a plan made without a request; the AI is a second step on the same screen | Works with the AI off, instant, a baseline, and the machinery is proven on a deterministic input first | The no-AI plans proving useless in practice |
 | 5 | A note that starts with a heading has its headings promoted so that one is level 1; nothing is added and nothing is stripped. A note with no heading gets `# title` and a blank line | The mockup's duplicate heading; a note should be a document | The owner preferring lines exactly as they were (then: no change at all, and no title line) |
 | 6 | "The rest" is one note of labelled runs, off by default, defined as every non-blank line outside a ticked note | Makes the Recycle Bin rule reachable without a dozen scrap notes | The owner wanting a note per run |
 | 7 | Lines in no note are drawn plainly; the warning colour appears only when it has a consequence | Gaps are the normal case | The owner missing gaps they cared about |
 | 8 | Notes are written as UTF-8 whatever the source's encoding | The library's reader reads UTF-8 only | The reader learning other encodings |
-| 9 | A note's file is named by its title as written (the rule "New note here…" uses), not in lower case with hyphens | One naming rule in the program | The owner preferring the mockup's names, everywhere |
+| 9 | **Replaced by D-075:** a note's file is named by its title in lower case with hyphens, everywhere; existing files are not renamed | One naming rule, the mockup's | The owner |
 | 10 | `home: <path>` exactly, relative to the library folder by default; a group without one gets it with the first note the app creates there | Run: the other spellings are read as notes. Relative keeps a synced library working | A reader that takes other forms safely |
 | 11 | Links to notes inside the library folder are relative to it | The library-folder setting exists so the folder can move | Nothing |
-| 12 | Records live in `.runs` inside the library folder, hold no note text, and are kept for 20 runs or 90 days | Undo must travel with the library it describes, and must not be a second copy of your notes | The owner not wanting them synced |
+| 12 | Records live in `.runs` inside the library folder, kept for 20 runs or 90 days; **by D-076** a record holds the original of every file the run overwrote, and no other text | Undo travels with the library, and an in-place rewrite needs its original | The owner not wanting the copies synced |
 | 13 | Undo never removes a note while the original is not the file it was cut from (gone, changed, or a recycled one not back), and removes only files this run created that are byte for byte what it wrote, and none that a library file still lists (D-069 to D-072) | Undo must not be able to lose text | Nothing |
 | 14 | The first cut of undo after a recycle asks the owner to restore the original; the program does not pick it out of the bin | Rare, and easy to get wrong | It being needed often |
 | 15 | The Recycle Bin uses the `trash` crate, without its default features, behind one function in `mdshared-ui` under a cargo feature, offered only on a local fixed drive | One new line in the lock against three back ends of our own; the feature keeps it out of mdview | The owner saying no to the dependency (question 1) |
 | 16 | A partial rewrite is composed in one pass and applied as one edit; `merge::Splice` per change is not used for it | One undo step, and the text is needed anyway | Nothing |
-| 17 | The Preview view ships with the ticks in its cheap form; the tinted, level one waits | Three days for something the Changes view may make unnecessary | The owner asking for it after using the ticks |
-| 18 | Pictures are placed by their names; the model does not see them. Seeing them is a separate phase | The engine has no attachments, and sending pictures changes what leaves the machine | The owner saying yes to phase V |
-| 19 | A picture is put into a note only if the run writes that note; otherwise it is listed in the library beside it | The owner's own files are not edited by a run | Nothing |
+| 17 | **Replaced by D-077:** the tinted, level preview is built with R2 | The owner asked for it now | The owner |
+| 18 | **Replaced by D-078:** phase V, pictures the model can see, is planned; its resizer is asked for and priced first | The owner said yes to V | The owner |
+| 19 | **Replaced by D-079:** a run may put a picture link into a note it did not write only with an AI setting on (off by default), after the review, the original kept in the record; otherwise the picture is listed beside the note | The owner wanted it, behind a setting | The owner |
 | 20 | Pictures are copied beside the notes by default; the originals are never moved | A library that travels should carry its pictures | Disk use; the box is there to untick |
-| 21 | One request at a time; a model run restarts and never resumes from disk; a write resumes | Rate limits; no digests on disk; a half-written library must be finishable | A provider where parallel requests are free and wanted |
+| 21 | **Replaced by D-080:** requests in parallel, three by default per connection and one for a local model; results in file order; a model run restarts, a write resumes | The owner chose parallel requests | Rate limits making it worse than one at a time |
 | 22 | Esc in the review and on a plan closes and keeps; only Discard and Drop throw away | A result that took minutes must not be lost to a key | Nothing |
-| 23 | The format, the folder rule, the leaves and the list arithmetic start in the shared crates; the plan card is shaped in mdedit and moved on a date (phase S2); the split checker, the record, the change list and the strip stay in mdedit | The owner's rule of 2026-11-13, "whatever can be shared will start shared", applied to everything but mdedit's own policy and the pieces nobody else could use (7.1) | The owner wanting those shared as well; a second app that compares texts or splits documents |
+| 23 | **Replaced by D-081:** everything starts shared, the plan card, the split checker, the record, the change list and the strip included; only mdedit's wiring stays in mdedit | The owner chose "share all of it" | The owner |
 | 24 | The engine's protocol stays free of task words; the JSON contracts live in `mdedit-core` | Keeps the engine usable by anything | Nothing |
 | 25 | mdview gets no AI and nothing that writes the owner's documents | It is a reader, and its network sentence is worth keeping | The owner deciding otherwise, knowingly |
-| 26 | Drag and drop stays out | As the redesign decided; nothing here changes the reasons | A drag layer existing for another reason |
+| 26 | **Replaced by D-082:** drag and drop of notes and files in the library is planned, 3 to 4 days | The owner asked for it | The owner |
