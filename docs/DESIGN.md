@@ -2486,6 +2486,13 @@ keeps the drawing, the cursor, folding and the name box.
   in the pane's box is discarded with the rows it was drawn over, and the keyboard goes back to
   the text, caret and all (`stop_edit`, `drop_library_field_focus`, `caret_reset`), as Escape
   does it.
+- **The delete question fits its words.** "Delete this library file…" says, after the count, that
+  the notes it lists are kept on disk, and says nothing when it lists none. Its card grows from
+  the lines that sentence wraps to: `overlays::card` takes the body's height for
+  `DialogKind::LibraryDelete`, measured by `overlays::body_height` with the same face, size and
+  width it is drawn with (laid out at an empty clip, so nothing is painted), instead of a fixed
+  196 that ran a long group or file name's fourth line through the divider. Shots
+  `library-delete` and `library-delete-long`.
 - **Nothing is left behind.** Closing the pane, switching its face away from Notes, and changing
   the library folder cancel the job; a result that arrives after one of those is dropped by
   `library_accept`'s pane and folder check. A cancelled job returns nothing to show (`None`), and

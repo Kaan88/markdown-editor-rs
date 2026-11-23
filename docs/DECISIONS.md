@@ -1049,3 +1049,18 @@ release waits only for the owner's word to tag.
 **Why.** Rule 6: the owner approves by looking.
 **Overturned by.** The owner.
 **From.** The owner, 2026-11-23.
+
+## D-102 · 2026-11-23 · The delete question: where the notes go, and a card that fits its words
+
+**Decision.** The question before a library file is deleted tells the owner where the notes it
+lists are ("The notes it lists are kept on disk."), and says nothing about them when it lists
+none. Its card is no longer a fixed 460x196: the height comes from the body's own wrapped lines
+(`overlays::body_height`, the same face, size and width it is drawn with), floored at 196 so the
+two-line question looks as it did. A long group or file name used to wrap a fourth line through
+the divider into the buttons.
+**Why.** The owner's hand check asked for the wording (D-101); deletion is unchanged either way.
+The fixed card was found by review: the question names a group and a file, both free to be long.
+A fixed height cannot hold a sentence that names things of unknown length, and sizing from the
+measured body is the same rule the dialog list cards already follow (`card`'s `list`).
+**Overturned by.** The owner, or a review that finds the grown card wrong on screen.
+**From.** The owner's hand check (D-101) and the review of `fix/delete-library-notice`.

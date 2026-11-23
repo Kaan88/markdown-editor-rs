@@ -12,3 +12,8 @@ shows.)
   though it had not been added. The rows are made again as the note is written, with what was
   folded above it opened, and a name being typed in the pane's box goes with them, its keyboard
   back in the text.
+- **The question before deleting a library file says where its notes go.** It named the file and
+  the group and said how many notes it listed, but not that those notes stay on disk with nothing
+  listing them; a file that lists none no longer gets that second sentence. The question's card
+  also grows with the lines its words wrap to: a long group or file name used to run a fourth
+  line through the divider into the buttons.

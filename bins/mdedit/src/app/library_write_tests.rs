@@ -1383,17 +1383,19 @@ fn the_question_about_a_library_file_says_its_name_and_how_many_notes_it_lists()
             .position(|r| r.kind == Kind::Group && r.label == name)
             .unwrap()
     };
-    for (group, file, says) in [
-        ("Personal", "personal.md", "lists 2 notes"),
-        ("One", "one.md", "lists 1 note."),
-        ("Empty", "empty.md", "lists no notes"),
+    // The last pair is whether the question says where the listed notes stay: a file that lists
+    // none says so, and nothing about notes it does not list.
+    for (group, file, says, keeps) in [
+        ("Personal", "personal.md", "lists 2 notes", true),
+        ("One", "one.md", "lists 1 note.", true),
+        ("Empty", "empty.md", "lists no notes", false),
     ] {
         let at = row_of(&a, group);
         pick(&mut a, LibAct::DeleteFile, at);
         let body = a.ui.dialog.as_ref().expect("the question").subject.clone();
         assert!(body.contains(group) && body.contains(file), "{body}");
         assert!(body.contains(says), "{group}: {body}");
-        assert!(body.contains("kept on disk"), "{body}");
+        assert_eq!(body.contains("kept on disk"), keeps, "{group}: {body}");
         assert!(!body.contains("not touched"), "{body}");
         press(&mut a, KeyName::Escape);
     }

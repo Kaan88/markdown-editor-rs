@@ -557,8 +557,14 @@ pub mod strings {
             1 => "It lists 1 note.".to_string(),
             n => format!("It lists {n} notes."),
         };
+        // With nothing listed, saying where the listed notes are would answer a question the
+        // person does not have.
+        let kept = match notes {
+            0 => "",
+            _ => " The notes it lists are kept on disk.",
+        };
         format!(
-            "The library file {file} (the group \u{201c}{group}\u{201d}) will be deleted from the library folder. {listed} The notes it lists are kept on disk."
+            "The library file {file} (the group \u{201c}{group}\u{201d}) will be deleted from the library folder. {listed}{kept}"
         )
     }
     pub fn library_deleted(group: &str) -> String {

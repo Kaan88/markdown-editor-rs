@@ -28,8 +28,14 @@ released. If `git log -1` is newer, doubt "In hand" first.
   again only when a group or a section was folded and opened, so the add looked lost. The rows
   are made again as it is written, with what was folded above the note opened, and a name being
   typed in the pane's box goes with them, its keyboard back in the text.
-- Nothing else since `v1.3.0` but documents. Nothing since 1.2.0 has had an outside review
-  (audit 3's fixes included).
+- **The question before deleting a library file says where the notes go** (branch
+  `fix/delete-library-notice`): it said only that the file goes, though the notes it lists stay on
+  disk with nothing listing them; a file that lists none no longer gets that second sentence. Its
+  card was a fixed 460x196, and a long group or file name wrapped a fourth line through the
+  divider into the buttons; the card now grows from the lines the words wrap to (shots
+  `library-delete`, `library-delete-long`).
+- Nothing else since `v1.3.0` but those two fixes and documents. Nothing since 1.2.0 has had an
+  outside review (audit 3's fixes included).
 
 ## In hand
 
@@ -77,7 +83,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note with nothing listing them and splitting that document again writes nothing
   (every note reads "already there" and comes unticked). Found by the owner. The question now says
-  the notes it lists are kept on disk (shot `library-delete`); deleting itself is unchanged.
+  the notes it lists are kept on disk (shots `library-delete`, `library-delete-long`); deleting
+  itself is unchanged.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;

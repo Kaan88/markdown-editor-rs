@@ -3537,10 +3537,18 @@ fn shot(mut app: App, path: &Path) -> i32 {
             let which = app.args.dialog;
             app.runs_demo(which);
         }
-        Some(ShotDialog::LibraryDelete) => {
+        Some(ShotDialog::LibraryDelete | ShotDialog::LibraryDeleteLong) => {
             app.open_dialog(DialogKind::LibraryDelete);
             if let Some(d) = app.ui.dialog.as_mut() {
-                d.subject = strings::library_delete_body("Japan 2025", "japan-2025.md", 23);
+                d.subject = if app.args.dialog == Some(ShotDialog::LibraryDeleteLong) {
+                    strings::library_delete_body(
+                        "Japan 2025, Tokyo, Kyoto and the long way home",
+                        "japan-2025-tokyo-kyoto-and-the-long-way-home.md",
+                        23,
+                    )
+                } else {
+                    strings::library_delete_body("Japan 2025", "japan-2025.md", 23)
+                };
             }
         }
         None => {}
