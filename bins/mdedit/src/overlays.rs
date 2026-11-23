@@ -1880,17 +1880,22 @@ mod tests {
     }
 
     /// The question before deleting a library file names a group and a file, and a long pair
-    /// wraps onto a fourth line: at the fixed 196 that line ran through the divider into the
-    /// buttons. The card is grown from the lines the words wrap to, and a short question keeps
-    /// its two-line card.
+    /// wraps onto more lines than the fixed 196 card holds: at the fixed 196 those lines ran
+    /// through the divider into the buttons. The card is grown from the lines the words wrap to,
+    /// and a short question keeps its two-line card.
+    ///
+    /// The names are long enough that the question overruns a 196 card in every font the three
+    /// platforms measure it in: the first pair of names wrapped to three lines at macOS's
+    /// metrics and to four on Windows, so this test passed here and failed in CI.
     #[test]
     fn a_long_library_question_grows_its_card_to_its_lines() {
         let (mut bm, mut gfx) = painter();
         let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
         let ink = [0x1f, 0x1f, 0x1f];
         let long = strings::library_delete_body(
-            "Japan 2025, Tokyo, Kyoto and the long way home",
-            "japan-2025-tokyo-kyoto-and-the-long-way-home.md",
+            "Japan 2025, Tokyo, Kyoto, Osaka, Nara, Sapporo and the long way home, with every stop \
+             written down and every ticket kept",
+            "japan-2025-tokyo-kyoto-osaka-nara-sapporo-and-the-long-way-home-with-every-stop-written-down-and-every-ticket-kept.md",
             23,
         );
         let used = body_height(&mut p, QUESTION_W - 2.0 * PAD, &long, ink);
@@ -1900,7 +1905,7 @@ mod tests {
             "the words need more than the 196 card's room: {used} vs {room}"
         );
         let r = card(DialogKind::LibraryDelete, 0, used, 1200.0, 900.0);
-        assert!(r.h > QUESTION_H, "the card grew: {}", r.h);
+        assert!(r.h > QUESTION_H, "the card grew: {} for {used}", r.h);
         assert!(
             r.y + BODY_TOP + used + BODY_GAP <= r.bottom() - FOOTER,
             "the last line ends above the divider: {} in {}",
