@@ -240,8 +240,19 @@ impl App {
     pub(super) fn task_pick_files(&mut self) {
         let start = self.docs.active_doc().and_then(|d| d.path.clone());
         let start = start.as_deref().and_then(Path::parent);
-        let picked = platform::pick_files(start);
-        self.task_add_paths(picked);
+        // Windows opens the dialog here; the other systems open it on a thread, so its answer
+        // comes back as `Picked::TaskFiles` (`App::dialog_done`).
+        #[cfg(windows)]
+        self.task_add_paths(platform::pick_files(start));
+        #[cfg(not(windows))]
+        if !self.dialog_busy {
+            self.dialog_busy = true;
+            let wake = self.docs.waker();
+            let start = start.map(Path::to_path_buf);
+            platform::pick_files_async(start.as_deref(), move |files| {
+                wake(Wake::Dialog(Picked::TaskFiles(files)));
+            });
+        }
     }
 
     /// The window's keys. It takes every key while it is open, as the plan screen does.

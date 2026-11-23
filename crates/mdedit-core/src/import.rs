@@ -913,7 +913,14 @@ mod tests {
 
     #[test]
     fn a_link_is_relative_inside_the_library_and_whole_outside_it() {
-        let dir = scratch("links");
+        // A temp folder is not always spelled the way the system resolves it: macOS's
+        // `temp_dir` is under `/var`, a link to `/private/var`, and a Windows CI runner's
+        // `%TEMP%` is the 8.3 name `RUNNER~1` of `runneradmin`. A note outside the library is
+        // written by the whole path the folder was given (`tree::link_path`: "as it is
+        // otherwise"), so the fixture starts from the folder as the system resolves it, and the
+        // expectation is that same whole path. A plan that made the link relative, or dropped a
+        // part of it, still fails here.
+        let dir = mdshared_app::paths::canonical_or_absolute(&scratch("links"));
         let root = dir.join("library");
         std::fs::create_dir_all(&root).unwrap();
         let inside = root.join("Recipes");
@@ -932,10 +939,7 @@ mod tests {
             &outside,
             at(&root, root.join("Dishes.md")),
         );
-        assert_eq!(
-            p.links()[0].path,
-            mdshared_app::paths::canonical_or_absolute(&outside.join("two.md"))
-        );
+        assert_eq!(p.links()[0].path, outside.join("two.md"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
