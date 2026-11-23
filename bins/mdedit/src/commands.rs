@@ -558,7 +558,7 @@ pub mod strings {
             n => format!("It lists {n} notes."),
         };
         format!(
-            "The library file {file} (the group \u{201c}{group}\u{201d}) will be deleted from the library folder. {listed} The notes themselves are not touched."
+            "The library file {file} (the group \u{201c}{group}\u{201d}) will be deleted from the library folder. {listed} The notes it lists are kept on disk."
         )
     }
     pub fn library_deleted(group: &str) -> String {

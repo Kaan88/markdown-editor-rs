@@ -1393,7 +1393,8 @@ fn the_question_about_a_library_file_says_its_name_and_how_many_notes_it_lists()
         let body = a.ui.dialog.as_ref().expect("the question").subject.clone();
         assert!(body.contains(group) && body.contains(file), "{body}");
         assert!(body.contains(says), "{group}: {body}");
-        assert!(body.contains("themselves are not touched"), "{body}");
+        assert!(body.contains("kept on disk"), "{body}");
+        assert!(!body.contains("not touched"), "{body}");
         press(&mut a, KeyName::Escape);
     }
     let _ = std::fs::remove_dir_all(&l.dir);

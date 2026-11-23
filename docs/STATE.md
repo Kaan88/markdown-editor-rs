@@ -70,8 +70,8 @@ fixes included).
 - The editor never reads the AI engine's version.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note with nothing listing them and splitting that document again writes nothing
-  (every note reads "already there" and comes unticked). Found by the owner, who asks that the
-  question at least say the notes stay on disk.
+  (every note reads "already there" and comes unticked). Found by the owner. The question now says
+  the notes it lists are kept on disk (shot `library-delete`); deleting itself is unchanged.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;

@@ -421,6 +421,10 @@ for t in "" "-dark"; do
     shot "runs-newer$t" $th --dialog runs-newer
 done
 
+# The question before a library file is deleted: it says the notes it lists are kept on disk.
+shot library-delete --light --dialog library-delete "$fx/sample.rs"
+shot library-delete-dark --dark --dialog library-delete "$fx/sample.rs"
+
 # The "Plan ready" row at the foot of the Notes pane (5.3): a plan Escape kept, with Show and Drop.
 for t in "" "-dark"; do
     th=--light

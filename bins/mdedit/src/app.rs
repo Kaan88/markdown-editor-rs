@@ -3537,6 +3537,12 @@ fn shot(mut app: App, path: &Path) -> i32 {
             let which = app.args.dialog;
             app.runs_demo(which);
         }
+        Some(ShotDialog::LibraryDelete) => {
+            app.open_dialog(DialogKind::LibraryDelete);
+            if let Some(d) = app.ui.dialog.as_mut() {
+                d.subject = strings::library_delete_body("Japan 2025", "japan-2025.md", 23);
+            }
+        }
         None => {}
     }
     if let Some(q) = app.args.palette.clone() {
