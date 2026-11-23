@@ -178,7 +178,10 @@ fn a_group_file_that_cannot_be_written_leaves_the_notes_unlinked_and_the_record_
         "{said}"
     );
     // Its way on is named: AI runs, where Finish and Undo are (audit 4, F3).
-    assert!(said.ends_with(crate::commands::strings::LINKS_PENDING_NEXT), "{said}");
+    assert!(
+        said.ends_with(crate::commands::strings::LINKS_PENDING_NEXT),
+        "{said}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -337,8 +340,12 @@ fn an_undo_whose_library_file_has_unsaved_changes_keeps_the_notes_and_can_be_pre
     assert!(library.join("Trip/Tokyo/nara.md").is_file());
     assert_eq!(read(&file), on_disk, "the library file was not written");
     assert!(read(&file).contains("[Asakusa]"));
+    // The undo began and could not do it all: the record says so, and offers Undo again but not
+    // Finish, since the owner asked for the run to go (audit 4, A F2 and F3; before, it went back
+    // to "links pending", which offered Finish).
     let record = mdedit_core::runs::load(&record_path, &library).expect("the record");
-    assert_eq!(record.state, mdedit_core::runs::State::LinksPending);
+    assert_eq!(record.state, mdedit_core::runs::State::UndoPending);
+    assert!(!record.state.finishable() && record.state.live());
     // The report says what happened, and why, and that it can be tried again.
     let outcome = a.ui.results.replace.outcome.as_ref().expect("the report");
     assert!(

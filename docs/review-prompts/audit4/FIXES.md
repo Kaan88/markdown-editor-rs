@@ -5,19 +5,32 @@ repositories, not merged. States:
 
 - **done (shared built)**: in `markdown-shared-rs`, where the whole workspace's tests, fmt and
   clippy passed. The revert checks of the last round (rv3) were stopped part-way.
-- **done (not built)**: in mdedit, written with its test, never compiled. mdedit cannot build
-  until its `mdshared-*` pins are moved to the shared branch's commit.
+- **done (built)**: in mdedit, written with its test; it builds with the `mdshared-*` pins on
+  the shared branch's `f0f8159`, and fmt, clippy and the workspace's tests pass on Windows. Its
+  revert check (the test fails with the fix taken out) is not done yet. A test that runs only
+  off Windows has not run anywhere.
 - **partial: …**: what is left is said.
 - **open**: not reached.
+
+Two of mdedit's existing tests met a deliberate change in the shared branch when it was first
+built, and were brought to it, not weakened:
+
+- `plan_write_tests.rs`
+  `an_undo_whose_library_file_has_unsaved_changes_keeps_the_notes_and_can_be_pressed_again`: an
+  undo the gate refuses now leaves the record `UndoPending` (A F2, F3), not `LinksPending`. The
+  test asserts that, and that Finish is no longer offered (`finishable()` false).
+- `undo_rules.rs` `a_relative_path_with_dots_in_a_record_reaches_nothing_outside_the_library`:
+  its record's group file did not exist, so it now got W2's sentence. The test asserts W2's
+  sentence for that case, then writes the group file and asserts the old refusal for `../`.
 
 ## Release blockers (README order)
 
 | # | Finding | State |
 |---|---|---|
-| RB1 | B1 digest cut inside a character | done (not built): `task_ui.rs` `DIGEST_MAX`, cut on a char boundary |
-| RB2 | B2 / D2 rewrite record over 4 MiB | done: shared `runs::rewrite_fits`, `RECORD_FULL` (shared built); mdedit rolls over to a second record, `task.rs` `task_rewrite_into`, test `a_rewrite_run_past_what_one_record_holds_goes_on_in_a_second_record` (not built) |
+| RB1 | B1 digest cut inside a character | done (built): `task_ui.rs` `DIGEST_MAX`, cut on a char boundary |
+| RB2 | B2 / D2 rewrite record over 4 MiB | done: shared `runs::rewrite_fits`, `RECORD_FULL` (shared built); mdedit rolls over to a second record, `task.rs` `task_rewrite_into`, test `a_rewrite_run_past_what_one_record_holds_goes_on_in_a_second_record` (built) |
 | RB3 | D1 / B6 / A F7 / W3 `<file>.tmp`; audit 3 C9 | partial: shared `files::replace` (unique temp name, keeps the mode, refuses read-only, no temp left; shared built). Left: mdedit's library writes still use `write_atomic`. Switch `library_write.rs:166` and `:642`, `library.rs:506`, `task.rs:935`, `importing.rs`, the `plan_write` gate to `files::replace` |
-| RB4 | A F1 plan from a stale tab | done (not built): `app/plan.rs`, test in `plan_tests.rs` |
+| RB4 | A F1 plan from a stale tab | done (built): `app/plan.rs`, test in `plan_tests.rs` |
 | RB5 | D3 `put_note` lossy rewrite | done (shared built): `library/put.rs` refuses non-UTF-8, UTF-16 and a file changed on disk |
 
 ## Report A, mdedit core
@@ -25,11 +38,11 @@ repositories, not merged. States:
 | # | Finding | State |
 |---|---|---|
 | A F1 | stale tab plan | see RB4 |
-| A F2 | bin refusal at undo orphans the note (= D W4) | done: new state `UndoPending` in shared `runs.rs` (shared built); mdedit `overlays.rs` "partly undone", `recycle_tests.rs` test strengthened to check the state and a second Undo (not built) |
-| A F3 | audit 3 C4: Finish for links pending; toast | partial: `overlays.rs` `offers_finish` + test, toast "AI runs can finish it or undo it." (`commands.rs` `LINKS_PENDING_NEXT`), `plan_write_tests.rs` assertion changed to the new words (not built). Left: `docs/ai-library-plan.md:350` still says "Try again / Undo"; decision entry |
+| A F2 | bin refusal at undo orphans the note (= D W4) | done: new state `UndoPending` in shared `runs.rs` (shared built); mdedit `overlays.rs` "partly undone", `recycle_tests.rs` test strengthened to check the state and a second Undo (built) |
+| A F3 | audit 3 C4: Finish for links pending; toast | partial: `overlays.rs` `offers_finish` + test, toast "AI runs can finish it or undo it." (`commands.rs` `LINKS_PENDING_NEXT`), `plan_write_tests.rs` assertion changed to the new words (built). Left: `docs/ai-library-plan.md:350` still says "Try again / Undo"; decision entry |
 | A F4 | Finish does not record its headings (= D W6) | done (shared built): `runs.rs` |
 | A F5 | audit 3 C6: undo removes a heading with the owner's sub-heading | done (shared built): `runs.rs` |
-| A F5b | audit 3 C6: undo bins a note whose tab holds unsaved changes | done (not built): `recycle.rs` `SparingUnsaved`, `plan_write.rs` `run_undo`, test `undo_keeps_a_note_a_tab_holds_with_changes_not_saved` |
+| A F5b | audit 3 C6: undo bins a note whose tab holds unsaved changes | done (built): `recycle.rs` `SparingUnsaved`, `plan_write.rs` `run_undo`, test `undo_keeps_a_note_a_tab_holds_with_changes_not_saved` |
 | A F6 | Move the notes offers another group's library file | done (shared built): `moves.rs`, `moves_tests.rs` |
 | A F7 | write_atomic on the owner's files | see RB3 |
 | A F8 | rewrite record not confined; question does not name the files | partial: shared `runs.rs` side done (shared built). Not checked: whether mdedit's undo question names the files |
@@ -38,10 +51,10 @@ repositories, not merged. States:
 | A F11a | "their 1 lines" | done (shared built): `split/answer.rs`, `answer_tests.rs` |
 | A F11b | `&& home != &req.library` waives the group-file check (= D N1) | done (shared built): `runs.rs` |
 | A F11c | heading removal normalises mixed line endings | not a bug: the library writers normalise line endings on every write already |
-| A F11d | `follow_move` leaves session and recents on the old path | done (not built): `docs.rs` `follow_move`, tests in `moving_tests.rs` |
-| A F12 | "Find the file…" off Windows rewrites the wrong note's link | done (not built): `Picked::LibraryFile(Moving, Vec<PathBuf>)` carries the target; `ui.library.finding` removed; test `find_the_file_writes_the_link_its_picker_was_asked_for` is `cfg(not(windows))`, CI only |
-| A F13 | held question asked of the new document on a tab switch | done (not built): `Visual::take_pending` in `app/visual.rs`, used by `preview.rs`; test `a_held_question_is_not_asked_of_another_document` |
-| A F14 | A7's check is lexical (`home: Trip/..`) | partial: `library_write::same_folder` (via shared `paths::comparable`) used in both library_write checks, `importing.rs` and `plan_preflight`; test `a_home_line_that_reaches_the_library_folder_by_dot_dot_is_refused` (not built). Left: shared `comparable` must fold a `..` that follows a missing folder, because on Linux and macOS `std::path::absolute` keeps it |
+| A F11d | `follow_move` leaves session and recents on the old path | done (built): `docs.rs` `follow_move`, tests in `moving_tests.rs` |
+| A F12 | "Find the file…" off Windows rewrites the wrong note's link | done (built): `Picked::LibraryFile(Moving, Vec<PathBuf>)` carries the target; `ui.library.finding` removed; test `find_the_file_writes_the_link_its_picker_was_asked_for` is `cfg(not(windows))`, CI only |
+| A F13 | held question asked of the new document on a tab switch | done (built): `Visual::take_pending` in `app/visual.rs`, used by `preview.rs`; test `a_held_question_is_not_asked_of_another_document` |
+| A F14 | A7's check is lexical (`home: Trip/..`) | partial: `library_write::same_folder` (via shared `paths::comparable`) used in both library_write checks, `importing.rs` and `plan_preflight`; test `a_home_line_that_reaches_the_library_folder_by_dot_dot_is_refused` (built). Left: shared `comparable` must fold a `..` that follows a missing folder, because on Linux and macOS `std::path::absolute` keeps it |
 | A F15 | finished library read rebuilds rows under a held note | open (plan: put the drag guard inside `library_read_take`, for any `LibraryNote` drag) |
 | A F16 | row menu left open acts on another row | open (plan: close a `PopupKind::LibraryRow` menu in `library_accept`) |
 | A F17 | library file with a BOM (audit 3 C9) | open |
@@ -55,18 +68,18 @@ repositories, not merged. States:
 |---|---|---|
 | B1 | digest_of panics inside a character | see RB1 |
 | B2 | rewrite record past 4 MiB | see RB2 |
-| B3 | Discard and Copy result ask for the same file again | done (not built): `task.rs` `task_review_left`, `ai_events.rs`; test `discard_leaves_the_file_and_the_run_asks_for_the_next` |
-| B4 | kept review applied later runs another window's files | done (not built): `FileReview.window`/`sent`, `task_window_of`, `task_rewrite_alone`; test `a_review_kept_from_a_closed_window_writes_its_file_and_sends_nothing` |
-| B5 | task switch takes a click while a request is out | done (not built): `Asking.task`; test `a_request_out_keeps_its_task_and_its_answer_is_read_as_that_task` |
-| B6 | failed write leaves an original in the record and a `.tmp` | done (not built): `task_rewrite_finish` removes an empty record; test `a_rewrite_that_could_not_be_written_leaves_no_record_when_the_run_ends` (the `.tmp` half is RB3) |
-| B7 | parked window comes back as File them | done (not built): `task_open`; test `a_parked_rewrite_window_comes_back_as_rewrite_them` |
+| B3 | Discard and Copy result ask for the same file again | done (built): `task.rs` `task_review_left`, `ai_events.rs`; test `discard_leaves_the_file_and_the_run_asks_for_the_next` |
+| B4 | kept review applied later runs another window's files | done (built): `FileReview.window`/`sent`, `task_window_of`, `task_rewrite_alone`; test `a_review_kept_from_a_closed_window_writes_its_file_and_sends_nothing` |
+| B5 | task switch takes a click while a request is out | done (built): `Asking.task`; test `a_request_out_keeps_its_task_and_its_answer_is_read_as_that_task` |
+| B6 | failed write leaves an original in the record and a `.tmp` | done (built): `task_rewrite_finish` removes an empty record; test `a_rewrite_that_could_not_be_written_leaves_no_record_when_the_run_ends` (the `.tmp` half is RB3) |
+| B7 | parked window comes back as File them | done (built): `task_open`; test `a_parked_rewrite_window_comes_back_as_rewrite_them` |
 | B8 | "Keep the folders" after a sort keeps the AI's sections | open |
 | B9 | requests-at-once test passes with its cap deleted | open |
-| B10 | kept file review cannot be reached from the waiting window | done (not built): Run shows the kept review; test `run_shows_the_kept_review_and_run_again_without_its_window_keeps_it` |
+| B10 | kept file review cannot be reached from the waiting window | done (built): Run shows the kept review; test `run_shows_the_kept_review_and_run_again_without_its_window_keeps_it` |
 | B11 | split answer can land on the next file's plan | open |
-| B12 | file edited after it was added is sent as its old text | done (not built): re-probe in `task_rewrite_begin`; test `a_file_edited_after_it_was_added_is_sent_as_it_is_now` |
-| B13 | 20-file limit counts unticked files | done (not built): `task_ui.rs` `recount_limit`; test `the_twenty_a_rewrite_takes_are_counted_among_the_ticked_files` |
-| B14 | Rewrite them runs with no instruction | done (not built): `REWRITE_NEEDS_INSTRUCTION`; test `rewrite_them_with_no_instruction_sends_nothing_and_says_why` |
+| B12 | file edited after it was added is sent as its old text | done (built): re-probe in `task_rewrite_begin`; test `a_file_edited_after_it_was_added_is_sent_as_it_is_now` |
+| B13 | 20-file limit counts unticked files | done (built): `task_ui.rs` `recount_limit`; test `the_twenty_a_rewrite_takes_are_counted_among_the_ticked_files` |
+| B14 | Rewrite them runs with no instruction | done (built): `REWRITE_NEEDS_INSTRUCTION`; test `rewrite_them_with_no_instruction_sends_nothing_and_says_why` |
 | B n1 | `eq_ignore_ascii_case` vs `to_lowercase` for section names | open |
 | B n2 | hunks subset deletion at end leaves a final break | open |
 | B n3 | `<file>.tmp` | see RB3 |

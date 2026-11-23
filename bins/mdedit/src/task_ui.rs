@@ -1027,7 +1027,10 @@ mod tests {
         assert_eq!(ticked(&s), REWRITE_MAX_FILES);
         assert!(s.files[19].ticked && !s.files[20].ticked);
         let limit = format!("only {REWRITE_MAX_FILES} files a run");
-        assert_eq!(s.files[20].reason_for(TaskKind::Rewrite), Some(limit.clone()));
+        assert_eq!(
+            s.files[20].reason_for(TaskKind::Rewrite),
+            Some(limit.clone())
+        );
         assert_eq!(
             s.files[24].reason_for(TaskKind::Rewrite).as_deref(),
             Some("already in the library"),
@@ -1040,7 +1043,10 @@ mod tests {
         s.toggle(20);
         assert!(s.files[20].ticked, "the freed place is taken");
         assert_eq!(ticked(&s), REWRITE_MAX_FILES);
-        assert_eq!(s.files[21].reason_for(TaskKind::Rewrite), Some(limit.clone()));
+        assert_eq!(
+            s.files[21].reason_for(TaskKind::Rewrite),
+            Some(limit.clone())
+        );
         assert_eq!(
             s.files[0].reason_for(TaskKind::Rewrite),
             Some(limit),

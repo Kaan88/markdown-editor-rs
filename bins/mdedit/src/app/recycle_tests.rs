@@ -398,8 +398,7 @@ fn undo_keeps_a_note_a_tab_holds_with_changes_not_saved() {
     );
     let rows = rows(&a);
     assert!(
-        rows.iter()
-            .any(|r| r.contains(crate::recycle::UNSAVED)),
+        rows.iter().any(|r| r.contains(crate::recycle::UNSAVED)),
         "{rows:?}"
     );
     assert_eq!(

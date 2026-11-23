@@ -1507,7 +1507,10 @@ fn find_the_file_writes_the_link_its_picker_was_asked_for() {
     // ...when "Find the file…" is chosen on "Taxes 2026" (line 5).
     a.library_find_file(&l.file, 5, "Taxes 2026", &l.taxes);
     assert!(a.dialog_busy, "no second picker");
-    a.woken(Wake::Dialog(Picked::LibraryFile(asked, vec![moved.clone()])));
+    a.woken(Wake::Dialog(Picked::LibraryFile(
+        asked,
+        vec![moved.clone()],
+    )));
     let text = read(&l.file);
     let line = |title: &str| {
         text.lines()

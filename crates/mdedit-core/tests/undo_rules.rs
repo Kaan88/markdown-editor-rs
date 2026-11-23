@@ -711,11 +711,22 @@ fn a_relative_path_with_dots_in_a_record_reaches_nothing_outside_the_library() {
         ),
     );
     let record = Record::from_json(&json, &library).expect("it reads as a record");
+    // With the group's library file gone, the folder cannot be checked, and the sentence says
+    // that instead (audit 4, W2). Nothing is acted on either way.
+    let plan = runs::prepare(&record, &library);
+    let why = plan.refusal.clone().expect("the whole record is refused");
+    assert!(
+        why.contains("taxes.md") && why.contains("is not there"),
+        "{why}"
+    );
+    // The group's library file is there and declares its home: the dots still reach outside it.
+    write_file(&library.join("Trip.md"), "# Trip\nhome: Trip\n");
     let plan = runs::prepare(&record, &library);
     let why = plan.refusal.clone().expect("the whole record is refused");
     assert!(why.contains("taxes.md"), "it says which path: {why}");
     assert!(
-        why.ends_with("is outside the library and the group's folder, so this run is not undone.")
+        why.ends_with("is outside the library and the group's folder, so this run is not undone."),
+        "{why}"
     );
     assert!(plan.notes.is_empty() && plan.links.is_empty());
     let mut gate = FileGate::new();

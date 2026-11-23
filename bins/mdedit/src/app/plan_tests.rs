@@ -272,7 +272,11 @@ fn a_tab_that_has_not_read_its_newer_file_opens_no_plan() {
             .expect("open");
         f.set_modified(t).expect("the old time");
     }
-    assert_eq!(mdshared_app::files::stamp(&path), stamp, "the stamp is the same");
+    assert_eq!(
+        mdshared_app::files::stamp(&path),
+        stamp,
+        "the stamp is the same"
+    );
     assert!(!a.plan_open_active());
     assert!(a.plan.is_none());
     let _ = std::fs::remove_dir_all(&dir);

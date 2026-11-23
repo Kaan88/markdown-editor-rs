@@ -598,10 +598,7 @@ fn escape(a: &mut App) {
 }
 
 fn toast(a: &App) -> String {
-    a.docs
-        .toast(Instant::now())
-        .unwrap_or_default()
-        .to_string()
+    a.docs.toast(Instant::now()).unwrap_or_default().to_string()
 }
 
 /// Audit 4, B3: Discard leaves the file as it was and the run asks for the next file, not for
@@ -645,7 +642,10 @@ fn a_review_kept_from_a_closed_window_writes_its_file_and_sends_nothing() {
     a.task_run();
     wait(&mut a, |a| a.ai.panel.is_some());
     escape(&mut a);
-    assert!(a.ai.panel.is_none() && a.ai.kept.is_some(), "the review is kept");
+    assert!(
+        a.ai.panel.is_none() && a.ai.kept.is_some(),
+        "the review is kept"
+    );
     a.task_close();
     let b = dir.join("b.md");
     let c = dir.join("c.md");
@@ -669,7 +669,10 @@ fn a_review_kept_from_a_closed_window_writes_its_file_and_sends_nothing() {
     assert_eq!(runs.len(), 1, "a record of its own");
     assert_eq!(runs[0].record.originals.len(), 1);
     assert_eq!(runs[0].record.state, runs::State::Done);
-    assert!(a.task_record.is_none(), "the window's record is not that one");
+    assert!(
+        a.task_record.is_none(),
+        "the window's record is not that one"
+    );
 }
 
 /// Audit 4, B5: while a request is out, a click on the task switch is refused; and the answer
