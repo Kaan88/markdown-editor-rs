@@ -3118,6 +3118,8 @@ never renamed or changed.
   writes nothing." and nothing is sent or written.
 - Shots: `note-ready`, `note-asking`, `note-changes`, `note-result`, `note-blocked`, both themes,
   `note-changes-small` at 800x600.
+- Budgets: `docs/measurements/2026-11-23-note-card.md` — 7 interleaved runs against `main` at
+  `6e6579f`, nothing beyond the runs' ranges.
 - Tests: `app::note_tests` (13): the menu item and the whole path to the note and its record, undo,
   undo refused when the source has changed, a taken name, AI off, a file too long, a file that is
   not text, the group file unsaved, the group folder the library's own, Esc in Asking, the switch

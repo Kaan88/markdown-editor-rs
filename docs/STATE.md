@@ -46,7 +46,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
 ## In hand
 
 - **Phase 5.8**, a Markdown note from a text file (`ai-library-plan.md` 5.8, D-120): built on
-  branch `f/p5` — card, write, record, undo, 13 tests, 11 shots; not merged.
+  branch `f/p5` - card, write, record, undo, 13 tests, 11 shots, budgets measured
+  (`docs/measurements/2026-11-23-note-card.md`); not merged.
 - **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-107): **merged from
   `f/review-hunks`, not tagged; the owner has not looked at its shots.** A tick per change, Apply and Copy result of the
   ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the
