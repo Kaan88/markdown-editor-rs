@@ -2961,7 +2961,8 @@ the scrollbar, and a press on the track; a 300 character line is in rows that ho
 unticked change's tint is not the ticked one's, and comes back; Copy result copies the composed
 text; the strip's marks and the arrows; the preview's page is made again once, 150 ms after the
 last tick; a closed document's review keeps its list and ticks, offers no Apply and copies what is
-ticked.
+ticked. In tests, Copy result and the closed review's copy are read from the engine's `COPIED`
+slot, not the platform clipboard, so a contended or unavailable clipboard cannot fail them.
 
 **Shots** (`tests/shots.sh`, both themes unless said): `review-hunks` (all ticked, the change with
 the long line current, the line wrapped), `review-partial` (changes 2, 4, 5 and 7 unticked, dimmed),

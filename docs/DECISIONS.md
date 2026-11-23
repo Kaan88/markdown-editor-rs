@@ -1101,7 +1101,7 @@ than guessing a language from the path, and a failed read is no text to show.
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
 
-## D-105 · 2026-11-23 · The review takes whole changes as the comparison made them
+## D-106 · 2026-11-23 · The review takes whole changes as the comparison made them
 
 **Decision.** A tick takes a whole change of `diff::diff`, the comparison Compare uses; the review
 does not re-cut the comparison's boundaries to look tidier. A line that appears on both sides can

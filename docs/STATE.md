@@ -41,7 +41,7 @@ released. If `git log -1` is newer, doubt "In hand" first.
   AFTER page shows the ticked changes). Built, tested (`cargo test --release --workspace` green),
   fmt and clippy clean, the shots (`review-*`, both themes, `review-closed` new) looked at on
   Windows, the budgets measured (5 runs against `main` at `32d6fe6`: no change beyond the runs'
-  ranges). Docs: `docs/DESIGN.md` 79, `docs/DECISIONS.md` D-102, D-103, D-105 and
+  ranges). Docs: `docs/DESIGN.md` 79, `docs/DECISIONS.md` D-102, D-103, D-106 and
   `docs/measurements/2026-11-23-review-hunks.md`. **Not built: the tinted, level preview
   (D-103)**: it needs a request in the viewer's preview protocol (the page rows of every
   top-level block) and a move of its pin, which waits for the owner. Not looked at by the owner
@@ -73,6 +73,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Known to be wrong on `main`
 
+- **The AI review has no scrollbar and cuts long lines.** Fixed on `f/review-hunks` by R2 (the
+  list wraps and has the scrollbar), not merged.
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
   mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.

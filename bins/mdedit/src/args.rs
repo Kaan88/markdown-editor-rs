@@ -224,7 +224,7 @@ pub struct Args {
     pub update_bar: Option<String>,
     /// Open the command palette with this text in its box, for a shot.
     pub palette: Option<String>,
-    /// `--ai-demo instruction|review|preview|stale|closed|result-kept|working|bar|settings|review-hunks|review-partial|review-nothing|review-long|review-preview-partial`: an AI panel or state
+    /// `--ai-demo instruction|review|preview|stale|closed|result-kept|working|bar|settings|review-hunks|review-partial|review-nothing|review-long|review-preview-partial|review-closed`: an AI panel or state
     /// for a shot, with a made-up result and no engine.
     pub ai_demo: Option<String>,
     /// `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small`:

@@ -13,6 +13,11 @@
 use crate::buffer::Buffer;
 use crate::diff::{self, DiffOptions, Hunk, HunkKind};
 use std::ops::Range;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Every `Hunks` made in the process gets its own number, so a list's layout can tell when the
+/// comparison it was made from has been replaced (even by one of the same size).
+static NEXT_STAMP: AtomicU64 = AtomicU64::new(1);
 
 /// One part of the whole, in order: lines that are the same on both sides, or one change.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +60,7 @@ pub struct Hunks {
     diff: diff::Diff,
     changes: Vec<Change>,
     ticks: Vec<bool>,
+    stamp: u64,
 }
 
 impl Hunks {
@@ -84,7 +90,14 @@ impl Hunks {
             diff: d,
             changes,
             ticks,
+            stamp: NEXT_STAMP.fetch_add(1, Ordering::Relaxed),
         }
+    }
+
+    /// An identity for this comparison, changed with every one made: a layout made from one is
+    /// never used for another.
+    pub fn stamp(&self) -> u64 {
+        self.stamp
     }
 
     pub fn original(&self) -> &str {
@@ -378,8 +391,10 @@ mod tests {
         assert!(h.intra(0, 5).is_none());
     }
 
-    /// Any ticks of any change give text made of whole old and new lines only, and the
-    /// extremes are exact, on a spread of small texts.
+    /// Any ticks of any change give text made of whole old and new lines only, in the order the
+    /// segments put them, with no line lost and none made up, on a spread of small texts. The
+    /// expected lines are walked from the segments and the comparison's own line texts, not from
+    /// `compose`.
     #[test]
     fn every_subset_of_a_spread_of_texts_composes_without_losing_a_line() {
         let olds = ["", "a\n", "a\nb\nc\n", "a\nb\nc\nd\ne\nf\n", "x"];
@@ -392,13 +407,31 @@ mod tests {
                     for i in 0..h.len().min(8) {
                         h.set_ticked(i, mask >> i & 1 == 1);
                     }
-                    let t = h.compose();
-                    for line in t.lines() {
-                        assert!(
-                            o.lines().any(|l| l == line) || n.lines().any(|l| l == line),
-                            "{line:?} of {t:?} from {o:?} to {n:?}"
-                        );
+                    let mut want: Vec<String> = Vec::new();
+                    for seg in h.segments() {
+                        match seg {
+                            Seg::Same { a, .. } => {
+                                for l in a {
+                                    want.push(h.old_line(l));
+                                }
+                            }
+                            Seg::Change(i) => {
+                                let c = h.change(i).expect("a change of the segments");
+                                let lines = if h.is_ticked(i) { &c.b } else { &c.a };
+                                for l in lines.clone() {
+                                    let line = if h.is_ticked(i) {
+                                        h.new_line(l)
+                                    } else {
+                                        h.old_line(l)
+                                    };
+                                    want.push(line);
+                                }
+                            }
+                        }
                     }
+                    let t = h.compose();
+                    let got: Vec<String> = t.lines().map(str::to_string).collect();
+                    assert_eq!(got, want, "mask {mask:b} from {o:?} to {n:?}: {:?}", t);
                 }
             }
         }

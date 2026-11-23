@@ -225,18 +225,13 @@ if [ ! -f "$data/review-long-after.md" ]; then
     "$py" - "$data" <<'EOF'
 import sys
 d = sys.argv[1]
-old = "".join(f"Line {i} of the notes: the quick brown fox jumps over the lazy dog.
-" for i in range(1, 401))
+old = "".join(f"Line {i} of the notes: the quick brown fox jumps over the lazy dog.\n" for i in range(1, 401))
 new = "".join(
-    (f"Line {i} of the notes: the quick red fox jumps over the lazy dog.
-" if i % 20 == 0 else
-     f"Line {i} of the notes: the quick brown fox jumps over the lazy dog.
-")
+    (f"Line {i} of the notes: the quick red fox jumps over the lazy dog.\n" if i % 20 == 0 else
+     f"Line {i} of the notes: the quick brown fox jumps over the lazy dog.\n")
     for i in range(1, 401) if i % 50 != 7)
-open(d + "/review-long.md", "w", encoding="utf-8", newline="
-").write(old)
-open(d + "/review-long-after.md", "w", encoding="utf-8", newline="
-").write(new)
+open(d + "/review-long.md", "w", encoding="utf-8", newline="\n").write(old)
+open(d + "/review-long-after.md", "w", encoding="utf-8", newline="\n").write(new)
 EOF
 fi
 for t in "" "-dark"; do

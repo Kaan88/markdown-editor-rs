@@ -634,12 +634,13 @@ fn changes_bar(
     );
     let n = rv.hunks.len();
     let cur = rv.list.current.min(n.saturating_sub(1));
-    // The arrows.
+    // The arrows. In Preview there is no list to scroll and the pages have no block rows
+    // (D-103), so they are drawn off and take no click.
     let a = Rect::new(bar.x + PAD, bar.cy() - 14.0, 28.0, 28.0);
     let b = Rect::new(a.right() + 6.0, a.y, 28.0, 28.0);
     for (r, icon, hit, on) in [
-        (a, glyph::UP, Hit::Prev, cur > 0),
-        (b, glyph::DOWN, Hit::Next, cur + 1 < n),
+        (a, glyph::UP, Hit::Prev, !rv.preview && cur > 0),
+        (b, glyph::DOWN, Hit::Next, !rv.preview && cur + 1 < n),
     ] {
         let hov = hover == Some(hit) && on;
         let fill = if hov {

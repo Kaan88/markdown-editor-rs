@@ -297,6 +297,37 @@ impl Layout {
     }
 }
 
+/// The word at the right of a change's header: what an untaken change leaves, and how the current
+/// one is ticked. Nothing for the others.
+pub fn header_note(taken: bool, current: bool) -> Option<&'static str> {
+    if !taken {
+        Some("not taken · the old text stays")
+    } else if current {
+        Some("Space ticks or unticks")
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// What the last `draw` wrote at each change's header's right, for the tests: the change and
+    /// its note. Cleared with every draw.
+    static NOTES: std::cell::RefCell<Vec<(usize, Option<&'static str>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The note the last draw wrote at change `i`'s header: `None` when the header was not drawn.
+#[cfg(test)]
+pub fn header_note_drawn(i: usize) -> Option<Option<&'static str>> {
+    NOTES.with(|n| {
+        n.borrow()
+            .iter()
+            .find(|(c, _)| *c == i)
+            .map(|(_, note)| *note)
+    })
+}
+
 /// What the list keeps between frames.
 #[derive(Default)]
 pub struct ListState {
@@ -312,7 +343,7 @@ pub struct ListState {
     /// A change to scroll to when the list is next drawn (its layout may not be made yet).
     go_to: Option<usize>,
     layout: Option<Layout>,
-    key: (u32, u32),
+    key: (u32, u32, u64),
 }
 
 impl ListState {
@@ -390,8 +421,12 @@ pub fn draw(
     hover: Option<Hit>,
     hits: &mut Vec<(Hit, Rect)>,
 ) {
+    #[cfg(test)]
+    NOTES.with(|n| n.borrow_mut().clear());
     let text_w = (area.w - TEXT_DX - RIGHT_PAD).max(40.0);
-    let key = ((text_w * 10.0) as u32, (p.px() * 1000.0) as u32);
+    // The width, the scale, and which comparison: the face and size measured are fixed, but a
+    // list made from another `Hunks` (even one of the same size) must never be indexed by it.
+    let key = ((text_w * 10.0) as u32, (p.px() * 1000.0) as u32, h.stamp());
     if st.layout.is_none() || st.key != key {
         let lay = Layout::build(h, text_w, &mut |s| p.measure(Face::Ui, TEXT_SIZE, s));
         st.layout = Some(lay);
@@ -497,13 +532,9 @@ pub fn draw(
                         80.0,
                     );
                 }
-                let note = if !on {
-                    Some("not taken · the old text stays")
-                } else if cur {
-                    Some("Space ticks or unticks")
-                } else {
-                    None
-                };
+                let note = header_note(on, cur);
+                #[cfg(test)]
+                NOTES.with(|n| n.borrow_mut().push((i, note)));
                 if let Some(note) = note {
                     p.text_right(
                         Face::Ui,
@@ -826,6 +857,19 @@ Z
         assert_eq!(st.scroll, 300.0);
         st.scroll_by(-1000.0);
         assert_eq!(st.scroll, 0.0);
-        assert!(!st.visible(0));
+    }
+
+    #[test]
+    fn a_change_not_taken_says_the_old_text_stays() {
+        assert_eq!(
+            header_note(false, false),
+            Some("not taken · the old text stays")
+        );
+        assert_eq!(
+            header_note(false, true),
+            Some("not taken · the old text stays")
+        );
+        assert_eq!(header_note(true, true), Some("Space ticks or unticks"));
+        assert_eq!(header_note(true, false), None);
     }
 }

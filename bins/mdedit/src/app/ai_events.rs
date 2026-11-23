@@ -1101,11 +1101,11 @@ impl App {
             cur.saturating_sub(1)
         };
         if rv.preview {
-            rv.list.current = next;
-            self.ai_preview_to(next);
-        } else {
-            rv.list.go_to(next);
+            // The preview pages have no list to scroll and the viewer gives no block rows
+            // (D-103): stepping here would change the count and move nothing, so it does not.
+            return;
         }
+        rv.list.go_to(next);
         self.ai.tick += 1;
         self.redraw();
     }
@@ -1131,9 +1131,6 @@ impl App {
         self.ai.tick += 1;
         self.redraw();
     }
-
-    /// Preview: both pages go to change `i`.
-    fn ai_preview_to(&mut self, _i: usize) {}
 
     /// The AFTER page is sent the text with the ticked changes, when the delay has passed.
     /// Returns the time it is next due, if it is not yet.

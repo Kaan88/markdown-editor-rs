@@ -12,6 +12,7 @@ use crate::ai::{Hit as AiHit, Panel};
 use crate::commands::CommandId as C;
 use crate::hunks_ui::{Hit as ListHit, Item, Kind};
 use crate::keys::{self, KeyName};
+use mdedit_core::hunks::Hunks;
 
 /// Twelve one-letter lines; the rewrite changes four of them, apart from each other.
 const OLD: &str = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n";
@@ -264,9 +265,19 @@ fn a_change_that_is_not_ticked_is_drawn_dimmed_and_says_so() {
     a.compose();
     let off = added_pixel(&mut a, 2);
     assert_ne!(on, off, "the tint fades when the change is not taken");
+    assert_eq!(
+        crate::hunks_ui::header_note_drawn(2),
+        Some(Some("not taken · the old text stays")),
+        "and its header says the old text stays"
+    );
     tick(&mut a, 2);
     a.compose();
     assert_eq!(added_pixel(&mut a, 2), on, "and comes back");
+    assert_eq!(
+        crate::hunks_ui::header_note_drawn(2),
+        Some(Some("Space ticks or unticks")),
+        "a taken, current change says how to untick it"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -350,5 +361,100 @@ fn the_preview_page_is_made_again_150_ms_after_a_tick() {
     assert!(a.ai_review_due(due + Duration::from_millis(1)).is_none());
     assert_eq!(rv(&mut a).sent, sent + 1, "once");
     assert!(rv(&mut a).due.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The viewer gives no block rows (D-103), so in Preview there is nothing to scroll to: the
+/// arrows are off and F7 moves nothing. In Changes they still step.
+#[test]
+fn preview_has_no_arrows_and_f7_does_not_step() {
+    let (mut a, dir) = reviewing("rv-preview-keys", OLD, NEW, "review-preview-partial");
+    let cur = rv(&mut a).list.current;
+    a.compose();
+    assert!(
+        !a.ai
+            .hits
+            .iter()
+            .any(|(h, _)| matches!(h, AiHit::Prev | AiHit::Next)),
+        "no arrow to press in Preview"
+    );
+    key(&mut a, KeyName::F(7), false);
+    assert_eq!(rv(&mut a).list.current, cur, "F7 moves nothing in Preview");
+    key(&mut a, KeyName::F(7), true);
+    assert_eq!(rv(&mut a).list.current, cur);
+    // In Changes the arrows are back and F7 steps.
+    a.ai_review_action(AiHit::Changes);
+    a.compose();
+    assert!(a.ai.hits.iter().any(|(h, _)| matches!(h, AiHit::Next)));
+    key(&mut a, KeyName::F(7), false);
+    assert_eq!(rv(&mut a).list.current, cur + 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A tick whose page is still drawing is held, and sent when the page answers: otherwise the
+/// AFTER page keeps the text from before that tick.
+#[test]
+fn a_tick_held_while_the_page_draws_is_sent_when_the_answer_comes() {
+    let (mut a, dir) = reviewing("rv-held", OLD, NEW, "review-preview-partial");
+    let before = rv(&mut a).sent;
+    tick(&mut a, 0);
+    let due = rv(&mut a).due.expect("a tick not yet shown");
+    {
+        let panes = rv(&mut a).panes.as_mut().expect("the preview panes");
+        panes.1.waiting = 1; // the page is still drawing
+    }
+    assert!(a.ai_review_due(due + Duration::from_millis(1)).is_none());
+    {
+        let rv = rv(&mut a);
+        assert_eq!(rv.sent, before + 1, "the page is due");
+        let p = &rv.panes.as_ref().unwrap().1;
+        assert!(p.held, "the newer text is held");
+        assert_eq!(
+            p.sent.version,
+            Some((0, before)),
+            "not sent over the page still drawing"
+        );
+    }
+    // The page answers: the held text goes now.
+    rv(&mut a).panes.as_mut().unwrap().1.waiting = 0;
+    a.ai_poll_panes();
+    let rv = rv(&mut a);
+    let p = &rv.panes.as_ref().unwrap().1;
+    assert!(!p.held, "nothing held now");
+    assert_eq!(
+        p.sent.version,
+        Some((0, before + 1)),
+        "the held text was sent"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Another `Hunks` in the same list and width must be laid out again: the cached layout's tops
+/// and ends are indexed by the comparison's changes, and a shorter one would panic.
+#[test]
+fn a_replaced_comparison_is_laid_out_again_in_the_same_width() {
+    let (mut a, dir) = reviewing("rv-relayout", OLD, NEW, "review-hunks");
+    assert_eq!(rv(&mut a).hunks.len(), 4);
+    {
+        let r = rv(&mut a);
+        r.hunks = Hunks::new(OLD, "a\nB\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n");
+        r.list.current = 0;
+    }
+    a.ai.tick += 1;
+    a.compose();
+    assert_eq!(rv(&mut a).list.layout().unwrap().tops.len(), 1);
+    {
+        let r = rv(&mut a);
+        r.hunks = Hunks::new(OLD, NEW);
+        r.list.current = 3;
+    }
+    a.ai.tick += 1;
+    a.compose();
+    assert_eq!(
+        rv(&mut a).list.layout().unwrap().tops.len(),
+        4,
+        "the four changes are laid out, not the one"
+    );
+    assert_eq!(rv(&mut a).list.current, 3);
     let _ = std::fs::remove_dir_all(&dir);
 }
