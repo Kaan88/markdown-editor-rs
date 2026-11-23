@@ -38,8 +38,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - **Phase W**, the AI task window over files (`ai-library-plan.md` 5.6, D-074, D-076, D-140 to
   D-144): **ready for review on `f/pw`, on top of R2, not merged.** File them, Split them and
   Rewrite them; a rewrite is R2's review over the file, applied in place with its original in the
-  run's record and undo in AI runs. Built, tested, shots `task-*` (both themes, `task-sent` in
-  light) looked at on Windows; docs 80 and D-140 to D-144.
+  run's record and undo in AI runs. Built, tested, budgets measured
+  (`docs/measurements/2026-11-23-task-window.md`: no change beyond the runs' ranges), shots
+  `task-*` (both themes, `task-sent` in light) looked at on Windows; docs 80 and D-140 to D-144.
 - **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-102): **ready for review on
   `f/review-hunks`, not merged, not tagged.** A tick per change, Apply and Copy result of the
   ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the

@@ -3067,3 +3067,13 @@ and PDF left out, in place), `task-review` (R2's review over `pasta.md`, the not
 writes in place), and `task-sent` (light: the read-only request tab). `--task-demo
 files|files-plan|files-off|files-other|review|sent` builds them from `fixtures/task-demo/`, with
 no engine and nothing sent.
+
+**Budgets.** Nothing here is on the launch path: `task_ui`, `task_draw` and `app/task.rs` are
+reached from the command and the drop alone, the window reads files only then, and it adds no
+crate (`docs/measurements/2026-11-23-task-window.md`: 7 interleaved runs against R2, no figure
+outside the runs' ranges; the executable +102,400 bytes).
+
+**Not built of 5.6.** "AI task on this file" is in the AI menu, the Library menu and the palette,
+on the document in front; a row of the Files pane has no menu of its own in this program, and the
+tab menu does not open the window on the tab under the pointer (it would have to activate it
+first). Add files… and a drop from Explorer are the ways in.

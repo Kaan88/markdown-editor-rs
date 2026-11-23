@@ -236,7 +236,7 @@ pub struct Args {
     /// `--move-demo move|results`: the "Move the notes…" card over a plan made in the program,
     /// or the results panel after a move (`move_ui::demo`).
     pub move_demo: Option<String>,
-    /// `--task-demo files|files-other|files-off|files-plan|sent`: the AI task window over files
+    /// `--task-demo files|files-other|files-off|files-plan|review|sent`: the AI task window over files
     /// for a shot, made from `fixtures/task-demo/`, with no engine and nothing sent.
     pub task_demo: Option<String>,
     /// `--compare A B`: open both files, side by side, compared.
