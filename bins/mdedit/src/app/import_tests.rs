@@ -128,7 +128,10 @@ fn add_writes_one_line_per_ticked_file_and_changes_nothing_else_on_disk() {
         .collect();
     open_card(&mut a, &l);
     a.import_write();
-    assert!(a.importer.is_none(), "the card closes when the write is done");
+    assert!(
+        a.importer.is_none(),
+        "the card closes when the write is done"
+    );
     let group = l.library.join("Recipes.md");
     let text = read(&group);
     assert!(text.starts_with("# Recipes\nhome: Recipes\n"), "{text}");
@@ -167,7 +170,10 @@ fn add_writes_one_line_per_ticked_file_and_changes_nothing_else_on_disk() {
         .collect();
     assert_eq!(listing_before.len(), listing_after.len());
     // The pane is on the group, and the status says how many went in.
-    assert!(a.ui.panes.files && a.ui.library.on, "the Notes pane is open");
+    assert!(
+        a.ui.panes.files && a.ui.library.on,
+        "the Notes pane is open"
+    );
     assert_eq!(a.ui.pane_face(), PaneFace::Notes);
     assert!(toast(&a).contains("3 files are"), "{}", toast(&a));
     let _ = std::fs::remove_dir_all(&l.dir);
@@ -327,10 +333,7 @@ fn the_library_folder_itself_is_refused() {
 fn escape_closes_the_card_and_writes_nothing() {
     let (mut a, l) = lib("import-esc");
     open_card(&mut a, &l);
-    a.key_pressed(
-        crate::keys::Key::Name(crate::keys::KeyName::Escape),
-        None,
-    );
+    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Escape), None);
     assert!(a.importer.is_none());
     assert!(!l.library.join("Recipes.md").exists());
     let _ = std::fs::remove_dir_all(&l.dir);
@@ -384,7 +387,10 @@ fn a_click_on_a_section_ticks_every_row_under_it_and_redraws_them() {
                 file = card.plan.note_of(i + 1);
             }
         }
-        (section.expect("a top section"), file.expect("a file under it"))
+        (
+            section.expect("a top section"),
+            file.expect("a file under it"),
+        )
     };
     let g = a.importer.as_ref().unwrap().geo();
     let row = a.importer.as_ref().unwrap().rows().rect(g.list, section);

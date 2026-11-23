@@ -44,15 +44,7 @@ impl ImportCard {
         let x = g.card.x + PAD;
         let max = (g.card.w - 2.0 * PAD).max(0.0);
         let y = g.header.y;
-        p.text(
-            Face::Semibold,
-            17.0,
-            x,
-            y + 32.0,
-            title(),
-            pal.text,
-            max,
-        );
+        p.text(Face::Semibold, 17.0, x, y + 32.0, title(), pal.text, max);
         let sub = fit_end(p, Face::Ui, 12.5, &self.subtitle_text(), max);
         p.text(Face::Ui, 12.5, x, y + 56.0, &sub, pal.muted, max);
         let group = fit_end(p, Face::Ui, 12.5, &group_line(&self.plan), max);
@@ -159,12 +151,19 @@ impl ImportCard {
         } else {
             Tick::new(r.ticked)
         };
-        draw_tick(
-            p,
-            pal,
-            Rect::new(row.x + 14.0, row.y + 18.0 - TICK / 2.0, TICK, TICK),
-            tick,
-        );
+        let box_at = Rect::new(row.x + 14.0, row.y + 18.0 - TICK / 2.0, TICK, TICK);
+        draw_tick(p, pal, box_at, tick);
+        // A heading with only some of its notes ticked says so with a dash in its box: neither an
+        // empty box nor a tick would tell the truth.
+        if let RowKind::Section { path } = &r.kind {
+            let (all, ticked) = crate::import_ui::section_count(&self.plan, path);
+            if ticked > 0 && ticked < all {
+                p.fill(
+                    Rect::new(box_at.x + 4.0, box_at.cy() - 1.0, TICK - 8.0, 2.0),
+                    pal.accent,
+                );
+            }
+        }
         // A section is one line, a file is two; both rows are the same height.
         let depth = match &r.kind {
             RowKind::Section { path } => path.len(),
@@ -306,15 +305,19 @@ impl ImportCard {
                 }
                 p.restore(old);
                 let foot = preview_note(&self.plan, note);
-                let foot = fit_end(p, Face::Ui, 11.5, &foot, max);
+                let arrow = "\u{2192} ";
+                let aw = p.measure(Face::Ui, 11.5, arrow);
+                p.text(Face::Ui, 11.5, x, r.bottom() - 10.0, arrow, pal.faint, aw);
+                let rest = foot.strip_prefix(arrow).unwrap_or(&foot);
+                let rest = fit_end(p, Face::Ui, 11.5, rest, (max - aw).max(0.0));
                 p.text(
                     Face::Ui,
                     11.5,
-                    x,
+                    x + aw,
                     r.bottom() - 10.0,
-                    &foot,
+                    &rest,
                     pal.faint,
-                    max,
+                    (max - aw).max(0.0),
                 );
             }
         }
@@ -322,10 +325,7 @@ impl ImportCard {
 
     fn draw_footer(&mut self, p: &mut Painter, pal: &Palette, g: &Geo, footer: Rect) {
         let by = footer.y + (DIALOG_FOOTER - 32.0) / 2.0;
-        let add = format!(
-            "Add {}",
-            count(self.plan.ticked(), "file", "files")
-        );
+        let add = format!("Add {}", count(self.plan.ticked(), "file", "files"));
         let mut x = g.card.right() - PAD;
         let mut buttons: Vec<(IHit, String, bool, Rect)> = Vec::new();
         for (hit, label, primary) in [
@@ -355,29 +355,17 @@ impl ImportCard {
             }
         }
         let left = g.card.x + PAD;
-        let mut limit = x - 8.0;
-        if let Some(reason) = problem.as_ref().or(self.refusal.as_ref()) {
-            let room = (limit - left - 200.0).max(0.0);
-            let w = p.measure(Face::Ui, 12.5, reason).min(room);
-            p.text(
-                Face::Ui,
-                12.5,
-                limit - w,
-                footer.y + 36.0,
-                reason,
-                pal.warn,
-                w + 2.0,
-            );
-            limit -= w + 16.0;
-        }
+        let max = (x - 8.0 - left).max(0.0);
         let total = self.plan.notes.len();
-        let mut line = format!("{} of {} ticked", self.plan.ticked(), count(total, "file", "files"));
+        let mut line = format!(
+            "{} of {} ticked",
+            self.plan.ticked(),
+            count(total, "file", "files")
+        );
         let already = self.plan.already();
         if already > 0 {
             line.push_str(&format!(" \u{00B7} {already} already in the library"));
         }
-        let max = (limit - left).max(0.0);
-        p.text(Face::Ui, 13.0, left, footer.y + 26.0, &line, pal.text, max);
         let file = self
             .plan
             .group_file
@@ -392,7 +380,42 @@ impl ImportCard {
                 count(self.plan.ticked(), "line", "lines")
             )
         };
-        let sentence = fit_end(p, Face::Ui, 12.0, &sentence, max);
-        p.text(Face::Ui, 12.0, left, footer.y + 48.0, &sentence, pal.muted, max);
+        // A reason the button is disabled takes a line of its own, in full, above the counts: the
+        // counts must never be cut to make room for it.
+        match problem.as_ref().or(self.refusal.as_ref()) {
+            Some(reason) => {
+                let reason = fit_end(p, Face::Ui, 12.5, reason, max);
+                p.text(
+                    Face::Ui,
+                    12.5,
+                    left,
+                    footer.y + 26.0,
+                    &reason,
+                    pal.warn,
+                    max,
+                );
+                let line = fit_end(
+                    p,
+                    Face::Ui,
+                    12.0,
+                    &format!("{line} \u{00B7} {sentence}"),
+                    max,
+                );
+                p.text(Face::Ui, 12.0, left, footer.y + 48.0, &line, pal.muted, max);
+            }
+            None => {
+                p.text(Face::Ui, 13.0, left, footer.y + 26.0, &line, pal.text, max);
+                let sentence = fit_end(p, Face::Ui, 12.0, &sentence, max);
+                p.text(
+                    Face::Ui,
+                    12.0,
+                    left,
+                    footer.y + 48.0,
+                    &sentence,
+                    pal.muted,
+                    max,
+                );
+            }
+        }
     }
 }

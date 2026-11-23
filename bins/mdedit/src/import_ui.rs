@@ -65,10 +65,7 @@ pub fn geo(card: Rect) -> Geo {
             )),
         )
     } else {
-        (
-            Rect::new(card.x, list_head.bottom(), card.w, body),
-            None,
-        )
+        (Rect::new(card.x, list_head.bottom(), card.w, body), None)
     };
     Geo {
         card,
@@ -101,7 +98,10 @@ pub fn subtitle(plan: &Plan) -> String {
 /// The group the links go in, and where its notes are.
 pub fn group_line(plan: &Plan) -> String {
     let folder = if plan.group_new {
-        format!("which this run makes, with its folder {}", folder_shown(plan))
+        format!(
+            "which this run makes, with its folder {}",
+            folder_shown(plan)
+        )
     } else {
         format!(
             "which the library already has, with its folder {}",
@@ -173,11 +173,7 @@ pub fn row_under(plan: &Plan, row: usize) -> String {
     match plan.rows.get(row).map(|r| &r.kind) {
         Some(import::RowKind::Section { path }) => {
             let (all, ticked) = section_count(plan, path);
-            format!(
-                "{} \u{00B7} {} ticked",
-                count(all, "file", "files"),
-                ticked
-            )
+            format!("{} \u{00B7} {} ticked", count(all, "file", "files"), ticked)
         }
         Some(import::RowKind::File(i)) => {
             let Some(note) = plan.notes.get(*i) else {
@@ -489,29 +485,36 @@ pub fn demo_plan(name: &str) -> Plan {
     } else {
         PathBuf::from("/home/me/Notes/library")
     };
-    let note = |rel: &str, sections: &[&str], title: &str, head: &[&str], already: bool| {
-        import::Note {
+    let note =
+        |rel: &str, sections: &[&str], title: &str, head: &[&str], already: bool| import::Note {
             path: folder.join(rel),
             sections: sections.iter().map(|s| s.to_string()).collect(),
             title: title.to_string(),
             head: head.iter().map(|s| s.to_string()).collect(),
             ticked: !already,
             already,
-        }
-    };
+        };
     let notes = vec![
         note(
             "weeknight-pasta.md",
             &[],
             "Weeknight pasta",
-            &["# Weeknight pasta", "", "Forty minutes, one pot, and the sauce"],
+            &[
+                "# Weeknight pasta",
+                "",
+                "Forty minutes, one pot, and the sauce",
+            ],
             false,
         ),
         note(
             "Bread/sourdough.md",
             &["Bread"],
             "Sourdough",
-            &["# Sourdough", "", "A starter kept on the counter, fed twice a"],
+            &[
+                "# Sourdough",
+                "",
+                "A starter kept on the counter, fed twice a",
+            ],
             false,
         ),
         note(
@@ -525,7 +528,11 @@ pub fn demo_plan(name: &str) -> Plan {
             "Pasta/carbonara.md",
             &["Pasta"],
             "Carbonara",
-            &["# Carbonara", "", "Eggs, pecorino, guanciale. No cream, ever."],
+            &[
+                "# Carbonara",
+                "",
+                "Eggs, pecorino, guanciale. No cream, ever.",
+            ],
             true,
         ),
         note(
@@ -539,21 +546,33 @@ pub fn demo_plan(name: &str) -> Plan {
             "Pasta/Italian/gnocchi.md",
             &["Pasta", "Italian"],
             "Gnocchi",
-            &["# Gnocchi", "", "Potato, flour, and as little handling as possible"],
+            &[
+                "# Gnocchi",
+                "",
+                "Potato, flour, and as little handling as possible",
+            ],
             false,
         ),
         note(
             "Pasta/Italian/risotto.md",
             &["Pasta", "Italian"],
             "Risotto",
-            &["# Risotto", "", "Stirred, one ladle at a time, for eighteen minutes"],
+            &[
+                "# Risotto",
+                "",
+                "Stirred, one ladle at a time, for eighteen minutes",
+            ],
             false,
         ),
         note(
             "Sauces/pesto.md",
             &["Sauces"],
             "Pesto",
-            &["# Pesto", "", "Basil, pine nuts, garlic, and a lot of olive oil"],
+            &[
+                "# Pesto",
+                "",
+                "Basil, pine nuts, garlic, and a lot of olive oil",
+            ],
             false,
         ),
         note(
@@ -567,7 +586,11 @@ pub fn demo_plan(name: &str) -> Plan {
             "Sauces/French/beurre blanc.md",
             &["Sauces", "French"],
             "Beurre blanc",
-            &["# Beurre blanc", "", "Shallots and wine reduced to almost nothing"],
+            &[
+                "# Beurre blanc",
+                "",
+                "Shallots and wine reduced to almost nothing",
+            ],
             false,
         ),
         note(
@@ -658,17 +681,21 @@ pub fn demo(name: &str) -> Option<ImportCard> {
     let mut card = ImportCard::new(plan);
     card.demo = true;
     match name {
-        "folder-sections" | "folder-taken" => {
+        "folder-sections" => {
             // Two file rows unticked, and the sections above them say so.
             for i in 0..card.plan.rows.len() {
                 if card.plan.note_of(i).is_some_and(|n| n == 2 || n == 6) {
                     card.toggle(i);
                 }
             }
-            card.select(4);
+            card.select(6);
+        }
+        "folder-taken" => {
+            // The library already lists Carbonara: its row is not written again.
+            card.select(5);
         }
         "folder-over" => card.select(0),
-        _ => card.select(1),
+        _ => card.select(2),
     }
     Some(card)
 }
@@ -680,7 +707,10 @@ mod tests {
     #[test]
     fn the_demo_shows_rows_under_their_sections_with_a_third_level() {
         let card = demo("folder").expect("the demo");
-        assert!(card.plan.rows.len() > card.plan.notes.len(), "sections and files");
+        assert!(
+            card.plan.rows.len() > card.plan.notes.len(),
+            "sections and files"
+        );
         let sections: Vec<String> = card
             .plan
             .rows
@@ -690,7 +720,10 @@ mod tests {
                 import::RowKind::File(_) => None,
             })
             .collect();
-        assert_eq!(sections, ["Bread", "Pasta", "Pasta/Italian", "Sauces", "Sauces/French"]);
+        assert_eq!(
+            sections,
+            ["Bread", "Pasta", "Pasta/Italian", "Sauces", "Sauces/French"]
+        );
         // The library already lists Carbonara, so its row is not ticked.
         let carbonara = card
             .plan
@@ -754,7 +787,10 @@ mod tests {
             "Enter does not add with nothing ticked"
         );
         card.tick_all();
-        assert_eq!(card.key(&Key::Name(KeyName::Enter), Mods::default()), Act::Write);
+        assert_eq!(
+            card.key(&Key::Name(KeyName::Enter), Mods::default()),
+            Act::Write
+        );
         assert_eq!(
             card.key(&Key::Name(KeyName::Escape), Mods::default()),
             Act::Close

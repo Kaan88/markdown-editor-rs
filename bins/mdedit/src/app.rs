@@ -79,9 +79,9 @@ mod frost_tests;
 mod handoff;
 #[cfg(test)]
 mod ime_tests;
-mod importing;
 #[cfg(test)]
 mod import_tests;
+mod importing;
 mod input;
 #[cfg(test)]
 mod language_tests;

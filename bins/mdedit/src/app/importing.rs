@@ -137,11 +137,7 @@ impl App {
     /// The plan of `walked`, over `dir`: the group the links go in (the one the library has for
     /// the folder's name, or the one this run would make), and the notes the library does not list
     /// already. The library is read here, so a group another window made a moment ago is known.
-    fn import_plan(
-        &mut self,
-        dir: &Path,
-        walked: import::Walk,
-    ) -> Result<import::Plan, String> {
+    fn import_plan(&mut self, dir: &Path, walked: import::Walk) -> Result<import::Plan, String> {
         self.import_ready(dir)?;
         let Some(library) = self
             .library_dir()
@@ -165,11 +161,7 @@ impl App {
             .find(|g| g.name.eq_ignore_ascii_case(&name))
             .cloned();
         let (group_file, entries, listed) = match &group {
-            Some(g) => (
-                g.file.clone(),
-                g.entries.len(),
-                import::listed(&g.entries),
-            ),
+            Some(g) => (g.file.clone(), g.entries.len(), import::listed(&g.entries)),
             None => {
                 let Some(stem) = file_stem_for(&name) else {
                     return Err(format!(

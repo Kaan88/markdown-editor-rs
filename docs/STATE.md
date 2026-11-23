@@ -35,6 +35,12 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
+- **Phase 4a, "Add a folder to the library…"** (`ai-library-plan.md` 5.7, without the AI):
+  built and tested on `f/p4a`, worktree `md-wt\p4a`, not merged. A folder the owner picks becomes
+  a group of links to its `.md`, `.markdown` and `.txt` files under their subfolders' headings
+  three deep, written in one library file; nothing of theirs is copied, moved or renamed
+  (D-110 to D-112, DESIGN 79). Not asked for by the owner, who stopped at R2 and said the section
+  8 order stands; it is here because the brief for it was already given.
 - **Phase R2**, the review with ticks and the tinted, level preview (`ai-library-plan.md` 5.5,
   D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
   of it exists.
@@ -60,7 +66,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
    the library in the full preview, merged; a closed mdview, on `fix/closed-mdview` (first: whether
    it is missed with mdview 1.0.5 too); the notice before deleting a library file, on
    `fix/delete-library-notice`.
-2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
+2. Then R2, and section 8's order. M1, M2 in mdview; D after R2. Phase 4a is built on `f/p4a`
+   and waits for the owner's word to merge it.
 
 ## Known to be wrong on `main`
 
@@ -115,6 +122,6 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
 - Kept as found, local, unpushed: the shared repo's `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
 - Worktrees: `main` (`Desktop\markdown-editor-ai`); `md-wt\baseline-main`, `closed-mdview`,
-  `delete-library-notice`, `library-add-refresh`, `preview-browse` and `review-hunks`;
+  `delete-library-notice`, `library-add-refresh`, `preview-browse`, `review-hunks` and `p4a`;
   `hub-wt\app-prs2\mdedit`; and a session's detached scratchpad under `Temp`. The folders three
   finished sessions still hold under `.claude\worktrees\` are empty.
