@@ -156,6 +156,7 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
 - Kept as found, local, unpushed: the shared repo's `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
 - Worktrees: `main` (`Desktop\markdown-editor-ai`); `md-wt\baseline-main`, `closed-mdview`,
-  `delete-library-notice`, `library-add-refresh`, `preview-browse`, `review-hunks` and `p4a`;
-  `hub-wt\app-prs2\mdedit`; and a session's detached scratchpad under `Temp`. The folders three
-  finished sessions still hold under `.claude\worktrees\` are empty.
+  `delete-library-notice`, `library-add-refresh`, `preview-browse`, `review-hunks`, `p4a` and
+  `p4a-base` (the base commit, built for 4a's measurement); `hub-wt\app-prs2\mdedit`; and a
+  session's detached scratchpad under `Temp`. The folders three finished sessions still hold
+  under `.claude\worktrees\` are empty.
