@@ -1049,3 +1049,18 @@ release waits only for the owner's word to tag.
 **Why.** Rule 6: the owner approves by looking.
 **Overturned by.** The owner.
 **From.** The owner, 2026-11-23.
+
+## D-102 · 2026-11-23 · A closed mdview is asked about more than once, and on input
+
+**Decision.** Replaces D-097's "once more a second later". A check that finds the viewer running
+is repeated after 1, 2 and 4 s (`RECHECKS`), and stops when the viewer is found gone. A key press
+or a mouse press also asks (`Links::check_on_input`), at most once in 2 s and never while nothing
+is linked or during the first `GRACE`; it is an event, not a timer, and costs one lock when not due.
+**Why.** The owner's hand check found D-097 not holding with mdview 1.0.4. Against the real
+1.0.4 exe (closed gracefully, with `--line` and `--from` as mdedit starts it) the old code did find
+the viewer gone after 1 s, so the cause was not reproduced; the two changes cover the ways it can
+still fail: a process that ends later than one second after its window, and a window that never
+had a focus change to ask at.
+**Overturned by.** The owner, if a closed mdview is still missed; then the next suspect is the
+viewer staying alive after its window closes, which only mdview can fix.
+**From.** The owner's report, 2026-11-23; built by an agent, recorded by Claude.

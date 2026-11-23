@@ -55,9 +55,13 @@ fixes included).
 
 ## Known to be wrong on `main`
 
-- **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
-  leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
-  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
+- **A closed mdview is still missed** (the owner's hand check, D-101; changed in D-102, not yet
+  tried by the owner): D-097's one recheck a second after the focus may come too early for a window
+  closed by hand, and a closure with no focus change was never asked about. Now three rechecks
+  (1, 2, 4 s) and an ask on a key or a click (at most one in two seconds). With mdview 1.0.4 and
+  a graceful close the old code already found it in 1 s in a test against the real exe, so the
+  owner's failing case was not reproduced here; a tab closed in a viewer that keeps running cannot
+  be told from 1.0.4 at all.
 - "Add this file to the notes library…" adds it, but the tree shows the note only after its group
   is folded and opened again.
 - Browsing the library in the full preview keeps the preview for two or three files, then falls

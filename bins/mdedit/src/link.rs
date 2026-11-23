@@ -60,6 +60,12 @@ const FINISH_WAIT: Duration = Duration::from_millis(300);
 /// window was just closed still answers while its process ends, and closing it is what handed
 /// this window the focus that asked.
 const RECHECK: Duration = Duration::from_secs(1);
+/// The least time between two asks made for input: see [`Links::check_on_input`].
+const CHECK_EVERY: Duration = Duration::from_secs(2);
+/// How many times a check that found the viewer running is repeated, each after twice the wait
+/// of the one before (1 s, 2 s, 4 s): a window closed by hand can take longer than a second to
+/// end its process, and the focus that asked comes once.
+const RECHECKS: u32 = 3;
 
 /// A document's text as it is: the load it came from and the edits since.
 pub type Version = (u64, u64);
@@ -222,6 +228,8 @@ pub struct Links {
     pub side_by_side: bool,
     /// A link ended since the last [`take_ended`](Self::take_ended), however it ended.
     ended: bool,
+    /// When the viewer was last asked whether it runs.
+    asked_at: Option<Instant>,
 }
 
 impl Links {
@@ -341,7 +349,7 @@ impl Links {
     /// the user acts (the window gains focus, a menu opens), never on a timer; nothing is asked
     /// while nothing is linked, or while a viewer started for a link may still be starting.
     /// Whether it was asked.
-    pub fn check(&self, now: Instant) -> bool {
+    pub fn check(&mut self, now: Instant) -> bool {
         let Some(courier) = &self.courier else {
             return false;
         };
@@ -349,7 +357,19 @@ impl Links {
             return false;
         }
         courier.check();
+        self.asked_at = Some(now);
         true
+    }
+
+    /// [`check`](Self::check) for a key or a click: the viewer may have been closed with no
+    /// focus change to ask (the window had the focus already, or the one check made at the
+    /// focus came while the viewer was still ending). Not again within [`CHECK_EVERY`] of the
+    /// last ask, so typing and clicking cost one lock and nothing more.
+    pub fn check_on_input(&mut self, now: Instant) -> bool {
+        if self.linked.is_empty() || self.asked_at.is_some_and(|t| now < t + CHECK_EVERY) {
+            return false;
+        }
+        self.check(now)
     }
 
     /// Ends the links `keep` says no to, telling the viewer to go back to their files.
@@ -664,8 +684,10 @@ fn run(
     let mut live: Vec<(Target, Version)> = Vec::new();
     // Until when text is left out: the viewer did not take the last.
     let mut text_after: Option<Instant> = None;
-    // When a check that found the viewer running is made once more: one only, then nothing.
+    // When a check that found the viewer running is made once more, and how many times it has
+    // been: the delay doubles each time, up to [`RECHECKS`], then nothing more is asked.
     let mut recheck: Option<Instant> = None;
+    let mut rechecks = 0u32;
     loop {
         let job = {
             let mut state = slot.state.lock().unwrap();
@@ -721,9 +743,13 @@ fn run(
                 // bare connection, and the links are over as for an update nobody answered.
                 // One that answers may be a window closed a moment ago whose process has not
                 // ended yet: it is asked once more, a little later.
+                if again {
+                    rechecks = 0;
+                }
                 if alive() {
-                    if again {
-                        recheck = Some(Instant::now() + timing.recheck);
+                    if rechecks < RECHECKS {
+                        recheck = Some(Instant::now() + timing.recheck * (1 << rechecks));
+                        rechecks += 1;
                     }
                     continue;
                 }
@@ -1253,14 +1279,15 @@ mod tests {
         links.courier = Some(c);
         // A viewer just started may not answer yet: nothing is asked during the grace time.
         assert!(!links.check(base));
-        // Running: asked, once more a little later (`recheck`), then no more, and nothing ends.
+        // Running: asked, again a little later (`recheck`, three times), then no more, and
+        // nothing ends.
         assert!(links.check(base + GRACE));
         let end = Instant::now() + WAIT;
-        while asked.load(Ordering::Acquire) < 2 && Instant::now() < end {
+        while asked.load(Ordering::Acquire) < 4 && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(2));
         }
-        assert!(ended.recv_timeout(FAST.recheck * 4).is_err());
-        assert_eq!(asked.load(Ordering::Acquire), 2);
+        assert!(ended.recv_timeout(FAST.recheck * 16).is_err());
+        assert_eq!(asked.load(Ordering::Acquire), 4);
         assert!(!links.take_gone() && links.contains(1));
         // Closed: the next check finds nobody, and the links are over.
         alive.store(false, Ordering::Release);
@@ -1292,6 +1319,54 @@ mod tests {
         ended.recv_timeout(WAIT).unwrap();
         assert_eq!(asked.load(Ordering::Acquire), 2);
         assert!(links.take_gone() && links.is_empty());
+    }
+
+    #[test]
+    fn a_viewer_slow_to_end_is_found_gone_by_a_later_ask() {
+        // A window closed by hand can take longer than one recheck to end its process: it still
+        // answers at the first ask and the first recheck, and is gone at the last.
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ended_tx, ended) = channel();
+        let n = asked.clone();
+        let c = Courier::spawn(
+            |_| Delivery::Taken,
+            move || n.fetch_add(1, Ordering::AcqRel) < 3,
+            FAST,
+            move || _ = ended_tx.send(()),
+        );
+        let base = Instant::now();
+        let mut links = Links::default();
+        links.link(1, "/a.md".into(), Some(5), None, base);
+        links.courier = Some(c);
+        assert!(links.check(base + GRACE));
+        ended.recv_timeout(WAIT).unwrap();
+        assert_eq!(asked.load(Ordering::Acquire), 4);
+        assert!(links.take_gone() && links.is_empty());
+    }
+
+    #[test]
+    fn input_asks_whether_the_viewer_runs_at_most_once_in_a_while() {
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let n = asked.clone();
+        let c = Courier::spawn(
+            |_| Delivery::Taken,
+            move || n.fetch_add(1, Ordering::AcqRel) == usize::MAX,
+            FAST,
+            || {},
+        );
+        let base = Instant::now();
+        let mut links = Links::default();
+        // Nothing linked: nothing is asked.
+        assert!(!links.check_on_input(base + GRACE));
+        links.link(1, "/a.md".into(), Some(5), None, base);
+        links.courier = Some(c);
+        // Not while the viewer may be starting.
+        assert!(!links.check_on_input(base));
+        let t = base + GRACE;
+        assert!(links.check_on_input(t));
+        // A key a moment later asks nothing; one after the pause does.
+        assert!(!links.check_on_input(t + CHECK_EVERY / 2));
+        assert!(links.check_on_input(t + CHECK_EVERY));
     }
 
     #[test]

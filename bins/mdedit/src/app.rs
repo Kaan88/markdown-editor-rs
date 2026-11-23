@@ -2811,6 +2811,11 @@ impl ApplicationHandler<Wake> for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => match (state, button) {
+                // A viewer closed by hand is found out at the next click if the focus did not.
+                _ if state == ElementState::Pressed && {
+                    self.docs.links.check_on_input(Instant::now());
+                    false
+                } => {}
                 // A press on the page leaves the lead where it is: a selection there does not
                 // move it.
                 _ if state == ElementState::Pressed
@@ -2861,6 +2866,7 @@ impl ApplicationHandler<Wake> for App {
                     return;
                 }
                 self.editor_leads();
+                self.docs.links.check_on_input(Instant::now());
                 self.key(&event);
             }
             // Text an input method made: an accent typed with a dead key or chosen by holding a
