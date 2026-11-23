@@ -23,7 +23,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## On `main`, not released
 
-Nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review (audit 3's
+Since `v1.3.0`, documents and the release workflow only: the release will carry its full notes as
+`release-notes-<version>.md`, named by `hub.txt`'s `notes.file` (D-102; seventeen assets; not yet run
+on a real release). Nothing since 1.2.0 has had an outside review (audit 3's
 fixes included).
 
 ## In hand
