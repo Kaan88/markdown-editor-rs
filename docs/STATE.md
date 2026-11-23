@@ -30,8 +30,12 @@ released. If `git log -1` is newer, doubt "In hand" first.
   typed in the pane's box goes with them, its keyboard back in the text.
 - **Browsing the library in the full preview** (visual editing, branch `fix/preview-browse`,
   merged, D-104): a tab still being read no longer ends the mode; `visual_sync` waits for it.
-  Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an
-  outside review (audit 3's fixes included).
+- Branch `fix/closed-mdview` (not merged): a closed mdview is asked about again after 1, 2 and 4 s
+  (D-102), a check refused while a link is still in its grace is kept and made once when the grace
+  ends (D-105), and a key press or a click asks at most once in two seconds; an input ask is
+  answered once and starts no rechecks, so typing does not probe again and again. Otherwise
+  nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review (audit 3's
+  fixes included).
 
 ## In hand
 
@@ -66,7 +70,13 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
-  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
+  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold. D-102 and D-105
+  change this on `fix/closed-mdview` (not merged, not yet tried by the owner): three rechecks at
+  1, 2 and 4 s, an ask kept to the end of a link's grace instead of dropped, and an ask on a key
+  press or a click at most once in two seconds. With mdview 1.0.4 and a graceful close the old
+  code already found it in 1 s in a test against the real exe, so the owner's failing case was
+  not reproduced here; a tab closed in a viewer that keeps running cannot be told from 1.0.4 at
+  all.
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
