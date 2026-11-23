@@ -50,7 +50,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
   picks becomes a group of links to its `.md`, `.markdown` and `.txt` files under their
   subfolders' headings three deep, written in one library file; nothing of theirs is copied,
   moved or renamed (D-131 to D-133, `docs/DESIGN.md` 81). Asked for by the owner on 2026-11-23;
-  it waits for the owner's look at its shots (`import-folder*`) and word to merge.
+  it waits for the owner's look at its shots (`import-folder*`) and word to merge. The budgets:
+  nothing on the launch path, no new dependency, every figure inside the two builds' ranges
+  (`docs/measurements/2026-11-23-phase-4a.md`); the exe +97 KB (9,201,152 to 9,298,944).
 - **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-107): **merged from
   `f/review-hunks`, not tagged; the owner has not looked at its shots.** A tick per change, Apply and Copy result of the
   ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the
