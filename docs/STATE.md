@@ -45,16 +45,16 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
-- **Phase 5.8**, a Markdown note from a text file (`ai-library-plan.md` 5.8, D-120): built on
-  branch `f/p5` - card, write, record, undo, 14 tests, 11 shots, budgets measured
+- **Phase 5.8**, a Markdown note from a text file (`ai-library-plan.md` 5.8, D-120): merged from
+  `f/p5` - card, write, record, undo, 14 tests, 11 shots, budgets measured
   (`docs/measurements/2026-11-23-note-card.md`); main merged in, the pins on shared `main`
-  (`0984eed`), a Rewrite record listed as a later version's (D-134); not merged.
+  (`0984eed`), a Rewrite record listed as a later version's (D-134); merged, the owner has not looked at its shots.
 - **Phase 4a, "Add a folder to the library…"** (`ai-library-plan.md` 5.7, without the AI):
-  built, tested and measured on `f/p4a`, worktree `md-wt\p4a`, not merged. A folder the owner
+  built, tested and measured, merged from `f/p4a`. A folder the owner
   picks becomes a group of links to its `.md`, `.markdown` and `.txt` files under their
   subfolders' headings three deep, written in one library file; nothing of theirs is copied,
   moved or renamed (D-131 to D-133, `docs/DESIGN.md` 81). Asked for by the owner on 2026-11-23;
-  it waits for the owner's look at its shots (`import-folder*`) and word to merge. The budgets:
+  it waits for the owner's look at its shots (`import-folder*`). The budgets:
   nothing on the launch path, no new dependency, every figure inside the two builds' ranges
   (`docs/measurements/2026-11-23-phase-4a.md`); the exe +97 KB (9,201,152 to 9,298,944).
 - **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-107): **merged from
@@ -97,12 +97,10 @@ released. If `git log -1` is newer, doubt "In hand" first.
    too).
 2. Then the owner's look at R2's shots (and whether to add the viewer's page rows for the tinted
    preview, D-108), then section 8's order. M1, M2 in mdview; D after R2.
-3. Phase 4a's shots (`import-folder*`) for the owner's look, then merging `f/p4a`.
+3. Phase 4a's and phase 5's shots (`import-folder*`, `note-*`) for the owner's look.
 
 ## Known to be wrong on `main`
 
-- **The AI review has no scrollbar and cuts long lines.** Fixed on `f/review-hunks` by R2 (the
-  list wraps and has the scrollbar), not merged.
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
   mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold. D-102 and D-105
@@ -159,8 +157,7 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   Every merged branch was deleted, here and on GitHub, in all three repos.
 - Kept as found, local, unpushed: the shared repo's `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main` (`Desktop\markdown-editor-ai`); `md-wt\baseline-main`, `closed-mdview`,
-  `delete-library-notice`, `library-add-refresh`, `preview-browse`, `review-hunks`, `p4a` and
-  `p4a-base` (the base commit, built for 4a's measurement); `hub-wt\app-prs2\mdedit`; and a
-  session's detached scratchpad under `Temp`. The folders three finished sessions still hold
-  under `.claude\worktrees\` are empty.
+- Worktrees: `main`; the open builders' (`md-wt\pw`, `p4`, `ci-fix` and their bases), `spike-v`,
+  `baseline-main`; `hub-wtpp-prs2\mdedit`. The empty folders `md-wt\closed-mdview` and `mv-notes`
+  are held by a process; delete them after a restart. Every branch merged so far is deleted, here
+  and on GitHub, in all three repos.
