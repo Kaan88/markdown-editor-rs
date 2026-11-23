@@ -3,12 +3,13 @@
 //! the palette is, and keep their own clickable places in [`Ai::hits`].
 
 use crate::ai::{Ai, Hit, Instruction, Panel, Review};
-use mdedit_core::ai::{ReviewLine, SavedPrompt};
+use crate::hunks_ui;
+use mdedit_core::ai::SavedPrompt;
 use mdshared_ui::gfx::{Face, Painter, Rect, mix};
 use mdshared_ui::glyph;
 use mdshared_ui::overlay::{
     DIALOG_FOOTER, DIALOG_PAD, dialog_button_w, dialog_card, draw_backdrop, draw_dialog_button,
-    draw_dialog_card,
+    draw_dialog_button_disabled, draw_dialog_card,
 };
 use mdshared_ui::segments::{SEGMENT_H, draw_segments, switch_width};
 use mdshared_ui::textfield::FieldColors;
@@ -19,28 +20,9 @@ const PAD: f32 = DIALOG_PAD;
 const PROMPT_ROW: f32 = 46.0;
 /// The room the Modify button takes at the right of a saved prompt's row.
 const PENCIL: f32 = 104.0;
-/// A line of the changes.
-pub const LINE_H: f32 = 20.0;
 const HEADER_H: f32 = 64.0;
-
-/// The colours of removed and added lines, and their marks.
-fn tints(pal: &Palette) -> ([u8; 3], [u8; 3], [u8; 3], [u8; 3]) {
-    if pal.dark {
-        (
-            [0x4a, 0x23, 0x23],
-            [0x1f, 0x3d, 0x29],
-            [0xf0, 0x8a, 0x80],
-            [0x7f, 0xd4, 0x97],
-        )
-    } else {
-        (
-            [0xfd, 0xec, 0xea],
-            [0xe6, 0xf4, 0xea],
-            [0xb4, 0x23, 0x18],
-            [0x1a, 0x7f, 0x37],
-        )
-    }
-}
+/// The bar under the header: the changes' arrows, where they are, Tick all.
+const BAR_H: f32 = 46.0;
 
 pub fn draw(
     p: &mut Painter,
@@ -416,17 +398,50 @@ fn instruction(
 
 /// The review's card in a `w` x `h` window.
 pub fn review_card(w: f32, h: f32) -> Rect {
-    dialog_card(1040.0, 688.0, w, h)
+    dialog_card(1040.0, 736.0, w, h)
 }
 
-/// The area under the review's header and above its footer.
+/// The area under the review's header and its bar of changes, above its footer.
 pub fn review_body(r: Rect) -> Rect {
     Rect::new(
         r.x + 1.0,
-        r.y + HEADER_H,
+        r.y + HEADER_H + BAR_H,
         r.w - 2.0,
-        r.h - HEADER_H - DIALOG_FOOTER,
+        r.h - HEADER_H - BAR_H - DIALOG_FOOTER,
     )
+}
+
+/// "lines 32–34", "line 5" or "after line 7": where change `c` is in the old text.
+pub fn lines_of(c: &mdedit_core::hunks::Change) -> String {
+    if c.a.is_empty() {
+        format!("after line {}", c.a.start)
+    } else if c.a.len() == 1 {
+        format!("line {}", c.a.start + 1)
+    } else {
+        format!("lines {}–{}", c.a.start + 1, c.a.end)
+    }
+}
+
+/// The footer's first line: how many changes, how many go in, what that adds and takes away.
+pub fn summary(rv: &Review) -> String {
+    let n = rv.hunks.len();
+    let k = rv.hunks.ticked();
+    let (added, removed) = rv.hunks.taken_totals();
+    let s = if n == 1 { "" } else { "s" };
+    if k == 0 {
+        format!("{n} change{s} · none to apply")
+    } else {
+        format!("{n} change{s} · {k} to apply · +{added} −{removed} lines")
+    }
+}
+
+/// What the Apply button says.
+pub fn apply_label(rv: &Review) -> String {
+    match rv.hunks.ticked() {
+        0 => "Nothing is ticked".into(),
+        1 => "Apply 1 change".into(),
+        k => format!("Apply {k} changes"),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -443,15 +458,16 @@ fn review(
     let r = review_card(w, h);
     hits.push((Hit::Card, r));
     let footer = draw_dialog_card(p, pal, r);
-    let (_, _, minus, plus) = tints(pal);
+    let (_, _, minus, plus) = hunks_ui::tints(pal);
     let px = p.px();
     // Header: title, what and how, the switch, the counts.
     let x = r.x + PAD;
     let cy = r.y + 30.0;
     let tw = p.measure(Face::Semibold, 17.0, &rv.spec.title).min(360.0);
     p.text(Face::Semibold, 17.0, x, cy, &rv.spec.title, pal.text, 360.0);
-    let counts_r = format!("+ {} lines", rv.added);
-    let counts_l = format!("− {} lines", rv.removed);
+    let (total_added, total_removed) = rv.hunks.totals();
+    let counts_r = format!("+ {total_added} lines");
+    let counts_l = format!("− {total_removed} lines");
     let mut right = r.right() - PAD;
     if !rv.preview {
         let wr = p.measure(Face::Semibold, 13.0, &counts_r);
@@ -485,6 +501,14 @@ fn review(
         Rect::new(r.x + 1.0, r.y + HEADER_H - px, r.w - 2.0, px),
         pal.popup_line,
     );
+    changes_bar(
+        p,
+        pal,
+        rv,
+        Rect::new(r.x + 1.0, r.y + HEADER_H, r.w - 2.0, BAR_H),
+        hover,
+        hits,
+    );
 
     let mut body = review_body(r);
     if let Some(why) = &rv.blocked {
@@ -515,165 +539,188 @@ fn review(
     if rv.preview {
         previews(p, pal, rv, body);
     } else {
-        changes(p, pal, rv, body);
+        let list_hover = match hover {
+            Some(Hit::List(l)) => Some(l),
+            _ => None,
+        };
+        let mut list_hits = Vec::new();
+        hunks_ui::draw(
+            p,
+            pal,
+            &rv.hunks,
+            &mut rv.list,
+            body,
+            list_hover,
+            &mut list_hits,
+        );
+        hits.extend(list_hits.into_iter().map(|(h, r)| (Hit::List(h), r)));
     }
 
-    // Footer.
+    // Footer: what goes in, then the buttons.
     let by = footer.y + (DIALOG_FOOTER - 32.0) / 2.0;
     let mut bx = r.right() - PAD;
-    let primary = if rv.blocked.is_some() {
-        ("Copy result", Hit::Copy)
-    } else {
-        ("Apply", Hit::Apply)
-    };
     // A closed document cannot be run again: Copy result and Discard only.
     let closed = rv.blocked.as_deref() == Some(mdedit_core::ai::BLOCKED_CLOSED);
-    let second = if rv.blocked.is_some() {
-        ("Run again", Hit::RunAgain)
+    let nothing = rv.blocked.is_none() && rv.hunks.ticked() == 0;
+    let primary = if rv.blocked.is_some() {
+        ("Copy result".to_string(), Hit::Copy)
     } else {
-        ("Copy result", Hit::Copy)
+        (apply_label(rv), Hit::Apply)
     };
-    let buttons: Vec<(&str, Hit)> = if closed {
-        vec![primary, ("Discard", Hit::Discard)]
+    let second = if rv.blocked.is_some() {
+        ("Run again".to_string(), Hit::RunAgain)
     } else {
-        vec![primary, second, ("Discard", Hit::Discard)]
+        ("Copy result".to_string(), Hit::Copy)
+    };
+    let buttons: Vec<(String, Hit)> = if closed {
+        vec![primary, ("Discard".into(), Hit::Discard)]
+    } else {
+        vec![primary, second, ("Discard".into(), Hit::Discard)]
     };
     for (k, (label, hit)) in buttons.into_iter().enumerate() {
-        let bw = dialog_button_w(p, label);
+        let bw = dialog_button_w(p, &label);
         bx -= bw;
         let b = Rect::new(bx, by, bw, 32.0);
-        button(p, pal, hits, b, hit, label, k == 0, hover, pressed);
+        if k == 0 && nothing {
+            // Nothing to put in: the button says so and cannot be pressed.
+            draw_dialog_button_disabled(p, pal, b, &label, true);
+        } else {
+            button(p, pal, hits, b, hit, &label, k == 0, hover, pressed);
+        }
         bx -= 10.0;
     }
-    let note = if rv.preview {
-        "Drawn by mdview's renderer. The two sides scroll together."
-    } else if rv.blocked.is_some() {
+    let note = if rv.blocked.is_some() {
         ""
+    } else if rv.preview {
+        "The preview shows only the ticked changes. Apply is one step: Ctrl+Z brings the old text back."
     } else {
-        "Apply is one step: Ctrl+Z brings the old text back."
+        "Unticked changes keep the old text. Apply is one step: Ctrl+Z brings the old text back."
     };
-    p.text(
-        Face::Ui,
-        12.0,
-        x,
-        footer.cy(),
-        note,
-        pal.muted,
-        bx - x - 12.0,
-    );
+    let room = bx - x - 12.0;
+    let sum = summary(rv);
+    if note.is_empty() {
+        p.text(Face::Semibold, 12.5, x, footer.cy(), &sum, pal.text, room);
+    } else {
+        p.text(
+            Face::Semibold,
+            12.5,
+            x,
+            footer.cy() - 9.0,
+            &sum,
+            pal.text,
+            room,
+        );
+        p.text(Face::Ui, 11.5, x, footer.cy() + 10.0, note, pal.muted, room);
+    }
 }
 
-/// The changes: removed and added lines with their numbers, unchanged runs folded.
-fn changes(p: &mut Painter, pal: &Palette, rv: &mut Review, body: Rect) {
-    let (minus_bg, plus_bg, minus, plus) = tints(pal);
-    let content = rv.lines.len() as f32 * LINE_H + 16.0;
-    rv.content = content;
-    rv.scroll = rv.scroll.clamp(0.0, (content - body.h).max(0.0));
-    let old = p.clip(body);
-    let num_w = 44.0;
-    let text_x = body.x + 2.0 * num_w + 28.0;
-    let first = (rv.scroll / LINE_H).floor().max(0.0) as usize;
-    for (k, line) in rv.lines.iter().enumerate().skip(first) {
-        let y = body.y + 8.0 + k as f32 * LINE_H - rv.scroll;
-        if y > body.bottom() {
-            break;
-        }
-        let row = Rect::new(body.x, y, body.w, LINE_H);
-        let cy = row.cy();
-        let num = |p: &mut Painter, col: usize, n: usize| {
-            p.text_right(
-                Face::Ui,
-                11.5,
-                body.x + (col + 1) as f32 * num_w - 4.0,
-                cy,
-                &n.to_string(),
-                pal.faint,
-            );
+/// The strip under the header: the arrows to the previous and the next change, which one this is
+/// and how big, the strip with a mark per change (where it is in the text, ticked or not, the
+/// current one taller), Tick all and Untick all.
+fn changes_bar(
+    p: &mut Painter,
+    pal: &Palette,
+    rv: &Review,
+    bar: Rect,
+    hover: Option<Hit>,
+    hits: &mut Vec<(Hit, Rect)>,
+) {
+    let (_, _, minus, plus) = hunks_ui::tints(pal);
+    let px = p.px();
+    p.fill(bar, mix(pal.popup, pal.text, 0.025));
+    p.fill(
+        Rect::new(bar.x, bar.bottom() - px, bar.w, px),
+        pal.popup_line,
+    );
+    let n = rv.hunks.len();
+    let cur = rv.list.current.min(n.saturating_sub(1));
+    // The arrows.
+    let a = Rect::new(bar.x + PAD, bar.cy() - 14.0, 28.0, 28.0);
+    let b = Rect::new(a.right() + 6.0, a.y, 28.0, 28.0);
+    for (r, icon, hit, on) in [
+        (a, glyph::UP, Hit::Prev, cur > 0),
+        (b, glyph::DOWN, Hit::Next, cur + 1 < n),
+    ] {
+        let hov = hover == Some(hit) && on;
+        let fill = if hov {
+            pal.hover
+        } else {
+            mix(pal.popup, pal.text, 0.04)
         };
-        match line {
-            ReviewLine::Same {
-                old: a,
-                new: b,
-                text,
-            } => {
-                num(p, 0, *a);
-                num(p, 1, *b);
-                p.text(
-                    Face::Ui,
-                    13.0,
-                    text_x,
-                    cy,
-                    text,
-                    pal.text,
-                    body.right() - text_x - 12.0,
-                );
-            }
-            ReviewLine::Removed { old: a, text } => {
-                p.fill(row, minus_bg);
-                num(p, 0, *a);
-                p.text_center(
-                    Face::Semibold,
-                    13.0,
-                    Rect::new(body.x + 2.0 * num_w + 2.0, y, 24.0, LINE_H),
-                    "−",
-                    minus,
-                );
-                p.text(
-                    Face::Ui,
-                    13.0,
-                    text_x,
-                    cy,
-                    text,
-                    pal.text,
-                    body.right() - text_x - 12.0,
-                );
-            }
-            ReviewLine::Added { new: b, text } => {
-                p.fill(row, plus_bg);
-                num(p, 1, *b);
-                p.text_center(
-                    Face::Semibold,
-                    13.0,
-                    Rect::new(body.x + 2.0 * num_w + 2.0, y, 24.0, LINE_H),
-                    "+",
-                    plus,
-                );
-                p.text(
-                    Face::Ui,
-                    13.0,
-                    text_x,
-                    cy,
-                    text,
-                    pal.text,
-                    body.right() - text_x - 12.0,
-                );
-            }
-            ReviewLine::Fold { lines } => {
-                p.fill(
-                    Rect::new(row.x, row.y + 2.0, row.w, row.h - 4.0),
-                    mix(pal.popup, pal.text, 0.05),
-                );
-                let s = if *lines == 1 { "" } else { "s" };
-                p.text(
-                    Face::Ui,
-                    12.0,
-                    text_x,
-                    cy,
-                    &format!("··· {lines} unchanged line{s}"),
-                    pal.muted,
-                    body.right() - text_x - 12.0,
-                );
-            }
+        p.frame(r, 5.0, fill, pal.popup_line);
+        p.icon(
+            icon,
+            16.0,
+            r.cx(),
+            r.cy(),
+            if on { pal.text } else { pal.faint },
+        );
+        if on {
+            hits.push((hit, r));
         }
     }
-    p.restore(old);
+    // Which change.
+    let mut x = b.right() + 18.0;
+    if let Some(c) = rv.hunks.change(cur) {
+        let which = format!("Change {} of {n}", cur + 1);
+        x += p.text(Face::Semibold, 13.0, x, bar.cy(), &which, pal.text, 200.0) + 12.0;
+        x += p.text(Face::Ui, 12.0, x, bar.cy(), &lines_of(c), pal.muted, 160.0) + 12.0;
+        if c.added() > 0 {
+            let t = format!("+{}", c.added());
+            x += p.text(Face::Semibold, 12.0, x, bar.cy(), &t, plus, 60.0) + 8.0;
+        }
+        if c.removed() > 0 {
+            let t = format!("−{}", c.removed());
+            p.text(Face::Semibold, 12.0, x, bar.cy(), &t, minus, 60.0);
+        }
+    }
+    // Tick all, Untick all, then the strip with its word.
+    let mut right = bar.right() - PAD;
+    for (label, hit) in [("Untick all", Hit::UntickAll), ("Tick all", Hit::TickAll)] {
+        let tw = p.measure(Face::Ui, 12.5, label);
+        let r = Rect::new(right - tw - 8.0, bar.cy() - 12.0, tw + 8.0, 24.0);
+        let col = if hover == Some(hit) {
+            mix(pal.accent, pal.text, 0.25)
+        } else {
+            pal.accent
+        };
+        p.text(Face::Ui, 12.5, r.x + 4.0, bar.cy(), label, col, tw + 4.0);
+        hits.push((hit, r));
+        right = r.x - 14.0;
+    }
+    let strip = Rect::new(right - 300.0, bar.cy() - 5.0, 300.0, 10.0);
+    if strip.x > x + 60.0 && n > 0 {
+        p.text_right(Face::Ui, 11.5, strip.x - 10.0, bar.cy(), "where", pal.faint);
+        p.rbox(strip, 5.0, mix(pal.popup, pal.text, 0.09));
+        let lines = rv.hunks.old_lines().max(1) as f32;
+        for i in 0..n {
+            let Some(c) = rv.hunks.change(i) else {
+                continue;
+            };
+            let at = (c.a.start as f32 / lines).clamp(0.0, 1.0);
+            let mx = strip.x + 3.0 + at * (strip.w - 9.0);
+            let on = rv.hunks.is_ticked(i);
+            let (mh, col) = if i == cur {
+                (18.0, pal.text)
+            } else if on {
+                (12.0, mix(pal.accent, pal.popup, 0.15))
+            } else {
+                (12.0, mix(pal.popup, pal.text, 0.28))
+            };
+            p.rbox(Rect::new(mx, bar.cy() - mh / 2.0, 3.0, mh), 1.5, col);
+            hits.push((
+                Hit::Mark(i),
+                Rect::new(mx - 3.0, bar.y + 4.0, 9.0, bar.h - 8.0),
+            ));
+        }
+    }
 }
 
 /// The text before and after, side by side, as mdview's renderer drew them.
 fn previews(p: &mut Painter, pal: &Palette, rv: &mut Review, body: Rect) {
     let half = (body.w / 2.0).floor();
     let label_h = 30.0;
-    let (_, plus_bg, _, plus) = tints(pal);
+    let (_, plus_bg, _, plus) = hunks_ui::tints(pal);
     let px = p.px();
     for (k, (label, fg, bg)) in [
         ("BEFORE", pal.muted, mix(pal.popup, pal.text, 0.04)),
@@ -694,6 +741,16 @@ fn previews(p: &mut Painter, pal: &Palette, rv: &mut Review, body: Rect) {
             fg,
             col.w,
         );
+        if k == 1 {
+            // The page shows the ticked changes only; the header says how many.
+            let taken = format!(
+                "{} of {} change{} taken",
+                rv.hunks.ticked(),
+                rv.hunks.len(),
+                if rv.hunks.len() == 1 { "" } else { "s" }
+            );
+            p.text_right(Face::Ui, 11.5, col.right() - PAD, head.cy(), &taken, fg);
+        }
         let page = Rect::new(col.x, head.bottom(), col.w, col.h - label_h);
         p.fill(page, pal.page);
         let Some(panes) = rv.panes.as_mut() else {

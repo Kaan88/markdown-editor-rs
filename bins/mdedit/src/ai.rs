@@ -8,7 +8,8 @@
 
 use crate::app::Wake;
 use crate::docs::Waker;
-use mdedit_core::ai::{Connection, ReviewLine, SavedPrompt};
+use mdedit_core::ai::{Connection, SavedPrompt};
+use mdedit_core::hunks::Hunks;
 use mdedit_highlight::DocId;
 use mdshared_ui::gfx::Rect;
 use mdshared_ui::textfield::TextField;
@@ -374,22 +375,29 @@ pub struct Review {
     pub result: String,
     pub spec: Spec,
     pub subtitle: String,
-    pub lines: Vec<ReviewLine>,
-    pub removed: usize,
-    pub added: usize,
+    /// The changes and which of them are ticked; Apply puts in what they compose.
+    pub hunks: Hunks,
+    /// The list of changes: its scroll, the change the keys are on.
+    pub list: crate::hunks_ui::ListState,
     /// Why the result cannot be applied in place (the text changed meanwhile, the document is
     /// read-only or closed): Apply gives way to Copy result and Run again.
     pub blocked: Option<String>,
     /// The rendered before and after rather than the changes.
     pub preview: bool,
-    /// The changes' scroll, logical px.
-    pub scroll: f32,
-    pub content: f32,
     /// The before and after drawn by mdview's renderer, opened when first shown.
     pub panes: Option<Box<(crate::preview_pane::Pane, crate::preview_pane::Pane)>>,
+    /// The AFTER page shows the ticked changes: the version of the text it was sent, and when a
+    /// tick not yet sent is due (the delay Compare uses).
+    pub sent: u64,
+    pub due: Option<std::time::Instant>,
+    /// The drag of the list's scrollbar thumb: where in the thumb it was taken.
+    pub grab: Option<f32>,
     pub base_dir: Option<PathBuf>,
 }
 
+// One panel is open at a time, kept in an `Option` in `Ai`: boxing the review would only add a
+// pointer to every place that reads it.
+#[allow(clippy::large_enum_variant)]
 pub enum Panel {
     Instruction(Instruction),
     Review(Review),
@@ -413,6 +421,15 @@ pub enum Hit {
     Copy,
     Apply,
     RunAgain,
+    /// The review's bar: the previous and the next change, the strip's mark for change `i`,
+    /// and every change ticked or none.
+    Prev,
+    Next,
+    Mark(usize),
+    TickAll,
+    UntickAll,
+    /// The list of changes.
+    List(crate::hunks_ui::Hit),
     /// The changes' or the previews' area, for the wheel.
     Body,
 }
@@ -429,6 +446,8 @@ pub struct Ai {
     /// The review that Escape closed: its result stays until it is shown again and applied or
     /// discarded, replaced by another run, or the program ends.
     pub kept: Option<Review>,
+    /// `--ai-demo`: the changes the next review starts with unticked.
+    pub demo_off: Option<Vec<usize>>,
     pub bar: Option<Bar>,
     /// The last run asked, for Try again.
     pub last: Option<Spec>,
