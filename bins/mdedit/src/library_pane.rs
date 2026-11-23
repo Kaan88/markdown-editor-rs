@@ -141,6 +141,17 @@ pub struct LibraryPane {
     pub removing: Option<Removal>,
     /// The library file waiting for "Delete" in its question.
     pub deleting: Option<PathBuf>,
+    /// The group or section a note being dragged would go into, while one is dragged. It is
+    /// never where the note already is, so a drop with no mark changes nothing.
+    pub drop: Option<usize>,
+}
+
+/// Whether two places in a library are the same one: the same file, and the same heading path
+/// under it (matched as the library matches headings, without regard to ASCII case).
+fn same_place(a: &(PathBuf, Vec<String>), b: &(PathBuf, Vec<String>)) -> bool {
+    mdshared_app::paths::same_path(&a.0, &b.0)
+        && a.1.len() == b.1.len()
+        && a.1.iter().zip(&b.1).all(|(x, y)| x.eq_ignore_ascii_case(y))
 }
 
 impl LibraryPane {
@@ -234,6 +245,60 @@ impl LibraryPane {
     pub fn parent_of(&self, i: usize) -> Option<usize> {
         let depth = self.rows.get(i)?.depth;
         (0..i).rev().find(|&at| self.rows[at].depth < depth)
+    }
+
+    /// The row under `y` in the list `area`, when the pointer is on one.
+    pub fn row_at(&self, y: f32, area: Rect) -> Option<usize> {
+        if y < area.y || y >= area.bottom() {
+            return None;
+        }
+        let at = ((y - area.y + self.scroll) / ROW).floor();
+        if at < 0.0 {
+            return None;
+        }
+        let at = at as usize;
+        (at < self.rows.len()).then_some(at)
+    }
+
+    /// Where the note on `row` is listed: its library file, and the heading path it is written
+    /// under (empty for the group's own notes). `None` for a row that is not a note.
+    pub fn note_place(&self, row: usize) -> Option<(PathBuf, Vec<String>)> {
+        if !matches!(self.rows.get(row)?.kind, Kind::Note { .. }) {
+            return None;
+        }
+        let file = self.group_file(row)?;
+        let parent = self.parent_of(row)?;
+        Some((file, self.rows[parent].section.clone()))
+    }
+
+    /// Where a drop on `row` writes: a group's own notes, or a section's. `None` for a note and
+    /// for the row a name is being typed in.
+    pub fn row_place(&self, row: usize) -> Option<(PathBuf, Vec<String>)> {
+        match &self.rows.get(row)?.kind {
+            Kind::Group => Some((self.group_file(row)?, Vec::new())),
+            Kind::Section => Some((self.group_file(row)?, self.rows[row].section.clone())),
+            _ => None,
+        }
+    }
+
+    /// The group or section a note dragged from `source` goes into when dropped at `y`: the row
+    /// under the pointer, or the heading the note under it is written in. `None` when the
+    /// pointer is not on a row of the list, or on the place the note is already in.
+    pub fn drop_row(&self, y: f32, area: Rect, source: usize) -> Option<usize> {
+        let at = self.drop_place(y, area)?;
+        let from = self.note_place(source)?;
+        let to = self.row_place(at)?;
+        (!same_place(&from, &to)).then_some(at)
+    }
+
+    /// The group or section a drop at `y` goes into: the row under the pointer, or the heading
+    /// the note under it is written in. `None` when the pointer is not on a row of the list.
+    pub fn drop_place(&self, y: f32, area: Rect) -> Option<usize> {
+        let mut at = self.row_at(y, area)?;
+        while matches!(self.rows.get(at)?.kind, Kind::Note { .. }) {
+            at = self.parent_of(at)?;
+        }
+        self.row_place(at).map(|_| at)
     }
 
     /// Puts the cursor on row `i` and has the next frame show it.
@@ -571,6 +636,14 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, plan_ready: Option<u
         Some(crate::ui::PopupKind::LibraryRow(i)) => Some(i),
         _ => None,
     };
+    // A note being dragged: the row it came from, and the heading it would go into.
+    let dragged = match ui.drag {
+        Some(Drag::LibraryNote {
+            row, moving: true, ..
+        }) => Some(row),
+        _ => None,
+    };
+    let target = dragged.and(ui.library.drop);
     let lib = &mut ui.library;
     lib.content = lib.rows.len() as f32 * ROW + 8.0;
     lib.view = area.h;
@@ -620,6 +693,18 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, plan_ready: Option<u
                 selected,
             );
         }
+        if target == Some(i) {
+            // Where a dragged note would go: the accent's ring over a tint, so the place is seen
+            // before the button comes up.
+            c.p.rbox(rr, 5.0, pal.accent);
+            let inner = Rect::new(rr.x + 1.0, rr.y + 1.0, rr.w - 2.0, rr.h - 2.0);
+            c.p.rbox(inner, 4.0, pal.on);
+        } else if dragged == Some(i) {
+            // The note being moved: a quiet ring, and its text dimmed below.
+            c.p.rbox(rr, 5.0, pal.line);
+            let inner = Rect::new(rr.x + 1.0, rr.y + 1.0, rr.w - 2.0, rr.h - 2.0);
+            c.p.rbox(inner, 4.0, if selected { pal.on } else { pal.hover });
+        }
         let ix = r.x + 14.0 + (row.depth as f32 + 1.0) * 14.0;
         let cy = rr.cy();
         let (face, color) = match &row.kind {
@@ -668,6 +753,8 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, plan_ready: Option<u
                 (Face::Ui, pal.text)
             }
         };
+        // The note being moved reads as set aside until the button comes up.
+        let color = if dragged == Some(i) { pal.faint } else { color };
         let x = if matches!(row.kind, Kind::Section) {
             ix + 4.0
         } else {
@@ -774,6 +861,29 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, plan_ready: Option<u
                 }
             }
         }
+    }
+    // The note being dragged, at the pointer: what is moving, and that it is still held.
+    if let Some(src) = dragged
+        && let Some(row) = ui.library.rows.get(src)
+    {
+        let label = &row.label;
+        let w = (c.p.measure(Face::Ui, 12.5, label) + 38.0).min((r.w - 8.0).max(60.0));
+        let x = (ui.mouse.0 + 14.0).min(r.right() - w - 4.0).max(r.x + 4.0);
+        let y = (ui.mouse.1 + 12.0)
+            .min(r.bottom() - ROW_H - 4.0)
+            .max(r.y + HEAD + 2.0);
+        let chip = Rect::new(x, y, w, ROW_H);
+        c.p.frame(chip, 6.0, pal.popup, pal.accent);
+        c.p.icon(glyph::DOC, 13.0, chip.x + 14.0, chip.cy(), pal.muted);
+        c.p.text(
+            Face::Ui,
+            12.5,
+            chip.x + 26.0,
+            chip.cy(),
+            label,
+            pal.text,
+            (w - 34.0).max(0.0),
+        );
     }
 }
 

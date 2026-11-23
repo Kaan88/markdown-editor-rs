@@ -531,3 +531,56 @@ fn a_file_the_model_did_not_place_is_not_written() {
     assert!(body.contains("[Pasta]"), "{body}");
     assert!(!body.contains("Orphan"), "{body}");
 }
+
+#[test]
+fn a_rewrites_record_is_listed_shown_and_not_a_later_versions() {
+    let dir = scratch("task-rewrite-listed");
+    std::fs::create_dir_all(dir.join("library")).expect("library");
+    let text = pasta(&dir);
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.task_open(TaskKind::Rewrite, vec![text.clone()]);
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    engine();
+    if let Some(s) = a.task.as_mut() {
+        s.ai_on = true;
+        s.instruction.set_text("Tidy it");
+    }
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.task_review_apply();
+    let root = dir.join("library");
+    let runs = runs::list(&root);
+    let path = runs[0].path.clone();
+    a.open_runs();
+    assert_eq!(
+        a.ui.runs.list.len(),
+        1,
+        "the rewrite is a run this build lists"
+    );
+    assert!(a.ui.runs.unread.is_empty(), "not a later version's record");
+    assert_eq!(a.ui.runs.list[0].record.kind, runs::Kind::Rewrite);
+    // Show the notes opens the file the run wrote.
+    a.run_show(&path);
+    assert_eq!(
+        a.docs.active_doc().and_then(|d| d.path.clone()),
+        Some(text),
+        "the rewritten file is open"
+    );
+}
+
+#[test]
+fn task_on_this_file_opens_file_them_with_that_file() {
+    let dir = scratch("task-this-file");
+    std::fs::create_dir_all(dir.join("library")).expect("library");
+    let text = pasta(&dir);
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    a.open(&text);
+    a.command(crate::commands::CommandId::AiTaskThisFile);
+    let s = a.task.as_ref().expect("the window is open");
+    assert_eq!(s.task, TaskKind::File, "it starts on File them");
+    assert_eq!(s.files.len(), 1);
+    assert_eq!(s.files[0].path, text);
+}

@@ -48,7 +48,7 @@ pub(super) fn note_stem_for(title: &str) -> Option<String> {
 }
 
 /// `stem.md` in `dir`, or `stem 2.md`, `stem 3.md` … when that is taken.
-fn free_name(dir: &Path, stem: &str) -> PathBuf {
+pub(super) fn free_name(dir: &Path, stem: &str) -> PathBuf {
     let first = dir.join(format!("{stem}.md"));
     if !first.exists() {
         return first;
@@ -296,6 +296,7 @@ impl App {
             (LibAct::SetHome, Kind::Group) => self.library_choose_group_home(file),
             (LibAct::ClearHome, Kind::Group) => self.library_clear_group_home(file),
             (LibAct::MoveNotes, Kind::Group) => self.move_open_group(file),
+            (LibAct::MarkdownNote, Kind::Group) => self.note_open_group(file),
             (LibAct::NewNote, Kind::Group | Kind::Section) => {
                 self.library_start_in(EditKind::NewNote, i + 1, row, file, "");
             }
@@ -906,7 +907,7 @@ impl App {
 
     /// Deletes a library file with `std::fs::remove_file`, and reads the library again. Refused,
     /// with a toast, while a tab holds unsaved changes to it and for a file that is not one of
-    /// the folder's own. The notes it listed are not touched.
+    /// the folder's own. The notes it listed are kept on disk.
     pub(super) fn library_delete_file(&mut self, file: &Path) -> bool {
         if let Err(why) = self.library_file_free(file) {
             self.docs.set_toast(&why);

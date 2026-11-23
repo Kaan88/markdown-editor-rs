@@ -477,7 +477,7 @@ fn written_home(home: &Path, library: &Path) -> PathBuf {
 }
 
 /// How many Markdown files are directly in the library folder: what `library::MAX_FILES` counts.
-fn library_files(dir: &Path) -> usize {
+pub(super) fn library_files(dir: &Path) -> usize {
     match std::fs::read_dir(dir) {
         Ok(entries) => entries
             .filter_map(Result::ok)
@@ -530,7 +530,7 @@ fn remove_own_file(path: &Path, text: &str) {
 
 impl App {
     /// Opens the Notes pane on the group the report names, its cursor on the first note written.
-    fn open_notes_of(&mut self, report: &runs::Report, request: &Request) {
+    pub(super) fn open_notes_of(&mut self, report: &runs::Report, request: &Request) {
         if report.notes() == 0 {
             return;
         }
@@ -595,7 +595,9 @@ impl App {
             self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
             return;
         };
-        (self.ui.runs.list, self.ui.runs.unread) = mdedit_core::runs::list_all(&library);
+        let (list, mut unread) = mdedit_core::runs::list_all(&library);
+        unread.sort_by(|a, b| b.started.cmp(&a.started).then_with(|| a.path.cmp(&b.path)));
+        (self.ui.runs.list, self.ui.runs.unread) = (list, unread);
         self.ui.runs.sel = 0;
         self.ui.runs.undo = None;
         self.open_dialog(DialogKind::Runs);
@@ -903,6 +905,19 @@ impl App {
         };
         if record.kind == runs::Kind::Move {
             return self.move_show(&record);
+        }
+        if record.kind == runs::Kind::Rewrite {
+            // A rewrite has no notes: its record names the files it wrote, and the first that is
+            // still there opens in a tab.
+            let Some(first) = record.originals.iter().find(|o| o.path.is_file()) else {
+                self.docs.set_toast("None of that run's files is there.");
+                return;
+            };
+            let path = first.path.clone();
+            self.ui.dialog = None;
+            self.open(&path);
+            self.redraw();
+            return;
         }
         let Some(note) = record.notes.iter().find(|n| n.path.is_file()) else {
             self.docs.set_toast("None of that run's notes is there.");

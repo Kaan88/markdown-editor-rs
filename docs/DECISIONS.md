@@ -1050,7 +1050,22 @@ release waits only for the owner's word to tag.
 **Overturned by.** The owner.
 **From.** The owner, 2026-11-23.
 
-## D-102 · 2026-11-23 · The review is a list of changes with a tick each, composed in one pass
+## D-102 · 2026-11-23 · A closed mdview is asked about more than once, and on input
+
+**Decision.** Replaces D-097's "once more a second later". A check that finds the viewer running
+is repeated after 1, 2 and 4 s (`RECHECKS`), and stops when the viewer is found gone. A key press
+or a mouse press also asks (`Links::check_on_input`), at most once in 2 s and never while nothing
+is linked or during the first `GRACE`; it is an event, not a timer, and costs one lock when not due.
+**Why.** The owner's hand check found D-097 not holding with mdview 1.0.4. Against the real
+1.0.4 exe (closed gracefully, with `--line` and `--from` as mdedit starts it) the old code did find
+the viewer gone after 1 s, so the cause was not reproduced; the two changes cover the ways it can
+still fail: a process that ends later than one second after its window, and a window that never
+had a focus change to ask at.
+**Overturned by.** The owner, if a closed mdview is still missed; then the next suspect is the
+viewer staying alive after its window closes, which only mdview can fix.
+**From.** The owner's report, 2026-11-23; built by an agent, recorded by Claude.
+
+## D-107 · 2026-11-23 · The review is a list of changes with a tick each, composed in one pass
 
 **Decision.** Phase R2 is built as `ai-library-plan.md` 5.5 describes: the review keeps the
 comparison (`mdedit_core::hunks::Hunks`) and one tick per change, all ticked when it opens; Apply
@@ -1066,7 +1081,7 @@ the start, so that Enter does what it always did.
 **Overturned by.** The owner, once they have used it.
 **From.** The owner's request, 2026-11-23; the details by Claude from the plan.
 
-## D-103 · 2026-11-23 · The tinted, level preview waits for the viewer's page rows
+## D-108 · 2026-11-23 · The tinted, level preview waits for the viewer's page rows
 
 **Decision.** D-077 moved phase P2 (each changed block tinted and labelled in both rendered pages,
 the two pages kept level) into R2. It is **not built** on `f/review-hunks`; the cheap form of the
@@ -1101,6 +1116,38 @@ than guessing a language from the path, and a failed read is no text to show.
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
 
+
+**Decision.** The question before a library file is deleted tells the owner where the notes it
+lists are ("The notes it lists are kept on disk."), and says nothing about them when it lists
+none. Its card is no longer a fixed 460x196: the height comes from the body's own wrapped lines
+(`overlays::body_height`, the same face, size and width it is drawn with), with 196 as the floor
+— the height of the question that lists no notes, two lines; a question that lists notes takes a
+third line and the card grows a few pixels. A long group or file name used to wrap a fourth line
+through the divider into the buttons.
+**Why.** The owner's hand check asked for the wording (D-101); deletion is unchanged either way.
+The fixed card was found by review: the question names a group and a file, both free to be long.
+A fixed height cannot hold a sentence that names things of unknown length, and sizing from the
+measured body is the same rule the dialog list cards already follow (`card`'s `list`).
+**Overturned by.** The owner, or a review that finds the grown card wrong on screen.
+**From.** The owner's hand check (D-101) and the review of `fix/delete-library-notice`.
+
+## D-105 · 2026-11-23 · The check made inside a grace is kept, and input does not restart the rechecks
+
+**Decision.** Amends D-102, whose hedge the review found safe but incomplete. A check refused
+because a link was still in its `GRACE` (a viewer it just started may not answer yet) was dropped,
+and the focus that asked it comes once: it is now kept, and the courier waits on its own thread
+until that grace ends and makes it once (`Courier::check_at`), so a viewer closed while a preview
+was starting is still found. An ask made for input no longer restarts the 1, 2, 4 s rechecks
+(`Check::Once` against `Check::Again`), so steady typing does not probe about once a second; only
+key presses ask, not key releases or auto-repeat. D-102's "costs one lock when not due" is wrong:
+when an input ask is not due nothing locks at all, and a refused ask costs one lock only while a
+link is in its grace.
+**Why.** The review of D-102's fix: the grace guard could swallow the one ask the owner's failing
+case made, and an input ask resetting the chain made typing a steady stream of probes.
+**Overturned by.** The owner, if a closed mdview is still missed; or a viewer that answers during
+its grace, which would make waiting unnecessary.
+**From.** The review of the fix, 2026-11-23; built by an agent, recorded by Claude.
+
 ## D-106 · 2026-11-23 · The review takes whole changes as the comparison made them
 
 **Decision.** A tick takes a whole change of `diff::diff`, the comparison Compare uses; the review
@@ -1110,7 +1157,7 @@ therefore end up twice when the comparison pairs it with its neighbours: in
 replaces the old "## Usage" with the two lines after it, so unticking the second of those two
 changes (the `review-preview-partial` demo) shows "## Usage" twice in the AFTER page. Apply puts in
 exactly what the list shows, and Ctrl+Z takes it back.
-**Why.** D-102 keeps the comparison the user can check in Compare, and the plan's 5.5 ticks its
+**Why.** D-107 keeps the comparison the user can check in Compare, and the plan's 5.5 ticks its
 changes. A boundary pass (sliding each change while the line at its edge is equal on both sides)
 would tidy this case but is a new behaviour for every text, with its own edge cases, and the owner,
 who has not used the review yet, has not asked for it.
@@ -1119,6 +1166,138 @@ who has not used the review yet, has not asked for it.
 **Overturned by.** The owner.
 **From.** Claude, finishing R2, 2026-11-23; seen in the `review-preview-partial` shot.
 
+
+
+**Decision.** Phase 5.8 in mdedit: a text file picked from a group's row becomes a new note in that
+group's folder, written by the AI from the file's text. Its decisions, made as they were needed:
+1. The card sends the whole file (capped at 200 KB, the editor's own loader, no NUL bytes and no
+   byte it could not read) and one instruction, `ai::FORMAT`; the note is Markdown made from that
+   text, and the record keeps the instruction and what was sent.
+2. The note is always a new file, named from the source's file name (`pasta notes.txt` →
+   `pasta-notes.md`, then `pasta-notes 2.md`), never a rename and never a replacement; the source
+   is not touched. The note is UTF-8 whatever the source was, since Markdown is its text.
+3. The run is `Kind::Markdown` in the shared record (mdshared-app), so "AI runs…" names it, undo
+   removes the note and its line with the split's own machinery, and undo refuses when the original
+   is no longer the file the note was made from (D-300's rule, kept whole).
+4. Every refusal is made before the request and again before the write, in the card: AI off, no
+   library folder, the group folder being the library folder, the group's file unsaved, the 2,000
+   note cap, a line that would not read back, a source changed while the answer was out.
+**Why.** The plan (5.8) asks for exactly this, and the app's rule is that a destructive path is
+checked twice; the source is the owner's own file and the note is new, so nothing about it can be
+lost. `Kind::Split` would make undo read line ranges that do not exist in an answer that is prose,
+and "AI runs…" would call it a split.
+**Overturned by.** The owner; a model answer that must be written into the source instead of a new
+note; a record format that can hold a note's text without a kind of its own.
+**From.** `docs/ai-library-plan.md` 5.8 and 5.10; the review that asked for a kind, not a reuse.
+## D-120 ΓÇô 2026-11-23 ΓÇô A Markdown note from a file: the text, not the file, and always a new note
+
+**Decision.** Phase 5.8 in mdedit: a text file picked from a group's row becomes a new note in that
+group's folder, written by the AI from the file's text. Its decisions, made as they were needed:
+1. The card sends the whole file (capped at 200 KB, the editor's own loader, no NUL bytes and no
+   byte it could not read) and one instruction, `ai::FORMAT`; the note is Markdown made from that
+   text, and the record keeps the instruction and what was sent.
+2. The note is always a new file, named from the source's file name (`pasta notes.txt` ΓåÆ
+   `pasta-notes.md`, then `pasta-notes 2.md`), never a rename and never a replacement; the source
+   is not touched. The note is UTF-8 whatever the source was, since Markdown is its text.
+3. The run is `Kind::Markdown` in the shared record (mdshared-app), so "AI runsΓÇª" names it, undo
+   removes the note and its line with the split's own machinery, and undo refuses when the original
+   is no longer the file the note was made from (D-300's rule, kept whole).
+4. Every refusal is made before the request and again before the write, in the card: AI off, no
+   library folder, the group folder being the library folder, the group's file unsaved, the 2,000
+   note cap, a line that would not read back, a source changed while the answer was out.
+**Why.** The plan (5.8) asks for exactly this, and the app's rule is that a destructive path is
+checked twice; the source is the owner's own file and the note is new, so nothing about it can be
+lost. `Kind::Split` would make undo read line ranges that do not exist in an answer that is prose,
+and "AI runsΓÇª" would call it a split.
+**Overturned by.** The owner; a model answer that must be written into the source instead of a new
+note; a record format that can hold a note's text without a kind of its own.
+**From.** `docs/ai-library-plan.md` 5.8 and 5.10; the review that asked for a kind, not a reuse.
+
+## D-130 · 2026-11-23 · A dragged note moves its line, and only its line
+
+**Decision.** In the notes pane, a note row dragged onto a group row or a section row is moved
+there: its line is taken out of its library file and written under the heading it was dropped on,
+by the writer "Move to…" already uses. Nothing else is dragged - not a group (a library file whose
+order is its file name) and not a section (a block of lines, and a cross-file rewrite) - and no
+file of the owner's is copied, moved, renamed or deleted. A plain click still opens the note;
+Esc abandons a drag; a hold at the pane's edge scrolls the list. A file dropped from the file
+manager is not taken by the pane: winit's Windows drop handler receives the drop point and
+discards it (drop_handler.rs, _pt), so the window cannot know which heading was under the
+pointer, and a guess would file the owner's file in the wrong place. Implements D-082 with this
+scope.
+
+**Why.** The design of record for drag and drop (the redesign's 3.4, archived) says "notes only,
+never sections", and the library's rule is that the pane writes lines, never files. A drag is the
+mouse path to what "Move to…" already does from the keyboard, so it adds no new kind of write.
+
+**Overturned by.** The owner saying what a group or a section dropped on another group should do,
+or wanting files from Explorer added to the library (which needs the drop point read from the
+platform, not winit).
+
+**From.** D-082; the archived redesign 3.4; phase DD built 2026-11-23.
+
+## D-131 · 2026-11-23 · An import writes links in one library file and touches nothing else
+
+**Decision.** "Add a folder to the library…" (5.7, phase 4a) is a plan of links, not an import of
+files: the folder the owner picks becomes the group, each file it takes becomes one list line in
+that group's library file, and no file of the owner's is copied, moved, renamed or deleted. The
+files are listed where they are. A link inside the library folder is written relative to the
+library, so the library can move as a whole; one outside it is written by its whole path.
+**Why.** The library is a list of what the owner has, not a second copy of it: a copy would drift
+from the file it was made from, and a move would break every other program that has the path. The
+owner's rule for the whole redesign (`library-redesign.md` 9) is links only.
+**Overturned by.** The owner; or a library that is meant to own the files it lists.
+**From.** `docs/ai-library-plan.md` 5.7; the phase 4a brief.
+
+## D-132 · 2026-11-23 · The group of an import is the folder, and an existing group is joined
+
+**Decision.** The group's name is the folder's own name (a folder with no name is refused), and
+its library file is named after it -- `library/Recipes.md` for `…/Recipes`. The group's `home:` is
+the folder, relative to the library when the folder is inside it. When the library already has a
+group of that name the plan joins it: its library file, its `home:` and its notes, and the 2,000
+counts from what it holds. A file the group already lists is shown as such, comes unticked, and
+is never written a second time -- `Tick all` and a heading's box leave it alone.
+**Why.** The folder is where the notes are, so a group that names anything else would be a lie;
+and adding a folder the library half has must not make a second group with the same name (the
+pane would show two, and one of them could not be removed).
+**Overturned by.** The owner; or a library where two groups may share a name.
+**From.** D-041 (`home:`), D-260's heading rules; the phase 4a brief.
+
+## D-133 · 2026-11-23 · Subfolders three deep are headings, and what a folder cannot name is refused
+
+**Decision.** A note is filed under its subfolders as headings, three levels at most; a fourth
+folder is folded into the third, so nothing is lost and no heading is made from a name the library
+would read differently. A tick box that is only partly ticked is drawn with a dash: neither an
+empty box nor a tick tells the truth about a heading with some of its notes in. A group or
+subfolder whose name ends in `#`, or whose heading would read back as nothing, refuses the whole
+plan with the sentence and asks for the folder to be renamed -- the library's reader strips a
+closing run of `#`, so `C#` comes back as `C` and the note would be filed under a heading the
+card did not promise. A plan is refused, never half written: the check is made before the first
+file is touched.
+**Why.** Three levels is what the pane's tree shows without a scroll of its own (D-260 nests by
+heading level), and a heading the library cannot read back is a note that would appear somewhere
+the owner did not ask for. The dash is the only state a single shared `Tick` cannot draw.
+**Overturned by.** The owner; or a tree that shows deeper nesting well.
+**From.** The phase 4a brief; `docs/ai-library-plan.md` 5.7.
+
+## D-134 – 2026-11-23 – A kind this build does not write is a later version's record
+
+**Decision.** The five `mdshared-*` pins move from the note work's branch rev to the shared
+`main` (`0984eed`), where `Kind::Markdown` and `runs::write_note` are merged beside `Kind::Rewrite`
+(a file rewritten in place, phase W, D-074) and `library::put`. mdedit reads three kinds and writes
+two: a record whose kind it does not write — `Kind::Rewrite`, today — is not put in the runs it
+could undo. `open_runs` moves it into the newer-version list, the same list and the same words an
+unreadable record gets ("Written by a newer version of mdedit", "Not shown or undone here"), and
+`run_undo_ask`, `run_undo`, `run_show` and `run_finish` refuse it by name ("It is left as it is").
+`Record::originals` is written empty by the two records this build makes, as the shared crate says.
+**Why.** Phase W is being built elsewhere; a record of it must not be read as a split (its undo
+would look for line ranges and a source that a rewrite's record does not have) and nothing here
+may guess what undoing a rewrite means. The fallback is the one the app already has for records it
+cannot read, so there is one way to say "a later version wrote this", not two.
+**Overturned by.** Phase W landing here, which gives Rewrite its own show, undo and finish; or the
+shared crate giving the kinds one table of what a build can do with each.
+**From.** The owner's brief of 2026-11-23 (repin to shared `0984eed`, honest handling of Rewrite);
+D-120.
 ## D-140 — 2026-11-23 — A rewrite of a file is R2's review, applied in place, the original in the record
 
 **Decision.** "Rewrite them" runs one file at a time: the model's answer becomes R2's list of
@@ -1186,3 +1365,19 @@ not made to show it.
 **What would change it.** The owner preferring a panel over a tab.
 **Overturned by.** The owner.
 **From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-145 — 2026-11-23 — A rewrite's record is this build's: listed, shown and undone, not a later version's
+
+**Decision.** Phase W writes `rewrite` records, so the guard of D-134 stays only for a kind this
+build still does not write (`markdown`, and any word from a later version): `open_runs`, the runs
+list, Show the notes and Undo treat `Kind::Rewrite` as their own, with its originals and its undo.
+The test that proved a later version's record is listed and refused now uses a record whose kind
+word this build does not know, so the same behaviour is still proven; `Markdown` — main's kind,
+which this build writes — is not used for it.
+**Why.** D-134's fallback was right while Rewrite existed only on phase W's branch; with W on main
+the record is read by the build that wrote it, and its undo (each original back while the file
+holds what the run wrote) is what the owner asked for.
+**What would change it.** A later version's record kind that this build must read before it knows
+it; then the guard needs the same table for that kind.
+**Overturned by.** The owner.
+**From.** The owner's brief of 2026-11-23 (merge phase W onto main, remove Rewrite's guard).

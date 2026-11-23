@@ -496,6 +496,8 @@ pub enum LibAct {
     ClearHome,
     /// "Move the notes…": the group's notes into its folder, or to match its headings.
     MoveNotes,
+    /// "Markdown note from a file…": a text file's answer becomes a new note in this group (5.8).
+    MarkdownNote,
     NewNote,
     NewSection,
     NewGroup,
@@ -806,6 +808,14 @@ pub enum Drag {
     Tab {
         index: usize,
         x: f32,
+        moving: bool,
+    },
+    /// A note of the notes library pressed; it becomes a move once the pointer moves a few px,
+    /// and drops on a group or a section of the pane (`library_drag`). `Esc` abandons it.
+    LibraryNote {
+        row: usize,
+        x: f32,
+        y: f32,
         moving: bool,
     },
     Splitter {

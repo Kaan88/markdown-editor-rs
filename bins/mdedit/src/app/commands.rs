@@ -1012,9 +1012,17 @@ impl App {
                 }
             }
             Picked::LibraryFile(paths) => self.library_found(paths.into_iter().next()),
+            Picked::NoteFile(group, paths) => {
+                self.note_file_picked(group, paths.into_iter().next())
+            }
             Picked::LibraryFolder(dir) => {
                 if let Some(dir) = dir {
                     self.library_dir_picked(dir);
+                }
+            }
+            Picked::ImportFolder(dir) => {
+                if let Some(dir) = dir {
+                    self.import_folder_picked(dir);
                 }
             }
             Picked::GroupHome(file, dir) => {
@@ -2155,7 +2163,7 @@ impl App {
                     .filter(|_| self.docs.active_doc().is_some());
                 match path {
                     Some(p) => {
-                        self.task_open(crate::task_ui::TaskKind::Rewrite, vec![p]);
+                        self.task_open(crate::task_ui::TaskKind::File, vec![p]);
                     }
                     None => self.docs.set_toast(
                         "AI task on this file\u{2026} needs a file on disk: save it first.",
@@ -2165,6 +2173,7 @@ impl App {
             C::Language => self.open_languages(),
             C::Library => self.library_open(),
             C::LibraryAdd => self.library_add(),
+            C::LibraryAddFolder => self.import_choose_folder(),
             C::LibraryEdit => self.library_edit(),
             C::ShowInLibrary => self.library_show_file(),
             C::NextTab => self.docs.step_tab(true),
@@ -2350,6 +2359,8 @@ impl App {
             }
             // Taken for a read that has finished; a pane hidden meanwhile drops it.
             Wake::Library => self.library_read_take(),
+            // The import's walk is done: its plan opens, unless the folder was let go of.
+            Wake::Import => self.import_take(),
             Wake::Outline => {
                 self.ui.outline.poll();
             }
@@ -2525,12 +2536,20 @@ impl App {
         }
         if let Some(due) = self.ui.autoscroll_due {
             if now >= due {
-                self.autoscroll();
-                self.ui.autoscroll_due = matches!(
-                    self.ui.drag,
-                    Some(Drag::Select { .. } | Drag::Column { .. })
-                )
-                .then(|| now + AUTOSCROLL_TICK);
+                if let Some(Drag::LibraryNote {
+                    row, moving: true, ..
+                }) = self.ui.drag
+                {
+                    // A note held at the pane's edge: the list moves under it.
+                    self.library_drag_scroll(row);
+                } else {
+                    self.autoscroll();
+                    self.ui.autoscroll_due = matches!(
+                        self.ui.drag,
+                        Some(Drag::Select { .. } | Drag::Column { .. })
+                    )
+                    .then(|| now + AUTOSCROLL_TICK);
+                }
             }
             if let Some(d) = self.ui.autoscroll_due {
                 at(d);

@@ -173,6 +173,8 @@ pub enum CommandId {
     Library,
     LibraryAdd,
     LibraryEdit,
+    /// "Add a folder to the notes library…": a folder of files, listed by its subfolders.
+    LibraryAddFolder,
     /// Shows the open file's note in the pane of the notes library.
     ShowInLibrary,
     /// AI rewriting of the selection, or of the whole document when nothing is selected:
@@ -402,6 +404,11 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::OpenSnippets, "Open snippets file", &[]),
     cmd(C::Language, "Language", &[]),
     cmd(C::Library, "Notes library", &["Ctrl+Shift+N"]),
+    cmd(
+        C::LibraryAddFolder,
+        "Add a folder to the notes library.",
+        &[],
+    ),
     cmd(C::LibraryAdd, "Add this file to the notes library…", &[]),
     cmd(C::LibraryEdit, "Edit a notes library file…", &[]),
     cmd(C::ShowInLibrary, "Show this file in the notes library", &[]),
@@ -563,8 +570,14 @@ pub mod strings {
             1 => "It lists 1 note.".to_string(),
             n => format!("It lists {n} notes."),
         };
+        // With nothing listed, saying where the listed notes are would answer a question the
+        // person does not have.
+        let kept = match notes {
+            0 => "",
+            _ => " The notes it lists are kept on disk.",
+        };
         format!(
-            "The library file {file} (the group \u{201c}{group}\u{201d}) will be deleted from the library folder. {listed} The notes themselves are not touched."
+            "The library file {file} (the group \u{201c}{group}\u{201d}) will be deleted from the library folder. {listed}{kept}"
         )
     }
     pub fn library_deleted(group: &str) -> String {

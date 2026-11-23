@@ -8,7 +8,7 @@ use crate::library_pane::Kind;
 use crate::session::ThemeChoice;
 use crate::ui::{Act, Dialog, DialogKind, EditAct, FindOpt, Hit, Scroller, Ui};
 use mdedit_core::find::FindOptions;
-use mdshared_ui::gfx::{Face, Rect, mix};
+use mdshared_ui::gfx::{Face, Painter, Rect, Rgb, mix};
 use mdshared_ui::menu::{Item, Menu, escape_access};
 pub use mdshared_ui::overlay::Bubble;
 use mdshared_ui::overlay::{
@@ -168,6 +168,7 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
     let items = vec![
         cmd(C::Library, "&Open a note…", glyph::BOOKMARK),
         cmd(C::LibraryAdd, "&Add this file…", glyph::NEW_FILE).enabled(has_file),
+        cmd(C::LibraryAddFolder, "Add a &folder…", glyph::FOLDER_OPEN),
         cmd(
             C::ToggleLibraryPane,
             "Show in the side &pane",
@@ -268,6 +269,11 @@ pub fn library_row_menu(
                 "&Move the notes\u{2026}",
                 glyph::FORWARD,
             ));
+            items.push(item(
+                L::MarkdownNote,
+                "Markdo&wn note from a file\u{2026}",
+                glyph::HEADING,
+            ));
             items.extend([
                 item(L::Rename, "&Rename group", glyph::EDIT).sep(),
                 item(
@@ -334,6 +340,7 @@ pub fn library_empty_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> 
             glyph::BOOKMARK,
         )
         .enabled(has_file),
+        cmd(C::LibraryAddFolder, "Add a f&older…", glyph::FOLDER_OPEN),
         cmd(C::LibraryEdit, "&Edit a library file\u{2026}", glyph::DOC).sep(),
         Item::new(
             Act::Library(L::RevealFolder, 0),
@@ -1000,9 +1007,23 @@ const FOOTER: f32 = DIALOG_FOOTER;
 const KEY_ROW: f32 = 34.0;
 const RECENT_ROW: f32 = 52.0;
 const MACRO_ROW: f32 = 48.0;
+/// The width of a yes-or-no question's card.
+const QUESTION_W: f32 = 460.0;
+/// The floor of a yes-or-no question's card: the height its title, two lines of body and footer
+/// need -- the question that lists no notes. One that lists notes takes a third line and grows.
+const QUESTION_H: f32 = 196.0;
+/// The face and size a question's body is written in: measured here, drawn below.
+const BODY_FACE: Face = Face::Ui;
+const BODY_SIZE: f32 = 13.5;
+/// The body starts this far below the card's top edge (its title holds the rest).
+const BODY_TOP: f32 = PAD + 40.0;
+/// Clearance between the last line of a body and the footer's divider.
+const BODY_GAP: f32 = 4.0;
 
-/// The card for a dialog in a `w` x `h` window, sized to its list where it has one.
-pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
+/// The card for a dialog in a `w` x `h` window, sized to its list where it has one. `body_h` is
+/// the height the body's words wrap to, for the library's question, which names a group and a
+/// file and can be long; the other questions ignore it.
+pub fn card(kind: DialogKind, rows: usize, body_h: f32, w: f32, h: f32) -> Rect {
     let list =
         |row: f32, min: f32| (PAD + 36.0 + (rows as f32 * row + 12.0).max(min) + FOOTER).round();
     let (cw, ch): (f32, f32) = match kind {
@@ -1012,14 +1033,30 @@ pub fn card(kind: DialogKind, rows: usize, w: f32, h: f32) -> Rect {
         DialogKind::Macros => (480.0, list(MACRO_ROW, 80.0).min(560.0)),
         DialogKind::Runs => (660.0, list(RUN_ROW, 96.0).min(620.0)),
         DialogKind::RunUndo => (520.0, 250.0),
+        // Rounded up, so the card's own rounding to whole pixels cannot close the gap the
+        // last line keeps from the divider.
+        DialogKind::LibraryDelete => (
+            QUESTION_W,
+            (BODY_TOP + body_h + BODY_GAP + FOOTER)
+                .max(QUESTION_H)
+                .ceil(),
+        ),
         DialogKind::Unsaved
         | DialogKind::Overwrite
         | DialogKind::Discard
-        | DialogKind::LibraryRemove
-        | DialogKind::LibraryDelete => (460.0, 196.0),
+        | DialogKind::LibraryRemove => (QUESTION_W, QUESTION_H),
         DialogKind::ReplaceFiles => return crate::replace_ui::card(w, h),
     };
     dialog_card(cw, ch, w, h)
+}
+
+/// The height a question's body takes wrapped into a `w`-wide column. It is laid out at an empty
+/// clip, so the words are measured by the same font that draws them and nothing is painted.
+fn body_height(p: &mut Painter, w: f32, text: &str, ink: Rgb) -> f32 {
+    let old = p.clip(Rect::new(0.0, 0.0, 0.0, 0.0));
+    let used = p.paragraph(BODY_FACE, BODY_SIZE, 0.0, 0.0, w, text, ink);
+    p.restore(old);
+    used
 }
 
 fn button(c: &mut Ctx, r: Rect, hit: Hit, label: &str, primary: bool) {
@@ -1087,7 +1124,18 @@ pub fn draw_dialog(
         DialogKind::Macros => macros.len(),
         DialogKind::Runs => runs.list.len() + runs.unread.len(),
     };
-    let r = card(d.kind, rows, w, h);
+    // The library's question names a group and a file, and either can be long: its card is
+    // grown from the lines the words wrap to before it is drawn.
+    let body_h = match d.kind {
+        DialogKind::LibraryDelete => {
+            // The width the card will get, a narrow window included, so the lines measured are
+            // the lines drawn.
+            let bw = dialog_card(QUESTION_W, QUESTION_H, w, h).w - 2.0 * PAD;
+            body_height(c.p, bw, &d.subject, pal.text)
+        }
+        _ => 0.0,
+    };
+    let r = card(d.kind, rows, body_h, w, h);
     c.hit(Hit::DlgCard, r);
     let footer = draw_dialog_card(c.p, &pal, r);
     let by = footer.y + (FOOTER - 32.0) / 2.0;
@@ -1191,10 +1239,10 @@ pub fn draw_dialog(
             };
             title(c, r, heading);
             c.p.paragraph(
-                Face::Ui,
-                13.5,
+                BODY_FACE,
+                BODY_SIZE,
                 r.x + PAD,
-                r.y + PAD + 40.0,
+                r.y + BODY_TOP,
                 r.w - 2.0 * PAD,
                 &body,
                 pal.text,
@@ -1456,21 +1504,36 @@ pub fn draw_dialog(
                 c.p.icon(glyph::MACRO, 15.0, row.x + 20.0, row.cy(), pal.accent);
                 let tx = row.x + 40.0;
                 let tw = (row.w - 52.0).max(0.0);
-                let first = if run.record.kind == mdedit_core::runs::Kind::Move {
+                let first = match run.record.kind {
                     // "Move · the notes of Work into their folder · 5 files".
-                    mdedit_core::moves::headline(&run.record)
-                } else {
-                    format!(
-                        "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
-                        "Split",
+                    mdedit_core::runs::Kind::Move => mdedit_core::moves::headline(&run.record),
+                    // A file rewritten in place (phase W): the files it wrote, and how many.
+                    mdedit_core::runs::Kind::Rewrite => format!(
+                        "Rewrite \u{00B7} {} \u{00B7} {}",
                         run.record.source_name(),
-                        run.record.group_name(),
-                        if run.record.notes.len() == 1 {
-                            "1 note".to_string()
+                        if run.record.originals.len() == 1 {
+                            "1 file".to_string()
                         } else {
-                            format!("{} notes", run.record.notes.len())
+                            format!("{} files", run.record.originals.len())
                         }
-                    )
+                    ),
+                    kind => {
+                        let word = match kind {
+                            mdedit_core::runs::Kind::Markdown => "Markdown",
+                            _ => "Split",
+                        };
+                        format!(
+                            "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
+                            word,
+                            run.record.source_name(),
+                            run.record.group_name(),
+                            if run.record.notes.len() == 1 {
+                                "1 note".to_string()
+                            } else {
+                                format!("{} notes", run.record.notes.len())
+                            }
+                        )
+                    }
                 };
                 c.p.text(Face::Ui, 13.5, tx, row.y + 15.0, &first, pal.text, tw);
                 let second = format!(
@@ -1531,12 +1594,15 @@ pub fn draw_dialog(
                 false,
             );
             if let Some(run) = runs.list.get(runs.sel) {
-                // A move has nothing to finish: it is put back or undone.
-                let finish = run.record.kind != mdedit_core::runs::Kind::Move
-                    && matches!(
-                        run.record.state,
-                        mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
-                    );
+                // A move has nothing to finish: it is put back or undone. Neither has a record a
+                // later version wrote.
+                let finish = matches!(
+                    run.record.kind,
+                    mdedit_core::runs::Kind::Split | mdedit_core::runs::Kind::Markdown
+                ) && matches!(
+                    run.record.state,
+                    mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
+                );
                 let undo = run.record.state.live();
                 let mut items: Vec<(&str, Hit, bool)> = Vec::new();
                 items.push(("Show the notes", Hit::DlgRunShow, true));
@@ -1827,9 +1893,54 @@ mod tests {
             DialogKind::LibraryRemove,
             DialogKind::LibraryDelete,
         ] {
-            let r = card(kind, 30, 520.0, 360.0);
+            let r = card(kind, 30, 0.0, 520.0, 360.0);
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.right() <= 520.0 && r.bottom() <= 360.0);
         }
+    }
+
+    fn painter() -> (mdshared_text::Bitmap, mdshared_ui::gfx::Gfx) {
+        (
+            mdshared_text::Bitmap::new(8, 8),
+            mdshared_ui::gfx::Gfx::new(),
+        )
+    }
+
+    /// The question before deleting a library file names a group and a file, and a long pair
+    /// wraps onto a fourth line: at the fixed 196 that line ran through the divider into the
+    /// buttons. The card is grown from the lines the words wrap to, and a short question keeps
+    /// its two-line card.
+    #[test]
+    fn a_long_library_question_grows_its_card_to_its_lines() {
+        let (mut bm, mut gfx) = painter();
+        let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+        let ink = [0x1f, 0x1f, 0x1f];
+        let long = strings::library_delete_body(
+            "Japan 2025, Tokyo, Kyoto and the long way home",
+            "japan-2025-tokyo-kyoto-and-the-long-way-home.md",
+            23,
+        );
+        let used = body_height(&mut p, QUESTION_W - 2.0 * PAD, &long, ink);
+        let room = QUESTION_H - BODY_TOP - FOOTER;
+        assert!(
+            used > room,
+            "the words need more than the 196 card's room: {used} vs {room}"
+        );
+        let r = card(DialogKind::LibraryDelete, 0, used, 1200.0, 900.0);
+        assert!(r.h > QUESTION_H, "the card grew: {}", r.h);
+        assert!(
+            r.y + BODY_TOP + used + BODY_GAP <= r.bottom() - FOOTER,
+            "the last line ends above the divider: {} in {}",
+            used,
+            r.h
+        );
+
+        let short = strings::library_delete_body("A", "a.md", 0);
+        let used = body_height(&mut p, QUESTION_W - 2.0 * PAD, &short, ink);
+        assert_eq!(
+            card(DialogKind::LibraryDelete, 0, used, 1200.0, 900.0).h,
+            QUESTION_H,
+            "a question that fits two lines keeps today's card"
+        );
     }
 }
 

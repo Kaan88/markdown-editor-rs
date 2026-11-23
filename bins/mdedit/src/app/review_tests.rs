@@ -364,7 +364,7 @@ fn the_preview_page_is_made_again_150_ms_after_a_tick() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The viewer gives no block rows (D-103), so in Preview there is nothing to scroll to: the
+/// The viewer gives no block rows (D-108), so in Preview there is nothing to scroll to: the
 /// arrows are off and F7 moves nothing. In Changes they still step.
 #[test]
 fn preview_has_no_arrows_and_f7_does_not_step() {

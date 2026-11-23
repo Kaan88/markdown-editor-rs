@@ -466,11 +466,32 @@ for t in "" "-dark"; do
     shot "runs-newer$t" $th --dialog runs-newer
 done
 
+# The question before a library file is deleted: it says the notes it lists are kept on disk.
+shot library-delete --light --dialog library-delete "$fx/sample.rs"
+shot library-delete-dark --dark --dialog library-delete "$fx/sample.rs"
+# The same question with a long group and file name: four lines, and a card grown to hold them.
+shot library-delete-long --light --dialog library-delete-long "$fx/sample.rs"
+shot library-delete-long-dark --dark --dialog library-delete-long "$fx/sample.rs"
+
 # The "Plan ready" row at the foot of the Notes pane (5.3): a plan Escape kept, with Show and Drop.
 for t in "" "-dark"; do
     th=--light
     [ -n "$t" ] && th=--dark
     shot "plan-ready$t" $th --plan-demo split --plan-parked
+done
+
+# "Add a folder to the library…" (5.7, phase 4a), from a plan made in the program: the folder's
+# files under their subfolders' headings with a preview of the selected file, two sections
+# unticked, the library already holding three of them, the same card at 800x600, and a folder over
+# the library's 2,000 with the button disabled and the count.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "import-folder$t" $th --plan-demo folder
+    shot "import-folder-sections$t" $th --plan-demo folder-sections
+    shot "import-folder-taken$t" $th --plan-demo folder-taken
+    shot "import-folder-small$t" $th --size 800x600 --plan-demo folder-small
+    shot "import-folder-over$t" $th --plan-demo folder-over
 done
 
 # "Move the notes…" (5.12), from a plan made in the program: the card with ready rows (notes that
@@ -483,6 +504,27 @@ for t in "" "-dark"; do
     shot "move-notes$t" $th --move-demo move
     shot "move-notes-small$t" $th --size 800x600 --move-demo move
     shot "move-results$t" $th --move-demo results
+done
+
+# "A Markdown note from a file." (5.8): what is sent, the request out, the answer's changes, the
+# note as it will be written, and the card with the reason it cannot be made (AI off).
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "note-ready$t" $th $ai --note-demo ready
+    shot "note-asking$t" $th $ai --note-demo asking
+    shot "note-changes$t" $th $ai --note-demo changes
+    shot "note-result$t" $th $ai --note-demo result
+    shot "note-blocked$t" $th --note-demo blocked
+done
+# The card at 800x600, where the preview of the plan card would be dropped.
+shot "note-changes-small" --light $ai --size 800x600 --note-demo changes
+# Dragging a note in the notes pane (D-130): the note held, its chip at the pointer, and the
+# heading it would go into marked, in both themes.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "library-drag$t" $th --library-demo drag
 done
 
 ls "$out" | wc -l
