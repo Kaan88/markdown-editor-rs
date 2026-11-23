@@ -324,7 +324,7 @@ pub fn library_empty_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> 
             glyph::BOOKMARK,
         )
         .enabled(has_file),
-        cmd(C::LibraryAddFolder, "Add a &folder…", glyph::FOLDER_OPEN),
+        cmd(C::LibraryAddFolder, "Add a f&older…", glyph::FOLDER_OPEN),
         cmd(C::LibraryEdit, "&Edit a library file\u{2026}", glyph::DOC).sep(),
         Item::new(
             Act::Library(L::RevealFolder, 0),

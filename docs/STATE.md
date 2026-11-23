@@ -39,8 +39,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
   built and tested on `f/p4a`, worktree `md-wt\p4a`, not merged. A folder the owner picks becomes
   a group of links to its `.md`, `.markdown` and `.txt` files under their subfolders' headings
   three deep, written in one library file; nothing of theirs is copied, moved or renamed
-  (D-110 to D-112, DESIGN 79). Not asked for by the owner, who stopped at R2 and said the section
-  8 order stands; it is here because the brief for it was already given.
+  (D-110 to D-112, DESIGN 79). Asked for by the owner on 2026-11-23; it waits for the owner's
+  look and word to merge.
 - **Phase R2**, the review with ticks and the tinted, level preview (`ai-library-plan.md` 5.5,
   D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
   of it exists.

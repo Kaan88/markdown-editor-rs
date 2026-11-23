@@ -227,7 +227,7 @@ pub struct Args {
     /// `--ai-demo instruction|review|preview|stale|closed|result-kept|working|bar|settings`: an AI panel or state
     /// for a shot, with a made-up result and no engine.
     pub ai_demo: Option<String>,
-    /// `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small`:
+    /// `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small|folder|folder-sections|folder-taken|folder-small|folder-over`:
     /// the plan screen for a shot, made from a document built in the program.
     pub plan_demo: Option<String>,
     /// `--plan-parked`: the notes pane open, with a demonstration plan ticked and left behind, for
