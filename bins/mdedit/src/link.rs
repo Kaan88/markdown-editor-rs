@@ -60,6 +60,12 @@ const FINISH_WAIT: Duration = Duration::from_millis(300);
 /// window was just closed still answers while its process ends, and closing it is what handed
 /// this window the focus that asked.
 const RECHECK: Duration = Duration::from_secs(1);
+/// The least time between two asks made for input: see [`Links::check_on_input`].
+const CHECK_EVERY: Duration = Duration::from_secs(2);
+/// How many times a check that found the viewer running is repeated, each after twice the wait
+/// of the one before (1 s, 2 s, 4 s): a window closed by hand can take longer than a second to
+/// end its process, and the focus that asked comes once.
+const RECHECKS: u32 = 3;
 
 /// A document's text as it is: the load it came from and the edits since.
 pub type Version = (u64, u64);
@@ -222,6 +228,8 @@ pub struct Links {
     pub side_by_side: bool,
     /// A link ended since the last [`take_ended`](Self::take_ended), however it ended.
     ended: bool,
+    /// When the viewer was last asked whether it runs.
+    asked_at: Option<Instant>,
 }
 
 impl Links {
@@ -257,6 +265,10 @@ impl Links {
         });
         self.active = Some(id);
         self.sent_at = Some(now);
+        if let Some(courier) = &self.courier {
+            // A check kept for an earlier grace must not ask before this viewer may answer.
+            courier.extend_check(now + GRACE);
+        }
     }
 
     /// Links document `id`, which has no file: the next pass sends the viewer its text and asks
@@ -276,6 +288,9 @@ impl Links {
             retry_until: now + GRACE,
         });
         self.active = Some(id);
+        if let Some(courier) = &self.courier {
+            courier.extend_check(now + GRACE);
+        }
     }
 
     /// Document `id`, linked while it had no file, was saved as `path`: the link is the file's
@@ -338,17 +353,47 @@ impl Links {
 
     /// Asks the courier whether the viewer still runs, for a viewer closed while nothing was
     /// sent to it: when it does not, the links end as for a send nobody answers. Called at moments
-    /// the user acts (the window gains focus, a menu opens), never on a timer; nothing is asked
-    /// while nothing is linked, or while a viewer started for a link may still be starting.
-    /// Whether it was asked.
-    pub fn check(&self, now: Instant) -> bool {
+    /// the user acts (the window gains focus, a menu opens), never on a timer of the window's;
+    /// nothing is asked while nothing is linked. While a link is still in its grace the ask is
+    /// kept and made once when that grace ends (see [`Courier::check_at`]). Whether it was asked.
+    pub fn check(&mut self, now: Instant) -> bool {
+        self.ask(now, Check::Again)
+    }
+
+    /// [`check`](Self::check) for a key press or a click: the viewer may have been closed with no
+    /// focus change to ask (the window had the focus already, or the one check made at the
+    /// focus came while the viewer was still ending). Not again within [`CHECK_EVERY`] of the
+    /// last ask; it answers once and starts no rechecks, so steady typing does not probe again
+    /// and again. An ask refused while a link is in its grace is let go: the next key asks again.
+    pub fn check_on_input(&mut self, now: Instant) -> bool {
+        if self.linked.is_empty() || self.asked_at.is_some_and(|t| now < t + CHECK_EVERY) {
+            return false;
+        }
+        self.ask(now, Check::Once)
+    }
+
+    /// An ask of either kind. Truth for whether the courier was asked now.
+    fn ask(&mut self, now: Instant, kind: Check) -> bool {
         let Some(courier) = &self.courier else {
             return false;
         };
-        if self.linked.iter().any(|l| now < l.retry_until) {
+        let grace = self
+            .linked
+            .iter()
+            .map(|l| l.retry_until)
+            .filter(|&until| now < until)
+            .max();
+        if let Some(until) = grace {
+            // A viewer a link just started may not answer yet: an ask now could find it gone
+            // before it begins to. The check the user's act asked for is kept and the courier
+            // makes it once the grace ends; an input ask is let go.
+            if kind == Check::Again {
+                courier.check_at(until, kind);
+            }
             return false;
         }
-        courier.check();
+        courier.check(kind);
+        self.asked_at = Some(now);
         true
     }
 
@@ -513,6 +558,26 @@ impl Docs {
     }
 }
 
+/// How a check is repeated when the viewer answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Check {
+    /// A key press or a click: ask once; an answer starts nothing more.
+    Once,
+    /// The window gained the focus or a menu opened: ask, and when the viewer answers, ask again
+    /// after [`RECHECK`], 2 s and 4 s ([`RECHECKS`]), a fresh chain.
+    Again,
+    /// The next of those rechecks, which the courier scheduled itself.
+    Recheck,
+}
+
+/// Of a check that waits and one that comes, the one that asks again wins.
+fn stronger(kept: Option<Check>, kind: Check) -> Check {
+    match (kept, kind) {
+        (Some(Check::Again), _) | (_, Check::Again) => Check::Again,
+        _ => Check::Once,
+    }
+}
+
 /// The waits of a courier.
 #[derive(Clone, Copy)]
 struct Timing {
@@ -545,8 +610,10 @@ struct State {
     offs: Vec<Target>,
     /// Documents without a file that were saved, and the file each is now.
     saved: Vec<(Target, PathBuf)>,
-    /// Whether the viewer still runs is to be asked ([`Courier::check`]).
-    check: bool,
+    /// A check to make now ([`Courier::check`]).
+    check: Option<Check>,
+    /// A check kept for the end of a link's grace ([`Courier::check_at`]).
+    check_at: Option<(Instant, Check)>,
     closed: bool,
     /// The thread has done all it was asked and returned.
     ended: bool,
@@ -605,10 +672,45 @@ impl Courier {
     }
 
     /// Asks the thread to find out whether the viewer still runs, once it has sent what waits.
-    /// Of several asks that wait, one is made.
-    fn check(&self) {
-        self.slot.state.lock().unwrap().check = true;
+    /// Of several asks that wait, one is made; an ask now makes one kept for the end of a grace
+    /// unnecessary, so it goes.
+    fn check(&self, kind: Check) {
+        let mut state = self.slot.state.lock().unwrap();
+        state.check = Some(stronger(state.check, kind));
+        state.check_at = None;
+        drop(state);
         self.slot.wake.notify_all();
+    }
+
+    /// Keeps a check for `at`, the end of the grace that refused it: the courier waits until
+    /// then, once, and makes it, so a focus check inside the grace is not lost. A later `at`
+    /// moves it, since asking before a link's grace ends could find a viewer that has not
+    /// begun to answer; one kept for the same moment and kind is left as it is.
+    fn check_at(&self, at: Instant, kind: Check) {
+        let mut state = self.slot.state.lock().unwrap();
+        let (at, kind) = match state.check_at {
+            Some((kept, kept_kind)) => (kept.max(at), stronger(Some(kept_kind), kind)),
+            None => (at, kind),
+        };
+        if state.check_at == Some((at, kind)) {
+            return;
+        }
+        state.check_at = Some((at, kind));
+        drop(state);
+        self.slot.wake.notify_all();
+    }
+
+    /// A link was just made: a check kept for a grace moves to the end of this one when that is
+    /// later. It asks nothing itself, and does nothing when none is kept.
+    fn extend_check(&self, at: Instant) {
+        let mut state = self.slot.state.lock().unwrap();
+        if let Some((kept, kind)) = state.check_at
+            && kept < at
+        {
+            state.check_at = Some((at, kind));
+            drop(state);
+            self.slot.wake.notify_all();
+        }
     }
 
     fn is_gone(&self) -> bool {
@@ -648,9 +750,9 @@ enum Job {
     Off(Target),
     Saved(Target, PathBuf),
     Update(Update),
-    /// Whether the viewer still runs; when it does and this is true, it is asked once more
-    /// after [`Timing::recheck`].
-    Check(bool),
+    /// Whether the viewer still runs; the kind says whether an answer is asked again after
+    /// [`Timing::recheck`].
+    Check(Check),
 }
 
 fn run(
@@ -664,8 +766,10 @@ fn run(
     let mut live: Vec<(Target, Version)> = Vec::new();
     // Until when text is left out: the viewer did not take the last.
     let mut text_after: Option<Instant> = None;
-    // When a check that found the viewer running is made once more: one only, then nothing.
+    // When a check that found the viewer running is made once more, and how many times it has
+    // been: the delay doubles each time, up to [`RECHECKS`], then nothing more is asked.
     let mut recheck: Option<Instant> = None;
+    let mut rechecks = 0u32;
     loop {
         let job = {
             let mut state = slot.state.lock().unwrap();
@@ -679,22 +783,40 @@ fn run(
                 if let Some(update) = state.next.take() {
                     break Job::Update(update);
                 }
-                if std::mem::take(&mut state.check) && !state.closed {
-                    break Job::Check(true);
+                if let Some(kind) = state.check.take()
+                    && !state.closed
+                {
+                    // An ask now is the question a kept one would ask: it is no longer owed.
+                    state.check_at = None;
+                    break Job::Check(kind);
                 }
                 if state.closed {
                     return;
                 }
-                state = match recheck {
-                    Some(at) => match at.checked_duration_since(Instant::now()) {
-                        Some(left) if !left.is_zero() => {
-                            slot.wake.wait_timeout(state, left).unwrap().0
-                        }
-                        _ => {
-                            recheck = None;
-                            break Job::Check(false);
-                        }
-                    },
+                let now = Instant::now();
+                if let Some((at, kind)) = state.check_at
+                    && at <= now
+                {
+                    state.check_at = None;
+                    break Job::Check(kind);
+                }
+                if let Some(at) = recheck
+                    && at <= now
+                {
+                    recheck = None;
+                    break Job::Check(Check::Recheck);
+                }
+                let next = match (recheck, state.check_at.map(|(at, _)| at)) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
+                state = match next {
+                    Some(at) => {
+                        slot.wake
+                            .wait_timeout(state, at.saturating_duration_since(now))
+                            .unwrap()
+                            .0
+                    }
                     None => slot.wake.wait(state).unwrap(),
                 };
             }
@@ -716,14 +838,20 @@ fn run(
                 continue;
             }
             Job::Update(update) => update,
-            Job::Check(again) => {
+            Job::Check(kind) => {
                 // A viewer that was closed while nothing was sent to it: nobody answers the
                 // bare connection, and the links are over as for an update nobody answered.
                 // One that answers may be a window closed a moment ago whose process has not
-                // ended yet: it is asked once more, a little later.
+                // ended yet: an event ask is asked once more, a little later, up to
+                // [`RECHECKS`]; an input ask answers and starts nothing.
+                if kind == Check::Again {
+                    rechecks = 0;
+                    recheck = None;
+                }
                 if alive() {
-                    if again {
-                        recheck = Some(Instant::now() + timing.recheck);
+                    if kind != Check::Once && rechecks < RECHECKS {
+                        recheck = Some(Instant::now() + timing.recheck * (1 << rechecks));
+                        rechecks += 1;
                     }
                     continue;
                 }
@@ -1253,14 +1381,15 @@ mod tests {
         links.courier = Some(c);
         // A viewer just started may not answer yet: nothing is asked during the grace time.
         assert!(!links.check(base));
-        // Running: asked, once more a little later (`recheck`), then no more, and nothing ends.
+        // Running: asked, again a little later (`recheck`, three times), then no more, and
+        // nothing ends.
         assert!(links.check(base + GRACE));
         let end = Instant::now() + WAIT;
-        while asked.load(Ordering::Acquire) < 2 && Instant::now() < end {
+        while asked.load(Ordering::Acquire) < 4 && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(2));
         }
-        assert!(ended.recv_timeout(FAST.recheck * 4).is_err());
-        assert_eq!(asked.load(Ordering::Acquire), 2);
+        assert!(ended.recv_timeout(FAST.recheck * 16).is_err());
+        assert_eq!(asked.load(Ordering::Acquire), 4);
         assert!(!links.take_gone() && links.contains(1));
         // Closed: the next check finds nobody, and the links are over.
         alive.store(false, Ordering::Release);
@@ -1291,6 +1420,136 @@ mod tests {
         assert!(links.check(base + GRACE));
         ended.recv_timeout(WAIT).unwrap();
         assert_eq!(asked.load(Ordering::Acquire), 2);
+        assert!(links.take_gone() && links.is_empty());
+    }
+
+    #[test]
+    fn a_viewer_slow_to_end_is_found_gone_by_a_later_ask() {
+        // A window closed by hand can take longer than one recheck to end its process: it still
+        // answers at the first ask and the first recheck, and is gone at the last.
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ended_tx, ended) = channel();
+        let n = asked.clone();
+        let c = Courier::spawn(
+            |_| Delivery::Taken,
+            move || n.fetch_add(1, Ordering::AcqRel) < 3,
+            FAST,
+            move || _ = ended_tx.send(()),
+        );
+        let base = Instant::now();
+        let mut links = Links::default();
+        links.link(1, "/a.md".into(), Some(5), None, base);
+        links.courier = Some(c);
+        assert!(links.check(base + GRACE));
+        ended.recv_timeout(WAIT).unwrap();
+        assert_eq!(asked.load(Ordering::Acquire), 4);
+        assert!(links.take_gone() && links.is_empty());
+    }
+
+    #[test]
+    fn input_asks_whether_the_viewer_runs_at_most_once_in_a_while() {
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let n = asked.clone();
+        let c = Courier::spawn(
+            |_| Delivery::Taken,
+            move || {
+                n.fetch_add(1, Ordering::AcqRel);
+                true
+            },
+            FAST,
+            || {},
+        );
+        let base = Instant::now();
+        let mut links = Links::default();
+        // Nothing linked: nothing is asked.
+        assert!(!links.check_on_input(base + GRACE));
+        links.link(1, "/a.md".into(), Some(5), None, base);
+        links.courier = Some(c);
+        // Not while the viewer may be starting.
+        assert!(!links.check_on_input(base));
+        assert_eq!(asked.load(Ordering::Acquire), 0);
+        let t = base + GRACE;
+        assert!(links.check_on_input(t));
+        let wait_for = |n: usize| {
+            let end = Instant::now() + WAIT;
+            while asked.load(Ordering::Acquire) < n && Instant::now() < end {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        };
+        wait_for(1);
+        // A key a moment later asks nothing; one after the pause does.
+        assert!(!links.check_on_input(t + CHECK_EVERY / 2));
+        assert!(links.check_on_input(t + CHECK_EVERY));
+        wait_for(2);
+        // One ask for each that was due, and none of them starts the rechecks.
+        std::thread::sleep(FAST.recheck * 10);
+        assert_eq!(asked.load(Ordering::Acquire), 2);
+    }
+
+    #[test]
+    fn an_input_ask_is_answered_once_and_starts_no_rechecks() {
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let n = asked.clone();
+        let c = Courier::spawn(
+            |_| Delivery::Taken,
+            move || {
+                n.fetch_add(1, Ordering::AcqRel);
+                true
+            },
+            FAST,
+            || {},
+        );
+        let base = Instant::now();
+        let mut links = Links::default();
+        links.link(1, "/a.md".into(), Some(5), None, base);
+        links.courier = Some(c);
+        assert!(links.check_on_input(base + GRACE));
+        // Steady typing asks again and again; nothing of it is asked once more after the answer.
+        std::thread::sleep(FAST.recheck * 10);
+        assert_eq!(
+            asked.load(Ordering::Acquire),
+            1,
+            "an input ask starts no rechecks"
+        );
+        // An event ask still does: it and its three rechecks.
+        assert!(links.check(base + GRACE + CHECK_EVERY));
+        let end = Instant::now() + WAIT;
+        while asked.load(Ordering::Acquire) < 5 && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(asked.load(Ordering::Acquire), 5);
+    }
+
+    #[test]
+    fn a_check_refused_while_the_viewer_may_be_starting_is_made_when_the_grace_ends() {
+        let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (ended_tx, ended) = channel();
+        let n = asked.clone();
+        let c = Courier::spawn(
+            |_| Delivery::Taken,
+            move || {
+                n.fetch_add(1, Ordering::AcqRel);
+                false
+            },
+            FAST,
+            move || _ = ended_tx.send(()),
+        );
+        let base = Instant::now();
+        let mut links = Links::default();
+        links.link(1, "/a.md".into(), Some(5), None, base);
+        // A link's grace is five seconds: shorter here, so the test need not wait it out.
+        links.linked[0].retry_until = base + Duration::from_millis(150);
+        links.courier = Some(c);
+        // The window gained the focus while the link was in its grace: nothing is asked now...
+        assert!(!links.check(base));
+        assert_eq!(
+            asked.load(Ordering::Acquire),
+            0,
+            "nothing is asked within the grace"
+        );
+        // ...and it is not lost: the courier makes the kept check when the grace ends, once.
+        ended.recv_timeout(WAIT).unwrap();
+        assert_eq!(asked.load(Ordering::Acquire), 1);
         assert!(links.take_gone() && links.is_empty());
     }
 

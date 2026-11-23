@@ -213,6 +213,38 @@ shot settings-min-editor --light --size 520x360 --dialog settings --settings-sec
 shot settings-min-appearance --light --size 520x360 --dialog settings "$fx/sample.rs"
 shot settings-min-ai-rewrite-error --light --size 520x360 "${custom[@]}" --pref ai_custom_0_model=gpt-4.1-mini --ai-demo settings-error --settings-section ai-rewrite "$fx/sample.rs"
 shot settings-min-scale2 --light --size 520x360 --scale 2 --dialog settings --settings-section tabs "$fx/sample.rs"
+
+# The AI review with a tick per change (docs/ai-library-plan.md 5.5, D-077), over the README of
+# fixtures/review-demo.md and its rewrite beside it: all ticked (the change with the long line is the current
+# one, a long line wrapped), some not ticked (dimmed, "not taken"), none ticked (Apply says so
+# and cannot be pressed), the preview with some not ticked (the AFTER page shows only the ticked
+# changes), and a 400-line file with twenty-eight changes, scrolled to the eighteenth, its scrollbar
+# showing, and a review whose document was closed (the banner, Copy result only). The long file and
+# its rewrite are made once under target/data.
+if [ ! -f "$data/review-long-after.md" ]; then
+    "$py" - "$data" <<'EOF'
+import sys
+d = sys.argv[1]
+old = "".join(f"Line {i} of the notes: the quick brown fox jumps over the lazy dog.\n" for i in range(1, 401))
+new = "".join(
+    (f"Line {i} of the notes: the quick red fox jumps over the lazy dog.\n" if i % 20 == 0 else
+     f"Line {i} of the notes: the quick brown fox jumps over the lazy dog.\n")
+    for i in range(1, 401) if i % 50 != 7)
+open(d + "/review-long.md", "w", encoding="utf-8", newline="\n").write(old)
+open(d + "/review-long-after.md", "w", encoding="utf-8", newline="\n").write(new)
+EOF
+fi
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "review-hunks$t" $th --size 1280x800 --ai-demo review-hunks "$fx/review-demo.md"
+    shot "review-partial$t" $th --size 1280x800 --ai-demo review-partial "$fx/review-demo.md"
+    shot "review-nothing$t" $th --size 1280x800 --ai-demo review-nothing "$fx/review-demo.md"
+    shot "review-long$t" $th --size 1280x800 --ai-demo review-long "$data/review-long.md"
+    shot "review-preview-partial$t" $th --size 1280x800 --ai-demo review-preview-partial "$fx/review-demo.md"
+    shot "review-closed$t" $th --size 1280x800 --ai-demo review-closed "$fx/review-demo.md"
+done
+shot review-min --light --size 800x560 --ai-demo review-partial "$fx/review-demo.md"
 shot pref-tab8 --light --pref tab_width=8 "$fx/tabs-controls.txt"
 shot pref-no-numbers --light --pref line_numbers=0 --pref highlight_line=0 --goto 12:5 "$fx/sample.rs"
 shot pref-font18 --light --pref font_size=18 "$fx/sample.rs"
@@ -421,6 +453,13 @@ for t in "" "-dark"; do
     shot "runs-newer$t" $th --dialog runs-newer
 done
 
+# The question before a library file is deleted: it says the notes it lists are kept on disk.
+shot library-delete --light --dialog library-delete "$fx/sample.rs"
+shot library-delete-dark --dark --dialog library-delete "$fx/sample.rs"
+# The same question with a long group and file name: four lines, and a card grown to hold them.
+shot library-delete-long --light --dialog library-delete-long "$fx/sample.rs"
+shot library-delete-long-dark --dark --dialog library-delete-long "$fx/sample.rs"
+
 # The "Plan ready" row at the foot of the Notes pane (5.3): a plan Escape kept, with Show and Drop.
 for t in "" "-dark"; do
     th=--light
@@ -452,6 +491,14 @@ for t in "" "-dark"; do
     shot "move-notes$t" $th --move-demo move
     shot "move-notes-small$t" $th --size 800x600 --move-demo move
     shot "move-results$t" $th --move-demo results
+done
+
+# Dragging a note in the notes pane (D-130): the note held, its chip at the pointer, and the
+# heading it would go into marked, in both themes.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "library-drag$t" $th --library-demo drag
 done
 
 ls "$out" | wc -l

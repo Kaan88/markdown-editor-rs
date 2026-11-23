@@ -30,20 +30,43 @@ released. If `git log -1` is newer, doubt "In hand" first.
   typed in the pane's box goes with them, its keyboard back in the text.
 - **Browsing the library in the full preview** (visual editing, branch `fix/preview-browse`,
   merged, D-104): a tab still being read no longer ends the mode; `visual_sync` waits for it.
-  Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an
-  outside review (audit 3's fixes included).
+- **The question before deleting a library file says where the notes go** (branch
+  `fix/delete-library-notice`, merged, D-103): it said only that the file goes, though the notes it
+  lists stay on disk with nothing listing them; a file that lists none no longer gets that second
+  sentence. Its card was a fixed 460x196, and a long group or file name wrapped a fourth line
+  through the divider into the buttons; the card now grows from the lines the words wrap to (shots
+  `library-delete`, `library-delete-long`; the owner has not looked at them).
+- **A closed mdview is asked about again** (branch `fix/closed-mdview`, merged, D-102 and D-105): after
+  1, 2 and 4 s; a check refused while a link is still in its grace is kept and made once when the
+  grace ends; a key press or a click asks at most once in two seconds, answered once and starting
+  no rechecks. Not tried by the owner; keystroke and idle times not measured (the app was not run).
+- Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review
+  (audit 3's fixes included).
 
 ## In hand
 
 - **Phase 4a, "Add a folder to the library…"** (`ai-library-plan.md` 5.7, without the AI):
-  built and tested on `f/p4a`, worktree `md-wt\p4a`, not merged. A folder the owner picks becomes
-  a group of links to its `.md`, `.markdown` and `.txt` files under their subfolders' headings
-  three deep, written in one library file; nothing of theirs is copied, moved or renamed
-  (D-110 to D-112, DESIGN 79). Asked for by the owner on 2026-11-23; it waits for the owner's
-  look and word to merge.
-- **Phase R2**, the review with ticks and the tinted, level preview (`ai-library-plan.md` 5.5,
-  D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
-  of it exists.
+  built, tested and measured on `f/p4a`, worktree `md-wt\p4a`, not merged. A folder the owner
+  picks becomes a group of links to its `.md`, `.markdown` and `.txt` files under their
+  subfolders' headings three deep, written in one library file; nothing of theirs is copied,
+  moved or renamed (D-131 to D-133, `docs/DESIGN.md` 81). Asked for by the owner on 2026-11-23;
+  it waits for the owner's look at its shots (`import-folder*`) and word to merge.
+- **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-107): **merged from
+  `f/review-hunks`, not tagged; the owner has not looked at its shots.** A tick per change, Apply and Copy result of the
+  ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the
+  AFTER page shows the ticked changes). Built, tested (`cargo test --release --workspace` green),
+  fmt and clippy clean, the shots (`review-*`, both themes, `review-closed` new) looked at on
+  Windows, the budgets measured (5 runs against `main` at `32d6fe6`: no change beyond the runs'
+  ranges). Docs: `docs/DESIGN.md` 79, `docs/DECISIONS.md` D-106, D-107, D-108 and
+  `docs/measurements/2026-11-23-review-hunks.md`. **Not built: the tinted, level preview
+  (D-108)**: it needs a request in the viewer's preview protocol (the page rows of every
+  top-level block) and a move of its pin, which waits for the owner. Not looked at by the owner
+  yet (rule 6).
+- **Phase DD, dragging a note in the notes pane** (D-130, `docs/DESIGN.md` 80): merged from `f/pdd`,
+  not tagged; the owner has not looked at its shots (`library-drag`). A note dropped on a group or a
+  section is moved there by the "Move to…" write; notes only. Not built, waiting for the owner:
+  dragging a group or section row, and files dropped from the file manager (winit discards the drop
+  point on Windows).
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
@@ -62,27 +85,36 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Next
 
-1. The owner's four faults from the hand check (D-101), for the next release: the add and browsing
-   the library in the full preview, merged; a closed mdview, on `fix/closed-mdview` (first: whether
-   it is missed with mdview 1.0.5 too); the notice before deleting a library file, on
-   `fix/delete-library-notice`.
-2. Then R2, and section 8's order. M1, M2 in mdview; D after R2. Phase 4a is built on `f/p4a`
-   and waits for the owner's word to merge it.
+1. The owner's four faults from the hand check (D-101), for the next release: the add, browsing
+   the library in the full preview, the delete notice and the closed mdview are all merged; the
+   closed mdview is still to be tried by the owner (first: whether it is missed with mdview 1.0.5
+   too).
+2. Then the owner's look at R2's shots (and whether to add the viewer's page rows for the tinted
+   preview, D-108), then section 8's order. M1, M2 in mdview; D after R2.
+3. Phase 4a's shots (`import-folder*`) for the owner's look, then merging `f/p4a`.
 
 ## Known to be wrong on `main`
 
+- **The AI review has no scrollbar and cuts long lines.** Fixed on `f/review-hunks` by R2 (the
+  list wraps and has the scrollbar), not merged.
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
-  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
+  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold. D-102 and D-105
+  change this (merged, not yet tried by the owner): three rechecks at
+  1, 2 and 4 s, an ask kept to the end of a link's grace instead of dropped, and an ask on a key
+  press or a click at most once in two seconds. With mdview 1.0.4 and a graceful close the old
+  code already found it in 1 s in a test against the real exe, so the owner's failing case was
+  not reproduced here; a tab closed in a viewer that keeps running cannot be told from 1.0.4 at
+  all.
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
-- The AI review has no scrollbar and cuts long lines (R2 ends this).
 - The editor never reads the AI engine's version.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note with nothing listing them and splitting that document again writes nothing
-  (every note reads "already there" and comes unticked). Found by the owner, who asks that the
-  question at least say the notes stay on disk.
+  (every note reads "already there" and comes unticked). Found by the owner. The question now says
+  the notes it lists are kept on disk (shots `library-delete`, `library-delete-long`); deleting
+  itself is unchanged.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;

@@ -1050,6 +1050,56 @@ release waits only for the owner's word to tag.
 **Overturned by.** The owner.
 **From.** The owner, 2026-11-23.
 
+## D-102 · 2026-11-23 · A closed mdview is asked about more than once, and on input
+
+**Decision.** Replaces D-097's "once more a second later". A check that finds the viewer running
+is repeated after 1, 2 and 4 s (`RECHECKS`), and stops when the viewer is found gone. A key press
+or a mouse press also asks (`Links::check_on_input`), at most once in 2 s and never while nothing
+is linked or during the first `GRACE`; it is an event, not a timer, and costs one lock when not due.
+**Why.** The owner's hand check found D-097 not holding with mdview 1.0.4. Against the real
+1.0.4 exe (closed gracefully, with `--line` and `--from` as mdedit starts it) the old code did find
+the viewer gone after 1 s, so the cause was not reproduced; the two changes cover the ways it can
+still fail: a process that ends later than one second after its window, and a window that never
+had a focus change to ask at.
+**Overturned by.** The owner, if a closed mdview is still missed; then the next suspect is the
+viewer staying alive after its window closes, which only mdview can fix.
+**From.** The owner's report, 2026-11-23; built by an agent, recorded by Claude.
+
+## D-107 · 2026-11-23 · The review is a list of changes with a tick each, composed in one pass
+
+**Decision.** Phase R2 is built as `ai-library-plan.md` 5.5 describes: the review keeps the
+comparison (`mdedit_core::hunks::Hunks`) and one tick per change, all ticked when it opens; Apply
+puts in the text composed from the ticked changes through `ai_replace` (one edit, one undo step);
+Copy result copies the same text; at zero ticked Apply reads "Nothing is ticked" and cannot be
+pressed. `ai::review` and `ReviewLine` are removed; their test is kept as a test of the list's
+layout. The list wraps long lines, has the shared scrollbar, tints the words that changed and dims
+what is not taken. F7 and Shift+F7 step, Space ticks. The Preview's AFTER page shows the composed
+text, made again 150 ms after the last tick. A change's mark on the "where" strip is its place in
+the old text.
+**Why.** D-077 and the plan's 5.5; the owner approved the look on `mock/ai-review`. All ticked at
+the start, so that Enter does what it always did.
+**Overturned by.** The owner, once they have used it.
+**From.** The owner's request, 2026-11-23; the details by Claude from the plan.
+
+## D-108 · 2026-11-23 · The tinted, level preview waits for the viewer's page rows
+
+**Decision.** D-077 moved phase P2 (each changed block tinted and labelled in both rendered pages,
+the two pages kept level) into R2. It is **not built** on `f/review-hunks`; the cheap form of the
+plan ships instead (the AFTER page shows the ticked changes, headed "8 of 12 changes taken").
+Amends D-077; nothing else of it changes.
+**Why.** P2 needs the rectangle of every rendered block by source line in both panes. The viewer's
+preview protocol (`mdview-preview`, pinned at `e2b3e31`) answers only `BlockAt` (a point to a
+block's lines) and `BlockOfLine` (a line to its block's lines); it gives no rows, and the page's
+layout is private to its server. A request that returns every top-level block's first line, top
+and height, and an `Update` field for it, is a change to the viewer, which mdview also builds
+against; by rule 8 and by the task's own rule it is not made from here. Drawing the pages in the
+editor's process instead would need `mdview-core` as a direct dependency and would leave out the
+mode that runs mdview in its own process.
+**What would change it.** The owner's word to add that request to the viewer and move its pin;
+then the tint pass and the block-to-block scroll (about three days, as the plan priced it).
+**Overturned by.** The owner.
+**From.** Claude, in the work of 2026-11-23; to be told to the owner.
+
 ## D-104 · 2026-11-23 · Visual editing waits for a tab still being read
 
 **Decision.** One of the four faults of D-101: browsing the library in the full preview kept the
@@ -1066,7 +1116,81 @@ than guessing a language from the path, and a failed read is no text to show.
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
 
-## D-110 · 2026-11-23 · An import writes links in one library file and touches nothing else
+## D-103 · 2026-11-23 · The delete question: where the notes go, and a card that fits its words
+
+**Decision.** The question before a library file is deleted tells the owner where the notes it
+lists are ("The notes it lists are kept on disk."), and says nothing about them when it lists
+none. Its card is no longer a fixed 460x196: the height comes from the body's own wrapped lines
+(`overlays::body_height`, the same face, size and width it is drawn with), with 196 as the floor
+— the height of the question that lists no notes, two lines; a question that lists notes takes a
+third line and the card grows a few pixels. A long group or file name used to wrap a fourth line
+through the divider into the buttons.
+**Why.** The owner's hand check asked for the wording (D-101); deletion is unchanged either way.
+The fixed card was found by review: the question names a group and a file, both free to be long.
+A fixed height cannot hold a sentence that names things of unknown length, and sizing from the
+measured body is the same rule the dialog list cards already follow (`card`'s `list`).
+**Overturned by.** The owner, or a review that finds the grown card wrong on screen.
+**From.** The owner's hand check (D-101) and the review of `fix/delete-library-notice`.
+
+## D-105 · 2026-11-23 · The check made inside a grace is kept, and input does not restart the rechecks
+
+**Decision.** Amends D-102, whose hedge the review found safe but incomplete. A check refused
+because a link was still in its `GRACE` (a viewer it just started may not answer yet) was dropped,
+and the focus that asked it comes once: it is now kept, and the courier waits on its own thread
+until that grace ends and makes it once (`Courier::check_at`), so a viewer closed while a preview
+was starting is still found. An ask made for input no longer restarts the 1, 2, 4 s rechecks
+(`Check::Once` against `Check::Again`), so steady typing does not probe about once a second; only
+key presses ask, not key releases or auto-repeat. D-102's "costs one lock when not due" is wrong:
+when an input ask is not due nothing locks at all, and a refused ask costs one lock only while a
+link is in its grace.
+**Why.** The review of D-102's fix: the grace guard could swallow the one ask the owner's failing
+case made, and an input ask resetting the chain made typing a steady stream of probes.
+**Overturned by.** The owner, if a closed mdview is still missed; or a viewer that answers during
+its grace, which would make waiting unnecessary.
+**From.** The review of the fix, 2026-11-23; built by an agent, recorded by Claude.
+
+## D-106 · 2026-11-23 · The review takes whole changes as the comparison made them
+
+**Decision.** A tick takes a whole change of `diff::diff`, the comparison Compare uses; the review
+does not re-cut the comparison's boundaries to look tidier. A line that appears on both sides can
+therefore end up twice when the comparison pairs it with its neighbours: in
+`fixtures/review-demo.md` the comparison ends the install paragraphs with a new "## Usage" and then
+replaces the old "## Usage" with the two lines after it, so unticking the second of those two
+changes (the `review-preview-partial` demo) shows "## Usage" twice in the AFTER page. Apply puts in
+exactly what the list shows, and Ctrl+Z takes it back.
+**Why.** D-107 keeps the comparison the user can check in Compare, and the plan's 5.5 ticks its
+changes. A boundary pass (sliding each change while the line at its edge is equal on both sides)
+would tidy this case but is a new behaviour for every text, with its own edge cases, and the owner,
+who has not used the review yet, has not asked for it.
+**What would change it.** The owner, after using it; then the pass belongs in `hunks::Hunks` alone
+(never in `diff`, which Compare draws), with a test per case it re-cuts.
+**Overturned by.** The owner.
+**From.** Claude, finishing R2, 2026-11-23; seen in the `review-preview-partial` shot.
+
+## D-130 · 2026-11-23 · A dragged note moves its line, and only its line
+
+**Decision.** In the notes pane, a note row dragged onto a group row or a section row is moved
+there: its line is taken out of its library file and written under the heading it was dropped on,
+by the writer "Move to…" already uses. Nothing else is dragged - not a group (a library file whose
+order is its file name) and not a section (a block of lines, and a cross-file rewrite) - and no
+file of the owner's is copied, moved, renamed or deleted. A plain click still opens the note;
+Esc abandons a drag; a hold at the pane's edge scrolls the list. A file dropped from the file
+manager is not taken by the pane: winit's Windows drop handler receives the drop point and
+discards it (drop_handler.rs, _pt), so the window cannot know which heading was under the
+pointer, and a guess would file the owner's file in the wrong place. Implements D-082 with this
+scope.
+
+**Why.** The design of record for drag and drop (the redesign's 3.4, archived) says "notes only,
+never sections", and the library's rule is that the pane writes lines, never files. A drag is the
+mouse path to what "Move to…" already does from the keyboard, so it adds no new kind of write.
+
+**Overturned by.** The owner saying what a group or a section dropped on another group should do,
+or wanting files from Explorer added to the library (which needs the drop point read from the
+platform, not winit).
+
+**From.** D-082; the archived redesign 3.4; phase DD built 2026-11-23.
+
+## D-131 · 2026-11-23 · An import writes links in one library file and touches nothing else
 
 **Decision.** "Add a folder to the library…" (5.7, phase 4a) is a plan of links, not an import of
 files: the folder the owner picks becomes the group, each file it takes becomes one list line in
@@ -1079,7 +1203,7 @@ owner's rule for the whole redesign (`library-redesign.md` 9) is links only.
 **Overturned by.** The owner; or a library that is meant to own the files it lists.
 **From.** `docs/ai-library-plan.md` 5.7; the phase 4a brief.
 
-## D-111 · 2026-11-23 · The group of an import is the folder, and an existing group is joined
+## D-132 · 2026-11-23 · The group of an import is the folder, and an existing group is joined
 
 **Decision.** The group's name is the folder's own name (a folder with no name is refused), and
 its library file is named after it -- `library/Recipes.md` for `…/Recipes`. The group's `home:` is
@@ -1093,7 +1217,7 @@ pane would show two, and one of them could not be removed).
 **Overturned by.** The owner; or a library where two groups may share a name.
 **From.** D-041 (`home:`), D-260's heading rules; the phase 4a brief.
 
-## D-112 · 2026-11-23 · Subfolders three deep are headings, and what a folder cannot name is refused
+## D-133 · 2026-11-23 · Subfolders three deep are headings, and what a folder cannot name is refused
 
 **Decision.** A note is filed under its subfolders as headings, three levels at most; a fourth
 folder is folded into the third, so nothing is lost and no heading is made from a name the library

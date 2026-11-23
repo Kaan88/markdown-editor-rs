@@ -8,6 +8,7 @@ use crate::ai::{Ask, Bar, BarAction, Event, Hit as AiHit, Instruction, Panel, Re
 use crate::keys::KeyName;
 use crate::preview_pane::Pane;
 use mdedit_core::ai::{self as core_ai, Connection, PromptKind, SavedPrompt};
+use mdedit_core::hunks::Hunks;
 use mdshared_ui::textfield::TextField;
 use serde_json::json;
 
@@ -16,7 +17,7 @@ const AI_TEXT_MAX: usize = 200_000;
 /// The saved prompts file is read up to this size.
 const PROMPTS_BYTES: u64 = 256 * 1024;
 /// Lines the review scrolls by for Up and Down.
-const REVIEW_STEP: f32 = crate::ai_ui::LINE_H * 3.0;
+const REVIEW_STEP: f32 = crate::hunks_ui::LINE_H * 3.0;
 
 /// A run's text and where it came from.
 struct Scope {
@@ -639,7 +640,11 @@ impl App {
             // Not taken: the result is shown, so it can still be copied.
             blocked = Some(core_ai::BLOCKED_READ_ONLY.into());
         }
-        let (lines, removed, added) = core_ai::review(&run.original, &result);
+        let mut hunks = Hunks::new(&run.original, &result);
+        // `--ai-demo`: changes left unticked, before the preview pages are first made.
+        for i in self.ai.demo_off.take().unwrap_or_default() {
+            hunks.set_ticked(i, false);
+        }
         let preview = self.docs.prefs.ai_review_preview;
         self.close_for_ai_panel();
         self.ai.panel = Some(Panel::Review(Review {
@@ -650,14 +655,14 @@ impl App {
             result,
             subtitle: format!("{} · {}", run.scope, run.via),
             spec: run.spec,
-            lines,
-            removed,
-            added,
+            hunks,
+            list: Default::default(),
             blocked,
             preview,
-            scroll: 0.0,
-            content: 0.0,
             panes: None,
+            sent: 0,
+            due: None,
+            grab: None,
             base_dir,
         }));
         if preview {
@@ -919,7 +924,7 @@ impl App {
                 let Some(rv) = self.ai.review() else { return };
                 // The review may be the only place the result is (its document closed): it
                 // closes only once the result is on the clipboard (audit 1 round 3, #3).
-                if copy_text(&rv.result) {
+                if copy_text(&rv.hunks.compose()) {
                     self.docs.set_toast("Copied the result.");
                     self.ai_close_panel();
                 } else {
@@ -933,6 +938,12 @@ impl App {
                 if rv.blocked.is_some() {
                     return;
                 }
+                // With nothing ticked there is nothing to put in.
+                if rv.hunks.ticked() == 0 {
+                    self.docs.set_toast("Nothing is ticked.");
+                    self.redraw();
+                    return;
+                }
                 let (doc, start, end) = (rv.doc, rv.start, rv.end);
                 let original = rv.original.clone();
                 // The text may have changed since the review opened (an edit elsewhere, a reload).
@@ -942,7 +953,7 @@ impl App {
                         return;
                     };
                     let to_markdown = self.ai_converts(doc, start, end, &rv.spec);
-                    if self.ai_replace(doc, start, end, &rv.result) {
+                    if self.ai_replace(doc, start, end, &rv.hunks.compose()) {
                         self.ai_close_panel();
                         if let Some(before) = to_markdown {
                             self.ai_made_markdown(doc, Some(before));
@@ -980,6 +991,32 @@ impl App {
                     ins.field.select_all();
                     ins.spec = Some(spec);
                 }
+            }
+            AiHit::Prev => self.ai_review_step(false),
+            AiHit::Next => self.ai_review_step(true),
+            AiHit::Mark(i) => {
+                if let Some(rv) = self.ai.review() {
+                    rv.list.go_to(i);
+                }
+                self.ai.tick += 1;
+                self.redraw();
+            }
+            AiHit::TickAll | AiHit::UntickAll => {
+                let Some(rv) = self.ai.review() else { return };
+                rv.hunks.set_all(hit == AiHit::TickAll);
+                self.ai_review_ticked();
+            }
+            AiHit::List(crate::hunks_ui::Hit::Tick(i)) => {
+                let Some(rv) = self.ai.review() else { return };
+                rv.hunks.toggle(i);
+                rv.list.current = i;
+                self.ai_review_ticked();
+            }
+            AiHit::List(crate::hunks_ui::Hit::Change(i)) => {
+                let Some(rv) = self.ai.review() else { return };
+                rv.list.current = i;
+                self.ai.tick += 1;
+                self.redraw();
             }
             AiHit::Changes | AiHit::Preview => {
                 let on = hit == AiHit::Preview;
@@ -1022,7 +1059,8 @@ impl App {
         let base = rv.base_dir.clone();
         // Each pane shows one text that never changes: any id and version will do.
         before.set_text(rv.doc, (0, 0), base.clone(), || rv.original.clone());
-        after.set_text(rv.doc, (0, 1), base, || rv.result.clone());
+        rv.sent = 1;
+        after.set_text(rv.doc, (0, rv.sent), base, || rv.hunks.compose());
         rv.panes = Some(Box::new((before, after)));
     }
 
@@ -1034,10 +1072,84 @@ impl App {
         };
         let a = panes.0.poll();
         let b = panes.1.poll();
+        // A tick sent while the page was still drawing the last one waits for its answer.
+        if panes.1.held {
+            let (doc, sent, base) = (rv.doc, rv.sent, rv.base_dir.clone());
+            let text = rv.hunks.compose();
+            if let Some(panes) = rv.panes.as_mut() {
+                panes.1.set_text(doc, (0, sent), base, || text);
+            }
+        }
         if a || b {
             self.ai.tick += 1;
             self.redraw();
         }
+    }
+
+    /// F7 and Shift+F7, and the bar's arrows: the next or the previous change becomes the current
+    /// one and is scrolled into view.
+    pub(super) fn ai_review_step(&mut self, forward: bool) {
+        let Some(rv) = self.ai.review() else { return };
+        let n = rv.hunks.len();
+        if n == 0 {
+            return;
+        }
+        let cur = rv.list.current.min(n - 1);
+        let next = if forward {
+            (cur + 1).min(n - 1)
+        } else {
+            cur.saturating_sub(1)
+        };
+        if rv.preview {
+            // The preview pages have no list to scroll and the viewer gives no block rows
+            // (D-108): stepping here would change the count and move nothing, so it does not.
+            return;
+        }
+        rv.list.go_to(next);
+        self.ai.tick += 1;
+        self.redraw();
+    }
+
+    /// Space: the current change is taken, or left.
+    fn ai_review_toggle_current(&mut self) {
+        let Some(rv) = self.ai.review() else { return };
+        let i = rv.list.current;
+        if i < rv.hunks.len() {
+            rv.hunks.toggle(i);
+            self.ai_review_ticked();
+        }
+    }
+
+    /// A tick changed: the footer and the list redraw, and the AFTER page is made again 150 ms
+    /// after the last one.
+    fn ai_review_ticked(&mut self) {
+        if let Some(rv) = self.ai.review()
+            && rv.panes.is_some()
+        {
+            rv.due = Some(Instant::now() + crate::compare::DEBOUNCE);
+        }
+        self.ai.tick += 1;
+        self.redraw();
+    }
+
+    /// The AFTER page is sent the text with the ticked changes, when the delay has passed.
+    /// Returns the time it is next due, if it is not yet.
+    pub(super) fn ai_review_due(&mut self, now: Instant) -> Option<Instant> {
+        let rv = self.ai.review()?;
+        let due = rv.due?;
+        if now < due {
+            return Some(due);
+        }
+        rv.due = None;
+        rv.sent += 1;
+        let (doc, sent, base) = (rv.doc, rv.sent, rv.base_dir.clone());
+        let text = rv.hunks.compose();
+        if let Some(panes) = rv.panes.as_mut() {
+            panes.1.set_text(doc, (0, sent), base, || text);
+        }
+        self.ai.tick += 1;
+        self.wants_frame = true;
+        None
     }
 
     // ---- input while a panel is open ---------------------------------------------------------
@@ -1071,6 +1183,8 @@ impl App {
                     self.ai_review_action(hit);
                 }
                 KeyName::Char('c') if mods.ctrl => self.ai_review_action(AiHit::Copy),
+                KeyName::F(7) => self.ai_review_step(!mods.shift),
+                KeyName::Space => self.ai_review_toggle_current(),
                 KeyName::Down => self.ai_scroll(REVIEW_STEP),
                 KeyName::Up => self.ai_scroll(-REVIEW_STEP),
                 KeyName::PageDown => self.ai_scroll(400.0),
@@ -1091,13 +1205,38 @@ impl App {
                 panes.1.scroll(dy);
             }
         } else {
-            rv.scroll = (rv.scroll + dy).max(0.0);
+            rv.list.scroll_by(dy);
         }
         self.ai.tick += 1;
         self.redraw();
     }
 
+    /// A drag of the list's scrollbar thumb: the list goes where the thumb is.
+    fn ai_drag_thumb(&mut self, y: f32) -> bool {
+        let Some(rv) = self.ai.review() else {
+            return false;
+        };
+        let Some(grab) = rv.grab else { return false };
+        let area = rv.list.area;
+        if let Some((track, thumb)) = crate::hunks_ui::bar(area, &rv.list) {
+            let to = mdshared_ui::scroll::offset_for_thumb(
+                track,
+                thumb.h,
+                y - grab,
+                rv.list.content,
+                rv.list.view,
+            );
+            rv.list.scroll = to.clamp(0.0, rv.list.max_scroll());
+        }
+        self.ai.tick += 1;
+        self.redraw();
+        true
+    }
+
     pub(super) fn ai_pointer(&mut self, x: f32, y: f32) {
+        if self.ai_drag_thumb(y) {
+            return;
+        }
         let hit = self
             .ai
             .hit_at(x, y)
@@ -1126,12 +1265,29 @@ impl App {
             return;
         }
         self.ai.pressed = hit.filter(|h| !matches!(h, AiHit::Card | AiHit::Body | AiHit::Field));
+        // The list's scrollbar: a press on the thumb takes it, one on the track brings the thumb
+        // there and takes it.
+        if hit == Some(AiHit::List(crate::hunks_ui::Hit::Track))
+            && let Some(rv) = self.ai.review()
+            && let Some((_, thumb)) = crate::hunks_ui::bar(rv.list.area, &rv.list)
+        {
+            rv.grab = Some(if thumb.contains(x, y) {
+                y - thumb.y
+            } else {
+                thumb.h / 2.0
+            });
+            self.ai_drag_thumb(y);
+            self.ai.pressed = None;
+        }
         self.ai.tick += 1;
         self.redraw();
     }
 
     pub(super) fn ai_release(&mut self) {
         let (x, y) = self.ui.mouse;
+        if let Some(rv) = self.ai.review() {
+            rv.grab = None;
+        }
         let Some(pressed) = self.ai.pressed.take() else {
             return;
         };
@@ -1278,6 +1434,50 @@ impl App {
             }
             "bar" => self.ai_failed("rate", "Claude API is busy (429).".into(), Some(40)),
             "settings" | "settings-error" => self.ai_open_settings(),
+            // A rewrite of the open document by the file `<name>-after.md` beside it, with some
+            // changes unticked: the shots of the review's list and its preview (5.5).
+            "review-hunks"
+            | "review-partial"
+            | "review-nothing"
+            | "review-long"
+            | "review-preview-partial"
+            | "review-closed" => {
+                let path = self
+                    .docs
+                    .index_of_id(scope.doc)
+                    .and_then(|i| self.docs.tabs[i].path.clone());
+                let after = path
+                    .map(|p| p.with_file_name(format!("{}-after.md", file_stem(&p))))
+                    .and_then(|p| std::fs::read_to_string(p).ok());
+                let Some(after) = after else { return };
+                self.ai.demo_off = match kind {
+                    "review-partial" | "review-preview-partial" => Some(vec![1, 3, 4, 6]),
+                    "review-nothing" => Some((0..100).collect()),
+                    _ => None,
+                };
+                self.docs.prefs.ai_review = true;
+                self.docs.prefs.ai_review_preview = kind == "review-preview-partial";
+                self.ai_finish(run, &after);
+                if kind == "review-closed"
+                    && let Some(rv) = self.ai.review()
+                {
+                    rv.blocked = Some(core_ai::BLOCKED_CLOSED.into());
+                }
+                if let Some(rv) = self.ai.review() {
+                    // The change the keys are on: far down a long list; the one with a long
+                    // line, to show it wrapped; or the third.
+                    let wide = (0..rv.hunks.len()).find(|&i| {
+                        rv.hunks
+                            .change(i)
+                            .is_some_and(|c| c.a.clone().any(|l| rv.hunks.old_line(l).len() > 200))
+                    });
+                    rv.list.go_to(match kind {
+                        "review-long" => 17,
+                        "review-hunks" => wide.unwrap_or(2),
+                        _ => 2,
+                    });
+                }
+            }
             "review" | "preview" | "stale" | "closed" | "result-kept" => {
                 let text = result(&scope.text);
                 if kind == "stale" {
@@ -1293,8 +1493,7 @@ impl App {
                     );
                     if let Some(rv) = self.ai.review() {
                         rv.original = scope.text.clone();
-                        let (lines, removed, added) = core_ai::review(&rv.original, &rv.result);
-                        (rv.lines, rv.removed, rv.added) = (lines, removed, added);
+                        rv.hunks = Hunks::new(&rv.original, &rv.result);
                     }
                 } else {
                     self.docs.prefs.ai_review = true;
@@ -1315,7 +1514,7 @@ impl App {
         self.relayout_areas();
         // The preview panes draw on their own thread: drawn once, they are told their size;
         // then the shot waits for both pages.
-        if kind == "preview" {
+        if kind == "preview" || kind == "review-preview-partial" {
             self.compose();
             let until = Instant::now() + Duration::from_secs(10);
             while Instant::now() < until {
@@ -1344,15 +1543,30 @@ impl App {
 
 #[cfg(test)]
 thread_local! {
+    /// Tests: what was last copied (the clipboard itself is never touched).
+    pub(super) static COPIED: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
     /// Tests: the clipboard refuses the text.
     pub(super) static CLIPBOARD_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Puts `text` on the clipboard; true when it is there.
+#[cfg(test)]
 fn copy_text(text: &str) -> bool {
-    #[cfg(test)]
     if CLIPBOARD_FAILS.with(|f| f.get()) {
         return false;
     }
+    COPIED.with(|c| *c.borrow_mut() = text.to_string());
+    true
+}
+
+#[cfg(not(test))]
+fn copy_text(text: &str) -> bool {
     platform::set_clipboard_text(text)
+}
+
+/// A path's file name without its extension, "" when it has none.
+fn file_stem(p: &Path) -> String {
+    p.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
