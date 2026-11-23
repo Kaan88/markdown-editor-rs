@@ -2,8 +2,8 @@
 //! card, the switch and the buttons are the ones the plan and move cards draw with, so the three
 //! read as one family; the changes list is drawn as the AI review draws it.
 
+use crate::note_ui::Row;
 use crate::note_ui::{Geo, Hit, LINE_H, NoteCard, Phase, View};
-use mdedit_core::ai::ReviewLine;
 use mdshared_ui::gfx::{Face, Painter, Rect, mix};
 use mdshared_ui::overlay::{
     DIALOG_FOOTER, DIALOG_PAD, dialog_button_w, draw_backdrop, draw_dialog_button, draw_dialog_card,
@@ -299,7 +299,7 @@ impl NoteCard {
                 let num_w = 44.0;
                 let text_x = body.x + 2.0 * num_w + 28.0;
                 let first = (self.scroll / LINE_H).floor().max(0.0) as usize;
-                for (k, line) in self.lines.iter().enumerate().skip(first) {
+                for (k, line) in self.rows.iter().enumerate().skip(first) {
                     let y = body.y + 8.0 + k as f32 * LINE_H - self.scroll;
                     if y > body.bottom() {
                         break;
@@ -317,7 +317,7 @@ impl NoteCard {
                         );
                     };
                     match line {
-                        ReviewLine::Same {
+                        Row::Same {
                             old: a,
                             new: b,
                             text,
@@ -334,7 +334,7 @@ impl NoteCard {
                                 body.right() - text_x - 12.0,
                             );
                         }
-                        ReviewLine::Removed { old: a, text } => {
+                        Row::Removed { old: a, text } => {
                             p.fill(row, minus_bg);
                             num(p, 0, *a);
                             p.text_center(
@@ -354,7 +354,7 @@ impl NoteCard {
                                 body.right() - text_x - 12.0,
                             );
                         }
-                        ReviewLine::Added { new: b, text } => {
+                        Row::Added { new: b, text } => {
                             p.fill(row, plus_bg);
                             num(p, 1, *b);
                             p.text_center(
@@ -374,7 +374,7 @@ impl NoteCard {
                                 body.right() - text_x - 12.0,
                             );
                         }
-                        ReviewLine::Fold { lines } => {
+                        Row::Fold { lines } => {
                             p.fill(
                                 Rect::new(row.x, row.y + 2.0, row.w, row.h - 4.0),
                                 mix(pal.popup, pal.text, 0.05),

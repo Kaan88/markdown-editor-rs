@@ -1,10 +1,7 @@
 //! AI rewriting, the parts with no window and no process: the connections and their providers,
-//! the prompts sent with a rewrite, the saved prompts file, and the lines of the review.
+//! the prompts sent with a rewrite and the saved prompts file. The review of a result is `hunks`.
 //!
 //! The work itself is done by the `mdedit-ai` engine, a separate program; the shell talks to it.
-
-use crate::buffer::Buffer;
-use crate::diff::{self, DiffOptions, HunkKind};
 
 /// Where rewrites go. `Off` (the default) uses no AI at all.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -617,131 +614,10 @@ pub fn append_prompt_of(file: &str, name: &str, instruction: &str, kind: PromptK
     out
 }
 
-// ---- review ------------------------------------------------------------------------------------
-
-/// A line of the review: unchanged, removed or added, with its line numbers (1-based), or a fold
-/// of unchanged lines.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReviewLine {
-    Same {
-        old: usize,
-        new: usize,
-        text: String,
-    },
-    Removed {
-        old: usize,
-        text: String,
-    },
-    Added {
-        new: usize,
-        text: String,
-    },
-    Fold {
-        lines: usize,
-    },
-}
-
-/// Unchanged lines kept around a change; longer unchanged runs fold.
-const CONTEXT: usize = 3;
-
-/// The review of `before` → `after`: removed lines then added lines for each change, unchanged
-/// runs folded to [`CONTEXT`] lines on each side. Also the counts of removed and added lines.
-pub fn review(before: &str, after: &str) -> (Vec<ReviewLine>, usize, usize) {
-    let a = Buffer::from_text(before);
-    let b = Buffer::from_text(after);
-    let d = diff::diff(&a, &b, DiffOptions::default(), &Default::default());
-    let la: Vec<&str> = split_lines(before);
-    let lb: Vec<&str> = split_lines(after);
-    let line = |v: &[&str], i: usize| v.get(i).copied().unwrap_or("").to_string();
-    let hunks = d.hunks();
-    let mut out = Vec::new();
-    let (mut removed, mut added) = (0, 0);
-    for (k, h) in hunks.iter().enumerate() {
-        match h.kind {
-            HunkKind::Equal => {
-                let n = h.a.len();
-                let lead = if k == 0 { 0 } else { CONTEXT };
-                let tail = if k + 1 == hunks.len() { 0 } else { CONTEXT };
-                if n > lead + tail + 1 {
-                    for i in 0..lead {
-                        out.push(same(&la, h, i, line));
-                    }
-                    out.push(ReviewLine::Fold {
-                        lines: n - lead - tail,
-                    });
-                    for i in n - tail..n {
-                        out.push(same(&la, h, i, line));
-                    }
-                } else {
-                    for i in 0..n {
-                        out.push(same(&la, h, i, line));
-                    }
-                }
-            }
-            _ => {
-                for i in h.a.clone() {
-                    removed += 1;
-                    out.push(ReviewLine::Removed {
-                        old: i + 1,
-                        text: line(&la, i),
-                    });
-                }
-                for i in h.b.clone() {
-                    added += 1;
-                    out.push(ReviewLine::Added {
-                        new: i + 1,
-                        text: line(&lb, i),
-                    });
-                }
-            }
-        }
-    }
-    (out, removed, added)
-}
-
-fn same(
-    la: &[&str],
-    h: &diff::Hunk,
-    i: usize,
-    line: impl Fn(&[&str], usize) -> String,
-) -> ReviewLine {
-    ReviewLine::Same {
-        old: h.a.start + i + 1,
-        new: h.b.start + i + 1,
-        text: line(la, h.a.start + i),
-    }
-}
-
-/// Lines as the diff counts them: split at LF, CRLF and CR, the line breaks left out.
-fn split_lines(s: &str) -> Vec<&str> {
-    let mut v = Vec::new();
-    let mut start = 0;
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\n' => {
-                v.push(&s[start..i]);
-                start = i + 1;
-            }
-            b'\r' => {
-                v.push(&s[start..i]);
-                if bytes.get(i + 1) == Some(&b'\n') {
-                    i += 1;
-                }
-                start = i + 1;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    v.push(&s[start..]);
-    v
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffer::Buffer;
 
     #[test]
     fn a_notes_text_takes_the_files_line_endings_and_ends_with_one() {
@@ -951,47 +827,6 @@ mod tests {
         assert_eq!(p[0].instruction, "Do a.\n\n```\n## not a prompt\n```");
         assert_eq!(p[1].name, "B");
         assert_eq!(p[0].summary(), "Do a.…");
-    }
-
-    #[test]
-    fn the_review_folds_long_unchanged_runs() {
-        let before = "a\n1\n2\n3\n4\n5\n6\n7\n8\nz\n";
-        let after = "A\n1\n2\n3\n4\n5\n6\n7\n8\nZ\n";
-        let (lines, removed, added) = review(before, after);
-        assert_eq!((removed, added), (2, 2));
-        assert_eq!(
-            lines[0],
-            ReviewLine::Removed {
-                old: 1,
-                text: "a".into()
-            }
-        );
-        assert_eq!(
-            lines[1],
-            ReviewLine::Added {
-                new: 1,
-                text: "A".into()
-            }
-        );
-        assert_eq!(
-            lines[2],
-            ReviewLine::Same {
-                old: 2,
-                new: 2,
-                text: "1".into()
-            }
-        );
-        assert!(lines.contains(&ReviewLine::Fold { lines: 2 }));
-        assert_eq!(
-            lines.last(),
-            Some(&ReviewLine::Added {
-                new: 10,
-                text: "Z".into()
-            })
-        );
-        // Nothing changed: no removed or added lines.
-        let (_, r, a) = review("x\n", "x\n");
-        assert_eq!((r, a), (0, 0));
     }
 
     /// 5.6: a prompt carries its kind on an optional `kind:` line; none is a rewrite, and a kind

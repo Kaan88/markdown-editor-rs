@@ -907,7 +907,7 @@ impl App {
 
     /// Deletes a library file with `std::fs::remove_file`, and reads the library again. Refused,
     /// with a toast, while a tab holds unsaved changes to it and for a file that is not one of
-    /// the folder's own. The notes it listed are not touched.
+    /// the folder's own. The notes it listed are kept on disk.
     pub(super) fn library_delete_file(&mut self, file: &Path) -> bool {
         if let Err(why) = self.library_file_free(file) {
             self.docs.set_toast(&why);

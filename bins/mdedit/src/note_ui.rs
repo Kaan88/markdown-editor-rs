@@ -6,7 +6,7 @@
 //! is a new file in the group's folder, created exclusively, and the source is only read.
 
 use crate::keys::Key;
-use mdedit_core::ai::ReviewLine;
+use mdedit_core::hunks::{Hunks, Seg};
 use mdshared_ui::gfx::Rect;
 use mdshared_ui::keys::{KeyName, Mods};
 use mdshared_ui::overlay::{DIALOG_FOOTER, dialog_card};
@@ -141,6 +141,80 @@ pub enum Act {
     Stop,
 }
 
+/// One row of the Changes view: the change list of `mdedit_core::hunks`, as the card shows it,
+/// with runs of unchanged lines folded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Row {
+    Same {
+        old: usize,
+        new: usize,
+        text: String,
+    },
+    Removed {
+        old: usize,
+        text: String,
+    },
+    Added {
+        new: usize,
+        text: String,
+    },
+    /// Unchanged lines left out of the list.
+    Fold {
+        lines: usize,
+    },
+}
+
+/// Unchanged lines kept around a change; a longer run folds, as the AI review's does.
+const CONTEXT: usize = 3;
+
+/// `source → result` as the card's rows: each change's removed lines, then its added ones, with
+/// the unchanged runs around them cut to [`CONTEXT`] lines.
+fn review_rows(h: &Hunks) -> Vec<Row> {
+    let mut rows = Vec::new();
+    for seg in h.segments() {
+        match seg {
+            Seg::Same { a, b } => {
+                let n = a.len().min(b.len());
+                let keep: Vec<usize> = if n <= 2 * CONTEXT + 1 {
+                    (0..n).collect()
+                } else {
+                    (0..CONTEXT).chain((n - CONTEXT)..n).collect()
+                };
+                let mut last: Option<usize> = None;
+                for k in keep {
+                    if let Some(p) = last {
+                        if k > p + 1 {
+                            rows.push(Row::Fold { lines: k - p - 1 });
+                        }
+                    }
+                    rows.push(Row::Same {
+                        old: a.start + k + 1,
+                        new: b.start + k + 1,
+                        text: h.old_line(a.start + k),
+                    });
+                    last = Some(k);
+                }
+            }
+            Seg::Change(i) => {
+                let Some(c) = h.change(i) else { continue };
+                for l in c.a.clone() {
+                    rows.push(Row::Removed {
+                        old: l + 1,
+                        text: h.old_line(l),
+                    });
+                }
+                for l in c.b.clone() {
+                    rows.push(Row::Added {
+                        new: l + 1,
+                        text: h.new_line(l),
+                    });
+                }
+            }
+        }
+    }
+    rows
+}
+
 pub struct NoteCard {
     pub source: Source,
     pub target: Target,
@@ -152,7 +226,8 @@ pub struct NoteCard {
     pub asking: Option<AskState>,
     /// The note's text, made from the answer.
     pub result: String,
-    pub lines: Vec<ReviewLine>,
+    /// The changes from the text to the note, as the Changes view lists them.
+    pub rows: Vec<Row>,
     pub removed: usize,
     pub added: usize,
     pub view: View,
@@ -190,7 +265,7 @@ impl NoteCard {
             phase: Phase::Ready,
             asking: None,
             result: String::new(),
-            lines: Vec::new(),
+            rows: Vec::new(),
             removed: 0,
             added: 0,
             view: View::Changes,
@@ -215,7 +290,7 @@ impl NoteCard {
     pub fn count(&self) -> usize {
         match self.phase {
             Phase::Changes => match self.view {
-                View::Changes => self.lines.len(),
+                View::Changes => self.rows.len(),
                 View::Result => self.result.lines().count(),
             },
             _ => 0,
@@ -248,9 +323,10 @@ impl NoteCard {
     /// The answer is in: its changes, its counts, and the note's text.
     pub fn set_answer(&mut self, text: String, eol: &str) {
         let result = mdedit_core::ai::note_body(&text, eol);
-        let (lines, removed, added) = mdedit_core::ai::review(&self.source.text, &result);
+        let hunks = mdedit_core::hunks::Hunks::new(&self.source.text, &result);
+        let (removed, added) = hunks.totals();
+        self.rows = review_rows(&hunks);
         self.result = result;
-        self.lines = lines;
         self.removed = removed;
         self.added = added;
         self.view = View::Changes;

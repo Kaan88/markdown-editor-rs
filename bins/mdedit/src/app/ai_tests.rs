@@ -109,7 +109,7 @@ fn a_rewrite_is_reviewed_then_applied_as_one_undo_step() {
         panic!("a review")
     };
     assert!(rv.blocked.is_none());
-    assert_eq!((rv.removed, rv.added), (1, 1));
+    assert_eq!(rv.hunks.totals(), (1, 1), "(added, removed)");
     // The panel is drawn and takes the keyboard: Enter applies.
     a.compose();
     assert!(a.ai.hits.iter().any(|(h, _)| *h == AiHit::Apply));

@@ -22,6 +22,7 @@ mod compare;
 mod docs;
 mod format_bar;
 mod frost;
+mod hunks_ui;
 mod image_paste;
 mod keys;
 mod languages;

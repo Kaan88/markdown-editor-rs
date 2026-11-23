@@ -300,6 +300,7 @@ mod tests {
     use super::*;
     use crate::commands::CommandId as C;
     use mdedit_core::Position;
+    use winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
 
     #[test]
     fn the_viewer_giving_up_side_by_side_ends_it_here_and_opens_nothing() {
@@ -1414,6 +1415,114 @@ mod tests {
         settle(&mut a);
         assert!(a.docs.links.is_empty());
         assert!(!tab_checked(&a));
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A key or a click is what asks when the focus never changed (the window had it already,
+    /// or the viewer was closed while a link was still in its grace and the focus check came
+    /// then): the click goes through the window's own event path, and the link ends.
+    #[test]
+    fn a_click_with_a_link_past_its_grace_finds_a_closed_viewer() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("hand-click-gone");
+        let path = file(&dir, "a.md");
+        let _viewer = viewer(&dir);
+        let mut a = app();
+        a.docs.viewer = true;
+        let i = open_now(&mut a, &path);
+        let id = a.docs.tabs[i].id;
+        let file = a.docs.tabs[i].path.clone().unwrap();
+        let started = Instant::now().checked_sub(link::GRACE).unwrap();
+        a.docs.links.link(id, file.into(), Some(1), None, started);
+        a.docs.links.start(a.docs.waker());
+        // The viewer is closed, and the window already had the focus: nothing has asked.
+        let gone = dir.join("gone").join("viewer.ini");
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", gone) };
+        a.on_window_event(WindowEvent::MouseInput {
+            state: ElementState::Pressed,
+            button: MouseButton::Left,
+            device_id: DeviceId::dummy(),
+        });
+        let end = Instant::now() + Duration::from_secs(5);
+        while !a.docs.links.is_empty() && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(5));
+            a.woken(Wake::Link);
+        }
+        assert!(
+            a.docs.links.is_empty(),
+            "the click asked, and the viewer was gone"
+        );
+        assert!(
+            !crate::status::fields(&a.docs)
+                .1
+                .contains(&"Previewing".to_string())
+        );
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A key's press asks after the viewer, as a click does; its release and its auto-repeat
+    /// do not, so holding or letting go of a key is not a probe. The key's two booleans are the
+    /// ones the window's event path passes (`ask_on_key`, from `KeyboardInput`, which a test
+    /// cannot build: winit keeps one of its fields private).
+    #[test]
+    fn a_key_press_asks_but_its_release_and_auto_repeat_do_not() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("hand-key-gone");
+        let path = file(&dir, "a.md");
+        let _viewer = viewer(&dir);
+        let mut a = app();
+        a.docs.viewer = true;
+        let i = open_now(&mut a, &path);
+        let id = a.docs.tabs[i].id;
+        let file = a.docs.tabs[i].path.clone().unwrap();
+        let started = Instant::now().checked_sub(link::GRACE).unwrap();
+        a.docs.links.link(id, file.into(), Some(1), None, started);
+        a.docs.links.start(a.docs.waker());
+        // The viewer is closed, and nothing has asked: an ask now would end the link.
+        let gone = dir.join("gone").join("viewer.ini");
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", gone) };
+        let pump = |a: &mut App, for_ms: u64| {
+            let end = Instant::now() + Duration::from_millis(for_ms);
+            while Instant::now() < end {
+                std::thread::sleep(Duration::from_millis(5));
+                a.woken(Wake::Link);
+            }
+        };
+        a.ask_on_key(ElementState::Released, false);
+        pump(&mut a, 300);
+        assert!(
+            !a.docs.links.is_empty(),
+            "a key's release asks nothing, so the closed viewer is not found"
+        );
+        a.ask_on_key(ElementState::Pressed, true);
+        a.woken(Wake::Link);
+        pump(&mut a, 300);
+        assert!(
+            !a.docs.links.is_empty(),
+            "a key's auto-repeat asks nothing either"
+        );
+        // The press does, and the link ends as for a click.
+        a.ask_on_key(ElementState::Pressed, false);
+        let end = Instant::now() + Duration::from_secs(5);
+        while !a.docs.links.is_empty() && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(5));
+            a.woken(Wake::Link);
+        }
+        assert!(
+            a.docs.links.is_empty(),
+            "the press asked, and the viewer was gone"
+        );
+        assert!(
+            !crate::status::fields(&a.docs)
+                .1
+                .contains(&"Previewing".to_string())
+        );
         // SAFETY: as in `viewer`.
         unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
         let _ = std::fs::remove_dir_all(&dir);

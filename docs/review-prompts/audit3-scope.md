@@ -17,6 +17,40 @@ moved, the split model, the plan screen, and now the writer with its record and 
 tag at the time of writing (the version is 1.3.0 in `Cargo.toml`, with
 `docs/release-notes/1.3.0.md`), so code and notes may still move.
 
+## Since `v1.3.0` (2026-11-23): merged and unreviewed, or not yet merged
+
+Read this after 1.3.0's sections: it is what landed after the release and is newer than the tree
+the rest of this document describes.
+
+- **The add shows in the notes pane at once** (branch `fix/library-add-refresh`, merged into
+  `main` in `c81dbd3`, 2026-11-23; no decision entry): a note written by "Add this file to the
+  notes library…" also made the pane's rows again, opened what was folded above the note, and
+  dropped a name being typed in the box with the keyboard back in the text. `app/library.rs`
+  (`library_put`, `unfold_to`, `drop_library_field_focus`), `app/library_pane_tests.rs`,
+  `docs/DESIGN.md` §71. The tests claim each case; check the cursor and the field's focus when
+  the rows are made again.
+- **Browsing the library in the full preview** (branch `fix/preview-browse`, merged in `4de8cb3`
+  for D-104, 2026-11-23): visual editing waits while the active tab is still being read, closes
+  the block it had open, and follows the note once read; a failed read ends the mode.
+  `app/visual.rs`, `app/preview.rs`, `docs/DESIGN.md` (the full-preview section). Check the wait
+  against a tab whose read fails and the block left open over the note that follows.
+- **A closed mdview is asked about again, kept through the grace, and asked on a key press**
+  (branch `fix/closed-mdview`, **not merged** as this is written; D-102 and D-105, 2026-11-23):
+  the checks after the focus at 1, 2 and 4 s (`RECHECKS`), a check refused inside a link's
+  five-second `GRACE` kept and made once when the grace ends (`Courier::check_at`,
+  `Links::ask`), a key press or a click asking at most once in two seconds
+  (`Links::check_on_input`), input asks starting no rechecks (`Check::Once`), and only key
+  presses asking (`App::ask_on_key`, the `KeyboardInput` arm of `App::on_window_event`).
+  `link.rs`, `app.rs`, `app/handoff.rs`, `docs/DESIGN.md` §54 (the check paragraph). The tests:
+  `a_check_refused_while_the_viewer_may_be_starting_is_made_when_the_grace_ends`,
+  `an_input_ask_is_answered_once_and_starts_no_rechecks`,
+  `input_asks_whether_the_viewer_runs_at_most_once_in_a_while`,
+  `a_click_with_a_link_past_its_grace_finds_a_closed_viewer`,
+  `a_key_press_asks_but_its_release_and_auto_repeat_do_not`. Check the courier's two timers
+  (`check_at` and the recheck chain) against each other and against a stale kept check, and the
+  key path against real winit events: a test cannot build a `KeyEvent` (winit keeps one field
+  private), so the key test calls `ask_on_key`, not the event path.
+
 ## The audit 2 fixes (release/1.2.0, merged to main for 1.2.0)
 
 A. Unsaved text, session and updater (commit `f9a32c9`):
