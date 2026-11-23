@@ -1049,3 +1049,19 @@ release waits only for the owner's word to tag.
 **Why.** Rule 6: the owner approves by looking.
 **Overturned by.** The owner.
 **From.** The owner, 2026-11-23.
+
+## D-104 · 2026-11-23 · Visual editing waits for a tab still being read
+
+**Decision.** One of the four faults of D-101: browsing the library in the full preview kept the
+preview for two or three notes, then fell back to editing. A note opened from the library is a tab
+still being read, and until the read ends its language is unknown, so `is_markdown()` is false and
+`visual_sync` took it for a document the page cannot show. The mode now waits while the active tab
+has no text and is loading: it neither follows it nor ends, and the pane stays. A read that fails
+ends the mode, as a file the page cannot show does, and a block open on the document the page still
+shows closes when the wait starts, so the old tab's block is not left open over the new one's text.
+**Why.** The mode is the window's, and a note opened from the library is the document the mode
+already shows until the read ends; ending there is the fault the owner saw. One read is cheaper
+than guessing a language from the path, and a failed read is no text to show.
+**Overturned by.** The owner; or a preview that can show a document whose language is not yet
+known.
+**From.** The owner's hand check, D-101; the block closing, from the review of the fix.
