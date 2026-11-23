@@ -12,3 +12,9 @@ shows.)
   though it had not been added. The rows are made again as the note is written, with what was
   folded above it opened, and a name being typed in the pane's box goes with them, its keyboard
   back in the text.
+- **Browsing the notes library keeps the full preview.** In visual editing, opening note after
+  note from the library held the preview for two or three and then dropped the window back to
+  editing: a note just opened is a tab still being read, so its kind was not yet known and the
+  mode took it for a file the page cannot show. It now waits for the read, closes the old note's
+  open block while it waits, and follows the new note once read; a read that fails ends the mode,
+  as any file the page cannot show does.

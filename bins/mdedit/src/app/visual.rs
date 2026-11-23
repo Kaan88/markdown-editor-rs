@@ -321,6 +321,21 @@ impl App {
             self.end_visual();
             return;
         }
+        // A tab still being read has no language yet, so the page cannot yet say whether it can
+        // show it: the mode waits for the read instead of ending. A block open on the document
+        // the page still shows belongs to the old tab, and closes before the wait; a question
+        // still held for that block is not asked either (`preview_sync` asks nothing while no
+        // document is ready, and `follow_tab` clears it once the tab is followed).
+        if self
+            .docs
+            .active_doc()
+            .is_some_and(|d| d.ready().is_none() && d.is_loading())
+        {
+            if !current.is_some_and(|(id, _)| id == v.doc) {
+                self.close_block();
+            }
+            return;
+        }
         match current {
             Some((id, true)) if id == v.doc => {}
             // Visual editing is a mode of the window, not of one file: another document the

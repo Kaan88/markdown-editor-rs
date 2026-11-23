@@ -1510,6 +1510,12 @@ Last.
         pump(&mut a, |a| {
             a.visual_block().is_some_and(|b| b.first == 2) && a.areas.text.w > 0.0
         });
+        // `pump` gives up after five seconds without a word: a block that never opened would
+        // make "a block of the old document is still open" below hold for nothing.
+        assert!(
+            a.visual_block().is_some_and(|b| b.first == 2),
+            "a block of the first document is open when the tab is switched"
+        );
 
         // The tab switched to was left reading far down its text.
         a.docs.activate(1);
@@ -1549,6 +1555,172 @@ Last.
         assert!(a.visual_on() && a.docs.visual_open, "the mode stays on");
         assert_eq!(a.visual.as_ref().unwrap().doc, id_first);
         assert_eq!(a.areas.text.w, 0.0, "no text view beside it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The owner: "browsing the library in the full preview keeps the preview for two or three
+    /// files, then falls back to editing". A note opens as a tab still being read; that is not a
+    /// file the page cannot show, and the mode must wait for the read.
+    #[test]
+    fn visual_editing_waits_for_a_note_still_loading() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-loading-tab");
+        let first = dir.join("a.md");
+        let second = dir.join("b.md");
+        std::fs::write(&first, paragraphs("A", 90)).unwrap();
+        std::fs::write(&second, paragraphs("B", 90)).unwrap();
+        let mut a = app();
+        open_now(&mut a, &first);
+        a.viewer_path = Some(Some(viewer));
+        a.compose();
+        let first_id = a.docs.active_doc().unwrap().id;
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, first_id));
+        assert!(a.visual_on() && a.docs.visual_open);
+        // A block of the first note is open when the second is opened.
+        if let Some(v) = a.visual.as_mut() {
+            v.pending = Some(super::super::visual::Ask::Line(3));
+        }
+        pump(&mut a, |a| {
+            a.visual_block().is_some_and(|b| b.first == 2) && a.areas.text.w > 0.0
+        });
+        // `pump` gives up after five seconds without a word, and a block that never opened
+        // would make the assertion below ("the old note's block closes") hold for nothing.
+        assert!(
+            a.visual_block().is_some_and(|b| b.first == 2),
+            "a block of the first note is open before the second is opened"
+        );
+        // The second note is opened and not yet read.
+        let i = a.docs.open(&second);
+        let doc = a.docs.active_doc().unwrap();
+        assert!(doc.ready().is_none() && doc.is_loading());
+        a.visual_sync();
+        assert!(
+            a.visual_on() && a.docs.visual_open,
+            "the mode waits for the read"
+        );
+        assert!(a.preview.is_some(), "the pane stays");
+        assert!(
+            a.visual_block().is_none(),
+            "the old note's block closes while the new one is read"
+        );
+        a.docs.load_now(i, None, false);
+        a.compose();
+        a.visual_sync();
+        let id = a.docs.active_doc().unwrap().id;
+        assert!(a.visual_on());
+        assert_eq!(
+            a.visual.as_ref().unwrap().doc,
+            id,
+            "and follows it once read"
+        );
+        pump(&mut a, |a| page_shows(a, id));
+        assert_eq!(
+            a.preview.as_ref().unwrap().shown(),
+            Some(id),
+            "the page drew the new note"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `.rs` file opened while visual editing is on is still being read, so its language is
+    /// unknown: the mode waits, as for a note. Once read, the page cannot show it.
+    #[test]
+    fn visual_editing_waits_for_a_file_it_will_not_show() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-loading-other");
+        let md = dir.join("a.md");
+        let rs = dir.join("b.rs");
+        std::fs::write(&md, paragraphs("A", 90)).unwrap();
+        std::fs::write(&rs, "fn main() {}\n").unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.compose();
+        let id_md = a.docs.active_doc().unwrap().id;
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id_md));
+        assert!(a.visual_on() && a.docs.visual_open);
+
+        let i = a.docs.open(&rs);
+        let doc = a.docs.active_doc().unwrap();
+        assert!(doc.ready().is_none() && doc.is_loading());
+        a.visual_sync();
+        assert!(
+            a.visual_on() && a.docs.visual_open,
+            "the mode waits for the read"
+        );
+        assert!(a.preview.is_some(), "the pane stays");
+
+        a.docs.load_now(i, None, false);
+        a.compose();
+        a.visual_sync();
+        assert!(
+            !a.visual_on(),
+            "a file the page cannot show ends the mode once read"
+        );
+        assert!(
+            a.preview.is_none() && !a.docs.pane_open,
+            "the pane visual editing opened is closed"
+        );
+        assert!(a.areas.text.w > 0.0, "the text is back");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A note that cannot be read ends the mode once the read fails: waiting is for a read, and
+    /// a failure is not one the page can show.
+    #[test]
+    fn visual_editing_ends_when_the_waiting_note_cannot_be_read() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-loading-failed");
+        let md = dir.join("a.md");
+        let gone = dir.join("gone.md");
+        std::fs::write(&md, paragraphs("A", 90)).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(Some(viewer));
+        a.compose();
+        let id_md = a.docs.active_doc().unwrap().id;
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id_md));
+        assert!(a.visual_on() && a.docs.visual_open);
+
+        let i = a.docs.open(&gone);
+        let doc = a.docs.active_doc().unwrap();
+        assert!(doc.ready().is_none() && doc.is_loading());
+        a.visual_sync();
+        assert!(
+            a.visual_on() && a.docs.visual_open,
+            "the mode waits for the read"
+        );
+        assert!(a.preview.is_some(), "the pane stays");
+
+        a.docs.load_now(i, None, false);
+        let doc = a.docs.active_doc().unwrap();
+        assert!(
+            doc.ready().is_none() && !doc.is_loading(),
+            "the read failed"
+        );
+        a.compose();
+        a.visual_sync();
+        assert!(!a.visual_on(), "a failed read ends the mode");
+        assert!(
+            a.preview.is_none() && !a.docs.pane_open,
+            "the pane visual editing opened is closed"
+        );
+        assert!(a.areas.text.w > 0.0, "the text is back");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

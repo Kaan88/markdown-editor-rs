@@ -2525,6 +2525,11 @@ mode is the window's, not one file's: `bins/mdedit/src/app/visual.rs`.
   whose file is still being read is placed when its text arrives rather than showing the top.
   The page is asked for the caret's line and then told to forget it, so the reader's own
   scrolling is left alone from there on, as in the mode.
+- **A tab still being read waits.** Its language is unknown until it is read: `visual_sync`
+  neither follows nor ends while the active tab has no text and is loading, and a failed read
+  ends the mode, as a document the page cannot show does. A block open on the document the page
+  still shows closes when the wait starts, so the old tab's block is not left open over the new
+  one's text when it arrives.
 - **A document the page cannot show ends the mode** (a `.rs` file; also no tab at all), and the
   pane goes back to what it was before visual editing: `Visual::pane_opened` says whether visual
   editing opened it. `end_visual` closes a pane it opened and leaves one the owner had open;
@@ -2540,6 +2545,8 @@ mode is the window's, not one file's: `bins/mdedit/src/app/visual.rs`.
   it. Without that, switching tabs right after a click on the page could open a block of the old
   document's lines in the new one.
 - Tests: `app::preview::tests` (`visual_editing_follows_the_tab_to_another_markdown_document`,
+  `visual_editing_waits_for_a_note_still_loading`, `visual_editing_waits_for_a_file_it_will_not_show`,
+  `visual_editing_ends_when_the_waiting_note_cannot_be_read`,
   `a_file_the_page_cannot_show_ends_visual_editing_and_closes_the_pane_it_opened`,
   `a_file_the_page_cannot_show_leaves_a_pane_the_owner_had_open`,
   `visual_editing_follows_a_closed_tab`, `closing_the_last_tab_ends_visual_editing`) and
