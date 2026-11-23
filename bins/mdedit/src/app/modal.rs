@@ -1080,7 +1080,7 @@ impl App {
                 mdedit_core::prefs::AI_PARALLEL_MIN as i32,
                 mdedit_core::prefs::AI_PARALLEL_MAX as i32,
             )
-            .help("How many requests the AI may be asked at once. A local model starts with one."),
+            .help("A local model starts with one."),
         )));
         rewrite.push(why(Item::new(
             Row::toggle(AI_REVIEW, "Show changes before applying", p.ai_review)
