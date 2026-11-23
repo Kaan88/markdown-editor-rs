@@ -425,20 +425,21 @@ impl NoteCard {
             }
         }
         p.restore(old);
-        if rows.content() > rows.view + 1.0 {
-            if let Some((track, thumb)) = rows.thumb(body) {
-                draw_scrollbar(
-                    p,
-                    pal,
-                    track,
-                    thumb,
-                    self.drag.is_some()
-                        || self.hover == Some(Hit::Thumb)
-                        || self.hover == Some(Hit::Track),
-                );
-                self.spots.push((Hit::Thumb, thumb));
-                self.spots.push((Hit::Track, track));
-            }
+        if let Some((track, thumb)) = rows
+            .thumb(body)
+            .filter(|_| rows.content() > rows.view + 1.0)
+        {
+            draw_scrollbar(
+                p,
+                pal,
+                track,
+                thumb,
+                self.drag.is_some()
+                    || self.hover == Some(Hit::Thumb)
+                    || self.hover == Some(Hit::Track),
+            );
+            self.spots.push((Hit::Thumb, thumb));
+            self.spots.push((Hit::Track, track));
         }
     }
 

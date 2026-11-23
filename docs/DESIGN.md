@@ -3079,8 +3079,9 @@ never renamed or changed.
 - **The card** (`note_ui.rs`, `note_draw.rs`, over `Dialog::draw` like the move card). `Phase`:
   Ready (what is sent, what it is asked to do, what will be written, in the footer's words), Asking
   ("Asking Claude Code · Sonnet 5.5: N characters so far", a pulse, a Bar and a footer link, Esc or
-  Stop cancels through `Ai::cancel_id`), Changes (the line review of `mdedit_core::ai::review`, the
-  source's lines against the note's, red and green, `- N lines + M lines`) and Result (the note as
+  Stop cancels through `Ai::cancel_id`), Changes (`mdedit_core::hunks`' own changes: the source's
+  lines against the note's, unchanged runs folded to 3 lines, red and green, `- N lines + M lines`
+  from `Hunks::totals`), and Result (the note as
   it will be written, numbered). A `Changes | Result` segmented switch in the header, 28 tall, on
   the title's line, painted only in Changes and Result. Two lines of body above the list ("What
   changes to make the note." / "The note as it will be written."). Enter sends in Ready and writes

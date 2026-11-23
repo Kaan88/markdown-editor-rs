@@ -182,10 +182,8 @@ fn review_rows(h: &Hunks) -> Vec<Row> {
                 };
                 let mut last: Option<usize> = None;
                 for k in keep {
-                    if let Some(p) = last {
-                        if k > p + 1 {
-                            rows.push(Row::Fold { lines: k - p - 1 });
-                        }
+                    if let Some(p) = last.filter(|p| k > p + 1) {
+                        rows.push(Row::Fold { lines: k - p - 1 });
                     }
                     rows.push(Row::Same {
                         old: a.start + k + 1,
@@ -324,7 +322,7 @@ impl NoteCard {
     pub fn set_answer(&mut self, text: String, eol: &str) {
         let result = mdedit_core::ai::note_body(&text, eol);
         let hunks = mdedit_core::hunks::Hunks::new(&self.source.text, &result);
-        let (removed, added) = hunks.totals();
+        let (added, removed) = hunks.totals();
         self.rows = review_rows(&hunks);
         self.result = result;
         self.removed = removed;
