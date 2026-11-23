@@ -180,9 +180,12 @@ impl App {
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
+            // The two ways on are in "AI runs…": Finish writes the links, Undo takes the notes
+            // out (audit 3 C4, audit 4 F3).
             self.docs.set_toast(&format!(
-                "The notes are written, but {name} could not be updated: {}. Try again / Undo",
-                failure.why
+                "The notes are written, but {name} could not be updated: {}. {}",
+                failure.why,
+                strings::LINKS_PENDING_NEXT
             ));
         } else if let Some(Err(why)) = &binned {
             self.docs.set_toast(&format!(
@@ -376,14 +379,18 @@ pub(super) fn plan_preflight(app: &App, screen: &PlanScreen, req: &Request) -> R
     }
     // A7: the group's folder must not be the library folder itself: its notes would be files the
     // reader takes for library files.
-    if same_path(&req.group.home, library) {
+    if super::library_write::same_folder(&req.group.home, library) {
         return Err(format!(
             "{} is the library folder itself, so the notes would be library files. Choose another folder for the group.",
             shown(&req.group.home)
         ));
     }
     for note in &req.notes {
-        if note.path.parent().is_some_and(|p| same_path(p, library)) {
+        if note
+            .path
+            .parent()
+            .is_some_and(|p| super::library_write::same_folder(p, library))
+        {
             return Err(format!(
                 "{} would be a library file, not a note.",
                 shown(&note.path)
@@ -624,6 +631,22 @@ impl App {
         } else if let Some(failure) = report.failures.first() {
             self.docs
                 .set_toast(&format!("The links could not be written: {}", failure.why));
+        } else if !report.left_out.is_empty() {
+            // A note that is not there as the run wrote it is not linked: the toast names it.
+            let names: Vec<String> = report
+                .left_out
+                .iter()
+                .map(|p| {
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                })
+                .collect();
+            self.docs.set_toast(&format!(
+                "The run is finished: {} linked. Not there as the run wrote it, so left out: {}.",
+                report.added,
+                names.join(", ")
+            ));
         } else if report.added > 0 {
             self.docs
                 .set_toast(&format!("The run is finished: {} linked.", report.added));
@@ -868,6 +891,14 @@ impl App {
         // Undo's removals go to the Recycle Bin where the drive has one (4.5, rule 3; D-071). The
         // bin is taken out of the window for the length of the undo, since the gate holds it.
         let mut bin = std::mem::replace(&mut self.recycle, Box::new(crate::recycle::Taken));
+        // A note a tab holds with changes not saved is kept, and the run waits for it.
+        let unsaved: Vec<PathBuf> = self
+            .docs
+            .tabs
+            .iter()
+            .filter(|d| d.modified())
+            .filter_map(|d| d.path.clone())
+            .collect();
         let report = {
             let mut gate = PlanGate {
                 app: self,
@@ -878,7 +909,10 @@ impl App {
                 &record,
                 &library,
                 &mut gate,
-                &mut crate::recycle::ForUndo(&mut *bin),
+                &mut crate::recycle::SparingUnsaved {
+                    unsaved: &unsaved,
+                    bin: &mut crate::recycle::ForUndo(&mut *bin),
+                },
             )
         };
         self.recycle = bin;

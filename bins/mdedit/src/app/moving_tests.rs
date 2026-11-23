@@ -293,7 +293,51 @@ fn a_tab_open_on_a_moved_note_follows_it() {
     let to = l.dir.join("Work").join("Projects").join("plan.md");
     let path = a.docs.active_doc().and_then(|d| d.path.clone()).unwrap();
     assert!(mdshared_app::paths::same_path(&path, &to), "{path:?}");
+    // The recent files follow it too, in their order (audit 4, F11d).
+    let recents = a.docs.recents.paths().to_vec();
+    assert!(
+        recents
+            .iter()
+            .any(|p| mdshared_app::paths::same_path(p, &to)),
+        "{recents:?}"
+    );
+    assert!(
+        !recents
+            .iter()
+            .any(|p| mdshared_app::paths::same_path(p, &l.plan)),
+        "{recents:?}"
+    );
     let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, F11d: a moved file that is not open still leaves the recent files, its place and
+/// its bookmarks on its new path, the others where they were.
+#[test]
+fn a_move_takes_the_recent_files_place_and_bookmarks_with_it() {
+    let mut a = super::files_tests::app();
+    let dir = super::files_tests::scratch("move-follow");
+    let (one, two, three) = (dir.join("one.md"), dir.join("two.md"), dir.join("three.md"));
+    let to = dir.join("moved").join("two.md");
+    for p in [&one, &two, &three] {
+        a.docs.recents.add(p.clone());
+    }
+    a.docs.marks.put(&two, &[3, 7]);
+    let place = crate::places::Place {
+        line: 12,
+        ..Default::default()
+    };
+    a.docs.places.put(&two, place);
+    a.docs.follow_move(&two, &to);
+    let recents = a.docs.recents.paths().to_vec();
+    let want = [&three, &to, &one];
+    assert_eq!(recents.len(), 3, "{recents:?}");
+    for (got, want) in recents.iter().zip(want) {
+        assert!(mdshared_app::paths::same_path(got, want), "{recents:?}");
+    }
+    assert_eq!(a.docs.marks.lines(&to), Some(&[3, 7][..]));
+    assert_eq!(a.docs.marks.lines(&two), None);
+    assert_eq!(a.docs.places.get(&to).map(|p| p.line), Some(12));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

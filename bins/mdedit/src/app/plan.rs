@@ -70,8 +70,34 @@ impl App {
         // The notes are cut from this file: its length and digest are kept with the plan, and a
         // plan shown again after the file changed refuses to write (A8).
         let path = doc.path.clone().unwrap_or_default();
+        // The tab must hold what the file holds: the notes come from the tab and the digest from
+        // the disk, so a tab that has not read the file again since another program saved it
+        // would cut notes of the old text and let step 8 bin the newer file (audit 4, A F1).
+        let stale = doc.is_loading()
+            || doc.changed_on_disk
+            || mdshared_app::files::stamp(&path) != ready.info.stamp;
+        if stale {
+            self.docs
+                .set_toast(&crate::commands::strings::split_stale(&name));
+            return false;
+        }
         let (len, sha256) = match std::fs::read(&path) {
-            Ok(bytes) => (bytes.len() as u64, mdshared_app::update::sha256_hex(&bytes)),
+            Ok(bytes) => {
+                // And, for a UTF-8 file, its text is the tab's to the byte: a file changed with
+                // its size and time kept is caught here too.
+                let utf8 = matches!(ready.info.encoding, Encoding::Utf8 | Encoding::Utf8Bom);
+                if utf8 {
+                    let body = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+                    let mut held = String::with_capacity(ready.buffer.len_bytes());
+                    ready.buffer.text(0..ready.buffer.len_bytes(), &mut held);
+                    if body != held.as_bytes() {
+                        self.docs
+                            .set_toast(&crate::commands::strings::split_stale(&name));
+                        return false;
+                    }
+                }
+                (bytes.len() as u64, mdshared_app::update::sha256_hex(&bytes))
+            }
             Err(e) => {
                 self.docs.set_toast(&format!(
                     "{name} could not be read: {e}. The notes are made from the file on disk."

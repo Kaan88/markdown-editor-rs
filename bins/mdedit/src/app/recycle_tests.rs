@@ -337,7 +337,7 @@ fn a_note_the_bin_refuses_at_undo_is_kept_and_listed_apart() {
     bin.refuse = Some("the item is too large for the Recycle Bin".to_string());
     a.recycle = Box::new(bin);
     a.run_undo_ask(record_path.clone());
-    a.run_undo(record_path);
+    a.run_undo(record_path.clone());
     assert!(
         library.join("Trip/Tokyo/asakusa.md").is_file(),
         "kept, not deleted"
@@ -352,6 +352,67 @@ fn a_note_the_bin_refuses_at_undo_is_kept_and_listed_apart() {
         !rows.iter().any(|r| r.starts_with("# Changed since, kept")),
         "{rows:?}"
     );
+    // The run is not undone while a note of it is there (audit 4, F2 and F10): Undo again,
+    // with a bin that takes it, takes the rest out.
+    let record = mdedit_core::runs::load(&record_path, &library).expect("the record");
+    assert_eq!(record.state, mdedit_core::runs::State::UndoPending);
+    let mut bin = FolderBin::new(&dir.join("bin"));
+    bin.calls = calls.clone();
+    a.recycle = Box::new(bin);
+    a.run_undo_ask(record_path.clone());
+    a.run_undo(record_path.clone());
+    assert!(!library.join("Trip/Tokyo/asakusa.md").exists(), "taken out");
+    assert_eq!(
+        mdedit_core::runs::load(&record_path, &library).map(|r| r.state),
+        Some(mdedit_core::runs::State::Undone)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 3 C6, audit 4 F5b: undo keeps a note a tab holds with changes not saved, says why,
+/// and the run waits for it; once the tab is gone (here closed unsaved), Undo again takes
+/// it out. The bin is never handed the note while the tab holds changes.
+#[test]
+fn undo_keeps_a_note_a_tab_holds_with_changes_not_saved() {
+    let (mut a, library, _, dir, calls) = planned("bin-undo-unsaved", |_| {});
+    a.plan.as_mut().expect("open").keep_the_rest();
+    press(&mut a, KeyName::Enter);
+    let record_path =
+        a.ui.results
+            .replace
+            .outcome
+            .as_ref()
+            .and_then(|o| o.run.clone())
+            .expect("the record");
+    let note = library.join("Trip/Tokyo/asakusa.md");
+    open_now(&mut a, &note);
+    a.key_pressed(Key::Name(KeyName::Char('x')), Some("x"));
+    assert!(a.docs.active_doc().is_some_and(|d| d.modified()), "unsaved");
+    a.run_undo_ask(record_path.clone());
+    a.run_undo(record_path.clone());
+    assert!(note.is_file(), "kept");
+    assert!(
+        !calls.borrow().iter().any(|p| p.ends_with("asakusa.md")),
+        "the bin was not handed it: {:?}",
+        calls.borrow()
+    );
+    let rows = rows(&a);
+    assert!(
+        rows.iter()
+            .any(|r| r.contains(crate::recycle::UNSAVED)),
+        "{rows:?}"
+    );
+    assert_eq!(
+        mdedit_core::runs::load(&record_path, &library).map(|r| r.state),
+        Some(mdedit_core::runs::State::UndoPending)
+    );
+    // The tab's changes are thrown away; Undo again takes the note out.
+    if let Some(i) = a.docs.active() {
+        a.docs.close(i, None);
+    }
+    a.run_undo_ask(record_path.clone());
+    a.run_undo(record_path.clone());
+    assert!(!note.exists(), "taken out");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

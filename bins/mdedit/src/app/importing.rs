@@ -20,7 +20,6 @@ use crate::ui::PaneFace;
 use mdedit_core::import;
 use mdedit_core::runs;
 use mdshared_app::library;
-use mdshared_app::paths::same_path;
 
 /// The folder a walk is reading, while its thread runs.
 impl App {
@@ -131,7 +130,7 @@ impl App {
             return Err(format!("{} is not a folder.", dir.display()));
         }
         // A7: the library folder itself would make every file in it a library file.
-        if same_path(dir, &library) {
+        if super::library_write::same_folder(dir, &library) {
             return Err(strings::LIBRARY_HOME_IS_LIBRARY.to_string());
         }
         Ok(())

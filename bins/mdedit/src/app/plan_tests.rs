@@ -230,3 +230,72 @@ fn split_into_notes_needs_the_file_on_disk_to_be_what_is_in_the_tab() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Audit 4, A F1: a tab that has not read its file again since another program saved it opens
+/// no plan, so no note is cut from the old text and step 8 can never bin the newer file. The
+/// file is changed twice: once with its size changed, once with the same size and time.
+#[test]
+fn a_tab_that_has_not_read_its_newer_file_opens_no_plan() {
+    let dir = scratch("plan-stale");
+    let path = dir.join("Trip.md");
+    let old = "## One\n\nalpha\n\n## Two\n\nbeta\n";
+    std::fs::write(&path, old).expect("a file");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    open_now(&mut a, &path);
+    // Another program saves the file; the watcher has not been heard yet.
+    std::fs::write(
+        &path,
+        "## One\n\nALPHA REWRITTEN\n\n## Two\n\nbeta\n\n## Three\n\nx\n",
+    )
+    .expect("the newer text");
+    assert!(!a.docs.active_doc().expect("a tab").modified());
+    assert!(!a.plan_open_active());
+    assert!(a.plan.is_none());
+    let toast = a.docs.toast(Instant::now()).unwrap_or_default().to_string();
+    assert_eq!(toast, crate::commands::strings::split_stale("Trip.md"));
+    // The same size and the same time: the text is compared too.
+    let stamp = a
+        .docs
+        .active_doc()
+        .and_then(|d| d.ready())
+        .map(|r| r.info.stamp)
+        .expect("a stamp");
+    std::fs::write(&path, old.replace("alpha", "ALPHA")).expect("same size");
+    if let mdshared_app::files::FileStamp::Present {
+        modified: Some(t), ..
+    } = stamp
+    {
+        let f = std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open");
+        f.set_modified(t).expect("the old time");
+    }
+    assert_eq!(mdshared_app::files::stamp(&path), stamp, "the stamp is the same");
+    assert!(!a.plan_open_active());
+    assert!(a.plan.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The check does not refuse a tab that does hold its file: CRLF line ends and a byte order
+/// mark are the tab's as they are the file's.
+#[test]
+fn a_tab_that_holds_its_file_with_crlf_and_a_bom_opens_a_plan() {
+    let dir = scratch("plan-crlf");
+    let path = dir.join("Trip.md");
+    std::fs::write(
+        &path,
+        "\u{FEFF}# One\r\n\r\ntext\r\n\r\n# Two\r\n\r\nmore\r\n",
+    )
+    .expect("a file");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    open_now(&mut a, &path);
+    assert!(
+        a.plan_open_active(),
+        "{:?}",
+        a.docs.toast(Instant::now()).map(str::to_string)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

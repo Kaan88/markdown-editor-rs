@@ -584,3 +584,339 @@ fn task_on_this_file_opens_file_them_with_that_file() {
     assert_eq!(s.files.len(), 1);
     assert_eq!(s.files[0].path, text);
 }
+
+// ---- audit 4 ----------------------------------------------------------------------------------
+
+fn instruct(a: &mut App, text: &str) {
+    if let Some(s) = a.task.as_mut() {
+        s.instruction.set_text(text);
+    }
+}
+
+fn escape(a: &mut App) {
+    a.key_pressed(crate::keys::Key::Name(KeyName::Escape), None);
+}
+
+fn toast(a: &App) -> String {
+    a.docs
+        .toast(Instant::now())
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Audit 4, B3: Discard leaves the file as it was and the run asks for the next file, not for
+/// the same one again. (Copy result goes the same way, through `task_review_left`; it is not
+/// run here because it takes the clipboard.)
+#[test]
+fn discard_leaves_the_file_and_the_run_asks_for_the_next() {
+    let (mut a, dir) = ai_open("task-discard", TaskKind::Rewrite, Vec::new());
+    let one = pasta(&dir);
+    let two = dir.join("bread.md");
+    std::fs::write(&two, "# Bread\n\nBake it.\n").expect("bread");
+    a.task_add_paths(vec![one.clone(), two]);
+    instruct(&mut a, "Tidy them");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.task_review_discard();
+    assert!(a.ai.panel.is_none());
+    let s = a.task.as_ref().expect("the window stays");
+    assert!(!s.files[0].ticked && !s.files[0].done, "left as it was");
+    assert_eq!(
+        s.asking.as_ref().map(|q| q.index),
+        Some(1),
+        "the request out is for the second file"
+    );
+    assert_eq!(a.task_sent.requests, 2);
+    assert_eq!(
+        std::fs::read_to_string(&one).expect("pasta"),
+        "# Pasta\n\nBoil it.\n"
+    );
+}
+
+/// Audit 4, B4: a review kept from a window since closed, applied from another window, writes
+/// its own file under a record of its own. The other window's files are not touched and nothing
+/// is sent from it.
+#[test]
+fn a_review_kept_from_a_closed_window_writes_its_file_and_sends_nothing() {
+    let (mut a, dir) = ai_open("task-kept-other", TaskKind::Rewrite, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    escape(&mut a);
+    assert!(a.ai.panel.is_none() && a.ai.kept.is_some(), "the review is kept");
+    a.task_close();
+    let b = dir.join("b.md");
+    let c = dir.join("c.md");
+    std::fs::write(&b, "# B\n\nprivate b\n").expect("b");
+    std::fs::write(&c, "# C\n\nprivate c\n").expect("c");
+    a.task_open(TaskKind::File, vec![b, c]);
+    a.ai_show_kept();
+    assert!(matches!(a.ai.panel, Some(Panel::Review(_))));
+    a.task_review_apply();
+    assert_eq!(std::fs::read_to_string(&text).expect("written"), "# Done\n");
+    assert!(a.ai.panel.is_none());
+    let s = a.task.as_ref().expect("the File them window stays");
+    assert_eq!(s.task, TaskKind::File);
+    assert!(
+        s.files.iter().all(|f| f.ticked && !f.done),
+        "its files are as they were"
+    );
+    assert!(s.asking.is_none(), "nothing is sent from it");
+    assert_eq!(a.task_sent.requests, 0);
+    let runs = runs::list(&dir.join("library"));
+    assert_eq!(runs.len(), 1, "a record of its own");
+    assert_eq!(runs[0].record.originals.len(), 1);
+    assert_eq!(runs[0].record.state, runs::State::Done);
+    assert!(a.task_record.is_none(), "the window's record is not that one");
+}
+
+/// Audit 4, B5: while a request is out, a click on the task switch is refused; and the answer
+/// is read as the task that asked, whatever the window shows.
+#[test]
+fn a_request_out_keeps_its_task_and_its_answer_is_read_as_that_task() {
+    let (mut a, dir) = ai_open("task-switch", TaskKind::File, Vec::new());
+    let picture = dir.join("lasagne.jpg");
+    std::fs::write(&picture, [0xFF, 0xD8, 0xFF, 0xE0]).expect("picture");
+    a.task_add_paths(vec![pasta(&dir), picture]);
+    with_group(&mut a, "Recipes");
+    instruct(&mut a, "TASKFILE: by dish");
+    if let Some(s) = a.task.as_mut() {
+        s.files[1].ticked = true;
+    }
+    a.task_run();
+    assert!(a.task.as_ref().expect("open").asking.is_some());
+    a.compose();
+    let at = a.task.as_ref().and_then(|s| {
+        s.hits
+            .iter()
+            .find(|(h, _)| *h == Hit::Kind(TaskKind::Rewrite))
+            .map(|(_, r)| (r.x + r.w / 2.0, r.y + r.h / 2.0))
+    });
+    let (x, y) = at.expect("the switch is drawn");
+    a.ui.mouse = (x, y);
+    a.task_press();
+    a.task_release();
+    assert_eq!(
+        a.task.as_ref().expect("open").task,
+        TaskKind::File,
+        "the click is refused"
+    );
+    // A window that shows another task still reads the filing it asked for as a filing.
+    if let Some(s) = a.task.as_mut() {
+        s.task = TaskKind::Rewrite;
+    }
+    wait(&mut a, |a| a.task.as_ref().is_some_and(|s| s.planned));
+    assert!(a.ai.panel.is_none(), "no review of the filing's JSON");
+    let s = a.task.as_ref().expect("open");
+    assert!(s.asking.is_none());
+    assert_eq!(s.files[0].title.as_deref(), Some("Pasta"));
+}
+
+/// Audit 4, B7: a Rewrite window parked by "Show what is sent" comes back as Rewrite them,
+/// whichever command brings it back.
+#[test]
+fn a_parked_rewrite_window_comes_back_as_rewrite_them() {
+    let (mut a, dir) = ai_open("task-park-rewrite", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "Tidy it");
+    a.task_show_sent();
+    assert!(a.task_parked.is_some());
+    a.task_open(TaskKind::File, Vec::new());
+    let s = a.task.as_ref().expect("back");
+    assert_eq!(s.task, TaskKind::Rewrite);
+    assert_eq!(s.instruction.text(), "Tidy it");
+}
+
+/// Audit 4, B10: Run on the window shows the review Escape kept, as the command that would
+/// cannot be reached while the window is open; and Run again on a file's review whose window is
+/// closed keeps the review and says why.
+#[test]
+fn run_shows_the_kept_review_and_run_again_without_its_window_keeps_it() {
+    let (mut a, dir) = ai_open("task-kept-run", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    escape(&mut a);
+    assert!(a.ai.panel.is_none() && a.ai.kept.is_some());
+    a.task_run();
+    assert!(
+        matches!(a.ai.panel, Some(Panel::Review(_))),
+        "Run shows the kept review"
+    );
+    assert!(a.ai.kept.is_none());
+    assert_eq!(a.task_sent.requests, 1, "and sends nothing more");
+    escape(&mut a);
+    a.task_close();
+    a.ai_show_kept();
+    a.task_review_again();
+    assert!(
+        matches!(a.ai.panel, Some(Panel::Review(_))),
+        "the review stays, with its result"
+    );
+    assert!(toast(&a).contains("is closed"), "{}", toast(&a));
+}
+
+/// Audit 4, B12: the file is read again when its request is made, so an edit made after it was
+/// added is what is sent and its review can be applied; a file that is no longer UTF-8 text is
+/// not sent at all.
+#[test]
+fn a_file_edited_after_it_was_added_is_sent_as_it_is_now() {
+    let (mut a, dir) = ai_open("task-fresh", TaskKind::Rewrite, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    std::fs::write(&text, "# Pasta\n\nBoil it well.\n").expect("edited");
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    let Some(Panel::Review(rv)) = &a.ai.panel else {
+        panic!("a review");
+    };
+    assert_eq!(rv.original, "# Pasta\n\nBoil it well.\n");
+    assert!(rv.blocked.is_none(), "{:?}", rv.blocked);
+    a.task_review_apply();
+    assert_eq!(std::fs::read_to_string(&text).expect("written"), "# Done\n");
+    // Another window, on a file that stops being UTF-8 after it was added.
+    let other = dir.join("other.md");
+    std::fs::write(&other, "# Other\n\nete\n").expect("other");
+    a.task_open(TaskKind::Rewrite, vec![other.clone()]);
+    std::fs::write(&other, b"# Other\n\n\xE9t\xE9\n").expect("Latin-1");
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    let s = a.task.as_ref().expect("open");
+    assert!(s.asking.is_none(), "nothing is sent");
+    assert_eq!(a.task_sent.requests, 0);
+    assert_eq!(
+        s.blocked.as_deref(),
+        Some("other.md: not UTF-8: save it as UTF-8 first. Nothing was sent.")
+    );
+}
+
+/// Audit 4, B14: Rewrite them with nothing in the instruction box sends nothing and says why.
+#[test]
+fn rewrite_them_with_no_instruction_sends_nothing_and_says_why() {
+    let (mut a, dir) = ai_open("task-no-instruction", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "   ");
+    a.task_run();
+    let s = a.task.as_ref().expect("open");
+    assert!(s.asking.is_none());
+    assert_eq!(
+        s.blocked.as_deref(),
+        Some(crate::task_ui::REWRITE_NEEDS_INSTRUCTION)
+    );
+    assert_eq!(a.task_sent.requests, 0);
+}
+
+/// Audit 4, B2: a run whose originals pass what one record holds goes on in a second record, so
+/// every record can be read back and undone; the end of the run counts the files of both.
+#[test]
+fn a_rewrite_run_past_what_one_record_holds_goes_on_in_a_second_record() {
+    let dir = scratch("task-record-full");
+    let lib = dir.join("library");
+    std::fs::create_dir_all(&lib).expect("library");
+    // A quote is two bytes in a record, so each original takes twice its size there.
+    let line = format!("{}\n", "\"".repeat(99));
+    let body = |name: &str| format!("# {name}\n\n{}", line.repeat(1900));
+    let file_of = |path: &Path, before: String| runs::RewriteFile {
+        path: path.to_path_buf(),
+        before,
+        after: "# Done\n".to_string(),
+        bom: false,
+    };
+    let last = dir.join("last.md");
+    std::fs::write(&last, body("Last")).expect("last");
+    // The window's record is filled with other files' originals, until this one would not fit.
+    let first = dir.join("f0.md");
+    std::fs::write(&first, body("F0")).expect("f0");
+    let (record_path, mut record) =
+        runs::start_rewrite(&lib, "Tidy it", None, &first).expect("a record");
+    let mut fillers = 0;
+    while runs::rewrite_fits(&record, &lib, &file_of(&last, body("Last"))) {
+        let p = dir.join(format!("f{fillers}.md"));
+        std::fs::write(&p, body("F")).expect("filler");
+        runs::rewrite_into(&record_path, &mut record, &lib, &file_of(&p, body("F")))
+            .expect("a filler is rewritten");
+        fillers += 1;
+    }
+    assert!(fillers > 1, "{fillers}");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    a.task_open(TaskKind::Rewrite, vec![last.clone()]);
+    a.task_record = Some((record_path, record));
+    instruct(&mut a, "Tidy it");
+    if let Some(s) = a.task.as_mut() {
+        assert!(s.files[0].text.is_some(), "the file can be rewritten");
+        s.asking = Some(crate::task_ui::Asking {
+            request: 0,
+            task: TaskKind::Rewrite,
+            what: String::new(),
+            chars: 0,
+            index: 0,
+            prompt: String::new(),
+            batch: vec![0],
+        });
+    }
+    a.task_done("# Done\n");
+    assert!(matches!(a.ai.panel, Some(Panel::Review(_))));
+    a.task_review_apply();
+    assert_eq!(
+        std::fs::read_to_string(&last).expect("written"),
+        "# Done\n",
+        "{:?}",
+        a.ai.review().map(|rv| rv.blocked.clone())
+    );
+    assert!(a.task.is_none(), "the run is over");
+    let listed = runs::list(&lib);
+    assert_eq!(listed.len(), 2, "two records, each read back");
+    let originals: usize = listed.iter().map(|r| r.record.originals.len()).sum();
+    assert_eq!(originals, fillers + 1);
+    assert!(listed.iter().all(|r| r.record.state == runs::State::Done));
+    assert_eq!(
+        toast(&a),
+        format!("{} files rewritten. Undo is in AI runs.", fillers + 1)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, B6: a file that could not be written leaves no record behind when the run ends,
+/// and nothing beside the file.
+#[test]
+fn a_rewrite_that_could_not_be_written_leaves_no_record_when_the_run_ends() {
+    let (mut a, dir) = ai_open("task-read-only", TaskKind::Rewrite, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    let mut perms = std::fs::metadata(&text).expect("meta").permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&text, perms.clone()).expect("read-only");
+    a.task_review_apply();
+    let blocked = a.ai.review().and_then(|rv| rv.blocked.clone());
+    assert!(blocked.is_some(), "the review says why");
+    assert_eq!(
+        std::fs::read_to_string(&text).expect("unchanged"),
+        "# Pasta\n\nBoil it.\n"
+    );
+    a.task_review_discard();
+    assert!(a.task.is_none(), "the run is over");
+    assert!(
+        runs::list(&dir.join("library")).is_empty(),
+        "no record of a file that was not rewritten"
+    );
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .expect("the folder")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp") || n.ends_with(".part"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    let _ = std::fs::set_permissions(&text, perms);
+    let _ = std::fs::remove_dir_all(&dir);
+}

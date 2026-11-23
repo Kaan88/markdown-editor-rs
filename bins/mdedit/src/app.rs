@@ -208,8 +208,9 @@ pub enum Picked {
     Folder(Option<PathBuf>),
     /// The file to compare the active one with.
     CompareFile(Vec<PathBuf>),
-    /// The file a note of the notes library was found at, and the folder chosen for it.
-    LibraryFile(Vec<PathBuf>),
+    /// The file a note of the notes library was found at (the note it is for goes with it), and
+    /// the folder chosen for it.
+    LibraryFile(crate::library_pane::Moving, Vec<PathBuf>),
     LibraryFolder(Option<PathBuf>),
     /// A text file to make a Markdown note from (5.8), and the group's library file it is for.
     NoteFile(PathBuf, Vec<PathBuf>),
@@ -398,6 +399,11 @@ struct App {
     task_plan: Option<usize>,
     /// A rewrite run's record, made when its first file is written.
     task_record: Option<(PathBuf, mdedit_core::runs::Record)>,
+    /// The last task window's id ([`crate::task_ui::TaskScreen::id`]).
+    task_seq: u64,
+    /// Files the task window's run rewrote, over every record it took (a run whose originals
+    /// pass one record's size goes on in another, audit 4 B2).
+    task_rewritten: usize,
     /// What the task window has sent, for the record.
     task_sent: mdedit_core::runs::Sent,
     /// The Recycle Bin (5.4): the system's, or in a test a bin of the test's own, so no test can
@@ -576,6 +582,8 @@ impl App {
             task_parked: None,
             task_plan: None,
             task_record: None,
+            task_seq: 0,
+            task_rewritten: 0,
             task_sent: Default::default(),
             #[cfg(not(test))]
             recycle: Box::new(crate::recycle::SystemBin),

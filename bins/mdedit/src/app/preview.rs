@@ -114,7 +114,8 @@ impl App {
         // While a block is open the page keeps the text it opened on and stands still; the
         // edits go to it when the block closes.
         let held = self.visual_block().is_some();
-        let pending = self.visual.as_mut().and_then(|v| v.pending.take());
+        let active = self.docs.active_doc().map(|d| d.id);
+        let pending = self.visual.as_mut().and_then(|v| v.take_pending(active));
         let mut requeue = None;
         if self.preview.is_none() && self.visual.is_some() {
             self.end_visual();

@@ -1486,3 +1486,40 @@ fn only_a_group_row_offers_to_delete_a_library_file() {
             .any(|i| matches!(i.id, Act::Library(LibAct::DeleteFile, _)))
     );
 }
+
+/// Audit 4, F12: off Windows the window stays live while the picker of "Find the file…" is
+/// open. "Find the file…" on another note meanwhile opens nothing and changes nothing: the
+/// answer is written to the link of the note its picker was asked for, never to the other's.
+#[cfg(not(windows))]
+#[test]
+fn find_the_file_writes_the_link_its_picker_was_asked_for() {
+    let (mut a, l) = lib("libw-find-target");
+    let moved = l.dir.join("moved.md");
+    std::fs::write(&moved, "# Last year\n").unwrap();
+    // The picker for "Last year" (line 9) is open...
+    a.dialog_busy = true;
+    let asked = crate::library_pane::Moving {
+        file: l.file.clone(),
+        line: 9,
+        title: "Last year".to_string(),
+        note: l.last.clone(),
+    };
+    // ...when "Find the file…" is chosen on "Taxes 2026" (line 5).
+    a.library_find_file(&l.file, 5, "Taxes 2026", &l.taxes);
+    assert!(a.dialog_busy, "no second picker");
+    a.woken(Wake::Dialog(Picked::LibraryFile(asked, vec![moved.clone()])));
+    let text = read(&l.file);
+    let line = |title: &str| {
+        text.lines()
+            .find(|s| s.starts_with(&format!("- [{title}](")))
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(
+        line("Taxes 2026"),
+        format!("- [Taxes 2026]({})", slash(&l.taxes)),
+        "{text}"
+    );
+    assert!(line("Last year").ends_with("moved.md)"), "{text}");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}

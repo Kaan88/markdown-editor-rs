@@ -3459,13 +3459,35 @@ impl Docs {
         changed
     }
 
-    /// A file open in a tab was moved by "Move the notes…" from `from` to `to`: the tab follows
-    /// it, so it does not read as gone. Its text, changes and history are kept; nothing is read.
+    /// A file was moved by "Move the notes…" from `from` to `to`: a tab open on it follows it,
+    /// so it does not read as gone. Its text, changes and history are kept; nothing is read. The
+    /// recent files, its place and its bookmarks follow it too, as a rename's do (audit 4, F11d).
     pub fn follow_move(&mut self, from: &Path, to: &Path) {
+        let to = canonical_or_absolute(to);
         for doc in &mut self.tabs {
             if doc.path.as_deref().is_some_and(|p| same_path(p, from)) {
-                doc.path = Some(canonical_or_absolute(to));
+                doc.path = Some(to.clone());
                 self.watch_changed = true;
+            }
+        }
+        if let Some(place) = self.places.get(from) {
+            self.places.put(from, crate::places::Place::default());
+            self.places.put(&to, place);
+        }
+        if let Some(lines) = self.marks.lines(from).map(<[usize]>::to_vec) {
+            self.marks.put(from, &[]);
+            self.marks.put(&to, &lines);
+        }
+        if self.recents.paths().iter().any(|p| same_path(p, from)) {
+            // In their order: each is added again, the oldest first.
+            let paths = self.recents.paths().to_vec();
+            self.recents.clear();
+            for p in paths.iter().rev() {
+                self.recents.add(if same_path(p, from) {
+                    to.clone()
+                } else {
+                    p.clone()
+                });
             }
         }
     }

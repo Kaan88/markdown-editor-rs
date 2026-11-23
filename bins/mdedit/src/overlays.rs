@@ -1594,15 +1594,7 @@ pub fn draw_dialog(
                 false,
             );
             if let Some(run) = runs.list.get(runs.sel) {
-                // A move has nothing to finish: it is put back or undone. Neither has a record a
-                // later version wrote.
-                let finish = matches!(
-                    run.record.kind,
-                    mdedit_core::runs::Kind::Split | mdedit_core::runs::Kind::Markdown
-                ) && matches!(
-                    run.record.state,
-                    mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
-                );
+                let finish = offers_finish(&run.record);
                 let undo = run.record.state.live();
                 let mut items: Vec<(&str, Hit, bool)> = Vec::new();
                 items.push(("Show the notes", Hit::DlgRunShow, true));
@@ -1709,6 +1701,17 @@ fn when(started: &str) -> String {
     }
 }
 
+/// Whether "AI runs…" offers Finish for a run: a split or a Markdown run whose links did not
+/// all go in, stopped, still writing or left "links pending" (audit 3 C4, audit 4 F3). A move
+/// and a rewrite have nothing to finish: they are put back or undone. A run partly undone is
+/// not finished: Undo takes the rest of it out.
+pub(crate) fn offers_finish(record: &mdedit_core::runs::Record) -> bool {
+    matches!(
+        record.kind,
+        mdedit_core::runs::Kind::Split | mdedit_core::runs::Kind::Markdown
+    ) && record.state.finishable()
+}
+
 /// A run's state as its row says it (5.9).
 fn state_label(state: mdedit_core::runs::State) -> &'static str {
     use mdedit_core::runs::State;
@@ -1717,6 +1720,7 @@ fn state_label(state: mdedit_core::runs::State) -> &'static str {
         State::LinksPending => "links pending",
         State::Done => "done",
         State::Stopped => "stopped part-way",
+        State::UndoPending => "partly undone",
         State::Undone => "undone",
     }
 }
@@ -1879,6 +1883,60 @@ pub fn draw_empty(c: &mut Ctx, docs: &Docs, r: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Audit 4, F3: Finish is offered for a split or Markdown run whose links are pending, as for
+    /// one that stopped; never for a run partly undone, a done one, a move or a rewrite.
+    #[test]
+    fn finish_is_offered_for_a_run_whose_links_are_pending() {
+        use mdedit_core::runs::{Group, Kind, Record, Source, State};
+        use std::path::PathBuf;
+        let mut record = Record {
+            version: 1,
+            kind: Kind::Split,
+            started: String::new(),
+            started_secs: 0,
+            state: State::Done,
+            instruction: String::new(),
+            sent: None,
+            source: Source {
+                path: PathBuf::from("Trip.md"),
+                len: 0,
+                sha256: String::new(),
+                recycled: false,
+            },
+            group: Group {
+                name: "Trip".to_string(),
+                file: PathBuf::from("Trip.md"),
+                created: false,
+                home: PathBuf::from("Trip"),
+            },
+            folders: Vec::new(),
+            notes: Vec::new(),
+            pictures: Vec::new(),
+            sections_added: Vec::new(),
+            moved: None,
+            originals: Vec::new(),
+        };
+        let offered = |r: &mdedit_core::runs::Record, kind: Kind, state: State| {
+            let mut r = r.clone();
+            r.kind = kind;
+            r.state = state;
+            offers_finish(&r)
+        };
+        for kind in [Kind::Split, Kind::Markdown] {
+            for state in [State::Writing, State::LinksPending, State::Stopped] {
+                assert!(offered(&record, kind, state), "{kind:?} {state:?}");
+            }
+            for state in [State::Done, State::UndoPending, State::Undone] {
+                assert!(!offered(&record, kind, state), "{kind:?} {state:?}");
+            }
+        }
+        for kind in [Kind::Move, Kind::Rewrite] {
+            assert!(!offered(&record, kind, State::LinksPending), "{kind:?}");
+        }
+        record.state = State::UndoPending;
+        assert_eq!(state_label(record.state), "partly undone");
+    }
 
     #[test]
     fn cards_fit_small_windows() {

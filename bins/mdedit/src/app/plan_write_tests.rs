@@ -171,13 +171,14 @@ fn a_group_file_that_cannot_be_written_leaves_the_notes_unlinked_and_the_record_
     // takes the empty group away even though its links never went in.
     assert!(dir.join("library/Trip.md").is_file());
     assert!(runs[0].record.group.created);
-    // The toast says so, in the words of 4.3.
+    // The toast says so, in the words of 4.3 as audit 4 reworded them.
     let said = toast(&a);
     assert!(
         said.starts_with("The notes are written, but Trip.md could not be updated"),
         "{said}"
     );
-    assert!(said.ends_with("Try again / Undo"), "{said}");
+    // Its way on is named: AI runs, where Finish and Undo are (audit 4, F3).
+    assert!(said.ends_with(crate::commands::strings::LINKS_PENDING_NEXT), "{said}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -539,6 +540,43 @@ fn a_plan_refuses_a_group_whose_folder_is_the_library_folder() {
     assert!(said.contains("library folder itself"), "{said}");
     assert_eq!(read(&file), "# Work\nhome: .\n");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, F14: a `home:` line that reaches the library folder by `..` is the library folder,
+/// whether the folder it goes through is there or not: "New note here…" and the plan refuse it.
+#[test]
+fn a_home_line_that_reaches_the_library_folder_by_dot_dot_is_refused() {
+    for (tag, trip) in [("plan-home-up-gone", false), ("plan-home-up", true)] {
+        let dir = scratch(tag);
+        let library = dir.join("library");
+        std::fs::create_dir_all(&library).expect("the library");
+        if trip {
+            std::fs::create_dir_all(library.join("Trip")).expect("Trip");
+        }
+        let file = library.join("Work.md");
+        let text = "# Work\nhome: Trip/..\n";
+        std::fs::write(&file, text).expect("a home line");
+        let mut a = app_in(&dir);
+        a.library_rows();
+        a.library_new_note(&file, &[], "Idea");
+        assert!(!library.join("idea.md").exists(), "{tag}: no library file");
+        assert!(
+            toast(&a).contains("cannot be a group's folder"),
+            "{tag}: {}",
+            toast(&a)
+        );
+        let source = dir.join("Work.md");
+        std::fs::write(&source, FLAT).expect("the source");
+        open_now(&mut a, &source);
+        assert!(a.plan_open_active(), "{tag}");
+        press(&mut a, KeyName::Enter);
+        assert!(!library.join("asakusa.md").exists(), "{tag}: no note there");
+        assert!(a.plan.is_some(), "{tag}: the card stays");
+        let said = blocked(&a);
+        assert!(said.contains("library folder itself"), "{tag}: {said}");
+        assert_eq!(read(&file), text, "{tag}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// C2: a new group whose file name is taken, found before the notes are written.

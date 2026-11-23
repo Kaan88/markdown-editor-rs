@@ -435,6 +435,8 @@ pub struct Review {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileReview {
     pub path: PathBuf,
+    /// The task window the review came from ([`crate::task_ui::TaskScreen::id`]).
+    pub window: u64,
     /// The file's place in the task window's files.
     pub index: usize,
     /// The original began with a UTF-8 byte order mark.
@@ -443,6 +445,9 @@ pub struct FileReview {
     pub eol: String,
     /// The task window's instruction, for Run again.
     pub instruction: String,
+    /// What the window had sent when the answer came: the record of a review applied after its
+    /// window closed says it.
+    pub sent: mdedit_core::runs::Sent,
 }
 
 // One panel is open at a time, kept in an `Option` in `Ai`: boxing the review would only add a

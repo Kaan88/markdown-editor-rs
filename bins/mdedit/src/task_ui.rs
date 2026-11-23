@@ -176,8 +176,10 @@ pub struct FileEntry {
     pub sections: Vec<String>,
     /// A picture or other file the model placed with a text file (by its place in the window).
     pub with: Option<usize>,
-    /// A Rewrite run takes 20 files: the 21st and after say so on their row.
+    /// A Rewrite run takes 20 files: while twenty are ticked, the others say so on their row.
     pub over_limit: bool,
+    /// The limit unticked it, not the owner: another task ticks it again.
+    pub limited: bool,
     /// The file's dominant line ending, as a rewrite writes its result back with it.
     pub eol: String,
     /// Its date of last change, `YYYY-MM-DD`, in the digest.
@@ -231,7 +233,21 @@ impl FileEntry {
     pub fn takes_part(&self, task: TaskKind) -> bool {
         self.ticked && self.reason_for(task).is_none()
     }
+
+    /// Whether it could take a place of a rewrite's twenty: a text file with nothing else
+    /// keeping it out.
+    fn can_be_rewritten(&self) -> bool {
+        self.kind == FileKind::Text
+            && self.text.is_some()
+            && self.why.is_none()
+            && !self.already
+            && !self.done
+    }
 }
+
+/// What the footer says when Rewrite them is run with nothing in the box (audit 4, B14).
+pub const REWRITE_NEEDS_INSTRUCTION: &str =
+    "Rewrite them needs an instruction: type one, or pick a saved prompt.";
 
 /// The most text one rewrite takes.
 pub const REWRITE_MAX: usize = 200_000;
@@ -388,6 +404,9 @@ impl ListState {
 }
 
 pub struct TaskScreen {
+    /// Which window this is: a review kept from one window is never applied to another's files
+    /// (audit 4, B4). Set by the app when it opens the window; 0 in a test that makes one.
+    pub id: u64,
     pub task: TaskKind,
     pub files: Vec<FileEntry>,
     /// The groups read when the window opened; a new group is added when it is made.
@@ -436,6 +455,9 @@ pub struct TaskScreen {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Asking {
     pub request: u64,
+    /// The task that asked: the answer is read as this task's, whatever the window shows now
+    /// (audit 4, B5).
+    pub task: TaskKind,
     pub what: String,
     pub chars: usize,
     pub index: usize,
@@ -453,6 +475,7 @@ impl TaskScreen {
         via: String,
     ) -> TaskScreen {
         TaskScreen {
+            id: 0,
             task,
             files: Vec::new(),
             groups,
@@ -572,17 +595,49 @@ impl TaskScreen {
         self.tick += 1;
     }
 
-    /// A rewrite takes at most [`REWRITE_MAX_FILES`] files: the ones after the twentieth say so.
+    /// A click on file `i`'s row: its tick changes when it can take part and was not written,
+    /// and the twenty a rewrite takes are counted again.
+    pub fn toggle(&mut self, i: usize) {
+        let task = self.task;
+        let Some(f) = self.files.get_mut(i) else {
+            return;
+        };
+        if f.reason_for(task).is_some() || f.done {
+            return;
+        }
+        f.ticked = !f.ticked;
+        f.limited = false;
+        self.recount_limit();
+        self.tick += 1;
+    }
+
+    /// A rewrite takes at most [`REWRITE_MAX_FILES`] files. Only the ticked files that could be
+    /// rewritten count: one past the twentieth is unticked, and while twenty are ticked every
+    /// other says so on its row. Unticking one frees its place; a file the limit unticked is
+    /// ticked again when the task is another (audit 4, B13).
     pub fn recount_limit(&mut self) {
+        let rewrite = self.task == TaskKind::Rewrite;
         let mut n = 0;
         for f in self.files.iter_mut() {
-            let takes = f.kind == FileKind::Text && f.text.is_some() && f.why.is_none();
-            f.over_limit = self.task == TaskKind::Rewrite && takes && {
+            f.over_limit = false;
+            if !rewrite {
+                if f.limited {
+                    f.ticked = true;
+                    f.limited = false;
+                }
+                continue;
+            }
+            if f.ticked && f.can_be_rewritten() {
                 n += 1;
-                n > REWRITE_MAX_FILES
-            };
-            if f.over_limit && f.ticked {
-                f.ticked = false;
+                if n > REWRITE_MAX_FILES {
+                    f.ticked = false;
+                    f.limited = true;
+                }
+            }
+        }
+        if rewrite && n >= REWRITE_MAX_FILES {
+            for f in self.files.iter_mut() {
+                f.over_limit = !f.ticked && f.can_be_rewritten();
             }
         }
     }
@@ -679,9 +734,18 @@ pub fn digest_of(file: &FileEntry) -> String {
         out.push_str(&sample);
         out.push('\n');
     }
-    out.truncate(2048);
+    // Cut at a character, never inside one: `truncate` inside a two- or three-byte letter
+    // panics, and the release build aborts on a panic (audit 4, B1).
+    let mut end = out.len().min(DIGEST_MAX);
+    while !out.is_char_boundary(end) {
+        end -= 1;
+    }
+    out.truncate(end);
     out
 }
+
+/// The most bytes one file's digest takes in a "File them" request.
+pub const DIGEST_MAX: usize = 2048;
 
 /// The date of `secs` since 1970, as `YYYY-MM-DD` (UTC), for a digest: the model need only a
 /// rough date, and the program has no date library of its own.
@@ -934,11 +998,61 @@ mod tests {
             sections: Vec::new(),
             with: None,
             over_limit: false,
+            limited: false,
             eol: "\n".to_string(),
             modified: None,
             already: false,
             done: false,
         }
+    }
+
+    /// Audit 4, B13: the twenty a rewrite takes are the ticked ones. Unticking one of them frees
+    /// a place for another; a file the limit unticked is ticked again under another task.
+    #[test]
+    fn the_twenty_a_rewrite_takes_are_counted_among_the_ticked_files() {
+        let mut s = TaskScreen::new(
+            TaskKind::File,
+            Vec::new(),
+            DestChoice::New(String::new()),
+            Vec::new(),
+            "Claude".to_string(),
+        );
+        for i in 0..25 {
+            s.files.push(entry(&format!("n{i}.md"), FileKind::Text));
+        }
+        s.files[24].already = true;
+        s.files[24].ticked = false;
+        s.set_task(TaskKind::Rewrite);
+        let ticked = |s: &TaskScreen| s.files.iter().filter(|f| f.ticked).count();
+        assert_eq!(ticked(&s), REWRITE_MAX_FILES);
+        assert!(s.files[19].ticked && !s.files[20].ticked);
+        let limit = format!("only {REWRITE_MAX_FILES} files a run");
+        assert_eq!(s.files[20].reason_for(TaskKind::Rewrite), Some(limit.clone()));
+        assert_eq!(
+            s.files[24].reason_for(TaskKind::Rewrite).as_deref(),
+            Some("already in the library"),
+            "a file already in the library takes no place"
+        );
+        // Unticking the first frees its place: the twenty-first can be ticked.
+        s.toggle(0);
+        assert!(!s.files[0].ticked);
+        assert_eq!(s.files[20].reason_for(TaskKind::Rewrite), None);
+        s.toggle(20);
+        assert!(s.files[20].ticked, "the freed place is taken");
+        assert_eq!(ticked(&s), REWRITE_MAX_FILES);
+        assert_eq!(s.files[21].reason_for(TaskKind::Rewrite), Some(limit.clone()));
+        assert_eq!(
+            s.files[0].reason_for(TaskKind::Rewrite),
+            Some(limit),
+            "with twenty ticked, the one unticked waits too"
+        );
+        s.toggle(21);
+        assert!(!s.files[21].ticked, "no twenty-first");
+        // File them takes them all: the ones the limit unticked are ticked again, the one the
+        // owner unticked is not.
+        s.set_task(TaskKind::File);
+        assert!(s.files[21].ticked && s.files[23].ticked);
+        assert!(!s.files[0].ticked);
     }
 
     #[test]
@@ -1042,6 +1156,24 @@ mod tests {
             first_heading("# Pasta\n\n# Second\n"),
             Some("Pasta".to_string())
         );
+    }
+
+    /// Audit 4, B1: a digest whose 2,048th byte falls inside a letter is cut before it, and
+    /// does not panic (the release build aborts on a panic). Every offset of the cut is tried,
+    /// with letters of two, three and four bytes.
+    #[test]
+    fn the_digest_is_cut_at_a_character_whatever_the_letters() {
+        for letter in ["ж", "語", "😀"] {
+            for lead in 0..4 {
+                let mut f = entry(&format!("{}.md", "a".repeat(lead)), FileKind::Text);
+                f.heading = Some("T".to_string());
+                f.sample = letter.repeat(1300);
+                let d = digest_of(&f);
+                assert!(d.len() <= DIGEST_MAX, "{}", d.len());
+                assert!(d.len() > DIGEST_MAX - 4, "{}", d.len());
+                assert!(d.ends_with(letter), "{letter} {lead}");
+            }
+        }
     }
 
     #[test]

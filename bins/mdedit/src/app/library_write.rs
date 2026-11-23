@@ -12,6 +12,14 @@ use crate::ui::{BarField, DialogKind, LibAct, Popup, PopupKind};
 use mdshared_app::library::{self, Parsed};
 use mdshared_app::paths::{canonical_or_absolute, same_path};
 
+/// Whether two folders are one folder on disk: each asked of the disk where it exists, with `.`
+/// and `..` folded, so `home: Trip/..` is the folder it names (audit 4, F14). `same_path` alone
+/// compares the spelling.
+pub(super) fn same_folder(a: &Path, b: &Path) -> bool {
+    use mdshared_app::paths::comparable;
+    same_path(&comparable(a), &comparable(b))
+}
+
 /// How an attempt to write a library file ended.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Wrote {
@@ -575,7 +583,7 @@ impl App {
         // takes each for a library file. The picker cannot make one.
         if self
             .library_dir()
-            .is_some_and(|root| same_path(&dir, &root))
+            .is_some_and(|root| same_folder(&dir, &root))
         {
             self.docs.set_toast(strings::LIBRARY_HOME_IS_LIBRARY);
             return;
@@ -695,7 +703,7 @@ impl App {
                 // older version) would put this note in the library as a library file.
                 if self
                     .library_dir()
-                    .is_some_and(|root| same_path(&home, &root))
+                    .is_some_and(|root| same_folder(&home, &root))
                 {
                     self.docs.set_toast(strings::LIBRARY_HOME_IS_LIBRARY);
                     return;
@@ -1030,14 +1038,16 @@ impl App {
     }
 
     /// "Find the file…": a picker, then the link's target is the file chosen. A note moved in
-    /// the file manager is put right this way.
-    fn library_find_file(&mut self, file: &Path, line: usize, title: &str, note: &Path) {
-        self.ui.library.finding = Some(Moving {
+    /// the file manager is put right this way. The note the picker is for goes with its answer:
+    /// off Windows the window stays live while a picker is open, and another "Find the file…"
+    /// must not take this one's answer (audit 4, F12).
+    pub(super) fn library_find_file(&mut self, file: &Path, line: usize, title: &str, note: &Path) {
+        let target = Moving {
             file: file.to_path_buf(),
             line,
             title: title.to_string(),
             note: note.to_path_buf(),
-        });
+        };
         #[cfg(windows)]
         {
             let start = note
@@ -1046,7 +1056,7 @@ impl App {
                 .map(Path::to_path_buf)
                 .or_else(|| self.start_dir());
             let picked = platform::pick_files(start.as_deref()).into_iter().next();
-            self.library_found(picked);
+            self.library_found(target, picked);
         }
         #[cfg(not(windows))]
         if !self.dialog_busy {
@@ -1058,16 +1068,13 @@ impl App {
                 .map(Path::to_path_buf)
                 .or_else(|| self.start_dir());
             platform::pick_files_async(start.as_deref(), move |files| {
-                wake(Wake::Dialog(Picked::LibraryFile(files)));
+                wake(Wake::Dialog(Picked::LibraryFile(target, files)));
             });
         }
     }
 
-    /// The picker for "Find the file…" answered.
-    pub(super) fn library_found(&mut self, picked: Option<PathBuf>) {
-        let Some(m) = self.ui.library.finding.take() else {
-            return;
-        };
+    /// The picker for "Find the file…" answered, for the note `m`.
+    pub(super) fn library_found(&mut self, m: Moving, picked: Option<PathBuf>) {
         if let Some(path) = picked {
             self.library_set_note_path(&m.file, m.line, &m.note, &path);
         }

@@ -134,10 +134,9 @@ pub struct LibraryPane {
     /// The name being typed, and the box it is typed in.
     pub edit: Option<Edit>,
     pub field: TextField,
-    /// The note waiting for the picker to say where it goes, the note waiting for the file
-    /// picker to say where it went, and the section waiting for the answer to its question.
+    /// The note waiting for the picker to say where it goes, and the section waiting for the
+    /// answer to its question. (The note "Find the file…" is for goes with its picker's answer.)
     pub moving: Option<Moving>,
-    pub finding: Option<Moving>,
     pub removing: Option<Removal>,
     /// The library file waiting for "Delete" in its question.
     pub deleting: Option<PathBuf>,

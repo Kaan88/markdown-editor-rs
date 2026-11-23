@@ -1011,7 +1011,9 @@ impl App {
                     self.set_folder(dir);
                 }
             }
-            Picked::LibraryFile(paths) => self.library_found(paths.into_iter().next()),
+            Picked::LibraryFile(target, paths) => {
+                self.library_found(target, paths.into_iter().next())
+            }
             Picked::NoteFile(group, paths) => {
                 self.note_file_picked(group, paths.into_iter().next())
             }

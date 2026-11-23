@@ -51,6 +51,16 @@ pub(crate) struct Visual {
     pub place: bool,
 }
 
+impl Visual {
+    /// Takes the question held for the page, when the active document is still the one it was
+    /// asked of. On the frame a tab is switched, `preview_sync` runs before `follow_tab` clears
+    /// it: the old document's question is dropped then, not asked of the new one (audit 4, F13).
+    pub(crate) fn take_pending(&mut self, active: Option<DocId>) -> Option<Ask> {
+        let ask = self.pending.take();
+        ask.filter(|_| active == Some(self.doc))
+    }
+}
+
 /// A question for the page about the current text.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Ask {
@@ -631,6 +641,27 @@ impl App {
 mod tests {
     use super::*;
     use mdedit_core::buffer::Buffer;
+
+    /// Audit 4, F13: the question held for the page is asked only of the document it was asked
+    /// of; on the frame of a tab switch it is dropped, not asked of the new tab's text.
+    #[test]
+    fn a_held_question_is_not_asked_of_another_document() {
+        let mut v = Visual {
+            doc: 1,
+            block: None,
+            pending: Some(Ask::Line(4)),
+            caret_seen: None,
+            pane_opened: false,
+            place: false,
+        };
+        assert_eq!(v.take_pending(Some(1)), Some(Ask::Line(4)));
+        assert_eq!(v.pending, None, "taken once");
+        v.pending = Some(Ask::At(3.0, 5.0));
+        assert_eq!(v.take_pending(Some(2)), None, "another tab is active");
+        assert_eq!(v.pending, None, "and the question is gone");
+        v.pending = Some(Ask::Line(1));
+        assert_eq!(v.take_pending(None), None, "no tab at all");
+    }
 
     #[test]
     fn a_block_s_blank_lines_at_its_end_are_left_out() {
