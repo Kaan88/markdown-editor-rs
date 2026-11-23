@@ -22,6 +22,18 @@ while IFS= read -r line; do
       printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"I would rather not."}';;
     *'"op":"run"'*SPLITSLOW*)
       ;;
+    *'"op":"run"'*'Sort these files into sections'*IMPORTJUNKSCHEME*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"I would rather not."}';;
+    *'"op":"run"'*'Sort these files into sections'*FAILPLEASE*)
+      echo "{\"ev\":\"error\",\"id\":$id,\"kind\":\"auth\",\"message\":\"Claude API refused the key (401).\"}";;
+    *'"op":"run"'*'Sort these files into sections'*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"Here it is:\n{\"version\":1,\"sections\":[{\"name\":\"Pasta\",\"subs\":[\"Italian\"]},{\"name\":\"Bread\",\"subs\":[]},{\"name\":\"Sauces\",\"subs\":[]}]}"}';;
+    *'"op":"run"'*'Put each of these files'*IMPORTBATCHFAIL*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"I would rather not."}';;
+    *'"op":"run"'*'Put each of these files'*IMPORTOUTOFRANGE*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"{\"version\":1,\"files\":[{\"id\":0,\"section\":0,\"confidence\":0.9,\"why\":\"pasta\"},{\"id\":1,\"section\":1,\"confidence\":0.4,\"why\":\"bread\"},{\"id\":2,\"section\":9,\"confidence\":0.9,\"why\":\"nowhere\"}]}"}';;
+    *'"op":"run"'*'Put each of these files'*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"{\"version\":1,\"files\":[{\"id\":0,\"section\":0,\"confidence\":0.9,\"why\":\"first of the folder\"},{\"id\":1,\"section\":1,\"confidence\":0.4,\"why\":\"second\"},{\"id\":2,\"section\":2,\"confidence\":0.8,\"why\":\"third\"}]}"}';;
     *'"op":"run"'*TASKFILE*)
       printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"{\"version\":1,\"files\":[{\"id\":0,\"title\":\"Pasta\",\"sections\":[\"Food\",\"Dinner\"]},{\"id\":1,\"with\":0}]}"}';;
     *'"op":"run"'*TASKBAD*)

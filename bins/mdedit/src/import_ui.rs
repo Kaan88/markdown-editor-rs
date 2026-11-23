@@ -10,11 +10,13 @@
 
 use crate::keys::Key;
 use mdedit_core::import::{self, Plan};
+use mdedit_core::import_ai::{self, Scheme};
 use mdshared_ui::gfx::Rect;
 use mdshared_ui::keys::{KeyName, Mods};
 use mdshared_ui::overlay::{DIALOG_FOOTER, dialog_card};
 use mdshared_ui::rows::{Nav, Rows};
 use mdshared_ui::scroll::offset_for_thumb;
+use mdshared_ui::textfield::TextField;
 use std::path::PathBuf;
 
 // ---- the numbers of the layout ----------------------------------------------------------------------
@@ -75,6 +77,9 @@ pub fn geo(card: Rect) -> Geo {
         preview,
     }
 }
+
+/// A row of the scheme list: one line, so more sections fit than files do.
+pub const SCHEME_ROW_H: f32 = 34.0;
 
 // ---- what a row says ---------------------------------------------------------------------------------
 
@@ -187,6 +192,18 @@ pub fn row_under(plan: &Plan, row: usize) -> String {
             if note.already {
                 parts.push("already in the library".to_string());
             }
+            // A file the AI sorted says how sure it was and why, dim on its row; a file it
+            // could not place says so.
+            if note.unsorted {
+                parts.push("the AI did not place this one".to_string());
+            } else if let Some(c) = note.confidence {
+                let mut ai = format!("{c:.1}");
+                if !note.why.is_empty() {
+                    ai.push_str(" \u{00B7} ");
+                    ai.push_str(&note.why);
+                }
+                parts.push(ai);
+            }
             parts.join(" \u{00B7} ")
         }
         None => String::new(),
@@ -204,6 +221,36 @@ pub fn preview_note(plan: &Plan, note: &import::Note) -> String {
 
 // ---- state ----------------------------------------------------------------------------------------------
 
+/// Where the AI step is (5.7). `Off` is the plan by the folder's own subfolders.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SortStage {
+    /// No AI step: the folder's subfolders are the sections.
+    Off,
+    /// The scheme request is out.
+    Asking,
+    /// The AI's sections, which the owner can rename, delete or add to.
+    Scheme(Scheme),
+    /// The filing requests are out: the scheme stays on the card, and how many answers came of
+    /// how many requests, and how many are in flight right now.
+    Filing {
+        scheme: Scheme,
+        done: usize,
+        total: usize,
+        in_flight: usize,
+    },
+    /// The AI's sort is on the plan, wholly or as far as it got.
+    Filed {
+        requests: usize,
+        placed: usize,
+        unsorted: usize,
+        /// The sentence a request that failed leaves: the plan is still usable, and the notes it
+        /// never reached keep their folders.
+        stopped: Option<String>,
+    },
+    /// The scheme could not be had; the plan is as the folders made it.
+    Failed(String),
+}
+
 /// What the pointer can be on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IHit {
@@ -216,6 +263,21 @@ pub enum IHit {
     Add,
     Thumb,
     Track,
+    /// The list head's AI offer, or the retry after a failed sort.
+    AskAi,
+    /// "Settings" beside the reason the AI is off: the settings' AI service page.
+    Settings,
+    /// "Tick only the sure ones" (5.7).
+    SortSure,
+    /// The scheme list's own links.
+    AddSection,
+    RenameSection,
+    DeleteSection,
+    /// The scheme's primary and the wait's stop.
+    SortStart,
+    SortStop,
+    /// Back to the folder's own sections.
+    SortBack,
 }
 
 /// What an event asks of the window.
@@ -224,6 +286,16 @@ pub enum Act {
     Nothing,
     Close,
     Write,
+    /// "Ask the AI to sort them…": the scheme request.
+    SortAsk,
+    /// "Sort the files": the filing requests.
+    SortStart,
+    /// Stop the request that is out, keeping the scheme the owner edited.
+    SortStop,
+    /// Back to the folders, and cancel anything that is out.
+    SortBack,
+    /// The settings' AI service page, where a connection is chosen.
+    Settings,
 }
 
 pub struct ImportCard {
@@ -243,6 +315,18 @@ pub struct ImportCard {
     pub demo: bool,
     /// Rectangles recorded as the card is drawn (buttons and links whose size is their text's).
     pub spots: Vec<(IHit, Rect)>,
+    /// Where the AI step is.
+    pub sort: SortStage,
+    /// Why "Ask the AI to sort them…" cannot be pressed, when it cannot: the connection is off,
+    /// or an AI run is going. `None` when it can.
+    pub ai_reason: Option<String>,
+    /// "Claude API · Claude Opus 5.5 · High", for the wait and the card's line.
+    pub ai_via: String,
+    /// What the AI step would send, for the line before it starts.
+    pub ai_estimate: import_ai::Estimate,
+    /// The name box of a scheme row being renamed, and the row it belongs to.
+    pub edit: Option<TextField>,
+    pub edit_row: usize,
 }
 
 impl ImportCard {
@@ -259,6 +343,12 @@ impl ImportCard {
             refusal: None,
             demo: false,
             spots: Vec::new(),
+            sort: SortStage::Off,
+            ai_reason: None,
+            ai_via: String::new(),
+            ai_estimate: import_ai::Estimate::default(),
+            edit: None,
+            edit_row: 0,
         }
     }
 
@@ -266,13 +356,45 @@ impl ImportCard {
         geo(card(self.win.0, self.win.1))
     }
 
+    /// The rows the list shows: the scheme's while it is being made or edited, the plan's
+    /// otherwise.
+    pub fn row_count(&self) -> usize {
+        match &self.sort {
+            SortStage::Scheme(_) | SortStage::Filing { .. } => {
+                self.scheme().map_or(0, |s| s.rows().len())
+            }
+            _ => self.plan.rows.len(),
+        }
+    }
+
+    fn row_h(&self) -> f32 {
+        match self.sort {
+            SortStage::Scheme(_) | SortStage::Filing { .. } => SCHEME_ROW_H,
+            _ => ROW_H,
+        }
+    }
+
     pub fn rows(&self) -> Rows {
         Rows {
-            row_h: ROW_H,
+            row_h: self.row_h(),
             view: self.geo().list.h,
-            count: self.plan.rows.len(),
+            count: self.row_count(),
             scroll: self.scroll,
         }
+    }
+
+    /// The scheme, while there is one on the card: being edited, or being filed.
+    pub fn scheme(&self) -> Option<&Scheme> {
+        match &self.sort {
+            SortStage::Scheme(s) => Some(s),
+            SortStage::Filing { scheme, .. } => Some(scheme),
+            _ => None,
+        }
+    }
+
+    /// Whether a scheme name is being typed: the caret blinks in the box.
+    pub fn editing(&self) -> bool {
+        self.edit.is_some()
     }
 
     /// Why "Add the files" cannot be pressed, or `None` when it can.
@@ -280,8 +402,29 @@ impl ImportCard {
         self.plan.problem()
     }
 
+    /// Why "Sort the files" cannot be pressed, or `None` when it can.
+    pub fn sort_problem(&self) -> Option<String> {
+        match &self.sort {
+            SortStage::Scheme(s) => s.problem(),
+            SortStage::Failed(_) => Some("Ask the AI again, or keep the folders.".to_string()),
+            _ => None,
+        }
+    }
+
+    /// The reason "Ask the AI to sort them…" is offered and can be pressed, if it can.
+    pub fn can_ask(&self) -> bool {
+        self.ai_reason.is_none()
+            && !matches!(self.sort, SortStage::Asking | SortStage::Filing { .. })
+    }
+
     /// Ticks or unticks row `i`: a file's own box, or a whole section.
     pub fn toggle(&mut self, i: usize) {
+        if !matches!(
+            self.sort,
+            SortStage::Off | SortStage::Filed { .. } | SortStage::Failed(_)
+        ) {
+            return;
+        }
         self.plan.toggle_row(i);
         self.refusal = None;
         self.tick += 1;
@@ -299,8 +442,15 @@ impl ImportCard {
         self.tick += 1;
     }
 
+    /// "Tick only the sure ones" (5.7): the AI's confidence of 0.6 and over.
+    pub fn tick_sure(&mut self) {
+        import_ai::tick_sure(&mut self.plan);
+        self.refusal = None;
+        self.tick += 1;
+    }
+
     pub fn select(&mut self, i: usize) {
-        let i = i.min(self.plan.rows.len().saturating_sub(1));
+        let i = i.min(self.row_count().saturating_sub(1));
         self.sel = i;
         let rows = self.rows();
         // A card not laid out yet has no viewport: selecting before the first draw must not
@@ -311,12 +461,143 @@ impl ImportCard {
         self.tick += 1;
     }
 
+    // ---- the AI step ----
+
+    /// "Ask the AI to sort them…": the scheme request is out.
+    pub fn sort_asking(&mut self) {
+        self.edit = None;
+        self.sort = SortStage::Asking;
+        self.tick += 1;
+    }
+
+    /// The scheme came: the card shows it before a single file is filed.
+    pub fn sort_scheme(&mut self, scheme: Scheme) {
+        self.sort = SortStage::Scheme(scheme);
+        self.sel = 0;
+        self.scroll = 0.0;
+        self.tick += 1;
+    }
+
+    /// The filing requests' progress.
+    pub fn sort_progress(&mut self, scheme: Scheme, done: usize, total: usize, in_flight: usize) {
+        self.sort = SortStage::Filing {
+            scheme,
+            done,
+            total,
+            in_flight,
+        };
+        self.tick += 1;
+    }
+
+    /// The answers are on the plan.
+    pub fn sort_filed(
+        &mut self,
+        requests: usize,
+        placed: usize,
+        unsorted: usize,
+        stopped: Option<String>,
+    ) {
+        self.sort = SortStage::Filed {
+            requests,
+            placed,
+            unsorted,
+            stopped,
+        };
+        self.sel = 0;
+        self.scroll = 0.0;
+        self.tick += 1;
+    }
+
+    /// The scheme could not be had, or a request failed before anything was placed.
+    pub fn sort_failed(&mut self, why: String) {
+        self.sort = SortStage::Failed(why);
+        self.tick += 1;
+    }
+
+    /// Back to the folder's own sections: the AI's scheme is dropped and nothing is written.
+    pub fn sort_back(&mut self) {
+        self.edit = None;
+        self.sort = SortStage::Off;
+        self.tick += 1;
+    }
+
+    /// Starts renaming the selected scheme row.
+    pub fn start_rename(&mut self) {
+        let Some(scheme) = self.scheme() else {
+            return;
+        };
+        let Some(name) = scheme.row_name(self.sel) else {
+            return;
+        };
+        let mut field = TextField::new();
+        field.set_text(name);
+        self.edit = Some(field);
+        self.edit_row = self.sel;
+        self.tick += 1;
+    }
+
+    /// Adds a section and puts the name box on it.
+    pub fn add_section(&mut self) {
+        let Some(scheme) = self.scheme().cloned() else {
+            return;
+        };
+        let mut scheme = scheme;
+        let row = scheme.add("New section");
+        self.sort = SortStage::Scheme(scheme);
+        self.sel = row;
+        self.start_rename();
+        let rows = self.rows();
+        if rows.view > 0.0 {
+            self.scroll = rows.reveal(row);
+        }
+        self.tick += 1;
+    }
+
+    /// Deletes the selected scheme row. A top-level row takes its subsections with it, and the
+    /// last row is not deleted.
+    pub fn delete_section(&mut self) {
+        let Some(scheme) = self.scheme().cloned() else {
+            return;
+        };
+        let mut scheme = scheme;
+        let before = scheme.rows().len();
+        scheme.delete(self.sel);
+        self.sort = SortStage::Scheme(scheme);
+        self.sel = self.sel.min(self.row_count().saturating_sub(1));
+        if before == self.row_count() {
+            self.refusal = Some("A scheme needs at least one section.".to_string());
+        }
+        self.tick += 1;
+    }
+
+    /// Enter in the name box: the row takes the name.
+    pub fn commit_edit(&mut self) {
+        let Some(field) = self.edit.take() else {
+            return;
+        };
+        let name = field.text().to_string();
+        if let SortStage::Scheme(scheme) = &mut self.sort {
+            scheme.rename(self.edit_row, &name);
+        }
+        self.tick += 1;
+    }
+
+    /// Escape in the name box: the row keeps the name it had.
+    pub fn cancel_edit(&mut self) {
+        self.edit = None;
+        self.tick += 1;
+    }
+
     // ---- events ----
 
     pub fn resize(&mut self, w: f32, h: f32) {
         if self.win != (w, h) {
             self.win = (w, h);
-            self.scroll = self.rows().clamp_scroll(self.scroll);
+            let rows = self.rows();
+            self.scroll = rows.clamp_scroll(self.scroll);
+            // A card laid out after its rows were chosen (a shot's, or one opened on a row
+            // below the fold) keeps the selected row in view.
+            self.scroll = rows.reveal(self.sel);
             self.tick += 1;
         }
     }
@@ -333,8 +614,10 @@ impl ImportCard {
             let rows = self.rows();
             return Some(match rows.row_at(g.list, x, y) {
                 Some(i) => {
+                    let scheme =
+                        matches!(self.sort, SortStage::Scheme(_) | SortStage::Filing { .. });
                     let row = rows.rect(g.list, i);
-                    if x < row.x + 40.0 {
+                    if !scheme && x < row.x + 40.0 {
                         IHit::Tick(i)
                     } else {
                         IHit::Row(i)
@@ -396,13 +679,27 @@ impl ImportCard {
             return Act::Nothing;
         }
         match pressed {
-            // A click anywhere on a row ticks it: there is nothing else on a row to choose.
+            // A click anywhere on a row ticks it: there is nothing else on a row to choose. On
+            // the scheme's list it only selects.
             IHit::Tick(i) | IHit::Row(i) => {
                 self.select(i);
                 self.toggle(i);
             }
             IHit::TickAll => self.tick_all(),
             IHit::UntickAll => self.untick_all(),
+            IHit::SortSure => self.tick_sure(),
+            IHit::AddSection => self.add_section(),
+            IHit::RenameSection => self.start_rename(),
+            IHit::DeleteSection => self.delete_section(),
+            IHit::AskAi => {
+                if self.can_ask() {
+                    return Act::SortAsk;
+                }
+            }
+            IHit::SortStart => return self.sort_pressed(),
+            IHit::SortStop => return Act::SortStop,
+            IHit::SortBack => return Act::SortBack,
+            IHit::Settings => return Act::Settings,
             IHit::Cancel => return Act::Close,
             IHit::Add => return self.add_pressed(),
             _ => {}
@@ -418,17 +715,79 @@ impl ImportCard {
         Act::Write
     }
 
+    fn sort_pressed(&mut self) -> Act {
+        if self.sort_problem().is_some() || self.edit.is_some() {
+            return Act::Nothing;
+        }
+        self.tick += 1;
+        Act::SortStart
+    }
+
     pub fn wheel(&mut self, dy: f32) {
         self.tick += 1;
         let rows = self.rows();
         self.scroll = rows.clamp_scroll(self.scroll + dy);
     }
 
-    pub fn key(&mut self, key: &Key, _mods: Mods) -> Act {
+    pub fn key(&mut self, key: &Key, mods: Mods, typed: Option<&str>) -> Act {
         self.tick += 1;
+        // Insert adds a section on the scheme's list; everywhere else it means nothing here.
+        if matches!(key, Key::Insert) {
+            if matches!(self.sort, SortStage::Scheme(_)) && self.edit.is_none() {
+                self.add_section();
+            }
+            return Act::Nothing;
+        }
         let Key::Name(name) = key else {
             return Act::Nothing;
         };
+        // A scheme name being typed takes every key but Enter and Escape.
+        if self.edit.is_some() {
+            match name {
+                KeyName::Enter => self.commit_edit(),
+                KeyName::Escape => self.cancel_edit(),
+                n => {
+                    if let Some(field) = self.edit.as_mut() {
+                        field.handle_key(n, mods, typed, true);
+                    }
+                }
+            }
+            return Act::Nothing;
+        }
+        if matches!(self.sort, SortStage::Scheme(_)) {
+            return match name {
+                KeyName::Escape => Act::SortBack,
+                KeyName::Enter => self.sort_pressed(),
+                KeyName::F(2) => {
+                    self.start_rename();
+                    Act::Nothing
+                }
+                KeyName::Delete => {
+                    self.delete_section();
+                    Act::Nothing
+                }
+                KeyName::Up => self.key_nav(Nav::Up),
+                KeyName::Down => self.key_nav(Nav::Down),
+                KeyName::Home => self.key_nav(Nav::Home),
+                KeyName::End => self.key_nav(Nav::End),
+                KeyName::PageUp => self.key_nav(Nav::PageUp),
+                KeyName::PageDown => self.key_nav(Nav::PageDown),
+                _ => Act::Nothing,
+            };
+        }
+        if matches!(self.sort, SortStage::Asking | SortStage::Filing { .. }) {
+            return match name {
+                KeyName::Escape => Act::SortStop,
+                _ => Act::Nothing,
+            };
+        }
+        if matches!(self.sort, SortStage::Failed(_)) {
+            return match name {
+                KeyName::Escape => Act::SortBack,
+                KeyName::Enter if self.can_ask() => Act::SortAsk,
+                _ => Act::Nothing,
+            };
+        }
         let nav = match name {
             KeyName::Escape => return Act::Close,
             KeyName::Enter => return self.add_pressed(),
@@ -450,21 +809,42 @@ impl ImportCard {
         Act::Nothing
     }
 
-    /// What the frame of the card depends on besides its tick.
-    pub fn sig(&self) -> (u64, Option<IHit>, Option<IHit>) {
-        (self.tick, self.hover, self.pressed)
+    fn key_nav(&mut self, nav: Nav) -> Act {
+        if let Some(to) = self.rows().nav(Some(self.sel), nav) {
+            self.select(to);
+        }
+        Act::Nothing
+    }
+
+    /// What the frame of the card depends on besides its tick; the caret's blink matters while a
+    /// scheme name is being typed.
+    pub fn sig(&self, caret_on: bool) -> (u64, Option<IHit>, Option<IHit>, bool) {
+        (
+            self.tick,
+            self.hover,
+            self.pressed,
+            self.editing() && caret_on,
+        )
     }
 }
 
 // ---- the shots ------------------------------------------------------------------------------------------
 
 /// Every name `--plan-demo folder…` takes.
-pub const NAMES: [&str; 5] = [
+pub const NAMES: [&str; 13] = [
     "folder",
     "folder-sections",
     "folder-taken",
     "folder-small",
     "folder-over",
+    "folder-scheme",
+    "folder-scheme-rename",
+    "folder-ai",
+    "folder-ai-sorting",
+    "folder-ai-asking",
+    "folder-ai-off",
+    "folder-ai-failed",
+    "folder-unsorted",
 ];
 
 /// The folder the shots show: made up, never read or written, and the same on every run.
@@ -491,8 +871,14 @@ pub fn demo_plan(name: &str) -> Plan {
             sections: sections.iter().map(|s| s.to_string()).collect(),
             title: title.to_string(),
             head: head.iter().map(|s| s.to_string()).collect(),
+            start: head.join("\n"),
+            bytes: head.join("\n").len() as u64,
+            modified: "2026-11-23".to_string(),
             ticked: !already,
             already,
+            confidence: None,
+            why: String::new(),
+            unsorted: false,
         };
     let notes = vec![
         note(
@@ -680,6 +1066,8 @@ pub fn demo(name: &str) -> Option<ImportCard> {
     let plan = demo_plan(name);
     let mut card = ImportCard::new(plan);
     card.demo = true;
+    card.ai_via = "Claude API \u{00B7} Claude Opus 5.5 \u{00B7} effort high".to_string();
+    card.ai_estimate = import_ai::estimate(&card.plan);
     match name {
         "folder-sections" => {
             // Two file rows unticked, and the sections above them say so.
@@ -695,9 +1083,111 @@ pub fn demo(name: &str) -> Option<ImportCard> {
             card.select(5);
         }
         "folder-over" => card.select(0),
+        "folder-scheme" => {
+            card.sort_scheme(demo_scheme());
+            card.select(2);
+        }
+        "folder-scheme-rename" => {
+            card.sort_scheme(demo_scheme());
+            card.select(0);
+            card.start_rename();
+            if let Some(field) = card.edit.as_mut() {
+                field.set_text("Noodles");
+            }
+        }
+        "folder-ai-sorting" => {
+            card.sort_scheme(demo_scheme());
+            card.sort_progress(demo_scheme(), 4, 14, 3);
+            card.select(3);
+        }
+        "folder-ai" | "folder-unsorted" => {
+            let scheme = demo_scheme();
+            let plan = card.plan.clone();
+            let batches = import_ai::batches(&plan, &scheme);
+            let answer = demo_answer(&plan, &batches, name == "folder-unsorted");
+            let answers: Vec<Option<import_ai::Answer>> = vec![Some(answer); batches.len()];
+            let sorted =
+                import_ai::settle(&mut card.plan, &scheme, &batches, &answers, true);
+            card.sort_filed(1 + batches.len(), sorted.placed, sorted.unsorted, None);
+            let last = card.row_count().saturating_sub(1);
+            card.select(if name == "folder-unsorted" { last } else { 2 });
+        }
+        "folder-ai-asking" => card.sort_asking(),
+        "folder-ai-off" => {
+            card.ai_reason =
+                Some("The AI is off: choose a connection in Settings \u{203A} AI.".to_string());
+        }
+        "folder-ai-failed" => card.sort_failed(
+            "The AI\u{2019}s answer could not be read: it held no JSON object. Nothing was written."
+                .to_string(),
+        ),
         _ => card.select(2),
     }
     Some(card)
+}
+
+/// The scheme the AI shots show: five sections, three with a subsection under them.
+pub fn demo_scheme() -> Scheme {
+    let section = |name: &str, subs: &[&str]| import_ai::Section {
+        name: name.to_string(),
+        subs: subs.iter().map(|s| s.to_string()).collect(),
+    };
+    Scheme {
+        sections: vec![
+            section("Pasta", &["Italian", "Baked"]),
+            section("Bread", &["Sweet"]),
+            section("Sauces", &[]),
+            section("Fish", &[]),
+            section("Desserts", &[]),
+        ],
+        dropped: 0,
+    }
+}
+
+/// The answer the AI shots show, read and checked by the same settler a real one is: one file
+/// the AI did not place, and with `unsorted`, a section it does not have and a second file left
+/// out.
+pub fn demo_answer(plan: &Plan, batches: &[import_ai::Batch], unsorted: bool) -> import_ai::Answer {
+    let Some(batch) = batches.first() else {
+        return import_ai::Answer::default();
+    };
+    let mut files = Vec::new();
+    for (id, &note_i) in batch.ids.iter().enumerate() {
+        let Some(note) = plan.notes.get(note_i) else {
+            continue;
+        };
+        let (mut section, confidence, why) = match note.title.as_str() {
+            "Weeknight pasta" => (Some(0), 0.92, "a pasta dish, one pot"),
+            "Sourdough" => (Some(3), 0.96, "the bread the folder is built around"),
+            "Focaccia" => (Some(3), 0.78, "baked, and eaten with the bread"),
+            "Rag\u{00F9}" => (Some(0), 0.88, "a sauce, but the pasta it goes on"),
+            "Gnocchi" => (Some(1), 0.81, "the Italian shelf"),
+            "Risotto" => (Some(1), 0.74, "the Italian shelf"),
+            "Pesto" => (Some(5), 0.95, "a sauce kept in a jar"),
+            "Tomato sauce" => (Some(5), 0.55, "a sauce, less sure which"),
+            "Beurre blanc" => (Some(5), 0.83, "a sauce finished with butter"),
+            _ => (None, 0.0, "no clear section"),
+        };
+        if unsorted {
+            if note.title == "Tomato sauce" {
+                section = Some(9);
+            }
+            if note.title == "Beurre blanc" {
+                continue;
+            }
+        }
+        let Some(section) = section else {
+            continue;
+        };
+        files.push(import_ai::Filed {
+            id,
+            section: Some(section),
+            title: None,
+            confidence,
+            why: why.to_string(),
+        });
+    }
+    import_ai::Answer { files }
 }
 
 #[cfg(test)]
@@ -747,11 +1237,29 @@ mod tests {
             .expect("Pasta");
         let before = card.plan.ticked();
         card.select(at);
-        card.key(&Key::Name(KeyName::Space), Mods::default());
+        card.key(&Key::Name(KeyName::Space), Mods::default(), None);
         // Pasta holds ragu, and Italian holds gnocchi and risotto: three.
         assert_eq!(card.plan.ticked(), before - 3);
-        card.key(&Key::Name(KeyName::Space), Mods::default());
+        card.key(&Key::Name(KeyName::Space), Mods::default(), None);
         assert_eq!(card.plan.ticked(), before);
+    }
+
+    /// The reason the AI is off sits beside a link to the settings, and the link asks for them.
+    #[test]
+    fn the_off_cards_settings_link_asks_for_the_settings() {
+        let mut card = demo("folder-ai-off").expect("the demo");
+        card.resize(1280.0, 800.0);
+        let g = card.geo();
+        let r = Rect {
+            x: g.card.x + 10.0,
+            y: g.card.y + 10.0,
+            w: 60.0,
+            h: 20.0,
+        };
+        card.spots = vec![(IHit::Settings, r)];
+        let (x, y) = (r.x + 2.0, r.y + 2.0);
+        card.pressed = card.hit_at(x, y);
+        assert_eq!(card.release(x, y), Act::Settings);
     }
 
     #[test]
@@ -782,17 +1290,17 @@ mod tests {
         card.untick_all();
         assert_eq!(card.problem().as_deref(), Some("Nothing is ticked."));
         assert_eq!(
-            card.key(&Key::Name(KeyName::Enter), Mods::default()),
+            card.key(&Key::Name(KeyName::Enter), Mods::default(), None),
             Act::Nothing,
             "Enter does not add with nothing ticked"
         );
         card.tick_all();
         assert_eq!(
-            card.key(&Key::Name(KeyName::Enter), Mods::default()),
+            card.key(&Key::Name(KeyName::Enter), Mods::default(), None),
             Act::Write
         );
         assert_eq!(
-            card.key(&Key::Name(KeyName::Escape), Mods::default()),
+            card.key(&Key::Name(KeyName::Escape), Mods::default(), None),
             Act::Close
         );
     }
@@ -817,5 +1325,139 @@ mod tests {
         let last = card.plan.rows.len() - 1;
         card.select(last);
         assert_eq!(card.sel, last);
+    }
+
+    // ---- the AI step (5.7) ----
+
+    #[test]
+    fn the_scheme_stage_sorts_on_enter_and_goes_back_on_escape_without_ticking() {
+        let mut card = demo("folder-scheme").expect("the demo");
+        card.resize(1280.0, 800.0);
+        assert!(matches!(card.sort, SortStage::Scheme(_)));
+        assert_eq!(card.row_count(), 8, "five sections and three subsections");
+        assert_eq!(card.row_h(), SCHEME_ROW_H);
+        let before = card.plan.ticked();
+        // Space toggles nothing on the scheme's list.
+        card.key(&Key::Name(KeyName::Space), Mods::default(), None);
+        assert_eq!(card.plan.ticked(), before);
+        assert_eq!(
+            card.key(&Key::Name(KeyName::Enter), Mods::default(), None),
+            Act::SortStart
+        );
+        assert_eq!(
+            card.key(&Key::Name(KeyName::Escape), Mods::default(), None),
+            Act::SortBack
+        );
+    }
+
+    #[test]
+    fn a_scheme_row_is_renamed_added_and_deleted_in_the_card() {
+        let mut card = demo("folder-scheme").expect("the demo");
+        card.resize(1280.0, 800.0);
+        card.select(0);
+        card.key(&Key::Name(KeyName::F(2)), Mods::default(), None);
+        assert!(card.editing());
+        card.edit.as_mut().expect("the box").set_text("Noodles");
+        card.key(&Key::Name(KeyName::Enter), Mods::default(), None);
+        assert!(!card.editing());
+        assert_eq!(card.scheme().expect("the scheme").rows()[0].name, "Noodles");
+        // A subsection moves with its section's name.
+        assert_eq!(
+            card.scheme().expect("the scheme").rows()[1].path,
+            ["Noodles".to_string(), "Italian".to_string()]
+        );
+        // Insert adds a section with its name box on it; Escape leaves the name as it was.
+        let before = card.row_count();
+        card.key(&Key::Insert, Mods::default(), None);
+        assert_eq!(card.row_count(), before + 1);
+        assert!(card.editing());
+        assert_eq!(card.sel, before);
+        card.key(&Key::Name(KeyName::Escape), Mods::default(), None);
+        assert!(!card.editing());
+        assert_eq!(
+            card.scheme().expect("the scheme").rows()[before].name,
+            "New section"
+        );
+        // Delete takes it away again; Delete on the last row leaves it.
+        card.key(&Key::Name(KeyName::Delete), Mods::default(), None);
+        assert_eq!(card.row_count(), before);
+        while card.row_count() > 1 {
+            card.select(card.row_count() - 1);
+            card.key(&Key::Name(KeyName::Delete), Mods::default(), None);
+        }
+        card.key(&Key::Name(KeyName::Delete), Mods::default(), None);
+        assert_eq!(card.row_count(), 1, "a scheme keeps one section");
+    }
+
+    #[test]
+    fn a_repeated_scheme_name_is_said_before_the_files_are_sorted() {
+        let mut card = demo("folder-scheme").expect("the demo");
+        card.resize(1280.0, 800.0);
+        card.select(0);
+        card.start_rename();
+        card.edit.as_mut().expect("the box").set_text("Bread");
+        card.commit_edit();
+        let why = card.sort_problem().unwrap_or_default();
+        assert!(why.contains("Two sections"), "{why}");
+        assert_eq!(
+            card.key(&Key::Name(KeyName::Enter), Mods::default(), None),
+            Act::Nothing,
+            "Enter does not sort a scheme it cannot send"
+        );
+    }
+
+    #[test]
+    fn the_caret_blinks_in_the_signature_only_while_a_name_is_typed() {
+        let mut card = demo("folder-scheme").expect("the demo");
+        assert_eq!(card.sig(false), card.sig(true), "no box, no caret");
+        card.start_rename();
+        assert_ne!(card.sig(false), card.sig(true), "the box's caret blinks");
+    }
+
+    #[test]
+    fn the_ai_sorted_plan_marks_unsorted_and_tick_sure_uses_six_tenths() {
+        let card = demo("folder-unsorted").expect("the demo");
+        let SortStage::Filed {
+            placed, unsorted, ..
+        } = card.sort
+        else {
+            panic!("a sorted plan")
+        };
+        assert_eq!(placed + unsorted, 10, "every note the AI was asked about");
+        assert!(card.plan.notes.iter().any(|n| n.unsorted));
+        let mut card = demo("folder-ai").expect("the demo");
+        card.tick_sure();
+        for note in &card.plan.notes {
+            if note.already || note.unsorted {
+                assert!(!note.ticked, "{} is not written unasked", note.title);
+            } else if note.confidence.is_some_and(|c| c >= 0.6) {
+                assert!(note.ticked, "{} is sure", note.title);
+            } else {
+                assert!(!note.ticked, "{} is not sure", note.title);
+            }
+        }
+        assert_eq!(card.plan.ticked(), 8, "the 0.55 one stays out");
+    }
+
+    #[test]
+    fn the_ai_off_card_says_why_and_the_failed_card_offers_its_two_ways_out() {
+        let card = demo("folder-ai-off").expect("the demo");
+        assert!(!card.can_ask());
+        assert!(card.ai_reason.as_deref().unwrap_or("").contains("off"));
+        let mut card = demo("folder-ai-failed").expect("the demo");
+        assert_eq!(
+            card.key(&Key::Name(KeyName::Enter), Mods::default(), None),
+            Act::SortAsk
+        );
+        assert_eq!(
+            card.key(&Key::Name(KeyName::Escape), Mods::default(), None),
+            Act::SortBack
+        );
+        let mut card = demo("folder-ai-asking").expect("the demo");
+        assert_eq!(
+            card.key(&Key::Name(KeyName::Escape), Mods::default(), None),
+            Act::SortStop
+        );
+        assert!(!card.can_ask(), "the offer waits while a request is out");
     }
 }

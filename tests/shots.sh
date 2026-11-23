@@ -492,6 +492,16 @@ for t in "" "-dark"; do
     shot "import-folder-taken$t" $th --plan-demo folder-taken
     shot "import-folder-small$t" $th --size 800x600 --plan-demo folder-small
     shot "import-folder-over$t" $th --plan-demo folder-over
+    # The AI step of 5.7: the scheme, the sorted plan, a batch out, the connection off, an
+    # unreadable answer, and the files the AI could not place.
+    shot "import-folder-scheme$t" $th --plan-demo folder-scheme
+    shot "import-folder-scheme-rename$t" $th --plan-demo folder-scheme-rename
+    shot "import-folder-ai$t" $th --plan-demo folder-ai
+    shot "import-folder-unsorted$t" $th --plan-demo folder-unsorted
+    shot "import-folder-ai-sorting$t" $th --plan-demo folder-ai-sorting
+    shot "import-folder-ai-asking$t" $th --plan-demo folder-ai-asking
+    shot "import-folder-ai-off$t" $th --plan-demo folder-ai-off
+    shot "import-folder-ai-failed$t" $th --plan-demo folder-ai-failed
 done
 
 # "Move the notes…" (5.12), from a plan made in the program: the card with ready rows (notes that

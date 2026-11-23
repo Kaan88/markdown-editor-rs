@@ -498,7 +498,7 @@ impl App {
                     }
                 }
                 Event::Done { id, text } => {
-                    self.ai.answered(id, true);
+                    let ask = self.ai.answered(id, true);
                     if self
                         .task
                         .as_ref()
@@ -518,6 +518,12 @@ impl App {
                         .is_some_and(|r| r.id == id)
                     {
                         self.note_done(&text);
+                    } else {
+                        match ask {
+                            Some(Ask::SortScheme) => self.sort_scheme_done(&text),
+                            Some(Ask::SortFiles(_)) => self.sort_batch_done(id, &text),
+                            _ => {}
+                        }
                     }
                 }
                 Event::Error {
@@ -537,6 +543,9 @@ impl App {
                         if self.ai.split.as_ref().is_some_and(|r| r.id == id) {
                             self.split_failed(&kind, &message);
                         }
+                    }
+                    Some(Ask::SortScheme | Ask::SortFiles(_)) => {
+                        self.sort_request_failed(id, &kind, &message)
                     }
                     Some(Ask::Task) => {
                         if self
@@ -601,6 +610,9 @@ impl App {
                     }
                     if self.ai.split.is_some() {
                         self.split_failed("ended", &why);
+                    }
+                    if self.ai.sort.is_some() {
+                        self.sort_engine_ended(&why);
                     }
                     let note_out = self.note.as_ref().and_then(|c| c.asking.as_ref()).is_some();
                     if note_out {

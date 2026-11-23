@@ -272,6 +272,10 @@ pub enum Ask {
     Run,
     /// A split by AI (5.2): the answer goes to the plan screen.
     Split,
+    /// The scheme of a folder sort by AI (5.7): the answer goes to the import card.
+    SortScheme,
+    /// One filing request of a folder sort by AI, by batch number.
+    SortFiles(usize),
     /// A request of the AI task window over files (5.6).
     Task,
     /// A Markdown note from a text file (5.8): the answer goes to the note card.
@@ -370,6 +374,31 @@ pub struct SplitRun {
     pub requests: u64,
 }
 
+/// A folder sort by AI in flight (5.7): the scheme request first, then the filing requests in
+/// batches, up to the connection's number of requests at once (D-080).
+pub struct SortRun {
+    /// The scheme, once it has come; `None` while the first request is out.
+    pub scheme: Option<mdedit_core::import_ai::Scheme>,
+    /// The filing requests' texts, in order; empty until the scheme is taken.
+    pub batches: Vec<mdedit_core::import_ai::Batch>,
+    /// Each batch's answer, once it comes; `None` for one not answered, or one that failed.
+    pub answers: Vec<Option<mdedit_core::import_ai::Answer>>,
+    /// The request ids in flight and the batch each is for.
+    pub in_flight: Vec<(u64, usize)>,
+    /// The next batch to send.
+    pub next: usize,
+    pub parallel: usize,
+    pub via: String,
+    /// A request failed: no new one is sent, and those in flight may finish.
+    pub stopped: bool,
+    /// What stopped it, for the card's line.
+    pub stop_reason: Option<String>,
+    /// The scheme plus every answer received.
+    pub requests: u64,
+    /// The scheme plus every batch.
+    pub total: u64,
+}
+
 /// The review panel.
 pub struct Review {
     pub doc: DocId,
@@ -463,6 +492,8 @@ pub struct Ai {
     pub run: Option<Run>,
     /// A split by AI in flight (5.2).
     pub split: Option<SplitRun>,
+    /// A folder sort by AI in flight (5.7).
+    pub sort: Option<SortRun>,
     pub panel: Option<Panel>,
     /// The review that Escape closed: its result stays until it is shown again and applied or
     /// discarded, replaced by another run, or the program ends.
@@ -501,7 +532,10 @@ pub struct Ai {
 
 impl Ai {
     pub fn running(&self) -> bool {
-        self.run.is_some() || self.split.is_some() || self.pending.values().any(|a| *a == Ask::Note)
+        self.run.is_some()
+            || self.split.is_some()
+            || self.sort.is_some()
+            || self.pending.values().any(|a| *a == Ask::Note)
     }
 
     /// Sends a request, starting the engine first if needed. On failure the reason.
@@ -548,6 +582,20 @@ impl Ai {
             }
         }
         self.cancel_split();
+        self.cancel_sort();
+        self.tick += 1;
+    }
+
+    /// Stops a folder sort in flight, every request in it cancelled.
+    pub fn cancel_sort(&mut self) {
+        if let Some(run) = self.sort.take() {
+            for (id, _) in run.in_flight {
+                self.pending.remove(&id);
+                if let Some(c) = &self.client {
+                    c.send(json!({"op": "cancel", "id": id}));
+                }
+            }
+        }
         self.tick += 1;
     }
 

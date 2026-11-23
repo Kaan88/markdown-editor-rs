@@ -79,6 +79,9 @@ mod frost_tests;
 mod handoff;
 #[cfg(test)]
 mod ime_tests;
+mod import_ai;
+#[cfg(test)]
+mod import_ai_tests;
 #[cfg(test)]
 mod import_tests;
 mod importing;
@@ -1512,8 +1515,8 @@ impl App {
                 .map(|s| (s.tick, s.hover, s.pressed, self.ui.caret_on)),
             // The Markdown note card does too.
             self.note.as_ref().map(|n| n.sig()),
-            // So does the import card.
-            self.importer.as_ref().map(|c| c.sig()),
+            // So does the import card; the caret blinks in a scheme name being typed.
+            self.importer.as_ref().map(|c| c.sig(self.ui.caret_on)),
         ));
         let overlay_changed = osig != self.overlay_sig;
         self.overlay_sig = osig;
@@ -1931,7 +1934,7 @@ impl App {
                     card.draw(c.p, &pal, w, h);
                 }
                 if let Some(card) = self.importer.as_mut() {
-                    card.draw(c.p, &pal, w, h);
+                    card.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
                 if let Some(card) = self.note.as_mut() {
                     card.draw(c.p, &pal, w, h);

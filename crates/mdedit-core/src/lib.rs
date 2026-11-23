@@ -21,6 +21,7 @@ mod hash;
 pub mod history;
 pub mod hunks;
 pub mod import;
+pub mod import_ai;
 pub mod indent;
 pub mod limits;
 pub mod lines;

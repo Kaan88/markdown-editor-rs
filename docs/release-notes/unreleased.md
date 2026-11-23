@@ -33,6 +33,16 @@ shows.)
   everything under it, and a folder that is too large, the library itself, or one with nothing to
   add is refused with the reason on the card.
 
+- **Sort a folder by AI.** On "Add a folder." the card has **Ask the AI**: with a connection
+  chosen, it reads the files' paths, titles and first lines and answers with a scheme of up to 8
+  sections with subsections under them, which you can add to, rename and delete before anything
+  else is asked. **Sort N files** then puts each file under a section, 40 files to a request, three
+  requests at a time (one for a local model), and the plan comes back as rows with the AI's
+  confidence and a one-line reason dim under each name. **Tick only the sure ones** takes the 0.6
+  and over; a file the AI could not place sits under **Unsorted**, unticked, and one it named a
+  section the scheme does not have for says so. Nothing is written until **Add**, the folder's
+  files are never moved or copied, and **Stop** (or Escape) cancels the requests and gives back the
+  scheme you edited. **Requests at once** on the AI page sets the number, per connection.
 - **An AI task window over files.** "AI task on your files…" in the AI and Library menus and the
   command palette opens one window over files you add or drop on it, and opens none of them in a
   tab. **File them** asks the AI where each belongs and shows a plan of titles and sections before

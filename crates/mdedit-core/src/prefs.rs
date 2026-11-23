@@ -116,6 +116,9 @@ pub struct Prefs {
     /// from the second; empty is the default.
     pub ai_models: [String; 4],
     pub ai_efforts: [String; 4],
+    /// How many AI requests may be in flight at once, per connection, as the owner set it;
+    /// empty is the default: three, and one for a local model (D-080).
+    pub ai_parallel: [String; 4],
     /// The provider of the OpenAI-compatible API ([`crate::ai::PRESETS`]), and the base URL for
     /// a custom one.
     pub ai_preset: String,
@@ -191,6 +194,10 @@ impl PreviewMode {
 /// A setting's text longer than this many bytes is not a setting: the default is used.
 const AI_TEXT_MAX: usize = 2048;
 
+/// The range of the "Requests at once" setting (D-080).
+pub const AI_PARALLEL_MIN: usize = 1;
+pub const AI_PARALLEL_MAX: usize = 8;
+
 /// The index of a connection's model and effort in [`Prefs::ai_models`].
 fn ai_index(c: Connection) -> Option<usize> {
     Connection::ALL[1..].iter().position(|&x| x == c)
@@ -231,6 +238,7 @@ impl Default for Prefs {
             ai_review_preview: false,
             ai_models: Default::default(),
             ai_efforts: Default::default(),
+            ai_parallel: Default::default(),
             ai_preset: "openai".into(),
             ai_customs: Vec::new(),
             ai_custom: 0,
@@ -288,6 +296,7 @@ impl Prefs {
             .ai_models
             .iter_mut()
             .chain(self.ai_efforts.iter_mut())
+            .chain(self.ai_parallel.iter_mut())
             .chain([
                 &mut self.ai_claude_path,
                 &mut self.ai_codex_path,
@@ -448,6 +457,8 @@ impl Prefs {
                             p.ai_models[i] = ai_text(value);
                         } else if let Some(i) = per("ai_effort_") {
                             p.ai_efforts[i] = ai_text(value);
+                        } else if let Some(i) = per("ai_parallel_") {
+                            p.ai_parallel[i] = ai_text(value);
                         }
                     }
                 }
@@ -517,6 +528,10 @@ impl Prefs {
         for (i, c) in Connection::ALL[1..].iter().enumerate() {
             w.line(&format!("ai_model_{}", c.key()), &escape(&p.ai_models[i]));
             w.line(&format!("ai_effort_{}", c.key()), &escape(&p.ai_efforts[i]));
+            w.line(
+                &format!("ai_parallel_{}", c.key()),
+                &escape(&p.ai_parallel[i]),
+            );
         }
         w.line("ai_preset", &escape(&p.ai_preset));
         // The chosen custom provider's URL, for a build before the list (1.1.2), which keeps
@@ -593,6 +608,27 @@ impl Prefs {
             x.effort = e.trim().to_string();
         } else if let Some(i) = ai_index(c) {
             self.ai_efforts[i] = e.trim().to_string();
+        }
+    }
+
+    /// How many requests may be in flight at once for `c` (D-080): what the owner set, else
+    /// three, and one for a local model.
+    pub fn ai_parallel(&self, c: Connection) -> usize {
+        ai_index(c)
+            .and_then(|i| self.ai_parallel[i].trim().parse::<usize>().ok())
+            .filter(|n| (AI_PARALLEL_MIN..=AI_PARALLEL_MAX).contains(n))
+            .unwrap_or_else(|| self.ai_parallel_default(c))
+    }
+
+    /// What [`Prefs::ai_parallel`] gives before the owner changes it.
+    pub fn ai_parallel_default(&self, c: Connection) -> usize {
+        let local = c == Connection::OpenAi && crate::ai::preset_by_key(&self.ai_preset).local;
+        if local { 1 } else { 3 }
+    }
+
+    pub fn set_ai_parallel(&mut self, c: Connection, n: usize) {
+        if let Some(i) = ai_index(c) {
+            self.ai_parallel[i] = n.clamp(AI_PARALLEL_MIN, AI_PARALLEL_MAX).to_string();
         }
     }
 
@@ -786,7 +822,7 @@ preview_mode= MDVIEW
     fn custom_providers_are_a_list_and_the_old_single_one_joins_it() {
         let old = "[preferences]\nai_connection=openai\nai_preset=custom\n\
                    ai_base_url=http://localhost:1234/v1\nai_model_openai=qwen\nai_effort_openai=low\n";
-        let p = Prefs::parse(old);
+        let mut p = Prefs::parse(old);
         assert_eq!(
             p.ai_customs,
             [CustomProvider {
@@ -798,6 +834,20 @@ preview_mode= MDVIEW
         );
         assert_eq!(p.ai_url(), "http://localhost:1234/v1");
         assert_eq!(p.ai_model(Connection::OpenAi), "qwen");
+        // D-080: three at once by default, one for a local model, and the owner's number kept
+        // through the file.
+        assert_eq!(p.ai_parallel(Connection::ClaudeApi), 3);
+        p.ai_preset = "lmstudio".into();
+        assert_eq!(p.ai_parallel(Connection::OpenAi), 1);
+        p.ai_preset = "openai".into();
+        p.set_ai_parallel(Connection::ClaudeApi, 5);
+        assert_eq!(p.ai_parallel(Connection::ClaudeApi), 5);
+        let text = p.serialize();
+        assert!(text.contains("ai_parallel_claude-api=5"), "{text}");
+        let back = Prefs::parse(&text);
+        assert_eq!(back.ai_parallel(Connection::ClaudeApi), 5);
+        p.set_ai_parallel(Connection::ClaudeApi, 99);
+        assert_eq!(p.ai_parallel(Connection::ClaudeApi), AI_PARALLEL_MAX);
         // Written back it is the list, and the chosen one's URL for a build before the list.
         let t = p.serialize();
         assert!(t.contains("ai_custom_0_url=http://localhost:1234/v1\n"));
@@ -904,6 +954,7 @@ preview_mode= MDVIEW
                 "llama 4".into(),
             ],
             ai_efforts: ["max".into(), "minimal".into(), "".into(), "low".into()],
+            ai_parallel: ["2".into(), "".into(), "5".into(), "".into()],
             ai_preset: "custom".into(),
             ai_customs: vec![
                 CustomProvider {
@@ -944,7 +995,7 @@ preview_mode= MDVIEW
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 49);
+        assert_eq!(t.lines().count(), 53);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,

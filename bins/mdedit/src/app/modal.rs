@@ -76,8 +76,10 @@ pub const AI_REVIEW: u32 = 101;
 pub const AI_PROMPTS: u32 = 102;
 pub const AI_CUSTOM_NAME: u32 = 103;
 pub const AI_CUSTOM_REMOVE: u32 = 104;
+/// "Requests at once", added after the first ids so no existing row's id moved.
+pub const AI_PARALLEL: u32 = 105;
 /// The last of the AI rows' ids.
-pub const AI_LAST: u32 = AI_CUSTOM_REMOVE;
+pub const AI_LAST: u32 = AI_PARALLEL;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -1071,6 +1073,16 @@ impl App {
         )
         .dropdown()));
         rewrite.push(why(Item::new(
+            Row::number(
+                AI_PARALLEL,
+                "Requests at once",
+                p.ai_parallel(c) as i32,
+                mdedit_core::prefs::AI_PARALLEL_MIN as i32,
+                mdedit_core::prefs::AI_PARALLEL_MAX as i32,
+            )
+            .help("How many requests the AI may be asked at once. A local model starts with one."),
+        )));
+        rewrite.push(why(Item::new(
             Row::toggle(AI_REVIEW, "Show changes before applying", p.ai_review)
                 .help("Off: the result replaces the text at once, and Undo brings it back."),
         )));
@@ -1239,6 +1251,7 @@ impl App {
                 p.set_ai_effort(c, e.map_or("", String::as_str));
             }
             (AI_REVIEW, Value::Bool(on)) => p.ai_review = on,
+            (AI_PARALLEL, Value::Number(n)) => p.set_ai_parallel(c, n.max(0) as usize),
             _ => return,
         }
         p.clamp();

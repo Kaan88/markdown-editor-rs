@@ -3284,3 +3284,76 @@ outside the runs' ranges; the executable +102,400 bytes).
 on the document in front; a row of the Files pane has no menu of its own in this program, and the
 tab menu does not open the window on the tab under the pointer (it would have to activate it
 first). Add files… and a drop from Explorer are the ways in.
+
+## 84. Sort a folder by AI (2026-11-23, phase 4)
+
+`ai-library-plan.md` 5.7's second half, on 4a's card. The AI proposes the **headings** and the
+**file under each**; the card stays the one place a plan is read, edited and written, and the
+import's writer from 4a is the only thing that writes (D-150). It needs an AI connection: with the
+connection off the card says "The AI is off: choose a connection in Settings › AI." where the
+offer would be, and nothing is asked (D-079).
+
+**The core** (`crates/mdedit-core/src/import_ai.rs`):
+
+- `scheme_ask(&plan)` numbers the plan's notes (not the files the group already lists) and builds
+  one request: per file its path inside the folder, its title and the first `START_SENT` (120)
+  bytes; `SYSTEM` asks for at most `MAX_SECTIONS` (8) sections, each with at most `MAX_SUBS` (4)
+  subsections. A request over `PROMPT_MAX` (200 KB) is refused with the size, not cut.
+- `batches(&plan, &scheme)` makes `BATCH` (40) files per request, preceded by the scheme's
+  numbered heading paths; `FILE_SYSTEM` asks for a section number, a confidence and a one-line
+  `why` per id. At most `MAX_AI_FILES` (500) files are in one sort.
+- `read_scheme` / `read(&str, ids)` read an answer with a depth-bounded JSON reader, every field
+  optional and every number checked; no input can panic (rule 11). A section or subsection past
+  the caps, empty or repeated is dropped and counted. A name is cut at `NAME_MAX` (120) bytes, a
+  `why` at `WHY_MAX`; a title is taken only if it reads back as one line.
+- `settle(&mut plan, &scheme, &batches, &answers, complete)` puts each note under the scheme's
+  path: `same_path_names` compares without case, so `Pasta` and `pasta` are one heading. An id the
+  batch did not send, a number the scheme does not have, a file the answer leaves out, and a
+  batch that never came all set `unsorted`, `ticked = false` and the reason; confidence 0.6 and
+  over is "sure" (`SURE`). `reorder` gives the rows the scheme's order, then already-listed files,
+  then **Unsorted**, by title within a heading. An answer for a run that is no longer in flight is
+  dropped.
+
+**The card** (`import_ui.rs`, `import_draw.rs`, `app/import_ai.rs`, `app/import_ai_tests.rs`):
+
+- `SortStage`: `Off`, `Asking`, `Scheme(Scheme)`, `Filing { scheme, done, total, in_flight }`,
+  `Filed { placed, unsorted, requests, stopped, why }` and `Failed(String)`. The folder plan is
+  `Off`; **Ask the AI** goes to `Asking`; the scheme comes to `Scheme`; **Sort N files** goes to
+  `Filing`; the settled plan to `Filed`. The card keeps its ticks, selection and scroll across the
+  stages: the scheme list is the folder list with the AI's headings, the same `Rows`, the same
+  preview and "the file is not moved or changed" at its foot.
+- `Scheme` is edited in place: **Add section** makes a row under the selection (or at the end)
+  and opens its box, **Rename** (F2, or a second click) opens the box, Enter keeps it, Escape puts
+  the old name back, **Delete** takes the row and a top section's subsections. The name goes
+  through `TextField`, with `plan_preedit` for an input method; the caret and the box's text are
+  in the region signature. Enter on the list is **Sort N files**; Escape is **Keep the folders**.
+  A request cannot start with no sections or two sections named alike; the footer says which.
+- While `Asking` or `Filing`, the list shows the plan (the folder's rows, then the scheme's), the
+  head says "Asking the AI…" or "SORTING THE FILES…", the footer counts requests answered of
+  total and in flight, and **Stop** cancels every request (Escape does the same) and gives back
+  the scheme as it was edited. The second footer line states what is sent ("only each file's
+  path, title, start and size") with the connection, model and effort, or, with no connection,
+  the reason and the way to Settings.
+- `Filed` shows each row's confidence and `why` dim under its name, a section row's "N files · M
+  ticked", and the unsorted note with no tick. The head offers **Tick all**, **Untick all** and
+  **Tick only the sure ones**; the footer says "The AI placed 9 files in 4 sections in 2 requests
+  · 1 unsorted" and **Add N files**. A stopped run says how many it did not reach instead of
+  "unsorted", and **Ask again**; a failed scheme or an unreadable first answer shows **Try again**
+  and **Keep the folders**. Add is 4a's: one `library::rewrite`, one line per ticked file, the
+  toast and the pane afterwards.
+- **Requests at once** (D-080) is a number row on the settings' AI rewrite page, 1..8 with
+  steppers, stored per connection. The run reads it when it starts, and the card's requests go out
+  up to it at a time (three by default, one for a local model). `app/ai_events.rs` routes
+  `Ask::SortScheme` and `Ask::SortFiles(batch)` to the card; `ai.rs`'s `SortRun` holds the scheme,
+  batches, answers, in-flight ids and counters, and `Ai::running` includes it, so Escape and the
+  engine ending reach it as they do a split.
+
+**Shots**: `import-folder-scheme`, `import-folder-scheme-rename`, `import-folder-ai`,
+`import-folder-ai-sorting`, `import-folder-ai-asking`, `import-folder-ai-off`,
+`import-folder-ai-failed` and `import-folder-unsorted`, each in both themes, drawn by
+`--plan-demo <name>`.
+
+**Not done, deliberate**: the AI does not change a file, move one or choose its path; there is no
+re-ask of one batch and no manual "Unsorted" heading in the scheme (Unsorted is added when it is
+needed); and the request's answer is not kept in a run record -- a sort leaves no record, unlike a
+split, because nothing is written until Add.
