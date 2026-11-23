@@ -506,8 +506,11 @@ impl App {
         self.library_load();
         // The pane's rows are made from the library, so they are made again now, with what is
         // folded above the new note opened: it shows at once, not after a fold and an unfold.
+        // A name being typed there goes with them, and the keyboard back to the text rather
+        // than to a box the new rows no longer hold.
         self.ui.library.unfold_to(file, section);
         self.ui.library.stop_edit();
+        self.ui.drop_library_field_focus();
         self.ui.library.build(&self.docs.library);
         self.redraw();
         let group = self
