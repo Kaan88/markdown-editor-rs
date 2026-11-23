@@ -2939,7 +2939,9 @@ changes keep the old text. Apply is one step: Ctrl+Z brings the old text back.";
 result and "Apply 8 changes", which at zero ticked reads "Nothing is ticked", is drawn as a
 disabled button and takes no click (Enter says so in a toast). Keys: F7 and Shift+F7 the next and
 the previous change (scrolled to the top of the list), Space ticks the current one, Enter applies,
-Esc closes and keeps the result (phase 0); Up, Down, PageUp, PageDown and the wheel scroll. A
+Esc closes and keeps the result (phase 0); Up, Down, PageUp, PageDown and the wheel scroll. In
+Preview the arrows are drawn off and F7/Shift+F7 do nothing: the pages have no rows to scroll to
+(D-103), so stepping would change the count and move nothing; the strip and Tick all still work. A
 review that is blocked (text changed, read-only, closed) keeps its list and ticks, and its Copy
 result copies what is ticked.
 
