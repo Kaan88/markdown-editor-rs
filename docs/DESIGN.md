@@ -1736,13 +1736,20 @@ now, and the menus follow them:
 - `Links::check` asks the courier to try `sister::alive("mdview")` (a bare connection, up to
   300 ms, on the courier's thread, after whatever waits to be sent); when nobody answers, the
   links end exactly as for an unanswered send (`take_gone` at `Wake::Link`). When the viewer does
-  answer it is asked once more `RECHECK` (1 s) later, and no more: closing mdview's window is
-  what hands this window the focus, and a viewer whose window was just closed still answers until
-  its process ends. The check is asked when the window gains focus (`focus_gained`), when a menu
-  opens from the menu bar or a key (`open_popup`; a submenu opened from it with `open_sub` asks
-  nothing of its own, the check made for the menu it hangs from covers it), when a tab's menu
-  opens, and never on a timer, never while nothing is linked (no courier), and not during the
-  first `GRACE` after a link was made, while a viewer just started may not answer yet.
+  answer, an event ask makes the courier ask again after `RECHECK` (1 s), 2 s and 4 s (D-102,
+  D-105), and no more: closing mdview's window is what hands this window the focus, and a viewer
+  whose window was just closed still answers until its process ends. The check is asked when the
+  window gains focus (`focus_gained`), when a menu opens from the menu bar or a key (`open_popup`;
+  a submenu opened from it with `open_sub` asks nothing of its own, the check made for the menu it
+  hangs from covers it) and when a tab's menu opens. A key's press or a mouse press asks too
+  (`check_on_input`), at most once in 2 s; a key's release and auto-repeat do not. An input ask is
+  answered once and starts no rechecks, so steady typing does not probe again and again. The
+  window schedules no check on a timer of its own, and nothing is asked while nothing is linked
+  (no courier). While a link is still in its first `GRACE` (a viewer it just started may not
+  answer yet) a check the focus or a menu asks for is kept, and the courier waits until that
+  grace ends on its own thread and makes it once, so an ask inside the grace is not lost; an input
+  ask is let go there, and the next press asks again. The rechecks a check sets going are timers
+  on the courier's thread, not the window's.
 - The viewer's tab closing while the viewer runs: the viewer sends `?closed` (`Request::closed`,
   SISTER.md "A view closed") with the file, or with `?doc=` for a document without a file, for
   each tab the editor asked it to show (its `editor_shown`), however the tab went; when its whole

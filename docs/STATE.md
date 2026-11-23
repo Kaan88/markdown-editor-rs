@@ -36,6 +36,10 @@ released. If `git log -1` is newer, doubt "In hand" first.
   sentence. Its card was a fixed 460x196, and a long group or file name wrapped a fourth line
   through the divider into the buttons; the card now grows from the lines the words wrap to (shots
   `library-delete`, `library-delete-long`; the owner has not looked at them).
+- **A closed mdview is asked about again** (branch `fix/closed-mdview`, merged, D-102 and D-105): after
+  1, 2 and 4 s; a check refused while a link is still in its grace is kept and made once when the
+  grace ends; a key press or a click asks at most once in two seconds, answered once and starting
+  no rechecks. Not tried by the owner; keystroke and idle times not measured (the app was not run).
 - Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review
   (audit 3's fixes included).
 
@@ -64,14 +68,20 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 1. The owner's four faults from the hand check (D-101), for the next release: the add, browsing
    the library in the full preview and the delete notice, merged; a closed mdview, on
-   `fix/closed-mdview` (first: whether it is missed with mdview 1.0.5 too).
+   the closed mdview, merged and still to be tried by the owner (first: whether it is missed with mdview 1.0.5 too).
 2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
 
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
-  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
+  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold. D-102 and D-105
+  change this (merged, not yet tried by the owner): three rechecks at
+  1, 2 and 4 s, an ask kept to the end of a link's grace instead of dropped, and an ask on a key
+  press or a click at most once in two seconds. With mdview 1.0.4 and a graceful close the old
+  code already found it in 1 s in a test against the real exe, so the owner's failing case was
+  not reproduced here; a tab closed in a viewer that keeps running cannot be told from 1.0.4 at
+  all.
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.

@@ -24,3 +24,10 @@ shows.)
   listing them; a file that lists none no longer gets that second sentence. The question's card
   also grows with the lines its words wrap to: a long group or file name used to run a fourth
   line through the divider into the buttons.
+
+- **A closed mdview is found out even when the preview was just starting.** Closing mdview by hand
+  while a preview was still in its first five seconds dropped the check the window's focus made,
+  so "Stop the preview" stayed up for good; the check is now kept and made once the grace ends. A
+  key press or a click still asks at most once in two seconds, and typing no longer restarts the
+  background checks, so steady typing does not probe about once a second; only key presses ask,
+  not releases or auto-repeat.

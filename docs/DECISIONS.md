@@ -1050,6 +1050,21 @@ release waits only for the owner's word to tag.
 **Overturned by.** The owner.
 **From.** The owner, 2026-11-23.
 
+## D-102 · 2026-11-23 · A closed mdview is asked about more than once, and on input
+
+**Decision.** Replaces D-097's "once more a second later". A check that finds the viewer running
+is repeated after 1, 2 and 4 s (`RECHECKS`), and stops when the viewer is found gone. A key press
+or a mouse press also asks (`Links::check_on_input`), at most once in 2 s and never while nothing
+is linked or during the first `GRACE`; it is an event, not a timer, and costs one lock when not due.
+**Why.** The owner's hand check found D-097 not holding with mdview 1.0.4. Against the real
+1.0.4 exe (closed gracefully, with `--line` and `--from` as mdedit starts it) the old code did find
+the viewer gone after 1 s, so the cause was not reproduced; the two changes cover the ways it can
+still fail: a process that ends later than one second after its window, and a window that never
+had a focus change to ask at.
+**Overturned by.** The owner, if a closed mdview is still missed; then the next suspect is the
+viewer staying alive after its window closes, which only mdview can fix.
+**From.** The owner's report, 2026-11-23; built by an agent, recorded by Claude.
+
 ## D-104 · 2026-11-23 · Visual editing waits for a tab still being read
 
 **Decision.** One of the four faults of D-101: browsing the library in the full preview kept the
@@ -1081,3 +1096,20 @@ A fixed height cannot hold a sentence that names things of unknown length, and s
 measured body is the same rule the dialog list cards already follow (`card`'s `list`).
 **Overturned by.** The owner, or a review that finds the grown card wrong on screen.
 **From.** The owner's hand check (D-101) and the review of `fix/delete-library-notice`.
+
+## D-105 · 2026-11-23 · The check made inside a grace is kept, and input does not restart the rechecks
+
+**Decision.** Amends D-102, whose hedge the review found safe but incomplete. A check refused
+because a link was still in its `GRACE` (a viewer it just started may not answer yet) was dropped,
+and the focus that asked it comes once: it is now kept, and the courier waits on its own thread
+until that grace ends and makes it once (`Courier::check_at`), so a viewer closed while a preview
+was starting is still found. An ask made for input no longer restarts the 1, 2, 4 s rechecks
+(`Check::Once` against `Check::Again`), so steady typing does not probe about once a second; only
+key presses ask, not key releases or auto-repeat. D-102's "costs one lock when not due" is wrong:
+when an input ask is not due nothing locks at all, and a refused ask costs one lock only while a
+link is in its grace.
+**Why.** The review of D-102's fix: the grace guard could swallow the one ask the owner's failing
+case made, and an input ask resetting the chain made typing a steady stream of probes.
+**Overturned by.** The owner, if a closed mdview is still missed; or a viewer that answers during
+its grace, which would make waiting unnecessary.
+**From.** The review of the fix, 2026-11-23; built by an agent, recorded by Claude.
