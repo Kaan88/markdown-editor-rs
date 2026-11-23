@@ -1080,3 +1080,20 @@ than guessing a language from the path, and a failed read is no text to show.
 **Overturned by.** The owner; or a preview that can show a document whose language is not yet
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
+
+## D-105 · 2026-11-23 · The check made inside a grace is kept, and input does not restart the rechecks
+
+**Decision.** Amends D-102, whose hedge the review found safe but incomplete. A check refused
+because a link was still in its `GRACE` (a viewer it just started may not answer yet) was dropped,
+and the focus that asked it comes once: it is now kept, and the courier waits on its own thread
+until that grace ends and makes it once (`Courier::check_at`), so a viewer closed while a preview
+was starting is still found. An ask made for input no longer restarts the 1, 2, 4 s rechecks
+(`Check::Once` against `Check::Again`), so steady typing does not probe about once a second; only
+key presses ask, not key releases or auto-repeat. D-102's "costs one lock when not due" is wrong:
+when an input ask is not due nothing locks at all, and a refused ask costs one lock only while a
+link is in its grace.
+**Why.** The review of D-102's fix: the grace guard could swallow the one ask the owner's failing
+case made, and an input ask resetting the chain made typing a steady stream of probes.
+**Overturned by.** The owner, if a closed mdview is still missed; or a viewer that answers during
+its grace, which would make waiting unnecessary.
+**From.** The review of the fix, 2026-11-23; built by an agent, recorded by Claude.

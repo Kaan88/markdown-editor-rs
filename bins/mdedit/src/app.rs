@@ -2583,6 +2583,177 @@ fn frame_report(w: &Window) -> String {
     hwnd(w).map(platform::frame_report).unwrap_or_default()
 }
 
+impl App {
+    /// The window's events, without the loop they came from: `window_event` itself needs a live
+    /// event loop, and a test drives the events here.
+    pub(super) fn on_window_event(&mut self, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => {
+                self.request(After::Exit);
+                self.redraw();
+            }
+            WindowEvent::RedrawRequested => {
+                self.wants_frame = false;
+                if !std::mem::take(&mut self.requested) {
+                    self.expose = true;
+                }
+                self.draw();
+            }
+            WindowEvent::Moved(position) => {
+                if let Some(w) = &self.window
+                    && !w.is_maximized()
+                    && w.is_minimized() != Some(true)
+                    && w.fullscreen().is_none()
+                {
+                    self.session.set_window_position(position.x, position.y);
+                }
+            }
+            WindowEvent::Resized(size) => {
+                if let Some(w) = &self.window {
+                    self.maximized = w.is_maximized();
+                }
+                self.update_shadow(None);
+                // The window reports the surface; the app lives in the content inside the margin
+                // (the margin in force was just re-read by `update_shadow`).
+                self.size = self.content_size(size.width, size.height);
+                self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
+                self.redraw();
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.scale = scale_factor as f32;
+                self.update_shadow(None);
+                if let Some(w) = &self.window {
+                    let s = w.inner_size();
+                    self.size = self.content_size(s.width, s.height);
+                }
+                self.full = true;
+                self.redraw();
+            }
+            WindowEvent::ThemeChanged(t) => {
+                self.system_dark = t == WinTheme::Dark;
+                self.full = true;
+                self.redraw();
+            }
+            WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                self.update_shadow(Some(focused));
+                if focused && self.ui.tree.refresh() {
+                    self.redraw();
+                }
+                if focused {
+                    self.focus_gained();
+                } else {
+                    self.ui.caret_on = true;
+                    self.ui.tip = None;
+                    self.docs.seal();
+                }
+                self.redraw();
+            }
+            WindowEvent::ModifiersChanged(m) => self.mods = Mods::from_winit(m.state()),
+            WindowEvent::CursorMoved {
+                position: PhysicalPosition { x, y },
+                ..
+            } => {
+                // Surface coordinates to content coordinates (the margin is 0 without the
+                // client-drawn shadow): negative or past the content in the outer resize band.
+                let (x, y) = match &self.shadow {
+                    Some(s) => s.to_content(x, y),
+                    None => (x, y),
+                };
+                self.pointer_moved(x as f32 / self.scale, y as f32 / self.scale);
+            }
+            WindowEvent::CursorLeft { .. } => {
+                if self.ui.drag.is_none() {
+                    self.ui.hover = None;
+                    self.ui.tip = None;
+                    self.redraw();
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                // A viewer closed by hand is found out at the next click if the focus did not.
+                if state == ElementState::Pressed {
+                    self.docs.links.check_on_input(Instant::now());
+                }
+                // A press on the page leaves the lead where it is: a selection there does not
+                // move it.
+                if state == ElementState::Pressed
+                    && self.preview.is_some()
+                    && !self.on_page(self.ui.mouse.0, self.ui.mouse.1)
+                {
+                    self.editor_leads();
+                }
+                match (state, button) {
+                    // On a Mac, Control and a click is a right click (`Mods::control` is never
+                    // set elsewhere).
+                    (ElementState::Pressed, MouseButton::Left) if self.mods.control => {
+                        self.control_click = true;
+                        self.right_press();
+                    }
+                    (ElementState::Released, MouseButton::Left)
+                        if std::mem::take(&mut self.control_click) => {}
+                    (ElementState::Pressed, MouseButton::Left) => self.left_press(),
+                    (ElementState::Released, MouseButton::Left) => self.left_release(),
+                    (ElementState::Pressed, MouseButton::Right) => self.right_press(),
+                    (ElementState::Pressed, MouseButton::Middle) => self.middle_press(),
+                    _ => {}
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                // The wheel over the page makes the page lead again (`preview_wheel`).
+                self.editor_leads();
+                self.wheel(delta)
+            }
+            // A trackpad: a pinch zooms in steps; the smart-zoom tap (two fingers, twice) is the
+            // actual size. winit reports both on macOS only.
+            WindowEvent::PinchGesture { delta, phase, .. } => {
+                let steps = self.pinch.add(delta);
+                for _ in 0..steps.unsigned_abs() {
+                    self.command(if steps > 0 { C::ZoomIn } else { C::ZoomOut });
+                }
+                if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+                    self.pinch.end();
+                }
+            }
+            WindowEvent::DoubleTapGesture { .. } => self.command(C::ZoomReset),
+
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic: false,
+                ..
+            } => {
+                if matches!(event.logical_key, Key::Named(NamedKey::Alt)) {
+                    return;
+                }
+                self.editor_leads();
+                // A key's press asks, once in a while; its release and its auto-repeat do not.
+                self.ask_on_key(event.state, event.repeat);
+                self.key(&event);
+            }
+            // Text an input method made: an accent typed with a dead key or chosen by holding a
+            // key, or Chinese, Japanese or Korean input. Input methods are on only on macOS.
+            WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ime_commit(&text),
+            // The input method's candidate window goes under the caret.
+            // What it is composing shows where it will go, and its candidate window goes under
+            // the caret.
+            WindowEvent::Ime(winit::event::Ime::Preedit(text, cursor)) => {
+                self.ime_preedit(text, cursor)
+            }
+            WindowEvent::Ime(winit::event::Ime::Enabled) => self.ime_area(),
+            WindowEvent::Ime(winit::event::Ime::Disabled) => self.ime_preedit(String::new(), None),
+            WindowEvent::DroppedFile(path) => self.dropped(path),
+            _ => {}
+        }
+    }
+
+    /// A key asks after the viewer: its press, not its release, and not its auto-repeat while
+    /// the key is held. `check_on_input` keeps the asks two seconds apart.
+    fn ask_on_key(&mut self, state: ElementState, repeat: bool) {
+        if state == ElementState::Pressed && !repeat {
+            self.docs.links.check_on_input(Instant::now());
+        }
+    }
+}
+
 impl ApplicationHandler<Wake> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -2728,161 +2899,7 @@ impl ApplicationHandler<Wake> for App {
     }
 
     fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => {
-                self.request(After::Exit);
-                self.redraw();
-            }
-            WindowEvent::RedrawRequested => {
-                self.wants_frame = false;
-                if !std::mem::take(&mut self.requested) {
-                    self.expose = true;
-                }
-                self.draw();
-            }
-            WindowEvent::Moved(position) => {
-                if let Some(w) = &self.window
-                    && !w.is_maximized()
-                    && w.is_minimized() != Some(true)
-                    && w.fullscreen().is_none()
-                {
-                    self.session.set_window_position(position.x, position.y);
-                }
-            }
-            WindowEvent::Resized(size) => {
-                if let Some(w) = &self.window {
-                    self.maximized = w.is_maximized();
-                }
-                self.update_shadow(None);
-                // The window reports the surface; the app lives in the content inside the margin
-                // (the margin in force was just re-read by `update_shadow`).
-                self.size = self.content_size(size.width, size.height);
-                self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
-                self.redraw();
-            }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.scale = scale_factor as f32;
-                self.update_shadow(None);
-                if let Some(w) = &self.window {
-                    let s = w.inner_size();
-                    self.size = self.content_size(s.width, s.height);
-                }
-                self.full = true;
-                self.redraw();
-            }
-            WindowEvent::ThemeChanged(t) => {
-                self.system_dark = t == WinTheme::Dark;
-                self.full = true;
-                self.redraw();
-            }
-            WindowEvent::Focused(focused) => {
-                self.focused = focused;
-                self.update_shadow(Some(focused));
-                if focused && self.ui.tree.refresh() {
-                    self.redraw();
-                }
-                if focused {
-                    self.focus_gained();
-                } else {
-                    self.ui.caret_on = true;
-                    self.ui.tip = None;
-                    self.docs.seal();
-                }
-                self.redraw();
-            }
-            WindowEvent::ModifiersChanged(m) => self.mods = Mods::from_winit(m.state()),
-            WindowEvent::CursorMoved {
-                position: PhysicalPosition { x, y },
-                ..
-            } => {
-                // Surface coordinates to content coordinates (the margin is 0 without the
-                // client-drawn shadow): negative or past the content in the outer resize band.
-                let (x, y) = match &self.shadow {
-                    Some(s) => s.to_content(x, y),
-                    None => (x, y),
-                };
-                self.pointer_moved(x as f32 / self.scale, y as f32 / self.scale);
-            }
-            WindowEvent::CursorLeft { .. } => {
-                if self.ui.drag.is_none() {
-                    self.ui.hover = None;
-                    self.ui.tip = None;
-                    self.redraw();
-                }
-            }
-            WindowEvent::MouseInput { state, button, .. } => match (state, button) {
-                // A viewer closed by hand is found out at the next click if the focus did not.
-                _ if state == ElementState::Pressed && {
-                    self.docs.links.check_on_input(Instant::now());
-                    false
-                } => {}
-                // A press on the page leaves the lead where it is: a selection there does not
-                // move it.
-                _ if state == ElementState::Pressed
-                    && self.preview.is_some()
-                    && !self.on_page(self.ui.mouse.0, self.ui.mouse.1)
-                    && {
-                        self.editor_leads();
-                        false
-                    } => {}
-                // On a Mac, Control and a click is a right click (`Mods::control` is never set
-                // elsewhere).
-                (ElementState::Pressed, MouseButton::Left) if self.mods.control => {
-                    self.control_click = true;
-                    self.right_press();
-                }
-                (ElementState::Released, MouseButton::Left)
-                    if std::mem::take(&mut self.control_click) => {}
-                (ElementState::Pressed, MouseButton::Left) => self.left_press(),
-                (ElementState::Released, MouseButton::Left) => self.left_release(),
-                (ElementState::Pressed, MouseButton::Right) => self.right_press(),
-                (ElementState::Pressed, MouseButton::Middle) => self.middle_press(),
-                _ => {}
-            },
-            WindowEvent::MouseWheel { delta, .. } => {
-                // The wheel over the page makes the page lead again (`preview_wheel`).
-                self.editor_leads();
-                self.wheel(delta)
-            }
-            // A trackpad: a pinch zooms in steps; the smart-zoom tap (two fingers, twice) is the
-            // actual size. winit reports both on macOS only.
-            WindowEvent::PinchGesture { delta, phase, .. } => {
-                let steps = self.pinch.add(delta);
-                for _ in 0..steps.unsigned_abs() {
-                    self.command(if steps > 0 { C::ZoomIn } else { C::ZoomOut });
-                }
-                if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
-                    self.pinch.end();
-                }
-            }
-            WindowEvent::DoubleTapGesture { .. } => self.command(C::ZoomReset),
-
-            WindowEvent::KeyboardInput {
-                event,
-                is_synthetic: false,
-                ..
-            } => {
-                if matches!(event.logical_key, Key::Named(NamedKey::Alt)) {
-                    return;
-                }
-                self.editor_leads();
-                self.docs.links.check_on_input(Instant::now());
-                self.key(&event);
-            }
-            // Text an input method made: an accent typed with a dead key or chosen by holding a
-            // key, or Chinese, Japanese or Korean input. Input methods are on only on macOS.
-            WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ime_commit(&text),
-            // The input method's candidate window goes under the caret.
-            // What it is composing shows where it will go, and its candidate window goes under
-            // the caret.
-            WindowEvent::Ime(winit::event::Ime::Preedit(text, cursor)) => {
-                self.ime_preedit(text, cursor)
-            }
-            WindowEvent::Ime(winit::event::Ime::Enabled) => self.ime_area(),
-            WindowEvent::Ime(winit::event::Ime::Disabled) => self.ime_preedit(String::new(), None),
-            WindowEvent::DroppedFile(path) => self.dropped(path),
-            _ => {}
-        }
+        self.on_window_event(event);
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {

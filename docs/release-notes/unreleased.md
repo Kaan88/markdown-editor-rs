@@ -18,3 +18,9 @@ shows.)
   mode took it for a file the page cannot show. It now waits for the read, closes the old note's
   open block while it waits, and follows the new note once read; a read that fails ends the mode,
   as any file the page cannot show does.
+- **A closed mdview is found out even when the preview was just starting.** Closing mdview by hand
+  while a preview was still in its first five seconds dropped the check the window's focus made,
+  so "Stop the preview" stayed up for good; the check is now kept and made once the grace ends. A
+  key press or a click still asks at most once in two seconds, and typing no longer restarts the
+  background checks, so steady typing does not probe about once a second; only key presses ask,
+  not releases or auto-repeat.
