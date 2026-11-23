@@ -335,6 +335,20 @@ pub fn with_eol(text: &str, eol: &str) -> String {
     }
 }
 
+/// The text of a note made from a text file (`docs/ai-library-plan.md` 5.8): the model's answer
+/// with the source file's own line breaks, no blank lines at its end, and exactly one line ending
+/// after the last line. Empty for an answer that is blank; the caller refuses that.
+pub fn note_body(reply: &str, eol: &str) -> String {
+    let body = reply.trim_end_matches(['\n', '\r']);
+    let lf = body.replace("\r\n", "\n").replace('\r', "\n");
+    let trimmed = lf.trim_end();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        with_eol(&format!("{trimmed}\n"), eol)
+    }
+}
+
 // ---- saved prompts -----------------------------------------------------------------------------
 
 /// The saved prompts file, beside settings.ini.
@@ -604,6 +618,17 @@ pub fn append_prompt_of(file: &str, name: &str, instruction: &str, kind: PromptK
 mod tests {
     use super::*;
     use crate::buffer::Buffer;
+
+    #[test]
+    fn a_notes_text_takes_the_files_line_endings_and_ends_with_one() {
+        let reply = "PASTA\r\n\r\n- boil it\r\n\r\n\r\n";
+        assert_eq!(note_body(reply, "\n"), "PASTA\n\n- boil it\n");
+        assert_eq!(note_body(reply, "\r\n"), "PASTA\r\n\r\n- boil it\r\n");
+        // No line ending in the source's habit does not mean none in the note's.
+        assert_eq!(note_body("one line", "\n"), "one line\n");
+        // An answer of nothing but blank lines is no note at all.
+        assert_eq!(note_body(" \r\n\r\n", "\n"), "");
+    }
 
     #[test]
     fn a_rewrite_is_one_undo_step() {

@@ -13,13 +13,11 @@ use mdedit_core::encoding::Encoding;
 use mdshared_app::library::folder_name;
 
 impl App {
-    /// The plan screen or the move card is open: either is over everything and takes every
-    /// event, and each route below hands the move card's to `app/moving.rs`.
-    /// The plan screen, the move card or the import card is open: any of them is over everything
-    /// and takes every event, and each route below hands the move card's to `app/moving.rs` and
-    /// the import card's to `app/importing.rs`.
+    /// The plan screen, the move card, the import card or the Markdown note card is open: any of
+    /// them is over everything and takes every event, and each route below hands the cards' to
+    /// `app/moving.rs`, `app/importing.rs` and `app/note.rs`.
     pub(super) fn plan_is_open(&self) -> bool {
-        self.plan.is_some() || self.move_is_open() || self.import_is_open()
+        self.plan.is_some() || self.move_is_open() || self.import_is_open() || self.note_is_open()
     }
 
     /// Opens `screen` over the window.
@@ -226,6 +224,9 @@ impl App {
         if self.import_is_open() {
             return self.import_key(key);
         }
+        if self.note_is_open() {
+            return self.note_key(key);
+        }
         if self.move_is_open() {
             return self.move_key(key);
         }
@@ -258,6 +259,9 @@ impl App {
         if self.import_is_open() {
             return self.import_pointer(x, y);
         }
+        if self.note_is_open() {
+            return self.note_pointer(x, y);
+        }
         if self.move_is_open() {
             return self.move_pointer(x, y);
         }
@@ -270,6 +274,9 @@ impl App {
     pub(super) fn plan_press(&mut self) {
         if self.import_is_open() {
             return self.import_press();
+        }
+        if self.note_is_open() {
+            return self.note_press();
         }
         if self.move_is_open() {
             return self.move_press();
@@ -287,6 +294,9 @@ impl App {
     pub(super) fn plan_release(&mut self) {
         if self.import_is_open() {
             return self.import_release();
+        }
+        if self.note_is_open() {
+            return self.note_release();
         }
         if self.move_is_open() {
             return self.move_release();
@@ -314,6 +324,9 @@ impl App {
     pub(super) fn plan_wheel(&mut self, dy: f32) {
         if self.import_is_open() {
             return self.import_wheel(dy);
+        }
+        if self.note_is_open() {
+            return self.note_wheel(dy);
         }
         if self.move_is_open() {
             return self.move_wheel(dy);
@@ -430,6 +443,7 @@ impl App {
             pictures: Vec::new(),
             sections_added: Vec::new(),
             moved: None,
+            originals: Vec::new(),
         };
         let report = Report {
             record: Some(record),

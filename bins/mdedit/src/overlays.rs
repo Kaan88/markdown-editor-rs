@@ -258,6 +258,11 @@ pub fn library_row_menu(
                 "&Move the notes\u{2026}",
                 glyph::FORWARD,
             ));
+            items.push(item(
+                L::MarkdownNote,
+                "Markdo&wn note from a file\u{2026}",
+                glyph::HEADING,
+            ));
             items.extend([
                 item(L::Rename, "&Rename group", glyph::EDIT).sep(),
                 item(
@@ -1474,21 +1479,35 @@ pub fn draw_dialog(
                 c.p.icon(glyph::MACRO, 15.0, row.x + 20.0, row.cy(), pal.accent);
                 let tx = row.x + 40.0;
                 let tw = (row.w - 52.0).max(0.0);
-                let first = if run.record.kind == mdedit_core::runs::Kind::Move {
+                let first = match run.record.kind {
                     // "Move · the notes of Work into their folder · 5 files".
-                    mdedit_core::moves::headline(&run.record)
-                } else {
-                    format!(
-                        "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
-                        "Split",
-                        run.record.source_name(),
-                        run.record.group_name(),
-                        if run.record.notes.len() == 1 {
-                            "1 note".to_string()
-                        } else {
-                            format!("{} notes", run.record.notes.len())
-                        }
-                    )
+                    mdedit_core::runs::Kind::Move => mdedit_core::moves::headline(&run.record),
+                    // A file rewritten in place (phase W) is a later version's record: this
+                    // build does not write it and will not undo it, and says so.
+                    mdedit_core::runs::Kind::Rewrite => format!(
+                        "Written by a newer version of mdedit \u{00B7} {}",
+                        run.path
+                            .file_name()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    ),
+                    kind => {
+                        let word = match kind {
+                            mdedit_core::runs::Kind::Markdown => "Markdown",
+                            _ => "Split",
+                        };
+                        format!(
+                            "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
+                            word,
+                            run.record.source_name(),
+                            run.record.group_name(),
+                            if run.record.notes.len() == 1 {
+                                "1 note".to_string()
+                            } else {
+                                format!("{} notes", run.record.notes.len())
+                            }
+                        )
+                    }
                 };
                 c.p.text(Face::Ui, 13.5, tx, row.y + 15.0, &first, pal.text, tw);
                 let second = format!(
@@ -1549,12 +1568,15 @@ pub fn draw_dialog(
                 false,
             );
             if let Some(run) = runs.list.get(runs.sel) {
-                // A move has nothing to finish: it is put back or undone.
-                let finish = run.record.kind != mdedit_core::runs::Kind::Move
-                    && matches!(
-                        run.record.state,
-                        mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
-                    );
+                // A move has nothing to finish: it is put back or undone. Neither has a record a
+                // later version wrote.
+                let finish = matches!(
+                    run.record.kind,
+                    mdedit_core::runs::Kind::Split | mdedit_core::runs::Kind::Markdown
+                ) && matches!(
+                    run.record.state,
+                    mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
+                );
                 let undo = run.record.state.live();
                 let mut items: Vec<(&str, Hit, bool)> = Vec::new();
                 items.push(("Show the notes", Hit::DlgRunShow, true));

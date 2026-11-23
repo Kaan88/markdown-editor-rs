@@ -1116,7 +1116,6 @@ than guessing a language from the path, and a failed read is no text to show.
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
 
-## D-103 · 2026-11-23 · The delete question: where the notes go, and a card that fits its words
 
 **Decision.** The question before a library file is deleted tells the owner where the notes it
 lists are ("The notes it lists are kept on disk."), and says nothing about them when it lists
@@ -1166,6 +1165,53 @@ who has not used the review yet, has not asked for it.
 (never in `diff`, which Compare draws), with a test per case it re-cuts.
 **Overturned by.** The owner.
 **From.** Claude, finishing R2, 2026-11-23; seen in the `review-preview-partial` shot.
+
+
+
+**Decision.** Phase 5.8 in mdedit: a text file picked from a group's row becomes a new note in that
+group's folder, written by the AI from the file's text. Its decisions, made as they were needed:
+1. The card sends the whole file (capped at 200 KB, the editor's own loader, no NUL bytes and no
+   byte it could not read) and one instruction, `ai::FORMAT`; the note is Markdown made from that
+   text, and the record keeps the instruction and what was sent.
+2. The note is always a new file, named from the source's file name (`pasta notes.txt` →
+   `pasta-notes.md`, then `pasta-notes 2.md`), never a rename and never a replacement; the source
+   is not touched. The note is UTF-8 whatever the source was, since Markdown is its text.
+3. The run is `Kind::Markdown` in the shared record (mdshared-app), so "AI runs…" names it, undo
+   removes the note and its line with the split's own machinery, and undo refuses when the original
+   is no longer the file the note was made from (D-300's rule, kept whole).
+4. Every refusal is made before the request and again before the write, in the card: AI off, no
+   library folder, the group folder being the library folder, the group's file unsaved, the 2,000
+   note cap, a line that would not read back, a source changed while the answer was out.
+**Why.** The plan (5.8) asks for exactly this, and the app's rule is that a destructive path is
+checked twice; the source is the owner's own file and the note is new, so nothing about it can be
+lost. `Kind::Split` would make undo read line ranges that do not exist in an answer that is prose,
+and "AI runs…" would call it a split.
+**Overturned by.** The owner; a model answer that must be written into the source instead of a new
+note; a record format that can hold a note's text without a kind of its own.
+**From.** `docs/ai-library-plan.md` 5.8 and 5.10; the review that asked for a kind, not a reuse.
+## D-120 ΓÇô 2026-11-23 ΓÇô A Markdown note from a file: the text, not the file, and always a new note
+
+**Decision.** Phase 5.8 in mdedit: a text file picked from a group's row becomes a new note in that
+group's folder, written by the AI from the file's text. Its decisions, made as they were needed:
+1. The card sends the whole file (capped at 200 KB, the editor's own loader, no NUL bytes and no
+   byte it could not read) and one instruction, `ai::FORMAT`; the note is Markdown made from that
+   text, and the record keeps the instruction and what was sent.
+2. The note is always a new file, named from the source's file name (`pasta notes.txt` ΓåÆ
+   `pasta-notes.md`, then `pasta-notes 2.md`), never a rename and never a replacement; the source
+   is not touched. The note is UTF-8 whatever the source was, since Markdown is its text.
+3. The run is `Kind::Markdown` in the shared record (mdshared-app), so "AI runsΓÇª" names it, undo
+   removes the note and its line with the split's own machinery, and undo refuses when the original
+   is no longer the file the note was made from (D-300's rule, kept whole).
+4. Every refusal is made before the request and again before the write, in the card: AI off, no
+   library folder, the group folder being the library folder, the group's file unsaved, the 2,000
+   note cap, a line that would not read back, a source changed while the answer was out.
+**Why.** The plan (5.8) asks for exactly this, and the app's rule is that a destructive path is
+checked twice; the source is the owner's own file and the note is new, so nothing about it can be
+lost. `Kind::Split` would make undo read line ranges that do not exist in an answer that is prose,
+and "AI runsΓÇª" would call it a split.
+**Overturned by.** The owner; a model answer that must be written into the source instead of a new
+note; a record format that can hold a note's text without a kind of its own.
+**From.** `docs/ai-library-plan.md` 5.8 and 5.10; the review that asked for a kind, not a reuse.
 
 ## D-130 · 2026-11-23 · A dragged note moves its line, and only its line
 
@@ -1233,3 +1279,22 @@ heading level), and a heading the library cannot read back is a note that would 
 the owner did not ask for. The dash is the only state a single shared `Tick` cannot draw.
 **Overturned by.** The owner; or a tree that shows deeper nesting well.
 **From.** The phase 4a brief; `docs/ai-library-plan.md` 5.7.
+
+## D-134 – 2026-11-23 – A kind this build does not write is a later version's record
+
+**Decision.** The five `mdshared-*` pins move from the note work's branch rev to the shared
+`main` (`0984eed`), where `Kind::Markdown` and `runs::write_note` are merged beside `Kind::Rewrite`
+(a file rewritten in place, phase W, D-074) and `library::put`. mdedit reads three kinds and writes
+two: a record whose kind it does not write — `Kind::Rewrite`, today — is not put in the runs it
+could undo. `open_runs` moves it into the newer-version list, the same list and the same words an
+unreadable record gets ("Written by a newer version of mdedit", "Not shown or undone here"), and
+`run_undo_ask`, `run_undo`, `run_show` and `run_finish` refuse it by name ("It is left as it is").
+`Record::originals` is written empty by the two records this build makes, as the shared crate says.
+**Why.** Phase W is being built elsewhere; a record of it must not be read as a split (its undo
+would look for line ranges and a source that a rewrite's record does not have) and nothing here
+may guess what undoing a rewrite means. The fallback is the one the app already has for records it
+cannot read, so there is one way to say "a later version wrote this", not two.
+**Overturned by.** Phase W landing here, which gives Rewrite its own show, undo and finish; or the
+shared crate giving the kinds one table of what a build can do with each.
+**From.** The owner's brief of 2026-11-23 (repin to shared `0984eed`, honest handling of Rewrite);
+D-120.

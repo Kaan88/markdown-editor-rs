@@ -104,6 +104,9 @@ pub(crate) mod modal;
 mod moving;
 #[cfg(test)]
 mod moving_tests;
+mod note;
+#[cfg(test)]
+mod note_tests;
 mod palette_events;
 mod plan;
 #[cfg(test)]
@@ -202,6 +205,8 @@ pub enum Picked {
     /// The file a note of the notes library was found at, and the folder chosen for it.
     LibraryFile(Vec<PathBuf>),
     LibraryFolder(Option<PathBuf>),
+    /// A text file to make a Markdown note from (5.8), and the group's library file it is for.
+    NoteFile(PathBuf, Vec<PathBuf>),
     /// The folder "Add a folder to the library…" was pointed at.
     ImportFolder(Option<PathBuf>),
     /// The folder chosen for a group's notes, and the library file it is for.
@@ -383,6 +388,8 @@ struct App {
     recycle: Box<dyn crate::recycle::RecycleBin>,
     /// "Move the notes…": the card of a move's plan, while it is open.
     mover: Option<crate::move_ui::MoveCard>,
+    /// "A Markdown note from a file…": the card while it is open (5.8).
+    note: Option<crate::note_ui::NoteCard>,
     /// "Add a folder to the library…" (5.7): the card of an import, and the folder a walk is
     /// reading on its own thread.
     importer: Option<crate::import_ui::ImportCard>,
@@ -553,6 +560,7 @@ impl App {
             #[cfg(test)]
             recycle: Box::new(crate::recycle::NoBin),
             mover: None,
+            note: None,
             importer: None,
             import_job: None,
             import_dir: None,
@@ -1478,6 +1486,8 @@ impl App {
                 .map(|s| (s.sig(), s.edit.is_some() && self.ui.caret_on)),
             // The move card raises its tick for every change, as the plan screen does.
             self.mover.as_ref().map(|m| m.sig()),
+            // The Markdown note card does too.
+            self.note.as_ref().map(|n| n.sig()),
             // So does the import card.
             self.importer.as_ref().map(|c| c.sig()),
         ));
@@ -1894,6 +1904,9 @@ impl App {
                     card.draw(c.p, &pal, w, h);
                 }
                 if let Some(card) = self.importer.as_mut() {
+                    card.draw(c.p, &pal, w, h);
+                }
+                if let Some(card) = self.note.as_mut() {
                     card.draw(c.p, &pal, w, h);
                 }
                 // Last, over everything.
@@ -3635,6 +3648,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     if let Some(kind) = app.args.move_demo.clone() {
         app.move_demo(&kind);
+    }
+    if let Some(kind) = app.args.note_demo.clone() {
+        app.note_demo(&kind);
     }
     if let Some(kind) = app.args.library_demo.clone() {
         app.library_demo(&kind);

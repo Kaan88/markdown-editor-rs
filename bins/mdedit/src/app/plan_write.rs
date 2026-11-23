@@ -529,7 +529,7 @@ fn remove_own_file(path: &Path, text: &str) {
 
 impl App {
     /// Opens the Notes pane on the group the report names, its cursor on the first note written.
-    fn open_notes_of(&mut self, report: &runs::Report, request: &Request) {
+    pub(super) fn open_notes_of(&mut self, report: &runs::Report, request: &Request) {
         if report.notes() == 0 {
             return;
         }
@@ -594,11 +594,42 @@ impl App {
             self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
             return;
         };
-        (self.ui.runs.list, self.ui.runs.unread) = mdedit_core::runs::list_all(&library);
+        let (mut list, mut unread) = mdedit_core::runs::list_all(&library);
+        // A record a later version wrote — a file rewritten in place, `Kind::Rewrite` (D-074),
+        // which this build has no words for and cannot show or undo — is listed the way the
+        // records this build cannot read are: named a later version's, with nothing enabled.
+        let mut i = 0;
+        while i < list.len() {
+            if list[i].record.kind == mdedit_core::runs::Kind::Rewrite {
+                let run = list.remove(i);
+                unread.push(mdedit_core::runs::Unread {
+                    started: run.record.started.clone(),
+                    path: run.path,
+                    newer: true,
+                });
+            } else {
+                i += 1;
+            }
+        }
+        unread.sort_by(|a, b| b.started.cmp(&a.started).then_with(|| a.path.cmp(&b.path)));
+        (self.ui.runs.list, self.ui.runs.unread) = (list, unread);
         self.ui.runs.sel = 0;
         self.ui.runs.undo = None;
         self.open_dialog(DialogKind::Runs);
         self.redraw();
+    }
+
+    /// Refuses a record a later version wrote — a file rewritten in place, `Kind::Rewrite`
+    /// (D-074), which this build has no words for and cannot show or undo. Says so; true when
+    /// it refused.
+    fn run_later(&mut self, record: &runs::Record) -> bool {
+        if record.kind != runs::Kind::Rewrite {
+            return false;
+        }
+        self.docs.set_toast(
+            "That record was written by a newer version of mdedit. It is left as it is.",
+        );
+        true
     }
 
     /// "Finish" on a run that stopped before its links were written.
@@ -611,6 +642,9 @@ impl App {
                 .set_toast("The record of that run cannot be read.");
             return;
         };
+        if self.run_later(&record) {
+            return;
+        }
         let mut gate = PlanGate {
             app: self,
             library: library.clone(),
@@ -691,6 +725,7 @@ impl App {
                         pictures: Vec::new(),
                         sections_added: vec![vec!["Part one".to_string()]],
                         moved: None,
+                        originals: Vec::new(),
                     },
                     path: root.join(".runs").join(format!("{started}-split.json")),
                     library: root.clone(),
@@ -810,6 +845,9 @@ impl App {
             return;
         };
         self.ui.runs.bin = false;
+        if self.run_later(&record) {
+            return;
+        }
         // A move is undone by its own machine (`moves::undo`), under the same gate.
         if record.kind == runs::Kind::Move {
             return self.move_undo_ask(path, &record, &library);
@@ -858,6 +896,9 @@ impl App {
         let Some(record) = runs::load(&path, &library) else {
             return;
         };
+        if self.run_later(&record) {
+            return;
+        }
         if record.kind == runs::Kind::Move {
             return self.move_undo(path, &record, &library);
         }
@@ -899,6 +940,9 @@ impl App {
         let Some(record) = runs::load(record_path, &library) else {
             return;
         };
+        if self.run_later(&record) {
+            return;
+        }
         if record.kind == runs::Kind::Move {
             return self.move_show(&record);
         }

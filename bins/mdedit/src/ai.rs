@@ -272,6 +272,8 @@ pub enum Ask {
     Run,
     /// A split by AI (5.2): the answer goes to the plan screen.
     Split,
+    /// A Markdown note from a text file (5.8): the answer goes to the note card.
+    Note,
     /// A model list, under its key in [`Ai::models`].
     Models(String),
     Detect(Connection),
@@ -480,7 +482,7 @@ pub struct Ai {
 
 impl Ai {
     pub fn running(&self) -> bool {
-        self.run.is_some() || self.split.is_some()
+        self.run.is_some() || self.split.is_some() || self.pending.values().any(|a| *a == Ask::Note)
     }
 
     /// Sends a request, starting the engine first if needed. On failure the reason.
@@ -537,6 +539,15 @@ impl Ai {
             if let Some(c) = &self.client {
                 c.send(json!({"op": "cancel", "id": run.id}));
             }
+        }
+        self.tick += 1;
+    }
+
+    /// Stops the request `id`, whoever it was for: its answer, if it still comes, is not read.
+    pub fn cancel_id(&mut self, id: u64) {
+        self.pending.remove(&id);
+        if let Some(c) = &self.client {
+            c.send(json!({"op": "cancel", "id": id}));
         }
         self.tick += 1;
     }

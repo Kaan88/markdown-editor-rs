@@ -45,6 +45,10 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
+- **Phase 5.8**, a Markdown note from a text file (`ai-library-plan.md` 5.8, D-120): built on
+  branch `f/p5` - card, write, record, undo, 14 tests, 11 shots, budgets measured
+  (`docs/measurements/2026-11-23-note-card.md`); main merged in, the pins on shared `main`
+  (`0984eed`), a Rewrite record listed as a later version's (D-134); not merged.
 - **Phase 4a, "Add a folder to the library…"** (`ai-library-plan.md` 5.7, without the AI):
   built, tested and measured on `f/p4a`, worktree `md-wt\p4a`, not merged. A folder the owner
   picks becomes a group of links to its `.md`, `.markdown` and `.txt` files under their

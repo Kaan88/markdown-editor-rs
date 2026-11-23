@@ -480,6 +480,13 @@ impl App {
                     } else if let Some(r) = self.ai.split.as_mut().filter(|r| r.id == id) {
                         r.chars = chars;
                         self.split_status();
+                    } else if let Some(r) = self
+                        .note
+                        .as_mut()
+                        .and_then(|c| c.asking.as_mut())
+                        .filter(|r| r.id == id)
+                    {
+                        r.chars = chars;
                     }
                 }
                 Event::Done { id, text } => {
@@ -490,6 +497,13 @@ impl App {
                         let run = self.ai.run.take().expect("checked");
                         self.docs.ai_status = None;
                         self.ai_finish(run, &text);
+                    } else if self
+                        .note
+                        .as_ref()
+                        .and_then(|c| c.asking.as_ref())
+                        .is_some_and(|r| r.id == id)
+                    {
+                        self.note_done(&text);
                     }
                 }
                 Event::Error {
@@ -508,6 +522,16 @@ impl App {
                     Some(Ask::Split) => {
                         if self.ai.split.as_ref().is_some_and(|r| r.id == id) {
                             self.split_failed(&kind, &message);
+                        }
+                    }
+                    Some(Ask::Note) => {
+                        if self
+                            .note
+                            .as_ref()
+                            .and_then(|c| c.asking.as_ref())
+                            .is_some_and(|r| r.id == id)
+                        {
+                            self.note_failed(&kind, &message);
                         }
                     }
                     Some(Ask::Models(key)) => {
@@ -550,6 +574,10 @@ impl App {
                 Event::Ended(why) => {
                     if self.ai.split.is_some() {
                         self.split_failed("ended", &why);
+                    }
+                    let note_out = self.note.as_ref().and_then(|c| c.asking.as_ref()).is_some();
+                    if note_out {
+                        self.note_failed("ended", &why);
                     }
                     if self.ai.run.take().is_some() {
                         self.docs.ai_status = None;

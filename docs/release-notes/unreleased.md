@@ -6,6 +6,14 @@ shows.)
 
 ## New
 
+- **A Markdown note from a text file.** On a group's row in the Notes pane, "Markdown note from a
+  file…" takes any text file — a plain-text note, a letter, a file of ideas — and has the AI make a
+  new Markdown note of it in that group's folder, listed with the group's other notes. The card
+  says what is sent and what will be written before anything leaves the machine; the answer is
+  shown as its changes and as the note; the original file is left exactly as it was, and the note
+  is never written over. The run is listed in "AI runs…", where undo takes the note and its line
+  out again — unless the original has changed since, in which case the note may be the only copy
+  of its text and is kept.
 - **Take only some of the AI's changes.** The review of a rewrite is now a list of changes, each with a tick box. Untick a change and the old text stays there; the footer says "12 changes · 8 to apply · +212 −83 lines" and **Apply 8 changes** puts in just those, in one step, so Ctrl+Z brings everything back. **F7** and **Shift+F7** (and the arrows in the bar) go to the next and the previous change, **Space** ticks or unticks the one you are on, **Tick all** and **Untick all** do what they say, and a strip shows where each change is in the document and whether it is taken; click a mark to go there. The words that changed inside a changed line are tinted, and **Copy result** copies the text with only the ticked changes. With nothing ticked there is nothing to apply, and the button says so. In **Preview**, the page on the right shows only the ticked changes ("8 of 12 changes taken") and is made again a moment after the last tick.
 
 - **Drag a note to another heading.** In the notes pane, drag a note row onto a group or a
