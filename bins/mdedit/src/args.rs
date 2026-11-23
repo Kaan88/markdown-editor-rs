@@ -231,8 +231,9 @@ pub struct Args {
     /// `--ai-demo instruction|review|preview|stale|closed|result-kept|working|bar|settings|review-hunks|review-partial|review-nothing|review-long|review-preview-partial|review-closed`: an AI panel or state
     /// for a shot, with a made-up result and no engine.
     pub ai_demo: Option<String>,
-    /// `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small|folder|folder-sections|folder-taken|folder-small|folder-over`:
-    /// the plan screen for a shot, made from a document built in the program.
+    /// `--plan-demo split|split-gaps|split-rest|split-warn|split-again|split-rename|split-many|split-small|folder|folder-sections|folder-taken|folder-small|folder-over|folder-scheme|folder-scheme-rename|folder-ai|folder-ai-sorting|folder-ai-asking|folder-ai-off|folder-ai-failed|folder-unsorted`:
+    /// the plan screen or the import card for a shot, made from a document or a folder built in
+    /// the program.
     pub plan_demo: Option<String>,
     /// `--plan-parked`: the notes pane open, with a demonstration plan ticked and left behind, for
     /// a shot of "Plan ready".

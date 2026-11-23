@@ -40,6 +40,9 @@ impl App {
         let (w, h) = self.logical();
         card.resize(w, h);
         self.importer = Some(card);
+        if self.importer.as_ref().is_some_and(|c| !c.demo) {
+            self.import_ai_refresh();
+        }
         self.caret_reset();
         self.redraw();
     }
@@ -188,6 +191,8 @@ impl App {
     }
 
     pub(super) fn import_close(&mut self) {
+        self.ai.cancel_sort();
+        self.docs.ai_status = None;
         self.importer = None;
         self.set_cursor(CursorIcon::Default);
         self.redraw();
@@ -197,17 +202,23 @@ impl App {
         match act {
             IAct::Close => self.import_close(),
             IAct::Write => self.import_write(),
+            IAct::SortAsk => self.import_sort_ask(),
+            IAct::SortStart => self.import_sort_start(),
+            IAct::SortStop => self.import_sort_stop(),
+            IAct::SortBack => self.import_sort_back(),
+            IAct::Settings => self.ai_open_settings(),
             IAct::Nothing => {}
         }
         self.redraw();
     }
 
-    pub(super) fn import_key(&mut self, key: crate::keys::Key) {
+    pub(super) fn import_key(&mut self, key: crate::keys::Key, typed: Option<&str>) {
         let mods = self.mods;
         let Some(card) = self.importer.as_mut() else {
             return;
         };
-        let act = card.key(&key, mods);
+        let act = card.key(&key, mods, typed);
+        self.caret_reset();
         self.import_act(act);
     }
 
@@ -392,6 +403,15 @@ impl App {
         self.ui
             .library
             .follow(RowId::Note(key_of(file, sections), note.to_path_buf()));
+    }
+
+    /// A scheme name being typed takes the input method's composing text, like the plan's.
+    pub(super) fn import_preedit(&mut self, pre: Option<mdshared_ui::textfield::Preedit>) -> bool {
+        let Some(card) = self.importer.as_mut() else {
+            return false;
+        };
+        card.tick += 1;
+        card.edit.as_mut().is_some_and(|f| f.set_preedit(pre))
     }
 
     /// `--plan-demo folder…`: the card over a plan made in the program. Nothing is read or

@@ -1233,3 +1233,82 @@ heading level), and a heading the library cannot read back is a note that would 
 the owner did not ask for. The dash is the only state a single shared `Tick` cannot draw.
 **Overturned by.** The owner; or a tree that shows deeper nesting well.
 **From.** The phase 4a brief; `docs/ai-library-plan.md` 5.7.
+
+## D-134 · 2026-11-23 · The AI step is a second stage of the import card, and it only names headings
+
+**Decision.** "Sort a folder by AI." (5.7, phase 4) is not a second command and not a second
+writer: it is two stages of the "Add a folder" card. **Ask the AI** asks for a scheme of at most 8
+sections with at most 4 subsections each, which the owner can add to, rename and delete before
+anything else is asked; **Sort N files** asks the AI to put each file under one numbered section
+of that scheme. The answers become the same plan rows the folder plan has, with the AI's
+sections, confidence and one-line reason; nothing is written until the owner ticks and presses
+Add, which is 4a's own single write. The AI never names a path, a folder or a file: it names the
+headings, and the import's writer puts the links under them exactly as it does for a plan by
+folders. **Keep the folders** leaves the AI and returns to the folder plan, ticks and edits intact.
+**Why.** The section headings are the one thing a model can judge from a digest, and the paths,
+the library file and the write already have one tested owner. One card also means one place to
+correct the scheme or the ticks, and an AI answer that is wrong can be changed rather than
+undone after the fact.
+**Overturned by.** The owner; or a sort that must write without being read first.
+**From.** `docs/ai-library-plan.md` 5.7; D-078; the phase 4 brief.
+
+## D-135 · 2026-11-23 · A folder sort sends a short digest per file, in batches, and nothing of the library
+
+**Decision.** The scheme request carries one line per file: its path inside the chosen folder (at
+most 200 bytes), its title (120) and the first 120 bytes of its text. The filing requests repeat
+the path and title and send the first 1,200 bytes of the file (a start of about 2 KB with its
+line), 40 files to a request. At most 500 files are sent in a run; the rest stay in the folder plan
+and the card says how many. A request is capped at 200 KB, as a rewrite's; a scheme whose paths
+and titles alone pass that is refused with the number, rather than cut silently. The library,
+the settings and every other file are never sent. The engine makes the request (D-079); the editor
+does not.
+**Why.** 5.7's budgets: enough text to tell a recipe from a receipt, not enough to be the file;
+one line per file so a batch can be numbered and answered per file; a cap on the run so a folder
+of thousands does not become an unbounded bill. The 500 is the rate cap the owner set for the
+library work (D-080's sibling rule), and 40 keeps a batch well inside a model's answer.
+**Overturned by.** The owner; or a provider that prices a batch so differently that another size
+is clearly right.
+**From.** `docs/ai-library-plan.md` 5.7; D-079, D-080; the phase 4 brief.
+
+## D-136 · 2026-11-23 · Unsure, out-of-range and left-out files land in Unsorted, unticked
+
+**Decision.** A file's answer is a section number, a confidence from 0 to 1 and a one-line
+`why`. A number the scheme does not have, an id that was not sent, a file the answer leaves out,
+and a `why` or title the card cannot read all leave that file under **Unsorted**, unticked, with
+the AI's reason shown dim; a section number out of range says the scheme does not have it. An
+answer that cannot be read at all is a refusal for the whole batch: its files stay in Unsorted,
+and the card says which request failed and why. **Tick only the sure ones** ticks what the AI
+placed at 0.6 or more, never a file the group already lists; **Tick all** ticks every file the
+group does not already list, including Unsorted. Confidence and `why` are shown and never written.
+**Why.** A wrong guess must cost a tick, not a wrong link: the owner sees what the AI was unsure
+about, and the files it could not place are still one click from being added under their
+folders. 0.6 is the plan's line between "sure enough to keep" and "look at it".
+**Overturned by.** The owner; or evidence that 0.6 ticks too much or too little.
+**From.** `docs/ai-library-plan.md` 5.7; the phase 4 brief.
+
+## D-137 · 2026-11-23 · A failed sort keeps what came, and Escape stops every request
+
+**Decision.** The filing requests go out up to the connection's "Requests at once" (D-080), three
+by default and one for a local model, and the card shows how many answered and how many are in
+flight. A request that fails stops new ones; those in flight may finish, and the files they
+answered keep their sections, so the card offers what it has and says what was not reached. The
+scheme request failing, or an answer that cannot be read, ends that stage with nothing changed and
+a **Try again** beside **Keep the folders**. Escape while a request is out cancels every request
+and gives back the edited scheme, untouched. A request is sent by the engine as every AI request
+is (D-079), and no request is made while the connection is off.
+**Why.** A model that fails halfway must not throw away the half that worked, and an owner who
+sees it going wrong must be able to stop it without losing the scheme they edited.
+**Overturned by.** The owner; or a provider that cannot cancel a request (then the wait is said).
+**From.** `docs/ai-library-plan.md` 5.7, D-080; the split-by-AI behaviour (DESIGN 76).
+
+## D-138 · 2026-11-23 · "Requests at once" is a setting per connection, 1 to 8
+
+**Decision.** **Requests at once** is a row on the AI rewrite page, a number from 1 to 8 with
+steppers, stored per connection as `ai_parallel_<key>` in `settings.ini`; an empty value means
+the default (3, or 1 for a local model). It is read when a sort starts, so a change applies to the
+next run.
+**Why.** D-080 asks for a number the owner can lower for a rate-limited key and the local model's
+one request; per connection because a local model and a hosted one are not the same. The defaults
+live in core next to `ai_parallel_default`, so the card and the tests agree.
+**Overturned by.** The owner; or a provider whose limits are better read from its own answer.
+**From.** D-080; the phase 4 brief.

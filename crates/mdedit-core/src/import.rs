@@ -40,6 +40,11 @@ pub struct Found {
     pub title: String,
     /// The first lines of the file, for the card's preview.
     pub head: Vec<String>,
+    /// The start of the file, for an AI request: at most [`import_ai::DIGEST_MAX`] bytes.
+    pub start: String,
+    /// Its size in bytes, and the day it was last changed, as an AI request says them.
+    pub bytes: u64,
+    pub modified: String,
 }
 
 /// What a walk found.
@@ -84,7 +89,7 @@ fn walk_dir(
         return;
     };
     let mut dirs: Vec<(String, PathBuf)> = Vec::new();
-    let mut files: Vec<(String, PathBuf)> = Vec::new();
+    let mut files: Vec<(String, PathBuf, u64, String)> = Vec::new();
     for entry in read.flatten() {
         if cancel() {
             return;
@@ -112,7 +117,7 @@ fn walk_dir(
         if meta.is_dir() {
             dirs.push((name, path));
         } else if meta.is_file() && takes(&path) {
-            files.push((name, path));
+            files.push((name, path, meta.len(), modified_day(meta.modified().ok())));
         }
     }
     let key = |name: &str| (name.to_lowercase(), name.to_string());
@@ -121,7 +126,7 @@ fn walk_dir(
     if !files.is_empty() {
         out.folders += 1;
     }
-    for (_, path) in files {
+    for (_, path, bytes, modified) in files {
         if out.found.len() >= cap {
             out.more = true;
             return;
@@ -134,6 +139,9 @@ fn walk_dir(
             sections: sections.clone(),
             title: title_of(&head).unwrap_or_else(|| stem_of(&path)),
             head: preview_of(&head),
+            start: cut_bytes(&head, crate::import_ai::DIGEST_MAX),
+            bytes,
+            modified,
             path,
         });
     }
@@ -171,6 +179,43 @@ fn read_head(path: &Path) -> String {
         return String::new();
     }
     String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// The first `max` bytes of `text`, cut at a character.
+fn cut_bytes(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut end = max;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.get(..end).unwrap_or_default().to_string()
+}
+
+/// The day a file was last changed, as `2026-11-23`, for a request's digest; empty when the
+/// file system does not say. In UTC, as the modification time's own clock.
+fn modified_day(time: Option<std::time::SystemTime>) -> String {
+    let Some(since) = time.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()) else {
+        return String::new();
+    };
+    let (y, m, d) = civil_from_days((since.as_secs() / 86_400) as i64);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The year, month and day of a count of days since 1970-01-01 (Howard Hinnant's civil_from_days,
+/// which needs no crate).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m as u32, d as u32)
 }
 
 /// The text of the file's first heading, at any level, outside a code fence; `None` when it has
@@ -256,17 +301,29 @@ fn preview_of(head: &str) -> Vec<String> {
 // ---- the plan ------------------------------------------------------------------------------------
 
 /// One note the plan would add: a file of the owner's, listed by one line.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Note {
     /// Where the file is, as it is on disk.
     pub path: PathBuf,
-    /// The headings it is written under: the subfolders, at most [`MAX_SECTIONS`].
+    /// The headings it is written under: the subfolders, at most [`MAX_SECTIONS`]; after an AI
+    /// sort, one of the AI's section paths.
     pub sections: Vec<String>,
     pub title: String,
     pub head: Vec<String>,
+    /// The start of the file, as an AI request sends it.
+    pub start: String,
+    pub bytes: u64,
+    pub modified: String,
     pub ticked: bool,
     /// The group's file lists this file already: its row says so, and it cannot be ticked.
     pub already: bool,
+    /// The AI's confidence in where it put the file, when the AI sorted it; `None` for a plan by
+    /// folders.
+    pub confidence: Option<f32>,
+    /// The AI's one-line reason, shown dim and never written anywhere.
+    pub why: String,
+    /// The AI did not place this file: it sits under "Unsorted" and is not ticked.
+    pub unsorted: bool,
 }
 
 /// What a row of the card is.
@@ -351,8 +408,14 @@ pub fn plan(walked: Walk, folder: &Path, at: Where) -> Plan {
                 sections: f.sections,
                 title: f.title,
                 head: f.head,
+                start: f.start,
+                bytes: f.bytes,
+                modified: f.modified,
                 ticked: !already,
                 already,
+                confidence: None,
+                why: String::new(),
+                unsorted: false,
             }
         })
         .collect();
@@ -388,7 +451,7 @@ pub fn plan(walked: Walk, folder: &Path, at: Where) -> Plan {
 
 /// The rows of a list of notes in their order: a heading row where a section starts, and a row
 /// per note under it, nested by the section paths.
-fn rows_of(notes: &[Note]) -> Vec<Row> {
+pub fn rows_of(notes: &[Note]) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
     let mut open: Vec<String> = Vec::new();
     for (i, note) in notes.iter().enumerate() {
@@ -989,6 +1052,32 @@ mod tests {
         assert!(text.contains(&written), "{text}");
         let read = library::parse(&text, &root);
         assert_eq!(read.home, Some(outside.clone()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_found_file_carries_the_start_an_ai_request_sends_its_size_and_the_day() {
+        let dir = scratch("digest");
+        let text = format!("# A\n{}", "x".repeat(crate::import_ai::DIGEST_MAX * 2));
+        let path = put(&dir, "a.md", &text);
+        let w = walk(&dir, &|| false);
+        let f = &w.found[0];
+        assert_eq!(f.start.len(), crate::import_ai::DIGEST_MAX);
+        assert!(f.start.starts_with("# A\n"));
+        assert_eq!(f.bytes as usize, text.len());
+        assert!(f.modified.len() == 10, "{}", f.modified);
+        assert!(f.modified.starts_with("20"), "{}", f.modified);
+        let _ = std::fs::remove_file(path);
+        // A day known exactly, from the first second of 1970 and from 2026-11-23.
+        let at = |secs: u64| {
+            super::modified_day(Some(
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs),
+            ))
+        };
+        assert_eq!(at(0), "1970-01-01");
+        assert_eq!(at(86_400), "1970-01-02");
+        assert_eq!(at(1_795_392_000), "2026-11-23");
+        assert_eq!(super::modified_day(None), "");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

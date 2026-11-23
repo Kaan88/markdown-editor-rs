@@ -483,13 +483,19 @@ impl App {
                     }
                 }
                 Event::Done { id, text } => {
-                    self.ai.answered(id, true);
+                    let ask = self.ai.answered(id, true);
                     if self.ai.split.as_ref().is_some_and(|r| r.id == id) {
                         self.split_done(&text);
                     } else if self.ai.run.as_ref().is_some_and(|r| r.id == id) {
                         let run = self.ai.run.take().expect("checked");
                         self.docs.ai_status = None;
                         self.ai_finish(run, &text);
+                    } else {
+                        match ask {
+                            Some(Ask::SortScheme) => self.sort_scheme_done(&text),
+                            Some(Ask::SortFiles(_)) => self.sort_batch_done(id, &text),
+                            _ => {}
+                        }
                     }
                 }
                 Event::Error {
@@ -509,6 +515,9 @@ impl App {
                         if self.ai.split.as_ref().is_some_and(|r| r.id == id) {
                             self.split_failed(&kind, &message);
                         }
+                    }
+                    Some(Ask::SortScheme | Ask::SortFiles(_)) => {
+                        self.sort_request_failed(id, &kind, &message)
                     }
                     Some(Ask::Models(key)) => {
                         self.ai.models.insert(key, Err(message));
@@ -550,6 +559,9 @@ impl App {
                 Event::Ended(why) => {
                     if self.ai.split.is_some() {
                         self.split_failed("ended", &why);
+                    }
+                    if self.ai.sort.is_some() {
+                        self.sort_engine_ended(&why);
                     }
                     if self.ai.run.take().is_some() {
                         self.docs.ai_status = None;

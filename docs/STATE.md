@@ -40,19 +40,27 @@ released. If `git log -1` is newer, doubt "In hand" first.
   1, 2 and 4 s; a check refused while a link is still in its grace is kept and made once when the
   grace ends; a key press or a click asks at most once in two seconds, answered once and starting
   no rechecks. Not tried by the owner; keystroke and idle times not measured (the app was not run).
+- **Phase 4a, "Add a folder to the library."** (`f/p4a`, merged): a folder the owner picks becomes
+  a group of links to its `.md`, `.markdown` and `.txt` files under their subfolders' headings
+  three deep, written in one library file; nothing of theirs is copied, moved or renamed (D-131 to
+  D-133, `docs/DESIGN.md` 81). The owner has not looked at its shots (`import-folder*`).
+- **Phase 5, a Markdown note from a text file** (`f/p5`, merged, shared pinned at `0984eed`): the
+  note card and its write, `docs/DESIGN.md` and the plan's 5.8; the owner has not looked at it.
 - Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review
   (audit 3's fixes included).
 
 ## In hand
 
-- **Phase 4a, "Add a folder to the library…"** (`ai-library-plan.md` 5.7, without the AI):
-  built, tested and measured on `f/p4a`, worktree `md-wt\p4a`, not merged. A folder the owner
-  picks becomes a group of links to its `.md`, `.markdown` and `.txt` files under their
-  subfolders' headings three deep, written in one library file; nothing of theirs is copied,
-  moved or renamed (D-131 to D-133, `docs/DESIGN.md` 81). Asked for by the owner on 2026-11-23;
-  it waits for the owner's look at its shots (`import-folder*`) and word to merge. The budgets:
-  nothing on the launch path, no new dependency, every figure inside the two builds' ranges
-  (`docs/measurements/2026-11-23-phase-4a.md`); the exe +97 KB (9,201,152 to 9,298,944).
+- **Phase 4, "Sort a folder by AI."** (`ai-library-plan.md` 5.7's second half, on 4a's card):
+  built and tested on `f/p4`, worktree `md-wt\p4`, not merged. **Ask the AI** returns a scheme of
+  at most 8 sections with subsections, which the owner can add to, rename and delete; **Sort N
+  files** asks for a section, a confidence and a reason per file, 40 files a request, up to the
+  connection's "Requests at once" (3, or 1 for a local model), 500 files a run. The card marks
+  unsure and unplaced files **Unsorted** and unticked, offers **Tick only the sure ones** (0.6),
+  and never writes until Add (D-134 to D-138, `docs/DESIGN.md` 82). The shots (`import-folder*`,
+  both themes) were looked at on Windows and the budgets measured against `main` at `4c95da0`
+  (`docs/measurements/2026-11-23-phase-4-ai-sort.md`; exe +38,912 bytes, no figure moved beyond the
+  runs' ranges); it waits for the owner's look and word to merge.
 - **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-107): **merged from
   `f/review-hunks`, not tagged; the owner has not looked at its shots.** A tick per change, Apply and Copy result of the
   ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the
@@ -75,8 +83,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Waiting for the owner
 
-- **`docs/ai-library-plan.md`** section 8, in order after R2: W, V, 4a, 4, 5, drag and drop.
-  Open: the resizer for phase V, a new crate to be priced first (rule 7).
+- **`docs/ai-library-plan.md`** section 8, in order after R2: W, V, phase 4 (built on `f/p4`,
+  waiting for the owner's look), drag and drop. 4a and 5 are on `main`. Open: the resizer for
+  phase V, a new crate to be priced first (rule 7).
 - **The apps that may join**: `docs/ideas/README.md` lists each plan and drawing (terminal, file
   manager, task manager, downloader, workbench, and the quickest first release).
 - **Dependabot**: open PRs (mdedit #9 regex-automata; mdview #2 to #6; shared #2 to #7) and a
@@ -93,7 +102,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
    too).
 2. Then the owner's look at R2's shots (and whether to add the viewer's page rows for the tinted
    preview, D-108), then section 8's order. M1, M2 in mdview; D after R2.
-3. Phase 4a's shots (`import-folder*`) for the owner's look, then merging `f/p4a`.
+3. Phase 4's shots (`import-folder*`, including the scheme, the sorting, the AI-off and the
+   unsorted cards) for the owner's look, then merging `f/p4`; then 4a's and 5's shots.
 
 ## Known to be wrong on `main`
 

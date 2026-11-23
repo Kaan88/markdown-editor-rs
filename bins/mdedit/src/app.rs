@@ -79,6 +79,9 @@ mod frost_tests;
 mod handoff;
 #[cfg(test)]
 mod ime_tests;
+mod import_ai;
+#[cfg(test)]
+mod import_ai_tests;
 #[cfg(test)]
 mod import_tests;
 mod importing;
@@ -1478,8 +1481,8 @@ impl App {
                 .map(|s| (s.sig(), s.edit.is_some() && self.ui.caret_on)),
             // The move card raises its tick for every change, as the plan screen does.
             self.mover.as_ref().map(|m| m.sig()),
-            // So does the import card.
-            self.importer.as_ref().map(|c| c.sig()),
+            // So does the import card; the caret blinks in a scheme name being typed.
+            self.importer.as_ref().map(|c| c.sig(self.ui.caret_on)),
         ));
         let overlay_changed = osig != self.overlay_sig;
         self.overlay_sig = osig;
@@ -1894,7 +1897,7 @@ impl App {
                     card.draw(c.p, &pal, w, h);
                 }
                 if let Some(card) = self.importer.as_mut() {
-                    card.draw(c.p, &pal, w, h);
+                    card.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
                 // Last, over everything.
                 if self.ai.panel.is_some() {

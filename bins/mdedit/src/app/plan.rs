@@ -224,7 +224,7 @@ impl App {
 
     pub(super) fn plan_key(&mut self, key: PlanKey, typed: Option<&str>) {
         if self.import_is_open() {
-            return self.import_key(key);
+            return self.import_key(key, typed);
         }
         if self.move_is_open() {
             return self.move_key(key);
@@ -327,6 +327,9 @@ impl App {
 
     /// What an input method composes goes to the name being typed.
     pub(super) fn plan_preedit(&mut self, pre: Option<mdshared_ui::textfield::Preedit>) -> bool {
+        if self.import_is_open() {
+            return self.import_preedit(pre);
+        }
         let Some(screen) = self.plan.as_mut() else {
             return false;
         };
