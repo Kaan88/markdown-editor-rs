@@ -2978,3 +2978,92 @@ rewrite the open document with the file `<name>-after.md` beside it
 (`fixtures/review-demo-after.md`).
 
 **Fixed with it.** "The AI review has no scrollbar and cuts long lines".
+
+## 80. The AI task window over files (2026-11-23, branch `f/pw`)
+
+Phase W of `docs/ai-library-plan.md` (5.6), on top of R2: the owner asked for "AI task on files"
+that can file, split or **rewrite files in place** (D-074, D-076). The drawing is the mockup
+`ai-files`; the window takes files, not the open document, and opens none of them in a tab.
+
+**The window** (`task_ui.rs` state and numbers, `task_draw.rs` drawing, `app/task.rs` the three
+tasks). Card 880 x 704: the header and "Add files…", the WHAT TO DO switch (`File them |
+Split them | Rewrite them`), the 36 px instruction field, the saved prompts of the chosen kind
+(96 px, `kind: file` new in `mdedit_core::ai`), WHERE IT GOES, the list under its three group
+headings, and a footer with "Show what is sent" and the primary button. A review of a file
+(R2's list) is drawn over it as the front panel; keys, pointer, wheel and right click reach the
+review first (`app/input.rs`). The window's own state raises one tick, in the overlay signature
+and in the full-window bounds, so every change paints.
+
+**Three kinds of file**, decided once when a file is added (`App::task_probe`), and what each
+does for each task: **Text** (the editor's loader, no NUL, not lossy) is read and sent; **Picture**
+(the image paste's extensions) is never read — its name only is sent, and it is linked; **Other**
+(PDF, Word, archives, bytes that are not text) is never read. "File them" links an Other file by
+name, as the note pane can link any file; "Split them" and "Rewrite them" leave it out with its
+reason on the row. A file already listed by a library file reads "already in the library",
+unticked, compared with `same_note`. A Rewrite run takes at most 20 files and 200 KB each; the
+reason says which and how much. What is left out is never counted, never sent and never written.
+
+**File them.** With a connection, the ticked files go in batches of 40, one request after the
+other, each a digest: name, size, date, first heading, first 1,200 bytes, 2 KB at most. The
+request has the instruction and the batch numbered 0..n; **the model never sees a path** — the
+answer's `id`s are the window's places. The JSON contract lives in mdedit (`task_ui::FILING_SYSTEM`,
+`filing_prompt`), never in the engine. The answer is read with the envelope rules of 5.2: an id
+not sent is ignored, the first answer for an id wins, a `with` must name a text file of the same
+batch, titles are one clean line of 120 characters, sections are at most three folder names. A
+file the answer leaves out is under "NOT PLACED", unticked. With the AI off the plan is composed
+here instead: every file under the section typed beside the destination. Written then, in order,
+one read-back per link: a name derived by the library's own rule, under the sections, a relative
+link from the group's file (`link_path`), the group's file made first with its `home:` when new.
+The plan face shows each file's title and `→` section, and "Add N to the library".
+
+**Split them.** Each file's plan card in turn (5.1–5.3, unchanged), opened from the file rather
+than a tab, its Recycle Bin box refused by `RECYCLE_ONE_DOCUMENT`, its AI offer the window's
+instruction when one is typed; Writing that plan closes the file's place and opens the next, in
+order. Escape closes the plan back to the window and leaves the file alone (its plan is not
+parked, because it is a step of the run).
+
+**Rewrite them.** One file at a time: the prompt is `core_ai::prompt` of the text and the
+instruction; the answer is fitted (`fit_end`), written in the file's own line endings
+(`with_eol`), and shown in R2's review over the whole file, titled "Rewrite <name>", through the
+same panel and the same keys. Apply is `Hunks::compose` of the ticked changes; **the run's record
+is started and each file's original is written into it before the file is** (`runs::start_rewrite`,
+`runs::rewrite_into`, D-076), so a crash between leaves the original where undo finds it. The
+file is written only while it still holds the text the answer was made from, to the byte and the
+byte-order mark; a file changed since is refused with the review staying open and its list and
+ticks kept. Undo is in "AI runs…" with the other runs: every original goes back while the file
+still holds what the run wrote; a file changed since is kept and listed (`undo`, `UndoPlan`).
+Discard leaves a file as it was and the run goes on with the next; Copy result copies and goes on;
+Escape keeps the review (R2), and the run waits. The run's record says `done` when the last file
+is applied or the window is closed; an empty record (nothing applied) is removed.
+
+**The AI is off.** The window still opens. File them "Make the plan" and writes without a
+request; Split them cuts at headings; Rewrite them is disabled, the footer says "The AI connection
+is off", and "Open AI settings" is beside Cancel. Nothing starts.
+
+**Show what is sent** (`task_request_text`) is the literal text of every request the window would
+send: the system text and prompt per batch, per file, or per split outline; with the AI off it
+says nothing is sent. It opens as a read-only copy tab and parks the window, which "AI task on
+your files…" brings back. A request in flight stops when the window closes (Escape stops it
+first, then a second Escape closes), and an engine error is the footer's sentence with Run
+still usable.
+
+**Tests** (`task_ui::tests`, `app/task_tests.rs`; the fake engine answers `TASKFILE` with a
+filing JSON). A window opens empty; a picture is a picture, never read; a digest holds the
+heading and no path; the model's answer places titles, sections and `with`, ignores an id not
+sent and a `with` that names a picture; an unplaced file is unticked and not written; a 41st file
+waits for a second request; unticked files are not sent; a new group is made in the library and
+chosen; no group means nothing is written; with the AI off the plan is composed and links written,
+a PDF among them linked by name; a rewrite is reviewed then written in place, the record holding
+the original, and `runs::undo` puts it back; a file changed since the answer is not written, says
+why, and leaves no record; the second file waits for the first review; Split opens a plan on the
+file and no tab; Show what is sent is a read-only tab and parks the window; Rewrite with the AI
+off opens Settings; Escape stops the request and a second closes. Each was reverted and watched
+fail (the record test in `mdshared-app`, the rest here).
+
+**Shots** (`tests/shots.sh`, both themes unless said): `task-files` (File them, a text, a picture
+and a PDF with its reason), `task-files-plan` (the plan face, `PLACED` and `NOT PLACED`),
+`task-files-off` (AI off: "no request", Make the plan), `task-other` (Rewrite them: the picture
+and PDF left out, in place), `task-review` (R2's review over `pasta.md`, the note that Apply
+writes in place), and `task-sent` (light: the read-only request tab). `--task-demo
+files|files-plan|files-off|files-other|review|sent` builds them from `fixtures/task-demo/`, with
+no engine and nothing sent.

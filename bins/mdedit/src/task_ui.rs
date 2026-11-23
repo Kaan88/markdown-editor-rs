@@ -126,12 +126,6 @@ impl TaskKind {
             TaskKind::Rewrite => "What should change? For example: make the prices a table",
         }
     }
-
-    /// Whether a request is sent to the AI. A split with the AI off is a cut at headings; a
-    /// rewrite needs the AI.
-    pub fn asks(self) -> bool {
-        !matches!(self, TaskKind::Split)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -186,6 +180,8 @@ pub struct FileEntry {
     pub over_limit: bool,
     /// The file's dominant line ending, as a rewrite writes its result back with it.
     pub eol: String,
+    /// Its date of last change, `YYYY-MM-DD`, in the digest.
+    pub modified: Option<String>,
     /// The library already lists it: shown, never ticked, never sent.
     pub already: bool,
     /// The run wrote it (a split's plan was written, a rewrite went in).
@@ -198,10 +194,8 @@ impl FileEntry {
         if self.already {
             return Some("already in the library".to_string());
         }
-        if self.why.is_some() {
-            return self.why.clone();
-        }
         match task {
+            // A PDF, a Word file, an archive: never read, but its name is a link like any other.
             TaskKind::File => None,
             TaskKind::Split => match self.kind {
                 FileKind::Text => None,
@@ -217,7 +211,7 @@ impl FileEntry {
                         if self.size as usize > REWRITE_MAX {
                             Some(format!(
                                 "too long for one request: {} KB of {} KB",
-                                (self.size + 999) / 1000,
+                                self.size.div_ceil(1000),
                                 REWRITE_MAX / 1000
                             ))
                         } else {
@@ -602,6 +596,12 @@ impl TaskScreen {
         let s = if n == 1 { "" } else { "s" };
         match self.task {
             TaskKind::File => {
+                if self.planned {
+                    return format!("{n} file{s} placed");
+                }
+                if !self.asks_ai() {
+                    return format!("{n} file{s} \u{00B7} no request");
+                }
                 let requests = n.div_ceil(BATCH);
                 let kb = self
                     .taking_part()
@@ -667,6 +667,9 @@ pub fn digest_of(file: &FileEntry) -> String {
         file.name,
         size_text(file.size)
     ));
+    if let Some(date) = &file.modified {
+        out.push_str(&format!("modified: {date}\n"));
+    }
     if let Some(h) = &file.heading {
         out.push_str(&format!("first heading: {h}\n"));
     }
@@ -680,12 +683,33 @@ pub fn digest_of(file: &FileEntry) -> String {
     out
 }
 
+/// The date of `secs` since 1970, as `YYYY-MM-DD` (UTC), for a digest: the model need only a
+/// rough date, and the program has no date library of its own.
+pub fn date_of(secs: u64) -> String {
+    let (y, m, d) = civil_from_days((secs / 86_400) as i64);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The year, month and day of a count of days since 1970-01-01 (Howard Hinnant's algorithm).
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
 /// "1.2 MB", "412 KB", "12 bytes".
 pub fn size_text(bytes: u64) -> String {
     if bytes >= 1_000_000 {
         format!("{:.1} MB", bytes as f64 / 1_000_000.0)
     } else if bytes >= 1000 {
-        format!("{} KB", (bytes + 999) / 1000)
+        format!("{} KB", bytes.div_ceil(1000))
     } else {
         format!("{bytes} bytes")
     }
@@ -771,7 +795,7 @@ pub fn read_filing(text: &str, ids: &[usize], files: &[FileEntry]) -> Result<Fil
         let title = item
             .get("title")
             .and_then(|v| v.as_str())
-            .and_then(|t| Some(clean_name(t, TITLE_MAX)))
+            .map(|t| clean_name(t, TITLE_MAX))
             .filter(|t| !t.is_empty());
         let sections: Vec<String> = item
             .get("sections")
@@ -828,6 +852,8 @@ pub enum Focus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListRow {
     Heading(FileKind),
+    /// On the plan face: the files the model placed, with what each becomes.
+    Placed,
     File(usize),
     /// The heading over the files a model could not place, on the plan face.
     Unplaced,
@@ -847,7 +873,7 @@ pub fn rows(s: &TaskScreen) -> Vec<ListRow> {
             })
             .collect();
         if !placed.is_empty() {
-            out.push(ListRow::Heading(FileKind::Text));
+            out.push(ListRow::Placed);
             out.extend(placed.into_iter().map(ListRow::File));
         }
         let not: Vec<usize> = (0..s.files.len())
@@ -880,7 +906,7 @@ pub fn rows(s: &TaskScreen) -> Vec<ListRow> {
 pub fn content_h(rows: &[ListRow]) -> f32 {
     rows.iter()
         .map(|r| match r {
-            ListRow::Heading(_) | ListRow::Unplaced => GROUP_H,
+            ListRow::Heading(_) | ListRow::Placed | ListRow::Unplaced => GROUP_H,
             ListRow::File(_) => ROW_H,
         })
         .sum::<f32>()
@@ -909,6 +935,7 @@ mod tests {
             with: None,
             over_limit: false,
             eol: "\n".to_string(),
+            modified: None,
             already: false,
             done: false,
         }
@@ -979,6 +1006,13 @@ mod tests {
         )
         .expect("it reads");
         assert!(filing.placed.is_empty());
+    }
+
+    #[test]
+    fn a_date_is_the_utc_day_since_1970() {
+        assert_eq!(date_of(0), "1970-01-01");
+        assert_eq!(date_of(86_400 * 11_017), "2000-03-01");
+        assert_eq!(date_of(1_763_856_000), "2025-11-23");
     }
 
     #[test]

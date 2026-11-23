@@ -157,6 +157,7 @@ impl App {
             with: None,
             over_limit: false,
             eol: "\n".to_string(),
+            modified: None,
             already: false,
             done: false,
         };
@@ -172,6 +173,11 @@ impl App {
             return out;
         }
         out.size = meta.len();
+        out.modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| task_ui::date_of(d.as_secs()));
         out.already = self
             .docs
             .library
@@ -767,7 +773,7 @@ impl App {
                 };
                 f.title = placed.title;
                 f.sections = placed.sections;
-                f.with = placed.with.map(|w| ids.get(w).copied()).flatten();
+                f.with = placed.with.and_then(|w| ids.get(w).copied());
             }
         }
         // A picture or another file placed with a text one takes that file's section.
@@ -1049,7 +1055,12 @@ impl App {
             f.ticked = false;
         }
         t.tick += 1;
+        let more = written && t.task == TaskKind::Split && !t.taking_part().is_empty();
         self.task = Some(t);
+        if more {
+            // Split them is one plan per file, in order: the next opens when this one is written.
+            self.task_split_start();
+        }
         self.redraw();
     }
 
@@ -1466,6 +1477,10 @@ impl App {
         let instruction = s.instruction.text().trim().to_string();
         let ids = s.taking_part();
         let mut out = String::new();
+        out.push_str(
+            "What the AI task window would send. Nothing has been sent by this tab.\n\
+             The window is behind it: AI task on your files \u{2026} brings it back.\n\n",
+        );
         match s.task {
             TaskKind::File => {
                 let batches: Vec<&[usize]> = ids.chunks(task_ui::BATCH).collect();
@@ -1585,18 +1600,36 @@ impl App {
         if !dir.is_dir() {
             return false;
         }
+        let mut names: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map(|r| r.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default();
+        if names.is_empty() {
+            return false;
+        }
+        names.sort();
         let kind = match name {
             "files-other" => TaskKind::Rewrite,
             "files-off" => TaskKind::File,
             _ => TaskKind::File,
         };
-        self.task_open(kind, Vec::new());
-        let mut names: Vec<PathBuf> = std::fs::read_dir(dir)
-            .map(|r| r.flatten().map(|e| e.path()).collect())
-            .unwrap_or_default();
-        names.sort();
+        let via = if name == "files-off" {
+            self.ai_via()
+        } else {
+            "Claude".to_string()
+        };
+        let mut s = TaskScreen::new(
+            kind,
+            Vec::new(),
+            DestChoice::New("Recipes".to_string()),
+            self.docs.ai_file_prompts.clone(),
+            via.clone(),
+        );
+        s.win = self.logical();
+        s.scale = self.scale;
+        s.ai_on = self.ai_conn() != Connection::Off;
+        self.task = Some(s);
+        self.close_for_ai_panel();
         let probed: Vec<_> = names.iter().map(|p| self.task_probe(p)).collect();
-        let via = self.ai_via();
         let Some(s) = self.task.as_mut() else {
             return true;
         };
@@ -1605,6 +1638,12 @@ impl App {
         if name == "files-other" {
             s.task = TaskKind::Rewrite;
         }
+        s.ai_on = name != "files-off";
+        s.via = if s.ai_on {
+            "Claude".to_string()
+        } else {
+            via.clone()
+        };
         if name == "files-off" {
             s.ai_on = false;
         }
@@ -1613,18 +1652,79 @@ impl App {
         } else {
             s.dest = DestChoice::New("Recipes".to_string());
         }
-        s.instruction
-            .set_text("Sort these into my recipes and bread notes.");
-        s.via = via;
-        s.planned = name == "files-plan";
-        if s.planned {
+        s.instruction.set_text(match s.task {
+            TaskKind::File => "Sort these into my recipes and bread notes.",
+            TaskKind::Split => "One note per recipe.",
+            TaskKind::Rewrite => "Make the method clearer, not longer.",
+        });
+        if name == "files-plan" {
+            s.planned = true;
             for (i, f) in s.files.iter_mut().enumerate() {
+                if f.kind == FileKind::Other {
+                    continue;
+                }
                 f.title = Some(format!("A title {i}"));
                 f.sections = vec!["Bread".to_string()];
             }
         }
+        let review = if name == "review" {
+            // The rewrite's review over the first text file, with a made-up result and no
+            // engine: 5.5's list over the whole file, Apply writing in place.
+            let at = s
+                .files
+                .iter()
+                .position(|f| f.text.as_deref().is_some_and(|t| t.contains("Layer it.")))
+                .or_else(|| s.files.iter().position(|f| f.text.is_some()))
+                .unwrap_or(0);
+            let f = &s.files[at];
+            let original = f.text.clone().unwrap_or_default();
+            let result = original.replace("Layer it.", "Layer it, then rest it for ten minutes.");
+            let file_name = f.name.clone();
+            let path = f.path.clone();
+            let eol = f.eol.clone();
+            let bom = f.bom;
+            let instruction = s.instruction.text().to_string();
+            s.task = TaskKind::Rewrite;
+            s.tick += 1;
+            Some((at, original, result, file_name, path, eol, bom, instruction))
+        } else {
+            None
+        };
         s.tick += 1;
         self.relayout_areas();
+        if let Some((at, original, result, file_name, path, eol, bom, instruction)) = review {
+            let hunks = mdedit_core::hunks::Hunks::new(&original, &result);
+            self.close_for_ai_panel();
+            self.ai.panel = Some(Panel::Review(Review {
+                doc: DocId::default(),
+                start: 0,
+                end: original.len(),
+                original,
+                result,
+                subtitle: format!("{file_name} \u{00B7} whole file \u{00B7} {}", via),
+                spec: Spec {
+                    title: format!("Rewrite {file_name}"),
+                    instruction: instruction.clone(),
+                },
+                hunks,
+                list: Default::default(),
+                blocked: None,
+                preview: false,
+                panes: None,
+                sent: 0,
+                due: None,
+                grab: None,
+                base_dir: path.parent().map(Path::to_path_buf),
+                file: Some(FileReview {
+                    path,
+                    index: at,
+                    bom,
+                    eol,
+                    instruction,
+                }),
+            }));
+            self.ai.tick += 1;
+        }
         if name == "sent" {
             self.task_show_sent();
         }

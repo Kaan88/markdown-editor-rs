@@ -112,7 +112,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         &colors,
         s.task.placeholder(),
         enabled,
-        caret_on,
+        caret_on && s.focus == crate::task_ui::Focus::Instruction,
     );
     if !enabled {
         // What the request is doing, over the field: the window says it where the instruction was.
@@ -224,7 +224,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             &colors,
             "A name for the group",
             true,
-            caret_on,
+            caret_on && s.focus == crate::task_ui::Focus::NewGroup,
         );
         p.text(
             Face::Ui,
@@ -234,6 +234,25 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             "Enter makes it; Esc leaves it.",
             pal.faint,
             (x + inner - f.right() - 20.0).max(0.0),
+        );
+    } else if s.task == TaskKind::Rewrite {
+        p.text(
+            Face::Semibold,
+            11.0,
+            x,
+            g.dest.y + 12.0,
+            "WHERE IT GOES",
+            pal.muted,
+            100.0,
+        );
+        p.text(
+            Face::Ui,
+            12.5,
+            x + 100.0,
+            g.dest.y + 16.0,
+            "In place: each file is rewritten where it is, and its original goes to AI runs.",
+            pal.muted,
+            inner - 100.0,
         );
     } else {
         p.text(
@@ -290,7 +309,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 &colors,
                 "under a section (none)",
                 true,
-                caret_on,
+                caret_on && s.focus == crate::task_ui::Focus::Section,
             );
             right = sec.right() + 10.0;
         }
@@ -339,6 +358,20 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 }
                 y += GROUP_H;
             }
+            ListRow::Placed => {
+                if y + GROUP_H > g.list.y && y < g.list.bottom() {
+                    p.text(
+                        Face::Semibold,
+                        10.5,
+                        g.list.x + PAD,
+                        y + GROUP_H / 2.0,
+                        "PLACED \u{00B7} WHAT EACH BECOMES",
+                        pal.muted,
+                        g.list.w - 2.0 * PAD,
+                    );
+                }
+                y += GROUP_H;
+            }
             ListRow::Unplaced => {
                 if y + GROUP_H > g.list.y && y < g.list.bottom() {
                     p.fill(
@@ -372,7 +405,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                         pal,
                         tick_at,
                         Tick {
-                            on: f.ticked || f.done,
+                            on: (f.ticked && reason.is_none()) || f.done,
                             enabled,
                             focused: false,
                         },
@@ -436,9 +469,17 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                             (None, None) => "not placed".to_string(),
                         }
                     } else if f.kind == FileKind::Other {
-                        "linked by name".to_string()
+                        if reason.is_some() {
+                            String::new()
+                        } else {
+                            "linked by name".to_string()
+                        }
                     } else if f.kind == FileKind::Picture {
-                        "linked".to_string()
+                        if s.task == TaskKind::File {
+                            "linked".to_string()
+                        } else {
+                            String::new()
+                        }
                     } else {
                         String::new()
                     };
@@ -586,7 +627,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         format!(
             "{} \u{00B7} {}",
             s.via,
-            if s.task.asks() {
+            if s.asks_ai() {
                 "sent to it"
             } else {
                 "no request"
@@ -674,6 +715,7 @@ fn shown(path: &std::path::Path) -> String {
             _ => None,
         })
         .collect();
+    let sep = std::path::MAIN_SEPARATOR.to_string();
     let cut = parts.len().saturating_sub(3);
     let tail = parts.split_off(cut);
     let lead = if cut > 0 {
@@ -681,9 +723,5 @@ fn shown(path: &std::path::Path) -> String {
     } else {
         String::new()
     };
-    format!(
-        "{lead}{}{}",
-        tail.join(&std::path::MAIN_SEPARATOR.to_string()),
-        std::path::MAIN_SEPARATOR
-    )
+    format!("{lead}{}{}", tail.join(&sep), std::path::MAIN_SEPARATOR)
 }

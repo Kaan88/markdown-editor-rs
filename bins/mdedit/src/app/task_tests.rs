@@ -169,9 +169,11 @@ fn file_them_with_the_ai_off_plans_then_writes_the_link() {
     let dir = scratch("task-off");
     std::fs::create_dir_all(dir.join("library")).expect("library");
     let text = pasta(&dir);
+    let pdf = dir.join("menu.pdf");
+    std::fs::write(&pdf, "%PDF-1.4\n").expect("pdf");
     let mut a = app();
     a.session_path = Some(dir.join("settings.ini"));
-    a.task_open(TaskKind::File, vec![text.clone()]);
+    a.task_open(TaskKind::File, vec![text.clone(), pdf.clone()]);
     with_group(&mut a, "Recipes");
     a.task_run();
     let s = a.task.as_ref().expect("open");
@@ -182,9 +184,19 @@ fn file_them_with_the_ai_off_plans_then_writes_the_link() {
     let group = dir.join("library").join("Recipes.md");
     let body = std::fs::read_to_string(&group).expect("the group file");
     assert!(body.contains("[Pasta]"), "{body}");
+    assert!(body.contains("[menu]"), "the PDF is linked by name: {body}");
     let lib = mdshared_app::library::parse(&body, &dir.join("library"));
-    assert_eq!(lib.entries.len(), 1);
-    assert!(crate::library_pane::same_note(&lib.entries[0].path, &text));
+    assert_eq!(lib.entries.len(), 2);
+    assert!(
+        lib.entries
+            .iter()
+            .any(|e| crate::library_pane::same_note(&e.path, &text))
+    );
+    assert!(
+        lib.entries
+            .iter()
+            .any(|e| crate::library_pane::same_note(&e.path, &pdf))
+    );
 }
 
 #[test]

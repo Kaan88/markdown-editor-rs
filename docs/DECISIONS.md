@@ -1118,3 +1118,71 @@ who has not used the review yet, has not asked for it.
 (never in `diff`, which Compare draws), with a test per case it re-cuts.
 **Overturned by.** The owner.
 **From.** Claude, finishing R2, 2026-11-23; seen in the `review-preview-partial` shot.
+
+## D-140 — 2026-11-23 — A rewrite of a file is R2's review, applied in place, the original in the record
+
+**Decision.** "Rewrite them" runs one file at a time: the model's answer becomes R2's list of
+changes over the whole file (not a new kind of review), and Apply writes `Hunks::compose` of the
+ticked changes in place, in the file's own line endings. Before each file is written, the run's
+record in `.runs` holds the file's original text, its digest and the digest written (D-076); undo,
+from "AI runs…", puts an original back only while the file still holds what the run wrote, and
+keeps a file changed since. A file changed between the request and Apply is refused, and the
+review stays open with its list.
+**Why.** D-074 and D-076 chose this; R2 gave the list, and the plan (5.6) says "edits in place
+after the review, the original kept in the record". Reusing R2's review keeps one set of keys and
+one meaning for Apply.
+**What would change it.** The owner after using it; a review per file that must show side by side
+in a document tab instead of the panel.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-141 — 2026-11-23 — The task window sees names and numbers, never paths; pictures are never read
+
+**Decision.** The engine is told each file's name, size, date, first heading and first 1,200
+bytes (the digest of 5.6), numbered 0..n in the request; the answer's numbers are the window's
+places, and no path is sent or written from the answer. A picture's bytes are never read; its name
+is sent, and it is linked. A PDF, Word file or archive is never read either: File them links it by
+name, and Split them and Rewrite them leave it out with its reason on the row. The JSON contract
+is mdedit's (`task_ui`), not the engine's.
+**Why.** The engine must stay free of what a task is (7.2), and a model that returns a path could
+write anywhere; numbers cannot. Pictures in the protocol are phase V (D-078), not yet priced.
+**What would change it.** Phase V: the engine reading pictures itself, `proto::VERSION` 2.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-142 — 2026-11-23 — One request at a time, in the order the results are read
+
+**Decision.** File them sends batches of 40 files, one request after the other; Split them one
+plan per file, in the window's order, the next opening when a plan is written; Rewrite them one
+file per request, at most 20 files a run, the next sent only when the previous file's review is
+applied, discarded or copied. The engine could run several (5.6), but nothing here does.
+**Why.** Rate limits, and the results are read in order; a rewrite's review is the user's
+decision before the next file is touched.
+**What would change it.** The owner asking for parallel requests (D-080 priced it); then the
+window's batches would run together and results would still be merged in file order.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-143 — 2026-11-23 — With the AI off the window still works, and Rewrite is disabled
+
+**Decision.** File them composes the plan locally (every file under the section typed beside the
+destination) and writes the links; Split them cuts at headings; Rewrite them is disabled with
+"The AI connection is off" and "Open AI settings". Nothing is started, and "Show what is sent"
+says so.
+**Why.** 5.6, and the app's rule that the AI is off by default and nothing leaves the machine
+unless a request is made.
+**What would change it.** The owner.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-144 — 2026-11-23 — "Show what is sent" parks the window in a read-only tab
+
+**Decision.** The link opens the literal text of every request the window would send in a
+read-only copy tab, headed by a line saying nothing has been sent by it, and parks the window;
+"AI task on your files…" brings the window back with its files, instruction and ticks. It is
+offered only while no request is out.
+**Why.** 3.10 and 5.6: the owner can check exactly what would leave the machine; the request is
+not made to show it.
+**What would change it.** The owner preferring a panel over a tab.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
