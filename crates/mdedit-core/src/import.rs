@@ -12,7 +12,7 @@
 //! Nothing here can panic on what a folder holds: every name is read lossily, every file is read
 //! through a length cap, and a heading is looked for at a character boundary.
 
-use mdshared_app::library::{self, tree, Entry};
+use mdshared_app::library::{self, Entry, tree};
 use mdshared_app::paths::same_path;
 use mdshared_app::runs::Link;
 use std::io::Read;
@@ -764,7 +764,9 @@ mod tests {
         let section_row = |p: &Plan, name: &str| {
             p.rows
                 .iter()
-                .position(|r| matches!(&r.kind, RowKind::Section { path } if path.join("/") == name))
+                .position(
+                    |r| matches!(&r.kind, RowKind::Section { path } if path.join("/") == name),
+                )
                 .map(|i| p.rows[i].ticked)
                 .unwrap()
         };
@@ -777,7 +779,13 @@ mod tests {
         // A note ticks on its own, and its section row follows it.
         p.toggle_file(0);
         assert_eq!(p.ticked(), 3);
-        assert!(!p.rows.iter().find(|r| r.kind == RowKind::File(0)).unwrap().ticked);
+        assert!(
+            !p.rows
+                .iter()
+                .find(|r| r.kind == RowKind::File(0))
+                .unwrap()
+                .ticked
+        );
         // A row is ticked through the card's own call, section or note.
         p.toggle_row(0);
         assert_eq!(p.ticked(), 4);
@@ -863,7 +871,8 @@ mod tests {
     }
 
     #[test]
-    fn a_title_that_ends_in_a_hash_reads_back_without_it_and_a_folder_that_ends_in_one_is_refused() {
+    fn a_title_that_ends_in_a_hash_reads_back_without_it_and_a_folder_that_ends_in_one_is_refused()
+    {
         let dir = scratch("hash");
         let root = dir.join("library");
         std::fs::create_dir_all(&root).unwrap();
@@ -871,20 +880,32 @@ mod tests {
         // `C`: the plan says what the library will read, not what the file looks like.
         let folder = dir.join("Code");
         put(&folder, "csharp.md", "# C#\n");
-        let p = plan(walk(&folder, &|| false), &folder, at(&root, root.join("Code.md")));
+        let p = plan(
+            walk(&folder, &|| false),
+            &folder,
+            at(&root, root.join("Code.md")),
+        );
         assert_eq!(p.notes[0].title, "C");
         assert_eq!(p.problem(), None);
         // A folder whose name ends in `#` would be written as a heading and read back without it.
         let folder = dir.join("C#");
         put(&folder, "notes.md", "# Notes\n");
-        let p = plan(walk(&folder, &|| false), &folder, at(&root, root.join("C.md")));
+        let p = plan(
+            walk(&folder, &|| false),
+            &folder,
+            at(&root, root.join("C.md")),
+        );
         let why = p.problem().unwrap_or_default();
         assert!(why.contains("C#"), "{why}");
         assert!(why.contains("'#'"), "{why}");
         // The same for a subfolder, named by its folder.
         let folder = dir.join("Sharp");
         put(&folder, "D#/notes.md", "# Notes\n");
-        let p = plan(walk(&folder, &|| false), &folder, at(&root, root.join("Sharp.md")));
+        let p = plan(
+            walk(&folder, &|| false),
+            &folder,
+            at(&root, root.join("Sharp.md")),
+        );
         let why = p.problem().unwrap_or_default();
         assert!(why.contains("D#"), "{why}");
         let _ = std::fs::remove_dir_all(&dir);
@@ -925,7 +946,11 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let folder = dir.join("Empty");
         std::fs::create_dir_all(&folder).unwrap();
-        let p = plan(walk(&folder, &|| false), &folder, at(&root, root.join("Empty.md")));
+        let p = plan(
+            walk(&folder, &|| false),
+            &folder,
+            at(&root, root.join("Empty.md")),
+        );
         assert_eq!(
             p.problem().unwrap_or_default(),
             "Every file in it is in the library already."
@@ -940,7 +965,11 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let folder = root.join("Recipes");
         std::fs::create_dir_all(&folder).unwrap();
-        let p = plan(walk(&folder, &|| false), &folder, at(&root, root.join("Recipes.md")));
+        let p = plan(
+            walk(&folder, &|| false),
+            &folder,
+            at(&root, root.join("Recipes.md")),
+        );
         let text = p.group_text().unwrap();
         assert!(text.starts_with("# Recipes\nhome: Recipes\n"), "{text}");
         let read = library::parse(&text, &root);
