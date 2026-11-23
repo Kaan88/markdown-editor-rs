@@ -323,7 +323,9 @@ impl App {
         }
         // A tab still being read has no language yet, so the page cannot yet say whether it can
         // show it: the mode waits for the read instead of ending. A block open on the document
-        // the page still shows belongs to the old tab, and closes before the wait.
+        // the page still shows belongs to the old tab, and closes before the wait; a question
+        // still held for that block is not asked either (`preview_sync` asks nothing while no
+        // document is ready, and `follow_tab` clears it once the tab is followed).
         if self
             .docs
             .active_doc()

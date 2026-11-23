@@ -1510,6 +1510,12 @@ Last.
         pump(&mut a, |a| {
             a.visual_block().is_some_and(|b| b.first == 2) && a.areas.text.w > 0.0
         });
+        // `pump` gives up after five seconds without a word: a block that never opened would
+        // make "a block of the old document is still open" below hold for nothing.
+        assert!(
+            a.visual_block().is_some_and(|b| b.first == 2),
+            "a block of the first document is open when the tab is switched"
+        );
 
         // The tab switched to was left reading far down its text.
         a.docs.activate(1);
@@ -1582,6 +1588,12 @@ Last.
         pump(&mut a, |a| {
             a.visual_block().is_some_and(|b| b.first == 2) && a.areas.text.w > 0.0
         });
+        // `pump` gives up after five seconds without a word, and a block that never opened
+        // would make the assertion below ("the old note's block closes") hold for nothing.
+        assert!(
+            a.visual_block().is_some_and(|b| b.first == 2),
+            "a block of the first note is open before the second is opened"
+        );
         // The second note is opened and not yet read.
         let i = a.docs.open(&second);
         let doc = a.docs.active_doc().unwrap();
