@@ -169,6 +169,7 @@ impl App {
             .then(|| self.plan_recycle(&mut report, &request, &library));
         self.plan = None;
         self.plan_parked = None;
+        self.task_plan_done(true);
         let link_failure = report
             .link_failures
             .first()
@@ -691,6 +692,7 @@ impl App {
                         pictures: Vec::new(),
                         sections_added: vec![vec!["Part one".to_string()]],
                         moved: None,
+                        originals: Vec::new(),
                     },
                     path: root.join(".runs").join(format!("{started}-split.json")),
                     library: root.clone(),

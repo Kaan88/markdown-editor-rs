@@ -180,6 +180,12 @@ impl App {
         {
             self.plan_parked = Some(screen);
         }
+        if self.task_plan.is_some() {
+            // A plan opened from the task window is a step of that run, not a plan of its own:
+            // Escape leaves the file as it was and the window comes back.
+            self.plan_parked = None;
+            self.task_plan_done(false);
+        }
         self.set_cursor(CursorIcon::Default);
         self.redraw();
     }
@@ -404,6 +410,7 @@ impl App {
             pictures: Vec::new(),
             sections_added: Vec::new(),
             moved: None,
+            originals: Vec::new(),
         };
         let report = Report {
             record: Some(record),

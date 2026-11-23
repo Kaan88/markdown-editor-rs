@@ -591,6 +591,8 @@ fn review(
     }
     let note = if rv.blocked.is_some() {
         ""
+    } else if rv.file.is_some() {
+        "Apply writes the file in place. Its original is kept in AI runs, where Undo brings it back."
     } else if rv.preview {
         "The preview shows only the ticked changes. Apply is one step: Ctrl+Z brings the old text back."
     } else {

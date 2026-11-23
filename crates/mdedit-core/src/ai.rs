@@ -356,6 +356,8 @@ pub enum PromptKind {
     #[default]
     Rewrite,
     Split,
+    /// A file task's prompt (`docs/ai-library-plan.md` 5.6): `kind: file`.
+    File,
     Other,
 }
 
@@ -365,6 +367,7 @@ impl PromptKind {
         match self {
             PromptKind::Rewrite => "rewrite",
             PromptKind::Split => "split",
+            PromptKind::File => "file",
             PromptKind::Other => "other",
         }
     }
@@ -383,6 +386,7 @@ fn kind_line(line: &str) -> Option<PromptKind> {
     Some(match value.to_ascii_lowercase().as_str() {
         "rewrite" => PromptKind::Rewrite,
         "split" => PromptKind::Split,
+        "file" => PromptKind::File,
         _ => PromptKind::Other,
     })
 }
@@ -819,7 +823,7 @@ mod tests {
             [
                 ("Chapters", PromptKind::Split, "One note per chapter."),
                 ("Fix", PromptKind::Rewrite, "Fix it."),
-                ("File", PromptKind::Other, "By topic."),
+                ("File", PromptKind::File, "By topic."),
                 (
                     "Says kind",
                     PromptKind::Rewrite,

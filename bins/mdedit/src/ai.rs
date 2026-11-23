@@ -272,6 +272,8 @@ pub enum Ask {
     Run,
     /// A split by AI (5.2): the answer goes to the plan screen.
     Split,
+    /// A request of the AI task window over files (5.6).
+    Task,
     /// A model list, under its key in [`Ai::models`].
     Models(String),
     Detect(Connection),
@@ -393,6 +395,23 @@ pub struct Review {
     /// The drag of the list's scrollbar thumb: where in the thumb it was taken.
     pub grab: Option<f32>,
     pub base_dir: Option<PathBuf>,
+    /// A review of a file the AI task window is rewriting, not of an open document (5.6).
+    pub file: Option<FileReview>,
+}
+
+/// What a review over a file rather than a document is: the file Apply writes in place, and the
+/// window's entry it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileReview {
+    pub path: PathBuf,
+    /// The file's place in the task window's files.
+    pub index: usize,
+    /// The original began with a UTF-8 byte order mark.
+    pub bom: bool,
+    /// The file's dominant line ending, which the result is written with.
+    pub eol: String,
+    /// The task window's instruction, for Run again.
+    pub instruction: String,
 }
 
 // One panel is open at a time, kept in an `Option` in `Ai`: boxing the review would only add a
@@ -527,6 +546,15 @@ impl Ai {
             }
         }
         self.cancel_split();
+        self.tick += 1;
+    }
+
+    /// Stops a task window's request; its answer, if it still comes, is not read.
+    pub fn cancel_task(&mut self, id: u64) {
+        self.pending.remove(&id);
+        if let Some(c) = &self.client {
+            c.send(json!({"op": "cancel", "id": id}));
+        }
         self.tick += 1;
     }
 

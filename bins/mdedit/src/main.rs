@@ -50,6 +50,8 @@ mod replace_ui;
 mod results;
 mod session;
 mod status;
+mod task_draw;
+mod task_ui;
 mod trace;
 mod ui;
 mod updater;

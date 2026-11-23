@@ -2146,6 +2146,22 @@ impl App {
                 self.plan_open_active();
             }
             C::AiRuns => self.open_runs(),
+            C::AiTaskFiles => self.task_open(crate::task_ui::TaskKind::File, Vec::new()),
+            C::AiTaskThisFile => {
+                let path = self
+                    .docs
+                    .active_doc()
+                    .and_then(|d| d.path.clone())
+                    .filter(|_| self.docs.active_doc().is_some());
+                match path {
+                    Some(p) => {
+                        self.task_open(crate::task_ui::TaskKind::Rewrite, vec![p]);
+                    }
+                    None => self.docs.set_toast(
+                        "AI task on this file\u{2026} needs a file on disk: save it first.",
+                    ),
+                }
+            }
             C::Language => self.open_languages(),
             C::Library => self.library_open(),
             C::LibraryAdd => self.library_add(),
@@ -2424,6 +2440,10 @@ impl App {
     }
 
     pub(super) fn dropped(&mut self, path: PathBuf) {
+        if self.task_is_open() {
+            self.task_add_paths(vec![path]);
+            return;
+        }
         self.open(&path);
         self.redraw();
     }
@@ -2435,8 +2455,11 @@ impl App {
         let mut next: Option<Instant> = None;
         let mut at = |t: Instant| next = Some(next.map_or(t, |n| n.min(t)));
         // Caret blink, only while the window has focus and the text or the find box has the keys.
-        let blinking =
-            self.focused && (self.ui.find_focused || self.text_focused() || self.palette_open());
+        let blinking = self.focused
+            && (self.ui.find_focused
+                || self.text_focused()
+                || self.palette_open()
+                || self.task_is_open());
         if blinking {
             if let Some(period) = platform::caret_blink_time() {
                 let due = *self.ui.caret_due.get_or_insert(now + period);

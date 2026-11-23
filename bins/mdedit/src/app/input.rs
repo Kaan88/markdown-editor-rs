@@ -46,6 +46,10 @@ impl App {
         {
             self.wants_frame = true;
         }
+        if self.task_is_open() {
+            self.task_pointer(x, y);
+            return;
+        }
         if self.plan_is_open() {
             self.plan_pointer(x, y);
             return;
@@ -659,6 +663,10 @@ impl App {
             }
             return;
         }
+        if self.task_is_open() {
+            self.task_press();
+            return;
+        }
         if self.plan_is_open() {
             self.plan_press();
             return;
@@ -900,6 +908,10 @@ impl App {
         }
         let (x, y) = self.ui.mouse;
         self.ui.autoscroll_due = None;
+        if self.task_is_open() {
+            self.task_release();
+            return;
+        }
         if self.plan_is_open() {
             self.plan_release();
             return;
@@ -955,6 +967,10 @@ impl App {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
         self.ui.tip = None;
+        if self.task_is_open() {
+            self.task_right_press();
+            return;
+        }
         if self.plan_is_open() {
             self.plan_right_press();
             return;
@@ -1079,12 +1095,15 @@ impl App {
             || self.ui.settings.is_some()
             || self.ai_panel_open()
             || self.plan_is_open()
+            || self.task_is_open()
         {
             let dy = match pixels {
                 Some((_, py)) => -(py as f32) / self.scale,
                 None => -(ny as f32) * PANE_WHEEL,
             };
-            if self.plan_is_open() {
+            if self.task_is_open() {
+                self.task_wheel(dy);
+            } else if self.plan_is_open() {
                 self.plan_wheel(dy);
             } else if self.ai_panel_open() {
                 self.ai_wheel(dy);
@@ -1320,6 +1339,8 @@ impl App {
         let shown = if let Some(f) = self.ui.settings.as_mut() {
             self.ui.overlay_tick += 1;
             f.set_preedit(pre)
+        } else if self.task_is_open() {
+            self.task_preedit(pre)
         } else if self.plan_is_open() {
             self.plan_preedit(pre)
         } else if self.ai_panel_open() {
@@ -1365,6 +1386,10 @@ impl App {
             if let Some(n) = &name {
                 self.settings_key(n, mods, typed);
             }
+            return;
+        }
+        if self.task_is_open() {
+            self.task_key(name, typed);
             return;
         }
 

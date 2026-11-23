@@ -236,6 +236,9 @@ pub struct Args {
     /// `--move-demo move|results`: the "Move the notes…" card over a plan made in the program,
     /// or the results panel after a move (`move_ui::demo`).
     pub move_demo: Option<String>,
+    /// `--task-demo files|files-other|files-off|files-plan|sent`: the AI task window over files
+    /// for a shot, made from `fixtures/task-demo/`, with no engine and nothing sent.
+    pub task_demo: Option<String>,
     /// `--compare A B`: open both files, side by side, compared.
     pub compare: Option<(PathBuf, PathBuf)>,
     /// Compare the active document with its file on disk (for a shot: with `--type`).
@@ -412,6 +415,7 @@ impl Args {
                 "--plan-demo" => out.plan_demo = value(&a),
                 "--plan-parked" => out.plan_parked = true,
                 "--move-demo" => out.move_demo = value(&a),
+                "--task-demo" => out.task_demo = value(&a),
                 "--compare" => {
                     let pair = (value(&a), value(&a));
                     if let (Some(x), Some(y)) = pair {

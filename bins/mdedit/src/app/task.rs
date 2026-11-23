@@ -1,0 +1,1622 @@
+//! The AI task window over files as the window hosts it (`docs/ai-library-plan.md` 5.6, phase
+//! W). The window's state and layout are `task_ui.rs`, its drawing `task_draw.rs`. Here are the
+//! three tasks: File them (links into a group), Split them (each file's plan card, cut at its
+//! headings or by the AI) and Rewrite them (each file's changes reviewed with 5.5's list, then
+//! written in place with its original kept in the run's record, D-074 and D-076).
+//!
+//! Nothing the window is given is opened in a tab. Requests go to the engine only while the
+//! window is; closing it stops one in flight. The model never sees a path: it sees names and
+//! numbers, and returns numbers.
+
+use super::*;
+use crate::ai::{Ask, FileReview, Panel, Review, Spec};
+use crate::keys::KeyName;
+use crate::task_ui::{
+    self, Asking, DestChoice, FileEntry, FileKind, Focus, Group, Hit, TaskKind, TaskScreen,
+};
+use mdedit_core::ai::{self as core_ai, Connection};
+use mdedit_core::runs::{self, Sent};
+use serde_json::json;
+
+impl App {
+    /// Whether the task window is open.
+    pub(super) fn task_is_open(&self) -> bool {
+        self.task.is_some()
+    }
+
+    /// "AI task on your files…" and "AI task on this file…": the window, with `add` in it.
+    /// A window parked by "Show what is sent" comes back with the same files.
+    pub(super) fn task_open(&mut self, kind: TaskKind, add: Vec<PathBuf>) {
+        self.library_load();
+        if let Some(mut t) = self.task_parked.take() {
+            t.task = kind;
+            t.recount_limit();
+            t.tick += 1;
+            self.task = Some(t);
+            self.task_add_paths(add);
+            self.task_finish_open();
+            return;
+        }
+        let Some(root) = self
+            .library_dir()
+            .filter(|d| !d.as_os_str().is_empty() && d.is_absolute())
+        else {
+            self.docs
+                .set_toast(crate::commands::strings::LIBRARY_NO_FOLDER);
+            return;
+        };
+        let groups: Vec<Group> = self
+            .docs
+            .library
+            .groups
+            .iter()
+            .map(|g| Group {
+                name: g.name.clone(),
+                file: g.file.clone(),
+                home: g
+                    .home
+                    .clone()
+                    .unwrap_or_else(|| root.join(mdshared_app::library::folder_name(&g.name))),
+            })
+            .collect();
+        let dest = if let Some(first) = (groups.len() == 1).then_some(0) {
+            DestChoice::Group(first)
+        } else if groups.is_empty() {
+            DestChoice::New(String::new())
+        } else {
+            DestChoice::Decide
+        };
+        let prompts = match kind {
+            TaskKind::File => self.docs.ai_file_prompts.clone(),
+            TaskKind::Split => self.docs.ai_split_prompts.clone(),
+            TaskKind::Rewrite => self.docs.ai_prompts.clone(),
+        };
+        let mut s = TaskScreen::new(kind, groups, dest, prompts, self.ai_via());
+        s.ai_on = self.ai_conn() != Connection::Off;
+        s.win = self.logical();
+        s.scale = self.scale;
+        if matches!(s.dest, DestChoice::New(ref name) if name.is_empty()) {
+            s.new_group = Some(mdshared_ui::textfield::TextField::new());
+            s.focus = Focus::NewGroup;
+        }
+        self.task = Some(s);
+        self.task_add_paths(add);
+        self.task_finish_open();
+    }
+
+    fn task_finish_open(&mut self) {
+        self.close_for_ai_panel();
+        if let Some(s) = self.task.as_mut() {
+            s.tick += 1;
+        }
+        self.caret_reset();
+        self.redraw();
+    }
+
+    /// Adds paths to the open window, each probed once. A path already in it is not added twice,
+    /// and a folder dropped on it is walked one level.
+    pub(super) fn task_add_paths(&mut self, paths: Vec<PathBuf>) {
+        if self.task.is_none() {
+            return;
+        }
+        let mut fresh: Vec<FileEntry> = Vec::new();
+        for path in paths {
+            let mut list = Vec::new();
+            if path.is_dir() {
+                if let Ok(read) = std::fs::read_dir(&path) {
+                    for e in read.flatten() {
+                        if e.path().is_file() {
+                            list.push(e.path());
+                        }
+                    }
+                }
+            } else {
+                list.push(path);
+            }
+            for p in list {
+                let known = self.task.as_ref().is_some_and(|s| {
+                    s.files
+                        .iter()
+                        .chain(fresh.iter())
+                        .any(|f| mdshared_app::paths::same_path(&f.path, &p))
+                });
+                if known {
+                    continue;
+                }
+                fresh.push(self.task_probe(&p));
+            }
+        }
+        if let Some(s) = self.task.as_mut() {
+            s.files.extend(fresh);
+            s.recount_limit();
+            s.tick += 1;
+        }
+        self.redraw();
+    }
+
+    /// What a file is to a task: text, a picture or another kind, and the reason it is left out
+    /// when it is. A picture's bytes are never read; nor a PDF's or a Word file's.
+    fn task_probe(&self, path: &Path) -> FileEntry {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        let mut out = FileEntry {
+            path: path.to_path_buf(),
+            name,
+            size: 0,
+            kind: FileKind::Other,
+            why: None,
+            ticked: true,
+            text: None,
+            bom: false,
+            sample: String::new(),
+            heading: None,
+            title: None,
+            sections: Vec::new(),
+            with: None,
+            over_limit: false,
+            eol: "\n".to_string(),
+            already: false,
+            done: false,
+        };
+        let meta = match std::fs::symlink_metadata(path) {
+            Ok(m) => m,
+            Err(e) => {
+                out.why = Some(format!("could not be read: {e}"));
+                return out;
+            }
+        };
+        if !meta.is_file() {
+            out.why = Some("not a file".to_string());
+            return out;
+        }
+        out.size = meta.len();
+        out.already = self
+            .docs
+            .library
+            .entries()
+            .any(|(_, e)| crate::library_pane::same_note(&e.path, path));
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if task_ui::PICTURES.contains(&ext.as_str()) {
+            out.kind = FileKind::Picture;
+            return out;
+        }
+        if task_ui::other_reason(&ext).is_some() {
+            out.why = task_ui::other_reason(&ext).map(str::to_string);
+            return out;
+        }
+        if out.size == 0 {
+            out.why = Some("empty".to_string());
+            return out;
+        }
+        if out.size > task_ui::ADD_MAX {
+            out.why = Some(format!(
+                "too large for this window: {} of {} MB",
+                task_ui::size_text(out.size),
+                task_ui::ADD_MAX / (1024 * 1024)
+            ));
+            return out;
+        }
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => {
+                out.why = Some(format!("could not be read: {e}"));
+                return out;
+            }
+        };
+        let loaded = mdedit_core::load::load_bytes(&bytes, &self.docs.load_options());
+        if loaded.info.has_nul || loaded.info.lossy {
+            out.why = Some("not a text file".to_string());
+            return out;
+        }
+        let all = loaded.buffer.rope().to_string();
+        out.kind = FileKind::Text;
+        out.sample = all.chars().take(task_ui::DIGEST_BYTES).collect();
+        out.heading = task_ui::first_heading(&all);
+        out.eol = loaded.info.eol.dominant().to_string();
+        let utf8 = matches!(
+            loaded.info.encoding,
+            mdedit_core::encoding::Encoding::Utf8 | mdedit_core::encoding::Encoding::Utf8Bom
+        );
+        out.bom = loaded.info.encoding == mdedit_core::encoding::Encoding::Utf8Bom;
+        if utf8 && bytes.len() <= task_ui::REWRITE_MAX {
+            out.text = Some(all);
+        }
+        out
+    }
+
+    /// "Add files…": the file dialog, then the same path as a drop.
+    pub(super) fn task_pick_files(&mut self) {
+        let start = self.docs.active_doc().and_then(|d| d.path.clone());
+        let start = start.as_deref().and_then(Path::parent);
+        let picked = platform::pick_files(start);
+        self.task_add_paths(picked);
+    }
+
+    /// The window's keys. It takes every key while it is open, as the plan screen does.
+    pub(super) fn task_key(&mut self, name: Option<KeyName>, typed: Option<&str>) {
+        let Some(name) = name else { return };
+        let mods = self.mods;
+        // Escape stops a request first, then closes a list, then the window.
+        if name == KeyName::Escape {
+            if let Some(s) = self.task.as_mut()
+                && s.asking.is_some()
+            {
+                self.task_cancel_request();
+                return;
+            }
+            if self.task.as_ref().is_some_and(|s| s.dest_open) {
+                if let Some(s) = self.task.as_mut() {
+                    s.dest_open = false;
+                    s.tick += 1;
+                }
+                self.redraw();
+                return;
+            }
+            self.task_close();
+            return;
+        }
+        if self.task.as_ref().is_some_and(|s| s.asking.is_some()) {
+            return;
+        }
+        if self.task.as_ref().is_some_and(|s| s.dest_open) {
+            self.task_dest_key(&name, mods);
+            return;
+        }
+        if name == KeyName::PageDown || name == KeyName::PageUp {
+            if let Some(s) = self.task.as_mut() {
+                let dy = if name == KeyName::PageDown {
+                    160.0
+                } else {
+                    -160.0
+                };
+                s.list.scroll_by(dy);
+                s.tick += 1;
+            }
+            self.redraw();
+            return;
+        }
+        if name == KeyName::Tab {
+            if let Some(s) = self.task.as_mut() {
+                s.focus = match s.focus {
+                    Focus::Instruction if s.new_group.is_some() => Focus::NewGroup,
+                    Focus::Instruction if s.task == TaskKind::File => Focus::Section,
+                    Focus::Section | Focus::NewGroup => Focus::Instruction,
+                    _ => Focus::Instruction,
+                };
+                s.tick += 1;
+            }
+            self.redraw();
+            return;
+        }
+        if name == KeyName::Enter {
+            let focus = self.task.as_ref().map(|s| s.focus);
+            if focus == Some(Focus::NewGroup) {
+                self.task_new_group_commit();
+            } else {
+                self.task_run();
+            }
+            return;
+        }
+        let Some(s) = self.task.as_mut() else { return };
+        s.tick += 1;
+        match s.focus {
+            Focus::Instruction => {
+                if s.instruction.handle_key(&name, mods, typed, true) == Some(true) {
+                    s.prompt_sel = None;
+                }
+            }
+            Focus::Section => {
+                s.section.handle_key(&name, mods, typed, true);
+            }
+            Focus::NewGroup => {
+                if let Some(f) = s.new_group.as_mut() {
+                    f.handle_key(&name, mods, typed, true);
+                }
+            }
+        }
+        self.caret_reset();
+        self.redraw();
+    }
+
+    fn task_dest_key(&mut self, name: &KeyName, mods: crate::keys::Mods) {
+        let _ = mods;
+        let Some(s) = self.task.as_mut() else { return };
+        let items = s.groups.len() + 2;
+        let cur = s.dest_hot.unwrap_or(0);
+        match name {
+            KeyName::Up => s.dest_hot = Some(cur.saturating_sub(1)),
+            KeyName::Down => s.dest_hot = Some((cur + 1).min(items.saturating_sub(1))),
+            KeyName::Enter | KeyName::Space => {
+                let k = s.dest_hot.unwrap_or(0);
+                s.dest_open = false;
+                self.task_choose_dest(k);
+            }
+            KeyName::Escape => s.dest_open = false,
+            _ => {}
+        }
+        if let Some(s) = self.task.as_mut() {
+            s.tick += 1;
+        }
+        self.redraw();
+    }
+
+    fn task_choose_dest(&mut self, k: usize) {
+        let Some(s) = self.task.as_mut() else { return };
+        if k < s.groups.len() {
+            s.dest = DestChoice::Group(k);
+            s.new_group = None;
+            s.focus = Focus::Instruction;
+        } else if k == s.groups.len() {
+            s.dest = DestChoice::New(String::new());
+            s.new_group = Some(mdshared_ui::textfield::TextField::new());
+            s.focus = Focus::NewGroup;
+        } else {
+            s.dest = DestChoice::Decide;
+            s.new_group = None;
+            s.focus = Focus::Instruction;
+        }
+        s.tick += 1;
+        self.caret_reset();
+        self.redraw();
+    }
+
+    /// Enter on the new group's name: the group is made in the library folder, and chosen.
+    pub(super) fn task_new_group_commit(&mut self) {
+        let Some(name) = self
+            .task
+            .as_ref()
+            .and_then(|s| s.new_group.as_ref())
+            .map(|f| f.text().trim().to_string())
+            .filter(|n| !n.is_empty())
+        else {
+            return;
+        };
+        let Some(root) = self.library_dir() else {
+            return;
+        };
+        let Some(stem) = super::library_write::file_stem_for(&name) else {
+            self.docs
+                .set_toast(&crate::commands::strings::library_not_a_name(&name));
+            return;
+        };
+        let Some(text) = mdshared_app::library::new_group_with_home(&name, Some(Path::new(&stem)))
+        else {
+            return;
+        };
+        let file = root.join(format!("{stem}.md"));
+        if file.exists() {
+            self.docs
+                .set_toast(&crate::commands::strings::library_exists(&format!(
+                    "{stem}.md"
+                )));
+            return;
+        }
+        if let Err(e) = std::fs::create_dir_all(&root)
+            .and_then(|()| mdshared_app::files::create_new(&file, text.as_bytes()))
+        {
+            self.docs
+                .set_toast(&crate::commands::strings::library_failed(&e.to_string()));
+            return;
+        }
+        self.library_load();
+        let Some(s) = self.task.as_mut() else { return };
+        s.groups.push(Group {
+            name: name.trim().to_string(),
+            file,
+            home: root.join(mdshared_app::library::folder_name(&name)),
+        });
+        s.dest = DestChoice::Group(s.groups.len() - 1);
+        s.new_group = None;
+        s.focus = Focus::Instruction;
+        s.tick += 1;
+        self.redraw();
+    }
+
+    pub(super) fn task_pointer(&mut self, x: f32, y: f32) {
+        if self.task_drag_thumb(y) {
+            return;
+        }
+        let hit = self
+            .task
+            .as_ref()
+            .and_then(|s| s.hit_at(x, y))
+            .filter(|h| !matches!(h, Hit::Card | Hit::Body));
+        let text = self
+            .task
+            .as_ref()
+            .and_then(|s| s.hit_at(x, y))
+            .is_some_and(|h| matches!(h, Hit::Field | Hit::Section | Hit::NewGroupField));
+        self.set_cursor(if text {
+            CursorIcon::Text
+        } else {
+            CursorIcon::Default
+        });
+        if let Some(s) = self.task.as_mut()
+            && s.hover != hit
+        {
+            s.hover = hit;
+            s.tick += 1;
+            self.redraw();
+        }
+    }
+
+    pub(super) fn task_press(&mut self) {
+        let (x, y) = self.ui.mouse;
+        let hit = self.task.as_ref().and_then(|s| s.hit_at(x, y));
+        let mut dragged = false;
+        if let Some(s) = self.task.as_mut() {
+            s.pressed = hit.filter(|h| !matches!(h, Hit::Card | Hit::Body | Hit::Thumb));
+            // The list's scrollbar: a press on the thumb takes it, one on the track brings it
+            // there and takes it.
+            if hit == Some(Hit::Track)
+                && let Some((_, thumb)) = s.list.bar()
+            {
+                s.list.grab = Some(if thumb.contains(x, y) {
+                    y - thumb.y
+                } else {
+                    thumb.h / 2.0
+                });
+                s.pressed = None;
+                dragged = true;
+            }
+            s.tick += 1;
+        }
+        if dragged {
+            self.task_drag_thumb(y);
+        }
+        self.redraw();
+    }
+
+    /// A drag of the list's scrollbar thumb: the list goes where the thumb is.
+    fn task_drag_thumb(&mut self, y: f32) -> bool {
+        let Some(s) = self.task.as_mut() else {
+            return false;
+        };
+        let Some(grab) = s.list.grab else {
+            return false;
+        };
+        if let Some((track, thumb)) = s.list.bar() {
+            let to = mdshared_ui::scroll::offset_for_thumb(
+                track,
+                thumb.h,
+                y - grab,
+                s.list.content,
+                s.list.view,
+            );
+            s.list.scroll = to.clamp(0.0, s.list.max_scroll());
+        }
+        s.tick += 1;
+        self.redraw();
+        true
+    }
+
+    pub(super) fn task_release(&mut self) {
+        let (x, y) = self.ui.mouse;
+        let Some(s) = self.task.as_mut() else { return };
+        s.list.grab = None;
+        let Some(pressed) = s.pressed.take() else {
+            return;
+        };
+        if s.hit_at(x, y) != Some(pressed) {
+            return;
+        }
+        self.task_act(pressed);
+    }
+
+    fn task_act(&mut self, hit: Hit) {
+        match hit {
+            Hit::AddFiles => self.task_pick_files(),
+            Hit::Kind(k) => {
+                let task = k;
+                if let Some(s) = self.task.as_mut() {
+                    s.set_task(task);
+                    s.prompts = task.prompts_of(
+                        &self.docs.ai_file_prompts,
+                        &self.docs.ai_split_prompts,
+                        &self.docs.ai_prompts,
+                    );
+                    s.focus = Focus::Instruction;
+                }
+                self.caret_reset();
+                self.redraw();
+            }
+            Hit::File(i) => {
+                let task = self.task.as_ref().map(|s| s.task);
+                if let (Some(s), Some(task)) = (self.task.as_mut(), task)
+                    && let Some(f) = s.files.get_mut(i)
+                    && f.reason_for(task).is_none()
+                    && !f.done
+                {
+                    f.ticked = !f.ticked;
+                    s.tick += 1;
+                }
+                self.redraw();
+            }
+            Hit::Prompt(k) => {
+                let prompt = self.task.as_ref().and_then(|s| s.prompts.get(k)).cloned();
+                if let (Some(s), Some(p)) = (self.task.as_mut(), prompt) {
+                    s.instruction.set_text(p.instruction.trim());
+                    s.prompt_sel = Some(k);
+                    s.focus = Focus::Instruction;
+                    s.tick += 1;
+                }
+                self.caret_reset();
+                self.redraw();
+            }
+            Hit::Dest => {
+                if let Some(s) = self.task.as_mut() {
+                    s.dest_open = !s.dest_open;
+                    s.dest_hot = None;
+                    s.tick += 1;
+                }
+                self.redraw();
+            }
+            Hit::DestItem(k) => {
+                if let Some(s) = self.task.as_mut() {
+                    s.dest_open = false;
+                }
+                self.task_choose_dest(k);
+            }
+            Hit::Section => {
+                if let Some(s) = self.task.as_mut() {
+                    s.focus = Focus::Section;
+                    s.tick += 1;
+                }
+                self.caret_reset();
+                self.redraw();
+            }
+            Hit::Field => {
+                if let Some(s) = self.task.as_mut() {
+                    s.focus = Focus::Instruction;
+                    s.tick += 1;
+                }
+                self.caret_reset();
+                self.redraw();
+            }
+            Hit::NewGroupField => {
+                if let Some(s) = self.task.as_mut() {
+                    s.focus = Focus::NewGroup;
+                    s.tick += 1;
+                }
+                self.caret_reset();
+                self.redraw();
+            }
+            Hit::ShowSent => self.task_show_sent(),
+            Hit::Primary => self.task_primary(),
+            Hit::Cancel => self.task_close(),
+            Hit::OpenSettings => self.ai_open_settings(),
+            Hit::Card | Hit::Body | Hit::Track | Hit::Thumb => {}
+        }
+    }
+
+    /// `dy` in logical px, positive towards the end.
+    pub(super) fn task_wheel(&mut self, dy: f32) {
+        let (x, y) = self.ui.mouse;
+        let Some(s) = self.task.as_mut() else { return };
+        let g = task_ui::geo(task_ui::card(s.win.0, s.win.1));
+        if g.prompts.contains(x, y) {
+            s.prompt_scroll = (s.prompt_scroll + dy).max(0.0);
+        } else {
+            s.list.scroll_by(dy);
+        }
+        s.tick += 1;
+        self.redraw();
+    }
+
+    /// What an input method composes goes to the field the keyboard is in.
+    pub(super) fn task_preedit(&mut self, pre: Option<mdshared_ui::textfield::Preedit>) -> bool {
+        let Some(s) = self.task.as_mut() else {
+            return false;
+        };
+        s.tick += 1;
+        match s.focus {
+            Focus::Instruction => s.instruction.set_preedit(pre),
+            Focus::Section => s.section.set_preedit(pre),
+            Focus::NewGroup => s.new_group.as_mut().is_some_and(|f| f.set_preedit(pre)),
+        }
+    }
+
+    pub(super) fn task_right_press(&mut self) {
+        if let Some(s) = self.task.as_mut() {
+            s.dest_open = false;
+            s.tick += 1;
+        }
+        self.redraw();
+    }
+
+    // ---- the three tasks ------------------------------------------------------------------------
+
+    fn task_run(&mut self) {
+        let Some(s) = self.task.as_ref() else { return };
+        if s.asking.is_some() {
+            return;
+        }
+        if self.ai.kept.is_some() {
+            self.docs.set_toast(
+                "A review is kept from the last file. Show it from AI \u{203A} Show the last result.",
+            );
+            return;
+        }
+        if s.count() == 0 {
+            return;
+        }
+        match s.task {
+            TaskKind::File if s.ai_on => self.task_file_start(),
+            TaskKind::File => self.task_file_plan_now(),
+            TaskKind::Split => self.task_split_start(),
+            TaskKind::Rewrite if !s.ai_on => self.ai_open_settings(),
+            TaskKind::Rewrite => self.task_rewrite_next(),
+        }
+    }
+
+    /// "File them" with the AI off: every file under the section, composed now.
+    fn task_file_plan_now(&mut self) {
+        let Some(s) = self.task.as_mut() else { return };
+        let section = task_ui::clean_name(s.section.text(), 64);
+        let section = if section.is_empty() {
+            Vec::new()
+        } else {
+            vec![mdshared_app::library::folder_name(&section)]
+        };
+        for &i in &s.taking_part() {
+            let f = &mut s.files[i];
+            f.title = Some(task_ui::default_title(f));
+            f.sections = section.clone();
+        }
+        s.planned = true;
+        s.tick += 1;
+        self.redraw();
+    }
+
+    /// "Run on N files": "File them"'s batches, one request at a time, in order.
+    fn task_file_start(&mut self) {
+        let Some(s) = self.task.as_mut() else { return };
+        let ids = s.taking_part();
+        if ids.is_empty() {
+            return;
+        }
+        s.batch_queue = ids.chunks(task_ui::BATCH).map(<[usize]>::to_vec).collect();
+        s.answers.clear();
+        s.planned = false;
+        s.tick += 1;
+        self.task_send_batch();
+    }
+
+    fn task_send_batch(&mut self) {
+        let Some(s) = self.task.as_ref() else { return };
+        let Some(batch) = s.batch_queue.first().cloned() else {
+            if let Some(s) = self.task.as_mut() {
+                s.asking = None;
+            }
+            self.task_merge_answers();
+            return;
+        };
+        let instruction = s.instruction.text().trim().to_string();
+        let prompt = task_ui::filing_prompt(&instruction, &batch, &s.files);
+        let p = &self.docs.prefs;
+        let c = p.ai_connection;
+        let req = json!({
+            "op": "run",
+            "conn": crate::ai::conn_json(c, p),
+            "model": p.ai_model(c),
+            "effort": p.ai_effort(c),
+            "system": task_ui::FILING_SYSTEM,
+            "prompt": prompt,
+        });
+        let wake = self.docs.waker();
+        let what = format!(
+            "Asking {} \u{00B7} {} file{}\u{2026}",
+            self.ai_via(),
+            batch.len(),
+            if batch.len() == 1 { "" } else { "s" }
+        );
+        match self.ai.ask(&wake, Ask::Task, req) {
+            Ok(id) => {
+                self.task_sent.bytes += prompt.len() as u64;
+                self.task_sent.requests += 1;
+                if let Some(s) = self.task.as_mut() {
+                    s.asking = Some(Asking {
+                        request: id,
+                        what,
+                        chars: 0,
+                        index: 0,
+                        prompt,
+                        batch,
+                    });
+                    s.blocked = None;
+                    s.tick += 1;
+                }
+            }
+            Err(why) => {
+                if let Some(s) = self.task.as_mut() {
+                    s.blocked = Some(why);
+                    s.tick += 1;
+                }
+            }
+        }
+        self.redraw();
+    }
+
+    /// The answers are in: each file takes its title and section, and the window shows the plan.
+    fn task_merge_answers(&mut self) {
+        let Some(s) = self.task.as_mut() else { return };
+        for f in s.files.iter_mut() {
+            f.title = None;
+            f.sections.clear();
+            f.with = None;
+        }
+        let answers = std::mem::take(&mut s.answers);
+        for (ids, filing) in answers {
+            for placed in filing.placed {
+                let Some(&at) = ids.get(placed.id) else {
+                    continue;
+                };
+                let Some(f) = s.files.get_mut(at) else {
+                    continue;
+                };
+                f.title = placed.title;
+                f.sections = placed.sections;
+                f.with = placed.with.map(|w| ids.get(w).copied()).flatten();
+            }
+        }
+        // A picture or another file placed with a text one takes that file's section.
+        for i in 0..s.files.len() {
+            let Some(with) = s.files[i].with else {
+                continue;
+            };
+            let sections = s
+                .files
+                .get(with)
+                .map(|t| t.sections.clone())
+                .unwrap_or_default();
+            if s.files[i].sections.is_empty() {
+                s.files[i].sections = sections;
+            }
+        }
+        s.planned = true;
+        s.asking = None;
+        s.tick += 1;
+        self.redraw();
+    }
+
+    /// The model's answer to one "File them" request.
+    fn task_file_answer(&mut self, text: &str) {
+        let Some(s) = self.task.as_mut() else { return };
+        let Some(asking) = s.asking.take() else {
+            return;
+        };
+        match task_ui::read_filing(text, &asking.batch, &s.files) {
+            Ok(filing) => {
+                s.answers.push((asking.batch.clone(), filing));
+                if !s.batch_queue.is_empty() {
+                    s.batch_queue.remove(0);
+                }
+                s.tick += 1;
+                if s.batch_queue.is_empty() {
+                    self.task_merge_answers();
+                } else {
+                    self.task_send_batch();
+                }
+            }
+            Err(why) => {
+                s.blocked = Some(format!("The answer could not be read: {why}."));
+                s.tick += 1;
+                self.redraw();
+            }
+        }
+    }
+
+    /// "Add N to the library": links into the chosen group, each written and read back.
+    pub(super) fn task_file_write(&mut self) {
+        let Some(s) = self.task.as_ref() else { return };
+        let DestChoice::Group(group_i) = s.dest else {
+            self.docs
+                .set_toast("Choose the group the files go to first.");
+            return;
+        };
+        let Some(group) = s.groups.get(group_i).cloned() else {
+            return;
+        };
+        let base = group
+            .file
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        let targets: Vec<(PathBuf, String, Vec<String>)> = s
+            .taking_part()
+            .into_iter()
+            .filter_map(|i| {
+                let f = &s.files[i];
+                if !s.planned {
+                    return None;
+                }
+                let title = f.title.clone().unwrap_or_else(|| task_ui::default_title(f));
+                let sections = if f.with.is_some() {
+                    f.with
+                        .and_then(|w| s.files.get(w))
+                        .map(|t| t.sections.clone())
+                        .unwrap_or_default()
+                } else {
+                    f.sections.clone()
+                };
+                Some((f.path.clone(), title, sections))
+            })
+            .collect();
+        if targets.is_empty() {
+            self.docs
+                .set_toast("Nothing is placed to add to the library.");
+            return;
+        }
+        // The group's file, made first when it is new.
+        if !group.file.is_file() {
+            let name = group.name.clone();
+            let stem = group
+                .file
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| name.clone());
+            let Some(text) =
+                mdshared_app::library::new_group_with_home(&name, Some(Path::new(&stem)))
+            else {
+                return;
+            };
+            if let Err(e) = mdshared_app::files::create_new(&group.file, text.as_bytes()) {
+                self.docs
+                    .set_toast(&crate::commands::strings::library_failed(&e.to_string()));
+                return;
+            }
+        }
+        let mut added = 0usize;
+        let mut failed: Option<String> = None;
+        for (path, title, sections) in targets {
+            let text = match std::fs::read_to_string(&group.file) {
+                Ok(t) => t,
+                Err(e) => {
+                    failed = Some(e.to_string());
+                    break;
+                }
+            };
+            let new = mdshared_app::library::add_note_in_group(
+                &text,
+                &sections,
+                &title,
+                &crate::library_pane::link_path(&base, &path),
+            );
+            let before = mdshared_app::library::parse(&text, &base).entries.len();
+            let after = mdshared_app::library::parse(&new, &base);
+            let reads = after.entries.len() == before + 1
+                && after
+                    .entries
+                    .iter()
+                    .any(|e| crate::library_pane::same_note(&e.path, &path));
+            if !reads {
+                failed = Some(format!(
+                    "{} would not read back as a note",
+                    path.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                ));
+                break;
+            }
+            if let Err(e) = mdshared_app::settings::write_atomic(&group.file, &new) {
+                failed = Some(e.to_string());
+                break;
+            }
+            added += 1;
+        }
+        self.library_load();
+        self.library_rows();
+        self.task_close();
+        if let Some(why) = failed {
+            self.docs.set_toast(&format!(
+                "Added {added} to {}; the rest could not be: {why}",
+                group.name
+            ));
+        } else {
+            self.docs.set_toast(&format!(
+                "Added {} to the library in {}.",
+                if added == 1 {
+                    "1 file".to_string()
+                } else {
+                    format!("{added} files")
+                },
+                group.name
+            ));
+        }
+        self.redraw();
+    }
+
+    /// "Split them": each file's plan card, in turn. The window waits behind the plan; its
+    /// Writing closes the file's place and brings the window back.
+    fn task_split_start(&mut self) {
+        let Some(s) = self.task.as_ref() else { return };
+        let Some(index) = s.taking_part().into_iter().next() else {
+            return;
+        };
+        let path = s.files[index].path.clone();
+        let Some(root) = self.library_dir() else {
+            return;
+        };
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                self.docs
+                    .set_toast(&format!("{} could not be read: {e}", path.display()));
+                return;
+            }
+        };
+        let loaded = mdedit_core::load::load_bytes(&bytes, &self.docs.load_options());
+        if loaded.info.lossy || loaded.info.has_nul {
+            self.docs
+                .set_toast(&crate::commands::strings::split_lossy(&s.files[index].name));
+            return;
+        }
+        let buffer = loaded.buffer;
+        let headings = crate::plan_ui::headings_of(&buffer);
+        let name = s.files[index].name.clone();
+        let stem = Path::new(&name)
+            .file_stem()
+            .map(|x| x.to_string_lossy().into_owned())
+            .unwrap_or_else(|| name.clone());
+        let groups: Vec<crate::plan_ui::Dest> = s
+            .groups
+            .iter()
+            .map(|g| crate::plan_ui::Dest {
+                name: g.name.clone(),
+                file: g.file.clone(),
+                home: g.home.clone(),
+                is_new: false,
+            })
+            .collect();
+        let dest = match s.dest {
+            DestChoice::Group(i) => groups.get(i).cloned(),
+            _ => groups
+                .iter()
+                .find(|g| g.name.eq_ignore_ascii_case(&stem))
+                .cloned(),
+        };
+        let dest = dest.unwrap_or_else(|| crate::plan_ui::Dest::new(&root, &stem, true));
+        let encoding = match loaded.info.encoding {
+            mdedit_core::encoding::Encoding::Utf8 | mdedit_core::encoding::Encoding::Utf8Bom => {
+                None
+            }
+            e => Some(format!("{}, written as UTF-8", e.label())),
+        };
+        let mut screen = crate::plan_ui::PlanScreen::new(crate::plan_ui::Init {
+            doc: mdedit_core::split::document(&buffer),
+            name: &name,
+            path: Some(&path),
+            headings: &headings,
+            level: None,
+            encoding,
+            dest,
+            groups,
+            root: root.clone(),
+            reader: crate::plan_ui::fs_reader(),
+        });
+        screen.source.len = bytes.len() as u64;
+        screen.source.sha256 = mdshared_app::update::sha256_hex(&bytes);
+        screen.ai_offer = self.ai_conn() != Connection::Off;
+        screen.recycle = Some(crate::plan_ui::RecycleBox {
+            wanted: false,
+            refused: Some(crate::plan_ui::RECYCLE_ONE_DOCUMENT.to_string()),
+        });
+        screen.blocked = super::plan_write::plan_blocked(self, &screen);
+        screen.blocked_for = Some(screen.dest.clone());
+        let instruction = s.instruction.text().trim().to_string();
+        self.task_parked = self.task.take();
+        self.task_plan = Some(index);
+        self.plan_open(screen);
+        if !instruction.is_empty() && self.ai_conn() != Connection::Off {
+            self.split_start(Spec {
+                title: "Split".into(),
+                instruction,
+            });
+        }
+        self.redraw();
+    }
+
+    /// A plan opened from the task window closed: the window comes back and the file's place
+    /// says whether the plan was written.
+    pub(super) fn task_plan_done(&mut self, written: bool) {
+        let Some(index) = self.task_plan.take() else {
+            return;
+        };
+        let Some(mut t) = self.task_parked.take() else {
+            return;
+        };
+        if let Some(f) = t.files.get_mut(index) {
+            if written {
+                f.done = true;
+            }
+            f.ticked = false;
+        }
+        t.tick += 1;
+        self.task = Some(t);
+        self.redraw();
+    }
+
+    /// "Rewrite them": the next file's request.
+    fn task_rewrite_next(&mut self) {
+        let Some(s) = self.task.as_ref() else { return };
+        let next = s
+            .taking_part()
+            .into_iter()
+            .find(|&i| !s.files[i].done && s.files[i].text.is_some());
+        let Some(index) = next else {
+            self.task_rewrite_finish();
+            return;
+        };
+        self.task_rewrite_begin(index);
+    }
+
+    fn task_rewrite_begin(&mut self, index: usize) {
+        let Some(s) = self.task.as_ref() else { return };
+        let Some(f) = s.files.get(index) else { return };
+        let Some(text) = f.text.clone() else { return };
+        let instruction = s.instruction.text().trim().to_string();
+        let prompt = core_ai::prompt(&instruction, &text);
+        let p = &self.docs.prefs;
+        let c = p.ai_connection;
+        let req = json!({
+            "op": "run",
+            "conn": crate::ai::conn_json(c, p),
+            "model": p.ai_model(c),
+            "effort": p.ai_effort(c),
+            "system": core_ai::SYSTEM,
+            "prompt": prompt,
+        });
+        let wake = self.docs.waker();
+        let name = f.name.clone();
+        let what = format!("Asking {} \u{00B7} {name}\u{2026}", self.ai_via());
+        match self.ai.ask(&wake, Ask::Task, req) {
+            Ok(id) => {
+                self.task_sent.bytes += prompt.len() as u64;
+                self.task_sent.requests += 1;
+                if let Some(s) = self.task.as_mut() {
+                    s.asking = Some(Asking {
+                        request: id,
+                        what,
+                        chars: 0,
+                        index,
+                        prompt,
+                        batch: vec![index],
+                    });
+                    s.blocked = None;
+                    s.tick += 1;
+                }
+            }
+            Err(why) => {
+                if let Some(s) = self.task.as_mut() {
+                    s.blocked = Some(why);
+                    s.tick += 1;
+                }
+            }
+        }
+        self.redraw();
+    }
+
+    /// A rewrite's answer: 5.5's review over the file, its Apply writing in place.
+    fn task_rewrite_answer(&mut self, text: &str) {
+        let Some(s) = self.task.as_mut() else { return };
+        let Some(asking) = s.asking.take() else {
+            return;
+        };
+        let index = asking.index;
+        let Some(f) = s.files.get(index) else { return };
+        let Some(original) = f.text.clone() else {
+            return;
+        };
+        let name = f.name.clone();
+        let path = f.path.clone();
+        let eol = f.eol.clone();
+        let bom = f.bom;
+        let instruction = s.instruction.text().trim().to_string();
+        let fitted = core_ai::fit_end(&original, text);
+        let result = core_ai::with_eol(&fitted, &eol);
+        if result.trim().is_empty() {
+            s.blocked = Some(format!(
+                "{name}: the AI sent back no text. Nothing was changed."
+            ));
+            s.tick += 1;
+            self.redraw();
+            return;
+        }
+        if result == original {
+            self.docs
+                .set_toast(&format!("{name}: the AI changed nothing."));
+            self.task_after_answer_skipped(index);
+            return;
+        }
+        let hunks = mdedit_core::hunks::Hunks::new(&original, &result);
+        let blocked = self.task_file_changed(&path, &original, bom);
+        let preview = self.docs.prefs.ai_review_preview;
+        let via = self.ai_via();
+        self.close_for_ai_panel();
+        self.ai.panel = Some(Panel::Review(Review {
+            doc: DocId::default(),
+            start: 0,
+            end: original.len(),
+            original: original.clone(),
+            result,
+            subtitle: format!("{name} \u{00B7} whole file \u{00B7} {via}"),
+            spec: Spec {
+                title: format!("Rewrite {name}"),
+                instruction: instruction.clone(),
+            },
+            hunks,
+            list: Default::default(),
+            blocked,
+            preview,
+            panes: None,
+            sent: 0,
+            due: None,
+            grab: None,
+            base_dir: path.parent().map(Path::to_path_buf),
+            file: Some(FileReview {
+                path,
+                index,
+                bom,
+                eol,
+                instruction,
+            }),
+        }));
+        if preview {
+            self.ai_open_panes();
+        }
+        self.ai.tick += 1;
+        self.redraw();
+    }
+
+    /// Why the file the review is about cannot be written now: it changed, or it is gone.
+    fn task_file_changed(&self, path: &Path, original: &str, bom: bool) -> Option<String> {
+        let bytes = std::fs::read(path).ok()?;
+        let (has, body) = match bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+            Some(rest) => (true, rest),
+            None => (false, &bytes[..]),
+        };
+        let text = std::str::from_utf8(body).ok()?;
+        if has != bom || text != original {
+            return Some(core_ai::BLOCKED_CHANGED.to_string());
+        }
+        None
+    }
+
+    /// The review's Apply on a file: the ticked changes are written in place, and the file's
+    /// original goes into the run's record first (D-074, D-076).
+    pub(super) fn task_review_apply(&mut self) {
+        let Some(Panel::Review(rv)) = self.ai.panel.as_ref() else {
+            return;
+        };
+        let Some(fr) = rv.file.clone() else { return };
+        if rv.blocked.is_some() || rv.hunks.ticked() == 0 {
+            return;
+        }
+        let text = rv.hunks.compose();
+        let original = rv.original.clone();
+        if let Some(why) = self.task_file_changed(&fr.path, &original, fr.bom) {
+            if let Some(rv) = self.ai.review() {
+                rv.blocked = Some(why);
+            }
+            self.ai.tick += 1;
+            self.redraw();
+            return;
+        }
+        let Some(library) = self.library_dir() else {
+            return;
+        };
+        if self.task_record.is_none() {
+            let sent = self.task_sent_now();
+            match runs::start_rewrite(&library, &fr.instruction, Some(sent), &fr.path) {
+                Ok(record) => self.task_record = Some(record),
+                Err(e) => {
+                    if let Some(rv) = self.ai.review() {
+                        rv.blocked = Some(format!("The run's record could not be made: {e}"));
+                    }
+                    self.redraw();
+                    return;
+                }
+            }
+        }
+        let file = runs::RewriteFile {
+            path: fr.path.clone(),
+            before: original,
+            after: text,
+            bom: fr.bom,
+        };
+        let sent = self.task_sent_now();
+        let outcome = {
+            let Some((record_path, record)) = self.task_record.as_mut() else {
+                return;
+            };
+            record.sent = Some(sent);
+            let done = runs::rewrite_into(record_path, record, &library, &file);
+            let closed = if done.is_ok() {
+                record.close(record_path.as_path(), &library)
+            } else {
+                Ok(())
+            };
+            (done, closed)
+        };
+        match outcome {
+            (Ok(()), closed) => {
+                if let Err(e) = closed {
+                    self.docs
+                        .set_toast(&format!("The record could not be updated: {e}"));
+                }
+                let name = fr
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.docs.set_toast(&format!(
+                    "{name} rewritten. Its original is in AI runs, where Undo brings it back."
+                ));
+                if let Some(s) = self.task.as_mut()
+                    && let Some(f) = s.files.get_mut(fr.index)
+                {
+                    f.done = true;
+                    f.ticked = false;
+                }
+                self.ai.panel = None;
+                self.ai.tick += 1;
+                self.task_after_review(true);
+            }
+            (Err(why), _) => {
+                if let Some(rv) = self.ai.review() {
+                    rv.blocked = Some(why);
+                }
+                self.ai.tick += 1;
+                self.redraw();
+            }
+        }
+    }
+
+    /// Discard on a rewrite's review: this file stays as it was, and the run goes on.
+    pub(super) fn task_review_discard(&mut self) {
+        let Some(Panel::Review(rv)) = self.ai.panel.as_ref() else {
+            return;
+        };
+        let Some(fr) = rv.file.clone() else { return };
+        let name = fr
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.docs.set_toast(&format!("{name} was left as it was."));
+        self.ai.panel = None;
+        self.ai.tick += 1;
+        self.task_after_review(false);
+    }
+
+    /// Run again on a rewrite's review: the same instruction, the same file.
+    pub(super) fn task_review_again(&mut self) {
+        let Some(Panel::Review(rv)) = self.ai.panel.as_mut() else {
+            return;
+        };
+        let Some(fr) = rv.file.clone() else { return };
+        self.ai.panel = None;
+        self.ai.tick += 1;
+        self.task_rewrite_begin(fr.index);
+    }
+
+    /// The file's answer changed nothing or was not applied: the run goes on with the next one.
+    fn task_after_answer_skipped(&mut self, index: usize) {
+        if let Some(s) = self.task.as_mut()
+            && let Some(f) = s.files.get_mut(index)
+        {
+            f.done = true;
+            f.ticked = false;
+        }
+        self.task_after_review(false);
+    }
+
+    fn task_after_review(&mut self, _accepted: bool) {
+        if self.task.is_some() {
+            self.task_rewrite_next();
+        } else {
+            self.task_rewrite_finish();
+        }
+    }
+
+    /// The run is over: its record says done, and the window says what happened.
+    fn task_rewrite_finish(&mut self) {
+        let written = self
+            .task_record
+            .as_ref()
+            .map(|(_, r)| r.originals.len())
+            .unwrap_or(0);
+        let library = self.library_dir();
+        if let Some((path, record)) = self.task_record.as_mut() {
+            record.state = runs::State::Done;
+            if let Some(library) = library {
+                let _ = record.close(path.as_path(), &library);
+            }
+        }
+        self.task_record = None;
+        self.task_sent = Sent::default();
+        self.task = None;
+        self.task_parked = None;
+        self.task_plan = None;
+        if written > 0 {
+            self.docs.set_toast(&format!(
+                "{} rewritten. Undo is in AI runs.",
+                if written == 1 {
+                    "1 file".to_string()
+                } else {
+                    format!("{written} files")
+                }
+            ));
+        }
+        self.redraw();
+    }
+
+    fn task_sent_now(&self) -> Sent {
+        let p = &self.docs.prefs;
+        let c = p.ai_connection;
+        Sent {
+            connection: c.key().to_string(),
+            model: p.ai_model(c).to_string(),
+            bytes: self.task_sent.bytes,
+            requests: self.task_sent.requests,
+        }
+    }
+
+    /// The engine's answer to the task window.
+    pub(super) fn task_done(&mut self, text: &str) {
+        let Some(s) = self.task.as_ref() else { return };
+        let Some(asking) = s.asking.clone() else {
+            return;
+        };
+        match s.task {
+            TaskKind::File => self.task_file_answer(text),
+            TaskKind::Rewrite => self.task_rewrite_answer(text),
+            TaskKind::Split => {
+                let _ = asking;
+            }
+        }
+    }
+
+    /// A task window's request failed, or the engine ended.
+    pub(super) fn task_failed(&mut self, kind: &str, message: &str) {
+        if kind == "cancelled" {
+            return;
+        }
+        let Some(s) = self.task.as_mut() else { return };
+        // The request is no longer out: an error leaves its place, and the window says why.
+        if let Some(asking) = s.asking.take() {
+            s.blocked = Some(match kind {
+                "auth" | "not_found" | "bad_request" => {
+                    format!("{message} Check Settings \u{203A} AI.")
+                }
+                _ => message.to_string(),
+            });
+            let _ = asking;
+        }
+        s.tick += 1;
+        self.redraw();
+    }
+
+    /// The request in flight from the task window is stopped.
+    pub(super) fn task_cancel_request(&mut self) {
+        if let Some(s) = self.task.as_mut()
+            && let Some(asking) = s.asking.take()
+        {
+            self.ai.cancel_task(asking.request);
+            if let Some(s) = self.task.as_mut() {
+                s.blocked = Some("Stopped.".to_string());
+                s.tick += 1;
+            }
+            self.redraw();
+        }
+    }
+
+    /// "Show what is sent": the literal request text in a read-only tab. The window is parked
+    /// behind it, and "AI task on your files…" brings it back.
+    pub(super) fn task_show_sent(&mut self) {
+        if self.task.as_ref().is_some_and(|s| s.asking.is_some()) {
+            self.docs
+                .set_toast("The request is out. Its answer comes first.");
+            return;
+        }
+        let Some(text) = self.task_request_text() else {
+            return;
+        };
+        self.task_parked = self.task.take();
+        let title = "What is sent";
+        let i = self
+            .docs
+            .open_copy(title.to_string(), text.as_bytes(), None);
+        self.docs.activate(i);
+        self.docs.set_toast(
+            "The request text is in this tab. AI task on your files brings the window back.",
+        );
+        self.relayout_areas();
+        self.redraw();
+    }
+
+    /// The exact text of every request the window would send, or why none is.
+    fn task_request_text(&self) -> Option<String> {
+        let s = self.task.as_ref()?;
+        if !s.ai_on {
+            return Some(
+                "The AI connection is off. Nothing is sent.\n\nFile them and Split them write \
+                 without a request; Rewrite them needs one.\n"
+                    .to_string(),
+            );
+        }
+        let instruction = s.instruction.text().trim().to_string();
+        let ids = s.taking_part();
+        let mut out = String::new();
+        match s.task {
+            TaskKind::File => {
+                let batches: Vec<&[usize]> = ids.chunks(task_ui::BATCH).collect();
+                for (k, batch) in batches.iter().enumerate() {
+                    out.push_str(&format!(
+                        "=== REQUEST {} of {} ===\nSYSTEM:\n{}\n\nPROMPT:\n",
+                        k + 1,
+                        batches.len(),
+                        task_ui::FILING_SYSTEM
+                    ));
+                    out.push_str(&task_ui::filing_prompt(&instruction, batch, &s.files));
+                    out.push('\n');
+                }
+            }
+            TaskKind::Rewrite => {
+                for (k, &i) in ids.iter().enumerate() {
+                    let f = &s.files[i];
+                    out.push_str(&format!(
+                        "=== REQUEST {} of {}: {} ===\nSYSTEM:\n{}\n\nPROMPT:\n",
+                        k + 1,
+                        ids.len(),
+                        f.name,
+                        core_ai::SYSTEM
+                    ));
+                    out.push_str(&core_ai::prompt(
+                        &instruction,
+                        f.text.as_deref().unwrap_or(""),
+                    ));
+                    out.push('\n');
+                }
+            }
+            TaskKind::Split => {
+                if instruction.is_empty() {
+                    return Some(
+                        "No request: each file's plan is cut at its headings. Type an instruction \
+                         to ask the AI to cut it."
+                            .to_string(),
+                    );
+                }
+                let mut requests = 0;
+                for &i in &ids {
+                    let f = &s.files[i];
+                    let Ok(bytes) = std::fs::read(&f.path) else {
+                        continue;
+                    };
+                    let loaded = mdedit_core::load::load_bytes(&bytes, &self.docs.load_options());
+                    let buffer = loaded.buffer;
+                    let headings = crate::plan_ui::headings_of(&buffer);
+                    let doc = mdedit_core::split::document(&buffer);
+                    let Ok(outline) = mdedit_core::split::answer::outline(
+                        &*doc,
+                        &headings,
+                        mdedit_core::split::answer::OUTLINE_MAX,
+                    ) else {
+                        continue;
+                    };
+                    requests += 1;
+                    out.push_str(&format!(
+                        "=== REQUEST {requests}: {} ===\nSYSTEM:\n{}\n\nPROMPT:\n",
+                        f.name,
+                        mdedit_core::split::answer::SYSTEM
+                    ));
+                    out.push_str(&mdedit_core::split::answer::prompt(
+                        &instruction,
+                        &f.name,
+                        &outline,
+                    ));
+                    out.push('\n');
+                }
+                if requests == 0 {
+                    return Some("No file can be sent: each plan is cut at its headings.".into());
+                }
+            }
+        }
+        Some(out)
+    }
+
+    /// Escape, Cancel, or the end of a task: the window goes, a request with it. A rewrite's
+    /// record stays, closed as done, so what was written can be undone.
+    pub(super) fn task_close(&mut self) {
+        let asking = self.task.as_mut().and_then(|s| s.asking.take());
+        if let Some(asking) = asking {
+            self.ai.cancel_task(asking.request);
+        }
+        if let Some((path, mut record)) = self.task_record.take() {
+            if record.originals.is_empty() {
+                let _ = std::fs::remove_file(&path);
+            } else {
+                record.state = runs::State::Done;
+                if let Some(library) = self.library_dir() {
+                    let _ = record.close(&path, &library);
+                }
+            }
+        }
+        self.task_sent = Sent::default();
+        self.task = None;
+        self.task_parked = None;
+        self.task_plan = None;
+        self.set_cursor(CursorIcon::Default);
+        self.redraw();
+    }
+
+    /// The primary button's work on the plan face: the links.
+    pub(super) fn task_primary(&mut self) {
+        let Some(s) = self.task.as_ref() else { return };
+        if s.planned {
+            self.task_file_write();
+        } else {
+            self.task_run();
+        }
+    }
+
+    /// `--ai-demo files|files-other|files-off|files-plan|sent`: the window for a shot, made
+    /// from the fixtures under `fixtures/task-demo/`, with no engine and nothing sent.
+    pub(super) fn task_demo(&mut self, name: &str) -> bool {
+        let dir = Path::new("fixtures/task-demo");
+        if !dir.is_dir() {
+            return false;
+        }
+        let kind = match name {
+            "files-other" => TaskKind::Rewrite,
+            "files-off" => TaskKind::File,
+            _ => TaskKind::File,
+        };
+        self.task_open(kind, Vec::new());
+        let mut names: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map(|r| r.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default();
+        names.sort();
+        let probed: Vec<_> = names.iter().map(|p| self.task_probe(p)).collect();
+        let via = self.ai_via();
+        let Some(s) = self.task.as_mut() else {
+            return true;
+        };
+        s.files = probed;
+        s.recount_limit();
+        if name == "files-other" {
+            s.task = TaskKind::Rewrite;
+        }
+        if name == "files-off" {
+            s.ai_on = false;
+        }
+        if !s.groups.is_empty() {
+            s.dest = DestChoice::Group(0);
+        } else {
+            s.dest = DestChoice::New("Recipes".to_string());
+        }
+        s.instruction
+            .set_text("Sort these into my recipes and bread notes.");
+        s.via = via;
+        s.planned = name == "files-plan";
+        if s.planned {
+            for (i, f) in s.files.iter_mut().enumerate() {
+                f.title = Some(format!("A title {i}"));
+                f.sections = vec!["Bread".to_string()];
+            }
+        }
+        s.tick += 1;
+        self.relayout_areas();
+        if name == "sent" {
+            self.task_show_sent();
+        }
+        self.redraw();
+        true
+    }
+}
