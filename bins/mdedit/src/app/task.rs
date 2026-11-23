@@ -966,7 +966,10 @@ impl App {
                 ));
                 break;
             }
-            if let Err(e) = mdshared_app::settings::write_atomic(&group.file, &new) {
+            // The group's file is the owner's: written through a temporary of its own, so a
+            // `Recipes.md.tmp` of theirs is never taken, its mode is kept, and nothing is left
+            // beside it when the write fails (audit 4, RB3).
+            if let Err(e) = mdshared_app::files::replace(&group.file, new.as_bytes()) {
                 failed = Some(e.to_string());
                 break;
             }
@@ -1090,6 +1093,12 @@ impl App {
         let Some(index) = self.task_plan.take() else {
             return;
         };
+        // A split still out was asked for this file's plan, which is written or closed now: it
+        // stops here, so its answer never reaches the next file's (audit 4, B11).
+        if self.ai.split.is_some() {
+            self.ai.cancel_split();
+            self.docs.ai_status = None;
+        }
         let Some(mut t) = self.task_parked.take() else {
             return;
         };

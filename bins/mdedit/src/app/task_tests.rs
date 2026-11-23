@@ -710,9 +710,14 @@ fn a_request_out_keeps_its_task_and_its_answer_is_read_as_that_task() {
     if let Some(s) = a.task.as_mut() {
         s.task = TaskKind::Rewrite;
     }
-    wait(&mut a, |a| a.task.as_ref().is_some_and(|s| s.planned));
+    // Waited for until the answer is taken, whatever it was read as, so a wrong reading fails at
+    // its own assertion and not by the wait running out.
+    wait(&mut a, |a| {
+        a.task.as_ref().is_some_and(|s| s.asking.is_none())
+    });
     assert!(a.ai.panel.is_none(), "no review of the filing's JSON");
     let s = a.task.as_ref().expect("open");
+    assert!(s.planned, "the filing is planned");
     assert!(s.asking.is_none());
     assert_eq!(s.files[0].title.as_deref(), Some("Pasta"));
 }
@@ -866,10 +871,11 @@ fn a_rewrite_run_past_what_one_record_holds_goes_on_in_a_second_record() {
     a.task_done("# Done\n");
     assert!(matches!(a.ai.panel, Some(Panel::Review(_))));
     a.task_review_apply();
-    assert_eq!(
-        std::fs::read_to_string(&last).expect("written"),
-        "# Done\n",
-        "{:?}",
+    // Compared as a yes or no: the file is 380 KB of quotes, too long to print when it fails.
+    let written = std::fs::read_to_string(&last).expect("written") == "# Done\n";
+    assert!(
+        written,
+        "not written: {:?}",
         a.ai.review().map(|rv| rv.blocked.clone())
     );
     assert!(a.task.is_none(), "the run is over");
@@ -921,5 +927,132 @@ fn a_rewrite_that_could_not_be_written_leaves_no_record_when_the_run_ends() {
     #[allow(clippy::permissions_set_readonly_false)]
     perms.set_readonly(false);
     let _ = std::fs::set_permissions(&text, perms);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, RB3: "Add N to the library" writes the group's file through a temporary of its own.
+/// A file of the owner's called `Recipes.md.tmp` beside it is not truncated or renamed away, and
+/// nothing else is left in the library folder.
+#[test]
+fn file_them_leaves_a_tmp_file_of_the_owners_beside_the_group_file_alone() {
+    let (mut a, dir) = open("task-tmp", TaskKind::File, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    with_group(&mut a, "Recipes");
+    let library = dir.join("library");
+    let group = library.join("Recipes.md");
+    assert!(group.is_file(), "the group's file is made");
+    let theirs = library.join("Recipes.md.tmp");
+    std::fs::write(&theirs, "the owner's own notes\n").expect("theirs");
+    a.task_run();
+    assert!(a.task.as_ref().expect("open").planned);
+    a.task_file_write();
+    assert!(a.task.is_none(), "the links are in");
+    let body = std::fs::read_to_string(&group).expect("the group's file");
+    assert!(body.contains("[Pasta]"), "{body}");
+    assert_eq!(
+        std::fs::read_to_string(&theirs).expect("still there"),
+        "the owner's own notes\n"
+    );
+    let mut names: Vec<String> = std::fs::read_dir(&library)
+        .expect("the library")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !n.ends_with(".json") && n != "runs")
+        .collect();
+    names.sort();
+    assert_eq!(names, ["Recipes.md", "Recipes.md.tmp"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A trip of eleven lines: the stand-in engine's split answer (lines 5 to 11) fits it.
+fn trip(dir: &Path, name: &str, city: &str) -> PathBuf {
+    let p = dir.join(name);
+    std::fs::write(
+        &p,
+        format!("# {city}\n\nintro\n\n## Old town\n\nthe lanes\n\n## Hills\n\nthe view\n"),
+    )
+    .expect("trip");
+    p
+}
+
+/// The plan screen in front was cut by the AI.
+fn cut_by_ai(a: &App) -> bool {
+    a.plan.as_ref().expect("a plan screen").ai_cut.is_some()
+}
+
+/// Audit 4, B11: in Split them, a split asked on one file's card and still out when that plan is
+/// written stops there. The next file's card opens with its own plan, and the first file's answer
+/// never becomes it.
+#[test]
+fn a_split_out_when_a_files_plan_is_written_never_reaches_the_next_files_plan() {
+    let (mut a, dir) = ai_open("task-split-out", TaskKind::Split, Vec::new());
+    let kyoto = trip(&dir, "kyoto.md", "Kyoto");
+    let nara = trip(&dir, "nara.md", "Nara");
+    a.task_add_paths(vec![kyoto, nara]);
+    with_group(&mut a, "Trips");
+    a.task_run();
+    assert!(a.plan.is_some(), "kyoto.md's plan");
+    assert!(a.ai.split.is_none(), "an empty box asks nothing");
+    // The card's own "Ask the AI…", then Write before the answer is taken.
+    a.split_start(crate::ai::Spec {
+        title: "Split".into(),
+        instruction: "SPLITOK one note".into(),
+    });
+    assert!(a.ai.split.is_some(), "the split is out");
+    a.plan_write();
+    let screen = a.plan.as_ref().expect("nara.md's plan opens");
+    assert_eq!(screen.source.name, "nara.md");
+    assert!(
+        a.ai.split.is_none(),
+        "the split for kyoto.md stopped with its plan"
+    );
+    assert!(a.docs.ai_status.is_none(), "{:?}", a.docs.ai_status);
+    // Whatever the engine still sends is not read.
+    let until = Instant::now() + Duration::from_millis(400);
+    while Instant::now() < until {
+        a.ai_wake();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!cut_by_ai(&a), "nara.md's plan is its own");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, B11: a split's answer goes only to the plan screen it was asked for. A plan written
+/// while its split was out, and another document's plan opened after it, takes nothing of the
+/// answer; the same answer on the screen that asked becomes its plan.
+#[test]
+fn a_split_answer_is_read_only_on_the_plan_it_was_asked_for() {
+    engine();
+    let dir = scratch("task-split-tag");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    let kyoto = trip(&dir, "kyoto.md", "Kyoto");
+    let nara = trip(&dir, "nara.md", "Nara");
+    super::files_tests::open_now(&mut a, &kyoto);
+    assert!(a.plan_open_active());
+    let spec = crate::ai::Spec {
+        title: "Split".into(),
+        instruction: "SPLITOK one note".into(),
+    };
+    a.split_start(spec.clone());
+    assert!(a.ai.split.is_some(), "the split is out");
+    a.plan_write();
+    assert!(a.plan.is_none(), "kyoto.md's plan is written");
+    super::files_tests::open_now(&mut a, &nara);
+    assert!(a.plan_open_active(), "nara.md's plan");
+    wait(&mut a, |a| a.ai.split.is_none());
+    assert!(!cut_by_ai(&a), "kyoto.md's answer is not nara.md's plan");
+    assert_eq!(
+        a.plan.as_ref().expect("open").plan.notes().len(),
+        2,
+        "nara.md is cut at its headings"
+    );
+    // Asked here, the same answer is this plan's.
+    a.split_start(spec);
+    wait(&mut a, |a| a.ai.split.is_none());
+    assert!(cut_by_ai(&a), "the answer to nara.md's own request");
     let _ = std::fs::remove_dir_all(&dir);
 }

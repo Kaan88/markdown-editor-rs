@@ -256,8 +256,23 @@ impl Hunks {
             }
             out.push_str(&piece);
         }
+        // When neither text ends in a line break, nor does the text made of them: a ticked
+        // deletion of the last lines leaves the break that only parted them from the line
+        // before (audit 4, B n2).
+        if !ends_in_break(&self.original) && !ends_in_break(&self.result) {
+            if out.ends_with("\r\n") {
+                out.truncate(out.len() - 2);
+            } else if out.ends_with(['\n', '\r']) {
+                out.truncate(out.len() - 1);
+            }
+        }
         out
     }
+}
+
+/// Whether a text's last line ends in a line break (LF, CRLF or CR).
+fn ends_in_break(text: &str) -> bool {
+    text.ends_with(['\n', '\r'])
 }
 
 /// A line's text without its break.
@@ -335,6 +350,27 @@ mod tests {
         assert!(!h.is_empty());
         h.set_ticked(0, true);
         assert_eq!(h.compose(), "X");
+    }
+
+    /// Audit 4, B n2: when neither text ends in a line break, a subset that takes a deletion of
+    /// the last lines does not end in one either, with LF or CRLF.
+    #[test]
+    fn a_deletion_at_the_end_of_texts_with_no_final_break_leaves_none() {
+        for eol in ["\n", "\r\n"] {
+            let old = ["x", "a", "b"].join(eol);
+            let new = ["X", "a"].join(eol);
+            let mut h = Hunks::new(&old, &new);
+            assert_eq!(h.len(), 2, "{eol:?}");
+            h.set_ticked(0, false);
+            assert_eq!(h.compose(), ["x", "a"].join(eol), "the deletion only");
+            h.set_ticked(0, true);
+            h.set_ticked(1, false);
+            assert_eq!(h.compose(), ["X", "a", "b"].join(eol), "the change only");
+        }
+        // A text that ends in a break keeps it.
+        let mut h = Hunks::new("x\na\nb\n", "X\na\n");
+        h.set_ticked(0, false);
+        assert_eq!(h.compose(), "x\na\n");
     }
 
     #[test]

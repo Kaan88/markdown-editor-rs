@@ -112,6 +112,10 @@ impl App {
         if self.ai.sort.is_some() {
             return;
         }
+        // Every sort starts from the folders' plan: the batches number its notes as they are now.
+        if let Some(card) = self.importer.as_mut() {
+            card.folders_back();
+        }
         let Some(card) = self.importer.as_ref() else {
             return;
         };
@@ -429,6 +433,8 @@ impl App {
         let Some(card) = self.importer.as_mut() else {
             return;
         };
+        // The folders' plan, for "Keep the folders" (audit 4, B8).
+        card.keep_folders();
         let sorted = import_ai::settle(
             &mut card.plan,
             &scheme,

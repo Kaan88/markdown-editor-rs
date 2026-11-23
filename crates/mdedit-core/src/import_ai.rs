@@ -201,10 +201,13 @@ impl Scheme {
         }
         let mut seen: Vec<String> = Vec::new();
         for row in &rows {
+            // Two names are one heading when the library would take them for one: it compares
+            // headings without regard to ASCII case only, as `read_scheme` and `settle` do, so
+            // `Pasta` and `pasta` are one and `Çay` and `çay` are two (audit 4, B n1).
             let key = row
                 .path
                 .iter()
-                .map(|s| s.to_lowercase())
+                .map(|s| s.to_ascii_lowercase())
                 .collect::<Vec<_>>()
                 .join("\u{1F}");
             if seen.contains(&key) {
@@ -1493,6 +1496,27 @@ mod tests {
         scheme.delete(1);
         scheme.delete(0);
         assert_eq!(scheme.sections.len(), 1);
+    }
+
+    /// Audit 4, B n1: the scheme's reader and its check take two names for one heading by the
+    /// same rule, the library's (ASCII case only): a scheme read without a fault is never refused
+    /// for names it kept, and one the reader took for one is refused when the owner types it.
+    #[test]
+    fn the_reader_and_the_check_agree_on_which_names_are_one_heading() {
+        let text = r#"{"sections":[{"name":"Çay","subs":["Öğle","öğle"]},{"name":"çay"},{"name":"PASTA"},{"name":"pasta"}]}"#;
+        let s = read_scheme(text).expect("a scheme");
+        let names: Vec<&str> = s.sections.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["Çay", "çay", "PASTA"]);
+        assert_eq!(s.sections[0].subs, ["Öğle", "öğle"]);
+        assert_eq!(s.dropped, 1, "pasta is PASTA");
+        assert_eq!(s.problem(), None, "what was read can be sent");
+        let mut edited = s.clone();
+        let row = edited.add("x");
+        edited.rename(row, "Pasta");
+        assert_eq!(
+            edited.problem().as_deref(),
+            Some("Two sections are called \u{201c}Pasta\u{201d}.")
+        );
     }
 
     #[test]
