@@ -32,6 +32,8 @@ fixes included).
   D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
   of it exists.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
+- **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
+  written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
 
 ## Waiting for the owner
 
