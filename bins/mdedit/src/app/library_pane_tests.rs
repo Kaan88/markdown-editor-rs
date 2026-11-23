@@ -277,6 +277,117 @@ fn adding_the_open_file_from_the_pane_shows_it_there() {
 }
 
 #[test]
+fn a_file_added_shows_in_the_tree_at_once_even_under_a_folded_group() {
+    let dir = scratch("libpane-add-now");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    // The group is folded when the file is added.
+    let file = dir.join("library").join("personal.md");
+    let group = a.ui.library.rows[0].key.clone();
+    a.ui.library.fold(&group);
+    a.ui.library.build(&a.docs.library);
+    let note = dir.join("new.md");
+    std::fs::write(&note, "# A new note\n").unwrap();
+    open_now(&mut a, &note);
+    a.library_put(&file, &[]);
+    // No `library_rows()` here: the rows are what the pane has now.
+    let rows = shown(&a);
+    assert!(
+        rows.iter().any(|(_, l)| l == "A new note"),
+        "shown at once: {rows:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_file_added_shows_in_the_tree_at_once_even_under_a_folded_section() {
+    let dir = scratch("libpane-add-now-section");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    // The section is folded when the file is added: its own note, the section inside it and
+    // that section's note are all hidden by that fold.
+    let file = dir.join("library").join("personal.md");
+    assert_eq!(a.ui.library.rows[1].label, "Money");
+    let section = a.ui.library.rows[1].key.clone();
+    a.ui.library.fold(&section);
+    a.ui.library.build(&a.docs.library);
+    assert_eq!(
+        shown(&a),
+        vec![(0, "Personal".to_string()), (1, "Money".to_string())],
+        "folded"
+    );
+    let note = dir.join("new.md");
+    std::fs::write(&note, "# A new note\n").unwrap();
+    open_now(&mut a, &note);
+    a.library_put(&file, &["Money".to_string()]);
+    // No `library_rows()` here: the rows are what the pane has now.
+    let rows = shown(&a);
+    assert!(
+        rows.contains(&(2, "A new note".to_string())),
+        "shown at once: {rows:?}"
+    );
+    assert!(
+        rows.contains(&(2, "Taxes 2026".to_string())),
+        "the section opened with it, and its other note is back: {rows:?}"
+    );
+    assert!(
+        rows.contains(&(3, "Last year".to_string())),
+        "and the section inside it: {rows:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_name_being_typed_when_a_file_is_added_goes_and_the_keyboard_returns_to_the_text() {
+    use crate::library_pane::{Edit, EditKind};
+    use crate::ui::BarField;
+    let dir = scratch("libpane-add-now-name");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    let file = dir.join("library").join("personal.md");
+    let note = dir.join("new.md");
+    std::fs::write(&note, "# A new note\n").unwrap();
+    open_now(&mut a, &note);
+    // A section's name is being typed in the pane's box when the file is added another way.
+    a.ui.library.start_edit(
+        Edit {
+            kind: EditKind::RenameSection,
+            at: 1,
+            depth: 1,
+            file: file.clone(),
+            section: vec!["Money".to_string()],
+            line: 0,
+            note: PathBuf::new(),
+        },
+        "Money",
+        &a.docs.library,
+    );
+    a.ui.focus_field(BarField::Library);
+    assert!(
+        a.ui.find_focused && a.ui.field == BarField::Library,
+        "typing"
+    );
+    a.ui.caret_on = false; // the text's caret mid-blink, as it is half the time
+    a.library_put(&file, &[]);
+    assert!(a.ui.library.edit.is_none(), "the name went with the rows");
+    assert!(
+        !a.ui.find_focused && a.ui.field != BarField::Library,
+        "the keyboard is back in the text, not in a box that is gone"
+    );
+    assert!(a.ui.caret_on, "the text's caret starts over");
+    assert!(
+        shown(&a).iter().any(|(_, l)| l == "A new note"),
+        "and the note still shows: {:?}",
+        shown(&a)
+    );
+    assert!(a.ui.library.rows.iter().all(|r| r.kind != Kind::Editing));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_head_switch_shows_its_face_and_the_face_already_shown_does_not_close_the_pane() {
     use crate::ui::PaneFace;
     let dir = scratch("libpane-switch");
