@@ -143,6 +143,14 @@ pub struct LibraryPane {
     /// The group or section a note being dragged would go into, while one is dragged. It is
     /// never where the note already is, so a drop with no mark changes nothing.
     pub drop: Option<usize>,
+    /// The note a press holds, by what it is (see [`RowId`]), from the press to the release.
+    /// The rows can be made again while the button is down (a read that finished, a save), and
+    /// the release must act on the note that was pressed, not on whatever row has its index now
+    /// (audit 4, C2 and A F15).
+    held: Option<RowId>,
+    /// That note's row in the rows as they are now; `None` while nothing is held, and when the
+    /// note held is no longer in the rows, so a release then moves and opens nothing.
+    pub held_at: Option<usize>,
 }
 
 /// Whether two places in a library are the same one: the same file, and the same heading path
@@ -246,9 +254,10 @@ impl LibraryPane {
         (0..i).rev().find(|&at| self.rows[at].depth < depth)
     }
 
-    /// The row under `y` in the list `area`, when the pointer is on one.
-    pub fn row_at(&self, y: f32, area: Rect) -> Option<usize> {
-        if y < area.y || y >= area.bottom() {
+    /// The row under `(x, y)` in the list `area`, when the pointer is on one: a point beside the
+    /// pane, at a row's height, is on no row (audit 4, C1).
+    pub fn row_at(&self, x: f32, y: f32, area: Rect) -> Option<usize> {
+        if !area.contains(x, y) {
             return None;
         }
         let at = ((y - area.y + self.scroll) / ROW).floor();
@@ -280,24 +289,52 @@ impl LibraryPane {
         }
     }
 
-    /// The group or section a note dragged from `source` goes into when dropped at `y`: the row
-    /// under the pointer, or the heading the note under it is written in. `None` when the
-    /// pointer is not on a row of the list, or on the place the note is already in.
-    pub fn drop_row(&self, y: f32, area: Rect, source: usize) -> Option<usize> {
-        let at = self.drop_place(y, area)?;
-        let from = self.note_place(source)?;
-        let to = self.row_place(at)?;
-        (!same_place(&from, &to)).then_some(at)
+    /// The group or section the held note goes into when dropped at `(x, y)`: the row under the
+    /// pointer, or the heading the note under it is written in. `None` when nothing is held, when
+    /// the pointer is not on a row of the list, and on the place the note is already in.
+    pub fn drop_row(&self, x: f32, y: f32, area: Rect) -> Option<usize> {
+        let at = self.drop_place(x, y, area)?;
+        self.drop_ok(at).then_some(at)
     }
 
-    /// The group or section a drop at `y` goes into: the row under the pointer, or the heading
-    /// the note under it is written in. `None` when the pointer is not on a row of the list.
-    pub fn drop_place(&self, y: f32, area: Rect) -> Option<usize> {
-        let mut at = self.row_at(y, area)?;
+    /// Whether the held note can be dropped on row `at`: a group or a section, and not the
+    /// place the note is in already.
+    fn drop_ok(&self, at: usize) -> bool {
+        let Some(from) = self.held_at.and_then(|source| self.note_place(source)) else {
+            return false;
+        };
+        self.row_place(at).is_some_and(|to| !same_place(&from, &to))
+    }
+
+    /// The group or section a drop at `(x, y)` goes into: the row under the pointer, or the
+    /// heading the note under it is written in. `None` when the pointer is not on a row of the
+    /// list.
+    pub fn drop_place(&self, x: f32, y: f32, area: Rect) -> Option<usize> {
+        let mut at = self.row_at(x, y, area)?;
         while matches!(self.rows.get(at)?.kind, Kind::Note { .. }) {
             at = self.parent_of(at)?;
         }
         self.row_place(at).map(|_| at)
+    }
+
+    /// A press on note row `i`: from now until the release the pane holds that note by what it
+    /// is, and nothing is marked yet.
+    pub fn hold(&mut self, i: usize) {
+        self.held = self.id_at(i);
+        self.held_at = self.held.as_ref().map(|_| i);
+        self.drop = None;
+    }
+
+    /// The press is over, or abandoned: nothing is held and nothing is marked.
+    pub fn let_go(&mut self) {
+        self.held = None;
+        self.held_at = None;
+        self.drop = None;
+    }
+
+    /// The row that is what `id` names, if the rows have it.
+    fn find(&self, id: &RowId) -> Option<usize> {
+        (0..self.rows.len()).find(|&i| self.is(i, id))
     }
 
     /// Puts the cursor on row `i` and has the next frame show it.
@@ -311,7 +348,7 @@ impl LibraryPane {
 
     /// Puts the cursor on what `id` names, if the rows have it.
     pub fn follow(&mut self, id: RowId) {
-        if let Some(at) = (0..self.rows.len()).find(|&i| self.is(i, &id)) {
+        if let Some(at) = self.find(&id) {
             self.set_cur(at);
         }
     }
@@ -448,6 +485,8 @@ impl LibraryPane {
 
     /// The rows of `library`, in the order the files are written, leaving out what is folded.
     pub fn build(&mut self, library: &Library) {
+        // The heading a held note would go into, by what it is, as the note itself is.
+        let marked = self.drop.and_then(|at| self.id_at(at));
         self.rows = rows(library, &self.folded);
         // What is being named and is not there yet has a row of its own, where it will be.
         if let Some(e) = self.edit.as_ref().filter(|e| e.kind.is_new()) {
@@ -465,6 +504,14 @@ impl LibraryPane {
             );
         }
         self.restore_cur();
+        // A note held while the rows were made again is found again by what it is; when it is
+        // gone, nothing is held any more and nothing is marked.
+        if let Some(id) = self.held.clone() {
+            self.held_at = self.find(&id);
+            self.drop = marked
+                .and_then(|id| self.find(&id))
+                .filter(|&at| self.drop_ok(at));
+        }
     }
 }
 
@@ -635,11 +682,9 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, plan_ready: Option<u
         Some(crate::ui::PopupKind::LibraryRow(i)) => Some(i),
         _ => None,
     };
-    // A note being dragged: the row it came from, and the heading it would go into.
+    // A note being dragged: its row as the rows are now, and the heading it would go into.
     let dragged = match ui.drag {
-        Some(Drag::LibraryNote {
-            row, moving: true, ..
-        }) => Some(row),
+        Some(Drag::LibraryNote { moving: true, .. }) => ui.library.held_at,
         _ => None,
     };
     let target = dragged.and(ui.library.drop);
