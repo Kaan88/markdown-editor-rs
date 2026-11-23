@@ -22,7 +22,10 @@ impl App {
     pub(super) fn import_ai_refresh(&mut self) {
         let connection = self.ai_conn();
         let via = self.ai_via();
-        let busy = self.ai.run.is_some() || self.ai.split.is_some();
+        let busy = self.ai.run.is_some()
+            || self.ai.split.is_some()
+            || self.task.as_ref().is_some_and(|t| t.asking.is_some())
+            || self.note.as_ref().is_some_and(|c| c.asking.is_some());
         let reason = if connection == Connection::Off {
             Some("The AI is off: choose a connection in Settings \u{203A} AI.".to_string())
         } else if busy {
@@ -41,7 +44,12 @@ impl App {
 
     /// "Ask the AI to sort them…": the scheme request goes out.
     pub(super) fn import_sort_ask(&mut self) {
-        if self.ai.run.is_some() || self.ai.split.is_some() || self.ai.sort.is_some() {
+        if self.ai.run.is_some()
+            || self.ai.split.is_some()
+            || self.ai.sort.is_some()
+            || self.task.as_ref().is_some_and(|t| t.asking.is_some())
+            || self.note.as_ref().is_some_and(|c| c.asking.is_some())
+        {
             return;
         }
         if self.ai_conn() == Connection::Off {
