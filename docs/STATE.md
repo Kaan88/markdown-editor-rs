@@ -30,8 +30,14 @@ released. If `git log -1` is newer, doubt "In hand" first.
   typed in the pane's box goes with them, its keyboard back in the text.
 - **Browsing the library in the full preview** (visual editing, branch `fix/preview-browse`,
   merged, D-104): a tab still being read no longer ends the mode; `visual_sync` waits for it.
-  Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an
-  outside review (audit 3's fixes included).
+- **The question before deleting a library file says where the notes go** (branch
+  `fix/delete-library-notice`, merged, D-103): it said only that the file goes, though the notes it
+  lists stay on disk with nothing listing them; a file that lists none no longer gets that second
+  sentence. Its card was a fixed 460x196, and a long group or file name wrapped a fourth line
+  through the divider into the buttons; the card now grows from the lines the words wrap to (shots
+  `library-delete`, `library-delete-long`; the owner has not looked at them).
+- Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review
+  (audit 3's fixes included).
 
 ## In hand
 
@@ -56,10 +62,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Next
 
-1. The owner's four faults from the hand check (D-101), for the next release: the add and browsing
-   the library in the full preview, merged; a closed mdview, on `fix/closed-mdview` (first: whether
-   it is missed with mdview 1.0.5 too); the notice before deleting a library file, on
-   `fix/delete-library-notice`.
+1. The owner's four faults from the hand check (D-101), for the next release: the add, browsing
+   the library in the full preview and the delete notice, merged; a closed mdview, on
+   `fix/closed-mdview` (first: whether it is missed with mdview 1.0.5 too).
 2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
@@ -74,8 +79,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - The editor never reads the AI engine's version.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note with nothing listing them and splitting that document again writes nothing
-  (every note reads "already there" and comes unticked). Found by the owner, who asks that the
-  question at least say the notes stay on disk.
+  (every note reads "already there" and comes unticked). Found by the owner. The question now says
+  the notes it lists are kept on disk (shots `library-delete`, `library-delete-long`); deleting
+  itself is unchanged.
 - A pane the owner opened keeps painting the last page after every tab is closed;
   `ui.page_selected` is not cleared when the pane closes.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;

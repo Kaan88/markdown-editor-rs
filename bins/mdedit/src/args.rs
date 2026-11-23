@@ -86,6 +86,10 @@ pub enum ShotDialog {
     RunsNewer,
     /// The question when the original the notes were cut from is gone: what undo says instead.
     RunUndoOriginal,
+    /// The question before a library file is deleted.
+    LibraryDelete,
+    /// The same question with a group and a file long enough to wrap onto a fourth line.
+    LibraryDeleteLong,
 }
 
 /// A line and column as the user types them: 1-based, `12` or `12:5`.
@@ -562,6 +566,8 @@ impl Args {
                         "run-undo-recycled" => Some(ShotDialog::RunUndoRecycled),
                         "runs-newer" => Some(ShotDialog::RunsNewer),
                         "run-undo-original" => Some(ShotDialog::RunUndoOriginal),
+                        "library-delete" => Some(ShotDialog::LibraryDelete),
+                        "library-delete-long" => Some(ShotDialog::LibraryDeleteLong),
                         _ => None,
                     })
                 }
@@ -689,6 +695,14 @@ mod tests {
         assert_eq!(
             parse("--dialog run-undo-original").dialog,
             Some(ShotDialog::RunUndoOriginal)
+        );
+        assert_eq!(
+            parse("--dialog library-delete").dialog,
+            Some(ShotDialog::LibraryDelete)
+        );
+        assert_eq!(
+            parse("--dialog library-delete-long").dialog,
+            Some(ShotDialog::LibraryDeleteLong)
         );
         assert_eq!(parse("--scroll-steps 0").scroll_steps, Some(0));
     }

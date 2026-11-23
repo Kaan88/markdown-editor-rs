@@ -18,3 +18,9 @@ shows.)
   mode took it for a file the page cannot show. It now waits for the read, closes the old note's
   open block while it waits, and follows the new note once read; a read that fails ends the mode,
   as any file the page cannot show does.
+
+- **The question before deleting a library file says where its notes go.** It named the file and
+  the group and said how many notes it listed, but not that those notes stay on disk with nothing
+  listing them; a file that lists none no longer gets that second sentence. The question's card
+  also grows with the lines its words wrap to: a long group or file name used to run a fourth
+  line through the divider into the buttons.

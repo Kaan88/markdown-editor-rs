@@ -1065,3 +1065,19 @@ than guessing a language from the path, and a failed read is no text to show.
 **Overturned by.** The owner; or a preview that can show a document whose language is not yet
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
+
+## D-103 · 2026-11-23 · The delete question: where the notes go, and a card that fits its words
+
+**Decision.** The question before a library file is deleted tells the owner where the notes it
+lists are ("The notes it lists are kept on disk."), and says nothing about them when it lists
+none. Its card is no longer a fixed 460x196: the height comes from the body's own wrapped lines
+(`overlays::body_height`, the same face, size and width it is drawn with), with 196 as the floor
+— the height of the question that lists no notes, two lines; a question that lists notes takes a
+third line and the card grows a few pixels. A long group or file name used to wrap a fourth line
+through the divider into the buttons.
+**Why.** The owner's hand check asked for the wording (D-101); deletion is unchanged either way.
+The fixed card was found by review: the question names a group and a file, both free to be long.
+A fixed height cannot hold a sentence that names things of unknown length, and sizing from the
+measured body is the same rule the dialog list cards already follow (`card`'s `list`).
+**Overturned by.** The owner, or a review that finds the grown card wrong on screen.
+**From.** The owner's hand check (D-101) and the review of `fix/delete-library-notice`.
