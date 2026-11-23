@@ -496,6 +496,8 @@ pub enum LibAct {
     ClearHome,
     /// "Move the notes…": the group's notes into its folder, or to match its headings.
     MoveNotes,
+    /// "Markdown note from a file…": a text file's answer becomes a new note in this group (5.8).
+    MarkdownNote,
     NewNote,
     NewSection,
     NewGroup,

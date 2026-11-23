@@ -241,6 +241,12 @@ pub struct Args {
     /// `--move-demo move|results`: the "Move the notes…" card over a plan made in the program,
     /// or the results panel after a move (`move_ui::demo`).
     pub move_demo: Option<String>,
+    /// `--task-demo files|files-other|files-off|files-plan|review|sent`: the AI task window over
+    /// files for a shot, made from `fixtures/task-demo/`, with no engine and nothing sent.
+    pub task_demo: Option<String>,
+    /// `--note-demo ready|asking|changes|result|blocked`: the Markdown note card over a file and
+    /// an answer made in the program (`note_ui::demo`).
+    pub note_demo: Option<String>,
     /// `--library-demo drag`: the notes pane with a note held over another heading, for a shot
     /// (`app/library_drag.rs`). The library is made up; nothing is read or written.
     pub library_demo: Option<String>,
@@ -420,6 +426,8 @@ impl Args {
                 "--plan-demo" => out.plan_demo = value(&a),
                 "--plan-parked" => out.plan_parked = true,
                 "--move-demo" => out.move_demo = value(&a),
+                "--task-demo" => out.task_demo = value(&a),
+                "--note-demo" => out.note_demo = value(&a),
                 "--library-demo" => out.library_demo = value(&a),
                 "--compare" => {
                     let pair = (value(&a), value(&a));

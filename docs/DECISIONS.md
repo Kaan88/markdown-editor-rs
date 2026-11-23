@@ -1116,7 +1116,6 @@ than guessing a language from the path, and a failed read is no text to show.
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
 
-## D-103 · 2026-11-23 · The delete question: where the notes go, and a card that fits its words
 
 **Decision.** The question before a library file is deleted tells the owner where the notes it
 lists are ("The notes it lists are kept on disk."), and says nothing about them when it lists
@@ -1166,6 +1165,53 @@ who has not used the review yet, has not asked for it.
 (never in `diff`, which Compare draws), with a test per case it re-cuts.
 **Overturned by.** The owner.
 **From.** Claude, finishing R2, 2026-11-23; seen in the `review-preview-partial` shot.
+
+
+
+**Decision.** Phase 5.8 in mdedit: a text file picked from a group's row becomes a new note in that
+group's folder, written by the AI from the file's text. Its decisions, made as they were needed:
+1. The card sends the whole file (capped at 200 KB, the editor's own loader, no NUL bytes and no
+   byte it could not read) and one instruction, `ai::FORMAT`; the note is Markdown made from that
+   text, and the record keeps the instruction and what was sent.
+2. The note is always a new file, named from the source's file name (`pasta notes.txt` →
+   `pasta-notes.md`, then `pasta-notes 2.md`), never a rename and never a replacement; the source
+   is not touched. The note is UTF-8 whatever the source was, since Markdown is its text.
+3. The run is `Kind::Markdown` in the shared record (mdshared-app), so "AI runs…" names it, undo
+   removes the note and its line with the split's own machinery, and undo refuses when the original
+   is no longer the file the note was made from (D-300's rule, kept whole).
+4. Every refusal is made before the request and again before the write, in the card: AI off, no
+   library folder, the group folder being the library folder, the group's file unsaved, the 2,000
+   note cap, a line that would not read back, a source changed while the answer was out.
+**Why.** The plan (5.8) asks for exactly this, and the app's rule is that a destructive path is
+checked twice; the source is the owner's own file and the note is new, so nothing about it can be
+lost. `Kind::Split` would make undo read line ranges that do not exist in an answer that is prose,
+and "AI runs…" would call it a split.
+**Overturned by.** The owner; a model answer that must be written into the source instead of a new
+note; a record format that can hold a note's text without a kind of its own.
+**From.** `docs/ai-library-plan.md` 5.8 and 5.10; the review that asked for a kind, not a reuse.
+## D-120 ΓÇô 2026-11-23 ΓÇô A Markdown note from a file: the text, not the file, and always a new note
+
+**Decision.** Phase 5.8 in mdedit: a text file picked from a group's row becomes a new note in that
+group's folder, written by the AI from the file's text. Its decisions, made as they were needed:
+1. The card sends the whole file (capped at 200 KB, the editor's own loader, no NUL bytes and no
+   byte it could not read) and one instruction, `ai::FORMAT`; the note is Markdown made from that
+   text, and the record keeps the instruction and what was sent.
+2. The note is always a new file, named from the source's file name (`pasta notes.txt` ΓåÆ
+   `pasta-notes.md`, then `pasta-notes 2.md`), never a rename and never a replacement; the source
+   is not touched. The note is UTF-8 whatever the source was, since Markdown is its text.
+3. The run is `Kind::Markdown` in the shared record (mdshared-app), so "AI runsΓÇª" names it, undo
+   removes the note and its line with the split's own machinery, and undo refuses when the original
+   is no longer the file the note was made from (D-300's rule, kept whole).
+4. Every refusal is made before the request and again before the write, in the card: AI off, no
+   library folder, the group folder being the library folder, the group's file unsaved, the 2,000
+   note cap, a line that would not read back, a source changed while the answer was out.
+**Why.** The plan (5.8) asks for exactly this, and the app's rule is that a destructive path is
+checked twice; the source is the owner's own file and the note is new, so nothing about it can be
+lost. `Kind::Split` would make undo read line ranges that do not exist in an answer that is prose,
+and "AI runsΓÇª" would call it a split.
+**Overturned by.** The owner; a model answer that must be written into the source instead of a new
+note; a record format that can hold a note's text without a kind of its own.
+**From.** `docs/ai-library-plan.md` 5.8 and 5.10; the review that asked for a kind, not a reuse.
 
 ## D-130 · 2026-11-23 · A dragged note moves its line, and only its line
 
@@ -1234,7 +1280,109 @@ the owner did not ask for. The dash is the only state a single shared `Tick` can
 **Overturned by.** The owner; or a tree that shows deeper nesting well.
 **From.** The phase 4a brief; `docs/ai-library-plan.md` 5.7.
 
-## D-134 · 2026-11-23 · The AI step is a second stage of the import card, and it only names headings
+## D-134 – 2026-11-23 – A kind this build does not write is a later version's record
+
+**Decision.** The five `mdshared-*` pins move from the note work's branch rev to the shared
+`main` (`0984eed`), where `Kind::Markdown` and `runs::write_note` are merged beside `Kind::Rewrite`
+(a file rewritten in place, phase W, D-074) and `library::put`. mdedit reads three kinds and writes
+two: a record whose kind it does not write — `Kind::Rewrite`, today — is not put in the runs it
+could undo. `open_runs` moves it into the newer-version list, the same list and the same words an
+unreadable record gets ("Written by a newer version of mdedit", "Not shown or undone here"), and
+`run_undo_ask`, `run_undo`, `run_show` and `run_finish` refuse it by name ("It is left as it is").
+`Record::originals` is written empty by the two records this build makes, as the shared crate says.
+**Why.** Phase W is being built elsewhere; a record of it must not be read as a split (its undo
+would look for line ranges and a source that a rewrite's record does not have) and nothing here
+may guess what undoing a rewrite means. The fallback is the one the app already has for records it
+cannot read, so there is one way to say "a later version wrote this", not two.
+**Overturned by.** Phase W landing here, which gives Rewrite its own show, undo and finish; or the
+shared crate giving the kinds one table of what a build can do with each.
+**From.** The owner's brief of 2026-11-23 (repin to shared `0984eed`, honest handling of Rewrite);
+D-120.
+## D-140 — 2026-11-23 — A rewrite of a file is R2's review, applied in place, the original in the record
+
+**Decision.** "Rewrite them" runs one file at a time: the model's answer becomes R2's list of
+changes over the whole file (not a new kind of review), and Apply writes `Hunks::compose` of the
+ticked changes in place, in the file's own line endings. Before each file is written, the run's
+record in `.runs` holds the file's original text, its digest and the digest written (D-076); undo,
+from "AI runs…", puts an original back only while the file still holds what the run wrote, and
+keeps a file changed since. A file changed between the request and Apply is refused, and the
+review stays open with its list.
+**Why.** D-074 and D-076 chose this; R2 gave the list, and the plan (5.6) says "edits in place
+after the review, the original kept in the record". Reusing R2's review keeps one set of keys and
+one meaning for Apply.
+**What would change it.** The owner after using it; a review per file that must show side by side
+in a document tab instead of the panel.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-141 — 2026-11-23 — The task window sees names and numbers, never paths; pictures are never read
+
+**Decision.** The engine is told each file's name, size, date, first heading and first 1,200
+bytes (the digest of 5.6), numbered 0..n in the request; the answer's numbers are the window's
+places, and no path is sent or written from the answer. A picture's bytes are never read; its name
+is sent, and it is linked. A PDF, Word file or archive is never read either: File them links it by
+name, and Split them and Rewrite them leave it out with its reason on the row. The JSON contract
+is mdedit's (`task_ui`), not the engine's.
+**Why.** The engine must stay free of what a task is (7.2), and a model that returns a path could
+write anywhere; numbers cannot. Pictures in the protocol are phase V (D-078), not yet priced.
+**What would change it.** Phase V: the engine reading pictures itself, `proto::VERSION` 2.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-142 — 2026-11-23 — One request at a time, in the order the results are read
+
+**Decision.** File them sends batches of 40 files, one request after the other; Split them one
+plan per file, in the window's order, the next opening when a plan is written; Rewrite them one
+file per request, at most 20 files a run, the next sent only when the previous file's review is
+applied, discarded or copied. The engine could run several (5.6), but nothing here does.
+**Why.** Rate limits, and the results are read in order; a rewrite's review is the user's
+decision before the next file is touched.
+**What would change it.** The owner asking for parallel requests (D-080 priced it); then the
+window's batches would run together and results would still be merged in file order.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-143 — 2026-11-23 — With the AI off the window still works, and Rewrite is disabled
+
+**Decision.** File them composes the plan locally (every file under the section typed beside the
+destination) and writes the links; Split them cuts at headings; Rewrite them is disabled with
+"The AI connection is off" and "Open AI settings". Nothing is started, and "Show what is sent"
+says so.
+**Why.** 5.6, and the app's rule that the AI is off by default and nothing leaves the machine
+unless a request is made.
+**What would change it.** The owner.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-144 — 2026-11-23 — "Show what is sent" parks the window in a read-only tab
+
+**Decision.** The link opens the literal text of every request the window would send in a
+read-only copy tab, headed by a line saying nothing has been sent by it, and parks the window;
+"AI task on your files…" brings the window back with its files, instruction and ticks. It is
+offered only while no request is out.
+**Why.** 3.10 and 5.6: the owner can check exactly what would leave the machine; the request is
+not made to show it.
+**What would change it.** The owner preferring a panel over a tab.
+**Overturned by.** The owner.
+**From.** DeepSeek Flash, building phase W, 2026-11-23.
+
+## D-145 — 2026-11-23 — A rewrite's record is this build's: listed, shown and undone, not a later version's
+
+**Decision.** Phase W writes `rewrite` records, so the guard of D-134 stays only for a kind this
+build still does not write (`markdown`, and any word from a later version): `open_runs`, the runs
+list, Show the notes and Undo treat `Kind::Rewrite` as their own, with its originals and its undo.
+The test that proved a later version's record is listed and refused now uses a record whose kind
+word this build does not know, so the same behaviour is still proven; `Markdown` — main's kind,
+which this build writes — is not used for it.
+**Why.** D-134's fallback was right while Rewrite existed only on phase W's branch; with W on main
+the record is read by the build that wrote it, and its undo (each original back while the file
+holds what the run wrote) is what the owner asked for.
+**What would change it.** A later version's record kind that this build must read before it knows
+it; then the guard needs the same table for that kind.
+**Overturned by.** The owner.
+**From.** The owner's brief of 2026-11-23 (merge phase W onto main, remove Rewrite's guard).
+
+## D-150 · 2026-11-23 · The AI step is a second stage of the import card, and it only names headings
 
 **Decision.** "Sort a folder by AI." (5.7, phase 4) is not a second command and not a second
 writer: it is two stages of the "Add a folder" card. **Ask the AI** asks for a scheme of at most 8
@@ -1252,7 +1400,7 @@ undone after the fact.
 **Overturned by.** The owner; or a sort that must write without being read first.
 **From.** `docs/ai-library-plan.md` 5.7; D-078; the phase 4 brief.
 
-## D-135 · 2026-11-23 · A folder sort sends a short digest per file, in batches, and nothing of the library
+## D-151 · 2026-11-23 · A folder sort sends a short digest per file, in batches, and nothing of the library
 
 **Decision.** The scheme request carries one line per file: its path inside the chosen folder (at
 most 200 bytes), its title (120) and the first 120 bytes of its text. The filing requests repeat
@@ -1270,7 +1418,7 @@ library work (D-080's sibling rule), and 40 keeps a batch well inside a model's 
 is clearly right.
 **From.** `docs/ai-library-plan.md` 5.7; D-079, D-080; the phase 4 brief.
 
-## D-136 · 2026-11-23 · Unsure, out-of-range and left-out files land in Unsorted, unticked
+## D-152 · 2026-11-23 · Unsure, out-of-range and left-out files land in Unsorted, unticked
 
 **Decision.** A file's answer is a section number, a confidence from 0 to 1 and a one-line
 `why`. A number the scheme does not have, an id that was not sent, a file the answer leaves out,
@@ -1286,7 +1434,7 @@ folders. 0.6 is the plan's line between "sure enough to keep" and "look at it".
 **Overturned by.** The owner; or evidence that 0.6 ticks too much or too little.
 **From.** `docs/ai-library-plan.md` 5.7; the phase 4 brief.
 
-## D-137 · 2026-11-23 · A failed sort keeps what came, and Escape stops every request
+## D-153 · 2026-11-23 · A failed sort keeps what came, and Escape stops every request
 
 **Decision.** The filing requests go out up to the connection's "Requests at once" (D-080), three
 by default and one for a local model, and the card shows how many answered and how many are in
@@ -1301,7 +1449,7 @@ sees it going wrong must be able to stop it without losing the scheme they edite
 **Overturned by.** The owner; or a provider that cannot cancel a request (then the wait is said).
 **From.** `docs/ai-library-plan.md` 5.7, D-080; the split-by-AI behaviour (DESIGN 76).
 
-## D-138 · 2026-11-23 · "Requests at once" is a setting per connection, 1 to 8
+## D-154 · 2026-11-23 · "Requests at once" is a setting per connection, 1 to 8
 
 **Decision.** **Requests at once** is a row on the AI rewrite page, a number from 1 to 8 with
 steppers, stored per connection as `ai_parallel_<key>` in `settings.ini`; an empty value means

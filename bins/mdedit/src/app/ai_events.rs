@@ -56,6 +56,7 @@ impl App {
         };
         self.docs.ai_prompts = of(PromptKind::Rewrite);
         self.docs.ai_split_prompts = of(PromptKind::Split);
+        self.docs.ai_file_prompts = of(PromptKind::File);
     }
 
     /// Whether the instruction panel is the split's (5.2).
@@ -474,22 +475,49 @@ impl App {
         for e in self.ai.poll() {
             match e {
                 Event::Delta { id, chars } => {
-                    if let Some(r) = self.ai.run.as_mut().filter(|r| r.id == id) {
+                    if let Some(t) = self.task.as_mut()
+                        && t.asking.as_ref().is_some_and(|a| a.request == id)
+                    {
+                        if let Some(a) = t.asking.as_mut() {
+                            a.chars = chars;
+                        }
+                        t.tick += 1;
+                    } else if let Some(r) = self.ai.run.as_mut().filter(|r| r.id == id) {
                         r.chars = chars;
                         self.ai_status();
                     } else if let Some(r) = self.ai.split.as_mut().filter(|r| r.id == id) {
                         r.chars = chars;
                         self.split_status();
+                    } else if let Some(r) = self
+                        .note
+                        .as_mut()
+                        .and_then(|c| c.asking.as_mut())
+                        .filter(|r| r.id == id)
+                    {
+                        r.chars = chars;
                     }
                 }
                 Event::Done { id, text } => {
                     let ask = self.ai.answered(id, true);
-                    if self.ai.split.as_ref().is_some_and(|r| r.id == id) {
+                    if self
+                        .task
+                        .as_ref()
+                        .is_some_and(|t| t.asking.as_ref().is_some_and(|a| a.request == id))
+                    {
+                        self.task_done(&text);
+                    } else if self.ai.split.as_ref().is_some_and(|r| r.id == id) {
                         self.split_done(&text);
                     } else if self.ai.run.as_ref().is_some_and(|r| r.id == id) {
                         let run = self.ai.run.take().expect("checked");
                         self.docs.ai_status = None;
                         self.ai_finish(run, &text);
+                    } else if self
+                        .note
+                        .as_ref()
+                        .and_then(|c| c.asking.as_ref())
+                        .is_some_and(|r| r.id == id)
+                    {
+                        self.note_done(&text);
                     } else {
                         match ask {
                             Some(Ask::SortScheme) => self.sort_scheme_done(&text),
@@ -518,6 +546,26 @@ impl App {
                     }
                     Some(Ask::SortScheme | Ask::SortFiles(_)) => {
                         self.sort_request_failed(id, &kind, &message)
+                    }
+                    Some(Ask::Task) => {
+                        if self
+                            .task
+                            .as_ref()
+                            .and_then(|t| t.asking.as_ref())
+                            .is_some_and(|a| a.request == id)
+                        {
+                            self.task_failed(&kind, &message);
+                        }
+                    }
+                    Some(Ask::Note) => {
+                        if self
+                            .note
+                            .as_ref()
+                            .and_then(|c| c.asking.as_ref())
+                            .is_some_and(|r| r.id == id)
+                        {
+                            self.note_failed(&kind, &message);
+                        }
                     }
                     Some(Ask::Models(key)) => {
                         self.ai.models.insert(key, Err(message));
@@ -557,11 +605,18 @@ impl App {
                     }
                 }
                 Event::Ended(why) => {
+                    if self.task.as_ref().is_some_and(|t| t.asking.is_some()) {
+                        self.task_failed("ended", &why);
+                    }
                     if self.ai.split.is_some() {
                         self.split_failed("ended", &why);
                     }
                     if self.ai.sort.is_some() {
                         self.sort_engine_ended(&why);
+                    }
+                    let note_out = self.note.as_ref().and_then(|c| c.asking.as_ref()).is_some();
+                    if note_out {
+                        self.note_failed("ended", &why);
                     }
                     if self.ai.run.take().is_some() {
                         self.docs.ai_status = None;
@@ -676,6 +731,7 @@ impl App {
             due: None,
             grab: None,
             base_dir,
+            file: None,
         }));
         if preview {
             self.ai_open_panes();
@@ -752,7 +808,7 @@ impl App {
     }
 
     /// What gives way to a panel: the palette, menus, tooltips, the find box's keyboard.
-    fn close_for_ai_panel(&mut self) {
+    pub(super) fn close_for_ai_panel(&mut self) {
         if self.palette_open() {
             self.close_palette();
         }
@@ -919,6 +975,9 @@ impl App {
         let Some(Panel::Review(rv)) = self.ai.panel.as_ref() else {
             return;
         };
+        if rv.file.is_some() {
+            return;
+        }
         let closed = Some(core_ai::BLOCKED_CLOSED);
         if rv.blocked.as_deref() != closed && self.docs.index_of_id(rv.doc).is_none() {
             if let Some(rv) = self.ai.review() {
@@ -931,14 +990,32 @@ impl App {
     pub(super) fn ai_review_action(&mut self, hit: AiHit) {
         self.ai_review_sync();
         match hit {
-            AiHit::Discard => self.ai_close_panel(),
+            AiHit::Discard => {
+                if self.ai.review().is_some_and(|rv| rv.file.is_some()) {
+                    self.task_review_discard();
+                } else {
+                    self.ai_close_panel()
+                }
+            }
             AiHit::Copy => {
-                let Some(rv) = self.ai.review() else { return };
+                let Some((text, is_file)) = self
+                    .ai
+                    .review()
+                    .map(|rv| (rv.hunks.compose(), rv.file.is_some()))
+                else {
+                    return;
+                };
                 // The review may be the only place the result is (its document closed): it
                 // closes only once the result is on the clipboard (audit 1 round 3, #3).
-                if copy_text(&rv.hunks.compose()) {
+                if copy_text(&text) {
                     self.docs.set_toast("Copied the result.");
-                    self.ai_close_panel();
+                    if is_file {
+                        self.ai.panel = None;
+                        self.ai.tick += 1;
+                        self.task_after_review(false);
+                    } else {
+                        self.ai_close_panel();
+                    }
                 } else {
                     self.docs
                         .set_toast("Could not copy to the clipboard. The result is still here.");
@@ -946,6 +1023,10 @@ impl App {
                 }
             }
             AiHit::Apply => {
+                if self.ai.review().is_some_and(|rv| rv.file.is_some()) {
+                    self.task_review_apply();
+                    return;
+                }
                 let Some(rv) = self.ai.review() else { return };
                 if rv.blocked.is_some() {
                     return;
@@ -983,6 +1064,10 @@ impl App {
             }
             AiHit::RunAgain => {
                 let Some(rv) = self.ai.review() else { return };
+                if rv.file.is_some() {
+                    self.task_review_again();
+                    return;
+                }
                 let (doc, spec) = (rv.doc, rv.spec.clone());
                 // Again on the review's document, never on whichever tab is active now; the
                 // panel shows what will be sent and waits for Rewrite. A closed document keeps
@@ -1053,7 +1138,7 @@ impl App {
     }
 
     /// The review's two preview panes, opened the first time Preview is shown.
-    fn ai_open_panes(&mut self) {
+    pub(super) fn ai_open_panes(&mut self) {
         if self.ai.review().is_some_and(|rv| rv.panes.is_some()) {
             return;
         }

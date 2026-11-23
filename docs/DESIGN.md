@@ -3057,6 +3057,7 @@ the chip and nowhere else. Each was proved by reverting its fix and watching it 
 
 **Not built:** dragging a group or a section; a keyboard equivalent beyond "Move to…" (which is
 the keyboard path); files from File Explorer (see above); a drop between two windows.
+
 ## 81. Add a folder to the library (2026-11-23, phase 4a)
 
 `ai-library-plan.md` 5.7, taken without the AI: the folder the owner picks becomes a plan of
@@ -3109,12 +3110,186 @@ line), each in both themes and drawn by `--plan-demo <name>`.
 Not done in 4a, deliberate: no AI in the card (5.7's second half), no drag and drop, no
 conversion of a file to Markdown, and no removal of a link -- the pane's own remove is 4b's.
 
+## 82. A Markdown note from a text file (2026-11-23, branch `f/p5`)
 
-## 82. Sort a folder by AI (2026-11-23, phase 4)
+`docs/ai-library-plan.md` 5.8. "Markdown note from a file…" on a group's row menu: a text file
+becomes a new note in that group's folder, made by the AI; the original is left where it is and is
+never renamed or changed.
+
+- **The row, then the picker.** `LibAct::MarkdownNote` beside "Move the notes…" (`overlays.rs`,
+  drawn with `glyph::HEADING`). It opens the system file picker only: `Picked::Note { group }` in
+  `app.rs` carries the group's library file, so `note_file_picked(group, Some(source))` is the one
+  door into the card, and `Some(None)` (the picker cancelled) does nothing.
+- **What is read** (`app/note.rs::read_source`). Through the editor's own loader, capped at
+  `NOTE_MAX` 200 KB (`LoadOptions.max_bytes`), regular files only. Refused with a name and a reason:
+  not a file, empty, over the cap ("200 KB of 200 KB"), lossy or NUL bytes ("not a text file: some
+  of its bytes are not text this editor can read"), nothing but whitespace ("has no text"). A note
+  is Markdown, so its text is written as UTF-8 whatever the source was (BOM, UTF-16 or a legacy
+  code page) and `Source::encoding` says so under the title; a source in UTF-8 is written as it
+  reads. It keeps the name, the line count, the byte length, the digest (SHA-256) and the source's
+  own line split, which `ai::note_body` uses for the note.
+- **The card** (`note_ui.rs`, `note_draw.rs`, over `Dialog::draw` like the move card). `Phase`:
+  Ready (what is sent, what it is asked to do, what will be written, in the footer's words), Asking
+  ("Asking Claude Code · Sonnet 5.5: N characters so far", a pulse, a Bar and a footer link, Esc or
+  Stop cancels through `Ai::cancel_id`), Changes (`mdedit_core::hunks`' own changes: the source's
+  lines against the note's, unchanged runs folded to 3 lines, red and green, `- N lines + M lines`
+  from `Hunks::totals`), and Result (the note as
+  it will be written, numbered). A `Changes | Result` segmented switch in the header, 28 tall, on
+  the title's line, painted only in Changes and Result. Two lines of body above the list ("What
+  changes to make the note." / "The note as it will be written."). Enter sends in Ready and writes
+  in Changes; the footer names the file and says the source is not changed; `blocked` puts the
+  reason in the footer's left, and Make the note/the primary is drawn disabled then.
+- **Writing** (`App::note_write`). Every check again, because the answer may be minutes old: the
+  library folder, `note_blocked`, and the source re-read and compared by length and SHA-256 ("has
+  changed since the note was made. Make the note again"). Then `runs::write_note` — the same write
+  of 4.3 with `Kind::Markdown`, in `.runs`, undo and all — `library_rows()`, the note opened in a
+  tab, and `open_notes_of` on the report: the Notes face, the group's notes open, the cursor on the
+  new line.
+- **The refusals before the request and in `note_blocked`**: AI off ("Choose a connection in
+  Settings › AI first."); no library folder; the group's folder is the library folder itself
+  ("so the note would be a library file"); the note would land beside the library's own files; the
+  group's folder is a file; the group's library file open with unsaved changes (`library_file_free`
+  in the app's words); the file cannot be read; the group would pass 2,000 notes; the line would
+  not read back as the old notes plus this one (`runs::check_links_added`, a dry run). A failure
+  from the write itself comes back as `note_write_refused`: the card stays with the reason and
+  nothing is half-written (the write's own order, D-067).
+- **Naming.** `library_write::free_name(home, stem)`: the source's file name with its extension
+  dropped, lower case, runs of anything but letters and digits turned into one hyphen, cut to 60
+  characters; `stem.md`, else `stem 2.md`, `stem 3.md` …; `pasta notes.txt` → `pasta-notes.md`.
+- **The request.** One, through `Ai::ask(Ask::Note)`: the whole file and `ai::FORMAT` as the
+  instruction ("Format this text as Markdown: headings for its sections, lists, tables for tabular
+  data, task lists for things to do, emphasis and code where the text calls for them. Do not change
+  the wording."), `Sent` with the connection, model, bytes and requests so the record holds it. An
+  answer that is whitespace, or the same text as the source, is "The AI changed nothing, so there
+  is no note to write." A cancellation is not news. `Ai::running()` counts it, so a rewrite cannot
+  start over it.
+- **In "AI runs…"** (`overlays.rs`) a record of this kind reads "Markdown · source → group · N
+  notes"; undo, Show the notes and the Recycle Bin question are split's own, unchanged. A record
+  of a kind this build does not write — an unknown kind word, a later version's (D-145, after
+  D-134) — is not listed with the runs it could undo: `list_all` puts it in the newer-version
+  list (the same fallback an unreadable record has, "Written by a newer version of mdedit", with
+  nothing enabled), and nothing in it is shown, finished or undone. `Kind::Rewrite` is no longer
+  such a kind: phase W writes it and DESIGN 83 gives it its own row, Show and undo.
+- **The demonstration** `--note-demo ready|asking|changes|result|blocked` (`note_ui::demo`): a file
+  and an answer made in the program, `card.demo` so Enter says "A demonstration of the card: it
+  writes nothing." and nothing is sent or written.
+- Shots: `note-ready`, `note-asking`, `note-changes`, `note-result`, `note-blocked`, both themes,
+  `note-changes-small` at 800x600.
+- Budgets: `docs/measurements/2026-11-23-note-card.md` — 7 interleaved runs against `main` at
+  `6e6579f`, nothing beyond the runs' ranges.
+- Tests: `app::note_tests` (13): the menu item and the whole path to the note and its record, undo,
+  undo refused when the source has changed, a taken name, AI off, a file too long, a file that is
+  not text, the group file unsaved, the group folder the library's own, Esc in Asking, the switch
+  repainting the body and Cancel writing nothing, the source changed while the answer was out, and
+  every demonstration. `mdshared_app::runs` has the kind's own two (write, undo); and
+  `plan_write_tests::a_record_of_a_kind_this_build_does_not_write_is_listed_as_a_newer_versions`
+  proves a record of an unknown kind word is listed as a later version's and nothing in it is
+  shown or undone (D-145).
+
+## 83. The AI task window over files (2026-11-23, branch `f/pw`)
+
+Phase W of `docs/ai-library-plan.md` (5.6), on top of R2: the owner asked for "AI task on files"
+that can file, split or **rewrite files in place** (D-074, D-076). The drawing is the mockup
+`ai-files`; the window takes files, not the open document, and opens none of them in a tab.
+
+**The window** (`task_ui.rs` state and numbers, `task_draw.rs` drawing, `app/task.rs` the three
+tasks). Card 880 x 704: the header and "Add files…", the WHAT TO DO switch (`File them |
+Split them | Rewrite them`), the 36 px instruction field, the saved prompts of the chosen kind
+(96 px, `kind: file` new in `mdedit_core::ai`), WHERE IT GOES, the list under its three group
+headings, and a footer with "Show what is sent" and the primary button. A review of a file
+(R2's list) is drawn over it as the front panel; keys, pointer, wheel and right click reach the
+review first (`app/input.rs`). The window's own state raises one tick, in the overlay signature
+and in the full-window bounds, so every change paints.
+
+**Three kinds of file**, decided once when a file is added (`App::task_probe`), and what each
+does for each task: **Text** (the editor's loader, no NUL, not lossy) is read and sent; **Picture**
+(the image paste's extensions) is never read — its name only is sent, and it is linked; **Other**
+(PDF, Word, archives, bytes that are not text) is never read. "File them" links an Other file by
+name, as the note pane can link any file; "Split them" and "Rewrite them" leave it out with its
+reason on the row. A file already listed by a library file reads "already in the library",
+unticked, compared with `same_note`. A Rewrite run takes at most 20 files and 200 KB each; the
+reason says which and how much. What is left out is never counted, never sent and never written.
+
+**File them.** With a connection, the ticked files go in batches of 40, one request after the
+other, each a digest: name, size, date, first heading, first 1,200 bytes, 2 KB at most. The
+request has the instruction and the batch numbered 0..n; **the model never sees a path** — the
+answer's `id`s are the window's places. The JSON contract lives in mdedit (`task_ui::FILING_SYSTEM`,
+`filing_prompt`), never in the engine. The answer is read with the envelope rules of 5.2: an id
+not sent is ignored, the first answer for an id wins, a `with` must name a text file of the same
+batch, titles are one clean line of 120 characters, sections are at most three folder names. A
+file the answer leaves out is under "NOT PLACED", unticked. With the AI off the plan is composed
+here instead: every file under the section typed beside the destination. Written then, in order,
+one read-back per link: a name derived by the library's own rule, under the sections, a relative
+link from the group's file (`link_path`), the group's file made first with its `home:` when new.
+The plan face shows each file's title and `→` section, and "Add N to the library".
+
+**Split them.** Each file's plan card in turn (5.1–5.3, unchanged), opened from the file rather
+than a tab, its Recycle Bin box refused by `RECYCLE_ONE_DOCUMENT`, its AI offer the window's
+instruction when one is typed; Writing that plan closes the file's place and opens the next, in
+order. Escape closes the plan back to the window and leaves the file alone (its plan is not
+parked, because it is a step of the run).
+
+**Rewrite them.** One file at a time: the prompt is `core_ai::prompt` of the text and the
+instruction; the answer is fitted (`fit_end`), written in the file's own line endings
+(`with_eol`), and shown in R2's review over the whole file, titled "Rewrite <name>", through the
+same panel and the same keys. Apply is `Hunks::compose` of the ticked changes; **the run's record
+is started and each file's original is written into it before the file is** (`runs::start_rewrite`,
+`runs::rewrite_into`, D-076), so a crash between leaves the original where undo finds it. The
+file is written only while it still holds the text the answer was made from, to the byte and the
+byte-order mark; a file changed since is refused with the review staying open and its list and
+ticks kept. Undo is in "AI runs…" with the other runs: every original goes back while the file
+still holds what the run wrote; a file changed since is kept and listed (`undo`, `UndoPlan`).
+Discard leaves a file as it was and the run goes on with the next; Copy result copies and goes on;
+Escape keeps the review (R2), and the run waits. The run's record says `done` when the last file
+is applied or the window is closed; an empty record (nothing applied) is removed.
+
+**The AI is off.** The window still opens. File them "Make the plan" and writes without a
+request; Split them cuts at headings; Rewrite them is disabled, the footer says "The AI connection
+is off", and "Open AI settings" is beside Cancel. Nothing starts.
+
+**Show what is sent** (`task_request_text`) is the literal text of every request the window would
+send: the system text and prompt per batch, per file, or per split outline; with the AI off it
+says nothing is sent. It opens as a read-only copy tab and parks the window, which "AI task on
+your files…" brings back. A request in flight stops when the window closes (Escape stops it
+first, then a second Escape closes), and an engine error is the footer's sentence with Run
+still usable.
+
+**Tests** (`task_ui::tests`, `app/task_tests.rs`; the fake engine answers `TASKFILE` with a
+filing JSON). A window opens empty; a picture is a picture, never read; a digest holds the
+heading and no path; the model's answer places titles, sections and `with`, ignores an id not
+sent and a `with` that names a picture; an unplaced file is unticked and not written; a 41st file
+waits for a second request; unticked files are not sent; a new group is made in the library and
+chosen; no group means nothing is written; with the AI off the plan is composed and links written,
+a PDF among them linked by name; a rewrite is reviewed then written in place, the record holding
+the original, and `runs::undo` puts it back; a file changed since the answer is not written, says
+why, and leaves no record; the second file waits for the first review; Split opens a plan on the
+file and no tab; Show what is sent is a read-only tab and parks the window; Rewrite with the AI
+off opens Settings; Escape stops the request and a second closes. Each was reverted and watched
+fail (the record test in `mdshared-app`, the rest here).
+
+**Shots** (`tests/shots.sh`, both themes unless said): `task-files` (File them, a text, a picture
+and a PDF with its reason), `task-files-plan` (the plan face, `PLACED` and `NOT PLACED`),
+`task-files-off` (AI off: "no request", Make the plan), `task-other` (Rewrite them: the picture
+and PDF left out, in place), `task-review` (R2's review over `pasta.md`, the note that Apply
+writes in place), and `task-sent` (light: the read-only request tab). `--task-demo
+files|files-plan|files-off|files-other|review|sent` builds them from `fixtures/task-demo/`, with
+no engine and nothing sent.
+
+**Budgets.** Nothing here is on the launch path: `task_ui`, `task_draw` and `app/task.rs` are
+reached from the command and the drop alone, the window reads files only then, and it adds no
+crate (`docs/measurements/2026-11-23-task-window.md`: 7 interleaved runs against R2, no figure
+outside the runs' ranges; the executable +102,400 bytes).
+
+**Not built of 5.6.** "AI task on this file" is in the AI menu, the Library menu and the palette,
+on the document in front; a row of the Files pane has no menu of its own in this program, and the
+tab menu does not open the window on the tab under the pointer (it would have to activate it
+first). Add files… and a drop from Explorer are the ways in.
+
+## 84. Sort a folder by AI (2026-11-23, phase 4)
 
 `ai-library-plan.md` 5.7's second half, on 4a's card. The AI proposes the **headings** and the
 **file under each**; the card stays the one place a plan is read, edited and written, and the
-import's writer from 4a is the only thing that writes (D-134). It needs an AI connection: with the
+import's writer from 4a is the only thing that writes (D-150). It needs an AI connection: with the
 connection off the card says "The AI is off: choose a connection in Settings › AI." where the
 offer would be, and nothing is asked (D-079).
 

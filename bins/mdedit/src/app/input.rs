@@ -54,6 +54,10 @@ impl App {
             self.ai_pointer(x, y);
             return;
         }
+        if self.task_is_open() {
+            self.task_pointer(x, y);
+            return;
+        }
         if self.palette_open() {
             self.palette_pointer(x, y);
             return;
@@ -684,6 +688,10 @@ impl App {
             self.ai_press();
             return;
         }
+        if self.task_is_open() {
+            self.task_press();
+            return;
+        }
         if self.palette_open() {
             let clicks = self.click_count(x, y);
             self.palette_press(clicks);
@@ -936,6 +944,10 @@ impl App {
             self.ai_release();
             return;
         }
+        if self.task_is_open() {
+            self.task_release();
+            return;
+        }
         if self.palette_open() {
             self.palette_release();
             return;
@@ -1001,6 +1013,10 @@ impl App {
             || self.ai_panel_open()
             || self.ui.settings.is_some()
         {
+            return;
+        }
+        if self.task_is_open() {
+            self.task_right_press();
             return;
         }
         self.ui.popup = None;
@@ -1116,6 +1132,7 @@ impl App {
             || self.ui.settings.is_some()
             || self.ai_panel_open()
             || self.plan_is_open()
+            || self.task_is_open()
         {
             let dy = match pixels {
                 Some((_, py)) => -(py as f32) / self.scale,
@@ -1125,6 +1142,8 @@ impl App {
                 self.plan_wheel(dy);
             } else if self.ai_panel_open() {
                 self.ai_wheel(dy);
+            } else if self.task_is_open() {
+                self.task_wheel(dy);
             } else if self.palette_open() {
                 // Over the palette it scrolls the list; anywhere else it does nothing (and never
                 // reaches the page below).
@@ -1357,6 +1376,8 @@ impl App {
         let shown = if let Some(f) = self.ui.settings.as_mut() {
             self.ui.overlay_tick += 1;
             f.set_preedit(pre)
+        } else if self.task_is_open() {
+            self.task_preedit(pre)
         } else if self.plan_is_open() {
             self.plan_preedit(pre)
         } else if self.ai_panel_open() {
@@ -1416,13 +1437,18 @@ impl App {
             return;
         }
 
-        // The plan screen, an AI panel, then the palette, take the keyboard before anything else.
+        // The plan screen, an AI panel, then the task window, take the keyboard before the
+        // rest. A review over the task window is a panel, and gets the keys first.
         if self.plan_is_open() {
             self.plan_key(key, typed);
             return;
         }
         if self.ai_panel_open() {
             self.ai_key(name, typed);
+            return;
+        }
+        if self.task_is_open() {
+            self.task_key(name, typed);
             return;
         }
         if self.palette_open() {

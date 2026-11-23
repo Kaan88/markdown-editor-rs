@@ -52,7 +52,9 @@ fn fixtures_round_trip() {
     let mut checked = 0;
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
-        if path.extension().is_some_and(|e| e == "py") {
+        // A fixture folder (the task window's demo files) is not a fixture file: keep walking
+        // only files.
+        if !path.is_file() || path.extension().is_some_and(|e| e == "py") {
             continue;
         }
         let bytes = std::fs::read(&path).unwrap();

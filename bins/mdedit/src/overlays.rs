@@ -179,6 +179,17 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
         cmd(C::SplitIntoNotes, "Spli&t into notes…", glyph::SPLIT)
             .sep()
             .enabled(has_file),
+        cmd(
+            C::AiTaskFiles,
+            "AI task on &your files…",
+            crate::chrome::SPARKLE,
+        ),
+        cmd(
+            C::AiTaskThisFile,
+            "AI task on th&is file…",
+            crate::chrome::SPARKLE,
+        )
+        .enabled(has_file),
         cmd(C::AiRuns, "AI &runs…", glyph::MACRO),
     ];
     Menu::new(items, x, y, align_right).access_keys(true)
@@ -257,6 +268,11 @@ pub fn library_row_menu(
                 L::MoveNotes,
                 "&Move the notes\u{2026}",
                 glyph::FORWARD,
+            ));
+            items.push(item(
+                L::MarkdownNote,
+                "Markdo&wn note from a file\u{2026}",
+                glyph::HEADING,
             ));
             items.extend([
                 item(L::Rename, "&Rename group", glyph::EDIT).sep(),
@@ -867,6 +883,7 @@ fn split_ok(docs: &Docs) -> bool {
 /// The ai menu: the built-in requests, the saved ones, the settings, and what a run left behind.
 pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let idle = docs.active_ready().is_some() && docs.ai_status.is_none();
+    let disk_file = docs.active_doc().is_some_and(|d| d.path.is_some());
     let mut items = vec![
         cmd(C::AiFormat, "&Format as Markdown", crate::chrome::SPARKLE).enabled(idle),
         cmd(C::AiFix, "Fi&x Markdown", crate::chrome::SPARKLE).enabled(idle),
@@ -897,6 +914,19 @@ pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     items.push(cmd(C::AiEditPrompts, "&Edit saved prompts", glyph::DOC).sep());
     items.push(
         cmd(C::SplitIntoNotes, "Spli&t into notes\u{2026}", glyph::SPLIT).enabled(split_ok(docs)),
+    );
+    items.push(cmd(
+        C::AiTaskFiles,
+        "AI task on &your files\u{2026}",
+        crate::chrome::SPARKLE,
+    ));
+    items.push(
+        cmd(
+            C::AiTaskThisFile,
+            "AI task on th&is file\u{2026}",
+            crate::chrome::SPARKLE,
+        )
+        .enabled(disk_file),
     );
     items.push(cmd(C::AiRuns, "AI runs\u{2026}", glyph::MACRO));
     if docs.ai_status.is_some() {
@@ -1474,21 +1504,36 @@ pub fn draw_dialog(
                 c.p.icon(glyph::MACRO, 15.0, row.x + 20.0, row.cy(), pal.accent);
                 let tx = row.x + 40.0;
                 let tw = (row.w - 52.0).max(0.0);
-                let first = if run.record.kind == mdedit_core::runs::Kind::Move {
+                let first = match run.record.kind {
                     // "Move · the notes of Work into their folder · 5 files".
-                    mdedit_core::moves::headline(&run.record)
-                } else {
-                    format!(
-                        "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
-                        "Split",
+                    mdedit_core::runs::Kind::Move => mdedit_core::moves::headline(&run.record),
+                    // A file rewritten in place (phase W): the files it wrote, and how many.
+                    mdedit_core::runs::Kind::Rewrite => format!(
+                        "Rewrite \u{00B7} {} \u{00B7} {}",
                         run.record.source_name(),
-                        run.record.group_name(),
-                        if run.record.notes.len() == 1 {
-                            "1 note".to_string()
+                        if run.record.originals.len() == 1 {
+                            "1 file".to_string()
                         } else {
-                            format!("{} notes", run.record.notes.len())
+                            format!("{} files", run.record.originals.len())
                         }
-                    )
+                    ),
+                    kind => {
+                        let word = match kind {
+                            mdedit_core::runs::Kind::Markdown => "Markdown",
+                            _ => "Split",
+                        };
+                        format!(
+                            "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
+                            word,
+                            run.record.source_name(),
+                            run.record.group_name(),
+                            if run.record.notes.len() == 1 {
+                                "1 note".to_string()
+                            } else {
+                                format!("{} notes", run.record.notes.len())
+                            }
+                        )
+                    }
                 };
                 c.p.text(Face::Ui, 13.5, tx, row.y + 15.0, &first, pal.text, tw);
                 let second = format!(
@@ -1549,12 +1594,15 @@ pub fn draw_dialog(
                 false,
             );
             if let Some(run) = runs.list.get(runs.sel) {
-                // A move has nothing to finish: it is put back or undone.
-                let finish = run.record.kind != mdedit_core::runs::Kind::Move
-                    && matches!(
-                        run.record.state,
-                        mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
-                    );
+                // A move has nothing to finish: it is put back or undone. Neither has a record a
+                // later version wrote.
+                let finish = matches!(
+                    run.record.kind,
+                    mdedit_core::runs::Kind::Split | mdedit_core::runs::Kind::Markdown
+                ) && matches!(
+                    run.record.state,
+                    mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
+                );
                 let undo = run.record.state.live();
                 let mut items: Vec<(&str, Hit, bool)> = Vec::new();
                 items.push(("Show the notes", Hit::DlgRunShow, true));

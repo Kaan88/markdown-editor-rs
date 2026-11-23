@@ -438,6 +438,7 @@ fn icon(id: C) -> &'static str {
         C::AiShowResult => crate::chrome::SPARKLE,
         C::SplitIntoNotes => glyph::SPLIT,
         C::AiRuns => glyph::MACRO,
+        C::AiTaskFiles | C::AiTaskThisFile => crate::chrome::SPARKLE,
         C::Language => glyph::CODE,
         C::Library | C::LibraryAdd | C::ShowInLibrary => glyph::BOOKMARK,
         C::LibraryAddFolder => glyph::FOLDER_OPEN,
@@ -534,6 +535,8 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::AiShowResult => docs.ai_kept,
         C::SplitIntoNotes => has_file && docs.active_doc().is_some_and(|d| !d.modified()),
         C::AiRuns => true,
+        C::AiTaskFiles => true,
+        C::AiTaskThisFile => has_file,
         C::Language => ready.is_some(),
         C::LibraryAdd => has_file,
         C::LibraryAddFolder => true,
@@ -597,6 +600,9 @@ fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
         let on = enabled(c.id, src.docs, src.ui, src.macro_idle);
         let hint = match (c.id, on) {
             (C::SplitIntoNotes, false) => split_reason(src.docs).unwrap_or_default(),
+            (C::AiTaskThisFile, false) => {
+                "Save the document first: the task window works on files.".to_string()
+            }
             _ => hint(c.id).to_string(),
         };
         push(&mut entries, &mut targets, Target::Cmd(c.id), |id| {

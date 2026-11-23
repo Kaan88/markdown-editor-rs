@@ -245,6 +245,19 @@ for t in "" "-dark"; do
     shot "review-closed$t" $th --size 1280x800 --ai-demo review-closed "$fx/review-demo.md"
 done
 shot review-min --light --size 800x560 --ai-demo review-partial "$fx/review-demo.md"
+
+# The AI task window over files (5.6, phase W): File them, the plan face, the AI off, Rewrite
+# them with a picture and other file, the rewrite's review, and what is sent.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "task-files$t" $th --size 1280x800 --task-demo files
+    shot "task-files-plan$t" $th --size 1280x800 --task-demo files-plan
+    shot "task-files-off$t" $th --size 1280x800 --task-demo files-off
+    shot "task-other$t" $th --size 1280x800 --task-demo files-other
+    shot "task-review$t" $th --size 1280x800 --task-demo review
+done
+shot task-sent --light --size 1280x800 --task-demo sent
 shot pref-tab8 --light --pref tab_width=8 "$fx/tabs-controls.txt"
 shot pref-no-numbers --light --pref line_numbers=0 --pref highlight_line=0 --goto 12:5 "$fx/sample.rs"
 shot pref-font18 --light --pref font_size=18 "$fx/sample.rs"
@@ -503,6 +516,19 @@ for t in "" "-dark"; do
     shot "move-results$t" $th --move-demo results
 done
 
+# "A Markdown note from a file." (5.8): what is sent, the request out, the answer's changes, the
+# note as it will be written, and the card with the reason it cannot be made (AI off).
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "note-ready$t" $th $ai --note-demo ready
+    shot "note-asking$t" $th $ai --note-demo asking
+    shot "note-changes$t" $th $ai --note-demo changes
+    shot "note-result$t" $th $ai --note-demo result
+    shot "note-blocked$t" $th --note-demo blocked
+done
+# The card at 800x600, where the preview of the plan card would be dropped.
+shot "note-changes-small" --light $ai --size 800x600 --note-demo changes
 # Dragging a note in the notes pane (D-130): the note held, its chip at the pointer, and the
 # heading it would go into marked, in both themes.
 for t in "" "-dark"; do

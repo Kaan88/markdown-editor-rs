@@ -192,6 +192,10 @@ pub enum CommandId {
     SplitIntoNotes,
     /// "AI runs…": the records of the runs that wrote notes, and undo of any of them.
     AiRuns,
+    /// "AI task on your files…": the task window over files the owner picks (5.6).
+    AiTaskFiles,
+    /// "AI task on this file…": the same window with the document in front in it.
+    AiTaskThisFile,
 }
 
 pub struct Command {
@@ -417,6 +421,8 @@ pub const COMMANDS: &[Command] = &[
     cmd(C::AiShowResult, "AI: Show the last result", &[]),
     cmd(C::SplitIntoNotes, "Split into notes\u{2026}", &[]),
     cmd(C::AiRuns, "AI runs\u{2026}", &[]),
+    cmd(C::AiTaskFiles, "AI task on your files\u{2026}", &[]),
+    cmd(C::AiTaskThisFile, "AI task on this file\u{2026}", &[]),
 ];
 
 pub fn command(id: CommandId) -> &'static Command {

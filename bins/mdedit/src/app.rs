@@ -107,6 +107,9 @@ pub(crate) mod modal;
 mod moving;
 #[cfg(test)]
 mod moving_tests;
+mod note;
+#[cfg(test)]
+mod note_tests;
 mod palette_events;
 mod plan;
 #[cfg(test)]
@@ -129,6 +132,9 @@ mod replace_files;
 mod split_ai;
 #[cfg(test)]
 mod split_ai_tests;
+mod task;
+#[cfg(test)]
+mod task_tests;
 #[cfg(test)]
 mod widget_pixels_tests;
 
@@ -205,6 +211,8 @@ pub enum Picked {
     /// The file a note of the notes library was found at, and the folder chosen for it.
     LibraryFile(Vec<PathBuf>),
     LibraryFolder(Option<PathBuf>),
+    /// A text file to make a Markdown note from (5.8), and the group's library file it is for.
+    NoteFile(PathBuf, Vec<PathBuf>),
     /// The folder "Add a folder to the library…" was pointed at.
     ImportFolder(Option<PathBuf>),
     /// The folder chosen for a group's notes, and the library file it is for.
@@ -381,11 +389,22 @@ struct App {
     plan_behind: Option<crate::plan_ui::PlanScreen>,
     /// The last split asked of the AI, for "Run again".
     split_last: Option<crate::ai::Spec>,
+    /// The AI task window over files (5.6), and the copy "Show what is sent" parked.
+    task: Option<crate::task_ui::TaskScreen>,
+    task_parked: Option<crate::task_ui::TaskScreen>,
+    /// The file whose split plan is open from the task window.
+    task_plan: Option<usize>,
+    /// A rewrite run's record, made when its first file is written.
+    task_record: Option<(PathBuf, mdedit_core::runs::Record)>,
+    /// What the task window has sent, for the record.
+    task_sent: mdedit_core::runs::Sent,
     /// The Recycle Bin (5.4): the system's, or in a test a bin of the test's own, so no test can
     /// reach the system's.
     recycle: Box<dyn crate::recycle::RecycleBin>,
     /// "Move the notes…": the card of a move's plan, while it is open.
     mover: Option<crate::move_ui::MoveCard>,
+    /// "A Markdown note from a file…": the card while it is open (5.8).
+    note: Option<crate::note_ui::NoteCard>,
     /// "Add a folder to the library…" (5.7): the card of an import, and the folder a walk is
     /// reading on its own thread.
     importer: Option<crate::import_ui::ImportCard>,
@@ -551,11 +570,17 @@ impl App {
             plan_parked: None,
             plan_behind: None,
             split_last: None,
+            task: None,
+            task_parked: None,
+            task_plan: None,
+            task_record: None,
+            task_sent: Default::default(),
             #[cfg(not(test))]
             recycle: Box::new(crate::recycle::SystemBin),
             #[cfg(test)]
             recycle: Box::new(crate::recycle::NoBin),
             mover: None,
+            note: None,
             importer: None,
             import_job: None,
             import_dir: None,
@@ -1388,6 +1413,7 @@ impl App {
             || self.ui.settings.is_some()
             || self.ai_panel_open()
             || self.plan_is_open()
+            || self.task_is_open()
         {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
@@ -1481,6 +1507,12 @@ impl App {
                 .map(|s| (s.sig(), s.edit.is_some() && self.ui.caret_on)),
             // The move card raises its tick for every change, as the plan screen does.
             self.mover.as_ref().map(|m| m.sig()),
+            // The AI task window over files raises its tick for every change too.
+            self.task
+                .as_ref()
+                .map(|s| (s.tick, s.hover, s.pressed, self.ui.caret_on)),
+            // The Markdown note card does too.
+            self.note.as_ref().map(|n| n.sig()),
             // So does the import card; the caret blinks in a scheme name being typed.
             self.importer.as_ref().map(|c| c.sig(self.ui.caret_on)),
         ));
@@ -1893,11 +1925,17 @@ impl App {
                 if let Some(plan) = self.plan.as_mut() {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
+                if let Some(s) = self.task.as_mut() {
+                    crate::task_draw::draw(c.p, &pal, s, w, h, self.ui.caret_on);
+                }
                 if let Some(card) = self.mover.as_mut() {
                     card.draw(c.p, &pal, w, h);
                 }
                 if let Some(card) = self.importer.as_mut() {
                     card.draw(c.p, &pal, w, h, self.ui.caret_on);
+                }
+                if let Some(card) = self.note.as_mut() {
+                    card.draw(c.p, &pal, w, h);
                 }
                 // Last, over everything.
                 if self.ai.panel.is_some() {
@@ -3639,6 +3677,12 @@ fn shot(mut app: App, path: &Path) -> i32 {
     if let Some(kind) = app.args.move_demo.clone() {
         app.move_demo(&kind);
     }
+    if let Some(kind) = app.args.task_demo.clone() {
+        app.task_demo(&kind);
+    }
+    if let Some(kind) = app.args.note_demo.clone() {
+        app.note_demo(&kind);
+    }
     if let Some(kind) = app.args.library_demo.clone() {
         app.library_demo(&kind);
     }
@@ -3651,7 +3695,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
         // The pane opened after the first frame: every region is painted again for the shot.
         app.sigs = [0; 10];
     }
-    if app.ui.dialog.is_some() || app.ui.popup.is_some() || app.palette_open() || app.plan_is_open()
+    if app.ui.dialog.is_some()
+        || app.ui.popup.is_some()
+        || app.palette_open()
+        || app.plan_is_open()
+        || app.task_is_open()
     {
         app.compose();
     }

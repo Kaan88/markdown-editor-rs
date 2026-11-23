@@ -5,140 +5,125 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
-- **mdedit 1.3.0**, 2026-11-23, tag `v1.3.0` at `ebe939d`. Sixteen assets, `hub.txt` the new one.
-  Record: `docs/release-log.md`; notes: `docs/release-notes/1.3.0.md`. In short: the notes
-  library and its pane; Split into notes by headings or by AI, with a record per run and undo; the
-  original into the Recycle Bin; Move the notes with their pictures; Settings as pages; issues #7
-  and #8 (closed); a closed mdview noticed (D-097, which the owner's check found does not hold:
-  below); a version resource and `hub.txt` for Hub (D-098). Checked by the owner by hand before
-  the tag (D-101; "Move the notes" not tried); budgets unchanged against 1.2.1
+- **mdedit 1.3.0**, 2026-11-23, tag `v1.3.0` at `ebe939d`, sixteen assets, `hub.txt` new. Record
+  `docs/release-log.md`, notes `docs/release-notes/1.3.0.md` (the notes library; Split by headings
+  or AI with records and undo; Move the notes; Settings as pages; D-097, D-098). Checked by hand
+  before the tag (D-101; "Move the notes" not tried); budgets unchanged against 1.2.1
   (`docs/measurements/2026-11-23-1.3.0-against-1.2.1.md`).
 - **mdview 1.0.5**, 2026-11-23, tag `v1.0.5` at `0a9bc7c`, fourteen assets: Settings as pages,
-  `?closed` to mdedit, a version resource and `hub.txt`. Its note line was published as "(not
-  released yet)" and corrected on the release the same hour, with the owner's yes; copies that
-  saw it first keep it until the next release. Recorded in mdview's `docs/HANDOFF.md`.
-- The shared crates are not released; the apps pin them by commit.
-- **Hub**, the launcher and updater, is built as its own app (`Kaan88/mdhub`, `Desktop\hub`; its
-  `docs/STATE.md` is its record; 0.1.0 notes written, no tag).
+  `?closed`, a version resource and `hub.txt` (mdview `docs/HANDOFF.md`).
+- The shared crates are not released; the apps pin them by commit. **Hub** is its own app
+  (`Kaan88/mdhub`, `Desktop\hub`; its `docs/STATE.md` is its record; 0.1.0 notes written, no tag).
 
 ## On `main`, not released
 
-- **A file added to the notes library shows in the pane's tree at once** (branch
-  `fix/library-add-refresh`, merged): the note and its line were written, but the pane's rows were
-  made again only when a group or a section was folded and opened, so the add looked lost. The rows
-  are made again as it is written, with what was folded above the note opened, and a name being
-  typed in the pane's box goes with them, its keyboard back in the text.
-- **Browsing the library in the full preview** (visual editing, branch `fix/preview-browse`,
-  merged, D-104): a tab still being read no longer ends the mode; `visual_sync` waits for it.
-- **The question before deleting a library file says where the notes go** (branch
-  `fix/delete-library-notice`, merged, D-103): it said only that the file goes, though the notes it
-  lists stay on disk with nothing listing them; a file that lists none no longer gets that second
-  sentence. Its card was a fixed 460x196, and a long group or file name wrapped a fourth line
-  through the divider into the buttons; the card now grows from the lines the words wrap to (shots
-  `library-delete`, `library-delete-long`; the owner has not looked at them).
-- **A closed mdview is asked about again** (branch `fix/closed-mdview`, merged, D-102 and D-105): after
-  1, 2 and 4 s; a check refused while a link is still in its grace is kept and made once when the
-  grace ends; a key press or a click asks at most once in two seconds, answered once and starting
-  no rechecks. Not tried by the owner; keystroke and idle times not measured (the app was not run).
-- **Phase 4a, "Add a folder to the library."** (`f/p4a`, merged): a folder the owner picks becomes
-  a group of links to its `.md`, `.markdown` and `.txt` files under their subfolders' headings
-  three deep, written in one library file; nothing of theirs is copied, moved or renamed (D-131 to
-  D-133, `docs/DESIGN.md` 81). The owner has not looked at its shots (`import-folder*`).
-- **Phase 5, a Markdown note from a text file** (`f/p5`, merged, shared pinned at `0984eed`): the
-  note card and its write, `docs/DESIGN.md` and the plan's 5.8; the owner has not looked at it.
+- **A file added to the library shows in the pane at once** (`fix/library-add-refresh`): its rows
+  were made again only when a group or section was folded; now as it is written.
+- **Browsing the library in the full preview** (`fix/preview-browse`, D-104): a tab still being
+  read no longer ends the mode; `visual_sync` waits for it.
+- **The delete-a-library-file question says where the notes go** (`fix/delete-library-notice`,
+  D-103), and its card grows from its wrapped lines (shots `library-delete`,
+  `library-delete-long`; not looked at by the owner).
+- **A closed mdview is asked about again** (`fix/closed-mdview`, D-102, D-105): at 1, 2 and 4 s,
+  with a refused check kept to its grace's end and a key or click asking at most once in two
+  seconds. Not tried by the owner; keystroke and idle times not measured (not run).
 - Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review
   (audit 3's fixes included).
 
 ## In hand
 
 - **Phase 4, "Sort a folder by AI."** (`ai-library-plan.md` 5.7's second half, on 4a's card):
-  built and tested on `f/p4`, worktree `md-wt\p4`, not merged. **Ask the AI** returns a scheme of
-  at most 8 sections with subsections, which the owner can add to, rename and delete; **Sort N
-  files** asks for a section, a confidence and a reason per file, 40 files a request, up to the
-  connection's "Requests at once" (3, or 1 for a local model), 500 files a run. The card marks
-  unsure and unplaced files **Unsorted** and unticked, offers **Tick only the sure ones** (0.6),
-  and never writes until Add (D-134 to D-138, `docs/DESIGN.md` 82). The shots (`import-folder*`,
-  both themes) were looked at on Windows and the budgets measured against `main` at `4c95da0`
-  (`docs/measurements/2026-11-23-phase-4-ai-sort.md`; exe +38,912 bytes, no figure moved beyond the
-  runs' ranges); it waits for the owner's look and word to merge.
-- **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-107): **merged from
-  `f/review-hunks`, not tagged; the owner has not looked at its shots.** A tick per change, Apply and Copy result of the
-  ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the
-  AFTER page shows the ticked changes). Built, tested (`cargo test --release --workspace` green),
-  fmt and clippy clean, the shots (`review-*`, both themes, `review-closed` new) looked at on
-  Windows, the budgets measured (5 runs against `main` at `32d6fe6`: no change beyond the runs'
-  ranges). Docs: `docs/DESIGN.md` 79, `docs/DECISIONS.md` D-106, D-107, D-108 and
-  `docs/measurements/2026-11-23-review-hunks.md`. **Not built: the tinted, level preview
-  (D-108)**: it needs a request in the viewer's preview protocol (the page rows of every
-  top-level block) and a move of its pin, which waits for the owner. Not looked at by the owner
-  yet (rule 6).
-- **Phase DD, dragging a note in the notes pane** (D-130, `docs/DESIGN.md` 80): merged from `f/pdd`,
-  not tagged; the owner has not looked at its shots (`library-drag`). A note dropped on a group or a
+  built and tested on `f/p4`, worktree `md-wt\p4`, not merged (D-150 to D-154, `DESIGN.md` 84).
+  **Ask the AI** returns a scheme of at most 8 sections with subsections, which the owner can add
+  to, rename and delete; **Sort N files** asks for a section, a confidence and a reason per file,
+  40 files a request, up to the connection's "Requests at once" (3, or 1 for a local model), 500
+  files a run. Unsure and unplaced files land in **Unsorted**, unticked; **Tick only the sure
+  ones** keeps the 0.6 and over; nothing is written until Add. Shots (`import-folder-scheme`,
+  `-scheme-rename`, `-ai`, `-ai-sorting`, `-ai-asking`, `-ai-off`, `-ai-failed`, `-unsorted`, both
+  themes) looked at on Windows; budgets measured against `main` at `4c95da0`
+  (`docs/measurements/2026-11-23-phase-4-ai-sort.md`: exe +38,912 bytes, no figure beyond the
+  runs' ranges). It waits for the owner's look and word to merge.
+- **Phase W**, the AI task window over files (`5.6`, D-074, D-076, D-140 to D-145): merged from
+  `f/pw`, not tagged; the owner has not looked at its shots. File them, Split them and Rewrite
+  them; a rewrite is R2's review over the file, applied in place with its original in the run's
+  record and undo in AI runs. Budgets measured (`docs/measurements/2026-11-23-task-window.md`):
+  no change beyond the runs' ranges; shots `task-*` (both themes, `task-sent` in light) looked at;
+  docs 83.
+- **Phase 5.8**, a Markdown note from a text file (`5.8`, D-120): merged from `f/p5` - card,
+  write, record, undo, 14 tests, 11 shots, budgets measured
+  (`docs/measurements/2026-11-23-note-card.md`); pins on shared `main` (`0984eed`); a Rewrite
+  record is listed as a Rewrite (D-145 lifts D-134's guard); the owner has not looked at its shots.
+- **Phase 4a, "Add a folder to the library…"** (`5.7`, without the AI): merged from `f/p4a`. A
+  folder becomes a group of links to its `.md`, `.markdown` and `.txt` files under their
+  subfolders' headings three deep, in one library file; nothing is copied, moved or renamed
+  (D-131 to D-133, `DESIGN.md` 81). The owner has not looked at its shots (`import-folder*`).
+  Budgets: nothing on the launch path, no new dependency, figures inside both builds' ranges
+  (`docs/measurements/2026-11-23-phase-4a.md`); exe +97 KB.
+- **Phase R2**, the review with ticks (`5.5`, D-107): merged from `f/review-hunks`, not tagged;
+  the owner has not looked at its shots. A tick per change, Apply and Copy result of the ticked
+  ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (AFTER page).
+  Built, tested, fmt and clippy clean, shots (`review-*`, both themes, `review-closed` new) looked
+  at, budgets measured (5 runs against `main` at `32d6fe6`: no change beyond the runs' ranges).
+  Docs: `DESIGN.md` 79, D-106 to D-108, `docs/measurements/2026-11-23-review-hunks.md`. **Not
+  built: the tinted, level preview (D-108)**: it needs a request in the viewer's preview protocol
+  (the page rows of every top-level block) and a move of its pin, which waits for the owner.
+- **Phase DD, dragging a note in the notes pane** (D-130, `DESIGN.md` 80): merged from `f/pdd`,
+  not tagged; the owner has not looked at its shots (`library-drag`). A note dropped on a group or
   section is moved there by the "Move to…" write; notes only. Not built, waiting for the owner:
-  dragging a group or section row, and files dropped from the file manager (winit discards the drop
-  point on Windows).
+  dragging a group or section row, and files dropped from the file manager (winit discards the
+  drop point on Windows).
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
 
 ## Waiting for the owner
 
-- **`docs/ai-library-plan.md`** section 8, in order after R2: W, V, phase 4 (built on `f/p4`,
-  waiting for the owner's look), drag and drop. 4a and 5 are on `main`. Open: the resizer for
-  phase V, a new crate to be priced first (rule 7).
+- **`docs/ai-library-plan.md`** section 8, in order after R2: V, phase 4 (built on `f/p4`, waiting
+  for the owner's look), drag and drop. W, 4a and 5 are merged. Open: the resizer for phase V, a
+  new crate to be priced first (rule 7).
 - **The apps that may join**: `docs/ideas/README.md` lists each plan and drawing (terminal, file
   manager, task manager, downloader, workbench, and the quickest first release).
 - **Dependabot**: open PRs (mdedit #9 regex-automata; mdview #2 to #6; shared #2 to #7) and a
   `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Left until
   after the release; it is after it now.
-- The notes library has been used in a real build and its two faults fixed, but it is not
-  recorded anywhere as approved.
+- The notes library has been used in a real build and its two faults fixed, but it is not recorded
+  anywhere as approved.
 
 ## Next
 
-1. The owner's four faults from the hand check (D-101), for the next release: the add, browsing
-   the library in the full preview, the delete notice and the closed mdview are all merged; the
-   closed mdview is still to be tried by the owner (first: whether it is missed with mdview 1.0.5
-   too).
+1. The owner's four faults from the hand check (D-101), for the next release: the add, the full
+   preview, the delete notice and the closed mdview are merged; the closed mdview is still to be
+   tried (first: whether it is missed with mdview 1.0.5 too).
 2. Then the owner's look at R2's shots (and whether to add the viewer's page rows for the tinted
    preview, D-108), then section 8's order. M1, M2 in mdview; D after R2.
 3. Phase 4's shots (`import-folder*`, including the scheme, the sorting, the AI-off and the
-   unsorted cards) for the owner's look, then merging `f/p4`; then 4a's and 5's shots.
+   unsorted cards) for the owner's look, then merging `f/p4`; then 4a's and 5's shots
+   (`import-folder*`, `note-*`).
 
 ## Known to be wrong on `main`
 
-- **The AI review has no scrollbar and cuts long lines.** Fixed on `f/review-hunks` by R2 (the
-  list wraps and has the scrollbar), not merged.
-- **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
-  leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
-  mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold. D-102 and D-105
-  change this (merged, not yet tried by the owner): three rechecks at
-  1, 2 and 4 s, an ask kept to the end of a link's grace instead of dropped, and an ask on a key
-  press or a click at most once in two seconds. With mdview 1.0.4 and a graceful close the old
-  code already found it in 1 s in a test against the real exe, so the owner's failing case was
-  not reproduced here; a tab closed in a viewer that keeps running cannot be told from 1.0.4 at
-  all.
+- **A closed mdview is still missed** (D-101): closing it by hand leaves "Stop the preview" in
+  mdedit after its window has the focus again (tried with 1.0.4, which sends no `?closed`), so
+  D-097's focus check does not hold. D-102 and D-105 change this (merged, not tried): three
+  rechecks, a check kept to the end of a link's grace, and an ask at most once in two seconds.
+  With 1.0.4 and a graceful close the old code found it in 1 s against the real exe, so the
+  failing case was not reproduced; a tab closed in a viewer that keeps running cannot be told
+  from 1.0.4 at all.
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
-- Opening Settings during an AI review discards the result.
-- The editor never reads the AI engine's version.
+- Opening Settings during an AI review discards the result. The editor never reads the AI
+  engine's version.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
-  keeps every note with nothing listing them and splitting that document again writes nothing
-  (every note reads "already there" and comes unticked). Found by the owner. The question now says
-  the notes it lists are kept on disk (shots `library-delete`, `library-delete-long`); deleting
-  itself is unchanged.
-- A pane the owner opened keeps painting the last page after every tab is closed;
-  `ui.page_selected` is not cleared when the pane closes.
+  keeps every note unlisted and splitting that document again writes nothing (every note reads
+  "already there" and comes unticked). Found by the owner. The question now says the notes are
+  kept on disk; deleting itself is unchanged.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;
   folders emptied in a home outside the library stay.
-- **A debug build still aborts on a closed stderr** (a release build does not): something that
-  runs only in debug prints with `std`'s `eprintln!`. A plain debug `cargo test` fails
-  `closed_stderr`; CI runs release and is unaffected.
-- **Shared CI on Linux:** `pane::tests::names_show_while_they_fit…` measured 230 px on one Linux
-  run and passed on the one before: it depends on the runner's fonts.
+- **A debug build aborts on a closed stderr** (not a release one): something only debug prints
+  with `std`'s `eprintln!`; CI runs release and is unaffected.
+- **Shared CI on Linux:** `pane::tests::names_show_while_they_fit…` measured 230 px on one run and
+  passed on the one before: it depends on the runner's fonts.
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
-- The uninstall entry of an installed copy says the version it was installed at (1.0.6 on the
-  owner's PC); from 1.3.0 an update the app installs itself records the new one (D-098).
 
 ## Known gaps, not planned unless they get in the way
 
@@ -155,18 +140,14 @@ Linux blur, image paste on Linux, the AppImage and packages, the macOS builds, t
 installer, an installed copy updating itself, and `hub.txt` read by Hub from a real release.
 
 ## Pins, branches, worktrees (tidied 2026-11-23)
-
-- Shared crates at `09c67cd` in both apps. Viewer crates at viewer `e2b3e31`; winit `62fa727`,
+- Shared crates at `0984eed` in both apps. Viewer crates at viewer `e2b3e31`; winit `62fa727`,
   softbuffer `dd18fec`.
-- Branches here: `main`; the drawings `mock/ai-review`, `mock/settings`, `mock/terminal`,
-  `mock/downloader`, `mock/workbench` (local only), `mock/launcher`, `mock/file-manager`,
-  `mock/task-manager` (also on GitHub), never to be merged; `archive/doc-reorg-draft` (local:
-  the D-058 rearrangement as drafted); on GitHub, `spike/frosted-window` and `chore/dependabot`.
-  Every merged branch was deleted, here and on GitHub, in all three repos.
-- Kept as found, local, unpushed: the shared repo's `archive/settings-draft-uncommitted`, Hub's
+- Branches: `main` and `f/p4` (phase 4, open); the drawings (`mock/ai-review`, `mock/settings`,
+  `mock/terminal`, `mock/downloader`, `mock/workbench` local only, `mock/launcher`,
+  `mock/file-manager`, `mock/task-manager`), never merged; `archive/doc-reorg-draft`; on GitHub
+  `spike/frosted-window` and `chore/dependabot`. Merged branches are deleted, here and on GitHub.
+- Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main` (`Desktop\markdown-editor-ai`); `md-wt\baseline-main`, `closed-mdview`,
-  `delete-library-notice`, `library-add-refresh`, `preview-browse`, `review-hunks`, `p4a` and
-  `p4a-base` (the base commit, built for 4a's measurement); `hub-wt\app-prs2\mdedit`; and a
-  session's detached scratchpad under `Temp`. The folders three finished sessions still hold
-  under `.claude\worktrees\` are empty.
+- Worktrees: `main`; `md-wt\pw`, `p4`, `ci-fix` and their bases, `spike-v`, `baseline-main`,
+  `p4-mainbase`; `hub-wt\app-prs2\mdedit`. The empty `md-wt\closed-mdview` and `mv-notes` are
+  held by a process; delete them after a restart.

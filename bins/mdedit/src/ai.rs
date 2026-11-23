@@ -276,6 +276,10 @@ pub enum Ask {
     SortScheme,
     /// One filing request of a folder sort by AI, by batch number.
     SortFiles(usize),
+    /// A request of the AI task window over files (5.6).
+    Task,
+    /// A Markdown note from a text file (5.8): the answer goes to the note card.
+    Note,
     /// A model list, under its key in [`Ai::models`].
     Models(String),
     Detect(Connection),
@@ -422,6 +426,23 @@ pub struct Review {
     /// The drag of the list's scrollbar thumb: where in the thumb it was taken.
     pub grab: Option<f32>,
     pub base_dir: Option<PathBuf>,
+    /// A review of a file the AI task window is rewriting, not of an open document (5.6).
+    pub file: Option<FileReview>,
+}
+
+/// What a review over a file rather than a document is: the file Apply writes in place, and the
+/// window's entry it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileReview {
+    pub path: PathBuf,
+    /// The file's place in the task window's files.
+    pub index: usize,
+    /// The original began with a UTF-8 byte order mark.
+    pub bom: bool,
+    /// The file's dominant line ending, which the result is written with.
+    pub eol: String,
+    /// The task window's instruction, for Run again.
+    pub instruction: String,
 }
 
 // One panel is open at a time, kept in an `Option` in `Ai`: boxing the review would only add a
@@ -511,7 +532,10 @@ pub struct Ai {
 
 impl Ai {
     pub fn running(&self) -> bool {
-        self.run.is_some() || self.split.is_some() || self.sort.is_some()
+        self.run.is_some()
+            || self.split.is_some()
+            || self.sort.is_some()
+            || self.pending.values().any(|a| *a == Ask::Note)
     }
 
     /// Sends a request, starting the engine first if needed. On failure the reason.
@@ -575,6 +599,15 @@ impl Ai {
         self.tick += 1;
     }
 
+    /// Stops a task window's request; its answer, if it still comes, is not read.
+    pub fn cancel_task(&mut self, id: u64) {
+        self.pending.remove(&id);
+        if let Some(c) = &self.client {
+            c.send(json!({"op": "cancel", "id": id}));
+        }
+        self.tick += 1;
+    }
+
     /// Stops a split in flight; its answer, if it still comes, is not read.
     pub fn cancel_split(&mut self) {
         if let Some(run) = self.split.take() {
@@ -582,6 +615,15 @@ impl Ai {
             if let Some(c) = &self.client {
                 c.send(json!({"op": "cancel", "id": run.id}));
             }
+        }
+        self.tick += 1;
+    }
+
+    /// Stops the request `id`, whoever it was for: its answer, if it still comes, is not read.
+    pub fn cancel_id(&mut self, id: u64) {
+        self.pending.remove(&id);
+        if let Some(c) = &self.client {
+            c.send(json!({"op": "cancel", "id": id}));
         }
         self.tick += 1;
     }
