@@ -632,7 +632,7 @@ impl App {
 
     // ---- the three tasks ------------------------------------------------------------------------
 
-    fn task_run(&mut self) {
+    pub(super) fn task_run(&mut self) {
         let Some(s) = self.task.as_ref() else { return };
         if s.asking.is_some() {
             return;

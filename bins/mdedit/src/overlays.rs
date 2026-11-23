@@ -180,12 +180,12 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
             .enabled(has_file),
         cmd(
             C::AiTaskFiles,
-            "AI task on your &files…",
+            "AI task on &your files…",
             crate::chrome::SPARKLE,
         ),
         cmd(
             C::AiTaskThisFile,
-            "AI task on &this file…",
+            "AI task on th&is file…",
             crate::chrome::SPARKLE,
         )
         .enabled(has_file),
@@ -910,13 +910,13 @@ pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     );
     items.push(cmd(
         C::AiTaskFiles,
-        "AI task on your &files\u{2026}",
+        "AI task on &your files\u{2026}",
         crate::chrome::SPARKLE,
     ));
     items.push(
         cmd(
             C::AiTaskThisFile,
-            "AI task on &this file\u{2026}",
+            "AI task on th&is file\u{2026}",
             crate::chrome::SPARKLE,
         )
         .enabled(disk_file),

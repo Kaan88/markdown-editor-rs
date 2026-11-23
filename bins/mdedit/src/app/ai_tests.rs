@@ -22,6 +22,10 @@ while IFS= read -r line; do
       printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"I would rather not."}';;
     *'"op":"run"'*SPLITSLOW*)
       ;;
+    *'"op":"run"'*TASKFILE*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"{\"version\":1,\"files\":[{\"id\":0,\"title\":\"Pasta\",\"sections\":[\"Food\",\"Dinner\"]},{\"id\":1,\"with\":0}]}"}';;
+    *'"op":"run"'*TASKBAD*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"I would rather not."}';;
     *'"op":"run"'*FAILPLEASE*)
       echo "{\"ev\":\"error\",\"id\":$id,\"kind\":\"auth\",\"message\":\"Claude API refused the key (401).\"}";;
     *'"op":"run"'*)
