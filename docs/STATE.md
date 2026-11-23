@@ -24,12 +24,14 @@ released. If `git log -1` is newer, doubt "In hand" first.
 ## On `main`, not released
 
 - **A file added to the notes library shows in the pane's tree at once** (branch
-  `fix/library-add-refresh`): the note and its line were written, but the pane's rows were made
-  again only when a group or a section was folded and opened, so the add looked lost. The rows
+  `fix/library-add-refresh`, merged): the note and its line were written, but the pane's rows were
+  made again only when a group or a section was folded and opened, so the add looked lost. The rows
   are made again as it is written, with what was folded above the note opened, and a name being
   typed in the pane's box goes with them, its keyboard back in the text.
-- Nothing else since `v1.3.0` but documents. Nothing since 1.2.0 has had an outside review
-  (audit 3's fixes included).
+- **Browsing the library in the full preview** (visual editing, branch `fix/preview-browse`,
+  merged, D-104): a tab still being read no longer ends the mode; `visual_sync` waits for it.
+  Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an
+  outside review (audit 3's fixes included).
 
 ## In hand
 
@@ -59,11 +61,10 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Next
 
-1. The owner's four faults from the hand check (D-101), for the next release: the add, fixed on
-   `fix/library-add-refresh`; a closed mdview, on `fix/closed-mdview` (first: whether it is
-   missed with mdview 1.0.5 too); the notice before deleting a library file, on
-   `fix/delete-library-notice`; and browsing the library in the full preview, on
-   `fix/preview-browse`.
+1. The owner's four faults from the hand check (D-101), for the next release: the add and browsing
+   the library in the full preview, merged; a closed mdview, on `fix/closed-mdview` (first: whether
+   it is missed with mdview 1.0.5 too); the notice before deleting a library file, on
+   `fix/delete-library-notice`.
 2. Then the owner's look at R2 on `f/review-hunks` (and whether to add the viewer's page rows for
    the tinted preview, D-103), then section 8's order. M1, M2 in mdview; D after R2.
 
@@ -72,9 +73,6 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
   mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
-- Browsing the library in the full preview keeps the preview for two or three files, then falls
-  back to editing.
-
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
@@ -121,5 +119,7 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   Every merged branch was deleted, here and on GitHub, in all three repos.
 - Kept as found, local, unpushed: the shared repo's `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: none but `main`. The folders three finished sessions still hold under
-  `.claude\worktrees\` are empty.
+- Worktrees: `main` (`Desktop\markdown-editor-ai`); `md-wt\baseline-main`, `closed-mdview`,
+  `delete-library-notice`, `library-add-refresh`, `preview-browse` and `review-hunks`;
+  `hub-wt\app-prs2\mdedit`; and a session's detached scratchpad under `Temp`. The folders three
+  finished sessions still hold under `.claude\worktrees\` are empty.
