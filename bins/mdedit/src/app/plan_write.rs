@@ -169,6 +169,7 @@ impl App {
             .then(|| self.plan_recycle(&mut report, &request, &library));
         self.plan = None;
         self.plan_parked = None;
+        self.task_plan_done(true);
         let link_failure = report
             .link_failures
             .first()
@@ -594,42 +595,13 @@ impl App {
             self.docs.set_toast(strings::LIBRARY_NO_FOLDER);
             return;
         };
-        let (mut list, mut unread) = mdedit_core::runs::list_all(&library);
-        // A record a later version wrote — a file rewritten in place, `Kind::Rewrite` (D-074),
-        // which this build has no words for and cannot show or undo — is listed the way the
-        // records this build cannot read are: named a later version's, with nothing enabled.
-        let mut i = 0;
-        while i < list.len() {
-            if list[i].record.kind == mdedit_core::runs::Kind::Rewrite {
-                let run = list.remove(i);
-                unread.push(mdedit_core::runs::Unread {
-                    started: run.record.started.clone(),
-                    path: run.path,
-                    newer: true,
-                });
-            } else {
-                i += 1;
-            }
-        }
+        let (list, mut unread) = mdedit_core::runs::list_all(&library);
         unread.sort_by(|a, b| b.started.cmp(&a.started).then_with(|| a.path.cmp(&b.path)));
         (self.ui.runs.list, self.ui.runs.unread) = (list, unread);
         self.ui.runs.sel = 0;
         self.ui.runs.undo = None;
         self.open_dialog(DialogKind::Runs);
         self.redraw();
-    }
-
-    /// Refuses a record a later version wrote — a file rewritten in place, `Kind::Rewrite`
-    /// (D-074), which this build has no words for and cannot show or undo. Says so; true when
-    /// it refused.
-    fn run_later(&mut self, record: &runs::Record) -> bool {
-        if record.kind != runs::Kind::Rewrite {
-            return false;
-        }
-        self.docs.set_toast(
-            "That record was written by a newer version of mdedit. It is left as it is.",
-        );
-        true
     }
 
     /// "Finish" on a run that stopped before its links were written.
@@ -642,9 +614,6 @@ impl App {
                 .set_toast("The record of that run cannot be read.");
             return;
         };
-        if self.run_later(&record) {
-            return;
-        }
         let mut gate = PlanGate {
             app: self,
             library: library.clone(),
@@ -845,9 +814,6 @@ impl App {
             return;
         };
         self.ui.runs.bin = false;
-        if self.run_later(&record) {
-            return;
-        }
         // A move is undone by its own machine (`moves::undo`), under the same gate.
         if record.kind == runs::Kind::Move {
             return self.move_undo_ask(path, &record, &library);
@@ -896,9 +862,6 @@ impl App {
         let Some(record) = runs::load(&path, &library) else {
             return;
         };
-        if self.run_later(&record) {
-            return;
-        }
         if record.kind == runs::Kind::Move {
             return self.move_undo(path, &record, &library);
         }
@@ -940,11 +903,21 @@ impl App {
         let Some(record) = runs::load(record_path, &library) else {
             return;
         };
-        if self.run_later(&record) {
-            return;
-        }
         if record.kind == runs::Kind::Move {
             return self.move_show(&record);
+        }
+        if record.kind == runs::Kind::Rewrite {
+            // A rewrite has no notes: its record names the files it wrote, and the first that is
+            // still there opens in a tab.
+            let Some(first) = record.originals.iter().find(|o| o.path.is_file()) else {
+                self.docs.set_toast("None of that run's files is there.");
+                return;
+            };
+            let path = first.path.clone();
+            self.ui.dialog = None;
+            self.open(&path);
+            self.redraw();
+            return;
         }
         let Some(note) = record.notes.iter().find(|n| n.path.is_file()) else {
             self.docs.set_toast("None of that run's notes is there.");

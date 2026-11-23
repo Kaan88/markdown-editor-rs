@@ -179,6 +179,17 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
         cmd(C::SplitIntoNotes, "Spli&t into notes…", glyph::SPLIT)
             .sep()
             .enabled(has_file),
+        cmd(
+            C::AiTaskFiles,
+            "AI task on &your files…",
+            crate::chrome::SPARKLE,
+        ),
+        cmd(
+            C::AiTaskThisFile,
+            "AI task on th&is file…",
+            crate::chrome::SPARKLE,
+        )
+        .enabled(has_file),
         cmd(C::AiRuns, "AI &runs…", glyph::MACRO),
     ];
     Menu::new(items, x, y, align_right).access_keys(true)
@@ -872,6 +883,7 @@ fn split_ok(docs: &Docs) -> bool {
 /// The ai menu: the built-in requests, the saved ones, the settings, and what a run left behind.
 pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let idle = docs.active_ready().is_some() && docs.ai_status.is_none();
+    let disk_file = docs.active_doc().is_some_and(|d| d.path.is_some());
     let mut items = vec![
         cmd(C::AiFormat, "&Format as Markdown", crate::chrome::SPARKLE).enabled(idle),
         cmd(C::AiFix, "Fi&x Markdown", crate::chrome::SPARKLE).enabled(idle),
@@ -902,6 +914,19 @@ pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     items.push(cmd(C::AiEditPrompts, "&Edit saved prompts", glyph::DOC).sep());
     items.push(
         cmd(C::SplitIntoNotes, "Spli&t into notes\u{2026}", glyph::SPLIT).enabled(split_ok(docs)),
+    );
+    items.push(cmd(
+        C::AiTaskFiles,
+        "AI task on &your files\u{2026}",
+        crate::chrome::SPARKLE,
+    ));
+    items.push(
+        cmd(
+            C::AiTaskThisFile,
+            "AI task on th&is file\u{2026}",
+            crate::chrome::SPARKLE,
+        )
+        .enabled(disk_file),
     );
     items.push(cmd(C::AiRuns, "AI runs\u{2026}", glyph::MACRO));
     if docs.ai_status.is_some() {
@@ -1482,14 +1507,15 @@ pub fn draw_dialog(
                 let first = match run.record.kind {
                     // "Move · the notes of Work into their folder · 5 files".
                     mdedit_core::runs::Kind::Move => mdedit_core::moves::headline(&run.record),
-                    // A file rewritten in place (phase W) is a later version's record: this
-                    // build does not write it and will not undo it, and says so.
+                    // A file rewritten in place (phase W): the files it wrote, and how many.
                     mdedit_core::runs::Kind::Rewrite => format!(
-                        "Written by a newer version of mdedit \u{00B7} {}",
-                        run.path
-                            .file_name()
-                            .map(|s| s.to_string_lossy().into_owned())
-                            .unwrap_or_default()
+                        "Rewrite \u{00B7} {} \u{00B7} {}",
+                        run.record.source_name(),
+                        if run.record.originals.len() == 1 {
+                            "1 file".to_string()
+                        } else {
+                            format!("{} files", run.record.originals.len())
+                        }
                     ),
                     kind => {
                         let word = match kind {

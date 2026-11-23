@@ -33,6 +33,17 @@ shows.)
   everything under it, and a folder that is too large, the library itself, or one with nothing to
   add is refused with the reason on the card.
 
+- **An AI task window over files.** "AI task on your files…" in the AI and Library menus and the
+  command palette opens one window over files you add or drop on it, and opens none of them in a
+  tab. **File them** asks the AI where each belongs and shows a plan of titles and sections before
+  anything is written; **Split them** opens each file's plan card in turn; **Rewrite them** sends
+  one file at a time, shows the review with a tick per change, and **Apply** rewrites the file in
+  place — its original is kept in the run's record, so "AI runs…" can bring it back. A picture's
+  bytes are never read (its name is linked), a PDF or Word file is linked by name for File them and
+  left out, with the reason on its row, for the other two. "Show what is sent" puts the exact text
+  of every request in a read-only tab before anything is sent. With the AI off, File them and
+  Split them still work; Rewrite them says the connection is off and offers Settings.
+
 ## Fixed
 
 - **The review of a rewrite has a scrollbar and no longer cuts long lines.** A long review scrolls by its scrollbar, by dragging it or by clicking its track, and a line longer than the window now wraps inside its column instead of being cut off.

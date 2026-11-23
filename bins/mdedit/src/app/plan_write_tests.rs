@@ -979,33 +979,38 @@ fn ai_runs_lists_the_library_folders_records_before_the_library_was_read() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A record of a kind this build does not write — a file rewritten in place (`Kind::Rewrite`,
-/// phase W, D-074) — is listed with the newer-version records, with nothing to press, and undo
-/// leaves it alone and says why.
+/// A record of a kind this build does not write - a word from a later version - is listed with
+/// the newer-version records, with nothing to press, and nothing in it is shown or undone.
 #[test]
 fn a_record_of_a_kind_this_build_does_not_write_is_listed_as_a_newer_versions() {
-    let (mut a, library, record_path, dir) = written("plan-rewrite-record", SECTIONED);
-    let mut record = mdedit_core::runs::load(&record_path, &library).expect("the record");
-    record.kind = mdedit_core::runs::Kind::Rewrite;
-    record.originals.clear();
-    let path = record.create(&library).expect("a rewrite record");
-    // The split's own record is still there and is listed; the rewrite one is not.
-    assert_eq!(mdedit_core::runs::list(&library).len(), 2);
+    let (mut a, library, record_path, dir) = written("plan-future-record", SECTIONED);
+    let record = mdedit_core::runs::load(&record_path, &library).expect("the record");
+    // A kind word no build knows, written into a record's own JSON. `Kind::Rewrite` no longer
+    // stands for this: phase W writes it, so it is read, shown and undone here (D-145).
+    let text = record
+        .to_json(&library)
+        .replace("\"kind\": \"split\"", "\"kind\": \"from-a-later-version\"");
+    assert!(text.contains("from-a-later-version"), "{text}");
+    let path = library
+        .join(".runs")
+        .join("2099-01-01T00-00-00Z-future.json");
+    std::fs::write(&path, &text).expect("the future record");
+    // The split's own record is still there and is listed; the unknown kind is not.
+    assert_eq!(mdedit_core::runs::list(&library).len(), 1);
     a.open_runs();
     assert_eq!(a.ui.runs.list.len(), 1, "only the split can be undone here");
     assert!(
         a.ui.runs.unread.iter().any(|u| u.newer && u.path == path),
-        "the rewrite record is listed as a later version's"
+        "the unknown record is listed as a later version's"
     );
-    // And undo refuses it, leaving the record alone.
+    // And nothing in it is acted on: this build cannot read it, so there is no question and the
+    // file is left as it is.
+    assert!(
+        mdedit_core::runs::load(&path, &library).is_none(),
+        "a kind this build does not write is not a record it can use"
+    );
     a.run_undo_ask(path.clone());
     assert!(a.ui.runs.undo.is_none(), "there is no undo question");
-    let why = a
-        .docs
-        .toast(Instant::now())
-        .map(str::to_string)
-        .unwrap_or_default();
-    assert!(why.contains("newer version"), "{why}");
     assert!(path.is_file(), "the record is left as it is");
     let _ = std::fs::remove_dir_all(&dir);
 }
