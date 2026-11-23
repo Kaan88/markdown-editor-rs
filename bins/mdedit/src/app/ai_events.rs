@@ -1443,7 +1443,8 @@ impl App {
             | "review-partial"
             | "review-nothing"
             | "review-long"
-            | "review-preview-partial" => {
+            | "review-preview-partial"
+            | "review-closed" => {
                 let path = self
                     .docs
                     .index_of_id(scope.doc)
@@ -1460,6 +1461,11 @@ impl App {
                 self.docs.prefs.ai_review = true;
                 self.docs.prefs.ai_review_preview = kind == "review-preview-partial";
                 self.ai_finish(run, &after);
+                if kind == "review-closed"
+                    && let Some(rv) = self.ai.review()
+                {
+                    rv.blocked = Some(core_ai::BLOCKED_CLOSED.into());
+                }
                 if let Some(rv) = self.ai.review() {
                     // The change the keys are on: far down a long list; the one with a long
                     // line, to show it wrapped; or the third.

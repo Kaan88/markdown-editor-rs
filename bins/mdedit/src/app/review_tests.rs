@@ -153,6 +153,14 @@ fn the_last_change_of_a_400_line_file_is_reached_by_f7() {
 fn the_last_change_is_reached_by_dragging_the_scrollbar() {
     let (old, new) = long();
     let (mut a, dir) = reviewing("rv-drag", &old, &new, "review-long");
+    // From the first change, so that it is the drag that moves it, not where the demo left it.
+    a.ai_review_action(AiHit::Mark(0));
+    a.compose();
+    let before = rv(&mut a).list.scroll;
+    assert!(
+        before < rv(&mut a).list.max_scroll(),
+        "room to scroll before the drag"
+    );
     let (track, thumb) = {
         let r = rv(&mut a);
         crate::hunks_ui::bar(r.list.area, &r.list).expect("a scrollbar: the list is long")
@@ -272,6 +280,26 @@ fn copy_result_copies_what_apply_would_put_in() {
     // Changes 0 and 2 (B, H) are not taken; 1 and 3 (E, K) are.
     assert_eq!(copied, "a\nb\nc\nd\nE\nf\ng\nh\ni\nj\nK\nl\n");
     assert!(a.ai.panel.is_none(), "closed once copied, as before");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_review_of_a_closed_document_copies_what_is_ticked() {
+    let (mut a, dir) = reviewing("rv-blocked", OLD, NEW, "review-hunks");
+    tick(&mut a, 0);
+    tick(&mut a, 2);
+    let i = a.docs.active().unwrap();
+    a.docs.close(i, None);
+    a.compose();
+    // It keeps its list and its ticks, and refuses to apply.
+    assert!(rv(&mut a).blocked.is_some());
+    assert_eq!(rv(&mut a).hunks.ticked(), 2);
+    assert!(!a.ai.hits.iter().any(|(h, _)| *h == AiHit::Apply));
+    a.ai_review_action(AiHit::Copy);
+    assert_eq!(
+        COPIED.with(|c| c.borrow().clone()),
+        "a\nb\nc\nd\nE\nf\ng\nh\ni\nj\nK\nl\n"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

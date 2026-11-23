@@ -219,7 +219,8 @@ shot settings-min-scale2 --light --size 520x360 --scale 2 --dialog settings --se
 # one, a long line wrapped), some not ticked (dimmed, "not taken"), none ticked (Apply says so
 # and cannot be pressed), the preview with some not ticked (the AFTER page shows only the ticked
 # changes), and a 400-line file with twenty-eight changes, scrolled to the eighteenth, its scrollbar
-# showing. The long file and its rewrite are made once under target/data.
+# showing, and a review whose document was closed (the banner, Copy result only). The long file and
+# its rewrite are made once under target/data.
 if [ ! -f "$data/review-long-after.md" ]; then
     "$py" - "$data" <<'EOF'
 import sys
@@ -246,6 +247,7 @@ for t in "" "-dark"; do
     shot "review-nothing$t" $th --size 1280x800 --ai-demo review-nothing "$fx/review-demo.md"
     shot "review-long$t" $th --size 1280x800 --ai-demo review-long "$data/review-long.md"
     shot "review-preview-partial$t" $th --size 1280x800 --ai-demo review-preview-partial "$fx/review-demo.md"
+    shot "review-closed$t" $th --size 1280x800 --ai-demo review-closed "$fx/review-demo.md"
 done
 shot review-min --light --size 800x560 --ai-demo review-partial "$fx/review-demo.md"
 shot pref-tab8 --light --pref tab_width=8 "$fx/tabs-controls.txt"

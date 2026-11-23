@@ -2960,14 +2960,18 @@ changes nothing; F7, Shift+F7 and Space; the last change of a 400-line file by F
 the scrollbar, and a press on the track; a 300 character line is in rows that hold all of it; an
 unticked change's tint is not the ticked one's, and comes back; Copy result copies the composed
 text; the strip's marks and the arrows; the preview's page is made again once, 150 ms after the
-last tick.
+last tick; a closed document's review keeps its list and ticks, offers no Apply and copies what is
+ticked.
 
 **Shots** (`tests/shots.sh`, both themes unless said): `review-hunks` (all ticked, the change with
 the long line current, the line wrapped), `review-partial` (changes 2, 4, 5 and 7 unticked, dimmed),
 `review-nothing` (none ticked: the disabled button), `review-long` (400 lines, twenty-eight
 changes, scrolled to the eighteenth, the scrollbar showing; made under `target/data`),
-`review-preview-partial` (the preview with some unticked), and `review-min` (800x560, light).
-`--ai-demo review-hunks|review-partial|review-nothing|review-long|review-preview-partial` rewrite
-the open document with the file `<name>-after.md` beside it (`fixtures/review-demo-after.md`).
+`review-preview-partial` (the preview with some unticked), `review-closed` (the document closed:
+the warning banner, Copy result only, and no Run again) and `review-min` (800x560, light: the
+strip is left out where it does not fit).
+`--ai-demo review-hunks|review-partial|review-nothing|review-long|review-preview-partial|review-closed`
+rewrite the open document with the file `<name>-after.md` beside it
+(`fixtures/review-demo-after.md`).
 
 **Fixed with it.** "The AI review has no scrollbar and cuts long lines".

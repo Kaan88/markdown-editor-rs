@@ -1100,3 +1100,21 @@ than guessing a language from the path, and a failed read is no text to show.
 **Overturned by.** The owner; or a preview that can show a document whose language is not yet
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
+
+## D-105 · 2026-11-23 · The review takes whole changes as the comparison made them
+
+**Decision.** A tick takes a whole change of `diff::diff`, the comparison Compare uses; the review
+does not re-cut the comparison's boundaries to look tidier. A line that appears on both sides can
+therefore end up twice when the comparison pairs it with its neighbours: in
+`fixtures/review-demo.md` the comparison ends the install paragraphs with a new "## Usage" and then
+replaces the old "## Usage" with the two lines after it, so unticking the second of those two
+changes (the `review-preview-partial` demo) shows "## Usage" twice in the AFTER page. Apply puts in
+exactly what the list shows, and Ctrl+Z takes it back.
+**Why.** D-102 keeps the comparison the user can check in Compare, and the plan's 5.5 ticks its
+changes. A boundary pass (sliding each change while the line at its edge is equal on both sides)
+would tidy this case but is a new behaviour for every text, with its own edge cases, and the owner,
+who has not used the review yet, has not asked for it.
+**What would change it.** The owner, after using it; then the pass belongs in `hunks::Hunks` alone
+(never in `diff`, which Compare draws), with a test per case it re-cuts.
+**Overturned by.** The owner.
+**From.** Claude, finishing R2, 2026-11-23; seen in the `review-preview-partial` shot.
