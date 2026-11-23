@@ -4,6 +4,15 @@ A file added to the notes library shows in the pane's tree at once.
 version is chosen it is renamed `<version>.md`, and its first line above is the one the update bar
 shows.)
 
+## New
+
+- **Drag a note to another heading.** In the notes pane, drag a note row onto a group or a
+  section and it is moved there - its line in the library file, the same write "Move to…" makes,
+  so an open library file with changes not saved refuses it. The heading it would go into is
+  marked while you drag, the note is shown set aside with its name at the pointer, a plain click
+  still opens it, `Esc` puts it back, and holding it at the pane's edge scrolls the list. Notes
+  only; no file of yours is copied, moved or deleted.
+
 ## Fixed
 
 - **A file added to the notes library shows in the pane's tree at once.** "Add this file to the

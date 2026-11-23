@@ -291,8 +291,8 @@ impl LibraryPane {
         (!same_place(&from, &to)).then_some(at)
     }
 
-    /// The group or section a file dropped at `y` is added under: the row under the pointer, or
-    /// the heading the note under it is written in. `None` when the pointer is not on the list.
+    /// The group or section a drop at `y` goes into: the row under the pointer, or the heading
+    /// the note under it is written in. `None` when the pointer is not on a row of the list.
     pub fn drop_place(&self, y: f32, area: Rect) -> Option<usize> {
         let mut at = self.row_at(y, area)?;
         while matches!(self.rows.get(at)?.kind, Kind::Note { .. }) {

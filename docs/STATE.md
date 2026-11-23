@@ -35,6 +35,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
+- **Phase DD, dragging a note in the notes pane** (D-130): built on branch `f/pdd`, not merged.
+  A note dropped on a group or a section is moved there by the "Move to…" write; notes only.
 - **Phase R2**, the review with ticks and the tinted, level preview (`ai-library-plan.md` 5.5,
   D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
   of it exists.

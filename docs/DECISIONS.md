@@ -1065,3 +1065,26 @@ than guessing a language from the path, and a failed read is no text to show.
 **Overturned by.** The owner; or a preview that can show a document whose language is not yet
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
+
+## D-130 · 2026-11-23 · A dragged note moves its line, and only its line
+
+**Decision.** In the notes pane, a note row dragged onto a group row or a section row is moved
+there: its line is taken out of its library file and written under the heading it was dropped on,
+by the writer "Move to…" already uses. Nothing else is dragged - not a group (a library file whose
+order is its file name) and not a section (a block of lines, and a cross-file rewrite) - and no
+file of the owner's is copied, moved, renamed or deleted. A plain click still opens the note;
+Esc abandons a drag; a hold at the pane's edge scrolls the list. A file dropped from the file
+manager is not taken by the pane: winit's Windows drop handler receives the drop point and
+discards it (drop_handler.rs, _pt), so the window cannot know which heading was under the
+pointer, and a guess would file the owner's file in the wrong place. Implements D-082 with this
+scope.
+
+**Why.** The design of record for drag and drop (the redesign's 3.4, archived) says "notes only,
+never sections", and the library's rule is that the pane writes lines, never files. A drag is the
+mouse path to what "Move to…" already does from the keyboard, so it adds no new kind of write.
+
+**Overturned by.** The owner saying what a group or a section dropped on another group should do,
+or wanting files from Explorer added to the library (which needs the drop point read from the
+platform, not winit).
+
+**From.** D-082; the archived redesign 3.4; phase DD built 2026-11-23.
