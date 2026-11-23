@@ -2498,12 +2498,20 @@ impl App {
         }
         if let Some(due) = self.ui.autoscroll_due {
             if now >= due {
-                self.autoscroll();
-                self.ui.autoscroll_due = matches!(
-                    self.ui.drag,
-                    Some(Drag::Select { .. } | Drag::Column { .. })
-                )
-                .then(|| now + AUTOSCROLL_TICK);
+                if let Some(Drag::LibraryNote {
+                    row, moving: true, ..
+                }) = self.ui.drag
+                {
+                    // A note held at the pane's edge: the list moves under it.
+                    self.library_drag_scroll(row);
+                } else {
+                    self.autoscroll();
+                    self.ui.autoscroll_due = matches!(
+                        self.ui.drag,
+                        Some(Drag::Select { .. } | Drag::Column { .. })
+                    )
+                    .then(|| now + AUTOSCROLL_TICK);
+                }
             }
             if let Some(d) = self.ui.autoscroll_due {
                 at(d);

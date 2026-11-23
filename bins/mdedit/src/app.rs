@@ -83,6 +83,9 @@ mod input;
 #[cfg(test)]
 mod language_tests;
 mod library;
+mod library_drag;
+#[cfg(test)]
+mod library_drag_tests;
 #[cfg(test)]
 mod library_keys_tests;
 #[cfg(test)]
@@ -1013,6 +1016,20 @@ impl App {
                             ..
                         })
                 );
+                // A note being dragged: its row, the heading it would go into, and where the
+                // pointer is, because the chip is drawn at it and no row changes as it moves.
+                let note_drag = match ui.drag {
+                    Some(Drag::LibraryNote { row, x, y, moving }) => Some((
+                        row,
+                        moving,
+                        ui.library.drop,
+                        x.to_bits(),
+                        y.to_bits(),
+                        ui.mouse.0.to_bits(),
+                        ui.mouse.1.to_bits(),
+                    )),
+                    _ => None,
+                };
                 let rows: Vec<(u16, &str, Option<&str>)> = ui
                     .library
                     .rows
@@ -1037,6 +1054,7 @@ impl App {
                     ui.library.scroll.to_bits(),
                     ui.library.rows.len(),
                     drag,
+                    note_drag,
                     name,
                     (ui.library.cur, ui.library.focused),
                     // The "Plan ready" row at the foot: its count, and whether a plan is kept.
@@ -3557,6 +3575,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
     }
     if let Some(kind) = app.args.move_demo.clone() {
         app.move_demo(&kind);
+    }
+    if let Some(kind) = app.args.library_demo.clone() {
+        app.library_demo(&kind);
     }
     // A plan a demonstration opened, ticked and left: the Notes pane's "Plan ready" row (5.3).
     if app.args.plan_parked && app.plan_is_open() {

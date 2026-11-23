@@ -375,6 +375,11 @@ impl App {
     /// list of names and stamps; a read it finds worth starting runs on a thread, so a save in
     /// another window no longer stalls the event loop for the whole library's read.
     pub(super) fn library_tick(&mut self, now: Instant) {
+        // Rows must not move under a held note: the drag's row and its target are indices into
+        // them, so a re-read waits until the button is up.
+        if matches!(self.ui.drag, Some(Drag::LibraryNote { moving: true, .. })) {
+            return;
+        }
         // A finished read is taken first, whatever else this pass does.
         self.library_read_take();
         if !(self.ui.panes.files && self.ui.library.on) || !self.ui.library.due(now) {
