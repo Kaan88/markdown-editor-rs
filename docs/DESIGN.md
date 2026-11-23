@@ -2993,3 +2993,67 @@ rewrite the open document with the file `<name>-after.md` beside it
 (`fixtures/review-demo-after.md`).
 
 **Fixed with it.** "The AI review has no scrollbar and cuts long lines".
+
+## 80. Dragging a note in the library (2026-11-23, phase DD)
+
+**What it does, and what it does not.** A note row of the Notes pane can be dragged onto a group
+row or a section row; its line leaves the library file it was in and is written under the heading
+it was dropped on (D-130). That is the write the row menu's "Move to…" already makes
+(`app/library_write.rs`, `library_move`): the destination file is written first, the source line
+is taken out second, both only when neither is open with unsaved changes, and each write reads the
+file again and checks it reads back as the old notes plus the change. The note's file is never
+copied, moved, renamed or deleted, and nothing outside the library files is written. No other row
+starts a drag: a group is a library file whose order is its file name, and a section is a block of
+lines that would be a cross-file rewrite; the design of record for drag and drop says "notes
+only", and what those two should do is the owner's to say. Files dropped from File Explorer are
+not taken by the pane either: winit's Windows drop handler is given the drop point and throws it
+away, so the window knows a file arrived but not which row it fell on (D-130).
+
+**Where the state is.** `Drag::LibraryNote { row, x, y, moving }` in `ui.rs` is the press: the
+row, the pointer where it was pressed, and whether it has become a move (after 4 px in either
+direction). `LibraryPane::drop` is the row the note would go into,
+kept so the drawing and the release agree. A press on a note is no longer a button (`ui.pressed`);
+`left_release` takes it: without a move it activates the row exactly as a click did, with one it
+drops. `Esc` while it moves clears both, before any other key handling, so nothing is written.
+
+**Where a drop goes.** `LibraryPane::drop_row(y, area, source)` turns the pointer's y into a row
+(the list's own geometry: `list(r)`, `ROW`), and a note row stands for the heading it is written
+under, so dropping on a note goes into its section. The row must be a group or a section, and the
+place must differ from the note's own (same library file, same heading path, headings compared
+without regard to ASCII case as the library compares them); otherwise there is no mark and a drop
+there writes nothing. `row_place` and `note_place` answer with the library file and heading path.
+
+**The move.** `app/library_drag.rs`: `library_drag_release` reads the row under the pointer again
+at the button's release, takes the note's file, line, title and path from the pane's rows, and
+calls `library_move`. On success the target heading is unfolded, the rows are made again and the
+cursor follows the note to its new row (the note may have left the screen). A refused write says
+why in the toast it always did.
+
+**Holding at the edge.** A pointer within 12 px of the list's top or bottom arms `autoscroll_due`
+(the selection drag's timer, `AUTOSCROLL_TICK`); each tick `library_drag_scroll` moves the list one
+row toward the pointer and looks up the target again, and re-arms while the pointer stays there.
+The release and `Esc` clear the timer. While a note is held, `library_tick` does not take a
+finished read or start one, so the row indices the drag holds cannot move under it.
+
+**Drawing.** The target row is drawn as the pane's keyboard row is: a filled rounded box in the
+accent colour with a 1 px inner box of the selection tint, before the row's icons and text. The
+note held is ringed in the plain line colour and its text is drawn in the faint colour, so it reads
+as set aside. The note's title follows the pointer as a chip (a `frame` in the popup colour with an
+accent stroke, a document icon and the title), clamped inside the pane so it never leaves it. The
+Files region's signature carries the drag (row, moving, target, the pointer and the press point):
+the chip moves with the pointer while no row changes, so without them the pane would not repaint
+during a drag (the reason `region_sig` exists).
+
+**Tests** (`app/library_drag_tests.rs`): a note dropped on a section is written under it, once,
+with the cursor on its new row; a note dropped on a note goes under that note's heading; a note
+dragged across groups is listed in the other file only; a note dropped on its own heading writes
+nothing and says nothing; a drag let go outside the pane moves nothing and opens nothing; `Esc`
+abandons it; a press and release is still a click; an unsaved library file refuses the drop with
+its word; a hold at the edge scrolls; and the drawing changes in the target row, the row held and
+the chip and nowhere else. Each was proved by reverting its fix and watching it fail.
+
+**Shots:** `library-drag` and `library-drag-dark` (`--library-demo drag`): a made-up library with
+"Asakusa and the river" held over "Food", the chip at the pointer.
+
+**Not built:** dragging a group or a section; a keyboard equivalent beyond "Move to…" (which is
+the keyboard path); files from File Explorer (see above); a drop between two windows.

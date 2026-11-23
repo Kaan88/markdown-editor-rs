@@ -219,6 +219,23 @@ impl App {
                     moving,
                 });
             }
+            Drag::LibraryNote {
+                row,
+                x: start,
+                y: start_y,
+                moving,
+            } => {
+                let moving = moving || (x - start).abs() > 4.0 || (y - start_y).abs() > 4.0;
+                if moving {
+                    self.library_drag(row, y);
+                }
+                self.ui.drag = Some(Drag::LibraryNote {
+                    row,
+                    x: start,
+                    y: start_y,
+                    moving,
+                });
+            }
             Drag::Splitter { x: start, width } => {
                 let (w, _) = self.logical();
                 let max = PANE_MAX.min(w - crate::ui::PAGE_MIN).max(PANE_MIN);
@@ -870,6 +887,17 @@ impl App {
                 self.caret_reset();
             }
             Hit::DlgCard => {}
+            // A pressed note may be dragged onto a heading; the press alone is still a click,
+            // taken when the button comes up (see `left_release`).
+            Hit::LibraryRow(i) if self.library_note_row(i) => {
+                self.ui.library.drop = None;
+                self.ui.drag = Some(Drag::LibraryNote {
+                    row: i,
+                    x,
+                    y,
+                    moving: false,
+                });
+            }
             h if h.is_button() => self.ui.pressed = Some(h),
             _ => {}
         }
@@ -913,6 +941,15 @@ impl App {
             return;
         }
         if let Some(drag) = self.ui.drag.take() {
+            if let Drag::LibraryNote { row, moving, .. } = drag {
+                if moving {
+                    self.library_drag_release(row);
+                } else {
+                    // Press and release on one spot: still the click a note row always was.
+                    self.set_cursor(CursorIcon::Default);
+                    self.activate(Hit::LibraryRow(row));
+                }
+            }
             if drag == Drag::Preview {
                 self.preview_release();
             }
@@ -1361,6 +1398,17 @@ impl App {
             keys::Key::Name(n) => Some(n.clone()),
             keys::Key::Insert | keys::Key::Menu => None,
         };
+        // Escape puts a note held in the pane back where it was: nothing has been written.
+        if matches!(self.ui.drag, Some(Drag::LibraryNote { moving: true, .. }))
+            && name == Some(KeyName::Escape)
+        {
+            self.ui.drag = None;
+            self.ui.library.drop = None;
+            self.ui.autoscroll_due = None;
+            self.set_cursor(CursorIcon::Default);
+            self.redraw();
+            return;
+        }
         if self.ui.settings.is_some() {
             if let Some(n) = &name {
                 self.settings_key(n, mods, typed);

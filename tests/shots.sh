@@ -479,4 +479,12 @@ for t in "" "-dark"; do
     shot "move-results$t" $th --move-demo results
 done
 
+# Dragging a note in the notes pane (D-130): the note held, its chip at the pointer, and the
+# heading it would go into marked, in both themes.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "library-drag$t" $th --library-demo drag
+done
+
 ls "$out" | wc -l

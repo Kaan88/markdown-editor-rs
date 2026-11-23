@@ -56,6 +56,11 @@ released. If `git log -1` is newer, doubt "In hand" first.
   (D-108)**: it needs a request in the viewer's preview protocol (the page rows of every
   top-level block) and a move of its pin, which waits for the owner. Not looked at by the owner
   yet (rule 6).
+- **Phase DD, dragging a note in the notes pane** (D-130, `docs/DESIGN.md` 80): merged from `f/pdd`,
+  not tagged; the owner has not looked at its shots (`library-drag`). A note dropped on a group or a
+  section is moved there by the "Move to…" write; notes only. Not built, waiting for the owner:
+  dragging a group or section row, and files dropped from the file manager (winit discards the drop
+  point on Windows).
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.

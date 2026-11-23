@@ -8,6 +8,13 @@ shows.)
 
 - **Take only some of the AI's changes.** The review of a rewrite is now a list of changes, each with a tick box. Untick a change and the old text stays there; the footer says "12 changes · 8 to apply · +212 −83 lines" and **Apply 8 changes** puts in just those, in one step, so Ctrl+Z brings everything back. **F7** and **Shift+F7** (and the arrows in the bar) go to the next and the previous change, **Space** ticks or unticks the one you are on, **Tick all** and **Untick all** do what they say, and a strip shows where each change is in the document and whether it is taken; click a mark to go there. The words that changed inside a changed line are tinted, and **Copy result** copies the text with only the ticked changes. With nothing ticked there is nothing to apply, and the button says so. In **Preview**, the page on the right shows only the ticked changes ("8 of 12 changes taken") and is made again a moment after the last tick.
 
+- **Drag a note to another heading.** In the notes pane, drag a note row onto a group or a
+  section and it is moved there - its line in the library file, the same write "Move to…" makes,
+  so an open library file with changes not saved refuses it. The heading it would go into is
+  marked while you drag, the note is shown set aside with its name at the pointer, a plain click
+  still opens it, `Esc` puts it back, and holding it at the pane's edge scrolls the list. Notes
+  only; no file of yours is copied, moved or deleted.
+
 ## Fixed
 
 - **The review of a rewrite has a scrollbar and no longer cuts long lines.** A long review scrolls by its scrollbar, by dragging it or by clicking its track, and a line longer than the window now wraps inside its column instead of being cut off.

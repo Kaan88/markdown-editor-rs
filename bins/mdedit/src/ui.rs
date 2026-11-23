@@ -808,6 +808,14 @@ pub enum Drag {
         x: f32,
         moving: bool,
     },
+    /// A note of the notes library pressed; it becomes a move once the pointer moves a few px,
+    /// and drops on a group or a section of the pane (`library_drag`). `Esc` abandons it.
+    LibraryNote {
+        row: usize,
+        x: f32,
+        y: f32,
+        moving: bool,
+    },
     Splitter {
         x: f32,
         width: f32,
