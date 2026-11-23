@@ -245,6 +245,19 @@ for t in "" "-dark"; do
     shot "review-closed$t" $th --size 1280x800 --ai-demo review-closed "$fx/review-demo.md"
 done
 shot review-min --light --size 800x560 --ai-demo review-partial "$fx/review-demo.md"
+
+# The AI task window over files (5.6, phase W): File them, the plan face, the AI off, Rewrite
+# them with a picture and other file, the rewrite's review, and what is sent.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "task-files$t" $th --size 1280x800 --task-demo files
+    shot "task-files-plan$t" $th --size 1280x800 --task-demo files-plan
+    shot "task-files-off$t" $th --size 1280x800 --task-demo files-off
+    shot "task-other$t" $th --size 1280x800 --task-demo files-other
+    shot "task-review$t" $th --size 1280x800 --task-demo review
+done
+shot task-sent --light --size 1280x800 --task-demo sent
 shot pref-tab8 --light --pref tab_width=8 "$fx/tabs-controls.txt"
 shot pref-no-numbers --light --pref line_numbers=0 --pref highlight_line=0 --goto 12:5 "$fx/sample.rs"
 shot pref-font18 --light --pref font_size=18 "$fx/sample.rs"

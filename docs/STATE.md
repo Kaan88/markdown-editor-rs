@@ -45,10 +45,17 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
+- **Phase W**, the AI task window over files (`ai-library-plan.md` 5.6, D-074, D-076, D-140 to
+  D-145): **merged from `f/pw`, not tagged; the owner has not looked at its shots.** File them,
+  Split them and Rewrite them; a rewrite is R2's review over the file, applied in place with its
+  original in the run's record and undo in AI runs. Built, tested, budgets measured
+  (`docs/measurements/2026-11-23-task-window.md`: no change beyond the runs' ranges), shots
+  `task-*` (both themes, `task-sent` in light) looked at on Windows; docs 83 and D-140 to D-145.
 - **Phase 5.8**, a Markdown note from a text file (`ai-library-plan.md` 5.8, D-120): merged from
   `f/p5` - card, write, record, undo, 14 tests, 11 shots, budgets measured
-  (`docs/measurements/2026-11-23-note-card.md`); main merged in, the pins on shared `main`
-  (`0984eed`), a Rewrite record listed as a later version's (D-134); merged, the owner has not looked at its shots.
+  (`docs/measurements/2026-11-23-note-card.md`); the pins on shared `main` (`0984eed`); a
+  Rewrite record is listed as a Rewrite (D-145 lifts D-134's guard); the owner has not looked at
+  its shots.
 - **Phase 4a, "Add a folder to the library…"** (`ai-library-plan.md` 5.7, without the AI):
   built, tested and measured, merged from `f/p4a`. A folder the owner
   picks becomes a group of links to its `.md`, `.markdown` and `.txt` files under their
