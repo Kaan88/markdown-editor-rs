@@ -15,6 +15,10 @@ mod cli;
 mod keys;
 mod proto;
 mod reply;
+// Spike only: phase V's picture resizer, measured but not wired to a request yet (the protocol
+// has to carry pictures first). Dead code until then.
+#[allow(dead_code)]
+mod resize;
 mod sse;
 
 use std::collections::HashMap;
