@@ -1,0 +1,304 @@
+diff --git a/bins/mdedit/src/app/import_tests.rs b/bins/mdedit/src/app/import_tests.rs
+index e94b18f..ee252c8 100644
+--- a/bins/mdedit/src/app/import_tests.rs
++++ b/bins/mdedit/src/app/import_tests.rs
+@@ -421,3 +421,66 @@ fn a_click_on_a_section_ticks_every_row_under_it_and_redraws_them() {
+     assert!(changed > 0, "the card was not drawn again");
+     let _ = std::fs::remove_dir_all(&dir);
+ }
++
++#[test]
++fn probe_one_file_with_percent_20_in_its_name_refuses_the_whole_folder() {
++    let (mut a, l) = lib("probe-pct");
++    std::fs::write(l.folder.join("my%20draft.md"), "# Draft\n").unwrap();
++    open_card(&mut a, &l);
++    eprintln!("PROBE-I1 problem on the card = {:?}", a.importer.as_ref().unwrap().problem());
++    a.import_write();
++    eprintln!(
++        "PROBE-I1 card still open = {}, refusal = {:?}",
++        a.importer.is_some(),
++        a.importer.as_ref().and_then(|c| c.refusal.clone())
++    );
++    let made = l.library.join("Recipes.md").exists();
++    eprintln!("PROBE-I1 group file made = {made}");
++    assert!(made, "three good files and one odd name: the good ones should be addable");
++    let _ = std::fs::remove_dir_all(&l.dir);
++}
++
++#[test]
++fn probe_a_group_of_the_same_name_with_another_home_is_joined_without_a_word() {
++    let (mut a, l) = lib("probe-home");
++    let other = l.dir.join("elsewhere").join("Recipes");
++    std::fs::create_dir_all(&other).unwrap();
++    let group = l.library.join("Recipes.md");
++    std::fs::write(
++        &group,
++        format!("# Recipes\nhome: {}\n", other.to_string_lossy().replace('\\', "/")),
++    )
++    .unwrap();
++    open_card(&mut a, &l);
++    a.import_write();
++    eprintln!(
++        "PROBE-I2 card still open = {}, refusal = {:?}",
++        a.importer.is_some(),
++        a.importer.as_ref().and_then(|c| c.refusal.clone())
++    );
++    eprintln!("PROBE-I2 group file = {:?}", read(&group));
++    assert!(a.importer.is_some(), "DESIGN 81: a link outside the group's home is refused");
++    let _ = std::fs::remove_dir_all(&l.dir);
++}
++
++#[test]
++fn probe_the_folder_that_holds_the_library_lists_the_librarys_own_files_as_notes() {
++    let (mut a, l) = lib("probe-parent");
++    std::fs::write(l.library.join("personal.md"), "# Personal\n").unwrap();
++    a.import_folder_picked(l.dir.clone());
++    settle(&mut a);
++    let card = a.importer.as_ref().unwrap();
++    let files: Vec<String> = card
++        .plan
++        .notes
++        .iter()
++        .map(|n| format!("{} ticked={}", n.path.strip_prefix(&l.dir).unwrap().display(), n.ticked))
++        .collect();
++    eprintln!("PROBE-I3 notes = {files:?}");
++    eprintln!("PROBE-I3 problem = {:?}", card.problem());
++    assert!(
++        !card.plan.notes.iter().any(|n| n.path.ends_with("personal.md")),
++        "a library file is offered as a note"
++    );
++    let _ = std::fs::remove_dir_all(&l.dir);
++}
+diff --git a/bins/mdedit/src/app/library_drag_tests.rs b/bins/mdedit/src/app/library_drag_tests.rs
+index 016e002..d3e1719 100644
+--- a/bins/mdedit/src/app/library_drag_tests.rs
++++ b/bins/mdedit/src/app/library_drag_tests.rs
+@@ -285,3 +285,75 @@ fn the_heading_a_dragged_note_would_go_into_is_drawn_and_so_is_the_note() {
+     );
+     let _ = std::fs::remove_dir_all(&l.dir);
+ }
++
++#[test]
++fn probe_a_drag_let_go_over_the_editor_at_a_rows_height_still_moves_the_note() {
++    let (mut a, l) = lib("probe-out-y");
++    a.compose();
++    let source = a.hit_rect(Hit::LibraryRow(2)).unwrap();
++    let target = a.hit_rect(Hit::LibraryRow(5)).unwrap();
++    a.ui.mouse = (source.cx(), source.cy());
++    a.left_press();
++    let text = a.areas.text;
++    assert!(text.cx() > target.right(), "the point is outside the pane");
++    a.ui.mouse = (text.cx(), target.cy());
++    a.drag_to(a.ui.drag.unwrap(), text.cx(), target.cy());
++    eprintln!("PROBE-D1 drop mark = {:?}", a.ui.library.drop);
++    a.left_release();
++    eprintln!("PROBE-D1 file changed = {}", read(&l.file) != l.text());
++    eprintln!("PROBE-D1 toast = {:?}", toast(&a));
++    assert_eq!(read(&l.file), l.text(), "let go over the editor: nothing written");
++    let _ = std::fs::remove_dir_all(&l.dir);
++}
++
++#[test]
++fn probe_rows_made_again_under_a_held_note_move_another_note() {
++    let (mut a, l) = lib("probe-rows");
++    let slash = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/");
++    let mut paths = Vec::new();
++    for n in ["one", "two", "three"] {
++        let p = l.dir.join(format!("{n}.md"));
++        std::fs::write(&p, format!("# {n}\n")).unwrap();
++        paths.push(p);
++    }
++    std::fs::write(
++        &l.file,
++        format!(
++            "# Personal\n\n## A\n\n- [One]({})\n\n## B\n\n- [Two]({})\n- [Three]({})\n\n## Trips\n",
++            slash(&paths[0]),
++            slash(&paths[1]),
++            slash(&paths[2])
++        ),
++    )
++    .unwrap();
++    a.library_rows();
++    a.compose();
++    let two = row_of(&a, "Two");
++    let src = a.hit_rect(Hit::LibraryRow(two)).unwrap();
++    let trips = a.hit_rect(Hit::LibraryRow(row_of(&a, "Trips"))).unwrap();
++    a.ui.mouse = (src.cx(), src.cy());
++    a.left_press();
++    a.drag_to(a.ui.drag.unwrap(), trips.cx(), trips.cy());
++    // The keyboard's row is on "A"; Enter folds it while the note is held.
++    a.ui.library.focused = true;
++    let at_a = row_of(&a, "A");
++    a.ui.library.set_cur(at_a);
++    a.key_pressed(Key::Name(KeyName::Enter), None);
++    a.compose();
++    eprintln!(
++        "PROBE-D2 rows after the key = {:?}",
++        a.ui.library.rows.iter().map(|r| r.label.clone()).collect::<Vec<_>>()
++    );
++    let trips = a.hit_rect(Hit::LibraryRow(row_of(&a, "Trips"))).unwrap();
++    a.ui.mouse = (trips.cx(), trips.cy());
++    a.left_release();
++    let text = read(&l.file);
++    let parsed = mdshared_app::library::parse(&text, &l.dir.join("library"));
++    for e in &parsed.entries {
++        eprintln!("PROBE-D2 {} under {:?}", e.title, e.sections);
++    }
++    eprintln!("PROBE-D2 toast = {:?}", toast(&a));
++    let three = parsed.entries.iter().find(|e| e.title == "Three").unwrap();
++    assert_eq!(three.sections, vec!["B".to_string()], "Three was not the note held");
++    let _ = std::fs::remove_dir_all(&l.dir);
++}
+diff --git a/bins/mdedit/src/app/note_tests.rs b/bins/mdedit/src/app/note_tests.rs
+index 70248eb..9946b71 100644
+--- a/bins/mdedit/src/app/note_tests.rs
++++ b/bins/mdedit/src/app/note_tests.rs
+@@ -395,3 +395,72 @@ fn every_demonstration_opens_its_state_and_refuses_to_send_or_write() {
+     assert!(to.contains("# Pasta notes"));
+     let _ = std::fs::remove_dir_all(&p.dir);
+ }
++
++#[test]
++fn probe_a_name_taken_while_the_answer_was_out_drops_the_card_and_the_answer() {
++    let (mut a, p) = lib("probe-taken");
++    open_card(&mut a, &p);
++    answer(&mut a, "# Pasta\n\nBoil it.\n");
++    let note = target(&a);
++    std::fs::write(&note, "someone else's file\n").unwrap();
++    press(&mut a, KeyName::Enter);
++    eprintln!(
++        "PROBE-N1 card open = {}, toast = {:?}, file = {:?}",
++        a.note.is_some(),
++        toast(&a),
++        read(&note)
++    );
++    let (list, newer) = mdedit_core::runs::list_all(&a.library_dir().unwrap());
++    eprintln!("PROBE-N1 records = {} (+{} unread)", list.len(), newer.len());
++    for r in &list {
++        eprintln!("PROBE-N1 record state = {:?} created = {:?}", r.record.state, r.record.notes.iter().map(|n| n.created).collect::<Vec<_>>());
++    }
++    eprintln!("PROBE-N1 group = {:?}", read(&p.group));
++    assert!(a.note.is_some(), "the card and its answer should stay");
++    let _ = std::fs::remove_dir_all(&p.dir);
++}
++
++#[test]
++fn probe_undo_puts_the_group_file_back_byte_for_byte() {
++    let (mut a, p) = lib("probe-undo-exact");
++    let before = read(&p.group);
++    open_card(&mut a, &p);
++    answer(&mut a, "# Pasta\n\n- Boil it.\n");
++    press(&mut a, KeyName::Enter);
++    let after = read(&p.group);
++    let library = a.library_dir().unwrap();
++    let (list, _) = mdedit_core::runs::list_all(&library);
++    let record = list.first().expect("a record").path.clone();
++    a.run_undo(record);
++    eprintln!("PROBE-N2 before = {before:?}\nPROBE-N2 written = {after:?}\nPROBE-N2 undone = {:?}", read(&p.group));
++    assert_eq!(read(&p.group), before);
++    let _ = std::fs::remove_dir_all(&p.dir);
++}
++
++#[test]
++fn probe_a_group_with_no_home_line_gets_a_folder_and_undo_takes_it_away() {
++    let (mut a, p) = lib("probe-nohome");
++    std::fs::write(&p.group, "# Recipes\n").unwrap();
++    std::fs::remove_dir_all(p.library.join("Recipes")).unwrap();
++    a.library_rows();
++    open_card(&mut a, &p);
++    eprintln!("PROBE-N3 blocked = {:?} target = {:?}", a.note.as_ref().unwrap().blocked, target(&a));
++    answer(&mut a, "# Pasta\n");
++    let note = target(&a);
++    press(&mut a, KeyName::Enter);
++    eprintln!("PROBE-N3 note written = {} group = {:?}", note.is_file(), read(&p.group));
++    let library = a.library_dir().unwrap();
++    let (list, _) = mdedit_core::runs::list_all(&library);
++    let record = list.first().expect("a record").path.clone();
++    a.run_undo(record);
++    eprintln!(
++        "PROBE-N3 after undo: note = {}, folder = {}, group = {:?}",
++        note.exists(),
++        p.library.join("Recipes").exists(),
++        read(&p.group)
++    );
++    assert!(!note.exists());
++    assert!(!p.library.join("Recipes").exists(), "the folder the run made goes too");
++    assert_eq!(read(&p.group), "# Recipes\n");
++    let _ = std::fs::remove_dir_all(&p.dir);
++}
+diff --git a/crates/mdedit-core/src/import.rs b/crates/mdedit-core/src/import.rs
+index d624d6b..d1075eb 100644
+--- a/crates/mdedit-core/src/import.rs
++++ b/crates/mdedit-core/src/import.rs
+@@ -1084,4 +1084,71 @@ mod tests {
+         assert_eq!(super::modified_day(None), "");
+         let _ = std::fs::remove_dir_all(&dir);
+     }
++
++    #[cfg(windows)]
++    #[test]
++    fn probe_a_junction_back_to_the_folder_is_not_followed() {
++        let dir = scratch("junction");
++        put(&dir, "a.md", "# A\n");
++        put(&dir, "sub/b.md", "# B\n");
++        let link = dir.join("sub").join("loop");
++        let ok = std::process::Command::new("cmd")
++            .args(["/c", "mklink", "/J"])
++            .arg(&link)
++            .arg(&dir)
++            .output()
++            .unwrap()
++            .status
++            .success();
++        assert!(ok, "the junction was made");
++        let w = walk(&dir, &|| false);
++        let names: Vec<String> = w
++            .found
++            .iter()
++            .map(|f| f.path.display().to_string())
++            .collect();
++        eprintln!("PROBE-C1 found = {names:?}");
++        let _ = std::fs::remove_dir(&link);
++        assert_eq!(w.found.len(), 2);
++        let _ = std::fs::remove_dir_all(&dir);
++    }
++
++    #[test]
++    fn probe_a_file_with_bare_carriage_returns_gives_a_title_of_many_lines() {
++        let dir = scratch("cr");
++        let root = dir.join("library");
++        std::fs::create_dir_all(&root).unwrap();
++        let folder = root.join("Old");
++        put(
++            &folder,
++            "mac.txt",
++            "# Shopping\rmilk\reggs\rand a long tail of the file\r",
++        );
++        let p = plan(
++            walk(&folder, &|| false),
++            &folder,
++            at(&root, root.join("Old.md")),
++        );
++        eprintln!("PROBE-C2 title = {:?}", p.notes[0].title);
++        let links = p.links();
++        eprintln!("PROBE-C2 line = {:?}", links[0].line);
++        let before = p.group_text().unwrap();
++        let new = mdshared_app::runs::with_links_added(&before, &links);
++        let ok = mdshared_app::runs::check_links_added(
++            &library::parse(&before, &root),
++            &library::parse(&new, &root),
++            &links,
++            &root,
++        );
++        eprintln!(
++            "PROBE-C2 problem = {:?}, dry run passes = {ok}",
++            p.problem()
++        );
++        eprintln!("PROBE-C2 file = {new:?}");
++        assert!(
++            !p.notes[0].title.contains('\r'),
++            "a title holds a line break"
++        );
++        let _ = std::fs::remove_dir_all(&dir);
++    }
+ }

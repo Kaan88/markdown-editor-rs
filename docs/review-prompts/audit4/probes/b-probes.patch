@@ -1,0 +1,306 @@
+diff --git a/bins/mdedit/src/app/import_ai_tests.rs b/bins/mdedit/src/app/import_ai_tests.rs
+index 4f2f81b..fa9495c 100644
+--- a/bins/mdedit/src/app/import_ai_tests.rs
++++ b/bins/mdedit/src/app/import_ai_tests.rs
+@@ -390,3 +390,33 @@ fn escape_stops_the_requests_and_gives_back_the_edited_scheme() {
+     assert!(!l.library.join("Recipes.md").exists());
+     let _ = std::fs::remove_dir_all(&l.dir);
+ }
++
++// ---- PROBE (fable b review; not to be committed) ----
++#[test]
++fn probe_b9_keep_the_folders_after_a_sort_gives_the_folders_back() {
++    let (mut a, l) = lib("probe-b9", &["one.md", "Bread/two.md", "Sauces/three.md"]);
++    open_card(&mut a, &l);
++    let folders = |a: &App| -> Vec<(PathBuf, Vec<String>, bool)> {
++        let mut v: Vec<_> = a
++            .importer
++            .as_ref()
++            .expect("card")
++            .plan
++            .notes
++            .iter()
++            .map(|n| (n.path.clone(), n.sections.clone(), n.ticked))
++            .collect();
++        v.sort();
++        v
++    };
++    let before = folders(&a);
++    sort(&mut a);
++    assert!(matches!(a.importer.as_ref().expect("card").sort, SortStage::Filed { .. }));
++    // Ask again, then "Keep the folders" on the scheme (Escape).
++    ask(&mut a);
++    a.import_sort_back();
++    assert!(matches!(a.importer.as_ref().expect("card").sort, SortStage::Off));
++    let after = folders(&a);
++    eprintln!("before {before:?}\nafter  {after:?}");
++    assert_eq!(after, before, "Keep the folders: each file under its folder's heading again");
++}
+diff --git a/bins/mdedit/src/app/task_tests.rs b/bins/mdedit/src/app/task_tests.rs
+index 6e1a771..1ba2fc3 100644
+--- a/bins/mdedit/src/app/task_tests.rs
++++ b/bins/mdedit/src/app/task_tests.rs
+@@ -584,3 +584,263 @@ fn task_on_this_file_opens_file_them_with_that_file() {
+     assert_eq!(s.files.len(), 1);
+     assert_eq!(s.files[0].path, text);
+ }
++
++// ---- PROBES (fable b review; not to be committed) ----------------------------------------------
++
++#[test]
++fn probe_b1_a_cyrillic_file_in_file_them_summary() {
++    let dir = scratch("probe-b1");
++    std::fs::create_dir_all(dir.join("library")).expect("library");
++    let p = dir.join("ru.md");
++    // 1,300 two-byte letters after an odd-length ASCII head: byte 2048 falls inside a letter.
++    let text = format!("# T\n{}\n", "\u{0436}".repeat(1300));
++    std::fs::write(&p, text).expect("ru");
++    let mut a = app();
++    a.session_path = Some(dir.join("settings.ini"));
++    a.task_open(TaskKind::File, vec![p]);
++    let s = a.task.as_mut().expect("open");
++    s.ai_on = true;
++    assert_eq!(s.files[0].kind, FileKind::Text);
++    // What the footer draws on every frame, and what Run sends.
++    let d0 = crate::task_ui::digest_of(&s.files[0]);
++    let d1 = {
++        let mut f = s.files[0].clone();
++        f.name = "ru2.md".into();
++        crate::task_ui::digest_of(&f)
++    };
++    eprintln!("digests {} {}", d0.len(), d1.len());
++}
++
++#[test]
++fn probe_b2_discard_goes_on_with_the_next_file() {
++    let dir = scratch("probe-b2");
++    std::fs::create_dir_all(dir.join("library")).expect("library");
++    let one = pasta(&dir);
++    let two = dir.join("bread.md");
++    std::fs::write(&two, "# Bread\n\nBake it.\n").expect("bread");
++    let mut a = app();
++    a.session_path = Some(dir.join("settings.ini"));
++    a.task_open(TaskKind::Rewrite, vec![one.clone(), two.clone()]);
++    a.docs.prefs.ai_connection = Connection::ClaudeApi;
++    engine();
++    if let Some(s) = a.task.as_mut() {
++        s.ai_on = true;
++        s.instruction.set_text("Tidy them");
++    }
++    a.task_run();
++    wait(&mut a, |a| a.ai.panel.is_some());
++    a.task_review_discard();
++    let s = a.task.as_ref().expect("the window stays for the next file");
++    let asking = s.asking.as_ref().expect("the next request is out");
++    assert_eq!(a.task_sent.requests, 2);
++    assert_eq!(asking.index, 1, "Discard goes on with the NEXT file, not the same one");
++}
++
++#[test]
++fn probe_b3_a_full_rewrite_run_of_crlf_files_can_be_listed_and_undone() {
++    let dir = scratch("probe-b3");
++    let lib = dir.join("library");
++    std::fs::create_dir_all(&lib).expect("library");
++    // 20 files (REWRITE_MAX_FILES) of just under 200,000 bytes (REWRITE_MAX), CRLF, short lines.
++    let line = "- [ ] buy milk and eggs\r\n";
++    let before: String = line.repeat(199_990 / line.len());
++    assert!(before.len() <= crate::task_ui::REWRITE_MAX);
++    let after = before.replacen("milk", "MILK", 1);
++    let mut rec = None;
++    for i in 0..crate::task_ui::REWRITE_MAX_FILES {
++        let p = dir.join(format!("f{i}.md"));
++        std::fs::write(&p, &before).expect("file");
++        if rec.is_none() {
++            rec = Some(runs::start_rewrite(&lib, "x", None, &p).expect("record"));
++        }
++        let (path, record) = rec.as_mut().expect("rec");
++        runs::rewrite_into(
++            path,
++            record,
++            &lib,
++            &runs::RewriteFile {
++                path: p.clone(),
++                before: before.clone(),
++                after: after.clone(),
++                bom: false,
++            },
++        )
++        .expect("written");
++    }
++    let (path, _) = rec.expect("rec");
++    let size = std::fs::metadata(&path).expect("meta").len();
++    let (listed, unread) = runs::list_all(&lib);
++    eprintln!("record bytes {size}, listed {}, unread {}", listed.len(), unread.len());
++    assert_eq!(listed.len(), 1, "the run that rewrote 20 files must be listed so it can be undone");
++}
++
++#[test]
++fn probe_b4_a_kept_file_review_applied_after_the_window_was_reopened() {
++    let dir = scratch("probe-b4");
++    std::fs::create_dir_all(dir.join("library")).expect("library");
++    let one = pasta(&dir);
++    let b = dir.join("b.md");
++    let c = dir.join("c.md");
++    std::fs::write(&b, "# B\n\nprivate b\n").expect("b");
++    std::fs::write(&c, "# C\n\nprivate c\n").expect("c");
++    let mut a = app();
++    a.session_path = Some(dir.join("settings.ini"));
++    a.task_open(TaskKind::Rewrite, vec![one.clone()]);
++    a.docs.prefs.ai_connection = Connection::ClaudeApi;
++    engine();
++    if let Some(s) = a.task.as_mut() {
++        s.ai_on = true;
++        s.instruction.set_text("Tidy it");
++    }
++    a.task_run();
++    wait(&mut a, |a| a.ai.panel.is_some());
++    // Escape keeps the review; Escape again closes the window.
++    a.ai_key(Some(KeyName::Escape), None);
++    assert!(a.ai.kept.is_some(), "kept");
++    a.task_key(Some(KeyName::Escape), None);
++    assert!(a.task.is_none(), "closed");
++    // A new window, File them, over two other files. Nothing is run in it.
++    a.task_open(TaskKind::File, vec![b.clone(), c.clone()]);
++    let before = a.task_sent.requests;
++    a.ai_show_kept();
++    a.task_review_apply();
++    assert_eq!(std::fs::read_to_string(&one).expect("one"), "# Done\n");
++    let s = a.task.as_ref().expect("the new window");
++    eprintln!(
++        "b done {} ticked {}, asking {:?}, requests {} -> {}",
++        s.files[0].done,
++        s.files[0].ticked,
++        s.asking.as_ref().map(|x| (x.index, x.prompt.clone())),
++        before,
++        a.task_sent.requests
++    );
++    assert!(!s.files[0].done, "b.md was never run");
++    assert!(s.asking.is_none(), "no request starts from another window's review");
++}
++
++#[test]
++fn probe_b5_the_task_is_switched_while_a_request_is_out() {
++    let dir = scratch("probe-b5");
++    std::fs::create_dir_all(dir.join("library")).expect("library");
++    let text = pasta(&dir);
++    let (mut a, _d) = ai_open("probe-b5-ai", TaskKind::File, vec![text.clone()]);
++    if let Some(s) = a.task.as_mut() {
++        s.instruction.set_text("TASKFILE: by dish");
++    }
++    a.task_run();
++    assert!(a.task.as_ref().expect("open").asking.is_some(), "the filing request is out");
++    a.compose();
++    let centre = a.task.as_ref().and_then(|s| {
++        s.hits
++            .iter()
++            .find(|(h, _)| *h == Hit::Kind(TaskKind::Rewrite))
++            .map(|(_, r)| (r.x + r.w / 2.0, r.y + r.h / 2.0))
++    });
++    let (x, y) = centre.expect("the switch is drawn and can be clicked while asking");
++    a.ui.mouse = (x, y);
++    a.task_press();
++    a.task_release();
++    assert_eq!(a.task.as_ref().expect("open").task, TaskKind::Rewrite, "the click took");
++    let until = Instant::now() + Duration::from_secs(3);
++    while Instant::now() < until && a.ai.panel.is_none() {
++        a.ai_wake();
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    if let Some(Panel::Review(rv)) = &a.ai.panel {
++        eprintln!("REVIEW of {:?}: result = {:?}", rv.spec.title, rv.result);
++    }
++    assert!(a.ai.panel.is_none(), "a filing answer must not become a rewrite of the file");
++}
++
++#[test]
++fn probe_b6_a_write_that_fails_leaves_no_original_in_the_record() {
++    let dir = scratch("probe-b6");
++    let lib = dir.join("library");
++    std::fs::create_dir_all(&lib).expect("library");
++    let text = pasta(&dir);
++    let mut a = app();
++    a.session_path = Some(dir.join("settings.ini"));
++    a.task_open(TaskKind::Rewrite, vec![text.clone()]);
++    a.docs.prefs.ai_connection = Connection::ClaudeApi;
++    engine();
++    if let Some(s) = a.task.as_mut() {
++        s.ai_on = true;
++        s.instruction.set_text("Tidy it");
++    }
++    a.task_run();
++    wait(&mut a, |a| a.ai.panel.is_some());
++    // The file cannot be replaced: read-only (Windows refuses the rename over it).
++    let mut perms = std::fs::metadata(&text).expect("meta").permissions();
++    perms.set_readonly(true);
++    std::fs::set_permissions(&text, perms.clone()).expect("ro");
++    a.task_review_apply();
++    let blocked = match &a.ai.panel {
++        Some(Panel::Review(rv)) => rv.blocked.clone(),
++        _ => None,
++    };
++    let on_disk = std::fs::read_to_string(&text).expect("read");
++    let tmp = dir.join("pasta.md.tmp");
++    let mem = a.task_record.as_ref().map(|(_, r)| r.originals.len());
++    eprintln!("blocked {blocked:?}; file {on_disk:?}; tmp left {}; originals in memory {mem:?}", tmp.exists());
++    a.ai.panel = None;
++    a.task_close();
++    let listed = runs::list(&lib);
++    eprintln!(
++        "records listed after close: {} (originals {:?})",
++        listed.len(),
++        listed.first().map(|r| r.record.originals.len())
++    );
++    #[allow(clippy::permissions_set_readonly_false)]
++    perms.set_readonly(false);
++    let _ = std::fs::set_permissions(&text, perms);
++    assert_eq!(on_disk, "# Pasta\n\nBoil it.\n", "the file was not written");
++    assert!(!tmp.exists(), "no pasta.md.tmp is left beside the owner's file");
++    assert!(listed.is_empty(), "nothing was rewritten, so no record lists an original");
++}
++
++#[test]
++fn probe_b7_a_parked_rewrite_window_comes_back_as_it_was() {
++    let dir = scratch("probe-b7");
++    std::fs::create_dir_all(dir.join("library")).expect("library");
++    let text = pasta(&dir);
++    let (mut a, _d) = ai_open("probe-b7-ai", TaskKind::Rewrite, vec![text]);
++    if let Some(s) = a.task.as_mut() {
++        s.instruction.set_text("Tidy it");
++    }
++    a.task_show_sent();
++    assert!(a.task.is_none() && a.task_parked.is_some(), "parked");
++    // What the command "AI task on your files…" does.
++    a.task_open(TaskKind::File, Vec::new());
++    assert_eq!(a.task.as_ref().expect("back").task, TaskKind::Rewrite);
++}
++
++#[test]
++fn probe_b8_a_crlf_file_with_a_bom_is_rewritten_and_undone_to_the_byte() {
++    let dir = scratch("probe-b8");
++    let lib = dir.join("library");
++    std::fs::create_dir_all(&lib).expect("library");
++    let p = dir.join("win.md");
++    let original: Vec<u8> = [&[0xEF, 0xBB, 0xBF][..], b"# Pasta\r\n\r\nBoil it.\r\nmixed\nlast"].concat();
++    std::fs::write(&p, &original).expect("win");
++    let mut a = app();
++    a.session_path = Some(dir.join("settings.ini"));
++    a.task_open(TaskKind::Rewrite, vec![p.clone()]);
++    a.docs.prefs.ai_connection = Connection::ClaudeApi;
++    engine();
++    if let Some(s) = a.task.as_mut() {
++        s.ai_on = true;
++        s.instruction.set_text("Tidy it");
++        eprintln!("why {:?} text {:?}", s.files[0].reason_for(TaskKind::Rewrite), s.files[0].text);
++    }
++    a.task_run();
++    wait(&mut a, |a| a.ai.panel.is_some());
++    let Some(Panel::Review(rv)) = &a.ai.panel else { panic!("review") };
++    eprintln!("blocked {:?} result {:?}", rv.blocked, rv.result);
++    a.task_review_apply();
++    let written = std::fs::read(&p).expect("written");
++    eprintln!("written {:?}", String::from_utf8_lossy(&written));
++    let run = runs::list(&lib).remove(0);
++    let report = runs::undo(&run.path, &run.record, &lib, &mut NoGate);
++    assert!(report.refusal.is_none());
++    assert_eq!(std::fs::read(&p).expect("back"), original, "undo restores to the byte");
++}

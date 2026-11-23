@@ -1,0 +1,13 @@
+diff --git a/bins/mdedit/src/app.rs b/bins/mdedit/src/app.rs
+index 5af5149..4c9aff7 100644
+--- a/bins/mdedit/src/app.rs
++++ b/bins/mdedit/src/app.rs
+@@ -121,6 +121,8 @@ mod preview;
+ #[cfg(test)]
+ mod recycle_tests;
+ #[cfg(test)]
++mod fable_probe_tests;
++#[cfg(test)]
+ mod review_tests;
+ mod visual;
+ pub(crate) use preview::previewable;

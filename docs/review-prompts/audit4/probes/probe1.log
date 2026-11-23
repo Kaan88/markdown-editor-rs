@@ -1,0 +1,147 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling windows-link v0.2.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling writeable v0.6.4
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling synstructure v0.14.0
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling zerofrom v0.1.8
+   Compiling zerovec-derive v0.11.7
+   Compiling yoke v0.8.4
+   Compiling displaydoc v0.2.7
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerovec v0.11.9
+   Compiling tinystr v0.8.5
+   Compiling memchr v2.8.3
+   Compiling once_cell v1.21.4
+   Compiling bitflags v2.13.2
+   Compiling litemap v0.8.3
+   Compiling icu_locale_core v2.4.0
+   Compiling bytemuck v1.25.2
+   Compiling potential_utf v0.1.6
+   Compiling zerotrie v0.2.5
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling windows-strings v0.5.1
+   Compiling windows-result v0.4.1
+   Compiling utf_types v1.0.0
+   Compiling foldhash v0.2.0
+   Compiling hashbrown v0.17.1
+   Compiling utf8_iter v1.1.0
+   Compiling windows-core v0.62.2
+   Compiling icu_provider v2.4.0
+   Compiling font-types v0.12.7
+   Compiling windows-sys v0.61.2
+   Compiling serde_core v1.0.229
+   Compiling simd-adler32 v0.3.10
+   Compiling read-fonts v0.41.0
+   Compiling winapi-util v0.1.11
+   Compiling icu_collections v2.4.0
+   Compiling adler2 v2.0.1
+   Compiling icu_properties_data v2.4.0
+   Compiling smallvec v1.16.4
+   Compiling crc32fast v1.5.4
+   Compiling icu_locale_fallback_data v2.4.0
+   Compiling same-file v1.0.6
+   Compiling windows-threading v0.2.1
+   Compiling icu_normalizer_data v2.4.0
+   Compiling icu_segmenter_data v2.4.0
+   Compiling cfg-if v1.0.5
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling serde v1.0.229
+   Compiling windows-future v0.3.2
+   Compiling walkdir v2.5.0
+   Compiling miniz_oxide v0.9.1
+   Compiling windows-numerics v0.3.1
+   Compiling windows-collections v0.3.2
+   Compiling libc v0.2.191
+   Compiling regex-syntax v0.8.12
+   Compiling zmij v1.0.23
+   Compiling windows v0.62.2
+   Compiling flate2 v1.1.11
+   Compiling skrifa v0.44.0
+   Compiling icu_locale_fallback v2.4.0
+   Compiling icu_properties v2.4.0
+   Compiling aho-corasick v1.1.5
+   Compiling serde_json v1.0.154
+   Compiling bit-vec v0.8.0
+   Compiling time-core v0.1.9
+   Compiling parlance v0.1.1
+   Compiling deranged v0.5.9
+   Compiling equivalent v1.0.3
+   Compiling memmap2 v0.9.12
+   Compiling powerfmt v0.2.1
+   Compiling num-conv v0.2.2
+   Compiling thiserror v2.0.21
+   Compiling linebender_resource_handle v0.1.1
+   Compiling fontique v0.12.0
+   Compiling time v0.3.55
+   Compiling indexmap v2.14.2
+   Compiling bit-set v0.8.0
+   Compiling regex-automata v0.4.18
+   Compiling windows-targets v0.52.6
+   Compiling icu_segmenter v2.4.0
+   Compiling icu_normalizer v2.4.0
+   Compiling parley_data v0.12.0
+   Compiling harfrust v0.12.0
+   Compiling notify-types v2.3.0
+   Compiling quick-xml v0.42.0
+   Compiling thiserror-impl v2.0.21
+   Compiling log v0.4.35
+   Compiling base64 v0.23.1
+   Compiling itoa v1.0.18
+   Compiling parley_emoji v0.12.0
+   Compiling linked-hash-map v0.5.6
+   Compiling pulldown-cmark v0.13.6
+   Compiling yaml-rust v0.4.5
+   Compiling parley_engine v0.12.0
+   Compiling plist v1.10.3
+   Compiling notify v8.2.1
+   Compiling fancy-regex v0.16.2
+   Compiling windows-sys v0.59.0
+   Compiling bincode v1.3.3
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling serde_derive v1.0.229
+   Compiling fnv v1.0.7
+   Compiling yazi v0.2.2
+   Compiling unicase v2.10.0
+   Compiling zeno v0.3.3
+   Compiling swash v0.2.10
+   Compiling syntect v5.3.0
+   Compiling png v0.18.1
+   Compiling mdshared-app v0.1.0 (https://github.com/Kaan88/markdown-shared-rs?rev=0984eed03cf947cc2a746b2e2ad165b4f1d63d65#0984eed0)
+   Compiling parley v0.12.0
+   Compiling quick-error v2.0.1
+   Compiling byteorder-lite v0.1.0
+   Compiling zune-core v0.5.3
+   Compiling weezl v0.1.12
+   Compiling gif v0.14.2
+   Compiling mdview-core v1.0.5 (C:\Users\kaank\Desktop\md-wt\fab-mv\crates\core)
+   Compiling zune-jpeg v0.5.15
+   Compiling image-webp v0.2.4
+   Compiling mdshared-text v0.1.0 (https://github.com/Kaan88/markdown-shared-rs?rev=0984eed03cf947cc2a746b2e2ad165b4f1d63d65#0984eed0)
+   Compiling mdshared-highlight v0.1.0 (https://github.com/Kaan88/markdown-shared-rs?rev=0984eed03cf947cc2a746b2e2ad165b4f1d63d65#0984eed0)
+   Compiling mdview-engine-proto v1.0.5 (C:\Users\kaank\Desktop\md-wt\fab-mv\crates\engine-proto)
+   Compiling mdview-render v1.0.5 (C:\Users\kaank\Desktop\md-wt\fab-mv\crates\render)
+   Compiling mdview-preview v1.0.5 (C:\Users\kaank\Desktop\md-wt\fab-mv\crates\preview)
+error[E0603]: module `server` is private
+  --> crates\preview\tests\probe_fable.rs:4:21
+   |
+ 4 | use mdview_preview::server::Server;
+   |                     ^^^^^^  ------ struct `Server` is not publicly re-exported
+   |                     |
+   |                     private module
+   |
+note: the module `server` is defined here
+  --> crates\preview\src\lib.rs:15:1
+   |
+15 | mod server;
+   | ^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0603`.
+error: could not compile `mdview-preview` (test "probe_fable") due to 1 previous error
