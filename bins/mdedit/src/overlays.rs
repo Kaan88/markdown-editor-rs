@@ -977,7 +977,8 @@ const RECENT_ROW: f32 = 52.0;
 const MACRO_ROW: f32 = 48.0;
 /// The width of a yes-or-no question's card.
 const QUESTION_W: f32 = 460.0;
-/// The height of a yes-or-no question whose words take two lines, the common case.
+/// The floor of a yes-or-no question's card: the height its title, two lines of body and footer
+/// need -- the question that lists no notes. One that lists notes takes a third line and grows.
 const QUESTION_H: f32 = 196.0;
 /// The face and size a question's body is written in: measured here, drawn below.
 const BODY_FACE: Face = Face::Ui;

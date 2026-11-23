@@ -86,9 +86,9 @@ note, and "Budget" with none. `library_files` takes every `.md` directly in the 
 note you have made from the pane is also an empty group in the tree, which may be half of why
 flat notes annoyed you. Since `8522c82` the group row menu has "Delete this library file…", whose
 guard (`library_own_file`: a regular `.md` directly in the library folder) is true for that note,
-and whose confirmation says the file lists no notes and that the notes it lists are kept on disk.
-It then calls `std::fs::remove_file` on the note. That is a way to lose a note for good from a
-dialog that promises the opposite.
+and whose confirmation says the file lists no notes and that the notes are not touched. It then
+calls `std::fs::remove_file` on the note. That is a way to lose a note for good from a dialog that
+promises the opposite.
 
 **B. The 64-file limit hides real library files.** `library_files` sorts the folder's `.md` files
 and keeps the first 64 (`MAX_FILES`). Flat notes count. With enough notes whose names sort before
