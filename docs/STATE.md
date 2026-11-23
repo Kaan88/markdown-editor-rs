@@ -45,9 +45,17 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
-- **Phase R2**, the review with ticks and the tinted, level preview (`ai-library-plan.md` 5.5,
-  D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
-  of it exists.
+- **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-107): **merged from
+  `f/review-hunks`, not tagged; the owner has not looked at its shots.** A tick per change, Apply and Copy result of the
+  ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the
+  AFTER page shows the ticked changes). Built, tested (`cargo test --release --workspace` green),
+  fmt and clippy clean, the shots (`review-*`, both themes, `review-closed` new) looked at on
+  Windows, the budgets measured (5 runs against `main` at `32d6fe6`: no change beyond the runs'
+  ranges). Docs: `docs/DESIGN.md` 79, `docs/DECISIONS.md` D-106, D-107, D-108 and
+  `docs/measurements/2026-11-23-review-hunks.md`. **Not built: the tinted, level preview
+  (D-108)**: it needs a request in the viewer's preview protocol (the page rows of every
+  top-level block) and a move of its pin, which waits for the owner. Not looked at by the owner
+  yet (rule 6).
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
@@ -67,12 +75,16 @@ released. If `git log -1` is newer, doubt "In hand" first.
 ## Next
 
 1. The owner's four faults from the hand check (D-101), for the next release: the add, browsing
-   the library in the full preview and the delete notice, merged; a closed mdview, on
-   the closed mdview, merged and still to be tried by the owner (first: whether it is missed with mdview 1.0.5 too).
-2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
+   the library in the full preview, the delete notice and the closed mdview are all merged; the
+   closed mdview is still to be tried by the owner (first: whether it is missed with mdview 1.0.5
+   too).
+2. Then the owner's look at R2's shots (and whether to add the viewer's page rows for the tinted
+   preview, D-108), then section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
 
+- **The AI review has no scrollbar and cuts long lines.** Fixed on `f/review-hunks` by R2 (the
+  list wraps and has the scrollbar), not merged.
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
   mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold. D-102 and D-105
@@ -85,7 +97,6 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
-- The AI review has no scrollbar and cuts long lines (R2 ends this).
 - The editor never reads the AI engine's version.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note with nothing listing them and splitting that document again writes nothing

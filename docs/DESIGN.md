@@ -45,7 +45,7 @@ What is being worked on is in `docs/STATE.md`, and why things were decided is in
 | The window: shadow, corners, the frosted backdrop | 48, 55, 64, 67 |
 | Paste an image, plain paste, rich text pasted as Markdown | 62, 78 |
 | Updates | 17 |
-| AI rewriting | 68 |
+| AI rewriting, and its review with ticks | 68, 79 |
 | History: what phase 2 was to add, the test plan, work packages, review fixes | 13, 14, 15, 49 |
 
 ## 0. How sections 1 to 15 began (2026-11-12)
@@ -2317,8 +2317,8 @@ error status's body is read the same way (`sse::read_body`: 64 KB, 20 s idle, ca
 editor stays usable. The answer is cleaned (one code fence around everything is taken off; the
 line break at the end follows the original; the line breaks become the file's), then:
 
-- with "Show changes before applying" (on by default), the review: Changes, the lines removed and
-  added with unchanged runs folded, or Preview, the text before and after drawn side by side by
+- with "Show changes before applying" (on by default), the review: Changes, a list of the changes
+  with a tick each (section 79), or Preview, the text before and after drawn side by side by
   mdview's renderer (two preview panes, opened the first time), scrolling together. The choice is
   remembered. Apply, Copy result, Discard.
 - without it, the result goes in at once.
@@ -2907,3 +2907,89 @@ preview tests, `prefs` and `chrome` tests, and `html_md`'s 14 in the shared repo
   520x400 with the Files pane), each in both themes. `--demo-link` with an mdview mode chosen
   draws as with mdview found, and side by side in that mode. The shorter hint changes every shot
   of the empty window (`empty`, `move-results`, `plan-*`, `runs*`, `update-installed*`).
+
+## 79. The AI review with a tick per change (2026-11-23, branch `f/review-hunks`)
+
+Phase R2 of `docs/ai-library-plan.md` (5.5), asked for by the owner (D-077); the look is the
+approved drawing on `mock/ai-review` (`rewrite-hunks`), not its code. Decisions: D-107, D-108.
+
+**What it replaces.** `ai::review`, which flattened a diff into lines and forgot the hunks, and
+`ReviewLine`, are gone. The review keeps the comparison and one tick per change.
+
+**`mdedit_core::hunks::Hunks`** (headless, `crates/mdedit-core/src/hunks.rs`). The text before, the
+text the model sent, `diff::diff` of the two (the comparison Compare uses) and a tick per
+non-equal hunk, all ticked at first. `compose()` makes the text Apply puts in, in one pass: an
+unchanged run gives the old lines, a change gives the new lines when ticked and the old ones when
+not. All ticked is the model's result to the byte and none ticked the original to the byte (both
+are returned as they are, because the comparison ignores line breaks, so a mixed-ending file's
+unchanged lines would otherwise come out with the model's endings); a subset is composed from
+whole lines, and a last line with no break never runs into the line after it (the break of the
+text's kind is put between). Apply is `ai_replace` of that text: one `ReplaceRange`, one undo
+step. `merge::Splice` is not used (N edits for one step). Copy result copies the same text.
+Nothing in it can panic on a model's answer: every index comes from the comparison of the two
+strings, and slices are taken through the buffer's line ranges.
+
+**`hunks_ui.rs`** (the shell, no `App`, the shape of `plan_ui.rs`). `Layout::build(hunks, text
+width, measure)` makes the list: per change a 30 px header (`HEAD_H`), its old lines then its new
+ones (`LINE_H` 20 px per row, two 44 px number columns, text from x + 128), three lines of
+context (`CONTEXT`), longer unchanged runs folded into "··· N unchanged lines". `wrap` cuts a
+line into rows that fit the column (after a space when the row has one, inside a word when not,
+between characters always), measuring windows of at most 512 characters, so a 200 KB line is never
+shaped whole. A row's height is its rows times `LINE_H` and the layout keeps the running sums
+(`tops`, `ends`, `total`), so the scroll arithmetic is exact. The layout is made again only when
+the text width or the scale changes, not when a tick does. Tabs are drawn as four spaces. The
+words that differ in a changed pair of lines come from `Diff::intra_line` (pairs of equal count
+only, as in Compare) and are tinted. A change that is not ticked is drawn dimmed (its tints and its
+text half way to the ground) and its header reads "not taken · the old text stays"; the current
+change has a 3 px accent stripe and a tinted header, and "Space ticks or unticks". The scrollbar is
+the shared overlay one: a press on its track brings the thumb there and takes it (`Review::grab`),
+a drag on the thumb scrolls, both by `scroll::offset_for_thumb`.
+
+**The window** (`ai_ui.rs`, `app/ai_events.rs`). Card 1040 x 736. Under the header (title, "file ·
+scope · via", the Changes / Preview switch, the totals) a 46 px bar: previous and next change,
+"Change 3 of 12 · lines 32–34 · +8 −3", "where" and the strip (a mark per change at its place in
+the old text: accent when ticked, grey when not, the current one taller; each mark is a click),
+Tick all, Untick all. Footer: "12 changes · 8 to apply · +212 −83 lines" and under it "Unticked
+changes keep the old text. Apply is one step: Ctrl+Z brings the old text back."; Discard, Copy
+result and "Apply 8 changes", which at zero ticked reads "Nothing is ticked", is drawn as a
+disabled button and takes no click (Enter says so in a toast). Keys: F7 and Shift+F7 the next and
+the previous change (scrolled to the top of the list), Space ticks the current one, Enter applies,
+Esc closes and keeps the result (phase 0); Up, Down, PageUp, PageDown and the wheel scroll. In
+Preview the arrows are drawn off and F7/Shift+F7 do nothing: the pages have no rows to scroll to
+(D-108), so stepping would change the count and move nothing; the strip and Tick all still work. A
+review that is blocked (text changed, read-only, closed) keeps its list and ticks, and its Copy
+result copies what is ticked.
+
+**Preview.** The BEFORE page is the old text, the AFTER page the composed text, headed "8 of 12
+changes taken". A tick sets a due time 150 ms ahead (`compare::DEBOUNCE`, Compare's delay) and the
+AFTER page is sent the new text then, once for any number of ticks in that time (`ai_review_due`,
+called from `timers`); a text sent while the page is still drawing the last one is held and sent
+when it answers. This is the cheap form of the plan. **The tinted, level preview of the mockup
+(`rewrite-preview`) is not built: D-108.**
+
+**Tests.** Core: every change ticked is the result to the byte, none the original, subsets, a
+line with no break, CRLF, an insertion and a deletion, every subset of a spread of texts (no line
+is made up). `hunks_ui`: wrapping (nothing lost, rows fit, between characters, windows, a 300
+character line), context and folds and numbers (the first review's test, kept), a taller row moves
+the sums. The app (`app/review_tests.rs`): Apply of a subset is one undo step and Ctrl+Z restores
+the original; all ticked is the result to the byte; nothing ticked offers no Apply and Enter
+changes nothing; F7, Shift+F7 and Space; the last change of a 400-line file by F7 and by dragging
+the scrollbar, and a press on the track; a 300 character line is in rows that hold all of it; an
+unticked change's tint is not the ticked one's, and comes back; Copy result copies the composed
+text; the strip's marks and the arrows; the preview's page is made again once, 150 ms after the
+last tick; a closed document's review keeps its list and ticks, offers no Apply and copies what is
+ticked. In tests, Copy result and the closed review's copy are read from the engine's `COPIED`
+slot, not the platform clipboard, so a contended or unavailable clipboard cannot fail them.
+
+**Shots** (`tests/shots.sh`, both themes unless said): `review-hunks` (all ticked, the change with
+the long line current, the line wrapped), `review-partial` (changes 2, 4, 5 and 7 unticked, dimmed),
+`review-nothing` (none ticked: the disabled button), `review-long` (400 lines, twenty-eight
+changes, scrolled to the eighteenth, the scrollbar showing; made under `target/data`),
+`review-preview-partial` (the preview with some unticked), `review-closed` (the document closed:
+the warning banner, Copy result only, and no Run again) and `review-min` (800x560, light: the
+strip is left out where it does not fit).
+`--ai-demo review-hunks|review-partial|review-nothing|review-long|review-preview-partial|review-closed`
+rewrite the open document with the file `<name>-after.md` beside it
+(`fixtures/review-demo-after.md`).
+
+**Fixed with it.** "The AI review has no scrollbar and cuts long lines".

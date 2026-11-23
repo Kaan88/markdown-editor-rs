@@ -108,6 +108,8 @@ mod plan_write_tests;
 mod preview;
 #[cfg(test)]
 mod recycle_tests;
+#[cfg(test)]
+mod review_tests;
 mod visual;
 pub(crate) use preview::previewable;
 #[cfg(test)]

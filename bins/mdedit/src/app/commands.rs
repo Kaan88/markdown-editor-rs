@@ -2462,6 +2462,10 @@ impl App {
         } else {
             self.ai_tick = None;
         }
+        // A review's tick not yet shown on the AFTER page.
+        if let Some(due) = self.ai_review_due(now) {
+            at(due);
+        }
         if let Some(tip) = self.ui.tip.as_mut().filter(|t| !t.shown) {
             if now >= tip.due {
                 tip.shown = true;

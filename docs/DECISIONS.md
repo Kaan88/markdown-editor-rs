@@ -1065,6 +1065,41 @@ had a focus change to ask at.
 viewer staying alive after its window closes, which only mdview can fix.
 **From.** The owner's report, 2026-11-23; built by an agent, recorded by Claude.
 
+## D-107 · 2026-11-23 · The review is a list of changes with a tick each, composed in one pass
+
+**Decision.** Phase R2 is built as `ai-library-plan.md` 5.5 describes: the review keeps the
+comparison (`mdedit_core::hunks::Hunks`) and one tick per change, all ticked when it opens; Apply
+puts in the text composed from the ticked changes through `ai_replace` (one edit, one undo step);
+Copy result copies the same text; at zero ticked Apply reads "Nothing is ticked" and cannot be
+pressed. `ai::review` and `ReviewLine` are removed; their test is kept as a test of the list's
+layout. The list wraps long lines, has the shared scrollbar, tints the words that changed and dims
+what is not taken. F7 and Shift+F7 step, Space ticks. The Preview's AFTER page shows the composed
+text, made again 150 ms after the last tick. A change's mark on the "where" strip is its place in
+the old text.
+**Why.** D-077 and the plan's 5.5; the owner approved the look on `mock/ai-review`. All ticked at
+the start, so that Enter does what it always did.
+**Overturned by.** The owner, once they have used it.
+**From.** The owner's request, 2026-11-23; the details by Claude from the plan.
+
+## D-108 · 2026-11-23 · The tinted, level preview waits for the viewer's page rows
+
+**Decision.** D-077 moved phase P2 (each changed block tinted and labelled in both rendered pages,
+the two pages kept level) into R2. It is **not built** on `f/review-hunks`; the cheap form of the
+plan ships instead (the AFTER page shows the ticked changes, headed "8 of 12 changes taken").
+Amends D-077; nothing else of it changes.
+**Why.** P2 needs the rectangle of every rendered block by source line in both panes. The viewer's
+preview protocol (`mdview-preview`, pinned at `e2b3e31`) answers only `BlockAt` (a point to a
+block's lines) and `BlockOfLine` (a line to its block's lines); it gives no rows, and the page's
+layout is private to its server. A request that returns every top-level block's first line, top
+and height, and an `Update` field for it, is a change to the viewer, which mdview also builds
+against; by rule 8 and by the task's own rule it is not made from here. Drawing the pages in the
+editor's process instead would need `mdview-core` as a direct dependency and would leave out the
+mode that runs mdview in its own process.
+**What would change it.** The owner's word to add that request to the viewer and move its pin;
+then the tint pass and the block-to-block scroll (about three days, as the plan priced it).
+**Overturned by.** The owner.
+**From.** Claude, in the work of 2026-11-23; to be told to the owner.
+
 ## D-104 · 2026-11-23 · Visual editing waits for a tab still being read
 
 **Decision.** One of the four faults of D-101: browsing the library in the full preview kept the
@@ -1113,3 +1148,21 @@ case made, and an input ask resetting the chain made typing a steady stream of p
 **Overturned by.** The owner, if a closed mdview is still missed; or a viewer that answers during
 its grace, which would make waiting unnecessary.
 **From.** The review of the fix, 2026-11-23; built by an agent, recorded by Claude.
+
+## D-106 · 2026-11-23 · The review takes whole changes as the comparison made them
+
+**Decision.** A tick takes a whole change of `diff::diff`, the comparison Compare uses; the review
+does not re-cut the comparison's boundaries to look tidier. A line that appears on both sides can
+therefore end up twice when the comparison pairs it with its neighbours: in
+`fixtures/review-demo.md` the comparison ends the install paragraphs with a new "## Usage" and then
+replaces the old "## Usage" with the two lines after it, so unticking the second of those two
+changes (the `review-preview-partial` demo) shows "## Usage" twice in the AFTER page. Apply puts in
+exactly what the list shows, and Ctrl+Z takes it back.
+**Why.** D-107 keeps the comparison the user can check in Compare, and the plan's 5.5 ticks its
+changes. A boundary pass (sliding each change while the line at its edge is equal on both sides)
+would tidy this case but is a new behaviour for every text, with its own edge cases, and the owner,
+who has not used the review yet, has not asked for it.
+**What would change it.** The owner, after using it; then the pass belongs in `hunks::Hunks` alone
+(never in `diff`, which Compare draws), with a test per case it re-cuts.
+**Overturned by.** The owner.
+**From.** Claude, finishing R2, 2026-11-23; seen in the `review-preview-partial` shot.

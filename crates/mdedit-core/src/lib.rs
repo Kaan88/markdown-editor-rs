@@ -19,6 +19,7 @@ pub mod find;
 pub mod fold;
 mod hash;
 pub mod history;
+pub mod hunks;
 pub mod indent;
 pub mod limits;
 pub mod lines;
