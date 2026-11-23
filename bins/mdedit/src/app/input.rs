@@ -46,16 +46,16 @@ impl App {
         {
             self.wants_frame = true;
         }
-        if self.task_is_open() {
-            self.task_pointer(x, y);
-            return;
-        }
         if self.plan_is_open() {
             self.plan_pointer(x, y);
             return;
         }
         if self.ai_panel_open() {
             self.ai_pointer(x, y);
+            return;
+        }
+        if self.task_is_open() {
+            self.task_pointer(x, y);
             return;
         }
         if self.palette_open() {
@@ -663,16 +663,16 @@ impl App {
             }
             return;
         }
-        if self.task_is_open() {
-            self.task_press();
-            return;
-        }
         if self.plan_is_open() {
             self.plan_press();
             return;
         }
         if self.ai_panel_open() {
             self.ai_press();
+            return;
+        }
+        if self.task_is_open() {
+            self.task_press();
             return;
         }
         if self.palette_open() {
@@ -908,16 +908,16 @@ impl App {
         }
         let (x, y) = self.ui.mouse;
         self.ui.autoscroll_due = None;
-        if self.task_is_open() {
-            self.task_release();
-            return;
-        }
         if self.plan_is_open() {
             self.plan_release();
             return;
         }
         if self.ai_panel_open() {
             self.ai_release();
+            return;
+        }
+        if self.task_is_open() {
+            self.task_release();
             return;
         }
         if self.palette_open() {
@@ -967,10 +967,6 @@ impl App {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
         self.ui.tip = None;
-        if self.task_is_open() {
-            self.task_right_press();
-            return;
-        }
         if self.plan_is_open() {
             self.plan_right_press();
             return;
@@ -980,6 +976,10 @@ impl App {
             || self.ai_panel_open()
             || self.ui.settings.is_some()
         {
+            return;
+        }
+        if self.task_is_open() {
+            self.task_right_press();
             return;
         }
         self.ui.popup = None;
@@ -1101,12 +1101,12 @@ impl App {
                 Some((_, py)) => -(py as f32) / self.scale,
                 None => -(ny as f32) * PANE_WHEEL,
             };
-            if self.task_is_open() {
-                self.task_wheel(dy);
-            } else if self.plan_is_open() {
+            if self.plan_is_open() {
                 self.plan_wheel(dy);
             } else if self.ai_panel_open() {
                 self.ai_wheel(dy);
+            } else if self.task_is_open() {
+                self.task_wheel(dy);
             } else if self.palette_open() {
                 // Over the palette it scrolls the list; anywhere else it does nothing (and never
                 // reaches the page below).
@@ -1388,18 +1388,19 @@ impl App {
             }
             return;
         }
-        if self.task_is_open() {
-            self.task_key(name, typed);
-            return;
-        }
 
-        // The plan screen, an AI panel, then the palette, take the keyboard before anything else.
+        // The plan screen, an AI panel, then the task window, take the keyboard before the
+        // rest. A review over the task window is a panel, and gets the keys first.
         if self.plan_is_open() {
             self.plan_key(key, typed);
             return;
         }
         if self.ai_panel_open() {
             self.ai_key(name, typed);
+            return;
+        }
+        if self.task_is_open() {
+            self.task_key(name, typed);
             return;
         }
         if self.palette_open() {

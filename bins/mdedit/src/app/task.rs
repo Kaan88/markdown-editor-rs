@@ -633,24 +633,29 @@ impl App {
     // ---- the three tasks ------------------------------------------------------------------------
 
     pub(super) fn task_run(&mut self) {
-        let Some(s) = self.task.as_ref() else { return };
+        let on = self.ai_conn() != Connection::Off;
+        let Some(s) = self.task.as_mut() else { return };
         if s.asking.is_some() {
             return;
         }
+        s.ai_on = on;
+        s.blocked = None;
+        let task = s.task;
+        let count = s.count();
         if self.ai.kept.is_some() {
             self.docs.set_toast(
                 "A review is kept from the last file. Show it from AI \u{203A} Show the last result.",
             );
             return;
         }
-        if s.count() == 0 {
+        if count == 0 {
             return;
         }
-        match s.task {
-            TaskKind::File if s.ai_on => self.task_file_start(),
+        match task {
+            TaskKind::File if on => self.task_file_start(),
             TaskKind::File => self.task_file_plan_now(),
             TaskKind::Split => self.task_split_start(),
-            TaskKind::Rewrite if !s.ai_on => self.ai_open_settings(),
+            TaskKind::Rewrite if !on => self.ai_open_settings(),
             TaskKind::Rewrite => self.task_rewrite_next(),
         }
     }
@@ -779,6 +784,12 @@ impl App {
                 s.files[i].sections = sections;
             }
         }
+        // What the model did not place is left out, unticked, with its row saying so.
+        for i in 0..s.files.len() {
+            if !s.is_placed(i) {
+                s.files[i].ticked = false;
+            }
+        }
         s.planned = true;
         s.asking = None;
         s.tick += 1;
@@ -829,7 +840,7 @@ impl App {
             .map(Path::to_path_buf)
             .unwrap_or_default();
         let targets: Vec<(PathBuf, String, Vec<String>)> = s
-            .taking_part()
+            .to_write()
             .into_iter()
             .filter_map(|i| {
                 let f = &s.files[i];
@@ -1317,7 +1328,7 @@ impl App {
         self.task_after_review(false);
     }
 
-    fn task_after_review(&mut self, _accepted: bool) {
+    pub(super) fn task_after_review(&mut self, _accepted: bool) {
         if self.task.is_some() {
             self.task_rewrite_next();
         } else {
@@ -1410,9 +1421,10 @@ impl App {
         {
             self.ai.cancel_task(asking.request);
             if let Some(s) = self.task.as_mut() {
-                s.blocked = Some("Stopped.".to_string());
+                s.blocked = None;
                 s.tick += 1;
             }
+            self.docs.set_toast("Stopped.");
             self.redraw();
         }
     }

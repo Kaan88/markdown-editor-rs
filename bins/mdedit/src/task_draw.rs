@@ -489,7 +489,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     let mut bx = r.right() - PAD;
     let n = s.count();
     let ai_off = s.task == TaskKind::Rewrite && !s.ai_on;
-    let primary_enabled = !ai_off && n > 0 && s.blocked.is_none() && s.asking.is_none();
+    let primary_enabled = !ai_off && n > 0 && s.asking.is_none();
     let label = if ai_off {
         "The AI connection is off".to_string()
     } else {

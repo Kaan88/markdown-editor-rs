@@ -152,16 +152,17 @@ fn no_group_chosen_writes_nothing() {
     let mut a = app();
     a.session_path = Some(dir.join("settings.ini"));
     a.task_open(TaskKind::File, vec![text]);
+    with_group(&mut a, "Recipes");
     if let Some(s) = a.task.as_mut() {
         s.dest = DestChoice::Decide;
         s.planned = true;
         s.files[0].title = Some("Pasta".to_string());
     }
     a.task_file_write();
-    assert!(!dir.join("library").join("Recipes.md").exists());
+    let body = std::fs::read_to_string(dir.join("library").join("Recipes.md")).expect("group");
+    assert!(!body.contains("[Pasta]"), "{body}");
     assert!(a.task.is_some(), "the window stays");
 }
-
 
 #[test]
 fn file_them_with_the_ai_off_plans_then_writes_the_link() {
@@ -205,13 +206,15 @@ fn file_them_sends_names_and_digests_and_writes_what_the_model_placed() {
         s.files[1].ticked = true;
     }
     a.task_run();
-    wait(&mut a, |a| {
-        a.task.as_ref().is_some_and(|s| s.planned)
-    });
+    wait(&mut a, |a| a.task.as_ref().is_some_and(|s| s.planned));
     let s = a.task.as_ref().expect("open");
     assert_eq!(s.files[0].title.as_deref(), Some("Pasta"));
     assert_eq!(s.files[0].sections, ["Food", "Dinner"]);
-    assert_eq!(s.files[1].with, Some(0), "the picture is placed with the text");
+    assert_eq!(
+        s.files[1].with,
+        Some(0),
+        "the picture is placed with the text"
+    );
     a.task_file_write();
     let group = dir.join("library").join("Recipes.md");
     let body = std::fs::read_to_string(&group).expect("the group file");
@@ -219,7 +222,10 @@ fn file_them_sends_names_and_digests_and_writes_what_the_model_placed() {
     assert!(body.contains("### Dinner"), "{body}");
     assert!(body.contains("[Pasta]"), "{body}");
     assert!(body.contains("[lasagne]"), "{body}");
-    assert!(body.contains("lasagne.jpg"), "the picture is linked by name");
+    assert!(
+        body.contains("lasagne.jpg"),
+        "the picture is linked by name"
+    );
     assert!(crate::library_pane::same_note(
         &mdshared_app::library::parse(&body, &dir.join("library")).entries[0].path,
         &text
@@ -448,7 +454,10 @@ fn show_what_is_sent_puts_the_request_in_a_read_only_tab_and_parks_the_window() 
     let text = doc.ready().expect("read").buffer.rope().to_string();
     assert!(text.contains("TASKFILE: by dish"), "{text}");
     assert!(text.contains("pasta.md"));
-    assert!(!text.contains(&dir.to_string_lossy().to_string()), "no path");
+    assert!(
+        !text.contains(&dir.to_string_lossy().to_string()),
+        "no path"
+    );
     a.task_open(TaskKind::File, Vec::new());
     assert!(a.task.is_some());
     assert!(a.task_parked.is_none());
@@ -484,4 +493,29 @@ fn escape_stops_the_request_then_closes_the_window() {
     assert!(s.asking.is_none(), "the request is stopped");
     a.task_key(Some(KeyName::Escape), None);
     assert!(a.task.is_none(), "a second Escape closes it");
+}
+
+#[test]
+fn a_file_the_model_did_not_place_is_not_written() {
+    let dir = scratch("task-unplaced");
+    std::fs::create_dir_all(dir.join("library")).expect("library");
+    let text = pasta(&dir);
+    let other = dir.join("orphan.md");
+    std::fs::write(&other, "# Orphan\n").expect("orphan");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.task_open(TaskKind::File, vec![text, other.clone()]);
+    with_group(&mut a, "Recipes");
+    if let Some(s) = a.task.as_mut() {
+        s.planned = true;
+        s.files[0].title = Some("Pasta".to_string());
+        s.files[0].sections = vec!["Food".to_string()];
+        // The second is left as the model left it: no title, no section, no place, still ticked.
+        s.files[1].ticked = true;
+    }
+    assert_eq!(a.task.as_ref().expect("open").count(), 1);
+    a.task_file_write();
+    let body = std::fs::read_to_string(dir.join("library").join("Recipes.md")).expect("group");
+    assert!(body.contains("[Pasta]"), "{body}");
+    assert!(!body.contains("Orphan"), "{body}");
 }

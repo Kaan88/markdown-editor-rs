@@ -953,12 +953,24 @@ impl App {
                 }
             }
             AiHit::Copy => {
-                let Some(rv) = self.ai.review() else { return };
+                let Some((text, is_file)) = self
+                    .ai
+                    .review()
+                    .map(|rv| (rv.hunks.compose(), rv.file.is_some()))
+                else {
+                    return;
+                };
                 // The review may be the only place the result is (its document closed): it
                 // closes only once the result is on the clipboard (audit 1 round 3, #3).
-                if copy_text(&rv.hunks.compose()) {
+                if copy_text(&text) {
                     self.docs.set_toast("Copied the result.");
-                    self.ai_close_panel();
+                    if is_file {
+                        self.ai.panel = None;
+                        self.ai.tick += 1;
+                        self.task_after_review(false);
+                    } else {
+                        self.ai_close_panel();
+                    }
                 } else {
                     self.docs
                         .set_toast("Could not copy to the clipboard. The result is still here.");

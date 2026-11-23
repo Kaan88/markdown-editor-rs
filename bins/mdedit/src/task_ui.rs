@@ -497,9 +497,29 @@ impl TaskScreen {
             .collect()
     }
 
+    /// Whether a file has a place on the plan face.
+    pub fn is_placed(&self, i: usize) -> bool {
+        let Some(f) = self.files.get(i) else {
+            return false;
+        };
+        f.title.is_some() || !f.sections.is_empty() || f.with.is_some()
+    }
+
+    /// The files "Add N to the library" writes: those ticked and placed.
+    pub fn to_write(&self) -> Vec<usize> {
+        self.taking_part()
+            .into_iter()
+            .filter(|&i| self.is_placed(i))
+            .collect()
+    }
+
     /// How many files the button counts.
     pub fn count(&self) -> usize {
-        self.taking_part().len()
+        if self.planned {
+            self.to_write().len()
+        } else {
+            self.taking_part().len()
+        }
     }
 
     /// The destination group, when one is chosen.
