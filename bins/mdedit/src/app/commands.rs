@@ -1035,6 +1035,7 @@ impl App {
                     self.compare_with(path);
                 }
             }
+            Picked::TaskFiles(paths) => self.task_add_paths(paths),
             Picked::Save { doc, to, after } => {
                 let saved = match (to, self.docs.index_of_id(doc)) {
                     (Some(to), Some(i)) => self.save_to(i, &to),

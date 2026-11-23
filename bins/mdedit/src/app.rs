@@ -212,6 +212,8 @@ pub enum Picked {
     NoteFile(PathBuf, Vec<PathBuf>),
     /// The folder "Add a folder to the library…" was pointed at.
     ImportFolder(Option<PathBuf>),
+    /// The files "Add files." in the AI task window was pointed at.
+    TaskFiles(Vec<PathBuf>),
     /// The folder chosen for a group's notes, and the library file it is for.
     GroupHome(PathBuf, Option<PathBuf>),
     /// Save as for document `doc`; `after` is what waits for the save (`After::Nothing` for the
