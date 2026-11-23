@@ -28,9 +28,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
   made again only when a group or a section was folded and opened, so the add looked lost. The rows
   are made again as it is written, with what was folded above the note opened, and a name being
   typed in the pane's box goes with them, its keyboard back in the text.
-- Branch `fix/preview-browse` (not merged): browsing the library in the full preview (visual
-  editing) no longer falls back to editing; a tab still loading no longer ends the mode
-  (`visual_sync`). Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an
+- **Browsing the library in the full preview** (visual editing, branch `fix/preview-browse`,
+  merged, D-104): a tab still being read no longer ends the mode; `visual_sync` waits for it.
+  Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an
   outside review (audit 3's fixes included).
 
 ## In hand
@@ -56,10 +56,10 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Next
 
-1. The owner's four faults from the hand check (D-101), for the next release: the add, merged; a
-   closed mdview, on `fix/closed-mdview` (first: whether it is missed with mdview 1.0.5 too); the
-   notice before deleting a library file, on `fix/delete-library-notice`; and browsing the library
-   in the full preview, fixed on `fix/preview-browse`.
+1. The owner's four faults from the hand check (D-101), for the next release: the add and browsing
+   the library in the full preview, merged; a closed mdview, on `fix/closed-mdview` (first: whether
+   it is missed with mdview 1.0.5 too); the notice before deleting a library file, on
+   `fix/delete-library-notice`.
 2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
@@ -67,10 +67,6 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
   mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
-- Browsing the library in the full preview keeps the preview for two or three files, then falls
-  back to editing (fixed on `fix/preview-browse`, not merged): a note opens as a tab still being
-  read, so its language is not yet known and the mode saw a file the page cannot show.
-
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
