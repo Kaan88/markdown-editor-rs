@@ -12,8 +12,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
   (`docs/measurements/2026-11-23-1.3.0-against-1.2.1.md`).
 - **mdview 1.0.5**, 2026-11-23, tag `v1.0.5` at `0a9bc7c`, fourteen assets: Settings as pages,
   `?closed`, a version resource and `hub.txt` (mdview `docs/HANDOFF.md`).
-- The shared crates are not released; the apps pin them by commit. **Hub** is its own app
-  (`Kaan88/mdhub`, `Desktop\hub`; its `docs/STATE.md` is its record; 0.1.0 notes written, no tag).
+- The shared crates are not released; the apps pin them by commit. **Hub** is its own app (its
+  `docs/STATE.md` is its record; 0.1.0 notes written, no tag).
 
 ## On `main`, not released
 
@@ -79,15 +79,13 @@ released. If `git log -1` is newer, doubt "In hand" first.
 ## Waiting for the owner
 
 - **`docs/ai-library-plan.md`** section 8, in order after R2: V, phase 4 (built on `f/p4`, waiting
-  for the owner's look), drag and drop. W, 4a and 5 are merged. Open: the resizer for phase V, a
-  new crate to be priced first (rule 7).
-- **The apps that may join**: `docs/ideas/README.md` lists each plan and drawing (terminal, file
-  manager, task manager, downloader, workbench, and the quickest first release).
+  for the owner's look), drag and drop; W, 4a and 5 are merged. Open: the resizer for V, a new
+  crate to be priced first (rule 7).
 - **Dependabot**: open PRs (mdedit #9 regex-automata; mdview #2 to #6; shared #2 to #7) and a
-  `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Left until
-  after the release; it is after it now.
-- The notes library has been used in a real build and its two faults fixed, but it is not recorded
-  anywhere as approved.
+  `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Left until after
+  the release; it is after it now.
+- The notes library is used in a real build and its two faults are fixed, but nothing records
+  approval.
 
 ## Next
 
@@ -121,8 +119,6 @@ released. If `git log -1` is newer, doubt "In hand" first.
   folders emptied in a home outside the library stay.
 - **A debug build aborts on a closed stderr** (not a release one): something only debug prints
   with `std`'s `eprintln!`; CI runs release and is unaffected.
-- **Shared CI on Linux:** `pane::tests::names_show_while_they_fit…` measured 230 px on one run and
-  passed on the one before: it depends on the runner's fonts.
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
 
 ## Known gaps, not planned unless they get in the way
@@ -150,4 +146,4 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
 - Worktrees: `main`; `md-wt\pw`, `p4`, `ci-fix` and their bases, `spike-v`, `baseline-main`,
   `p4-mainbase`; `hub-wt\app-prs2\mdedit`. The empty `md-wt\closed-mdview` and `mv-notes` are
-  held by a process; delete them after a restart.
+  held by a process; delete after a restart.
