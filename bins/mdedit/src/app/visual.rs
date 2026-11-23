@@ -321,14 +321,17 @@ impl App {
             self.end_visual();
             return;
         }
-        // A tab still reading its file is not yet known to be Markdown or not: the mode waits for
-        // the load, as it did not when a note opened from the library ended it (the owner:
-        // "browsing the library in the full preview keeps the preview for two or three files").
+        // A tab still being read has no language yet, so the page cannot yet say whether it can
+        // show it: the mode waits for the read instead of ending. A block open on the document
+        // the page still shows belongs to the old tab, and closes before the wait.
         if self
             .docs
             .active_doc()
             .is_some_and(|d| d.ready().is_none() && d.is_loading())
         {
+            if !current.is_some_and(|(id, _)| id == v.doc) {
+                self.close_block();
+            }
             return;
         }
         match current {
