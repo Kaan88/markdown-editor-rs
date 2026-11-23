@@ -90,6 +90,9 @@ pub enum ShotDialog {
     LibraryDelete,
     /// The same question with a group and a file long enough to wrap onto a fourth line.
     LibraryDeleteLong,
+    /// The question before a section is taken out, its name long enough to wrap onto a fourth
+    /// line (audit 4, F19).
+    LibraryRemoveLong,
 }
 
 /// A line and column as the user types them: 1-based, `12` or `12:5`.
@@ -581,6 +584,7 @@ impl Args {
                         "run-undo-original" => Some(ShotDialog::RunUndoOriginal),
                         "library-delete" => Some(ShotDialog::LibraryDelete),
                         "library-delete-long" => Some(ShotDialog::LibraryDeleteLong),
+                        "library-remove-long" => Some(ShotDialog::LibraryRemoveLong),
                         _ => None,
                     })
                 }
@@ -716,6 +720,10 @@ mod tests {
         assert_eq!(
             parse("--dialog library-delete-long").dialog,
             Some(ShotDialog::LibraryDeleteLong)
+        );
+        assert_eq!(
+            parse("--dialog library-remove-long").dialog,
+            Some(ShotDialog::LibraryRemoveLong)
         );
         assert_eq!(parse("--scroll-steps 0").scroll_steps, Some(0));
     }

@@ -1034,17 +1034,17 @@ pub fn card(kind: DialogKind, rows: usize, body_h: f32, w: f32, h: f32) -> Rect 
         DialogKind::Runs => (660.0, list(RUN_ROW, 96.0).min(620.0)),
         DialogKind::RunUndo => (520.0, 250.0),
         // Rounded up, so the card's own rounding to whole pixels cannot close the gap the
-        // last line keeps from the divider.
-        DialogKind::LibraryDelete => (
+        // last line keeps from the divider. The question before a section goes names it, and a
+        // section's name can be as long as a file's (audit 4, F19).
+        DialogKind::LibraryDelete | DialogKind::LibraryRemove => (
             QUESTION_W,
             (BODY_TOP + body_h + BODY_GAP + FOOTER)
                 .max(QUESTION_H)
                 .ceil(),
         ),
-        DialogKind::Unsaved
-        | DialogKind::Overwrite
-        | DialogKind::Discard
-        | DialogKind::LibraryRemove => (QUESTION_W, QUESTION_H),
+        DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => {
+            (QUESTION_W, QUESTION_H)
+        }
         DialogKind::ReplaceFiles => return crate::replace_ui::card(w, h),
     };
     dialog_card(cw, ch, w, h)
@@ -1124,10 +1124,10 @@ pub fn draw_dialog(
         DialogKind::Macros => macros.len(),
         DialogKind::Runs => runs.list.len() + runs.unread.len(),
     };
-    // The library's question names a group and a file, and either can be long: its card is
-    // grown from the lines the words wrap to before it is drawn.
+    // The library's questions name a group and a file, or a section, and any can be long: the
+    // card is grown from the lines the words wrap to before it is drawn.
     let body_h = match d.kind {
-        DialogKind::LibraryDelete => {
+        DialogKind::LibraryDelete | DialogKind::LibraryRemove => {
             // The width the card will get, a narrow window included, so the lines measured are
             // the lines drawn.
             let bw = dialog_card(QUESTION_W, QUESTION_H, w, h).w - 2.0 * PAD;
@@ -1238,6 +1238,10 @@ pub fn draw_dialog(
                 ),
             };
             title(c, r, heading);
+            // A card capped at the window's height holds fewer lines than the words wrap to:
+            // the body is cut at the divider rather than drawn into the buttons (audit 4, F19).
+            let room = Rect::new(r.x, r.y, r.w, (footer.y - BODY_GAP - r.y).max(0.0));
+            let old = c.p.clip(room);
             c.p.paragraph(
                 BODY_FACE,
                 BODY_SIZE,
@@ -1247,6 +1251,7 @@ pub fn draw_dialog(
                 &body,
                 pal.text,
             );
+            c.p.restore(old);
             // The answers sit at the right in reading order, the first one the default.
             let mut x = r.right() - PAD;
             for (n, label) in buttons.iter().enumerate().rev() {
@@ -2004,6 +2009,34 @@ mod tests {
             QUESTION_H,
             "a question that fits two lines keeps today's card"
         );
+    }
+
+    /// Audit 4, F19: the question before a section is taken out names the section, whose name
+    /// can be as long as a file's. Its card was the fixed 196 the delete question outgrew: it
+    /// grows the same way, and a short one keeps its card.
+    #[test]
+    fn a_long_section_question_grows_its_card_to_its_lines() {
+        let (mut bm, mut gfx) = painter();
+        let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+        let ink = [0x1f, 0x1f, 0x1f];
+        let long = strings::library_remove_body(
+            "Japan 2025, Tokyo, Kyoto, Osaka, Nara, Sapporo and the long way home, with every stop \
+             written down and every ticket kept, and the friends we met on the way",
+            23,
+        );
+        let used = body_height(&mut p, QUESTION_W - 2.0 * PAD, &long, ink);
+        assert!(
+            used > QUESTION_H - BODY_TOP - FOOTER,
+            "the words need more than the 196 card's room: {used}"
+        );
+        let r = card(DialogKind::LibraryRemove, 0, used, 1200.0, 900.0);
+        assert!(r.h > QUESTION_H, "the card grew: {} for {used}", r.h);
+        assert!(r.y + BODY_TOP + used + BODY_GAP <= r.bottom() - FOOTER);
+        // A short name: never below the floor, and its lines above the divider too.
+        let short = strings::library_remove_body("Money", 2);
+        let used = body_height(&mut p, QUESTION_W - 2.0 * PAD, &short, ink);
+        let r = card(DialogKind::LibraryRemove, 0, used, 1200.0, 900.0);
+        assert!(r.h >= QUESTION_H && r.y + BODY_TOP + used + BODY_GAP <= r.bottom() - FOOTER);
     }
 }
 

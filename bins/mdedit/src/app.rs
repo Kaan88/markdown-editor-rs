@@ -3666,6 +3666,15 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 };
             }
         }
+        Some(ShotDialog::LibraryRemoveLong) => {
+            app.open_dialog(DialogKind::LibraryRemove);
+            if let Some(d) = app.ui.dialog.as_mut() {
+                d.subject = strings::library_remove_body(
+                    "Japan 2025: Tokyo, Kyoto, Osaka, Nara and the long way home, every stop",
+                    23,
+                );
+            }
+        }
         None => {}
     }
     if let Some(q) = app.args.palette.clone() {

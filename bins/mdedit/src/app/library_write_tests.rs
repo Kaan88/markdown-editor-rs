@@ -1526,3 +1526,154 @@ fn find_the_file_writes_the_link_its_picker_was_asked_for() {
     assert!(line("Last year").ends_with("moved.md)"), "{text}");
     let _ = std::fs::remove_dir_all(&l.dir);
 }
+
+// ---- audit 4: the owner's own files (RB3, F17, F18) --------------------------------------------
+
+/// The names in `dir` that end in `.part`: a temporary a write left behind.
+fn temporaries(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.ends_with(".part"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Audit 4, RB3 (audit 3 C9): a library write never opens a file of the owner's called
+/// `<name>.tmp` (the old write took that name for its temporary, truncated it and renamed it over
+/// the library file), and leaves no temporary of its own. The pane's writers and "Add this file"
+/// both write this way.
+#[test]
+fn a_library_write_leaves_the_owners_tmp_file_alone_and_no_temporary_of_its_own() {
+    let (mut a, l) = lib("libw-tmp");
+    let folder = l.dir.join("library");
+    let mine = folder.join("personal.md.tmp");
+    std::fs::write(&mine, "words I wrote\n").unwrap();
+    pick(&mut a, LibAct::Rename, 0);
+    name_it(&mut a, "Home");
+    assert_eq!(read(&l.file), l.text().replacen("# Personal", "# Home", 1));
+    assert_eq!(
+        read(&mine),
+        "words I wrote\n",
+        "the owner's file is untouched"
+    );
+    assert!(
+        temporaries(&folder).is_empty(),
+        "{:?}",
+        temporaries(&folder)
+    );
+    // "Add this file to the notes library".
+    let plans = l.dir.join("plans.md");
+    std::fs::write(&plans, "# Plans\n").unwrap();
+    open_now(&mut a, &plans);
+    a.library_put(&l.file, &["Trips".to_string()]);
+    assert!(
+        read(&l.file).contains(&format!("- [Plans]({})", slash(&plans))),
+        "{}",
+        read(&l.file)
+    );
+    assert_eq!(
+        read(&mine),
+        "words I wrote\n",
+        "the owner's file is untouched"
+    );
+    assert!(
+        temporaries(&folder).is_empty(),
+        "{:?}",
+        temporaries(&folder)
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, F17 (audit 3 C9): a library file that begins with a byte order mark is written by
+/// every writer and keeps the mark. Before, the mark hid the group's heading from the writers:
+/// "Rename" did nothing without a word, and the first new note dropped the `home:` line it meant
+/// to write.
+#[test]
+fn a_library_file_with_a_byte_order_mark_is_written_and_keeps_it() {
+    let (mut a, l) = lib("libw-bom");
+    let bom = |t: &str| format!("\u{FEFF}{t}");
+    std::fs::write(&l.file, bom(&l.text())).unwrap();
+    a.library_rows();
+    assert_eq!(labels(&a)[0], "Personal");
+    pick(&mut a, LibAct::Rename, 0);
+    name_it(&mut a, "Home");
+    assert_eq!(
+        read(&l.file),
+        bom(&l.text().replacen("# Personal", "# Home", 1))
+    );
+    assert_eq!(labels(&a)[0], "Home");
+    // The group has no `home:` line: its first new note writes one.
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Budget");
+    let text = read(&l.file);
+    assert!(text.starts_with("\u{FEFF}# Home\nhome: Home\n"), "{text:?}");
+    assert!(
+        text.contains("- [Budget](Home/Money/budget.md)"),
+        "{text:?}"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, F17 and D3's rule: a library file that is not UTF-8 text (here Windows-1254) is not
+/// written back changed, and the toast says why in plain words.
+#[test]
+fn a_library_file_that_is_not_utf8_is_left_as_it_is_and_the_toast_says_why() {
+    let (mut a, l) = lib("libw-cp1254");
+    // "# Çağrı" in Windows-1254, and a note under it.
+    let mut bytes = b"# \xC7a\xF0r\xFD\n\n".to_vec();
+    bytes.extend_from_slice(format!("- [Taxes 2026]({})\n", slash(&l.taxes)).as_bytes());
+    std::fs::write(&l.file, &bytes).unwrap();
+    a.library_rows();
+    pick(&mut a, LibAct::Rename, 0);
+    name_it(&mut a, "Home");
+    assert_eq!(std::fs::read(&l.file).unwrap(), bytes, "not written back");
+    let said = toast(&a);
+    assert!(said.contains("is not UTF-8 text"), "{said}");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, F18: "Edit a library file" in a library that read as empty makes `notes.md` from
+/// the template, but never over a `notes.md` that is there: that one is opened as it is.
+#[test]
+fn edit_a_library_file_never_writes_the_template_over_a_notes_file() {
+    let dir = scratch("libw-first-file");
+    let folder = dir.join("library");
+    let made = super::library::first_library_file(&folder).expect("made");
+    assert_eq!(made, folder.join("notes.md"));
+    assert_eq!(read(&made), mdshared_app::library::TEMPLATE);
+    // One there already, which the read did not list: opened as it is.
+    std::fs::write(&made, "# Mine\n").unwrap();
+    assert_eq!(
+        super::library::first_library_file(&folder).expect("there"),
+        made
+    );
+    assert_eq!(read(&made), "# Mine\n", "not written over");
+    // Something by that name that is not a file is refused.
+    std::fs::remove_file(&made).unwrap();
+    std::fs::create_dir_all(&made).unwrap();
+    assert!(super::library::first_library_file(&folder).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, F14: `home: Trip/..` is the library folder whether or not a `Trip` folder is there.
+/// With no `Trip`, Linux and macOS keep the `..` in the absolute path, so only its spelling can
+/// fold it; with one, the disk folds it. A folder beside the library is not the library.
+#[test]
+fn a_dot_dot_after_a_folder_that_is_not_there_is_folded() {
+    let dir = scratch("libw-dot-dot");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).unwrap();
+    let same = super::library_write::same_folder;
+    assert!(same(&library.join("Gone").join(".."), &library));
+    assert!(same(&library.join("Gone").join("..").join("."), &library));
+    assert!(same(&library.join("A").join("B").join("..").join(".."), &library));
+    assert!(!same(&library.join("Gone"), &library));
+    assert!(!same(&library.join("..").join("library2"), &library));
+    std::fs::create_dir_all(library.join("Trip")).unwrap();
+    assert!(same(&library.join("Trip").join(".."), &library));
+    let _ = std::fs::remove_dir_all(&dir);
+}

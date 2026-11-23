@@ -472,6 +472,10 @@ shot library-delete-dark --dark --dialog library-delete "$fx/sample.rs"
 # The same question with a long group and file name: four lines, and a card grown to hold them.
 shot library-delete-long --light --dialog library-delete-long "$fx/sample.rs"
 shot library-delete-long-dark --dark --dialog library-delete-long "$fx/sample.rs"
+# The question before a section is taken out, with a long section name: its card grows as the
+# delete question's does (audit 4, F19).
+shot library-remove-long --light --dialog library-remove-long "$fx/sample.rs"
+shot library-remove-long-dark --dark --dialog library-remove-long "$fx/sample.rs"
 
 # The "Plan ready" row at the foot of the Notes pane (5.3): a plan Escape kept, with Show and Drop.
 for t in "" "-dark"; do

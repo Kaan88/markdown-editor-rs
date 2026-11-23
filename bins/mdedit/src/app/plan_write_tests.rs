@@ -136,13 +136,66 @@ fn undo_from_the_report_takes_the_run_back_and_marks_the_record() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Audit 4, RB3: step 6 writes the group's file through `files::replace`, which refuses a
+/// read-only file on every system. A read-only group is refused before anything is written, as
+/// D2 refuses everything it can know beforehand, rather than leaving the notes unlinked.
+#[test]
+fn a_read_only_group_file_is_refused_before_the_notes_are_written() {
+    let dir = scratch("plan-read-only");
+    let library = dir.join("library");
+    let group = library.join("Trip.md");
+    std::fs::create_dir_all(&library).expect("the library");
+    std::fs::write(&group, "# Trip\nhome: Trip\n").expect("the group");
+    let set_read_only = |on: bool| {
+        let mut perms = std::fs::metadata(&group).expect("the group").permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(on);
+        std::fs::set_permissions(&group, perms).expect("its permissions");
+    };
+    set_read_only(true);
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(
+        &source,
+        "# Tokyo\n\nintro\n\n## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n",
+    )
+    .expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    a.compose();
+    press(&mut a, KeyName::Enter);
+    let said = toast(&a);
+    assert!(
+        said.starts_with("The run could not start") && said.contains("is read-only"),
+        "{said}"
+    );
+    assert!(a.plan.is_some(), "the plan stays on screen");
+    assert!(!library.join("Trip/Tokyo/asakusa.md").exists());
+    assert!(mdedit_core::runs::list(&library).is_empty(), "no record");
+    assert_eq!(read(&group), "# Trip\nhome: Trip\n");
+    set_read_only(false);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_group_file_that_cannot_be_written_leaves_the_notes_unlinked_and_the_record_says_so() {
     let dir = scratch("plan-links");
+    // The group is there already, and folders stand where step 6's write would put its
+    // temporary file (`files::replace`: `Trip.md.part`, then names with the process id): every
+    // thing D2 checks passes, and that write is the one thing that fails -- a race, in the field.
+    // Were the names to change, the write would go through and the state below would say so.
+    // (Audit 4, RB3: before, one `Trip.md.tmp` folder did it, and the group was a new one; a new
+    // group's file is made through the same temporary names, so it could not be made here, and
+    // the group made before its notes is the test `the_groups_file_is_made_before_its_notes...`.)
+    let group = dir.join("library").join("Trip.md");
+    std::fs::create_dir_all(dir.join("library")).expect("the library");
+    std::fs::write(&group, "# Trip\nhome: Trip\n").expect("the group");
+    std::fs::create_dir_all(dir.join("library").join("Trip.md.part")).expect("the folder");
+    for attempt in 1..16 {
+        let name = format!("Trip.md.{}.{attempt}.part", std::process::id());
+        std::fs::create_dir_all(dir.join("library").join(name)).expect("the folder");
+    }
     let mut a = app_in(&dir);
-    // A folder where the library file's own temporary file would go: everything D2 checks
-    // passes, and the atomic write at step 6 is the one thing that fails -- a race, in the field.
-    std::fs::create_dir_all(dir.join("library").join("Trip.md.tmp")).expect("the folder");
     let source = dir.join("Trip.md");
     std::fs::write(
         &source,
@@ -167,10 +220,10 @@ fn a_group_file_that_cannot_be_written_leaves_the_notes_unlinked_and_the_record_
     assert_eq!(runs[0].record.state, mdedit_core::runs::State::LinksPending);
     assert!(runs[0].record.notes[0].path.is_file());
     assert_eq!(runs[0].record.notes.len(), 2);
-    // The group's file was made before the notes, and the record says this run made it: undo
-    // takes the empty group away even though its links never went in.
-    assert!(dir.join("library/Trip.md").is_file());
-    assert!(runs[0].record.group.created);
+    // The group's file is as it was, with no link written into it, and the record does not say
+    // this run made it.
+    assert_eq!(read(&group), "# Trip\nhome: Trip\n");
+    assert!(!runs[0].record.group.created);
     // The toast says so, in the words of 4.3 as audit 4 reworded them.
     let said = toast(&a);
     assert!(
@@ -182,6 +235,24 @@ fn a_group_file_that_cannot_be_written_leaves_the_notes_unlinked_and_the_record_
         said.ends_with(crate::commands::strings::LINKS_PENDING_NEXT),
         "{said}"
     );
+    // AI runs offers Finish for it, and Finish, once the write can be made, links both notes
+    // (audit 3 C4, audit 4 F3).
+    assert!(crate::overlays::offers_finish(&runs[0].record));
+    for entry in std::fs::read_dir(dir.join("library")).expect("the library") {
+        let path = entry.expect("an entry").path();
+        if path.is_dir() && path.to_string_lossy().ends_with(".part") {
+            std::fs::remove_dir(&path).expect("the folder goes");
+        }
+    }
+    a.run_finish(runs[0].path.clone());
+    let linked = read(&group);
+    assert!(
+        linked.contains("[Asakusa](Trip/Tokyo/asakusa.md)")
+            && linked.contains("[Nara](Trip/Tokyo/nara.md)"),
+        "{linked}"
+    );
+    let record = mdedit_core::runs::load(&runs[0].path, &dir.join("library")).expect("the record");
+    assert_eq!(record.state, mdedit_core::runs::State::Done);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1057,5 +1128,42 @@ fn a_record_of_a_kind_this_build_does_not_write_is_listed_as_a_newer_versions() 
     a.run_undo_ask(path.clone());
     assert!(a.ui.runs.undo.is_none(), "there is no undo question");
     assert!(path.is_file(), "the record is left as it is");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, A F8: a rewrite's record may name a file anywhere, not only in the library (D-162),
+/// so the question before its undo names each file it would put back, where it is.
+#[test]
+fn the_undo_question_of_a_rewrite_names_each_file_it_puts_back() {
+    let dir = scratch("plan-undo-rewrite-names");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    let mut a = app_in(&dir);
+    let elsewhere = dir.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("a folder outside the library");
+    let one = elsewhere.join("letter.md");
+    let two = library.join("draft.md");
+    let (path, mut record) =
+        mdedit_core::runs::start_rewrite(&library, "Shorter.", None, &one).expect("the record");
+    for file in [&one, &two] {
+        std::fs::write(file, "the old words\n").expect("a file");
+        let rewrite = mdedit_core::runs::RewriteFile {
+            path: file.to_path_buf(),
+            before: "the old words\n".to_string(),
+            after: "new words\n".to_string(),
+            bom: false,
+        };
+        mdedit_core::runs::rewrite_into(&path, &mut record, &library, &rewrite).expect("rewritten");
+    }
+    a.run_undo_ask(path);
+    let (_, question, can) = a.ui.runs.undo.clone().expect("the question");
+    assert!(can, "{question}");
+    for file in [&one, &two] {
+        assert!(
+            question.contains(&*file.display().to_string()),
+            "{} is named: {question}",
+            file.display()
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

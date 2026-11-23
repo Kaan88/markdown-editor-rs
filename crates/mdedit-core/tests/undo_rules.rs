@@ -394,6 +394,53 @@ fn a_finished_run_is_undone_with_its_lines_and_its_notes() {
     assert!(!library.join("Trip.md").exists());
 }
 
+/// Audit 4, A F4 and F10: the test above has its note under no section, the one shape Finish
+/// adds no heading for. Under a section, Finish writes the heading the file lacks and the record
+/// learns of it, so undo takes the heading out with the line, and the group's file it made goes.
+#[test]
+fn a_finished_run_under_a_section_is_undone_with_the_heading_finish_wrote() {
+    let dir = scratch("finish-section");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    let req = request(
+        &library,
+        "Trip",
+        true,
+        vec![note(
+            &library,
+            "Trip/Tokyo/One.md",
+            "One",
+            "# One\n",
+            &["Tokyo"],
+        )],
+    );
+    let mut refusing = FileGate::new();
+    refusing.refuse = true;
+    let report = runs::write_at(&req, &mut refusing, 3, STAMP);
+    assert_eq!(report.state(), Some(State::LinksPending));
+    let path = report.record_path.clone().expect("a record");
+    let record = runs::load(&path, &library).expect("the record");
+    let mut gate = FileGate::new();
+    let finished = runs::finish(&path, &record, &library, &mut gate);
+    assert_eq!(finished.added, 1, "{:?}", finished.failures);
+    let text = read(&library.join("Trip.md"));
+    assert!(
+        text.contains("## Tokyo") && text.contains("- [One](Trip/Tokyo/One.md)"),
+        "{text}"
+    );
+    let record = runs::load(&path, &library).expect("the record");
+    assert_eq!(record.sections_added, vec![vec!["Tokyo".to_string()]]);
+    let done = runs::undo(&path, &record, &library, &mut gate);
+    assert_eq!(done.removed_links, 1);
+    assert_eq!(done.removed_notes.len(), 1);
+    assert!(!library.join("Trip/Tokyo/One.md").exists());
+    assert!(
+        !library.join("Trip.md").exists(),
+        "the group's file went, its heading with it: {}",
+        read(&library.join("Trip.md"))
+    );
+}
+
 // ---- A3: the original ------------------------------------------------------------------------------
 
 #[test]

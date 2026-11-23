@@ -29,8 +29,8 @@ built, and were brought to it, not weakened:
 |---|---|---|
 | RB1 | B1 digest cut inside a character | done (built): `task_ui.rs` `DIGEST_MAX`, cut on a char boundary |
 | RB2 | B2 / D2 rewrite record over 4 MiB | done: shared `runs::rewrite_fits`, `RECORD_FULL` (shared built); mdedit rolls over to a second record, `task.rs` `task_rewrite_into`, test `a_rewrite_run_past_what_one_record_holds_goes_on_in_a_second_record` (built) |
-| RB3 | D1 / B6 / A F7 / W3 `<file>.tmp`; audit 3 C9 | partial: shared `files::replace` (unique temp name, keeps the mode, refuses read-only, no temp left; shared built). Left: mdedit's library writes still use `write_atomic`. Switch `library_write.rs:166` and `:642`, `library.rs:506`, `task.rs:935`, `importing.rs`, the `plan_write` gate to `files::replace` |
-| RB4 | A F1 plan from a stale tab | done (built): `app/plan.rs`, test in `plan_tests.rs` |
+| RB3 | D1 / B6 / A F7 / W3 `<file>.tmp`; audit 3 C9 | partial (wip, not green): shared `files::replace` (shared built). mdedit side written: `library_write.rs` `library_put_text` (BOM kept, `files::replace`) and `library_text` (refuses UTF-16 and non-UTF-8), `library.rs` `library_put` calls shared `put_note`, the `plan_write.rs` gate reads with `library_text` and the preflight refuses a read-only group file; tests in `library_write_tests.rs` (the owner's `.tmp` left alone, BOM, not UTF-8) and `plan_write_tests.rs` (links-pending test restaged on blocked temporaries; read-only refusal). Left: `a_read_only_group_file_is_refused_before_the_notes_are_written` FAILS (the assert at :168: the toast is not the preflight's); the rest has not run since the last edits; revert checks; `task.rs:935` (agent AI) and `importing.rs` (agent LIB) are theirs |
+| RB4 | A F1 plan from a stale tab | done (built, revert-checked): `app/plan.rs`; the test in `plan_tests.rs` fails at :253 with the fix out, and at :280 with the byte comparison out |
 | RB5 | D3 `put_note` lossy rewrite | done (shared built): `library/put.rs` refuses non-UTF-8, UTF-16 and a file changed on disk |
 
 ## Report A, mdedit core
@@ -39,28 +39,28 @@ built, and were brought to it, not weakened:
 |---|---|---|
 | A F1 | stale tab plan | see RB4 |
 | A F2 | bin refusal at undo orphans the note (= D W4) | done: new state `UndoPending` in shared `runs.rs` (shared built); mdedit `overlays.rs` "partly undone", `recycle_tests.rs` test strengthened to check the state and a second Undo (built) |
-| A F3 | audit 3 C4: Finish for links pending; toast | partial: `overlays.rs` `offers_finish` + test, toast "AI runs can finish it or undo it." (`commands.rs` `LINKS_PENDING_NEXT`), `plan_write_tests.rs` assertion changed to the new words (built). Left: `docs/ai-library-plan.md:350` still says "Try again / Undo"; decision entry |
+| A F3 | audit 3 C4: Finish for links pending; toast | partial: `overlays.rs` `offers_finish` + test, toast "AI runs can finish it or undo it." (`commands.rs` `LINKS_PENDING_NEXT`), `plan_write_tests.rs` assertion changed to the new words (built). Left: the revert check of `offers_finish`; `docs/ai-library-plan.md:350` still says "Try again / Undo"; the decision entry |
 | A F4 | Finish does not record its headings (= D W6) | done (shared built): `runs.rs` |
 | A F5 | audit 3 C6: undo removes a heading with the owner's sub-heading | done (shared built): `runs.rs` |
-| A F5b | audit 3 C6: undo bins a note whose tab holds unsaved changes | done (built): `recycle.rs` `SparingUnsaved`, `plan_write.rs` `run_undo`, test `undo_keeps_a_note_a_tab_holds_with_changes_not_saved` |
+| A F5b | audit 3 C6: undo bins a note whose tab holds unsaved changes | done (built, revert-checked): `recycle.rs` `SparingUnsaved`, `plan_write.rs` `run_undo`, test `undo_keeps_a_note_a_tab_holds_with_changes_not_saved` (fails at `recycle_tests.rs:393` with the fix out) |
 | A F6 | Move the notes offers another group's library file | done (shared built): `moves.rs`, `moves_tests.rs` |
 | A F7 | write_atomic on the owner's files | see RB3 |
-| A F8 | rewrite record not confined; question does not name the files | partial: shared `runs.rs` side done (shared built). Not checked: whether mdedit's undo question names the files |
+| A F8 | rewrite record not confined; question does not name the files | partial: shared `runs.rs` side done (shared built); mdedit shows `plan.sentence`, which names the files. Test `plan_write_tests.rs` `the_undo_question_of_a_rewrite_names_each_file_it_puts_back` written, not yet run; it cannot be revert-checked in mdedit (the sentence is shared's). Left: run it; correct its doc comment's "(D-162)" to the real entry; a decision entry naming D-072 (Waiting: the owner's) |
 | A F9 | crash during a write leaves notes the record does not own (= D W5) | done (shared built): notes marked created before they are written, `runs.rs` |
-| A F10 | tests that do not pin what they name | partial: F1, F2 and F14 have tests that pin them; F4's under-a-section case not checked |
+| A F10 | tests that do not pin what they name | partial: F1, F2 and F14 have tests that pin them; F13's old test did not fail with its fix out, a new one does (see A F13); F4's under-a-section test `undo_rules.rs` `a_finished_run_under_a_section_is_undone_with_the_heading_finish_wrote` written, not yet run |
 | A F11a | "their 1 lines" | done (shared built): `split/answer.rs`, `answer_tests.rs` |
 | A F11b | `&& home != &req.library` waives the group-file check (= D N1) | done (shared built): `runs.rs` |
 | A F11c | heading removal normalises mixed line endings | not a bug: the library writers normalise line endings on every write already |
-| A F11d | `follow_move` leaves session and recents on the old path | done (built): `docs.rs` `follow_move`, tests in `moving_tests.rs` |
-| A F12 | "Find the file…" off Windows rewrites the wrong note's link | done (built): `Picked::LibraryFile(Moving, Vec<PathBuf>)` carries the target; `ui.library.finding` removed; test `find_the_file_writes_the_link_its_picker_was_asked_for` is `cfg(not(windows))`, CI only |
-| A F13 | held question asked of the new document on a tab switch | done (built): `Visual::take_pending` in `app/visual.rs`, used by `preview.rs`; test `a_held_question_is_not_asked_of_another_document` |
-| A F14 | A7's check is lexical (`home: Trip/..`) | partial: `library_write::same_folder` (via shared `paths::comparable`) used in both library_write checks, `importing.rs` and `plan_preflight`; test `a_home_line_that_reaches_the_library_folder_by_dot_dot_is_refused` (built). Left: shared `comparable` must fold a `..` that follows a missing folder, because on Linux and macOS `std::path::absolute` keeps it |
+| A F11d | `follow_move` leaves session and recents on the old path | done (built, revert-checked): `docs.rs` `follow_move`; the tests in `moving_tests.rs` fail at :298 and :335 with the fix out |
+| A F12 | "Find the file…" off Windows rewrites the wrong note's link | done (built): `Picked::LibraryFile(Moving, Vec<PathBuf>)` carries the target; `ui.library.finding` removed; test `find_the_file_writes_the_link_its_picker_was_asked_for` is `cfg(not(windows))`, CI only; its revert check cannot run on this PC |
+| A F13 | held question asked of the new document on a tab switch | done (built, revert-checked): `Visual::take_pending` in `app/visual.rs`, used by `preview.rs`. The unit test `a_held_question_is_not_asked_of_another_document` passed with `preview.rs` reverted; the new test `preview.rs` `a_question_held_for_the_page_is_not_asked_of_the_tab_switched_to` fails with it reverted (1b6e301) |
+| A F14 | A7's check is lexical (`home: Trip/..`) | partial: `library_write::same_folder` (via shared `paths::comparable`) used in both library_write checks, `importing.rs` and `plan_preflight`; test `a_home_line_that_reaches_the_library_folder_by_dot_dot_is_refused` (built). Wip: `same_folder` now folds `.` and `..` itself (`library_write.rs` `folded`), because on Linux and macOS `std::path::absolute` keeps a `..` after a missing folder and that test's "gone" case would fail there; test `a_dot_dot_after_a_folder_that_is_not_there_is_folded`, not yet run. On Windows it passes either way, so its check is CI's. Left: shared `comparable` should fold it too, then the local fold goes |
 | A F15 | finished library read rebuilds rows under a held note | open (plan: put the drag guard inside `library_read_take`, for any `LibraryNote` drag) |
 | A F16 | row menu left open acts on another row | open (plan: close a `PopupKind::LibraryRow` menu in `library_accept`) |
-| A F17 | library file with a BOM (audit 3 C9) | open |
-| A F18 | "Edit a library file" can write the template over `notes.md` | open |
-| A F19 | "Take this section out" card size; comments that disagree | open |
-| A F20 | crash folder for a bare or empty `MDEDIT_SETTINGS` | open |
+| A F17 | library file with a BOM (audit 3 C9) | partial (wip): the BOM is kept on a write, UTF-16 and non-UTF-8 are refused with a toast (see RB3); tests written, not yet run; revert check left |
+| A F18 | "Edit a library file" can write the template over `notes.md` | partial (wip): `library.rs` `first_library_file` uses `files::create_new` and never writes over a file; test `library_write_tests.rs` `edit_a_library_file_never_writes_the_template_over_a_notes_file`, not yet run; revert check left |
+| A F19 | "Take this section out" card size; comments that disagree | partial (wip): `overlays.rs` `LibraryRemove` grows from its body as `LibraryDelete` does, the body clipped above the footer; test `a_long_section_question_grows_its_card_to_its_lines`; shot `library-remove-long` (and `-dark`) added to `tests/shots.sh` through `--dialog library-remove-long`, not yet taken or looked at. The comments: `link.rs` agrees with its code and D-105, nothing to change. Left: run, revert check, the shot in both themes |
+| A F20 | crash folder for a bare or empty `MDEDIT_SETTINGS` | partial (wip): `crash.rs` `crash_dir` gives no folder for a settings path with no parent (a bare name, or empty); its test changed on purpose to assert that; not yet run; revert check left |
 
 ## Report B, mdedit AI
 
@@ -125,7 +125,7 @@ built, and were brought to it, not weakened:
 | W13 | rule 8: `draw_dialog_button_disabled` changed in place | done (shared built): kept as changed (both released apps ship it); the plan card now calls the shared function, same pixels. Shots not taken |
 | T1 | no tests for D1 to D3 | done (shared built): tests for `files::replace` and `put_note` |
 | T2 | html_md escaping tests single tokens only | done (shared built): the W7, W8, N3, N4 tests |
-| T3 | split's `headings_of` copies the module's rules | open |
+| T3 | split's `headings_of` copies the module's rules | open: it is in shared `split.rs:1737`, not in mdedit; for the shared agent |
 | N1 | = A F11b | see A F11b |
 | N2 | `strip_verbatim` keeps `\\?\` past 260 | done (shared built): `paths::comparable`, used by `runs::inside`; Windows test `a_long_path_inside_the_library_is_inside_it` |
 | N3 | `vbscript:` and `data:` links kept | done (shared built); test `script_and_data_links_keep_their_text_only` |

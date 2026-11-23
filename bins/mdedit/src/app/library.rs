@@ -459,55 +459,26 @@ impl App {
             self.docs.set_toast(strings::LIBRARY_NEEDS_FILE);
             return;
         };
-        let title = library::title_of(&path);
         // Open in a tab with changes not saved: writing the file under them would be lost to
         // that tab's next save, as the saved prompts file is protected (audit 1 round 5).
         if let Err(why) = self.library_file_free(file) {
             self.docs.set_toast(&why);
             return;
         }
-        if let Some(parent) = file.parent()
-            && let Err(e) = std::fs::create_dir_all(parent)
-        {
-            self.docs
-                .set_toast(&strings::library_failed(&e.to_string()));
-            return;
-        }
-        let text = match std::fs::read_to_string(file) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => library::TEMPLATE.to_string(),
+        // The one writer of a note into a library file, shared with mdview's "Add to the notes
+        // library" (rule 8): the folder and, from its template, the file made when they are not
+        // there; written only when it reads back as the notes there were and this one at its
+        // place, through `files::replace`, a byte order mark kept. A file that is not UTF-8 text,
+        // or that changed while it was read, is left as it is (audit 4, RB3, D3, F17).
+        let dir = self.docs.library.dir.clone();
+        let title = match library::put::put_note(file, section, &path, &dir) {
+            Ok(title) => title,
             Err(e) => {
                 self.docs
                     .set_toast(&strings::library_failed(&e.to_string()));
                 return;
             }
         };
-        let base = file.parent().map(Path::to_path_buf).unwrap_or_default();
-        let new = library::add_note_in_group(
-            &text,
-            section,
-            &title,
-            &crate::library_pane::link_path(&base, &path),
-        );
-        // Written only when it reads back as the notes there were and this one at its place.
-        let before = library::parse(&text, &self.docs.library.dir).entries;
-        let after = library::parse(&new, &self.docs.library.dir).entries;
-        let same = mdshared_app::paths::canonical_or_absolute(&path);
-        let added = after.len() == before.len() + 1
-            && after
-                .iter()
-                .any(|e| mdshared_app::paths::canonical_or_absolute(&e.path) == same);
-        if !added {
-            self.docs.set_toast(&strings::library_failed(
-                "the file would not read back as its notes",
-            ));
-            return;
-        }
-        if let Err(e) = mdshared_app::settings::write_atomic(file, &new) {
-            self.docs
-                .set_toast(&strings::library_failed(&e.to_string()));
-            return;
-        }
         self.library_load();
         // The pane's rows are made from the library, so they are made again now, with what is
         // folded above the new note opened: it shows at once, not after a fold and an unfold.
@@ -572,16 +543,15 @@ impl App {
         };
         self.library_load();
         if self.docs.library.groups.is_empty() {
-            let file = dir.join(library::DEFAULT_FILE);
-            if let Err(e) = std::fs::create_dir_all(&dir)
-                .and_then(|()| std::fs::write(&file, library::TEMPLATE))
-            {
-                self.docs
-                    .set_toast(&strings::library_failed(&e.to_string()));
-                return;
+            match first_library_file(&dir) {
+                Ok(file) => {
+                    self.open(&file);
+                    self.library_load();
+                }
+                Err(e) => self
+                    .docs
+                    .set_toast(&strings::library_failed(&e.to_string())),
             }
-            self.open(&file);
-            self.library_load();
             return;
         }
         match self.library_file_to_edit() {
@@ -590,5 +560,19 @@ impl App {
                 .palette
                 .open_library_files(&self.docs, &self.ui, &mut self.macros),
         }
+    }
+}
+
+/// The library file "Edit a library file" opens in a library that read as empty: `notes.md`,
+/// made from the template when it is not there. Made without replacing, so a `notes.md` the read
+/// did not list (made since, or one it could not read) is opened as it is and never written over
+/// (audit 4, F18). Anything there by that name that is not a file is refused.
+pub(super) fn first_library_file(dir: &Path) -> std::io::Result<PathBuf> {
+    let file = dir.join(library::DEFAULT_FILE);
+    std::fs::create_dir_all(dir)?;
+    match mdshared_app::files::create_new(&file, library::TEMPLATE.as_bytes()) {
+        Ok(()) => Ok(file),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && file.is_file() => Ok(file),
+        Err(e) => Err(e),
     }
 }

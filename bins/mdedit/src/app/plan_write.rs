@@ -29,7 +29,7 @@ impl Gate for PlanGate<'_> {
     fn add_links(&mut self, file: &Path, links: &[mdedit_core::runs::Link]) -> Result<(), String> {
         let base = self.library.clone();
         // Refused when the group would pass the library's own limit (4.1).
-        if let Ok(text) = std::fs::read_to_string(file) {
+        if let Ok((text, _)) = super::library_write::library_text(file) {
             let before = library::parse(&text, &base);
             if before.entries.len().saturating_add(links.len()) > library::MAX_ENTRIES {
                 return Err(format!(
@@ -418,10 +418,22 @@ pub(super) fn plan_preflight(app: &App, screen: &PlanScreen, req: &Request) -> R
         }
         text
     } else {
-        match std::fs::read_to_string(&req.group.file) {
-            Ok(text) => text,
-            Err(e) => {
-                return Err(format!("{} could not be read: {e}", shown(&req.group.file)));
+        // Read as step 6's gate reads it (`library_text`): a byte order mark set aside, a file
+        // that is not UTF-8 text refused. A read-only one is refused too, since the gate's
+        // `files::replace` would refuse it after the notes are on disk (audit 4, RB3, F17).
+        if std::fs::metadata(&req.group.file).is_ok_and(|m| m.permissions().readonly()) {
+            return Err(format!(
+                "{} is read-only, so its links could not be written.",
+                shown(&req.group.file)
+            ));
+        }
+        match super::library_write::library_text(&req.group.file) {
+            Ok((text, _)) => text,
+            Err(why) => {
+                return Err(format!(
+                    "{} could not be read: {why}",
+                    shown(&req.group.file)
+                ));
             }
         }
     };

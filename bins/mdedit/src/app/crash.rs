@@ -19,18 +19,20 @@ pub fn crash_dir_of_this_launch() -> Option<PathBuf> {
 /// a development build then writes into its own scratch folder. Otherwise in `crashes` under
 /// the data folder, except for a `--no-session` window or a shot, which keep none: they must
 /// read and write nothing of the owner's (CLAUDE.md rule 9), and a report from the owner's own
-/// folder would be offered to them as theirs.
+/// folder would be offered to them as theirs. A value with no folder in it (empty, or a bare
+/// file name) names no folder to be beside, so it keeps none either: the snippets and the
+/// library refuse the same value, and `crashes` in whatever folder the build was started in is
+/// no place of its own (audit 4, F20).
 pub fn crash_dir(
     settings_named: Option<PathBuf>,
     no_session: bool,
     data_dir: Option<PathBuf>,
 ) -> Option<PathBuf> {
     match settings_named {
-        Some(file) => Some(
-            file.parent()
-                .map_or_else(PathBuf::new, Path::to_path_buf)
-                .join("crashes"),
-        ),
+        Some(file) => file
+            .parent()
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .map(|dir| dir.join("crashes")),
         None if no_session => None,
         None => data_dir.map(|d| d.join("crashes")),
     }
@@ -134,11 +136,18 @@ mod tests {
                 Some(PathBuf::from("scratch").join("crashes"))
             );
         }
-        // A bare file name: beside it, in the folder it was started in.
-        assert_eq!(
-            crash_dir(Some(PathBuf::from("settings.ini")), true, data.clone()),
-            Some(PathBuf::from("crashes"))
-        );
+        // A bare file name, or nothing at all: no folder to be beside, so no reports, as the
+        // snippets and the library refuse it (audit 4, F20). Before, `crashes` in the folder the
+        // build was started in.
+        for bare in ["settings.ini", ""] {
+            for no_session in [true, false] {
+                assert_eq!(
+                    crash_dir(Some(PathBuf::from(bare)), no_session, data.clone()),
+                    None,
+                    "{bare:?}"
+                );
+            }
+        }
         // `--no-session` or a shot without one: no reports at all.
         assert_eq!(crash_dir(None, true, data.clone()), None);
         // The owner's own launch: the data folder, as before.

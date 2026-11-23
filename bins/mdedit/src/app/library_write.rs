@@ -1,9 +1,11 @@
 //! What the notes library pane's menus do: each is one write to a library file, made through the
 //! writers of [`mdshared_app::library`] and never by editing text here. A write is refused while
 //! the file is open in a tab with changes not saved, is made only when the new text reads back as
-//! the old notes plus the change, and goes through `write_atomic`. A writer that finds nothing to
-//! do (it gives `None`) leaves the file alone without a word. The notes themselves are never
-//! written, moved or deleted.
+//! the old notes plus the change, and goes through `files::replace`, the write for the owner's
+//! own files. A file that begins with a byte order mark keeps it, and one that is not UTF-8 text
+//! is refused rather than written back changed. A writer that finds nothing to do (it gives
+//! `None`) leaves the file alone without a word. The notes themselves are never written, moved or
+//! deleted.
 
 use super::*;
 use crate::commands::strings;
@@ -17,7 +19,54 @@ use mdshared_app::paths::{canonical_or_absolute, same_path};
 /// compares the spelling.
 pub(super) fn same_folder(a: &Path, b: &Path) -> bool {
     use mdshared_app::paths::comparable;
-    same_path(&comparable(a), &comparable(b))
+    same_path(&folded(&comparable(a)), &folded(&comparable(b)))
+}
+
+/// `.` and `..` folded by their spelling. Used after `comparable`, which has asked the disk about
+/// every part that exists, so a `..` still there follows a folder that is not, and the spelling is
+/// all there is to go by: Windows folds it already, and on Linux and macOS `std::path::absolute`
+/// keeps it, so `home: Trip/..` with no `Trip` folder read as another folder there (audit 4,
+/// F14). A `..` at the root stays at the root.
+fn folded(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// A library file's text, as its writers take it: decoded, with a UTF-8 byte order mark set
+/// aside (`true`) to be written back. A file that is not UTF-8 text (another code page, or
+/// UTF-16) is refused, as `put_note` refuses it: written back it would change every letter
+/// outside ASCII. The pane reads such a file and lists it; only the writers refuse it (audit 3
+/// C9, audit 4 F17). The reason is said plainly, for the caller to put in its sentence.
+pub(super) fn library_text(file: &Path) -> Result<(String, bool), String> {
+    let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
+    let utf16 = bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
+    let (text, invalid) = mdshared_app::files::decode(&bytes);
+    if utf16 || invalid {
+        return Err(library::put::PutError::NotUtf8.to_string());
+    }
+    Ok((text.into_owned(), bytes.starts_with(&[0xEF, 0xBB, 0xBF])))
+}
+
+/// Writes a library file's new `text`, with the byte order mark it had (`bom`), through
+/// `files::replace`: a temporary name of its own beside the file, the file's permissions kept, a
+/// read-only file refused, and nothing left behind when it fails (audit 4, RB3).
+pub(super) fn library_put_text(file: &Path, text: &str, bom: bool) -> std::io::Result<()> {
+    let mut bytes = Vec::with_capacity(text.len() + 3);
+    if bom {
+        bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+    }
+    bytes.extend_from_slice(text.as_bytes());
+    mdshared_app::files::replace(file, &bytes)
 }
 
 /// How an attempt to write a library file ended.
@@ -159,9 +208,9 @@ impl App {
         if let Err(why) = self.library_file_free(file) {
             return Wrote::Refused(why);
         }
-        let text = match std::fs::read_to_string(file) {
-            Ok(text) => text,
-            Err(e) => return Wrote::Refused(strings::library_failed(&e.to_string())),
+        let (text, bom) = match library_text(file) {
+            Ok(read) => read,
+            Err(why) => return Wrote::Refused(strings::library_failed(&why)),
         };
         let Some(new) = change(&text) else {
             return Wrote::Nothing;
@@ -171,7 +220,7 @@ impl App {
                 "the file would not read back as its notes",
             ));
         }
-        if let Err(e) = mdshared_app::settings::write_atomic(file, &new) {
+        if let Err(e) = library_put_text(file, &new, bom) {
             return Wrote::Refused(strings::library_failed(&e.to_string()));
         }
         self.library_changed();
@@ -358,8 +407,8 @@ impl App {
     /// Opens a library file with the caret on a note's line, or on a section's heading.
     fn library_go_to(&mut self, file: &Path, line: Option<usize>, section: &[String]) {
         let line = line.or_else(|| {
-            let text = std::fs::read_to_string(file).ok()?;
-            library::section_line(&text, section)
+            let bytes = std::fs::read(file).ok()?;
+            library::section_line(&mdshared_app::files::decode(&bytes).0, section)
         });
         self.open(file);
         if let Some(line) = line {
@@ -646,11 +695,17 @@ impl App {
             ));
             return;
         }
+        // A new file, made without replacing: a file of that name that appeared since the look
+        // above is refused, not written over (audit 4, RB3).
         if let Err(e) = std::fs::create_dir_all(&dir)
-            .and_then(|()| mdshared_app::settings::write_atomic(&file, &text))
+            .and_then(|()| mdshared_app::files::create_new(&file, text.as_bytes()))
         {
-            self.docs
-                .set_toast(&strings::library_failed(&e.to_string()));
+            let why = if e.kind() == std::io::ErrorKind::AlreadyExists {
+                strings::library_exists(&format!("{stem}.md"))
+            } else {
+                strings::library_failed(&e.to_string())
+            };
+            self.docs.set_toast(&why);
             return;
         }
         self.ui.library.cursor = Some(file);
@@ -684,11 +739,12 @@ impl App {
         let own = file
             .file_stem()
             .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-        let text = match std::fs::read_to_string(file) {
-            Ok(text) => text,
-            Err(e) => {
-                self.docs
-                    .set_toast(&strings::library_failed(&e.to_string()));
+        // Read as the write will read it: a byte order mark set aside, so the group's heading is
+        // its first line and its `home:` line is found (audit 4, F17).
+        let text = match library_text(file) {
+            Ok((text, _)) => text,
+            Err(why) => {
+                self.docs.set_toast(&strings::library_failed(&why));
                 return;
             }
         };
@@ -754,7 +810,11 @@ impl App {
                 };
                 Some(library::add_note_in_group(&with_home, section, name, &link))
             },
-            |b, a| a.entries.len() == b.entries.len() + 1,
+            // The `home:` line it meant to write is there too: without it the note would sit in a
+            // folder its group does not name (audit 4, F17).
+            |b, a| {
+                a.entries.len() == b.entries.len() + 1 && (new_home.is_none() || a.home.is_some())
+            },
         );
         if done {
             if new_home.is_some() {
