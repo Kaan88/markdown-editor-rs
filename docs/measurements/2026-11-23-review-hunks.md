@@ -45,3 +45,37 @@ its scrollbar) and to make its layout; Linux and macOS; a 100 MB file; the memor
 review with its Preview panes. The layout is made once per width and scale (not per tick or per
 frame) and measures text in windows of at most 512 characters, which is why a long result should
 not cost a frame, but that is argued from the code here, not timed.
+
+## Second measurement, after the last commits
+
+Measured again 2026-11-23, 5 interleaved runs, after the merge of `origin/main` (`6b50a29`) and the
+last commits of the branch (the `review-closed` demo, one test, documents). Same method and the
+same `--behind`, `--no-session`, scratch `MDEDIT_SETTINGS`; A is `main` at `32d6fe6`
+(`Desktop\md-wt\baseline-main`), B is `f/review-hunks` at `939d30e`. Five runs, not seven, for
+time; the figures are the medians.
+
+```
+sample.rs
+                             A         B      B-A   A range / B range
+  first frame ms         89.80     84.00    -5.80   87.20-100.90 / 83.10-94.50
+  idle private MiB       27.10     27.50    +0.40   27.00-27.50 / 26.90-27.60
+  keystroke p50 ms        0.55      0.59    +0.04   0.52-0.77 / 0.58-0.68
+  keystroke p95 ms        0.84      0.76    -0.08   0.64-1.49 / 0.73-1.31
+  scroll p50 ms           0.43      0.48    +0.05   0.42-0.50 / 0.48-0.52
+  scroll p95 ms           0.56      0.62    +0.06   0.55-0.91 / 0.60-0.79
+
+sample.md
+                             A         B      B-A   A range / B range
+  first frame ms        114.40    114.00    -0.40   106.30-116.70 / 106.50-121.10
+  idle private MiB       36.60     36.40    -0.20   36.50-36.70 / 36.10-36.60
+  keystroke p50 ms        0.77      0.78    +0.01   0.69-0.93 / 0.77-0.82
+  keystroke p95 ms        1.12      1.02    -0.10   1.07-1.34 / 0.99-1.18
+  scroll p50 ms           0.59      0.63    +0.04   0.57-0.59 / 0.62-0.65
+  scroll p95 ms           0.75      0.74    -0.01   0.70-0.81 / 0.71-0.81
+```
+
+Every difference is inside the two builds' own ranges and both ways. The executable of B is
+9,220,096 bytes, +18,944 bytes on A (+0.21%). The second measurement agrees with the first: this
+change is not on the launch path and moves none of the budgets in a way the runs can tell apart.
+Still not measured: the time to draw the review itself and to make its layout; Linux and macOS;
+a 100 MB result; the memory of an open review with its Preview panes.

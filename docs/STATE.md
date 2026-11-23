@@ -35,14 +35,17 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
-- **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-102): **built on branch
+- **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-102): **ready for review on
   `f/review-hunks`, not merged, not tagged.** A tick per change, Apply and Copy result of the
   ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the
-  AFTER page shows the ticked changes). Tests, shots (`review-*`) and the budgets are in
-  `docs/DESIGN.md` 79 and `docs/measurements/2026-11-23-review-hunks.md`. **Not built: the
-  tinted, level preview (D-103)**: it needs a request in the viewer's preview protocol (the page
-  rows of every top-level block) and a move of its pin, which waits for the owner. Not looked at
-  by the owner yet (rule 6); not run on Windows by a person.
+  AFTER page shows the ticked changes). Built, tested (`cargo test --release --workspace` green),
+  fmt and clippy clean, the shots (`review-*`, both themes, `review-closed` new) looked at on
+  Windows, the budgets measured (5 runs against `main` at `32d6fe6`: no change beyond the runs'
+  ranges). Docs: `docs/DESIGN.md` 79, `docs/DECISIONS.md` D-102, D-103, D-105 and
+  `docs/measurements/2026-11-23-review-hunks.md`. **Not built: the tinted, level preview
+  (D-103)**: it needs a request in the viewer's preview protocol (the page rows of every
+  top-level block) and a move of its pin, which waits for the owner. Not looked at by the owner
+  yet (rule 6).
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
