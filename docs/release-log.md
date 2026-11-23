@@ -7,6 +7,36 @@ edit an old one. How a release is cut is in `docs/RELEASE.md`.
 The sections for 0.1.0 to 1.2.1 were moved here unchanged from `docs/RELEASE.md` on 2026-11-21,
 and only put in order. There is no section for 0.5.1: the old file had none.
 
+## v1.3.0 (published 2026-11-23 by the release workflow, from the tag at commit ebe939d)
+
+Release run 45084291493, every job green; `ci` run 45081888446 on the commit passed (Linux, Windows,
+both Macs). The `ci` runs before it had failed on Linux since the paged Settings: two labels were
+too wide in the runners' fonts (fixed in ee18685, D-099). Release notes:
+`docs/release-notes/1.3.0.md`.
+
+What's in it: the notes library and its pane; Split into notes, by headings or by AI, with a
+record of each run and undo; the original into the Recycle Bin; Move the notes with their
+pictures; Settings as pages; the Preview dropdown and the other parts of issues #7 and #8; a
+closed mdview noticed; and for Hub, a version resource in the exe and `hub.txt`, the sixteenth
+asset and the first release to have it.
+
+Before the tag: the owner's hand check of `main` in a live window (D-101, no blocker; "Move the
+notes" not tried), and the budgets against 1.2.1 (no change,
+`docs/measurements/2026-11-23-1.3.0-against-1.2.1.md`).
+
+Verified against the live release:
+- 16 assets, not a draft or pre-release;
+- `mdedit-update.txt`, `mdedit-update-2.txt`, `mdedit-update-macos.txt` and `hub.txt` all name
+  1.3.0, with the right note line;
+- every file they name (Windows exe, `mdedit-ai.exe`, `mdview-engine.exe`, the setup, AppImage,
+  both Mac zips) downloaded with the SHA-256 the manifests name;
+- the published 1.3.0 exe's `--check-update` answered "nothing newer"; the installed 1.2.1's
+  answered "mdedit 1.3.0 is available".
+
+Not verified: the installer run, a 1.2.1 install updating itself (and recording its version under
+the uninstall key, new in 1.3.0), Hub reading `hub.txt` from this release, the Mac and Linux files
+on a desktop. Known faults shipped with it are in `docs/STATE.md`.
+
 ## v1.2.1 (published 2026-11-21 by the release workflow, from the tag at commit 528446a)
 
 Release run 44850785598, every job green; `ci` run 44848935863 on the commit passed (Linux,

@@ -1,54 +1,30 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-23, while 1.3.0 is being made ready (D-096 to
-D-100). If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-23, after mdedit 1.3.0 and mdview 1.0.5 were
+released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
-- **mdedit 1.2.1**, 2026-11-21, tag `v1.2.1` at `528446a`. Fifteen assets: Windows exe, setup and
-  zip, the Linux AppImage, tar.gz, deb, rpm and PKGBUILD, two macOS zips, three update manifests,
-  `mdedit-ai.exe`, `mdview-engine.exe`. Record: `docs/release-log.md`.
-- mdview is at 1.0.4. The shared crates are not released; the apps pin them by commit.
+- **mdedit 1.3.0**, 2026-11-23, tag `v1.3.0` at `ebe939d`. Sixteen assets, `hub.txt` the new one.
+  Record: `docs/release-log.md`; notes: `docs/release-notes/1.3.0.md`. In short: the notes
+  library and its pane; Split into notes by headings or by AI, with a record per run and undo; the
+  original into the Recycle Bin; Move the notes with their pictures; Settings as pages; issues #7
+  and #8 (closed); a closed mdview noticed (D-097, which the owner's check found does not hold:
+  below); a version resource and `hub.txt` for Hub (D-098). Checked by the owner by hand before
+  the tag (D-101; "Move the notes" not tried); budgets unchanged against 1.2.1
+  (`docs/measurements/2026-11-23-1.3.0-against-1.2.1.md`).
+- **mdview 1.0.5**, 2026-11-23, tag `v1.0.5` at `0a9bc7c`, fourteen assets: Settings as pages,
+  `?closed` to mdedit, a version resource and `hub.txt`. Its note line was published as "(not
+  released yet)" and corrected on the release the same hour, with the owner's yes; copies that
+  saw it first keep it until the next release. Recorded in mdview's `docs/HANDOFF.md`.
+- The shared crates are not released; the apps pin them by commit.
 - **Hub**, the launcher and updater, is built as its own app (`Kaan88/mdhub`, `Desktop\hub`; its
   `docs/STATE.md` is its record; 0.1.0 notes written, no tag).
 
-## On `main`, not released: 1.3.0 (the version in `Cargo.toml`)
+## On `main`, not released
 
-`docs/release-notes/1.3.0.md` lists it in full. In short:
-- **The notes library**: the Notes pane, its menus and keyboard, the library folder as a setting,
-  a `home:` folder per group (6a), the re-read on a worker thread, phase 0's protections.
-- **Split into notes** (R1, 5.3): the plan card, the writer with a record per run in
-  `<library>/.runs`, undo, "AI runs…". **Split by AI** (4b, D-089). **The original in the Recycle
-  Bin** (T, D-092). **Move the notes** (6b, D-085), carrying their pictures (D-091, D-093).
-- **Settings as pages** in both apps (D-086, D-087, D-094), every page fitting at 520x360.
-- **Issues #7 and #8** (D-096): the Preview dropdown and default mode, "New file" on the empty
-  window, plain paste on Ctrl+Shift+V (mdview preview moved to Ctrl+Shift+L), New, Save and AI
-  edit on the bar, rich paste as Markdown (off by default).
-- **A closed mdview is noticed** (D-097): mdview sends `?closed`; mdedit checks on focus and when
-  a menu opens; nothing runs while idle.
-- **For Hub** (D-098): a version resource in `mdedit.exe`, the uninstall key with its hive, and
-  `hub.txt` as the release's sixteenth asset; the workflow step has never run in a release.
-- Visual editing's scrollbar and `Ctrl+E` following the tab; "Leave out the tab you were last on
-  too"; new notes named in lower case with hyphens (D-075, D-083).
-
-The workspace's tests: 1338 pass, fmt and clippy clean (2026-11-23, Windows). Two Settings labels
-were shortened so `ci` passes on Linux again (D-099).
-
-## Making 1.3.0 ready (the owner, 2026-11-23: "Ready 1.3.0 first")
-
-- **Budgets: no change against 1.2.1.** `docs/measurements/2026-11-23-1.3.0-against-1.2.1.md`:
-  `sample.rs` 94.1 ms and 27.3 MiB in both; `sample.md` 121.5 ms and 36.4 MiB against 120.4 and
-  36.6, over the first-frame and memory budgets in 1.2.1 already.
-- **`ci` on `main`**: green on all four platforms at `2e57cfa` (the Linux label fault fixed in
-  `ee18685`).
-- **The owner's hand check is done** (D-101, `target\for-owner\9-release-1.3.0\CHECKLIST.md`):
-  no blocker. Everything tried works, Split by AI against a real provider included; "Move the
-  notes" was not tried. Four faults found go to the next release (below).
-- **Not reviewed**: nothing since 1.2.0 has had an outside review (audit 3's fixes included).
-- **mdview 1.0.5** is on its `main` too (`docs/release-notes/1.0.5.md` there): Settings as pages,
-  `?closed`, the version resource and `hub.txt`. Its `ci` on Linux had the same label fault,
-  fixed in `e41ea3f`; green at `40d147e`.
-- Then the tag `v1.3.0` (`docs/RELEASE.md`), only when the owner says so.
+Nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review (audit 3's
+fixes included).
 
 ## In hand
 
@@ -59,22 +35,21 @@ were shortened so `ci` passes on Linux again (D-099).
 
 ## Waiting for the owner
 
-- The hand check and the tag (above).
 - **`docs/ai-library-plan.md`** section 8, in order after R2: W, V, 4a, 4, 5, drag and drop.
   Open: the resizer for phase V, a new crate to be priced first (rule 7).
 - **The apps that may join**: `docs/ideas/README.md` lists each plan and drawing (terminal, file
   manager, task manager, downloader, workbench, and the quickest first release).
 - **Dependabot**: open PRs (mdedit #9 regex-automata; mdview #2 to #6; shared #2 to #7) and a
-  `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Best left until
-  after the release.
+  `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Left until
+  after the release; it is after it now.
 - The notes library has been used in a real build and its two faults fixed, but it is not
   recorded anywhere as approved.
 
 ## Next
 
-1. The tags `v1.3.0` and mdview `v1.0.5`, when the owner says.
-2. The owner's four faults from the hand check (D-101), for the next release.
-3. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
+1. The owner's four faults from the hand check (D-101), for the next release; first, whether a
+   closed mdview is missed with mdview 1.0.5 too.
+2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
 
