@@ -3060,8 +3060,10 @@ the keyboard path); files from File Explorer (see above); a drop between two win
 ## 81. Add a folder to the library (2026-11-23, phase 4a)
 
 `ai-library-plan.md` 5.7, taken without the AI: the folder the owner picks becomes a plan of
-links, and no file of theirs is copied, moved or renamed. Three pieces, in the shape the plan and
-the move already have:
+links, and no file of theirs is copied, moved or renamed. The command is "Add a &folder." in the
+Library menu and "Add a f&older…" in the Notes pane's whole menu, whose "f" is Refresh's (`o` is
+free there; the two menus word it differently because their letters differ, as everywhere in the
+app). Three pieces, in the shape the plan and the move already have:
 
 - **The walk** (`crates/mdedit-core/src/import.rs`): `walk` reads a folder with the Files pane's
   own rules -- `mdshared_app::notes::skips_entry` for a dot name, the hidden attribute, `target`
