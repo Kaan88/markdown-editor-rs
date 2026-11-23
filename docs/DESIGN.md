@@ -2480,6 +2480,12 @@ keeps the drawing, the cursor, folding and the name box.
   result worth showing; the rows, the scroll and the keyboard's cursor are the ones on screen
   while the read runs. `build` restores the cursor by `RowId` (the note's path under its heading,
   or the heading's key), so it follows its note when the rows arrive from the thread.
+- **An add shows at once.** "Add this file to the notes library…" (`library_put`) writes the note
+  and its line, opens what is folded above it down to the section (`unfold_to`), makes the rows
+  again and redraws, so the note is in the tree without a fold and an unfold. A name being typed
+  in the pane's box is discarded with the rows it was drawn over, and the keyboard goes back to
+  the text, caret and all (`stop_edit`, `drop_library_field_focus`, `caret_reset`), as Escape
+  does it.
 - **Nothing is left behind.** Closing the pane, switching its face away from Notes, and changing
   the library folder cancel the job; a result that arrives after one of those is dropped by
   `library_accept`'s pane and folder check. A cancelled job returns nothing to show (`None`), and
@@ -2496,8 +2502,9 @@ keeps the drawing, the cursor, folding and the name box.
 - Tests: `mdshared_app::library::tree::tests` (the omitted count is copied by `without_notes`,
   and the label's two numbers) and `app::library_pane_tests` (the text arrives from the thread with the old rows
   still on screen, a stale result is dropped and `checked` cleared, the cursor follows its note,
-  closing the pane and switching the face drop a running read, the slim copy holds no notes, and
-  the omitted count repaints the pane).
+  closing the pane and switching the face drop a running read, the slim copy holds no notes, the
+  omitted count repaints the pane, and an add shows the note at once under a folded group or a
+  folded section, the keyboard back in the text when a name being typed is dropped).
 - Measured in `docs/measurements/2026-11-21-library-rework.md`: a library change's event-loop
   pass 40.3–48.9 ms before against 2.3–2.6 ms to start the read and 5.8–6.2 ms to take its
   result; private memory 31.50 MiB against 30.90 on one 60-file library.
@@ -2568,7 +2575,8 @@ what they need.
   this file" (`library_put`), "New note here…" (`library_new_note`) and "Move to…" (`library_move`)
   all use it; the refusal the dry run made for this case is gone. A file with no section heading
   still takes the note at the end, exactly as `add_note` does, and the `home:` line is never
-  written above.
+  written above. `library_put` also makes the pane's rows again with what is folded above the new
+  note opened, and drops any name being typed there (§71).
 - **C3 is the dry run too.** The shared reader strips a heading's trailing `#`, so `## C#` reads
   back as `C`; the dry run catches it, and the refusal names it. A group called `C#` is caught by
   the read-back check the preflight now makes on the text it would write.
