@@ -288,12 +288,7 @@ fn a_file_added_shows_in_the_tree_at_once_even_under_a_folded_group() {
     a.ui.library.fold(&group);
     a.ui.library.build(&a.docs.library);
     let note = dir.join("new.md");
-    std::fs::write(
-        &note,
-        "# A new note
-",
-    )
-    .unwrap();
+    std::fs::write(&note, "# A new note\n").unwrap();
     open_now(&mut a, &note);
     a.library_put(&file, &[]);
     // No `library_rows()` here: the rows are what the pane has now.
@@ -375,12 +370,14 @@ fn a_name_being_typed_when_a_file_is_added_goes_and_the_keyboard_returns_to_the_
         a.ui.find_focused && a.ui.field == BarField::Library,
         "typing"
     );
+    a.ui.caret_on = false; // the text's caret mid-blink, as it is half the time
     a.library_put(&file, &[]);
     assert!(a.ui.library.edit.is_none(), "the name went with the rows");
     assert!(
         !a.ui.find_focused && a.ui.field != BarField::Library,
         "the keyboard is back in the text, not in a box that is gone"
     );
+    assert!(a.ui.caret_on, "the text's caret starts over");
     assert!(
         shown(&a).iter().any(|(_, l)| l == "A new note"),
         "and the note still shows: {:?}",

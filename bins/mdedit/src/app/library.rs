@@ -512,6 +512,7 @@ impl App {
         self.ui.library.stop_edit();
         self.ui.drop_library_field_focus();
         self.ui.library.build(&self.docs.library);
+        self.caret_reset();
         self.redraw();
         let group = self
             .docs
