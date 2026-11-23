@@ -1559,6 +1559,61 @@ Last.
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Audit 4, F13: a question held for the page (a click, a line asked for) is about the
+    /// document it was asked of. On the frame a tab is switched `preview_sync` runs before
+    /// `follow_tab` clears it, so it was asked of the new document's text, and a block of that
+    /// document opened that nobody asked for. It is dropped instead.
+    #[test]
+    fn a_question_held_for_the_page_is_not_asked_of_the_tab_switched_to() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-held-question");
+        let first = dir.join("a.md");
+        let second = dir.join("b.md");
+        std::fs::write(&first, paragraphs("A", 30)).unwrap();
+        std::fs::write(&second, paragraphs("B", 30)).unwrap();
+        let mut a = app();
+        open_now(&mut a, &first);
+        open_now(&mut a, &second);
+        a.viewer_path = Some(Some(viewer));
+        a.docs.activate(0);
+        a.compose();
+        let id_first = a.docs.active_doc().unwrap().id;
+        a.command(C::VisualEdit);
+        a.compose();
+        pump(&mut a, |a| page_shows(a, id_first));
+        assert!(a.visual_on() && a.visual_block().is_none());
+        // The first document's question is held when the tab is switched, before any frame.
+        if let Some(v) = a.visual.as_mut() {
+            v.pending = Some(super::super::visual::Ask::Line(3));
+        }
+        a.docs.activate(1);
+        let id_second = a.docs.active_doc().unwrap().id;
+        pump(&mut a, |a| page_shows(a, id_second));
+        // Time for an answer to come in, had a question gone.
+        let end = Instant::now() + Duration::from_millis(500);
+        while Instant::now() < end {
+            a.preview_sync();
+            a.compose();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(a.visual.as_ref().unwrap().doc, id_second);
+        assert!(
+            a.visual_block().is_none(),
+            "a block of the second document opened: {:?}",
+            a.visual_block().map(|b| b.first)
+        );
+        // The same question asked of the second document itself is answered: the pane is live.
+        if let Some(v) = a.visual.as_mut() {
+            v.pending = Some(super::super::visual::Ask::Line(3));
+        }
+        pump(&mut a, |a| a.visual_block().is_some());
+        assert_eq!(a.visual_block().map(|b| b.first), Some(2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The owner: "browsing the library in the full preview keeps the preview for two or three
     /// files, then falls back to editing". A note opens as a tab still being read; that is not a
     /// file the page cannot show, and the mode must wait for the read.
