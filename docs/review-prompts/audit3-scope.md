@@ -50,6 +50,17 @@ the rest of this document describes.
   (`check_at` and the recheck chain) against each other and against a stale kept check, and the
   key path against real winit events: a test cannot build a `KeyEvent` (winit keeps one field
   private), so the key test calls `ask_on_key`, not the event path.
+- **Add a folder to the library** (branch `f/p4a`, **not merged** as this is written; D-131 to
+  D-133, DESIGN 81, 2026-11-23): a walk of the folder the owner picks
+  (`crates/mdedit-core/src/import.rs`), the plan of links and its rows, the card
+  (`bins/mdedit/src/import_ui.rs`, `import_draw.rs`), and the write
+  (`bins/mdedit/src/app/importing.rs`, over `library_attempt_at`). What to look at hardest: the
+  dry run (`runs::with_links_added` against `library::check_links_added`) before the group's file
+  is made, `remove_own_file` taking back only a file this run made, the section tick's partial
+  state, and whether anything can copy, move or delete a file of the owner's -- the answer must
+  stay "nothing". Tests: `app::import_tests::*` and `import::tests::*`; shots `import-folder*`,
+  both themes. Revert proofs were made for the listed file's tick, the unsaved group file, and
+  the library folder itself.
 
 ## The audit 2 fixes (release/1.2.0, merged to main for 1.2.0)
 

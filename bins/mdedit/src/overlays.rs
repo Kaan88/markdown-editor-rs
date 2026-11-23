@@ -168,6 +168,7 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
     let items = vec![
         cmd(C::Library, "&Open a note…", glyph::BOOKMARK),
         cmd(C::LibraryAdd, "&Add this file…", glyph::NEW_FILE).enabled(has_file),
+        cmd(C::LibraryAddFolder, "Add a &folder…", glyph::FOLDER_OPEN),
         cmd(
             C::ToggleLibraryPane,
             "Show in the side &pane",
@@ -323,6 +324,7 @@ pub fn library_empty_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> 
             glyph::BOOKMARK,
         )
         .enabled(has_file),
+        cmd(C::LibraryAddFolder, "Add a f&older…", glyph::FOLDER_OPEN),
         cmd(C::LibraryEdit, "&Edit a library file\u{2026}", glyph::DOC).sep(),
         Item::new(
             Act::Library(L::RevealFolder, 0),
