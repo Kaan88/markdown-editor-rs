@@ -277,6 +277,35 @@ fn adding_the_open_file_from_the_pane_shows_it_there() {
 }
 
 #[test]
+fn a_file_added_shows_in_the_tree_at_once_even_under_a_folded_group() {
+    let dir = scratch("libpane-add-now");
+    let (_taxes, _last) = library_in(&dir);
+    let mut a = app_in(&dir);
+    a.command(C::ToggleLibraryPane);
+    // The group is folded when the file is added.
+    let file = dir.join("library").join("personal.md");
+    let group = a.ui.library.rows[0].key.clone();
+    a.ui.library.fold(&group);
+    a.ui.library.build(&a.docs.library);
+    let note = dir.join("new.md");
+    std::fs::write(
+        &note,
+        "# A new note
+",
+    )
+    .unwrap();
+    open_now(&mut a, &note);
+    a.library_put(&file, &[]);
+    // No `library_rows()` here: the rows are what the pane has now.
+    let rows = shown(&a);
+    assert!(
+        rows.iter().any(|(_, l)| l == "A new note"),
+        "shown at once: {rows:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_head_switch_shows_its_face_and_the_face_already_shown_does_not_close_the_pane() {
     use crate::ui::PaneFace;
     let dir = scratch("libpane-switch");

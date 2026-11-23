@@ -504,6 +504,12 @@ impl App {
             return;
         }
         self.library_load();
+        // The pane's rows are made from the library, so they are made again now, with what is
+        // folded above the new note opened: it shows at once, not after a fold and an unfold.
+        self.ui.library.unfold_to(file, section);
+        self.ui.library.stop_edit();
+        self.ui.library.build(&self.docs.library);
+        self.redraw();
         let group = self
             .docs
             .library

@@ -58,8 +58,6 @@ fixes included).
 - **A closed mdview is still missed** (the owner's hand check, D-101): closing mdview by hand
   leaves "Stop the preview" in mdedit, even after mdedit's window has the focus again (tried with
   mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
-- "Add this file to the notes library…" adds it, but the tree shows the note only after its group
-  is folded and opened again.
 - Browsing the library in the full preview keeps the preview for two or three files, then falls
   back to editing.
 
