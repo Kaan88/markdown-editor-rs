@@ -529,7 +529,7 @@ fn remove_own_file(path: &Path, text: &str) {
 
 impl App {
     /// Opens the Notes pane on the group the report names, its cursor on the first note written.
-    fn open_notes_of(&mut self, report: &runs::Report, request: &Request) {
+    pub(super) fn open_notes_of(&mut self, report: &runs::Report, request: &Request) {
         if report.notes() == 0 {
             return;
         }

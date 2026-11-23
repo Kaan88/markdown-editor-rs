@@ -1012,6 +1012,9 @@ impl App {
                 }
             }
             Picked::LibraryFile(paths) => self.library_found(paths.into_iter().next()),
+            Picked::NoteFile(group, paths) => {
+                self.note_file_picked(group, paths.into_iter().next())
+            }
             Picked::LibraryFolder(dir) => {
                 if let Some(dir) = dir {
                     self.library_dir_picked(dir);

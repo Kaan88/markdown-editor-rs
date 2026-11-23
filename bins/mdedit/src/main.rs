@@ -33,6 +33,8 @@ mod marks;
 mod minimap;
 mod move_draw;
 mod move_ui;
+mod note_draw;
+mod note_ui;
 mod outline;
 mod overlays;
 mod palette;

@@ -257,6 +257,11 @@ pub fn library_row_menu(
                 "&Move the notes\u{2026}",
                 glyph::FORWARD,
             ));
+            items.push(item(
+                L::MarkdownNote,
+                "Markdo&wn note from a file\u{2026}",
+                glyph::HEADING,
+            ));
             items.extend([
                 item(L::Rename, "&Rename group", glyph::EDIT).sep(),
                 item(
@@ -1435,9 +1440,14 @@ pub fn draw_dialog(
                     // "Move · the notes of Work into their folder · 5 files".
                     mdedit_core::moves::headline(&run.record)
                 } else {
+                    let word = if run.record.kind == mdedit_core::runs::Kind::Markdown {
+                        "Markdown"
+                    } else {
+                        "Split"
+                    };
                     format!(
                         "{} \u{00B7} {} \u{2192} {} \u{00B7} {}",
-                        "Split",
+                        word,
                         run.record.source_name(),
                         run.record.group_name(),
                         if run.record.notes.len() == 1 {

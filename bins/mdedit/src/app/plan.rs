@@ -13,10 +13,11 @@ use mdedit_core::encoding::Encoding;
 use mdshared_app::library::folder_name;
 
 impl App {
-    /// The plan screen or the move card is open: either is over everything and takes every
-    /// event, and each route below hands the move card's to `app/moving.rs`.
+    /// The plan screen, the move card or the Markdown note card is open: any of them is over
+    /// everything and takes every event, and each route below hands the cards' to
+    /// `app/moving.rs` and `app/note.rs`.
     pub(super) fn plan_is_open(&self) -> bool {
-        self.plan.is_some() || self.move_is_open()
+        self.plan.is_some() || self.move_is_open() || self.note_is_open()
     }
 
     /// Opens `screen` over the window.
@@ -220,6 +221,9 @@ impl App {
     }
 
     pub(super) fn plan_key(&mut self, key: PlanKey, typed: Option<&str>) {
+        if self.note_is_open() {
+            return self.note_key(key);
+        }
         if self.move_is_open() {
             return self.move_key(key);
         }
@@ -249,6 +253,9 @@ impl App {
     }
 
     pub(super) fn plan_pointer(&mut self, x: f32, y: f32) {
+        if self.note_is_open() {
+            return self.note_pointer(x, y);
+        }
         if self.move_is_open() {
             return self.move_pointer(x, y);
         }
@@ -259,6 +266,9 @@ impl App {
     }
 
     pub(super) fn plan_press(&mut self) {
+        if self.note_is_open() {
+            return self.note_press();
+        }
         if self.move_is_open() {
             return self.move_press();
         }
@@ -273,6 +283,9 @@ impl App {
     }
 
     pub(super) fn plan_release(&mut self) {
+        if self.note_is_open() {
+            return self.note_release();
+        }
         if self.move_is_open() {
             return self.move_release();
         }
@@ -294,6 +307,9 @@ impl App {
 
     /// `dy` in logical px, positive towards the end.
     pub(super) fn plan_wheel(&mut self, dy: f32) {
+        if self.note_is_open() {
+            return self.note_wheel(dy);
+        }
         if self.move_is_open() {
             return self.move_wheel(dy);
         }
