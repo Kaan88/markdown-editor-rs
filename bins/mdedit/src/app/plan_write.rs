@@ -476,7 +476,7 @@ fn written_home(home: &Path, library: &Path) -> PathBuf {
 }
 
 /// How many Markdown files are directly in the library folder: what `library::MAX_FILES` counts.
-fn library_files(dir: &Path) -> usize {
+pub(super) fn library_files(dir: &Path) -> usize {
     match std::fs::read_dir(dir) {
         Ok(entries) => entries
             .filter_map(Result::ok)

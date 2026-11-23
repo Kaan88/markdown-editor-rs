@@ -79,6 +79,9 @@ mod frost_tests;
 mod handoff;
 #[cfg(test)]
 mod ime_tests;
+mod importing;
+#[cfg(test)]
+mod import_tests;
 mod input;
 #[cfg(test)]
 mod language_tests;
@@ -160,6 +163,9 @@ pub enum Wake {
     Loaded,
     /// A search finished.
     Found,
+    /// The folder "Add a folder to the library…" is reading on its own thread is done: the pass
+    /// after this opens its plan.
+    Import,
     /// The search of a folder has matches or finished.
     Results,
     /// The library read on its own thread has finished: the pass after this takes its result.
@@ -191,6 +197,8 @@ pub enum Picked {
     /// The file a note of the notes library was found at, and the folder chosen for it.
     LibraryFile(Vec<PathBuf>),
     LibraryFolder(Option<PathBuf>),
+    /// The folder "Add a folder to the library…" was pointed at.
+    ImportFolder(Option<PathBuf>),
     /// The folder chosen for a group's notes, and the library file it is for.
     GroupHome(PathBuf, Option<PathBuf>),
     /// Save as for document `doc`; `after` is what waits for the save (`After::Nothing` for the
@@ -370,6 +378,11 @@ struct App {
     recycle: Box<dyn crate::recycle::RecycleBin>,
     /// "Move the notes…": the card of a move's plan, while it is open.
     mover: Option<crate::move_ui::MoveCard>,
+    /// "Add a folder to the library…" (5.7): the card of an import, and the folder a walk is
+    /// reading on its own thread.
+    importer: Option<crate::import_ui::ImportCard>,
+    import_job: Option<mdshared_app::job::Job<mdedit_core::import::Walk>>,
+    import_dir: Option<PathBuf>,
     /// The library being read again on its own thread after a library file was saved, with at
     /// most one running at a time. The rows on screen stay until the result is taken.
     library_job: Option<mdshared_app::job::Job<Option<mdshared_app::library::Library>>>,
@@ -535,6 +548,9 @@ impl App {
             #[cfg(test)]
             recycle: Box::new(crate::recycle::NoBin),
             mover: None,
+            importer: None,
+            import_job: None,
+            import_dir: None,
             library_job: None,
             settled: false,
             load_traced: false,
@@ -1442,6 +1458,8 @@ impl App {
                 .map(|s| (s.sig(), s.edit.is_some() && self.ui.caret_on)),
             // The move card raises its tick for every change, as the plan screen does.
             self.mover.as_ref().map(|m| m.sig()),
+            // So does the import card.
+            self.importer.as_ref().map(|c| c.sig()),
         ));
         let overlay_changed = osig != self.overlay_sig;
         self.overlay_sig = osig;
@@ -1853,6 +1871,9 @@ impl App {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
                 if let Some(card) = self.mover.as_mut() {
+                    card.draw(c.p, &pal, w, h);
+                }
+                if let Some(card) = self.importer.as_mut() {
                     card.draw(c.p, &pal, w, h);
                 }
                 // Last, over everything.

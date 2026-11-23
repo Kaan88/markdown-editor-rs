@@ -15,8 +15,11 @@ use mdshared_app::library::folder_name;
 impl App {
     /// The plan screen or the move card is open: either is over everything and takes every
     /// event, and each route below hands the move card's to `app/moving.rs`.
+    /// The plan screen, the move card or the import card is open: any of them is over everything
+    /// and takes every event, and each route below hands the move card's to `app/moving.rs` and
+    /// the import card's to `app/importing.rs`.
     pub(super) fn plan_is_open(&self) -> bool {
-        self.plan.is_some() || self.move_is_open()
+        self.plan.is_some() || self.move_is_open() || self.import_is_open()
     }
 
     /// Opens `screen` over the window.
@@ -220,6 +223,9 @@ impl App {
     }
 
     pub(super) fn plan_key(&mut self, key: PlanKey, typed: Option<&str>) {
+        if self.import_is_open() {
+            return self.import_key(key);
+        }
         if self.move_is_open() {
             return self.move_key(key);
         }
@@ -249,6 +255,9 @@ impl App {
     }
 
     pub(super) fn plan_pointer(&mut self, x: f32, y: f32) {
+        if self.import_is_open() {
+            return self.import_pointer(x, y);
+        }
         if self.move_is_open() {
             return self.move_pointer(x, y);
         }
@@ -259,6 +268,9 @@ impl App {
     }
 
     pub(super) fn plan_press(&mut self) {
+        if self.import_is_open() {
+            return self.import_press();
+        }
         if self.move_is_open() {
             return self.move_press();
         }
@@ -273,6 +285,9 @@ impl App {
     }
 
     pub(super) fn plan_release(&mut self) {
+        if self.import_is_open() {
+            return self.import_release();
+        }
         if self.move_is_open() {
             return self.move_release();
         }
@@ -285,6 +300,9 @@ impl App {
     }
 
     pub(super) fn plan_right_press(&mut self) {
+        if self.import_is_open() {
+            return;
+        }
         let (x, y) = self.ui.mouse;
         if let Some(screen) = self.plan.as_mut() {
             screen.right_press(x, y);
@@ -294,6 +312,9 @@ impl App {
 
     /// `dy` in logical px, positive towards the end.
     pub(super) fn plan_wheel(&mut self, dy: f32) {
+        if self.import_is_open() {
+            return self.import_wheel(dy);
+        }
         if self.move_is_open() {
             return self.move_wheel(dy);
         }
@@ -320,6 +341,11 @@ impl App {
     /// demonstration writes nothing: its library folder is a name in the working folder, which is
     /// not where the program writes.
     pub(super) fn plan_demo(&mut self, name: &str) -> bool {
+        // "Add a folder to the library…" (5.7): the import card's shots answer to `--plan-demo
+        // folder…`, the name 5.7 gives them.
+        if name.starts_with("folder") {
+            return self.import_demo(name);
+        }
         if matches!(name, "split-bin-report" | "split-bin-kept") {
             self.plan_bin_report_demo(name == "split-bin-report");
             return true;

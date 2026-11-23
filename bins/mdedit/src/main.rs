@@ -23,6 +23,8 @@ mod docs;
 mod format_bar;
 mod frost;
 mod image_paste;
+mod import_draw;
+mod import_ui;
 mod keys;
 mod languages;
 mod library_pane;
