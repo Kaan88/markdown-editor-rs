@@ -467,6 +467,20 @@ for t in "" "-dark"; do
     shot "plan-ready$t" $th --plan-demo split --plan-parked
 done
 
+# "Add a folder to the library…" (5.7, phase 4a), from a plan made in the program: the folder's
+# files under their subfolders' headings with a preview of the selected file, two sections
+# unticked, the library already holding three of them, the same card at 800x600, and a folder over
+# the library's 2,000 with the button disabled and the count.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "import-folder$t" $th --plan-demo folder
+    shot "import-folder-sections$t" $th --plan-demo folder-sections
+    shot "import-folder-taken$t" $th --plan-demo folder-taken
+    shot "import-folder-small$t" $th --size 800x600 --plan-demo folder-small
+    shot "import-folder-over$t" $th --plan-demo folder-over
+done
+
 # "Move the notes…" (5.12), from a plan made in the program: the card with ready rows (notes that
 # carry pictures and rewrite links, D-091), a taken name, a picture whose name is taken, a note
 # listed twice, a link and a note outside the library; the same card at 800x600; and the results

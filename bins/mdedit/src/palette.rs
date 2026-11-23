@@ -440,6 +440,7 @@ fn icon(id: C) -> &'static str {
         C::AiRuns => glyph::MACRO,
         C::Language => glyph::CODE,
         C::Library | C::LibraryAdd | C::ShowInLibrary => glyph::BOOKMARK,
+        C::LibraryAddFolder => glyph::FOLDER_OPEN,
         C::LibraryEdit => glyph::DOC,
         C::Theme | C::Escape | C::MakeDefault => "",
     }
@@ -535,6 +536,7 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
         C::AiRuns => true,
         C::Language => ready.is_some(),
         C::LibraryAdd => has_file,
+        C::LibraryAddFolder => true,
         C::ShowInLibrary => docs
             .active_doc()
             .and_then(|d| d.path.as_deref())

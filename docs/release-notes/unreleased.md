@@ -23,6 +23,16 @@ shows.)
   still opens it, `Esc` puts it back, and holding it at the pane's edge scrolls the list. Notes
   only; no file of yours is copied, moved or deleted.
 
+- **Add a folder to the notes library, by its subfolders.** "Library → Add a folder." takes a
+  folder you pick and lists its `.md`, `.markdown` and `.txt` files in the library, one link per
+  file, under their subfolders' headings three levels deep. Nothing is copied, moved or renamed:
+  the files stay where they are and the library lists them. A group for that folder is made, or a
+  group the library already has by that name is added to; a file it already lists is shown as such
+  and is not written again, and one line per ticked file goes into the group's library file in a
+  single write. The card previews a file's first lines, a subfolder's heading ticks and unticks
+  everything under it, and a folder that is too large, the library itself, or one with nothing to
+  add is refused with the reason on the card.
+
 ## Fixed
 
 - **The review of a rewrite has a scrollbar and no longer cuts long lines.** A long review scrolls by its scrollbar, by dragging it or by clicking its track, and a line longer than the window now wraps inside its column instead of being cut off.

@@ -3058,7 +3058,59 @@ the chip and nowhere else. Each was proved by reverting its fix and watching it 
 **Not built:** dragging a group or a section; a keyboard equivalent beyond "Move to…" (which is
 the keyboard path); files from File Explorer (see above); a drop between two windows.
 
-## 81. A Markdown note from a text file (2026-11-23, branch `f/p5`)
+## 81. Add a folder to the library (2026-11-23, phase 4a)
+
+`ai-library-plan.md` 5.7, taken without the AI: the folder the owner picks becomes a plan of
+links, and no file of theirs is copied, moved or renamed. The command is "Add a &folder." in the
+Library menu and "Add a f&older…" in the Notes pane's whole menu, whose "f" is Refresh's (`o` is
+free there; the two menus word it differently because their letters differ, as everywhere in the
+app). Three pieces, in the shape the plan and the move already have:
+
+- **The walk** (`crates/mdedit-core/src/import.rs`): `walk` reads a folder with the Files pane's
+  own rules -- `mdshared_app::notes::skips_entry` for a dot name, the hidden attribute, `target`
+  and `node_modules`, a link to a folder not followed, `EXTENSIONS` (`.md`, `.markdown`, `.txt`)
+  only -- and stops at `library::MAX_ENTRIES` with `more` set. The folder's own files come first,
+  then each subfolder's, by name, case-insensitively. Each file keeps its subfolders (at most
+  `MAX_SECTIONS` = 3; a fourth is folded into the third), its title (the first `#` heading outside
+  a fence, else its name) and its first `PREVIEW_LINES` lines. Nothing there can panic on what a
+  folder holds: names are read lossily and a heading is looked for at a character boundary.
+- **The plan** (`import::plan`): files the group's library file already lists come unticked and
+  marked, and `tick_all` leaves them so; a section row's box is ticked when everything under it
+  is, unticked when nothing is, and drawn with a dash between the two (a section row's click
+  ticks all of it when any is unticked, nothing otherwise). The plan refuses itself before a
+  single tick is counted -- a folder with no name, more than 2,000 files, nothing to add -- and
+  `problem()` adds the two it knows as they change: nothing ticked, and a group that would pass
+  2,000 with both numbers. A group or subfolder whose name ends in `#` (or a heading that reads
+  back as nothing) is refused: the library's reader strips a closing run of `#`, so `C#` would
+  come back as `C`.
+- **The write** (`bins/mdedit/src/app/importing.rs`): the folder becomes the group -- its name,
+  and `home:` naming the folder, relative to the library when it is inside it so the library can
+  move as a whole -- and the links go into one library file, `tree::link_path` relative inside the
+  library and whole outside it. A library that already has a group of that name is joined: its
+  file, its `home:`, its notes. It is one `library::rewrite` -- the whole file made again and
+  renamed into place, so a crash leaves the old file -- and the card closes on success. Refused
+  with the card left open and the reason in the footer: a group file open with unsaved changes
+  (it would be thrown away), a link that does not sit in the library or the group's home, and the
+  library being rewritten by another run. The saved group file is opened after the write, the
+  notes pane turns to the Notes face, and the toast counts the lines.
+
+The card (`import_ui.rs`, `import_draw.rs`) is the plan's and the move's: a 1,040 x 700 card
+shrunk to fit, the folder and its count in the header, the rows at 46 px with a tick box, a
+heading one line and a file two (name, then its folder and file name), the selected row previewed
+on the right in mono, its path and "the file is not moved or changed" at the foot. A reason the
+button is disabled takes a whole line above the counts, so neither is elided. Under 900 px wide
+the preview is dropped and the list keeps the card; the card scrolls its rows with the shared
+`Rows`. Its own `region_sig` carries the ticks, the selection, the refusal and the scroll.
+
+Shots: `import-folder`, `import-folder-sections` (three headings with a dash), `import-folder-taken`
+(the group already in the library, its file marked), `import-folder-small` (800 x 600: no
+preview), `import-folder-over` (a folder over 2,000: the button greyed and the reason on its own
+line), each in both themes and drawn by `--plan-demo <name>`.
+
+Not done in 4a, deliberate: no AI in the card (5.7's second half), no drag and drop, no
+conversion of a file to Markdown, and no removal of a link -- the pane's own remove is 4b's.
+
+## 82. A Markdown note from a text file (2026-11-23, branch `f/p5`)
 
 `docs/ai-library-plan.md` 5.8. "Markdown note from a file…" on a group's row menu: a text file
 becomes a new note in that group's folder, made by the AI; the original is left where it is and is
@@ -3112,7 +3164,12 @@ never renamed or changed.
   is no note to write." A cancellation is not news. `Ai::running()` counts it, so a rewrite cannot
   start over it.
 - **In "AI runs…"** (`overlays.rs`) a record of this kind reads "Markdown · source → group · N
-  notes"; undo, Show the notes and the Recycle Bin question are split's own, unchanged.
+  notes"; undo, Show the notes and the Recycle Bin question are split's own, unchanged. A record
+  of a kind this build does not write — `Kind::Rewrite`, a file rewritten in place (phase W,
+  D-074) — is not listed with the runs it could undo: `open_runs` moves it into the newer-version
+  list (the same fallback an unreadable record has, "Written by a newer version of mdedit", with
+  nothing enabled), and `run_undo_ask`, `run_undo`, `run_show` and `run_finish` refuse it by name.
+  Phase W's own build fills Rewrite in; nothing here guesses at it.
 - **The demonstration** `--note-demo ready|asking|changes|result|blocked` (`note_ui::demo`): a file
   and an answer made in the program, `card.demo` so Enter says "A demonstration of the card: it
   writes nothing." and nothing is sent or written.
@@ -3124,4 +3181,6 @@ never renamed or changed.
   undo refused when the source has changed, a taken name, AI off, a file too long, a file that is
   not text, the group file unsaved, the group folder the library's own, Esc in Asking, the switch
   repainting the body and Cancel writing nothing, the source changed while the answer was out, and
-  every demonstration. `mdshared_app::runs` has the kind's own two (write, undo).
+  every demonstration. `mdshared_app::runs` has the kind's own two (write, undo); and
+  `plan_write_tests::a_record_of_a_kind_this_build_does_not_write_is_listed_as_a_newer_versions`
+  proves the Rewrite record is listed as a later version's and undo refuses it (D-134).

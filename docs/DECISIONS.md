@@ -1235,3 +1235,66 @@ or wanting files from Explorer added to the library (which needs the drop point 
 platform, not winit).
 
 **From.** D-082; the archived redesign 3.4; phase DD built 2026-11-23.
+
+## D-131 · 2026-11-23 · An import writes links in one library file and touches nothing else
+
+**Decision.** "Add a folder to the library…" (5.7, phase 4a) is a plan of links, not an import of
+files: the folder the owner picks becomes the group, each file it takes becomes one list line in
+that group's library file, and no file of the owner's is copied, moved, renamed or deleted. The
+files are listed where they are. A link inside the library folder is written relative to the
+library, so the library can move as a whole; one outside it is written by its whole path.
+**Why.** The library is a list of what the owner has, not a second copy of it: a copy would drift
+from the file it was made from, and a move would break every other program that has the path. The
+owner's rule for the whole redesign (`library-redesign.md` 9) is links only.
+**Overturned by.** The owner; or a library that is meant to own the files it lists.
+**From.** `docs/ai-library-plan.md` 5.7; the phase 4a brief.
+
+## D-132 · 2026-11-23 · The group of an import is the folder, and an existing group is joined
+
+**Decision.** The group's name is the folder's own name (a folder with no name is refused), and
+its library file is named after it -- `library/Recipes.md` for `…/Recipes`. The group's `home:` is
+the folder, relative to the library when the folder is inside it. When the library already has a
+group of that name the plan joins it: its library file, its `home:` and its notes, and the 2,000
+counts from what it holds. A file the group already lists is shown as such, comes unticked, and
+is never written a second time -- `Tick all` and a heading's box leave it alone.
+**Why.** The folder is where the notes are, so a group that names anything else would be a lie;
+and adding a folder the library half has must not make a second group with the same name (the
+pane would show two, and one of them could not be removed).
+**Overturned by.** The owner; or a library where two groups may share a name.
+**From.** D-041 (`home:`), D-260's heading rules; the phase 4a brief.
+
+## D-133 · 2026-11-23 · Subfolders three deep are headings, and what a folder cannot name is refused
+
+**Decision.** A note is filed under its subfolders as headings, three levels at most; a fourth
+folder is folded into the third, so nothing is lost and no heading is made from a name the library
+would read differently. A tick box that is only partly ticked is drawn with a dash: neither an
+empty box nor a tick tells the truth about a heading with some of its notes in. A group or
+subfolder whose name ends in `#`, or whose heading would read back as nothing, refuses the whole
+plan with the sentence and asks for the folder to be renamed -- the library's reader strips a
+closing run of `#`, so `C#` comes back as `C` and the note would be filed under a heading the
+card did not promise. A plan is refused, never half written: the check is made before the first
+file is touched.
+**Why.** Three levels is what the pane's tree shows without a scroll of its own (D-260 nests by
+heading level), and a heading the library cannot read back is a note that would appear somewhere
+the owner did not ask for. The dash is the only state a single shared `Tick` cannot draw.
+**Overturned by.** The owner; or a tree that shows deeper nesting well.
+**From.** The phase 4a brief; `docs/ai-library-plan.md` 5.7.
+
+## D-134 – 2026-11-23 – A kind this build does not write is a later version's record
+
+**Decision.** The five `mdshared-*` pins move from the note work's branch rev to the shared
+`main` (`0984eed`), where `Kind::Markdown` and `runs::write_note` are merged beside `Kind::Rewrite`
+(a file rewritten in place, phase W, D-074) and `library::put`. mdedit reads three kinds and writes
+two: a record whose kind it does not write — `Kind::Rewrite`, today — is not put in the runs it
+could undo. `open_runs` moves it into the newer-version list, the same list and the same words an
+unreadable record gets ("Written by a newer version of mdedit", "Not shown or undone here"), and
+`run_undo_ask`, `run_undo`, `run_show` and `run_finish` refuse it by name ("It is left as it is").
+`Record::originals` is written empty by the two records this build makes, as the shared crate says.
+**Why.** Phase W is being built elsewhere; a record of it must not be read as a split (its undo
+would look for line ranges and a source that a rewrite's record does not have) and nothing here
+may guess what undoing a rewrite means. The fallback is the one the app already has for records it
+cannot read, so there is one way to say "a later version wrote this", not two.
+**Overturned by.** Phase W landing here, which gives Rewrite its own show, undo and finish; or the
+shared crate giving the kinds one table of what a build can do with each.
+**From.** The owner's brief of 2026-11-23 (repin to shared `0984eed`, honest handling of Rewrite);
+D-120.

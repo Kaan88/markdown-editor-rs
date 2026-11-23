@@ -1020,6 +1020,11 @@ impl App {
                     self.library_dir_picked(dir);
                 }
             }
+            Picked::ImportFolder(dir) => {
+                if let Some(dir) = dir {
+                    self.import_folder_picked(dir);
+                }
+            }
             Picked::GroupHome(file, dir) => {
                 if let Some(dir) = dir {
                     self.library_group_home_picked(&file, dir);
@@ -2152,6 +2157,7 @@ impl App {
             C::Language => self.open_languages(),
             C::Library => self.library_open(),
             C::LibraryAdd => self.library_add(),
+            C::LibraryAddFolder => self.import_choose_folder(),
             C::LibraryEdit => self.library_edit(),
             C::ShowInLibrary => self.library_show_file(),
             C::NextTab => self.docs.step_tab(true),
@@ -2337,6 +2343,8 @@ impl App {
             }
             // Taken for a read that has finished; a pane hidden meanwhile drops it.
             Wake::Library => self.library_read_take(),
+            // The import's walk is done: its plan opens, unless the folder was let go of.
+            Wake::Import => self.import_take(),
             Wake::Outline => {
                 self.ui.outline.poll();
             }
