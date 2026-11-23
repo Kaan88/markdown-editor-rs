@@ -1065,3 +1065,27 @@ than guessing a language from the path, and a failed read is no text to show.
 **Overturned by.** The owner; or a preview that can show a document whose language is not yet
 known.
 **From.** The owner's hand check, D-101; the block closing, from the review of the fix.
+
+## D-120 – 2026-11-23 – A Markdown note from a file: the text, not the file, and always a new note
+
+**Decision.** Phase 5.8 in mdedit: a text file picked from a group's row becomes a new note in that
+group's folder, written by the AI from the file's text. Its decisions, made as they were needed:
+1. The card sends the whole file (capped at 200 KB, the editor's own loader, no NUL bytes and no
+   byte it could not read) and one instruction, `ai::FORMAT`; the note is Markdown made from that
+   text, and the record keeps the instruction and what was sent.
+2. The note is always a new file, named from the source's file name (`pasta notes.txt` →
+   `pasta-notes.md`, then `pasta-notes 2.md`), never a rename and never a replacement; the source
+   is not touched. The note is UTF-8 whatever the source was, since Markdown is its text.
+3. The run is `Kind::Markdown` in the shared record (mdshared-app), so "AI runs…" names it, undo
+   removes the note and its line with the split's own machinery, and undo refuses when the original
+   is no longer the file the note was made from (D-300's rule, kept whole).
+4. Every refusal is made before the request and again before the write, in the card: AI off, no
+   library folder, the group folder being the library folder, the group's file unsaved, the 2,000
+   note cap, a line that would not read back, a source changed while the answer was out.
+**Why.** The plan (5.8) asks for exactly this, and the app's rule is that a destructive path is
+checked twice; the source is the owner's own file and the note is new, so nothing about it can be
+lost. `Kind::Split` would make undo read line ranges that do not exist in an answer that is prose,
+and "AI runs…" would call it a split.
+**Overturned by.** The owner; a model answer that must be written into the source instead of a new
+note; a record format that can hold a note's text without a kind of its own.
+**From.** `docs/ai-library-plan.md` 5.8 and 5.10; the review that asked for a kind, not a reuse.

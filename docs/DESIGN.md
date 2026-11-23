@@ -2892,3 +2892,68 @@ preview tests, `prefs` and `chrome` tests, and `html_md`'s 14 in the shared repo
   520x400 with the Files pane), each in both themes. `--demo-link` with an mdview mode chosen
   draws as with mdview found, and side by side in that mode. The shorter hint changes every shot
   of the empty window (`empty`, `move-results`, `plan-*`, `runs*`, `update-installed*`).
+
+## 79. A Markdown note from a text file (2026-11-23, branch `f/p5`)
+
+`docs/ai-library-plan.md` 5.8. "Markdown note from a file…" on a group's row menu: a text file
+becomes a new note in that group's folder, made by the AI; the original is left where it is and is
+never renamed or changed.
+
+- **The row, then the picker.** `LibAct::MarkdownNote` beside "Move the notes…" (`overlays.rs`,
+  drawn with `glyph::HEADING`). It opens the system file picker only: `Picked::Note { group }` in
+  `app.rs` carries the group's library file, so `note_file_picked(group, Some(source))` is the one
+  door into the card, and `Some(None)` (the picker cancelled) does nothing.
+- **What is read** (`app/note.rs::read_source`). Through the editor's own loader, capped at
+  `NOTE_MAX` 200 KB (`LoadOptions.max_bytes`), regular files only. Refused with a name and a reason:
+  not a file, empty, over the cap ("200 KB of 200 KB"), lossy or NUL bytes ("not a text file: some
+  of its bytes are not text this editor can read"), nothing but whitespace ("has no text"). A note
+  is Markdown, so its text is written as UTF-8 whatever the source was (BOM, UTF-16 or a legacy
+  code page) and `Source::encoding` says so under the title; a source in UTF-8 is written as it
+  reads. It keeps the name, the line count, the byte length, the digest (SHA-256) and the source's
+  own line split, which `ai::note_body` uses for the note.
+- **The card** (`note_ui.rs`, `note_draw.rs`, over `Dialog::draw` like the move card). `Phase`:
+  Ready (what is sent, what it is asked to do, what will be written, in the footer's words), Asking
+  ("Asking Claude Code · Sonnet 5.5: N characters so far", a pulse, a Bar and a footer link, Esc or
+  Stop cancels through `Ai::cancel_id`), Changes (the line review of `mdedit_core::ai::review`, the
+  source's lines against the note's, red and green, `- N lines + M lines`) and Result (the note as
+  it will be written, numbered). A `Changes | Result` segmented switch in the header, 28 tall, on
+  the title's line, painted only in Changes and Result. Two lines of body above the list ("What
+  changes to make the note." / "The note as it will be written."). Enter sends in Ready and writes
+  in Changes; the footer names the file and says the source is not changed; `blocked` puts the
+  reason in the footer's left, and Make the note/the primary is drawn disabled then.
+- **Writing** (`App::note_write`). Every check again, because the answer may be minutes old: the
+  library folder, `note_blocked`, and the source re-read and compared by length and SHA-256 ("has
+  changed since the note was made. Make the note again"). Then `runs::write_note` — the same write
+  of 4.3 with `Kind::Markdown`, in `.runs`, undo and all — `library_rows()`, the note opened in a
+  tab, and `open_notes_of` on the report: the Notes face, the group's notes open, the cursor on the
+  new line.
+- **The refusals before the request and in `note_blocked`**: AI off ("Choose a connection in
+  Settings › AI first."); no library folder; the group's folder is the library folder itself
+  ("so the note would be a library file"); the note would land beside the library's own files; the
+  group's folder is a file; the group's library file open with unsaved changes (`library_file_free`
+  in the app's words); the file cannot be read; the group would pass 2,000 notes; the line would
+  not read back as the old notes plus this one (`runs::check_links_added`, a dry run). A failure
+  from the write itself comes back as `note_write_refused`: the card stays with the reason and
+  nothing is half-written (the write's own order, D-067).
+- **Naming.** `library_write::free_name(home, stem)`: the source's file name with its extension
+  dropped, lower case, runs of anything but letters and digits turned into one hyphen, cut to 60
+  characters; `stem.md`, else `stem 2.md`, `stem 3.md` …; `pasta notes.txt` → `pasta-notes.md`.
+- **The request.** One, through `Ai::ask(Ask::Note)`: the whole file and `ai::FORMAT` as the
+  instruction ("Format this text as Markdown: headings for its sections, lists, tables for tabular
+  data, task lists for things to do, emphasis and code where the text calls for them. Do not change
+  the wording."), `Sent` with the connection, model, bytes and requests so the record holds it. An
+  answer that is whitespace, or the same text as the source, is "The AI changed nothing, so there
+  is no note to write." A cancellation is not news. `Ai::running()` counts it, so a rewrite cannot
+  start over it.
+- **In "AI runs…"** (`overlays.rs`) a record of this kind reads "Markdown · source → group · N
+  notes"; undo, Show the notes and the Recycle Bin question are split's own, unchanged.
+- **The demonstration** `--note-demo ready|asking|changes|result|blocked` (`note_ui::demo`): a file
+  and an answer made in the program, `card.demo` so Enter says "A demonstration of the card: it
+  writes nothing." and nothing is sent or written.
+- Shots: `note-ready`, `note-asking`, `note-changes`, `note-result`, `note-blocked`, both themes,
+  `note-changes-small` at 800x600.
+- Tests: `app::note_tests` (13): the menu item and the whole path to the note and its record, undo,
+  undo refused when the source has changed, a taken name, AI off, a file too long, a file that is
+  not text, the group file unsaved, the group folder the library's own, Esc in Asking, the switch
+  repainting the body and Cancel writing nothing, the source changed while the answer was out, and
+  every demonstration. `mdshared_app::runs` has the kind's own two (write, undo).

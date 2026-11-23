@@ -4,6 +4,17 @@ A file added to the notes library shows in the pane's tree at once.
 version is chosen it is renamed `<version>.md`, and its first line above is the one the update bar
 shows.)
 
+## New
+
+- **A Markdown note from a text file.** On a group's row in the Notes pane, "Markdown note from a
+  file…" takes any text file — a plain-text note, a letter, a file of ideas — and has the AI make a
+  new Markdown note of it in that group's folder, listed with the group's other notes. The card
+  says what is sent and what will be written before anything leaves the machine; the answer is
+  shown as its changes and as the note; the original file is left exactly as it was, and the note
+  is never written over. The run is listed in "AI runs…", where undo takes the note and its line
+  out again — unless the original has changed since, in which case the note may be the only copy
+  of its text and is kept.
+
 ## Fixed
 
 - **A file added to the notes library shows in the pane's tree at once.** "Add this file to the

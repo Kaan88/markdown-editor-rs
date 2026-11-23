@@ -195,7 +195,7 @@ impl NoteCard {
         p.text(Face::Semibold, 11.5, x, y, "WHAT IS SENT", pal.faint, max);
         y += 26.0;
         let sent = format!(
-            "The whole file, {}, in one request, to {}.",
+            "The whole file, in one request of {} with the instruction, to {}.",
             crate::plan_ui::size_text(self.prompt.len()),
             self.via
         );

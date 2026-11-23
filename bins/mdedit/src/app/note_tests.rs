@@ -357,6 +357,21 @@ fn body_pixels(screen: &Bitmap, area: Rect) -> Vec<u8> {
 }
 
 #[test]
+fn a_source_edited_while_the_answer_was_out_is_not_written_from() {
+    let (mut a, p) = lib("note-changed");
+    open_card(&mut a, &p);
+    answer(&mut a, "# Pasta\n");
+    // Someone edited the file while the request was out: the note is not written from it.
+    std::fs::write(&p.source, "PASTA, and now something else\n").unwrap();
+    press(&mut a, KeyName::Enter);
+    let card = a.note.as_ref().expect("the card stays open, with the reason");
+    let why = card.blocked.clone().unwrap_or_default();
+    assert!(why.contains("has changed since the note was made"), "{why}");
+    assert!(!p.library.join("Recipes").join("pasta-notes.md").exists());
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
+
+#[test]
 fn every_demonstration_opens_its_state_and_refuses_to_send_or_write() {
     let (mut a, p) = lib("note-demo");
     for name in crate::note_ui::NAMES {

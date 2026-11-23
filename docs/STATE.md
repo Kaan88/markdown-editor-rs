@@ -35,6 +35,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
+- **Phase 5.8**, a Markdown note from a text file (`ai-library-plan.md` 5.8, D-120): built on
+  branch `f/p5` — card, write, record, undo, 13 tests, 11 shots; not merged.
 - **Phase R2**, the review with ticks and the tinted, level preview (`ai-library-plan.md` 5.5,
   D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
   of it exists.
