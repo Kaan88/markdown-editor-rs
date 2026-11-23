@@ -1552,6 +1552,50 @@ Last.
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The owner: "browsing the library in the full preview keeps the preview for two or three
+    /// files, then falls back to editing". A note opens as a tab still being read; that is not a
+    /// file the page cannot show, and the mode must wait for the read.
+    #[test]
+    fn visual_editing_waits_for_a_note_still_loading() {
+        let Some(viewer) = viewer() else {
+            eprintln!("no mdview build to draw the pane: skipped");
+            return;
+        };
+        let dir = scratch("visual-loading-tab");
+        let first = dir.join("a.md");
+        let second = dir.join("b.md");
+        std::fs::write(&first, paragraphs("A", 90)).unwrap();
+        std::fs::write(&second, paragraphs("B", 90)).unwrap();
+        let mut a = app();
+        open_now(&mut a, &first);
+        a.viewer_path = Some(Some(viewer));
+        a.compose();
+        a.command(C::VisualEdit);
+        a.compose();
+        assert!(a.visual_on());
+        // The second note is opened and not yet read.
+        let i = a.docs.open(&second);
+        a.docs.activate(i);
+        assert!(a.docs.active_doc().unwrap().ready().is_none());
+        a.visual_sync();
+        assert!(
+            a.visual_on() && a.docs.visual_open,
+            "the mode waits for the read"
+        );
+        assert!(a.preview.is_some(), "the pane stays");
+        a.docs.load_now(i, None, false);
+        a.compose();
+        a.visual_sync();
+        let id = a.docs.active_doc().unwrap().id;
+        assert!(a.visual_on());
+        assert_eq!(
+            a.visual.as_ref().unwrap().doc,
+            id,
+            "and follows it once read"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The owner: switching to a tab the page cannot show must not leave the window in the mode
     /// with no page to edit. It ends the mode, and gives back the pane as it was: one visual
     /// editing opened goes.

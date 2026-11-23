@@ -23,7 +23,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## On `main`, not released
 
-Nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review (audit 3's
+Branch `fix/preview-browse` (not merged): browsing the library in the full preview (visual
+editing) no longer falls back to editing; a tab still loading no longer ends the mode
+(`visual_sync`). Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review (audit 3's
 fixes included).
 
 ## In hand
@@ -60,8 +62,6 @@ fixes included).
   mdview 1.0.4, which sends no `?closed`). D-097's focus check does not hold; not yet looked into.
 - "Add this file to the notes library…" adds it, but the tree shows the note only after its group
   is folded and opened again.
-- Browsing the library in the full preview keeps the preview for two or three files, then falls
-  back to editing.
 
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.

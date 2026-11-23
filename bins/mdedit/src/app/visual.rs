@@ -321,6 +321,16 @@ impl App {
             self.end_visual();
             return;
         }
+        // A tab still reading its file is not yet known to be Markdown or not: the mode waits for
+        // the load, as it did not when a note opened from the library ended it (the owner:
+        // "browsing the library in the full preview keeps the preview for two or three files").
+        if self
+            .docs
+            .active_doc()
+            .is_some_and(|d| d.ready().is_none() && d.is_loading())
+        {
+            return;
+        }
         match current {
             Some((id, true)) if id == v.doc => {}
             // Visual editing is a mode of the window, not of one file: another document the
