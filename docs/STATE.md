@@ -23,8 +23,15 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## On `main`, not released
 
-Nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review (audit 3's
-fixes included).
+- **A file added to the notes library shows in the pane's tree at once** (branch
+  `fix/library-add-refresh`, merged): the note and its line were written, but the pane's rows were
+  made again only when a group or a section was folded and opened, so the add looked lost. The rows
+  are made again as it is written, with what was folded above the note opened, and a name being
+  typed in the pane's box goes with them, its keyboard back in the text.
+- Branch `fix/closed-mdview` (not merged): a closed mdview is asked about again after its grace
+  ends and on key presses, not key releases or auto-repeats; the checks an input starts do not
+  schedule rechecks. Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had
+  an outside review (audit 3's fixes included).
 
 ## In hand
 
@@ -49,21 +56,23 @@ fixes included).
 
 ## Next
 
-1. The owner's four faults from the hand check (D-101), for the next release; first, whether a
-   closed mdview is missed with mdview 1.0.5 too.
+1. The owner's four faults from the hand check (D-101), for the next release: the add, merged; a
+   closed mdview, on `fix/closed-mdview` (first: whether it is missed with mdview 1.0.5 too); the
+   notice before deleting a library file, on `fix/delete-library-notice`; and browsing the library
+   in the full preview, on `fix/preview-browse`.
 2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
 
-- **A closed mdview is still missed** (the owner's hand check, D-101; changed in D-102, not yet
-  tried by the owner): D-097's one recheck a second after the focus may come too early for a window
-  closed by hand, and a closure with no focus change was never asked about. Now three rechecks
-  (1, 2, 4 s) and an ask on a key or a click (at most one in two seconds). With mdview 1.0.4 and
-  a graceful close the old code already found it in 1 s in a test against the real exe, so the
-  owner's failing case was not reproduced here; a tab closed in a viewer that keeps running cannot
-  be told from 1.0.4 at all.
-- "Add this file to the notes library…" adds it, but the tree shows the note only after its group
-  is folded and opened again.
+- **A closed mdview is still missed** (the owner's hand check, D-101; changed in D-102 and D-105,
+  not yet tried by the owner): D-097's one recheck a second after the focus may come too early for
+  a window closed by hand, and a closure with no focus change was never asked about. Now three
+  rechecks (1, 2, 4 s), and a check the window's focus or a menu asks for while a link is still
+  in its grace is made once when that grace ends instead of being dropped. A key press or a click
+  asks at most once in two seconds; an input ask is answered once and starts no rechecks, so
+  typing does not probe over and over. With mdview 1.0.4 and a graceful close the old code already
+  found it in 1 s in a test against the real exe, so the owner's failing case was not reproduced
+  here; a tab closed in a viewer that keeps running cannot be told from 1.0.4 at all.
 - Browsing the library in the full preview keeps the preview for two or three files, then falls
   back to editing.
 
@@ -114,5 +123,7 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   Every merged branch was deleted, here and on GitHub, in all three repos.
 - Kept as found, local, unpushed: the shared repo's `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: none but `main`. The folders three finished sessions still hold under
-  `.claude\worktrees\` are empty.
+- Worktrees: `main` (`Desktop\markdown-editor-ai`); `md-wt\baseline-main`, `closed-mdview`,
+  `delete-library-notice`, `library-add-refresh`, `preview-browse` and `review-hunks`;
+  `hub-wt\app-prs2\mdedit`; and a session's detached scratchpad under `Temp`. The folders three
+  finished sessions still hold under `.claude\worktrees\` are empty.
