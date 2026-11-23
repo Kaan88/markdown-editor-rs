@@ -28,9 +28,14 @@ fixes included).
 
 ## In hand
 
-- **Phase R2**, the review with ticks and the tinted, level preview (`ai-library-plan.md` 5.5,
-  D-077): started and stopped by the owner on 2026-11-23 before anything was written. Nothing
-  of it exists.
+- **Phase R2**, the review with ticks (`ai-library-plan.md` 5.5, D-102): **built on branch
+  `f/review-hunks`, not merged, not tagged.** A tick per change, Apply and Copy result of the
+  ticked ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (the
+  AFTER page shows the ticked changes). Tests, shots (`review-*`) and the budgets are in
+  `docs/DESIGN.md` 79 and `docs/measurements/2026-11-23-review-hunks.md`. **Not built: the
+  tinted, level preview (D-103)**: it needs a request in the viewer's preview protocol (the page
+  rows of every top-level block) and a move of its pin, which waits for the owner. Not looked at
+  by the owner yet (rule 6); not run on Windows by a person.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
@@ -51,7 +56,8 @@ fixes included).
 
 1. The owner's four faults from the hand check (D-101), for the next release; first, whether a
    closed mdview is missed with mdview 1.0.5 too.
-2. Then R2, and section 8's order. M1, M2 in mdview; D after R2.
+2. Then the owner's look at R2 on `f/review-hunks` (and whether to add the viewer's page rows for
+   the tinted preview, D-103), then section 8's order. M1, M2 in mdview; D after R2.
 
 ## Known to be wrong on `main`
 
@@ -66,7 +72,6 @@ fixes included).
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
-- The AI review has no scrollbar and cuts long lines (R2 ends this).
 - The editor never reads the AI engine's version.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note with nothing listing them and splitting that document again writes nothing

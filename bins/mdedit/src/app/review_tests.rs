@@ -305,8 +305,13 @@ fn the_preview_page_is_made_again_150_ms_after_a_tick() {
     assert!(rv(&mut a).preview);
     // The demo left four of them unticked, so the page was first made with those.
     let sent = rv(&mut a).sent;
+    let before = Instant::now();
     tick(&mut a, 0);
     let due = rv(&mut a).due.expect("a tick not yet shown");
+    assert!(
+        due >= before + crate::compare::DEBOUNCE,
+        "150 ms after the tick, not at once"
+    );
     assert_eq!(rv(&mut a).sent, sent, "not at once");
     // Not yet.
     assert!(a.ai_review_due(due - Duration::from_millis(100)).is_some());
