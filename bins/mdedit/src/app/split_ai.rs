@@ -279,6 +279,10 @@ impl App {
             return;
         };
         self.docs.ai_status = None;
+        if !self.split_asked_here(&run) {
+            self.redraw();
+            return;
+        }
         match answer::read(text) {
             Err(fault) if run.requests < 2 => self.split_retry(run, fault),
             Err(_) => {
@@ -292,6 +296,17 @@ impl App {
             }
         }
         self.redraw();
+    }
+
+    /// Whether the plan screen in front is the one the split was asked for: the same document's
+    /// name and outline, so the answer's line numbers are this document's. A screen written or
+    /// closed while the request was out, and another opened after it, takes nothing of the
+    /// answer, nor of a failure (audit 4, B11).
+    fn split_asked_here(&self, run: &SplitRun) -> bool {
+        self.plan
+            .as_ref()
+            .and_then(|screen| Self::split_outline(screen).ok())
+            .is_some_and(|ask| ask.name == run.ask.name && ask.outline == run.ask.outline)
     }
 
     fn split_retry(&mut self, mut run: SplitRun, fault: Fault) {
@@ -375,9 +390,10 @@ impl App {
 
     /// A split's request failed, or the engine ended.
     pub(super) fn split_failed(&mut self, kind: &str, message: &str) {
-        self.ai.split = None;
+        let run = self.ai.split.take();
         self.docs.ai_status = None;
-        if let Some(screen) = self.plan.as_mut() {
+        let here = run.as_ref().is_some_and(|run| self.split_asked_here(run));
+        if here && let Some(screen) = self.plan.as_mut() {
             screen.set_ai_notice((kind != "cancelled").then(|| failed(message)));
         }
         self.redraw();

@@ -327,6 +327,10 @@ pub struct ImportCard {
     /// The name box of a scheme row being renamed, and the row it belongs to.
     pub edit: Option<TextField>,
     pub edit_row: usize,
+    /// The plan as the folders made it (its notes and rows: sections, titles, ticks and order),
+    /// kept when an AI sort is first settled on it. "Keep the folders", a failed sort and a new
+    /// request put it back, so the folders' plan is never the AI's (audit 4, B8).
+    pub folders: Option<(Vec<import::Note>, Vec<import::Row>)>,
 }
 
 impl ImportCard {
@@ -349,6 +353,7 @@ impl ImportCard {
             ai_estimate: import_ai::Estimate::default(),
             edit: None,
             edit_row: 0,
+            folders: None,
         }
     }
 
@@ -463,10 +468,34 @@ impl ImportCard {
 
     // ---- the AI step ----
 
-    /// "Ask the AI to sort them…": the scheme request is out.
+    /// Before an AI sort's answers are put on the plan: the plan as the folders made it is kept,
+    /// once, to go back to. A second sort settled on the first's leaves the copy as it is.
+    pub fn keep_folders(&mut self) {
+        if self.folders.is_none() {
+            self.folders = Some((self.plan.notes.clone(), self.plan.rows.clone()));
+        }
+    }
+
+    /// The plan as the folders made it again, when a sort changed it: every file under its
+    /// folder's heading with its own title and the tick it had. The copy goes, as the plan is
+    /// the folders' again; the next sort keeps a new one.
+    pub fn folders_back(&mut self) {
+        let Some((notes, rows)) = self.folders.take() else {
+            return;
+        };
+        self.plan.notes = notes;
+        self.plan.rows = rows;
+        self.sel = self.sel.min(self.plan.rows.len().saturating_sub(1));
+        self.scroll = self.rows().clamp_scroll(self.scroll);
+        self.tick += 1;
+    }
+
+    /// "Ask the AI to sort them…": the scheme request is out. A new sort starts from the
+    /// folders, not from the last sort.
     pub fn sort_asking(&mut self) {
         self.edit = None;
         self.sort = SortStage::Asking;
+        self.folders_back();
         self.tick += 1;
     }
 
@@ -508,16 +537,20 @@ impl ImportCard {
         self.tick += 1;
     }
 
-    /// The scheme could not be had, or a request failed before anything was placed.
+    /// The scheme could not be had, or a request failed before anything was placed: the files
+    /// are under their folders, as the card then says.
     pub fn sort_failed(&mut self, why: String) {
         self.sort = SortStage::Failed(why);
+        self.folders_back();
         self.tick += 1;
     }
 
-    /// Back to the folder's own sections: the AI's scheme is dropped and nothing is written.
+    /// "Keep the folders": back to the folder's own sections. The AI's scheme is dropped, a sort
+    /// already on the plan is taken off it, and nothing is written.
     pub fn sort_back(&mut self) {
         self.edit = None;
         self.sort = SortStage::Off;
+        self.folders_back();
         self.tick += 1;
     }
 

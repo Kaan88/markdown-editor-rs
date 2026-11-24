@@ -1198,6 +1198,7 @@ impl App {
             (AI_PROVIDER, Value::Choice(i)) => {
                 let presets = ai_presets();
                 let customs = p.ai_customs.len();
+                let parallel_default = p.ai_parallel_default(c);
                 if let Some(x) = presets.get(i) {
                     p.ai_preset = x.key.into();
                 } else if i - presets.len() < customs {
@@ -1211,6 +1212,13 @@ impl App {
                     });
                     p.ai_preset = "custom".into();
                     p.ai_custom = customs;
+                }
+                // "Requests at once" is kept per connection. A provider of the other kind, a
+                // local model after a hosted service or the other way, starts at its own number
+                // (one, or three), so a number set for a service never floods a local model
+                // (audit 4, B n4).
+                if p.ai_parallel_default(c) != parallel_default {
+                    p.set_ai_parallel(c, p.ai_parallel_default(c));
                 }
                 self.ai.key_draft.clear();
                 self.ai.key_error = None;

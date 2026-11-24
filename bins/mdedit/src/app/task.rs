@@ -835,12 +835,7 @@ impl App {
                 s.files[i].sections = sections;
             }
         }
-        // What the model did not place is left out, unticked, with its row saying so.
-        for i in 0..s.files.len() {
-            if !s.is_placed(i) {
-                s.files[i].ticked = false;
-            }
-        }
+        s.leave_out_unplaced();
         s.planned = true;
         s.asking = None;
         s.tick += 1;
@@ -966,7 +961,10 @@ impl App {
                 ));
                 break;
             }
-            if let Err(e) = mdshared_app::settings::write_atomic(&group.file, &new) {
+            // The group's file is the owner's: written through a temporary of its own, so a
+            // `Recipes.md.tmp` of theirs is never taken, its mode is kept, and nothing is left
+            // beside it when the write fails (audit 4, RB3).
+            if let Err(e) = mdshared_app::files::replace(&group.file, new.as_bytes()) {
                 failed = Some(e.to_string());
                 break;
             }
@@ -1090,6 +1088,12 @@ impl App {
         let Some(index) = self.task_plan.take() else {
             return;
         };
+        // A split still out was asked for this file's plan, which is written or closed now: it
+        // stops here, so its answer never reaches the next file's (audit 4, B11).
+        if self.ai.split.is_some() {
+            self.ai.cancel_split();
+            self.docs.ai_status = None;
+        }
         let Some(mut t) = self.task_parked.take() else {
             return;
         };
@@ -1838,14 +1842,7 @@ impl App {
             TaskKind::Rewrite => "Make the method clearer, not longer.",
         });
         if name == "files-plan" {
-            s.planned = true;
-            for (i, f) in s.files.iter_mut().enumerate() {
-                if f.kind == FileKind::Other {
-                    continue;
-                }
-                f.title = Some(format!("A title {i}"));
-                f.sections = vec!["Bread".to_string()];
-            }
+            demo_plan(s);
         }
         let review = if name == "review" {
             // The rewrite's review over the first text file, with a made-up result and no
@@ -1913,4 +1910,18 @@ impl App {
         self.redraw();
         true
     }
+}
+
+/// The plan face of the shot `task-files-plan`: every file but the other kind is placed under
+/// "Bread", and the one left over is left out as an answer leaves it: unticked.
+pub(super) fn demo_plan(s: &mut TaskScreen) {
+    s.planned = true;
+    for (i, f) in s.files.iter_mut().enumerate() {
+        if f.kind == FileKind::Other {
+            continue;
+        }
+        f.title = Some(format!("A title {i}"));
+        f.sections = vec!["Bread".to_string()];
+    }
+    s.leave_out_unplaced();
 }

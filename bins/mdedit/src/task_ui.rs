@@ -522,6 +522,15 @@ impl TaskScreen {
         f.title.is_some() || !f.sections.is_empty() || f.with.is_some()
     }
 
+    /// What the model did not place is left out, unticked, with its row saying so.
+    pub fn leave_out_unplaced(&mut self) {
+        for i in 0..self.files.len() {
+            if !self.is_placed(i) {
+                self.files[i].ticked = false;
+            }
+        }
+    }
+
     /// The files "Add N to the library" writes: those ticked and placed.
     pub fn to_write(&self) -> Vec<usize> {
         self.taking_part()
