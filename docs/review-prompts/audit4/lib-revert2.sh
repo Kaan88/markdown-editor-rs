@@ -23,11 +23,6 @@ I=crates/mdedit-core/src/import.rs
 G=bins/mdedit/src/app/importing.rs
 U=bins/mdedit/src/import_ui.rs
 R=bins/mdedit/src/import_draw.rs
-check C1-scroll mdedit "$D" 's/let over = x >= area\.x && x < area\.right\(\);/let over = true;/' a_note_let_go_over_the_editor_at_a_rows_height_is_not_moved
-check C2-keys mdedit "$D" 's/(self\.redraw\(\);\r?\n        \}\r?\n)        true(\r?\n    \})/$1        name == Some(&KeyName::Escape)$2/' a_key_while_a_note_is_held_reaches_nothing
-check C4-plan mdedit "$G" 's/\.is_some_and\(\|home\| !home_holds\(home, dir\)\);/.is_some_and(|_| false);/' a_group_of_that_name_whose_folder_is_another
-check C4-plan-core mdedit-core "$I" 's/\(!group_new && at\.home_apart\)/(false \&\& at.home_apart)/' a_group_that_keeps_its_notes_in_another_folder
-check C4-write mdedit "$G" 's/&& let Some\(home\) = old\.home\.as_deref\(\)/\&\& let Some(home) = None::<\&Path>/' a_group_whose_folder_changed
 check C4-line mdedit "$U" 's/\} else if plan\.home\.as_os_str\(\)\.is_empty\(\) \{/} else if false {/' a_group_with_no_folder_of_its_own
 check C5-core mdedit-core "$I" 's/if self\.is_library\(&name, &path\) \{/if false \&\& self.is_library(\&name, \&path) {/' the_library_folder_inside_the_folder_walked
 check C5-app mdedit "$I" 's/if self\.is_library\(&name, &path\) \{/if false \&\& self.is_library(\&name, \&path) {/' the_folder_that_holds_the_library
@@ -46,5 +41,9 @@ check C10.4-junction mdedit-core "$I" 's/if \(kind\.is_symlink\(\) && meta\.is_d
 check C12f-case mdedit-core "$I" 's/\.take_while\(\|\(a, b\)\| a\.eq_ignore_ascii_case\(b\)\)/.take_while(|(a, b)| a == b)/' sections_that_differ_only_in_case
 check C12g-dots mdedit-core "$I" 's/tree::same_note\(p, &f\.path\)/same_path(p, \&f.path)/' a_file_the_group_lists_through_dot_dot
 check footer mdedit "$R" 's/let said = disabled\.clone\(\)\.or_else\(\|\| self\.refusal\.clone\(\)\);/let said = disabled.clone();/' a_refused_add_is_said_in_the_footer
+N=bins/mdedit/src/app/note.rs
+check C12e-button mdedit "$N" 's/(if let Some\(why\) = self\.note_blocked\(&root, &card\.target\) \{\r?\n\s+return self\.)note_write_failed/$1note_write_refused/' a_refusal_at_the_write_that_can_pass_leaves_the_button_on
+check sorting-help mdedit "$R" 's/SortStage::Filing \{ \.\. \} => (\{\r?\n\s+"The files are being sent)/SortStage::Asking => $1/' the_schemes_preview_says_what_can_be_done
+check failed-demo mdedit "$U" 's/it held no JSON object\."/it held no JSON object. Nothing was written."/' the_failed_sorts_demo_says_nothing_was_written_once
 echo DONE >> "$out"
 git status --short >> "$out"

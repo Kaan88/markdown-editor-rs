@@ -3384,7 +3384,9 @@ offer would be, and nothing is asked (D-079).
   total and in flight, and **Stop** cancels every request (Escape does the same) and gives back
   the scheme as it was edited. The second footer line states what is sent ("only each file's
   path, title, start and size") with the connection, model and effort, or, with no connection,
-  the reason and the way to Settings.
+  the reason and the way to Settings. The preview's last line (`scheme_help`) says "Rename, add or
+  delete before the files are sent" only in `Scheme`; while `Filing` it says the files are being
+  sent and Stop brings the scheme back to change (audit 4).
 - `Filed` shows each row's confidence and `why` dim under its name, a section row's "N files · M
   ticked", and the unsorted note with no tick. The head offers **Tick all**, **Untick all** and
   **Tick only the sure ones**; the footer says "The AI placed 9 files in 4 sections in 2 requests
