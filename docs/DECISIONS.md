@@ -1834,3 +1834,105 @@ keeping its own text needs a shared writer that inserts a given line, rule 8).
 a stale line number listed the note in both files, with the "half" toast. One read prevents it.
 **Overturned by.** The owner.
 **From.** Audit 4 C12a, C12b; D-130.
+
+## D-183 · 2026-11-24 · An import refuses a same-named group kept in another folder, and joins one with no folder
+
+**Decision.** "Add a folder to the library…" (4a) looks at a group that has the folder's name:
+- Its `home:` is the folder picked, or a folder that holds it: the group is joined.
+- It names no `home:`: it is joined, and the card's group line says "with no folder of its own".
+- Its `home:` is another folder: the plan is refused, naming the group and that folder, and the
+  card's group line names the group's own folder, not the one picked. The `home:` is read again
+  at Add, so a group whose `home:` changed while the card was open is refused there too.
+
+This replaces D-178's interim, which was decided and not built, with what is built. D-178's
+question is still the owner's: they may have such a group joined with the card saying so.
+**Why.** Audit 4, C4: such a group was joined silently, its notes went into the other folder's
+group, and the card named the wrong folder.
+**Overturned by.** The owner (D-178's question).
+**From.** Audit 4 C4; D-178, D-132; DESIGN 81. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-184 · 2026-11-24 · An import leaves the library's own folder out, and says so
+
+**Decision.** When the folder picked for "Add a folder to the library…" holds the library
+folder, the walk leaves the library folder out (`library_left_out`), and the card's header says it
+was left out.
+**Why.** Audit 4, C5: picking the folder that holds the library offered the library's own
+files, ticked, as notes. Added, a library file became a note of another group, and "Delete this
+library file" then refused it.
+**Overturned by.** The owner.
+**From.** Audit 4 C5; DESIGN 81. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-185 · 2026-11-24 · An import leaves out a file whose link would not read back, and names it
+
+**Decision.** A file whose line in a library file would not read back as that file (a `%20` in
+its name, which the shared reader takes for a space) is left out of the import and named on the
+card. The rest of the folder goes in.
+**Why.** Audit 4, C6: one such name refused the whole folder at Add, without naming the file.
+The reader's rule is shared, and changing it changes both apps (D-180), so the import works
+around it.
+**Overturned by.** The owner; or the shared reader keeping a literal `%20` (D-180).
+**From.** Audit 4 C6; D-180; DESIGN 81. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-186 · 2026-11-24 · An import's walk is bounded, can be stopped, and waits its turn
+
+**Decision.**
+- The walk stops after 50,000 entries read (`MAX_READ`) or at a folder 64 deep (`MAX_DEPTH`).
+  The plan of such a walk is refused with that reason, never written in part.
+- "Add a folder to the library…" while a folder is being read stops that read, and the toast
+  says so.
+- A read that ends while Settings, another card, the AI panel, the task window or a dialog is
+  open waits until it closes.
+**Why.** Audit 4, C8 and C12h: the walk stopped only at 2,000 files taken, so a large tree with
+few text files (a drive's root, a photo archive) was walked to the end. Nothing could stop it,
+and its card opened over whatever was on screen when it ended. Its depth had no bound, and a
+stack overflow on its thread would abort the app (rule 11).
+**Overturned by.** The owner; the bounds if a real library outgrows them.
+**From.** Audit 4 C8, C12h; DESIGN 81. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-187 · 2026-11-24 · An import's new group file is written once, whole
+
+**Decision.** A new group's library file is made in one exclusive create (`files::create_new`)
+holding the dry run's text: its heading, its `home:` and its links. A file that took the name
+meanwhile is left alone, and the import is refused. There is no second write and no
+`remove_own_file`.
+**Why.** Audit 4, C9: the file was made with its heading and `home:`, and the links went in by a
+second write, so a crash between the two left a group with no notes. `remove_own_file` covered
+only a refusal.
+**Overturned by.** The owner.
+**From.** Audit 4 C9; D-161; DESIGN 81. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-188 · 2026-11-24 · An import refused at Add says why in its footer and keeps its button
+
+**Decision.** When Add is refused at the write (a group file open with unsaved changes, a group
+whose folder is elsewhere, a line that would not read back), the card stays open, the reason is
+in its footer, and the button stays on. A second press can pass once the cause is gone.
+**Why.** Audit 4, C4 to C9: the card kept what Add was refused with, and its comment said the
+footer drew it, but nothing drew it, so Add seemed to do nothing. The refusals C4 and C6 added at
+the write needed a place to be said.
+**Overturned by.** The owner.
+**From.** Audit 4 C4 to C9; DESIGN 81. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-189 · 2026-11-24 · A Markdown note refused at the write can be written on a second press
+
+**Decision.** This extends D-175 and D-176 from the start of the write to its own refusals. In
+"Markdown note from a file", every refusal at the write except "the source has changed" comes
+back as a failure that can pass (`note_write_failed`). Examples: the links would not read back,
+a tab holds the group with unsaved changes. The card stays with the AI's answer, the reason is in
+its footer, and the button stays on. Only a changed source disables the button for good
+(`note_write_refused`). A run that made no note still leaves no record (D-175), and a name taken
+while the answer was out still gets the next free name (D-176).
+**Why.** Audit 4, C3 and C12: `note_write_refused` disabled the button for good, also for a
+refusal that could pass on a second try, so the answer could not be written.
+**Overturned by.** The owner.
+**From.** Audit 4 C3, C12e; D-175, D-176; DESIGN 82. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-190 · 2026-11-24 · The scheme's preview says what can be done at each stage
+
+**Decision.** In "Sort a folder by AI" (phase 4), the last line of the preview beside the scheme
+depends on the stage. While the scheme is shown (`Scheme`) it says "Rename, add or delete before
+the files are sent". While the files are being sent (`Filing`) it says they are being sent and
+that Stop brings the scheme back to change.
+**Why.** Audit 4, the review of `import-folder-ai-sorting`: the line told the owner to change the
+scheme at a stage where nothing could be changed.
+**Overturned by.** The owner.
+**From.** Audit 4; DESIGN 84. Made by the LIB agent on `fix/audit4-lib`.

@@ -1,7 +1,7 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-24, on `fix/audit4`, while audit 4's fixes
-were being built. If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-24, on `fix/audit4`, once audit 4's three
+mdedit branches were merged into it. If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -48,19 +48,20 @@ were being built. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
-- **Audit 4's fixes**, on three mdedit branches from `93b4ddb`, none merged; the record of every
-  finding is `docs/review-prompts/audit4/FIXES.md`, the pause and its hand-over `PAUSED.md`.
-  - `fix/audit4` (core): report A, the library writes through `files::replace` with a BOM kept
-    and non-UTF-8 refused (RB3, F17, F18), the docs; and, from before the split at `93b4ddb`,
-    RB1, RB2's window side, B3 to B7, B10, B12 to B14; after it, A F16, C12a and B11's core
-    half (a write stops its plan's split). D-155 to D-170, D-178 to D-182.
-  - `fix/audit4-ai`: the rest of report B (B8, B9, B11, B n1, n2, n4, RB3 in `task.rs`) and the
-    revert checks of B. D-171 to D-174.
-  - `fix/audit4-lib`: report C (C1 to C3, C12c to e, A F15). D-175 to D-177; C4 to C10 open.
-  - Shared `fix/audit4` is finished at `d1330b0`. The apps pin `f0f8159`, a development pin; at
-    merge both move to shared `main` holding `d1330b0`. mdview's half is its `fix/audit4`.
-  - After the three are merged into one: fmt, clippy, tests and shots on each repo, then one Fable
-    agent reviews the fixes against `FIXES.md` before anything reaches `main`.
+- **Audit 4's fixes**, on branches only, none merged to a `main`. Every finding's state, test,
+  revert check and what is left is in `docs/review-prompts/audit4/FIXES.md`; where each branch
+  stands, in `PAUSED.md` beside it.
+  - mdedit `fix/audit4` holds all three mdedit agents' work: the core's, and the merges of
+    `fix/audit4-ai` (`6c1867e`, report B) and `fix/audit4-lib` (`f070775`, report C). It pins
+    shared at `d1330b0`, a development pin, and its own fold of `..` is gone (`e5873f2`).
+    D-155 to D-190. The merge found one fault, fixed: writing a plan stopped its split and left
+    the status line saying it was out (B11). On Windows: fmt and clippy clean, the workspace's
+    tests 1571 passed, the shots checked; not on Linux or macOS, and CI has not run on it.
+  - Shared `fix/audit4` is finished at `d1330b0`; shared `main` (`0984eed`) has not moved since.
+    mdview's `fix/audit4` pins `d1330b0` too (`9903fbd`), green, its shots unchanged.
+  - Next for them: one Fable agent reviews the fixes against `FIXES.md`. Then shared's branch to
+    its `main`, both apps' pins to that commit, and the apps' branches to theirs; their `wip:`
+    commits are dealt with then.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
@@ -69,9 +70,10 @@ were being built. If `git log -1` is newer, doubt "In hand" first.
 
 - **`docs/ai-library-plan.md`** section 8, in order after R2: V, drag and drop; W, 4a, 4 and 5
   are merged. Open: the resizer for V, a new crate to be priced first (rule 7).
-- **Audit 4's questions**: C4, a same-named group with another home is refused (D-178, Waiting);
-  A F8, a rewrite's record is not confined and its undo names the files (D-162, Waiting); W11
-  needs `jiff` (rule 7); the shared `%20` and `write_of` causes (D-180).
+- **Audit 4's questions**: C4, a same-named group kept in another folder is refused and one with
+  no folder of its own is joined (D-183, which replaces D-178's interim); A F8, a rewrite's record
+  is not confined and its undo names the files (D-162, Waiting); W11 needs `jiff` (rule 7); the
+  shared `%20` and `write_of` causes (D-180).
 - **Dependabot**: open PRs (mdedit #9 regex-automata; mdview #2 to #6; shared #2 to #7) and a
   `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Left until after
   the release; it is after it now.
@@ -80,7 +82,7 @@ were being built. If `git log -1` is newer, doubt "In hand" first.
 
 ## Next
 
-1. Audit 4's fixes: finish the three branches (`PAUSED.md`), merge them, review, then `main`.
+1. Audit 4's fixes: the review against `FIXES.md`, then the merges to `main`, shared first.
    The owner's four faults from the hand check (D-101) are merged; the closed mdview is still to
    be tried (first: whether it is missed with mdview 1.0.5 too).
 2. Then the owner's look at R2's shots (and whether to add the viewer's page rows for the tinted
@@ -130,9 +132,11 @@ Linux blur, image paste on Linux, the AppImage and packages, the macOS builds, t
 installer, an installed copy updating itself, and `hub.txt` read by Hub from a real release.
 
 ## Pins, branches, worktrees (tidied 2026-11-23)
-- Shared crates at `0984eed` in both apps. Viewer crates at viewer `e2b3e31`; winit `62fa727`,
-  softbuffer `dd18fec`.
-- Branches: `main`; `fix/audit4`, `fix/audit4-ai`, `fix/audit4-lib` (open); the drawings (`mock/ai-review`, `mock/settings`,
+- Shared crates at `0984eed` in both apps on `main`; at `d1330b0` (shared's `fix/audit4`, a
+  development pin) on both apps' `fix/audit4`. Viewer crates at viewer `e2b3e31`; winit
+  `62fa727`, softbuffer `dd18fec`.
+- Branches: `main`; `fix/audit4` (open), with `fix/audit4-ai` and `fix/audit4-lib` merged into it
+  and kept until it reaches `main`; the drawings (`mock/ai-review`, `mock/settings`,
   `mock/terminal`, `mock/downloader`, `mock/workbench` local only, `mock/launcher`,
   `mock/file-manager`, `mock/task-manager`), never merged; `archive/doc-reorg-draft`; on GitHub
   `spike/frosted-window` and `chore/dependabot`. Merged branches are deleted, here and on GitHub.

@@ -132,7 +132,15 @@ shows.)
   a library read that finishes while a note is held no longer moves or opens another note.
 - **A Markdown note from a file** whose write makes no note keeps its card and the AI's answer,
   with the reason, and leaves no "done" run behind; a name taken while the AI answered gets the
-  next free name.
+  next free name. When the cause can pass, such as a tab holding the group's library file with
+  changes not saved, the button stays on for a second try.
+- **Add a folder** no longer joins a group of the same name whose notes are kept in another
+  folder: it names the group and that folder and adds nothing. A group with no folder of its
+  own is joined, and the card says so. The library's own folder inside the one picked is left
+  out; a file whose name the library cannot hold is left out and named while the rest go in; a
+  title is one line; a folder past 50,000 entries or 64 deep is refused with the reason. Running
+  the command again stops a folder being read, a read that ends while another card is open
+  waits for it, and a refusal at Add is said in the card's footer with Add still on.
 - **A row's menu in the notes pane no longer acts on another row.** Left open while the library
   was read again, its "Remove from the library" took out the line of whatever note then had that
   place in the list, with no question. The menu now closes when the rows under it have moved.

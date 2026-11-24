@@ -1013,7 +1013,7 @@ Closing the window with a session does not ask about unsaved changes: `App::requ
 | `app.rs` (start) | For each entry whose backup exists: a file's tab is added with `Doc::restore` set and read at once; a document without a file (or whose file is gone) is opened with the text |
 | `docs.rs` `apply_load`, `Ready::put_back` | Once the file is read, the backup replaces the whole text as one edit, before the colours are asked for |
 
-The folder is `backup` beside the session file (`%LOCALAPPDATA%\mdeditackup`, or beside the
+The folder is `backup` beside the session file (`%LOCALAPPDATA%\mdedit\backup`, or beside the
 file `MDEDIT_SETTINGS` names). `Doc::modified` is also true while `restore` is set, so such a
 tab shows its mark and closing it asks.
 
