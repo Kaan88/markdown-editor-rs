@@ -82,3 +82,54 @@ shows.)
   key press or a click still asks at most once in two seconds, and typing no longer restarts the
   background checks, so steady typing does not probe about once a second; only key presses ask,
   not releases or auto-repeat.
+
+- **The notes library leaves your own files beside it alone.** Every write of a library file used
+  a temporary file named after it with `.tmp`, so a `personal.md.tmp` of your own was overwritten
+  and then taken away. Writes now use a name of their own and leave nothing behind when they fail.
+  A library file keeps its permissions, and a read-only one is not replaced: "Split into
+  notes…" into a group whose library file is read-only is refused before anything is written,
+  and its card says why.
+- **A library file that starts with a byte order mark is written like any other.** "Rename",
+  "Set the group's folder…" and "New note here…" did nothing, or dropped the folder line they
+  meant to write, when the file began with one; the mark is now kept. A library file that is not
+  UTF-8 text is left exactly as it is, and the message says why, rather than being rewritten with
+  every accented letter changed.
+- **"Split into notes…" refuses a tab that is behind its file.** When another program had saved
+  the file and the tab had not read it again, the notes were cut from the old text, and putting
+  the original in the Recycle Bin could take the newer file. Now it asks you to reload first.
+- **An undo that could not finish can be pressed again.** When the Recycle Bin would not take a
+  note, or a line could not come out of its library file, the run was marked undone and the note
+  was left with nothing listing it. Such a run now reads "partly undone" in "AI runs…", and Undo
+  takes the rest out. A note open in a tab with changes not saved is kept, and the panel says
+  so.
+- **A run whose links could not be written can be finished.** When the notes were written but
+  their library file could not be updated, the message offered a "Try again" that nothing
+  offered. "AI runs…" now has Finish for it, and the message says so. Finish under a section
+  writes the heading too, and undo takes it out again.
+- **"Edit a library file" never writes over `notes.md`.** When the folder read as empty, it could
+  write its template over a `notes.md` that was there.
+- **The question before a section is taken out of the library grows with its words**, as the
+  delete question does, so a long section name no longer runs into the buttons.
+- **"Move the notes…" takes a moved file's place in the recent files, its caret and its
+  bookmarks with it**, as a rename does.
+- **On Linux and macOS, "Find the file…" writes the link of the note it was opened for**, even
+  when another note's picker was answered in between, and `home: Trip/..` is refused as the
+  library folder itself whether `Trip` exists or not.
+- **Visual editing no longer asks a new tab a question meant for the old one** on the frame of a
+  tab switch.
+- **The AI task window** files a file of Russian, Greek or Chinese text without closing the
+  program (a digest cut inside a character); a rewrite run of many large files can be undone, in
+  more than one row of "AI runs…" when its originals pass one record; Discard and Copy result go
+  on to the next file; a review kept from a closed window writes its own file and sends nothing;
+  the task cannot be switched while a request is out; a window parked by "Show what is sent"
+  comes back with its task; Run shows a kept review; a file edited after it was added is sent as
+  it is now; the 20-file limit of a rewrite counts the ticked files only; Rewrite them with no
+  instruction says it needs one; and in Split them, the AI's answer for one file's plan no longer
+  lands on the next file's.
+- **Sort a folder by AI**: "Keep the folders" after a second Ask gives back the folders' own
+  headings, not the first sort's.
+- **Dragging a note** that is let go over the editor, at a row's height, no longer moves it, and
+  a library read that finishes while a note is held no longer moves or opens another note.
+- **A Markdown note from a file** whose write makes no note keeps its card and the AI's answer,
+  with the reason, and leaves no "done" run behind; a name taken while the AI answered gets the
+  next free name.

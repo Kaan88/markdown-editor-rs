@@ -1460,3 +1460,352 @@ one request; per connection because a local model and a hosted one are not the s
 live in core next to `ai_parallel_default`, so the card and the tests agree.
 **Overturned by.** The owner; or a provider whose limits are better read from its own answer.
 **From.** D-080; the phase 4 brief.
+
+## D-155 · 2026-11-24 · A plan is made only from a tab that holds what its file holds
+
+**Decision.** "Split into notes…" refuses a tab that has not read its file again since another
+program saved it: still loading, marked changed on disk, a file stamp that is not the one the tab
+read, or, for a UTF-8 file, bytes that are not the tab's text. The toast says "{name} changed on
+disk since this tab read it. Reload it first: the notes are made from the file on disk."
+**Why.** Audit 4, A F1 (a release blocker): the notes were cut from the tab's text and the digest
+taken from the disk, so a stale tab wrote notes of the old text and step 8 could put the newer
+file in the Recycle Bin. Refusing costs a reload; guessing which text the owner meant could cost
+the newer text.
+**Overturned by.** The owner; or a plan that cuts its notes from the disk's bytes, not the tab's.
+**From.** `docs/review-prompts/audit4/a-mdedit-core.md` F1; D-071.
+
+## D-156 · 2026-11-24 · An undo that could not take everything out is "undo pending"
+
+**Decision.** A record gets the state `undo pending` when an undo began and a link could not be
+taken out of its library file, or the Recycle Bin would not take a note. Undo can be pressed
+again and takes the rest out. Finish is not offered, and `runs::finish` refuses it. The run's row
+in "AI runs…" says "partly undone".
+**Why.** Audit 4, A F2 (D W4): a note the bin refused was left on disk, its line already gone,
+the record said "undone", and Undo was refused from then on. The note was orphaned. A link that
+could not come out marked the run `links pending`, the state of a run whose links never went in,
+so Finish (offered for it by D-157) would have put links back into a run half undone.
+**Overturned by.** The owner; or an undo that can always finish in one press.
+**From.** Audit 4 A F2, A F3, D W4; D-064, D-070.
+
+## D-157 · 2026-11-24 · A run whose links are pending is finished or undone from "AI runs…"
+
+**Decision.** "AI runs…" offers Finish for a split or Markdown run that stopped, is still
+writing, or has its links pending (`overlays::offers_finish`). When step 6 fails, the toast says
+"The notes are written, but {file} could not be updated: {why}. AI runs can finish it or undo
+it." This replaces the "Try again / Undo" that the plan's step table (4.3, row 6) named. The toast
+has no buttons, and Finish is the "try again".
+**Why.** Audit 3 C4, reopened as audit 4 A F3: the toast promised a Try again that nothing
+offered, and Finish was offered only for a run that stopped, so a links-pending run could only be
+undone.
+**Overturned by.** The owner; or a toast with buttons (none of the app's toasts has one).
+**From.** `docs/ai-library-plan.md` 4.3; audit 3 C4; audit 4 A F3.
+
+## D-158 · 2026-11-24 · Undo keeps a note a tab holds with unsaved changes
+
+**Decision.** Undo does not remove, or put in the Recycle Bin, a note that is open in a tab with
+changes not saved (`recycle::SparingUnsaved`). The links are still taken out first, as always.
+The note stays, the panel says "it is open in a tab with changes not saved: save or close it,
+then Undo again", and the record is `undo pending` (D-156). Undo again takes the note out once
+the tab is saved or closed.
+**Why.** Audit 3 C6, reopened as audit 4 A F5b: the file went to the bin while its tab still held
+the owner's edits, and the tab's next save would have made a stray file at the old path.
+**Overturned by.** The owner.
+**From.** Audit 3 C6; audit 4 A F5b; D-070.
+
+## D-159 · 2026-11-24 · A file "Move the notes…" moves takes its place in the session with it
+
+**Decision.** When "Move the notes…" moves a file, its entry in the recent files (in its order),
+its caret place and its bookmarks follow it, as a rename's do, along with any tab open on it.
+**Why.** Audit 4, A F11d: the tab followed but the session did not. The recent files then listed
+a path that was gone, and the place and bookmarks were lost.
+**Overturned by.** The owner.
+**From.** Audit 4 A F11d; DESIGN 75 (`Docs::follow_move`).
+
+## D-160 · 2026-11-24 · A question held for the page is dropped when the tab changes
+
+**Decision.** In visual editing, a question the page asked while the pane held it back (the line
+to place, a click's place) is given only while the document it was asked of is still in front
+(`Visual::take_pending`). After a tab switch it is dropped, never asked of the new document.
+**Why.** Audit 4, A F13: on the frame of a tab switch, the question held for the old document
+was asked of the new one, before `follow_tab` cleared it. The new tab starts from its own caret
+(DESIGN 72), so nothing is lost by dropping it.
+**Overturned by.** The owner.
+**From.** Audit 4 A F13; DESIGN 72.
+
+## D-161 · 2026-11-24 · The library's writers keep a byte order mark, refuse what is not UTF-8, and never take the owner's `.tmp`
+
+**Decision.** Every write of a library file by mdedit goes through
+`mdshared_app::files::replace`. This covers the pane's writers through `library_attempt`, the
+run's gate, "Add this file" and 4a's write to an existing group. `files::replace` uses a
+temporary name of its own (`name.part`, then `name.<pid>.<n>.part`), keeps the file's
+permissions, refuses a read-only file and leaves nothing behind when it fails.
+
+The text is read by `library_text`:
+- A UTF-8 byte order mark is set aside and written back.
+- A file that is not UTF-8 (another code page, UTF-16) is refused with "is not UTF-8 text" and
+  left as it is. The pane still reads and lists it.
+
+Other rules:
+- "Add this file" is shared `library::put::put_note`, mdview's writer (rule 8).
+- The plan's preflight refuses a read-only group file, and one that is not UTF-8, before the
+  first byte.
+- "Edit a library file" makes `notes.md` with `files::create_new`, so it never writes the
+  template over a file that is there.
+
+The app's own files (the session, the macros, the saved prompts) stay on `write_atomic`.
+**Why.** Audit 4, RB3 (D1, A F7, W3; audit 3 C9), F17 and F18:
+- `write_atomic` wrote to `<name>.tmp`, a name the owner may use, and renamed it over the file,
+  dropping its permissions.
+- A BOM hid the group's heading from the writers: "Rename" did nothing without a word, and a new
+  note dropped its `home:` line.
+- A file in another code page would have been rewritten with every letter outside ASCII
+  changed.
+- A read-only group was found out only after the notes were on disk.
+**Overturned by.** The owner; or library files that may be written in another encoding.
+**From.** Audit 4 RB3, RB5 (D3), A F7, F17, F18; audit 3 C9; D-081 (shared first).
+
+## D-162 · 2026-11-24 · A rewrite's record names files outside the library, and its undo names every file
+
+**Decision.** A rewrite run's record holds the originals of files anywhere: a rewrite is run on
+the owner's files, which are not in the library. D-072's confinement ("a record reaches no
+further than the library folder does") therefore holds for the notes, the pictures, the group's
+file and the folders a split or a Markdown run made. It does not hold for a rewrite's originals.
+What guards a rewrite's undo instead:
+- it puts a file back only while that file still holds what the run wrote (its SHA-256);
+- it writes no path the record does not name;
+- the question before it names each file it puts back: "Puts back the original of N files this
+  run rewrote: …".
+
+This narrows D-072 for rewrites; it does not replace it. **Waiting** for the owner.
+**Why.** Audit 4, A F8: no entry said that D-072 does not hold for a rewrite. A rewrite cannot
+be confined, because its files are wherever the owner keeps them. Its record therefore gives more
+than write access to the library folder: whoever can write into a synced `.runs`, and knows a
+file's exact bytes, can have "Undo this run" replace that file. The question did not name the
+file, and now it does, so the owner sees what will be put back before it is done.
+**Overturned by.** The owner; or rewrite records kept beside the files they rewrote.
+**From.** Audit 4 A F8; D-072, D-074, D-076.
+
+## D-163 · 2026-11-24 · No crash folder beside a settings file that names no folder
+
+**Decision.** Crash reports go beside the settings file `MDEDIT_SETTINGS` names, in `crashes`,
+only when the value has a folder in it. An empty value or a bare file name keeps no reports, as
+a `--no-session` window or a shot keeps none.
+**Why.** Audit 4, A F20: a bare `settings.ini` put `crashes` in whatever folder the program
+started in, and an empty value put it in the current folder. Neither is a place anyone chose.
+**Overturned by.** The owner.
+**From.** Audit 4 A F20; CLAUDE.md rule 9; DESIGN 61.
+
+## D-164 · 2026-11-24 · The question before a section goes grows with its words
+
+**Decision.** "Take this section out of the library…" grows its card from the lines its question
+wraps to, as the delete question does, from the same 196 floor. A card capped at the window's
+height cuts its body at the divider rather than draw it into the buttons. Shot
+`library-remove-long`.
+**Why.** Audit 4, A F19: the question names the section, whose name can be as long as a file's,
+and the fixed card ran its last lines through the buttons.
+**Overturned by.** The owner, on looking at it (rule 6).
+**From.** Audit 4 A F19; DESIGN 71's delete question.
+
+## D-165 · 2026-11-24 · The library-folder check folds a `..` the disk cannot answer by its spelling
+
+**Decision.** Whether a group's folder is the library folder (audit 3 A7) is decided by
+`library_write::same_folder`:
+1. Both paths go through `mdshared_app::paths::comparable`, which asks the disk where every part
+   that exists leads.
+2. Any `.` and `..` that remain are folded by their spelling. They can only follow a part that is
+   not there, so no link can be crossed by folding them.
+
+`home: Trip/..` is then the library folder on every system, whether or not `Trip` exists. This
+does not touch D-072, which refuses any `..` in a record outright.
+**Why.** Audit 4, A F14: the check compared text, so `home: Trip/..` passed. And on Linux and
+macOS, `std::path::absolute` keeps a `..` that follows a missing folder, so `comparable` alone
+still let it through there.
+**Overturned by.** Shared `comparable` folding it (then the local fold goes).
+**From.** Audit 4 A F14; audit 3 A7; D-072.
+
+## D-166 · 2026-11-24 · "Find the file…" carries the note it was asked for
+
+**Decision.** The answer of the file picker that "Find the file…" opens carries the note it was
+opened for (`Picked::LibraryFile(Moving, …)`). The window no longer remembers which note a picker
+is for.
+**Why.** Audit 4, A F12: off Windows the picker answers later. Another "Find the file…" or a
+re-read in between then wrote the found path into another note's link.
+**Overturned by.** The owner.
+**From.** Audit 4 A F12.
+
+## D-167 · 2026-11-24 · A rewrite run larger than one record goes on in a second record
+
+**Decision.** A record holds at most what undo reads back (`runs::RECORD_MAX`, 4 MiB). When the
+next file's original would not fit (`runs::rewrite_fits`), the task window's record is closed as
+done and the file begins a new record. A run then has one row in "AI runs…" per record, and each
+row undoes its own files.
+**Why.** Audit 4, RB2 (B2, D2): a run past 4 MiB wrote a record that could not be read back, so
+none of the run could be undone. Two rows that each undo are better than one that cannot.
+**Overturned by.** The owner; or a record format that holds more.
+**From.** Audit 4 RB2, B2, D2; D-076.
+
+## D-168 · 2026-11-24 · While a request is out, the task window keeps what it asked
+
+**Decision.** While a request is out, the task window takes no key and no click that would
+change what was asked: the task, the files, the prompt and the group stay as they were sent.
+Stop, Cancel and the scrollbars still work. The answer is read as the task that asked
+(`Asking.task`), not as the task the window shows. A window parked by "Show what is sent" comes
+back as it was, with its task.
+**Why.** Audit 4, B5 and B7: a click on the task switch while a filing request was out turned its
+answer into a rewrite review, and a parked rewrite window came back as File them.
+**Overturned by.** The owner.
+**From.** Audit 4 B5, B7; DESIGN 83.
+
+## D-169 · 2026-11-24 · A file review belongs to the window and the file it was asked for
+
+**Decision.**
+- **Discard and Copy result** leave the file as it was and untick it, and the run goes on with
+  the next file (B3).
+- **A review kept from a window since closed** writes its own file as a run of its own, done at
+  once, and sends nothing; no other window's record takes it (B4).
+- **Run**, while a kept review is waiting, shows that review again. **Run again** without its
+  window keeps it (B10).
+- **The file is read again when it is sent**, so a file edited after it was added goes as it is
+  now (B12).
+- **A rewrite that wrote nothing** leaves no record when the run ends (B6).
+**Why.** Audit 4:
+- Discard and Copy result asked for the same file again, so the window never moved on.
+- A kept review applied later marked another window's file done and sent an empty instruction.
+- From the waiting window the kept review could not be reached.
+- An edited file went as its old text.
+- An empty record listed a run that did nothing.
+**Overturned by.** The owner.
+**From.** Audit 4 B3, B4, B6, B10, B12; DESIGN 83.
+
+## D-170 · 2026-11-24 · A rewrite counts what is ticked, needs an instruction, and cuts a digest on a character
+
+**Decision.**
+- The 20 files a rewrite takes are the ticked ones that can be rewritten. Unticking one frees its
+  place, and a file the limit unticked is ticked again when the task changes (B13).
+- Rewrite them with an empty box sends nothing, and the footer says "Rewrite them needs an
+  instruction: type one, or pick a saved prompt." (B14).
+- A file's digest for filing is cut at the last character boundary under `DIGEST_MAX` (RB1, B1).
+**Why.** Audit 4:
+- Unticked files counted against the 20.
+- An empty instruction was sent, as the editor's own rewrite refuses it.
+- A cut inside a character panicked, and the release build aborts on a panic (rule 11).
+**Overturned by.** The owner.
+**From.** Audit 4 RB1, B1, B13, B14.
+
+## D-171 · 2026-11-24 · Every AI sort starts from the folders' plan
+
+**Decision.** The import card keeps the folders' own plan (each file's sections, title, tick and
+order) from before the first sort. Ask, Sort, a failure and **Keep the folders** all start from
+it again, so "Keep the folders" gives back the folders' headings and ticks, not an earlier sort's.
+Ticks changed on a sorted plan are dropped when the AI is asked again.
+**Why.** Audit 4, B8: "Keep the folders" after a second Ask kept the first sort's sections, and
+Add would have written headings the owner had just declined. The Failed stage's line, "the files
+would still be added under their folders", was untrue in the same way.
+**Overturned by.** The owner; or a sort that refines the last one rather than the folders.
+**From.** Audit 4 B8; D-152, D-153. Made by the AI agent on `fix/audit4-ai`.
+
+## D-172 · 2026-11-24 · A split answer belongs to the plan screen it was asked for
+
+**Decision.** The answer of "Ask the AI…" on a plan is read only on a plan screen with the same
+name and outline as the one that asked. An answer that arrives for another plan is dropped.
+**Why.** Audit 4, B11: in "Split them", a plan written before its answer came opened the next
+file's card, and the answer then cut that file with the first file's line numbers.
+**Overturned by.** The owner.
+**From.** Audit 4 B11; DESIGN 76. Made by the AI agent on `fix/audit4-ai`. The core's half, a
+write that cancels its own split as `plan_close` does, is not built (`plan_write.rs`).
+
+## D-173 · 2026-11-24 · Two section names are one heading when they differ in ASCII case only
+
+**Decision.** In the AI sort's scheme, two section names are the same heading when they differ
+only in ASCII case (`eq_ignore_ascii_case`), both where a twice-named section is dropped and
+where the scheme is checked before "Sort N files". `Çay` and `çay` are two headings.
+**Why.** Audit 4, B n1: the two places used two rules, so a scheme with `Çay` and `çay` was read,
+then refused, until the owner renamed one. One rule, the one the library's reader uses, removes
+the contradiction.
+**Overturned by.** The owner; or a library reader that folds case beyond ASCII.
+**From.** Audit 4 B n1. Made by the AI agent on `fix/audit4-ai`.
+
+## D-174 · 2026-11-24 · "Requests at once" stays per connection, and a change of kind writes its default
+
+**Decision.** "Requests at once" stays a setting per connection (D-154). When a connection's
+preset is changed between a local model and a hosted provider, the new kind's default (1 or 3)
+is written in its place. Adds to D-154; it does not replace it.
+**Why.** Audit 4, B n4: a 5 set for a hosted service still applied after the preset was changed
+to a local model, where the default would have been 1.
+**Overturned by.** The owner; or the setting kept per preset.
+**From.** Audit 4 B n4; D-080, D-154. Made by the AI agent on `fix/audit4-ai`.
+
+## D-175 · 2026-11-24 · A Markdown note whose write makes nothing keeps its card and leaves nothing
+
+**Decision.** In "Markdown note from a file" (phase 5), a write that started and made no note
+counts as a failure. Examples: the name was taken by a file with other bytes, the folder could
+not be made, the disk is full. The card stays with the AI's answer and says why. The run's
+record, its log and the empty folders it made are taken away, so "AI runs…" does not list a run
+that did nothing. A refusal that can pass on a second try (a tab saved, the AI turned on) keeps
+the button. One that cannot (the source changed since its text was taken) disables it.
+**Why.** Audit 4, C3: such a write lost the card and an answer that may have taken minutes, and
+left a "done" record that made nothing. Shared `runs::write_of` still writes that record. mdedit
+removes it until shared stops (D-180).
+**Overturned by.** The owner; or shared not writing a record for a run that made nothing.
+**From.** Audit 4 C3, C12; D-120. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-176 · 2026-11-24 · A note name taken while the AI answered gets the next free name
+
+**Decision.** When the name a Markdown note was given on its card is taken by a file before the
+write, the note gets the next free name (`name 2.md` …), as it would have had when the card
+opened. It is never written over the file.
+**Why.** Audit 4, C3: the answer can take minutes, and a refusal there threw it away.
+**Overturned by.** The owner.
+**From.** Audit 4 C3; D-075, D-120. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-177 · 2026-11-24 · A held note is held by what it is, and a moving drag takes no key but Esc
+
+**Decision.** A press on a note row in the notes pane holds that note by what it is (its
+`RowId`), not by its row's index, from the press to the release. Rows made again in between (a
+finished read, a save) find it again. When it is gone, the release moves and opens nothing.
+While a note is being moved, every key but Esc is swallowed. A drop beside the pane, at a row's
+height, is on no row.
+**Why.** Audit 4, C1, C2 and A F15: a key or a finished library read made the rows again during
+a drag, and the release moved, or opened, whatever note then had the row's index. A drop over
+the editor still moved the note.
+**Overturned by.** The owner.
+**From.** Audit 4 C1, C2, A F15; D-130. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-178 · 2026-11-24 · An import does not join a group of the same name with another home
+
+**Decision.** "Add a folder to the library…" (4a) refuses a group that has the folder's name and
+a `home:` other than the folder. The card names the group and its folder, and the write checks
+again. This narrows D-132's "an existing group is joined" to a group whose home is the folder.
+**Waiting:** the owner decides between refusing it and joining it with the card saying so. This
+is the default until they answer. Decided, not built: the LIB agent's plan is to carry the
+group's home in `Where`, refuse through `plan.blocked`, and check again at write.
+**Why.** Audit 4, C4: such a group was joined silently, its notes went to the other folder's
+group, and the card named the wrong folder. DESIGN 81 already said it is refused.
+**Overturned by.** The owner.
+**From.** Audit 4 C4; D-132; DESIGN 81.
+
+## D-179 · 2026-11-24 · A file larger than the Recycle Bin holds is refused, not deleted for good
+
+**Decision.** On Windows, before a file is handed to the Recycle Bin, its size is compared with
+the bin's capacity on that drive (`MaxCapacity`). A larger file is refused with a reason, as a
+drive with no bin is: undo keeps it and says why (D-156), and step 8 leaves the original where
+it is.
+**Why.** Audit 4, D4: Windows deletes for good a file larger than the bin can hold, and reports
+it as recycled.
+**Overturned by.** The owner; or a Windows call that refuses instead of deleting.
+**From.** Audit 4 D4 (shared `platform/recycle.rs`); DESIGN 77. The refusal is tested; no real
+bin quota was tried.
+
+## D-180 · 2026-11-24 · What audit 4 leaves on purpose
+
+**Decision.**
+- **W11 is left.** It needs `jiff`, a new dependency, and rule 7 asks for the owner first.
+- **W12 is left.** It cannot be checked on this PC.
+- **W13 is kept.** The in-place button change stays, because both released apps draw it.
+- **Two shared causes are left for the owner**, because changing them changes both apps:
+  - a literal `%20` in a file name always reads as a space (C6);
+  - `runs::write_of` marks done a run that wrote nothing (C3; mdedit works around it, D-175).
+**Why.** Each one either needs the owner's word (a dependency, a change to both apps) or cannot
+be verified here.
+**Overturned by.** The owner.
+**From.** `docs/review-prompts/audit4/PAUSED.md`; audit 4 report D.

@@ -2406,7 +2406,8 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   when that name holds other bytes. The group's library file is made from `# Name` and its
   `home:` line and refused at 512 library files.
 - **The record** is `<library>/.runs/<UTC>-split.json`, with absolute paths made relative to the
-  library folder first. `state` is `writing`, `links pending`, `done`, `stopped` or `undone`; its
+  library folder first. `state` is `writing`, `links pending`, `done`, `stopped`, `undo pending`
+  (an undo began and could not take out every link and note, D-156) or `undone`; its
   `notes[]` holds each note's path, SHA-256, line ranges, heading shift, sections and the exact
   line that was written into the library file. **It says what happened, not what was planned**
   (D-069): `created` is on each note and picture and on the group, set only when this run made
@@ -2418,10 +2419,17 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   never deleted; `list_all` gives those as `Unread`, which "AI runs..." draws with nothing in the
   row to press.
 - **The gate.** Every library write goes through `App::library_attempt` (refuses a file open with
-  unsaved changes, re-reads it, checks the new text, writes it atomically), and the check is
+  unsaved changes, re-reads it, checks the new text, writes it), and the check is
   `runs::check_links_added` / `check_links_removed`: the new file must be the old notes plus (or
   minus) exactly the planned lines, under their sections — a count is not enough. One call per
-  library file, one write.
+  library file, one write. The file is read by `library_write::library_text`: a UTF-8 byte order
+  mark is set aside and written back, a file that is not UTF-8 text (another code page, UTF-16)
+  is refused with "is not UTF-8 text". It is written by `library_put_text` through
+  `mdshared_app::files::replace`: a temporary name of its own beside the file
+  (`name.part`, then `name.<pid>.<n>.part`), never the owner's `name.tmp`; the file's permissions
+  kept; a read-only file refused; nothing left behind when it fails (D-161). The preflight refuses
+  a read-only group file before a byte is written, so the plan's card says so and its button is
+  disabled; the gate would otherwise refuse it after the notes are on disk.
 - **Undo** asks first, with the numbers, and acts by these rules, all in `runs::undo` and
   `runs::prepare` and none in the window. (0) **What the record may reach** (`Reach`, D-072): the
   library folder, or the home the group's library file declares now, read from that file; no `..`
@@ -2440,26 +2448,42 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   after the links step. Then only a note or picture with `created` true, a regular file
   (`symlink_metadata`, never a link), with the recorded SHA-256 read through a 64 MiB cap, and
   re-read as it goes. A file that was there before the run is `before`: its line comes out, it
-  stays. (4) The group's file when `group.created` and only its heading and `home:` are left.
-  (5) The folders the record lists, deepest first, while empty, never a link. (6) The record is
-  marked `undone`, or `links pending` when a link could not be taken out. The panel's title reads
-  "The run is not undone · {why} Try again." and the held notes are listed. `with_headings_removed`
+  stays. A note open in a tab with changes not saved is kept, with its line, and said
+  (`recycle::SparingUnsaved`, D-158). (4) The group's file when `group.created` and only its
+  heading and `home:` are left. (5) The folders the record lists, deepest first, while empty,
+  never a link. (6) The record is marked `undone`, or `undo pending` when a link could not be
+  taken out or the bin would not take a note (D-156): Undo can be pressed again, Finish is no
+  longer offered, and `runs::finish` refuses it ("This run is being undone…"). The panel's title reads "The run is not undone · {why} Try again." and the held notes
+  are listed; the run's row says "partly undone". `with_headings_removed`
   joins with the file's own line ending, as every writer in `mdshared_app::library` does.
   **Finish** writes the line the record holds (not the absolute path) through the same `Reach`.
   Undo's removals go to the Recycle Bin where the file's drive has one, and are a plain delete
   where it has none (77).
 - **"AI runs…"** lists the records when it is opened (never at start), newest first, with "Show
-  the notes", "Undo this run…" and, for a run that stopped, "Finish".
+  the notes", "Undo this run…" and "Finish" for a split or a Markdown run that stopped, is still
+  writing, or has its links pending (`overlays::offers_finish`, D-157). When step 6 fails the
+  toast says "The notes are written, but {file} could not be updated: {why}. AI runs can finish it
+  or undo it." Finish under a section writes the heading the file lacks, and the record learns of
+  it (`sections_added`), so undo takes the heading out with the line. The undo question of a
+  rewrite names every file it puts back (D-162).
 - **"Split into notes…"** is in the tab's menu, the palette, the AI menu and the Notes library
   submenu. It is disabled with "Save {name} first: the notes are made from the file on disk."
-  until the document in front has a file and no unsaved changes.
+  until the document in front has a file and no unsaved changes. A tab that has not read its file
+  again since another program saved it (still loading, changed on disk, another stamp, or, for a
+  UTF-8 file, other bytes than the tab's text) is refused with "{name} changed on disk since this
+  tab read it. Reload it first: the notes are made from the file on disk." (`app/plan.rs`, D-155).
 - **The Notes pane's foot** draws "Plan ready: N notes · Show · Drop" while a plan is parked; the
   count and the parked flag are in the Files region's signature.
 - Shots: `--dialog runs|run-undo|run-undo-recycled|run-undo-original|runs-newer`, and `--plan-demo split --plan-parked`.
-- Tests: `mdshared_app::runs` (24 in the module, in the shared repo) and `crates/mdedit-core/tests/undo_rules.rs` (27: each
-  of D-069 to D-072 forced on disk, and each one fails with its fix reverted), `app::plan_write_tests`
-  (8) and `app::undo_rules_tests` (5: the window's gate, the flat undo, the refusal when the
-  original is gone, the list of unreadable records).
+- Tests: `mdshared_app::runs` (24 in the module, in the shared repo) and `crates/mdedit-core/tests/undo_rules.rs` (28: each
+  of D-069 to D-072 forced on disk, and each one fails with its fix reverted; a finished run under
+  a section undone with its heading), `app::plan_write_tests` and `app::undo_rules_tests` (5: the
+  window's gate, the flat undo, the refusal when the original is gone, the list of unreadable
+  records). The links-pending test stands the group's file there beforehand and blocks every
+  temporary name `files::replace` would take, so the write of step 6 is the one thing that fails;
+  it then checks Finish once the names are free. `app::library_write_tests` has the owner's
+  `.tmp` left alone, a BOM kept, a file not UTF-8 left as it is, and the template never written
+  over a `notes.md`.
 - **Not built:** the progress row and Cancel (the write runs between frames), so a run is never
   left in `stopped` by this program; step 8. ("Ask the AI…" is section 76.)
 
@@ -2500,7 +2524,11 @@ keeps the drawing, the cursor, folding and the name box.
   width it is drawn with (laid out at an empty clip, so nothing is painted), instead of a fixed
   196 that ran a long group or file name's fourth line through the divider. The floor stays 196,
   the two lines of the question that lists no notes; one that lists notes takes a third line and
-  the card grows a few pixels. Shots `library-delete` and `library-delete-long`.
+  the card grows a few pixels. Shots `library-delete` and `library-delete-long`. "Take this
+  section out of the library…" (`DialogKind::LibraryRemove`) names the section, whose name can be
+  as long as a file's: its card grows the same way, from the same floor, and a card capped at the
+  window's height cuts its body at the divider rather than draw it into the buttons (audit 4,
+  F19; D-164). Shot `library-remove-long`.
 - **Nothing is left behind.** Closing the pane, switching its face away from Notes, and changing
   the library folder cancel the job; a result that arrives after one of those is dropped by
   `library_accept`'s pane and folder check. A cancelled job returns nothing to show (`None`), and
@@ -2534,7 +2562,11 @@ mode is the window's, not one file's: `bins/mdedit/src/app/visual.rs`.
   `Visual::doc`; when they differ and the new document is `previewable`, `follow_tab` takes it:
   the old document's block closes (its room in the page and the question about it go with it),
   no block is open on the new one, and the page starts where that document's text was, at its
-  caret, as `toggle_visual` starts a fresh pane.
+  caret, as `toggle_visual` starts a fresh pane. A question the page asked while the pane held
+  it back (`Visual::pending`) is taken with `Visual::take_pending`, which gives it only while the
+  document it was asked of is the one in front: after a tab switch it is dropped, never asked of
+  the new document (audit 4, F13; D-160). Tested through `preview_sync`
+  (`a_question_held_for_the_page_is_not_asked_of_the_tab_switched_to`).
 - **The placement waits for the text.** `Visual::place` is set on every hand-over and cleared by
   `place_page` once the pane has that document's text (`Pane::shown`, and not `held`), so a tab
   whose file is still being read is placed when its text arrives rather than showing the top.
@@ -2579,7 +2611,8 @@ what they need.
   `plan_preflight` refuses a library root that is empty or relative, a group's folder that is the
   library folder, a note that would be a `.md` file directly in the library folder, a new group's
   file name that is taken, the library's file cap and the group's note cap, a group's library file
-  open with unsaved changes, a source whose length or SHA-256 is not the one the plan was made
+  open with unsaved changes, a group's library file that is read-only or not UTF-8 text (D-161),
+  a source whose length or SHA-256 is not the one the plan was made
   from, and a link insertion whose dry run (`with_links_added`, then `check_links_added`) would not
   read back. `plan_blocked` is the same check, worked out when the screen opens, when the
   destination changes and when a kept plan is shown; the footer draws it and disables the button,
@@ -2616,7 +2649,11 @@ what they need.
   refused where the plan opens, as Save As refuses it.
 - **A group's folder may not be the library folder.** Refused where the folder is picked, where a
   `home:` line is read ("New note here…"), and by the plan's check: its notes would be `.md` files
-  the reader takes for library files.
+  the reader takes for library files. The comparison is `library_write::same_folder`: both sides
+  through `mdshared_app::paths::comparable`, which asks the disk about every part that exists, then
+  `.` and `..` folded by their spelling, so `home: Trip/..` is the library folder whether or not
+  `Trip` is there (on Linux and macOS `std::path::absolute` keeps a `..` that follows a missing
+  folder; audit 4 F14, D-165).
 - **No session, no library.** `snippets_path` (and so `library_dir`, the snippets and the saved
   prompts) is `None` unless there is a settings file: `--no-session` reads nothing of the owner's,
   and `MDEDIT_SETTINGS` is the one file such a build reads, with its library beside it. The empty
@@ -2627,8 +2664,9 @@ what they need.
   opened before any read, "AI runs…" before any read, and the group's file made before its notes);
   `app::library_write_tests`, one for each pane writer on a group's own row ("Add this file", "New
   note here…", "Move to…", in one file and in two).
-  The old test of step 6 failing was restaged on a `.tmp` file in the way, since a taken group name
-  no longer reaches the write.
+  The test of step 6 failing stands the group's file there and blocks every temporary name
+  `files::replace` takes (section 70), since a taken group name no longer reaches the write and a
+  `.tmp` file of the owner's is no longer in its way.
 
 
 ## 74. Move the notes: the core (2026-11-22)
@@ -2717,7 +2755,9 @@ the layout's numbers, what a row says, the shots' plan), `move_draw.rs` (drawing
   footer and on the bar; nothing has moved. The disk is `Disk` with `docs::move_no_replace`
   (`MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`; a hard link and an unlink elsewhere), whose
   `ERROR_NOT_SAME_DEVICE` is given to the core as `CrossesDevices` so it copies. After it: tabs
-  open on a moved or carried file follow it (`Docs::follow_move`), the library is read again, and
+  open on a moved or carried file follow it (`Docs::follow_move`), and so do its place in the
+  recent files, its caret place and its bookmarks, as a rename's do (audit 4, F11d; D-159); the
+  library is read again, and
   the results panel lists what moved, what went with the notes, the notes whose links were
   rewritten, what was kept and why, what could not move, and the folders removed, with "Undo this
   run". Undo's panel lists the carried files under "Put back with their notes".

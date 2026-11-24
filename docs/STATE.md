@@ -1,7 +1,7 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-23, after mdedit 1.3.0 and mdview 1.0.5 were
-released. If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-24, on `fix/audit4`, while audit 4's fixes
+were being built. If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -27,60 +27,50 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - **A closed mdview is asked about again** (`fix/closed-mdview`, D-102, D-105): at 1, 2 and 4 s,
   with a refused check kept to its grace's end and a key or click asking at most once in two
   seconds. Not tried by the owner; keystroke and idle times not measured (not run).
-- Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review
-  (audit 3's fixes included).
+- **Phase 4, "Sort a folder by AI."** (`ai-library-plan.md` 5.7's second half, on 4a's card):
+  merged from `f/p4` (`188c876`; D-150 to D-154, `DESIGN.md` 84). **Ask the AI** returns a scheme
+  of at most 8 sections, **Sort N files** places each file with a confidence and a reason, up to
+  "Requests at once" (3, or 1 for a local model); nothing is written until Add. Shots
+  (`import-folder-scheme*`, `-ai*`, `-unsorted`) looked at on Windows; budgets in
+  `docs/measurements/2026-11-23-phase-4-ai-sort.md` (exe +38,912 bytes, nothing beyond the runs'
+  ranges). Two tests that failed only on CI are fixed (`f13892c`).
+- **Phases W, 5.8, 4a, R2 and DD**, merged after `v1.3.0`, each built, tested, its shots looked
+  at and its budgets measured (`docs/measurements/2026-11-23-*.md`); the owner has looked at none
+  of their shots. **W** (D-140 to D-145, DESIGN 83): the AI task window, File, Split and Rewrite
+  them, a rewrite applied in place with its original in the record. **5.8** (D-120): a Markdown
+  note from a text file. **4a** (D-131 to D-133, DESIGN 81): a folder becomes a group of links,
+  nothing copied or moved; exe +97 KB. **R2** (D-106 to D-108, DESIGN 79): a tick per change; the
+  tinted, level preview is not built (it needs a request in the viewer's protocol). **DD** (D-130,
+  DESIGN 80): a note dragged onto a heading; groups, sections and files from the file manager
+  are not dragged.
+- **Audit 4** (`402d3da`, `docs/review-prompts/audit4/`): Fable's review of everything since
+  audit 3, five reports. Its findings are on `main` until the fixes below are merged.
 
 ## In hand
 
-- **Phase 4, "Sort a folder by AI."** (`ai-library-plan.md` 5.7's second half, on 4a's card):
-  built and tested on `f/p4`, worktree `md-wt\p4`, not merged (D-150 to D-154, `DESIGN.md` 84).
-  **Ask the AI** returns a scheme of at most 8 sections with subsections, which the owner can add
-  to, rename and delete; **Sort N files** asks for a section, a confidence and a reason per file,
-  40 files a request, up to the connection's "Requests at once" (3, or 1 for a local model), 500
-  files a run. Unsure and unplaced files land in **Unsorted**, unticked; **Tick only the sure
-  ones** keeps the 0.6 and over; nothing is written until Add. Shots (`import-folder-scheme`,
-  `-scheme-rename`, `-ai`, `-ai-sorting`, `-ai-asking`, `-ai-off`, `-ai-failed`, `-unsorted`, both
-  themes) looked at on Windows; budgets measured against `main` at `4c95da0`
-  (`docs/measurements/2026-11-23-phase-4-ai-sort.md`: exe +38,912 bytes, no figure beyond the
-  runs' ranges). It waits for the owner's look and word to merge.
-- **Phase W**, the AI task window over files (`5.6`, D-074, D-076, D-140 to D-145): merged from
-  `f/pw`, not tagged; the owner has not looked at its shots. File them, Split them and Rewrite
-  them; a rewrite is R2's review over the file, applied in place with its original in the run's
-  record and undo in AI runs. Budgets measured (`docs/measurements/2026-11-23-task-window.md`):
-  no change beyond the runs' ranges; shots `task-*` (both themes, `task-sent` in light) looked at;
-  docs 83.
-- **Phase 5.8**, a Markdown note from a text file (`5.8`, D-120): merged from `f/p5` - card,
-  write, record, undo, 14 tests, 11 shots, budgets measured
-  (`docs/measurements/2026-11-23-note-card.md`); pins on shared `main` (`0984eed`); a Rewrite
-  record is listed as a Rewrite (D-145 lifts D-134's guard); the owner has not looked at its shots.
-- **Phase 4a, "Add a folder to the library…"** (`5.7`, without the AI): merged from `f/p4a`. A
-  folder becomes a group of links to its `.md`, `.markdown` and `.txt` files under their
-  subfolders' headings three deep, in one library file; nothing is copied, moved or renamed
-  (D-131 to D-133, `DESIGN.md` 81). The owner has not looked at its shots (`import-folder*`).
-  Budgets: nothing on the launch path, no new dependency, figures inside both builds' ranges
-  (`docs/measurements/2026-11-23-phase-4a.md`); exe +97 KB.
-- **Phase R2**, the review with ticks (`5.5`, D-107): merged from `f/review-hunks`, not tagged;
-  the owner has not looked at its shots. A tick per change, Apply and Copy result of the ticked
-  ones, F7/Space, the wrapped list with a scrollbar, the strip, the cheap Preview (AFTER page).
-  Built, tested, fmt and clippy clean, shots (`review-*`, both themes, `review-closed` new) looked
-  at, budgets measured (5 runs against `main` at `32d6fe6`: no change beyond the runs' ranges).
-  Docs: `DESIGN.md` 79, D-106 to D-108, `docs/measurements/2026-11-23-review-hunks.md`. **Not
-  built: the tinted, level preview (D-108)**: it needs a request in the viewer's preview protocol
-  (the page rows of every top-level block) and a move of its pin, which waits for the owner.
-- **Phase DD, dragging a note in the notes pane** (D-130, `DESIGN.md` 80): merged from `f/pdd`,
-  not tagged; the owner has not looked at its shots (`library-drag`). A note dropped on a group or
-  section is moved there by the "Move to…" write; notes only. Not built, waiting for the owner:
-  dragging a group or section row, and files dropped from the file manager (winit discards the
-  drop point on Windows).
+- **Audit 4's fixes**, on three mdedit branches from `93b4ddb`, none merged; the record of every
+  finding is `docs/review-prompts/audit4/FIXES.md`, the pause and its hand-over `PAUSED.md`.
+  - `fix/audit4` (core): report A, the library writes through `files::replace` with a BOM kept
+    and non-UTF-8 refused (RB3, F17, F18), the docs; and, from before the split at `93b4ddb`,
+    RB1, RB2's window side, B3 to B7, B10, B12 to B14. D-155 to D-170, D-178 to D-180.
+  - `fix/audit4-ai`: the rest of report B (B8, B9, B11, B n1, n2, n4, RB3 in `task.rs`) and the
+    revert checks of B. D-171 to D-174.
+  - `fix/audit4-lib`: report C (C1 to C3, C12c to e, A F15). D-175 to D-177; C4 to C10 open.
+  - Shared `fix/audit4` is finished at `d1330b0`. The apps pin `f0f8159`, a development pin; at
+    merge both move to shared `main` holding `d1330b0`. mdview's half is its `fix/audit4`.
+  - After the three are merged into one: fmt, clippy, tests and shots on each repo, then one Fable
+    agent reviews the fixes against `FIXES.md` before anything reaches `main`.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
 
 ## Waiting for the owner
 
-- **`docs/ai-library-plan.md`** section 8, in order after R2: V, phase 4 (built on `f/p4`, waiting
-  for the owner's look), drag and drop; W, 4a and 5 are merged. Open: the resizer for V, a new
-  crate to be priced first (rule 7).
+- **`docs/ai-library-plan.md`** section 8, in order after R2: V, drag and drop; W, 4a, 4 and 5
+  are merged. Open: the resizer for V, a new crate to be priced first (rule 7).
+- **Audit 4's questions**: C4, a same-named group with another home is refused (D-178, Waiting);
+  A F8, a rewrite's record is not confined and its undo names the files (D-162, Waiting); W11
+  needs `jiff` (rule 7); the shared `%20` and `write_of` causes (D-180).
 - **Dependabot**: open PRs (mdedit #9 regex-automata; mdview #2 to #6; shared #2 to #7) and a
   `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Left until after
   the release; it is after it now.
@@ -89,16 +79,19 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## Next
 
-1. The owner's four faults from the hand check (D-101), for the next release: the add, the full
-   preview, the delete notice and the closed mdview are merged; the closed mdview is still to be
-   tried (first: whether it is missed with mdview 1.0.5 too).
+1. Audit 4's fixes: finish the three branches (`PAUSED.md`), merge them, review, then `main`.
+   The owner's four faults from the hand check (D-101) are merged; the closed mdview is still to
+   be tried (first: whether it is missed with mdview 1.0.5 too).
 2. Then the owner's look at R2's shots (and whether to add the viewer's page rows for the tinted
    preview, D-108), then section 8's order. M1, M2 in mdview; D after R2.
-3. Phase 4's shots (`import-folder*`, including the scheme, the sorting, the AI-off and the
-   unsorted cards) for the owner's look, then merging `f/p4`; then 4a's and 5's shots
-   (`import-folder*`, `note-*`).
+3. Phase 4's, 4a's and 5's shots (`import-folder*`, `note-*`) for the owner's look.
 
 ## Known to be wrong on `main`
+
+- **Audit 4's findings** (`docs/review-prompts/audit4/README.md`), fixed on the branches above and
+  not on `main`: a digest cut inside a character aborts the program (RB1); a rewrite run past
+  4 MiB cannot be undone (RB2); the library writers take `<file>.tmp` (RB3); a plan from a tab
+  that has not re-read its file (RB4); `put_note` rewrites a file in another code page (RB5).
 
 - **A closed mdview is still missed** (D-101): closing it by hand leaves "Stop the preview" in
   mdedit after its window has the focus again (tried with 1.0.4, which sends no `?closed`), so
@@ -138,12 +131,13 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
 ## Pins, branches, worktrees (tidied 2026-11-23)
 - Shared crates at `0984eed` in both apps. Viewer crates at viewer `e2b3e31`; winit `62fa727`,
   softbuffer `dd18fec`.
-- Branches: `main` and `f/p4` (phase 4, open); the drawings (`mock/ai-review`, `mock/settings`,
+- Branches: `main`; `fix/audit4`, `fix/audit4-ai`, `fix/audit4-lib` (open); the drawings (`mock/ai-review`, `mock/settings`,
   `mock/terminal`, `mock/downloader`, `mock/workbench` local only, `mock/launcher`,
   `mock/file-manager`, `mock/task-manager`), never merged; `archive/doc-reorg-draft`; on GitHub
   `spike/frosted-window` and `chore/dependabot`. Merged branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main`; `md-wt\pw`, `p4`, `ci-fix` and their bases, `spike-v`, `baseline-main`,
+- Worktrees: `main`; `md-wt4-mdedit`, `a4-ai`, `a4-lib`, `a4-shared`, `a4-mv` (audit 4);
+  `md-wt\pw`, `p4`, `ci-fix` and their bases, `spike-v`, `baseline-main`,
   `p4-mainbase`; `hub-wt\app-prs2\mdedit`. The empty `md-wt\closed-mdview` and `mv-notes` are
   held by a process; delete after a restart.
