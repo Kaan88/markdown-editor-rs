@@ -501,6 +501,16 @@ const CARBONARA: [&str; 13] = [
 /// Several notes selected in the Notes pane: a whole section by one Ctrl+click on its row, two
 /// more notes one at a time, and the menu of the selection. Drawn over the page of the window.
 pub fn tree_select(p: &mut Painter, pal: &Palette, w: f32, h: f32) {
+    tree(p, pal, w, h, true);
+}
+
+/// The main way in from the library: one row, here a section, and its own menu with the AI task
+/// on all the notes under it. Nothing is selected; the row is the one under the pointer.
+pub fn tree_row(p: &mut Painter, pal: &Palette, w: f32, h: f32) {
+    tree(p, pal, w, h, false);
+}
+
+fn tree(p: &mut Painter, pal: &Palette, w: f32, h: f32, multi: bool) {
     let top = 85.0;
     let area = Rect::new(0.0, top, w, h - top - 26.0);
     p.fill(area, pal.page);
@@ -532,6 +542,12 @@ pub fn tree_select(p: &mut Painter, pal: &Palette, w: f32, h: f32) {
     let mut y = sw.bottom() + 12.0;
     let mut menu_at = (0.0, 0.0);
     for (indent, icon, text, bold, selected, cursor, count) in rows {
+        // One row only: the section under the pointer, and no selection anywhere.
+        let (selected, cursor, count) = if multi {
+            (selected, cursor, count)
+        } else {
+            (false, text == "Pasta", "")
+        };
         let row = Rect::new(pane.x + 6.0, y, pane.w - 12.0, 26.0);
         if selected {
             p.rbox(Rect::new(row.x, row.y + 1.0, row.w, row.h - 2.0), 5.0, tint);
@@ -540,8 +556,8 @@ pub fn tree_select(p: &mut Painter, pal: &Palette, w: f32, h: f32) {
             p.frame(
                 Rect::new(row.x, row.y + 1.0, row.w, row.h - 2.0),
                 5.0,
-                tint,
-                pal.accent,
+                if multi { tint } else { pal.hover },
+                if multi { pal.accent } else { pal.hover },
             );
             menu_at = (row.x + 150.0, row.bottom() - 4.0);
         }
@@ -575,37 +591,39 @@ pub fn tree_select(p: &mut Painter, pal: &Palette, w: f32, h: f32) {
         y += 26.0;
     }
 
-    // The pane's foot while more than one note is selected.
-    let foot = Rect::new(pane.x, pane.bottom() - 52.0, pane.w, 52.0);
-    hline(p, foot.x, foot.y, foot.w, pal.line);
-    p.text(
-        Face::Semibold,
-        12.0,
-        foot.x + 14.0,
-        foot.y + 17.0,
-        "6 notes selected",
-        pal.text,
-        foot.w - 28.0,
-    );
-    let blue = mix(pal.accent, pal.text, 0.25);
-    let lw = p.text(
-        Face::Ui,
-        12.0,
-        foot.x + 14.0,
-        foot.y + 36.0,
-        "AI task on them\u{2026}",
-        blue,
-        160.0,
-    );
-    p.text(
-        Face::Ui,
-        12.0,
-        foot.x + 14.0 + lw + 16.0,
-        foot.y + 36.0,
-        "Clear (Esc)",
-        blue,
-        100.0,
-    );
+    if multi {
+        // The pane's foot while more than one note is selected.
+        let foot = Rect::new(pane.x, pane.bottom() - 52.0, pane.w, 52.0);
+        hline(p, foot.x, foot.y, foot.w, pal.line);
+        p.text(
+            Face::Semibold,
+            12.0,
+            foot.x + 14.0,
+            foot.y + 17.0,
+            "6 notes selected",
+            pal.text,
+            foot.w - 28.0,
+        );
+        let blue = mix(pal.accent, pal.text, 0.25);
+        let lw = p.text(
+            Face::Ui,
+            12.0,
+            foot.x + 14.0,
+            foot.y + 36.0,
+            "AI task on them\u{2026}",
+            blue,
+            160.0,
+        );
+        p.text(
+            Face::Ui,
+            12.0,
+            foot.x + 14.0 + lw + 16.0,
+            foot.y + 36.0,
+            "Clear (Esc)",
+            blue,
+            100.0,
+        );
+    }
 
     // ---- the document that was open: selecting opens nothing --------------------------------
     let source = Rect::new(pane.right() + 1.0, top, area.w - pane.w - 1.0, area.h);
@@ -634,15 +652,27 @@ pub fn tree_select(p: &mut Painter, pal: &Palette, w: f32, h: f32) {
     p.restore(old);
 
     // ---- the menu of the selection ----------------------------------------------------------
-    let items: [(&str, &str, bool); 5] = [
-        ("AI task on these 6 notes\u{2026}", "", false),
-        ("Move the notes\u{2026}", "", false),
-        ("Copy their paths", "", true),
-        ("Remove 6 from the library\u{2026}", "", false),
-        ("Clear the selection", "Esc", false),
-    ];
+    let items: [(&str, &str, bool); 5] = if multi {
+        [
+            ("AI task on these 6 notes\u{2026}", "", false),
+            ("Move the notes\u{2026}", "", false),
+            ("Copy their paths", "", true),
+            ("Remove 6 from the library\u{2026}", "", false),
+            ("Clear the selection", "Esc", false),
+        ]
+    } else {
+        // A section's menu as it is today, with one line added at its head.
+        [
+            ("AI task on these 4 notes\u{2026}", "", true),
+            ("New note here\u{2026}", "", false),
+            ("New subsection\u{2026}", "", false),
+            ("Rename", "F2", true),
+            ("Remove this section\u{2026}", "", false),
+        ]
+    };
     let mw = 290.0;
-    let mh = 30.0 * items.len() as f32 + 8.0 + 9.0;
+    let seps = items.iter().filter(|i| i.2).count() as f32;
+    let mh = 30.0 * items.len() as f32 + 8.0 + 9.0 * seps;
     let m = Rect::new(menu_at.0, menu_at.1, mw, mh);
     p.shadow(m, 8.0, pal.dark);
     p.frame(m, 8.0, pal.popup, pal.popup_line);

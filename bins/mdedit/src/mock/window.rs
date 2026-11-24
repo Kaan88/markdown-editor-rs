@@ -29,6 +29,8 @@ pub enum Face_ {
     NoVision,
     /// Opened from six notes selected in the Notes pane: Rewrite them.
     FromNotes,
+    /// Opened from one row of the Notes pane, a section: its four notes.
+    FromSection,
     /// Opened empty by the one command, with the Add menu open.
     AddMenu,
     /// File them, the text files copied into the library with their pictures.
@@ -55,13 +57,19 @@ struct Spec {
 const SUB: &str =
     "They are read here and sent only to the provider you chose. Nothing is opened in a tab.";
 const SUB_NOTES: &str = "6 notes from the Notes pane: Recipes \u{203A} Pasta (4) and 2 of Bread. Nothing is opened in a tab.";
+const SUB_SECTION: &str =
+    "The 4 notes of Recipes \u{203A} Pasta, from the Notes pane. Nothing is opened in a tab.";
 const ASK_NOTES: &str =
     "What should the notes be? For example: describe each and sort them by topic";
 
 fn spec(face: Face_) -> Spec {
     match face {
-        Face_::FromNotes => Spec {
-            sub: SUB_NOTES,
+        Face_::FromNotes | Face_::FromSection => Spec {
+            sub: if face == Face_::FromSection {
+                SUB_SECTION
+            } else {
+                SUB_NOTES
+            },
             task: 3,
             instruction: "put the ingredients in a table, amounts in grams",
             placeholder: "",
@@ -335,7 +343,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
             &colors,
             sp.placeholder,
             true,
-            matches!(face, Face_::Ready | Face_::FromNotes),
+            matches!(face, Face_::Ready | Face_::FromNotes | Face_::FromSection),
         );
     }
 
@@ -545,6 +553,12 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
                 .to_string(),
             true,
         ),
+        Face_::FromSection => (
+            vec![("Cancel", false, true), ("Run on 4 notes", true, true)],
+            "4 notes \u{00B7} 11.0 KB in 4 requests, 3 at a time",
+            format!("{via} \u{00B7} each note is shown as a list of changes before it is written"),
+            false,
+        ),
         Face_::FromNotes => (
             vec![("Cancel", false, true), ("Run on 6 notes", true, true)],
             "6 notes \u{00B7} 14.8 KB in 6 requests, 3 at a time",
@@ -593,6 +607,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
             | Face_::Options
             | Face_::Limit
             | Face_::FromNotes
+            | Face_::FromSection
             | Face_::FileCopy
             | Face_::FileMove
     ) {
@@ -666,9 +681,10 @@ fn rows_of(face: Face_) -> Vec<Item> {
     let mut out = Vec::new();
     match face {
         Face_::AddMenu => {}
-        Face_::FromNotes => {
+        Face_::FromNotes | Face_::FromSection => {
             out.push(Item::Heading(NOTES_HEAD, false));
-            for (name, sub) in NOTES {
+            let n = if face == Face_::FromSection { 4 } else { 6 };
+            for (name, sub) in NOTES.into_iter().take(n) {
                 out.push(Item::File(row(name, sub, "read and sent", Mark::Plain)));
             }
         }

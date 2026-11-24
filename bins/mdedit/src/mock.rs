@@ -12,6 +12,8 @@
 //! - `add`, `from-notes`, `file-copy`, `file-move`, `tree-select`: the one way into the window,
 //!   the window opened on notes selected in the Notes pane, File them copying and moving the
 //!   files with their pictures, and several notes selected in the Notes pane.
+//! - `tree-row`, `from-section`: the main way in from the library: one row's own menu (a
+//!   section, meaning all its notes), and the window opened from it.
 
 mod after;
 mod plan;
@@ -26,7 +28,7 @@ use mdshared_ui::overlay::{
 use mdshared_ui::theme::Palette;
 
 pub fn draw(p: &mut Painter, pal: &Palette, name: &str, w: f32, h: f32) {
-    if name != "result" && name != "tree-select" {
+    if !matches!(name, "result" | "tree-select" | "tree-row") {
         draw_backdrop(p, pal, w, h);
     }
     match name {
@@ -41,6 +43,8 @@ pub fn draw(p: &mut Painter, pal: &Palette, name: &str, w: f32, h: f32) {
         "file-copy" => window::draw(p, pal, w, h, window::Face_::FileCopy),
         "file-move" => window::draw(p, pal, w, h, window::Face_::FileMove),
         "tree-select" => after::tree_select(p, pal, w, h),
+        "tree-row" => after::tree_row(p, pal, w, h),
+        "from-section" => window::draw(p, pal, w, h, window::Face_::FromSection),
         "plan" => plan::draw(p, pal, w, h, false),
         "plan-one" => plan::draw(p, pal, w, h, true),
         "sent" => after::sent(p, pal, w, h),
