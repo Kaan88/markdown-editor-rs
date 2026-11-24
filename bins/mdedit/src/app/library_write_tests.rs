@@ -1670,7 +1670,8 @@ fn edit_a_library_file_never_writes_the_template_over_a_notes_file() {
 
 /// Audit 4, F14: `home: Trip/..` is the library folder whether or not a `Trip` folder is there.
 /// With no `Trip`, Linux and macOS keep the `..` in the absolute path, so only its spelling can
-/// fold it; with one, the disk folds it. A folder beside the library is not the library.
+/// fold it, which shared `comparable` does (D-165); with one, the disk folds it. A folder beside
+/// the library is not the library.
 #[test]
 fn a_dot_dot_after_a_folder_that_is_not_there_is_folded() {
     let dir = scratch("libw-dot-dot");
