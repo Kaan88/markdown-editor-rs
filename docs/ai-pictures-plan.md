@@ -1,11 +1,11 @@
 # Pictures into notes, and the AI workflow over files: the plan
 
 Written 2026-11-24 on the branch `mock/ai-pictures`, from `main` at `03bf4ea` (mdedit 1.4.0).
-**Nothing in it is built.** It is a plan and eleven drawings (`shots/mock/ai-pictures-*.png`, made
-by the throwaway `--mock` flag of this branch, section 5). It builds on `docs/ai-library-plan.md`
-(5.6, 5.9, 5.10, 4.1 to 4.5, 6) and DESIGN 83 and 84, and replaces the "Pictures the model can
-see (phase V)" part of 5.6. The decisions it would take are listed in section 19 and are recorded
-in `docs/DECISIONS.md` only when the owner says yes.
+**Nothing in it is built.** It is a plan and sixteen drawings (`shots/mock/ai-pictures-*.png`,
+made by the throwaway `--mock` flag of this branch, section 5). It builds on
+`docs/ai-library-plan.md` (5.6, 5.9, 5.10, 4.1 to 4.5, 6) and DESIGN 83 and 84, and replaces the
+"Pictures the model can see (phase V)" part of 5.6. The decisions it would take are listed in
+section 19 and are recorded in `docs/DECISIONS.md` only when the owner says yes.
 
 What was checked for it, and what was not, is in section 20.
 
@@ -25,6 +25,14 @@ screenshots in one md". Nothing of the kind happened (section 2). Then, in answe
 4. Size per run: unknown; propose limits.
 5. Yes to phase V and to the `jpeg-encoder` crate, after the design is talked through. And: "have
    it complete my idea of an AI workflow."
+
+**Four points added by the owner the same day**, each answered in section 4:
+
+6. "AI task on this file and on your files does the same thing." (4.1)
+7. "I should also be able to select multiple files from the tree for AI workflow." (4.2)
+8. "The same for images should apply to md's. I want to copy or move them along with images
+   maybe." (4.3)
+9. "No preview shows up after AI." (4.4)
 
 ## 2. What exists today, and what is missing
 
@@ -58,6 +66,20 @@ screenshots in one md". Nothing of the kind happened (section 2). Then, in answe
 | Phase V, pictures the model can see | Not built. The resizer was measured only (`spike/v-resizer`, `a0d1338`) |
 | mdedit reads the engine's version | Not built: `parse_event` drops `hello` (`bins/mdedit/src/ai.rs:712`); STATE lists it as known wrong |
 
+**For the four added points.**
+
+- The two commands differ by one line. "AI task on your files…" is `task_open(File, Vec::new())`
+  and "AI task on this file…" is `task_open(File, vec![p])` with the document in front
+  (`bins/mdedit/src/app/commands.rs:2160` to `:2174`). Both are in the palette
+  (`commands.rs:424`, `:425`), the AI menu (`overlays.rs:183`, `:188`) and the Notes library menu
+  (`overlays.rs:919`, `:925`). Nothing in the window says where its one row came from.
+- The Notes pane has one cursor and no selection (`library_pane.rs:116`, `cur`). A click on a
+  note opens it; a click on a group or a section folds it (`app/library.rs:223`).
+- "File them" writes links and nothing else. A text file stays wherever it was, and so do the
+  pictures it shows.
+- After a run, three of the four tasks open nothing, and none touches the preview (4.4 has the
+  lines).
+
 **Found while reading, not known before.**
 
 - **"File them" leaves no run record.** `task_file_write` never calls `runs::` (the only calls
@@ -71,8 +93,9 @@ screenshots in one md". Nothing of the kind happened (section 2). Then, in answe
 
 One new task, **Write notes**, in the same window, and a clear rule for the old ones.
 
-1. **Give it files.** "AI task on your files…", a drop from Explorer, or (new) Ctrl+V of a
-   screenshot while the window is open. Pictures and text files together.
+1. **Give it files.** One command, "AI task…", and the window's **Add** menu (4.1); notes
+   selected in the Notes pane (4.2); a drop from Explorer; or (new) Ctrl+V of a screenshot while
+   the window is open. Pictures and text files together.
 2. **Say what the notes should be**, or pick a saved prompt. Choose where they go and, under
    **Options**, how many notes, whether the pictures are copied and renamed, whether they are
    described, whether their text is written out, and how large they are sent.
@@ -92,9 +115,9 @@ One new task, **Write notes**, in the same window, and a clear rule for the old 
 6. **Write.** The record first, then folders, the copies of the pictures, the notes, the
    read-back, the links (4.3 of the library plan, unchanged). The Notes pane opens on the first
    new note.
-7. **Afterwards.** "Undo this run…" on the pane's foot and in "AI runs…"; "AI task on these
-   notes…" to go on (translate them, tidy them); "Again…" on a run's row to reopen the window on
-   the same files.
+7. **Afterwards.** The first note opens with its preview (4.4). "Undo this run…" on the pane's
+   foot and in "AI runs…"; select the new notes and "AI task on these notes…" to go on
+   (translate them, tidy them); "Again…" on a run's row to reopen the window on the same files.
 
 Why two kinds of request and not one: a request can hold only so many pictures, so past a
 handful the model cannot see them all at once anyway; a failed request loses four pictures and
@@ -115,7 +138,7 @@ for, said once:
 | Task | From | Makes | The files given | State |
 |---|---|---|---|---|
 | **Write notes** | Pictures, text files, notes | New notes of the model's words, pictures inside | Not changed; pictures copied | **New: this plan** |
-| File them | Text files, notes, other files | Links in a group | Not changed | Built. Changes: pictures are no longer filed (section 14) and it gets a record |
+| File them | Text files, notes, other files | Links in a group | Linked where they are, or **copied or moved into the group's folders with the pictures they show** (4.3) | Built. Changes: the copy and the move (4.3), pictures are no longer filed (section 14), and it gets a record |
 | Split them | A long text file | Notes cut from its own lines | Not changed (Recycle Bin on a tick) | Built |
 | Rewrite them | Text files | The same files, changed after a review | Rewritten, original in the record | Built |
 
@@ -137,10 +160,195 @@ picture"** on an image link of the open document; **"Sort this group again…"**
 scheme and filing, on a group that is already in the library); a drop onto a group in the Notes
 pane.
 
+### 4.1 The ways in: one command
+
+The owner is right: two commands that open the same window, one of them with a row already in
+it, are one command twice.
+
+- **One command, "AI task…"**, in the palette, the AI menu and the Notes library menu. "AI task
+  on this file…" leaves all three.
+- **It opens on what is selected**, and says so under the title: "6 notes from the Notes pane:
+  Recipes › Pasta (4) and 2 of Bread." (shot `from-notes`). With nothing selected it opens empty.
+- **The document in front is not added by itself.** It is the first line of the window's **Add**
+  menu, by name, one click: "This document · sample.md" (shot `add`). The menu holds every way
+  in: this document; the open tabs; the notes selected in the Notes pane; Files…; A folder…; the
+  picture on the clipboard. "Add files…" becomes "Add".
+- **Where the place names the file, the place keeps its own entry**: a tab's right-click ("AI
+  task on this file…", for the tab under the pointer, which today's code cannot do without
+  activating it first, DESIGN 83), a row or a selection of the Notes pane (4.2), and a row of the
+  Files pane when it has a menu. Those are not duplicates: what they take is under the pointer.
+- **The task it starts on follows what is in it**: pictures, Write notes; notes of the library,
+  Rewrite them; other text files, File them; a mix, the task used last.
+
+Not chosen: adding the document in front silently and saying so in the window. The owner would
+have to remember which tab was in front, and for the pictures task it is the wrong file more
+often than the right one. Half a day.
+
+### 4.2 Several notes selected in the Notes pane
+
+Shot `tree-select`. The state is mdedit's own, beside the pane's cursor; the shared tree rows
+that mdview reads do not change.
+
+**With the mouse.**
+
+- A plain click does what it does today (opens a note, folds a group or a section) and clears
+  the selection.
+- **Ctrl+click** adds or removes a row. It opens nothing and folds nothing.
+- **Shift+click** selects from the row last clicked to this one, over the rows that show.
+- **Ctrl+click on a section or a group selects all of it**: every note under it, folded or not,
+  the ones in its subsections too. Its row says "all 4". It stands for those notes at the moment
+  it is used, so a note added since is included. Ctrl+click on one of its notes takes that note
+  out and leaves the others selected one by one.
+- A right click on a selected row opens the selection's menu; on a row that is not selected, that
+  row's menu, as today.
+
+**With the keyboard**, when the pane has it: Shift+Up and Shift+Down extend; Ctrl+Space adds or
+removes the cursor's row; Ctrl+A selects the notes of the group the cursor is in, and pressed
+again the whole library; the menu key and Shift+F10 open the selection's menu; **Esc clears the
+selection first**, and only the next Esc does what Esc did.
+
+**What shows.** Selected rows are tinted; the cursor's row keeps its frame. While more than one
+note is selected the pane's foot says "6 notes selected" with "AI task on them…" and "Clear".
+The selection is kept by path across a re-read of the library, loses a note that is gone, and is
+never saved with the session.
+
+**The selection's menu.** "AI task on these 6 notes…"; "Move the notes…" (the card that exists,
+with these ticked; disabled with "one group at a time" when they are of two groups); "Copy their
+paths"; "Remove 6 from the library…" (one question, one write per library file, the files kept
+as Remove keeps them); "Clear the selection".
+
+**Which tasks make sense for notes that are already in the library**, and what the window does
+with each (shot `from-notes`):
+
+| Task | For library notes |
+|---|---|
+| **Rewrite them** | The one it opens on. Each note in place after its change list, the original in the record. Twenty notes and 200 KB each, as built; past that the rows say which wait |
+| **Write notes** | *Merge into one*: "One note" under Options, the notes as its material, a new note written, the originals kept. The report then offers "Remove the 6 originals from the library…", a question of its own. Also a summary, an index, a table drawn from them |
+| **Split them** | Each long note into notes of its own lines, in the same group |
+| **File them** | They are filed already: the rows read "already in the library", as today. To put them under other headings there is "Move the notes…", and, later, "Sort this group again…" (phase S), which a selected group or section is the natural way into |
+
+**The Files pane** can take the same clicks and one menu line, "AI task on these files…". It has
+no keyboard and no row menu today (STATE, DESIGN 83), so it would be the mouse half only. It
+fits, as a later piece of a day and a half; question 8.
+
+Three and a half days: the selection and its drawing (1.5), the keyboard (0.5), the menu, the
+foot and the removal of several lines in one write (1), the hand-off to the window and to the
+move card (0.5).
+
+### 4.3 Text files copied or moved in, with their pictures
+
+"File them" gains a switch beside the task, **THE FILES: `Link them | Copy them in | Move them
+in`** (shots `file-copy`, `file-move`). It is beside the task because it is as much a part of
+what is done as the task is.
+
+- **Link them**: today. A line in the group; the file stays where it is.
+- **Copy them in**: each file is copied into the folder the plan gives it (the group's home, its
+  section's folder), under its own name, and the line points at the copy. The original stays.
+- **Move them in**: the same, and the original is gone from where it was.
+
+**Which pictures go with a file.** The ones its text shows by a relative address that exists,
+of the picture kinds, **inside the file's own folder or below it**: the rule "Move the notes…"
+already uses for what a note carries (D-091, D-093). They keep their place relative to the
+file, so `img/harbour.jpg` beside the original is `img/harbour.jpg` beside the copy and the
+text does not change. A picture that lives elsewhere (`../shared/logo.png`, an absolute path)
+is not taken; the file's link to it is rewritten so it still finds it. A `.txt` file has no
+links and is copied byte for byte.
+
+**A picture two files show.** Copied: each folder that needs it gets one (in one folder, the
+same bytes are used once). Moved: it goes with the first file, and the other's link is
+rewritten to it, as the mover does today for a target two notes use.
+
+**Links.**
+
+- *From* a file that goes in, to another file of the same run: rewritten to that file's new
+  place. To a file that is not in the run: rewritten to reach it where it is, relative on the
+  same drive, absolute with forward slashes on another (D-093).
+- *To* a copied file: nothing changes; the original is still there.
+- *To* a moved file: the library's notes that link to it are rewritten (the mover's scan, at
+  most 10,000 files), and so are the files of the same run. **Any other file on the disk that
+  links to it is not looked for and will not find it.** The window says so before the run
+  (shot `file-move`) and the plan says it again. This is the reason Copy is the safer default.
+- A file that is not UTF-8 and needs a link rewritten is copied or moved with its links as they
+  were, and its row says so.
+
+**Collisions and edges.** A name that is taken in the folder: the same bytes, it is used and
+reads "already there"; other bytes, `-2`, `-3`. A file already inside the library folder or the
+group's home is linked where it is whatever the switch says ("already inside the library's
+folder"); rearranging those is "Move the notes…". **A move to another drive is not a move**:
+the file is copied and the original stays, and its row says "on another drive: copied". Nothing
+is copied or moved before "Add N to the library" on the plan face, which lists each file with
+where it lands and how many pictures go with it.
+
+**What is reused.** The carry rule, the link rewriting, and the move's record and undo are
+`mdshared_app::moves` (`carry`, shared `moves.rs:799`; `undo`, `:3112`). What is new: the mover
+moves notes the library lists, inside the library or a group's home; a move *in* starts outside
+both. So the shared crate gets a variant beside what exists (rule 8), and the copy is the
+shared writer's picture step widened to any file (`runs.rs:1744`).
+
+**Undo.** A copy: the copies the run created come out while they are byte for byte what was
+written and no library file lists them, and a picture's copy only while its original is still
+there (section 10). A move: every file goes back to where it was, with its pictures, and the
+rewritten links get their old text, as the mover's undo does. **That writes outside the library
+folder, which no undo does today** (D-072 confines a record to the library and the group's
+home). The rule proposed: a file is put back only at exactly the path the record holds, only
+when nothing is there, only while it is still the bytes that were moved; otherwise it stays in
+the library and is listed. This needs the owner's yes; question 10.
+
+**The default.** Copy them in, for files outside the library, remembered once changed. It is
+what the owner asked for pictures, it makes a library that can travel, and it touches nothing
+of the owner's. Its price is two copies of a text that can then differ; question 9.
+
+**Not here.** Write notes does not copy or move its text files: they are material, a new note is
+written, and they stay. Split and Rewrite work where the file is. "Add a folder to the library"
+makes the folder the group's home, so nothing needs to travel.
+
+Two days for the copy, two and a half for the move.
+
+### 4.4 After a run: what opens, and the preview
+
+**"No preview shows up after AI" was not reproduced.** What the code does after each task:
+
+| After | What the code does today | Where |
+|---|---|---|
+| Split | Shows the Notes pane with the cursor on the first note. **Opens no tab** | `open_notes_of`, `app/plan_write.rs:595`, called at `:253` |
+| Markdown note from a file | Opens the note in a tab. Does nothing about the preview | `app/note.rs:658` |
+| File them | Closes the window and shows a toast. No tab, and the pane is not moved to the new lines | `app/task.rs:984` |
+| Rewrite them | Writes the file and shows a toast. No tab. A tab that already holds the file is not re-read there (the split calls `check_changed`, `plan_write.rs:239`; the rewrite does not) | `task_review_apply`, `app/task.rs:1311` |
+| AI edit of the open document | The text changes in its tab; the preview pane follows, because it follows the tab in front every frame | `app.rs:3049`, `preview_sync`, `app/preview.rs:109` |
+
+The preview pane shows only the document in the tab in front (`preview.rs:109`), and it is
+opened only by the Preview button (`toggle_preview_pane`, `preview.rs:28`). So the likeliest
+meaning of the report is the plain one: **after a run nothing asks for a preview, and after
+three of the four tasks there is not even a tab for one to follow.** With the preview in
+mdview's own window instead of the pane, a note opened by a run is a new document that was
+never linked to the viewer; that path was not traced. Whether a rewritten file that is open and
+previewed shows stale text until the window is next focused was not tried either.
+
+**What should happen**, one rule per task:
+
+| After | Opens | The preview |
+|---|---|---|
+| **Write notes** | The first note written, in a tab; the Notes pane on it | **Shown**, in the mode chosen in Settings › Editor. A note of pictures read as text shows none of them |
+| Markdown note from a file | The note, as today | Shown |
+| Split | The first note, in a tab | Follows if it was showing before the run; not turned on |
+| File them (linked, copied or moved) | Nothing: the files are the owner's and were not changed. The pane goes to the first new line | Untouched |
+| Rewrite them | Nothing new. A tab that holds a rewritten file is re-read at once | Follows the tab, so it shows the new text |
+| AI edit of the open document | Nothing: it is open | Follows, as today; the mdview-window mode to be checked |
+
+- Only the **first** note opens, never forty tabs. The report lists the rest.
+- One setting, Settings › AI, "After a run that writes notes": `Open the first with its preview`
+  (default) `| Open the first | Open nothing`.
+- No viewer installed and no built-in pane: the note opens without a preview and nothing is
+  said, as the Preview button behaves today.
+- Shot `result` is this rule after Write notes.
+
+One day, with the cause found first by trying it in a real window.
+
 ## 5. Each screen
 
 All drawn by `--mock <name>`, 1280 x 800, light and dark. The sample is five pictures and one
-text file; every word and number in the drawings is made up.
+text file (six recipe notes and four travel files for the later screens); every word and number
+in the drawings is made up.
 
 | Shot (`shots/mock/ai-pictures-…-light.png`, `…-dark.png`) | What it shows |
 |---|---|
@@ -155,9 +363,16 @@ text file; every word and number in the drawings is made up.
 | `limit` | 104 pictures ticked where a run takes 100, and three pictures left out, each with its reason |
 | `failed` | One look request failed (a rate limit): what was looked at is kept; "Try it again", "Go on with 4" |
 | `no-vision` | The model does not read pictures: the sentence, and "Open AI settings" |
+| `add` | 4.1: the window opened empty by the one command, its **Add** menu open: this document, the open tabs, the notes selected in the Notes pane, Files…, A folder…, the picture on the clipboard |
+| `tree-select` | 4.2: the Notes pane with six notes selected (a whole section by one Ctrl+click, "all 4", and two more), the selection's menu, and the foot "6 notes selected" |
+| `from-notes` | 4.2: the window opened from that selection, on Rewrite them, saying where its notes came from |
+| `file-copy` | 4.3: File them with THE FILES on "Copy them in": each file with the pictures that go with it, one already inside the library, and a picture that is not filed |
+| `file-move` | 4.3: the same on "Move them in", with the footer's warning about other files that link to them |
 
 Notes on them:
 
+- **The header button is "Add"**, a menu, on every face of the window (4.1). The six window
+  shots of the first round were shot again for it.
 - **The window** keeps `task_ui::geo`. One change is proposed to it: a saved prompt's row 40 px
   high, not 44, so two rows show whole in the list's 80 px (today the second is cut through).
 - **A picture's row** reads its pixels and size, and at the right what goes: "sent as it is" or
@@ -362,7 +577,9 @@ Undo follows 4.5 with one rule added, in the spirit of D-071:
   are the pictures it shows; folders the run made, if empty; the group's file, if the run made
   it and it is empty again. The question says the numbers (shot `undo`).
 
-"File them" gets a record too (kind `filed`, links only), so the next run of it can be undone.
+"File them" gets a record too (kind `filed`), so the next run of it can be undone: its links,
+the copies it made, and a move in the mover's own form (4.3, which also has the one new thing
+an undo would do: put a moved file back outside the library).
 
 ## 11. Limits and costs
 
@@ -404,6 +621,10 @@ window shows bytes and requests, which are exact, and never money**.
 | Remove location and camera details before sending | **On** | Section 7 |
 | Send larger pictures, for small print | Off | 2576 px, about 2.7 times the cost |
 | Let it add to notes I already have | Off, and disabled until Settings › AI allows it | D-079. Phase A, not in the first build |
+
+"File them" has one choice of its own, beside the task and not under Options: **THE FILES,
+`Link them | Copy them in | Move them in`**, on "Copy them in" (4.3). And Settings › AI has
+"After a run that writes notes" (4.4).
 
 They are kept per task in the settings file, like the window's other choices. A saved prompt can
 carry them (`notes: one`, `text: yes`), so a prompt is a whole recipe.
@@ -502,6 +723,21 @@ pane's Remove; the files are where they always were.
   copied; the record holds each original's path and digest; undo removes copies and notes, and
   keeps a copy whose original is gone, and a note changed since with its pictures; an older
   record still reads.
+- *The ways in* (4.1): one command; it opens on the pane's selection and says so; each line of
+  Add adds what it names; the task it starts on follows what is in it.
+- *The selection* (4.2): Ctrl+click adds and removes and opens nothing; Shift+click takes the
+  range; a section selected means its notes at the moment of use, a folded one too; Esc clears
+  before it does anything else; a re-read keeps the selection by path; removing six lines is
+  one write per library file.
+- *Copy and move* (4.3): a copied file is byte for byte the original when no link needed
+  rewriting; its pictures keep their relative place; a picture outside its folder is not taken
+  and its link still reaches it; a link between two files of the run points at the new place; a
+  taken name becomes `-2`; a file already in the library is only linked; another drive copies;
+  undo of a move puts each file back only at its recorded path, only when that is free, and
+  restores the rewritten links; undo of a copy keeps a picture whose original is gone.
+- *After a run* (4.4): Write notes opens the first note and shows the preview; File them opens
+  nothing and moves the pane; a rewritten file open in a tab holds the new text at once; "Open
+  nothing" opens nothing.
 - *The two faults*: a picture line calls the system's open and opens no tab; File them writes no
   line for a picture; File them leaves a record that undo reverses.
 
@@ -510,7 +746,10 @@ pictures made for it, and a text file), by `--task-demo`: `notes`, `notes-option
 `notes-looking`, `notes-plan`, `notes-plan-one`, `notes-plan-markdown`, `notes-plan-rename`,
 `notes-sent`, `notes-limit`, `notes-failed`, `notes-no-vision`, `notes-off` (the AI off),
 `notes-first-time`; `--dialog run-undo-pictures`; `library-pane-notes-written`; and
-`task-files-pictures` (File them, the pictures not filed). Each looked at in both themes; the
+`task-files-pictures` (File them, the pictures not filed); `task-add` (the Add menu),
+`task-from-notes`, `task-files-copy`, `task-files-move`, `task-files-copy-plan`;
+`library-select`, `library-select-menu`, `library-select-section`; `--dialog
+library-remove-many`, `--dialog run-undo-moved`. Each looked at in both themes; the
 real thumbnails, not the drawn ones of the mock.
 
 **Budgets** (rule 1). Nothing here is on the launch path: the new modules are reached from the
@@ -543,7 +782,16 @@ and to be shown: no figure outside the runs' ranges.
 | V4 | The plan card: tree, the note as it will read and as Markdown, ticks, rename, "Put in…", "Arrange again…", the kept plan | 3 |
 | V5 | The write: the shared writer's variants, the record of kind `notes`, undo's rule for copies, the report, "AI runs…", "AI task on these notes…", "Again…" | 2.5 |
 | V6 | The shots, the budgets measured, DESIGN, STATE, DECISIONS, the release notes | 1 |
-| | **Total** | **18** |
+| | *The pictures task* | *18* |
+| E | 4.1: one command, the Add menu, the tab's own entry, the starting task | 0.5 |
+| O | 4.4: the cause of "no preview after AI" found in a real window; what opens after each task; the setting | 1 |
+| M | 4.2: several notes selected in the Notes pane, the keyboard, the selection's menu and foot, the hand-off to the window and the move card | 3.5 |
+| C1 | 4.3: "Copy them in", with the pictures and the links | 2 |
+| C2 | 4.3: "Move them in", the shared variant, its record and undo | 2.5 |
+| | **Total** | **27.5** |
+
+E, O and F (two and a half days together) each stand alone and answer something the owner
+already ran into; they can ship before any of the rest.
 
 Later, each on its own yes:
 
@@ -553,10 +801,12 @@ Later, each on its own yes:
 | I | "Describe this picture" on an image link of the open document, through the review | 1.5 |
 | S | "Sort this group again…" by AI, links only, with "Move the notes…" offered after | 3 |
 | P | A drop of pictures onto a group in the Notes pane (with phase DD) | 1 |
+| MF | 4.2: the same selection in the Files pane, mouse only, and "AI task on these files…" | 1.5 |
 
 The library plan priced phase V at 6.5 days. That was "pictures placed by what they show" in
 "File them". This is a different thing: a task that writes notes, with its own review, and 18
-days is its honest size. F alone, one day, makes today's library usable.
+days is its honest size. The four points the owner added are nine and a half more. F alone, one
+day, makes today's library usable.
 
 ## 18. Questions for the owner
 
@@ -578,6 +828,19 @@ days is its honest size. F alone, one day, makes today's library usable.
 6. **"What is sent" as a card and not a tab.** Recommended: the card, with "Open the text in a
    tab" on it.
 
+7. **One command, "AI task…", and the document in front as the first line of Add** (4.1).
+   Recommended. The other way is to keep adding it by itself and say so in the window.
+8. **Several files selected in the Files pane too?** Recommended: after the Notes pane, as its
+   own day and a half; it has no keyboard and no menu to build on.
+9. **"File them" on "Copy them in" by default?** Recommended: yes. Nothing of yours changes and
+   the library carries its files; the price is two copies of a text. Say "Link them" to keep
+   today's behaviour as the default, with the switch one click away.
+10. **May undoing a move put files back outside the library folder?** Recommended: yes, under
+    the rule of 4.3 (the recorded path, only if free, only the same bytes). Without it a move
+    in cannot be undone by the program, and I would then not build the move at all.
+11. **After a run that writes notes, open the first one with its preview?** Recommended: yes,
+    with the setting of 4.4 to turn it down.
+
 ## 19. Decisions this plan would take
 
 Recorded as new entries in `docs/DECISIONS.md` on a yes, each naming what it replaces.
@@ -598,6 +861,16 @@ Recorded as new entries in `docs/DECISIONS.md` on a yes, each naming what it rep
 - "File them" leaves a record.
 - The window shows bytes and requests, never money.
 - HEIC, AVIF, TIFF and SVG are not sent.
+- One command opens the window; "AI task on this file…" stays only where the pointer names the
+  file. Changes DESIGN 83's "Not built of 5.6".
+- The Notes pane has a selection of several rows; a section or a group selected means its notes.
+- "File them" may copy or move the files it files, with the pictures inside their own folder,
+  and copies by default. Widens 3.3 of the library plan ("everything a run creates is inside
+  your library") from notes to the files themselves.
+- Undoing a move in may write outside the library, at the recorded path only. **An exception to
+  D-072**, named.
+- After a run that writes notes the first opens with its preview; a rewritten file that is open
+  is re-read at once.
 
 ## 20. What stays out, and what was not checked
 
@@ -609,6 +882,10 @@ the window. Moving or deleting the originals. Keeping a model's answers on disk.
 
 **Not checked for this plan.**
 
+- **"No preview shows up after AI" was not reproduced**, and nothing was run to try. 4.4 is
+  from reading the code; the mdview-window mode of the preview was not traced.
+- The mover's code was read for its rules (D-091, D-093) and its two entry points, not for
+  whether a move from outside the library fits its record as it stands.
 - No request was made to any provider, and neither command line was run with a picture. Their
   flags were read from their help text on this PC.
 - The Claude API's per-picture size, pictures per request and token formula are from memory and
