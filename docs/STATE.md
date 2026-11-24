@@ -78,6 +78,12 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - **"AI edit" stands alone at the toolbar's right end when the preview button is not shown**
   (owner's report, 2026-11-24, for later): with no preview it is cut off from the group it
   belongs with.
+- **The task window's WHERE IT GOES row overlaps** (owner's report, 2026-11-24, for later): the
+  destination path ("…\mdedit\library\test\") is drawn over the "under a section (none)" field.
+- **"AI task on this file…" and "AI task on your files…" do the same thing** (owner's report,
+  2026-11-24): by design the first only adds the document in front to the same window
+  (`app/commands.rs:2161`), which reads as a duplicate. Goes into the pictures plan's workflow.
+- **No preview shows up after an AI task** (owner's report, 2026-11-24, not yet reproduced).
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
 
 ## Known gaps, not planned unless they get in the way
