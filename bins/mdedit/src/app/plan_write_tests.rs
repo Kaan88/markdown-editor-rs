@@ -1173,3 +1173,40 @@ fn the_undo_question_of_a_rewrite_names_each_file_it_puts_back() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Audit 4, B11, the core's half: a write that starts while the plan's own split is out stops
+/// that split, as closing the card does. In "Split them" the next file's card opens at once, and
+/// the answer for this one must not reach it.
+#[test]
+fn writing_the_plan_stops_its_split_that_is_still_out() {
+    super::ai_tests::engine();
+    let dir = scratch("plan-write-split-out");
+    let mut a = app_in(&dir);
+    a.docs.prefs.ai_connection = mdedit_core::ai::Connection::ClaudeApi;
+    let source = dir.join("Trip.md");
+    std::fs::write(
+        &source,
+        "# Tokyo\n\nintro\n\n## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n",
+    )
+    .expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    a.compose();
+    a.plan_ai(crate::plan_ui::AiAct::Ask);
+    let i = a.ai.instruction().expect("the split panel");
+    i.field.set_text("SPLITSLOW take your time");
+    press(&mut a, KeyName::Enter);
+    assert!(a.ai.split.is_some(), "the request is out");
+    assert!(a.plan.is_some(), "the plan is back while it waits");
+    a.plan_write();
+    assert!(a.plan.is_none(), "the plan was written");
+    assert!(a.ai.split.is_none(), "and its split stopped with it");
+    assert!(
+        dir.join("library")
+            .join("Trip")
+            .join("Tokyo")
+            .join("asakusa.md")
+            .is_file()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
