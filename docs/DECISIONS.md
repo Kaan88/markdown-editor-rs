@@ -1936,3 +1936,127 @@ that Stop brings the scheme back to change.
 scheme at a stage where nothing could be changed.
 **Overturned by.** The owner.
 **From.** Audit 4; DESIGN 84. Made by the LIB agent on `fix/audit4-lib`.
+
+## D-191 · 2026-11-24 · A rewrite record is measured in its longest state
+
+**Decision.** This extends D-167. Whether a file's original still fits in a rewrite's record
+(`runs::rewrite_fits`) is measured with the record in the longest state word it can be closed
+with (`State::longest`), not the state it has when the file is added. A record that fits when
+it is written then still reads back after any later state: done, stopped, undone, or an undo
+that was refused (`undo pending`).
+**Why.** The review of the audit 4 fixes, S1: the record was measured as `writing`. One that just
+fit grew 5 bytes past `RECORD_MAX` when an undo was refused and closed it as `undo pending`, and
+it could no longer be read, so Undo was gone for that run: the failure RB2 was about.
+**Overturned by.** A record format that holds more, or a state word longer than the margin.
+**From.** The review of the audit 4 fixes, S1; D-167; audit 4 RB2.
+
+## D-192 · 2026-11-24 · Undo leaves what a later run names
+
+**Decision.** Undo of a run leaves a note or a picture the run marked as its own when a run
+started later names it in a record that is not undone. Its line stays too. The undo question
+says how many ("2 files are a later run's and stay."), and the report lists them under "A
+later run's, kept", each with why (`UndoPlan.later`, `UndoReport.later`). Only the records named
+as started later are read, and not a rewrite's or a move's, which make no notes.
+**Why.** The review of the audit 4 fixes, S2. A F9 marks the notes whose names are free as the
+run's in its first record. A run that died before writing them left that mark; a later run of
+the same plan then found the names free, wrote the notes and ended done. The dead run's undo
+took them, and the later run's record said done with nothing on disk.
+**Overturned by.** The owner; or records that know which run wrote a file by its digest.
+**From.** The review of the audit 4 fixes, S2; audit 4 A F9 (D W5); D-069, D-070.
+
+## D-193 · 2026-11-24 · A run's record keeps what its links did, and undo gives that back byte for byte
+
+**Decision.** A run's record keeps, for each library file its links went into, the text the file
+held before the run's first add and the digest of the text its last add left (`Record.added`).
+It is kept only when the file holds exactly those links added to that text, and only while the
+record still reads back with it. While the file still holds what the run left, undo puts the
+text from before back, byte for byte: its blank lines, its line ends, a missing last newline
+and a byte order mark as they were (`runs::with_removals_added`). A file changed since is undone
+line by line, as before. A writer's gate opts in (`Gate::remove_links_added`, whose default is
+the old `remove_links`); mdedit's does.
+**Why.** The review of the audit 4 fixes, S3: C11's fix took out one blank line after the link,
+right for one shape of file only. An owner's blank line at the end was eaten, a link put above a
+heading left its blank, and a file with no final newline gained one. Recording what the add did
+is exact for every shape.
+**Overturned by.** The owner.
+**From.** The review of the audit 4 fixes, S3; audit 4 C11; rule 8 (the old function stays for a
+caller that does not opt in).
+
+## D-194 · 2026-11-24 · The split's guard stays, with a test of its own
+
+**Decision.** This keeps D-172. `split_asked_here`, which reads a split's answer only on the plan
+screen with the name and outline it was asked for, stays, although every way a plan leaves the
+screen now stops its split first. It has its own test, which answers a split asked for one
+document while another's plan is open.
+**Why.** The review of the audit 4 fixes, T2: after the merge the core's cancel stopped the
+split before the answer came, so the guard could be made always true with every test passing.
+Taking it out would leave one path between an answer and the wrong document's lines; the guard
+costs one comparison.
+**Overturned by.** The owner.
+**From.** The review of the audit 4 fixes, T2; D-172.
+
+## D-195 · 2026-11-24 · "File them" writes the group's file as every library writer does
+
+**Decision.** This extends D-161 to the AI task window. "File them" asks `library_file_free` first,
+so it is refused while the group's library file is open in a tab with changes not saved: the
+file is not written, the window stays for the owner to save and press Add again, and the toast
+says why. It reads the file through `library_text`, so a byte order mark is kept and a file that
+is not UTF-8 is refused and left as it is.
+**Why.** The review of the audit 4 fixes, W1: it read with `read_to_string` and wrote with
+`files::replace`, and never asked whether a tab held the file. The tab's next save then met a
+file changed on disk.
+**Overturned by.** The owner.
+**From.** The review of the audit 4 fixes, W1; D-161; audit 4 RB3.
+
+## D-196 · 2026-11-24 · A long name gets a short temporary, and UTF-16 is found behind a UTF-8 mark
+
+**Decision.** This extends D-161.
+- `files::replace` gives a file whose name is too long to carry `.part` a short temporary of its
+  own beside it, so such a file can still be replaced.
+- `files::utf16_marked` finds a UTF-16 mark after a UTF-8 one too. Shared `put_note` and
+  mdedit's `library_text` both use it, so a file that begins `EF BB BF FF FE` is refused as
+  UTF-16.
+**Why.** The review of the audit 4 fixes, its RB3 and RB5 nits: a name of 251 characters or more
+could not be replaced on Windows (the old `.tmp` had the same limit one character later), and
+the UTF-16 test looked at the raw bytes, so a UTF-8 mark hid the UTF-16 one.
+**Overturned by.** The owner.
+**From.** The review of the audit 4 fixes, nits RB3 and RB5; D-161.
+
+## D-197 · 2026-11-24 · One way to make the rows again, and one library-folder check
+
+**Decision.** This extends D-181 and D-165.
+- Every rebuild of the notes pane's rows goes through `App::library_build`. A rebuild that takes
+  a name box out first takes the row of an open menu before the box goes.
+- `note.rs`'s two checks of a note's group compare by `library_write::same_folder`, as every
+  other check of the library folder does.
+**Why.** The review of the audit 4 fixes, its A F16 and A F14 nits: seven direct
+`ui.library.build` calls were left, so D-181's "every re-read" was not true, and taking a name
+box out moves every row under it. `note.rs` still compared with `same_path`, which `home:
+Recipes/..` passes.
+**Overturned by.** The owner.
+**From.** The review of the audit 4 fixes, nits A F16 and A F14; D-181, D-165.
+
+## D-198 · 2026-11-24 · What the review of the audit 4 fixes leaves
+
+**Decision.**
+- **B5 is left.** A drop or the picker's answer still adds files while a request is out. The
+  files are appended, so every index the request holds stays right, and what was asked does not
+  change; D-168 keeps the task, the prompt and the group, which would change it.
+- **RB5's stamp is left.** A write of the same size inside the clock's step is not seen. It is
+  the stamp every caller uses.
+- **RB2's cost is left.** `rewrite_fits` serialises the record once per file, on a click of
+  Apply, not on launch, a key or a scroll.
+- **D4 without `MaxCapacity` is left.** Windows' default share is not a fixed number to check
+  against, and the files that go to the bin are text files far below any drive's share.
+- **mdview's E5, E7, E8 and E12 nits are left**, with their reasons in mdview's `HANDOFF.md`:
+  the first Ctrl+P after a read resolves the notes on the UI thread (1.6 ms for 400); a refused
+  tick keeps the page still once (a protocol change); the zoom view's scale rule and the Notes
+  switch a frame late are as decided.
+- **Two test-only switches** stand in for what no test can stage on disk: shared's
+  `runs::DIES_AT` (A F9), a constant false in a build, and mdedit's `plan_write::REFUSE_LINKS`
+  (the review's T4), compiled into the tests only, which refuses the write of a run's links as
+  a race would.
+**Why.** Each is either a cost off the paths the budgets measure, a guess, or a change to both
+apps' protocol.
+**Overturned by.** The owner.
+**From.** `docs/review-prompts/audit4/FIXES.md`, "The review of the fixes".

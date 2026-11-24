@@ -2414,7 +2414,12 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   the file, and `folders` lists only the folders that were not there, each parent the run made
   included; the record is written at step 1 with `created` false and no folder, again after the
   notes are written, and again when the group's file is made. A record with no `created` says
-  false. `RECORD_VERSION` is 1: `prune` keeps the newest 20 or the last 90 days **of the records
+  false. The record also keeps, for each library file the links went into, the text it held
+  before the run's first add and the digest of what its last add left (`added`, D-193), kept
+  only when the file holds exactly those links added to that text and the record still reads
+  back with it. A rewrite's record is measured in its longest state word, so one that fits when
+  written still reads back as `undo pending` (`rewrite_fits`, D-191). `RECORD_VERSION` is 1:
+  `prune` keeps the newest 20 or the last 90 days **of the records
   that load**, and a file that does not (a later version's, or not a record) is never counted and
   never deleted; `list_all` gives those as `Unread`, which "AI runs..." draws with nothing in the
   row to press.
@@ -2441,7 +2446,11 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   undo is refused (D-071); a recycled one must be back. (2) The links, first: the exact recorded
   line under the recorded section; a line edited or moved is kept with its note. The links and the
   headings come out in one text, `runs::with_removals`, which the window's gate and the tests' gate
-  both call; the gate says an error when nothing was written. (3) **The library is read again from
+  both call; the gate says an error when nothing was written. While the file still holds what
+  the run's add left (`added`), the window's gate gives back the text from before the add, byte
+  for byte, blank lines, line ends, a missing last newline and the byte order mark as they were
+  (`with_removals_added` through `Gate::remove_links_added`, D-193); a file changed since is
+  undone line by line. (3) **The library is read again from
   its files** (`list_library`: every `.md` directly in the folder, past the reader's 512, up to
   4,096, a file over 1 MiB as the reader takes it) and **a note is removed only if no library file
   lists it** (D-070): the plan says so beforehand (`held`, `links_kept`), and `undo` checks again
@@ -2449,7 +2458,9 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   (`symlink_metadata`, never a link), with the recorded SHA-256 read through a 64 MiB cap, and
   re-read as it goes. A file that was there before the run is `before`: its line comes out, it
   stays. A note open in a tab with changes not saved is kept, with its line, and said
-  (`recycle::SparingUnsaved`, D-158). (4) The group's file when `group.created` and only its
+  (`recycle::SparingUnsaved`, D-158). A note or picture a run started later names, in a record
+  not undone, is that run's (`later`): it stays with its line, the question says "2 files are a
+  later run's and stay.", and the report lists them under "A later run's, kept" (D-192). (4) The group's file when `group.created` and only its
   heading and `home:` are left. (5) The folders the record lists, deepest first, while empty,
   never a link. (6) The record is marked `undone`, or `undo pending` when a link could not be
   taken out or the bin would not take a note (D-156): Undo can be pressed again, Finish is no
@@ -2474,14 +2485,16 @@ re-exported as `mdedit_core::runs` (shared since phase S3, D-081; no window, no 
   tab read it. Reload it first: the notes are made from the file on disk." (`app/plan.rs`, D-155).
 - **The Notes pane's foot** draws "Plan ready: N notes · Show · Drop" while a plan is parked; the
   count and the parked flag are in the Files region's signature.
-- Shots: `--dialog runs|run-undo|run-undo-recycled|run-undo-original|runs-newer`, and `--plan-demo split --plan-parked`.
+- Shots: `--dialog runs|run-undo|run-undo-recycled|run-undo-original|run-undo-later|run-undone-later|runs-newer`, and `--plan-demo split --plan-parked`.
 - Tests: `mdshared_app::runs` (24 in the module, in the shared repo) and `crates/mdedit-core/tests/undo_rules.rs` (28: each
   of D-069 to D-072 forced on disk, and each one fails with its fix reverted; a finished run under
   a section undone with its heading), `app::plan_write_tests` and `app::undo_rules_tests` (5: the
   window's gate, the flat undo, the refusal when the original is gone, the list of unreadable
   records). The links-pending test stands the group's file there beforehand and blocks every
   temporary name `files::replace` would take, so the write of step 6 is the one thing that fails;
-  it then checks Finish once the names are free. `app::library_write_tests` has the owner's
+  it then checks Finish once the names are free. Links pending with a group file the run made
+  is staged by a switch compiled into the tests only (`plan_write::REFUSE_LINKS`): the file
+  stands with no link, and Undo takes it with the notes. `app::library_write_tests` has the owner's
   `.tmp` left alone, a BOM kept, a file not UTF-8 left as it is, and the template never written
   over a `notes.md`.
 - **Not built:** the progress row and Cancel (the write runs between frames), so a run is never
@@ -2546,7 +2559,8 @@ keeps the drawing, the cursor, folding and the name box.
   and the label's two numbers) and `app::library_pane_tests` (the text arrives from the thread with the old rows
   still on screen, a stale result is dropped and `checked` cleared, the cursor follows its note,
   a row's menu left open closes when its row is another after the read and stays when it is not
-  (`App::library_build`, through which every re-read makes the rows; audit 4 F16, D-181),
+  (`App::library_build`, through which every rebuild of the rows goes, the row of an open menu
+  taken before a name box goes; audit 4 F16, D-181, D-197),
   closing the pane and switching the face drop a running read, the slim copy holds no notes, the
   omitted count repaints the pane, and an add shows the note at once under a folded group or a
   folded section, the keyboard back in the text when a name being typed is dropped).
@@ -3316,6 +3330,10 @@ file the answer leaves out is under "NOT PLACED", unticked. With the AI off the 
 here instead: every file under the section typed beside the destination. Written then, in order,
 one read-back per link: a name derived by the library's own rule, under the sections, a relative
 link from the group's file (`link_path`), the group's file made first with its `home:` when new.
+An existing group's file is written as every library writer writes it (D-195): refused while a
+tab holds it with changes not saved (`library_file_free`; the window stays, the toast says why),
+read by `library_text` (a byte order mark kept, a file not UTF-8 refused and left as it is) and
+written by `library_put_text`.
 The plan face shows each file's title and `→` section, and "Add N to the library".
 
 **Split them.** Each file's plan card in turn (5.1–5.3, unchanged), opened from the file rather

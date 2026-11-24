@@ -1,7 +1,7 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-24, on `fix/audit4`, once audit 4's three
-mdedit branches were merged into it. If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-24, on `fix/audit4`, once the findings of
+the review of audit 4's fixes were fixed on it. If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -51,17 +51,17 @@ mdedit branches were merged into it. If `git log -1` is newer, doubt "In hand" f
 - **Audit 4's fixes**, on branches only, none merged to a `main`. Every finding's state, test,
   revert check and what is left is in `docs/review-prompts/audit4/FIXES.md`; where each branch
   stands, in `PAUSED.md` beside it.
-  - mdedit `fix/audit4` holds all three mdedit agents' work: the core's, and the merges of
-    `fix/audit4-ai` (`6c1867e`, report B) and `fix/audit4-lib` (`f070775`, report C). It pins
-    shared at `d1330b0`, a development pin, and its own fold of `..` is gone (`e5873f2`).
-    D-155 to D-190. The merge found one fault, fixed: writing a plan stopped its split and left
-    the status line saying it was out (B11). On Windows: fmt and clippy clean, the workspace's
-    tests 1571 passed, the shots checked; not on Linux or macOS, and CI has not run on it.
-  - Shared `fix/audit4` is finished at `d1330b0`; shared `main` (`0984eed`) has not moved since.
-    mdview's `fix/audit4` pins `d1330b0` too (`9903fbd`), green, its shots unchanged.
-  - Next for them: one Fable agent reviews the fixes against `FIXES.md`. Then shared's branch to
-    its `main`, both apps' pins to that commit, and the apps' branches to theirs; their `wip:`
-    commits are dealt with then.
+  - mdedit `fix/audit4` holds all three mdedit agents' work and the fixes of Fable's review of
+    them (`md-wt\review-a4fix`; `FIXES.md`, "The review of the fixes"; D-191 to D-198): a
+    rewrite record measured in its longest state, undo leaving what a later run names and giving
+    the library file back byte for byte, "File them" writing as every library writer, and the
+    tests it asked for. D-155 to D-198. It pins shared at `ef88814`, a development pin. On
+    Windows: fmt and clippy clean, 1583 tests passed, 400 shots checked; not on Linux or macOS,
+    and CI has not run on it.
+  - Shared `fix/audit4` is at `ef88814` (754 passed); shared `main` (`0984eed`) has not moved.
+    mdview's `fix/audit4` pins `ef88814` too (`bc33a45`), green, its shots unchanged.
+  - Next for them: shared's branch to its `main`, both apps' pins to that commit, and the apps'
+    branches to theirs; their `wip:` commits are dealt with then.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
@@ -82,7 +82,7 @@ mdedit branches were merged into it. If `git log -1` is newer, doubt "In hand" f
 
 ## Next
 
-1. Audit 4's fixes: the review against `FIXES.md`, then the merges to `main`, shared first.
+1. Audit 4's fixes, reviewed and fixed again: the merges to `main`, shared first, then CI.
    The owner's four faults from the hand check (D-101) are merged; the closed mdview is still to
    be tried (first: whether it is missed with mdview 1.0.5 too).
 2. Then the owner's look at R2's shots (and whether to add the viewer's page rows for the tinted
@@ -132,7 +132,7 @@ Linux blur, image paste on Linux, the AppImage and packages, the macOS builds, t
 installer, an installed copy updating itself, and `hub.txt` read by Hub from a real release.
 
 ## Pins, branches, worktrees (tidied 2026-11-23)
-- Shared crates at `0984eed` in both apps on `main`; at `d1330b0` (shared's `fix/audit4`, a
+- Shared crates at `0984eed` in both apps on `main`; at `ef88814` (shared's `fix/audit4`, a
   development pin) on both apps' `fix/audit4`. Viewer crates at viewer `e2b3e31`; winit
   `62fa727`, softbuffer `dd18fec`.
 - Branches: `main`; `fix/audit4` (open), with `fix/audit4-ai` and `fix/audit4-lib` merged into it
