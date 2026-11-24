@@ -147,6 +147,7 @@ fn the_group_menu_offers_it_and_a_text_file_becomes_a_note_with_the_original_unt
 #[test]
 fn undo_from_ai_runs_takes_the_note_and_its_line_out_again() {
     let (mut a, p) = lib("note-undo");
+    let before = read(&p.group);
     open_card(&mut a, &p);
     answer(&mut a, "# Pasta\n\n- Boil it.\n");
     let note = target(&a);
@@ -168,6 +169,8 @@ fn undo_from_ai_runs_takes_the_note_and_its_line_out_again() {
     assert!(!note.exists(), "the note goes");
     let group = read(&p.group);
     assert!(!group.contains("pasta-notes"), "{group}");
+    // Byte for byte what it was, with no blank line left where the link was (audit 4, C11).
+    assert_eq!(group, before);
     assert_eq!(read(&p.source), "PASTA\n\nboil it.\n");
     let _ = std::fs::remove_dir_all(&p.dir);
 }
@@ -393,5 +396,188 @@ fn every_demonstration_opens_its_state_and_refuses_to_send_or_write() {
     let (from, to) = demo_texts();
     assert!(from.contains("PASTA NOTES"));
     assert!(to.contains("# Pasta notes"));
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
+
+/// Audit 4, C3: the name the card chose was free when it opened; a file that takes it while the
+/// answer is out is never written over, and the note gets the next free name, which its line
+/// names. Before the fix the write failed, the card and the answer were gone, and a record of a
+/// note never made was left in "AI runs…".
+#[test]
+fn a_name_taken_while_the_answer_was_out_gives_the_note_the_next_free_name() {
+    let (mut a, p) = lib("note-taken-late");
+    open_card(&mut a, &p);
+    answer(&mut a, "# Pasta\n\nBoil it.\n");
+    let first = target(&a);
+    assert_eq!(first.file_name().unwrap(), "pasta-notes.md");
+    std::fs::write(&first, "someone else's file\n").unwrap();
+    press(&mut a, KeyName::Enter);
+    assert!(a.note.is_none(), "written: {:?}", toast(&a));
+    assert_eq!(read(&first), "someone else's file\n", "never written over");
+    let second = p.library.join("Recipes").join("pasta-notes 2.md");
+    assert_eq!(read(&second), "# Pasta\n\nBoil it.\n");
+    assert!(
+        read(&p.group).contains("(<Recipes/pasta-notes 2.md>)"),
+        "{}",
+        read(&p.group)
+    );
+    let (list, _) = mdedit_core::runs::list_all(&a.library_dir().unwrap());
+    assert_eq!(list.len(), 1);
+    assert!(list[0].record.notes[0].created);
+    assert_eq!(list[0].record.notes[0].path, second);
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
+
+/// Audit 4, C3: a write that starts and then makes no note (here its folder cannot be made: a
+/// file is where the folder's parent would be) keeps the card, the answer and a button that can
+/// be pressed again, says why, writes no line, and leaves no record of a run that did nothing.
+#[test]
+fn a_write_that_makes_no_note_keeps_the_card_and_the_answer_and_leaves_no_record() {
+    let (mut a, p) = lib("note-no-folder");
+    // The group's folder is under `library/Recipes`, which is a file, not a folder.
+    std::fs::remove_dir_all(p.library.join("Recipes")).unwrap();
+    std::fs::write(p.library.join("Recipes"), "a file\n").unwrap();
+    std::fs::write(&p.group, "# Recipes\nhome: Recipes/Pasta\n").unwrap();
+    a.library_rows();
+    let group_before = read(&p.group);
+    open_card(&mut a, &p);
+    assert!(
+        a.note.as_ref().unwrap().blocked.is_none(),
+        "nothing refuses it before the write: {:?}",
+        a.note.as_ref().unwrap().blocked
+    );
+    answer(&mut a, "# Pasta\n\nBoil it.\n");
+    press(&mut a, KeyName::Enter);
+    let card = a.note.as_ref().expect("the card stays, with its answer");
+    assert_eq!(card.result, "# Pasta\n\nBoil it.\n");
+    assert_eq!(card.phase, Phase::Changes);
+    let why = card.notice.clone().unwrap_or_default();
+    assert!(why.contains("could not be written"), "{why}");
+    assert!(why.contains("Pasta"), "the reason names what failed: {why}");
+    assert!(card.problem().is_none(), "the button can be pressed again");
+    assert_eq!(toast(&a), why, "and the toast says it");
+    assert_eq!(read(&p.group), group_before, "no line was written");
+    let library = a.library_dir().unwrap();
+    let (list, newer) = mdedit_core::runs::list_all(&library);
+    assert!(
+        list.is_empty() && newer.is_empty(),
+        "no record of a run that made nothing: {list:?}"
+    );
+    let runs_dir = library.join(".runs");
+    let left: Vec<String> = std::fs::read_dir(&runs_dir)
+        .map(|d| {
+            d.filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(left.is_empty(), "nothing left in .runs: {left:?}");
+    // With the folder in its place, a second press writes the note.
+    std::fs::remove_file(p.library.join("Recipes")).unwrap();
+    press(&mut a, KeyName::Enter);
+    assert!(a.note.is_none(), "written the second time: {:?}", toast(&a));
+    assert_eq!(
+        read(
+            &p.library
+                .join("Recipes")
+                .join("Pasta")
+                .join("pasta-notes.md")
+        ),
+        "# Pasta\n\nBoil it.\n"
+    );
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
+
+/// Audit 4, C3: what a run that made no note leaves is taken away whole: the folders it made
+/// (while they are empty) and its record with the record's log.
+#[test]
+fn a_run_that_made_no_note_takes_its_record_and_its_empty_folders_away() {
+    let dir = scratch("note-discard");
+    let runs = dir.join(".runs");
+    std::fs::create_dir_all(&runs).unwrap();
+    let record = runs.join("2026-11-24T10-00-00Z-markdown.json");
+    std::fs::write(&record, "{}").unwrap();
+    std::fs::write(record.with_extension("done"), "started\n").unwrap();
+    let made = dir.join("Recipes");
+    let deeper = made.join("Pasta");
+    std::fs::create_dir_all(&deeper).unwrap();
+    let kept = dir.join("Kept");
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::write(kept.join("a.md"), "mine\n").unwrap();
+    // Parents first, as a record lists the folders its run made.
+    super::note::discard_run(Some(&record), &[made.clone(), deeper.clone(), kept.clone()]);
+    assert!(!record.exists() && !record.with_extension("done").exists());
+    assert!(
+        !deeper.exists() && !made.exists(),
+        "the empty folders the run made go"
+    );
+    assert!(
+        kept.join("a.md").is_file(),
+        "a folder holding anything stays"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, C12: a source with bare CR line ends (an old Mac file) gives a note with LF ends,
+/// and its lines are counted as lines.
+#[test]
+fn a_source_with_bare_carriage_returns_gives_a_note_with_line_feeds() {
+    let (mut a, p) = lib("note-cr");
+    std::fs::write(&p.source, "PASTA\r\rboil it.\rdrain it.\r").unwrap();
+    open_card(&mut a, &p);
+    let card = a.note.as_ref().unwrap();
+    assert_eq!(card.source.eol, "\n");
+    assert_eq!(card.source.lines, 4);
+    answer(&mut a, "# Pasta\r\r- Boil it.\r- Drain it.\r");
+    let note = target(&a);
+    press(&mut a, KeyName::Enter);
+    let written = std::fs::read(&note).unwrap();
+    assert!(
+        !written.contains(&b'\r'),
+        "{:?}",
+        String::from_utf8_lossy(&written)
+    );
+    assert_eq!(written, b"# Pasta\n\n- Boil it.\n- Drain it.\n");
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
+
+/// Audit 4, C12: the text on the card and the digest the write compares are of one read of the
+/// file, so a file that changes between the two cannot give a card whose check passes against
+/// the wrong text.
+#[test]
+fn the_cards_text_and_digest_are_of_the_same_bytes() {
+    let (mut a, p) = lib("note-one-read");
+    open_card(&mut a, &p);
+    let card = a.note.as_ref().unwrap();
+    let bytes = std::fs::read(&p.source).unwrap();
+    assert_eq!(card.source.text.as_bytes(), bytes.as_slice());
+    assert_eq!(card.source.len, bytes.len() as u64);
+    assert_eq!(card.source.sha256, mdshared_app::update::sha256_hex(&bytes));
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
+
+/// Audit 4, C12: a refusal at the write that can pass on a second try (here the group filled to
+/// 2,000 notes while the answer was out, then emptied again) keeps the card and its button, and
+/// the second press writes the note. Before, it disabled the button for good.
+#[test]
+fn a_refusal_at_the_write_that_can_pass_leaves_the_button_on() {
+    let (mut a, p) = lib("note-refused-then");
+    open_card(&mut a, &p);
+    answer(&mut a, "# Pasta\n\n- Boil it.\n");
+    let note = target(&a);
+    let before = read(&p.group);
+    let mut full = before.clone();
+    for n in 0..mdshared_app::library::MAX_ENTRIES {
+        full.push_str(&format!("- [Note {n}](note-{n}.md)\n"));
+    }
+    std::fs::write(&p.group, &full).unwrap();
+    press(&mut a, KeyName::Enter);
+    let card = a.note.as_ref().expect("the card stays");
+    assert!(card.blocked.is_none(), "the button stays on");
+    assert!(card.notice.is_some(), "the footer says why");
+    assert!(!note.exists());
+    std::fs::write(&p.group, &before).unwrap();
+    press(&mut a, KeyName::Enter);
+    assert!(note.is_file(), "the second press writes it");
     let _ = std::fs::remove_dir_all(&p.dir);
 }

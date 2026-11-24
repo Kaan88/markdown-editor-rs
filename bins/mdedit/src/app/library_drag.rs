@@ -10,6 +10,7 @@
 //! file name; what dragging those should do is the owner's to say.
 
 use super::*;
+use crate::keys::KeyName;
 use crate::library_pane::{self, Kind, RowId};
 use crate::ui::{Drag, PaneFace};
 use std::time::Instant;
@@ -24,33 +25,50 @@ impl App {
             .is_some_and(|r| matches!(r.kind, Kind::Note { .. }))
     }
 
+    /// A press on note row `i` at `(x, y)`: the drag waits to move, and the pane holds the note
+    /// by what it is, so the release acts on this note whatever the rows become meanwhile.
+    pub(super) fn library_drag_press(&mut self, i: usize, x: f32, y: f32) {
+        self.ui.library.hold(i);
+        self.ui.drag = Some(Drag::LibraryNote {
+            row: i,
+            x,
+            y,
+            moving: false,
+        });
+    }
+
     /// The pointer moved while a note is held: the heading it would go into is marked, and a
     /// pointer at the pane's edge starts the scroll.
-    pub(super) fn library_drag(&mut self, source: usize, y: f32) {
+    pub(super) fn library_drag(&mut self, x: f32, y: f32) {
         let area = self.areas.files.map(library_pane::list);
-        self.ui.library.drop = area.and_then(|a| self.ui.library.drop_row(y, a, source));
-        self.library_drag_arm(y);
+        self.ui.library.drop = area.and_then(|a| self.ui.library.drop_row(x, y, a));
+        self.library_drag_arm(x, y);
         self.set_cursor(CursorIcon::Grabbing);
         self.redraw();
     }
 
     /// While a note is held at the top or the bottom of the pane, a scroll step a tick, so a
-    /// note can go to a heading that was out of sight when the drag began.
-    fn library_drag_arm(&mut self, y: f32) {
+    /// note can go to a heading that was out of sight when the drag began. Only over the pane:
+    /// a pointer carried over the editor at that height scrolls nothing.
+    fn library_drag_arm(&mut self, x: f32, y: f32) {
         let Some(area) = self.areas.files.map(library_pane::list) else {
             return;
         };
+        let over = x >= area.x && x < area.right();
         let near = y < area.y + 12.0 || y > area.bottom() - 12.0;
-        self.ui.autoscroll_due = near.then(|| Instant::now() + AUTOSCROLL_TICK);
+        self.ui.autoscroll_due = (over && near).then(|| Instant::now() + AUTOSCROLL_TICK);
     }
 
     /// One step of that scroll, and the pointer's place looked at again.
-    pub(super) fn library_drag_scroll(&mut self, source: usize) {
+    pub(super) fn library_drag_scroll(&mut self) {
         let Some(area) = self.areas.files.map(library_pane::list) else {
             return;
         };
-        let y = self.ui.mouse.1;
-        let step = if y < area.y + 12.0 {
+        let (x, y) = self.ui.mouse;
+        let over = x >= area.x && x < area.right();
+        let step = if !over {
+            0.0
+        } else if y < area.y + 12.0 {
             -mdshared_ui::pane::ROW
         } else if y > area.bottom() - 12.0 {
             mdshared_ui::pane::ROW
@@ -59,22 +77,57 @@ impl App {
         };
         if step != 0.0 {
             self.ui.library.scroll_by(step);
-            self.ui.library.drop = self.ui.library.drop_row(y, area, source);
+            self.ui.library.drop = self.ui.library.drop_row(x, y, area);
             self.redraw();
         }
-        self.library_drag_arm(y);
+        self.library_drag_arm(x, y);
+    }
+
+    /// A key while a note is held and moving: `Esc` puts it back where it was, and every other
+    /// key is kept from the pane and the text, so nothing rebuilds the rows or acts on a row
+    /// mid-drag (audit 4, C2). True when the key was taken here.
+    pub(super) fn library_drag_key(&mut self, name: Option<&KeyName>) -> bool {
+        if !matches!(self.ui.drag, Some(Drag::LibraryNote { moving: true, .. })) {
+            return false;
+        }
+        if name == Some(&KeyName::Escape) {
+            self.ui.drag = None;
+            self.ui.library.let_go();
+            self.ui.autoscroll_due = None;
+            self.set_cursor(CursorIcon::Default);
+            self.redraw();
+        }
+        true
+    }
+
+    /// The button came up on a press that held a note: without a move it is the click a note row
+    /// always was, with one it is a drop. Either acts on the note pressed, found by what it is,
+    /// and on nothing when that note is no longer in the rows.
+    pub(super) fn library_note_release(&mut self, moving: bool) {
+        let held = self.ui.library.held_at;
+        if moving {
+            self.library_drag_release();
+        } else {
+            self.set_cursor(CursorIcon::Default);
+            if let Some(row) = held {
+                self.activate(Hit::LibraryRow(row));
+            }
+        }
+        self.ui.library.let_go();
     }
 
     /// The button came up: the note goes under the heading it was dropped on. A pointer that is
     /// not on a row, or on the note's own heading, moves nothing and says nothing.
-    pub(super) fn library_drag_release(&mut self, source: usize) {
-        self.ui.library.drop = None;
+    fn library_drag_release(&mut self) {
         self.ui.autoscroll_due = None;
         self.set_cursor(CursorIcon::Default);
         let Some(area) = self.areas.files.map(library_pane::list) else {
             return;
         };
-        let Some(target) = self.ui.library.drop_row(self.ui.mouse.1, area, source) else {
+        let (x, y) = self.ui.mouse;
+        let target = self.ui.library.drop_row(x, y, area);
+        self.ui.library.drop = None;
+        let (Some(target), Some(source)) = (target, self.ui.library.held_at) else {
             return;
         };
         let Some((file, section)) = self.ui.library.row_place(target) else {
@@ -172,6 +225,7 @@ impl App {
             return true;
         };
         self.ui.library.set_cur(from);
+        self.ui.library.hold(from);
         self.ui.library.drop = Some(to);
         if let Some(row) = self.hit_rect(Hit::LibraryRow(to)) {
             self.ui.mouse = (row.x + 96.0, row.cy());

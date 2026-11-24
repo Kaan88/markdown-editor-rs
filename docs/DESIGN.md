@@ -3055,29 +3055,37 @@ away, so the window knows a file arrived but not which row it fell on (D-130).
 
 **Where the state is.** `Drag::LibraryNote { row, x, y, moving }` in `ui.rs` is the press: the
 row, the pointer where it was pressed, and whether it has become a move (after 4 px in either
-direction). `LibraryPane::drop` is the row the note would go into,
-kept so the drawing and the release agree. A press on a note is no longer a button (`ui.pressed`);
-`left_release` takes it: without a move it activates the row exactly as a click did, with one it
-drops. `Esc` while it moves clears both, before any other key handling, so nothing is written.
+direction). The pane holds the note pressed by what it is, not by its index
+(`LibraryPane::hold`, a `RowId`; `held_at` is its row as the rows are now): `build()` finds it and
+the marked heading again whenever the rows are made again, so the release acts on the note that
+was pressed, and on nothing when it is no longer in the rows (audit 4, C2). `LibraryPane::drop`
+is the row the note would go into, kept so the drawing and the release agree. A press on a note
+is no longer a button (`ui.pressed`); `left_release` takes it (`library_note_release`): without a
+move it activates the held note's row exactly as a click did, with one it drops. While a note is
+held and moving, `library_drag_key` takes every key before any other handling: `Esc` clears the
+drag, the hold and the timer, so nothing is written, and every other key is kept from the pane
+and the text, so nothing folds, removes or renames a row mid-drag.
 
-**Where a drop goes.** `LibraryPane::drop_row(y, area, source)` turns the pointer's y into a row
-(the list's own geometry: `list(r)`, `ROW`), and a note row stands for the heading it is written
-under, so dropping on a note goes into its section. The row must be a group or a section, and the
+**Where a drop goes.** `LibraryPane::drop_row(x, y, area)` turns the pointer into a row (the
+list's own geometry: `list(r)`, `ROW`); a point beside the pane at a row's height is on no row, so
+a note let go over the editor moves nothing (audit 4, C1). A note row stands for the heading it is
+written under, so dropping on a note goes into its section. The row must be a group or a section, and the
 place must differ from the note's own (same library file, same heading path, headings compared
 without regard to ASCII case as the library compares them); otherwise there is no mark and a drop
 there writes nothing. `row_place` and `note_place` answer with the library file and heading path.
 
 **The move.** `app/library_drag.rs`: `library_drag_release` reads the row under the pointer again
-at the button's release, takes the note's file, line, title and path from the pane's rows, and
-calls `library_move`. On success the target heading is unfolded, the rows are made again and the
+at the button's release, takes the held note's file, line, title and path from its row as the
+rows are now, and calls `library_move`. On success the target heading is unfolded, the rows are made again and the
 cursor follows the note to its new row (the note may have left the screen). A refused write says
 why in the toast it always did.
 
-**Holding at the edge.** A pointer within 12 px of the list's top or bottom arms `autoscroll_due`
-(the selection drag's timer, `AUTOSCROLL_TICK`); each tick `library_drag_scroll` moves the list one
-row toward the pointer and looks up the target again, and re-arms while the pointer stays there.
-The release and `Esc` clear the timer. While a note is held, `library_tick` does not take a
-finished read or start one, so the row indices the drag holds cannot move under it.
+**Holding at the edge.** A pointer over the pane within 12 px of the list's top or bottom arms
+`autoscroll_due` (the selection drag's timer, `AUTOSCROLL_TICK`); each tick `library_drag_scroll`
+moves the list one row toward the pointer and looks up the target again, and re-arms while the
+pointer stays there. A pointer over the editor at that height scrolls nothing. The release and
+`Esc` clear the timer. While a note is held and moving, `library_tick` does not take a finished
+read or start one; anything else that makes the rows again is followed by the note's identity.
 
 **Drawing.** The target row is drawn as the pane's keyboard row is: a filled rounded box in the
 accent colour with a 1 px inner box of the selection tint, before the row's icons and text. The
@@ -3094,7 +3102,11 @@ dragged across groups is listed in the other file only; a note dropped on its ow
 nothing and says nothing; a drag let go outside the pane moves nothing and opens nothing; `Esc`
 abandons it; a press and release is still a click; an unsaved library file refuses the drop with
 its word; a hold at the edge scrolls; and the drawing changes in the target row, the row held and
-the chip and nowhere else. Each was proved by reverting its fix and watching it fail.
+the chip and nowhere else. Audit 4 added: a note let go over the editor at a row's height is not
+moved and the edge scroll is not armed there; a key while a note is held reaches nothing and the
+note moved is the one held; rows made again under a held note still move that note; and a click
+opens the note pressed after the rows were made again. Each was proved by reverting its fix and
+watching it fail.
 
 **Shots:** `library-drag` and `library-drag-dark` (`--library-demo drag`): a made-up library with
 "Asakusa and the river" held over "Food", the chip at the pointer.
@@ -3118,6 +3130,15 @@ app). Three pieces, in the shape the plan and the move already have:
   `MAX_SECTIONS` = 3; a fourth is folded into the third), its title (the first `#` heading outside
   a fence, else its name) and its first `PREVIEW_LINES` lines. Nothing there can panic on what a
   folder holds: names are read lossily and a heading is looked for at a character boundary.
+  Audit 4 bounded and narrowed it. It stops after `MAX_READ` (50,000) entries read or at a folder
+  `MAX_DEPTH` (64) deep, with `stopped` set, and the plan of such a walk is refused with that
+  reason rather than written in part (C8, C12). A title is one line, a bare CR ending a line as LF
+  does (an old Mac file), with control characters turned to spaces and at most `TITLE_MAX` (200)
+  characters (C7). The window's walk is `walk_for(folder, library)`: the library folder, when the
+  folder picked holds it, is left out (`library_left_out`, C5), and a file whose line a library
+  file would not read back as that file -- `%20` in its name, which the shared reader takes for a
+  space -- is left out and kept in `unlinkable` for the card to name, so one such name no longer
+  refuses the whole folder at Add (C6).
 - **The plan** (`import::plan`): files the group's library file already lists come unticked and
   marked, and `tick_all` leaves them so; a section row's box is ticked when everything under it
   is, unticked when nothing is, and drawn with a dash between the two (a section row's click
@@ -3126,17 +3147,30 @@ app). Three pieces, in the shape the plan and the move already have:
   `problem()` adds the two it knows as they change: nothing ticked, and a group that would pass
   2,000 with both numbers. A group or subfolder whose name ends in `#` (or a heading that reads
   back as nothing) is refused: the library's reader strips a closing run of `#`, so `C#` would
-  come back as `C`.
+  come back as `C`. A file the group lists by a path with `.` or `..` in it is the same file
+  (`tree::same_note`), and sections that differ only in ASCII case are one row, as the section's
+  box and the library's writer already took them (audit 4, C12).
 - **The write** (`bins/mdedit/src/app/importing.rs`): the folder becomes the group -- its name,
   and `home:` naming the folder, relative to the library when it is inside it so the library can
   move as a whole -- and the links go into one library file, `tree::link_path` relative inside the
   library and whole outside it. A library that already has a group of that name is joined: its
-  file, its `home:`, its notes. It is one `library::rewrite` -- the whole file made again and
-  renamed into place, so a crash leaves the old file -- and the card closes on success. Refused
-  with the card left open and the reason in the footer: a group file open with unsaved changes
-  (it would be thrown away), a link that does not sit in the library or the group's home, and the
-  library being rewritten by another run. The saved group file is opened after the write, the
-  notes pane turns to the Notes face, and the toast counts the lines.
+  file, its `home:`, its notes -- when its `home:` is the folder picked or a folder that holds it,
+  or it names none. A group of that name that keeps its notes in another folder refuses the
+  plan, naming the group and that folder, and the card's group line names the group's own folder,
+  not the one picked; the `home:` is read again at Add (audit 4, C4; the owner may choose to join
+  such a group instead). The dry run comes first, on the text as it reads now. A new group's file
+  is then made whole -- heading, `home:` and links -- by one exclusive `files::create_new`, so no
+  moment holds a group with no notes and a file that took the name meanwhile is left alone (C9);
+  links into a group the library has go in through `library_attempt_at`, which re-reads, checks
+  and writes atomically. The card closes on success. Refused with the card left open and the
+  reason in the footer, the button still on: a group file open with unsaved changes (it would be
+  thrown away), a group whose folder is elsewhere, a line that would not read back. The notes
+  pane turns to the Notes face on the group, and the toast counts the lines.
+- **The read on its thread.** "Add a folder to the library…" while a folder is being read stops
+  that read ("Stopped: … is not added to the library."), and the toast that starts a read says so.
+  A read that ends while Settings, another card, the AI panel, the task window or a dialog is open
+  waits for it to close; the event loop asks again after every event (`import_take` in
+  `about_to_wait`), so it costs nothing while nothing is being read (audit 4, C8).
 
 The card (`import_ui.rs`, `import_draw.rs`) is the plan's and the move's: a 1,040 x 700 card
 shrunk to fit, the folder and its count in the header, the rows at 46 px with a tick box, a
@@ -3149,7 +3183,11 @@ the preview is dropped and the list keeps the card; the card scrolls its rows wi
 Shots: `import-folder`, `import-folder-sections` (three headings with a dash), `import-folder-taken`
 (the group already in the library, its file marked), `import-folder-small` (800 x 600: no
 preview), `import-folder-over` (a folder over 2,000: the button greyed and the reason on its own
-line), each in both themes and drawn by `--plan-demo <name>`.
+line), `import-folder-skipped` (two `%20` files and the library's own folder left out, said on the
+header's last line), `import-folder-elsewhere` (the group's folder is another: named in the header,
+refused in the footer), `import-folder-stopped` (the walk's bound), `import-folder-refused` (an Add
+refused at the write, its reason in the footer and the button on), each in both themes and drawn
+by `--plan-demo <name>`.
 
 Not done in 4a, deliberate: no AI in the card (5.7's second half), no drag and drop, no
 conversion of a file to Markdown, and no removal of a link -- the pane's own remove is 4b's.
@@ -3171,7 +3209,10 @@ never renamed or changed.
   is Markdown, so its text is written as UTF-8 whatever the source was (BOM, UTF-16 or a legacy
   code page) and `Source::encoding` says so under the title; a source in UTF-8 is written as it
   reads. It keeps the name, the line count, the byte length, the digest (SHA-256) and the source's
-  own line split, which `ai::note_body` uses for the note.
+  own line split, which `ai::note_body` uses for the note. The file is read once, capped at
+  `NOTE_MAX` + 1, and the text, the count, the length and the digest are all of those bytes, so a
+  file changed between two reads cannot give a card whose check passes against other text; a bare
+  CR line split (an old Mac file) gives a note with LF, and counts as a line break (audit 4, C12).
 - **The card** (`note_ui.rs`, `note_draw.rs`, over `Dialog::draw` like the move card). `Phase`:
   Ready (what is sent, what it is asked to do, what will be written, in the footer's words), Asking
   ("Asking Claude Code · Sonnet 5.5: N characters so far", a pulse, a Bar and a footer link, Esc or
@@ -3194,9 +3235,15 @@ never renamed or changed.
   ("so the note would be a library file"); the note would land beside the library's own files; the
   group's folder is a file; the group's library file open with unsaved changes (`library_file_free`
   in the app's words); the file cannot be read; the group would pass 2,000 notes; the line would
-  not read back as the old notes plus this one (`runs::check_links_added`, a dry run). A failure
-  from the write itself comes back as `note_write_refused`: the card stays with the reason and
-  nothing is half-written (the write's own order, D-067).
+  not read back as the old notes plus this one (`runs::check_links_added`, a dry run). Only "the
+  source has changed" disables the button for good (`note_write_refused`); every other refusal at
+  the write, and a write that started and made no note (its folder could not be made, the disk is
+  full), comes back as `note_write_failed`: the card stays with the AI's answer, the reason in its
+  footer and the button on, so a second press can pass. A run that made no note leaves nothing:
+  `discard_run` takes away its record, the record's `.done` log and the folders it made, deepest
+  first and only while empty, since shared `runs::write_of` still marks such a run Done
+  (audit 4, C3). A name taken by a file while the answer was out gives the note the next free
+  name.
 - **Naming.** `library_write::free_name(home, stem)`: the source's file name with its extension
   dropped, lower case, runs of anything but letters and digits turned into one hyphen, cut to 60
   characters; `stem.md`, else `stem 2.md`, `stem 3.md` …; `pasta notes.txt` → `pasta-notes.md`.
@@ -3217,15 +3264,19 @@ never renamed or changed.
 - **The demonstration** `--note-demo ready|asking|changes|result|blocked` (`note_ui::demo`): a file
   and an answer made in the program, `card.demo` so Enter says "A demonstration of the card: it
   writes nothing." and nothing is sent or written.
-- Shots: `note-ready`, `note-asking`, `note-changes`, `note-result`, `note-blocked`, both themes,
-  `note-changes-small` at 800x600.
+- Shots: `note-ready`, `note-asking`, `note-changes`, `note-result`, `note-blocked`,
+  `note-failed` (a write that made no note: the answer kept, the reason in the footer, the
+  button on), both themes, `note-changes-small` at 800x600.
 - Budgets: `docs/measurements/2026-11-23-note-card.md` — 7 interleaved runs against `main` at
   `6e6579f`, nothing beyond the runs' ranges.
 - Tests: `app::note_tests` (13): the menu item and the whole path to the note and its record, undo,
   undo refused when the source has changed, a taken name, AI off, a file too long, a file that is
   not text, the group file unsaved, the group folder the library's own, Esc in Asking, the switch
   repainting the body and Cancel writing nothing, the source changed while the answer was out, and
-  every demonstration. `mdshared_app::runs` has the kind's own two (write, undo); and
+  every demonstration. Audit 4 added five: a name taken while the answer was out, a write that
+  makes no note (the card and the answer kept, no record left, a second press writing it), the
+  record and folders of such a run taken away, a bare-CR source, and the card's text and digest
+  of one read; and undo is now checked byte for byte. `mdshared_app::runs` has the kind's own two (write, undo); and
   `plan_write_tests::a_record_of_a_kind_this_build_does_not_write_is_listed_as_a_newer_versions`
   proves a record of an unknown kind word is listed as a later version's and nothing in it is
   shown or undone (D-145).
@@ -3377,7 +3428,9 @@ offer would be, and nothing is asked (D-079).
   total and in flight, and **Stop** cancels every request (Escape does the same) and gives back
   the scheme as it was edited. The second footer line states what is sent ("only each file's
   path, title, start and size") with the connection, model and effort, or, with no connection,
-  the reason and the way to Settings.
+  the reason and the way to Settings. The preview's last line (`scheme_help`) says "Rename, add or
+  delete before the files are sent" only in `Scheme`; while `Filing` it says the files are being
+  sent and Stop brings the scheme back to change (audit 4).
 - `Filed` shows each row's confidence and `why` dim under its name, a section row's "N files · M
   ticked", and the unsorted note with no tick. The head offers **Tick all**, **Untick all** and
   **Tick only the sure ones**; the footer says "The AI placed 9 files in 4 sections in 2 requests
