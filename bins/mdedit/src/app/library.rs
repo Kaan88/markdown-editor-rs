@@ -119,7 +119,7 @@ impl App {
                 self.library_load();
                 self.ui.library.stop_edit();
                 self.ui.drop_library_field_focus();
-                self.ui.library.build(&self.docs.library);
+                self.library_build();
                 self.redraw();
             }
         }
@@ -169,9 +169,28 @@ impl App {
         // row.
         self.ui.library.stop_edit();
         self.ui.drop_library_field_focus();
-        self.ui.library.build(&self.docs.library);
+        self.library_build();
         self.redraw();
         true
+    }
+
+    /// The pane's rows made again from the library as it is held now. A row's menu left open
+    /// over them is closed when its row is no longer the row it was opened on: the menu's items
+    /// act on the row's index, and "Remove from the library" would take another note's line out
+    /// with no question (audit 4, A F16). A re-read that leaves the row where it was keeps the
+    /// menu.
+    pub(super) fn library_build(&mut self) {
+        let menu = match self.ui.popup_kind() {
+            Some(crate::ui::PopupKind::LibraryRow(i)) => Some((i, self.ui.library.id_at(i))),
+            _ => None,
+        };
+        self.ui.library.build(&self.docs.library);
+        if let Some((i, was)) = menu
+            && (was.is_none() || self.ui.library.id_at(i) != was)
+        {
+            self.ui.popup = None;
+            self.redraw();
+        }
     }
 
     /// The rows of the pane, with the library read again first. The folder is looked at at
@@ -180,7 +199,7 @@ impl App {
     pub(super) fn library_rows(&mut self) {
         self.library_load();
         self.ui.library.checked = Some(Instant::now());
-        self.ui.library.build(&self.docs.library);
+        self.library_build();
     }
 
     /// A click or Enter on a row: a group or a section folds, a note opens, a note that is not
@@ -404,7 +423,7 @@ impl App {
                 // wrong row.
                 self.ui.library.stop_edit();
                 self.ui.drop_library_field_focus();
-                self.ui.library.build(&self.docs.library);
+                self.library_build();
                 self.redraw();
             }
             return;

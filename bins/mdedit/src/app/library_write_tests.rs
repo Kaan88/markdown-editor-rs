@@ -1680,3 +1680,91 @@ fn a_dot_dot_after_a_folder_that_is_not_there_is_folded() {
     assert!(same(&library.join("Trip").join(".."), &library));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Audit 4, A F16: a row's menu left open while the rows are made again from a finished read
+/// acted on whatever row then had its index: "Remove from the library" took another note's line
+/// out with no question. The menu closes when its row is another; a read that leaves the row
+/// where it was keeps it.
+#[test]
+fn a_row_menu_left_open_closes_when_the_rows_under_it_are_made_again() {
+    let (mut a, l) = lib("libw-menu-moved");
+    let folder = l.dir.join("library");
+    let at = labels(&a)
+        .iter()
+        .position(|r| r == "Last year")
+        .expect("the note's row");
+    a.library_row_menu(at, 0.0, 0.0, false);
+    assert_eq!(a.ui.popup_kind(), Some(PopupKind::LibraryRow(at)));
+    // A note is added under Trips, below it: its row is where it was, and the menu stays.
+    let other = l.dir.join("other.md");
+    std::fs::write(&other, "# Other\n").unwrap();
+    std::fs::write(
+        &l.file,
+        format!("{}\n- [Other]({})\n", l.text(), slash(&other)),
+    )
+    .unwrap();
+    assert!(a.library_accept(mdshared_app::library::read(&folder)));
+    assert_eq!(labels(&a)[at], "Last year");
+    assert_eq!(
+        a.ui.popup_kind(),
+        Some(PopupKind::LibraryRow(at)),
+        "the menu stays"
+    );
+    // Another program adds a note above it: every row below moves down one.
+    let more = l.dir.join("more.md");
+    std::fs::write(&more, "# More\n").unwrap();
+    let text = std::fs::read_to_string(&l.file).unwrap();
+    std::fs::write(
+        &l.file,
+        text.replacen(
+            "## Money\n",
+            &format!("## Money\n\n- [More]({})\n", slash(&more)),
+            1,
+        ),
+    )
+    .unwrap();
+    assert!(a.library_accept(mdshared_app::library::read(&folder)));
+    assert_ne!(labels(&a)[at], "Last year", "the rows moved under the menu");
+    assert_eq!(a.ui.popup_kind(), None, "the menu went with its row");
+    // So nothing acts on the row that now has its index, and every line is still there.
+    let now = std::fs::read_to_string(&l.file).unwrap();
+    assert!(
+        now.contains("[Last year]") && now.contains("[Taxes 2026]"),
+        "{now}"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C12a: a move between two files looks at the note's line in its own file before the
+/// new place is written. A line number from before that file changed (the pane had not read it
+/// again) listed the note in both, with the "half" toast. Now neither file is written, and the
+/// toast says why.
+#[test]
+fn a_move_across_files_by_a_stale_line_writes_neither_file() {
+    let (mut a, l) = lib("libw-move-stale");
+    let work = l.dir.join("library").join("work.md");
+    std::fs::write(&work, "# Work\n\n## Projects\n").unwrap();
+    let before = read(&l.file);
+    // Line 9 holds "Last year", not "Taxes 2026".
+    assert!(!a.library_move(&l.file, 9, "Taxes 2026", &l.taxes, &work, &[]));
+    assert_eq!(
+        read(&work),
+        "# Work\n\n## Projects\n",
+        "the new place is not written"
+    );
+    assert_eq!(read(&l.file), before, "nor the old one");
+    let said = toast(&a);
+    assert!(
+        said.contains("has changed since the pane read it"),
+        "{said}"
+    );
+    // The line that does hold it moves, as before.
+    assert!(
+        a.library_move(&l.file, 5, "Taxes 2026", &l.taxes, &work, &[]),
+        "{}",
+        toast(&a)
+    );
+    assert!(read(&work).contains("[Taxes 2026]"));
+    assert!(!read(&l.file).contains("[Taxes 2026]"));
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
