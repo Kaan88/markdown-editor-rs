@@ -668,3 +668,30 @@ fn a_walk_that_ends_while_another_card_is_open_waits_for_it_to_close() {
     assert_eq!(card.plan.notes.len(), 3);
     let _ = std::fs::remove_dir_all(&l.dir);
 }
+
+/// Audit 4: while the files are being sent, the scheme's preview does not say the scheme can
+/// still be changed before they are sent; it says Stop brings it back. Before they are sent, it
+/// still says so.
+#[test]
+fn the_schemes_preview_says_what_can_be_done_while_the_files_are_sent() {
+    let sending = crate::import_ui::demo("folder-ai-sorting").expect("the demo");
+    let help = sending.scheme_help();
+    assert!(!help.contains("before the files are sent"), "{help}");
+    assert!(
+        help.contains("being sent") && help.contains("Stop"),
+        "{help}"
+    );
+    let scheme = crate::import_ui::demo("folder-scheme").expect("the demo");
+    assert!(scheme.scheme_help().contains("before the files are sent"));
+}
+
+/// Audit 4: the failed AI step's demo does not say "Nothing was written." in its reason, as the
+/// card's second line already starts with it.
+#[test]
+fn the_failed_sorts_demo_says_nothing_was_written_once() {
+    let card = crate::import_ui::demo("folder-ai-failed").expect("the demo");
+    let crate::import_ui::SortStage::Failed(why) = &card.sort else {
+        panic!("the demo is the failed stage");
+    };
+    assert!(!why.contains("Nothing was written"), "{why}");
+}

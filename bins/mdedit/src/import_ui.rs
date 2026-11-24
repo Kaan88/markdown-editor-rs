@@ -1175,8 +1175,7 @@ pub fn demo(name: &str) -> Option<ImportCard> {
             let batches = import_ai::batches(&plan, &scheme);
             let answer = demo_answer(&plan, &batches, name == "folder-unsorted");
             let answers: Vec<Option<import_ai::Answer>> = vec![Some(answer); batches.len()];
-            let sorted =
-                import_ai::settle(&mut card.plan, &scheme, &batches, &answers, true);
+            let sorted = import_ai::settle(&mut card.plan, &scheme, &batches, &answers, true);
             card.sort_filed(1 + batches.len(), sorted.placed, sorted.unsorted, None);
             let last = card.row_count().saturating_sub(1);
             card.select(if name == "folder-unsorted" { last } else { 2 });
@@ -1187,8 +1186,7 @@ pub fn demo(name: &str) -> Option<ImportCard> {
                 Some("The AI is off: choose a connection in Settings \u{203A} AI.".to_string());
         }
         "folder-ai-failed" => card.sort_failed(
-            "The AI\u{2019}s answer could not be read: it held no JSON object. Nothing was written."
-                .to_string(),
+            "The AI\u{2019}s answer could not be read: it held no JSON object.".to_string(),
         ),
         "folder-skipped" => {
             // Two files whose names a library file cannot hold, and the library's own folder,

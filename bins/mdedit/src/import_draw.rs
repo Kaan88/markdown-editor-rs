@@ -560,6 +560,19 @@ impl ImportCard {
         }
     }
 
+    /// The last line of the scheme's preview. While the files are being sent the scheme cannot
+    /// be changed, and Stop is what brings it back (audit 4).
+    pub fn scheme_help(&self) -> &'static str {
+        match self.sort {
+            SortStage::Filing { .. } => {
+                "The files are being sent with this scheme. Stop brings it back to change; nothing is written until Add."
+            }
+            _ => {
+                "Rename, add or delete before the files are sent; correcting the scheme here costs nothing."
+            }
+        }
+    }
+
     fn draw_scheme_preview(&self, p: &mut Painter, pal: &Palette, r: Rect) {
         p.fill(Rect::new(r.x, r.y, p.px(), r.h), pal.popup_line);
         let x = r.x + PAD;
@@ -626,13 +639,7 @@ impl ImportCard {
             }
         }
         at += 10.0;
-        for line in wrap(
-            p,
-            Face::Ui,
-            12.0,
-            "Rename, add or delete before the files are sent; correcting the scheme here costs nothing.",
-            max,
-        ) {
+        for line in wrap(p, Face::Ui, 12.0, self.scheme_help(), max) {
             p.text(Face::Ui, 12.0, x, at, &line, pal.faint, max);
             at += 17.0;
         }
