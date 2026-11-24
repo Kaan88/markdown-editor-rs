@@ -711,15 +711,23 @@ fn when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so() {
     let work = l.dir.join("library").join("work.md");
     std::fs::write(&work, "# Work\n\n## Projects\n").unwrap();
     a.library_rows();
-    // Line 2 of the old file is not the note: the removal finds nothing to take out.
+    // The old file is made read-only after the pane read it. The look at the note's line before
+    // the new place is written only reads it and passes (audit 4, C12a); the removal's write is
+    // refused.
+    let mut perms = std::fs::metadata(&l.file).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&l.file, perms.clone()).unwrap();
     let moved = a.library_move(
         &l.file,
-        2,
+        5,
         "Taxes 2026",
         &l.taxes,
         &work,
         &["Projects".to_string()],
     );
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&l.file, perms).unwrap();
     assert!(!moved);
     assert_eq!(
         read(&work),
@@ -734,6 +742,7 @@ fn when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so() {
     assert!(
         said.contains("is in Work now")
             && said.contains("could not be taken out")
+            && said.contains("read-only")
             && said.contains("both"),
         "{said}"
     );
