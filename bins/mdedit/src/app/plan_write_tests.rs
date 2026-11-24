@@ -163,7 +163,13 @@ fn a_read_only_group_file_is_refused_before_the_notes_are_written() {
     open_now(&mut a, &source);
     assert!(a.plan_open_active());
     a.compose();
+    // The card says so, and "Write the notes" cannot be pressed.
+    let said = blocked(&a);
+    assert!(said.contains("Trip.md is read-only"), "{said}");
     press(&mut a, KeyName::Enter);
+    assert!(!library.join("Trip/Tokyo/asakusa.md").exists());
+    // The write itself refuses it too, should it be reached.
+    a.plan_write();
     let said = toast(&a);
     assert!(
         said.starts_with("The run could not start") && said.contains("is read-only"),

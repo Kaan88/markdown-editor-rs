@@ -1670,7 +1670,10 @@ fn a_dot_dot_after_a_folder_that_is_not_there_is_folded() {
     let same = super::library_write::same_folder;
     assert!(same(&library.join("Gone").join(".."), &library));
     assert!(same(&library.join("Gone").join("..").join("."), &library));
-    assert!(same(&library.join("A").join("B").join("..").join(".."), &library));
+    assert!(same(
+        &library.join("A").join("B").join("..").join(".."),
+        &library
+    ));
     assert!(!same(&library.join("Gone"), &library));
     assert!(!same(&library.join("..").join("library2"), &library));
     std::fs::create_dir_all(library.join("Trip")).unwrap();
