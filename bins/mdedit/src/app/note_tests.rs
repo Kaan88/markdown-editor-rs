@@ -147,6 +147,7 @@ fn the_group_menu_offers_it_and_a_text_file_becomes_a_note_with_the_original_unt
 #[test]
 fn undo_from_ai_runs_takes_the_note_and_its_line_out_again() {
     let (mut a, p) = lib("note-undo");
+    let before = read(&p.group);
     open_card(&mut a, &p);
     answer(&mut a, "# Pasta\n\n- Boil it.\n");
     let note = target(&a);
@@ -168,6 +169,8 @@ fn undo_from_ai_runs_takes_the_note_and_its_line_out_again() {
     assert!(!note.exists(), "the note goes");
     let group = read(&p.group);
     assert!(!group.contains("pasta-notes"), "{group}");
+    // Byte for byte what it was, with no blank line left where the link was (audit 4, C11).
+    assert_eq!(group, before);
     assert_eq!(read(&p.source), "PASTA\n\nboil it.\n");
     let _ = std::fs::remove_dir_all(&p.dir);
 }
