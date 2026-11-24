@@ -14,32 +14,13 @@ use crate::ui::{BarField, DialogKind, LibAct, Popup, PopupKind};
 use mdshared_app::library::{self, Parsed};
 use mdshared_app::paths::{canonical_or_absolute, same_path};
 
-/// Whether two folders are one folder on disk: each asked of the disk where it exists, with `.`
-/// and `..` folded, so `home: Trip/..` is the folder it names (audit 4, F14). `same_path` alone
-/// compares the spelling.
+/// Whether two folders are one folder on disk: each asked of the disk where it exists, by
+/// `comparable`, which also folds a `.` or `..` that follows a folder that is not there, on every
+/// system, so `home: Trip/..` is the folder it names (audit 4, F14; D-165, the fold now in the
+/// shared crate). `same_path` alone compares the spelling.
 pub(super) fn same_folder(a: &Path, b: &Path) -> bool {
     use mdshared_app::paths::comparable;
-    same_path(&folded(&comparable(a)), &folded(&comparable(b)))
-}
-
-/// `.` and `..` folded by their spelling. Used after `comparable`, which has asked the disk about
-/// every part that exists, so a `..` still there follows a folder that is not, and the spelling is
-/// all there is to go by: Windows folds it already, and on Linux and macOS `std::path::absolute`
-/// keeps it, so `home: Trip/..` with no `Trip` folder read as another folder there (audit 4,
-/// F14). A `..` at the root stays at the root.
-fn folded(path: &Path) -> PathBuf {
-    use std::path::Component;
-    let mut out = PathBuf::new();
-    for part in path.components() {
-        match part {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other),
-        }
-    }
-    out
+    same_path(&comparable(a), &comparable(b))
 }
 
 /// A library file's text, as its writers take it: decoded, with a UTF-8 byte order mark set

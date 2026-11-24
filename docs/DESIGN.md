@@ -2652,10 +2652,10 @@ what they need.
 - **A group's folder may not be the library folder.** Refused where the folder is picked, where a
   `home:` line is read ("New note here…"), and by the plan's check: its notes would be `.md` files
   the reader takes for library files. The comparison is `library_write::same_folder`: both sides
-  through `mdshared_app::paths::comparable`, which asks the disk about every part that exists, then
-  `.` and `..` folded by their spelling, so `home: Trip/..` is the library folder whether or not
-  `Trip` is there (on Linux and macOS `std::path::absolute` keeps a `..` that follows a missing
-  folder; audit 4 F14, D-165).
+  through `mdshared_app::paths::comparable`, which asks the disk about every part that exists and
+  folds a `.` or `..` that follows a part that is not there, so `home: Trip/..` is the library
+  folder whether or not `Trip` is there, on every system (on Linux and macOS `std::path::absolute`
+  keeps such a `..`; audit 4 F14, D-165; the fold is shared's since `d1330b0`).
 - **No session, no library.** `snippets_path` (and so `library_dir`, the snippets and the saved
   prompts) is `None` unless there is a settings file: `--no-session` reads nothing of the owner's,
   and `MDEDIT_SETTINGS` is the one file such a build reads, with its library beside it. The empty
