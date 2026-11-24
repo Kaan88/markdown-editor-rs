@@ -35,6 +35,9 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 - **`docs/ai-library-plan.md`** section 8, in order after R2: V, drag and drop; W, 4a, 4 and 5
   are merged. Open: the resizer for V, a new crate to be priced first (rule 7).
+- **`docs/ai-web-plan.md`**, the AI searching the web, asked each run: its five decisions. A
+  throwaway spike (Claude Code with only WebSearch, no ask) worked better than the owner expected
+  (2026-11-24); its branch is deleted, its build kept in `md-wt\ai-web` (detached).
 - **Audit 4's questions**: C4, a same-named group kept in another folder is refused and one with
   no folder of its own is joined (D-183, which replaces D-178's interim); A F8, a rewrite's record
   is not confined and its undo names the files (D-162, Waiting); W11 needs `jiff` (rule 7); the
@@ -110,5 +113,6 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main`; `hub-wt\app-prs2\mdedit`; `md-wt\ai-pictures`. `md-wt\review-a4fix` holds the review of the
+- Worktrees: `main`; `hub-wt\app-prs2\mdedit`; `md-wt\ai-pictures`; `md-wt\ai-web` (detached at
+  the spike, kept for its exe). `md-wt\review-a4fix` holds the review of the
   fixes, not a worktree.
