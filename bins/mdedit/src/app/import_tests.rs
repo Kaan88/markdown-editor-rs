@@ -421,3 +421,46 @@ fn a_click_on_a_section_ticks_every_row_under_it_and_redraws_them() {
     assert!(changed > 0, "the card was not drawn again");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Audit 4, RB3 and F17: Add on a group the library has is written through the window's gate
+/// (`library_attempt_at`), and so through `files::replace`. A `Recipes.md.tmp` of the owner's
+/// beside the group's file is left as it was, no temporary of the write's own is left, and a
+/// byte order mark the file begins with is kept.
+#[test]
+fn a_join_leaves_the_owners_tmp_file_alone_and_keeps_its_byte_order_mark() {
+    let (mut a, l) = lib("import-join-tmp");
+    let group = l.library.join("Recipes.md");
+    let text = format!(
+        "# Recipes\nhome: {}\n",
+        l.folder.file_name().unwrap().to_string_lossy()
+    );
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(text.as_bytes());
+    std::fs::write(&group, &bytes).unwrap();
+    let mine = l.library.join("Recipes.md.tmp");
+    std::fs::write(&mine, "words I wrote\n").unwrap();
+    open_card(&mut a, &l);
+    let card = a.importer.as_ref().expect("the card is open");
+    assert!(!card.plan.group_new, "the library has the group");
+    a.import_write();
+    let written = std::fs::read(&group).unwrap();
+    assert!(written.starts_with(&[0xEF, 0xBB, 0xBF]), "the mark is kept");
+    let text = String::from_utf8_lossy(&written[3..]).into_owned();
+    assert!(
+        text.contains("[Sourdough](Recipes/Bread/sourdough.md)"),
+        "{text}"
+    );
+    assert_eq!(
+        read(&mine),
+        "words I wrote\n",
+        "the owner's file is untouched"
+    );
+    let left: Vec<String> = std::fs::read_dir(&l.library)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".part"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
