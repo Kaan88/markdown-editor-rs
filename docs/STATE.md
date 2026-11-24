@@ -1,7 +1,7 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-24, on `fix/audit4`, once the findings of
-the review of audit 4's fixes were fixed on it. If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-24, when audit 4's fixes and the scroll fix
+were merged to `main`. If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -46,25 +46,15 @@ the review of audit 4's fixes were fixed on it. If `git log -1` is newer, doubt 
   tinted, level preview is not built (it needs a request in the viewer's protocol). **DD** (D-130,
   DESIGN 80): a note dragged onto a heading; groups, sections and files from the file manager
   are not dragged.
-- **Audit 4** (`402d3da`, `docs/review-prompts/audit4/`): Fable's review of everything since
-  audit 3, five reports. Its findings are on `main` until the fixes below are merged.
+- **Audit 4 and its fixes** (`docs/review-prompts/audit4/`): Fable's review of everything since
+  audit 3, every finding fixed or left with a reason (`FIXES.md`), then a Fable review of the
+  fixes and its findings fixed (D-155 to D-198); merged at `2f8399b`. Shared `main` is `ef88814`,
+  pinned by both apps. Windows: 1584 tests, 400 shots checked. Budgets against 1.3.0 unchanged,
+  memory lower, exe +396 KB (`docs/measurements/2026-11-24-1.4.0-against-1.3.0.md`). The owner
+  has looked at none of the shots.
 
 ## In hand
 
-- **Audit 4's fixes**, on branches only, none merged to a `main`. Every finding's state, test,
-  revert check and what is left is in `docs/review-prompts/audit4/FIXES.md`; where each branch
-  stands, in `PAUSED.md` beside it.
-  - mdedit `fix/audit4` holds all three mdedit agents' work and the fixes of Fable's review of
-    them (`md-wt\review-a4fix`; `FIXES.md`, "The review of the fixes"; D-191 to D-198): a
-    rewrite record measured in its longest state, undo leaving what a later run names and giving
-    the library file back byte for byte, "File them" writing as every library writer, and the
-    tests it asked for. D-155 to D-198. It pins shared at `ef88814`, a development pin. On
-    Windows: fmt and clippy clean, 1583 tests passed, 400 shots checked; not on Linux or macOS,
-    and CI has not run on it.
-  - Shared `fix/audit4` is at `ef88814` (754 passed); shared `main` (`0984eed`) has not moved.
-    mdview's `fix/audit4` pins `ef88814` too (`bc33a45`), green, its shots unchanged.
-  - Next for them: shared's branch to its `main`, both apps' pins to that commit, and the apps'
-    branches to theirs; their `wip:` commits are dealt with then.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 - **mdview: click to zoom a large diagram**, asked for by the owner on 2026-11-23 for later;
   written up at the top of mdview's `docs/HANDOFF.md`. Not designed, not priced.
@@ -93,11 +83,6 @@ the review of audit 4's fixes were fixed on it. If `git log -1` is newer, doubt 
 3. Phase 4's, 4a's and 5's shots (`import-folder*`, `note-*`) for the owner's look.
 
 ## Known to be wrong on `main`
-
-- **Audit 4's findings** (`docs/review-prompts/audit4/README.md`), fixed on the branches above and
-  not on `main`: a digest cut inside a character aborts the program (RB1); a rewrite run past
-  4 MiB cannot be undone (RB2); the library writers take `<file>.tmp` (RB3); a plan from a tab
-  that has not re-read its file (RB4); `put_note` rewrites a file in another code page (RB5).
 
 - **A closed mdview is still missed** (D-101): closing it by hand leaves "Stop the preview" in
   mdedit after its window has the focus again (tried with 1.0.4, which sends no `?closed`), so
@@ -134,18 +119,16 @@ row with Cancel and no headings per source; the Recycle Bin cannot restore an or
 Linux blur, image paste on Linux, the AppImage and packages, the macOS builds, the Windows
 installer, an installed copy updating itself, and `hub.txt` read by Hub from a real release.
 
-## Pins, branches, worktrees (tidied 2026-11-23)
-- Shared crates at `0984eed` in both apps on `main`; at `ef88814` (shared's `fix/audit4`, a
-  development pin) on both apps' `fix/audit4`. Viewer crates at viewer `e2b3e31`; winit
-  `62fa727`, softbuffer `dd18fec`.
-- Branches: `main`; `fix/audit4` (open), with `fix/audit4-ai` and `fix/audit4-lib` merged into it
-  and kept until it reaches `main`; the drawings (`mock/ai-review`, `mock/settings`,
-  `mock/terminal`, `mock/downloader`, `mock/workbench` local only, `mock/launcher`,
-  `mock/file-manager`, `mock/task-manager`), never merged; `archive/doc-reorg-draft`; on GitHub
-  `spike/frosted-window` and `chore/dependabot`. Merged branches are deleted, here and on GitHub.
+## Pins, branches, worktrees (tidied 2026-11-24)
+- Shared crates at `ef88814` (shared `main`) in both apps. Viewer crates at viewer `e2b3e31`;
+  winit `62fa727`, softbuffer `dd18fec`.
+- Branches: `main`; the drawings (`mock/ai-review`, `mock/settings`, `mock/terminal`,
+  `mock/downloader`, `mock/workbench` local only, `mock/launcher`, `mock/file-manager`,
+  `mock/task-manager`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub
+  `spike/frosted-window` and `chore/dependabot`; Hub's `hub/notes-file` in both apps. Merged
+  branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main`; `md-wt\a4-mdedit`, `a4-ai`, `a4-lib`, `a4-shared`, `a4-mv` (audit 4);
-  `md-wt\pw`, `p4`, `ci-fix` and their bases, `spike-v`, `baseline-main`,
-  `p4-mainbase`; `hub-wt\app-prs2\mdedit`. The empty `md-wt\closed-mdview` and `mv-notes` are
-  held by a process; delete after a restart.
+- Worktrees: `main`; `hub-wt\app-prs2\mdedit`. `md-wt\review-a4fix` holds the review of the
+eview-a4fix` holds the review of the
+  fixes, not a worktree.
