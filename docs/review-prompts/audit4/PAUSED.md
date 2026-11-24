@@ -8,11 +8,11 @@ round (C4 to C12h, below) is newer than its rows there.
 
 | Repo | Branch | Worktree | Tip | State |
 |---|---|---|---|---|
-| shared | `fix/audit4` | `md-wt4-shared` | `d1330b0` | **finished**, green (742 + 11 recycle) |
-| mdedit core | `fix/audit4` | `md-wt4-mdedit` | this commit (wip) | one test to restage; the branch's shots not taken |
-| mdedit AI | `fix/audit4-ai` | `md-wt4-ai` | `838b748` | **finished**, green (1527), revert checks and shots done |
-| mdedit LIB | `fix/audit4-lib` | `md-wt4-lib` | `ff1caf8` (wip) | `c6739bc` green (1546); its top commit not built; revert round 2 half run |
-| mdview | `fix/audit4` | `md-wt4-mv` | `dd87553` | **finished**, green (704 + 19), shots and budgets done |
+| shared | `fix/audit4` | `md-wt\a4-shared` | `d1330b0` | **finished**, green (742 + 11 recycle) |
+| mdedit core | `fix/audit4` | `md-wt\a4-mdedit` | `31371be` + docs | **finished**, green (1533), revert checks and shots done |
+| mdedit AI | `fix/audit4-ai` | `md-wt\a4-ai` | `838b748` | **finished**, green (1527), revert checks and shots done |
+| mdedit LIB | `fix/audit4-lib` | `md-wt\a4-lib` | `ff1caf8` (wip) | `c6739bc` green (1546); its top commit not built; revert round 2 half run |
+| mdview | `fix/audit4` | `md-wt\a4-mv` | `dd87553` | **finished**, green (704 + 19), shots and budgets done |
 
 All three mdedit branches start from `93b4ddb`. mdedit and mdview pin shared at `f0f8159`, which
 is a development pin. At merge, pin to shared `d1330b0`, merged into shared `main`.
@@ -28,9 +28,9 @@ is a development pin. At merge, pin to shared `d1330b0`, merged into shared `mai
   - A literal `%20` in a file name always reads as a space (C6).
   - `runs::write_of` marks Done a run that wrote nothing (C3; mdedit works around it).
 
-## mdedit core (`fix/audit4`)
+## mdedit core (`fix/audit4`): finished
 
-Paused again on the owner's word, 2026-11-24. Every row's state is in `FIXES.md`.
+Resumed and finished on the owner's word, 2026-11-24. Every row's state is in `FIXES.md`.
 
 - **Done, with a test that fails with its fix reverted:**
   - RB3: every library write goes through `files::replace`. This covers the pane's writers, the
@@ -39,45 +39,36 @@ Paused again on the owner's word, 2026-11-24. Every row's state is in `FIXES.md`
   - F17 (BOM kept, non-UTF-8 refused), F18, F19, F20 and F3 `offers_finish`.
   - F16: a row's menu closes when the rows under it are made again and its row is another
     (`library.rs` `library_build`).
-  - C12a: a move across files looks at the note's line first.
+  - C12a: a move across files looks at the note's line first. The existing half-move test is
+    restaged (`31371be`): the old file is read-only after the pane read it, so the look passes
+    and the removal is refused. Its assertions are all kept; it fails at :742 with the half
+    toast taken out.
   - B11's core half: `plan_write` stops its plan's split that is out.
   - RB4/A F1, F5b, F11d and F13 from before.
 - **Done, but not revert-checkable here:**
   - F14's fold passes on Windows either way; its check is CI's.
   - F8 and F4's tests pin shared's fixes.
   - F12 runs off Windows only.
-- **Docs written:**
-  - DECISIONS D-155 to D-182: the core's, the AI agent's, the LIB agent's, C4 as D-178
-    (Waiting) and F8 as D-162 (Waiting).
-  - DESIGN 70, 71, 72, 73, 75 and 80 corrected.
-  - `ai-library-plan.md` row 6 corrected.
-  - STATE rewritten (144 lines), and the release notes' lines added.
-  - `FIXES.md` rows for A, B and C from all three agents.
-- **What ran:**
-  - Every revert check above, one build each.
-  - The four newest tests, targeted (pass).
-  - fmt and clippy on the whole workspace (clean).
-  - The workspace's tests: **one fails**. They are 823 passed and 1 failed in the mdedit bin; the
-    rest of the workspace did not run after it. The failing test is `library_write_tests`
-    `when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so` (:724).
-    - It stages a failed removal with a wrong line number, which C12a's new look now refuses
-      before anything is written (`59ab827`).
-    - Next: restage it so the removal fails for a reason the look cannot see, without weakening
-      what it asserts. For example, make the old file read-only after `library_rows`:
-      `files::replace` refuses it, while the look only reads it. Then run the whole suite again.
-- **Half-done: the shots.** The baseline at `main` (`402d3da`) is taken, 384 PNGs, in
-  `md-wt\a4-mdedit\target\shots\base`, built from `target\base-src`. This branch's shots are not
-  taken yet.
-- **Next:**
-  1. Take the branch's shots: `cargo build --release`, then `tests/shots.sh target/shots/a4`
-     with `CARGO_BUILD_RUSTC_WRAPPER=""` and `MDEDIT_SETTINGS` in a scratch folder.
-  2. Run `tests/shots-check.sh` on them.
-  3. Compare the set with `base` byte for byte, and look at every changed shot in both themes.
-     `library-remove-long` and its `-dark` are new; the `runs*` shots draw the clock. Say which
-     shot shows what.
-  4. Record the result in FIXES (A F19's row).
-  5. Budgets: none should move. Library writes, the preflight, `library_build` and the cards run
-     on a command or a re-read, not on launch, a keystroke or a scroll. Nothing was measured.
+- **Docs written:** DECISIONS D-155 to D-182 (the core's, the AI agent's, the LIB agent's first
+  round; C4 as D-178 and F8 as D-162, both Waiting); DESIGN 70, 71, 72, 73, 75 and 80;
+  `ai-library-plan.md` row 6; STATE (144 lines); the release notes' lines; `FIXES.md` rows for A,
+  B and C. The LIB agent's newer decisions are the coordinator's, at the merge.
+- **What ran, at `31371be`, on Windows:**
+  - fmt and clippy on the whole workspace: clean.
+  - The whole workspace's tests: 1533 passed, 0 failed, 14 ignored (the timing tests).
+  - The shots: 386 taken, `shots-check.sh` 211 wanted, 0 bad. Beside `main`'s (`402d3da`, in
+    `target\shots\base`): 375 byte-identical, 2 new, 9 changed.
+    - New: `library-remove-long` and `-dark`, the "Remove the section?" card grown to its four
+      lines, drawn whole, the size and spacing of `library-delete-long`. Looked at in both themes.
+    - Changed, each looked at in both themes where it has two: `runs`, `runs-dark`, `runs-newer`
+      and `-newer-dark` differ only in the times, which follow the clock. `dialog-recent` (light
+      only) differs only in the folder the shots were taken from. `plan-split-ai-dropped` and
+      `-dark` ("left with no lines of their own") and `runs-undo` and `-undo-dark` ("with 23
+      lines") take their new wording from shared `f0f8159`.
+    - Nothing of this branch's own code changed a shot but the two new ones.
+- **Not run:** budgets. None should move: library writes, the preflight, `library_build` and the
+  cards run on a command or a re-read, not on launch, a keystroke or a scroll. CI has not run on
+  the branch; F14's check is there.
 - **Left for others:**
   - Shared `paths::comparable` folding a `..` after a missing folder: done in shared `d1330b0`
     (`dbd4faa`); mdedit's own fold can go once the pin moves there.

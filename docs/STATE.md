@@ -138,7 +138,7 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   `spike/frosted-window` and `chore/dependabot`. Merged branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main`; `md-wt4-mdedit`, `a4-ai`, `a4-lib`, `a4-shared`, `a4-mv` (audit 4);
+- Worktrees: `main`; `md-wt\a4-mdedit`, `a4-ai`, `a4-lib`, `a4-shared`, `a4-mv` (audit 4);
   `md-wt\pw`, `p4`, `ci-fix` and their bases, `spike-v`, `baseline-main`,
   `p4-mainbase`; `hub-wt\app-prs2\mdedit`. The empty `md-wt\closed-mdview` and `mv-notes` are
   held by a process; delete after a restart.
