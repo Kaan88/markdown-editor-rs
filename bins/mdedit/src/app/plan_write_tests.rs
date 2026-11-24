@@ -1198,9 +1198,13 @@ fn writing_the_plan_stops_its_split_that_is_still_out() {
     press(&mut a, KeyName::Enter);
     assert!(a.ai.split.is_some(), "the request is out");
     assert!(a.plan.is_some(), "the plan is back while it waits");
+    assert!(a.docs.ai_status.is_some(), "the status line says it is out");
     a.plan_write();
     assert!(a.plan.is_none(), "the plan was written");
     assert!(a.ai.split.is_none(), "and its split stopped with it");
+    // The status line no longer says the split is out (found at the merge with the AI agent's
+    // half, whose own test asks the same in "Split them").
+    assert!(a.docs.ai_status.is_none(), "{:?}", a.docs.ai_status);
     assert!(
         dir.join("library")
             .join("Trip")

@@ -102,9 +102,10 @@ impl App {
         }
         // A split asked for this plan and still out stops with the write, as it does when the
         // card closes (`plan_close`): in "Split them" the next file's card opens at once, and the
-        // answer must not reach it (audit 4, B11).
+        // answer must not reach it (audit 4, B11). The status line stops saying it is out.
         if self.ai.split.is_some() {
             self.ai.cancel_split();
+            self.docs.ai_status = None;
         }
         // The group's file, before the notes: an empty group is a state one can live with, and
         // undo already takes it away. `runs` would make it at step 6, after every note is on
