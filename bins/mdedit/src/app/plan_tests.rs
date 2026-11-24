@@ -282,6 +282,60 @@ fn a_tab_that_has_not_read_its_newer_file_opens_no_plan() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Review of the audit 4 fixes, T1: for a tab that is not UTF-8 the text is not compared, so
+/// the stamp is the one guard, and it alone refuses the plan. A UTF-16 file that holds its text
+/// opens a plan; saved by another program and not read again, it opens none.
+#[test]
+fn a_utf16_tab_that_has_not_read_its_newer_file_opens_no_plan() {
+    let dir = scratch("plan-stale-utf16");
+    let path = dir.join("Trip.md");
+    let utf16 = |text: &str| {
+        let mut bytes = vec![0xFF, 0xFE];
+        for u in text.encode_utf16() {
+            bytes.extend_from_slice(&u.to_le_bytes());
+        }
+        bytes
+    };
+    std::fs::write(&path, utf16("## One\n\nalpha\n\n## Two\n\nbeta\n")).expect("a file");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    open_now(&mut a, &path);
+    assert!(
+        a.plan_open_active(),
+        "a UTF-16 tab that holds its file opens a plan"
+    );
+    a.plan = None;
+    std::fs::write(
+        &path,
+        utf16("## One\n\nALPHA REWRITTEN\n\n## Two\n\nbeta\n\n## Three\n\nx\n"),
+    )
+    .expect("the newer text");
+    assert!(!a.docs.active_doc().expect("a tab").modified());
+    assert!(!a.plan_open_active());
+    assert!(a.plan.is_none());
+    let toast = a.docs.toast(Instant::now()).unwrap_or_default().to_string();
+    assert_eq!(toast, crate::commands::strings::split_stale("Trip.md"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// T1, the watcher's word: a tab told its file changed on disk, and not read again, opens no
+/// plan, even while the file's stamp and text still look like the tab's.
+#[test]
+fn a_tab_told_its_file_changed_opens_no_plan() {
+    let dir = scratch("plan-stale-told");
+    let path = dir.join("Trip.md");
+    std::fs::write(&path, "## One\n\nalpha\n\n## Two\n\nbeta\n").expect("a file");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    open_now(&mut a, &path);
+    a.docs.active_doc_mut().expect("a tab").changed_on_disk = true;
+    assert!(!a.plan_open_active());
+    assert!(a.plan.is_none());
+    let toast = a.docs.toast(Instant::now()).unwrap_or_default().to_string();
+    assert_eq!(toast, crate::commands::strings::split_stale("Trip.md"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The check does not refuse a tab that does hold its file: CRLF line ends and a byte order
 /// mark are the tab's as they are the file's.
 #[test]

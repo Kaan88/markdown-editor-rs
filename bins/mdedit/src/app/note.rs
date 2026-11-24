@@ -293,13 +293,19 @@ impl App {
                 "AI is off. Choose a connection in Settings \u{203A} AI first.".to_string(),
             );
         }
-        if same_path(&target.home, root) {
+        // As one folder on disk, not as spelled: `home: Recipes/..` is the library folder too
+        // (audit 4, A F14, as the pane's writers compare).
+        if super::library_write::same_folder(&target.home, root) {
             return Some(format!(
                 "{} is the library folder itself, so the note would be a library file. Choose another folder for the group.",
                 target.home.display()
             ));
         }
-        if target.path.parent().is_some_and(|p| same_path(p, root)) {
+        if target
+            .path
+            .parent()
+            .is_some_and(|p| super::library_write::same_folder(p, root))
+        {
             return Some(format!(
                 "{} would be a library file, not a note.",
                 target.path.display()

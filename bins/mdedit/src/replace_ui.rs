@@ -541,6 +541,18 @@ impl Outcome {
                 why: "not made by this run".to_string(),
             }));
         }
+        // What a later run wrote or lists under this run's names: its own, kept (review of the
+        // audit 4 fixes, S2).
+        if !done.later.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "A later run's, kept ({})",
+                done.later.len()
+            )));
+            rows.extend(done.later.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "a later run wrote it or lists it".to_string(),
+            }));
+        }
         if done.group_kept {
             rows.push(OutRow::Skipped {
                 name: "the group's library file".to_string(),
@@ -1529,6 +1541,40 @@ pub fn is_confirm(kind: DialogKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review of the audit 4 fixes, S2: the notes a later run wrote under this run's names are
+    /// shown as kept, each with why, and are not counted as removed.
+    #[test]
+    fn an_undo_shows_what_a_later_run_wrote_as_kept() {
+        let lib = Path::new("library");
+        let done = mdedit_core::runs::UndoReport {
+            removed_notes: vec![lib.join("Trip").join("Kyoto.md")],
+            later: vec![
+                lib.join("Trip").join("Nara.md"),
+                lib.join("Trip").join("Osaka.md"),
+            ],
+            ..Default::default()
+        };
+        let out = Outcome::undone(&done, lib);
+        let at = out
+            .rows
+            .iter()
+            .position(|r| r == &OutRow::Heading("A later run's, kept (2)".to_string()));
+        let at = at.expect("the later run's heading");
+        let names: Vec<&str> = out.rows[at + 1..]
+            .iter()
+            .filter_map(|r| match r {
+                OutRow::Skipped { name, why } if why == "a later run wrote it or lists it" => {
+                    Some(name.as_str())
+                }
+                _ => None,
+            })
+            .collect();
+        let nara = Path::new("Trip").join("Nara.md").display().to_string();
+        let osaka = Path::new("Trip").join("Osaka.md").display().to_string();
+        assert_eq!(names, vec![nara.as_str(), osaka.as_str()]);
+        assert!(out.title.contains("1 file"), "{}", out.title);
+    }
 
     #[test]
     fn plural_and_tail_read_naturally() {

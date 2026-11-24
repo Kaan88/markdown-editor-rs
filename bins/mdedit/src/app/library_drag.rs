@@ -217,7 +217,7 @@ impl App {
         self.ui.panes.files = true;
         self.ui.set_pane_face(PaneFace::Notes);
         self.ui.library.checked = Some(Instant::now());
-        self.ui.library.build(&self.docs.library);
+        self.library_build();
         self.ui.library.focused = true;
         self.compose();
         let at = |label: &str| self.ui.library.rows.iter().position(|r| r.label == label);

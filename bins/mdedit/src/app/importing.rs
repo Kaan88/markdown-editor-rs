@@ -443,7 +443,7 @@ impl App {
         self.ui.panes.files = true;
         self.ui.set_pane_face(PaneFace::Notes);
         self.ui.library.unfold_to(file, sections);
-        self.ui.library.build(&self.docs.library);
+        self.library_build();
         self.ui
             .library
             .follow(RowId::Note(key_of(file, sections), note.to_path_buf()));

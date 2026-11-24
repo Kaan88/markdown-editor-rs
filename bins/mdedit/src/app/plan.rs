@@ -479,6 +479,7 @@ impl App {
             sections_added: Vec::new(),
             moved: None,
             originals: Vec::new(),
+            added: Vec::new(),
         };
         let report = Report {
             record: Some(record),

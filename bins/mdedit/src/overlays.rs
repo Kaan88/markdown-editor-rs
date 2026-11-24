@@ -1921,6 +1921,7 @@ mod tests {
             sections_added: Vec::new(),
             moved: None,
             originals: Vec::new(),
+            added: Vec::new(),
         };
         let offered = |r: &mdedit_core::runs::Record, kind: Kind, state: State| {
             let mut r = r.clone();

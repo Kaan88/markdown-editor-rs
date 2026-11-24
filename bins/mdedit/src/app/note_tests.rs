@@ -296,6 +296,20 @@ fn a_group_whose_folder_is_the_library_folder_itself_is_refused() {
     let _ = std::fs::remove_dir_all(&p.dir);
 }
 
+/// Review of the audit 4 fixes, A F14: the group's folder is compared with the library folder as
+/// one folder on disk, not as spelled: `home: Recipes/..` is the library folder itself.
+#[test]
+fn a_group_whose_folder_is_the_library_folder_by_another_spelling_is_refused() {
+    let (mut a, p) = lib("note-flat-dotdot");
+    std::fs::create_dir_all(p.library.join("Recipes")).unwrap();
+    std::fs::write(&p.group, "# Recipes\nhome: Recipes/..\n").unwrap();
+    a.library_rows();
+    open_card(&mut a, &p);
+    let why = a.note.as_ref().unwrap().blocked.clone().unwrap_or_default();
+    assert!(why.contains("the library folder itself"), "{why}");
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
+
 #[test]
 fn escape_stops_the_request_and_keeps_the_card_and_a_second_escape_closes_it() {
     let (mut a, p) = lib("note-escape");

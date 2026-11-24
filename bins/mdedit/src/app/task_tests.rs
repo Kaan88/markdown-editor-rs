@@ -1080,3 +1080,124 @@ fn a_split_answer_is_read_only_on_the_plan_it_was_asked_for() {
     assert!(cut_by_ai(&a), "the answer to nara.md's own request");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Review of the audit 4 fixes, T2: the guard itself, `split_asked_here`. Every way a plan
+/// leaves the screen stops its split first, so no window path reaches it today; here the split
+/// asked for one document is kept out of the window's reach while another document's plan opens,
+/// then answered. That plan takes nothing of it: not the answer, not the failure.
+#[test]
+fn a_split_asked_for_another_document_gives_this_plan_nothing() {
+    engine();
+    let dir = scratch("task-split-guard");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    for (tag, instruction) in [("answer", "SPLITOK one note"), ("failure", "FAILPLEASE")] {
+        let kyoto = trip(&dir, &format!("kyoto-{tag}.md"), "Kyoto");
+        let nara = trip(&dir, &format!("nara-{tag}.md"), "Nara");
+        super::files_tests::open_now(&mut a, &kyoto);
+        assert!(a.plan_open_active(), "kyoto's plan ({tag})");
+        a.split_start(crate::ai::Spec {
+            title: "Split".into(),
+            instruction: instruction.into(),
+        });
+        let run = a.ai.split.take().expect("the split is out");
+        a.plan = None;
+        super::files_tests::open_now(&mut a, &nara);
+        assert!(a.plan_open_active(), "nara's plan ({tag})");
+        a.ai.split = Some(run);
+        wait(&mut a, |a| a.ai.split.is_none());
+        let screen = a.plan.as_ref().expect("nara's plan stays");
+        assert_eq!(screen.source.name, format!("nara-{tag}.md"));
+        assert!(screen.ai_cut.is_none(), "kyoto's {tag} is not nara's plan");
+        assert!(
+            screen.ai_notice.is_none(),
+            "kyoto's {tag} is not said on nara's plan"
+        );
+        assert_eq!(screen.plan.notes().len(), 2, "nara is cut at its headings");
+        a.plan = None;
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A File them window over `group`, an existing library file, with pasta.md placed in it.
+fn file_them_into(tag: &str, group_text: &[u8]) -> (App, PathBuf, PathBuf) {
+    let dir = scratch(tag);
+    let lib = dir.join("library");
+    std::fs::create_dir_all(&lib).expect("library");
+    let group = lib.join("Recipes.md");
+    std::fs::write(&group, group_text).expect("group");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    (a, dir, group)
+}
+
+fn file_pasta(a: &mut App, dir: &Path) {
+    a.task_open(TaskKind::File, Vec::new());
+    a.task_add_paths(vec![pasta(dir)]);
+    if let Some(s) = a.task.as_mut() {
+        // The UTF-16 group is named "Recipes é".
+        let at = s.groups.iter().position(|g| g.name.starts_with("Recipes"));
+        s.dest = DestChoice::Group(at.expect("the group is offered"));
+    }
+    a.task_run();
+    assert_eq!(a.task.as_ref().map(|s| s.planned), Some(true));
+    a.task_file_write();
+}
+
+/// Review of the audit 4 fixes, W1: "File them" is refused while the group's library file is
+/// open in a tab with changes not saved, as every library write is. The file is not written,
+/// the window stays for the owner to save and add again, and the toast says why.
+#[test]
+fn file_them_is_refused_while_the_group_file_has_unsaved_changes() {
+    let before = b"# Recipes\nhome: Recipes\n";
+    let (mut a, dir, group) = file_them_into("task-file-unsaved", before);
+    super::files_tests::open_now(&mut a, &group);
+    super::files_tests::type_text(&mut a, "x");
+    assert!(a.docs.active_doc().is_some_and(|d| d.modified()));
+    file_pasta(&mut a, &dir);
+    assert_eq!(std::fs::read(&group).expect("the group"), before);
+    assert!(a.task.is_some(), "the window stays");
+    let said = toast(&a);
+    assert!(
+        said.contains("Recipes.md") && said.contains("not saved"),
+        "{said}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// W1, the reading: a group file with a byte order mark keeps it, and one in UTF-16 is refused
+/// and left as it was, as the pane's own writers treat them.
+#[test]
+fn file_them_keeps_a_byte_order_mark_and_refuses_a_utf16_file() {
+    let (mut a, dir, group) = file_them_into(
+        "task-file-bom",
+        "\u{FEFF}# Recipes\nhome: Recipes\n".as_bytes(),
+    );
+    file_pasta(&mut a, &dir);
+    let bytes = std::fs::read(&group).expect("the group");
+    assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]), "{bytes:?}");
+    assert!(
+        !bytes[3..].starts_with(&[0xEF, 0xBB, 0xBF]),
+        "one mark, not two"
+    );
+    assert!(
+        String::from_utf8_lossy(&bytes).contains("[Pasta]"),
+        "{bytes:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let mut utf16 = vec![0xFF, 0xFE];
+    for u in "# Recipes \u{e9}\nhome: Recipes\n".encode_utf16() {
+        utf16.extend_from_slice(&u.to_le_bytes());
+    }
+    let (mut a, dir, group) = file_them_into("task-file-utf16", &utf16);
+    file_pasta(&mut a, &dir);
+    assert_eq!(std::fs::read(&group).expect("the group"), utf16);
+    let said = toast(&a);
+    // Refused as every library writer refuses it, in its words.
+    assert!(said.contains("is not UTF-8 text"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

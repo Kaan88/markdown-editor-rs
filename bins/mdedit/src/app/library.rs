@@ -180,11 +180,26 @@ impl App {
     /// with no question (audit 4, A F16). A re-read that leaves the row where it was keeps the
     /// menu.
     pub(super) fn library_build(&mut self) {
-        let menu = match self.ui.popup_kind() {
+        let menu = self.library_menu_row();
+        self.ui.library.build(&self.docs.library);
+        self.library_menu_check(menu);
+    }
+
+    /// The row a row's menu is open on, and what that row is, taken before the rows change:
+    /// before a name box goes too, since taking it out moves every row below it (review of the
+    /// audit 4 fixes, A F16).
+    pub(super) fn library_menu_row(&self) -> Option<(usize, Option<crate::library_pane::RowId>)> {
+        match self.ui.popup_kind() {
             Some(crate::ui::PopupKind::LibraryRow(i)) => Some((i, self.ui.library.id_at(i))),
             _ => None,
-        };
-        self.ui.library.build(&self.docs.library);
+        }
+    }
+
+    /// The rows were made again: a menu whose row is another now closes.
+    pub(super) fn library_menu_check(
+        &mut self,
+        menu: Option<(usize, Option<crate::library_pane::RowId>)>,
+    ) {
         if let Some((i, was)) = menu
             && (was.is_none() || self.ui.library.id_at(i) != was)
         {
@@ -216,7 +231,7 @@ impl App {
             Kind::Group | Kind::Section => {
                 self.ui.library.focused = true;
                 self.ui.library.fold(&row.key);
-                self.ui.library.build(&self.docs.library);
+                self.library_build();
             }
             Kind::Note { missing: true, .. } => {
                 self.ui.library.focused = true;
@@ -503,10 +518,12 @@ impl App {
         // folded above the new note opened: it shows at once, not after a fold and an unfold.
         // A name being typed there goes with them, and the keyboard back to the text rather
         // than to a box the new rows no longer hold.
+        let menu = self.library_menu_row();
         self.ui.library.unfold_to(file, section);
         self.ui.library.stop_edit();
         self.ui.drop_library_field_focus();
         self.ui.library.build(&self.docs.library);
+        self.library_menu_check(menu);
         self.caret_reset();
         self.redraw();
         let group = self

@@ -463,6 +463,9 @@ for t in "" "-dark"; do
     # Undo refuses when the original the notes were cut from is gone or has changed, and a record
     # of a later version is listed with nothing to press.
     shot "runs-undo-original$t" $th --dialog run-undo-original
+    # A run that died before its notes: the two a later run of the same plan wrote stay.
+    shot "runs-undo-later$t" $th --dialog run-undo-later
+    shot "runs-undone-later$t" $th --dialog run-undone-later
     shot "runs-newer$t" $th --dialog runs-newer
 done
 

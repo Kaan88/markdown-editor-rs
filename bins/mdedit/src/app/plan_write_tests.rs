@@ -262,6 +262,88 @@ fn a_group_file_that_cannot_be_written_leaves_the_notes_unlinked_and_the_record_
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Review of the audit 4 fixes, T4: links pending, with a group file this run made. The window
+/// makes the group's file before the notes; step 6's write is then refused (`REFUSE_LINKS`, as a
+/// race would); and the record says the run made the file, so AI runs offers Finish for it, and
+/// Undo takes the notes away and the group's file with them.
+#[test]
+fn links_pending_with_a_group_file_this_run_made_is_the_runs_to_take_away() {
+    let (mut a, library, _source, dir) = planned("plan-links-made");
+    let group = library.join("Trip.md");
+    assert!(!group.exists(), "the group is a new one");
+    super::plan_write::REFUSE_LINKS.with(|r| r.set(true));
+    press(&mut a, KeyName::Enter);
+    super::plan_write::REFUSE_LINKS.with(|r| r.set(false));
+    let made = read(&group);
+    assert!(
+        made.contains("home: Trip"),
+        "the group's file is made: {made}"
+    );
+    assert!(!made.contains("]("), "no link is in it: {made}");
+    assert!(library.join("Trip/Tokyo/asakusa.md").is_file());
+    let runs = mdedit_core::runs::list(&library);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].record.state, mdedit_core::runs::State::LinksPending);
+    assert!(
+        runs[0].record.group.created,
+        "the record says this run made it"
+    );
+    let said = toast(&a);
+    assert!(
+        said.starts_with("The notes are written, but Trip.md could not be updated"),
+        "{said}"
+    );
+    assert!(crate::overlays::offers_finish(&runs[0].record));
+    a.run_undo(runs[0].path.clone());
+    assert!(!library.join("Trip/Tokyo/asakusa.md").exists());
+    assert!(!library.join("Trip/Tokyo/nara.md").exists());
+    assert!(
+        !group.exists(),
+        "the group's file this run made goes with it"
+    );
+    let record = mdedit_core::runs::load(&runs[0].path, &library).expect("the record stays");
+    assert_eq!(record.state, mdedit_core::runs::State::Undone);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of the audit 4 fixes, S3, through the window: undo gives the owner's group file back
+/// byte for byte, its byte order mark, CRLF line ends and the blank line at its end, because the
+/// window's gate opts in (`remove_links_added`).
+#[test]
+fn undo_gives_the_owners_group_file_back_byte_for_byte() {
+    let dir = scratch("plan-undo-bytes");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    let group = library.join("Trip.md");
+    let before = "\u{FEFF}# Trip\r\nhome: Trip\r\n\r\nThe owner's line.\r\n\r\n";
+    std::fs::write(&group, before).expect("the group");
+    let mut a = app_in(&dir);
+    let source = dir.join("Trip.md");
+    std::fs::write(
+        &source,
+        "# Tokyo\n\nintro\n\n## Asakusa\n\nthe river\n\n## Nara\n\nthe deer\n",
+    )
+    .expect("the source");
+    open_now(&mut a, &source);
+    assert!(a.plan_open_active());
+    press(&mut a, KeyName::Enter);
+    let linked = read(&group);
+    assert!(
+        linked.contains("[Asakusa](Trip/Tokyo/asakusa.md)"),
+        "{linked}"
+    );
+    let runs = mdedit_core::runs::list(&library);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].record.state, mdedit_core::runs::State::Done);
+    a.run_undo(runs[0].path.clone());
+    assert!(!library.join("Trip/Tokyo/asakusa.md").exists());
+    assert_eq!(
+        String::from_utf8_lossy(&std::fs::read(&group).expect("the group")),
+        before
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_plan_that_is_a_demonstration_says_it_writes_nothing_and_a_parked_plan_is_offered_in_the_pane()
 {

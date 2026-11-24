@@ -30,7 +30,8 @@ pub(super) fn same_folder(a: &Path, b: &Path) -> bool {
 /// C9, audit 4 F17). The reason is said plainly, for the caller to put in its sentence.
 pub(super) fn library_text(file: &Path) -> Result<(String, bool), String> {
     let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
-    let utf16 = bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
+    // A UTF-16 mark behind a UTF-8 one is UTF-16 to `decode` too (review of the audit 4, RB5).
+    let utf16 = mdshared_app::files::utf16_marked(&bytes);
     let (text, invalid) = mdshared_app::files::decode(&bytes);
     if utf16 || invalid {
         return Err(library::put::PutError::NotUtf8.to_string());
@@ -483,9 +484,11 @@ impl App {
 
     /// Escape: the name is dropped and the rows are the files' again.
     pub(super) fn library_edit_cancel(&mut self) {
+        let menu = self.library_menu_row();
         self.ui.library.stop_edit();
         self.ui.drop_library_field_focus();
         self.ui.library.build(&self.docs.library);
+        self.library_menu_check(menu);
         self.caret_reset();
         self.redraw();
     }

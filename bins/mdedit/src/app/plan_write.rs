@@ -25,8 +25,20 @@ pub(super) struct PlanGate<'a> {
     pub(super) library: PathBuf,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests only: step 6's write is refused, as a race in the field would refuse it. Nothing on
+    /// disk can refuse the links into a group file the run made a moment before without refusing
+    /// the making of it too (review of the audit 4 fixes, T4).
+    pub(super) static REFUSE_LINKS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl Gate for PlanGate<'_> {
     fn add_links(&mut self, file: &Path, links: &[mdedit_core::runs::Link]) -> Result<(), String> {
+        #[cfg(test)]
+        if REFUSE_LINKS.with(|r| r.get()) {
+            return Err("a test refused the write".to_string());
+        }
         let base = self.library.clone();
         // Refused when the group would pass the library's own limit (4.1).
         if let Ok((text, _)) = super::library_write::library_text(file) {
@@ -66,6 +78,30 @@ impl Gate for PlanGate<'_> {
             Wrote::Done => Ok(()),
             // Nothing to take out is not success: the notes of those lines stay, and the run
             // says it is not undone.
+            Wrote::Nothing => Err("none of the run's lines is in it any more".to_string()),
+            Wrote::Refused(why) => Err(why),
+        }
+    }
+
+    /// The window opts in: while the file still holds what the run's links left, undo gives it
+    /// back byte for byte, its blank lines, line ends and last line as they were; otherwise
+    /// the lines are taken out as `remove_links` does (review of the audit 4 fixes, S3). The
+    /// same writer, refusal and check as every other library write.
+    fn remove_links_added(
+        &mut self,
+        file: &Path,
+        links: &[LinkRemoval],
+        headings: &[Vec<String>],
+        added: &runs::Added,
+    ) -> Result<(), String> {
+        let base = self.library.clone();
+        match self.app.library_attempt_at(
+            file,
+            &base,
+            |text| runs::with_removals_added(text, links, headings, &base, added),
+            |old, new| runs::check_links_removed(old, new, links, &base),
+        ) {
+            Wrote::Done => Ok(()),
             Wrote::Nothing => Err("none of the run's lines is in it any more".to_string()),
             Wrote::Refused(why) => Err(why),
         }
@@ -577,7 +613,7 @@ impl App {
             .map(|n| n.sections.clone())
             .unwrap_or_default();
         self.ui.library.unfold_to(&request.group.file, &section);
-        self.ui.library.build(&self.docs.library);
+        self.library_build();
         self.ui
             .library
             .follow(RowId::Note(key_of(&request.group.file, &section), first));
@@ -737,6 +773,7 @@ impl App {
                         sections_added: vec![vec!["Part one".to_string()]],
                         moved: None,
                         originals: Vec::new(),
+                        added: Vec::new(),
                     },
                     path: root.join(".runs").join(format!("{started}-split.json")),
                     library: root.clone(),
@@ -785,7 +822,10 @@ impl App {
                 self.open_dialog(DialogKind::Runs);
             }
             Some(
-                ShotDialog::RunUndo | ShotDialog::RunUndoRecycled | ShotDialog::RunUndoOriginal,
+                ShotDialog::RunUndo
+                | ShotDialog::RunUndoRecycled
+                | ShotDialog::RunUndoOriginal
+                | ShotDialog::RunUndoLater,
             ) => {
                 let last = self.ui.runs.list.len().saturating_sub(1);
                 let pick = if which == Some(ShotDialog::RunUndoRecycled) {
@@ -822,7 +862,7 @@ impl App {
                             line: n.line.clone(),
                         })
                         .collect();
-                    let plan = mdedit_core::runs::UndoPlan {
+                    let mut plan = mdedit_core::runs::UndoPlan {
                         notes: notes.clone(),
                         links: vec![(run.record.group.file.clone(), links)],
                         folders: vec![
@@ -831,6 +871,15 @@ impl App {
                         ],
                         ..Default::default()
                     };
+                    // A run that died before its notes: a later run of the same plan wrote the
+                    // last two, and they stay (S2).
+                    if which == Some(ShotDialog::RunUndoLater) {
+                        let at = plan.notes.len().saturating_sub(2);
+                        plan.later = plan.notes.split_off(at);
+                        if let Some((_, lines)) = plan.links.first_mut() {
+                            lines.truncate(at);
+                        }
+                    }
                     (self.undo_sentence(&plan, &run.record.group_name()), true)
                 };
                 self.ui.runs.bin = which == Some(ShotDialog::RunUndoRecycled)
@@ -838,6 +887,18 @@ impl App {
                     && self.recycle.can_open();
                 self.ui.runs.undo = Some((run.path.clone(), sentence, can));
                 self.open_dialog(DialogKind::RunUndo);
+            }
+            Some(ShotDialog::RunUndoneLater) => {
+                // The report of that undo: two notes and their lines went, and the two a later
+                // run wrote are listed as kept, with why (S2).
+                let home = self.ui.runs.list[0].record.group.home.clone();
+                let report = mdedit_core::runs::UndoReport {
+                    removed_notes: (1..=2).map(|i| home.join(format!("Note {i}.md"))).collect(),
+                    removed_links: 2,
+                    later: vec![home.join("Note 5.md"), home.join("Note 6.md")],
+                    ..Default::default()
+                };
+                self.show_outcome(Outcome::undone(&report, &root));
             }
             _ => self.open_dialog(DialogKind::Runs),
         }
@@ -984,7 +1045,7 @@ impl App {
         self.ui.panes.files = true;
         self.ui.set_pane_face(PaneFace::Notes);
         self.ui.library.unfold_to(&file, &sections);
-        self.ui.library.build(&self.docs.library);
+        self.library_build();
         self.ui
             .library
             .follow(RowId::Note(key_of(&file, &sections), path));

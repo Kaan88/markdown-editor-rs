@@ -3649,7 +3649,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
             | ShotDialog::RunUndo
             | ShotDialog::RunUndoRecycled
             | ShotDialog::RunsNewer
-            | ShotDialog::RunUndoOriginal,
+            | ShotDialog::RunUndoOriginal
+            | ShotDialog::RunUndoLater
+            | ShotDialog::RunUndoneLater,
         ) => {
             let which = app.args.dialog;
             app.runs_demo(which);

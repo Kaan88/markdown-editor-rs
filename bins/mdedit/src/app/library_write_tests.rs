@@ -1691,6 +1691,55 @@ fn a_dot_dot_after_a_folder_that_is_not_there_is_folded() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Review of the audit 4 fixes, RB5: a library file that is UTF-16 behind a UTF-8 byte order
+/// mark is refused by the window's writers as a plain UTF-16 one is; one marked UTF-8 alone is
+/// read, its mark set aside to be written back.
+#[test]
+fn the_writers_refuse_a_utf16_file_behind_a_utf8_mark() {
+    let dir = scratch("libw-utf16-behind");
+    let file = dir.join("Recipes.md");
+    let mut bytes = vec![0xEF, 0xBB, 0xBF, 0xFF, 0xFE];
+    for u in "# Recipes\n".encode_utf16() {
+        bytes.extend_from_slice(&u.to_le_bytes());
+    }
+    std::fs::write(&file, &bytes).unwrap();
+    assert!(super::library_write::library_text(&file).is_err());
+    std::fs::write(&file, "\u{FEFF}# Recipes\n").unwrap();
+    assert_eq!(
+        super::library_write::library_text(&file),
+        Ok(("# Recipes\n".to_string(), true))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of the audit 4 fixes, A F16: every rebuild of the rows goes through `library_build`,
+/// not only a finished read. The name box of a new note goes while a row's menu is open below it,
+/// so every row under the box moves up one, and the menu closes rather than act on another row.
+#[test]
+fn a_row_menu_closes_when_the_name_box_above_it_goes() {
+    let (mut a, l) = lib("libw-menu-box");
+    let money = labels(&a)
+        .iter()
+        .position(|r| r == "Money")
+        .expect("the section");
+    pick(&mut a, LibAct::NewNote, money);
+    assert!(a.ui.library.edit.is_some(), "the name box is open");
+    let at = labels(&a)
+        .iter()
+        .position(|r| r == "Last year")
+        .expect("the note's row");
+    a.library_row_menu(at, 0.0, 0.0, false);
+    assert_eq!(a.ui.popup_kind(), Some(PopupKind::LibraryRow(at)));
+    a.library_edit_cancel();
+    assert_ne!(labels(&a)[at], "Last year", "the rows moved up");
+    assert_eq!(
+        a.ui.popup_kind(),
+        None,
+        "the menu is not left on another row"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
 /// Audit 4, A F16: a row's menu left open while the rows are made again from a finished read
 /// acted on whatever row then had its index: "Remove from the library" took another note's line
 /// out with no question. The menu closes when its row is another; a read that leaves the row

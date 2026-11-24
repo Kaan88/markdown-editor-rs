@@ -551,6 +551,49 @@ fn keep_the_folders_after_a_sort_gives_the_folders_plan_back() {
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
+/// Review of the audit 4 fixes, T3: "Keep the folders" pressed on a card that still holds a sort
+/// takes the sort off by itself (`sort_back`'s own `folders_back`). No window path reaches it
+/// today: every way to the scheme or to a failure gives the folders back first. So the card is
+/// put there by hand, as a card's own calls can: the scheme in front of a plan the AI sorted.
+#[test]
+fn keep_the_folders_takes_a_sort_still_on_the_card_off_it() {
+    let (mut a, l) = lib(
+        "import-ai-keep-held",
+        &[
+            "one.md",
+            "Bread/two.md",
+            "Sauces/three.md",
+            "Sauces/four.md",
+        ],
+    );
+    open_card(&mut a, &l);
+    let folders = plan_of(&a);
+    ask(&mut a);
+    let scheme = match &a.importer.as_ref().expect("card").sort {
+        SortStage::Scheme(scheme) => scheme.clone(),
+        other => panic!("the scheme came: {other:?}"),
+    };
+    a.key_pressed(Key::Name(KeyName::Escape), None);
+    sort(&mut a);
+    let now = plan_of(&a);
+    assert!(now != folders, "the sort is on the plan: {}", brief(&now));
+    let card = a.importer.as_mut().expect("card");
+    assert!(card.folders.is_some(), "the folders' plan is kept");
+    card.sort_scheme(scheme);
+    // Escape on the scheme: Keep the folders.
+    a.key_pressed(Key::Name(KeyName::Escape), None);
+    let card = a.importer.as_ref().expect("card");
+    assert!(matches!(card.sort, SortStage::Off), "{:?}", card.sort);
+    let now = plan_of(&a);
+    assert!(
+        now == folders,
+        "the folders' plan\n  now: {}\n  folders: {}",
+        brief(&now),
+        brief(&folders)
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
 #[test]
 fn escape_stops_the_requests_and_gives_back_the_edited_scheme() {
     let names: Vec<String> = (0..90).map(|i| format!("n{i:02}.md")).collect();

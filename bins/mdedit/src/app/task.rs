@@ -910,6 +910,13 @@ impl App {
                 .set_toast("Nothing is placed to add to the library.");
             return;
         }
+        // Refused while a tab holds changes to the group's file that are not saved, as every
+        // library write is: the tab's next save would take the links out again (review of the
+        // audit 4 fixes, W1). The window stays, for the owner to save and add again.
+        if let Err(why) = self.library_file_free(&group.file) {
+            self.docs.set_toast(&why);
+            return;
+        }
         // The group's file, made first when it is new.
         if !group.file.is_file() {
             let name = group.name.clone();
@@ -932,10 +939,12 @@ impl App {
         let mut added = 0usize;
         let mut failed: Option<String> = None;
         for (path, title, sections) in targets {
-            let text = match std::fs::read_to_string(&group.file) {
-                Ok(t) => t,
-                Err(e) => {
-                    failed = Some(e.to_string());
+            // Read as every library writer reads it: a byte order mark set aside to be written
+            // back, and a file that is not UTF-8 text refused rather than changed (W1).
+            let (text, bom) = match super::library_write::library_text(&group.file) {
+                Ok(read) => read,
+                Err(why) => {
+                    failed = Some(why);
                     break;
                 }
             };
@@ -963,8 +972,8 @@ impl App {
             }
             // The group's file is the owner's: written through a temporary of its own, so a
             // `Recipes.md.tmp` of theirs is never taken, its mode is kept, and nothing is left
-            // beside it when the write fails (audit 4, RB3).
-            if let Err(e) = mdshared_app::files::replace(&group.file, new.as_bytes()) {
+            // beside it when the write fails (audit 4, RB3); with its byte order mark (W1).
+            if let Err(e) = super::library_write::library_put_text(&group.file, &new, bom) {
                 failed = Some(e.to_string());
                 break;
             }

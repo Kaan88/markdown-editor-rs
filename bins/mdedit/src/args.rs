@@ -86,6 +86,11 @@ pub enum ShotDialog {
     RunsNewer,
     /// The question when the original the notes were cut from is gone: what undo says instead.
     RunUndoOriginal,
+    /// The question for a run that died before its notes, some of which a later run wrote: they
+    /// stay (review of the audit 4 fixes, S2).
+    RunUndoLater,
+    /// The report after that undo: what the later run wrote is listed as kept, with why.
+    RunUndoneLater,
     /// The question before a library file is deleted.
     LibraryDelete,
     /// The same question with a group and a file long enough to wrap onto a fourth line.
@@ -582,6 +587,8 @@ impl Args {
                         "run-undo-recycled" => Some(ShotDialog::RunUndoRecycled),
                         "runs-newer" => Some(ShotDialog::RunsNewer),
                         "run-undo-original" => Some(ShotDialog::RunUndoOriginal),
+                        "run-undo-later" => Some(ShotDialog::RunUndoLater),
+                        "run-undone-later" => Some(ShotDialog::RunUndoneLater),
                         "library-delete" => Some(ShotDialog::LibraryDelete),
                         "library-delete-long" => Some(ShotDialog::LibraryDeleteLong),
                         "library-remove-long" => Some(ShotDialog::LibraryRemoveLong),
@@ -712,6 +719,14 @@ mod tests {
         assert_eq!(
             parse("--dialog run-undo-original").dialog,
             Some(ShotDialog::RunUndoOriginal)
+        );
+        assert_eq!(
+            parse("--dialog run-undo-later").dialog,
+            Some(ShotDialog::RunUndoLater)
+        );
+        assert_eq!(
+            parse("--dialog run-undone-later").dialog,
+            Some(ShotDialog::RunUndoneLater)
         );
         assert_eq!(
             parse("--dialog library-delete").dialog,
