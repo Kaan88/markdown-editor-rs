@@ -27,11 +27,12 @@ released. If `git log -1` is newer, doubt "In hand" first.
 - **A closed mdview is asked about again** (`fix/closed-mdview`, D-102, D-105): at 1, 2 and 4 s,
   with a refused check kept to its grace's end and a key or click asking at most once in two
   seconds. Not tried by the owner; keystroke and idle times not measured (not run).
-- Otherwise nothing but documents since `v1.3.0`. Nothing since 1.2.0 has had an outside review
-  (audit 3's fixes included).
+- Otherwise nothing but documents since `v1.3.0`.
 
 ## In hand
 
+- **A wrapped file reopened past its end** (owner's report, D-155): fixed on
+  `fix/restore-scroll-clamp`, test and docs in; not merged, waiting for the owner's word.
 - **Phase 4, "Sort a folder by AI."** (`ai-library-plan.md` 5.7's second half, on 4a's card):
   built and tested on `f/p4`, worktree `md-wt\p4`, not merged (D-150 to D-154, `DESIGN.md` 84).
   **Ask the AI** returns a scheme of at most 8 sections with subsections, which the owner can add

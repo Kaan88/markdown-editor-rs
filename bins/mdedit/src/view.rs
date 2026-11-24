@@ -1668,8 +1668,13 @@ fn geom(r: &mut Ready, area: Rect, m: &Metrics) -> Geom {
     r.view.view_w = view_w;
     r.view.advance = adv_l;
     r.view.wide_advance = m.wide / scale;
+    // Without wrap the clamp below does it; either way it is done once.
+    let fit = std::mem::take(&mut r.view.fit_top);
     if wrapped {
-        let p = wrap::top(r);
+        let mut p = wrap::top(r);
+        if fit {
+            p = p.min(wrap::lowest_full_top(r, vl));
+        }
         wrap::set_top(r, p);
         r.view.left = 0.0;
     } else {

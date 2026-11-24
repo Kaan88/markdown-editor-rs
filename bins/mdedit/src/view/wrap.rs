@@ -160,6 +160,22 @@ pub fn top(r: &mut Ready) -> Pos {
     Pos { line, row }
 }
 
+/// The lowest top at which the view is still full: the last row at the view's bottom (or the
+/// first row, when everything fits). What the top is clamped to without word wrap.
+pub fn lowest_full_top(r: &mut Ready, view_lines: f64) -> Pos {
+    let last = r.buffer.len_lines().saturating_sub(1);
+    let end = step(
+        r,
+        Pos {
+            line: last,
+            row: usize::MAX,
+        },
+        0,
+    );
+    let view = (view_lines.floor() as isize).max(1);
+    step(r, end, -(view - 1))
+}
+
 pub fn set_top(r: &mut Ready, p: Pos) {
     r.view.top = p.line as f64;
     r.view.top_row = p.row;
