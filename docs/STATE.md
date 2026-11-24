@@ -105,7 +105,7 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   winit `62fa727`, softbuffer `dd18fec`.
 - Branches: `main`; the drawings (`mock/ai-review`, `mock/settings`, `mock/terminal`,
   `mock/downloader`, `mock/workbench` local only, `mock/launcher`, `mock/file-manager`,
-  `mock/task-manager`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub
+  `mock/task-manager`, `mock/ai-pictures` with the pictures plan `docs/ai-pictures-plan.md`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub
   `spike/frosted-window` and `chore/dependabot`; Hub's `hub/notes-file` in both apps. Merged
   branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
