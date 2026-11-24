@@ -27,7 +27,116 @@ pub enum Face_ {
     Limit,
     Failed,
     NoVision,
+    /// Opened from six notes selected in the Notes pane: Rewrite them.
+    FromNotes,
+    /// Opened empty by the one command, with the Add menu open.
+    AddMenu,
+    /// File them, the text files copied into the library with their pictures.
+    FileCopy,
+    /// The same, moved.
+    FileMove,
 }
+
+/// What a face of the window shows above its list.
+struct Spec {
+    sub: &'static str,
+    task: usize,
+    instruction: &'static str,
+    placeholder: &'static str,
+    prompts: &'static [(&'static str, &'static str)],
+    dest: &'static str,
+    dest_right: [&'static str; 2],
+    /// File them's switch for what happens to the files, and which is chosen.
+    mode: Option<usize>,
+    options: bool,
+    in_place: bool,
+}
+
+const SUB: &str =
+    "They are read here and sent only to the provider you chose. Nothing is opened in a tab.";
+const SUB_NOTES: &str = "6 notes from the Notes pane: Recipes \u{203A} Pasta (4) and 2 of Bread. Nothing is opened in a tab.";
+const ASK_NOTES: &str =
+    "What should the notes be? For example: describe each and sort them by topic";
+
+fn spec(face: Face_) -> Spec {
+    match face {
+        Face_::FromNotes => Spec {
+            sub: SUB_NOTES,
+            task: 3,
+            instruction: "put the ingredients in a table, amounts in grams",
+            placeholder: "",
+            prompts: &REWRITE_PROMPTS,
+            dest: "",
+            dest_right: ["", ""],
+            mode: None,
+            options: false,
+            in_place: true,
+        },
+        Face_::AddMenu => Spec {
+            sub: SUB,
+            task: 0,
+            instruction: "",
+            placeholder: ASK_NOTES,
+            prompts: &PROMPTS,
+            dest: "Decide on the plan",
+            dest_right: ["", ""],
+            mode: None,
+            options: true,
+            in_place: false,
+        },
+        Face_::FileCopy | Face_::FileMove => Spec {
+            sub: SUB,
+            task: 1,
+            instruction: "file these under my trips, by country",
+            placeholder: "",
+            prompts: &FILE_PROMPTS,
+            dest: "Travel",
+            dest_right: [
+                "\u{2192} library\\Travel\\",
+                "a folder per section, pictures beside their notes",
+            ],
+            mode: Some(if face == Face_::FileCopy { 1 } else { 2 }),
+            options: false,
+            in_place: false,
+        },
+        _ => Spec {
+            sub: SUB,
+            task: 0,
+            instruction: "categorize and describe the screenshots",
+            placeholder: ASK_NOTES,
+            prompts: &PROMPTS,
+            dest: "A new group: Screenshots",
+            dest_right: [
+                "\u{2192} library\\Screenshots\\",
+                "pictures copied beside the notes, in pictures\\",
+            ],
+            mode: None,
+            options: true,
+            in_place: false,
+        },
+    }
+}
+
+const REWRITE_PROMPTS: [(&str, &str); 3] = [
+    (
+        "Fix and tidy",
+        "Fix spelling and headings, keep every word of the meaning",
+    ),
+    (
+        "Translate to Turkish",
+        "The whole note, headings too; names and amounts as they are",
+    ),
+    ("Shorten", "Half the length, nothing of substance dropped"),
+];
+
+const FILE_PROMPTS: [(&str, &str); 3] = [
+    ("By subject", "A section per subject, at most eight"),
+    (
+        "By year and month",
+        "A section per year, a subsection per month",
+    ),
+    ("By person", "A section per person the file is about"),
+];
 
 /// What a row says at its right, and how.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -133,6 +242,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
     let x = r.x + PAD;
     let inner = r.w - 2.0 * PAD;
     let busy = face == Face_::Looking;
+    let sp = spec(face);
 
     // ---- header -----------------------------------------------------------------------------
     p.text(
@@ -149,27 +259,46 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
         12.5,
         x,
         r.y + 50.0,
-        "They are read here and sent only to the provider you chose. Nothing is opened in a tab.",
+        sp.sub,
         pal.muted,
-        inner - 130.0,
+        inner - 110.0,
     );
-    let add_w = dialog_button_w(p, "Add files\u{2026}");
+    // One button for every way in: a menu, drawn open on the `AddMenu` face.
+    let add_w = dialog_button_w(p, "Add") + 18.0;
     let add = Rect::new(r.right() - PAD - add_w, r.y + 19.0, add_w, 30.0);
-    draw_dialog_button(p, pal, add, "Add files\u{2026}", false, false, false);
+    draw_dialog_button(p, pal, add, "Add     ", false, false, false);
+    p.icon(glyph::DOWN, 12.0, add.right() - 18.0, add.cy(), pal.muted);
 
     // ---- what to do -------------------------------------------------------------------------
     let labels = ["Write notes", "File them", "Split them", "Rewrite them"];
     let sw_w = switch_width(p, &labels).min(inner);
     let sw = Rect::new(x, g.task.y, sw_w, SEGMENT_H);
-    draw_segments(p, pal, sw, &labels, Some(0), None);
-    p.text_right(
-        Face::Ui,
-        12.0,
-        x + inner,
-        g.task.cy(),
-        "WHAT TO DO",
-        pal.faint,
-    );
+    draw_segments(p, pal, sw, &labels, Some(sp.task), None);
+    if let Some(mode) = sp.mode {
+        // File them: what happens to the files themselves. Beside the task, because it is as
+        // much a part of what is done as the task is.
+        let modes = ["Link them", "Copy them in", "Move them in"];
+        let mw = switch_width(p, &modes);
+        let ms = Rect::new(x + inner - mw, g.task.y, mw, SEGMENT_H);
+        draw_segments(p, pal, ms, &modes, Some(mode), None);
+        p.text_right(
+            Face::Ui,
+            12.0,
+            ms.x - 12.0,
+            g.task.cy(),
+            "THE FILES",
+            pal.faint,
+        );
+    } else {
+        p.text_right(
+            Face::Ui,
+            12.0,
+            x + inner,
+            g.task.cy(),
+            "WHAT TO DO",
+            pal.faint,
+        );
+    }
 
     // ---- the instruction --------------------------------------------------------------------
     let field = g.field;
@@ -197,16 +326,16 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
             caret: pal.text,
         };
         let mut tf = TextField::new();
-        tf.set_text("categorize and describe the screenshots");
+        tf.set_text(sp.instruction);
         tf.draw(
             p,
             Rect::new(field.x + 12.0, field.y, field.w - 24.0, field.h),
             Face::Ui,
             13.5,
             &colors,
-            "What should the notes be? For example: describe each and sort them by topic",
+            sp.placeholder,
             true,
-            face == Face_::Ready,
+            matches!(face, Face_::Ready | Face_::FromNotes),
         );
     }
 
@@ -215,9 +344,9 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
     caption(p, pal, x, prompts.y + 8.0, "SAVED PROMPTS", inner);
     let list = Rect::new(prompts.x, prompts.y + 16.0, prompts.w, prompts.h - 16.0);
     let old = p.clip(list);
-    for (k, (name, text)) in PROMPTS.iter().enumerate() {
+    for (k, (name, text)) in sp.prompts.iter().enumerate() {
         let row = Rect::new(list.x, list.y + k as f32 * PROMPT_H, list.w, PROMPT_H);
-        if k == 0 && !busy {
+        if k == 0 && !busy && !sp.instruction.is_empty() && sp.task == 0 {
             p.rbox(row.inset(2.0), 6.0, pal.hover);
         }
         p.text(
@@ -247,56 +376,84 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
     // ---- where it goes, and the options -----------------------------------------------------
     caption(p, pal, x, g.dest.y + 17.0, "WHERE IT GOES", 100.0);
     let dest = Rect::new(x + 100.0, g.dest.y + 2.0, 240.0, 30.0);
-    p.frame(dest, 6.0, pal.field, pal.line);
-    p.text(
-        Face::Ui,
-        13.0,
-        dest.x + 10.0,
-        dest.cy(),
-        "A new group: Screenshots",
-        pal.text,
-        dest.w - 30.0,
-    );
-    p.icon(glyph::DOWN, 12.0, dest.right() - 18.0, dest.cy(), pal.muted);
     let open = face == Face_::Options;
-    let opt_w = p.measure(Face::Ui, 13.0, "Options") + 44.0;
-    let opt = Rect::new(dest.right() + 10.0, dest.y, opt_w, 30.0);
-    p.frame(
-        opt,
-        6.0,
-        if open {
-            mix(pal.accent, pal.popup, 0.82)
+    let mut opt = dest;
+    if sp.in_place {
+        p.text(
+            Face::Ui,
+            12.5,
+            x + 100.0,
+            g.dest.y + 17.0,
+            "In place: each note is rewritten where it is, and its original goes to AI runs.",
+            pal.muted,
+            inner - 100.0,
+        );
+    } else {
+        p.frame(dest, 6.0, pal.field, pal.line);
+        p.text(
+            Face::Ui,
+            13.0,
+            dest.x + 10.0,
+            dest.cy(),
+            sp.dest,
+            pal.text,
+            dest.w - 30.0,
+        );
+        p.icon(glyph::DOWN, 12.0, dest.right() - 18.0, dest.cy(), pal.muted);
+        if sp.options {
+            let opt_w = p.measure(Face::Ui, 13.0, "Options") + 44.0;
+            opt = Rect::new(dest.right() + 10.0, dest.y, opt_w, 30.0);
+            p.frame(
+                opt,
+                6.0,
+                if open {
+                    mix(pal.accent, pal.popup, 0.82)
+                } else {
+                    pal.field
+                },
+                if open { pal.accent } else { pal.line },
+            );
+            p.text(
+                Face::Ui,
+                13.0,
+                opt.x + 10.0,
+                opt.cy(),
+                "Options",
+                pal.text,
+                opt.w,
+            );
+            p.icon(glyph::DOWN, 12.0, opt.right() - 18.0, opt.cy(), pal.muted);
         } else {
-            pal.field
-        },
-        if open { pal.accent } else { pal.line },
-    );
-    p.text(
-        Face::Ui,
-        13.0,
-        opt.x + 10.0,
-        opt.cy(),
-        "Options",
-        pal.text,
-        opt.w,
-    );
-    p.icon(glyph::DOWN, 12.0, opt.right() - 18.0, opt.cy(), pal.muted);
-    p.text_right(
-        Face::Ui,
-        11.5,
-        x + inner,
-        dest.cy() - 8.0,
-        "\u{2192} library\\Screenshots\\",
-        pal.faint,
-    );
-    p.text_right(
-        Face::Ui,
-        11.5,
-        x + inner,
-        dest.cy() + 8.0,
-        "pictures copied beside the notes, in pictures\\",
-        pal.faint,
-    );
+            // File them's own field, as built: the section every file goes under.
+            let sec = Rect::new(dest.right() + 12.0, dest.y, 180.0, 30.0);
+            p.frame(sec, 6.0, pal.field, pal.line);
+            p.text(
+                Face::Ui,
+                12.5,
+                sec.x + 10.0,
+                sec.cy(),
+                "under a section (none)",
+                pal.faint,
+                sec.w - 20.0,
+            );
+        }
+        p.text_right(
+            Face::Ui,
+            11.5,
+            x + inner,
+            dest.cy() - 8.0,
+            sp.dest_right[0],
+            pal.faint,
+        );
+        p.text_right(
+            Face::Ui,
+            11.5,
+            x + inner,
+            dest.cy() + 8.0,
+            sp.dest_right[1],
+            pal.faint,
+        );
+    }
 
     // ---- the files --------------------------------------------------------------------------
     let rows = rows_of(face);
@@ -334,6 +491,16 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
         }
     }
     let _ = content;
+    if face == Face_::AddMenu {
+        p.text_center(
+            Face::Ui,
+            13.0,
+            Rect::new(g.list.x, g.list.y + 150.0, g.list.w, 24.0),
+            "Add files, or drop them here from File Explorer. Ctrl+V adds a copied picture.",
+            pal.faint,
+        );
+        add_menu(p, pal, add);
+    }
 
     if open {
         options(p, pal, Rect::new(opt.x, opt.bottom() + 4.0, 520.0, 0.0));
@@ -378,6 +545,36 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
                 .to_string(),
             true,
         ),
+        Face_::FromNotes => (
+            vec![("Cancel", false, true), ("Run on 6 notes", true, true)],
+            "6 notes \u{00B7} 14.8 KB in 6 requests, 3 at a time",
+            format!("{via} \u{00B7} each note is shown as a list of changes before it is written"),
+            false,
+        ),
+        Face_::AddMenu => (
+            vec![
+                ("Cancel", false, true),
+                ("Nothing to send yet", true, false),
+            ],
+            "No files yet",
+            format!("{via} \u{00B7} nothing is sent until you press the button"),
+            false,
+        ),
+        Face_::FileCopy => (
+            vec![("Cancel", false, true), ("Run on 4 files", true, true)],
+            "3 files copied into library\\Travel\\ with 4 pictures (5.1 MB), 1 linked",
+            format!(
+                "{via} \u{00B7} a digest of each file is sent, no picture. The originals stay."
+            ),
+            false,
+        ),
+        Face_::FileMove => (
+            vec![("Cancel", false, true), ("Run on 4 files", true, true)],
+            "3 files and 4 pictures leave D:\\Docs\\Trips for library\\Travel\\, 1 linked",
+            "Other files that link to them will not find them. Undo puts everything back."
+                .to_string(),
+            true,
+        ),
         Face_::NoVision => (
             vec![
                 ("Cancel", false, true),
@@ -390,7 +587,15 @@ pub fn draw(p: &mut Painter, pal: &Palette, w: f32, h: f32, face: Face_) {
         ),
     };
     let left = footer_buttons(p, pal, r, footer, &buttons);
-    let link_x = if matches!(face, Face_::Ready | Face_::Options | Face_::Limit) {
+    let link_x = if matches!(
+        face,
+        Face_::Ready
+            | Face_::Options
+            | Face_::Limit
+            | Face_::FromNotes
+            | Face_::FileCopy
+            | Face_::FileMove
+    ) {
         link(p, pal, left - 16.0, footer.cy(), "Show what is sent")
     } else {
         left
@@ -416,9 +621,107 @@ enum Item {
     File(Row),
 }
 
+const fn row(name: &'static str, sub: &'static str, right: &'static str, mark: Mark) -> Row {
+    Row {
+        art: None,
+        name,
+        sub,
+        right,
+        mark,
+    }
+}
+
+const NOTES_HEAD: &str = "NOTES \u{00B7} EACH READ AND SENT WHOLE \u{00B7} REWRITTEN IN PLACE AFTER YOU HAVE SEEN ITS CHANGES";
+const COPY_HEAD: &str = "TEXT \u{00B7} A DIGEST IS SENT \u{00B7} COPIED INTO THE GROUP\u{2019}S FOLDERS, WITH THE PICTURES THEY SHOW";
+const MOVE_HEAD: &str = "TEXT \u{00B7} A DIGEST IS SENT \u{00B7} MOVED INTO THE GROUP\u{2019}S FOLDERS, WITH THE PICTURES THEY SHOW";
+
+const NOTES: [(&str, &str); 6] = [
+    (
+        "Carbonara",
+        "Recipes \u{203A} Pasta \u{00B7} carbonara.md \u{00B7} 2.1 KB",
+    ),
+    (
+        "Cacio e pepe",
+        "Recipes \u{203A} Pasta \u{00B7} cacio-e-pepe.md \u{00B7} 1.4 KB",
+    ),
+    (
+        "Lasagne",
+        "Recipes \u{203A} Pasta \u{00B7} lasagne.md \u{00B7} 4.9 KB",
+    ),
+    (
+        "Rag\u{00F9}",
+        "Recipes \u{203A} Pasta \u{00B7} ragu.md \u{00B7} 2.6 KB",
+    ),
+    (
+        "Sourdough starter",
+        "Recipes \u{203A} Bread \u{00B7} sourdough-starter.md \u{00B7} 1.8 KB",
+    ),
+    (
+        "Rye loaf",
+        "Recipes \u{203A} Bread \u{00B7} rye-loaf.md \u{00B7} 2.0 KB",
+    ),
+];
+
 fn rows_of(face: Face_) -> Vec<Item> {
     let mut out = Vec::new();
     match face {
+        Face_::AddMenu => {}
+        Face_::FromNotes => {
+            out.push(Item::Heading(NOTES_HEAD, false));
+            for (name, sub) in NOTES {
+                out.push(Item::File(row(name, sub, "read and sent", Mark::Plain)));
+            }
+        }
+        Face_::FileCopy | Face_::FileMove => {
+            let moved = face == Face_::FileMove;
+            out.push(Item::Heading(
+                if moved { MOVE_HEAD } else { COPY_HEAD },
+                false,
+            ));
+            out.push(Item::File(row(
+                "japan-2025.md",
+                "D:\\Docs\\Trips \u{00B7} 18 KB \u{00B7} shows 3 pictures",
+                if moved {
+                    "moved in, with 3 pictures"
+                } else {
+                    "copied in, with 3 pictures"
+                },
+                Mark::Plain,
+            )));
+            out.push(Item::File(row(
+                "kyoto-temples.md",
+                "D:\\Docs\\Trips \u{00B7} 9 KB \u{00B7} shows 2 pictures, 1 of them also in japan-2025.md",
+                if moved {
+                    "moved in, with 2 pictures"
+                } else {
+                    "copied in, with 2 pictures"
+                },
+                Mark::Plain,
+            )));
+            out.push(Item::File(row(
+                "packing-list.txt",
+                "D:\\Docs\\Trips \u{00B7} 1 KB",
+                if moved { "moved in" } else { "copied in" },
+                Mark::Plain,
+            )));
+            out.push(Item::File(row(
+                "lisbon.md",
+                "library\\Travel \u{00B7} 6 KB \u{00B7} already inside the library\u{2019}s folder",
+                "linked where it is",
+                Mark::Plain,
+            )));
+            out.push(Item::Heading(
+                "PICTURES \u{00B7} NOT FILED: A PICTURE IS NOT A NOTE",
+                false,
+            ));
+            out.push(Item::File(Row {
+                art: Some(Art::Photo),
+                name: "IMG_0412.jpg",
+                sub: "Write notes puts it inside a note.",
+                right: "Write notes from these instead",
+                mark: Mark::Out,
+            }));
+        }
         Face_::Limit => {
             out.push(Item::Heading(
                 "PICTURES \u{00B7} 104 TICKED, AND ONE RUN TAKES 100 \u{00B7} 3 LEFT OUT BELOW",
@@ -521,6 +824,7 @@ fn file_row(p: &mut Painter, pal: &Palette, row: Rect, f: &Row, busy: bool) {
     let colour = match f.mark {
         Mark::Seen => pal.accent,
         Mark::Missed => pal.warn,
+        Mark::Out if f.right.starts_with("Write notes") => mix(pal.accent, pal.text, 0.25),
         Mark::Out => pal.faint,
         _ => pal.muted,
     };
@@ -622,5 +926,51 @@ fn options(p: &mut Painter, pal: &Palette, at: Rect) {
             pal.faint,
             row.w - 52.0,
         );
+    }
+}
+
+/// The one way in: what "Add" offers, open under its button.
+fn add_menu(p: &mut Painter, pal: &Palette, button: Rect) {
+    let items: [(&str, &str, bool); 6] = [
+        ("This document", "sample.md", false),
+        ("The open tabs", "4 files", false),
+        ("The notes selected in the Notes pane", "6 notes", true),
+        ("Files\u{2026}", "", false),
+        ("A folder\u{2026}", "", false),
+        ("The picture on the clipboard", "1920 \u{00D7} 1080", false),
+    ];
+    let w = 380.0;
+    let h = 30.0 * items.len() as f32 + 8.0 + 9.0;
+    let r = Rect::new(button.right() - w, button.bottom() + 4.0, w, h);
+    p.shadow(r, 8.0, pal.dark);
+    p.frame(r, 8.0, pal.popup, pal.popup_line);
+    let mut y = r.y + 4.0;
+    for (k, (label, note, sep_after)) in items.iter().enumerate() {
+        let row = Rect::new(r.x + 4.0, y, r.w - 8.0, 30.0);
+        if k == 0 {
+            p.rbox(row, 5.0, pal.hover);
+        }
+        p.text(
+            Face::Ui,
+            13.0,
+            row.x + 12.0,
+            row.cy(),
+            label,
+            pal.text,
+            260.0,
+        );
+        p.text_right(
+            Face::Ui,
+            12.0,
+            row.right() - 12.0,
+            row.cy(),
+            note,
+            pal.faint,
+        );
+        y += 30.0;
+        if *sep_after {
+            hline(p, r.x + 1.0, y + 4.0, r.w - 2.0, pal.popup_line);
+            y += 9.0;
+        }
     }
 }

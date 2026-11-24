@@ -481,3 +481,192 @@ pub fn result(p: &mut Painter, pal: &Palette, w: f32, h: f32) {
         draw_scrollbar(p, pal, track, thumb_r, false);
     }
 }
+
+const CARBONARA: [&str; 13] = [
+    "# Carbonara",
+    "",
+    "For two. Twenty minutes.",
+    "",
+    "## Ingredients",
+    "",
+    "- 200 g spaghetti",
+    "- 100 g guanciale, in strips",
+    "- 3 egg yolks and 1 whole egg",
+    "- 50 g pecorino, grated fine",
+    "- black pepper, a lot",
+    "",
+    "## Method",
+];
+
+/// Several notes selected in the Notes pane: a whole section by one Ctrl+click on its row, two
+/// more notes one at a time, and the menu of the selection. Drawn over the page of the window.
+pub fn tree_select(p: &mut Painter, pal: &Palette, w: f32, h: f32) {
+    let top = 85.0;
+    let area = Rect::new(0.0, top, w, h - top - 26.0);
+    p.fill(area, pal.page);
+    let pane = Rect::new(0.0, top, 300.0, area.h);
+    p.fill(pane, pal.pane);
+    vline(p, pane.right(), pane.y, pane.h, pal.line);
+    let labels = ["Files", "Notes", "Functions"];
+    let sw_w = switch_width(p, &labels);
+    let sw = Rect::new(pane.x + 12.0, pane.y + 10.0, sw_w, SEGMENT_H);
+    draw_segments(p, pal, sw, &labels, Some(1), None);
+
+    // (indent, icon, text, bold, selected, the keyboard's row, the count a selected section shows)
+    let rows: [(f32, &str, &str, bool, bool, bool, &str); 13] = [
+        (0.0, glyph::DOWN, "Recipes", true, false, false, ""),
+        (1.0, glyph::DOWN, "Pasta", true, true, false, "all 4"),
+        (2.0, glyph::DOC, "Carbonara", false, true, false, ""),
+        (2.0, glyph::DOC, "Cacio e pepe", false, true, false, ""),
+        (2.0, glyph::DOC, "Lasagne", false, true, false, ""),
+        (2.0, glyph::DOC, "Rag\u{00F9}", false, true, false, ""),
+        (1.0, glyph::DOWN, "Bread", true, false, false, ""),
+        (2.0, glyph::DOC, "Sourdough starter", false, true, false, ""),
+        (2.0, glyph::DOC, "Focaccia", false, false, false, ""),
+        (2.0, glyph::DOC, "Rye loaf", false, true, true, ""),
+        (1.0, glyph::RIGHT, "Soups", true, false, false, ""),
+        (0.0, glyph::RIGHT, "Travel", true, false, false, ""),
+        (0.0, glyph::RIGHT, "Work", true, false, false, ""),
+    ];
+    let tint = mix(pal.accent, pal.pane, 0.80);
+    let mut y = sw.bottom() + 12.0;
+    let mut menu_at = (0.0, 0.0);
+    for (indent, icon, text, bold, selected, cursor, count) in rows {
+        let row = Rect::new(pane.x + 6.0, y, pane.w - 12.0, 26.0);
+        if selected {
+            p.rbox(Rect::new(row.x, row.y + 1.0, row.w, row.h - 2.0), 5.0, tint);
+        }
+        if cursor {
+            p.frame(
+                Rect::new(row.x, row.y + 1.0, row.w, row.h - 2.0),
+                5.0,
+                tint,
+                pal.accent,
+            );
+            menu_at = (row.x + 150.0, row.bottom() - 4.0);
+        }
+        let ix = row.x + 14.0 + indent * 16.0;
+        p.icon(
+            icon,
+            if icon == glyph::DOC { 13.0 } else { 11.0 },
+            ix,
+            row.cy(),
+            pal.muted,
+        );
+        p.text(
+            if bold { Face::Semibold } else { Face::Ui },
+            13.0,
+            ix + 14.0,
+            row.cy(),
+            text,
+            pal.text,
+            row.right() - ix - 70.0,
+        );
+        if !count.is_empty() {
+            p.text_right(
+                Face::Ui,
+                11.5,
+                row.right() - 10.0,
+                row.cy(),
+                count,
+                pal.muted,
+            );
+        }
+        y += 26.0;
+    }
+
+    // The pane's foot while more than one note is selected.
+    let foot = Rect::new(pane.x, pane.bottom() - 52.0, pane.w, 52.0);
+    hline(p, foot.x, foot.y, foot.w, pal.line);
+    p.text(
+        Face::Semibold,
+        12.0,
+        foot.x + 14.0,
+        foot.y + 17.0,
+        "6 notes selected",
+        pal.text,
+        foot.w - 28.0,
+    );
+    let blue = mix(pal.accent, pal.text, 0.25);
+    let lw = p.text(
+        Face::Ui,
+        12.0,
+        foot.x + 14.0,
+        foot.y + 36.0,
+        "AI task on them\u{2026}",
+        blue,
+        160.0,
+    );
+    p.text(
+        Face::Ui,
+        12.0,
+        foot.x + 14.0 + lw + 16.0,
+        foot.y + 36.0,
+        "Clear (Esc)",
+        blue,
+        100.0,
+    );
+
+    // ---- the document that was open: selecting opens nothing --------------------------------
+    let source = Rect::new(pane.right() + 1.0, top, area.w - pane.w - 1.0, area.h);
+    let old = p.clip(source);
+    for (k, line) in CARBONARA.iter().enumerate() {
+        let cy = source.y + 20.0 + k as f32 * 21.0;
+        p.text_right(
+            Face::Mono,
+            11.5,
+            source.x + 38.0,
+            cy,
+            &format!("{}", k + 1),
+            pal.faint,
+        );
+        let head = line.starts_with('#');
+        p.text(
+            if head { Face::Semibold } else { Face::Mono },
+            13.0,
+            source.x + 54.0,
+            cy,
+            line,
+            if head { pal.accent } else { pal.text },
+            source.w - 70.0,
+        );
+    }
+    p.restore(old);
+
+    // ---- the menu of the selection ----------------------------------------------------------
+    let items: [(&str, &str, bool); 5] = [
+        ("AI task on these 6 notes\u{2026}", "", false),
+        ("Move the notes\u{2026}", "", false),
+        ("Copy their paths", "", true),
+        ("Remove 6 from the library\u{2026}", "", false),
+        ("Clear the selection", "Esc", false),
+    ];
+    let mw = 290.0;
+    let mh = 30.0 * items.len() as f32 + 8.0 + 9.0;
+    let m = Rect::new(menu_at.0, menu_at.1, mw, mh);
+    p.shadow(m, 8.0, pal.dark);
+    p.frame(m, 8.0, pal.popup, pal.popup_line);
+    let mut my = m.y + 4.0;
+    for (k, (label, key, sep_after)) in items.iter().enumerate() {
+        let row = Rect::new(m.x + 4.0, my, m.w - 8.0, 30.0);
+        if k == 0 {
+            p.rbox(row, 5.0, pal.hover);
+        }
+        p.text(
+            Face::Ui,
+            13.0,
+            row.x + 12.0,
+            row.cy(),
+            label,
+            pal.text,
+            220.0,
+        );
+        p.text_right(Face::Ui, 12.0, row.right() - 12.0, row.cy(), key, pal.faint);
+        my += 30.0;
+        if *sep_after {
+            hline(p, m.x + 1.0, my + 4.0, m.w - 2.0, pal.popup_line);
+            my += 9.0;
+        }
+    }
+    let _ = (thumb, Art::Photo);
+}
