@@ -835,12 +835,7 @@ impl App {
                 s.files[i].sections = sections;
             }
         }
-        // What the model did not place is left out, unticked, with its row saying so.
-        for i in 0..s.files.len() {
-            if !s.is_placed(i) {
-                s.files[i].ticked = false;
-            }
-        }
+        s.leave_out_unplaced();
         s.planned = true;
         s.asking = None;
         s.tick += 1;
@@ -1847,14 +1842,7 @@ impl App {
             TaskKind::Rewrite => "Make the method clearer, not longer.",
         });
         if name == "files-plan" {
-            s.planned = true;
-            for (i, f) in s.files.iter_mut().enumerate() {
-                if f.kind == FileKind::Other {
-                    continue;
-                }
-                f.title = Some(format!("A title {i}"));
-                f.sections = vec!["Bread".to_string()];
-            }
+            demo_plan(s);
         }
         let review = if name == "review" {
             // The rewrite's review over the first text file, with a made-up result and no
@@ -1922,4 +1910,18 @@ impl App {
         self.redraw();
         true
     }
+}
+
+/// The plan face of the shot `task-files-plan`: every file but the other kind is placed under
+/// "Bread", and the one left over is left out as an answer leaves it: unticked.
+pub(super) fn demo_plan(s: &mut TaskScreen) {
+    s.planned = true;
+    for (i, f) in s.files.iter_mut().enumerate() {
+        if f.kind == FileKind::Other {
+            continue;
+        }
+        f.title = Some(format!("A title {i}"));
+        f.sections = vec!["Bread".to_string()];
+    }
+    s.leave_out_unplaced();
 }

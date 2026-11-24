@@ -296,9 +296,11 @@ impl App {
                 }
             }
             Err(fault) => {
+                // The card's second line says that nothing was written; the reason does not
+                // say it again.
                 if let Some(card) = self.importer.as_mut() {
                     card.sort_failed(format!(
-                        "The AI\u{2019}s answer could not be read: {}. Nothing was written.",
+                        "The AI\u{2019}s answer could not be read: {}.",
                         fault.text()
                     ));
                 }

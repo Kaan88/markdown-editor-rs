@@ -255,6 +255,8 @@ fn an_unreadable_scheme_says_so_and_leaves_the_folders() {
         panic!("failed: {:?}", card.sort);
     };
     assert!(why.contains("could not be read"), "{why}");
+    // The card's second line begins "Nothing was written": the reason does not say it again.
+    assert!(!why.contains("Nothing was written"), "said twice: {why}");
     assert_eq!(card.plan.ticked(), 2);
     assert!(card.plan.notes.iter().all(|n| n.confidence.is_none()));
     assert!(a.ai.sort.is_none());
@@ -444,6 +446,31 @@ fn plan_of(
     (card.plan.notes.clone(), card.plan.rows.clone())
 }
 
+/// A plan in one line, for a failure: each row's heading or file, its tick, and each file's
+/// sections; the notes' long text is left out.
+fn brief(
+    plan: &(
+        Vec<mdedit_core::import::Note>,
+        Vec<mdedit_core::import::Row>,
+    ),
+) -> String {
+    use mdedit_core::import::RowKind;
+    let (notes, rows) = plan;
+    rows.iter()
+        .map(|row| {
+            let tick = if row.ticked { "+" } else { "-" };
+            match &row.kind {
+                RowKind::Section { path } => format!("## {}{tick}", path.join("/")),
+                RowKind::File(i) => notes.get(*i).map_or_else(
+                    || format!("?{i}{tick}"),
+                    |n| format!("{} [{}]{tick}", n.title, n.sections.join("/")),
+                ),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Audit 4, B8: after a sort, "Keep the folders" gives back the plan the folders made, with the
 /// tick the owner gave before asking; a new request starts from the folders; and a request that
 /// fails after a sort leaves the files under their folders, as the card says, so Add writes the
@@ -470,38 +497,48 @@ fn keep_the_folders_after_a_sort_gives_the_folders_plan_back() {
     a.importer.as_mut().expect("the card").toggle(four);
     let folders = plan_of(&a);
     assert_eq!(folders.0.iter().filter(|n| n.ticked).count(), 3);
+    // The plans are compared whole; a failure prints them in one line each.
+    let same = |a: &App, said: &str| {
+        let now = plan_of(a);
+        assert!(
+            now == folders,
+            "{said}\n  now: {}\n  folders: {}",
+            brief(&now),
+            brief(&folders)
+        );
+    };
+    let sorted = |a: &App, said: &str| {
+        let now = plan_of(a);
+        assert!(now != folders, "{said}\n  now: {}", brief(&now));
+    };
     sort(&mut a);
     assert!(matches!(
         a.importer.as_ref().expect("card").sort,
         SortStage::Filed { .. }
     ));
-    assert_ne!(plan_of(&a), folders, "the sort is on the plan");
+    sorted(&a, "the sort is on the plan");
     // Ask again: the scheme comes, and the plan behind it is the folders' again.
     ask(&mut a);
     assert!(matches!(
         a.importer.as_ref().expect("card").sort,
         SortStage::Scheme(_)
     ));
-    assert_eq!(plan_of(&a), folders, "a new sort starts from the folders");
+    same(&a, "a new sort starts from the folders");
     // Escape on the scheme: Keep the folders.
     a.key_pressed(Key::Name(KeyName::Escape), None);
     let card = a.importer.as_ref().expect("card");
     assert!(matches!(card.sort, SortStage::Off), "{:?}", card.sort);
-    assert_eq!(plan_of(&a), folders, "Keep the folders");
+    same(&a, "Keep the folders");
     // Sorted again, then a request that cannot be made: the files are under their folders.
     sort(&mut a);
-    assert_ne!(plan_of(&a), folders);
+    sorted(&a, "sorted again");
     a.docs.prefs.ai_connection = Connection::Off;
     a.import_sort_ask();
     assert!(matches!(
         a.importer.as_ref().expect("card").sort,
         SortStage::Failed(_)
     ));
-    assert_eq!(
-        plan_of(&a),
-        folders,
-        "the files would still be added under their folders"
-    );
+    same(&a, "the files would still be added under their folders");
     a.import_write();
     assert!(a.importer.is_none(), "written");
     let text = read(&l.library.join("Recipes.md"));

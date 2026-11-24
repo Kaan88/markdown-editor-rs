@@ -532,6 +532,30 @@ fn a_file_the_model_did_not_place_is_not_written() {
     assert!(!body.contains("Orphan"), "{body}");
 }
 
+/// The shot `task-files-plan` shows the plan face as an answer leaves it: the file the model did
+/// not place is unticked under "NOT PLACED", never ticked beside a button that leaves it out.
+#[test]
+fn the_plan_shot_leaves_the_file_not_placed_unticked_as_an_answer_does() {
+    let dir = scratch("task-demo-plan");
+    let text = pasta(&dir);
+    let pdf = dir.join("menu.pdf");
+    std::fs::write(&pdf, b"%PDF-1.4\n").expect("pdf");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.task_open(TaskKind::File, vec![text, pdf]);
+    let s = a.task.as_mut().expect("the window is open");
+    assert_eq!(s.files[1].kind, FileKind::Other);
+    assert!(
+        s.files[1].ticked,
+        "File them links a PDF by name: ticked to start"
+    );
+    super::task::demo_plan(s);
+    assert!(s.is_placed(0) && s.files[0].ticked, "the placed file");
+    assert!(!s.is_placed(1), "the PDF is not placed");
+    assert!(!s.files[1].ticked, "and is left out, unticked");
+    assert_eq!(s.to_write(), vec![0]);
+}
+
 #[test]
 fn a_rewrites_record_is_listed_shown_and_not_a_later_versions() {
     let dir = scratch("task-rewrite-listed");
