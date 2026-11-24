@@ -52,7 +52,8 @@ were being built. If `git log -1` is newer, doubt "In hand" first.
   finding is `docs/review-prompts/audit4/FIXES.md`, the pause and its hand-over `PAUSED.md`.
   - `fix/audit4` (core): report A, the library writes through `files::replace` with a BOM kept
     and non-UTF-8 refused (RB3, F17, F18), the docs; and, from before the split at `93b4ddb`,
-    RB1, RB2's window side, B3 to B7, B10, B12 to B14. D-155 to D-170, D-178 to D-180.
+    RB1, RB2's window side, B3 to B7, B10, B12 to B14; after it, A F16, C12a and B11's core
+    half (a write stops its plan's split). D-155 to D-170, D-178 to D-182.
   - `fix/audit4-ai`: the rest of report B (B8, B9, B11, B n1, n2, n4, RB3 in `task.rs`) and the
     revert checks of B. D-171 to D-174.
   - `fix/audit4-lib`: report C (C1 to C3, C12c to e, A F15). D-175 to D-177; C4 to C10 open.

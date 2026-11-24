@@ -1711,8 +1711,8 @@ name and outline as the one that asked. An answer that arrives for another plan 
 **Why.** Audit 4, B11: in "Split them", a plan written before its answer came opened the next
 file's card, and the answer then cut that file with the first file's line numbers.
 **Overturned by.** The owner.
-**From.** Audit 4 B11; DESIGN 76. Made by the AI agent on `fix/audit4-ai`. The core's half, a
-write that cancels its own split as `plan_close` does, is not built (`plan_write.rs`).
+**From.** Audit 4 B11; DESIGN 76. Made by the AI agent on `fix/audit4-ai`. The core's half is on
+`fix/audit4`: a write cancels its plan's split that is still out, as `plan_close` does.
 
 ## D-173 · 2026-11-24 · Two section names are one heading when they differ in ASCII case only
 
@@ -1809,3 +1809,28 @@ bin quota was tried.
 be verified here.
 **Overturned by.** The owner.
 **From.** `docs/review-prompts/audit4/PAUSED.md`; audit 4 report D.
+
+## D-181 · 2026-11-24 · A row's menu closes when the rows under it are made again and its row is another
+
+**Decision.** A row's menu in the notes pane can be left open while the rows are made again from
+a finished read. It closes when the row at its place is no longer the row it was opened on (by
+`RowId`), and stays open when the read left that row where it was (`App::library_build`, through
+which every re-read makes the rows).
+**Why.** Audit 4, A F16: the menu's items act on the row's index, so "Remove from the library"
+took out the line of whatever note then had the index, with no question. Closing only when the
+row changed keeps a menu the owner is reading from vanishing on every re-read.
+**Overturned by.** The owner; or menus that carry what their row is, not its index.
+**From.** Audit 4 A F16; DESIGN 71.
+
+## D-182 · 2026-11-24 · A move between library files looks at the note's line first
+
+**Decision.** "Move to…" and a drag between two library files read the note's line in its own
+file before the new place is written. When that line no longer holds the note (the file changed
+and the pane had not read it again), neither file is written, and the toast says "the note's line
+in {group} has changed since the pane read it". The removal still checks again after the new
+place is written. The line is still rewritten as `- [title](path)` in the new file (C12b, open:
+keeping its own text needs a shared writer that inserts a given line, rule 8).
+**Why.** Audit 4, C12a: the destination was written first and the source line checked second, so
+a stale line number listed the note in both files, with the "half" toast. One read prevents it.
+**Overturned by.** The owner.
+**From.** Audit 4 C12a, C12b; D-130.

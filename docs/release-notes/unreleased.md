@@ -133,3 +133,8 @@ shows.)
 - **A Markdown note from a file** whose write makes no note keeps its card and the AI's answer,
   with the reason, and leaves no "done" run behind; a name taken while the AI answered gets the
   next free name.
+- **A row's menu in the notes pane no longer acts on another row.** Left open while the library
+  was read again, its "Remove from the library" took out the line of whatever note then had that
+  place in the list, with no question. The menu now closes when the rows under it have moved.
+- **Moving a note between two library files after one of them changed on disk** no longer lists
+  it in both: the move looks at the note's line first, writes neither file, and says why.

@@ -27,27 +27,60 @@ is a development pin. At merge, pin to shared `d1330b0`, merged into shared `mai
   - A literal `%20` in a file name always reads as a space (C6).
   - `runs::write_of` marks Done a run that wrote nothing (C3; mdedit works around it).
 
-## mdedit core (`fix/audit4`): what is left
+## mdedit core (`fix/audit4`)
 
-1. Fix `plan_write_tests.rs` `a_read_only_group_file_is_refused_before_the_notes_are_written`,
-   whose assertion at :168 gets another toast. Start in `plan_write.rs` `plan_preflight`. Then
-   run fmt, clippy and the workspace tests.
-2. Run the revert checks of RB3 (library writes), F17, F18, F19, F20, the read-only preflight and
-   F3 `offers_finish`. F8's sentence comes from shared, and the F14 fold passes on Windows either
-   way.
-3. Docs:
-   - Write DECISIONS from D-155: every decision below and in FIXES.md, with C4 marked for the
-     owner.
-   - Fix `docs/ai-library-plan.md:350`, which still says "Try again / Undo".
-   - Fix DESIGN 70 (undo pending, Finish, the gate, the stale tab).
-   - Rewrite STATE, and write the release notes.
-   - Fix the F8 test comment, which says "(D-162)".
-4. Shots: `library-remove-long` and its `-dark` are new (A F19).
-5. F16 (the row menu acts on another row) is left for this agent. Do it in `library.rs` or
-   `library_write.rs`: close a `LibraryRow` popup when the rows are rebuilt, or record `id_at(i)`
-   and refuse when it has changed. C12a and C12b are in `library_write.rs`.
-6. RB3's switch for 4a's write to an existing group: it goes through `library_attempt_at` in
-   `library_write.rs`.
+Paused again on the owner's word, 2026-11-24. Every row's state is in `FIXES.md`.
+
+- **Done, with a test that fails with its fix reverted:**
+  - RB3: every library write goes through `files::replace`. This covers the pane's writers, the
+    run's gate, "Add this file" (shared `put_note`) and 4a's join through `library_attempt_at`.
+  - The read-only preflight.
+  - F17 (BOM kept, non-UTF-8 refused), F18, F19, F20 and F3 `offers_finish`.
+  - F16: a row's menu closes when the rows under it are made again and its row is another
+    (`library.rs` `library_build`).
+  - C12a: a move across files looks at the note's line first.
+  - B11's core half: `plan_write` stops its plan's split that is out.
+  - RB4/A F1, F5b, F11d and F13 from before.
+- **Done, but not revert-checkable here:**
+  - F14's fold passes on Windows either way; its check is CI's.
+  - F8 and F4's tests pin shared's fixes.
+  - F12 runs off Windows only.
+- **Docs written:**
+  - DECISIONS D-155 to D-182: the core's, the AI agent's, the LIB agent's, C4 as D-178
+    (Waiting) and F8 as D-162 (Waiting).
+  - DESIGN 70, 71, 72, 73, 75 and 80 corrected.
+  - `ai-library-plan.md` row 6 corrected.
+  - STATE rewritten (144 lines), and the release notes' lines added.
+  - `FIXES.md` rows for A, B and C from all three agents.
+- **What ran:**
+  - Every revert check above, one build each.
+  - The four newest tests, targeted (pass).
+  - fmt and clippy on the whole workspace (clean).
+  - The workspace's tests: **one fails**. They are 823 passed and 1 failed in the mdedit bin; the
+    rest of the workspace did not run after it. The failing test is `library_write_tests`
+    `when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so` (:724).
+    - It stages a failed removal with a wrong line number, which C12a's new look now refuses
+      before anything is written (`59ab827`).
+    - Next: restage it so the removal fails for a reason the look cannot see, without weakening
+      what it asserts. For example, make the old file read-only after `library_rows`:
+      `files::replace` refuses it, while the look only reads it. Then run the whole suite again.
+- **Half-done: the shots.** The baseline at `main` (`402d3da`) is taken, 384 PNGs, in
+  `md-wt\a4-mdedit\target\shots\base`, built from `target\base-src`. This branch's shots are not
+  taken yet.
+- **Next:**
+  1. Take the branch's shots: `cargo build --release`, then `tests/shots.sh target/shots/a4`
+     with `CARGO_BUILD_RUSTC_WRAPPER=""` and `MDEDIT_SETTINGS` in a scratch folder.
+  2. Run `tests/shots-check.sh` on them.
+  3. Compare the set with `base` byte for byte, and look at every changed shot in both themes.
+     `library-remove-long` and its `-dark` are new; the `runs*` shots draw the clock. Say which
+     shot shows what.
+  4. Record the result in FIXES (A F19's row).
+  5. Budgets: none should move. Library writes, the preflight, `library_build` and the cards run
+     on a command or a re-read, not on launch, a keystroke or a scroll. Nothing was measured.
+- **Left for others:**
+  - Shared `paths::comparable` should fold a `..` after a missing folder (D-165).
+  - C12b needs a shared writer that inserts a given line.
+  - T3 is in shared `split.rs`.
 
 ## mdedit AI (`fix/audit4-ai`)
 

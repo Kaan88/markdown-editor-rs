@@ -2545,6 +2545,8 @@ keeps the drawing, the cursor, folding and the name box.
 - Tests: `mdshared_app::library::tree::tests` (the omitted count is copied by `without_notes`,
   and the label's two numbers) and `app::library_pane_tests` (the text arrives from the thread with the old rows
   still on screen, a stale result is dropped and `checked` cleared, the cursor follows its note,
+  a row's menu left open closes when its row is another after the read and stays when it is not
+  (`App::library_build`, through which every re-read makes the rows; audit 4 F16, D-181),
   closing the pane and switching the face drop a running read, the slim copy holds no notes, the
   omitted count repaints the pane, and an add shows the note at once under a folded group or a
   folded section, the keyboard back in the text when a name being typed is dropped).
@@ -3039,9 +3041,11 @@ rewrite the open document with the file `<name>-after.md` beside it
 **What it does, and what it does not.** A note row of the Notes pane can be dragged onto a group
 row or a section row; its line leaves the library file it was in and is written under the heading
 it was dropped on (D-130). That is the write the row menu's "Move to…" already makes
-(`app/library_write.rs`, `library_move`): the destination file is written first, the source line
-is taken out second, both only when neither is open with unsaved changes, and each write reads the
-file again and checks it reads back as the old notes plus the change. The note's file is never
+(`app/library_write.rs`, `library_move`): the source's line is looked at first, and a line that no
+longer holds the note (the file changed and the pane has not read it again) writes neither file
+(audit 4 C12a, D-182); then the destination file is written, the source line is taken out second,
+both only when neither is open with unsaved changes, and each write reads the file again and
+checks it reads back as the old notes plus the change. The note's file is never
 copied, moved, renamed or deleted, and nothing outside the library files is written. No other row
 starts a drag: a group is a library file whose order is its file name, and a section is a block of
 lines that would be a cross-file rewrite; the design of record for drag and drop says "notes
