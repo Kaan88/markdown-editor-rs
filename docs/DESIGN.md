@@ -3165,7 +3165,10 @@ never renamed or changed.
   is Markdown, so its text is written as UTF-8 whatever the source was (BOM, UTF-16 or a legacy
   code page) and `Source::encoding` says so under the title; a source in UTF-8 is written as it
   reads. It keeps the name, the line count, the byte length, the digest (SHA-256) and the source's
-  own line split, which `ai::note_body` uses for the note.
+  own line split, which `ai::note_body` uses for the note. The file is read once, capped at
+  `NOTE_MAX` + 1, and the text, the count, the length and the digest are all of those bytes, so a
+  file changed between two reads cannot give a card whose check passes against other text; a bare
+  CR line split (an old Mac file) gives a note with LF, and counts as a line break (audit 4, C12).
 - **The card** (`note_ui.rs`, `note_draw.rs`, over `Dialog::draw` like the move card). `Phase`:
   Ready (what is sent, what it is asked to do, what will be written, in the footer's words), Asking
   ("Asking Claude Code · Sonnet 5.5: N characters so far", a pulse, a Bar and a footer link, Esc or
@@ -3188,9 +3191,15 @@ never renamed or changed.
   ("so the note would be a library file"); the note would land beside the library's own files; the
   group's folder is a file; the group's library file open with unsaved changes (`library_file_free`
   in the app's words); the file cannot be read; the group would pass 2,000 notes; the line would
-  not read back as the old notes plus this one (`runs::check_links_added`, a dry run). A failure
-  from the write itself comes back as `note_write_refused`: the card stays with the reason and
-  nothing is half-written (the write's own order, D-067).
+  not read back as the old notes plus this one (`runs::check_links_added`, a dry run). Only "the
+  source has changed" disables the button for good (`note_write_refused`); every other refusal at
+  the write, and a write that started and made no note (its folder could not be made, the disk is
+  full), comes back as `note_write_failed`: the card stays with the AI's answer, the reason in its
+  footer and the button on, so a second press can pass. A run that made no note leaves nothing:
+  `discard_run` takes away its record, the record's `.done` log and the folders it made, deepest
+  first and only while empty, since shared `runs::write_of` still marks such a run Done
+  (audit 4, C3). A name taken by a file while the answer was out gives the note the next free
+  name.
 - **Naming.** `library_write::free_name(home, stem)`: the source's file name with its extension
   dropped, lower case, runs of anything but letters and digits turned into one hyphen, cut to 60
   characters; `stem.md`, else `stem 2.md`, `stem 3.md` …; `pasta notes.txt` → `pasta-notes.md`.
@@ -3211,15 +3220,19 @@ never renamed or changed.
 - **The demonstration** `--note-demo ready|asking|changes|result|blocked` (`note_ui::demo`): a file
   and an answer made in the program, `card.demo` so Enter says "A demonstration of the card: it
   writes nothing." and nothing is sent or written.
-- Shots: `note-ready`, `note-asking`, `note-changes`, `note-result`, `note-blocked`, both themes,
-  `note-changes-small` at 800x600.
+- Shots: `note-ready`, `note-asking`, `note-changes`, `note-result`, `note-blocked`,
+  `note-failed` (a write that made no note: the answer kept, the reason in the footer, the
+  button on), both themes, `note-changes-small` at 800x600.
 - Budgets: `docs/measurements/2026-11-23-note-card.md` — 7 interleaved runs against `main` at
   `6e6579f`, nothing beyond the runs' ranges.
 - Tests: `app::note_tests` (13): the menu item and the whole path to the note and its record, undo,
   undo refused when the source has changed, a taken name, AI off, a file too long, a file that is
   not text, the group file unsaved, the group folder the library's own, Esc in Asking, the switch
   repainting the body and Cancel writing nothing, the source changed while the answer was out, and
-  every demonstration. `mdshared_app::runs` has the kind's own two (write, undo); and
+  every demonstration. Audit 4 added five: a name taken while the answer was out, a write that
+  makes no note (the card and the answer kept, no record left, a second press writing it), the
+  record and folders of such a run taken away, a bare-CR source, and the card's text and digest
+  of one read; and undo is now checked byte for byte. `mdshared_app::runs` has the kind's own two (write, undo); and
   `plan_write_tests::a_record_of_a_kind_this_build_does_not_write_is_listed_as_a_newer_versions`
   proves a record of an unknown kind word is listed as a later version's and nothing in it is
   shown or undone (D-145).

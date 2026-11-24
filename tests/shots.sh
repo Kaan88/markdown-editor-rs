@@ -535,6 +535,9 @@ for t in "" "-dark"; do
     shot "note-changes$t" $th $ai --note-demo changes
     shot "note-result$t" $th $ai --note-demo result
     shot "note-blocked$t" $th --note-demo blocked
+    # Audit 4, C3: a write that made no note keeps the answer, says why in the footer and
+    # leaves the button on.
+    shot "note-failed$t" $th $ai --note-demo failed
 done
 # The card at 800x600, where the preview of the plan card would be dropped.
 shot "note-changes-small" --light $ai --size 800x600 --note-demo changes

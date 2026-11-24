@@ -555,3 +555,29 @@ fn the_cards_text_and_digest_are_of_the_same_bytes() {
     assert_eq!(card.source.sha256, mdshared_app::update::sha256_hex(&bytes));
     let _ = std::fs::remove_dir_all(&p.dir);
 }
+
+/// Audit 4, C12: a refusal at the write that can pass on a second try (here the group filled to
+/// 2,000 notes while the answer was out, then emptied again) keeps the card and its button, and
+/// the second press writes the note. Before, it disabled the button for good.
+#[test]
+fn a_refusal_at_the_write_that_can_pass_leaves_the_button_on() {
+    let (mut a, p) = lib("note-refused-then");
+    open_card(&mut a, &p);
+    answer(&mut a, "# Pasta\n\n- Boil it.\n");
+    let note = target(&a);
+    let before = read(&p.group);
+    let mut full = before.clone();
+    for n in 0..mdshared_app::library::MAX_ENTRIES {
+        full.push_str(&format!("- [Note {n}](note-{n}.md)\n"));
+    }
+    std::fs::write(&p.group, &full).unwrap();
+    press(&mut a, KeyName::Enter);
+    let card = a.note.as_ref().expect("the card stays");
+    assert!(card.blocked.is_none(), "the button stays on");
+    assert!(card.notice.is_some(), "the footer says why");
+    assert!(!note.exists());
+    std::fs::write(&p.group, &before).unwrap();
+    press(&mut a, KeyName::Enter);
+    assert!(note.is_file(), "the second press writes it");
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
