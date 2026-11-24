@@ -7,6 +7,37 @@ edit an old one. How a release is cut is in `docs/RELEASE.md`.
 The sections for 0.1.0 to 1.2.1 were moved here unchanged from `docs/RELEASE.md` on 2026-11-21,
 and only put in order. There is no section for 0.5.1: the old file had none.
 
+## v1.4.0 (published 2026-11-24 by the release workflow, from the tag at commit 914f3fc)
+
+Release run 45392736079, every job green; `ci` run 45388330892 on the commit passed (Linux, Windows,
+both Macs). Released on the owner's word ("make a release, fix ci's for them later") while the
+shared crates' own `ci` was red on Linux and macOS: font-dependent layout tests in `mdshared-ui`,
+failing since 2026-11-23, left for later. mdview 1.1.0 was released the same hour. Release notes:
+`docs/release-notes/1.4.0.md`.
+
+What's in it: the AI task window (File, Split and Rewrite them); a folder added to the notes
+library as a group of links, and sorted by AI (phases 4a and 4); a Markdown note from a text file;
+review with a tick per change (R2); a note dragged onto a heading; audit 4's fixes and the review
+of those fixes (D-155 to D-198), safer library writes among them; a wrapped file no longer reopens
+past its end (D-199); the smaller fixes since 1.3.0 in `docs/STATE.md` of that commit.
+
+Before the tag: no hand check by the owner ("merge everything without me looking, just do
+budgets first"); the budgets against 1.3.0 unchanged, memory lower, exe +396 KB
+(`docs/measurements/2026-11-24-1.4.0-against-1.3.0.md`); 1584 tests and 400 shots on Windows.
+
+Verified against the live release:
+- 16 assets, not a draft or pre-release;
+- `mdedit-update.txt`, `mdedit-update-2.txt`, `mdedit-update-macos.txt` and `hub.txt` all name
+  1.4.0, with the right note line;
+- every file they name (Windows exe, `mdedit-ai.exe`, `mdview-engine.exe`, the setup, AppImage,
+  both Mac zips) downloaded with the SHA-256 the manifests name;
+- the published 1.4.0 exe's `--check-update` answered "nothing newer"; the published 1.3.0 exe's
+  answered "mdedit 1.4.0 is available".
+
+Not verified: the installer run, a 1.3.0 install updating itself, Hub reading `hub.txt` from this
+release, the Mac and Linux files on a desktop, and none of the new features was tried by the owner
+in a real window. Known faults shipped with it are in `docs/STATE.md`.
+
 ## v1.3.0 (published 2026-11-23 by the release workflow, from the tag at commit ebe939d)
 
 Release run 45084291493, every job green; `ci` run 45081888446 on the commit passed (Linux, Windows,
