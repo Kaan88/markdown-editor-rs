@@ -1,7 +1,7 @@
 # Pictures into notes, and the AI workflow over files: the plan
 
 Written 2026-11-24 on the branch `mock/ai-pictures`, from `main` at `03bf4ea` (mdedit 1.4.0).
-**Nothing in it is built.** It is a plan and sixteen drawings (`shots/mock/ai-pictures-*.png`,
+**Nothing in it is built.** It is a plan and eighteen drawings (`shots/mock/ai-pictures-*.png`,
 made by the throwaway `--mock` flag of this branch, section 5). It builds on
 `docs/ai-library-plan.md` (5.6, 5.9, 5.10, 4.1 to 4.5, 6) and DESIGN 83 and 84, and replaces the
 "Pictures the model can see (phase V)" part of 5.6. The decisions it would take are listed in
@@ -29,7 +29,10 @@ screenshots in one md". Nothing of the kind happened (section 2). Then, in answe
 **Four points added by the owner the same day**, each answered in section 4:
 
 6. "AI task on this file and on your files does the same thing." (4.1)
-7. "I should also be able to select multiple files from the tree for AI workflow." (4.2)
+7. "I should also be able to select multiple files from the tree for AI workflow." Then
+   corrected: "just an addition, probably not necessary. clicking and using on the library should
+   be possible too." So the main way is **one row of the library**, and selecting several is a
+   later, optional piece. (4.2)
 8. "The same for images should apply to md's. I want to copy or move them along with images
    maybe." (4.3)
 9. "No preview shows up after AI." (4.4)
@@ -93,9 +96,9 @@ screenshots in one md". Nothing of the kind happened (section 2). Then, in answe
 
 One new task, **Write notes**, in the same window, and a clear rule for the old ones.
 
-1. **Give it files.** One command, "AI task…", and the window's **Add** menu (4.1); notes
-   selected in the Notes pane (4.2); a drop from Explorer; or (new) Ctrl+V of a screenshot while
-   the window is open. Pictures and text files together.
+1. **Give it files.** One command, "AI task…", and the window's **Add** menu (4.1); a note, a
+   section or a whole group of the Notes pane, from its own menu (4.2); a drop from Explorer;
+   or (new) Ctrl+V of a screenshot while the window is open. Pictures and text files together.
 2. **Say what the notes should be**, or pick a saved prompt. Choose where they go and, under
    **Options**, how many notes, whether the pictures are copied and renamed, whether they are
    described, whether their text is written out, and how large they are sent.
@@ -116,7 +119,7 @@ One new task, **Write notes**, in the same window, and a clear rule for the old 
    read-back, the links (4.3 of the library plan, unchanged). The Notes pane opens on the first
    new note.
 7. **Afterwards.** The first note opens with its preview (4.4). "Undo this run…" on the pane's
-   foot and in "AI runs…"; select the new notes and "AI task on these notes…" to go on
+   foot and in "AI runs…"; the new group's own menu and "AI task on these notes…" to go on
    (translate them, tidy them); "Again…" on a run's row to reopen the window on the same files.
 
 Why two kinds of request and not one: a request can hold only so many pictures, so past a
@@ -167,15 +170,17 @@ it, are one command twice.
 
 - **One command, "AI task…"**, in the palette, the AI menu and the Notes library menu. "AI task
   on this file…" leaves all three.
-- **It opens on what is selected**, and says so under the title: "6 notes from the Notes pane:
-  Recipes › Pasta (4) and 2 of Bread." (shot `from-notes`). With nothing selected it opens empty.
+- **It opens on the row of the Notes pane the keyboard is on**, when the pane has the keyboard,
+  and says so under the title: "The 4 notes of Recipes › Pasta, from the Notes pane." (shot
+  `from-section`). Otherwise it opens empty.
 - **The document in front is not added by itself.** It is the first line of the window's **Add**
   menu, by name, one click: "This document · sample.md" (shot `add`). The menu holds every way
-  in: this document; the open tabs; the notes selected in the Notes pane; Files…; A folder…; the
-  picture on the clipboard. "Add files…" becomes "Add".
+  in: this document; the open tabs; the row of the Notes pane ("Pasta · 4 notes"; the drawing
+  shows the later, optional wording "the notes selected"); Files…; A folder…; the picture on the
+  clipboard. "Add files…" becomes "Add".
 - **Where the place names the file, the place keeps its own entry**: a tab's right-click ("AI
   task on this file…", for the tab under the pointer, which today's code cannot do without
-  activating it first, DESIGN 83), a row or a selection of the Notes pane (4.2), and a row of the
+  activating it first, DESIGN 83), a row of the Notes pane (4.2), and a row of the
   Files pane when it has a menu. Those are not duplicates: what they take is under the pointer.
 - **The task it starts on follows what is in it**: pictures, Write notes; notes of the library,
   Rewrite them; other text files, File them; a mix, the task used last.
@@ -184,56 +189,57 @@ Not chosen: adding the document in front silently and saying so in the window. T
 have to remember which tab was in front, and for the pictures task it is the wrong file more
 often than the right one. Half a day.
 
-### 4.2 Several notes selected in the Notes pane
+### 4.2 From the library: one row, and the AI task on it
 
-Shot `tree-select`. The state is mdedit's own, beside the pane's cursor; the shared tree rows
-that mdview reads do not change.
+The main way, and all that the first build has: **a single row of the Notes pane**. A note, a
+section, or a whole group. Shots `tree-row` and `from-section`.
 
-**With the mouse.**
+- **The row's own menu gets one line at its head.** On a note: "AI task on this note…". On a
+  section: "AI task on these 4 notes…". On a group: "AI task on these 23 notes…". The number is
+  in the line, so what will be taken is known before the click. The rest of each menu is as it
+  is today.
+- **A section or a group means all its notes**: every note under it, the ones in its
+  subsections too, folded or not, as the library reads at that moment. A section with no note
+  under it has the line disabled.
+- **With the keyboard**: the menu key and Shift+F10 already open the row's menu
+  (`app/library.rs:320`), and the line has an access key. And the one command, "AI task…" (4.1),
+  **takes the row the keyboard is on** when the pane has the keyboard.
+- **"Clicking and using"** is therefore: click a section or a group (the pane keeps the
+  keyboard after that click, `app/library.rs:231`), then "AI task…" from the AI menu, the
+  palette or its key. A click on a note opens it and gives the keyboard to the editor
+  (`library.rs:240`), as today; "AI task…" then opens empty with that note as the first line of
+  Add, "This document".
+- **The window opens on those notes** and says where they came from: "The 4 notes of Recipes ›
+  Pasta, from the Notes pane." It starts on Rewrite them. Rows can be unticked there, which is
+  how "all of Pasta but one" is done without any selecting in the pane.
+- A group larger than a task takes (Rewrite them: twenty notes) still opens; the rows past the
+  limit say they wait, as the window does today.
 
-- A plain click does what it does today (opens a note, folds a group or a section) and clears
-  the selection.
-- **Ctrl+click** adds or removes a row. It opens nothing and folds nothing.
-- **Shift+click** selects from the row last clicked to this one, over the rows that show.
-- **Ctrl+click on a section or a group selects all of it**: every note under it, folded or not,
-  the ones in its subsections too. Its row says "all 4". It stands for those notes at the moment
-  it is used, so a note added since is included. Ctrl+click on one of its notes takes that note
-  out and leaves the others selected one by one.
-- A right click on a selected row opens the selection's menu; on a row that is not selected, that
-  row's menu, as today.
+One day: the line in three menus, the notes under a row, the command taking the keyboard's row,
+the header's sentence, its tests and shots. No new state in the pane, and nothing in the shared
+tree changes.
 
-**With the keyboard**, when the pane has it: Shift+Up and Shift+Down extend; Ctrl+Space adds or
-removes the cursor's row; Ctrl+A selects the notes of the group the cursor is in, and pressed
-again the whole library; the menu key and Shift+F10 open the selection's menu; **Esc clears the
-selection first**, and only the next Esc does what Esc did.
-
-**What shows.** Selected rows are tinted; the cursor's row keeps its frame. While more than one
-note is selected the pane's foot says "6 notes selected" with "AI task on them…" and "Clear".
-The selection is kept by path across a re-read of the library, loses a note that is gone, and is
-never saved with the session.
-
-**The selection's menu.** "AI task on these 6 notes…"; "Move the notes…" (the card that exists,
-with these ticked; disabled with "one group at a time" when they are of two groups); "Copy their
-paths"; "Remove 6 from the library…" (one question, one write per library file, the files kept
-as Remove keeps them); "Clear the selection".
+**Later and optional: several rows selected** (shots `tree-select`, `from-notes`; phase MS,
+section 17, on its own yes). The owner called it "probably not necessary", and unticking in
+the window covers most of what it would add. If it is wanted: Ctrl+click adds or removes a row
+and opens nothing; Shift+click takes a range; Ctrl+click on a section or a group takes all of
+it ("all 4"); Shift+Up and Down, Ctrl+Space and Ctrl+A with the keyboard; Esc clears the
+selection before it does anything else. Selected rows are tinted, the pane's foot says "6 notes
+selected", and the selection has a menu of its own: "AI task on these 6 notes…", "Move the
+notes…" (one group at a time), "Copy their paths", "Remove 6 from the library…" (one write per
+library file), "Clear the selection". It is kept by path across a re-read and never saved with
+the session. Three days. The same in the Files pane, which has no keyboard and no row menu to
+build on, is a further day and a half (phase MF).
 
 **Which tasks make sense for notes that are already in the library**, and what the window does
-with each (shot `from-notes`):
+with each (shot `from-section`):
 
 | Task | For library notes |
 |---|---|
 | **Rewrite them** | The one it opens on. Each note in place after its change list, the original in the record. Twenty notes and 200 KB each, as built; past that the rows say which wait |
 | **Write notes** | *Merge into one*: "One note" under Options, the notes as its material, a new note written, the originals kept. The report then offers "Remove the 6 originals from the library…", a question of its own. Also a summary, an index, a table drawn from them |
 | **Split them** | Each long note into notes of its own lines, in the same group |
-| **File them** | They are filed already: the rows read "already in the library", as today. To put them under other headings there is "Move the notes…", and, later, "Sort this group again…" (phase S), which a selected group or section is the natural way into |
-
-**The Files pane** can take the same clicks and one menu line, "AI task on these files…". It has
-no keyboard and no row menu today (STATE, DESIGN 83), so it would be the mouse half only. It
-fits, as a later piece of a day and a half; question 8.
-
-Three and a half days: the selection and its drawing (1.5), the keyboard (0.5), the menu, the
-foot and the removal of several lines in one write (1), the hand-off to the window and to the
-move card (0.5).
+| **File them** | They are filed already: the rows read "already in the library", as today. To put them under other headings there is "Move the notes…", and, later, "Sort this group again…" (phase S), which a group's or a section's own menu is the natural way into |
 
 ### 4.3 Text files copied or moved in, with their pictures
 
@@ -364,8 +370,10 @@ in the drawings is made up.
 | `failed` | One look request failed (a rate limit): what was looked at is kept; "Try it again", "Go on with 4" |
 | `no-vision` | The model does not read pictures: the sentence, and "Open AI settings" |
 | `add` | 4.1: the window opened empty by the one command, its **Add** menu open: this document, the open tabs, the notes selected in the Notes pane, Files…, A folder…, the picture on the clipboard |
-| `tree-select` | 4.2: the Notes pane with six notes selected (a whole section by one Ctrl+click, "all 4", and two more), the selection's menu, and the foot "6 notes selected" |
-| `from-notes` | 4.2: the window opened from that selection, on Rewrite them, saying where its notes came from |
+| `tree-row` | 4.2, the main way: the menu of one row of the Notes pane, the section Pasta, with "AI task on these 4 notes…" at its head and the rest as today |
+| `from-section` | 4.2: the window opened from that row on Rewrite them, with the section's four notes and the sentence saying where they came from |
+| `tree-select` | 4.2, **later and optional**: six notes selected (a whole section by one Ctrl+click, "all 4", and two more), the selection's menu, and the foot "6 notes selected" |
+| `from-notes` | 4.2, later and optional: the window opened from that selection |
 | `file-copy` | 4.3: File them with THE FILES on "Copy them in": each file with the pictures that go with it, one already inside the library, and a picture that is not filed |
 | `file-move` | 4.3: the same on "Move them in", with the footer's warning about other files that link to them |
 
@@ -723,12 +731,13 @@ pane's Remove; the files are where they always were.
   copied; the record holds each original's path and digest; undo removes copies and notes, and
   keeps a copy whose original is gone, and a note changed since with its pictures; an older
   record still reads.
-- *The ways in* (4.1): one command; it opens on the pane's selection and says so; each line of
-  Add adds what it names; the task it starts on follows what is in it.
-- *The selection* (4.2): Ctrl+click adds and removes and opens nothing; Shift+click takes the
-  range; a section selected means its notes at the moment of use, a folded one too; Esc clears
-  before it does anything else; a re-read keeps the selection by path; removing six lines is
-  one write per library file.
+- *The ways in* (4.1): one command; it opens on the pane's row when the pane has the keyboard,
+  and empty otherwise, and says which; each line of Add adds what it names; the task it starts
+  on follows what is in it.
+- *One row* (4.2): a note's line takes that note; a section's takes every note under it, in a
+  subsection and in a folded one too, and none of its neighbours'; a group's takes the group; a
+  section with no note has the line disabled; the line's number is the number of rows the window
+  opens with; nothing is opened in a tab.
 - *Copy and move* (4.3): a copied file is byte for byte the original when no link needed
   rewriting; its pictures keep their relative place; a picture outside its folder is not taken
   and its link still reaches it; a link between two files of the run points at the new place; a
@@ -747,9 +756,9 @@ pictures made for it, and a text file), by `--task-demo`: `notes`, `notes-option
 `notes-sent`, `notes-limit`, `notes-failed`, `notes-no-vision`, `notes-off` (the AI off),
 `notes-first-time`; `--dialog run-undo-pictures`; `library-pane-notes-written`; and
 `task-files-pictures` (File them, the pictures not filed); `task-add` (the Add menu),
-`task-from-notes`, `task-files-copy`, `task-files-move`, `task-files-copy-plan`;
-`library-select`, `library-select-menu`, `library-select-section`; `--dialog
-library-remove-many`, `--dialog run-undo-moved`. Each looked at in both themes; the
+`task-files-copy`, `task-files-move`, `task-files-copy-plan`;
+`library-row-ai-note`, `library-row-ai-section`, `library-row-ai-group`, `task-from-section`;
+`--dialog run-undo-moved`. Each looked at in both themes; the
 real thumbnails, not the drawn ones of the mock.
 
 **Budgets** (rule 1). Nothing here is on the launch path: the new modules are reached from the
@@ -772,41 +781,51 @@ and to be shown: no figure outside the runs' ranges.
 
 ## 17. Phases
 
-| Phase | What ships | Days |
-|---|---|---|
-| F | The two faults: a picture line opens in the system's viewer; File them stops filing pictures and leaves a record | 1 |
-| V0 | One picture through each of the four connections, by hand, written down. Decides which connections get pictures | 0.5 |
-| V1 | The engine: `VERSION` 2, `images`, `prepare`, `sent`, the resizer with orientation, metadata and BMP, the four senders, the two failure kinds; mdedit reads `hello` | 3.5 |
-| V2 | The core: the two contracts, their readers, the composer, the eleven checks, names and collisions | 3 |
-| V3 | The window: the fourth task, the options, picture rows with thumbnails and figures, the limits, the look with its progress and Stop, the paste, "What is sent" as a card | 3.5 |
-| V4 | The plan card: tree, the note as it will read and as Markdown, ticks, rename, "Put in…", "Arrange again…", the kept plan | 3 |
-| V5 | The write: the shared writer's variants, the record of kind `notes`, undo's rule for copies, the report, "AI runs…", "AI task on these notes…", "Again…" | 2.5 |
-| V6 | The shots, the budgets measured, DESIGN, STATE, DECISIONS, the release notes | 1 |
-| | *The pictures task* | *18* |
-| E | 4.1: one command, the Add menu, the tab's own entry, the starting task | 0.5 |
-| O | 4.4: the cause of "no preview after AI" found in a real window; what opens after each task; the setting | 1 |
-| M | 4.2: several notes selected in the Notes pane, the keyboard, the selection's menu and foot, the hand-off to the window and the move card | 3.5 |
-| C1 | 4.3: "Copy them in", with the pictures and the links | 2 |
-| C2 | 4.3: "Move them in", the shared variant, its record and undo | 2.5 |
-| | **Total** | **27.5** |
+**What ships first**: four small pieces that need no change to the engine and no new crate, each
+answering something the owner already ran into. Three and a half days together, in this order.
 
-E, O and F (two and a half days together) each stand alone and answer something the owner
-already ran into; they can ship before any of the rest.
+| Order | Phase | What ships | Days |
+|---|---|---|---|
+| 1 | F | The two faults (section 14): a picture line opens in the system's viewer; File them stops filing pictures and leaves a record | 1 |
+| 2 | E | 4.1: one command, the Add menu, the tab's own entry, the starting task | 0.5 |
+| 3 | L | 4.2: "AI task on this note / these N notes…" on a note, a section and a group of the Notes pane, and the command taking the keyboard's row | 1 |
+| 4 | O | 4.4: the cause of "no preview after AI" found in a real window; what opens after each task; the setting | 1 |
 
-Later, each on its own yes:
+**Then the pictures task**, in order, eighteen days less the day of F already counted above:
+
+| Order | Phase | What ships | Days |
+|---|---|---|---|
+| 5 | V0 | One picture through each of the four connections, by hand, written down. Decides which connections get pictures | 0.5 |
+| 6 | V1 | The engine: `VERSION` 2, `images`, `prepare`, `sent`, the resizer with orientation, metadata and BMP, the four senders, the two failure kinds; mdedit reads `hello` | 3.5 |
+| 7 | V2 | The core: the two contracts, their readers, the composer, the eleven checks, names and collisions | 3 |
+| 8 | V3 | The window: the fourth task, the options, picture rows with thumbnails and figures, the limits, the look with its progress and Stop, the paste, "What is sent" as a card | 3.5 |
+| 9 | V4 | The plan card: tree, the note as it will read and as Markdown, ticks, rename, "Put in…", "Arrange again…", the kept plan | 3 |
+| 10 | V5 | The write: the shared writer's variants, the record of kind `notes`, undo's rule for copies, the report, "AI runs…", "Again…" | 2.5 |
+| 11 | V6 | The shots, the budgets measured, DESIGN, STATE, DECISIONS, the release notes | 1 |
+
+**Then the files that travel** (4.3), which can also come before the pictures task: it needs
+nothing of it.
+
+| Order | Phase | What ships | Days |
+|---|---|---|---|
+| 12 | C1 | "Copy them in", with the pictures and the links | 2 |
+| 13 | C2 | "Move them in", the shared variant, its record and undo | 2.5 |
+| | | **Total** | **25** |
+
+Later, each on its own yes, none counted above:
 
 | Phase | What | Days |
 |---|---|---|
+| MS | 4.2: several rows selected in the Notes pane, with their menu and foot. Optional: "probably not necessary" | 3 |
+| MF | 4.2: the same in the Files pane, mouse only, and "AI task on these files…" | 1.5 |
 | A | Pictures and text into notes that already exist, behind D-079's setting, through the change list, the originals in the record | 3 |
 | I | "Describe this picture" on an image link of the open document, through the review | 1.5 |
 | S | "Sort this group again…" by AI, links only, with "Move the notes…" offered after | 3 |
 | P | A drop of pictures onto a group in the Notes pane (with phase DD) | 1 |
-| MF | 4.2: the same selection in the Files pane, mouse only, and "AI task on these files…" | 1.5 |
 
 The library plan priced phase V at 6.5 days. That was "pictures placed by what they show" in
 "File them". This is a different thing: a task that writes notes, with its own review, and 18
-days is its honest size. The four points the owner added are nine and a half more. F alone, one
-day, makes today's library usable.
+days is its honest size. The owner's added points are seven more (E, L, O, C1, C2).
 
 ## 18. Questions for the owner
 
@@ -830,8 +849,9 @@ day, makes today's library usable.
 
 7. **One command, "AI task…", and the document in front as the first line of Add** (4.1).
    Recommended. The other way is to keep adding it by itself and say so in the window.
-8. **Several files selected in the Files pane too?** Recommended: after the Notes pane, as its
-   own day and a half; it has no keyboard and no menu to build on.
+8. **Selecting several rows: later, or not at all?** Recommended: not until one row and the
+   window's ticks have been used for a while. It is three days (and a day and a half more for
+   the Files pane) for something you called probably not necessary.
 9. **"File them" on "Copy them in" by default?** Recommended: yes. Nothing of yours changes and
    the library carries its files; the price is two copies of a text. Say "Link them" to keep
    today's behaviour as the default, with the switch one click away.
@@ -863,7 +883,8 @@ Recorded as new entries in `docs/DECISIONS.md` on a yes, each naming what it rep
 - HEIC, AVIF, TIFF and SVG are not sent.
 - One command opens the window; "AI task on this file…" stays only where the pointer names the
   file. Changes DESIGN 83's "Not built of 5.6".
-- The Notes pane has a selection of several rows; a section or a group selected means its notes.
+- A note, a section or a group of the Notes pane has "AI task…" in its own menu; a section or a
+  group means every note under it. Selecting several rows is not built until asked for.
 - "File them" may copy or move the files it files, with the pictures inside their own folder,
   and copies by default. Widens 3.3 of the library plan ("everything a run creates is inside
   your library") from notes to the files themselves.
