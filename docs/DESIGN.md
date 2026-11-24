@@ -862,7 +862,11 @@ and the view changes in four places, all behind that test, so nothing changes wi
 - Position: `Ready::top` is a whole line number and `Ready::top_row` the row in it.
   `wrap::step` walks rows from a position, `wrap::rows_between` counts them up to a limit;
   nothing counts the rows of the document. `view::scroll_rows` and `view::scroll_to` are the
-  two ways the shell moves the view in either mode.
+  two ways the shell moves the view in either mode. Scrolling goes on until the last row is at
+  the view's top. A place put back (`Ready::restore_place`, D-199) sets `ViewState::fit_top`,
+  and the next `geom` lowers the top to `wrap::lowest_full_top` (the last row at the view's
+  bottom) once, when the view's height and width are known; without wrap `geom` clamps every
+  frame.
 - `view::reveal` hands over to `wrap::reveal`; `View::hit` finds the row under y by stepping
   from the top row; Up and Down call `wrap::vertical`, which keeps `Selection::goal_col` as
   the column in the row.

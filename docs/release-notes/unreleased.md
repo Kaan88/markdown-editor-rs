@@ -56,6 +56,10 @@ shows.)
 
 ## Fixed
 
+- **A file left near its end no longer reopens scrolled past it.** With word wrap on, a file
+  that was left scrolled to its last lines in a shorter window or pane came back with its last
+  line halfway up the window and empty space below. It now opens with its last line at the
+  window's bottom, as it always did with wrap off.
 - **The review of a rewrite has a scrollbar and no longer cuts long lines.** A long review scrolls by its scrollbar, by dragging it or by clicking its track, and a line longer than the window now wraps inside its column instead of being cut off.
 - **A file added to the notes library shows in the pane's tree at once.** "Add this file to the
   notes library…" wrote the note and its line, but the pane's rows were made again only when a

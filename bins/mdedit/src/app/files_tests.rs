@@ -1547,6 +1547,73 @@ fn the_caret_and_scroll_come_back_when_a_file_is_opened_again_and_across_runs() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The owner: a file left scrolled near its end, with word wrap on, opened again with its last
+/// line in the middle of the window and empty space below it. A place put back fills the view as
+/// far as the text goes: the last row no higher than the view's bottom, as without wrap.
+#[test]
+fn a_place_put_back_with_word_wrap_does_not_open_past_the_end() {
+    use crate::places::{Place, Places};
+    use crate::view::wrap::{self, Pos};
+    let dir = scratch("places-wrap-end");
+    let file = dir.join("a.js");
+    // 119 lines, every tenth long enough to wrap: rows and lines differ.
+    let text: String = (0..119)
+        .map(|i| {
+            if i % 10 == 0 {
+                format!("// {i} {}\n", "word ".repeat(80))
+            } else {
+                format!("const line_{i} = {i};\n")
+            }
+        })
+        .collect();
+    std::fs::write(&file, &text).unwrap();
+    // Left with line 94 at the top, in a view shorter than this one.
+    let left = Place {
+        line: 118,
+        col: 0,
+        top: 93,
+        lang: None,
+    };
+    for wrap_on in [true, false] {
+        let mut a = app();
+        a.docs.wrap = wrap_on;
+        a.docs.places = Places::from_session(&[(file.clone(), left)]);
+        open_now(&mut a, &file);
+        a.compose();
+        let r = a.docs.active_ready_mut().unwrap();
+        assert_eq!(r.wrapped(), wrap_on);
+        let rows = r.view.view_lines.floor() as usize;
+        assert!(
+            rows > 30,
+            "the view is taller than the place's top allows: {rows}"
+        );
+        if wrap_on {
+            let top = wrap::top(r);
+            let end = wrap::step(
+                r,
+                Pos {
+                    line: 120,
+                    row: usize::MAX,
+                },
+                0,
+            );
+            assert_eq!(
+                wrap::rows_between(r, top, end, usize::MAX),
+                Some(rows - 1),
+                "the last row is at the view's bottom, top {top:?}"
+            );
+            // Scrolling by hand still goes on until the last row is at the top.
+            crate::view::scroll_rows(r, 1e6);
+            assert_eq!(wrap::top(r), end);
+        } else {
+            let max = crate::view::metrics::max_top(r.buffer.len_lines(), r.view.view_lines);
+            assert_eq!(r.view.top, max);
+        }
+        assert_eq!(r.view.sel.caret, r.buffer.line_range(118).start);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn text_sent_as_unicode_packets_is_typed_into_the_text_and_the_palette() {
     use super::input::event_key;

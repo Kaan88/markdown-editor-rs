@@ -2060,3 +2060,17 @@ Recipes/..` passes.
 apps' protocol.
 **Overturned by.** The owner.
 **From.** `docs/review-prompts/audit4/FIXES.md`, "The review of the fixes".
+
+## D-199 · 2026-11-24 · A place put back with word wrap never opens past the end
+
+**Decision.** When a file's place is put back (opened again, or at launch from the session) with
+word wrap on, the top is lowered on the first layout until the last row is no higher than the
+view's bottom, as without wrap. It is done once: scrolling by hand with wrap still goes on until
+the last row is at the view's top (section 24), and nothing else about the place changes.
+**Why.** The owner: a 119-line file reopened with its last line halfway up the window and empty
+space below. A place saved in a shorter view (a split, a smaller window) was put back as it was,
+because only the layout without wrap clamps the top. Clamping every wrapped frame instead would
+take away the scroll past the end that wrapped scrolling has had since phase 4.
+**Overturned by.** The owner; or the owner asking that wrapped scrolling stop at the end too, which
+would make the one-shot fit the clamp of every frame.
+**From.** The owner's report and screenshot, 2026-11-24.

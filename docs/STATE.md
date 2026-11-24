@@ -27,6 +27,9 @@ the review of audit 4's fixes were fixed on it. If `git log -1` is newer, doubt 
 - **A closed mdview is asked about again** (`fix/closed-mdview`, D-102, D-105): at 1, 2 and 4 s,
   with a refused check kept to its grace's end and a key or click asking at most once in two
   seconds. Not tried by the owner; keystroke and idle times not measured (not run).
+- **A wrapped file reopened past its end** (owner's report, D-199): with word wrap on, a place put
+  back lowers its top once so the last row is no higher than the view's bottom. Not tried by the
+  owner.
 - **Phase 4, "Sort a folder by AI."** (`ai-library-plan.md` 5.7's second half, on 4a's card):
   merged from `f/p4` (`188c876`; D-150 to D-154, `DESIGN.md` 84). **Ask the AI** returns a scheme
   of at most 8 sections, **Sort N files** places each file with a confidence and a reason, up to

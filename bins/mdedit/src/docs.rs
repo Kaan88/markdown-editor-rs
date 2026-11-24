@@ -269,6 +269,11 @@ pub struct ViewState {
     pub top_row: usize,
     /// The part of a row a scroll left over (word wrap scrolls by whole rows).
     pub row_rest: f64,
+    /// The top was put back from where the file was left ([`Ready::restore_place`]): the next
+    /// layout with word wrap lowers it until the last row is no higher than the view's bottom,
+    /// once. Without wrap every layout clamps the top so; with wrap scrolling goes on until the
+    /// last row is at the top, and a place saved in a shorter view would open on empty space.
+    pub fit_top: bool,
     /// Horizontal scroll, logical px.
     pub left: f64,
     /// The rows of wrapped lines and what they were found for: revision, view width, advances.
@@ -429,6 +434,7 @@ impl ViewState {
             top: 0.0,
             top_row: 0,
             row_rest: 0.0,
+            fit_top: false,
             left: 0.0,
             rows: Lru::new(crate::view::wrap::ROW_CACHE),
             rows_stamp: (0, 0, 0, 0),
@@ -989,6 +995,7 @@ impl Ready {
         self.view.top = place.top.min(last) as f64;
         self.view.top_row = 0;
         self.view.row_rest = 0.0;
+        self.view.fit_top = true;
     }
 
     /// Selects `range` as far as the text has it: a range found in the file as it was read
