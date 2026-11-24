@@ -2,7 +2,7 @@
 //! edge scroll, what the drag draws, and that a press and release is still a click.
 
 use super::files_tests::{open_now, type_text};
-use super::library_write_tests::{lib, read, toast};
+use super::library_write_tests::{Lib, labels, lib, read, slash, toast};
 use super::*;
 use crate::keys::{Key, KeyName};
 use crate::ui::Drag;
@@ -239,7 +239,7 @@ fn holding_a_note_at_the_pane_edge_scrolls_the_list() {
         "a hold at the edge asks for the next scroll step"
     );
     let before = a.ui.library.scroll;
-    a.library_drag_scroll(2);
+    a.library_drag_scroll();
     assert!(
         a.ui.library.scroll > before,
         "the list moved under the note: {} then {}",
@@ -282,6 +282,235 @@ fn the_heading_a_dragged_note_would_go_into_is_drawn_and_so_is_the_note() {
     assert_eq!(
         untouched_now, before_untouched,
         "a row the drag does not touch is as it was"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Presses the row `from` and carries it, moving, to `(x, y)`, without letting go.
+fn hold_over(a: &mut App, from: usize, x: f32, y: f32) {
+    a.compose();
+    let source = a.hit_rect(Hit::LibraryRow(from)).expect("the note's row");
+    a.ui.mouse = (source.cx(), source.cy());
+    a.left_press();
+    a.ui.mouse = (x, y);
+    a.drag_to(a.ui.drag.unwrap(), x, y);
+    assert!(
+        matches!(a.ui.drag, Some(Drag::LibraryNote { moving: true, .. })),
+        "the note is moving"
+    );
+}
+
+/// The library file with three notes under two sections, and a third section to drop on:
+/// rows are Personal, A, One, B, Two, Three, Trips.
+fn three(l: &Lib) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for n in ["one", "two", "three"] {
+        let p = l.dir.join(format!("{n}.md"));
+        std::fs::write(&p, format!("# {n}\n")).unwrap();
+        paths.push(p);
+    }
+    std::fs::write(
+        &l.file,
+        format!(
+            "# Personal\n\n## A\n\n- [One]({})\n\n## B\n\n- [Two]({})\n- [Three]({})\n\n## Trips\n",
+            slash(&paths[0]),
+            slash(&paths[1]),
+            slash(&paths[2])
+        ),
+    )
+    .unwrap();
+    paths
+}
+
+/// The headings the note called `title` is written under, as the library file reads now.
+fn sections_of(l: &Lib, title: &str) -> Vec<String> {
+    let text = read(&l.file);
+    let parsed = mdshared_app::library::parse(&text, &l.dir.join("library"));
+    parsed
+        .entries
+        .iter()
+        .find(|e| e.title == title)
+        .unwrap_or_else(|| panic!("no {title} in {text}"))
+        .sections
+        .clone()
+}
+
+/// Audit 4, C1: the drop is found from the pointer's x as well as its y. Let go over the editor
+/// at the height of a row of the pane, the note stays where it is, and no scroll is armed there.
+#[test]
+fn a_note_let_go_over_the_editor_at_a_rows_height_is_not_moved() {
+    let (mut a, l) = lib("libd-out-row");
+    a.compose();
+    let trips = a.hit_rect(Hit::LibraryRow(5)).unwrap();
+    let text = a.areas.text;
+    assert!(text.cx() > trips.right(), "the point is outside the pane");
+    hold_over(&mut a, 2, text.cx(), trips.cy());
+    assert_eq!(
+        a.ui.library.drop, None,
+        "no heading is marked from beside the pane"
+    );
+    a.ui.mouse = (text.cx(), trips.cy());
+    a.left_release();
+    assert_eq!(read(&l.file), l.text(), "nothing was written");
+    assert_eq!(toast(&a), "", "and nothing said");
+    // Over the editor at the height of the pane's bottom edge, the list is not scrolled.
+    let list = crate::library_pane::list(a.areas.files.unwrap());
+    hold_over(&mut a, 2, text.cx(), list.bottom() - 2.0);
+    assert!(
+        a.ui.autoscroll_due.is_none(),
+        "the edge scroll is the pane's, not the editor's"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C2: while a note is held and moving, a key does not reach the pane. Enter on the
+/// keyboard's row would fold "A" and slide every row under it up by one.
+#[test]
+fn a_key_while_a_note_is_held_reaches_nothing_and_the_note_held_is_the_one_moved() {
+    let (mut a, l) = lib("libd-key");
+    three(&l);
+    a.library_rows();
+    a.compose();
+    let two = row_of(&a, "Two");
+    let trips = a.hit_rect(Hit::LibraryRow(row_of(&a, "Trips"))).unwrap();
+    a.ui.library.focused = true;
+    a.ui.library.set_cur(row_of(&a, "A"));
+    hold_over(&mut a, two, trips.cx(), trips.cy());
+    let before = labels(&a);
+    for key in [
+        KeyName::Enter,
+        KeyName::Left,
+        KeyName::Delete,
+        KeyName::F(2),
+    ] {
+        a.key_pressed(Key::Name(key), None);
+    }
+    assert_eq!(labels(&a), before, "no row moved");
+    assert!(a.ui.library.edit.is_none(), "F2 opened no name box");
+    assert!(
+        matches!(a.ui.drag, Some(Drag::LibraryNote { moving: true, .. })),
+        "the note is still held"
+    );
+    a.compose();
+    let trips = a.hit_rect(Hit::LibraryRow(row_of(&a, "Trips"))).unwrap();
+    a.ui.mouse = (trips.cx(), trips.cy());
+    a.left_release();
+    assert_eq!(sections_of(&l, "Two"), vec!["Trips".to_string()]);
+    assert_eq!(sections_of(&l, "Three"), vec!["B".to_string()]);
+    assert_eq!(sections_of(&l, "One"), vec!["A".to_string()]);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C2 and A F15: a read of the library that finishes while a note is held makes the
+/// rows again. The drag holds the note by what it is, so the note moved is the one pressed, the
+/// pane draws that note as the one held, and the heading marked is still the one under the
+/// pointer.
+#[test]
+fn rows_made_again_under_a_held_note_still_move_the_note_held() {
+    let (mut a, l) = lib("libd-reread");
+    let paths = three(&l);
+    a.library_rows();
+    a.compose();
+    let two = row_of(&a, "Two");
+    let trips = a.hit_rect(Hit::LibraryRow(row_of(&a, "Trips"))).unwrap();
+    hold_over(&mut a, two, trips.cx(), trips.cy());
+    assert_eq!(a.ui.library.drop, Some(row_of(&a, "Trips")));
+    // Another window adds a note above the one held, and the pane takes the read.
+    let zero = l.dir.join("zero.md");
+    std::fs::write(&zero, "# zero\n").unwrap();
+    std::fs::write(
+        &l.file,
+        format!(
+            "# Personal\n\n## A\n\n- [Zero]({})\n- [One]({})\n\n## B\n\n- [Two]({})\n- [Three]({})\n\n## Trips\n",
+            slash(&zero),
+            slash(&paths[0]),
+            slash(&paths[1]),
+            slash(&paths[2])
+        ),
+    )
+    .unwrap();
+    let read_now = mdshared_app::library::read(&l.dir.join("library"));
+    assert!(a.library_accept(read_now), "the read is shown");
+    assert_eq!(row_of(&a, "Two"), two + 1, "the rows moved under the note");
+    assert_eq!(
+        a.ui.library.held_at,
+        Some(row_of(&a, "Two")),
+        "held by what it is"
+    );
+    assert_eq!(
+        a.ui.library.drop,
+        Some(row_of(&a, "Trips")),
+        "the mark followed its heading"
+    );
+    a.compose();
+    let trips = a.hit_rect(Hit::LibraryRow(row_of(&a, "Trips"))).unwrap();
+    a.ui.mouse = (trips.cx(), trips.cy());
+    a.left_release();
+    assert_eq!(sections_of(&l, "Two"), vec!["Trips".to_string()]);
+    assert_eq!(
+        sections_of(&l, "One"),
+        vec!["A".to_string()],
+        "not the row now at its index"
+    );
+    assert_eq!(sections_of(&l, "Three"), vec!["B".to_string()]);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C2: a press that has not moved yet is a click on the note pressed, even when the
+/// rows were made again before the button came up; and a note that left the rows meanwhile is
+/// neither opened nor moved.
+#[test]
+fn a_click_on_a_note_opens_the_note_pressed_after_the_rows_were_made_again() {
+    let (mut a, l) = lib("libd-click-reread");
+    let paths = three(&l);
+    a.library_rows();
+    a.compose();
+    let two = row_of(&a, "Two");
+    let row = a.hit_rect(Hit::LibraryRow(two)).unwrap();
+    a.ui.mouse = (row.cx(), row.cy());
+    a.left_press();
+    assert!(matches!(
+        a.ui.drag,
+        Some(Drag::LibraryNote { moving: false, .. })
+    ));
+    // A read in which "One" is gone moves "Two" up a row before the button comes up.
+    std::fs::write(
+        &l.file,
+        format!(
+            "# Personal\n\n## A\n\n## B\n\n- [Two]({})\n- [Three]({})\n\n## Trips\n",
+            slash(&paths[1]),
+            slash(&paths[2])
+        ),
+    )
+    .unwrap();
+    assert!(a.library_accept(mdshared_app::library::read(&l.dir.join("library"))));
+    assert_eq!(row_of(&a, "Two"), two - 1);
+    a.left_release();
+    assert_eq!(
+        a.docs.active_doc().and_then(|d| d.path.clone()),
+        Some(paths[1].clone()),
+        "the note pressed opened, not the one now at its row"
+    );
+    // A note pressed and then taken out of the library is not acted on at all.
+    a.compose();
+    let row = a.hit_rect(Hit::LibraryRow(row_of(&a, "Three"))).unwrap();
+    a.ui.mouse = (row.cx(), row.cy());
+    a.left_press();
+    std::fs::write(
+        &l.file,
+        format!(
+            "# Personal\n\n## A\n\n## B\n\n- [Two]({})\n\n## Trips\n",
+            slash(&paths[1])
+        ),
+    )
+    .unwrap();
+    assert!(a.library_accept(mdshared_app::library::read(&l.dir.join("library"))));
+    assert_eq!(a.ui.library.held_at, None, "the note held is gone");
+    a.left_release();
+    assert_ne!(
+        a.docs.active_doc().and_then(|d| d.path.clone()),
+        Some(paths[2].clone()),
+        "a note no longer listed is not opened"
     );
     let _ = std::fs::remove_dir_all(&l.dir);
 }

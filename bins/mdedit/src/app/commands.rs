@@ -1011,7 +1011,9 @@ impl App {
                     self.set_folder(dir);
                 }
             }
-            Picked::LibraryFile(paths) => self.library_found(paths.into_iter().next()),
+            Picked::LibraryFile(target, paths) => {
+                self.library_found(target, paths.into_iter().next())
+            }
             Picked::NoteFile(group, paths) => {
                 self.note_file_picked(group, paths.into_iter().next())
             }
@@ -2537,12 +2539,9 @@ impl App {
         }
         if let Some(due) = self.ui.autoscroll_due {
             if now >= due {
-                if let Some(Drag::LibraryNote {
-                    row, moving: true, ..
-                }) = self.ui.drag
-                {
+                if matches!(self.ui.drag, Some(Drag::LibraryNote { moving: true, .. })) {
                     // A note held at the pane's edge: the list moves under it.
-                    self.library_drag_scroll(row);
+                    self.library_drag_scroll();
                 } else {
                     self.autoscroll();
                     self.ui.autoscroll_due = matches!(

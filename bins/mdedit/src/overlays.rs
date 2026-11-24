@@ -1034,17 +1034,17 @@ pub fn card(kind: DialogKind, rows: usize, body_h: f32, w: f32, h: f32) -> Rect 
         DialogKind::Runs => (660.0, list(RUN_ROW, 96.0).min(620.0)),
         DialogKind::RunUndo => (520.0, 250.0),
         // Rounded up, so the card's own rounding to whole pixels cannot close the gap the
-        // last line keeps from the divider.
-        DialogKind::LibraryDelete => (
+        // last line keeps from the divider. The question before a section goes names it, and a
+        // section's name can be as long as a file's (audit 4, F19).
+        DialogKind::LibraryDelete | DialogKind::LibraryRemove => (
             QUESTION_W,
             (BODY_TOP + body_h + BODY_GAP + FOOTER)
                 .max(QUESTION_H)
                 .ceil(),
         ),
-        DialogKind::Unsaved
-        | DialogKind::Overwrite
-        | DialogKind::Discard
-        | DialogKind::LibraryRemove => (QUESTION_W, QUESTION_H),
+        DialogKind::Unsaved | DialogKind::Overwrite | DialogKind::Discard => {
+            (QUESTION_W, QUESTION_H)
+        }
         DialogKind::ReplaceFiles => return crate::replace_ui::card(w, h),
     };
     dialog_card(cw, ch, w, h)
@@ -1124,10 +1124,10 @@ pub fn draw_dialog(
         DialogKind::Macros => macros.len(),
         DialogKind::Runs => runs.list.len() + runs.unread.len(),
     };
-    // The library's question names a group and a file, and either can be long: its card is
-    // grown from the lines the words wrap to before it is drawn.
+    // The library's questions name a group and a file, or a section, and any can be long: the
+    // card is grown from the lines the words wrap to before it is drawn.
     let body_h = match d.kind {
-        DialogKind::LibraryDelete => {
+        DialogKind::LibraryDelete | DialogKind::LibraryRemove => {
             // The width the card will get, a narrow window included, so the lines measured are
             // the lines drawn.
             let bw = dialog_card(QUESTION_W, QUESTION_H, w, h).w - 2.0 * PAD;
@@ -1238,6 +1238,10 @@ pub fn draw_dialog(
                 ),
             };
             title(c, r, heading);
+            // A card capped at the window's height holds fewer lines than the words wrap to:
+            // the body is cut at the divider rather than drawn into the buttons (audit 4, F19).
+            let room = Rect::new(r.x, r.y, r.w, (footer.y - BODY_GAP - r.y).max(0.0));
+            let old = c.p.clip(room);
             c.p.paragraph(
                 BODY_FACE,
                 BODY_SIZE,
@@ -1247,6 +1251,7 @@ pub fn draw_dialog(
                 &body,
                 pal.text,
             );
+            c.p.restore(old);
             // The answers sit at the right in reading order, the first one the default.
             let mut x = r.right() - PAD;
             for (n, label) in buttons.iter().enumerate().rev() {
@@ -1594,15 +1599,7 @@ pub fn draw_dialog(
                 false,
             );
             if let Some(run) = runs.list.get(runs.sel) {
-                // A move has nothing to finish: it is put back or undone. Neither has a record a
-                // later version wrote.
-                let finish = matches!(
-                    run.record.kind,
-                    mdedit_core::runs::Kind::Split | mdedit_core::runs::Kind::Markdown
-                ) && matches!(
-                    run.record.state,
-                    mdedit_core::runs::State::Stopped | mdedit_core::runs::State::Writing
-                );
+                let finish = offers_finish(&run.record);
                 let undo = run.record.state.live();
                 let mut items: Vec<(&str, Hit, bool)> = Vec::new();
                 items.push(("Show the notes", Hit::DlgRunShow, true));
@@ -1709,6 +1706,17 @@ fn when(started: &str) -> String {
     }
 }
 
+/// Whether "AI runs…" offers Finish for a run: a split or a Markdown run whose links did not
+/// all go in, stopped, still writing or left "links pending" (audit 3 C4, audit 4 F3). A move
+/// and a rewrite have nothing to finish: they are put back or undone. A run partly undone is
+/// not finished: Undo takes the rest of it out.
+pub(crate) fn offers_finish(record: &mdedit_core::runs::Record) -> bool {
+    matches!(
+        record.kind,
+        mdedit_core::runs::Kind::Split | mdedit_core::runs::Kind::Markdown
+    ) && record.state.finishable()
+}
+
 /// A run's state as its row says it (5.9).
 fn state_label(state: mdedit_core::runs::State) -> &'static str {
     use mdedit_core::runs::State;
@@ -1717,6 +1725,7 @@ fn state_label(state: mdedit_core::runs::State) -> &'static str {
         State::LinksPending => "links pending",
         State::Done => "done",
         State::Stopped => "stopped part-way",
+        State::UndoPending => "partly undone",
         State::Undone => "undone",
     }
 }
@@ -1880,6 +1889,61 @@ pub fn draw_empty(c: &mut Ctx, docs: &Docs, r: Rect) {
 mod tests {
     use super::*;
 
+    /// Audit 4, F3: Finish is offered for a split or Markdown run whose links are pending, as for
+    /// one that stopped; never for a run partly undone, a done one, a move or a rewrite.
+    #[test]
+    fn finish_is_offered_for_a_run_whose_links_are_pending() {
+        use mdedit_core::runs::{Group, Kind, Record, Source, State};
+        use std::path::PathBuf;
+        let mut record = Record {
+            version: 1,
+            kind: Kind::Split,
+            started: String::new(),
+            started_secs: 0,
+            state: State::Done,
+            instruction: String::new(),
+            sent: None,
+            source: Source {
+                path: PathBuf::from("Trip.md"),
+                len: 0,
+                sha256: String::new(),
+                recycled: false,
+            },
+            group: Group {
+                name: "Trip".to_string(),
+                file: PathBuf::from("Trip.md"),
+                created: false,
+                home: PathBuf::from("Trip"),
+            },
+            folders: Vec::new(),
+            notes: Vec::new(),
+            pictures: Vec::new(),
+            sections_added: Vec::new(),
+            moved: None,
+            originals: Vec::new(),
+            added: Vec::new(),
+        };
+        let offered = |r: &mdedit_core::runs::Record, kind: Kind, state: State| {
+            let mut r = r.clone();
+            r.kind = kind;
+            r.state = state;
+            offers_finish(&r)
+        };
+        for kind in [Kind::Split, Kind::Markdown] {
+            for state in [State::Writing, State::LinksPending, State::Stopped] {
+                assert!(offered(&record, kind, state), "{kind:?} {state:?}");
+            }
+            for state in [State::Done, State::UndoPending, State::Undone] {
+                assert!(!offered(&record, kind, state), "{kind:?} {state:?}");
+            }
+        }
+        for kind in [Kind::Move, Kind::Rewrite] {
+            assert!(!offered(&record, kind, State::LinksPending), "{kind:?}");
+        }
+        record.state = State::UndoPending;
+        assert_eq!(state_label(record.state), "partly undone");
+    }
+
     #[test]
     fn cards_fit_small_windows() {
         for kind in [
@@ -1946,6 +2010,34 @@ mod tests {
             QUESTION_H,
             "a question that fits two lines keeps today's card"
         );
+    }
+
+    /// Audit 4, F19: the question before a section is taken out names the section, whose name
+    /// can be as long as a file's. Its card was the fixed 196 the delete question outgrew: it
+    /// grows the same way, and a short one keeps its card.
+    #[test]
+    fn a_long_section_question_grows_its_card_to_its_lines() {
+        let (mut bm, mut gfx) = painter();
+        let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+        let ink = [0x1f, 0x1f, 0x1f];
+        let long = strings::library_remove_body(
+            "Japan 2025, Tokyo, Kyoto, Osaka, Nara, Sapporo and the long way home, with every stop \
+             written down and every ticket kept, and the friends we met on the way",
+            23,
+        );
+        let used = body_height(&mut p, QUESTION_W - 2.0 * PAD, &long, ink);
+        assert!(
+            used > QUESTION_H - BODY_TOP - FOOTER,
+            "the words need more than the 196 card's room: {used}"
+        );
+        let r = card(DialogKind::LibraryRemove, 0, used, 1200.0, 900.0);
+        assert!(r.h > QUESTION_H, "the card grew: {} for {used}", r.h);
+        assert!(r.y + BODY_TOP + used + BODY_GAP <= r.bottom() - FOOTER);
+        // A short name: never below the floor, and its lines above the divider too.
+        let short = strings::library_remove_body("Money", 2);
+        let used = body_height(&mut p, QUESTION_W - 2.0 * PAD, &short, ink);
+        let r = card(DialogKind::LibraryRemove, 0, used, 1200.0, 900.0);
+        assert!(r.h >= QUESTION_H && r.y + BODY_TOP + used + BODY_GAP <= r.bottom() - FOOTER);
     }
 }
 

@@ -100,13 +100,16 @@ pub fn subtitle(plan: &Plan) -> String {
     )
 }
 
-/// The group the links go in, and where its notes are.
+/// The group the links go in, and where its notes are: the folder a group the library has names
+/// itself, which need not be the folder picked (audit 4, C4).
 pub fn group_line(plan: &Plan) -> String {
     let folder = if plan.group_new {
         format!(
             "which this run makes, with its folder {}",
             folder_shown(plan)
         )
+    } else if plan.home.as_os_str().is_empty() {
+        "which the library already has, with no folder of its own".to_string()
     } else {
         format!(
             "which the library already has, with its folder {}",
@@ -132,6 +135,46 @@ fn folder_shown(plan: &Plan) -> String {
         }
         _ => plan.home.display().to_string(),
     }
+}
+
+/// The header's last line: what the card leaves out and why, or `None` when it leaves nothing
+/// out. The files the group lists already; the files whose names a library file cannot hold,
+/// named (audit 4, C6); the library's own folder (C5).
+pub fn left_out_line(card: &ImportCard) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let n = card.plan.already();
+    if n > 0 {
+        parts.push(format!(
+            "The group lists {} already, so {} not written again.",
+            count(n, "file", "files"),
+            if n == 1 { "it is" } else { "they are" }
+        ));
+    }
+    if !card.unlinkable.is_empty() {
+        const NAMED: usize = 3;
+        let mut names: Vec<String> = card
+            .unlinkable
+            .iter()
+            .take(NAMED)
+            .map(|p| import::shown(p))
+            .collect();
+        if card.unlinkable.len() > NAMED {
+            names.push(format!("{} more", card.unlinkable.len() - NAMED));
+        }
+        parts.push(format!(
+            "Left out, as a library file cannot hold {} name: {}.",
+            if card.unlinkable.len() == 1 {
+                "its"
+            } else {
+                "their"
+            },
+            names.join(", ")
+        ));
+    }
+    if card.library_left_out {
+        parts.push("The library\u{2019}s own folder is left out.".to_string());
+    }
+    (!parts.is_empty()).then(|| parts.join("  "))
 }
 
 /// A count with its word: "1 file", "2 files".
@@ -311,6 +354,11 @@ pub struct ImportCard {
     pub drag: Option<f32>,
     /// What the last Add was refused with: drawn in the footer until a tick changes.
     pub refusal: Option<String>,
+    /// Files of the folder left out because a library file cannot hold their names, which the
+    /// header names (audit 4, C6).
+    pub unlinkable: Vec<PathBuf>,
+    /// The library folder was in the folder picked, and its files are not offered (C5).
+    pub library_left_out: bool,
     /// A card a shot draws: Add is refused, and nothing is written.
     pub demo: bool,
     /// Rectangles recorded as the card is drawn (buttons and links whose size is their text's).
@@ -327,6 +375,10 @@ pub struct ImportCard {
     /// The name box of a scheme row being renamed, and the row it belongs to.
     pub edit: Option<TextField>,
     pub edit_row: usize,
+    /// The plan as the folders made it (its notes and rows: sections, titles, ticks and order),
+    /// kept when an AI sort is first settled on it. "Keep the folders", a failed sort and a new
+    /// request put it back, so the folders' plan is never the AI's (audit 4, B8).
+    pub folders: Option<(Vec<import::Note>, Vec<import::Row>)>,
 }
 
 impl ImportCard {
@@ -341,6 +393,8 @@ impl ImportCard {
             win: (0.0, 0.0),
             drag: None,
             refusal: None,
+            unlinkable: Vec::new(),
+            library_left_out: false,
             demo: false,
             spots: Vec::new(),
             sort: SortStage::Off,
@@ -349,6 +403,7 @@ impl ImportCard {
             ai_estimate: import_ai::Estimate::default(),
             edit: None,
             edit_row: 0,
+            folders: None,
         }
     }
 
@@ -463,10 +518,34 @@ impl ImportCard {
 
     // ---- the AI step ----
 
-    /// "Ask the AI to sort them…": the scheme request is out.
+    /// Before an AI sort's answers are put on the plan: the plan as the folders made it is kept,
+    /// once, to go back to. A second sort settled on the first's leaves the copy as it is.
+    pub fn keep_folders(&mut self) {
+        if self.folders.is_none() {
+            self.folders = Some((self.plan.notes.clone(), self.plan.rows.clone()));
+        }
+    }
+
+    /// The plan as the folders made it again, when a sort changed it: every file under its
+    /// folder's heading with its own title and the tick it had. The copy goes, as the plan is
+    /// the folders' again; the next sort keeps a new one.
+    pub fn folders_back(&mut self) {
+        let Some((notes, rows)) = self.folders.take() else {
+            return;
+        };
+        self.plan.notes = notes;
+        self.plan.rows = rows;
+        self.sel = self.sel.min(self.plan.rows.len().saturating_sub(1));
+        self.scroll = self.rows().clamp_scroll(self.scroll);
+        self.tick += 1;
+    }
+
+    /// "Ask the AI to sort them…": the scheme request is out. A new sort starts from the
+    /// folders, not from the last sort.
     pub fn sort_asking(&mut self) {
         self.edit = None;
         self.sort = SortStage::Asking;
+        self.folders_back();
         self.tick += 1;
     }
 
@@ -508,16 +587,20 @@ impl ImportCard {
         self.tick += 1;
     }
 
-    /// The scheme could not be had, or a request failed before anything was placed.
+    /// The scheme could not be had, or a request failed before anything was placed: the files
+    /// are under their folders, as the card then says.
     pub fn sort_failed(&mut self, why: String) {
         self.sort = SortStage::Failed(why);
+        self.folders_back();
         self.tick += 1;
     }
 
-    /// Back to the folder's own sections: the AI's scheme is dropped and nothing is written.
+    /// "Keep the folders": back to the folder's own sections. The AI's scheme is dropped, a sort
+    /// already on the plan is taken off it, and nothing is written.
     pub fn sort_back(&mut self) {
         self.edit = None;
         self.sort = SortStage::Off;
+        self.folders_back();
         self.tick += 1;
     }
 
@@ -831,12 +914,16 @@ impl ImportCard {
 // ---- the shots ------------------------------------------------------------------------------------------
 
 /// Every name `--plan-demo folder…` takes.
-pub const NAMES: [&str; 13] = [
+pub const NAMES: [&str; 17] = [
     "folder",
     "folder-sections",
     "folder-taken",
     "folder-small",
     "folder-over",
+    "folder-skipped",
+    "folder-elsewhere",
+    "folder-stopped",
+    "folder-refused",
     "folder-scheme",
     "folder-scheme-rename",
     "folder-ai",
@@ -1014,6 +1101,21 @@ pub fn demo_plan(name: &str) -> Plan {
     plan.rows = rows_for(&notes);
     plan.notes = notes;
     plan.blocked = demo_blocked(&plan);
+    if name == "folder-elsewhere" {
+        // The library's "Recipes" keeps its notes in another folder: the card says that folder
+        // and refuses (audit 4, C4).
+        plan.group_new = false;
+        plan.entries = 12;
+        plan.home = if cfg!(windows) {
+            PathBuf::from(r"D:\Archive\Recipes")
+        } else {
+            PathBuf::from("/home/me/Archive/Recipes")
+        };
+        plan.blocked = Some(import::home_apart_reason("Recipes", &plan.home));
+    }
+    if name == "folder-stopped" {
+        plan.blocked = Some(import::stopped_reason(import::Stop::Entries));
+    }
     plan
 }
 
@@ -1106,8 +1208,7 @@ pub fn demo(name: &str) -> Option<ImportCard> {
             let batches = import_ai::batches(&plan, &scheme);
             let answer = demo_answer(&plan, &batches, name == "folder-unsorted");
             let answers: Vec<Option<import_ai::Answer>> = vec![Some(answer); batches.len()];
-            let sorted =
-                import_ai::settle(&mut card.plan, &scheme, &batches, &answers, true);
+            let sorted = import_ai::settle(&mut card.plan, &scheme, &batches, &answers, true);
             card.sort_filed(1 + batches.len(), sorted.placed, sorted.unsorted, None);
             let last = card.row_count().saturating_sub(1);
             card.select(if name == "folder-unsorted" { last } else { 2 });
@@ -1118,9 +1219,23 @@ pub fn demo(name: &str) -> Option<ImportCard> {
                 Some("The AI is off: choose a connection in Settings \u{203A} AI.".to_string());
         }
         "folder-ai-failed" => card.sort_failed(
-            "The AI\u{2019}s answer could not be read: it held no JSON object. Nothing was written."
-                .to_string(),
+            "The AI\u{2019}s answer could not be read: it held no JSON object.".to_string(),
         ),
+        "folder-skipped" => {
+            // Two files whose names a library file cannot hold, and the library's own folder,
+            // left out and said in the header; the rest can be added.
+            card.unlinkable = vec![
+                demo_folder().join("my%20draft.md"),
+                demo_folder().join("Bread").join("rye%20loaf.md"),
+            ];
+            card.library_left_out = true;
+            card.select(2);
+        }
+        "folder-refused" => {
+            // An Add refused at the write, its reason in the footer and the button still there.
+            card.refusal = Some(crate::commands::strings::library_unsaved("Recipes.md"));
+            card.select(2);
+        }
         _ => card.select(2),
     }
     Some(card)

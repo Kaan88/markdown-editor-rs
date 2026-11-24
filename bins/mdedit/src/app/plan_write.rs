@@ -25,11 +25,23 @@ pub(super) struct PlanGate<'a> {
     pub(super) library: PathBuf,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests only: step 6's write is refused, as a race in the field would refuse it. Nothing on
+    /// disk can refuse the links into a group file the run made a moment before without refusing
+    /// the making of it too (review of the audit 4 fixes, T4).
+    pub(super) static REFUSE_LINKS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl Gate for PlanGate<'_> {
     fn add_links(&mut self, file: &Path, links: &[mdedit_core::runs::Link]) -> Result<(), String> {
+        #[cfg(test)]
+        if REFUSE_LINKS.with(|r| r.get()) {
+            return Err("a test refused the write".to_string());
+        }
         let base = self.library.clone();
         // Refused when the group would pass the library's own limit (4.1).
-        if let Ok(text) = std::fs::read_to_string(file) {
+        if let Ok((text, _)) = super::library_write::library_text(file) {
             let before = library::parse(&text, &base);
             if before.entries.len().saturating_add(links.len()) > library::MAX_ENTRIES {
                 return Err(format!(
@@ -70,6 +82,30 @@ impl Gate for PlanGate<'_> {
             Wrote::Refused(why) => Err(why),
         }
     }
+
+    /// The window opts in: while the file still holds what the run's links left, undo gives it
+    /// back byte for byte, its blank lines, line ends and last line as they were; otherwise
+    /// the lines are taken out as `remove_links` does (review of the audit 4 fixes, S3). The
+    /// same writer, refusal and check as every other library write.
+    fn remove_links_added(
+        &mut self,
+        file: &Path,
+        links: &[LinkRemoval],
+        headings: &[Vec<String>],
+        added: &runs::Added,
+    ) -> Result<(), String> {
+        let base = self.library.clone();
+        match self.app.library_attempt_at(
+            file,
+            &base,
+            |text| runs::with_removals_added(text, links, headings, &base, added),
+            |old, new| runs::check_links_removed(old, new, links, &base),
+        ) {
+            Wrote::Done => Ok(()),
+            Wrote::Nothing => Err("none of the run's lines is in it any more".to_string()),
+            Wrote::Refused(why) => Err(why),
+        }
+    }
 }
 
 impl App {
@@ -99,6 +135,13 @@ impl App {
                 .set_toast(&format!("The run could not start: {why}"));
             self.redraw();
             return;
+        }
+        // A split asked for this plan and still out stops with the write, as it does when the
+        // card closes (`plan_close`): in "Split them" the next file's card opens at once, and the
+        // answer must not reach it (audit 4, B11). The status line stops saying it is out.
+        if self.ai.split.is_some() {
+            self.ai.cancel_split();
+            self.docs.ai_status = None;
         }
         // The group's file, before the notes: an empty group is a state one can live with, and
         // undo already takes it away. `runs` would make it at step 6, after every note is on
@@ -180,9 +223,12 @@ impl App {
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
+            // The two ways on are in "AI runs…": Finish writes the links, Undo takes the notes
+            // out (audit 3 C4, audit 4 F3).
             self.docs.set_toast(&format!(
-                "The notes are written, but {name} could not be updated: {}. Try again / Undo",
-                failure.why
+                "The notes are written, but {name} could not be updated: {}. {}",
+                failure.why,
+                strings::LINKS_PENDING_NEXT
             ));
         } else if let Some(Err(why)) = &binned {
             self.docs.set_toast(&format!(
@@ -376,14 +422,18 @@ pub(super) fn plan_preflight(app: &App, screen: &PlanScreen, req: &Request) -> R
     }
     // A7: the group's folder must not be the library folder itself: its notes would be files the
     // reader takes for library files.
-    if same_path(&req.group.home, library) {
+    if super::library_write::same_folder(&req.group.home, library) {
         return Err(format!(
             "{} is the library folder itself, so the notes would be library files. Choose another folder for the group.",
             shown(&req.group.home)
         ));
     }
     for note in &req.notes {
-        if note.path.parent().is_some_and(|p| same_path(p, library)) {
+        if note
+            .path
+            .parent()
+            .is_some_and(|p| super::library_write::same_folder(p, library))
+        {
             return Err(format!(
                 "{} would be a library file, not a note.",
                 shown(&note.path)
@@ -411,10 +461,22 @@ pub(super) fn plan_preflight(app: &App, screen: &PlanScreen, req: &Request) -> R
         }
         text
     } else {
-        match std::fs::read_to_string(&req.group.file) {
-            Ok(text) => text,
-            Err(e) => {
-                return Err(format!("{} could not be read: {e}", shown(&req.group.file)));
+        // Read as step 6's gate reads it (`library_text`): a byte order mark set aside, a file
+        // that is not UTF-8 text refused. A read-only one is refused too, since the gate's
+        // `files::replace` would refuse it after the notes are on disk (audit 4, RB3, F17).
+        if std::fs::metadata(&req.group.file).is_ok_and(|m| m.permissions().readonly()) {
+            return Err(format!(
+                "{} is read-only, so its links could not be written.",
+                shown(&req.group.file)
+            ));
+        }
+        match super::library_write::library_text(&req.group.file) {
+            Ok((text, _)) => text,
+            Err(why) => {
+                return Err(format!(
+                    "{} could not be read: {why}",
+                    shown(&req.group.file)
+                ));
             }
         }
     };
@@ -551,7 +613,7 @@ impl App {
             .map(|n| n.sections.clone())
             .unwrap_or_default();
         self.ui.library.unfold_to(&request.group.file, &section);
-        self.ui.library.build(&self.docs.library);
+        self.library_build();
         self.ui
             .library
             .follow(RowId::Note(key_of(&request.group.file, &section), first));
@@ -624,6 +686,22 @@ impl App {
         } else if let Some(failure) = report.failures.first() {
             self.docs
                 .set_toast(&format!("The links could not be written: {}", failure.why));
+        } else if !report.left_out.is_empty() {
+            // A note that is not there as the run wrote it is not linked: the toast names it.
+            let names: Vec<String> = report
+                .left_out
+                .iter()
+                .map(|p| {
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                })
+                .collect();
+            self.docs.set_toast(&format!(
+                "The run is finished: {} linked. Not there as the run wrote it, so left out: {}.",
+                report.added,
+                names.join(", ")
+            ));
         } else if report.added > 0 {
             self.docs
                 .set_toast(&format!("The run is finished: {} linked.", report.added));
@@ -695,6 +773,7 @@ impl App {
                         sections_added: vec![vec!["Part one".to_string()]],
                         moved: None,
                         originals: Vec::new(),
+                        added: Vec::new(),
                     },
                     path: root.join(".runs").join(format!("{started}-split.json")),
                     library: root.clone(),
@@ -743,7 +822,10 @@ impl App {
                 self.open_dialog(DialogKind::Runs);
             }
             Some(
-                ShotDialog::RunUndo | ShotDialog::RunUndoRecycled | ShotDialog::RunUndoOriginal,
+                ShotDialog::RunUndo
+                | ShotDialog::RunUndoRecycled
+                | ShotDialog::RunUndoOriginal
+                | ShotDialog::RunUndoLater,
             ) => {
                 let last = self.ui.runs.list.len().saturating_sub(1);
                 let pick = if which == Some(ShotDialog::RunUndoRecycled) {
@@ -780,7 +862,7 @@ impl App {
                             line: n.line.clone(),
                         })
                         .collect();
-                    let plan = mdedit_core::runs::UndoPlan {
+                    let mut plan = mdedit_core::runs::UndoPlan {
                         notes: notes.clone(),
                         links: vec![(run.record.group.file.clone(), links)],
                         folders: vec![
@@ -789,6 +871,15 @@ impl App {
                         ],
                         ..Default::default()
                     };
+                    // A run that died before its notes: a later run of the same plan wrote the
+                    // last two, and they stay (S2).
+                    if which == Some(ShotDialog::RunUndoLater) {
+                        let at = plan.notes.len().saturating_sub(2);
+                        plan.later = plan.notes.split_off(at);
+                        if let Some((_, lines)) = plan.links.first_mut() {
+                            lines.truncate(at);
+                        }
+                    }
                     (self.undo_sentence(&plan, &run.record.group_name()), true)
                 };
                 self.ui.runs.bin = which == Some(ShotDialog::RunUndoRecycled)
@@ -796,6 +887,18 @@ impl App {
                     && self.recycle.can_open();
                 self.ui.runs.undo = Some((run.path.clone(), sentence, can));
                 self.open_dialog(DialogKind::RunUndo);
+            }
+            Some(ShotDialog::RunUndoneLater) => {
+                // The report of that undo: two notes and their lines went, and the two a later
+                // run wrote are listed as kept, with why (S2).
+                let home = self.ui.runs.list[0].record.group.home.clone();
+                let report = mdedit_core::runs::UndoReport {
+                    removed_notes: (1..=2).map(|i| home.join(format!("Note {i}.md"))).collect(),
+                    removed_links: 2,
+                    later: vec![home.join("Note 5.md"), home.join("Note 6.md")],
+                    ..Default::default()
+                };
+                self.show_outcome(Outcome::undone(&report, &root));
             }
             _ => self.open_dialog(DialogKind::Runs),
         }
@@ -868,6 +971,14 @@ impl App {
         // Undo's removals go to the Recycle Bin where the drive has one (4.5, rule 3; D-071). The
         // bin is taken out of the window for the length of the undo, since the gate holds it.
         let mut bin = std::mem::replace(&mut self.recycle, Box::new(crate::recycle::Taken));
+        // A note a tab holds with changes not saved is kept, and the run waits for it.
+        let unsaved: Vec<PathBuf> = self
+            .docs
+            .tabs
+            .iter()
+            .filter(|d| d.modified())
+            .filter_map(|d| d.path.clone())
+            .collect();
         let report = {
             let mut gate = PlanGate {
                 app: self,
@@ -878,7 +989,10 @@ impl App {
                 &record,
                 &library,
                 &mut gate,
-                &mut crate::recycle::ForUndo(&mut *bin),
+                &mut crate::recycle::SparingUnsaved {
+                    unsaved: &unsaved,
+                    bin: &mut crate::recycle::ForUndo(&mut *bin),
+                },
             )
         };
         self.recycle = bin;
@@ -931,7 +1045,7 @@ impl App {
         self.ui.panes.files = true;
         self.ui.set_pane_face(PaneFace::Notes);
         self.ui.library.unfold_to(&file, &sections);
-        self.ui.library.build(&self.docs.library);
+        self.library_build();
         self.ui
             .library
             .follow(RowId::Note(key_of(&file, &sections), path));

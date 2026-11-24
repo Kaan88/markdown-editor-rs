@@ -538,6 +538,9 @@ pub mod strings {
     pub const LIBRARY_EMPTY: &str =
         "The library is empty. \u{201c}Add this file to the notes library\u{201d} starts it.";
     pub const LIBRARY_NO_FOLDER: &str = "There is no folder for the notes library.";
+    /// What a run whose links did not go in can do next, at the end of its toast (audit 3 C4,
+    /// audit 4 F3).
+    pub const LINKS_PENDING_NEXT: &str = "AI runs can finish it or undo it.";
     pub const AI_RESULT_READY: &str = "AI result ready";
     pub const LIBRARY_PANE_NO_FOLDER: &str = "No library folder yet";
     pub const LIBRARY_NEW_GROUP_BUTTON: &str = "New group\u{2026}";
@@ -761,6 +764,15 @@ pub mod strings {
     /// "Split into notes…" refuses a document whose bytes are not text (plan 3.11).
     pub fn split_lossy(name: &str) -> String {
         format!("{name} holds bytes that are not text: it cannot be split into notes.")
+    }
+
+    /// "Split into notes…" refuses a tab that does not hold what its file holds now: another
+    /// program saved the file and the tab has not read it again (audit 4, A F1).
+    pub fn split_stale(name: &str) -> String {
+        format!(
+            "{name} changed on disk since this tab read it. Reload it first: the notes are made \
+             from the file on disk."
+        )
     }
 
     /// A group whose folder is the library folder: its notes would be library files.

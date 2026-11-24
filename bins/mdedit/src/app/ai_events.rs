@@ -998,10 +998,10 @@ impl App {
                 }
             }
             AiHit::Copy => {
-                let Some((text, is_file)) = self
+                let Some((text, file)) = self
                     .ai
                     .review()
-                    .map(|rv| (rv.hunks.compose(), rv.file.is_some()))
+                    .map(|rv| (rv.hunks.compose(), rv.file.clone()))
                 else {
                     return;
                 };
@@ -1009,10 +1009,12 @@ impl App {
                 // closes only once the result is on the clipboard (audit 1 round 3, #3).
                 if copy_text(&text) {
                     self.docs.set_toast("Copied the result.");
-                    if is_file {
+                    if let Some(fr) = file {
+                        // The file is left as it was, and the run goes on with the next
+                        // (audit 4, B3).
                         self.ai.panel = None;
                         self.ai.tick += 1;
-                        self.task_after_review(false);
+                        self.task_review_left(&fr);
                     } else {
                         self.ai_close_panel();
                     }

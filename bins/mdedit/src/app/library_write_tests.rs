@@ -711,15 +711,23 @@ fn when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so() {
     let work = l.dir.join("library").join("work.md");
     std::fs::write(&work, "# Work\n\n## Projects\n").unwrap();
     a.library_rows();
-    // Line 2 of the old file is not the note: the removal finds nothing to take out.
+    // The old file is made read-only after the pane read it. The look at the note's line before
+    // the new place is written only reads it and passes (audit 4, C12a); the removal's write is
+    // refused.
+    let mut perms = std::fs::metadata(&l.file).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&l.file, perms.clone()).unwrap();
     let moved = a.library_move(
         &l.file,
-        2,
+        5,
         "Taxes 2026",
         &l.taxes,
         &work,
         &["Projects".to_string()],
     );
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&l.file, perms).unwrap();
     assert!(!moved);
     assert_eq!(
         read(&work),
@@ -734,6 +742,7 @@ fn when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so() {
     assert!(
         said.contains("is in Work now")
             && said.contains("could not be taken out")
+            && said.contains("read-only")
             && said.contains("both"),
         "{said}"
     );
@@ -1485,4 +1494,336 @@ fn only_a_group_row_offers_to_delete_a_library_file() {
             .iter()
             .any(|i| matches!(i.id, Act::Library(LibAct::DeleteFile, _)))
     );
+}
+
+/// Audit 4, F12: off Windows the window stays live while the picker of "Find the file…" is
+/// open. "Find the file…" on another note meanwhile opens nothing and changes nothing: the
+/// answer is written to the link of the note its picker was asked for, never to the other's.
+#[cfg(not(windows))]
+#[test]
+fn find_the_file_writes_the_link_its_picker_was_asked_for() {
+    let (mut a, l) = lib("libw-find-target");
+    let moved = l.dir.join("moved.md");
+    std::fs::write(&moved, "# Last year\n").unwrap();
+    // The picker for "Last year" (line 9) is open...
+    a.dialog_busy = true;
+    let asked = crate::library_pane::Moving {
+        file: l.file.clone(),
+        line: 9,
+        title: "Last year".to_string(),
+        note: l.last.clone(),
+    };
+    // ...when "Find the file…" is chosen on "Taxes 2026" (line 5).
+    a.library_find_file(&l.file, 5, "Taxes 2026", &l.taxes);
+    assert!(a.dialog_busy, "no second picker");
+    a.woken(Wake::Dialog(Picked::LibraryFile(
+        asked,
+        vec![moved.clone()],
+    )));
+    let text = read(&l.file);
+    let line = |title: &str| {
+        text.lines()
+            .find(|s| s.starts_with(&format!("- [{title}](")))
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(
+        line("Taxes 2026"),
+        format!("- [Taxes 2026]({})", slash(&l.taxes)),
+        "{text}"
+    );
+    assert!(line("Last year").ends_with("moved.md)"), "{text}");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+// ---- audit 4: the owner's own files (RB3, F17, F18) --------------------------------------------
+
+/// The names in `dir` that end in `.part`: a temporary a write left behind.
+fn temporaries(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.ends_with(".part"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Audit 4, RB3 (audit 3 C9): a library write never opens a file of the owner's called
+/// `<name>.tmp` (the old write took that name for its temporary, truncated it and renamed it over
+/// the library file), and leaves no temporary of its own. The pane's writers and "Add this file"
+/// both write this way.
+#[test]
+fn a_library_write_leaves_the_owners_tmp_file_alone_and_no_temporary_of_its_own() {
+    let (mut a, l) = lib("libw-tmp");
+    let folder = l.dir.join("library");
+    let mine = folder.join("personal.md.tmp");
+    std::fs::write(&mine, "words I wrote\n").unwrap();
+    pick(&mut a, LibAct::Rename, 0);
+    name_it(&mut a, "Home");
+    assert_eq!(read(&l.file), l.text().replacen("# Personal", "# Home", 1));
+    assert_eq!(
+        read(&mine),
+        "words I wrote\n",
+        "the owner's file is untouched"
+    );
+    assert!(
+        temporaries(&folder).is_empty(),
+        "{:?}",
+        temporaries(&folder)
+    );
+    // "Add this file to the notes library".
+    let plans = l.dir.join("plans.md");
+    std::fs::write(&plans, "# Plans\n").unwrap();
+    open_now(&mut a, &plans);
+    a.library_put(&l.file, &["Trips".to_string()]);
+    assert!(
+        read(&l.file).contains(&format!("- [Plans]({})", slash(&plans))),
+        "{}",
+        read(&l.file)
+    );
+    assert_eq!(
+        read(&mine),
+        "words I wrote\n",
+        "the owner's file is untouched"
+    );
+    assert!(
+        temporaries(&folder).is_empty(),
+        "{:?}",
+        temporaries(&folder)
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, F17 (audit 3 C9): a library file that begins with a byte order mark is written by
+/// every writer and keeps the mark. Before, the mark hid the group's heading from the writers:
+/// "Rename" did nothing without a word, and the first new note dropped the `home:` line it meant
+/// to write.
+#[test]
+fn a_library_file_with_a_byte_order_mark_is_written_and_keeps_it() {
+    let (mut a, l) = lib("libw-bom");
+    let bom = |t: &str| format!("\u{FEFF}{t}");
+    std::fs::write(&l.file, bom(&l.text())).unwrap();
+    a.library_rows();
+    assert_eq!(labels(&a)[0], "Personal");
+    pick(&mut a, LibAct::Rename, 0);
+    name_it(&mut a, "Home");
+    assert_eq!(
+        read(&l.file),
+        bom(&l.text().replacen("# Personal", "# Home", 1))
+    );
+    assert_eq!(labels(&a)[0], "Home");
+    // The group has no `home:` line: its first new note writes one.
+    pick(&mut a, LibAct::NewNote, 1);
+    name_it(&mut a, "Budget");
+    let text = read(&l.file);
+    assert!(text.starts_with("\u{FEFF}# Home\nhome: Home\n"), "{text:?}");
+    assert!(
+        text.contains("- [Budget](Home/Money/budget.md)"),
+        "{text:?}"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, F17 and D3's rule: a library file that is not UTF-8 text (here Windows-1254) is not
+/// written back changed, and the toast says why in plain words.
+#[test]
+fn a_library_file_that_is_not_utf8_is_left_as_it_is_and_the_toast_says_why() {
+    let (mut a, l) = lib("libw-cp1254");
+    // "# Çağrı" in Windows-1254, and a note under it.
+    let mut bytes = b"# \xC7a\xF0r\xFD\n\n".to_vec();
+    bytes.extend_from_slice(format!("- [Taxes 2026]({})\n", slash(&l.taxes)).as_bytes());
+    std::fs::write(&l.file, &bytes).unwrap();
+    a.library_rows();
+    pick(&mut a, LibAct::Rename, 0);
+    name_it(&mut a, "Home");
+    assert_eq!(std::fs::read(&l.file).unwrap(), bytes, "not written back");
+    let said = toast(&a);
+    assert!(said.contains("is not UTF-8 text"), "{said}");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, F18: "Edit a library file" in a library that read as empty makes `notes.md` from
+/// the template, but never over a `notes.md` that is there: that one is opened as it is.
+#[test]
+fn edit_a_library_file_never_writes_the_template_over_a_notes_file() {
+    let dir = scratch("libw-first-file");
+    let folder = dir.join("library");
+    let made = super::library::first_library_file(&folder).expect("made");
+    assert_eq!(made, folder.join("notes.md"));
+    assert_eq!(read(&made), mdshared_app::library::TEMPLATE);
+    // One there already, which the read did not list: opened as it is.
+    std::fs::write(&made, "# Mine\n").unwrap();
+    assert_eq!(
+        super::library::first_library_file(&folder).expect("there"),
+        made
+    );
+    assert_eq!(read(&made), "# Mine\n", "not written over");
+    // Something by that name that is not a file is refused.
+    std::fs::remove_file(&made).unwrap();
+    std::fs::create_dir_all(&made).unwrap();
+    assert!(super::library::first_library_file(&folder).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, F14: `home: Trip/..` is the library folder whether or not a `Trip` folder is there.
+/// With no `Trip`, Linux and macOS keep the `..` in the absolute path, so only its spelling can
+/// fold it, which shared `comparable` does (D-165); with one, the disk folds it. A folder beside
+/// the library is not the library.
+#[test]
+fn a_dot_dot_after_a_folder_that_is_not_there_is_folded() {
+    let dir = scratch("libw-dot-dot");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).unwrap();
+    let same = super::library_write::same_folder;
+    assert!(same(&library.join("Gone").join(".."), &library));
+    assert!(same(&library.join("Gone").join("..").join("."), &library));
+    assert!(same(
+        &library.join("A").join("B").join("..").join(".."),
+        &library
+    ));
+    assert!(!same(&library.join("Gone"), &library));
+    assert!(!same(&library.join("..").join("library2"), &library));
+    std::fs::create_dir_all(library.join("Trip")).unwrap();
+    assert!(same(&library.join("Trip").join(".."), &library));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of the audit 4 fixes, RB5: a library file that is UTF-16 behind a UTF-8 byte order
+/// mark is refused by the window's writers as a plain UTF-16 one is; one marked UTF-8 alone is
+/// read, its mark set aside to be written back.
+#[test]
+fn the_writers_refuse_a_utf16_file_behind_a_utf8_mark() {
+    let dir = scratch("libw-utf16-behind");
+    let file = dir.join("Recipes.md");
+    let mut bytes = vec![0xEF, 0xBB, 0xBF, 0xFF, 0xFE];
+    for u in "# Recipes\n".encode_utf16() {
+        bytes.extend_from_slice(&u.to_le_bytes());
+    }
+    std::fs::write(&file, &bytes).unwrap();
+    assert!(super::library_write::library_text(&file).is_err());
+    std::fs::write(&file, "\u{FEFF}# Recipes\n").unwrap();
+    assert_eq!(
+        super::library_write::library_text(&file),
+        Ok(("# Recipes\n".to_string(), true))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of the audit 4 fixes, A F16: every rebuild of the rows goes through `library_build`,
+/// not only a finished read. The name box of a new note goes while a row's menu is open below it,
+/// so every row under the box moves up one, and the menu closes rather than act on another row.
+#[test]
+fn a_row_menu_closes_when_the_name_box_above_it_goes() {
+    let (mut a, l) = lib("libw-menu-box");
+    let money = labels(&a)
+        .iter()
+        .position(|r| r == "Money")
+        .expect("the section");
+    pick(&mut a, LibAct::NewNote, money);
+    assert!(a.ui.library.edit.is_some(), "the name box is open");
+    let at = labels(&a)
+        .iter()
+        .position(|r| r == "Last year")
+        .expect("the note's row");
+    a.library_row_menu(at, 0.0, 0.0, false);
+    assert_eq!(a.ui.popup_kind(), Some(PopupKind::LibraryRow(at)));
+    a.library_edit_cancel();
+    assert_ne!(labels(&a)[at], "Last year", "the rows moved up");
+    assert_eq!(
+        a.ui.popup_kind(),
+        None,
+        "the menu is not left on another row"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, A F16: a row's menu left open while the rows are made again from a finished read
+/// acted on whatever row then had its index: "Remove from the library" took another note's line
+/// out with no question. The menu closes when its row is another; a read that leaves the row
+/// where it was keeps it.
+#[test]
+fn a_row_menu_left_open_closes_when_the_rows_under_it_are_made_again() {
+    let (mut a, l) = lib("libw-menu-moved");
+    let folder = l.dir.join("library");
+    let at = labels(&a)
+        .iter()
+        .position(|r| r == "Last year")
+        .expect("the note's row");
+    a.library_row_menu(at, 0.0, 0.0, false);
+    assert_eq!(a.ui.popup_kind(), Some(PopupKind::LibraryRow(at)));
+    // A note is added under Trips, below it: its row is where it was, and the menu stays.
+    let other = l.dir.join("other.md");
+    std::fs::write(&other, "# Other\n").unwrap();
+    std::fs::write(
+        &l.file,
+        format!("{}\n- [Other]({})\n", l.text(), slash(&other)),
+    )
+    .unwrap();
+    assert!(a.library_accept(mdshared_app::library::read(&folder)));
+    assert_eq!(labels(&a)[at], "Last year");
+    assert_eq!(
+        a.ui.popup_kind(),
+        Some(PopupKind::LibraryRow(at)),
+        "the menu stays"
+    );
+    // Another program adds a note above it: every row below moves down one.
+    let more = l.dir.join("more.md");
+    std::fs::write(&more, "# More\n").unwrap();
+    let text = std::fs::read_to_string(&l.file).unwrap();
+    std::fs::write(
+        &l.file,
+        text.replacen(
+            "## Money\n",
+            &format!("## Money\n\n- [More]({})\n", slash(&more)),
+            1,
+        ),
+    )
+    .unwrap();
+    assert!(a.library_accept(mdshared_app::library::read(&folder)));
+    assert_ne!(labels(&a)[at], "Last year", "the rows moved under the menu");
+    assert_eq!(a.ui.popup_kind(), None, "the menu went with its row");
+    // So nothing acts on the row that now has its index, and every line is still there.
+    let now = std::fs::read_to_string(&l.file).unwrap();
+    assert!(
+        now.contains("[Last year]") && now.contains("[Taxes 2026]"),
+        "{now}"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C12a: a move between two files looks at the note's line in its own file before the
+/// new place is written. A line number from before that file changed (the pane had not read it
+/// again) listed the note in both, with the "half" toast. Now neither file is written, and the
+/// toast says why.
+#[test]
+fn a_move_across_files_by_a_stale_line_writes_neither_file() {
+    let (mut a, l) = lib("libw-move-stale");
+    let work = l.dir.join("library").join("work.md");
+    std::fs::write(&work, "# Work\n\n## Projects\n").unwrap();
+    let before = read(&l.file);
+    // Line 9 holds "Last year", not "Taxes 2026".
+    assert!(!a.library_move(&l.file, 9, "Taxes 2026", &l.taxes, &work, &[]));
+    assert_eq!(
+        read(&work),
+        "# Work\n\n## Projects\n",
+        "the new place is not written"
+    );
+    assert_eq!(read(&l.file), before, "nor the old one");
+    let said = toast(&a);
+    assert!(
+        said.contains("has changed since the pane read it"),
+        "{said}"
+    );
+    // The line that does hold it moves, as before.
+    assert!(
+        a.library_move(&l.file, 5, "Taxes 2026", &l.taxes, &work, &[]),
+        "{}",
+        toast(&a)
+    );
+    assert!(read(&work).contains("[Taxes 2026]"));
+    assert!(!read(&l.file).contains("[Taxes 2026]"));
+    let _ = std::fs::remove_dir_all(&l.dir);
 }

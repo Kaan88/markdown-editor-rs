@@ -25,11 +25,11 @@ impl App {
     }
 
     /// "AI task on your files…" and "AI task on this file…": the window, with `add` in it.
-    /// A window parked by "Show what is sent" comes back with the same files.
+    /// A window parked by "Show what is sent" comes back as it was, its task with it: `kind` is
+    /// for a new window only (audit 4, B7).
     pub(super) fn task_open(&mut self, kind: TaskKind, add: Vec<PathBuf>) {
         self.library_load();
         if let Some(mut t) = self.task_parked.take() {
-            t.task = kind;
             t.recount_limit();
             t.tick += 1;
             self.task = Some(t);
@@ -72,6 +72,8 @@ impl App {
             TaskKind::Rewrite => self.docs.ai_prompts.clone(),
         };
         let mut s = TaskScreen::new(kind, groups, dest, prompts, self.ai_via());
+        self.task_seq += 1;
+        s.id = self.task_seq;
         s.ai_on = self.ai_conn() != Connection::Off;
         s.win = self.logical();
         s.scale = self.scale;
@@ -156,6 +158,7 @@ impl App {
             sections: Vec::new(),
             with: None,
             over_limit: false,
+            limited: false,
             eol: "\n".to_string(),
             modified: None,
             already: false,
@@ -527,6 +530,26 @@ impl App {
     }
 
     fn task_act(&mut self, hit: Hit) {
+        // While a request is out the window takes no key that changes what it asked about, and
+        // no click either: the task, the files, the prompt and the group stay as they were sent
+        // (audit 4, B5). Stop, Cancel and the scrollbars still work.
+        let asking = self.task.as_ref().is_some_and(|s| s.asking.is_some());
+        if asking
+            && matches!(
+                hit,
+                Hit::Kind(_)
+                    | Hit::File(_)
+                    | Hit::Prompt(_)
+                    | Hit::Dest
+                    | Hit::DestItem(_)
+                    | Hit::AddFiles
+                    | Hit::Section
+                    | Hit::Field
+                    | Hit::NewGroupField
+            )
+        {
+            return;
+        }
         match hit {
             Hit::AddFiles => self.task_pick_files(),
             Hit::Kind(k) => {
@@ -544,14 +567,8 @@ impl App {
                 self.redraw();
             }
             Hit::File(i) => {
-                let task = self.task.as_ref().map(|s| s.task);
-                if let (Some(s), Some(task)) = (self.task.as_mut(), task)
-                    && let Some(f) = s.files.get_mut(i)
-                    && f.reason_for(task).is_none()
-                    && !f.done
-                {
-                    f.ticked = !f.ticked;
-                    s.tick += 1;
+                if let Some(s) = self.task.as_mut() {
+                    s.toggle(i);
                 }
                 self.redraw();
             }
@@ -659,13 +676,29 @@ impl App {
         s.blocked = None;
         let task = s.task;
         let count = s.count();
-        if self.ai.kept.is_some() {
-            self.docs.set_toast(
-                "A review is kept from the last file. Show it from AI \u{203A} Show the last result.",
-            );
+        let empty = s.instruction.text().trim().is_empty();
+        let id = s.id;
+        // A kept review is shown again: while the window is open, AI › Show the last result
+        // cannot be reached (audit 4, B10). The run goes on once it is answered.
+        if let Some(kept) = self.ai.kept.as_ref() {
+            if kept.file.as_ref().is_none_or(|fr| fr.window != id) {
+                self.docs.set_toast(
+                    "A review was kept from before: Apply, Copy result or Discard it, then Run.",
+                );
+            }
+            self.ai_show_kept();
             return;
         }
         if count == 0 {
+            return;
+        }
+        // The editor's own rewrite refuses an empty box; so does this (audit 4, B14).
+        if task == TaskKind::Rewrite && on && empty {
+            if let Some(s) = self.task.as_mut() {
+                s.blocked = Some(task_ui::REWRITE_NEEDS_INSTRUCTION.to_string());
+                s.tick += 1;
+            }
+            self.redraw();
             return;
         }
         match task {
@@ -744,6 +777,7 @@ impl App {
                 self.task_sent.requests += 1;
                 if let Some(s) = self.task.as_mut() {
                     s.asking = Some(Asking {
+                        task: s.task,
                         request: id,
                         what,
                         chars: 0,
@@ -801,12 +835,7 @@ impl App {
                 s.files[i].sections = sections;
             }
         }
-        // What the model did not place is left out, unticked, with its row saying so.
-        for i in 0..s.files.len() {
-            if !s.is_placed(i) {
-                s.files[i].ticked = false;
-            }
-        }
+        s.leave_out_unplaced();
         s.planned = true;
         s.asking = None;
         s.tick += 1;
@@ -881,6 +910,13 @@ impl App {
                 .set_toast("Nothing is placed to add to the library.");
             return;
         }
+        // Refused while a tab holds changes to the group's file that are not saved, as every
+        // library write is: the tab's next save would take the links out again (review of the
+        // audit 4 fixes, W1). The window stays, for the owner to save and add again.
+        if let Err(why) = self.library_file_free(&group.file) {
+            self.docs.set_toast(&why);
+            return;
+        }
         // The group's file, made first when it is new.
         if !group.file.is_file() {
             let name = group.name.clone();
@@ -903,10 +939,12 @@ impl App {
         let mut added = 0usize;
         let mut failed: Option<String> = None;
         for (path, title, sections) in targets {
-            let text = match std::fs::read_to_string(&group.file) {
-                Ok(t) => t,
-                Err(e) => {
-                    failed = Some(e.to_string());
+            // Read as every library writer reads it: a byte order mark set aside to be written
+            // back, and a file that is not UTF-8 text refused rather than changed (W1).
+            let (text, bom) = match super::library_write::library_text(&group.file) {
+                Ok(read) => read,
+                Err(why) => {
+                    failed = Some(why);
                     break;
                 }
             };
@@ -932,7 +970,10 @@ impl App {
                 ));
                 break;
             }
-            if let Err(e) = mdshared_app::settings::write_atomic(&group.file, &new) {
+            // The group's file is the owner's: written through a temporary of its own, so a
+            // `Recipes.md.tmp` of theirs is never taken, its mode is kept, and nothing is left
+            // beside it when the write fails (audit 4, RB3); with its byte order mark (W1).
+            if let Err(e) = super::library_write::library_put_text(&group.file, &new, bom) {
                 failed = Some(e.to_string());
                 break;
             }
@@ -1056,6 +1097,12 @@ impl App {
         let Some(index) = self.task_plan.take() else {
             return;
         };
+        // A split still out was asked for this file's plan, which is written or closed now: it
+        // stops here, so its answer never reaches the next file's (audit 4, B11).
+        if self.ai.split.is_some() {
+            self.ai.cancel_split();
+            self.docs.ai_status = None;
+        }
         let Some(mut t) = self.task_parked.take() else {
             return;
         };
@@ -1090,6 +1137,39 @@ impl App {
     }
 
     fn task_rewrite_begin(&mut self, index: usize) {
+        // The file is read again: the request is made from what is on disk now, not from what
+        // was read when it was added, so a file edited since can still be rewritten (audit 4,
+        // B12).
+        let Some(path) = self
+            .task
+            .as_ref()
+            .and_then(|s| s.files.get(index))
+            .map(|f| f.path.clone())
+        else {
+            return;
+        };
+        let fresh = self.task_probe(&path);
+        let Some(s) = self.task.as_mut() else { return };
+        let Some(f) = s.files.get_mut(index) else {
+            return;
+        };
+        f.size = fresh.size;
+        f.kind = fresh.kind;
+        f.why = fresh.why;
+        f.text = fresh.text;
+        f.bom = fresh.bom;
+        f.sample = fresh.sample;
+        f.heading = fresh.heading;
+        f.eol = fresh.eol;
+        f.modified = fresh.modified;
+        if let Some(why) = f.reason_for(TaskKind::Rewrite) {
+            s.blocked = Some(format!("{}: {why}. Nothing was sent.", f.name));
+            f.ticked = false;
+            s.recount_limit();
+            s.tick += 1;
+            self.redraw();
+            return;
+        }
         let Some(s) = self.task.as_ref() else { return };
         let Some(f) = s.files.get(index) else { return };
         let Some(text) = f.text.clone() else { return };
@@ -1114,6 +1194,7 @@ impl App {
                 self.task_sent.requests += 1;
                 if let Some(s) = self.task.as_mut() {
                     s.asking = Some(Asking {
+                        task: TaskKind::Rewrite,
                         request: id,
                         what,
                         chars: 0,
@@ -1150,6 +1231,7 @@ impl App {
         let path = f.path.clone();
         let eol = f.eol.clone();
         let bom = f.bom;
+        let window = s.id;
         let instruction = s.instruction.text().trim().to_string();
         let fitted = core_ai::fit_end(&original, text);
         let result = core_ai::with_eol(&fitted, &eol);
@@ -1171,6 +1253,7 @@ impl App {
         let blocked = self.task_file_changed(&path, &original, bom);
         let preview = self.docs.prefs.ai_review_preview;
         let via = self.ai_via();
+        let sent = self.task_sent_now();
         self.close_for_ai_panel();
         self.ai.panel = Some(Panel::Review(Review {
             doc: DocId::default(),
@@ -1194,10 +1277,12 @@ impl App {
             base_dir: path.parent().map(Path::to_path_buf),
             file: Some(FileReview {
                 path,
+                window,
                 index,
                 bom,
                 eol,
                 instruction,
+                sent,
             }),
         }));
         if preview {
@@ -1244,41 +1329,20 @@ impl App {
         let Some(library) = self.library_dir() else {
             return;
         };
-        if self.task_record.is_none() {
-            let sent = self.task_sent_now();
-            match runs::start_rewrite(&library, &fr.instruction, Some(sent), &fr.path) {
-                Ok(record) => self.task_record = Some(record),
-                Err(e) => {
-                    if let Some(rv) = self.ai.review() {
-                        rv.blocked = Some(format!("The run's record could not be made: {e}"));
-                    }
-                    self.redraw();
-                    return;
-                }
-            }
-        }
         let file = runs::RewriteFile {
             path: fr.path.clone(),
             before: original,
             after: text,
             bom: fr.bom,
         };
-        let sent = self.task_sent_now();
-        let outcome = {
-            let Some((record_path, record)) = self.task_record.as_mut() else {
-                return;
-            };
-            record.sent = Some(sent);
-            let done = runs::rewrite_into(record_path, record, &library, &file);
-            let closed = if done.is_ok() {
-                record.close(record_path.as_path(), &library)
-            } else {
-                Ok(())
-            };
-            (done, closed)
+        let own = self.task_window_of(&fr).is_some();
+        let written = if own {
+            self.task_rewrite_into(&library, &fr, &file)
+        } else {
+            Self::task_rewrite_alone(&library, &fr, &file)
         };
-        match outcome {
-            (Ok(()), closed) => {
+        match written {
+            Ok(closed) => {
                 if let Err(e) = closed {
                     self.docs
                         .set_toast(&format!("The record could not be updated: {e}"));
@@ -1291,17 +1355,18 @@ impl App {
                 self.docs.set_toast(&format!(
                     "{name} rewritten. Its original is in AI runs, where Undo brings it back."
                 ));
-                if let Some(s) = self.task.as_mut()
+                if let Some(s) = self.task_window_of(&fr)
                     && let Some(f) = s.files.get_mut(fr.index)
                 {
                     f.done = true;
                     f.ticked = false;
+                    s.tick += 1;
                 }
                 self.ai.panel = None;
                 self.ai.tick += 1;
-                self.task_after_review(true);
+                self.task_review_goes_on(&fr);
             }
-            (Err(why), _) => {
+            Err(why) => {
                 if let Some(rv) = self.ai.review() {
                     rv.blocked = Some(why);
                 }
@@ -1309,6 +1374,93 @@ impl App {
                 self.redraw();
             }
         }
+    }
+
+    /// The window a file review came from, open or parked behind the request's tab, when its
+    /// file is still at the review's place; `None` for a review kept from a window since closed
+    /// (audit 4, B4).
+    fn task_window_of(&mut self, fr: &FileReview) -> Option<&mut TaskScreen> {
+        let own = |s: &TaskScreen| {
+            s.id == fr.window && s.files.get(fr.index).is_some_and(|f| f.path == fr.path)
+        };
+        if self.task.as_ref().is_some_and(own) {
+            return self.task.as_mut();
+        }
+        if self.task_parked.as_ref().is_some_and(own) {
+            return self.task_parked.as_mut();
+        }
+        None
+    }
+
+    /// The review's window is the one open now: only then does the run go on to its next file.
+    fn task_owns(&self, fr: &FileReview) -> bool {
+        self.task.as_ref().is_some_and(|s| {
+            s.id == fr.window && s.files.get(fr.index).is_some_and(|f| f.path == fr.path)
+        })
+    }
+
+    /// The run goes on with its next file when the review was the open window's; a review kept
+    /// from a window since closed, or another one, touches no window and sends nothing.
+    fn task_review_goes_on(&mut self, fr: &FileReview) {
+        if self.task_owns(fr) {
+            self.task_rewrite_next();
+        } else {
+            self.redraw();
+        }
+    }
+
+    /// The window's record takes the file's original. A record holds what can be read back
+    /// (`runs::RECORD_MAX`): when the original would not fit, that record is closed as done and
+    /// the file begins the next one (audit 4, B2). The `Ok` holds how the last close went.
+    fn task_rewrite_into(
+        &mut self,
+        library: &Path,
+        fr: &FileReview,
+        file: &runs::RewriteFile,
+    ) -> Result<std::io::Result<()>, String> {
+        let full = self.task_record.as_ref().is_some_and(|(_, record)| {
+            !record.originals.is_empty() && !runs::rewrite_fits(record, library, file)
+        });
+        if full && let Some((path, mut record)) = self.task_record.take() {
+            self.task_rewritten += record.originals.len();
+            record.state = runs::State::Done;
+            if let Err(e) = record.close(&path, library) {
+                self.docs
+                    .set_toast(&format!("The record could not be updated: {e}"));
+            }
+        }
+        if self.task_record.is_none() {
+            let sent = self.task_sent_now();
+            match runs::start_rewrite(library, &fr.instruction, Some(sent), &fr.path) {
+                Ok(record) => self.task_record = Some(record),
+                Err(e) => return Err(format!("The run's record could not be made: {e}")),
+            }
+        }
+        let sent = self.task_sent_now();
+        let Some((record_path, record)) = self.task_record.as_mut() else {
+            return Err("The run's record could not be made.".to_string());
+        };
+        record.sent = Some(sent);
+        runs::rewrite_into(record_path, record, library, file)?;
+        Ok(record.close(record_path.as_path(), library))
+    }
+
+    /// A review kept from a window since closed: its file is a run of its own, done at once, so
+    /// no other window's record takes it (audit 4, B4).
+    fn task_rewrite_alone(
+        library: &Path,
+        fr: &FileReview,
+        file: &runs::RewriteFile,
+    ) -> Result<std::io::Result<()>, String> {
+        let (path, mut record) =
+            runs::start_rewrite(library, &fr.instruction, Some(fr.sent.clone()), &fr.path)
+                .map_err(|e| format!("The run's record could not be made: {e}"))?;
+        if let Err(why) = runs::rewrite_into(&path, &mut record, library, file) {
+            let _ = std::fs::remove_file(&path);
+            return Err(why);
+        }
+        record.state = runs::State::Done;
+        Ok(record.close(&path, library))
     }
 
     /// Discard on a rewrite's review: this file stays as it was, and the run goes on.
@@ -1325,15 +1477,38 @@ impl App {
         self.docs.set_toast(&format!("{name} was left as it was."));
         self.ai.panel = None;
         self.ai.tick += 1;
-        self.task_after_review(false);
+        self.task_review_left(&fr);
     }
 
-    /// Run again on a rewrite's review: the same instruction, the same file.
+    /// Discard or Copy result on a file's review: the file is left as it was and unticked, so
+    /// the run does not ask for it again, and the run goes on with the next (DESIGN 83; audit
+    /// 4, B3).
+    pub(super) fn task_review_left(&mut self, fr: &FileReview) {
+        if let Some(s) = self.task_window_of(fr)
+            && let Some(f) = s.files.get_mut(fr.index)
+        {
+            f.ticked = false;
+            s.recount_limit();
+            s.tick += 1;
+        }
+        self.task_review_goes_on(fr);
+    }
+
+    /// Run again on a rewrite's review: the same instruction, the same file. With the window
+    /// that asked closed there is nothing to ask from, and the review stays (audit 4, B10).
     pub(super) fn task_review_again(&mut self) {
         let Some(Panel::Review(rv)) = self.ai.panel.as_mut() else {
             return;
         };
         let Some(fr) = rv.file.clone() else { return };
+        if !self.task_owns(&fr) {
+            self.docs.set_toast(
+                "The task window this file was in is closed, so it cannot be asked again. \
+                 Apply, Copy result or Discard this result.",
+            );
+            self.redraw();
+            return;
+        }
         self.ai.panel = None;
         self.ai.tick += 1;
         self.task_rewrite_begin(fr.index);
@@ -1347,32 +1522,30 @@ impl App {
             f.done = true;
             f.ticked = false;
         }
-        self.task_after_review(false);
-    }
-
-    pub(super) fn task_after_review(&mut self, _accepted: bool) {
-        if self.task.is_some() {
-            self.task_rewrite_next();
-        } else {
-            self.task_rewrite_finish();
-        }
+        self.task_rewrite_next();
     }
 
     /// The run is over: its record says done, and the window says what happened.
     fn task_rewrite_finish(&mut self) {
-        let written = self
-            .task_record
-            .as_ref()
-            .map(|(_, r)| r.originals.len())
-            .unwrap_or(0);
+        let written = self.task_rewritten
+            + self
+                .task_record
+                .as_ref()
+                .map(|(_, r)| r.originals.len())
+                .unwrap_or(0);
         let library = self.library_dir();
-        if let Some((path, record)) = self.task_record.as_mut() {
-            record.state = runs::State::Done;
-            if let Some(library) = library {
-                let _ = record.close(path.as_path(), &library);
+        if let Some((path, mut record)) = self.task_record.take() {
+            // A record that took no file's original is removed, as Cancel does (audit 4, B6).
+            if record.originals.is_empty() {
+                let _ = std::fs::remove_file(&path);
+            } else {
+                record.state = runs::State::Done;
+                if let Some(library) = library {
+                    let _ = record.close(&path, &library);
+                }
             }
         }
-        self.task_record = None;
+        self.task_rewritten = 0;
         self.task_sent = Sent::default();
         self.task = None;
         self.task_parked = None;
@@ -1404,14 +1577,19 @@ impl App {
     /// The engine's answer to the task window.
     pub(super) fn task_done(&mut self, text: &str) {
         let Some(s) = self.task.as_ref() else { return };
-        let Some(asking) = s.asking.clone() else {
+        let Some(asking) = s.asking.as_ref() else {
             return;
         };
-        match s.task {
+        // The task that asked, not the one the window shows now (audit 4, B5).
+        match asking.task {
             TaskKind::File => self.task_file_answer(text),
             TaskKind::Rewrite => self.task_rewrite_answer(text),
+            // Split them asks through each file's plan card, never through the window.
             TaskKind::Split => {
-                let _ = asking;
+                if let Some(s) = self.task.as_mut() {
+                    s.asking = None;
+                    s.tick += 1;
+                }
             }
         }
     }
@@ -1587,6 +1765,7 @@ impl App {
             }
         }
         self.task_sent = Sent::default();
+        self.task_rewritten = 0;
         self.task = None;
         self.task_parked = None;
         self.task_plan = None;
@@ -1628,6 +1807,8 @@ impl App {
         } else {
             "Claude".to_string()
         };
+        self.task_seq += 1;
+        let window = self.task_seq;
         let mut s = TaskScreen::new(
             kind,
             Vec::new(),
@@ -1635,6 +1816,7 @@ impl App {
             self.docs.ai_file_prompts.clone(),
             via.clone(),
         );
+        s.id = window;
         s.win = self.logical();
         s.scale = self.scale;
         s.ai_on = self.ai_conn() != Connection::Off;
@@ -1669,14 +1851,7 @@ impl App {
             TaskKind::Rewrite => "Make the method clearer, not longer.",
         });
         if name == "files-plan" {
-            s.planned = true;
-            for (i, f) in s.files.iter_mut().enumerate() {
-                if f.kind == FileKind::Other {
-                    continue;
-                }
-                f.title = Some(format!("A title {i}"));
-                f.sections = vec!["Bread".to_string()];
-            }
+            demo_plan(s);
         }
         let review = if name == "review" {
             // The rewrite's review over the first text file, with a made-up result and no
@@ -1728,10 +1903,12 @@ impl App {
                 base_dir: path.parent().map(Path::to_path_buf),
                 file: Some(FileReview {
                     path,
+                    window,
                     index: at,
                     bom,
                     eol,
                     instruction,
+                    sent: Sent::default(),
                 }),
             }));
             self.ai.tick += 1;
@@ -1742,4 +1919,18 @@ impl App {
         self.redraw();
         true
     }
+}
+
+/// The plan face of the shot `task-files-plan`: every file but the other kind is placed under
+/// "Bread", and the one left over is left out as an answer leaves it: unticked.
+pub(super) fn demo_plan(s: &mut TaskScreen) {
+    s.planned = true;
+    for (i, f) in s.files.iter_mut().enumerate() {
+        if f.kind == FileKind::Other {
+            continue;
+        }
+        f.title = Some(format!("A title {i}"));
+        f.sections = vec!["Bread".to_string()];
+    }
+    s.leave_out_unplaced();
 }

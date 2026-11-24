@@ -532,6 +532,30 @@ fn a_file_the_model_did_not_place_is_not_written() {
     assert!(!body.contains("Orphan"), "{body}");
 }
 
+/// The shot `task-files-plan` shows the plan face as an answer leaves it: the file the model did
+/// not place is unticked under "NOT PLACED", never ticked beside a button that leaves it out.
+#[test]
+fn the_plan_shot_leaves_the_file_not_placed_unticked_as_an_answer_does() {
+    let dir = scratch("task-demo-plan");
+    let text = pasta(&dir);
+    let pdf = dir.join("menu.pdf");
+    std::fs::write(&pdf, b"%PDF-1.4\n").expect("pdf");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.task_open(TaskKind::File, vec![text, pdf]);
+    let s = a.task.as_mut().expect("the window is open");
+    assert_eq!(s.files[1].kind, FileKind::Other);
+    assert!(
+        s.files[1].ticked,
+        "File them links a PDF by name: ticked to start"
+    );
+    super::task::demo_plan(s);
+    assert!(s.is_placed(0) && s.files[0].ticked, "the placed file");
+    assert!(!s.is_placed(1), "the PDF is not placed");
+    assert!(!s.files[1].ticked, "and is left out, unticked");
+    assert_eq!(s.to_write(), vec![0]);
+}
+
 #[test]
 fn a_rewrites_record_is_listed_shown_and_not_a_later_versions() {
     let dir = scratch("task-rewrite-listed");
@@ -583,4 +607,597 @@ fn task_on_this_file_opens_file_them_with_that_file() {
     assert_eq!(s.task, TaskKind::File, "it starts on File them");
     assert_eq!(s.files.len(), 1);
     assert_eq!(s.files[0].path, text);
+}
+
+// ---- audit 4 ----------------------------------------------------------------------------------
+
+fn instruct(a: &mut App, text: &str) {
+    if let Some(s) = a.task.as_mut() {
+        s.instruction.set_text(text);
+    }
+}
+
+fn escape(a: &mut App) {
+    a.key_pressed(crate::keys::Key::Name(KeyName::Escape), None);
+}
+
+fn toast(a: &App) -> String {
+    a.docs.toast(Instant::now()).unwrap_or_default().to_string()
+}
+
+/// Audit 4, B3: Discard leaves the file as it was and the run asks for the next file, not for
+/// the same one again. (Copy result goes the same way, through `task_review_left`; it is not
+/// run here because it takes the clipboard.)
+#[test]
+fn discard_leaves_the_file_and_the_run_asks_for_the_next() {
+    let (mut a, dir) = ai_open("task-discard", TaskKind::Rewrite, Vec::new());
+    let one = pasta(&dir);
+    let two = dir.join("bread.md");
+    std::fs::write(&two, "# Bread\n\nBake it.\n").expect("bread");
+    a.task_add_paths(vec![one.clone(), two]);
+    instruct(&mut a, "Tidy them");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.task_review_discard();
+    assert!(a.ai.panel.is_none());
+    let s = a.task.as_ref().expect("the window stays");
+    assert!(!s.files[0].ticked && !s.files[0].done, "left as it was");
+    assert_eq!(
+        s.asking.as_ref().map(|q| q.index),
+        Some(1),
+        "the request out is for the second file"
+    );
+    assert_eq!(a.task_sent.requests, 2);
+    assert_eq!(
+        std::fs::read_to_string(&one).expect("pasta"),
+        "# Pasta\n\nBoil it.\n"
+    );
+}
+
+/// Audit 4, B4: a review kept from a window since closed, applied from another window, writes
+/// its own file under a record of its own. The other window's files are not touched and nothing
+/// is sent from it.
+#[test]
+fn a_review_kept_from_a_closed_window_writes_its_file_and_sends_nothing() {
+    let (mut a, dir) = ai_open("task-kept-other", TaskKind::Rewrite, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    escape(&mut a);
+    assert!(
+        a.ai.panel.is_none() && a.ai.kept.is_some(),
+        "the review is kept"
+    );
+    a.task_close();
+    let b = dir.join("b.md");
+    let c = dir.join("c.md");
+    std::fs::write(&b, "# B\n\nprivate b\n").expect("b");
+    std::fs::write(&c, "# C\n\nprivate c\n").expect("c");
+    a.task_open(TaskKind::File, vec![b, c]);
+    a.ai_show_kept();
+    assert!(matches!(a.ai.panel, Some(Panel::Review(_))));
+    a.task_review_apply();
+    assert_eq!(std::fs::read_to_string(&text).expect("written"), "# Done\n");
+    assert!(a.ai.panel.is_none());
+    let s = a.task.as_ref().expect("the File them window stays");
+    assert_eq!(s.task, TaskKind::File);
+    assert!(
+        s.files.iter().all(|f| f.ticked && !f.done),
+        "its files are as they were"
+    );
+    assert!(s.asking.is_none(), "nothing is sent from it");
+    assert_eq!(a.task_sent.requests, 0);
+    let runs = runs::list(&dir.join("library"));
+    assert_eq!(runs.len(), 1, "a record of its own");
+    assert_eq!(runs[0].record.originals.len(), 1);
+    assert_eq!(runs[0].record.state, runs::State::Done);
+    assert!(
+        a.task_record.is_none(),
+        "the window's record is not that one"
+    );
+}
+
+/// Audit 4, B5: while a request is out, a click on the task switch is refused; and the answer
+/// is read as the task that asked, whatever the window shows.
+#[test]
+fn a_request_out_keeps_its_task_and_its_answer_is_read_as_that_task() {
+    let (mut a, dir) = ai_open("task-switch", TaskKind::File, Vec::new());
+    let picture = dir.join("lasagne.jpg");
+    std::fs::write(&picture, [0xFF, 0xD8, 0xFF, 0xE0]).expect("picture");
+    a.task_add_paths(vec![pasta(&dir), picture]);
+    with_group(&mut a, "Recipes");
+    instruct(&mut a, "TASKFILE: by dish");
+    if let Some(s) = a.task.as_mut() {
+        s.files[1].ticked = true;
+    }
+    a.task_run();
+    assert!(a.task.as_ref().expect("open").asking.is_some());
+    a.compose();
+    let at = a.task.as_ref().and_then(|s| {
+        s.hits
+            .iter()
+            .find(|(h, _)| *h == Hit::Kind(TaskKind::Rewrite))
+            .map(|(_, r)| (r.x + r.w / 2.0, r.y + r.h / 2.0))
+    });
+    let (x, y) = at.expect("the switch is drawn");
+    a.ui.mouse = (x, y);
+    a.task_press();
+    a.task_release();
+    assert_eq!(
+        a.task.as_ref().expect("open").task,
+        TaskKind::File,
+        "the click is refused"
+    );
+    // A window that shows another task still reads the filing it asked for as a filing.
+    if let Some(s) = a.task.as_mut() {
+        s.task = TaskKind::Rewrite;
+    }
+    // Waited for until the answer is taken, whatever it was read as, so a wrong reading fails at
+    // its own assertion and not by the wait running out.
+    wait(&mut a, |a| {
+        a.task.as_ref().is_some_and(|s| s.asking.is_none())
+    });
+    assert!(a.ai.panel.is_none(), "no review of the filing's JSON");
+    let s = a.task.as_ref().expect("open");
+    assert!(s.planned, "the filing is planned");
+    assert!(s.asking.is_none());
+    assert_eq!(s.files[0].title.as_deref(), Some("Pasta"));
+}
+
+/// Audit 4, B7: a Rewrite window parked by "Show what is sent" comes back as Rewrite them,
+/// whichever command brings it back.
+#[test]
+fn a_parked_rewrite_window_comes_back_as_rewrite_them() {
+    let (mut a, dir) = ai_open("task-park-rewrite", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "Tidy it");
+    a.task_show_sent();
+    assert!(a.task_parked.is_some());
+    a.task_open(TaskKind::File, Vec::new());
+    let s = a.task.as_ref().expect("back");
+    assert_eq!(s.task, TaskKind::Rewrite);
+    assert_eq!(s.instruction.text(), "Tidy it");
+}
+
+/// Audit 4, B10: Run on the window shows the review Escape kept, as the command that would
+/// cannot be reached while the window is open; and Run again on a file's review whose window is
+/// closed keeps the review and says why.
+#[test]
+fn run_shows_the_kept_review_and_run_again_without_its_window_keeps_it() {
+    let (mut a, dir) = ai_open("task-kept-run", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    escape(&mut a);
+    assert!(a.ai.panel.is_none() && a.ai.kept.is_some());
+    a.task_run();
+    assert!(
+        matches!(a.ai.panel, Some(Panel::Review(_))),
+        "Run shows the kept review"
+    );
+    assert!(a.ai.kept.is_none());
+    assert_eq!(a.task_sent.requests, 1, "and sends nothing more");
+    escape(&mut a);
+    a.task_close();
+    a.ai_show_kept();
+    a.task_review_again();
+    assert!(
+        matches!(a.ai.panel, Some(Panel::Review(_))),
+        "the review stays, with its result"
+    );
+    assert!(toast(&a).contains("is closed"), "{}", toast(&a));
+}
+
+/// Audit 4, B12: the file is read again when its request is made, so an edit made after it was
+/// added is what is sent and its review can be applied; a file that is no longer UTF-8 text is
+/// not sent at all.
+#[test]
+fn a_file_edited_after_it_was_added_is_sent_as_it_is_now() {
+    let (mut a, dir) = ai_open("task-fresh", TaskKind::Rewrite, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    std::fs::write(&text, "# Pasta\n\nBoil it well.\n").expect("edited");
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    let Some(Panel::Review(rv)) = &a.ai.panel else {
+        panic!("a review");
+    };
+    assert_eq!(rv.original, "# Pasta\n\nBoil it well.\n");
+    assert!(rv.blocked.is_none(), "{:?}", rv.blocked);
+    a.task_review_apply();
+    assert_eq!(std::fs::read_to_string(&text).expect("written"), "# Done\n");
+    // Another window, on a file that stops being UTF-8 after it was added.
+    let other = dir.join("other.md");
+    std::fs::write(&other, "# Other\n\nete\n").expect("other");
+    a.task_open(TaskKind::Rewrite, vec![other.clone()]);
+    std::fs::write(&other, b"# Other\n\n\xE9t\xE9\n").expect("Latin-1");
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    let s = a.task.as_ref().expect("open");
+    assert!(s.asking.is_none(), "nothing is sent");
+    assert_eq!(a.task_sent.requests, 0);
+    assert_eq!(
+        s.blocked.as_deref(),
+        Some("other.md: not UTF-8: save it as UTF-8 first. Nothing was sent.")
+    );
+}
+
+/// Audit 4, B14: Rewrite them with nothing in the instruction box sends nothing and says why.
+#[test]
+fn rewrite_them_with_no_instruction_sends_nothing_and_says_why() {
+    let (mut a, dir) = ai_open("task-no-instruction", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "   ");
+    a.task_run();
+    let s = a.task.as_ref().expect("open");
+    assert!(s.asking.is_none());
+    assert_eq!(
+        s.blocked.as_deref(),
+        Some(crate::task_ui::REWRITE_NEEDS_INSTRUCTION)
+    );
+    assert_eq!(a.task_sent.requests, 0);
+}
+
+/// Audit 4, B2: a run whose originals pass what one record holds goes on in a second record, so
+/// every record can be read back and undone; the end of the run counts the files of both.
+#[test]
+fn a_rewrite_run_past_what_one_record_holds_goes_on_in_a_second_record() {
+    let dir = scratch("task-record-full");
+    let lib = dir.join("library");
+    std::fs::create_dir_all(&lib).expect("library");
+    // A quote is two bytes in a record, so each original takes twice its size there.
+    let line = format!("{}\n", "\"".repeat(99));
+    let body = |name: &str| format!("# {name}\n\n{}", line.repeat(1900));
+    let file_of = |path: &Path, before: String| runs::RewriteFile {
+        path: path.to_path_buf(),
+        before,
+        after: "# Done\n".to_string(),
+        bom: false,
+    };
+    let last = dir.join("last.md");
+    std::fs::write(&last, body("Last")).expect("last");
+    // The window's record is filled with other files' originals, until this one would not fit.
+    let first = dir.join("f0.md");
+    std::fs::write(&first, body("F0")).expect("f0");
+    let (record_path, mut record) =
+        runs::start_rewrite(&lib, "Tidy it", None, &first).expect("a record");
+    let mut fillers = 0;
+    while runs::rewrite_fits(&record, &lib, &file_of(&last, body("Last"))) {
+        let p = dir.join(format!("f{fillers}.md"));
+        std::fs::write(&p, body("F")).expect("filler");
+        runs::rewrite_into(&record_path, &mut record, &lib, &file_of(&p, body("F")))
+            .expect("a filler is rewritten");
+        fillers += 1;
+    }
+    assert!(fillers > 1, "{fillers}");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    a.task_open(TaskKind::Rewrite, vec![last.clone()]);
+    a.task_record = Some((record_path, record));
+    instruct(&mut a, "Tidy it");
+    if let Some(s) = a.task.as_mut() {
+        assert!(s.files[0].text.is_some(), "the file can be rewritten");
+        s.asking = Some(crate::task_ui::Asking {
+            request: 0,
+            task: TaskKind::Rewrite,
+            what: String::new(),
+            chars: 0,
+            index: 0,
+            prompt: String::new(),
+            batch: vec![0],
+        });
+    }
+    a.task_done("# Done\n");
+    assert!(matches!(a.ai.panel, Some(Panel::Review(_))));
+    a.task_review_apply();
+    // Compared as a yes or no: the file is 380 KB of quotes, too long to print when it fails.
+    let written = std::fs::read_to_string(&last).expect("written") == "# Done\n";
+    assert!(
+        written,
+        "not written: {:?}",
+        a.ai.review().map(|rv| rv.blocked.clone())
+    );
+    assert!(a.task.is_none(), "the run is over");
+    let listed = runs::list(&lib);
+    assert_eq!(listed.len(), 2, "two records, each read back");
+    let originals: usize = listed.iter().map(|r| r.record.originals.len()).sum();
+    assert_eq!(originals, fillers + 1);
+    assert!(listed.iter().all(|r| r.record.state == runs::State::Done));
+    assert_eq!(
+        toast(&a),
+        format!("{} files rewritten. Undo is in AI runs.", fillers + 1)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, B6: a file that could not be written leaves no record behind when the run ends,
+/// and nothing beside the file.
+#[test]
+fn a_rewrite_that_could_not_be_written_leaves_no_record_when_the_run_ends() {
+    let (mut a, dir) = ai_open("task-read-only", TaskKind::Rewrite, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    let mut perms = std::fs::metadata(&text).expect("meta").permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&text, perms.clone()).expect("read-only");
+    a.task_review_apply();
+    let blocked = a.ai.review().and_then(|rv| rv.blocked.clone());
+    assert!(blocked.is_some(), "the review says why");
+    assert_eq!(
+        std::fs::read_to_string(&text).expect("unchanged"),
+        "# Pasta\n\nBoil it.\n"
+    );
+    a.task_review_discard();
+    assert!(a.task.is_none(), "the run is over");
+    assert!(
+        runs::list(&dir.join("library")).is_empty(),
+        "no record of a file that was not rewritten"
+    );
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .expect("the folder")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp") || n.ends_with(".part"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    let _ = std::fs::set_permissions(&text, perms);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, RB3: "Add N to the library" writes the group's file through a temporary of its own.
+/// A file of the owner's called `Recipes.md.tmp` beside it is not truncated or renamed away, and
+/// nothing else is left in the library folder.
+#[test]
+fn file_them_leaves_a_tmp_file_of_the_owners_beside_the_group_file_alone() {
+    let (mut a, dir) = open("task-tmp", TaskKind::File, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    with_group(&mut a, "Recipes");
+    let library = dir.join("library");
+    let group = library.join("Recipes.md");
+    assert!(group.is_file(), "the group's file is made");
+    let theirs = library.join("Recipes.md.tmp");
+    std::fs::write(&theirs, "the owner's own notes\n").expect("theirs");
+    a.task_run();
+    assert!(a.task.as_ref().expect("open").planned);
+    a.task_file_write();
+    assert!(a.task.is_none(), "the links are in");
+    let body = std::fs::read_to_string(&group).expect("the group's file");
+    assert!(body.contains("[Pasta]"), "{body}");
+    assert_eq!(
+        std::fs::read_to_string(&theirs).expect("still there"),
+        "the owner's own notes\n"
+    );
+    let mut names: Vec<String> = std::fs::read_dir(&library)
+        .expect("the library")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !n.ends_with(".json") && n != "runs")
+        .collect();
+    names.sort();
+    assert_eq!(names, ["Recipes.md", "Recipes.md.tmp"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A trip of eleven lines: the stand-in engine's split answer (lines 5 to 11) fits it.
+fn trip(dir: &Path, name: &str, city: &str) -> PathBuf {
+    let p = dir.join(name);
+    std::fs::write(
+        &p,
+        format!("# {city}\n\nintro\n\n## Old town\n\nthe lanes\n\n## Hills\n\nthe view\n"),
+    )
+    .expect("trip");
+    p
+}
+
+/// The plan screen in front was cut by the AI.
+fn cut_by_ai(a: &App) -> bool {
+    a.plan.as_ref().expect("a plan screen").ai_cut.is_some()
+}
+
+/// Audit 4, B11: in Split them, a split asked on one file's card and still out when that plan is
+/// written stops there. The next file's card opens with its own plan, and the first file's answer
+/// never becomes it.
+#[test]
+fn a_split_out_when_a_files_plan_is_written_never_reaches_the_next_files_plan() {
+    let (mut a, dir) = ai_open("task-split-out", TaskKind::Split, Vec::new());
+    let kyoto = trip(&dir, "kyoto.md", "Kyoto");
+    let nara = trip(&dir, "nara.md", "Nara");
+    a.task_add_paths(vec![kyoto, nara]);
+    with_group(&mut a, "Trips");
+    a.task_run();
+    assert!(a.plan.is_some(), "kyoto.md's plan");
+    assert!(a.ai.split.is_none(), "an empty box asks nothing");
+    // The card's own "Ask the AI…", then Write before the answer is taken.
+    a.split_start(crate::ai::Spec {
+        title: "Split".into(),
+        instruction: "SPLITOK one note".into(),
+    });
+    assert!(a.ai.split.is_some(), "the split is out");
+    a.plan_write();
+    let screen = a.plan.as_ref().expect("nara.md's plan opens");
+    assert_eq!(screen.source.name, "nara.md");
+    assert!(
+        a.ai.split.is_none(),
+        "the split for kyoto.md stopped with its plan"
+    );
+    assert!(a.docs.ai_status.is_none(), "{:?}", a.docs.ai_status);
+    // Whatever the engine still sends is not read.
+    let until = Instant::now() + Duration::from_millis(400);
+    while Instant::now() < until {
+        a.ai_wake();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!cut_by_ai(&a), "nara.md's plan is its own");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, B11: a split's answer goes only to the plan screen it was asked for. A plan written
+/// while its split was out, and another document's plan opened after it, takes nothing of the
+/// answer; the same answer on the screen that asked becomes its plan.
+#[test]
+fn a_split_answer_is_read_only_on_the_plan_it_was_asked_for() {
+    engine();
+    let dir = scratch("task-split-tag");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    let kyoto = trip(&dir, "kyoto.md", "Kyoto");
+    let nara = trip(&dir, "nara.md", "Nara");
+    super::files_tests::open_now(&mut a, &kyoto);
+    assert!(a.plan_open_active());
+    let spec = crate::ai::Spec {
+        title: "Split".into(),
+        instruction: "SPLITOK one note".into(),
+    };
+    a.split_start(spec.clone());
+    assert!(a.ai.split.is_some(), "the split is out");
+    a.plan_write();
+    assert!(a.plan.is_none(), "kyoto.md's plan is written");
+    super::files_tests::open_now(&mut a, &nara);
+    assert!(a.plan_open_active(), "nara.md's plan");
+    wait(&mut a, |a| a.ai.split.is_none());
+    assert!(!cut_by_ai(&a), "kyoto.md's answer is not nara.md's plan");
+    assert_eq!(
+        a.plan.as_ref().expect("open").plan.notes().len(),
+        2,
+        "nara.md is cut at its headings"
+    );
+    // Asked here, the same answer is this plan's.
+    a.split_start(spec);
+    wait(&mut a, |a| a.ai.split.is_none());
+    assert!(cut_by_ai(&a), "the answer to nara.md's own request");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of the audit 4 fixes, T2: the guard itself, `split_asked_here`. Every way a plan
+/// leaves the screen stops its split first, so no window path reaches it today; here the split
+/// asked for one document is kept out of the window's reach while another document's plan opens,
+/// then answered. That plan takes nothing of it: not the answer, not the failure.
+#[test]
+fn a_split_asked_for_another_document_gives_this_plan_nothing() {
+    engine();
+    let dir = scratch("task-split-guard");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    for (tag, instruction) in [("answer", "SPLITOK one note"), ("failure", "FAILPLEASE")] {
+        let kyoto = trip(&dir, &format!("kyoto-{tag}.md"), "Kyoto");
+        let nara = trip(&dir, &format!("nara-{tag}.md"), "Nara");
+        super::files_tests::open_now(&mut a, &kyoto);
+        assert!(a.plan_open_active(), "kyoto's plan ({tag})");
+        a.split_start(crate::ai::Spec {
+            title: "Split".into(),
+            instruction: instruction.into(),
+        });
+        let run = a.ai.split.take().expect("the split is out");
+        a.plan = None;
+        super::files_tests::open_now(&mut a, &nara);
+        assert!(a.plan_open_active(), "nara's plan ({tag})");
+        a.ai.split = Some(run);
+        wait(&mut a, |a| a.ai.split.is_none());
+        let screen = a.plan.as_ref().expect("nara's plan stays");
+        assert_eq!(screen.source.name, format!("nara-{tag}.md"));
+        assert!(screen.ai_cut.is_none(), "kyoto's {tag} is not nara's plan");
+        assert!(
+            screen.ai_notice.is_none(),
+            "kyoto's {tag} is not said on nara's plan"
+        );
+        assert_eq!(screen.plan.notes().len(), 2, "nara is cut at its headings");
+        a.plan = None;
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A File them window over `group`, an existing library file, with pasta.md placed in it.
+fn file_them_into(tag: &str, group_text: &[u8]) -> (App, PathBuf, PathBuf) {
+    let dir = scratch(tag);
+    let lib = dir.join("library");
+    std::fs::create_dir_all(&lib).expect("library");
+    let group = lib.join("Recipes.md");
+    std::fs::write(&group, group_text).expect("group");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    (a, dir, group)
+}
+
+fn file_pasta(a: &mut App, dir: &Path) {
+    a.task_open(TaskKind::File, Vec::new());
+    a.task_add_paths(vec![pasta(dir)]);
+    if let Some(s) = a.task.as_mut() {
+        // The UTF-16 group is named "Recipes é".
+        let at = s.groups.iter().position(|g| g.name.starts_with("Recipes"));
+        s.dest = DestChoice::Group(at.expect("the group is offered"));
+    }
+    a.task_run();
+    assert_eq!(a.task.as_ref().map(|s| s.planned), Some(true));
+    a.task_file_write();
+}
+
+/// Review of the audit 4 fixes, W1: "File them" is refused while the group's library file is
+/// open in a tab with changes not saved, as every library write is. The file is not written,
+/// the window stays for the owner to save and add again, and the toast says why.
+#[test]
+fn file_them_is_refused_while_the_group_file_has_unsaved_changes() {
+    let before = b"# Recipes\nhome: Recipes\n";
+    let (mut a, dir, group) = file_them_into("task-file-unsaved", before);
+    super::files_tests::open_now(&mut a, &group);
+    super::files_tests::type_text(&mut a, "x");
+    assert!(a.docs.active_doc().is_some_and(|d| d.modified()));
+    file_pasta(&mut a, &dir);
+    assert_eq!(std::fs::read(&group).expect("the group"), before);
+    assert!(a.task.is_some(), "the window stays");
+    let said = toast(&a);
+    assert!(
+        said.contains("Recipes.md") && said.contains("not saved"),
+        "{said}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// W1, the reading: a group file with a byte order mark keeps it, and one in UTF-16 is refused
+/// and left as it was, as the pane's own writers treat them.
+#[test]
+fn file_them_keeps_a_byte_order_mark_and_refuses_a_utf16_file() {
+    let (mut a, dir, group) = file_them_into(
+        "task-file-bom",
+        "\u{FEFF}# Recipes\nhome: Recipes\n".as_bytes(),
+    );
+    file_pasta(&mut a, &dir);
+    let bytes = std::fs::read(&group).expect("the group");
+    assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]), "{bytes:?}");
+    assert!(
+        !bytes[3..].starts_with(&[0xEF, 0xBB, 0xBF]),
+        "one mark, not two"
+    );
+    assert!(
+        String::from_utf8_lossy(&bytes).contains("[Pasta]"),
+        "{bytes:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let mut utf16 = vec![0xFF, 0xFE];
+    for u in "# Recipes \u{e9}\nhome: Recipes\n".encode_utf16() {
+        utf16.extend_from_slice(&u.to_le_bytes());
+    }
+    let (mut a, dir, group) = file_them_into("task-file-utf16", &utf16);
+    file_pasta(&mut a, &dir);
+    assert_eq!(std::fs::read(&group).expect("the group"), utf16);
+    let said = toast(&a);
+    // Refused as every library writer refuses it, in its words.
+    assert!(said.contains("is not UTF-8 text"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

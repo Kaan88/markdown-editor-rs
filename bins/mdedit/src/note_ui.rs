@@ -537,7 +537,7 @@ impl NoteCard {
 
 /// Every name `--note-demo` takes.
 #[cfg(test)]
-pub const NAMES: [&str; 5] = ["ready", "asking", "changes", "result", "blocked"];
+pub const NAMES: [&str; 6] = ["ready", "asking", "changes", "result", "blocked", "failed"];
 
 /// The card the shots draw: a made-up text file, a made-up group, and an answer made in the
 /// program. `None` for a name it does not know. Nothing here is read or written.
@@ -547,7 +547,8 @@ pub fn demo(name: &str) -> Option<NoteCard> {
         || name == "asking"
         || name == "changes"
         || name == "result"
-        || name == "blocked";
+        || name == "blocked"
+        || name == "failed";
     if !name_ok {
         return None;
     }
@@ -595,6 +596,15 @@ pub fn demo(name: &str) -> Option<NoteCard> {
             if name == "result" {
                 card.set_view(View::Result);
             }
+        }
+        "failed" => {
+            // A write that made no note (audit 4, C3): the answer stays, the reason is in the
+            // footer, and the button can be pressed again.
+            card.set_answer(result, "\n");
+            card.notice = Some(
+                "The note could not be written: Recipes: Access is denied. (os error 5)."
+                    .to_string(),
+            );
         }
         _ => {}
     }

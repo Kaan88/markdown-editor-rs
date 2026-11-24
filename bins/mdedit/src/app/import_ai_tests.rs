@@ -255,6 +255,8 @@ fn an_unreadable_scheme_says_so_and_leaves_the_folders() {
         panic!("failed: {:?}", card.sort);
     };
     assert!(why.contains("could not be read"), "{why}");
+    // The card's second line begins "Nothing was written": the reason does not say it again.
+    assert!(!why.contains("Nothing was written"), "said twice: {why}");
     assert_eq!(card.plan.ticked(), 2);
     assert!(card.plan.notes.iter().all(|n| n.confidence.is_none()));
     assert!(a.ai.sort.is_none());
@@ -328,46 +330,267 @@ fn a_failed_batch_keeps_what_the_other_requests_sorted() {
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
+/// The filing run just started: its batches, the requests in flight, and the next batch to send.
+fn started(a: &App) -> (usize, usize, usize) {
+    a.ai.sort
+        .as_ref()
+        .map_or((0, 0, 0), |r| (r.batches.len(), r.in_flight.len(), r.next))
+}
+
+/// D-080: the requests go out up to the number the connection allows, and the batches past it
+/// wait. Each case has more batches than its number, so it fails with the cap taken out (audit
+/// 4, B9): 121 files are four batches.
 #[test]
 fn requests_go_out_three_at_once_and_one_for_a_local_model() {
-    let names: Vec<String> = (0..90).map(|i| format!("n{i:02}.md")).collect();
+    let names: Vec<String> = (0..121).map(|i| format!("n{i:03}.md")).collect();
     let files: Vec<&str> = names.iter().map(String::as_str).collect();
     let (mut a, l) = lib("import-ai-parallel", &files);
     open_card(&mut a, &l);
-    sort(&mut a);
-    // Settled first, so ask again would only be one request; start the run afresh on the same
-    // scheme to look at what is in flight.
-    let scheme = match &a.importer.as_ref().expect("card").sort {
-        SortStage::Filed { .. } => crate::import_ui::demo_scheme(),
-        _ => panic!("filed"),
-    };
-    a.importer.as_mut().expect("card").sort_scheme(scheme);
+    ask(&mut a);
     a.import_sort_start();
     assert_eq!(
-        a.ai.sort.as_ref().map_or(0, |r| r.in_flight.len()),
-        3,
-        "three by default (D-080)"
+        started(&a),
+        (4, 3, 3),
+        "three by default (D-080), the fourth waits"
     );
     a.import_close();
     assert!(a.ai.sort.is_none(), "closing stops it");
     let _ = std::fs::remove_dir_all(&l.dir);
 
-    // A local model starts with one.
-    let (mut a, l) = lib(
-        "import-ai-local",
-        &["one.md", "Bread/two.md", "Sauces/three.md"],
-    );
+    // The owner's number: two at once.
+    let (mut a, l) = lib("import-ai-parallel-two", &files);
+    a.docs.prefs.set_ai_parallel(Connection::ClaudeApi, 2);
+    open_card(&mut a, &l);
+    ask(&mut a);
+    a.import_sort_start();
+    assert_eq!(started(&a), (4, 2, 2), "two, as set");
+    a.import_close();
+    let _ = std::fs::remove_dir_all(&l.dir);
+
+    // A local model starts with one, and the second batch waits for it.
+    let (mut a, l) = lib("import-ai-local", &files[..41]);
     a.docs.prefs.ai_connection = Connection::OpenAi;
     a.docs.prefs.ai_preset = "lmstudio".to_string();
     open_card(&mut a, &l);
     ask(&mut a);
     a.import_sort_start();
+    assert_eq!(started(&a), (2, 1, 1), "a local model starts with one");
+    a.import_close();
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, B n4: "Requests at once" is kept per connection, but a number set for a hosted
+/// service does not follow the provider to a local model: Settings › AI's provider list puts it
+/// at the local model's one, and the sort sends one at a time. Between two of a kind the owner's
+/// number stays.
+#[test]
+fn a_number_set_for_a_hosted_service_does_not_follow_to_a_local_model() {
+    use super::modal::AI_PROVIDER;
+    use mdshared_ui::settings::Value;
+    let names: Vec<String> = (0..81).map(|i| format!("n{i:02}.md")).collect();
+    let files: Vec<&str> = names.iter().map(String::as_str).collect();
+    let (mut a, l) = lib("import-ai-preset", &files);
+    let at = |key: &str| {
+        mdedit_core::ai::PRESETS
+            .iter()
+            .filter(|x| !x.base_url.is_empty())
+            .position(|x| x.key == key)
+            .expect("a preset")
+    };
+    let c = Connection::OpenAi;
+    a.docs.prefs.ai_connection = c;
+    a.docs.prefs.ai_preset = "openai".into();
+    a.docs.prefs.set_ai_parallel(c, 5);
+    a.ai_setting(AI_PROVIDER, Value::Choice(at("openrouter")));
     assert_eq!(
-        a.ai.sort.as_ref().map_or(0, |r| r.in_flight.len()),
+        a.docs.prefs.ai_parallel(c),
+        5,
+        "another hosted service keeps it"
+    );
+    a.ai_setting(AI_PROVIDER, Value::Choice(at("lmstudio")));
+    assert_eq!(a.docs.prefs.ai_preset, "lmstudio");
+    assert_eq!(
+        a.docs.prefs.ai_parallel(c),
         1,
         "a local model starts with one"
     );
+    open_card(&mut a, &l);
+    ask(&mut a);
+    a.import_sort_start();
+    assert_eq!(started(&a), (3, 1, 1));
     a.import_close();
+    a.docs.prefs.set_ai_parallel(c, 2);
+    a.ai_setting(AI_PROVIDER, Value::Choice(at("ollama")));
+    assert_eq!(
+        a.docs.prefs.ai_parallel(c),
+        2,
+        "another local model keeps it"
+    );
+    a.ai_setting(AI_PROVIDER, Value::Choice(at("openai")));
+    assert_eq!(
+        a.docs.prefs.ai_parallel(c),
+        3,
+        "a hosted service starts with three"
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// The card's plan as it stands: its notes (sections, titles, ticks, order) and its rows.
+fn plan_of(
+    a: &App,
+) -> (
+    Vec<mdedit_core::import::Note>,
+    Vec<mdedit_core::import::Row>,
+) {
+    let card = a.importer.as_ref().expect("the card");
+    (card.plan.notes.clone(), card.plan.rows.clone())
+}
+
+/// A plan in one line, for a failure: each row's heading or file, its tick, and each file's
+/// sections; the notes' long text is left out.
+fn brief(
+    plan: &(
+        Vec<mdedit_core::import::Note>,
+        Vec<mdedit_core::import::Row>,
+    ),
+) -> String {
+    use mdedit_core::import::RowKind;
+    let (notes, rows) = plan;
+    rows.iter()
+        .map(|row| {
+            let tick = if row.ticked { "+" } else { "-" };
+            match &row.kind {
+                RowKind::Section { path } => format!("## {}{tick}", path.join("/")),
+                RowKind::File(i) => notes.get(*i).map_or_else(
+                    || format!("?{i}{tick}"),
+                    |n| format!("{} [{}]{tick}", n.title, n.sections.join("/")),
+                ),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Audit 4, B8: after a sort, "Keep the folders" gives back the plan the folders made, with the
+/// tick the owner gave before asking; a new request starts from the folders; and a request that
+/// fails after a sort leaves the files under their folders, as the card says, so Add writes the
+/// folders' headings.
+#[test]
+fn keep_the_folders_after_a_sort_gives_the_folders_plan_back() {
+    let (mut a, l) = lib(
+        "import-ai-keep",
+        &[
+            "one.md",
+            "Bread/two.md",
+            "Sauces/three.md",
+            "Sauces/four.md",
+        ],
+    );
+    open_card(&mut a, &l);
+    // The owner unticks a file before asking.
+    let four = {
+        let card = a.importer.as_ref().expect("the card");
+        (0..card.plan.rows.len())
+            .find(|&i| crate::import_ui::row_title(&card.plan, i) == "four")
+            .expect("four's row")
+    };
+    a.importer.as_mut().expect("the card").toggle(four);
+    let folders = plan_of(&a);
+    assert_eq!(folders.0.iter().filter(|n| n.ticked).count(), 3);
+    // The plans are compared whole; a failure prints them in one line each.
+    let same = |a: &App, said: &str| {
+        let now = plan_of(a);
+        assert!(
+            now == folders,
+            "{said}\n  now: {}\n  folders: {}",
+            brief(&now),
+            brief(&folders)
+        );
+    };
+    let sorted = |a: &App, said: &str| {
+        let now = plan_of(a);
+        assert!(now != folders, "{said}\n  now: {}", brief(&now));
+    };
+    sort(&mut a);
+    assert!(matches!(
+        a.importer.as_ref().expect("card").sort,
+        SortStage::Filed { .. }
+    ));
+    sorted(&a, "the sort is on the plan");
+    // Ask again: the scheme comes, and the plan behind it is the folders' again.
+    ask(&mut a);
+    assert!(matches!(
+        a.importer.as_ref().expect("card").sort,
+        SortStage::Scheme(_)
+    ));
+    same(&a, "a new sort starts from the folders");
+    // Escape on the scheme: Keep the folders.
+    a.key_pressed(Key::Name(KeyName::Escape), None);
+    let card = a.importer.as_ref().expect("card");
+    assert!(matches!(card.sort, SortStage::Off), "{:?}", card.sort);
+    same(&a, "Keep the folders");
+    // Sorted again, then a request that cannot be made: the files are under their folders.
+    sort(&mut a);
+    sorted(&a, "sorted again");
+    a.docs.prefs.ai_connection = Connection::Off;
+    a.import_sort_ask();
+    assert!(matches!(
+        a.importer.as_ref().expect("card").sort,
+        SortStage::Failed(_)
+    ));
+    same(&a, "the files would still be added under their folders");
+    a.import_write();
+    assert!(a.importer.is_none(), "written");
+    let text = read(&l.library.join("Recipes.md"));
+    assert!(
+        text.contains("## Bread") && text.contains("## Sauces"),
+        "{text}"
+    );
+    assert!(!text.contains("Pasta"), "none of the AI's headings: {text}");
+    assert!(!text.contains("[four]"), "the unticked file: {text}");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Review of the audit 4 fixes, T3: "Keep the folders" pressed on a card that still holds a sort
+/// takes the sort off by itself (`sort_back`'s own `folders_back`). No window path reaches it
+/// today: every way to the scheme or to a failure gives the folders back first. So the card is
+/// put there by hand, as a card's own calls can: the scheme in front of a plan the AI sorted.
+#[test]
+fn keep_the_folders_takes_a_sort_still_on_the_card_off_it() {
+    let (mut a, l) = lib(
+        "import-ai-keep-held",
+        &[
+            "one.md",
+            "Bread/two.md",
+            "Sauces/three.md",
+            "Sauces/four.md",
+        ],
+    );
+    open_card(&mut a, &l);
+    let folders = plan_of(&a);
+    ask(&mut a);
+    let scheme = match &a.importer.as_ref().expect("card").sort {
+        SortStage::Scheme(scheme) => scheme.clone(),
+        other => panic!("the scheme came: {other:?}"),
+    };
+    a.key_pressed(Key::Name(KeyName::Escape), None);
+    sort(&mut a);
+    let now = plan_of(&a);
+    assert!(now != folders, "the sort is on the plan: {}", brief(&now));
+    let card = a.importer.as_mut().expect("card");
+    assert!(card.folders.is_some(), "the folders' plan is kept");
+    card.sort_scheme(scheme);
+    // Escape on the scheme: Keep the folders.
+    a.key_pressed(Key::Name(KeyName::Escape), None);
+    let card = a.importer.as_ref().expect("card");
+    assert!(matches!(card.sort, SortStage::Off), "{:?}", card.sort);
+    let now = plan_of(&a);
+    assert!(
+        now == folders,
+        "the folders' plan\n  now: {}\n  folders: {}",
+        brief(&now),
+        brief(&folders)
+    );
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 

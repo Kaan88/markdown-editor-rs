@@ -394,6 +394,53 @@ fn a_finished_run_is_undone_with_its_lines_and_its_notes() {
     assert!(!library.join("Trip.md").exists());
 }
 
+/// Audit 4, A F4 and F10: the test above has its note under no section, the one shape Finish
+/// adds no heading for. Under a section, Finish writes the heading the file lacks and the record
+/// learns of it, so undo takes the heading out with the line, and the group's file it made goes.
+#[test]
+fn a_finished_run_under_a_section_is_undone_with_the_heading_finish_wrote() {
+    let dir = scratch("finish-section");
+    let library = dir.join("library");
+    std::fs::create_dir_all(&library).expect("the library");
+    let req = request(
+        &library,
+        "Trip",
+        true,
+        vec![note(
+            &library,
+            "Trip/Tokyo/One.md",
+            "One",
+            "# One\n",
+            &["Tokyo"],
+        )],
+    );
+    let mut refusing = FileGate::new();
+    refusing.refuse = true;
+    let report = runs::write_at(&req, &mut refusing, 3, STAMP);
+    assert_eq!(report.state(), Some(State::LinksPending));
+    let path = report.record_path.clone().expect("a record");
+    let record = runs::load(&path, &library).expect("the record");
+    let mut gate = FileGate::new();
+    let finished = runs::finish(&path, &record, &library, &mut gate);
+    assert_eq!(finished.added, 1, "{:?}", finished.failures);
+    let text = read(&library.join("Trip.md"));
+    assert!(
+        text.contains("## Tokyo") && text.contains("- [One](Trip/Tokyo/One.md)"),
+        "{text}"
+    );
+    let record = runs::load(&path, &library).expect("the record");
+    assert_eq!(record.sections_added, vec![vec!["Tokyo".to_string()]]);
+    let done = runs::undo(&path, &record, &library, &mut gate);
+    assert_eq!(done.removed_links, 1);
+    assert_eq!(done.removed_notes.len(), 1);
+    assert!(!library.join("Trip/Tokyo/One.md").exists());
+    assert!(
+        !library.join("Trip.md").exists(),
+        "the group's file went, its heading with it: {}",
+        read(&library.join("Trip.md"))
+    );
+}
+
 // ---- A3: the original ------------------------------------------------------------------------------
 
 #[test]
@@ -711,11 +758,22 @@ fn a_relative_path_with_dots_in_a_record_reaches_nothing_outside_the_library() {
         ),
     );
     let record = Record::from_json(&json, &library).expect("it reads as a record");
+    // With the group's library file gone, the folder cannot be checked, and the sentence says
+    // that instead (audit 4, W2). Nothing is acted on either way.
+    let plan = runs::prepare(&record, &library);
+    let why = plan.refusal.clone().expect("the whole record is refused");
+    assert!(
+        why.contains("taxes.md") && why.contains("is not there"),
+        "{why}"
+    );
+    // The group's library file is there and declares its home: the dots still reach outside it.
+    write_file(&library.join("Trip.md"), "# Trip\nhome: Trip\n");
     let plan = runs::prepare(&record, &library);
     let why = plan.refusal.clone().expect("the whole record is refused");
     assert!(why.contains("taxes.md"), "it says which path: {why}");
     assert!(
-        why.ends_with("is outside the library and the group's folder, so this run is not undone.")
+        why.ends_with("is outside the library and the group's folder, so this run is not undone."),
+        "{why}"
     );
     assert!(plan.notes.is_empty() && plan.links.is_empty());
     let mut gate = FileGate::new();

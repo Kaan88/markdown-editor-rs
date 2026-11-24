@@ -15,11 +15,12 @@ use crate::commands::strings;
 use crate::note_ui::{Act, NoteCard, Phase, Source, Target};
 use crate::replace_ui::Outcome;
 use mdedit_core::ai::Connection;
-use mdedit_core::load::{LoadOptions, load_path};
+use mdedit_core::load::{LoadOptions, load_reader};
 use mdedit_core::runs::{self, Group, NewNote, Request, Sent};
 use mdshared_app::library;
 use mdshared_app::paths::same_path;
 use serde_json::json;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
@@ -46,13 +47,35 @@ fn read_source(path: &Path) -> Result<Source, String> {
     if meta.len() == 0 {
         return Err(format!("{name} is empty."));
     }
+    // One read, capped: the text the card shows and sends, and the length and digest the write
+    // compares, are of the same bytes (audit 4, C12). A file that grew past the cap since the
+    // look above is refused as too long.
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(NOTE_MAX + 1).read_to_end(&mut bytes))
+        .map_err(|e| format!("{name} could not be read: {e}"))?;
+    if bytes.len() as u64 > NOTE_MAX {
+        return Err(format!(
+            "{name} is too long for one request: more than {} KB.",
+            NOTE_MAX / 1000
+        ));
+    }
+    if bytes.is_empty() {
+        return Err(format!("{name} is empty."));
+    }
     let opts = LoadOptions {
         max_bytes: NOTE_MAX,
         ..LoadOptions::default()
     };
     let cancel = AtomicBool::new(false);
-    let loaded = load_path(path, &opts, &|_, _| {}, &cancel)
-        .map_err(|e| format!("{name} could not be read: {e}"))?;
+    let loaded = load_reader(
+        &mut bytes.as_slice(),
+        Some(bytes.len() as u64),
+        &opts,
+        &|_, _| {},
+        &cancel,
+    )
+    .map_err(|e| format!("{name} could not be read: {e}"))?;
     if loaded.info.lossy || loaded.info.has_nul {
         return Err(format!(
             "{name} is not a text file: some of its bytes are not text this editor can read."
@@ -63,7 +86,6 @@ fn read_source(path: &Path) -> Result<Source, String> {
     if text.trim().is_empty() {
         return Err(format!("{name} has no text."));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("{name} could not be read: {e}"))?;
     let encoding = match loaded.info.encoding {
         mdedit_core::encoding::Encoding::Utf8 | mdedit_core::encoding::Encoding::Utf8Bom => None,
         e => Some(format!("{}, written as UTF-8", e.label())),
@@ -71,13 +93,73 @@ fn read_source(path: &Path) -> Result<Source, String> {
     Ok(Source {
         path: path.to_path_buf(),
         name,
-        lines: text.lines().count(),
+        lines: line_count(&text),
         len: bytes.len() as u64,
         sha256: mdshared_app::update::sha256_hex(&bytes),
-        eol: loaded.info.eol.dominant().to_string(),
+        eol: note_eol(loaded.info.eol.dominant()).to_string(),
         encoding,
         text,
     })
+}
+
+/// The first thing a write that made no note says went wrong, as "name: why".
+fn first_failure(report: &runs::Report) -> String {
+    let failure = report
+        .folder_failures
+        .first()
+        .or(report.note_failures.first())
+        .or(report.check_failures.first())
+        .or(report.group_failure.as_ref())
+        .or(report.link_failures.first());
+    match failure {
+        Some(f) => format!(
+            "{}: {}.",
+            f.path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| f.path.display().to_string()),
+            f.why.trim_end_matches('.')
+        ),
+        None => "nothing was made.".to_string(),
+    }
+}
+
+/// Takes away what a run that made no note left: the folders it made for the note, deepest
+/// first and only while they are empty, and its record with the record's log, so "AI runs…"
+/// does not list as done a run that did nothing. The shared write leaves them; nothing in them
+/// is the owner's, since the run made each one.
+fn discard_empty_run(report: &runs::Report) {
+    let folders = report
+        .record
+        .as_ref()
+        .map(|r| r.folders.clone())
+        .unwrap_or_default();
+    discard_run(report.record_path.as_deref(), &folders);
+}
+
+/// [`discard_empty_run`] by its parts: the record's path, and the folders the run made, parents
+/// first as a record lists them.
+pub(super) fn discard_run(record: Option<&Path>, folders: &[PathBuf]) {
+    for folder in folders.iter().rev() {
+        let _ = std::fs::remove_dir(folder);
+    }
+    if let Some(path) = record {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(path.with_extension("done"));
+    }
+}
+
+/// The line ending a note is written with: the source's own, except a bare CR (an old Mac
+/// file), which most programs no longer read as a line break; the note gets LF then (audit 4,
+/// C12).
+fn note_eol(source: &'static str) -> &'static str {
+    if source == "\r" { "\n" } else { source }
+}
+
+/// The lines of `text`, a bare CR ending one as LF and CRLF do.
+fn line_count(text: &str) -> usize {
+    let breaks = text.replace("\r\n", "\n").replace('\r', "\n");
+    breaks.lines().count()
 }
 
 impl App {
@@ -211,13 +293,19 @@ impl App {
                 "AI is off. Choose a connection in Settings \u{203A} AI first.".to_string(),
             );
         }
-        if same_path(&target.home, root) {
+        // As one folder on disk, not as spelled: `home: Recipes/..` is the library folder too
+        // (audit 4, A F14, as the pane's writers compare).
+        if super::library_write::same_folder(&target.home, root) {
             return Some(format!(
                 "{} is the library folder itself, so the note would be a library file. Choose another folder for the group.",
                 target.home.display()
             ));
         }
-        if target.path.parent().is_some_and(|p| same_path(p, root)) {
+        if target
+            .path
+            .parent()
+            .is_some_and(|p| super::library_write::same_folder(p, root))
+        {
             return Some(format!(
                 "{} would be a library file, not a note.",
                 target.path.display()
@@ -478,10 +566,20 @@ impl App {
             Some(root) => root,
             None => return self.note_write_refused(card, strings::LIBRARY_NO_FOLDER),
         };
+        // The name was free when the card opened; a file may have taken it while the answer was
+        // out. The note is never written over a file, so it gets the next free name, as it would
+        // have had then (D-075; audit 4, C3).
+        if card.target.path.symlink_metadata().is_ok()
+            && let Some(stem) = super::library_write::note_stem_for(&card.target.title)
+        {
+            card.target.path = super::library_write::free_name(&card.target.home, &stem);
+            card.tick += 1;
+        }
         // The library, the file and the group as they read now: the card's answer may be minutes
-        // old (5.10).
+        // old (5.10). What refuses here can pass on a second try (a tab saved, the AI turned on),
+        // so the card keeps its button.
         if let Some(why) = self.note_blocked(&root, &card.target) {
-            return self.note_write_refused(card, &why);
+            return self.note_write_failed(card, &why);
         }
         match std::fs::read(&card.source.path) {
             Ok(bytes)
@@ -497,7 +595,7 @@ impl App {
             }
             Err(e) => {
                 let why = format!("{} could not be read: {e}", card.source.name);
-                return self.note_write_refused(card, &why);
+                return self.note_write_failed(card, &why);
             }
         }
         let note = self.note_row(&root, &card.target, card.result.clone());
@@ -538,7 +636,16 @@ impl App {
             runs::write_note(&request, &mut gate)
         };
         if let Some(why) = report.start_error.clone() {
-            return self.note_write_refused(card, &format!("The note could not be written: {why}"));
+            return self.note_write_failed(card, &format!("The note could not be written: {why}"));
+        }
+        // The write started and made no note: its name was taken by a file with other bytes,
+        // its folder could not be made, the disk is full. The card keeps the answer, which may
+        // have taken minutes, with the reason, and the run leaves nothing behind: no record of
+        // a note that was never made, and no folder it made for it (audit 4, C3).
+        if report.notes() == 0 {
+            let why = first_failure(&report);
+            discard_empty_run(&report);
+            return self.note_write_failed(card, &format!("The note could not be written: {why}"));
         }
         self.library_rows();
         if let Some(path) = report
@@ -562,9 +669,21 @@ impl App {
         self.redraw();
     }
 
+    /// A write refused for good: the note's text was made from a file that has changed since,
+    /// so the button stays disabled and the reason is said.
     fn note_write_refused(&mut self, mut card: NoteCard, why: &str) {
         self.docs.set_toast(why);
         card.blocked = Some(why.to_string());
+        card.tick += 1;
+        self.note = Some(card);
+        self.redraw();
+    }
+
+    /// A write that did not happen this time, for a reason that can pass: the card stays with
+    /// its answer, the footer says why, and the button can be pressed again (audit 4, C12).
+    fn note_write_failed(&mut self, mut card: NoteCard, why: &str) {
+        self.docs.set_toast(why);
+        card.notice = Some(why.to_string());
         card.tick += 1;
         self.note = Some(card);
         self.redraw();

@@ -231,7 +231,7 @@ impl App {
             } => {
                 let moving = moving || (x - start).abs() > 4.0 || (y - start_y).abs() > 4.0;
                 if moving {
-                    self.library_drag(row, y);
+                    self.library_drag(x, y);
                 }
                 self.ui.drag = Some(Drag::LibraryNote {
                     row,
@@ -897,15 +897,7 @@ impl App {
             Hit::DlgCard => {}
             // A pressed note may be dragged onto a heading; the press alone is still a click,
             // taken when the button comes up (see `left_release`).
-            Hit::LibraryRow(i) if self.library_note_row(i) => {
-                self.ui.library.drop = None;
-                self.ui.drag = Some(Drag::LibraryNote {
-                    row: i,
-                    x,
-                    y,
-                    moving: false,
-                });
-            }
+            Hit::LibraryRow(i) if self.library_note_row(i) => self.library_drag_press(i, x, y),
             h if h.is_button() => self.ui.pressed = Some(h),
             _ => {}
         }
@@ -953,14 +945,10 @@ impl App {
             return;
         }
         if let Some(drag) = self.ui.drag.take() {
-            if let Drag::LibraryNote { row, moving, .. } = drag {
-                if moving {
-                    self.library_drag_release(row);
-                } else {
-                    // Press and release on one spot: still the click a note row always was.
-                    self.set_cursor(CursorIcon::Default);
-                    self.activate(Hit::LibraryRow(row));
-                }
+            // A note held: dropped where it is let go, or, without a move, the click a note row
+            // always was. Either acts on the note pressed, not on its row's index.
+            if let Drag::LibraryNote { moving, .. } = drag {
+                self.library_note_release(moving);
             }
             if drag == Drag::Preview {
                 self.preview_release();
@@ -1419,15 +1407,9 @@ impl App {
             keys::Key::Name(n) => Some(n.clone()),
             keys::Key::Insert | keys::Key::Menu => None,
         };
-        // Escape puts a note held in the pane back where it was: nothing has been written.
-        if matches!(self.ui.drag, Some(Drag::LibraryNote { moving: true, .. }))
-            && name == Some(KeyName::Escape)
-        {
-            self.ui.drag = None;
-            self.ui.library.drop = None;
-            self.ui.autoscroll_due = None;
-            self.set_cursor(CursorIcon::Default);
-            self.redraw();
+        // A note held in the pane: Escape puts it back where it was, and no other key reaches
+        // anything until the button is up.
+        if self.library_drag_key(name.as_ref()) {
             return;
         }
         if self.ui.settings.is_some() {

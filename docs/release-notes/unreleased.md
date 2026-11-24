@@ -82,3 +82,76 @@ shows.)
   key press or a click still asks at most once in two seconds, and typing no longer restarts the
   background checks, so steady typing does not probe about once a second; only key presses ask,
   not releases or auto-repeat.
+
+- **The notes library leaves your own files beside it alone.** Every write of a library file used
+  a temporary file named after it with `.tmp`, so a `personal.md.tmp` of your own was overwritten
+  and then taken away. Writes now use a name of their own and leave nothing behind when they fail.
+  A library file keeps its permissions, and a read-only one is not replaced: "Split into
+  notes…" into a group whose library file is read-only is refused before anything is written,
+  and its card says why. A file whose name is too long to take that temporary name on Windows
+  is written through a short one of its own, where it could not be written at all.
+- **A library file that starts with a byte order mark is written like any other.** "Rename",
+  "Set the group's folder…" and "New note here…" did nothing, or dropped the folder line they
+  meant to write, when the file began with one; the mark is now kept. A library file that is not
+  UTF-8 text is left exactly as it is, and the message says why, rather than being rewritten with
+  every accented letter changed; so is a UTF-16 file that begins with a UTF-8 mark.
+- **"Split into notes…" refuses a tab that is behind its file.** When another program had saved
+  the file and the tab had not read it again, the notes were cut from the old text, and putting
+  the original in the Recycle Bin could take the newer file. Now it asks you to reload first.
+- **An undo that could not finish can be pressed again.** When the Recycle Bin would not take a
+  note, or a line could not come out of its library file, the run was marked undone and the note
+  was left with nothing listing it. Such a run now reads "partly undone" in "AI runs…", and Undo
+  takes the rest out. A note open in a tab with changes not saved is kept, and the panel says
+  so.
+- **Undo of a run puts its library file back exactly as it was.** Taking the run's links out
+  could leave behind a blank line the links had brought, or change the blank lines and the last
+  line of your own. While nothing else has changed the file since the run, undo now gives back
+  the very text it held before, its blank lines, line ends, last newline and byte order mark as
+  they were; a file changed since is undone line by line, as before.
+- **A run whose links could not be written can be finished.** When the notes were written but
+  their library file could not be updated, the message offered a "Try again" that nothing
+  offered. "AI runs…" now has Finish for it, and the message says so. Finish under a section
+  writes the heading too, and undo takes it out again.
+- **"Edit a library file" never writes over `notes.md`.** When the folder read as empty, it could
+  write its template over a `notes.md` that was there.
+- **The question before a section is taken out of the library grows with its words**, as the
+  delete question does, so a long section name no longer runs into the buttons.
+- **"Move the notes…" takes a moved file's place in the recent files, its caret and its
+  bookmarks with it**, as a rename does.
+- **On Linux and macOS, "Find the file…" writes the link of the note it was opened for**, even
+  when another note's picker was answered in between, and `home: Trip/..` is refused as the
+  library folder itself whether `Trip` exists or not.
+- **Visual editing no longer asks a new tab a question meant for the old one** on the frame of a
+  tab switch.
+- **The AI task window** files a file of Russian, Greek or Chinese text without closing the
+  program (a digest cut inside a character); a rewrite run of many large files can be undone, in
+  more than one row of "AI runs…" when its originals pass one record, and still after an undo
+  that could not finish; File them no longer writes a group's library file that a tab holds
+  with changes not saved, and keeps its byte order mark; Discard and Copy result go
+  on to the next file; a review kept from a closed window writes its own file and sends nothing;
+  the task cannot be switched while a request is out; a window parked by "Show what is sent"
+  comes back with its task; Run shows a kept review; a file edited after it was added is sent as
+  it is now; the 20-file limit of a rewrite counts the ticked files only; Rewrite them with no
+  instruction says it needs one; and in Split them, the AI's answer for one file's plan no longer
+  lands on the next file's.
+- **Sort a folder by AI**: "Keep the folders" after a second Ask gives back the folders' own
+  headings, not the first sort's.
+- **Dragging a note** that is let go over the editor, at a row's height, no longer moves it, and
+  a library read that finishes while a note is held no longer moves or opens another note.
+- **A Markdown note from a file** whose write makes no note keeps its card and the AI's answer,
+  with the reason, and leaves no "done" run behind; a name taken while the AI answered gets the
+  next free name. When the cause can pass, such as a tab holding the group's library file with
+  changes not saved, the button stays on for a second try.
+- **Add a folder** no longer joins a group of the same name whose notes are kept in another
+  folder: it names the group and that folder and adds nothing. A group with no folder of its
+  own is joined, and the card says so. The library's own folder inside the one picked is left
+  out; a file whose name the library cannot hold is left out and named while the rest go in; a
+  title is one line; a folder past 50,000 entries or 64 deep is refused with the reason. Running
+  the command again stops a folder being read, a read that ends while another card is open
+  waits for it, and a refusal at Add is said in the card's footer with Add still on.
+- **A row's menu in the notes pane no longer acts on another row.** Left open while the library
+  was read again, its "Remove from the library" took out the line of whatever note then had that
+  place in the list, with no question. The menu now closes when the rows under it have moved,
+  whatever moved them.
+- **Moving a note between two library files after one of them changed on disk** no longer lists
+  it in both: the move looks at the note's line first, writes neither file, and says why.

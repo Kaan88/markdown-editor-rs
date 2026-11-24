@@ -463,6 +463,9 @@ for t in "" "-dark"; do
     # Undo refuses when the original the notes were cut from is gone or has changed, and a record
     # of a later version is listed with nothing to press.
     shot "runs-undo-original$t" $th --dialog run-undo-original
+    # A run that died before its notes: the two a later run of the same plan wrote stay.
+    shot "runs-undo-later$t" $th --dialog run-undo-later
+    shot "runs-undone-later$t" $th --dialog run-undone-later
     shot "runs-newer$t" $th --dialog runs-newer
 done
 
@@ -472,6 +475,10 @@ shot library-delete-dark --dark --dialog library-delete "$fx/sample.rs"
 # The same question with a long group and file name: four lines, and a card grown to hold them.
 shot library-delete-long --light --dialog library-delete-long "$fx/sample.rs"
 shot library-delete-long-dark --dark --dialog library-delete-long "$fx/sample.rs"
+# The question before a section is taken out, with a long section name: its card grows as the
+# delete question's does (audit 4, F19).
+shot library-remove-long --light --dialog library-remove-long "$fx/sample.rs"
+shot library-remove-long-dark --dark --dialog library-remove-long "$fx/sample.rs"
 
 # The "Plan ready" row at the foot of the Notes pane (5.3): a plan Escape kept, with Show and Drop.
 for t in "" "-dark"; do
@@ -492,6 +499,15 @@ for t in "" "-dark"; do
     shot "import-folder-taken$t" $th --plan-demo folder-taken
     shot "import-folder-small$t" $th --size 800x600 --plan-demo folder-small
     shot "import-folder-over$t" $th --plan-demo folder-over
+    # Audit 4: two files whose names a library file cannot hold and the library's own folder,
+    # left out and said in the header (C5, C6); the library's group of that name keeping its
+    # notes in another folder, which the card names and refuses (C4); a folder read until the
+    # walk's bound, refused (C8); and an Add refused at the write, said in the footer with the
+    # button still on.
+    shot "import-folder-skipped$t" $th --plan-demo folder-skipped
+    shot "import-folder-elsewhere$t" $th --plan-demo folder-elsewhere
+    shot "import-folder-stopped$t" $th --plan-demo folder-stopped
+    shot "import-folder-refused$t" $th --plan-demo folder-refused
     # The AI step of 5.7: the scheme, the sorted plan, a batch out, the connection off, an
     # unreadable answer, and the files the AI could not place.
     shot "import-folder-scheme$t" $th --plan-demo folder-scheme
@@ -526,6 +542,9 @@ for t in "" "-dark"; do
     shot "note-changes$t" $th $ai --note-demo changes
     shot "note-result$t" $th $ai --note-demo result
     shot "note-blocked$t" $th --note-demo blocked
+    # Audit 4, C3: a write that made no note keeps the answer, says why in the footer and
+    # leaves the button on.
+    shot "note-failed$t" $th $ai --note-demo failed
 done
 # The card at 800x600, where the preview of the plan card would be dropped.
 shot "note-changes-small" --light $ai --size 800x600 --note-demo changes

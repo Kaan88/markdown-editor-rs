@@ -160,3 +160,28 @@ impl runs::Bin for ForUndo<'_> {
         self.0.recycle(path)
     }
 }
+
+/// Why undo keeps a note a tab holds with changes not saved.
+pub const UNSAVED: &str =
+    "it is open in a tab with changes not saved: save or close it, then Undo again";
+
+/// Undo's bin, holding back the notes tabs hold with changes not saved: such a note is kept and
+/// listed apart, and the run stays to be undone again once the tab is saved or closed (audit 3
+/// C6, audit 4 F5b). The file on disk matches the record, so nothing else would keep it.
+pub struct SparingUnsaved<'a> {
+    pub unsaved: &'a [std::path::PathBuf],
+    pub bin: &'a mut dyn runs::Bin,
+}
+
+impl runs::Bin for SparingUnsaved<'_> {
+    fn recycle(&mut self, path: &Path) -> Result<(), String> {
+        if self
+            .unsaved
+            .iter()
+            .any(|p| crate::library_pane::same_note(p, path))
+        {
+            return Err(UNSAVED.to_string());
+        }
+        self.bin.recycle(path)
+    }
+}
