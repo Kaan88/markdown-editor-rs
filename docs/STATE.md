@@ -110,5 +110,5 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main`; `hub-wt\app-prs2\mdedit`. `md-wt\review-a4fix` holds the review of the
+- Worktrees: `main`; `hub-wt\app-prs2\mdedit`; `md-wt\ai-pictures`. `md-wt\review-a4fix` holds the review of the
   fixes, not a worktree.
