@@ -252,6 +252,9 @@ pub struct Args {
     /// `--task-demo files|files-other|files-off|files-plan|review|sent`: the AI task window over
     /// files for a shot, made from `fixtures/task-demo/`, with no engine and nothing sent.
     pub task_demo: Option<String>,
+    /// `--mock <name>`: a throwaway mockup screen drawn over the window for a shot (`mock.rs`).
+    /// Never merged: the mock branches only.
+    pub mock: Option<String>,
     /// `--note-demo ready|asking|changes|result|blocked`: the Markdown note card over a file and
     /// an answer made in the program (`note_ui::demo`).
     pub note_demo: Option<String>,
@@ -435,6 +438,7 @@ impl Args {
                 "--plan-parked" => out.plan_parked = true,
                 "--move-demo" => out.move_demo = value(&a),
                 "--task-demo" => out.task_demo = value(&a),
+                "--mock" => out.mock = value(&a),
                 "--note-demo" => out.note_demo = value(&a),
                 "--library-demo" => out.library_demo = value(&a),
                 "--compare" => {

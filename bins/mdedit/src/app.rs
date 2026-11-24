@@ -1424,6 +1424,7 @@ impl App {
             || self.ai_panel_open()
             || self.plan_is_open()
             || self.task_is_open()
+            || self.args.mock.is_some()
         {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
@@ -1931,6 +1932,9 @@ impl App {
                 }
                 for b in &bubbles {
                     b.draw(c.p, &pal);
+                }
+                if let Some(name) = self.args.mock.as_deref() {
+                    crate::mock::draw(c.p, &pal, name, w, h);
                 }
                 if let Some(plan) = self.plan.as_mut() {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
