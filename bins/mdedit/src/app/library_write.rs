@@ -1054,6 +1054,22 @@ impl App {
                 return false;
             }
         }
+        // And the note's line is looked at where it is before the new place is written: a line
+        // number the pane holds from before the file changed would list the note in both, with
+        // the "half" toast (audit 4, C12a). One read; the removal checks it again.
+        let stale = match library_text(from) {
+            Ok((text, _)) => (!note_at(&text, &dir, line, note)).then(|| {
+                format!(
+                    "the note's line in {} has changed since the pane read it",
+                    self.library_group_name(from)
+                )
+            }),
+            Err(why) => Some(why),
+        };
+        if let Some(why) = stale {
+            self.docs.set_toast(&strings::library_failed(&why));
+            return false;
+        }
         let link = crate::library_pane::link_path(to.parent().unwrap_or(Path::new("")), note);
         let added = self.library_write(
             to,
