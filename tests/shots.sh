@@ -492,6 +492,15 @@ for t in "" "-dark"; do
     shot "import-folder-taken$t" $th --plan-demo folder-taken
     shot "import-folder-small$t" $th --size 800x600 --plan-demo folder-small
     shot "import-folder-over$t" $th --plan-demo folder-over
+    # Audit 4: two files whose names a library file cannot hold and the library's own folder,
+    # left out and said in the header (C5, C6); the library's group of that name keeping its
+    # notes in another folder, which the card names and refuses (C4); a folder read until the
+    # walk's bound, refused (C8); and an Add refused at the write, said in the footer with the
+    # button still on.
+    shot "import-folder-skipped$t" $th --plan-demo folder-skipped
+    shot "import-folder-elsewhere$t" $th --plan-demo folder-elsewhere
+    shot "import-folder-stopped$t" $th --plan-demo folder-stopped
+    shot "import-folder-refused$t" $th --plan-demo folder-refused
     # The AI step of 5.7: the scheme, the sorted plan, a batch out, the connection off, an
     # unreadable answer, and the files the AI could not place.
     shot "import-folder-scheme$t" $th --plan-demo folder-scheme

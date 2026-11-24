@@ -13,7 +13,7 @@
 //! through a length cap, and a heading is looked for at a character boundary.
 
 use mdshared_app::library::{self, Entry, tree};
-use mdshared_app::paths::same_path;
+use mdshared_app::paths::{comparable, same_path};
 use mdshared_app::runs::Link;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -29,6 +29,17 @@ pub const HEAD_BYTES: u64 = 8 * 1024;
 
 /// The most lines of a file a row's preview holds.
 pub const PREVIEW_LINES: usize = 8;
+
+/// The most entries a walk reads, files and folders together, before it stops: a drive or a
+/// home folder with few text files in it is not read to its end (audit 4, C8).
+pub const MAX_READ: usize = 50_000;
+
+/// The deepest folder a walk goes into below the folder picked, so that no folder can take the
+/// walk's thread to the end of its stack (audit 4, C12).
+pub const MAX_DEPTH: usize = 64;
+
+/// The most characters of a note's title as a library line writes it (audit 4, C7).
+pub const TITLE_MAX: usize = 200;
 
 /// One file the walk took.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,107 +68,248 @@ pub struct Walk {
     pub folders: usize,
     /// The folder holds more files than the plan keeps: the walk stopped at the cap.
     pub more: bool,
+    /// The walk stopped before the end of the folder at one of its own bounds; a plan of what
+    /// it read would be part of a folder, and is refused.
+    pub stopped: Option<Stop>,
+    /// How many entries of folders the walk read, files and folders together.
+    pub read: usize,
+    /// The library folder is inside the folder walked, and was left out: its files are the
+    /// library's own, not notes (audit 4, C5).
+    pub library_left_out: bool,
+    /// Files the walk would have taken whose line in a library file would not read back as
+    /// them: a name with `%20` in it, which the reader takes for a space. They are left out, so
+    /// the rest of the folder can go in, and the card names them (audit 4, C6).
+    pub unlinkable: Vec<PathBuf>,
 }
+
+/// Why a walk stopped before the end of its folder, besides the 2,000.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    /// It read [`MAX_READ`] entries.
+    Entries,
+    /// A folder is more than [`MAX_DEPTH`] folders deep.
+    Depth,
+}
+
+/// The bounds of one walk.
+#[derive(Clone, Copy, Debug)]
+struct Limits {
+    files: usize,
+    read: usize,
+    depth: usize,
+}
+
+const LIMITS: Limits = Limits {
+    files: library::MAX_ENTRIES,
+    read: MAX_READ,
+    depth: MAX_DEPTH,
+};
 
 /// Walks `folder` for the files an import takes: the Files pane's rules for what to leave out (a
 /// dot name, the hidden attribute, `target`, `node_modules`), links to folders not followed, and
 /// [`EXTENSIONS`] only. `cancel` is looked at before every folder and every file, so a large
 /// folder can be given up on.
 pub fn walk(folder: &Path, cancel: &dyn Fn() -> bool) -> Walk {
-    let mut out = Walk::default();
-    walk_dir(
-        folder,
-        &mut Vec::new(),
-        &mut out,
-        library::MAX_ENTRIES,
+    walk_with(folder, None, LIMITS, cancel)
+}
+
+/// [`walk`] for the library in `library`: the library folder is left out when the folder walked
+/// holds it, and a file whose line the library would not read back as that file is left out and
+/// named in [`Walk::unlinkable`].
+pub fn walk_for(folder: &Path, library: &Path, cancel: &dyn Fn() -> bool) -> Walk {
+    walk_with(folder, Some(library), LIMITS, cancel)
+}
+
+fn walk_with(
+    folder: &Path,
+    library: Option<&Path>,
+    limits: Limits,
+    cancel: &dyn Fn() -> bool,
+) -> Walk {
+    let walker = Walker {
+        limits,
         cancel,
-    );
+        library: library.map(|dir| LibraryDir {
+            dir: dir.to_path_buf(),
+            name: dir
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default(),
+            real: comparable(dir),
+        }),
+    };
+    let mut out = Walk::default();
+    walker.dir(folder, &mut Vec::new(), 0, &mut out);
     out
 }
 
-fn walk_dir(
-    dir: &Path,
-    sections: &mut Vec<String>,
-    out: &mut Walk,
-    cap: usize,
-    cancel: &dyn Fn() -> bool,
-) {
-    if cancel() || out.more {
-        return;
+/// What a walk knows of the library it reads a folder for.
+struct LibraryDir {
+    dir: PathBuf,
+    /// Its own name, in lower case, so that a folder of another name costs no look at the disk.
+    name: String,
+    /// Its path as the disk has it.
+    real: PathBuf,
+}
+
+struct Walker<'a> {
+    limits: Limits,
+    cancel: &'a dyn Fn() -> bool,
+    library: Option<LibraryDir>,
+}
+
+impl Walker<'_> {
+    /// Whether the folder `name` at `path` is the library folder.
+    fn is_library(&self, name: &str, path: &Path) -> bool {
+        self.library.as_ref().is_some_and(|lib| {
+            !lib.name.is_empty()
+                && name.to_lowercase() == lib.name
+                && same_path(&comparable(path), &lib.real)
+        })
     }
-    let Ok(read) = std::fs::read_dir(dir) else {
-        return;
+
+    /// Whether the line a library file would list `path` on, under `title`, reads back as that
+    /// file and that title; always, for a walk with no library.
+    fn links_back(&self, path: &Path, title: &str) -> bool {
+        self.library
+            .as_ref()
+            .is_none_or(|lib| reads_back_as_link(&lib.dir, path, title))
+    }
+
+    fn dir(&self, dir: &Path, sections: &mut Vec<String>, depth: usize, out: &mut Walk) {
+        if (self.cancel)() || out.more || out.stopped.is_some() {
+            return;
+        }
+        if depth > self.limits.depth {
+            out.stopped = Some(Stop::Depth);
+            return;
+        }
+        self.list(dir, sections, depth, out);
+    }
+
+    fn list(&self, dir: &Path, sections: &mut Vec<String>, depth: usize, out: &mut Walk) {
+        let cancel = self.cancel;
+        let Ok(read) = std::fs::read_dir(dir) else {
+            return;
+        };
+        let mut dirs: Vec<(String, PathBuf)> = Vec::new();
+        let mut files: Vec<(String, PathBuf, u64, String)> = Vec::new();
+        for entry in read.flatten() {
+            if cancel() {
+                return;
+            }
+            out.read += 1;
+            if out.read > self.limits.read {
+                out.stopped = Some(Stop::Entries);
+                return;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            // A link is read as the file it points at, and a link to a folder is not followed,
+            // so the walk cannot loop (the Files pane's rule).
+            let meta = match if kind.is_symlink() {
+                std::fs::metadata(&path)
+            } else {
+                entry.metadata()
+            } {
+                Ok(meta) => meta,
+                Err(_) => continue,
+            };
+            if (kind.is_symlink() && meta.is_dir())
+                || mdshared_app::notes::skips_entry(&name, meta.is_dir(), &meta)
+            {
+                continue;
+            }
+            if meta.is_dir() {
+                if self.is_library(&name, &path) {
+                    out.library_left_out = true;
+                } else {
+                    dirs.push((name, path));
+                }
+            } else if meta.is_file() && takes(&path) {
+                files.push((name, path, meta.len(), modified_day(meta.modified().ok())));
+            }
+        }
+        let key = |name: &str| (name.to_lowercase(), name.to_string());
+        dirs.sort_by_key(|d| key(&d.0));
+        files.sort_by_key(|f| key(&f.0));
+        if !files.is_empty() {
+            out.folders += 1;
+        }
+        for (_, path, bytes, modified) in files {
+            if out.found.len() >= self.limits.files {
+                out.more = true;
+                return;
+            }
+            if cancel() {
+                return;
+            }
+            let head = read_head(&path);
+            let title = title_of(&head)
+                .or_else(|| clean_title(&stem_of(&path)))
+                .unwrap_or_else(|| "Untitled".to_string());
+            if !self.links_back(&path, &title) {
+                out.unlinkable.push(path);
+                continue;
+            }
+            out.found.push(Found {
+                sections: sections.clone(),
+                title,
+                head: preview_of(&head),
+                start: cut_bytes(&head, crate::import_ai::DIGEST_MAX),
+                bytes,
+                modified,
+                path,
+            });
+        }
+        for (name, path) in dirs {
+            if out.more || out.stopped.is_some() {
+                return;
+            }
+            // A note is filed under the subfolders three deep; a folder deeper than that is
+            // folded into the third, and its files sit under it.
+            if sections.len() < MAX_SECTIONS {
+                sections.push(name);
+                self.dir(&path, sections, depth + 1, out);
+                sections.pop();
+            } else {
+                self.dir(&path, sections, depth + 1, out);
+            }
+        }
+    }
+}
+
+/// Whether the line a library file in `library` would list `path` on, under `title`, reads
+/// back as that file and that title, as the write's own check will want it to (audit 4, C6).
+/// It does not for a name with `%20` in it, which the reader takes for a space; nor, on Linux,
+/// for a name with a line break in it.
+pub fn reads_back_as_link(library: &Path, path: &Path, title: &str) -> bool {
+    let link = tree::link_path(library, path);
+    let title = title.trim().replace(['[', ']'], "");
+    let line = library::link_line(&title, &link);
+    let parsed = library::parse(&line, library);
+    let [entry] = parsed.entries.as_slice() else {
+        return false;
     };
-    let mut dirs: Vec<(String, PathBuf)> = Vec::new();
-    let mut files: Vec<(String, PathBuf, u64, String)> = Vec::new();
-    for entry in read.flatten() {
-        if cancel() {
-            return;
-        }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        let path = entry.path();
-        // A link is read as the file it points at, and a link to a folder is not followed, so the
-        // walk cannot loop (the Files pane's rule).
-        let meta = match if kind.is_symlink() {
-            std::fs::metadata(&path)
-        } else {
-            entry.metadata()
-        } {
-            Ok(meta) => meta,
-            Err(_) => continue,
-        };
-        if (kind.is_symlink() && meta.is_dir())
-            || mdshared_app::notes::skips_entry(&name, meta.is_dir(), &meta)
-        {
-            continue;
-        }
-        if meta.is_dir() {
-            dirs.push((name, path));
-        } else if meta.is_file() && takes(&path) {
-            files.push((name, path, meta.len(), modified_day(meta.modified().ok())));
-        }
-    }
-    let key = |name: &str| (name.to_lowercase(), name.to_string());
-    dirs.sort_by_key(|d| key(&d.0));
-    files.sort_by_key(|f| key(&f.0));
-    if !files.is_empty() {
-        out.folders += 1;
-    }
-    for (_, path, bytes, modified) in files {
-        if out.found.len() >= cap {
-            out.more = true;
-            return;
-        }
-        if cancel() {
-            return;
-        }
-        let head = read_head(&path);
-        out.found.push(Found {
-            sections: sections.clone(),
-            title: title_of(&head).unwrap_or_else(|| stem_of(&path)),
-            head: preview_of(&head),
-            start: cut_bytes(&head, crate::import_ai::DIGEST_MAX),
-            bytes,
-            modified,
-            path,
-        });
-    }
-    for (name, path) in dirs {
-        if out.more {
-            return;
-        }
-        // A note is filed under the subfolders three deep; a folder deeper than that is folded
-        // into the third, and its files sit under it.
-        if sections.len() < MAX_SECTIONS {
-            sections.push(name);
-            walk_dir(&path, sections, out, cap, cancel);
-            sections.pop();
-        } else {
-            walk_dir(&path, sections, out, cap, cancel);
-        }
+    same_path(&entry.path, &resolved(&link, library)) && entry.title.trim() == title.trim()
+}
+
+/// A link's path as a library file resolves it: from the library folder when it has no root,
+/// with the separators the rest of the program spells paths with (the shared reader's rule).
+fn resolved(link: &Path, base: &Path) -> PathBuf {
+    let written = link.to_string_lossy();
+    let path = if cfg!(windows) {
+        PathBuf::from(written.replace('/', "\\"))
+    } else {
+        PathBuf::from(written.as_ref())
+    };
+    if path.is_absolute() || base.as_os_str().is_empty() {
+        path
+    } else {
+        base.join(path)
     }
 }
 
@@ -223,7 +375,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 /// library's own title reader does not read it.
 pub fn title_of(head: &str) -> Option<String> {
     let mut fence: Option<String> = None;
-    for line in head.lines() {
+    for line in text_lines(head) {
         let trimmed = line.trim_start();
         match (&fence, fence_marker(trimmed)) {
             (None, Some(marker)) => {
@@ -239,13 +391,33 @@ pub fn title_of(head: &str) -> Option<String> {
             (Some(_), None) => continue,
             (None, None) => {}
         }
-        if let Some(text) = heading_text(trimmed)
-            && !text.is_empty()
-        {
+        if let Some(text) = heading_text(trimmed).and_then(|t| clean_title(&t)) {
             return Some(text);
         }
     }
     None
+}
+
+/// The lines of `text`, a bare CR ending one as LF and CRLF do: an old Mac file is many lines,
+/// not one (audit 4, C7).
+fn text_lines(text: &str) -> impl Iterator<Item = &str> {
+    text.split('\n')
+        .flat_map(|line| line.strip_suffix('\r').unwrap_or(line).split('\r'))
+}
+
+/// A title as one line of a library file can hold it: no control character, at most
+/// [`TITLE_MAX`] characters, and `None` when nothing is left.
+fn clean_title(text: &str) -> Option<String> {
+    let plain: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let plain = plain.trim();
+    if plain.is_empty() {
+        return None;
+    }
+    let cut: String = plain.chars().take(TITLE_MAX).collect();
+    Some(cut.trim_end().to_string())
 }
 
 /// The three or more backticks or tildes that open or close a code fence.
@@ -284,10 +456,9 @@ fn stem_of(path: &Path) -> String {
 /// The lines of a row's preview: the file's first lines, with blank ones at either end dropped,
 /// at most [`PREVIEW_LINES`].
 fn preview_of(head: &str) -> Vec<String> {
-    let mut lines: Vec<String> = head
-        .lines()
+    let mut lines: Vec<String> = text_lines(head)
         .take(PREVIEW_LINES)
-        .map(|l| l.trim_end_matches('\r').to_string())
+        .map(str::to_string)
         .collect();
     while lines.last().is_some_and(|l| l.trim().is_empty()) {
         lines.pop();
@@ -347,6 +518,12 @@ pub struct Where<'a> {
     pub root: &'a Path,
     /// The group found by the folder's name, if the library has one: its name and library file.
     pub group: Option<(&'a str, &'a Path)>,
+    /// That group's own folder, from its `home:` line, when it names one.
+    pub group_home: Option<&'a Path>,
+    /// That folder is neither the folder picked nor a folder that holds it: the group keeps its
+    /// notes elsewhere, and the files cannot join it (audit 4, C4). The window decides it, as
+    /// it needs the disk to.
+    pub home_apart: bool,
     /// The library file a new group would be made at.
     pub new_file: PathBuf,
     /// The group's library file's notes, as it reads now.
@@ -367,7 +544,9 @@ pub struct Plan {
     pub group_file: PathBuf,
     /// The run would make the library file.
     pub group_new: bool,
-    /// Where the group's notes are: the folder picked, which a new group's `home:` line names.
+    /// Where the group's notes are: for a new group the folder picked, which its `home:` line
+    /// names; for a group the library has, the folder its own `home:` line names, and empty when
+    /// it names none.
     pub home: PathBuf,
     pub notes: Vec<Note>,
     pub rows: Vec<Row>,
@@ -388,6 +567,8 @@ pub fn plan(walked: Walk, folder: &Path, at: Where) -> Plan {
         found,
         folders,
         more,
+        stopped,
+        ..
     } = walked;
     let (group_name, group_file, group_new) = match at.group {
         Some((name, file)) => (name.to_string(), file.to_path_buf(), false),
@@ -402,7 +583,8 @@ pub fn plan(walked: Walk, folder: &Path, at: Where) -> Plan {
     let mut notes: Vec<Note> = found
         .into_iter()
         .map(|f| {
-            let already = at.listed.iter().any(|p| same_path(p, &f.path));
+            // A note the group lists through `..` is the same note (audit 4, C12).
+            let already = at.listed.iter().any(|p| tree::same_note(p, &f.path));
             Note {
                 path: f.path,
                 sections: f.sections,
@@ -431,13 +613,18 @@ pub fn plan(walked: Walk, folder: &Path, at: Where) -> Plan {
             .then_with(|| a.title.cmp(&b.title))
     });
     let rows = rows_of(&notes);
+    let home = match (group_new, at.group_home) {
+        (true, _) => folder.to_path_buf(),
+        (false, Some(home)) => home.to_path_buf(),
+        (false, None) => PathBuf::new(),
+    };
     let mut plan = Plan {
         folder: folder.to_path_buf(),
         group_name,
         library: at.root.to_path_buf(),
         group_file,
         group_new,
-        home: folder.to_path_buf(),
+        home,
         notes,
         rows,
         entries: at.entries,
@@ -445,8 +632,51 @@ pub fn plan(walked: Walk, folder: &Path, at: Where) -> Plan {
         more,
         blocked: None,
     };
-    plan.blocked = plan.why_nothing_can_be_written();
+    // A walk cut short is part of a folder; a group that keeps its notes in another folder is
+    // not this folder's: either refuses before anything else is said.
+    plan.blocked = stopped
+        .map(stopped_reason)
+        .or_else(|| {
+            (!group_new && at.home_apart).then(|| home_apart_reason(&plan.group_name, &plan.home))
+        })
+        .or_else(|| plan.why_nothing_can_be_written());
     plan
+}
+
+/// What the card says of a walk that stopped at one of its bounds.
+pub fn stopped_reason(stop: Stop) -> String {
+    match stop {
+        Stop::Entries => format!(
+            "The folder holds more than {} files and folders, and reading it stopped there. Pick a folder inside it.",
+            group_digits(MAX_READ)
+        ),
+        Stop::Depth => format!(
+            "The folder has folders more than {MAX_DEPTH} deep, and reading it stopped there. Pick a folder inside it."
+        ),
+    }
+}
+
+/// What the card says when the library's group of the folder's name keeps its notes in another
+/// folder, `home` (audit 4, C4; DESIGN 81: a link is refused that sits neither in the library
+/// nor in the group's home).
+pub fn home_apart_reason(group: &str, home: &Path) -> String {
+    format!(
+        "The group \u{201c}{group}\u{201d} keeps its notes in {}: rename this folder to make a group of its own.",
+        home.display()
+    )
+}
+
+/// `50000` as `50,000`.
+fn group_digits(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// The rows of a list of notes in their order: a heading row where a section starts, and a row
@@ -455,17 +685,19 @@ pub fn rows_of(notes: &[Note]) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
     let mut open: Vec<String> = Vec::new();
     for (i, note) in notes.iter().enumerate() {
-        // The part of the note's section path the rows do not have yet.
+        // The part of the note's section path the rows do not have yet. Sections are one when
+        // they differ only in case, as a section's box ticks them (`under`) and the library
+        // writes them (audit 4, C12): `A` and `a` on a file system that has both are one row.
         let shared = open
             .iter()
             .zip(&note.sections)
-            .take_while(|(a, b)| a == b)
+            .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
             .count();
         for n in shared..note.sections.len() {
             let path = note.sections[..=n].to_vec();
             let ticked = notes
                 .iter()
-                .filter(|x| x.sections.len() > n && x.sections[..=n] == path[..])
+                .filter(|x| x.sections.len() > n && under(x, &path))
                 .all(|x| x.ticked);
             rows.push(Row {
                 kind: RowKind::Section { path },
@@ -702,6 +934,8 @@ mod tests {
         Where {
             root,
             group: None,
+            group_home: None,
+            home_apart: false,
             new_file,
             entries: 0,
             listed: &[],
@@ -871,6 +1105,8 @@ mod tests {
             Where {
                 root: &root,
                 group: Some(("Recipes", &root.join("Recipes.md"))),
+                group_home: None,
+                home_apart: false,
                 new_file: root.join("Recipes.md"),
                 entries: 1,
                 listed: &listed,
@@ -923,6 +1159,8 @@ mod tests {
             Where {
                 root: &root,
                 group: Some(("Recipes", &root.join("Recipes.md"))),
+                group_home: None,
+                home_apart: false,
                 new_file: root.join("Recipes.md"),
                 entries: library::MAX_ENTRIES - 1,
                 listed: &[],
@@ -1083,5 +1321,291 @@ mod tests {
         assert_eq!(at(1_795_392_000), "2026-11-23");
         assert_eq!(super::modified_day(None), "");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn names(w: &Walk) -> Vec<String> {
+        w.found
+            .iter()
+            .map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// Audit 4, C5: the folder that holds the library does not offer the library's own files
+    /// as notes. A folder that only has the library's name is read as any other.
+    #[test]
+    fn the_library_folder_inside_the_folder_walked_is_left_out() {
+        let dir = scratch("own-library");
+        put(&dir, "a.md", "# A\n");
+        put(&dir, "library/personal.md", "# Personal\n");
+        put(&dir, "library/Recipes/notes.txt", "notes\n");
+        put(&dir, "Old/library/b.md", "# B\n");
+        let library = dir.join("library");
+        let w = walk_for(&dir, &library, &|| false);
+        assert_eq!(names(&w), ["a.md", "b.md"]);
+        assert!(w.library_left_out);
+        // A walk that knows no library reads it all.
+        let all = walk(&dir, &|| false);
+        assert_eq!(all.found.len(), 4);
+        assert!(!all.library_left_out);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 4, C6: a file whose name the library cannot write is left out and named, and the
+    /// rest of the folder is taken. `%20` reads back as a space; a space is written in `<>`.
+    #[test]
+    fn a_file_whose_line_would_not_read_back_is_left_out_and_named() {
+        let library = scratch("percent");
+        let folder = library.join("Recipes");
+        put(&folder, "pasta.md", "# Pasta\n");
+        put(&folder, "tomato sauce.md", "# Tomato sauce\n");
+        let odd = put(&folder, "my%20draft.md", "# Draft\n");
+        let w = walk_for(&folder, &library, &|| false);
+        assert_eq!(names(&w), ["pasta.md", "tomato sauce.md"]);
+        assert_eq!(w.unlinkable, vec![odd.clone()]);
+        assert!(!reads_back_as_link(&library, &odd, "Draft"));
+        assert!(reads_back_as_link(
+            &library,
+            &folder.join("tomato sauce.md"),
+            "Tomato sauce"
+        ));
+        // Outside the library, where the line holds the whole path, the same.
+        let outside = scratch("percent-out");
+        let far = put(&outside, "a%20b.md", "# AB\n");
+        assert!(!reads_back_as_link(&library, &far, "AB"));
+        assert!(reads_back_as_link(
+            &library,
+            &put(&outside, "c.md", "# C\n"),
+            "C"
+        ));
+        // The plan holds only what can be written, and the dry run of its links passes.
+        let p = plan(w, &folder, at(&library, library.join("Recipes.md")));
+        assert_eq!(p.notes.len(), 2);
+        let text = p.group_text().unwrap();
+        let links = p.links();
+        let new = mdshared_app::runs::with_links_added(&text, &links);
+        assert!(mdshared_app::runs::check_links_added(
+            &library::parse(&text, &library),
+            &library::parse(&new, &library),
+            &links,
+            &library
+        ));
+        let _ = std::fs::remove_dir_all(&library);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    /// Audit 4, C7: a file with bare CR line ends (an old Mac file) gives the first line as its
+    /// title and a preview of its lines; a title holds no control character and at most
+    /// `TITLE_MAX` characters.
+    #[test]
+    fn a_title_is_one_line_with_no_control_character_and_a_length_it_can_be_written_at() {
+        assert_eq!(
+            title_of("# Shopping\rmilk\reggs\r"),
+            Some("Shopping".to_string())
+        );
+        assert_eq!(
+            preview_of("# Shopping\rmilk\r\reggs\r"),
+            ["# Shopping", "milk", "", "eggs"]
+        );
+        assert_eq!(preview_of("a\r\nb\r\n"), ["a", "b"], "CRLF is one break");
+        assert_eq!(title_of("# A\u{7}B\tC\n"), Some("A B C".to_string()));
+        let long = format!("# {}\n", "\u{e9}".repeat(TITLE_MAX + 50));
+        assert_eq!(title_of(&long).unwrap().chars().count(), TITLE_MAX);
+        // A heading of control characters only gives way to the next one.
+        assert_eq!(title_of("# \u{1}\u{2}\n# Real\n"), Some("Real".to_string()));
+        let dir = scratch("cr");
+        put(&dir, "mac.txt", "# Shopping\rmilk\reggs\r");
+        let w = walk(&dir, &|| false);
+        assert_eq!(w.found[0].title, "Shopping");
+        assert_eq!(w.found[0].head, ["# Shopping", "milk", "eggs"]);
+        let line = &plan(w, &dir, at(&dir, dir.join("x.md"))).links()[0].line;
+        assert!(!line.contains('\r'), "{line:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 4, C8 and C12: a walk stops at the entries it reads and at the depth it goes to,
+    /// and the plan of a walk cut short is refused with that reason, not written in part.
+    #[test]
+    fn a_walk_stops_at_its_bounds_and_its_plan_is_refused_with_the_reason() {
+        let dir = scratch("bounds");
+        for i in 0..12 {
+            put(&dir, &format!("f{i:02}.md"), "# F\n");
+        }
+        let few = Limits {
+            files: 100,
+            read: 10,
+            depth: MAX_DEPTH,
+        };
+        let w = walk_with(&dir, None, few, &|| false);
+        assert_eq!(w.stopped, Some(Stop::Entries));
+        assert_eq!(w.read, 11);
+        let p = plan(w, &dir, at(&dir, dir.join("x.md")));
+        assert_eq!(p.problem(), Some(stopped_reason(Stop::Entries)));
+        assert!(stopped_reason(Stop::Entries).contains("50,000"));
+        // The same folder within the bounds is read to its end.
+        let w = walk(&dir, &|| false);
+        assert_eq!((w.stopped, w.found.len()), (None, 12));
+
+        let deep = scratch("depth");
+        put(&deep, "a/b/c/d/e/x.md", "# X\n");
+        let shallow = Limits {
+            files: 100,
+            read: 1000,
+            depth: 3,
+        };
+        let w = walk_with(&deep, None, shallow, &|| false);
+        assert_eq!(w.stopped, Some(Stop::Depth));
+        assert!(w.found.is_empty());
+        let p = plan(w, &deep, at(&deep, deep.join("x.md")));
+        assert_eq!(p.problem(), Some(stopped_reason(Stop::Depth)));
+        let w = walk(&deep, &|| false);
+        assert_eq!((w.stopped, w.found.len()), (None, 1));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&deep);
+    }
+
+    /// Audit 4, C10: a junction back to the folder walked is not followed (Windows makes one
+    /// without rights a symlink would need).
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_to_a_folder_is_not_followed() {
+        let dir = scratch("junction");
+        put(&dir, "a.md", "# A\n");
+        let link = dir.join("loop");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&dir)
+            .output()
+            .expect("cmd runs");
+        assert!(made.status.success(), "{made:?}");
+        assert!(link.join("a.md").is_file(), "the junction leads back");
+        let w = walk(&dir, &|| false);
+        assert_eq!(names(&w), ["a.md"]);
+        assert_eq!(w.stopped, None);
+        // The junction goes, and what it led to stays.
+        std::fs::remove_dir(&link).unwrap();
+        assert!(dir.join("a.md").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 4, C10: a symlink back to the folder walked is not followed; one to a file is read
+    /// as that file.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_a_folder_is_not_followed() {
+        let dir = scratch("symlink");
+        put(&dir, "a.md", "# A\n");
+        let other = scratch("symlink-other");
+        let b = put(&other, "b.md", "# B\n");
+        std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
+        std::os::unix::fs::symlink(&b, dir.join("b.md")).unwrap();
+        let w = walk(&dir, &|| false);
+        assert_eq!(names(&w), ["a.md", "b.md"]);
+        assert_eq!(w.stopped, None);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    fn note(sections: &[&str], title: &str) -> Note {
+        Note {
+            path: PathBuf::from(format!("{title}.md")),
+            sections: sections.iter().map(|s| s.to_string()).collect(),
+            title: title.to_string(),
+            head: Vec::new(),
+            start: String::new(),
+            bytes: 0,
+            modified: String::new(),
+            ticked: true,
+            already: false,
+            confidence: None,
+            why: String::new(),
+            unsorted: false,
+        }
+    }
+
+    /// Audit 4, C12: folders `A` and `a`, which a case-sensitive file system can hold side by
+    /// side, are one section row, as the section's box ticks both and the library writes both
+    /// under one heading.
+    #[test]
+    fn sections_that_differ_only_in_case_are_one_row() {
+        let notes = vec![note(&["A"], "one"), note(&["a"], "two")];
+        let rows = rows_of(&notes);
+        let sections = rows
+            .iter()
+            .filter(|r| matches!(r.kind, RowKind::Section { .. }))
+            .count();
+        assert_eq!((rows.len(), sections), (3, 1));
+        let mut notes = notes;
+        notes[1].ticked = false;
+        assert!(!rows_of(&notes)[0].ticked, "the row is not all ticked");
+    }
+
+    /// Audit 4, C12: a file the group lists by a path with `..` in it is in the group already.
+    #[test]
+    fn a_file_the_group_lists_through_dot_dot_is_in_it_already() {
+        let root = scratch("dots");
+        let folder = root.join("Recipes");
+        put(&folder, "pasta.md", "# Pasta\n");
+        let listed = vec![
+            root.join("Other")
+                .join("..")
+                .join("Recipes")
+                .join(".")
+                .join("pasta.md"),
+        ];
+        let file = root.join("Recipes.md");
+        let p = plan(
+            walk(&folder, &|| false),
+            &folder,
+            Where {
+                root: &root,
+                group: Some(("Recipes", &file)),
+                group_home: Some(&folder),
+                home_apart: false,
+                new_file: file.clone(),
+                entries: 1,
+                listed: &listed,
+            },
+        );
+        assert!(p.notes[0].already);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Audit 4, C4: a group of the folder's name that keeps its notes in another folder refuses
+    /// the plan, which names the group and that folder; its own folder, or none, is joined.
+    #[test]
+    fn a_group_that_keeps_its_notes_in_another_folder_refuses_the_plan() {
+        let root = scratch("apart");
+        let folder = root.join("Recipes");
+        put(&folder, "pasta.md", "# Pasta\n");
+        let elsewhere = root.join("elsewhere").join("Recipes");
+        let file = root.join("Recipes.md");
+        let joining = |home: Option<&Path>, apart: bool| {
+            plan(
+                walk(&folder, &|| false),
+                &folder,
+                Where {
+                    root: &root,
+                    group: Some(("Recipes", &file)),
+                    group_home: home,
+                    home_apart: apart,
+                    new_file: file.clone(),
+                    entries: 0,
+                    listed: &[],
+                },
+            )
+        };
+        let p = joining(Some(&elsewhere), true);
+        assert_eq!(p.home, elsewhere, "the plan says the group's own folder");
+        let why = p.problem().unwrap_or_default();
+        assert_eq!(why, home_apart_reason("Recipes", &elsewhere));
+        assert!(why.contains("\u{201c}Recipes\u{201d}"), "{why}");
+        assert!(why.contains(&elsewhere.display().to_string()), "{why}");
+        let p = joining(Some(&folder), false);
+        assert_eq!((p.problem(), &p.home), (None, &folder));
+        let p = joining(None, false);
+        assert_eq!(p.problem(), None);
+        assert!(p.home.as_os_str().is_empty(), "the group names no folder");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

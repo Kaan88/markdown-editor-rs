@@ -4,8 +4,8 @@
 //! more drawings: the scheme's one-line list, and the wait's own footer.
 
 use crate::import_ui::{
-    Geo, IHit, ImportCard, SortStage, count, group_line, preview_note, row_title, row_under,
-    subtitle, title,
+    Geo, IHit, ImportCard, SortStage, count, group_line, left_out_line, preview_note, row_title,
+    row_under, subtitle, title,
 };
 use crate::move_draw::fit_end;
 use mdedit_core::import::{self, RowKind};
@@ -62,21 +62,9 @@ impl ImportCard {
         p.text(Face::Ui, 12.5, x, y + 56.0, &sub, pal.muted, max);
         let group = fit_end(p, Face::Ui, 12.5, &group_line(&self.plan), max);
         p.text(Face::Ui, 12.5, x, y + 78.0, &group, pal.text, max);
-        if self.plan.already() > 0 {
-            let n = self.plan.already();
-            p.text(
-                Face::Ui,
-                12.0,
-                x,
-                y + 96.0,
-                &format!(
-                    "The group lists {} already, so {} not written again.",
-                    count(n, "file", "files"),
-                    if n == 1 { "it is" } else { "they are" }
-                ),
-                pal.faint,
-                max,
-            );
+        if let Some(left) = left_out_line(self) {
+            let left = fit_end(p, Face::Ui, 12.0, &left, max);
+            p.text(Face::Ui, 12.0, x, y + 96.0, &left, pal.faint, max);
         }
         p.fill(
             Rect::new(g.card.x, g.header.bottom(), g.card.w, p.px()),
@@ -682,7 +670,10 @@ impl ImportCard {
         }
         let left = g.card.x + PAD;
         let max = (x - 8.0 - left).max(0.0);
-        match disabled.as_ref() {
+        // The reason the primary is off; else what the last Add was refused with, which leaves
+        // the button on, as pressing it again may pass (a tab saved meanwhile).
+        let said = disabled.clone().or_else(|| self.refusal.clone());
+        match said.as_ref() {
             Some(reason) => {
                 let reason = fit_end(p, Face::Ui, 12.5, reason, max);
                 p.text(

@@ -100,13 +100,16 @@ pub fn subtitle(plan: &Plan) -> String {
     )
 }
 
-/// The group the links go in, and where its notes are.
+/// The group the links go in, and where its notes are: the folder a group the library has names
+/// itself, which need not be the folder picked (audit 4, C4).
 pub fn group_line(plan: &Plan) -> String {
     let folder = if plan.group_new {
         format!(
             "which this run makes, with its folder {}",
             folder_shown(plan)
         )
+    } else if plan.home.as_os_str().is_empty() {
+        "which the library already has, with no folder of its own".to_string()
     } else {
         format!(
             "which the library already has, with its folder {}",
@@ -132,6 +135,46 @@ fn folder_shown(plan: &Plan) -> String {
         }
         _ => plan.home.display().to_string(),
     }
+}
+
+/// The header's last line: what the card leaves out and why, or `None` when it leaves nothing
+/// out. The files the group lists already; the files whose names a library file cannot hold,
+/// named (audit 4, C6); the library's own folder (C5).
+pub fn left_out_line(card: &ImportCard) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let n = card.plan.already();
+    if n > 0 {
+        parts.push(format!(
+            "The group lists {} already, so {} not written again.",
+            count(n, "file", "files"),
+            if n == 1 { "it is" } else { "they are" }
+        ));
+    }
+    if !card.unlinkable.is_empty() {
+        const NAMED: usize = 3;
+        let mut names: Vec<String> = card
+            .unlinkable
+            .iter()
+            .take(NAMED)
+            .map(|p| import::shown(p))
+            .collect();
+        if card.unlinkable.len() > NAMED {
+            names.push(format!("{} more", card.unlinkable.len() - NAMED));
+        }
+        parts.push(format!(
+            "Left out, as a library file cannot hold {} name: {}.",
+            if card.unlinkable.len() == 1 {
+                "its"
+            } else {
+                "their"
+            },
+            names.join(", ")
+        ));
+    }
+    if card.library_left_out {
+        parts.push("The library\u{2019}s own folder is left out.".to_string());
+    }
+    (!parts.is_empty()).then(|| parts.join("  "))
 }
 
 /// A count with its word: "1 file", "2 files".
@@ -311,6 +354,11 @@ pub struct ImportCard {
     pub drag: Option<f32>,
     /// What the last Add was refused with: drawn in the footer until a tick changes.
     pub refusal: Option<String>,
+    /// Files of the folder left out because a library file cannot hold their names, which the
+    /// header names (audit 4, C6).
+    pub unlinkable: Vec<PathBuf>,
+    /// The library folder was in the folder picked, and its files are not offered (C5).
+    pub library_left_out: bool,
     /// A card a shot draws: Add is refused, and nothing is written.
     pub demo: bool,
     /// Rectangles recorded as the card is drawn (buttons and links whose size is their text's).
@@ -341,6 +389,8 @@ impl ImportCard {
             win: (0.0, 0.0),
             drag: None,
             refusal: None,
+            unlinkable: Vec::new(),
+            library_left_out: false,
             demo: false,
             spots: Vec::new(),
             sort: SortStage::Off,
@@ -831,12 +881,16 @@ impl ImportCard {
 // ---- the shots ------------------------------------------------------------------------------------------
 
 /// Every name `--plan-demo folder…` takes.
-pub const NAMES: [&str; 13] = [
+pub const NAMES: [&str; 17] = [
     "folder",
     "folder-sections",
     "folder-taken",
     "folder-small",
     "folder-over",
+    "folder-skipped",
+    "folder-elsewhere",
+    "folder-stopped",
+    "folder-refused",
     "folder-scheme",
     "folder-scheme-rename",
     "folder-ai",
@@ -1014,6 +1068,21 @@ pub fn demo_plan(name: &str) -> Plan {
     plan.rows = rows_for(&notes);
     plan.notes = notes;
     plan.blocked = demo_blocked(&plan);
+    if name == "folder-elsewhere" {
+        // The library's "Recipes" keeps its notes in another folder: the card says that folder
+        // and refuses (audit 4, C4).
+        plan.group_new = false;
+        plan.entries = 12;
+        plan.home = if cfg!(windows) {
+            PathBuf::from(r"D:\Archive\Recipes")
+        } else {
+            PathBuf::from("/home/me/Archive/Recipes")
+        };
+        plan.blocked = Some(import::home_apart_reason("Recipes", &plan.home));
+    }
+    if name == "folder-stopped" {
+        plan.blocked = Some(import::stopped_reason(import::Stop::Entries));
+    }
     plan
 }
 
@@ -1121,6 +1190,21 @@ pub fn demo(name: &str) -> Option<ImportCard> {
             "The AI\u{2019}s answer could not be read: it held no JSON object. Nothing was written."
                 .to_string(),
         ),
+        "folder-skipped" => {
+            // Two files whose names a library file cannot hold, and the library's own folder,
+            // left out and said in the header; the rest can be added.
+            card.unlinkable = vec![
+                demo_folder().join("my%20draft.md"),
+                demo_folder().join("Bread").join("rye%20loaf.md"),
+            ];
+            card.library_left_out = true;
+            card.select(2);
+        }
+        "folder-refused" => {
+            // An Add refused at the write, its reason in the footer and the button still there.
+            card.refusal = Some(crate::commands::strings::library_unsaved("Recipes.md"));
+            card.select(2);
+        }
         _ => card.select(2),
     }
     Some(card)

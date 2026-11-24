@@ -421,3 +421,250 @@ fn a_click_on_a_section_ticks_every_row_under_it_and_redraws_them() {
     assert!(changed > 0, "the card was not drawn again");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The header's line of what the card leaves out, as it is drawn.
+fn left_out(a: &App) -> String {
+    a.importer
+        .as_ref()
+        .and_then(crate::import_ui::left_out_line)
+        .unwrap_or_default()
+}
+
+/// Audit 4, C4: the library's group of the folder's name keeps its notes in another folder.
+/// The card says that folder, refuses with the group's name and the folder, and Add writes
+/// nothing. The owner may decide to join such a group instead; this is DESIGN 81's refusal.
+#[test]
+fn a_group_of_that_name_whose_folder_is_another_refuses_the_folder_and_names_both() {
+    let (mut a, l) = lib("import-apart");
+    let elsewhere = l.dir.join("elsewhere").join("Recipes");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let group = l.library.join("Recipes.md");
+    let text = format!(
+        "# Recipes\nhome: {}\n",
+        elsewhere.to_string_lossy().replace('\\', "/")
+    );
+    std::fs::write(&group, &text).unwrap();
+    open_card(&mut a, &l);
+    let card = a.importer.as_ref().expect("the card opens with the reason");
+    assert!(!card.plan.group_new);
+    let why = card.problem().unwrap_or_default();
+    assert!(why.contains("\u{201c}Recipes\u{201d}"), "{why}");
+    assert!(why.contains(&elsewhere.display().to_string()), "{why}");
+    let line = crate::import_ui::group_line(&card.plan);
+    assert!(line.contains(&elsewhere.display().to_string()), "{line}");
+    a.import_write();
+    assert!(a.importer.is_some(), "the card stays open");
+    assert_eq!(read(&group), text, "nothing was written");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C4: the group's folder is looked at again when Add is pressed, as its file reads
+/// then: a `home:` line changed to another folder since the card opened refuses the write.
+#[test]
+fn a_group_whose_folder_changed_since_the_card_opened_is_refused_at_the_write() {
+    let (mut a, l) = lib("import-apart-late");
+    let group = l.library.join("Recipes.md");
+    std::fs::write(&group, "# Recipes\nhome: Recipes\n").unwrap();
+    open_card(&mut a, &l);
+    assert_eq!(a.importer.as_ref().unwrap().problem(), None);
+    let elsewhere = l.dir.join("elsewhere");
+    let text = format!(
+        "# Recipes\nhome: {}\n",
+        elsewhere.to_string_lossy().replace('\\', "/")
+    );
+    std::fs::write(&group, &text).unwrap();
+    a.import_write();
+    let card = a.importer.as_ref().expect("the card stays open");
+    let why = card.refusal.clone().unwrap_or_default();
+    assert!(why.contains(&elsewhere.display().to_string()), "{why}");
+    assert_eq!(read(&group), text, "nothing was written");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C4: a group of that name with no folder of its own is joined, and the card does
+/// not say the folder picked is its folder.
+#[test]
+fn a_group_with_no_folder_of_its_own_is_joined_and_the_card_says_so() {
+    let (mut a, l) = lib("import-homeless");
+    let group = l.library.join("Recipes.md");
+    std::fs::write(&group, "# Recipes\n").unwrap();
+    open_card(&mut a, &l);
+    let card = a.importer.as_ref().unwrap();
+    assert_eq!(card.problem(), None);
+    let line = crate::import_ui::group_line(&card.plan);
+    assert!(line.contains("no folder of its own"), "{line}");
+    a.import_write();
+    assert!(a.importer.is_none(), "{:?}", toast(&a));
+    assert_eq!(read(&group).matches("](").count(), 3);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C5: the folder that holds the library leaves the library out: its library files
+/// and the notes its groups list are not offered as notes, and the card says so.
+#[test]
+fn the_folder_that_holds_the_library_does_not_offer_the_librarys_files() {
+    let (mut a, l) = lib("import-holds-library");
+    std::fs::write(l.library.join("personal.md"), "# Personal\n").unwrap();
+    let loose = l.dir.join("loose.md");
+    std::fs::write(&loose, "# Loose\n").unwrap();
+    a.import_folder_picked(l.dir.clone());
+    settle(&mut a);
+    let card = a.importer.as_ref().unwrap();
+    let paths: Vec<&Path> = card.plan.notes.iter().map(|n| n.path.as_path()).collect();
+    assert_eq!(
+        paths,
+        [loose.as_path()],
+        "only the file outside the library"
+    );
+    assert!(card.library_left_out);
+    assert!(
+        left_out(&a).contains("own folder is left out"),
+        "{}",
+        left_out(&a)
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C6: a file whose name a library file cannot hold (`%20` reads back as a space) is
+/// left out and named on the card, and the rest of the folder goes in.
+#[test]
+fn a_file_whose_name_the_library_cannot_hold_is_left_out_and_named_and_the_rest_go_in() {
+    let (mut a, l) = lib("import-percent");
+    let odd = l.folder.join("my%20draft.md");
+    std::fs::write(&odd, "# Draft\n").unwrap();
+    open_card(&mut a, &l);
+    let card = a.importer.as_ref().unwrap();
+    assert_eq!(card.unlinkable, vec![odd.clone()]);
+    assert_eq!(card.plan.notes.len(), 3);
+    assert_eq!(card.problem(), None);
+    assert!(left_out(&a).contains("my%20draft.md"), "{}", left_out(&a));
+    a.import_write();
+    assert!(a.importer.is_none(), "{}", toast(&a));
+    let text = read(&l.library.join("Recipes.md"));
+    assert_eq!(text.matches("](").count(), 3, "{text}");
+    assert!(!text.contains("%20"), "{text}");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C10: the dry run comes before the group's file is made. A plan holding a link that
+/// would not read back (put in by hand: the walk leaves such files out) is refused, and no file
+/// is made.
+#[test]
+fn a_plan_whose_links_would_not_read_back_makes_no_group_file() {
+    let (mut a, l) = lib("import-dry-run");
+    let odd = l.folder.join("my%20draft.md");
+    std::fs::write(&odd, "# Draft\n").unwrap();
+    open_card(&mut a, &l);
+    let card = a.importer.as_mut().unwrap();
+    let mut note = card.plan.notes[0].clone();
+    note.path = odd.clone();
+    note.title = "Draft".to_string();
+    card.plan.notes.push(note);
+    card.plan.rows = mdedit_core::import::rows_of(&card.plan.notes);
+    assert_eq!(card.problem(), None, "nothing on the card says it");
+    a.import_write();
+    let card = a.importer.as_ref().expect("the card stays open");
+    let why = card.refusal.clone().unwrap_or_default();
+    assert!(why.contains("would not read back"), "{why}");
+    assert!(!l.library.join("Recipes.md").exists(), "no group file");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C9: a new group's file is the dry run's text, made by one write.
+#[test]
+fn a_new_groups_file_is_the_dry_runs_text() {
+    let (mut a, l) = lib("import-one-write");
+    open_card(&mut a, &l);
+    let plan = a.importer.as_ref().unwrap().plan.clone();
+    let expected = mdedit_core::runs::with_links_added(&plan.group_text().unwrap(), &plan.links());
+    a.import_write();
+    assert_eq!(read(&l.library.join("Recipes.md")), expected);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// What a refused Add was refused with is drawn in the footer, where nothing was drawn for it
+/// before, and the button stays on: pressing it again can pass.
+#[test]
+fn a_refused_add_is_said_in_the_footer_and_leaves_the_button_on() {
+    let dir = scratch("import-refusal-drawn");
+    std::fs::create_dir_all(dir.join("library")).unwrap();
+    let mut a = app_in(&dir);
+    a.import_demo("folder");
+    a.compose();
+    let g = a.importer.as_ref().unwrap().geo();
+    let footer = mdshared_ui::gfx::Rect::new(
+        g.card.x,
+        g.card.bottom() - mdshared_ui::overlay::DIALOG_FOOTER,
+        g.card.w * 0.5,
+        mdshared_ui::overlay::DIALOG_FOOTER,
+    );
+    let area = |a: &App| -> Vec<u8> {
+        let (w, s) = (a.screen.width as usize, a.scale.max(1.0));
+        let mut out = Vec::new();
+        for i in 0..a.screen.pixels.len() / 4 {
+            let (x, y) = (((i % w) as f32) / s, ((i / w) as f32) / s);
+            if footer.contains(x, y) {
+                out.extend_from_slice(&a.screen.pixels[i * 4..i * 4 + 4]);
+            }
+        }
+        out
+    };
+    let before = area(&a);
+    if let Some(card) = a.importer.as_mut() {
+        card.refusal = Some("Refused, for a test.".to_string());
+        card.tick += 1;
+    }
+    a.compose();
+    assert_ne!(area(&a), before, "the footer says the refusal");
+    let card = a.importer.as_ref().unwrap();
+    assert!(
+        card.spots
+            .iter()
+            .any(|(hit, _)| *hit == crate::import_ui::IHit::Add),
+        "Add can be pressed"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Audit 4, C8: while a folder is being read, the command stops the read, and its plan never
+/// opens.
+#[test]
+fn the_command_stops_a_folder_being_read() {
+    let (mut a, l) = lib("import-stop");
+    a.import_folder_picked(l.folder.clone());
+    assert!(a.import_job.is_some(), "the walk runs on its thread");
+    assert!(toast(&a).contains("again stops it"), "{}", toast(&a));
+    a.import_choose_folder();
+    assert!(a.import_job.is_none() && a.import_dir.is_none());
+    assert!(toast(&a).starts_with("Stopped"), "{}", toast(&a));
+    std::thread::sleep(Duration::from_millis(50));
+    a.import_take();
+    assert!(a.importer.is_none(), "no card opens");
+    assert!(!l.library.join("Recipes.md").exists());
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Audit 4, C8: a walk that ends while another card is open waits for that card to close
+/// rather than open a second card over it.
+#[test]
+fn a_walk_that_ends_while_another_card_is_open_waits_for_it_to_close() {
+    let (mut a, l) = lib("import-held");
+    a.import_folder_picked(l.folder.clone());
+    assert!(a.note_demo("ready"), "the note card opens");
+    let until = Instant::now() + Duration::from_secs(10);
+    while a.import_job.as_ref().is_some_and(|j| j.running()) {
+        assert!(Instant::now() < until, "the walk did not finish");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    a.import_take();
+    assert!(a.importer.is_none(), "not over the note card");
+    assert!(a.import_job.is_some(), "the walk's result is kept");
+    a.note = None;
+    a.import_take();
+    let card = a
+        .importer
+        .as_ref()
+        .expect("the card opens once the other closed");
+    assert_eq!(card.plan.notes.len(), 3);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}

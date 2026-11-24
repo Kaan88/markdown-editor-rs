@@ -3003,6 +3003,8 @@ impl ApplicationHandler<Wake> for App {
             .filter(|_| self.focused);
         self.docs.focus_tick(showing, Instant::now());
         self.library_tick(Instant::now());
+        // A folder read for the library that waited for another card to close (audit 4, C8).
+        self.import_take();
         if self.drain() {
             self.redraw();
         }

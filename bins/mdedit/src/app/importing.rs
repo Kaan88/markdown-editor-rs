@@ -4,8 +4,9 @@
 //! and takes every key, pointer and wheel event while it is open; the plan card's routes in
 //! `app/plan.rs` hand them here.
 //!
-//! What "Add the files" writes is one library file: the group's, made with its `home:` line when
-//! the library has no group of that name. The links go in in one atomic write through the
+//! What "Add the files" writes is one library file: the group's. When the library has no group of
+//! that name the file is made whole, its heading, its `home:` line and its links, by one
+//! exclusive create; into a group it has, the links go in in one atomic write through the
 //! window's own gate ([`App::library_attempt_at`]), which refuses a library file that is open with
 //! unsaved changes, reads it again, checks the result and writes it at once. Nothing of the
 //! owner's is copied, moved, renamed or deleted, and no record is written: an import creates no
@@ -47,11 +48,18 @@ impl App {
     }
 
     /// "Add a folder to the library…": a folder picker, then the folder is read on its own thread
-    /// and the plan opens when it is.
+    /// and the plan opens when it is. While a folder is being read, the command stops that read
+    /// instead, which is how a folder far larger than it looked is given up on (audit 4, C8).
     pub(super) fn import_choose_folder(&mut self) {
-        if self.import_job.is_some() {
-            self.docs
-                .set_toast("A folder is being read for the library already.");
+        if let Some(job) = self.import_job.take() {
+            job.cancel();
+            let dir = self.import_dir.take();
+            self.docs.set_toast(&format!(
+                "Stopped: {} is not added to the library.",
+                dir.as_deref()
+                    .map(import::shown)
+                    .unwrap_or_else(|| "the folder".to_string())
+            ));
             return;
         }
         let start = self.start_dir();
@@ -72,17 +80,23 @@ impl App {
     /// The folder picker answered: the folder is walked on a thread of its own, because a folder
     /// of thousands of files is seconds of reading.
     pub(super) fn import_folder_picked(&mut self, dir: PathBuf) {
-        if let Err(why) = self.import_ready(&dir) {
-            self.docs.set_toast(&why);
-            return;
-        }
-        self.docs
-            .set_toast(&format!("Reading the files in {}…", import::shown(&dir)));
+        let library = match self.import_ready(&dir) {
+            Ok(library) => library,
+            Err(why) => {
+                self.docs.set_toast(&why);
+                return;
+            }
+        };
+        self.docs.set_toast(&format!(
+            "Reading the files in {}\u{2026} \u{201c}Add a folder to the library\u{2026}\u{201d} again stops it.",
+            import::shown(&dir)
+        ));
         let wake = self.docs.waker();
         let reading = dir.clone();
+        let into = library.clone();
         let job = mdshared_app::job::Job::start(
             move || wake(Wake::Import),
-            move |cancel, _progress| import::walk(&reading, &|| cancel.cancelled()),
+            move |cancel, _progress| import::walk_for(&reading, &into, &|| cancel.cancelled()),
         );
         match job {
             Ok(job) => {
@@ -91,17 +105,23 @@ impl App {
             }
             Err(_) => {
                 // A thread could not be made: read here rather than open nothing.
-                let walked = import::walk(&dir, &|| false);
+                let walked = import::walk_for(&dir, &library, &|| false);
                 self.import_begin(dir, walked);
             }
         }
     }
 
     /// The walk on its thread has finished: its plan opens, or the reason it cannot is said.
+    /// While another card or dialog is over the window the plan waits for it to close, rather
+    /// than open a second card over the first (audit 4, C8); the event loop asks again after
+    /// every event.
     pub(super) fn import_take(&mut self) {
         let Some(job) = self.import_job.as_ref() else {
             return;
         };
+        if self.import_held() {
+            return;
+        }
         let Some(walked) = job.take() else {
             return;
         };
@@ -112,16 +132,34 @@ impl App {
         self.import_begin(dir, walked);
     }
 
+    /// Something the import card would open over, and must not: Settings, a plan, move, import
+    /// or note card, the AI's panel, the task window, a dialog.
+    fn import_held(&self) -> bool {
+        self.ui.settings.is_some()
+            || self.plan_is_open()
+            || self.ai_panel_open()
+            || self.task_is_open()
+            || self.ui.dialog.is_some()
+    }
+
     fn import_begin(&mut self, dir: PathBuf, walked: import::Walk) {
+        let unlinkable = walked.unlinkable.clone();
+        let library_left_out = walked.library_left_out;
         match self.import_plan(&dir, walked) {
-            Ok(plan) => self.import_open(ImportCard::new(plan)),
+            Ok(plan) => {
+                let mut card = ImportCard::new(plan);
+                card.unlinkable = unlinkable;
+                card.library_left_out = library_left_out;
+                self.import_open(card);
+            }
             Err(why) => self.docs.set_toast(&why),
         }
     }
 
     /// What a folder has to be before it is read: a library folder to write into, and a folder
-    /// that is one. The rest is said on the card, which can say the 2,000 and the names.
-    fn import_ready(&mut self, dir: &Path) -> Result<(), String> {
+    /// that is one. The rest is said on the card, which can say the 2,000 and the names. `Ok` is
+    /// the library folder.
+    fn import_ready(&mut self, dir: &Path) -> Result<PathBuf, String> {
         let library = self
             .library_dir()
             .filter(|d| !d.as_os_str().is_empty() && d.is_absolute())
@@ -133,20 +171,14 @@ impl App {
         if super::library_write::same_folder(dir, &library) {
             return Err(strings::LIBRARY_HOME_IS_LIBRARY.to_string());
         }
-        Ok(())
+        Ok(library)
     }
 
     /// The plan of `walked`, over `dir`: the group the links go in (the one the library has for
     /// the folder's name, or the one this run would make), and the notes the library does not list
     /// already. The library is read here, so a group another window made a moment ago is known.
     fn import_plan(&mut self, dir: &Path, walked: import::Walk) -> Result<import::Plan, String> {
-        self.import_ready(dir)?;
-        let Some(library) = self
-            .library_dir()
-            .filter(|d| !d.as_os_str().is_empty() && d.is_absolute())
-        else {
-            return Err(strings::LIBRARY_NO_FOLDER.to_string());
-        };
+        let library = self.import_ready(dir)?;
         self.library_load();
         let name = dir
             .file_name()
@@ -179,9 +211,17 @@ impl App {
                 import::shown(&group_file)
             ));
         }
+        // A group of that name that keeps its notes in another folder is not this folder's: the
+        // links would sit outside the group's home (DESIGN 81; audit 4, C4).
+        let group_home = group.as_ref().and_then(|g| g.home.clone());
+        let home_apart = group_home
+            .as_deref()
+            .is_some_and(|home| !home_holds(home, dir));
         let at = import::Where {
             root: &library,
             group: group.as_ref().map(|g| (g.name.as_str(), g.file.as_path())),
+            group_home: group_home.as_deref(),
+            home_apart,
             new_file: group_file,
             entries,
             listed: &listed,
@@ -299,9 +339,9 @@ impl App {
         self.redraw();
     }
 
-    /// The links of a plan written into the group's library file, in one atomic write. `Err` is
-    /// what the card says, with nothing written but the group's own file taken away again if this
-    /// run made it.
+    /// The links of a plan written into the group's library file, in one write: a new group's
+    /// file is made whole by one exclusive create, a group the library has is rewritten through
+    /// the window's gate. `Err` is what the card says, with nothing written.
     fn import_links(&mut self, plan: &import::Plan) -> Result<usize, String> {
         if let Some(why) = plan.problem() {
             return Err(why);
@@ -351,29 +391,40 @@ impl App {
         };
         // The dry run, before the library file is made: the links exactly as the write would put
         // them, against the file as it reads now.
-        let before = group_text.clone().unwrap_or_default();
+        let before = group_text.unwrap_or_default();
         let new = runs::with_links_added(&before, &links);
         let old = library::parse(&before, &library);
+        // The group's folder as its file names it now, which may not be what it named when the
+        // card opened (audit 4, C4).
+        if !plan.group_new
+            && let Some(home) = old.home.as_deref()
+            && !home_holds(home, &plan.folder)
+        {
+            return Err(import::home_apart_reason(&plan.group_name, home));
+        }
         if !runs::check_links_added(&old, &library::parse(&new, &library), &links, &library) {
             return Err(format!(
                 "{} would not read back as its old notes plus the new ones.",
                 import::shown(&plan.group_file)
             ));
         }
-        let made = if plan.group_new {
-            let text = group_text.clone().unwrap_or_default();
-            if let Err(e) = std::fs::create_dir_all(&library)
-                .and_then(|()| mdshared_app::files::create_new(&plan.group_file, text.as_bytes()))
+        if plan.group_new {
+            // The whole file in one exclusive create, its heading, its `home:` line and its
+            // links: no moment holds a group with no notes, and a file that took the name since
+            // is left alone (audit 4, C9).
+            return match std::fs::create_dir_all(&library)
+                .and_then(|()| mdshared_app::files::create_new(&plan.group_file, new.as_bytes()))
             {
-                return Err(format!(
+                Ok(()) => {
+                    self.library_load();
+                    Ok(links.len())
+                }
+                Err(e) => Err(format!(
                     "{} could not be made: {e}",
                     import::shown(&plan.group_file)
-                ));
-            }
-            Some(text)
-        } else {
-            None
-        };
+                )),
+            };
+        }
         let wrote = self.library_attempt_at(
             &plan.group_file,
             &library,
@@ -382,14 +433,8 @@ impl App {
         );
         match wrote {
             Wrote::Done => Ok(links.len()),
-            Wrote::Nothing => {
-                remove_own_file(&plan.group_file, made.as_deref());
-                Err("The library file was not changed.".to_string())
-            }
-            Wrote::Refused(why) => {
-                remove_own_file(&plan.group_file, made.as_deref());
-                Err(why)
-            }
+            Wrote::Nothing => Err("The library file was not changed.".to_string()),
+            Wrote::Refused(why) => Err(why),
         }
     }
 
@@ -426,12 +471,11 @@ impl App {
     }
 }
 
-/// Takes away a file this write made, when it still holds exactly what was put in it.
-fn remove_own_file(path: &Path, text: Option<&str>) {
-    let Some(text) = text else {
-        return;
-    };
-    if std::fs::read(path).is_ok_and(|bytes| bytes == text.as_bytes()) {
-        let _ = std::fs::remove_file(path);
-    }
+/// Whether the folder `folder` is the group's folder `home` or inside it, as the disk has them.
+fn home_holds(home: &Path, folder: &Path) -> bool {
+    use mdshared_app::paths::comparable;
+    let home = comparable(home);
+    comparable(folder)
+        .ancestors()
+        .any(|above| mdshared_app::paths::same_path(above, &home))
 }
