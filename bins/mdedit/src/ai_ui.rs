@@ -466,8 +466,14 @@ fn review(
     let tw = p.measure(Face::Semibold, 17.0, &rv.spec.title).min(360.0);
     p.text(Face::Semibold, 17.0, x, cy, &rv.spec.title, pal.text, 360.0);
     let (total_added, total_removed) = rv.hunks.totals();
-    let counts_r = format!("+ {total_added} lines");
-    let counts_l = format!("− {total_removed} lines");
+    let counts_r = format!(
+        "+ {}",
+        crate::import_ui::count(total_added, "line", "lines")
+    );
+    let counts_l = format!(
+        "− {}",
+        crate::import_ui::count(total_removed, "line", "lines")
+    );
     let mut right = r.right() - PAD;
     if !rv.preview {
         let wr = p.measure(Face::Semibold, 13.0, &counts_r);
@@ -572,11 +578,16 @@ fn review(
     } else {
         ("Copy result".to_string(), Hit::Copy)
     };
-    let buttons: Vec<(String, Hit)> = if closed {
+    let mut buttons: Vec<(String, Hit)> = if closed {
         vec![primary, ("Discard".into(), Hit::Discard)]
     } else {
         vec![primary, second, ("Discard".into(), Hit::Discard)]
     };
+    // A file of the task window: Back to it, with nothing written (the hand-driven run,
+    // finding 4). Discard leaves the file and goes on with the next.
+    if rv.file.is_some() {
+        buttons.push(("Back".into(), Hit::Back));
+    }
     for (k, (label, hit)) in buttons.into_iter().enumerate() {
         let bw = dialog_button_w(p, &label);
         bx -= bw;

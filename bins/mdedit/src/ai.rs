@@ -643,6 +643,8 @@ pub enum Hit {
     Copy,
     Apply,
     RunAgain,
+    /// A file's review in the task window: back to the window, nothing written.
+    Back,
     /// The review's bar: the previous and the next change, the strip's mark for change `i`,
     /// and every change ticked or none.
     Prev,

@@ -1017,6 +1017,7 @@ impl App {
     pub(super) fn ai_review_action(&mut self, hit: AiHit) {
         self.ai_review_sync();
         match hit {
+            AiHit::Back => self.task_review_back(),
             AiHit::Discard => {
                 if self.ai.review().is_some_and(|rv| rv.file.is_some()) {
                     self.task_review_discard();

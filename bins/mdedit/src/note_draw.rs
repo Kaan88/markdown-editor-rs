@@ -134,8 +134,8 @@ impl NoteCard {
         p.text(Face::Ui, 12.5, x, y + 54.0, &sub, pal.muted, max);
         // The two views of an answer, when there is one.
         if self.phase == Phase::Changes {
-            let counts_r = format!("+ {} lines", self.added);
-            let counts_l = format!("\u{2212} {} lines", self.removed);
+            let counts_r = format!("+ {}", count(self.added, "line", "lines"));
+            let counts_l = format!("\u{2212} {}", count(self.removed, "line", "lines"));
             let (_, _, minus, plus) = tints(pal);
             let cy = y + 76.0;
             let mut right = g.card.right() - PAD;

@@ -61,6 +61,7 @@ impl App {
     pub(super) fn task_open(&mut self, kind: TaskKind, add: Vec<PathBuf>) {
         self.library_load();
         if let Some(mut t) = self.task_parked.take() {
+            t.sent_tab = None;
             let before = t.limits.rewrite_bytes;
             t.limits = task_ui::Limits::of(&self.docs.prefs);
             t.recount_limit();
@@ -450,14 +451,19 @@ impl App {
         let start = start.as_deref().and_then(Path::parent);
         // Windows opens the dialog here; the other systems open it on a thread, so its answer
         // comes back as `Picked::TaskFiles` (`App::dialog_done`).
+        // Write notes takes pictures: its dialog lists them with the text (finding 5).
+        let pictures = self
+            .task
+            .as_ref()
+            .is_some_and(|s| s.task == TaskKind::Notes);
         #[cfg(windows)]
-        self.task_add_paths(platform::pick_files(start));
+        self.task_add_paths(platform::pick_task_files(start, pictures));
         #[cfg(not(windows))]
         if !self.dialog_busy {
             self.dialog_busy = true;
             let wake = self.docs.waker();
             let start = start.map(Path::to_path_buf);
-            platform::pick_files_async(start.as_deref(), move |files| {
+            platform::pick_task_files_async(start.as_deref(), pictures, move |files| {
                 wake(Wake::Dialog(Picked::TaskFiles(files)));
             });
         }
@@ -1704,10 +1710,13 @@ impl App {
         let Some(mut t) = self.task_parked.take() else {
             return;
         };
-        if let Some(f) = t.files.get_mut(index) {
-            if written {
-                f.done = true;
-            }
+        // A plan written is the file's done; one closed unwritten (Cancel, Esc) is the way
+        // back to the window with the file as it was, still ticked (the hand-driven run,
+        // finding 4).
+        if let Some(f) = t.files.get_mut(index)
+            && written
+        {
+            f.done = true;
             f.ticked = false;
         }
         t.tick += 1;
@@ -2081,6 +2090,30 @@ impl App {
         self.task_review_left(&fr);
     }
 
+    /// Back on a rewrite's review: the review goes, nothing is written, and the window is shown
+    /// as it was, the file still ticked; the run waits for Run (the hand-driven run, finding 4).
+    pub(super) fn task_review_back(&mut self) {
+        let Some(Panel::Review(rv)) = self.ai.panel.as_ref() else {
+            return;
+        };
+        let Some(fr) = rv.file.clone() else { return };
+        let name = fr
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.ai.panel = None;
+        self.ai.tick += 1;
+        if let Some(s) = self.task_window_of(&fr) {
+            s.notice = Some(format!(
+                "{name} was not rewritten. Run asks for it again; the files rewritten before it \
+                 stay so."
+            ));
+            s.tick += 1;
+        }
+        self.redraw();
+    }
+
     /// Discard or Copy result on a file's review: the file is left as it was and unticked, so
     /// the run does not ask for it again, and the run goes on with the next (DESIGN 83; audit
     /// 4, B3).
@@ -2249,6 +2282,20 @@ impl App {
         self.task_sent_tab();
     }
 
+    /// A tab closed: the one "Show what is sent" opened brings its window back.
+    pub(super) fn task_sent_tab_closed(&mut self, id: u64) {
+        let ours = self.task.is_none()
+            && self.task_plan.is_none()
+            && self
+                .task_parked
+                .as_ref()
+                .is_some_and(|t| t.sent_tab == Some(id));
+        if ours {
+            let kind = self.task_parked.as_ref().map_or(TaskKind::File, |t| t.task);
+            self.task_open(kind, Vec::new());
+        }
+    }
+
     /// The literal request text in a read-only tab. The window is parked behind it, and "AI
     /// task…" brings it back.
     pub(super) fn task_sent_tab(&mut self) {
@@ -2261,8 +2308,12 @@ impl App {
             .docs
             .open_copy(title.to_string(), text.as_bytes(), None);
         self.docs.activate(i);
+        let id = self.docs.tabs.get(i).map(|d| d.id);
+        if let Some(t) = self.task_parked.as_mut() {
+            t.sent_tab = id;
+        }
         self.docs
-            .set_toast("The request text is in this tab. AI task… brings the window back.");
+            .set_toast("The request text is in this tab. Close the tab to go back to the window.");
         self.relayout_areas();
         self.redraw();
     }
@@ -2280,9 +2331,21 @@ impl App {
         let instruction = s.instruction.text().trim().to_string();
         let ids = s.taking_part();
         let mut out = String::new();
+        // Said as it is: before any request, what would go; after one, what goes for the files
+        // ticked now (the hand-driven run, finding 6).
+        let made = self.task_sent.requests;
+        out.push_str(&if made == 0 {
+            "What the AI task window would send. Nothing has been sent yet.\n".to_string()
+        } else {
+            format!(
+                "What the AI task window sends for the files ticked now. It has made {} \
+                 already.\n",
+                crate::import_ui::count(made as usize, "request", "requests")
+            )
+        });
         out.push_str(
-            "What the AI task window would send. Nothing has been sent by this tab.\n\
-             The window is behind it: AI task\u{2026} brings it back.\n\n",
+            "The window is behind this tab: close the tab, or AI task\u{2026}, to go back to \
+             it.\n\n",
         );
         match s.task {
             TaskKind::Notes => out.push_str(&crate::notes_task::request_text(
@@ -2369,6 +2432,14 @@ impl App {
     /// Escape, Cancel, or the end of a task: the window goes, a request with it. A rewrite's
     /// record stays, closed as done, so what was written can be undone.
     pub(super) fn task_close(&mut self) {
+        // "AI task…" opens next on the task this window closes on (finding 10).
+        if let Some(kind) = self.task.as_ref().map(|s| s.task.pref())
+            && self.docs.prefs.ai_task != kind
+        {
+            let mut p = self.docs.prefs.clone();
+            p.ai_task = kind;
+            self.set_prefs(p);
+        }
         self.notes_close();
         let asking = self.task.as_mut().and_then(|s| s.asking.take());
         if let Some(asking) = asking {
@@ -2495,6 +2566,24 @@ impl App {
         });
         if name == "files-plan" {
             demo_plan(s);
+        }
+        if name == "files-plan-nogroup" {
+            // The plan face with no group chosen: "Add N to the library" off, the reason in
+            // the footer (the hand-driven run, finding 8).
+            demo_plan(s);
+            s.dest = DestChoice::Decide;
+        }
+        if name == "files-esc" {
+            // Esc on a window holding files: what closing drops, said once in the window
+            // (finding 2).
+            s.focus = Focus::None;
+            s.esc_warned = true;
+            s.notice = Some(s.esc_warning());
+        }
+        if name == "files-empty" {
+            // No file: the button off with no count, the footer saying what to do (finding 16).
+            s.files.clear();
+            s.instruction.set_text("");
         }
         if name == "files-copy" || name == "files-link" || name == "files-move" {
             // THE FILES (pictures plan 4.3, D-209) on the plan face: on "Copy them in" each row

@@ -32,9 +32,17 @@ pub const PICTURE_ROW_H: f32 = 52.0;
 pub const THUMB: f32 = 40.0;
 
 /// The card for a `w` x `h` window.
+/// The card for a `w` x `h` window. It grows with a large window, up to [`CARD_W_MAX`] by
+/// [`CARD_H_MAX`], keeping 200 px of the window either side and 48 above and below; at the
+/// default 1280 x 800 it is 880 x 704 as before (the hand-driven run, finding 11).
 pub fn card(w: f32, h: f32) -> Rect {
-    mdshared_ui::overlay::dialog_card(CARD_W, CARD_H, w, h)
+    let cw = (w - 400.0).clamp(CARD_W, CARD_W_MAX);
+    let ch = (h - 96.0).clamp(CARD_H, CARD_H_MAX);
+    mdshared_ui::overlay::dialog_card(cw, ch, w, h)
 }
+
+pub const CARD_W_MAX: f32 = 1240.0;
+pub const CARD_H_MAX: f32 = 1000.0;
 
 /// The height of a line of the Add menu.
 pub const ADD_ROW_H: f32 = 30.0;
@@ -163,6 +171,27 @@ impl TaskKind {
             TaskKind::File => "File them",
             TaskKind::Split => "Split them",
             TaskKind::Rewrite => "Rewrite them",
+        }
+    }
+
+    /// As the settings keep it: "AI task…" opens on the task the window last closed on.
+    pub fn pref(self) -> mdedit_core::prefs::AiTask {
+        use mdedit_core::prefs::AiTask;
+        match self {
+            TaskKind::Notes => AiTask::Notes,
+            TaskKind::File => AiTask::File,
+            TaskKind::Split => AiTask::Split,
+            TaskKind::Rewrite => AiTask::Rewrite,
+        }
+    }
+
+    pub fn of_pref(t: mdedit_core::prefs::AiTask) -> TaskKind {
+        use mdedit_core::prefs::AiTask;
+        match t {
+            AiTask::Notes => TaskKind::Notes,
+            AiTask::File => TaskKind::File,
+            AiTask::Split => TaskKind::Split,
+            AiTask::Rewrite => TaskKind::Rewrite,
         }
     }
 
@@ -464,6 +493,24 @@ pub fn moved_text(
 /// Why File them leaves a picture out (D-204). Write notes, which puts pictures inside notes,
 /// is not built yet; until it is, the row says only that it is not filed, and why.
 pub const PICTURE_NOT_FILED: &str = "not filed: a picture is not a note of its own";
+
+/// What the saved prompts' place says when the task has none (finding 18): the same words for
+/// every task, with the line that gives a prompt its kind where the task has one.
+pub fn prompts_empty(task: TaskKind) -> String {
+    let kind = match task {
+        TaskKind::Notes => Some("notes"),
+        TaskKind::File => Some("file"),
+        TaskKind::Split => Some("split"),
+        TaskKind::Rewrite => None,
+    };
+    let at = "Settings \u{203A} AI \u{203A} Saved prompts \u{203A} Edit";
+    match kind {
+        Some(k) => format!(
+            "None of this kind yet. Add one in {at}, with the line \u{201c}kind: {k}\u{201d}."
+        ),
+        None => format!("None of this kind yet. Add one in {at}."),
+    }
+}
 
 /// Why "Add N to the library" cannot be pressed with no group chosen.
 pub const CHOOSE_GROUP: &str = "Choose the group the files go to first.";
@@ -767,6 +814,9 @@ pub struct TaskScreen {
     /// Esc has said once that closing drops what the window holds; the next Esc closes. Any
     /// other key or click takes the warning back.
     pub esc_warned: bool,
+    /// The read-only tab "Show what is sent" opened, while the window waits behind it: closing
+    /// that tab brings the window back.
+    pub sent_tab: Option<u64>,
     /// What the window has to say about the last thing done in it ("Choose the group…",
     /// "Stopped."): drawn in the window, over the foot of the list, while it is open, instead
     /// of a toast far from it. Taken away by the next key or click.
@@ -842,6 +892,7 @@ impl TaskScreen {
             whole_note: false,
             close_warned: false,
             esc_warned: false,
+            sent_tab: None,
             notice: None,
         }
     }
@@ -923,7 +974,8 @@ impl TaskScreen {
                 "With the AI off only pictures make notes: add a picture, or turn the AI on."
                     .to_string()
             } else {
-                "No file takes part.".to_string()
+                // Not the summary's words again: what to do about it (finding 13).
+                self.nothing_reason()
             });
         }
         if self.ai_on
@@ -977,6 +1029,41 @@ impl TaskScreen {
             .any(|f| f.kind == FileKind::Picture && f.ticked && !f.done && f.takes_part(self.task));
         (self.notes.how_many == mdedit_core::notes_ai::HowMany::PerPicture && pictures)
             .then_some("not used with One per picture: no request reads it")
+    }
+
+    /// Why nothing takes part, as the footer says it under "No file takes part." (the
+    /// hand-driven run, findings 13 and 16).
+    pub fn nothing_reason(&self) -> String {
+        if self.files.is_empty() {
+            if self.task == TaskKind::Notes {
+                "Add pictures or text files: Add\u{2026}, a drop from File Explorer, or Ctrl+V."
+                    .to_string()
+            } else {
+                "Add files: Add\u{2026}, or a drop from File Explorer.".to_string()
+            }
+        } else {
+            "Tick a file to take part, or add one with Add\u{2026}.".to_string()
+        }
+    }
+
+    /// Whether the file at `i` went in one of File them's requests.
+    pub fn was_sent(&self, i: usize) -> bool {
+        self.answers.iter().any(|(batch, _)| batch.contains(&i))
+    }
+
+    /// Why the primary button cannot be pressed, beside the reasons the footer says already: no
+    /// file takes part, or (the plan face) no group to add them to (findings 8 and 16).
+    pub fn primary_blocked(&self) -> Option<String> {
+        if self.planned {
+            if self.task == TaskKind::File && self.group().is_none() {
+                return Some(CHOOSE_GROUP.to_string());
+            }
+            if self.count() == 0 {
+                return Some("Nothing is placed to add: tick a file the plan places.".to_string());
+            }
+            return None;
+        }
+        (self.count() == 0).then(|| self.nothing_reason())
     }
 
     /// Whether a file has a place on the plan face.
@@ -1197,8 +1284,13 @@ impl TaskScreen {
     /// The primary button's words.
     pub fn primary_label(&self) -> String {
         let n = self.count();
+        let files = |n: usize| format!("{n} file{}", if n == 1 { "" } else { "s" });
         if self.planned {
-            return format!("Add {n} to the library");
+            return if n == 0 {
+                "Add to the library".to_string()
+            } else {
+                format!("Add {n} to the library")
+            };
         }
         match self.task {
             TaskKind::Notes => {
@@ -1223,14 +1315,12 @@ impl TaskScreen {
                 };
                 crate::notes_task::primary_label(to_send, texts.len(), self.ai_on)
             }
-            TaskKind::File | TaskKind::Split if self.asks_ai() => {
-                format!("Run on {n} file{}", if n == 1 { "" } else { "s" })
-            }
-            TaskKind::File => "Make the plan".to_string(),
-            TaskKind::Split => {
-                format!("Make the plan on {n} file{}", if n == 1 { "" } else { "s" })
-            }
-            TaskKind::Rewrite => format!("Run on {n} file{}", if n == 1 { "" } else { "s" }),
+            // The same words with the AI on or off: the footer says whether a request goes
+            // (finding 16). With no file, no count: the button is off and the footer says why.
+            TaskKind::File | TaskKind::Split if n == 0 => "Make the plan".to_string(),
+            TaskKind::File | TaskKind::Split => format!("Make the plan for {}", files(n)),
+            TaskKind::Rewrite if n == 0 => "Rewrite".to_string(),
+            TaskKind::Rewrite => format!("Rewrite {}", files(n)),
         }
     }
 
@@ -1454,6 +1544,8 @@ pub enum ListRow {
     File(usize),
     /// The heading over the files a model could not place, on the plan face.
     Unplaced,
+    /// The heading over the files no request took, on the plan face, each row saying why.
+    NotSent,
     /// A picture's row on Write notes, with its thumbnail: taller than a file's.
     Picture(usize),
 }
@@ -1482,9 +1574,17 @@ pub fn rows(s: &TaskScreen) -> Vec<ListRow> {
                     && s.files[i].with.is_none()
             })
             .collect();
-        if !not.is_empty() {
+        // What went and was not placed, apart from what never went: a picture, a file the
+        // library lists, one unticked (the hand-driven run, finding 12).
+        let (sent, unsent): (Vec<usize>, Vec<usize>) =
+            not.into_iter().partition(|&i| s.was_sent(i));
+        if !sent.is_empty() {
             out.push(ListRow::Unplaced);
-            out.extend(not.into_iter().map(ListRow::File));
+            out.extend(sent.into_iter().map(ListRow::File));
+        }
+        if !unsent.is_empty() {
+            out.push(ListRow::NotSent);
+            out.extend(unsent.into_iter().map(ListRow::File));
         }
         return out;
     }
@@ -1515,7 +1615,7 @@ pub fn rows(s: &TaskScreen) -> Vec<ListRow> {
 pub fn content_h(rows: &[ListRow]) -> f32 {
     rows.iter()
         .map(|r| match r {
-            ListRow::Heading(_) | ListRow::Placed | ListRow::Unplaced => GROUP_H,
+            ListRow::Heading(_) | ListRow::Placed | ListRow::Unplaced | ListRow::NotSent => GROUP_H,
             ListRow::File(_) => ROW_H,
             ListRow::Picture(_) => PICTURE_ROW_H,
         })

@@ -258,6 +258,25 @@ impl App {
                 });
             }
             "notes-first" => s.whole_note = true,
+            // No file: what to do, said once (the hand-driven run, finding 13).
+            "notes-empty" => {
+                s.files.clear();
+                s.instruction.set_text("");
+            }
+            // The only look failed: "Try it again", and no "Go on with 0" (finding 3).
+            "notes-failed-all" => {
+                s.files.truncate(1);
+                s.notes_run = Some(Run {
+                    failed: vec![(0, "Too many requests. Try again in 30 s.".to_string())],
+                    next: 1,
+                    stopped: true,
+                    parallel: 3,
+                    requests: 1,
+                    failures: 1,
+                    batches: vec![vec![0]],
+                    ..Run::default()
+                });
+            }
             "notes-plan" | "notes-plan-one" => {
                 let answer = plan_answer(name == "notes-plan-one");
                 let arranged = mdedit_core::notes_ai::read_arrange(&answer, &pictures).ok();
@@ -274,6 +293,7 @@ impl App {
                     next: batches.len(),
                     parallel: 3,
                     requests: batches.len() as u64 + 1,
+                    answers: batches.len() as u64 + 1,
                     batches,
                     texts,
                     arranged,

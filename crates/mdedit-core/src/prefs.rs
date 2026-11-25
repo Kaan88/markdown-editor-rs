@@ -133,6 +133,8 @@ pub struct Prefs {
     /// A window of Write notes has said, once ever, that a picture is sent whole (pictures plan
     /// section 13): no later window says it.
     pub ai_pictures_told: bool,
+    /// The task the AI task window was on when it last closed ([`AiTask`]).
+    pub ai_task: AiTask,
     /// The task window's limits (D-203), in their ranges by [`Prefs::clamp`].
     pub ai_task_batch: usize,
     pub ai_rewrite_files: usize,
@@ -299,6 +301,39 @@ impl FilesGo {
     }
 }
 
+/// The task the AI task window was on when it last closed: "AI task…" opens on it again (the
+/// hand-driven run of 2026-11-25, finding 10). File them until a window has closed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum AiTask {
+    Notes,
+    #[default]
+    File,
+    Split,
+    Rewrite,
+}
+
+impl AiTask {
+    pub const ALL: [AiTask; 4] = [AiTask::Notes, AiTask::File, AiTask::Split, AiTask::Rewrite];
+
+    /// The value in the settings file.
+    pub fn key(self) -> &'static str {
+        match self {
+            AiTask::Notes => "notes",
+            AiTask::File => "file",
+            AiTask::Split => "split",
+            AiTask::Rewrite => "rewrite",
+        }
+    }
+
+    /// Reads [`AiTask::key`]; anything else is `None` (the default).
+    pub fn parse(value: &str) -> Option<AiTask> {
+        let v = value.trim();
+        AiTask::ALL
+            .into_iter()
+            .find(|m| m.key().eq_ignore_ascii_case(v))
+    }
+}
+
 /// Write notes' options (pictures plan section 12): kept in the settings file once changed, as
 /// the words of those that are on (`as-needed copy rename describe strip`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -438,6 +473,7 @@ impl Default for Prefs {
             ai_files: FilesGo::Copy,
             ai_notes: NotesOptions::default(),
             ai_pictures_told: false,
+            ai_task: AiTask::File,
             ai_task_batch: AI_TASK_BATCH_DEFAULT,
             ai_rewrite_files: AI_REWRITE_FILES_DEFAULT,
             ai_rewrite_kb: AI_REWRITE_KB_DEFAULT,
@@ -637,6 +673,7 @@ impl Prefs {
                     "ai_pictures_told" => {
                         p.ai_pictures_told = flag(value).unwrap_or(d.ai_pictures_told)
                     }
+                    "ai_task" => p.ai_task = AiTask::parse(value).unwrap_or(d.ai_task),
                     "ai_task_batch" => {
                         p.ai_task_batch = number(value, AI_TASK_BATCH_MIN, AI_TASK_BATCH_MAX)
                             .unwrap_or(d.ai_task_batch)
@@ -764,6 +801,7 @@ impl Prefs {
         w.line("ai_files", p.ai_files.key());
         w.line("ai_notes", &p.ai_notes.key());
         w.line("ai_pictures_told", b(p.ai_pictures_told));
+        w.line("ai_task", p.ai_task.key());
         w.line("ai_task_batch", &p.ai_task_batch.to_string());
         w.line("ai_rewrite_files", &p.ai_rewrite_files.to_string());
         w.line("ai_rewrite_kb", &p.ai_rewrite_kb.to_string());
@@ -1285,6 +1323,7 @@ preview_mode= MDVIEW
                 ..NotesOptions::default()
             },
             ai_pictures_told: true,
+            ai_task: AiTask::Split,
             ai_task_batch: 12,
             ai_rewrite_files: 7,
             ai_rewrite_kb: 640,
@@ -1336,7 +1375,7 @@ preview_mode= MDVIEW
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 60);
+        assert_eq!(t.lines().count(), 61);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,

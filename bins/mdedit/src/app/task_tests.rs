@@ -2219,3 +2219,110 @@ fn escape_leaves_the_instruction_then_says_what_closing_drops() {
     a.task_key(Some(KeyName::Escape), None);
     assert!(a.task.is_none(), "and closes");
 }
+
+/// Finding 4: Back on a rewrite's review goes back to the window with nothing written and the
+/// file still ticked; nothing more is asked until Run.
+#[test]
+fn back_on_a_rewrite_review_returns_to_the_window_as_it_was() {
+    let (mut a, dir) = ai_open("task-review-back", TaskKind::Rewrite, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    let sent = a.task_sent.requests;
+    a.ai_review_action(crate::ai::Hit::Back);
+    assert!(a.ai.panel.is_none(), "the review goes");
+    let s = a.task.as_ref().expect("the window stays");
+    assert!(s.files[0].ticked && !s.files[0].done, "the file as it was");
+    assert!(s.asking.is_none());
+    assert_eq!(a.task_sent.requests, sent, "nothing more is asked");
+    assert_eq!(
+        std::fs::read_to_string(&text).expect("pasta"),
+        "# Pasta\n\nBoil it.\n"
+    );
+}
+
+/// Finding 4: Cancel on a split's plan goes back to the window with the file still ticked.
+#[test]
+fn closing_a_split_plan_unwritten_keeps_the_file_ticked() {
+    let (mut a, dir) = open("task-split-back", TaskKind::Split, Vec::new());
+    let text = dir.join("trip.md");
+    std::fs::write(&text, "# Tokyo\n\nintro\n\n## Asakusa\n\nthe river\n").expect("trip");
+    a.task_add_paths(vec![text]);
+    with_group(&mut a, "Trips");
+    a.task_run();
+    assert!(a.plan.is_some());
+    a.plan_close();
+    let s = a.task.as_ref().expect("the window is back");
+    assert!(s.files[0].ticked && !s.files[0].done, "as it was");
+}
+
+/// Finding 5: Write notes' Files… lists pictures; the other tasks' lists text and code.
+#[test]
+fn the_files_dialog_of_write_notes_lists_pictures() {
+    let (label, list) = crate::platform::task_filter(true);
+    assert_eq!(label, "Pictures and text");
+    assert!(list.contains(&"png") && list.contains(&"jpg") && list.contains(&"md"));
+    let (_, list) = crate::platform::task_filter(false);
+    assert!(!list.contains(&"png") && list.contains(&"md"));
+}
+
+/// Finding 6: closing the tab "Show what is sent" opened brings the window back; the tab says
+/// "would send" before anything was sent.
+#[test]
+fn closing_the_what_is_sent_tab_brings_the_window_back() {
+    let (mut a, dir) = ai_open("task-sent-back", TaskKind::File, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    let text = a.task_request_text().expect("text");
+    assert!(text.starts_with("What the AI task window would send. Nothing has been sent yet."));
+    a.task_show_sent();
+    assert!(a.task.is_none() && a.task_parked.is_some(), "parked");
+    let i = a.docs.active().expect("the tab");
+    a.close_tab(i);
+    let s = a.task.as_ref().expect("the window is back");
+    assert_eq!(s.files.len(), 1);
+    assert!(s.sent_tab.is_none());
+}
+
+/// Finding 10: "AI task…" opens on the task the window last closed on.
+#[test]
+fn the_window_opens_again_on_the_last_task() {
+    let (mut a, _dir) = open("task-last", TaskKind::File, Vec::new());
+    a.task_act(Hit::Kind(TaskKind::Split));
+    a.task_close();
+    a.command(C::AiTaskFiles);
+    assert_eq!(a.task.as_ref().expect("open").task, TaskKind::Split);
+}
+
+/// Finding 12: on the plan face a picture File them never sent is under NOT SENT (LEFT OUT with
+/// the AI off), not under NOT PLACED, which says the model did not place it.
+#[test]
+fn what_was_never_sent_is_not_called_not_placed() {
+    let (mut a, dir) = open("task-not-sent", TaskKind::File, Vec::new());
+    let picture = dir.join("lasagne.jpg");
+    std::fs::write(&picture, [0xFF, 0xD8, 0xFF, 0xE0]).expect("picture");
+    a.task_add_paths(vec![pasta(&dir), picture]);
+    with_group(&mut a, "Recipes");
+    a.task_run();
+    let s = a.task.as_ref().expect("open");
+    assert!(s.planned);
+    let rows = crate::task_ui::rows(s);
+    assert!(rows.contains(&crate::task_ui::ListRow::NotSent));
+    assert!(!rows.contains(&crate::task_ui::ListRow::Unplaced));
+}
+
+/// Finding 8: "Add N to the library" with no group is off, with the reason.
+#[test]
+fn add_to_the_library_with_no_group_is_off_with_the_reason() {
+    let (mut a, dir) = open("task-no-group-off", TaskKind::File, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    a.task_run();
+    let s = a.task.as_mut().expect("open");
+    assert!(s.planned);
+    s.dest = DestChoice::Decide;
+    assert_eq!(
+        s.primary_blocked().as_deref(),
+        Some(crate::task_ui::CHOOSE_GROUP)
+    );
+}

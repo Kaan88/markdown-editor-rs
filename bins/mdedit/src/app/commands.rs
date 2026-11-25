@@ -1223,6 +1223,8 @@ impl App {
                 if let Some(i) = index(&self.docs, id) {
                     self.docs.close(i, service);
                 }
+                // "Show what is sent"'s tab closed: its window comes back.
+                self.task_sent_tab_closed(id);
             }
             After::CloseOthers(id) => {
                 if let Some(i) = index(&self.docs, id) {
@@ -2187,7 +2189,11 @@ impl App {
                 .filter(|&i| self.library_row_has_notes(i))
             {
                 Some(i) => self.task_from_library(i),
-                None => self.task_open(crate::task_ui::TaskKind::File, Vec::new()),
+                // On the task the window last closed on (the hand-driven run, finding 10).
+                None => self.task_open(
+                    crate::task_ui::TaskKind::of_pref(self.docs.prefs.ai_task),
+                    Vec::new(),
+                ),
             },
             C::AiTaskThisFile => {
                 let path = self
