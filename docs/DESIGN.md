@@ -43,6 +43,7 @@ What is being worked on is in `docs/STATE.md`, and why things were decided is in
 | Unsaved text across a close, crash recovery | 19, 61 |
 | mdview: the hand-off, the live preview, the Preview button's modes | 54, 65, 66, 78 |
 | The window: shadow, corners, the frosted backdrop | 48, 55, 64, 67 |
+| Motion: the animator, the menus' fade, the Animations setting | 96 |
 | Paste an image, plain paste, rich text pasted as Markdown | 62, 78 |
 | Updates | 17 |
 | AI rewriting, and its review with ticks | 68, 79 |
@@ -3917,3 +3918,56 @@ original (if it names one) is there unchanged, and no kept note shows it ("Pictu
 notes that show them"); never an original; restores the links and removes the empty folders it
 made. A run that died at any step is undone or finished from its record. An older mdedit reads a
 notes record as written by a newer version.
+
+## 96. Motion: one animator, and the menus' fade (2026-11-25)
+
+`bins/mdedit/src/motion.rs`, its wiring in `app.rs` (`compose`) and `app/commands.rs`
+(`timers`, `woken`), tests in `app/motion_tests.rs`. Built on shared `anim` (`48eb3ce`; shared's
+`docs/ANIMATION.md` says how its pieces work). D-232, D-233, D-235.
+
+**The animator.** `App::motion` holds the window's one `Animator`. `compose` calls `begin_frame`
+first and `end_frame` last; the deadline is kept in `Motion::due`, which `timers` turns into a
+wake-up and clears when it fires (it asks for a frame, `about_to_wait` requests the redraw). While
+nothing moves the deadline is `None`, so there is no timer and no frame: an idle window, menu open
+or not, costs nothing.
+
+**Whether anything moves** is `Motion::policy`, the one place: `Policy::Never` in a shot and in
+every test (`args.shot` or `cfg(test)`), and with the Animations setting off (`prefs.animations`,
+read every frame); otherwise `Policy::System`, which is instant while the system asks for less
+motion. The system's wish is read, and watched with `watch_motion_reduced`, called on a short
+helper thread because it waits for its hidden window (a hidden window on its
+own thread on Windows, the portal's helper on Linux), once the window has settled after its
+first frame (`App::watch_motion`, from `about_to_wait`'s settled block, so Linux's portal has
+answered before the first menu), and failing that from the first menu that could fade (the
+setting was off then); never on the first frame's path, never while nothing can move. Its reader
+is a field (`Motion::reader`), which a test replaces. `Wake::Motion` and a window gaining the focus read it again
+(`refresh`; macOS has nothing to watch). A test that wants motion takes `Motion::moving` with a
+`ManualClock`. A shot of a menu part way in (`--menu-fade-ms MS`, with `--shot` and `--menu`
+only, at most 1000 ms) animates whatever the system says, on a clock stepped 16 ms at a time
+(the animator takes a longer step for a stall): `menu-main-fade` in both themes.
+
+**The menus' fade.** `Motion::menus` asks each open menu's presence, in the group `MENUS`, by the
+popup's `serial` (a new number for every `Popup` made, so a menu opened again, or Recent replacing
+the main menu, enters again; a menu listed again in place keeps its serial). Each enters by
+`MENU` (the shared preset's decelerating curve over `MENU_IN`, 117 ms at the owner's word; both
+in `motion.rs`, the one place timings live): it fades as one thing and drops
+`MENU_DROP` (6 px) into place, rising for a menu above its anchor; a submenu enters the same way
+beside its parent. The AI menu's Modify buttons are drawn inside the same `pop`. Closing is
+instant: the popup goes, and the regions under its bounds are drawn the next frame. The word
+completion list (`PopupKind::Complete`) never fades: `fades` leaves it out, and it draws as
+before. The menu inside the notes plan card is drawn by the card and does not fade.
+
+**What a fading frame draws** (`menu_frame`). The frame that opens a menu draws as before (the
+regions under the overlays, then the overlays), and keeps the pixels under the menus' presence
+bounds in `Motion::backing` just before drawing them. A later frame in which only the menus moved
+(`MenuFrame::Alone`: no overlay changed, no region under them drawn, no other overlay shown, the
+menus where the backing was taken) puts the backing back and draws the menus over it: only their
+bounds are drawn and presented; while the backing is held, its rectangle counts as under the
+overlays, so a region drawn there is drawn whole before the menus. Any other frame while they move is `Whole`: everything under the
+overlays is drawn again and the backing taken again. The frame that sees them arrive draws them at
+rest and lets the backing go. The menus' damage is their `presence_bounds()` (the shadow, the drop
+and a device pixel), not `rect().inset(-20)`.
+
+**Frost.** The overlay painter is given the frost key (`set_frost_key`), so a menu fading over
+frosted chrome mixes with it as the compositor shows it (`Snapshot::crossfade_keyed`) instead of
+turning opaque half way. Not seen on a frosted window.

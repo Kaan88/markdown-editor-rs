@@ -74,6 +74,9 @@ shot column-cjk --light --select-column 1:3-5:9 "$fx/cjk.txt"
 shot find --light --find self "$fx/sample.rs"
 shot find-dark --dark --find ring "$fx/sample.rs"
 shot menu-main --light --menu main "$fx/sample.rs"
+# The main menu half way into its entrance (--menu-fade-ms, a shot's clock): faded and dropped.
+shot menu-main-fade --light --menu main --menu-fade-ms 40 "$fx/sample.rs"
+shot menu-main-fade-dark --dark --menu main --menu-fade-ms 40 "$fx/sample.rs"
 shot menu-recent --light --menu recent "$fx/sample.rs" "$fx/sample.md" "$fx/sample.toml"
 shot menu-tab --dark --menu tab "$fx/sample.rs" "$fx/sample.md"
 shot menu-text --light --select 9:1-10:20 --menu text "$fx/sample.rs"
@@ -215,6 +218,14 @@ shot settings-min-editor --light --size 520x360 --dialog settings --settings-sec
 shot settings-min-appearance --light --size 520x360 --dialog settings "$fx/sample.rs"
 shot settings-min-ai-rewrite-error --light --size 520x360 "${custom[@]}" --pref ai_custom_0_model=gpt-4.1-mini --ai-demo settings-error --settings-section ai-rewrite "$fx/sample.rs"
 shot settings-min-scale2 --light --size 520x360 --scale 2 --dialog settings --settings-section tabs "$fx/sample.rs"
+# The Animations switch on Appearance (the owner, 2026-11-25): off, and at the narrowest window
+# tall enough to show its row and help, in both themes. On is in settings-appearance.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    shot "settings-animations-off$t" $th --pref animations=0 --dialog settings "$fx/sample.rs"
+    shot "settings-min-animations$t" $th --size 520x560 --dialog settings "$fx/sample.rs"
+done
 
 # The AI review with a tick per change (docs/ai-library-plan.md 5.5, D-077), over the README of
 # fixtures/review-demo.md and its rewrite beside it: all ticked (the change with the long line is the current

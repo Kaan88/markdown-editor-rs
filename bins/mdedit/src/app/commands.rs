@@ -2396,6 +2396,7 @@ impl App {
             Wake::Outline => {
                 self.ui.outline.poll();
             }
+            Wake::Motion => self.motion.refresh(),
             Wake::Compare => {
                 self.compare_timer(Instant::now());
             }
@@ -2531,6 +2532,15 @@ impl App {
         // A review's tick not yet shown on the AFTER page.
         if let Some(due) = self.ai_review_due(now) {
             at(due);
+        }
+        // Something moves: the frame the animator asked for.
+        if let Some(due) = self.motion.due {
+            if now >= due {
+                self.motion.due = None;
+                self.wants_frame = true;
+            } else {
+                at(due);
+            }
         }
         if let Some(tip) = self.ui.tip.as_mut().filter(|t| !t.shown) {
             if now >= tip.due {

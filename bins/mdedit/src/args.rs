@@ -169,6 +169,9 @@ pub struct Args {
     /// `--menu-at F`: where across the text area (0 to 1) the right-click of the text menu shots
     /// lands; 0.3 when not given.
     pub menu_at: Option<f32>,
+    /// `--menu-fade-ms MS`: a `--shot` of the `--menu` this far into its entrance (0 to 1000;
+    /// more is at rest). Ignored without `--shot` and `--menu`.
+    pub menu_fade_ms: Option<u32>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
     /// `--wrap`: word wrap.
@@ -531,6 +534,7 @@ impl Args {
                     })
                 }
                 "--menu-at" => out.menu_at = checked(&a, value(&a), |v| v.parse().ok()),
+                "--menu-fade-ms" => out.menu_fade_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),

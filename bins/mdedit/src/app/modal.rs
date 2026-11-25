@@ -61,6 +61,8 @@ const BRIEF_SECS_LABEL: &str = "Shown for less than";
 pub const BRIEF_LAST: u32 = 28;
 pub const LIBRARY_DIR: u32 = 29;
 pub const LIBRARY_CHOOSE: u32 = 30;
+/// "Animations": motion on or off (the owner, 2026-11-25).
+pub const ANIMATIONS: u32 = 31;
 pub const AI_CONNECTION: u32 = 90;
 pub const AI_PROGRAM: u32 = 91;
 pub const AI_CHECK: u32 = 92;
@@ -212,6 +214,10 @@ pub fn pages(
             .help(corners::setting_help()),
         ));
     }
+    appearance.push(Item::new(
+        Row::toggle(ANIMATIONS, "Animations", prefs.animations)
+            .help("Menus fade in as they open. Off, or when the system asks for less motion, nothing moves."),
+    ));
     appearance.extend([
         Item::gap(),
         Item::new(
@@ -704,6 +710,7 @@ impl App {
             (LINE_NUMBERS, Value::Bool(on)) => p.line_numbers = on,
             (HIGHLIGHT_LINE, Value::Bool(on)) => p.highlight_line = on,
             (MINIMAP, Value::Bool(on)) => p.minimap = on,
+            (ANIMATIONS, Value::Bool(on)) => p.animations = on,
             (MINIMAP_WIDTH, Value::Number(n)) => p.minimap_width = n.max(0) as usize,
             (WORD_WRAP, Value::Bool(on)) => p.word_wrap = on,
             (RESTORE_TABS, Value::Bool(on)) => p.restore_session = on,
@@ -1527,6 +1534,7 @@ mod tests {
             PREVIEW_MODE,
             PASTE_RICH,
             BACKDROP,
+            ANIMATIONS,
         ]) {
             // The folder's button is not a row; the window rows are offered on Windows.
             let windows_only = [BACKDROP, WINDOW_CORNERS].contains(&id);
