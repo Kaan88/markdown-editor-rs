@@ -2380,13 +2380,27 @@ and V5 found a crash during the copies left files no record owned, a pasted pict
 copy failed, and a share's pictures linked wrongly.
 **Overturned by.** The owner.
 
-## D-231 · 2026-11-25 · One animator for the window; menus fade in as they open, closing is instant
+## D-231 · 2026-11-25 · The release carries its full notes as an asset for Hub
+
+**Decision.** From the next release the `publish` job copies the release text (the file the
+GitHub release body is made from) to `release-notes-<version>.md`, checks it is at most 64 KiB,
+passes `-NotesFile release-notes-<version>.md` to `tools/write-hub-txt.ps1` and uploads it as the
+seventeenth asset. `tools/write-hub-txt.ps1` is copied again from Hub at `13f418f` (fixes: the
+5.1 `-FilesJson` read, notes limited in bytes, relative paths with a space, matching the Rust
+parser). `hub.txt` keeps its one-line `notes`.
+**Why.** Hub's release-notes page fetches the full notes from the `notes.file` asset named in
+`hub.txt`, so it can show more than the one line.
+**Overturned by.** Nothing yet. Replaces nothing; it adds to D-098.
+**From.** The owner's request for Hub, 2026-11-23 (written then as a D-102 on the branch
+`hub/notes-file`, renumbered when merged); merged on the owner's word, 2026-11-25.
+
+## D-232 · 2026-11-25 · One animator for the window; menus fade in as they open, closing is instant
 
 **Decision.** mdedit takes up shared's motion (shared `main` `48eb3ce`). One `Animator` per window
 (`bins/mdedit/src/motion.rs`): `compose` begins and ends its frame, and the deadline it gives is a
 timer in `timers` that is cleared when it fires; nothing moving, no deadline, no frame. Whether
 anything moves is decided in `Motion::policy` alone: never in a shot or a test, never with the
-Animations setting off (D-232), and otherwise as the system asks (`motion_reduced`, read and
+Animations setting off (D-233), and otherwise as the system asks (`motion_reduced`, read and
 watched with `watch_motion_reduced` (called on a short helper thread, since it can wait
 up to 5 s for its hidden window) from the first menu that could fade, not at launch, and read
 again when the window gains the focus).
@@ -2404,7 +2418,7 @@ waits for a menu.
 **Overturned by.** The owner, on looking at it; or a second thing that moves, which joins the same
 animator with a group of its own.
 
-## D-232 · 2026-11-25 · An Animations setting, on by default
+## D-233 · 2026-11-25 · An Animations setting, on by default
 
 **Decision.** Settings › Appearance gains one switch, "Animations" (`animations` in
 `[preferences]`, on by default): off, every motion is instant, by the same path as a shot
@@ -2413,10 +2427,10 @@ on. One switch, no setting per kind of motion. Its help says "Menus fade in as t
 when the system asks for less motion, nothing moves." and wraps at 520 px.
 **Why.** The owner (2026-11-25, through the coordinator): "ADD one setting to mdedit:
 'Animations', a single on/off toggle in Settings, ON by default"; "One toggle only, no per-kind
-settings." D-231 had left the switch to the owner.
+settings." D-232 had left the switch to the owner.
 **Overturned by.** The owner.
 
-## D-233 · 2026-11-25 · The dependency changes of the pin at shared main 48eb3ce are accepted
+## D-234 · 2026-11-25 · The dependency changes of the pin at shared main 48eb3ce are accepted
 
 **Decision.** Moving the shared crates from `ac9fde1` to `48eb3ce` changes `Cargo.lock` by two
 things and no more: a new package `libloading 0.9.1` (registry, depends on `cfg-if` and

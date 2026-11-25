@@ -42,9 +42,10 @@ relies on: it must not be a draft or a pre-release.
 
 Check against the live release. Every record in `docs/release-log.md` has these:
 
-- the release is not a draft or pre-release and names 16 assets (15 before `hub.txt`, 1.3.0);
+- the release is not a draft or pre-release and names 17 assets (16 before `release-notes-<version>.md`,
+  15 before `hub.txt`, 1.3.0);
 - `releases/latest/download/` `mdedit-update.txt`, `mdedit-update-2.txt` and
-  `mdedit-update-macos.txt` all name the new version, and `hub.txt` (Hub's manifest, below) does;
+  `mdedit-update-macos.txt` all name the new version, and `hub.txt` (Hub's manifest, below) does, and `hub.txt`'s `notes.file` names an asset that exists;
 - every file the manifests name (the Windows exe, `mdedit-ai.exe`, `mdview-engine.exe`, the
   AppImage, both Mac zips) downloads with the SHA-256 the manifest gives;
 - the published exe's `--check-update` answers "nothing newer", and the previous version's
@@ -62,7 +63,8 @@ itself, the Mac and Linux files on a desktop.
 
 ## The files
 
-Sixteen, since 1.3.0 (`hub.txt`); fifteen before.
+Seventeen, since the release after 1.3.0 (`release-notes-<version>.md`); sixteen in 1.3.0 (`hub.txt`);
+fifteen before.
 
 | File | For |
 | --- | --- |
@@ -80,7 +82,8 @@ Sixteen, since 1.3.0 (`hub.txt`); fifteen before.
 | `mdedit-ai.exe` | The AI engine for Windows, an asset of its own; a copy is also inside the zip, the installer, the AppImage (`usr/bin`), the Linux packages (`lib/mdedit/`) and the Mac bundle. |
 | `mdview-engine.exe` | The viewer's engine for Windows, built from the pinned viewer revision. |
 | `mdedit-update-2.txt` | The format-2 manifest (below). |
-| `hub.txt` | The manifest of Hub, the owner's launcher and updater (`tools/write-hub-txt.ps1`, a copy of the script in the Hub repository, whose first line names the Hub commit it came from). Windows only: the exe, both engines and the setup, with their hashes. Written by the `publish` job after the other manifests; a release whose files it refuses fails there. Older builds never read it. |
+| `hub.txt` | The manifest of Hub, the owner's launcher and updater (`tools/write-hub-txt.ps1`, a copy of the script in the Hub repository, whose first line names the Hub commit it came from). Windows only: the exe, both engines and the setup, with their hashes. Written by the `publish` job after the other manifests; a release whose files it refuses fails there. Older builds never read it. Its `notes.file` line names the next file. |
+| `release-notes-<version>.md` | The full release text, the same file as the GitHub release body (`docs/release-notes/<version>.md` with the macOS paragraph), at most 64 KiB, for the release-notes page of Hub; named by `hub.txt`'s `notes.file`. Copied by the `publish` job from `notes/release-notes.md`. |
 
 ## The manifests
 
