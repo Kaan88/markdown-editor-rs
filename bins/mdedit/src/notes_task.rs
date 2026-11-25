@@ -157,6 +157,9 @@ pub struct Run {
     pub requests: u64,
     /// The text files the arrange request is given, by their place in the window.
     pub texts: Vec<usize>,
+    /// The plan card's renames of the copies: a picture's place in the window to its copy's file
+    /// name with its extension, set only when the owner renamed one (phase V5 honours it).
+    pub copy_names: std::collections::HashMap<usize, String>,
 }
 
 impl Run {
@@ -240,6 +243,18 @@ impl Run {
         self.batches = kept;
         self.stopped = false;
     }
+}
+
+/// The folder a picture pasted into the window is kept in, until the window closes.
+pub fn pasted_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("mdedit-pasted")
+}
+
+/// Whether `path` is a picture pasted into the window: in [`pasted_dir`], which goes with it, so
+/// it is always copied beside its note and never linked where it is.
+pub fn is_pasted(path: &std::path::Path) -> bool {
+    path.parent()
+        .is_some_and(|d| mdshared_app::paths::same_path(d, &pasted_dir()))
 }
 
 /// The batches of a run: the pictures that take part, four to a request.

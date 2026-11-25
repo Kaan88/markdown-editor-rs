@@ -1574,6 +1574,22 @@ pub fn draw_dialog(
                         },
                         run.record.group_name(),
                     ),
+                    // Write notes (phase V5), written as a Markdown run until the shared record has
+                    // a kind of its own: the pictures it copied, the group, the notes.
+                    _ if mdedit_core::notes_write::is_notes_run(&run.record) => format!(
+                        "Notes \u{00B7} {} \u{2192} {} \u{00B7} {}",
+                        match run.record.pictures.len() {
+                            0 => run.record.source_name(),
+                            1 => "1 picture".to_string(),
+                            n => format!("{n} pictures"),
+                        },
+                        run.record.group_name(),
+                        if run.record.notes.len() == 1 {
+                            "1 note".to_string()
+                        } else {
+                            format!("{} notes", run.record.notes.len())
+                        }
+                    ),
                     kind => {
                         let word = match kind {
                             mdedit_core::runs::Kind::Markdown => "Markdown",

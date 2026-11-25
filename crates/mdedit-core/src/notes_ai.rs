@@ -488,6 +488,26 @@ pub struct Compose<'a> {
 /// `![alt](pictures/<name>)`, its text under it as a quote when asked. The app writes every
 /// picture's address; nothing of the model is in one but through the name rule.
 pub fn compose(note: &Draft, c: &Compose) -> String {
+    compose_at(note, c, &|id| {
+        (c.name)(id).map(|name| Place::At(format!("{PICTURES_DIR}/{name}")))
+    })
+}
+
+/// Where the line of a picture leads, as the writer knows it once the copies are made (phase
+/// V5): [`compose`] always leads into the note's `pictures` folder; the writer also links an
+/// original where it is, and says why a picture is not shown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// The picture's path seen from the note's folder, `/` between its parts, not yet escaped:
+    /// `pictures/login-error.png`, `../../Shots/a b.png`, `file:///D:/Shots/a.png`.
+    At(String),
+    /// The picture is not shown: a line in its place says why, in these words (section 15).
+    Missing(String),
+}
+
+/// [`compose`] with each picture's place given by `place`; `None` leaves the picture out with no
+/// word, as [`compose`] does for a picture with no name.
+pub fn compose_at(note: &Draft, c: &Compose, place: &dyn Fn(usize) -> Option<Place>) -> String {
     let mut out = format!("# {}\n\n", escape_heading(&note.title));
     let mut after_picture = false;
     for part in &note.body {
@@ -498,18 +518,23 @@ pub fn compose(note: &Draft, c: &Compose) -> String {
             }
             Part::Text(t) => out.push_str(t),
             Part::Picture { id, alt } => {
-                let Some(name) = (c.name)(*id) else { continue };
+                let at = match place(*id) {
+                    None => continue,
+                    Some(Place::At(at)) => at,
+                    Some(Place::Missing(why)) => {
+                        own_line(&mut out);
+                        out.push_str(&format!("({})\n\n", escape_plain(&why)));
+                        after_picture = true;
+                        continue;
+                    }
+                };
                 let look = c.looks.iter().find(|l| l.id == *id);
                 let alt = match alt.trim() {
                     "" => look.map(|l| l.says.as_str()).unwrap_or(""),
                     a => a,
                 };
                 own_line(&mut out);
-                out.push_str(&format!(
-                    "![{}]({PICTURES_DIR}/{})\n\n",
-                    escape_alt(alt),
-                    address(&name)
-                ));
+                out.push_str(&format!("![{}]({})\n\n", escape_alt(alt), address(&at)));
                 if c.text_out
                     && let Some(l) = look.filter(|l| !l.text.trim().is_empty())
                 {
@@ -573,6 +598,26 @@ fn escape_alt(alt: &str) -> String {
                 s.push(c);
             }
             '<' => s.push_str("&lt;"),
+            c => s.push(c),
+        }
+    }
+    s
+}
+
+/// A sentence of the app's (a file's name, a reason the system gave) as a paragraph's text: one
+/// line, every character Markdown would read as a mark escaped, so a name with `*` or `[` in it
+/// reads as written and links nothing.
+fn escape_plain(text: &str) -> String {
+    let line = one_line(text, 1000);
+    let mut s = String::with_capacity(line.len());
+    for c in line.chars() {
+        match c {
+            '\\' | '`' | '*' | '_' | '[' | ']' | '!' | '#' | '~' | '|' => {
+                s.push('\\');
+                s.push(c);
+            }
+            '<' => s.push_str("&lt;"),
+            '&' => s.push_str("&amp;"),
             c => s.push(c),
         }
     }

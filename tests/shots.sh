@@ -496,6 +496,9 @@ for t in "" "-dark"; do
     # went back, and what was kept and why.
     shot "runs-undo-moved$t" $th --dialog run-undo-moved
     shot "runs-undone-moved$t" $th --dialog run-undone-moved
+    # Undo of Write notes (phase V5): its notes and the copies of its pictures go, with their
+    # lines; the question says how many of each.
+    shot "runs-undo-pictures$t" $th --dialog run-undo-pictures
     shot "runs-newer$t" $th --dialog runs-newer
 done
 
