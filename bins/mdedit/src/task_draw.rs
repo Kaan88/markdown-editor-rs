@@ -662,7 +662,51 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 None
             }
         });
-    if let Some(notice) = s.reading_line().or_else(|| s.notice.clone()).or(run_notice) {
+    if let Some(ask) = s.ask.clone() {
+        // A folder add of more than ASK_FILES files asks first, where the window says things
+        // (D-249): the question, then its two buttons. Nothing is in the window yet.
+        let bar = Rect::new(
+            g.list.x,
+            (g.list.bottom() - 32.0).max(g.list.y),
+            g.list.w,
+            32.0_f32.min(g.list.h.max(0.0)),
+        );
+        p.fill(bar, pal.popup);
+        p.fill(Rect::new(bar.x, bar.y, bar.w, p.px()), pal.popup_line);
+        if bar.h >= 16.0 {
+            let add_label = "Add them";
+            let leave_label = "Leave them out";
+            let aw = dialog_button_w(p, add_label);
+            let lw = dialog_button_w(p, leave_label);
+            let bh = 24.0_f32.min(bar.h - 6.0);
+            let by = bar.cy() - bh / 2.0;
+            let add = Rect::new(bar.right() - 8.0 - aw, by, aw, bh);
+            let leave = Rect::new(add.x - 8.0 - lw, by, lw, bh);
+            p.icon(glyph::WARN, 13.0, x + 7.0, bar.cy(), pal.muted);
+            let room = (leave.x - 12.0 - (x + 22.0)).max(0.0);
+            p.text(Face::Ui, 12.0, x + 22.0, bar.cy(), &ask, pal.text, room);
+            draw_dialog_button(
+                p,
+                pal,
+                leave,
+                leave_label,
+                true,
+                hover == Some(Hit::AskLeave),
+                pressed == Some(Hit::AskLeave),
+            );
+            draw_dialog_button(
+                p,
+                pal,
+                add,
+                add_label,
+                true,
+                hover == Some(Hit::AskAdd),
+                pressed == Some(Hit::AskAdd),
+            );
+            hits.push((Hit::AskLeave, leave));
+            hits.push((Hit::AskAdd, add));
+        }
+    } else if let Some(notice) = s.reading_line().or_else(|| s.notice.clone()).or(run_notice) {
         {
             // In a list lower than the bar, the bar keeps to the list's top: it is never drawn
             // over the rows above the list (review of the task fixes, 13).

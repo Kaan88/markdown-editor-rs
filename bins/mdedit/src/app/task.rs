@@ -217,6 +217,7 @@ impl App {
         let add = TaskAdd {
             files: paths.iter().map(|p| probe.file(p)).collect(),
             note: None,
+            ..TaskAdd::default()
         };
         self.task_add_apply(add);
     }
@@ -292,7 +293,76 @@ impl App {
             self.redraw();
             return;
         }
-        self.task_add_apply(add);
+        // More new files than the owner wants let in without a word: nothing goes in yet, and
+        // the window asks (D-249).
+        if add.files.len() > task_ui::ASK_FILES {
+            self.task_ask_show(add);
+        } else {
+            self.task_add_apply(add);
+        }
+    }
+
+    /// Holds a folder add of more than [`task_ui::ASK_FILES`] files and asks about it where the
+    /// window says things: nothing goes in until "Add them" (D-249). A second folder read while
+    /// the question stands is folded into it, once per path.
+    fn task_ask_show(&mut self, add: TaskAdd) {
+        let Some(s) = self.task.as_mut() else {
+            return;
+        };
+        let mut pending = self.task_pending.take().unwrap_or_default();
+        let mut known: HashSet<String> = pending.files.iter().map(|f| path_key(&f.path)).collect();
+        for file in add.files {
+            if known.insert(path_key(&file.path)) {
+                pending.files.push(file);
+            }
+        }
+        pending.folders += add.folders;
+        if pending.folder.is_none() {
+            pending.folder = add.folder;
+        }
+        if add.note.is_some() {
+            pending.note = add.note;
+        }
+        let what = if pending.folders > 1 {
+            format!("{} folders", pending.folders)
+        } else {
+            pending
+                .folder
+                .clone()
+                .unwrap_or_else(|| "the folder".to_string())
+        };
+        s.ask = Some(format!(
+            "Add {} files from {what}?",
+            import::group_digits(pending.files.len())
+        ));
+        s.reading = None;
+        s.tick += 1;
+        self.task_pending = Some(pending);
+        self.redraw();
+    }
+
+    /// "Add them", or Enter, on the question: the files it holds go in, all ticked, as an add
+    /// of their own does (D-249).
+    pub(super) fn task_ask_add(&mut self) {
+        let add = self.task_pending.take();
+        if let Some(s) = self.task.as_mut() {
+            s.ask = None;
+            s.tick += 1;
+        }
+        match add {
+            Some(add) => self.task_add_apply(add),
+            None => self.redraw(),
+        }
+    }
+
+    /// "Leave them out", or Esc, on the question: nothing is added, and the window stays (D-249).
+    fn task_ask_leave(&mut self) {
+        self.task_pending = None;
+        if let Some(s) = self.task.as_mut() {
+            s.ask = None;
+            s.tick += 1;
+        }
+        self.redraw();
     }
 
     /// Esc while a folder is being read stops it: nothing of it is added (D-248). True when one
@@ -515,6 +585,12 @@ impl App {
             if self.task_add_stop() {
                 return;
             }
+            // Esc on the question a big folder add asks leaves them out, and the window stays
+            // (D-249).
+            if self.task.as_ref().is_some_and(|s| s.ask.is_some()) {
+                self.task_ask_leave();
+                return;
+            }
             if self.notes_stop() {
                 return;
             }
@@ -568,6 +644,12 @@ impl App {
         // it.
         if let Some(s) = self.task.as_mut() {
             s.take_back_notice();
+        }
+        // Enter on the question adds what it holds; every other key goes where it went before, so
+        // the instruction can still be typed in (D-249).
+        if name == KeyName::Enter && self.task.as_ref().is_some_and(|s| s.ask.is_some()) {
+            self.task_ask_add();
+            return;
         }
         if let Some(s) = self.task.as_mut()
             && s.add_open
@@ -1021,6 +1103,8 @@ impl App {
             Hit::ShowSent => self.task_show_sent(),
             Hit::Primary => self.task_primary(),
             Hit::Cancel => self.task_close_asked(),
+            Hit::AskAdd => self.task_ask_add(),
+            Hit::AskLeave => self.task_ask_leave(),
             Hit::OpenSettings => self.ai_open_settings(),
             Hit::Card | Hit::Body | Hit::Track | Hit::Thumb | Hit::Popover => {}
         }
@@ -2384,12 +2468,15 @@ impl App {
         let Some(text) = self.task_request_text() else {
             return;
         };
-        // The window is parked behind the tab: a folder being read is stopped with it (D-248).
+        // The window is parked behind the tab: a folder being read is stopped with it (D-248),
+        // and a folder add waiting on its question is dropped (D-249).
         if let Some(job) = self.task_job.take() {
             job.cancel();
         }
+        self.task_pending = None;
         if let Some(s) = self.task.as_mut() {
             s.reading = None;
+            s.ask = None;
         }
         self.task_parked = self.task.take();
         let title = "What is sent";
@@ -2539,6 +2626,8 @@ impl App {
         if let Some(job) = self.task_job.take() {
             job.cancel();
         }
+        // So does a folder add waiting on its question (D-249).
+        self.task_pending = None;
         let asking = self.task.as_mut().and_then(|s| s.asking.take());
         if let Some(asking) = asking {
             self.ai.cancel_task(asking.request);
@@ -2735,6 +2824,14 @@ impl App {
                 import::group_digits(task_ui::FILES_MAX)
             ));
         }
+        if name == "files-ask" {
+            // The question a folder add of more than 200 files asks (D-249): the shots
+            // `task-files-ask` and `task-files-ask-520`.
+            s.ask = Some(format!(
+                "Add {} files from Photos?",
+                import::group_digits(1_240)
+            ));
+        }
         let review = if name == "review" {
             // The rewrite's review over the first text file, with a made-up result and no
             // engine: 5.5's list over the whole file, Apply writing in place.
@@ -2828,6 +2925,10 @@ pub(super) fn demo_plan(s: &mut TaskScreen) {
 pub(super) struct TaskAdd {
     pub(super) files: Vec<FileEntry>,
     pub(super) note: Option<String>,
+    /// How many folders the add walked, and the first one's name, as the question a big add asks
+    /// says them (D-249).
+    pub(super) folders: usize,
+    pub(super) folder: Option<String>,
 }
 
 /// What probing a file needs of the window, copied before a folder is read on its thread: the
@@ -2960,7 +3061,11 @@ pub(super) fn task_add_work(
     cancel: &dyn Fn() -> bool,
 ) -> TaskAdd {
     let known = std::cell::RefCell::new(known);
-    let mut add = TaskAdd::default();
+    let mut add = TaskAdd {
+        folders: paths.iter().filter(|p| p.is_dir()).count(),
+        folder: paths.iter().find(|p| p.is_dir()).map(|p| folder_name(p)),
+        ..TaskAdd::default()
+    };
     for path in paths {
         if cancel() {
             return TaskAdd::default();

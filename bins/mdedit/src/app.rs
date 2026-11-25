@@ -421,6 +421,9 @@ struct App {
     task_parked: Option<crate::task_ui::TaskScreen>,
     /// A folder dropped on the task window, walked and read on its own thread (D-248).
     task_job: Option<mdshared_app::job::Job<task::TaskAdd>>,
+    /// A folder add of more than `ASK_FILES` files, waiting for its question to be answered;
+    /// nothing of it is in the window yet (D-249).
+    task_pending: Option<task::TaskAdd>,
     /// The file whose split plan is open from the task window.
     task_plan: Option<usize>,
     /// A rewrite run's record, made when its first file is written.
@@ -610,6 +613,7 @@ impl App {
             task: None,
             task_parked: None,
             task_job: None,
+            task_pending: None,
             task_plan: None,
             task_record: None,
             task_seq: 0,

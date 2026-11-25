@@ -295,6 +295,9 @@ for t in "" "-dark"; do
     # D-248: the line a folder walk stopped at the window's cap says, at both widths.
     shot "task-files-stopped$t" $th --size 1280x800 --task-demo files-stopped
     shot "task-files-stopped-520$t" $th --size 520x600 --task-demo files-stopped
+    # D-249: the question a folder add of more than 200 files asks, at both widths.
+    shot "task-files-ask$t" $th --size 1280x800 --task-demo files-ask
+    shot "task-files-ask-520$t" $th --size 520x600 --task-demo files-ask
 done
 # Write notes (pictures plan, phase V3): the window with a thumbnail and what each picture is
 # sent as, its Options, while the pictures are looked at, a failed look, a model that reads no

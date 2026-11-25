@@ -557,6 +557,9 @@ pub const ADD_MAX: u64 = 8 * 1024 * 1024;
 /// The most files one folder added to the window brings in: a folder is walked whole, so a drive
 /// with a million files in it cannot fill the window (D-247).
 pub const FILES_MAX: usize = 2_000;
+/// More new files than this, and a folder add asks before anything goes in (D-249, the owner):
+/// "ask before anything is in ... otherwise ask above 200."
+pub const ASK_FILES: usize = 200;
 /// The first bytes of a text a digest sends.
 pub const DIGEST_BYTES: usize = 1200;
 /// The most a model's title takes.
@@ -678,6 +681,9 @@ pub enum Hit {
     ShowSent,
     Primary,
     Cancel,
+    /// The question a big folder add asks: add the files, or leave them out (D-249).
+    AskAdd,
+    AskLeave,
     OpenSettings,
     Track,
     Thumb,
@@ -831,6 +837,10 @@ pub struct TaskScreen {
     /// A folder being walked and read on its own thread, by its name: the window says "Reading
     /// <name>…" over the foot of the list while it runs, and Esc stops it (D-248).
     pub reading: Option<String>,
+    /// A folder add of more than [`ASK_FILES`] new files, waiting for the owner: the question
+    /// over the foot of the list, with "Add them" and "Leave them out" (D-249). The files are
+    /// held by the window and nothing has gone in yet.
+    pub ask: Option<String>,
 }
 
 /// A request in flight from the window.
@@ -905,6 +915,7 @@ impl TaskScreen {
             sent_tab: None,
             notice: None,
             reading: None,
+            ask: None,
         }
     }
 

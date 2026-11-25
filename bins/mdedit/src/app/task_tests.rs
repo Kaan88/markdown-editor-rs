@@ -2639,6 +2639,19 @@ fn a_folder_added_over_the_cap_stops_at_it_and_a_second_add_says_nothing() {
     }
     a.task_add_paths(vec![folder.clone()]);
     read_folder(&mut a);
+    // 2,000 files are more than the 200 the question is for (D-249): answer it, and the cap's
+    // line is the window's own.
+    assert_eq!(
+        a.task.as_ref().expect("open").ask.as_deref(),
+        Some(
+            format!(
+                "Add {} files from Many?",
+                mdedit_core::import::group_digits(crate::task_ui::FILES_MAX)
+            )
+            .as_str()
+        )
+    );
+    a.task_key(Some(KeyName::Enter), None);
     let note = format!(
         "Stopped at {} files; the rest of Many was left out.",
         mdedit_core::import::group_digits(crate::task_ui::FILES_MAX)
@@ -2742,5 +2755,108 @@ fn escaping_while_a_folder_is_read_stops_it_and_adds_nothing() {
     a.task_add_take();
     let s = a.task.as_ref().expect("the window stays open");
     assert!(s.files.is_empty(), "nothing of it is added");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- a big folder add asks first (D-249) -----------------------------------------------------
+
+/// A folder of `n` small text files, `prefix` in each name, made under `dir`.
+fn many(dir: &Path, name: &str, n: usize) -> PathBuf {
+    let folder = dir.join(name);
+    std::fs::create_dir_all(&folder).expect("folders");
+    for i in 0..n {
+        std::fs::write(folder.join(format!("{i:04}.md")), "# A file\n").expect("a file");
+    }
+    folder
+}
+
+/// 201 new files: nothing is in the window when the read ends; the window asks, and Enter adds
+/// them all, ticked.
+#[test]
+fn a_folder_add_of_201_files_asks_first_and_enter_adds_them() {
+    let (mut a, dir) = open("task-ask-201", TaskKind::File, Vec::new());
+    let folder = many(&dir, "Many", 201);
+    a.task_add_paths(vec![folder]);
+    read_folder(&mut a);
+    {
+        let s = a.task.as_ref().expect("the window is open");
+        assert!(s.files.is_empty(), "nothing is in before the answer");
+        assert_eq!(s.ask.as_deref(), Some("Add 201 files from Many?"));
+    }
+    a.task_key(Some(KeyName::Enter), None);
+    let s = a.task.as_ref().expect("the window is open");
+    assert_eq!(s.files.len(), 201);
+    assert!(s.files.iter().all(|f| f.ticked), "all of them are ticked");
+    assert!(s.ask.is_none(), "the question goes");
+    assert!(a.task_pending.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// "Leave them out" adds none of them, and the question goes.
+#[test]
+fn leave_them_out_on_the_question_adds_none() {
+    let (mut a, dir) = open("task-ask-leave", TaskKind::File, Vec::new());
+    let folder = many(&dir, "Many", 201);
+    a.task_add_paths(vec![folder]);
+    read_folder(&mut a);
+    assert!(a.task.as_ref().expect("open").ask.is_some());
+    a.task_act(Hit::AskLeave);
+    let s = a.task.as_ref().expect("the window stays open");
+    assert!(s.files.is_empty(), "nothing is added");
+    assert!(s.ask.is_none(), "the question goes");
+    assert!(a.task_pending.is_none(), "and nothing is kept");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Esc on the question leaves them out, and it does not close the window.
+#[test]
+fn escape_on_the_question_leaves_them_out_and_keeps_the_window() {
+    let (mut a, dir) = open("task-ask-esc", TaskKind::File, Vec::new());
+    let folder = many(&dir, "Many", 201);
+    a.task_add_paths(vec![folder]);
+    read_folder(&mut a);
+    assert!(a.task.as_ref().expect("open").ask.is_some());
+    a.task_key(Some(KeyName::Escape), None);
+    let s = a
+        .task
+        .as_ref()
+        .expect("the window stays open on the question");
+    assert!(s.files.is_empty(), "nothing is added");
+    assert!(s.ask.is_none(), "the question goes");
+    assert!(a.task_pending.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 200 new files are added at once: the question is only for more than 200.
+#[test]
+fn two_hundred_files_are_added_with_no_question() {
+    let (mut a, dir) = open("task-ask-200", TaskKind::File, Vec::new());
+    let folder = many(&dir, "Many", 200);
+    a.task_add_paths(vec![folder]);
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("the window is open");
+    assert_eq!(s.files.len(), 200);
+    assert!(s.ask.is_none(), "no question at 200");
+    assert!(a.task_pending.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Two folders in one drop ask once, with the total and the number of folders.
+#[test]
+fn two_folders_in_one_drop_ask_once_with_the_total() {
+    let (mut a, dir) = open("task-ask-two", TaskKind::File, Vec::new());
+    let one = many(&dir, "One", 120);
+    let two = many(&dir, "Two", 81);
+    a.task_add_paths(vec![one, two]);
+    read_folder(&mut a);
+    {
+        let s = a.task.as_ref().expect("the window is open");
+        assert!(s.files.is_empty(), "nothing is in before the answer");
+        assert_eq!(s.ask.as_deref(), Some("Add 201 files from 2 folders?"));
+    }
+    a.task_key(Some(KeyName::Enter), None);
+    let s = a.task.as_ref().expect("the window is open");
+    assert_eq!(s.files.len(), 201);
+    assert!(s.ask.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
