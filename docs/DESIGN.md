@@ -3714,7 +3714,10 @@ back, and a copy a kept note still leads to stays (`UndoReport::led_to`, its own
 report: "Copies kept for the notes that lead to them"). The reach is the one undo will use
 (`runs::undo_home`). The toast gives each file copied and not moved its own reason; a tab on a
 rewritten note or a moved original is read again at once. The report's rows read "Put back" and
-"changed since, or its place is taken", which fit a rewrite's undo too.
+"changed since, or its place is taken", which fit a rewrite's undo too. A file whose very bytes the
+library already holds and lists gets no copy from the run, so its original stays where it is
+(`ALREADY_LISTED`) with the picture it shows: its record could not put it back (Fable's
+re-review).
 
 Tests: `moves_copy_tests.rs` (+4), `runs_copies_tests.rs` (+6) in shared; `task_tests` (+4),
 `task_ui` (+1), `replace_ui` (+1) here. Shots `runs-undo-moved`, `runs-undone-moved`, both themes.

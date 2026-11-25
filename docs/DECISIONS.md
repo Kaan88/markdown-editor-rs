@@ -2239,3 +2239,9 @@ still leads to.
 **Why.** Each of these left a file showing or leading to nothing, wrote under an open tab, or let
 a record name any file anywhere for undo to create.
 **Overturned by.** The owner.
+
+## D-220 · 2026-11-25 · Move them in leaves an original the library already lists
+
+**Decision.** Tightens D-218 and D-219. A file of a move whose very bytes the library already holds and lists is not moved: its original stays where it is, and so does the picture it shows. The toast says "the library lists the same file already: left where it is". The rest of the run moves.
+**Why.** Fable's re-review of C2: such a file gets no copy from the run, yet its original went, and the record named a copy the record never made. `Reach::of` then refused the whole record, so no file of the run could be put back.
+**Overturned by.** The owner.

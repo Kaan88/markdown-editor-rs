@@ -2101,3 +2101,37 @@ fn a_second_split_in_the_same_window_opens_its_note() {
     assert_eq!(a.docs.tabs.len(), tabs + 1, "the second run's note opens");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Fable's re-review of C2: a move of a file the library already lists with these very bytes,
+/// beside a new one, leaves the listed one's original where it is, moves the other, and undo of
+/// the run puts the other back.
+#[test]
+fn a_move_beside_a_file_listed_already_can_be_undone() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-move-listed", TaskKind::File, Vec::new());
+    a.recycle = Box::new(crate::recycle::FolderBin::new(&dir.join("bin")));
+    let md = trip_with_picture(&dir);
+    a.task_add_paths(vec![md.clone()]);
+    with_group(&mut a, "Trips");
+    a.task_run();
+    a.task_file_write();
+    assert!(a.task.is_none(), "the copy is in: {}", toast(&a));
+    let other = dir.join("desk").join("other.md");
+    std::fs::write(&other, "# Other\n").expect("other");
+    a.task_open(TaskKind::File, vec![md.clone(), other.clone()]);
+    a.task_act(Hit::FilesGo(FilesGo::Move));
+    a.task_run();
+    a.task_file_write();
+    assert!(md.exists(), "listed already, left: {}", toast(&a));
+    assert!(!other.exists(), "moved: {}", toast(&a));
+    let library = dir.join("library");
+    let (list, _) = runs::list_all(&library);
+    let moved = list
+        .iter()
+        .find(|r| runs::load(&r.path, &library).is_some_and(|x| !x.removed.is_empty()))
+        .expect("the move's record");
+    a.run_undo(moved.path.clone());
+    assert!(other.exists(), "put back: {}", toast(&a));
+    assert!(md.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
