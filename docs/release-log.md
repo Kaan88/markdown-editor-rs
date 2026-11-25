@@ -7,6 +7,39 @@ edit an old one. How a release is cut is in `docs/RELEASE.md`.
 The sections for 0.1.0 to 1.2.1 were moved here unchanged from `docs/RELEASE.md` on 2026-11-21,
 and only put in order. There is no section for 0.5.1: the old file had none.
 
+## v1.5.0 (published 2026-11-25 by the release workflow, from the tag at commit 51d8777)
+
+Release run 45588669330, every job green; `ci` run 45583876045 on the commit passed (Linux, Windows,
+both Macs). The first `ci` run on `main` (66659e9) failed on Linux only: the Settings fit test found
+the AI tasks label "Files in one filing request" 3 px too wide at 520 px; it became "Files per
+filing request" (51d8777). Released on the owner's word ("make a new release from finished code
+1.5.0"). Release notes: `docs/release-notes/1.5.0.md`.
+
+What's in it: the whole of `docs/ai-pictures-plan.md`. Write notes from photos and screenshots
+with the AI (V1 to V5: the engine sends pictures, the run measures, looks, arranges, shows its plan
+on a card before anything is written, writes the notes and copies, and AI runs can undo it); "What
+is sent" as a card with the pictures; File them copies or moves files into the library (C1, C2);
+one "AI task…" command, the AI task from the Notes pane, what opens after a run, Settings › AI
+tasks (F, E, L, O). D-203 to D-230, DESIGN 88 to 95. The shared crates are pinned at `ac9fde1`.
+
+Before the tag: Fable reviewed every milestone until VERDICT: OK; 1003 mdedit tests on Windows;
+the budgets against the previous `main` unchanged, exe +439 KB
+(`docs/measurements/2026-11-25-write-notes.md`); the new shots looked at in both themes.
+
+Verified against the live release:
+- 16 assets, not a draft or pre-release, marked latest;
+- `mdedit-update.txt`, `mdedit-update-2.txt`, `mdedit-update-macos.txt` and `hub.txt` all name
+  1.5.0;
+- every file they name (Windows exe, `mdedit-ai.exe`, `mdview-engine.exe`, the setup, AppImage,
+  both Mac zips) downloaded with the SHA-256 the manifests name;
+- the published 1.5.0 exe's `--check-update` answered "nothing newer"; the published 1.4.0 exe's
+  answered "mdedit 1.5.0 is available".
+
+Not verified: the installer run, a 1.4.0 install updating itself, Hub reading `hub.txt` from this
+release, the Mac and Linux files on a desktop. **None of the new features was tried in a real
+window, by the owner or by me, and no picture has been sent to a real provider.** Known faults
+shipped with it are in `docs/STATE.md`.
+
 ## v1.4.0 (published 2026-11-24 by the release workflow, from the tag at commit 914f3fc)
 
 Release run 45392736079, every job green; `ci` run 45388330892 on the commit passed (Linux, Windows,

@@ -1,52 +1,42 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-25, when the pictures plan was merged into
-`main` for mdedit 1.5.0. If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-25, when mdedit 1.5.0 was released. If `git log -1`
+is newer, doubt "In hand" first.
 
 ## Released
 
-- **mdedit 1.4.0**, 2026-11-24, tag `v1.4.0` at `914f3fc`, sixteen assets. Record
-  `docs/release-log.md`, notes `docs/release-notes/1.4.0.md`. In it, since 1.3.0: the AI task
-  window **W** (D-140 to D-145, DESIGN 83); **4a**, a folder as a group of links (D-131 to D-133,
-  DESIGN 81), and **phase 4**, sorting it by AI (D-150 to D-154, DESIGN 84); **5.8**, a Markdown
-  note from a text file (D-120); **R2**, a tick per change (D-106 to D-108, DESIGN 79; the tinted
-  preview is not built); **DD**, a note dragged onto a heading (D-130, DESIGN 80); **audit 4** and
-  the review of its fixes (`docs/review-prompts/audit4/`, D-155 to D-198); a wrapped file no
-  longer reopens past its end (D-199); the closed-mdview rechecks (D-102, D-105), the library
-  pane refresh, browsing in the full preview (D-104), the delete question (D-103). Budgets against
-  1.3.0 unchanged, memory lower, exe +396 KB (`docs/measurements/2026-11-24-1.4.0-against-1.3.0.md`).
-  **The owner has tried none of it in a real window and looked at none of its shots**; released
-  on the owner's word without a hand check.
+- **mdedit 1.5.0**, 2026-11-25, tag `v1.5.0` at `51d8777`, sixteen assets. Record
+  `docs/release-log.md`, notes `docs/release-notes/1.5.0.md`. In it, since 1.4.0, the whole of
+  `docs/ai-pictures-plan.md`: **F, E, L, O** (D-203, D-211, D-214), one "AI task…" command, the
+  AI task from the Notes pane, what opens after a run, Settings › AI tasks; **C1, C2** (D-210,
+  D-215 to D-220, DESIGN 88, 89), File them copies or moves files into the library; **V1 to V5
+  and the sent card** (D-221 to D-230, DESIGN 90 to 95), Write notes from pictures with its plan
+  on a card, written with a record of shared's kind `notes` that AI runs can undo. Fable reviewed
+  every milestone until VERDICT: OK. Budgets unchanged, exe +439 KB
+  (`docs/measurements/2026-11-25-write-notes.md`). **Not tried in a real window**, by the owner or
+  by me; **no picture has been sent to a provider**; the unix fake-CLI tests of the engine run
+  only in CI; copies are written on the UI thread (up to 200 MB); the plan lives in its task
+  window (D-228), not yet "Plan ready" in the Notes pane.
 - **mdview 1.1.0**, 2026-11-24, tag `v1.1.0` at `0310e01`, fourteen assets: click to zoom a large
   diagram, the notes library, audit 4's report E (mdview `docs/HANDOFF.md`).
-- The shared crates are not released; the apps pin them by commit. **Shared's own `ci` is red on
-  Linux and macOS** (font-dependent layout tests in `mdshared-ui`, since 2026-11-23); the owner
-  said to fix it after the release. **Hub** is its own app (its `docs/STATE.md` is its record).
+- The shared crates are not released; the apps pin them by commit. Shared `main` is `294d330`:
+  `feat/anim` (motion, tokens, the new widgets) merged with `ci` green on Linux, Windows and both
+  Macs. **Hub** is its own app (its `docs/STATE.md` is its record).
 
 ## On `main`, not released
 
-- **mdedit 1.5.0**, version set, notes `docs/release-notes/1.5.0.md`; to be tagged when `ci` is
-  green. The whole of `docs/ai-pictures-plan.md` (merged from `f/ai-workflow`):
-  - **F, E, L, O** (D-203, D-211, D-214): pictures open in the system's viewer, one "AI task…"
-    command with an Add menu, the AI task from the Notes pane, what opens after a run, Settings ›
-    AI tasks; the bar's and WHERE IT GOES's fixes.
-  - **C1, C2** (D-210, D-215 to D-220, DESIGN 88, 89): File them copies the files in, or moves
-    them in with the originals to the Recycle Bin.
-  - **V1 to V5 and the sent card** (D-221 to D-230, DESIGN 90 to 95): the engine sends pictures
-    (protocol 2); Write notes measures, looks, arranges, shows its plan on a card, writes the
-    notes and copies with a record of the new shared kind `notes` that AI runs can undo; "What is
-    sent" is a card with the pictures.
-  - Fable reviewed every milestone (opencode, `claude-code/fable`) until VERDICT: OK.
-  - Budgets against `main` unchanged, exe +439 KB
-    (`docs/measurements/2026-11-25-write-notes.md`).
-  - **Not tried in a real window**, by the owner or by me: none of the above. **No picture has
-    been sent to a provider.** The unix fake-CLI tests of the engine run only in CI. Copies are
-    written on the UI thread (up to 200 MB). The plan lives in its task window (D-228), not yet
-    "Plan ready" in the Notes pane.
+- Nothing.
 
 ## In hand
 
-- Nothing. **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
+- **Motion in mdedit and mdview**, starting now that `feat/anim` is in shared `main`: shared
+  `docs/ROADMAP.md`, "Fast-tracked for the md apps" (D1 to D7, and X3, X4, L1, L3, L10, W2, W3).
+  Order (Fable's review): shared's D2, D3 first; then the menu open fade in mdview, then in mdedit
+  with the budgets measured before and after (the completion popup left out); toasts and tooltips;
+  dialogs and cards. No tab cross-fade in mdedit (memory), no sliding panes. A local mdview
+  worktree `mv-wt\menu-fade` (branch `f/menu-fade`, the pin only, nothing committed) was started
+  too early and stopped by the owner.
+- **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
 
@@ -67,10 +57,9 @@ Rewritten, not appended to. Last rewritten 2026-11-25, when the pictures plan wa
 
 ## Next
 
-1. Shared's `ci`: the layout tests that fail on Linux and macOS (the owner: "fix ci's for them
-   later").
-2. The owner's look at 1.4.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4) and whether to add the
-   viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
+1. The motion above.
+2. The owner's look at 1.4.0's and 1.5.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes
+   cards) and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
    mdview; D after R2.
 3. The closed mdview, still to be tried (first: whether it is missed with mdview 1.0.5 too).
 
