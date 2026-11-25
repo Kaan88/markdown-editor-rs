@@ -161,7 +161,72 @@ fn same_place(a: &(PathBuf, Vec<String>), b: &(PathBuf, Vec<String>)) -> bool {
         && a.1.iter().zip(&b.1).all(|(x, y)| x.eq_ignore_ascii_case(y))
 }
 
+/// The notes under `row`, as the library reads now, folded or not (pictures plan 4.2): a note's
+/// own file; for a group or a section every note under it, its subsections' too, each file
+/// once. A note whose file is gone is left out: there is nothing to read.
+pub fn notes_under(library: &Library, row: &Row) -> Vec<PathBuf> {
+    match &row.kind {
+        Kind::Note { path, missing, .. } => {
+            if *missing {
+                Vec::new()
+            } else {
+                vec![path.clone()]
+            }
+        }
+        Kind::Group | Kind::Section => {
+            let all = rows(library, &HashSet::new());
+            let Some(at) = all
+                .iter()
+                .position(|r| r.kind == row.kind && r.key == row.key)
+            else {
+                return Vec::new();
+            };
+            let depth = all[at].depth;
+            let mut seen = HashSet::new();
+            all[at + 1..]
+                .iter()
+                .take_while(|r| r.depth > depth)
+                .filter_map(|r| match &r.kind {
+                    Kind::Note {
+                        path,
+                        missing: false,
+                        ..
+                    } if seen.insert(path.clone()) => Some(path.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+        Kind::Editing => Vec::new(),
+    }
+}
+
 impl LibraryPane {
+    /// Where the notes of row `i` came from, for the task window's header (pictures plan 4.2):
+    /// "The 4 notes of Recipes › Pasta, from the Notes pane."
+    pub fn came_from(&self, i: usize, notes: usize) -> String {
+        let Some(row) = self.rows.get(i) else {
+            return String::new();
+        };
+        let group = self
+            .rows
+            .get(..=i)
+            .and_then(|rs| rs.iter().rev().find(|r| r.kind == Kind::Group))
+            .map(|r| r.label.clone())
+            .unwrap_or_default();
+        let place = match row.kind {
+            Kind::Section => std::iter::once(group)
+                .chain(row.section.iter().cloned())
+                .collect::<Vec<_>>()
+                .join(" \u{203A} "),
+            _ => group,
+        };
+        match row.kind {
+            Kind::Note { .. } => format!("{}, a note of {place}, from the Notes pane.", row.label),
+            _ if notes == 1 => format!("The one note of {place}, from the Notes pane."),
+            _ => format!("The {notes} notes of {place}, from the Notes pane."),
+        }
+    }
+
     /// Scrolls so that row `at` shows.
     pub fn reveal(&mut self, at: usize) {
         let top = at as f32 * ROW;

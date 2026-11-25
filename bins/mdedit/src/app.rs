@@ -89,6 +89,8 @@ mod input;
 #[cfg(test)]
 mod language_tests;
 mod library;
+#[cfg(test)]
+mod library_ai_tests;
 mod library_drag;
 #[cfg(test)]
 mod library_drag_tests;

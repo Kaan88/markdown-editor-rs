@@ -154,10 +154,11 @@ impl App {
         }
     }
 
-    /// `--library-demo drag`: the notes pane with a note held over another heading, for a shot.
-    /// The library is made up; nothing is read or written.
+    /// `--library-demo drag`: the notes pane with a note held over another heading, for a shot;
+    /// `ai-menu`: a section's menu open, the AI task at its head (pictures plan 4.2). The library
+    /// is made up; nothing is read or written.
     pub(super) fn library_demo(&mut self, name: &str) -> bool {
-        if name != "drag" {
+        if name != "drag" && name != "ai-menu" {
             return false;
         }
         use mdshared_app::files::FileStamp;
@@ -220,6 +221,18 @@ impl App {
         self.library_build();
         self.ui.library.focused = true;
         self.compose();
+        if name == "ai-menu" {
+            let Some(tokyo) = self.ui.library.rows.iter().position(|r| r.label == "Tokyo") else {
+                return true;
+            };
+            self.ui.library.set_cur(tokyo);
+            let (x, y) = self
+                .hit_rect(Hit::LibraryRow(tokyo))
+                .map_or((60.0, 140.0), |r| (r.x + 70.0, r.cy()));
+            self.ui.mouse = (x, y);
+            self.library_row_menu(tokyo, x, y, false);
+            return true;
+        }
         let at = |label: &str| self.ui.library.rows.iter().position(|r| r.label == label);
         let (Some(from), Some(to)) = (at("Asakusa and the river"), at("Food")) else {
             return true;

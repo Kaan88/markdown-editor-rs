@@ -507,6 +507,9 @@ pub struct TaskScreen {
     /// The Add menu is open, with these lines.
     pub add_open: bool,
     pub add_items: Vec<AddItem>,
+    /// Where the files came from, when the window was opened from a row of the Notes pane
+    /// (pictures plan 4.2); said in the header, and forgotten when a file is added.
+    pub from: Option<String>,
     pub dest_hot: Option<usize>,
     pub hover: Option<Hit>,
     pub pressed: Option<Hit>,
@@ -571,6 +574,7 @@ impl TaskScreen {
             dest_open: false,
             add_open: false,
             add_items: Vec::new(),
+            from: None,
             dest_hot: None,
             hover: None,
             pressed: None,

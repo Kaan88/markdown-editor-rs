@@ -237,11 +237,13 @@ impl App {
             return;
         }
         self.ui.library.cursor = self.ui.library.group_file(i);
-        let menu = overlays::library_row_menu(
+        let notes = crate::library_pane::notes_under(&self.docs.library, &row).len();
+        let menu = overlays::library_row_menu_with_ai(
             &row.kind,
             row.home.as_deref(),
             i,
             self.library_can_add(),
+            notes,
             x + 2.0,
             y + 2.0,
             false,
@@ -259,6 +261,7 @@ impl App {
     /// What a menu item of the pane does, to row `i`.
     pub(super) fn library_act(&mut self, op: LibAct, i: usize) {
         match op {
+            LibAct::AiTask => self.task_from_library(i),
             LibAct::NewGroup => {
                 let at = self.ui.library.rows.len();
                 let dir = self.library_dir().unwrap_or_default();

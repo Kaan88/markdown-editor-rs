@@ -2163,7 +2163,10 @@ impl App {
                 self.plan_open_active();
             }
             C::AiRuns => self.open_runs(),
-            C::AiTaskFiles => self.task_open(crate::task_ui::TaskKind::File, Vec::new()),
+            C::AiTaskFiles => match self.library_keyboard_row() {
+                Some(i) => self.task_from_library(i),
+                None => self.task_open(crate::task_ui::TaskKind::File, Vec::new()),
+            },
             C::AiTaskThisFile => {
                 let path = self
                     .docs

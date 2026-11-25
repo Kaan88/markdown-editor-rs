@@ -41,12 +41,18 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         pal.text,
         inner - 130.0,
     );
+    let under = match &s.from {
+        Some(from) => format!("{from} Read here and sent only to the provider you chose."),
+        None => "They are read here and sent only to the provider you chose. Nothing is opened \
+                 in a tab."
+            .to_string(),
+    };
     p.text(
         Face::Ui,
         12.5,
         x,
         r.y + 50.0,
-        "They are read here and sent only to the provider you chose. Nothing is opened in a tab.",
+        &under,
         pal.muted,
         inner - 130.0,
     );

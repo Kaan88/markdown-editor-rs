@@ -36,7 +36,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
   the folder over the section field; **F**, a library picture opens in the system's viewer,
   File them leaves pictures out and its links are undone from AI runs (shared `50e3401`,
   `Kind::Links`); **E**, one "AI task…" command with an Add menu, "AI task on this file…" in a
-  tab's menu only. Next: L, O, the limits as settings (D-203), then Fable's review of the
+  tab's menu only; **L**, the AI task on a note, a section or a group of the Notes pane, and
+  "AI task…" taking the keyboard's row. Next: O, the limits as settings (D-203), then Fable's review of the
   milestone. The engine side (V0 measured) is `f/ai-engine` in `md-wti-engine`. Release notes
   so far: `docs/release-notes/unreleased.md`.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.

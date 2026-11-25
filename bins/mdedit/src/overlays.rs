@@ -217,7 +217,9 @@ fn reveal_label(taken: &str) -> String {
 /// `home:` line writes it; "Clear" is offered only when there is a line to clear. `can_add` says
 /// the open file can be written under it (it has a file the library does not list yet). Nothing
 /// in it deletes a file on disk: a note or a section goes from the library file only, and
-/// "Reveal" is the way to the file.
+/// "Reveal" is the way to the file. The app shows [`library_row_menu_with_ai`]; this is its
+/// rows without the AI line, for the tests of the rest.
+#[cfg(test)]
 pub fn library_row_menu(
     kind: &Kind,
     home: Option<&str>,
@@ -227,10 +229,52 @@ pub fn library_row_menu(
     y: f32,
     align_right: bool,
 ) -> Menu<Act> {
+    Menu::new(library_row_items(kind, home, i, can_add), x, y, align_right).access_keys(true)
+}
+
+/// The same menu with "AI task on this note / these N notes…" at its head (pictures plan 4.2):
+/// `notes` is how many notes the row holds, folded or not, so what will be taken is known
+/// before the click. A row with none has the line greyed.
+#[allow(clippy::too_many_arguments)]
+pub fn library_row_menu_with_ai(
+    kind: &Kind,
+    home: Option<&str>,
+    i: usize,
+    can_add: bool,
+    notes: usize,
+    x: f32,
+    y: f32,
+    align_right: bool,
+) -> Menu<Act> {
+    let mut items = library_row_items(kind, home, i, can_add);
+    if !items.is_empty() {
+        let label = match kind {
+            Kind::Note { .. } => "AI tas&k on this note\u{2026}".to_string(),
+            _ if notes == 1 => "AI tas&k on its one note\u{2026}".to_string(),
+            _ if notes == 0 => "AI tas&k on its notes\u{2026}".to_string(),
+            _ => format!("AI tas&k on these {notes} notes\u{2026}"),
+        };
+        let mut ai = Item::new(Act::Library(crate::ui::LibAct::AiTask, i), label)
+            .icon(crate::chrome::SPARKLE)
+            .enabled(notes > 0);
+        if notes == 0 {
+            ai = ai.hint(if matches!(kind, Kind::Note { .. }) {
+                "Its file is gone"
+            } else {
+                "No note under it"
+            });
+        }
+        items[0].separator_before = true;
+        items.insert(0, ai);
+    }
+    Menu::new(items, x, y, align_right).access_keys(true)
+}
+
+fn library_row_items(kind: &Kind, home: Option<&str>, i: usize, can_add: bool) -> Vec<Item<Act>> {
     use crate::ui::LibAct as L;
     let item =
         |op: L, label: &str, icon: &'static str| Item::new(Act::Library(op, i), label).icon(icon);
-    let items = match kind {
+    match kind {
         Kind::Group => {
             // Where the notes go is a statement, not a mode: the folder is in the item when
             // there is one. `g` stays its access key, on "go".
@@ -314,8 +358,7 @@ pub fn library_row_menu(
             items
         }
         Kind::Editing => Vec::new(),
-    };
-    Menu::new(items, x, y, align_right).access_keys(true)
+    }
 }
 
 /// The notes library pane's menu for its empty space, and the Notes head's plus button.

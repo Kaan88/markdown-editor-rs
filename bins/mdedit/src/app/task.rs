@@ -98,8 +98,12 @@ impl App {
     /// Adds paths to the open window, each probed once. A path already in it is not added twice,
     /// and a folder dropped on it is walked one level.
     pub(super) fn task_add_paths(&mut self, paths: Vec<PathBuf>) {
-        if self.task.is_none() {
+        let Some(s) = self.task.as_mut() else {
             return;
+        };
+        if !paths.is_empty() {
+            // The header's "from the Notes pane" is no longer the whole of it.
+            s.from = None;
         }
         let mut fresh: Vec<FileEntry> = Vec::new();
         for path in paths {
@@ -237,6 +241,46 @@ impl App {
             out.text = Some(all);
         }
         out
+    }
+
+    /// "AI task on this note / these N notes…" (pictures plan 4.2): the window on the notes
+    /// under pane row `i`, folded or not, on Rewrite them, saying where they came from.
+    pub(super) fn task_from_library(&mut self, i: usize) {
+        let Some(row) = self.ui.library.rows.get(i).cloned() else {
+            return;
+        };
+        let notes = crate::library_pane::notes_under(&self.docs.library, &row);
+        if notes.is_empty() {
+            self.docs
+                .set_toast("There is no note under it with a file to work on.");
+            self.redraw();
+            return;
+        }
+        let from = self.ui.library.came_from(i, notes.len());
+        self.task_open(TaskKind::Rewrite, notes);
+        if self.task.as_ref().is_none_or(|s| s.asking.is_some()) {
+            return;
+        }
+        self.task_act(Hit::Kind(TaskKind::Rewrite));
+        if let Some(s) = self.task.as_mut() {
+            s.from = Some(from);
+            s.tick += 1;
+        }
+        self.redraw();
+    }
+
+    /// The row of the Notes pane the keyboard is on, when the pane has the keyboard: "AI
+    /// task…" then works on it (pictures plan 4.2).
+    pub(super) fn library_keyboard_row(&self) -> Option<usize> {
+        let pane = &self.ui.library;
+        if !(self.ui.panes.files && pane.on && pane.focused) {
+            return None;
+        }
+        pane.cur.filter(|&i| {
+            pane.rows
+                .get(i)
+                .is_some_and(|r| r.kind != crate::library_pane::Kind::Editing)
+        })
     }
 
     /// "Add…": the menu of what can be added (D-207): each open tab's file by name, the
@@ -1961,6 +2005,15 @@ impl App {
         });
         if name == "files-plan" {
             demo_plan(s);
+        }
+        if name == "files-from" {
+            // Opened from a section of the Notes pane (pictures plan 4.2): Rewrite them, and
+            // the header says where the notes came from.
+            s.task = TaskKind::Rewrite;
+            s.instruction
+                .set_text("Make the method clearer, not longer.");
+            s.from =
+                Some("The 3 notes of Recipes \u{203A} Pasta, from the Notes pane.".to_string());
         }
         if name == "files-add" {
             // The Add menu open, over made-up tabs: the one in front first and said so (D-207).

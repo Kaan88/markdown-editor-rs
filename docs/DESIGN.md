@@ -3520,3 +3520,27 @@ text before the run, the lines added, and the group's own creation when the run 
 group and it is unchanged since, the group file; it never touches the linked files, and a Links
 record that says it created a note, a folder or a picture is refused as not its own. A 4a import
 leaves the same record (`import_record`). The "AI runs" row reads "Linked · N files → Group".
+
+## 86. The AI task from a row of the Notes pane (2026-11-25, phase L)
+
+`docs/ai-pictures-plan.md` 4.2, after the owner's "clicking and using on the library should be
+possible too". **Every row's menu heads with the AI task** (`overlays::library_row_menu_with_ai`,
+its access key K): "AI task on this note…" on a note, "AI task on these N notes…" on a section or
+a group, "…its one note…" for one, greyed with "No note under it" for none ("Its file is gone"
+on a missing note). The number is counted when the menu opens. **A section or a group means
+every note under it** (`library_pane::notes_under`): the rows of the library made again with
+nothing folded, every note row deeper than it until the next row at its depth, each file once,
+missing ones left out; so a folded section takes what it holds.
+
+The line opens the window (`task_from_library`) on those notes, **on Rewrite them**, and the
+header says where they came from instead of its usual first sentence: "The 4 notes of Recipes ›
+Pasta, from the Notes pane." (`LibraryPane::came_from`; a note: "Taxes, a note of Personal, from
+the Notes pane."). The sentence is dropped once another file is added. Rows can be unticked there;
+there is no selecting in the pane (multi-select, MS, is later, D-208).
+
+**"AI task…" takes the keyboard's row** (`library_keyboard_row`): while the pane has the
+keyboard, the command works on the row the cursor is on, as its menu line would; otherwise it
+opens the window empty on File them. Nothing in the shared tree changed.
+
+Shots: `library-ai-menu` (a section's menu, the line at its head) and `task-from` (the window
+opened from a section), both themes. Tests: `app/library_ai_tests.rs`.

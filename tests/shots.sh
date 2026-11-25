@@ -254,6 +254,7 @@ for t in "" "-dark"; do
     shot "task-files$t" $th --size 1280x800 --task-demo files
     shot "task-files-plan$t" $th --size 1280x800 --task-demo files-plan
     shot "task-add$t" $th --size 1280x800 --task-demo files-add
+    shot "task-from$t" $th --size 1280x800 --task-demo files-from
     # A group with a long, deep folder and a section typed: the folder is cut from its left to
     # the room the row leaves it, never over the section field; shorter at 760 px, left out at 520.
     shot "task-dest-long$t" $th --size 1280x800 --task-demo files-long-dest
@@ -562,6 +563,7 @@ for t in "" "-dark"; do
     th=--light
     [ -n "$t" ] && th=--dark
     shot "library-drag$t" $th --library-demo drag
+    shot "library-ai-menu$t" $th --library-demo ai-menu
 done
 
 ls "$out" | wc -l

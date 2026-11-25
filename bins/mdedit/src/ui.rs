@@ -512,6 +512,8 @@ pub enum LibAct {
     Remove,
     /// Delete the library file of a group, after asking.
     DeleteFile,
+    /// "AI task on this note / these N notes…": the task window on the notes under the row.
+    AiTask,
     RevealFolder,
     Refresh,
 }

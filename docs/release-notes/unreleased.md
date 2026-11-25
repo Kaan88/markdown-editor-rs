@@ -18,6 +18,10 @@ mdedit, not yet released: the AI task window made one command with an Add menu, 
 - **A picture in the library opens in your picture viewer**, and a PDF or an office document in
   its own program, instead of as unreadable text in a tab. A program in the library is never run:
   its folder is shown.
+- **The AI task from the Notes pane.** Right-click a note, a section or a group: "AI task on
+  these 4 notes…" opens the task window on every note under it, folded or not, on Rewrite them,
+  and says where they came from. With the Notes pane in use from the keyboard, "AI task…" takes
+  the row you are on.
 - **"File them" leaves pictures out** and says why: a picture is not a note of its own.
 - **"File them" can be undone** from AI runs, like a rewrite: the links it added go, and the group
   it made, if it is unchanged.
