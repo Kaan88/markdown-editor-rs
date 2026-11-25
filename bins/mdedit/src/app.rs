@@ -113,6 +113,9 @@ mod note;
 #[cfg(test)]
 mod note_tests;
 mod notes_demo;
+mod notes_plan;
+#[cfg(test)]
+mod notes_plan_tests;
 mod notes_run;
 #[cfg(test)]
 mod notes_run_tests;
@@ -418,6 +421,8 @@ struct App {
     task_rewritten: usize,
     /// What the task window has sent, for the record.
     task_sent: mdedit_core::runs::Sent,
+    /// Write notes' plan card over the task window (phase V4), kept while the window is in front.
+    notes_plan: Option<crate::notes_plan_ui::NotesPlan>,
     /// The Recycle Bin (5.4): the system's, or in a test a bin of the test's own, so no test can
     /// reach the system's.
     recycle: Box<dyn crate::recycle::RecycleBin>,
@@ -597,6 +602,7 @@ impl App {
             task_seq: 0,
             task_rewritten: 0,
             task_sent: Default::default(),
+            notes_plan: None,
             #[cfg(not(test))]
             recycle: Box::new(crate::recycle::SystemBin),
             #[cfg(test)]
@@ -1530,9 +1536,14 @@ impl App {
             // The move card raises its tick for every change, as the plan screen does.
             self.mover.as_ref().map(|m| m.sig()),
             // The AI task window over files raises its tick for every change too.
-            self.task
-                .as_ref()
-                .map(|s| (s.tick, s.hover, s.pressed, self.ui.caret_on)),
+            self.task.as_ref().map(|s| {
+                (
+                    (s.tick, s.hover, s.pressed, self.ui.caret_on),
+                    self.notes_plan
+                        .as_ref()
+                        .map(|c| (c.shown, c.sig(self.ui.caret_on))),
+                )
+            }),
             // The Markdown note card does too.
             self.note.as_ref().map(|n| n.sig()),
             // So does the import card; the caret blinks in a scheme name being typed.
@@ -1948,7 +1959,12 @@ impl App {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
                 if let Some(s) = self.task.as_mut() {
-                    crate::task_draw::draw(c.p, &pal, s, w, h, self.ui.caret_on);
+                    match self.notes_plan.as_mut().filter(|card| card.shown) {
+                        Some(card) => {
+                            crate::notes_plan_draw::draw(c.p, &pal, card, s, w, h, self.ui.caret_on)
+                        }
+                        None => crate::task_draw::draw(c.p, &pal, s, w, h, self.ui.caret_on),
+                    }
                 }
                 if let Some(card) = self.mover.as_mut() {
                     card.draw(c.p, &pal, w, h);

@@ -1146,6 +1146,14 @@ impl TaskScreen {
         }
         match self.task {
             TaskKind::Notes => {
+                // A plan kept by Esc on its card (D-053): the button opens it again.
+                if self
+                    .notes_run
+                    .as_ref()
+                    .is_some_and(|r| r.arranged.is_some())
+                {
+                    return "Review the plan".to_string();
+                }
                 let (pictures, texts) = self.notes_parts();
                 // After a stop, the pictures looked at already do not go again.
                 let instruction = self.instruction.text();

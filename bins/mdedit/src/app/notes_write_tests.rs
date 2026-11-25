@@ -405,3 +405,23 @@ fn a_pasted_picture_is_copied_even_with_copy_off() {
     assert!(!text.contains("mdedit-pasted"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The plan card's Write button writes the plan it shows (V4 and V5 together): the card goes
+/// with the window, and the notes are where it said.
+#[test]
+fn the_cards_write_button_writes_the_notes() {
+    let (mut a, dir, _shots) = planned("notes-card-write");
+    assert!(a.notes_plan.is_some(), "the card is open on the plan");
+    a.notes_plan_act(crate::notes_plan_ui::Hit::Write);
+    assert!(a.notes_plan.is_none() && a.task.is_none(), "{}", toast(&a));
+    let notes: Vec<PathBuf> = files_under(&home(&dir))
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "md"))
+        .collect();
+    assert_eq!(notes.len(), 3, "{notes:?}");
+    assert!(
+        std::fs::read_to_string(group_file(&dir))
+            .expect("group file")
+            .contains("Shot 0")
+    );
+}

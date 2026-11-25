@@ -275,11 +275,13 @@ done
 # sent as, its Options, while the pictures are looked at, a failed look, a model that reads no
 # pictures, the limit, and the AI off. Then (pictures plan 13) the first window ever saying a
 # picture is sent whole, and "What is sent" as a card: the first look's pictures and text, the
-# arrange with no picture in it, the AI off.
+# arrange with no picture in it, the AI off. Then the plan card (phase V4): a note per room
+# in two sections with the unused picture, and the same as one note with a heading per room.
 for t in "" "-dark"; do
     th=--light
     [ -n "$t" ] && th=--dark
-    for d in notes notes-options notes-looking notes-failed notes-arrange-failed notes-no-vision notes-limit notes-off notes-first notes-sent notes-sent-arrange notes-sent-off; do
+    for d in notes notes-options notes-looking notes-failed notes-arrange-failed notes-no-vision notes-limit notes-off notes-first notes-sent notes-sent-arrange notes-sent-off \
+        notes-plan notes-plan-one; do
         shot "task-$d$t" $th --size 1280x800 --task-demo "$d"
     done
 done

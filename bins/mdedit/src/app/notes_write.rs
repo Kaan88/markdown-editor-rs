@@ -231,9 +231,10 @@ fn count(n: usize, one: &str, many: &str) -> String {
 
 impl App {
     /// Why the plan of Write notes cannot be written now, or `None` when it can: every check of
-    /// the write, asked of the disk as it is, for the card to disable its button with the reason.
-    // The plan card (phase V4, its own branch) is what calls this and `notes_write`.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// the write, asked of the disk as it is. It reads the disk, so the plan card does not ask it
+    /// each frame: its button follows `notes_plan_ui::write_blocked`, and `notes_write` asks
+    /// these checks when pressed, refusing with the reason.
+    #[cfg(test)]
     pub(super) fn notes_write_blocked(&self) -> Option<String> {
         self.notes_job().err()
     }
@@ -446,7 +447,6 @@ impl App {
     /// "Write the notes" of Write notes: the checks, then the write, then the report, the Notes
     /// pane on the first new note, that note in a tab with its preview (4.4), and the window
     /// closes. A run refused before its record writes nothing, and the window stays.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn notes_write(&mut self) {
         let job = match self.notes_job() {
             Ok(job) => job,

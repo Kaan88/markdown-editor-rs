@@ -358,10 +358,12 @@ fn looks_are_asked_again_when_what_is_asked_changes() {
     a.task_run();
     wait(&mut a, |a| arranged(a).is_some());
     let before = a.task_sent.requests;
-    if let Some(s) = a.task.as_mut() {
-        s.notes.text_out = true;
-        assert_eq!(s.primary_label(), "Send 2 pictures");
-    }
+    // Ticking the option drops the plan, as any change of option does.
+    a.notes_option(Some(crate::notes_task::Tick::TextOut), None);
+    assert_eq!(
+        a.task.as_ref().expect("open").primary_label(),
+        "Send 2 pictures"
+    );
     a.task_run();
     wait(&mut a, |a| arranged(a).is_some());
     assert_eq!(a.task_sent.requests, before + 2, "a look and the arrange");
@@ -374,6 +376,8 @@ fn the_button_counts_only_the_pictures_still_to_look_at() {
     wait(&mut a, measured);
     a.task_run();
     wait(&mut a, |a| arranged(a).is_some());
+    // The plan is thrown away; the looks stay, but one.
+    a.notes_plan_discard();
     let s = a.task.as_mut().expect("open");
     if let Some(run) = s.notes_run.as_mut() {
         run.looks.retain(|l| l.id != 4);
