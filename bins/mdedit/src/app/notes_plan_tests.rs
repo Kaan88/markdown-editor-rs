@@ -578,3 +578,22 @@ fn a_group_not_yet_made_blocks_the_write() {
     let c = a.notes_plan.as_ref().expect("card");
     assert!(crate::notes_plan_ui::write_blocked(s, c).is_some());
 }
+
+/// Review of the task fixes, 6: a key taken after Cancel's warning takes the warning back, and
+/// the next Cancel warns again rather than throwing the plan away unwarned.
+#[test]
+fn a_key_after_the_kept_plan_warning_makes_cancel_warn_again() {
+    let mut a = two_pictures_planned("notes-plan-close-again", "Rooms");
+    a.notes_plan_act(Hit::Back);
+    a.task_act(crate::task_ui::Hit::Cancel);
+    assert!(a.task.as_ref().is_some_and(|s| s.notice.is_some()));
+    a.task_key(Some(crate::keys::KeyName::Down), None);
+    assert!(
+        a.task.as_ref().is_some_and(|s| s.notice.is_none()),
+        "taken back"
+    );
+    a.task_act(crate::task_ui::Hit::Cancel);
+    assert!(a.task.is_some(), "Cancel warns again");
+    a.task_act(crate::task_ui::Hit::Cancel);
+    assert!(a.task.is_none(), "and the next closes");
+}

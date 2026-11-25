@@ -615,6 +615,9 @@ pub struct FileReview {
     /// What the window had sent when the answer came: the record of a review applied after its
     /// window closed says it.
     pub sent: mdedit_core::runs::Sent,
+    /// The window it came from is open or parked: Back returns to it. A review kept from a
+    /// window since closed has no Back (review of the task fixes, 1).
+    pub back: bool,
 }
 
 // One panel is open at a time, kept in an `Option` in `Ai`: boxing the review would only add a

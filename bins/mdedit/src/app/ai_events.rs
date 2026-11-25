@@ -902,6 +902,7 @@ impl App {
         self.docs.ai_kept = false;
         self.close_for_ai_panel();
         self.ai.panel = Some(Panel::Review(rv));
+        self.task_review_back_sync();
         self.ai_review_sync();
         self.caret_reset();
         self.ai.tick += 1;

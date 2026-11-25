@@ -55,18 +55,9 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     let under = match &s.from {
         Some(from) => format!("{from} Read here and sent only to the provider you chose."),
         // The window opens none of them in a tab; other tabs may well be open (finding 17).
-        None => "The files are read where they are, and sent only to the provider you chose."
-            .to_string(),
+        None => task_ui::HEADER_UNDER.to_string(),
     };
-    p.text(
-        Face::Ui,
-        12.5,
-        x,
-        r.y + 50.0,
-        &under,
-        pal.muted,
-        inner - 130.0,
-    );
+    // The line under the title is drawn with the footer's link, which may take its room.
     let add_w = dialog_button_w(p, "Add files\u{2026}");
     let add = Rect::new(r.right() - PAD - add_w, r.y + 19.0, add_w, 30.0);
     draw_dialog_button(
@@ -93,6 +84,17 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         labels = TaskKind::ALL
             .iter()
             .map(|k| k.label().trim_end_matches(" them"))
+            .collect();
+    }
+    // Narrower still (520 px), "Write notes" is "Notes", so "Move" keeps its padding (review of
+    // the task fixes, 12).
+    if switch_width(p, &labels) + files_need > inner {
+        labels = TaskKind::ALL
+            .iter()
+            .map(|k| match k {
+                TaskKind::Notes => "Notes",
+                k => k.label().trim_end_matches(" them"),
+            })
             .collect();
     }
     let sw_w = switch_width(p, &labels).min(inner);
@@ -206,15 +208,21 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     );
     let list = Rect::new(prompts.x, prompts.y + 16.0, prompts.w, prompts.h - 16.0);
     if s.prompts.is_empty() {
-        p.text(
-            Face::Ui,
-            12.0,
-            x,
-            list.cy(),
-            &task_ui::prompts_empty(s.task),
-            pal.faint,
-            inner,
-        );
+        // Right under its label, and on a second line in a narrow window rather than cut.
+        let text = task_ui::prompts_empty(s.task);
+        let rows = crate::hunks_ui::wrap(&text, inner, &mut |t| p.measure(Face::Ui, 12.0, t));
+        for (k, row) in rows.into_iter().take(2).enumerate() {
+            let line = text.get(row).unwrap_or("").trim();
+            p.text(
+                Face::Ui,
+                12.0,
+                x,
+                list.y + 12.0 + k as f32 * 18.0,
+                line,
+                pal.faint,
+                inner,
+            );
+        }
     } else {
         let content = s.prompts.len() as f32 * task_ui::PROMPT_ROW;
         s.prompt_scroll = s.prompt_scroll.clamp(0.0, (content - list.h).max(0.0));
@@ -551,7 +559,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                             None => format!("in {}", f.sections.join(" \u{203A} ")),
                         }
                     } else if s.planned && !s.was_sent(*i) {
-                        "unticked: not sent".to_string()
+                        s.left_out_note().to_string()
                     } else if s.planned {
                         "not placed".to_string()
                     } else if f.done {
@@ -656,7 +664,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 Some(format!(
                     "Request {} of {} failed: {why} What was looked at is kept.",
                     b + 1,
-                    run.batches.len()
+                    s.notes_run_requests(run)
                 ))
             } else {
                 None
@@ -664,7 +672,14 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         });
     if let Some(notice) = s.notice.clone().or(run_notice) {
         {
-            let bar = Rect::new(g.list.x, g.list.bottom() - 32.0, g.list.w, 32.0);
+            // In a list lower than the bar, the bar keeps to the list's top: it is never drawn
+            // over the rows above the list (review of the task fixes, 13).
+            let bar = Rect::new(
+                g.list.x,
+                (g.list.bottom() - 32.0).max(g.list.y),
+                g.list.w,
+                32.0_f32.min(g.list.h.max(0.0)),
+            );
             p.fill(bar, pal.popup);
             p.fill(Rect::new(bar.x, bar.y, bar.w, p.px()), pal.popup_line);
             p.icon(glyph::WARN, 13.0, x + 7.0, bar.cy(), pal.muted);
@@ -731,7 +746,9 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     } else {
         draw_dialog_button_disabled(p, pal, primary, &label, true);
         if !ai_off && s.blocked.is_none() {
-            // Off: a click says why in the window, as the footer does already.
+            // Off, it still takes a click: on the plan face the click says in the window what is
+            // missing (a group, a placed file); with no file it does nothing. The footer says
+            // why either way.
             hits.push((Hit::Primary, primary));
         }
     }
@@ -819,6 +836,31 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         link.w,
     );
     hits.push((Hit::ShowSent, link));
+    // The line under the title, up to the link when the link is in the header, else up to Add…;
+    // in words short enough to be read whole when the long ones would be cut (review of the
+    // task fixes, 12).
+    let under_room = if in_footer {
+        add.x - x - 12.0
+    } else {
+        link.x - x - 4.0
+    }
+    .max(0.0);
+    let under = if s.from.is_none() {
+        let shorter = [
+            under.as_str(),
+            "Read where they are, sent only to your provider.",
+            "Sent only to the provider you chose.",
+            "Sent only to your provider.",
+        ];
+        shorter
+            .iter()
+            .find(|t| p.measure(Face::Ui, 12.5, t) <= under_room)
+            .or(shorter.last())
+            .map_or_else(String::new, |t| t.to_string())
+    } else {
+        under
+    };
+    p.text(Face::Ui, 12.5, x, r.y + 50.0, &under, pal.muted, under_room);
     // What goes and what it costs, and why it cannot, at the left.
     let room = if in_footer {
         (link.x - x - 12.0).max(0.0)
@@ -834,12 +876,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     } else if fault.is_some() {
         "Choose a model that reads pictures in Settings \u{203A} AI.".to_string()
     } else if let Some(run) = failed {
-        let (b, _) = &run.failed[0];
-        format!(
-            "Request {} of {} failed. Try it again, or go on without it.",
-            b + 1,
-            run.batches.len()
-        )
+        s.notes_failed_note(run)
     } else if let Some(why) = notes_blocked.as_ref().filter(|_| s.ai_on) {
         why.clone()
     } else if notes && s.ai_on && s.notes_parts().0.is_empty() {

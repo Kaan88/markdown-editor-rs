@@ -39,19 +39,34 @@ impl App {
         self.redraw();
     }
 
-    /// Settings closed while the window was open behind it: the connection, its name and the
-    /// limits are read again, and the pictures measured if the AI is on now.
+    /// Settings closed while the window was open behind it: the connection, its name, the
+    /// limits and the saved prompts are read again, a text file kept without its text read
+    /// again if the largest rewrite changed, and the pictures measured if the AI is on now.
     pub(super) fn task_settings_closed(&mut self) {
-        if self.task.is_none() {
+        let Some(before) = self.task.as_ref().map(|s| s.limits.rewrite_bytes) else {
             return;
-        }
+        };
+        self.ai_load_prompts();
         let on = self.ai_conn() != Connection::Off;
         let via = self.ai_via();
+        let limits = task_ui::Limits::of(&self.docs.prefs);
         if let Some(s) = self.task.as_mut() {
             s.ai_on = on;
             s.via = via;
             s.blocked = None;
+            s.prompts = s.task.prompts_of(
+                &self.docs.ai_notes_prompts,
+                &self.docs.ai_file_prompts,
+                &self.docs.ai_split_prompts,
+                &self.docs.ai_prompts,
+            );
+            if s.prompt_sel.is_some_and(|k| k >= s.prompts.len()) {
+                s.prompt_sel = None;
+            }
+            s.prompt_scroll = 0.0;
+            s.limits = limits;
         }
+        self.task_read_again(before);
         self.task_finish_open();
     }
 
@@ -511,8 +526,7 @@ impl App {
             if leave {
                 if let Some(s) = self.task.as_mut() {
                     s.focus = Focus::None;
-                    s.esc_warned = false;
-                    s.notice = None;
+                    s.take_back_notice();
                     s.tick += 1;
                 }
                 self.redraw();
@@ -534,13 +548,10 @@ impl App {
             self.task_close_asked();
             return;
         }
-        // Any other key takes back what the window said, and Esc's warning with it.
-        if let Some(s) = self.task.as_mut()
-            && (s.notice.is_some() || s.esc_warned)
-        {
-            s.notice = None;
-            s.esc_warned = false;
-            s.tick += 1;
+        // Any other key takes back what the window said, and Esc's and Cancel's warnings with
+        // it.
+        if let Some(s) = self.task.as_mut() {
+            s.take_back_notice();
         }
         if let Some(s) = self.task.as_mut()
             && s.add_open
@@ -590,6 +601,15 @@ impl App {
             let focus = self.task.as_ref().map(|s| s.focus);
             if focus == Some(Focus::NewGroup) {
                 self.task_new_group_commit();
+            } else if focus == Some(Focus::None) {
+                // Out of the fields Enter runs nothing: it puts the keyboard back in the
+                // instruction, where the next Enter runs the task as it always did.
+                if let Some(s) = self.task.as_mut() {
+                    s.focus = Focus::Instruction;
+                    s.tick += 1;
+                }
+                self.caret_reset();
+                self.redraw();
             } else {
                 self.task_run();
             }
@@ -611,8 +631,18 @@ impl App {
                     f.handle_key(&name, mods, typed, true);
                 }
             }
-            // Esc left the fields: a click or Tab puts the keyboard in one again.
-            Focus::None => {}
+            // Esc left the fields: a click or Tab puts the keyboard in one again, and so does a
+            // character typed, which goes into the instruction (review of the task fixes, 16).
+            Focus::None => {
+                let printable =
+                    typed.is_some_and(|t| !t.is_empty() && !t.chars().any(char::is_control));
+                if printable && !mods.ctrl && !mods.alt {
+                    s.focus = Focus::Instruction;
+                    if s.instruction.handle_key(&name, mods, typed, true) == Some(true) {
+                        s.prompt_sel = None;
+                    }
+                }
+            }
         }
         self.caret_reset();
         self.redraw();
@@ -813,13 +843,12 @@ impl App {
         // While a request is out the window takes no key that changes what it asked about, and
         // no click either: the task, the files, the prompt and the group stay as they were sent
         // (audit 4, B5). Stop, Cancel and the scrollbars still work.
-        // A click takes back what the window said, and Esc's warning with it.
-        if let Some(s) = self.task.as_mut()
-            && (s.notice.is_some() || s.esc_warned)
-        {
-            s.notice = None;
-            s.esc_warned = false;
-            s.tick += 1;
+        // A click takes back what the window said, and Esc's warning with it; a click on
+        // anything but Cancel takes back Cancel's warning too, so the next Cancel warns again.
+        if let Some(s) = self.task.as_mut() {
+            let close_warned = s.close_warned && hit == Hit::Cancel;
+            s.take_back_notice();
+            s.close_warned = close_warned;
         }
         let asking = self.task.as_ref().is_some_and(|s| s.busy());
         if asking
@@ -1042,13 +1071,15 @@ impl App {
         let count = s.count();
         let empty = s.instruction.text().trim().is_empty();
         let id = s.id;
+        let label = s.primary_label();
         // A kept review is shown again: while the window is open, AI › Show the last result
         // cannot be reached (audit 4, B10). The run goes on once it is answered.
         if let Some(kept) = self.ai.kept.as_ref() {
             if kept.file.as_ref().is_none_or(|fr| fr.window != id) {
-                self.docs.set_toast(
-                    "A review was kept from before: Apply, Copy result or Discard it, then Run.",
-                );
+                self.docs.set_toast(&format!(
+                    "A review was kept from before: Apply, Copy result or Discard it, then \
+                     press “{label}” again."
+                ));
             }
             self.ai_show_kept();
             return;
@@ -1094,7 +1125,7 @@ impl App {
         self.redraw();
     }
 
-    /// "Run on N files": "File them"'s batches, one request at a time, in order.
+    /// "Make the plan for N files": "File them"'s batches, one request at a time, in order.
     fn task_file_start(&mut self) {
         let Some(s) = self.task.as_mut() else { return };
         let ids = s.taking_part();
@@ -1890,6 +1921,7 @@ impl App {
                 eol,
                 instruction,
                 sent,
+                back: true,
             }),
         }));
         if preview {
@@ -2090,13 +2122,43 @@ impl App {
         self.task_review_left(&fr);
     }
 
+    /// A file review shown again ("AI: Show the last result") has Back only while the window it
+    /// came from is still open or parked (review of the task fixes, 1).
+    pub(super) fn task_review_back_sync(&mut self) {
+        let window = |s: &TaskScreen, fr: &FileReview| {
+            s.id == fr.window && s.files.get(fr.index).is_some_and(|f| f.path == fr.path)
+        };
+        let Some(Panel::Review(rv)) = self.ai.panel.as_ref() else {
+            return;
+        };
+        let Some(fr) = rv.file.as_ref() else { return };
+        let back = self.task.as_ref().is_some_and(|s| window(s, fr))
+            || self.task_parked.as_ref().is_some_and(|s| window(s, fr));
+        if let Some(Panel::Review(rv)) = self.ai.panel.as_mut()
+            && let Some(fr) = rv.file.as_mut()
+        {
+            fr.back = back;
+        }
+    }
+
     /// Back on a rewrite's review: the review goes, nothing is written, and the window is shown
-    /// as it was, the file still ticked; the run waits for Run (the hand-driven run, finding 4).
+    /// as it was, the file still ticked; the run waits for its button (the hand-driven run,
+    /// finding 4). With the window since closed there is nothing to go back to: the review
+    /// stays, and says so.
     pub(super) fn task_review_back(&mut self) {
+        self.task_review_back_sync();
         let Some(Panel::Review(rv)) = self.ai.panel.as_ref() else {
             return;
         };
         let Some(fr) = rv.file.clone() else { return };
+        if !fr.back {
+            self.docs.set_toast(
+                "The task window this file was in is closed, so there is nothing to go back to. \
+                 Apply, Copy result or Discard this result.",
+            );
+            self.redraw();
+            return;
+        }
         let name = fr
             .path
             .file_name()
@@ -2106,8 +2168,9 @@ impl App {
         self.ai.tick += 1;
         if let Some(s) = self.task_window_of(&fr) {
             s.notice = Some(format!(
-                "{name} was not rewritten. Run asks for it again; the files rewritten before it \
-                 stay so."
+                "{name} was not rewritten. “{}” asks for it again; the files rewritten before it \
+                 stay so.",
+                s.primary_label()
             ));
             s.tick += 1;
         }
@@ -2181,6 +2244,7 @@ impl App {
         }
         self.task_rewritten = 0;
         self.task_sent = Sent::default();
+        self.task_remember_kind();
         self.task = None;
         self.task_parked = None;
         self.task_plan = None;
@@ -2282,14 +2346,16 @@ impl App {
         self.task_sent_tab();
     }
 
-    /// A tab closed: the one "Show what is sent" opened brings its window back.
-    pub(super) fn task_sent_tab_closed(&mut self, id: u64) {
+    /// Tabs closed, by Close, Close others or Close all: when the one "Show what is sent" opened
+    /// is gone, its window comes back.
+    pub(super) fn task_sent_tab_closed(&mut self) {
         let ours = self.task.is_none()
             && self.task_plan.is_none()
             && self
                 .task_parked
                 .as_ref()
-                .is_some_and(|t| t.sent_tab == Some(id));
+                .and_then(|t| t.sent_tab)
+                .is_some_and(|id| self.docs.index_of_id(id).is_none());
         if ours {
             let kind = self.task_parked.as_ref().map_or(TaskKind::File, |t| t.task);
             self.task_open(kind, Vec::new());
@@ -2431,8 +2497,9 @@ impl App {
 
     /// Escape, Cancel, or the end of a task: the window goes, a request with it. A rewrite's
     /// record stays, closed as done, so what was written can be undone.
-    pub(super) fn task_close(&mut self) {
-        // "AI task…" opens next on the task this window closes on (finding 10).
+    /// "AI task…" opens next on the task this window closes on (finding 10), however it closes:
+    /// Cancel, Esc, or a rewrite run that ends.
+    fn task_remember_kind(&mut self) {
         if let Some(kind) = self.task.as_ref().map(|s| s.task.pref())
             && self.docs.prefs.ai_task != kind
         {
@@ -2440,6 +2507,10 @@ impl App {
             p.ai_task = kind;
             self.set_prefs(p);
         }
+    }
+
+    pub(super) fn task_close(&mut self) {
+        self.task_remember_kind();
         self.notes_close();
         let asking = self.task.as_mut().and_then(|s| s.asking.take());
         if let Some(asking) = asking {
@@ -2685,12 +2756,18 @@ impl App {
                     eol,
                     instruction,
                     sent: Sent::default(),
+                    back: true,
                 }),
             }));
             self.ai.tick += 1;
         }
         if name == "sent" {
             self.task_show_sent();
+        }
+        if name == "files-settings" {
+            // "Open AI settings" from the window: Settings in front, the window hidden behind
+            // it until Settings closes (the hand-driven run, finding 1).
+            self.ai_open_settings();
         }
         self.redraw();
         true

@@ -672,3 +672,43 @@ fn the_requests_answered_and_failed_are_counted_apart() {
     assert_eq!((run.answers, run.failures), (1, 1));
     assert_eq!(run.requests, 2);
 }
+
+/// Review of the task fixes, 3: after a failed look the footer offers going on only when there
+/// is something to go on with, and numbers the request out of the run's requests as the summary
+/// counts them (the look and the arrange).
+#[test]
+fn a_failed_look_with_nothing_to_go_on_with_offers_only_trying_again() {
+    let (mut a, dir) = window("notes-failed-note", true, 0, "p");
+    let only = dir.join("LOOKFAIL.png");
+    std::fs::write(&only, b"x").expect("picture");
+    a.task_add_paths(vec![only]);
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let run = run_of(&a);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.notes_run_requests(&run), 2, "one look and the arrange");
+    assert_eq!(
+        s.notes_failed_note(&run),
+        "Request 1 of 2 failed. Try it again."
+    );
+}
+
+/// The same with a picture looked at: going on is offered.
+#[test]
+fn a_failed_look_beside_one_answered_offers_going_on() {
+    let (mut a, dir) = window("notes-failed-note-go", true, 4, "ok");
+    let late = dir.join("LOOKFAIL.png");
+    std::fs::write(&late, b"x").expect("picture");
+    a.task_add_paths(vec![late]);
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let run = run_of(&a);
+    let s = a.task.as_ref().expect("open");
+    assert!(run.can_go_on());
+    assert_eq!(
+        s.notes_failed_note(&run),
+        "Request 2 of 3 failed. Try it again, or go on without it."
+    );
+}

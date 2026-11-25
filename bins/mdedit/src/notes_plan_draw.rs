@@ -638,18 +638,8 @@ fn draw_footer(
     };
     let line2 = if !line2.is_empty() {
         line2
-    } else if s.ai_on && run.answers > 0 {
-        let failed = match run.failures {
-            0 => String::new(),
-            n => format!(", {n} failed"),
-        };
-        format!(
-            "{} answered {}{failed}. Your pictures and files are not moved or changed.",
-            s.via.split(" \u{00B7} ").next().unwrap_or(&s.via),
-            ui::count(run.answers as usize, "request", "requests")
-        )
     } else {
-        "Made here, with no request. Your pictures and files are not moved or changed.".to_string()
+        answered_line(&s.via, s.ai_on, run.answers, run.failures)
     };
     p.text(
         Face::Semibold,
@@ -786,4 +776,43 @@ fn draw_thumb(p: &mut Painter, pal: &Palette, r: Rect, thumb: Option<&(Vec<u8>, 
         ih,
     );
     p.blit(&bmp, 0, dh, x0, y0);
+}
+
+/// The footer's second line when nothing else is said: the requests the provider answered, and
+/// apart from them those that failed (the hand-driven run, finding 19); or that the plan was
+/// made here.
+pub fn answered_line(via: &str, ai_on: bool, answers: u64, failures: u64) -> String {
+    if !ai_on || answers == 0 {
+        return "Made here, with no request. Your pictures and files are not moved or changed."
+            .to_string();
+    }
+    let failed = match failures {
+        0 => String::new(),
+        n => format!(", {n} failed"),
+    };
+    format!(
+        "{} answered {}{failed}. Your pictures and files are not moved or changed.",
+        via.split(" \u{00B7} ").next().unwrap_or(via),
+        ui::count(answers as usize, "request", "requests")
+    )
+}
+
+#[cfg(test)]
+mod footer_tests {
+    use super::answered_line;
+
+    #[test]
+    fn the_footer_counts_the_answered_and_the_failed_apart() {
+        let via = "Claude API \u{00B7} Claude Sonnet 5.5";
+        assert_eq!(
+            answered_line(via, true, 3, 0),
+            "Claude API answered 3 requests. Your pictures and files are not moved or changed."
+        );
+        assert_eq!(
+            answered_line(via, true, 1, 2),
+            "Claude API answered 1 request, 2 failed. Your pictures and files are not moved or \
+             changed."
+        );
+        assert!(answered_line(via, false, 3, 0).starts_with("Made here"));
+    }
 }

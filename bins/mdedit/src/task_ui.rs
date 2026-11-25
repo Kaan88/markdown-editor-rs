@@ -514,6 +514,10 @@ pub fn prompts_empty(task: TaskKind) -> String {
 
 /// Why "Add N to the library" cannot be pressed with no group chosen.
 pub const CHOOSE_GROUP: &str = "Choose the group the files go to first.";
+/// The line under the title: what is read and where it goes. The window opens none of the files
+/// in a tab; other tabs may well be open (finding 17).
+pub const HEADER_UNDER: &str =
+    "The files are read where they are, and sent only to the provider you chose.";
 
 /// What the footer says when Rewrite them is run with nothing in the box (audit 4, B14).
 pub const REWRITE_NEEDS_INSTRUCTION: &str =
@@ -929,12 +933,28 @@ impl TaskScreen {
         if !self.instruction.text().trim().is_empty() {
             parts.push("the instruction".to_string());
         }
-        let what = if parts.is_empty() {
-            "what is typed in it".to_string()
-        } else {
-            parts.join(" and ")
-        };
-        format!("Esc again closes the window, and {what} in it go with it.")
+        match parts.len() {
+            0 => "Esc again closes the window, and what is typed in it goes with it.".to_string(),
+            1 if self.files.len() <= 1 => format!(
+                "Esc again closes the window, and {} in it goes with it.",
+                parts[0]
+            ),
+            _ => format!(
+                "Esc again closes the window, and {} in it go with it.",
+                parts.join(" and ")
+            ),
+        }
+    }
+
+    /// Takes back what the window said, Esc's warning and the kept plan's with it: the next
+    /// Esc or Cancel warns again before it closes.
+    pub fn take_back_notice(&mut self) {
+        if self.notice.is_some() || self.esc_warned || self.close_warned {
+            self.notice = None;
+            self.esc_warned = false;
+            self.close_warned = false;
+            self.tick += 1;
+        }
     }
 
     /// The text field the keyboard is in, when there is one.
@@ -1043,6 +1063,44 @@ impl TaskScreen {
             }
         } else {
             "Tick a file to take part, or add one with Add\u{2026}.".to_string()
+        }
+    }
+
+    /// The requests a run of Write notes makes, its looks and its arrange, as the footer's
+    /// summary counts them: a failed request is numbered out of the same count.
+    pub fn notes_run_requests(&self, run: &crate::notes_task::Run) -> usize {
+        let (pictures, texts) = self.notes_parts();
+        run.batches.len()
+            + usize::from(crate::notes_task::arranges(
+                pictures.len(),
+                texts.len(),
+                self.notes.how_many,
+            ))
+    }
+
+    /// The footer's line after a look failed: going on is offered only when there is something
+    /// to go on with (review of the task fixes, 3).
+    pub fn notes_failed_note(&self, run: &crate::notes_task::Run) -> String {
+        let b = run.failed.first().map_or(0, |(b, _)| *b);
+        let of = format!(
+            "Request {} of {} failed.",
+            b + 1,
+            self.notes_run_requests(run)
+        );
+        if run.can_go_on() {
+            format!("{of} Try it again, or go on without it.")
+        } else {
+            format!("{of} Try it again.")
+        }
+    }
+
+    /// The row of a file the plan face left out because it was unticked: with the AI off
+    /// nothing is sent, so it says only that it was unticked (review of the task fixes, 14).
+    pub fn left_out_note(&self) -> &'static str {
+        if self.ai_on {
+            "unticked: not sent"
+        } else {
+            "unticked"
         }
     }
 

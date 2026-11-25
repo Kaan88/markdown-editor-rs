@@ -1135,6 +1135,18 @@ preview_mode= MDVIEW
         assert_eq!(Prefs::parse(&q.serialize()).ai_files, FilesGo::Link);
     }
 
+    /// D-244: the task "AI task…" opens on is read back as written, whatever its case; a value
+    /// that is not one is File them, the first time's.
+    #[test]
+    fn the_last_task_reads_back_and_a_value_that_is_not_one_is_file_them() {
+        let p = Prefs::parse("[preferences]\nai_task=Split\n");
+        assert_eq!(p.ai_task, AiTask::Split);
+        for odd in ["nonsense", "", "rewrite them", "3"] {
+            let p = Prefs::parse(&format!("[preferences]\nai_task={odd}\n"));
+            assert_eq!(p.ai_task, AiTask::File, "{odd:?}");
+        }
+    }
+
     /// D-211 and D-203: what opens after a run, and the task window's limits, are read back as
     /// written, put in their ranges, and a value that is not one is the default.
     #[test]

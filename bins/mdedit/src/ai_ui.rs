@@ -585,7 +585,7 @@ fn review(
     };
     // A file of the task window: Back to it, with nothing written (the hand-driven run,
     // finding 4). Discard leaves the file and goes on with the next.
-    if rv.file.is_some() {
+    if rv.file.as_ref().is_some_and(|f| f.back) {
         buttons.push(("Back".into(), Hit::Back));
     }
     for (k, (label, hit)) in buttons.into_iter().enumerate() {

@@ -2168,6 +2168,18 @@ fn settings_opened_from_the_window_is_in_front_and_the_window_comes_back() {
     a.task_act(Hit::OpenSettings);
     assert!(a.ui.settings.is_some(), "Settings opens");
     assert!(!a.task_is_open(), "the window is not in front of it");
+    // Nothing of the window is drawn while Settings is open: the same pixels as Settings with
+    // no window at all (review of the task fixes, 2).
+    a.compose();
+    let with = a.screen.pixels.to_vec();
+    let kept = a.task.take();
+    a.compose();
+    let without = a.screen.pixels.to_vec();
+    a.task = kept;
+    assert!(
+        with == without,
+        "the window is not drawn over or under Settings"
+    );
     a.pointer_moved(x, y);
     assert_eq!(
         a.task.as_ref().expect("kept").hover,
@@ -2324,5 +2336,234 @@ fn add_to_the_library_with_no_group_is_off_with_the_reason() {
     assert_eq!(
         s.primary_blocked().as_deref(),
         Some(crate::task_ui::CHOOSE_GROUP)
+    );
+}
+
+/// Review of the task fixes, 1: a review kept from a window since closed has no Back, and Back
+/// pressed anyway keeps the review and says why; nothing is thrown away.
+#[test]
+fn back_on_a_review_whose_window_closed_keeps_the_review() {
+    let (mut a, dir) = ai_open("task-back-orphan", TaskKind::Rewrite, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    escape(&mut a);
+    assert!(a.ai.kept.is_some(), "the review is kept");
+    a.task_close();
+    a.command(C::AiShowResult);
+    let back = |a: &App| match a.ai.panel.as_ref() {
+        Some(Panel::Review(rv)) => rv.file.as_ref().map(|f| f.back),
+        _ => None,
+    };
+    assert_eq!(
+        back(&a),
+        Some(false),
+        "no Back is drawn: no window to go back to"
+    );
+    a.ai_review_action(crate::ai::Hit::Back);
+    assert!(
+        matches!(a.ai.panel, Some(Panel::Review(_))),
+        "the review stays, its answer with it"
+    );
+    assert!(said(&a).contains("nothing to go back to"));
+    assert_eq!(
+        std::fs::read_to_string(&text).expect("pasta"),
+        "# Pasta\n\nBoil it.\n"
+    );
+}
+
+/// Review of the task fixes, 5: Back on a review names the window's button as it reads.
+#[test]
+fn back_on_a_review_names_the_button_as_it_reads() {
+    let (mut a, dir) = ai_open("task-back-label", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "Tidy it");
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.ai_review_action(crate::ai::Hit::Back);
+    assert_eq!(
+        said(&a),
+        "pasta.md was not rewritten. \u{201C}Rewrite 1 file\u{201D} asks for it again; the files \
+         rewritten before it stay so."
+    );
+}
+
+/// Review of the task fixes, 4: what Esc says agrees with what the window holds.
+#[test]
+fn what_esc_says_agrees_with_what_the_window_holds() {
+    let (mut a, dir) = open("task-esc-words", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(
+        s.esc_warning(),
+        "Esc again closes the window, and the file in it goes with it."
+    );
+    let two = dir.join("two.md");
+    std::fs::write(&two, "# Two\n").expect("two");
+    a.task_add_paths(vec![two]);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(
+        s.esc_warning(),
+        "Esc again closes the window, and the 2 files in it go with it."
+    );
+    let (mut b, _dir) = open("task-esc-words-none", TaskKind::Rewrite, Vec::new());
+    let s = b.task.as_mut().expect("open");
+    assert_eq!(
+        s.esc_warning(),
+        "Esc again closes the window, and what is typed in it goes with it."
+    );
+    s.instruction.set_text("Tidy it");
+    assert_eq!(
+        s.esc_warning(),
+        "Esc again closes the window, and the instruction in it goes with it."
+    );
+}
+
+/// Review of the task fixes, 7: a rewrite run that ends closes the window, and "AI task…"
+/// opens next on Rewrite them as Cancel would have left it.
+#[test]
+fn a_rewrite_run_that_ends_remembers_its_task() {
+    let (mut a, dir) = ai_open("task-last-rewrite", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "Tidy it");
+    assert_eq!(a.docs.prefs.ai_task, mdedit_core::prefs::AiTask::File);
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.task_review_apply();
+    assert!(a.task.is_none(), "the run is over and the window closed");
+    assert_eq!(a.docs.prefs.ai_task, mdedit_core::prefs::AiTask::Rewrite);
+}
+
+/// Review of the task fixes, 8: Settings closed over the window reads the saved prompts again,
+/// and a file kept without its text for the largest rewrite then is read again.
+#[test]
+fn settings_closed_over_the_window_reads_the_prompts_and_the_limit_again() {
+    let (mut a, dir) = open("task-settings-again", TaskKind::Rewrite, Vec::new());
+    a.docs.prefs.ai_rewrite_kb = mdedit_core::prefs::AI_REWRITE_KB_MIN;
+    let big = dir.join("big.md");
+    std::fs::write(&big, "# Big\n\n".to_string() + &"words ".repeat(3000)).expect("big");
+    if let Some(s) = a.task.as_mut() {
+        s.limits = crate::task_ui::Limits::of(&a.docs.prefs);
+    }
+    a.task_add_paths(vec![big]);
+    assert!(
+        a.task.as_ref().expect("open").files[0].text.is_none(),
+        "too long then"
+    );
+    a.task_act(Hit::OpenSettings);
+    a.docs.prefs.ai_rewrite_kb = mdedit_core::prefs::AI_REWRITE_KB_DEFAULT;
+    std::fs::write(
+        dir.join(mdedit_core::ai::PROMPTS_FILE),
+        mdedit_core::ai::append_prompt("", "Tidy", "Tidy it up."),
+    )
+    .expect("prompts");
+    a.close_settings();
+    let s = a.task.as_ref().expect("back");
+    assert_eq!(s.prompts.len(), 1, "the prompt saved meanwhile is listed");
+    assert!(s.files[0].text.is_some(), "the file is read again");
+}
+
+/// Review of the task fixes, 9: Close all tabs, which closes "Show what is sent"'s tab too,
+/// brings the window back as closing that tab does.
+#[test]
+fn closing_all_tabs_brings_the_window_back() {
+    let (mut a, dir) = ai_open("task-sent-close-all", TaskKind::File, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    a.task_show_sent();
+    assert!(a.task.is_none() && a.task_parked.is_some(), "parked");
+    a.command(C::CloseAllTabs);
+    let s = a.task.as_ref().expect("the window is back");
+    assert_eq!(s.files.len(), 1);
+}
+
+/// Review of the task fixes, 10: once a request was made, the tab says what is sent for the
+/// files ticked now, and how many requests went.
+#[test]
+fn what_is_sent_after_a_request_says_how_many_went() {
+    let (mut a, dir) = ai_open("task-sent-after", TaskKind::File, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    a.task_sent.requests = 2;
+    let text = a.task_request_text().expect("text");
+    assert!(text.starts_with(
+        "What the AI task window sends for the files ticked now. It has made 2 requests already."
+    ));
+    a.task_sent.requests = 1;
+    let text = a.task_request_text().expect("text");
+    assert!(text.contains("It has made 1 request already."));
+}
+
+/// Review of the task fixes, 10: "Add to the library" with no group is drawn off, and on with
+/// one.
+#[test]
+fn add_to_the_library_is_drawn_off_without_a_group() {
+    let (mut a, dir) = open("task-add-drawn-off", TaskKind::File, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    if let Some(s) = a.task.as_mut() {
+        s.dest = DestChoice::Decide;
+        s.new_group = None;
+        s.focus = Focus::Instruction;
+    }
+    a.task_run();
+    assert!(a.task.as_ref().expect("open").planned);
+    let pixel = |a: &mut App| {
+        a.compose();
+        let (x, y) = centre_of(a, Hit::Primary).expect("the button is drawn");
+        let w = a.screen.width as usize;
+        let s = a.scale;
+        let at = ((y * s) as usize * w + (x * s) as usize) * 4;
+        a.screen.pixels[at..at + 4].to_vec()
+    };
+    let off = pixel(&mut a);
+    with_group(&mut a, "Recipes");
+    let on = pixel(&mut a);
+    assert_ne!(off, on, "off without a group, on with one");
+}
+
+/// Review of the task fixes, 14, 17, 18: the words of a file left out, of the header and of
+/// an empty Saved prompts.
+#[test]
+fn the_windows_words_say_what_is_so() {
+    let (mut a, _dir) = open("task-words", TaskKind::File, Vec::new());
+    let s = a.task.as_mut().expect("open");
+    s.ai_on = false;
+    assert_eq!(
+        s.left_out_note(),
+        "unticked",
+        "nothing is sent with the AI off"
+    );
+    s.ai_on = true;
+    assert_eq!(s.left_out_note(), "unticked: not sent");
+    assert_eq!(
+        crate::task_ui::prompts_empty(TaskKind::File),
+        "None of this kind yet. Add one in Settings \u{203A} AI \u{203A} Saved prompts \u{203A} \
+         Edit, with the line \u{201C}kind: file\u{201D}."
+    );
+    assert!(!crate::task_ui::HEADER_UNDER.contains("opened"));
+}
+
+/// Review of the task fixes, 16: after Esc left the fields a character typed goes into the
+/// instruction, and Enter runs nothing: it puts the keyboard back in the instruction.
+#[test]
+fn after_esc_left_the_fields_typing_goes_to_the_instruction() {
+    let (mut a, dir) = open("task-esc-type", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "Tidy");
+    a.task_act(Hit::Field);
+    a.task_key(Some(KeyName::End), None);
+    a.task_key(Some(KeyName::Escape), None);
+    assert_eq!(a.task.as_ref().expect("open").focus, Focus::None);
+    a.task_key(Some(KeyName::Char('!')), Some("!"));
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.focus, Focus::Instruction);
+    assert_eq!(s.instruction.text(), "Tidy!");
+    a.task_key(Some(KeyName::Escape), None);
+    a.task_key(Some(KeyName::Enter), None);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.focus, Focus::Instruction, "Enter puts the keyboard back");
+    assert!(
+        s.asking.is_none() && a.ai.panel.is_none(),
+        "and runs nothing"
     );
 }

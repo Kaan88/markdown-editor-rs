@@ -1224,14 +1224,18 @@ impl App {
                     self.docs.close(i, service);
                 }
                 // "Show what is sent"'s tab closed: its window comes back.
-                self.task_sent_tab_closed(id);
+                self.task_sent_tab_closed();
             }
             After::CloseOthers(id) => {
                 if let Some(i) = index(&self.docs, id) {
                     self.docs.close_others(i, service);
                 }
+                self.task_sent_tab_closed();
             }
-            After::CloseAll => self.docs.close_all(service),
+            After::CloseAll => {
+                self.docs.close_all(service);
+                self.task_sent_tab_closed();
+            }
             After::Exit => self.exit = true,
             After::Restart => {
                 // The file is looked at again now: it must still be there to be started.

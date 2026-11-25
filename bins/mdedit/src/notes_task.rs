@@ -445,8 +445,12 @@ pub fn summary(pictures: &[&Measure], texts: usize, how_many: HowMany, ai_on: bo
 /// per picture with no text file.
 pub fn requests(pictures: usize, texts: usize, how_many: HowMany) -> usize {
     let looks = pictures.div_ceil(notes_ai::LOOK_BATCH);
-    let arrange = how_many != HowMany::PerPicture || (pictures == 0 && texts > 0);
-    looks + usize::from(arrange)
+    looks + usize::from(arranges(pictures, texts, how_many))
+}
+
+/// Whether a run ends with the request that arranges the notes.
+pub fn arranges(pictures: usize, texts: usize, how_many: HowMany) -> bool {
+    how_many != HowMany::PerPicture || (pictures == 0 && texts > 0)
 }
 
 /// The button: what leaves. "Send 5 pictures and 1 file".

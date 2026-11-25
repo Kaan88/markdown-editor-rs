@@ -1631,6 +1631,8 @@ impl App {
                 )
         });
         let mut damage = Vec::new();
+        // Settings opened from the task window hides it until Settings closes.
+        let task_shown = self.task_is_open();
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
             let mut order = REGIONS.to_vec();
@@ -1958,8 +1960,7 @@ impl App {
                 if let Some(plan) = self.plan.as_mut() {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
-                // Settings opened from the task window hides it until Settings closes.
-                if let Some(s) = self.task.as_mut().filter(|_| self.ui.settings.is_none()) {
+                if let Some(s) = self.task.as_mut().filter(|_| task_shown) {
                     match self.notes_plan.as_mut().filter(|card| card.shown) {
                         Some(card) => {
                             crate::notes_plan_draw::draw(c.p, &pal, card, s, w, h, self.ui.caret_on)
