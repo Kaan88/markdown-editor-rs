@@ -421,9 +421,13 @@ struct App {
     task_parked: Option<crate::task_ui::TaskScreen>,
     /// A folder dropped on the task window, walked and read on its own thread (D-248).
     task_job: Option<mdshared_app::job::Job<task::TaskAdd>>,
-    /// A folder add of more than `ASK_FILES` files, waiting for its question to be answered;
-    /// nothing of it is in the window yet (D-249).
-    task_pending: Option<task::TaskAdd>,
+    /// A walked folder set of more than ASK_FILES files, waiting for its question; nothing of
+    /// it has been read (D-250).
+    task_held: Option<task::TaskHeld>,
+    /// Folder paths waiting for the read that runs to finish, and the drop being gathered: one
+    /// read at a time, so no drop is lost and one question covers them all (D-250).
+    task_queue: Vec<PathBuf>,
+    task_batch: Vec<PathBuf>,
     /// The file whose split plan is open from the task window.
     task_plan: Option<usize>,
     /// A rewrite run's record, made when its first file is written.
@@ -613,7 +617,9 @@ impl App {
             task: None,
             task_parked: None,
             task_job: None,
-            task_pending: None,
+            task_held: None,
+            task_queue: Vec::new(),
+            task_batch: Vec::new(),
             task_plan: None,
             task_record: None,
             task_seq: 0,
@@ -3132,6 +3138,10 @@ impl ApplicationHandler<Wake> for App {
         self.library_tick(Instant::now());
         // A folder read for the library that waited for another card to close (audit 4, C8).
         self.import_take();
+        // A drop's paths are all in once the pass is done: one read for them, and its result
+        // taken here as well (D-250).
+        self.task_flush_drops();
+        self.task_add_take();
         if self.drain() {
             self.redraw();
         }

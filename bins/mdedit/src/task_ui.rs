@@ -927,6 +927,16 @@ impl TaskScreen {
             .map(|name| format!("Reading {name}\u{2026}"))
     }
 
+    /// The bar's line for the question: the question, and a read that goes on beside it while
+    /// the question still stands (D-250).
+    pub fn ask_line(&self) -> Option<String> {
+        let ask = self.ask.as_ref()?;
+        Some(match self.reading_line() {
+            Some(reading) => format!("{ask} {reading}"),
+            None => ask.clone(),
+        })
+    }
+
     /// An earlier "Stopped…" is taken away by a later add that stopped nowhere (D-248).
     pub fn clear_stopped_note(&mut self) {
         if self

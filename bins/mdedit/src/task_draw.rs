@@ -662,7 +662,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 None
             }
         });
-    if let Some(ask) = s.ask.clone() {
+    if let Some(ask) = s.ask_line() {
         // A folder add of more than ASK_FILES files asks first, where the window says things
         // (D-249): the question, then its two buttons. Nothing is in the window yet.
         let bar = Rect::new(
@@ -690,7 +690,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 pal,
                 leave,
                 leave_label,
-                true,
+                false,
                 hover == Some(Hit::AskLeave),
                 pressed == Some(Hit::AskLeave),
             );
@@ -752,7 +752,11 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     let primary_enabled = if stopping {
         true
     } else {
-        !ai_off && primary_blocked.is_none() && !busy && (notes_blocked.is_none() || !s.ai_on)
+        !ai_off
+            && primary_blocked.is_none()
+            && !busy
+            && s.ask.is_none()
+            && (notes_blocked.is_none() || !s.ai_on)
     };
     let label = if ai_off {
         "The AI connection is off".to_string()
