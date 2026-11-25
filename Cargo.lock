@@ -1602,9 +1602,9 @@ dependencies = [
  "mdedit-highlight",
  "mdedit-outline",
  "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc)",
- "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b)",
+ "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d)",
  "mdshared-fetch",
- "mdshared-text 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b)",
+ "mdshared-text 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d)",
  "mdshared-ui",
  "mdview-preview",
  "mdview-render",
@@ -1643,7 +1643,7 @@ version = "1.4.0"
 dependencies = [
  "chardetng",
  "encoding_rs",
- "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b)",
+ "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d)",
  "memchr",
  "regex-automata",
  "ropey",
@@ -1656,7 +1656,7 @@ dependencies = [
 name = "mdedit-highlight"
 version = "1.4.0"
 dependencies = [
- "mdshared-highlight 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b)",
+ "mdshared-highlight 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d)",
  "ropey",
 ]
 
@@ -1679,7 +1679,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b#aacba5154154f407af88524a5f241c0a73cc114b"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d#ac9fde1c824e71b03fcf683749c84744c7509d5d"
 dependencies = [
  "notify",
  "windows-sys 0.59.0",
@@ -1688,7 +1688,7 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b#aacba5154154f407af88524a5f241c0a73cc114b"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d#ac9fde1c824e71b03fcf683749c84744c7509d5d"
 dependencies = [
  "libloading",
  "windows-sys 0.59.0",
@@ -1705,7 +1705,7 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b#aacba5154154f407af88524a5f241c0a73cc114b"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d#ac9fde1c824e71b03fcf683749c84744c7509d5d"
 dependencies = [
  "syntect",
 ]
@@ -1723,7 +1723,7 @@ dependencies = [
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b#aacba5154154f407af88524a5f241c0a73cc114b"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d#ac9fde1c824e71b03fcf683749c84744c7509d5d"
 dependencies = [
  "parley",
  "png",
@@ -1733,11 +1733,11 @@ dependencies = [
 [[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b#aacba5154154f407af88524a5f241c0a73cc114b"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d#ac9fde1c824e71b03fcf683749c84744c7509d5d"
 dependencies = [
  "arboard",
- "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b)",
- "mdshared-text 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=aacba5154154f407af88524a5f241c0a73cc114b)",
+ "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d)",
+ "mdshared-text 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=ac9fde1c824e71b03fcf683749c84744c7509d5d)",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",

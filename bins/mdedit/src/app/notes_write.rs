@@ -9,14 +9,12 @@
 //! `create_new`, which never replaces a name that is taken; an original is read and never
 //! touched; the group's file is written through the window's own gate (`PlanGate`).
 //!
-//! The record. The shared record has no kind of its own for this run yet (section 10 names one,
-//! `notes`; it is a change to `markdown-shared-rs`, made there as a variant and pinned on
-//! purpose, so not here). Until then the run is written as a `markdown` run, the kind whose notes
-//! hold a model's words (5.8), with every copy in `pictures` beside the original it was made from
-//! and that original's digest, so the shared undo removes a copy only while its original is where
-//! it was (D-071's spirit) and never an original. Its `source` is what undo checks is still there
-//! before it removes anything: the first copy this run holds once there is one (a copy of a
-//! picture the notes were made from, inside the library), and the first original until then.
+//! The record is the shared record's `notes` kind (plan section 10): every note and every copy
+//! the run plans is in it from step 1, each copy beside the original it was made from and that
+//! original's digest (none for a pasted picture, whose temp file goes with the window). It has
+//! no source. Its undo removes a note only while it is what was written, a copy only while it is
+//! what was written, its original is where it was, and no note undo keeps shows it; never an
+//! original.
 
 use super::library_write::{library_text, same_folder};
 use super::plan_write::PlanGate;
@@ -62,8 +60,6 @@ pub(super) struct Job {
     reach: PathBuf,
     instruction: String,
     sent: Option<runs::Sent>,
-    /// The first original that is there: the record's source until a copy holds its bytes.
-    first: PathBuf,
     planned: nw::Planned,
     drafts: Vec<Draft>,
     looks: Vec<Look>,
@@ -104,7 +100,7 @@ impl Job {
             return String::new();
         };
         let place = |id: usize| -> Option<Place> {
-            if !self.copy && !self.original(id).is_some_and(crate::notes_task::is_pasted) {
+            if !self.copy && !self.original(id).is_some_and(copied_anyway) {
                 let original = self.original(id)?;
                 return Some(Place::At(link_to_original(&at.folder, original)));
             }
@@ -138,7 +134,7 @@ impl Job {
     fn request(&self) -> runs::Request {
         runs::Request {
             library: self.library.clone(),
-            source: self.first.clone(),
+            source: PathBuf::new(),
             instruction: self.instruction.clone(),
             sent: self.sent.clone(),
             group: runs::Group {
@@ -152,6 +148,22 @@ impl Job {
             pictures: Vec::new(),
         }
     }
+}
+
+/// Whether a picture is copied beside its note even with "Copy the pictures beside the notes"
+/// off: a pasted one, whose temp file goes with the window, and one on a network share, which no
+/// `file:` link from a note leads to (Fable's review of V5, 6).
+pub(super) fn copied_anyway(path: &Path) -> bool {
+    crate::notes_task::is_pasted(path) || on_share(path)
+}
+
+/// A path on a network share: `\\server\share\…`, `\\?\UNC\…`, or `//server/share/…`.
+pub(super) fn on_share(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    if s.starts_with(r"\\?\") || s.starts_with(r"\\.\") {
+        return s.get(4..8).is_some_and(|u| u.eq_ignore_ascii_case(r"UNC\"));
+    }
+    s.starts_with(r"\\") || s.starts_with("//")
 }
 
 /// A picture linked where it is ("Copy the pictures beside the notes" off, section 9): by a
@@ -306,7 +318,7 @@ impl App {
                 .map(|f| nw::Original {
                     path: f.path.clone(),
                     size: std::fs::metadata(&f.path).map_or(f.size, |m| m.len()),
-                    pasted: crate::notes_task::is_pasted(&f.path),
+                    pasted: copied_anyway(&f.path),
                 })
         };
         let planned = nw::plan(&arranged.notes, &group.home, &of, &naming, &taken_at)?;
@@ -322,32 +334,12 @@ impl App {
                 requests: run.requests,
             }
         });
-        // The record's source: the first picture a note shows, then any file of the run.
-        let shown_first = planned
-            .notes
-            .iter()
-            .filter_map(|n| arranged.notes.get(n.index))
-            .flat_map(Draft::pictures)
-            .filter_map(|id| s.files.get(id).map(|f| f.path.clone()));
-        let taking = s.taking_part();
-        let rest = run
-            .texts
-            .iter()
-            .chain(taking.iter())
-            .filter_map(|&i| s.files.get(i).map(|f| f.path.clone()));
-        let first = shown_first
-            .chain(rest)
-            .find(|p| p.is_file())
-            .ok_or_else(|| {
-                "none of the files the notes were made from is there any more.".to_string()
-            })?;
         let mut job = Job {
             reach: runs::undo_home(&group.file, &library),
             library: library.clone(),
             group,
             instruction,
             sent,
-            first,
             planned,
             drafts: arranged.notes.clone(),
             looks,
@@ -470,6 +462,17 @@ impl App {
             self.redraw();
             return;
         }
+        // The window closes, and the pictures pasted into it go with it, only when a note was
+        // written and every pasted picture a note takes was copied: else a pasted screenshot's
+        // only copy would go (Fable's review of V5, 2). It stays, and says why.
+        if let Some(why) = stays_open(&report) {
+            self.docs.check_changed();
+            self.ui.tree.refresh();
+            self.library_rows();
+            self.docs.set_toast(&why);
+            self.redraw();
+            return;
+        }
         self.task_close();
         self.docs.check_changed();
         self.ui.tree.refresh();
@@ -483,6 +486,32 @@ impl App {
         }
         self.redraw();
     }
+}
+
+/// Why the window stays open after a write, or `None` when it may close: no note was written, or
+/// a pasted picture could not be copied, and its file in the temp folder is its only copy.
+fn stays_open(report: &runs::Report) -> Option<String> {
+    if report.notes() == 0 {
+        let why = report
+            .note_failures
+            .first()
+            .or(report.check_failures.first())
+            .map(|f| format!("{}: {}", shown(&f.path), f.why))
+            .unwrap_or_else(|| "nothing was left to write".to_string());
+        return Some(format!(
+            "No note could be written ({why}). The window stays open with its pictures; AI runs\u{2026} can undo what was written."
+        ));
+    }
+    let f = report
+        .picture_failures
+        .iter()
+        .find(|f| crate::notes_task::is_pasted(&f.path))?;
+    Some(format!(
+        "Wrote {}, but the pasted picture {} {}. The window stays open with it, so it is not lost.",
+        count(report.notes(), "note", "notes"),
+        shown(&f.path),
+        f.why
+    ))
 }
 
 /// The toast after the write: what was written, or the first thing that went wrong.
@@ -532,33 +561,26 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
     let mut report = runs::Report::default();
     let library = &job.library;
     let (secs, started) = runs::now_utc();
-    let source = match read_at_most(&job.first, runs::DIGEST_MAX_BYTES) {
-        Ok(bytes) => runs::Source {
-            path: job.first.clone(),
-            len: bytes.len() as u64,
-            sha256: sha(&bytes),
-            recycled: false,
-        },
-        Err(why) => {
-            report.start_error = Some(format!(
-                "The run could not start: {} could not be read: {why}.",
-                shown(&job.first)
-            ));
-            return report;
-        }
-    };
-    // 1. The record, "writing", with every note planned. A note whose name is free now is marked
-    //    as the run's before it is written, so a run that dies while it writes its notes leaves a
-    //    record that owns them; undo removes one only while it holds what was planned for it.
+    // 1. The record, "writing", with every note and every copy planned. A note or a copy whose
+    //    name is free now is marked as the run's before it is written, so a run that dies at any
+    //    step leaves a record that owns all it made; undo removes one only while it holds what
+    //    was planned for it (Fable's review of V5, 1). A copy is planned with the digest of its
+    //    original as read now, and with that original, except a pasted picture's (review, 5).
     let mut record = runs::Record {
         version: runs::RECORD_VERSION,
-        kind: runs::Kind::Markdown,
+        kind: runs::Kind::Notes,
         started: started.clone(),
         started_secs: secs,
         state: runs::State::Writing,
         instruction: job.instruction.clone(),
         sent: job.sent.clone(),
-        source,
+        // A run of Write notes has no source: no file was cut, every original is only read.
+        source: runs::Source {
+            path: PathBuf::new(),
+            len: 0,
+            sha256: String::new(),
+            recycled: false,
+        },
         group: runs::Group {
             name: job.group.name.clone(),
             file: job.group.file.clone(),
@@ -580,7 +602,14 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
                 line: library::link_line(&n.title, &n.link_path),
             })
             .collect(),
-        pictures: Vec::new(),
+        pictures: job
+            .planned
+            .written()
+            .filter_map(|c| {
+                let digest = sha(&read_at_most(&c.from, nw::COPY_FILE_MAX).ok()?);
+                Some(planned_copy(c, digest))
+            })
+            .collect(),
         sections_added: Vec::new(),
         moved: None,
         originals: Vec::new(),
@@ -597,8 +626,12 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
     };
     report.record_path = Some(record_path.clone());
     record.note_done(&record_path, "started");
+    if dies_at("after the record") {
+        return report;
+    }
 
-    // 2. Folders: only the ones that were not there are the run's.
+    // 2. Folders: only the ones that were not there are the run's, and the record says so before
+    //    each is made, so a run that dies here leaves none it does not own.
     for folder in job.planned.folders() {
         if !job.inside(&folder) {
             report.folder_failures.push(failure(
@@ -616,29 +649,51 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
             missing.push(dir.to_path_buf());
             at = dir.parent();
         }
+        let new: Vec<PathBuf> = missing
+            .into_iter()
+            .rev()
+            .filter(|d| !record.folders.iter().any(|f| f == d))
+            .collect();
+        if !new.is_empty() {
+            record.folders.extend(new.iter().cloned());
+            let _ = record.close(&record_path, library);
+        }
         let made = std::fs::create_dir_all(&folder);
-        for dir in missing.into_iter().rev() {
-            if dir.is_dir() && !record.folders.iter().any(|f| f == &dir) {
-                record.folders.push(dir);
-            }
+        // A folder that could not be made is not the run's after all.
+        if new.iter().any(|d| !d.is_dir()) {
+            record.folders.retain(|f| !new.contains(f) || f.is_dir());
+            let _ = record.close(&record_path, library);
         }
         if let Err(e) = made {
             report.folder_failures.push(failure(&folder, e.to_string()));
         }
     }
+    if dies_at("after the folders") {
+        return report;
+    }
 
-    // 3. The copies, each a new file and never over one, with the original it is a copy of. The
-    //    first copy the run holds is the source from here on.
+    // 3. The copies, each a new file and never over one, each in the record as it will be
+    //    before it is written.
     let mut failed: Vec<(usize, PathBuf, String)> = Vec::new();
-    let mut source_is_copy = false;
+    let mut copied = 0;
     for copy in &job.planned.copies {
         let dir = copy.to.parent().map(Path::to_path_buf).unwrap_or_default();
+        // The run's own entry for this copy, planned at step 1.
+        let ours = |r: &runs::PictureRec| r.path == copy.to && r.created;
         let made = read_at_most(&copy.from, nw::COPY_FILE_MAX).and_then(|bytes| {
             if copy.there {
                 return match read_at_most(&copy.to, nw::COPY_FILE_MAX) {
                     Ok(there) if there == bytes => Ok((bytes, false)),
                     _ => Err("the file at its name changed since the plan was made".to_string()),
                 };
+            }
+            // The original changed since step 1, or could not be read then: the record holds
+            // what will be written before it is.
+            let planned = planned_copy(copy, sha(&bytes));
+            if !record.pictures.contains(&planned) {
+                record.pictures.retain(|r| !ours(r));
+                record.pictures.push(planned);
+                let _ = record.close(&record_path, library);
             }
             match create_new(&copy.to, &bytes) {
                 Ok(()) => Ok((bytes, true)),
@@ -652,34 +707,32 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
             }
         });
         match made {
-            Ok((bytes, created)) => {
-                let digest = sha(&bytes);
+            Ok((_, true)) => {
+                record.note_done(&record_path, &format!("picture {:?}", copy.to));
+                report.pictures_written.push(copy.to.clone());
+                copied += 1;
+                if copied == 1 && dies_at("mid-copies") {
+                    return report;
+                }
+            }
+            Ok((bytes, false)) => {
+                // There with these bytes already: linked, and never the run's to remove.
+                record.pictures.retain(|r| !ours(r));
                 record.pictures.push(runs::PictureRec {
                     path: copy.to.clone(),
-                    created,
-                    sha256: digest.clone(),
-                    original: created.then(|| copy.from.clone()),
-                    original_sha256: if created {
-                        digest.clone()
-                    } else {
-                        String::new()
-                    },
+                    created: false,
+                    sha256: sha(&bytes),
+                    original: None,
+                    original_sha256: String::new(),
                 });
-                if created {
-                    record.note_done(&record_path, &format!("picture {:?}", copy.to));
-                }
-                if !source_is_copy {
-                    record.source = runs::Source {
-                        path: copy.to.clone(),
-                        len: bytes.len() as u64,
-                        sha256: digest,
-                        recycled: false,
-                    };
-                    source_is_copy = true;
-                }
+                let _ = record.close(&record_path, library);
                 report.pictures_written.push(copy.to.clone());
             }
             Err(why) => {
+                if record.pictures.iter().any(ours) {
+                    record.pictures.retain(|r| !ours(r));
+                    let _ = record.close(&record_path, library);
+                }
                 failed.push((copy.id, dir, why.clone()));
                 report
                     .picture_failures
@@ -687,23 +740,37 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
             }
         }
     }
-    if !record.folders.is_empty() || !record.pictures.is_empty() {
-        let _ = record.close(&record_path, library);
-    }
+    let _ = record.close(&record_path, library);
     if dies_at("before the notes") {
         return report;
     }
 
-    // The notes as they are written: a copy that failed is a line saying so (section 15). The
-    //    record holds what each will hold before any is written.
+    // The notes as they are written: a copy that failed is a line saying so (section 15), and a
+    //    note that grew past its limit for it is left out (Fable's review of V5, 9). The record
+    //    holds what each will hold before any is written.
     let mut notes = job.notes.clone();
+    let mut too_large: Vec<usize> = Vec::new();
     if !failed.is_empty() {
         for (n, note) in notes.iter_mut().enumerate() {
             let text = job.text_of(n, &failed);
+            if text.len() > nw::NOTE_BYTES_MAX {
+                too_large.push(n);
+                report.note_failures.push(failure(
+                    &note.path,
+                    format!(
+                        "with the pictures that could not be copied said in it, it would be {} KB, more than the {} KB a note may hold",
+                        text.len().div_ceil(1024),
+                        nw::NOTE_BYTES_MAX / 1024
+                    ),
+                ));
+            }
             note.from_source = text.clone();
             note.text = text;
             if let Some(rec) = record.notes.get_mut(n) {
                 rec.sha256 = sha(note.text.as_bytes());
+                if too_large.contains(&n) {
+                    rec.created = false;
+                }
             }
         }
         let _ = record.close(&record_path, library);
@@ -712,6 +779,9 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
     // 4. The notes, each at its name and never over a file.
     let mut written: Vec<usize> = Vec::new();
     for (i, note) in notes.iter().enumerate() {
+        if too_large.contains(&i) {
+            continue;
+        }
         if let Some(rec) = record.notes.get_mut(i) {
             rec.created = false;
         }
@@ -730,6 +800,9 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
                 }
                 report.notes_written.push(note.path.clone());
                 record.note_done(&record_path, &format!("note {}", shown(&note.path)));
+                if written.len() == 1 && dies_at("mid-notes") {
+                    return report;
+                }
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 report.note_failures.push(failure(
@@ -753,6 +826,9 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
         }
     }
     let _ = record.close(&record_path, library);
+    if dies_at("before the links") {
+        return report;
+    }
 
     // 6. The links, in one write of the group's file through the window's gate.
     if !sound.is_empty() {
@@ -804,6 +880,20 @@ fn write(job: &Job, gate: &mut dyn Gate) -> runs::Report {
     report
 }
 
+/// A copy as the record holds it before it is written: the run's own while its name is free, with
+/// the digest of the original's bytes, and that original, except a pasted picture's, whose temp
+/// file goes with the window (Fable's review of V5, 5).
+fn planned_copy(copy: &nw::Copy, digest: String) -> runs::PictureRec {
+    let pasted = crate::notes_task::is_pasted(&copy.from);
+    runs::PictureRec {
+        path: copy.to.clone(),
+        created: copy.to.symlink_metadata().is_err(),
+        sha256: digest.clone(),
+        original: (!pasted).then(|| copy.from.clone()),
+        original_sha256: if pasted { String::new() } else { digest },
+    }
+}
+
 /// Two section paths alike, as the shared writer compares headings.
 fn sections_eq(a: &[String], b: &[String]) -> bool {
     a.len() == b.len()
@@ -843,6 +933,34 @@ fn keep_added(
 }
 
 impl App {
+    /// `--dialog run-undone-pictures`: the report after undoing a run of Write notes whose first
+    /// note the owner changed since: it is kept, and so is the copy it shows (plan section 10),
+    /// said as kept for that note; the other notes, their copies and their lines went.
+    pub(super) fn notes_undone_demo(&mut self, root: &Path) {
+        let section = root.join("Screenshots").join("Sign-in");
+        let pictures = section.join(notes_ai::PICTURES_DIR);
+        let kept_note = section.join("sign-in-fails-after-the-update.md");
+        let kept_copy = pictures.join("login-error.png");
+        let report = runs::UndoReport {
+            removed_notes: vec![
+                section.join("the-error-page.md"),
+                section.join("two-step-code.md"),
+            ],
+            removed_pictures: vec![
+                pictures.join("error-page.png"),
+                pictures.join("code.png"),
+                pictures.join("update.png"),
+            ],
+            removed_links: 2,
+            kept: vec![kept_note, kept_copy.clone()],
+            shown: vec![kept_copy],
+            ..Default::default()
+        };
+        self.show_outcome(Outcome::undone(&report, root));
+        // Scrolled to its end, where the rows kept and why are; the draw clamps it.
+        self.ui.results.scroll = f32::MAX;
+    }
+
     /// `--dialog run-undo-pictures`: "AI runs…" with a run of Write notes on top and the question
     /// before its undo, as `prepare` would find a run whose notes and copies are all still there.
     /// The record is made in memory, never on disk.
@@ -888,14 +1006,14 @@ impl App {
         let (secs, started) = runs::now_utc();
         let record = runs::Record {
             version: runs::RECORD_VERSION,
-            kind: runs::Kind::Markdown,
+            kind: runs::Kind::Notes,
             started: started.clone(),
             started_secs: secs,
             state: runs::State::Done,
             instruction: String::new(),
             sent: None,
             source: runs::Source {
-                path: pictures[0].path.clone(),
+                path: PathBuf::new(),
                 len: 0,
                 sha256: String::new(),
                 recycled: false,
@@ -937,7 +1055,7 @@ impl App {
         let sentence = self.undo_sentence(&plan, &record.group_name());
         let path = root
             .join(runs::RUNS_DIR)
-            .join(format!("{}-markdown.json", started.replace(':', "-")));
+            .join(format!("{}-notes.json", started.replace(':', "-")));
         self.ui.runs.list.insert(
             0,
             runs::Run {

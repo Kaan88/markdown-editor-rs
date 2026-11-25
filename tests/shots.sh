@@ -501,6 +501,8 @@ for t in "" "-dark"; do
     # Undo of Write notes (phase V5): its notes and the copies of its pictures go, with their
     # lines; the question says how many of each.
     shot "runs-undo-pictures$t" $th --dialog run-undo-pictures
+    # Its report when a note changed since is kept: the copy that note shows stays with it.
+    shot "runs-undone-pictures$t" $th --dialog run-undone-pictures
     shot "runs-newer$t" $th --dialog runs-newer
 done
 
