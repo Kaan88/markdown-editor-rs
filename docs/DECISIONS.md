@@ -2443,3 +2443,22 @@ setting add 32,256 more (10,099,200).
 **Why.** The owner (2026-11-25, through the coordinator), on these two changes: "accept". Rule 7
 asks for a new dependency to be priced; this one comes with shared, not from mdedit.
 **Overturned by.** The owner.
+
+## D-235 · 2026-11-25 · Menus enter in 117 ms; the watch starts once the window settled; a shot can stop a menu part way in
+
+**Decision.** The menus' entrance is `Motion::tween(117 ms, fluent::DECELERATE)` (`MENU_IN` and
+`MENU` in `bins/mdedit/src/motion.rs`, the one place), in place of `anim::document::MENU`'s
+167 ms that D-232 used; the drop and the curve are unchanged, closing stays instant. The
+reduced-motion watch (`watch_motion_reduced`, still on its helper thread) starts in
+`about_to_wait`'s settled block, once the first frame is out and only when motion may run, in
+place of D-232's "from the first menu that could fade" (which stays as the fallback when the
+setting was off at settle). `--menu-fade-ms MS` (with `--shot` and `--menu`, at most 1000 ms)
+renders a menu part way in, its clock stepped 16 ms at a time: the shots `menu-main-fade` and
+`menu-main-fade-dark`. The release exe of the branch is 10,103,808 bytes: +58,368 over main
+(10,045,440), +36,864 over the pin alone (10,066,944); D-234's 10,099,200 was an earlier build of
+the branch.
+**Why.** The owner (2026-11-25, through the coordinator), on 117 ms against 167: "this is
+better". The settled watch: Fable's review of the branch, so the system's answer (Linux's portal
+on its helper thread) is in before the first menu, and nothing is added to the first frame. The
+shot: the owner approves by looking, and a menu at rest does not show the fade.
+**Overturned by.** The owner.
