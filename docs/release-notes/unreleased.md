@@ -1,4 +1,4 @@
-mdedit, not yet released: the AI task window made one command with an Add menu, the AI task on a note or a section of the Notes pane, pictures opened in the system's viewer, and fixes to the bar and the task window.
+mdedit, not yet released: Write notes from pictures, with the plan shown before anything is written; the AI task window made one command with an Add menu, the AI task on a note or a section of the Notes pane, files copied or moved into the library, pictures opened in the system's viewer, and fixes to the bar and the task window.
 
 ## Fixed
 
@@ -8,6 +8,29 @@ mdedit, not yet released: the AI task window made one command with an Add menu, 
 - **The task window's destination row no longer overlaps.** The folder the files go to was drawn
   over the "under a section" field when the window was narrow or the path long. It is now cut to
   the room beside the field, keeping its end, and left out when there is none.
+
+## Added
+
+- **Write notes from pictures.** The AI task window's first task: add photos and screenshots
+  (drop them, Add…, or Ctrl+V a screenshot), and text files if you like, say what you want, and
+  the AI looks at the pictures, four at a time, and proposes notes for a group of your library.
+  Each picture's row says what is sent before anything is: its size as sent, and whether its
+  location and camera details are removed (on by default). Options… sets how many notes, whether
+  the pictures are copied beside the notes and named after what they show, whether each is
+  described and its text written out, and larger pictures for small print.
+- **The plan before anything is written.** The notes the AI proposes open on a card: tick what to
+  keep, F2 to rename a note, a section or a picture's copy, move a picture to another note or join
+  two notes, see each note as it will read or as Markdown, or arrange again with another
+  instruction without sending the pictures again. "Write N notes" writes them, copies the
+  pictures beside them, links them in the group and opens the first. AI runs can undo it, and
+  never removes your own pictures.
+- **"What is sent" shows the pictures.** On Write notes it is a card with a tab per request: the
+  pictures as they are sent, and the request's text word for word. The first time, the window
+  says that a picture is sent whole, a password or a face included.
+- **With the AI off**, Write notes makes one note per picture, or one in all, from the file names,
+  and nothing is sent.
+- Codex is not offered pictures yet; the Claude API, Claude Code and OpenAI-compatible
+  connections are.
 
 ## Changed
 

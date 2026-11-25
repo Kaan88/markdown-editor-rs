@@ -2303,3 +2303,60 @@ Every other `[`, `]`, unclosed backtick, `!` before a link, and `<` is escaped, 
 
 D-222's reason against sweeping at start (file work on every start) is met by the thread: the greeting does not wait for it.
 **Overturned by.** The owner.
+
+## D-226 · 2026-11-25 · Write notes: what a run keeps, and the text files it does not read
+
+**Decision.**
+- **Looks kept.** A picture's look is kept for the window's next Send while the instruction is
+  the same and, when "Write out the text" is on now, it was asked with it. Otherwise it is asked
+  again. "Try it again" after either changed starts the run anew.
+- **A look's answer that leaves a picture out** fails that picture (its own batch, to try again
+  or go on without); one that names none fails its batch whole. No batch without a picture is
+  sent.
+- **Text files** take no part when no request reads them: with the AI off (the pictures alone
+  make the notes) and with One per picture. Their rows say so; the button and the summary do not
+  count them; text files alone with the AI off are refused with the reason.
+- **"One note per picture instead"** after a failed arrange applies to that window, not the
+  setting.
+
+**Why.** Fable's review of V3: a second Send arranged with no picture, the batches a failure kept
+from leaving were lost, looks asked without the text were reused for a run that wanted it, and
+the button named files no request read.
+**Overturned by.** The owner.
+
+## D-227 · 2026-11-25 · A pasted picture is a temp file that goes with its window, and is always copied
+
+**Decision.** Ctrl+V adds the clipboard's picture only on Write notes and only when the clipboard
+has no text (a spreadsheet's cells offer both; the text goes to the field). It is saved under
+`%TEMP%\mdedit-pasted\` because the engine reads pictures from a path. It is removed when the
+window closes, and any left older than a day (a crash) when a picture is pasted. A note never
+links one where it is: it is copied beside the note even with Copy off.
+**Why.** The plan held it in memory until the write, but the engine needs a file; Fable's review
+of V3 found the files were never removed.
+**Overturned by.** The owner.
+
+## D-228 · 2026-11-25 · The plan of Write notes lives in its window, for now
+
+**Decision.** Replaces, for this release, plan section 15's "Plan ready" waiting in the Notes
+pane. Esc and Back on the plan card go back to the task window, whose button reads "Review the
+plan". Closing the window throws the plan away: Cancel or Esc on a window that keeps one says so
+once, and closes the second time. "Arrange again…" keeps the plan before it until the new one is
+read, and gives it back if the request fails or is stopped. Its instruction is its own; the
+window's, which the looks were asked with, is not changed. The throw-away button is "Discard",
+with Back beside it.
+**Why.** A plan outside its window would outlive the window's pasted pictures and its looks;
+keeping it in the window is the smaller change. Fable's review of V4 found the plan lost on a
+failed "Arrange again…" and the looks thrown away by its instruction.
+**Overturned by.** The owner asking for "Plan ready" in the Notes pane.
+
+## D-229 · 2026-11-25 · "What is sent" for Write notes is a card, and a picture's wholeness is said once
+
+**Decision.** On Write notes, "Show what is sent" is a card over the window with a tab per
+request: each look's pictures as sent and its text word for word, the arrange's text with the
+sections. "Open the text in a tab" is kept. The other tasks keep the text tab. "A picture is
+sent whole: everything visible in it, a password or a face included." is said by the first window
+of Write notes with a picture and the AI on, once ever (`ai_pictures_told`), in a band above the
+button.
+**Why.** Plan section 13: pictures cannot be shown in a text tab, and what a picture gives away
+is not in its file's name.
+**Overturned by.** The owner.

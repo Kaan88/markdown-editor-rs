@@ -3825,3 +3825,62 @@ title or the file's stem; a second note of one path becomes "Title 2", the numbe
 copy after what it shows (the note rule) or after the original. `numbered` gives `-2` for a
 taken name; whether a name is taken, and whether the same bytes are there already, is the
 writer's (V5).
+
+## 92. Write notes in the task window (2026-11-25, phase V3)
+
+`notes_task.rs` (state, pure), `app/notes_run.rs` (the window's part), `app/notes_demo.rs`
+(`--task-demo notes…`). Write notes is the first of the window's four tasks.
+
+**Measuring.** A picture added to the window is measured at once by the engine's `prepare`
+(nothing sent anywhere): its row says what goes ("sent smaller: 1568 × 1176 · 373 KB") and
+shows the engine's thumbnail, made 80 px once when it arrives. Strip or Larger changed measures
+again. With the AI off nothing is measured. Codex and an engine older than protocol 2 are offered
+no pictures, the reason where the button is (D-221).
+
+**The run.** "Send 5 pictures and 1 file": look requests of four pictures, as many out at once
+as the connection takes (D-080), then one arrange request with no picture in it. One per picture
+with pictures, or the AI off, makes the notes here with no second request. A text file no request
+reads says so on its row and is not counted (D-226). The looks are kept for the next Send while
+the instruction is the same and the text was written out if it is asked now; the button counts
+only the pictures still to look at.
+
+**Failures** (plan 15). A failed look keeps what was answered: "Try it again" sends the failed
+batches then those never sent; "Go on with N" sends those never sent without the failed. A
+picture the answer says nothing of is a failure of its own (a batch with none said fails whole).
+A picture changed since it was measured is measured again first. A model that reads no pictures
+stops the run with Open AI settings. A failed arrange offers "Try it again" and "One note per
+picture instead" (for the window only, not the setting). A notice bar over the list's foot says
+which.
+
+**Pasting.** Ctrl+V on Write notes with no text on the clipboard adds its picture, saved as
+`%TEMP%\mdedit-pasted\Screenshot <ms>.png`; the window's pasted files go when it closes, and any
+older than a day when a picture is pasted (D-227).
+
+## 93. "What is sent" as a card (2026-11-25, plan section 13)
+
+`sent_card.rs`, `sent_card_draw.rs`, `app/sent_card.rs`. On Write notes, "Show what is sent"
+opens a card over the window (the other tasks keep the text tab): a tab per request, "Look 1 of
+2" … "Arrange", or arrows past four. A look tab lists its pictures as they are sent (thumbnail,
+format, pixels, bytes, what was done, size on disk), read from the window's files at each draw,
+then the request's text word for word, selectable (drag, Shift+click, Ctrl+A, Ctrl+C; nothing
+selected copies all). The arrange tab says no picture is in it and gives its text with the
+group's sections. "Open the text in a tab" does what the old button did. With the AI off the
+card is a short one saying nothing is sent. The first window of Write notes with a picture and
+the AI on says once, in a band above the button: "A picture is sent whole: everything visible in
+it, a password or a face included." (pref `ai_pictures_told`, D-229).
+
+## 94. The plan card of Write notes (2026-11-25, phase V4)
+
+`notes_plan_ui.rs` (state, edits, the read view), `notes_plan_draw.rs`, `app/notes_plan.rs`.
+When the plan is read, a card replaces the task window: on the left the group, its sections, the
+notes and their pictures (thumbnail, copy name, what the model said), and NOT USED; on the right
+the note selected "As it will read" or as Markdown (`compose`, word for word). Every edit is made
+on `run.arranged` at once, which is what the write reads: tick a note or a picture in or out, F2
+renames a note, a section (in every note under it) or a copy (`run.copy_names`), the row menu's
+"Put in…" and "Join with…". A rename that would make two notes one file is refused.
+
+Footer: Discard (the plan goes, the looks stay), Back and Esc (to the window, whose button then
+reads "Review the plan"), "Arrange again…" (the arrange asked again with its own instruction, no
+picture sent; the plan before it is kept until the answer is read, and given back if it fails or
+is stopped), and "Write N notes". The plan lives in its window: Cancel on a window that keeps one
+says once that closing throws it away (D-228).
