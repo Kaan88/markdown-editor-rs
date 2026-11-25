@@ -260,3 +260,61 @@ fn ai_task_on_this_file_starts_on_rewrite_for_a_library_note() {
     assert_eq!(a.task.as_ref().map(|s| s.task), Some(TaskKind::File));
     let _ = std::fs::remove_dir_all(&l.dir);
 }
+
+/// Fable's review of C1, 4: a press on the main menu takes the keyboard from the pane, so a
+/// command chosen there other than "AI task…" works as it always did, and the typing after it
+/// goes to the text, not to the pane's rows.
+#[test]
+fn a_command_from_the_main_menu_gives_the_keyboard_back_to_the_text() {
+    let (mut a, l) = lib("libai-menu-new");
+    a.size = (1280, 800);
+    super::files_tests::open_now(&mut a, &l.taxes);
+    assert!(a.library_focus(), "the pane takes the keyboard");
+    a.compose();
+    let r = a
+        .hit_rect(Hit::Bar(crate::ui::BarItem::More))
+        .expect("the main menu");
+    a.ui.mouse = (r.cx(), r.cy());
+    a.left_press();
+    a.left_release();
+    assert!(a.ui.popup.is_some(), "the main menu is open");
+    a.choose(crate::ui::Act::Cmd(C::NewFile), false);
+    assert!(!a.ui.library.focused, "the pane no longer has the keyboard");
+    super::files_tests::type_text(&mut a, "x");
+    let typed = a
+        .docs
+        .active_ready()
+        .expect("the new tab")
+        .buffer
+        .rope()
+        .to_string();
+    assert_eq!(typed, "x");
+    assert_eq!(a.ui.library.menu_row, None, "the row is forgotten");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Fable's review of C1, 4: the row a press on the bar remembered is forgotten when its menu
+/// closes without a choice, so a later "AI task…" from the keyboard opens the window empty.
+#[test]
+fn a_menu_closed_without_a_choice_forgets_the_pane_s_row() {
+    let (mut a, l) = lib("libai-menu-esc");
+    a.docs.prefs.ai_connection = mdedit_core::ai::Connection::ClaudeApi;
+    a.size = (1280, 800);
+    super::files_tests::open_now(&mut a, &l.taxes);
+    assert!(a.library_focus(), "the pane takes the keyboard");
+    let y2025 = row(&a, "2025");
+    a.ui.library.set_cur(y2025);
+    a.compose();
+    let r = a
+        .hit_rect(Hit::Bar(crate::ui::BarItem::AiEdit))
+        .expect("AI edit");
+    a.ui.mouse = (r.cx(), r.cy());
+    a.left_press();
+    a.left_release();
+    assert!(a.ui.library.menu_row.is_some(), "the row is remembered");
+    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Escape), None);
+    assert_eq!(a.ui.library.menu_row, None);
+    a.command(C::AiTaskFiles);
+    assert!(files(&a).is_empty(), "the window opens empty");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}

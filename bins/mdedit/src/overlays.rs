@@ -1974,6 +1974,7 @@ mod tests {
             moved: None,
             originals: Vec::new(),
             added: Vec::new(),
+            copied: Vec::new(),
         };
         let offered = |r: &mdedit_core::runs::Record, kind: Kind, state: State| {
             let mut r = r.clone();

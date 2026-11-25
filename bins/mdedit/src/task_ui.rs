@@ -614,6 +614,9 @@ pub struct TaskScreen {
     pub win: (f32, f32),
     /// Set by the window's part from the settings: the connection is not off.
     pub ai_on: bool,
+    /// A run of Split them from this window has opened its note: the later runs open none, so
+    /// a split over several files is one tab, not one per file.
+    pub split_opened: bool,
 }
 
 /// A request in flight from the window.
@@ -674,6 +677,7 @@ impl TaskScreen {
             caret_on: false,
             scale: 1.0,
             win: (1280.0, 800.0),
+            split_opened: false,
             ai_on: false,
         }
     }

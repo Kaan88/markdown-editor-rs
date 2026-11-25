@@ -116,13 +116,12 @@ impl App {
         let Some(screen) = self.plan.take() else {
             return;
         };
-        // A run after the first of the task window's Split them (asked here, before the window
-        // marks this file done): its note does not open a tab of its own.
-        let later_of_window = self.task_plan.is_some()
-            && self
-                .task_parked
-                .as_ref()
-                .is_some_and(|t| t.files.iter().any(|f| f.done));
+        // A run after the first of the task window's Split them: its note does not open a tab of
+        // its own. Asked of the window's own mark, not of its files done, which Rewrite them in
+        // the same window marks too (Fable's review of C1).
+        let of_window = self.task_plan.is_some();
+        let later_of_window =
+            of_window && self.task_parked.as_ref().is_some_and(|t| t.split_opened);
         let mut request = match plan_request(&screen) {
             Ok(request) => request,
             Err(why) => {
@@ -265,6 +264,9 @@ impl App {
             && !later_of_window
         {
             self.open_after_run(&first, false);
+            if of_window && let Some(t) = self.task_parked.as_mut() {
+                t.split_opened = true;
+            }
         }
         self.redraw();
     }
@@ -789,6 +791,7 @@ impl App {
                         moved: None,
                         originals: Vec::new(),
                         added: Vec::new(),
+                        copied: Vec::new(),
                     },
                     path: root.join(".runs").join(format!("{started}-split.json")),
                     library: root.clone(),

@@ -352,6 +352,12 @@ impl App {
 
     /// The row of the Notes pane the keyboard is on, when the pane has the keyboard: "AI
     /// task…" then works on it (pictures plan 4.2).
+    pub(super) fn library_row_has_notes(&self, i: usize) -> bool {
+        self.ui.library.rows.get(i).is_some_and(|row| {
+            !crate::library_pane::notes_under(&self.docs.library, row).is_empty()
+        })
+    }
+
     pub(super) fn library_keyboard_row(&self) -> Option<usize> {
         let pane = &self.ui.library;
         if !(self.ui.panes.files && pane.on && pane.focused) {
@@ -1148,10 +1154,47 @@ impl App {
                 })
                 .collect();
             let plan = copy_in::plan(&wanted, &inside);
-            match copy_in::write(&plan) {
+            // A7, as every writer of notes keeps it (Fable's review of C1): a copy never goes into
+            // the library folder itself, where the reader would take it for a library file.
+            if plan.iter().any(|p| {
+                !matches!(p.copy, copy_in::Copy::Stays { .. })
+                    && p.target()
+                        .parent()
+                        .is_some_and(|d| super::library_write::same_folder(d, &library))
+            }) {
+                self.docs
+                    .set_toast(crate::commands::strings::LIBRARY_HOME_IS_LIBRARY);
+                self.redraw();
+                return;
+            }
+            match copy_in::write(&plan, &library, &group.home) {
                 Ok(written) => {
                     for (t, p) in targets.iter_mut().zip(&plan) {
                         t.0 = p.target().to_path_buf();
+                    }
+                    // A file whose very bytes are in the group's folder already, and listed
+                    // there, is not listed a second time (Fable's review of C1).
+                    let listed = |path: &Path| {
+                        self.docs
+                            .library
+                            .entries()
+                            .any(|(_, e)| crate::library_pane::same_note(&e.path, path))
+                    };
+                    let keep: Vec<bool> = plan
+                        .iter()
+                        .map(|p| {
+                            !(matches!(p.copy, copy_in::Copy::There { .. }) && listed(p.target()))
+                        })
+                        .collect();
+                    let mut k = keep.iter();
+                    targets.retain(|_| k.next().copied().unwrap_or(true));
+                    if targets.is_empty() {
+                        copy_in::take_back(&written);
+                        self.docs.set_toast(
+                            "Nothing was added: the library lists every one of these files already.",
+                        );
+                        self.redraw();
+                        return;
                     }
                     copies = Some((plan, written));
                 }

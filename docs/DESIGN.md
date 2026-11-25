@@ -3632,6 +3632,27 @@ while it is the bytes written and no library file lists it; a picture copy goes 
 original is where it was with the same digest, so the copy is never the only one; folders it
 made go when empty; the group's file comes back to the byte as for a run of links. `Reach::of`
 refuses a record whose copy is outside the library and its home, or whose made picture names no
-original. AI runs reads "Copied · N files → Group". Tests: `moves_copy_tests.rs` (13),
-`runs_copies_tests.rs` (9) in shared; `task_tests` (4) here. Shots `task-files-copy`,
+original. AI runs reads "Copied · N files → Group". Tests: `moves_copy_tests.rs` (16),
+`runs_copies_tests.rs` (11) in shared; `task_tests` (6) here. Shots `task-files-copy`,
 `task-files-copy-520`, `task-files-link`, both themes.
+
+**After Fable's review of C1.** The pictures of each Markdown file are planned once, before its
+links: planned again in the pass that renames a file, a picture the file had taken was dropped,
+and one two files share was marked as there for both, so neither wrote it. A file whose links
+change is named again by the text it will hold, so a file there that holds exactly that text is
+linked, not copied under `-2`. `write(plan, library, home)` keeps the folders it made above the
+group's home apart (`Written::made_outside`): only `take_back` removes them, since the record's
+folders must be inside the library's reach. Each copy of a file is recorded with its original
+and that file's digest (`Record::copied`, JSON `"copied"`), and undo keeps a copy, and its line,
+while its original is gone or changed, as it keeps a picture's copy. The app refuses a copy into
+the library folder itself (A7, `LIBRARY_HOME_IS_LIBRARY`), and does not list a second time a file
+whose very bytes the group's folder holds and the library lists. The files are read and copied on
+the UI thread, as a run of links reads them: a file is at most 64 MiB, and the copies are of the
+files the owner chose one by one, not a folder's walk. A press on AI edit or the main menu takes
+the keyboard from the Notes pane again (the review of the milestone had let the pane keep it,
+so the menu's other commands, and the typing after them, went to the pane): the press remembers
+the pane's row (`LibraryPane::menu_row`), "AI task…" chosen from that menu works on it, and
+any other choice, a press outside the menu or Escape forgets it. The task window keeps the size
+it is drawn at (`s.win`), so its menus are placed in the window as it is after a resize. Split
+them opens only its first run's note by a mark of the window's own (`split_opened`), not by its
+files done, which Rewrite them in the same window marks too.

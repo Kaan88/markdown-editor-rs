@@ -1751,3 +1751,91 @@ fn split_them_over_two_files_opens_one_tab() {
     assert_eq!(files(&a), tabs + 1, "the second run opens no tab");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Fable's review of C1, 6: the window keeps the size it is drawn at, so what is placed from it
+/// after a resize (the group menu, the Add menu) is placed in the window as it is now.
+#[test]
+fn the_window_keeps_the_size_it_is_drawn_at() {
+    let (mut a, dir) = open("task-resized", TaskKind::File, Vec::new());
+    a.size = (900, 640);
+    a.compose();
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.win, a.logical());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of C1, nit: a file another task of the same window has done (Rewrite them,
+/// say) does not stop the first run of Split them from opening its note.
+#[test]
+fn split_after_another_task_in_the_window_still_opens_its_note() {
+    let (mut a, dir) = open("task-split-after", TaskKind::Split, Vec::new());
+    let kyoto = trip(&dir, "kyoto.md", "Kyoto");
+    let done = trip(&dir, "done.md", "Done");
+    a.task_add_paths(vec![kyoto, done]);
+    with_group(&mut a, "Trips");
+    if let Some(s) = a.task.as_mut() {
+        s.files[1].done = true;
+    }
+    let tabs = a.docs.tabs.len();
+    a.task_run();
+    assert!(a.plan.is_some(), "kyoto.md's plan");
+    a.plan_write();
+    assert_eq!(
+        a.docs.tabs.len(),
+        tabs + 1,
+        "the first split run's note opens"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of C1, 3: a copy never goes into the library folder itself (A7), where the
+/// reader would take it for a library file: a group whose folder is the library's is refused,
+/// and nothing is copied.
+#[test]
+fn file_them_never_copies_into_the_library_folder_itself() {
+    let (mut a, dir) = open("task-copy-a7", TaskKind::File, Vec::new());
+    let desk = dir.join("desk");
+    std::fs::create_dir_all(&desk).expect("desk");
+    let from = desk.join("notes.md");
+    std::fs::write(&from, "# Notes\n").expect("notes");
+    a.task_add_paths(vec![from]);
+    with_group(&mut a, "Here");
+    let library = dir.join("library");
+    if let Some(g) = a.task.as_mut().and_then(|s| s.groups.last_mut()) {
+        g.home = library.clone();
+    }
+    a.task_run();
+    a.task_file_write();
+    assert_eq!(toast(&a), crate::commands::strings::LIBRARY_HOME_IS_LIBRARY);
+    assert!(!library.join("notes.md").exists(), "nothing is copied");
+    assert!(a.task.is_some(), "the window stays");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of C1, nit: a file whose very bytes the group's folder holds already, and the
+/// library lists, is not listed a second time.
+#[test]
+fn a_copy_the_library_lists_already_is_not_listed_twice() {
+    let (mut a, dir) = open("task-copy-twice", TaskKind::File, Vec::new());
+    let md = trip_with_picture(&dir);
+    a.task_add_paths(vec![md.clone()]);
+    with_group(&mut a, "Trips");
+    a.task_run();
+    a.task_file_write();
+    assert!(a.task.is_none(), "the first run is in");
+    let group = dir.join("library").join("Trips.md");
+    let once = std::fs::read_to_string(&group).expect("the group file");
+    a.task_open(TaskKind::File, vec![md]);
+    assert!(
+        matches!(a.task.as_ref().map(|s| &s.dest), Some(DestChoice::Group(_))),
+        "the one group is chosen"
+    );
+    a.task_run();
+    a.task_file_write();
+    assert_eq!(
+        std::fs::read_to_string(&group).expect("the group file"),
+        once
+    );
+    assert!(toast(&a).contains("lists every one"), "{}", toast(&a));
+    let _ = std::fs::remove_dir_all(&dir);
+}

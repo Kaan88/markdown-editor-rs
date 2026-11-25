@@ -2204,3 +2204,14 @@ This replaces phase F's rule (DESIGN 85, 2026-11-25) that showed every such file
 the plan (section 14) says everything but pictures and documents "opens in a tab as now". A
 tab runs nothing.
 **Overturned by.** The owner.
+
+## D-217 · 2026-11-25 · A copy stays while its original is gone
+
+**Decision.** Undo of "Copy them in" removes a copy of a file only while the record names the
+file it was copied from and that file is where it was with the digest it had; otherwise the
+copy and its line stay, as a picture's copy already did. The record says so in `"copied"`.
+Folders made above the group's home are not the record's. This adds to D-215, whose undo
+removed a copy whenever it was the bytes written and nothing listed it.
+**Why.** Fable's review of C1: the owner may have deleted or changed the original after the
+copy was made, and then the copy is the only one; undo is the one thing that deletes.
+**Overturned by.** The owner.

@@ -21,6 +21,9 @@ use mdshared_ui::theme::Palette;
 const PAD: f32 = DIALOG_PAD;
 
 pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, caret_on: bool) {
+    // The size the window is drawn at, for what is placed from it later (the group menu, the
+    // Add menu's lines): the window may have been resized since it opened.
+    s.win = (w, h);
     let r = task_ui::card(w, h);
     let g = task_ui::geo(r);
     let mut hits: Vec<(Hit, Rect)> = Vec::new();

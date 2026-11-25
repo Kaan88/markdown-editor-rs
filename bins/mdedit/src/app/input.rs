@@ -706,6 +706,7 @@ impl App {
                 return;
             }
             self.ui.popup = None;
+            self.ui.library.menu_row = None;
             self.redraw();
             return;
         }
@@ -771,13 +772,16 @@ impl App {
             || hit == Hit::ResultsEdge;
         self.ui.results.set_focus(in_panel);
         // The notes pane keeps the keyboard through a press on its rows and its name box (a
-        // click on a row settles it), and through one that only opens the AI menu or the main
-        // menu, so "AI task…" chosen there still works on its row (pictures plan 4.2); a press
-        // anywhere else takes it away.
-        if !matches!(
-            hit,
-            Hit::LibraryRow(_) | Hit::LibraryField | Hit::Bar(BarItem::AiEdit | BarItem::More)
-        ) {
+        // click on a row settles it); a press anywhere else takes it away. A press that opens
+        // the AI menu or the main menu remembers the row it was on, so "AI task…" chosen there
+        // still works on it (pictures plan 4.2), while every other command of those menus, and
+        // the typing after it, goes to the text (Fable's review of C1).
+        self.ui.library.menu_row = if matches!(hit, Hit::Bar(BarItem::AiEdit | BarItem::More)) {
+            self.library_keyboard_row()
+        } else {
+            None
+        };
+        if !matches!(hit, Hit::LibraryRow(_) | Hit::LibraryField) {
             self.ui.library.focused = false;
         }
         let clicks = self.click_count(x, y);
@@ -1013,6 +1017,7 @@ impl App {
             return;
         }
         self.ui.popup = None;
+        self.ui.library.menu_row = None;
         // In visual editing the open block's box is the text: it gets the text's menu (AI and
         // the rest), not the page's.
         let in_box = self.visual_block().is_some() && self.areas.text.contains(x, y);
@@ -1478,7 +1483,10 @@ impl App {
                     p.dwell = None;
                 }
                 Some(KeyName::Escape) if open => p.sub = None,
-                Some(KeyName::Escape) => self.ui.popup = None,
+                Some(KeyName::Escape) => {
+                    self.ui.popup = None;
+                    self.ui.library.menu_row = None;
+                }
                 // A letter picks the item marked with it, as Enter would. Nothing else a typed
                 // character did in an open menu is lost: it did nothing.
                 _ => {
