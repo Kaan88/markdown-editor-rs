@@ -216,7 +216,7 @@ pub fn pages(
     }
     appearance.push(Item::new(
         Row::toggle(ANIMATIONS, "Animations", prefs.animations)
-            .help("Menus fade in as they open. Off, or when the system asks for less motion, nothing moves."),
+            .help("Menus fade in and toasts rise in and out. Off, or when the system asks for less motion, nothing moves."),
     ));
     appearance.extend([
         Item::gap(),

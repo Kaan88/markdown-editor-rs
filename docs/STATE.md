@@ -1,7 +1,7 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-25, when the menu fade was built. If `git log -1`
-is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-26, when the toasts' stack was fixed. If
+`git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -20,8 +20,9 @@ is newer, doubt "In hand" first.
 - **mdview 1.1.0**, 2026-11-24, tag `v1.1.0` at `0310e01`, fourteen assets: click to zoom a large
   diagram, the notes library, audit 4's report E (mdview `docs/HANDOFF.md`).
 - The shared crates are not released; the apps pin them by commit. mdedit pins shared `main` at
-  `48eb3ce` (`feat/anim` and the "Fast-tracked for the md apps" items, `ci` green on Linux,
-  Windows and both Macs; the lock change accepted by the owner, D-234). **Hub** is its own app (its `docs/STATE.md` is its record).
+  `535ad4c` (`feat/anim` and the "Fast-tracked for the md apps" items, `ci` green on Linux,
+  Windows and both Macs; the lock change accepted by the owner, D-234; the pin moved twice since,
+  by the shared `rev` alone, D-250 and D-252). **Hub** is its own app (its `docs/STATE.md` is its record).
 
 ## On `main`, not released
 
@@ -39,10 +40,12 @@ is newer, doubt "In hand" first.
 
 ## In hand
 
-- **More motion**: toasts and tooltips (the
+- **More motion**: tooltips (the
   tooltip delay question: from entering a control, or from the pointer resting), dialogs and
   cards; shared still builds the Settings form motion (L10) and the tree chevron. No tab
-  cross-fade in mdedit (memory), no sliding panes.
+  cross-fade in mdedit (memory), no sliding panes. The toasts are built on `f/motion2` (D-251,
+  D-252, DESIGN 97): not merged, not tried in a real window, and their wait for the lift waits
+  on shared PR 24 under motion off.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.

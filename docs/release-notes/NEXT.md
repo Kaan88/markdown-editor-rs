@@ -1,4 +1,4 @@
-Unreleased: menus fade in as they open, and a setting to turn motion off. (Renamed to the version's own file when it is cut.)
+Unreleased: menus fade in as they open, messages rise, stack and wait their turn, and a setting to turn motion off. (Renamed to the version's own file when it is cut.)
 
 ## New
 
@@ -10,4 +10,6 @@ Unreleased: menus fade in as they open, and a setting to turn motion off. (Renam
 - **Messages rise in and fade out.** A message at the bottom of the text now rises into place
   and fades away when its time is up. A message that updates (a count, a step) changes in place;
   confirmations such as "File path copied" stack, at most three, and the same one said again
-  stays one.
+  stays one — brought to the bottom, so the one you just triggered is the one in sight.
+- **New waits for the lift.** When confirmations stack, the ones above lift out of the way
+  before the new one rises in underneath.

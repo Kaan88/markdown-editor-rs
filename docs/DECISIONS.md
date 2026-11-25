@@ -2507,3 +2507,38 @@ enters while the ones above lift. It is wired when shared lands it.
 **Why.** The motion close-out's M-B (the coordinator, 2026-11-25): "A status REPLACES by default
 … Only one-shot confirmations that are separate events STACK". mdview made the same split.
 **Overturned by.** The owner.
+
+## D-252 · 2026-11-26 · The toasts wait for the lift; a status sweeps the leaving ones; a repeat goes to the bottom
+
+**Decision.** D-251 stands, with these changes, and the shared crates are pinned at `535ad4c`
+(D-250 named `f45a71c`; DESIGN 96 said `48eb3ce`):
+- **New waits for the lift.** The toasts' stack is built with `Stack::with_wait_for_lift()`
+  (`motion::toasts`), so a toast pushed onto others stays out until they have lifted, which is
+  the owner's "New waits for the lift". Shared's own delay still applies when nothing animates
+  (`Policy::Never`: a shot, a test, the setting off, reduced motion), where the toast would
+  arrive 167 ms late with nothing moving. That is shared's bug, fixed by its PR 24, not worked
+  around here; the test that proves it (`with_no_motion_two_confirmations_are_both_there_at_once`)
+  is `#[ignore = "needs shared PR 24"]` until the pin moves past it.
+- **A status takes every other toast away at once**, the ones still playing their exit
+  included: the list of the last frame names them, `current` does not. It then replaces in
+  place, or comes in when nothing was shown.
+- **A confirmation said again that is not the newest moves to the bottom** (taken out and shown
+  again), so the one the user just triggered is the one in sight, even in a short window.
+- **The newest toast is drawn last**, over the shadow the one above it throws.
+- **Who stacks** gains: "Saved as …" for a saved AI prompt, "The picture on the clipboard is
+  added.", a note moved, and a group deleted. Everything else replaces.
+- A toast's 2.5 s counts from when the message was **set** (`Docs::put_toast`), not, as D-251
+  said, from the frame that takes it in; what is left of that time runs on the frame's clock. A
+  message already past its time when a frame takes it in shows nothing (tested).
+- Settings › Appearance's "Animations" help says "Menus fade in and toasts rise in and out. Off,
+  or when the system asks for less motion, nothing moves." (D-233's text named the menus only),
+  and still fits every Settings page at 520 px.
+The toast shots render on the animator's hand-moved clock (`shot_toasts`), since a toast pushed
+onto another waits for its lift before it enters; `toasts-stacking-*` shows the newcomer part way
+in after the lift (`--motion-ms 200`), and `toast-repeated-*` the first said again, at the bottom.
+**Why.** The review of the toast branch (the owner, 2026-11-25/26): the owner's "New waits for
+the lift" was left as "asked of shared", and three faults in the stack were found — a status
+leaving the leaving toasts fading, a repeated confirmation lost in a short window, and the new
+toast drawn under the shadow above it. Rule 2 asks for a test per behaviour.
+**Overturned by.** The owner; or the pin that carries shared PR 24, which would un-ignore the
+test above.
