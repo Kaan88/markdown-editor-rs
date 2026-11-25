@@ -221,6 +221,8 @@ pub fn http_fail(provider: &str, status: u16, retry_after: Option<u64>, body: &s
         _ => Fail::new("http", format!("{provider} answered {status}: {msg}")),
     };
     f.retry_after = retry_after;
+    f.status = status;
+    f.said = msg;
     f
 }
 
@@ -358,6 +360,7 @@ fn run_claude_with(
         .filter(|&m| m > 0)
         .map_or(CLAUDE_MAX_TOKENS, |m| m.min(CLAUDE_MAX_TOKENS));
     let body = claude_body(model, effort, system, prompt, images, max_tokens);
+    job.sending();
     let resp = checked(
         P,
         Some(key),
@@ -660,6 +663,7 @@ pub fn run_openai(
     if let Some(key) = &key {
         req = req.header("authorization", &format!("Bearer {key}"));
     }
+    job.sending();
     let resp = checked(
         &p,
         key.as_deref(),
@@ -688,32 +692,74 @@ pub fn run_openai(
     s.finish(&p).map_err(hide)
 }
 
-/// Words in a refusal of a request with pictures that say the model reads none.
-const NO_VISION_WORDS: &[&str] = &[
-    "image",
-    "vision",
-    "multimodal",
-    "multi-modal",
-    "image_url",
-    "picture",
+/// What a refusal of pictures is about: one of these, in the server's own words.
+const NO_VISION_TOPIC: &[&str] = &["image", "vision", "multimodal", "multi-modal", "picture"];
+
+/// What it says of them: that they are not taken at all.
+const NO_VISION_REFUSAL: &[&str] = &[
+    "not support",
+    "unsupported",
+    "only supported",
+    "not accept",
+    "cannot accept",
+    "can't accept",
+    "not enabled",
+    "not a multimodal",
+    "no vision",
+    "not available for this model",
 ];
 
-/// A 400 or 422 for a request with pictures that speaks of them: the model reads no pictures.
+/// What a refusal of one picture says, which is not of the model (too large, a format): those
+/// keep the server's words.
+const NO_VISION_NOT: &[&str] = &[
+    "too large",
+    "too big",
+    "exceed",
+    "size",
+    "format",
+    "dimension",
+    "mime",
+    "media type",
+    "corrupt",
+    "invalid image",
+    "image/",
+];
+
+/// A 400 or 422 for a request with pictures, whose server says the model takes none: the model
+/// reads no pictures. Only the server's own words are read, by their status (Fable's review of
+/// V1, 16: a host or a model named "vision", or "image too large", once read as such), and they
+/// stay in the message.
 pub fn no_vision(f: Fail, with_images: bool, model: &str, host: &str) -> Fail {
-    let refused = f.kind == "http" && (f.message.contains(" 400:") || f.message.contains(" 422:"));
-    let low = f.message.to_lowercase();
-    if with_images && refused && NO_VISION_WORDS.iter().any(|w| low.contains(w)) {
-        return Fail::new(
+    let refused = f.kind == "http" && matches!(f.status, 400 | 422);
+    // The model's and the host's names are not the server's words about pictures.
+    let mut said = f.said.to_lowercase();
+    for name in [model, host] {
+        let name = name.trim().to_lowercase();
+        if !name.is_empty() {
+            said = said.replace(&name, " ");
+        }
+    }
+    let is_it = NO_VISION_TOPIC.iter().any(|w| said.contains(w))
+        && NO_VISION_REFUSAL.iter().any(|w| said.contains(w))
+        && !NO_VISION_NOT.iter().any(|w| said.contains(w));
+    if with_images && refused && is_it {
+        let mut n = Fail::new(
             "no_vision",
-            format!("This model does not read pictures: {model} at {host}."),
+            format!(
+                "This model does not read pictures: {model} at {host}. It said: {}",
+                f.said.trim()
+            ),
         );
+        n.status = f.status;
+        n.said = f.said;
+        return n;
     }
     f
 }
 
 /// A 400 for a request with an effort is most likely the effort: say so.
 fn explain_effort(mut f: Fail, effort: &str) -> Fail {
-    if !effort.is_empty() && f.kind == "http" && f.message.contains(" 400:") {
+    if !effort.is_empty() && f.kind == "http" && f.status == 400 {
         f.message
             .push_str(" This model may not take an effort setting: set Effort to Default.");
     }

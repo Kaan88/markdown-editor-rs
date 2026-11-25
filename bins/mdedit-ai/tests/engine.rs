@@ -842,7 +842,10 @@ fn an_openai_model_that_reads_no_pictures_is_said_so() {
     let host = base.trim_start_matches("http://");
     assert_eq!(
         a["message"],
-        format!("This model does not read pictures: llama3 at {host}.")
+        format!(
+            "This model does not read pictures: llama3 at {host}. It said: This model does not \
+             support image inputs."
+        )
     );
     let chat = seen.recv().unwrap();
     let body: Value = serde_json::from_str(&chat.body).unwrap();
@@ -923,4 +926,21 @@ mod fake_cli_pictures {
         assert!(existed.lines().any(|l| l == file), "{existed}");
         assert!(!std::path::Path::new(file).exists());
     }
+}
+
+/// Fable's review of V1, 17: a run with pictures that fails before its request leaves (no model
+/// is chosen) says no `sent`: nothing went.
+#[test]
+fn a_run_that_fails_before_it_leaves_says_nothing_was_sent() {
+    let pic = picture("unsent", 40, 20);
+    let mut e = Engine::start(&[]);
+    let sha = measure(&mut e, &pic)["sha256"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let conn = json!({"kind": "openai", "base_url": "http://127.0.0.1:9/v1", "slot": "openai:x"});
+    e.send(run_with(conn, "", json!([{"path": pic, "sha256": sha}])));
+    let a = e.answer();
+    assert_eq!(a["ev"], "error", "{a}");
+    assert_eq!(a["kind"], "bad_request", "{a}");
 }

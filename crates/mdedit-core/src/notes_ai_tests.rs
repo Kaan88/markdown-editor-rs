@@ -202,7 +202,8 @@ fn check_6_pictures_in_a_body() {
 }
 
 /// Check 7: links are kept only to the web and mail; any other target is unlinked and its words
-/// kept; raw HTML has its `<` escaped outside code; a definition to anything else goes.
+/// kept; raw HTML has its `<` escaped outside code; a link's definition is never one: its
+/// brackets are escaped, whatever it leads to (Fable's review of V2, 4).
 #[test]
 fn check_7_links_and_html() {
     let b = body_of(
@@ -215,13 +216,14 @@ fn check_7_links_and_html() {
     assert!(t.contains("[ok](https://a.test)"), "{t}");
     assert!(t.contains("[mail](mailto:a@b.test)"), "{t}");
     assert!(t.contains(" js "), "{t}");
-    assert!(!t.contains("javascript"), "{t}");
+    assert!(!t.contains("(javascript"), "{t}");
     assert!(!t.contains("file:"), "{t}");
     assert!(!t.contains("../x.md"), "{t}");
     assert!(t.contains("&lt;script>x&lt;/script>"), "{t}");
     assert!(t.contains("`<kbd>`"), "{t}");
     assert!(t.contains("\n<b>code</b>\n"), "{t}");
-    assert!(t.contains("[w]: https://w.test"), "{t}");
+    assert!(t.contains(r"\[w\]: https://w.test"), "{t}");
+    assert!(t.contains(r"\[r\]: javascript:x"), "{t}");
 }
 
 /// Check 8: "Write out the text in the pictures" puts the look's text under the picture as a
@@ -427,4 +429,167 @@ fn no_answer_panics() {
     // a link.
     let b = body_of(&note("[a](<javascript:x>) ![b](<picture:0>)"), &[0]);
     assert_eq!(text_of(&b), "a <<0:b>>");
+}
+
+/// Fable's review of V2, 1 to 6: a parser reads blocks and paragraphs, not lines, so each of these
+/// once put a remote picture or a tag live in a note. Each comes out with nothing live but a link
+/// to the web, a code span closed on its own line, or a fence at the first column; every other
+/// bracket, `!`, backtick and `<` is escaped. (The outputs were checked against the CommonMark
+/// rules by hand: no parser is a dependency of this crate.)
+#[test]
+fn no_body_puts_a_live_picture_or_tag_in_a_note() {
+    let cases: [(&str, &str); 18] = [
+        (
+            r#"1. Step
+
+    ![shot](https://evil.test/p.png)"#,
+            r#"1. Step
+
+    [shot](https://evil.test/p.png)"#,
+        ),
+        (
+            r#"1. Step
+
+    <img src=https://evil.test/p.png>"#,
+            r#"1. Step
+
+    &lt;img src=https://evil.test/p.png>"#,
+        ),
+        (
+            r#"!![x](https://evil.test/p.png)"#,
+            r#"\![x](https://evil.test/p.png)"#,
+        ),
+        (
+            r#"!![a](picture:99)[x](https://evil.test/p.png)"#,
+            r#"\![x](https://evil.test/p.png)"#,
+        ),
+        (
+            r#"[!](x)[y](https://evil.test/p.png)"#,
+            r#"\![y](https://evil.test/p.png)"#,
+        ),
+        (
+            r#"!![x][r]
+[r]: https://evil.test/p.png"#,
+            r#"!\!\[x\]\[r\]
+\[r\]: https://evil.test/p.png"#,
+        ),
+        (
+            r#"[[[[![x](https://evil.test/p.png)](a)](b)](c)](d)"#,
+            r#"\[\[\[\!\[x\](https://evil.test/p.png)\](a)\](b)\](c)"#,
+        ),
+        (
+            r#"[x]: https://a.test <img src=https://evil.test/p.png>"#,
+            r#"\[x\]: https://a.test &lt;img src=https://evil.test/p.png>"#,
+        ),
+        (
+            r#"[![x](https://evil.test/p.png)]: https://a.test"#,
+            r#"\[[x](https://evil.test/p.png)\]: https://a.test"#,
+        ),
+        (
+            r#"[x](https://a.test <img src=https://evil.test/p.png>)"#,
+            r#"\[x\](https://a.test &lt;img src=https://evil.test/p.png>)"#,
+        ),
+        (
+            r#"[x](https://a.test ![y](https://evil.test/p.png))"#,
+            r#"\[x\](https://a.test [y](https://evil.test/p.png))"#,
+        ),
+        (
+            r#"foo ` bar
+baz ` <img src=https://evil.test/p.png> ` qux"#,
+            r#"foo \` bar
+baz ` <img src=https://evil.test/p.png> ` qux"#,
+        ),
+        (
+            r#"[a ` b](https://a.test) ` <img src=https://evil.test/p.png> `"#,
+            r#"[a \` b](https://a.test) ` <img src=https://evil.test/p.png> `"#,
+        ),
+        (
+            r#"``` a `b
+<img src=https://evil.test/p.png>
+```"#,
+            r#"\`\`\` a \`b
+&lt;img src=https://evil.test/p.png>
+```"#,
+        ),
+        (
+            r#"- a
+  ```
+<img src=https://evil.test/p.png>"#,
+            r#"- a
+  \`\`\`
+&lt;img src=https://evil.test/p.png>"#,
+        ),
+        (
+            r#"\``x`` <img src=https://evil.test/p.png> ``"#,
+            r#"\`\`x`` <img src=https://evil.test/p.png> ``"#,
+        ),
+        (
+            r#"![x
+y](https://evil.test/p.png)"#,
+            r#"\!\[x
+y\](https://evil.test/p.png)"#,
+        ),
+        (
+            r#"[ok](https://a.test/(b)) [j](javascript:alert(1)) [a](<https://a.test/x>)"#,
+            r#"[ok](https://a.test/(b)) j [a](https://a.test/x)"#,
+        ),
+    ];
+    for (input, want) in cases {
+        let b = body_of(&note(input), &[0]);
+        assert_eq!(text_of(&b), want, "{input:?}");
+    }
+}
+
+/// Fable's review of V2, 8: a line of 200 KB of brackets or of links half written is read in
+/// linear time, not in the square of its length.
+#[test]
+fn a_long_line_of_brackets_is_read_at_once() {
+    let t = std::time::Instant::now();
+    for unit in ["[", "[a](", "`", "![", "]("] {
+        let line = unit.repeat(BODY_MAX / unit.len() - 8);
+        let b = body_of(&note(&line), &[0]);
+        assert!(!text_of(&b).is_empty());
+    }
+    assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+}
+
+/// Fable's review of V2, 7: two pictures whose titles share their first 64 characters once looped
+/// for ever, each number cut off by the name's cap. They are two notes of two paths.
+#[test]
+fn long_titles_alike_are_numbered_where_the_number_is_kept() {
+    let long = "a".repeat(70);
+    let file = |id: usize| format!("{long}{id}.png");
+    let n = per_picture(&[0, 1, 2], &[], &file, false);
+    assert_eq!(n.len(), 3);
+    assert_ne!(n[0].file_name(), n[1].file_name());
+    assert_ne!(n[1].file_name(), n[2].file_name());
+    assert_ne!(n[0].file_name(), n[2].file_name());
+}
+
+/// Fable's review of V2, 9 and 10: `#`, `?` and `%` in a picture's name are escaped in its
+/// address; the arrange request is given the whole of a picture's text on one line.
+#[test]
+fn an_address_keeps_its_hash_and_a_text_its_lines() {
+    let a = read_arrange(&note("![x](picture:0)"), &[0]).expect("read");
+    let hashed = |_: usize| Some("Shot #3 ?100%.png".to_string());
+    let c = Compose {
+        looks: &[],
+        name: &hashed,
+        text_out: false,
+    };
+    assert!(
+        compose(&a.notes[0], &c).contains("(pictures/Shot%20%233%20%3F100%25.png)"),
+        "{}",
+        compose(&a.notes[0], &c)
+    );
+    let looks = [Look {
+        id: 0,
+        title: "Error".into(),
+        text: "OK
+Your session has expired"
+            .into(),
+        ..Look::default()
+    }];
+    let p = arrange_prompt("", HowMany::AsNeeded, &looks, &[], &[]);
+    assert!(p.contains("Text: \"OK Your session has expired\""), "{p}");
 }

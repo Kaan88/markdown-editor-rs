@@ -280,11 +280,61 @@ fn a_refusal_about_pictures_is_no_vision() {
     assert_eq!(v.kind, "no_vision");
     assert_eq!(
         v.message,
-        "This model does not read pictures: llama3 at localhost:11434."
+        "This model does not read pictures: llama3 at localhost:11434. It said: model does not support image input"
     );
     assert_eq!(no_vision(f, false, "llama3", "h").kind, "http");
     let other = http_fail("h", 400, None, r#"{"error":{"message":"bad temperature"}}"#);
     assert_eq!(no_vision(other, true, "m", "h").kind, "http");
     let auth = http_fail("h", 401, None, "image");
     assert_eq!(no_vision(auth, true, "m", "h").kind, "auth");
+}
+
+/// Fable's review of V1, 16: only the server's own words of a 400 or 422 say a model reads no
+/// pictures. A host or a model named for images, a 500 that quotes "400:", and a refusal of one
+/// picture (too large, a format) keep their own message.
+#[test]
+fn only_the_server_s_words_say_a_model_reads_no_pictures() {
+    let f = |status: u16, body: &str| http_fail("images.corp:8080", status, None, body);
+    let says = |status: u16, body: &str| {
+        no_vision(f(status, body), true, "llama3.2-vision", "images.corp:8080").kind
+    };
+    let none = r#"{"error":{"message":"This model does not support image inputs."}}"#;
+    assert_eq!(says(400, none), "no_vision");
+    assert_eq!(says(422, none), "no_vision");
+    assert_eq!(
+        says(
+            400,
+            r#"{"error":{"message":"Model does not support images. Please use a model that does."}}"#
+        ),
+        "no_vision"
+    );
+    // Not of the model: the pictures themselves, an effort, another status.
+    for body in [
+        r#"{"error":{"message":"image too large: 9000 x 9000"}}"#,
+        r#"{"error":{"message":"unsupported image format image/webp"}}"#,
+        r#"{"error":{"message":"reasoning_effort is not supported by llama3.2-vision"}}"#,
+        r#"{"error":{"message":"bad request"}}"#,
+    ] {
+        assert_eq!(says(400, body), "http", "{body}");
+    }
+    assert_eq!(
+        says(
+            500,
+            r#"{"error":{"message":"upstream said 400: image not supported"}}"#
+        ),
+        "http"
+    );
+    assert_eq!(
+        no_vision(f(400, none), false, "m", "h").kind,
+        "http",
+        "no pictures sent"
+    );
+    // The server's words stay in the message.
+    let n = no_vision(f(400, none), true, "llama3", "h:1");
+    assert!(
+        n.message
+            .ends_with("It said: This model does not support image inputs."),
+        "{}",
+        n.message
+    );
 }

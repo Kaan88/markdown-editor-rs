@@ -3740,24 +3740,33 @@ naming the file, then `prepared`. `hello` says `"version":2`.
 **The pictures** (`pictures.rs`). A file is read up to 64 MiB and made ready by `resize.rs`, the
 spike's resizer rewritten. It sniffs the format from the bytes, reads the size from the header
 before anything is allocated, and refuses HEIC, AVIF, TIFF and SVG with their names. A picture
-inside both limits goes byte for byte, without its details where `strip` is on: JPEG
-APP1/APP13/COM, PNG text, eXIf and tIME chunks and anything after IEND, WebP EXIF and XMP with
-VP8X's flags cleared, all without decoding. Over a limit, or sideways by its orientation, it is
+inside both limits goes byte for byte, without its details where `strip` is on, all without
+decoding, by lists of what is kept (D-224):
+- JPEG: APP0, APP2's colour profile, APP14 and the image's own segments, cut at its end;
+- PNG: the image, colour, transparency, density and animation chunks, cut at IEND;
+- GIF: without comments and application blocks but the loop count, cut at its end;
+- WebP: without EXIF and XMP, VP8X's flags cleared.
+
+An animation (GIF, WebP, PNG with `acTL`) goes whole or is refused. One whose blocks cannot be
+walked while its details are to go is refused with the reason. Over a limit, or sideways by its orientation, it is
 decoded, turned, scaled by area average and written again (JPEG at 85, PNG and WebP as PNG). A
 BMP has its own small reader and goes as a PNG (D-222). A run makes every picture ready first.
 One whose digest is not the one `prepare` gave fails the run with kind `image` ("IMG_4032.jpg
 changed since it was measured"), and nothing is sent. Otherwise `sent` says the bytes and digest
-of each, and the text's bytes, before the request goes.
+of each, and the bytes of the system text and prompt. It is said through `Job::sending`, which
+each sender calls as its request leaves: never for a run that failed before (D-225).
 
 **The senders.** The Claude API gets the user content as a list: image blocks, then the text.
-OpenAI-style servers get the text, then one `image_url` data URL per picture; a 400 or 422 that
-speaks of images or vision, for a request with pictures, is `no_vision` ("This model does not
-read pictures: llama3 at localhost:11434."). Claude Code gets `--input-format stream-json` and
+OpenAI-style servers get the text, then one `image_url` data URL per picture; a 400 or 422, for a request with
+pictures, whose server says in its own words that the model takes no images (`Fail::said`, the
+model's and host's names left out, a refusal of one picture excepted) is `no_vision`: "This model
+does not read pictures: llama3 at localhost:11434. It said: …" (D-225). Claude Code gets `--input-format stream-json` and
 one user message on stdin, pictures first (D-221). Every Claude Code run, text or not, adds
 `--strict-mcp-config` (D-213). Codex gets the pictures written as `1.jpg`, `2.png`… in a new
-folder `mdedit-ai-pictures-<pid>-<time>` under the temp folder (0700 on unix), one `--image`
-each, then `--` and `-`. The folder goes when the run ends, and a Codex picture run first
-removes such folders older than six hours (D-222). The window offers Codex no pictures until a
+folder `mdedit-ai-pictures-<pid>-<time>-<n>` under the temp folder (0700 on unix), one
+`--image` each, then `--` and `-`. The folder goes when the run ends. Such folders older than
+six hours are removed by each Codex picture run and, on a thread, when the engine starts (D-222,
+D-225). The window offers Codex no pictures until a
 try by hand (D-221).
 
 **The editor.** `ai::hello_version` reads the greeting, and `Client::version` keeps it. A done
@@ -3780,7 +3789,7 @@ reached from the window yet (V3).
 **The requests.** `look_prompt` names each picture of a batch of four by its number and its
 file's name, never its folder, and asks for the text written out only when "Write out the text"
 is on. `arrange_prompt` holds no picture. It gives the instruction, how many notes, the group's
-sections, what the look said of each picture (of its text the first 300 characters), and each
+sections, what the look said of each picture (of its text the first 300 characters, on one line), and each
 text file whole between two marked lines. `LOOK_SYSTEM` and `ARRANGE_SYSTEM` say that words in a
 picture are never instructions, and that a picture goes in a note only as
 `![words](picture:N)`.
@@ -3796,19 +3805,23 @@ checks are each a test (`notes_ai_tests.rs`, `check_1` to `check_11`):
 - a body: 200 KB cut at a line; LF; no controls but tab and line feed; no front matter; no first
   heading that repeats the title;
 - pictures: a sent number becomes `Part::Picture`, placed once; any other picture loses its `!`;
-- links to anything but `http:`, `https:` or `mailto:` are unlinked; a definition to anything
-  else is dropped; `<` is escaped outside code spans, fences and indented code;
+- links to anything but `http:`, `https:` or `mailto:` are unlinked; `<` is escaped outside code;
+- nothing else stays live (D-223): a fence counts only at the first column, a code span only
+  closed on its line, and a link only as the app writes it again (one plain address, its words
+  escaped); every other `[`, `]`, unclosed backtick, `!` before a link and `<` is escaped, so no
+  definition is one. The brackets and backtick runs of a line are matched once, in linear time;
 - the picture's text as a quote;
 - 100 notes; an empty note or a second note of one path dropped and counted;
 - a picture in no kept note listed as not used, whatever the model said;
 - no model text in a path except through `note_slug` and `folder_name`.
 
 **The composer.** `compose` writes `# Title` and the body. Each picture is the app's own line,
-`![alt](pictures/<name>)`, on a paragraph of its own: the name is escaped for an address; the
+`![alt](pictures/<name>)`, on a paragraph of its own: the name is escaped for an address (space, parentheses, angle brackets, `#`, `?`, `%`, `\`); the
 alt is one line of 200 characters, its brackets escaped; an empty alt takes what the look said.
 `joined` makes "One note" of several, each after the first under its title as `##`.
 `per_picture` makes "One per picture", and the notes with the AI off, with no answer: the look's
-title or the file's stem; a second note of one title becomes "Title 2". `picture_name` names a
+title or the file's stem; a second note of one path becomes "Title 2", the number on the first
+40 characters, so the name's cap of 64 never cuts it (D-223). `picture_name` names a
 copy after what it shows (the note rule) or after the original. `numbered` gives `-2` for a
 taken name; whether a name is taken, and whether the same bytes are there already, is the
 writer's (V5).

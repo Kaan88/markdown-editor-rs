@@ -165,3 +165,22 @@ fn codex_pictures_are_written_and_removed() {
     drop(p);
     assert!(!dir.exists());
 }
+
+/// Fable's review of V1, 24: the sweep removes only folders named for a run's pictures and older
+/// than the age it is given; a fresh one and any other folder stay.
+#[test]
+fn the_sweep_removes_only_stale_picture_folders() {
+    let temp = std::env::temp_dir().join(format!("mdedit-ai-test-sweep-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp);
+    let ours = temp.join(format!("{PICTURES_DIR}1-2-0"));
+    let other = temp.join("someone-elses");
+    std::fs::create_dir_all(&ours).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(ours.join("1.png"), b"x").unwrap();
+    sweep(&temp, PICTURES_STALE);
+    assert!(ours.is_dir(), "a fresh folder stays");
+    sweep(&temp, Duration::ZERO);
+    assert!(!ours.exists(), "a stale one goes, with what is in it");
+    assert!(other.is_dir(), "another folder stays");
+    let _ = std::fs::remove_dir_all(&temp);
+}

@@ -147,6 +147,9 @@ pub enum Error {
     Encode,
     /// Still over [`MAX_BYTES`] after [`MAX_ATTEMPTS`] tries.
     StillTooBig,
+    /// Its details were to be removed, and an animation, which cannot be written again here,
+    /// could not be walked to find them (Fable's review of V1, 15).
+    DetailsKept(Kind),
 }
 
 impl fmt::Display for Error {
@@ -169,6 +172,12 @@ impl fmt::Display for Error {
             ),
             Error::Corrupt(kind) => write!(f, "the {} could not be read", kind_name(*kind)),
             Error::Encode => f.write_str("the picture could not be written again"),
+            Error::DetailsKept(kind) => write!(
+                f,
+                "the {}'s details could not be found to take out: untick \
+                 \"Remove location and camera details\" to send it with them",
+                kind_name(*kind)
+            ),
             Error::StillTooBig => write!(
                 f,
                 "still over {} MB after {MAX_ATTEMPTS} tries at making it smaller",
@@ -283,9 +292,15 @@ pub fn prepare(bytes: &[u8], options: &Options) -> Result<Prepared, Error> {
             converted: false,
         }
     };
-    // An animation cannot be scaled while keeping what it is: one frame is not the picture.
-    if kind == Kind::Gif || (kind == Kind::WebP && webp_is_animated(bytes)) {
-        let out = stripped_copy(options.strip && kind == Kind::WebP).unwrap_or(None);
+    // An animation cannot be scaled while keeping what it is: one frame is not the picture. Its
+    // details are taken out like a still's; one whose structure cannot be walked to find them is
+    // refused while they are to go (Fable's review of V1, 15 and 23: GIFs kept theirs, an
+    // unreadable WebP was sent as it came, an animated PNG was flattened to its first frame).
+    if kind == Kind::Gif
+        || (kind == Kind::WebP && webp_is_animated(bytes))
+        || (kind == Kind::Png && png_is_animated(bytes))
+    {
+        let out = stripped_copy(options.strip).map_err(|()| Error::DetailsKept(kind))?;
         let p = as_it_came(out);
         if p.bytes.len() > MAX_BYTES {
             return Err(Error::Animation);
@@ -351,6 +366,16 @@ pub fn thumbnail(p: &Prepared) -> Option<Vec<u8>> {
     let image = decode(&p.bytes, p.kind, w, h).ok()?;
     let small = scaled_to(&image, THUMB_SIDE).ok()?;
     encode_png(&small).ok()
+}
+
+/// Whether a PNG is an animation: an `acTL` chunk before its first `IDAT`.
+fn png_is_animated(bytes: &[u8]) -> bool {
+    png_chunks(bytes).is_some_and(|(chunks, _)| {
+        chunks
+            .iter()
+            .take_while(|c| &c.0 != b"IDAT")
+            .any(|c| &c.0 == b"acTL")
+    })
 }
 
 /// Whether a WebP is an animation. The still first frame of one decodes fine, which is exactly
@@ -574,14 +599,120 @@ fn riff_chunks(b: &[u8]) -> Option<Chunks> {
     Some(chunks)
 }
 
-/// The JPEG markers that hold details: APP1 (EXIF and XMP), APP13 (IPTC), comments.
-fn jpeg_detail(marker: u8) -> bool {
-    matches!(marker, 0xE1 | 0xED | 0xFE)
+/// Whether a JPEG segment holds details: every APPn and comment but those that say how to show
+/// the picture: APP0 (JFIF), APP2's colour profile and APP14 (Adobe's colour transform). A list
+/// of what is kept, not of what goes, so a segment never seen before goes (Fable's review of V1,
+/// 14: APP11's content credentials and the other APPn were kept).
+fn jpeg_detail(marker: u8, data: &[u8]) -> bool {
+    match marker {
+        0xE0 | 0xEE => false,
+        0xE2 => !data.starts_with(b"ICC_PROFILE\0"),
+        0xE1..=0xEF | 0xFE => true,
+        _ => false,
+    }
 }
 
-/// The PNG chunks that hold details: text, EXIF and the time it was made.
+/// Whether a PNG chunk holds details: every chunk but the image's own and those that say how to
+/// show it (colour, transparency, density, animation). A list of what is kept, as for a JPEG.
 fn png_detail(ty: &[u8; 4]) -> bool {
-    matches!(ty, b"tEXt" | b"zTXt" | b"iTXt" | b"eXIf" | b"tIME")
+    !matches!(
+        ty,
+        b"IHDR"
+            | b"PLTE"
+            | b"IDAT"
+            | b"IEND"
+            | b"tRNS"
+            | b"gAMA"
+            | b"cHRM"
+            | b"sRGB"
+            | b"iCCP"
+            | b"sBIT"
+            | b"cICP"
+            | b"mDCv"
+            | b"cLLi"
+            | b"bKGD"
+            | b"pHYs"
+            | b"acTL"
+            | b"fcTL"
+            | b"fdAT"
+    )
+}
+
+/// The end of a JPEG's image data, past its EOI, from `scan`: what a phone puts after it (a
+/// motion photo's video, a depth map, a second picture with its own EXIF) is not the picture
+/// (Fable's review of V1, 13). `None` when there is no EOI: a file cut short.
+fn jpeg_end(b: &[u8], scan: usize) -> Option<usize> {
+    let rest = b.get(scan..)?;
+    // Inside the entropy-coded data a 0xFF is followed by 0x00 or a restart marker, never by
+    // 0xD9, so the first FF D9 is the end.
+    rest.windows(2)
+        .position(|w| w == [0xFF, 0xD9])
+        .map(|at| scan + at + 2)
+}
+
+/// A GIF without its comments and application blocks (but the loop count's), and without what
+/// follows its end: `(bytes, whether anything went)`; `None` when its blocks cannot be walked.
+fn gif_stripped(b: &[u8]) -> Option<(Vec<u8>, bool)> {
+    if b.len() < 13 || !(b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a")) {
+        return None;
+    }
+    let table = |flags: u8| {
+        if flags & 0x80 != 0 {
+            3usize << ((flags & 0x07) + 1)
+        } else {
+            0
+        }
+    };
+    let mut i = 13usize.checked_add(table(b[10]))?;
+    let mut out = b.get(..i)?.to_vec();
+    let mut dropped = false;
+    // The sub-blocks from `at`: the index after their zero length.
+    let blocks = |mut at: usize| -> Option<usize> {
+        loop {
+            let n = usize::from(*b.get(at)?);
+            at = at.checked_add(1 + n)?;
+            if n == 0 {
+                return Some(at);
+            }
+            if at > b.len() {
+                return None;
+            }
+        }
+    };
+    loop {
+        match *b.get(i)? {
+            0x3B => {
+                out.push(0x3B);
+                return Some((out, dropped || i + 1 != b.len()));
+            }
+            0x2C => {
+                let flags = *b.get(i + 9)?;
+                let data = (i + 10).checked_add(table(flags))?;
+                // The LZW code size, then the image's sub-blocks.
+                let end = blocks(data.checked_add(1)?)?;
+                out.extend_from_slice(b.get(i..end)?);
+                i = end;
+            }
+            0x21 => {
+                let label = *b.get(i + 1)?;
+                let end = blocks(i + 2)?;
+                let block = b.get(i..end)?;
+                let looping = label == 0xFF
+                    && block
+                        .get(3..14)
+                        .is_some_and(|id| id == b"NETSCAPE2.0" || id == b"ANIMEXTS1.0");
+                // Comments and application blocks hold details; graphic control and plain text
+                // are the picture.
+                if matches!(label, 0xFE | 0xFF) && !looping {
+                    dropped = true;
+                } else {
+                    out.extend_from_slice(block);
+                }
+                i = end;
+            }
+            _ => return None,
+        }
+    }
 }
 
 /// `bytes` without its details, `None` when it had none; `Err` when the file's structure could
@@ -590,16 +721,20 @@ fn strip_details(bytes: &[u8], kind: Kind) -> Result<Option<Vec<u8>>, ()> {
     match kind {
         Kind::Jpeg => {
             let (segments, scan) = jpeg_segments(bytes).ok_or(())?;
-            if !segments.iter().any(|s| jpeg_detail(s.0)) {
+            let end = jpeg_end(bytes, scan).ok_or(())?;
+            let detail = |&(marker, _, data, end): &(u8, usize, usize, usize)| {
+                jpeg_detail(marker, bytes.get(data..end).unwrap_or(&[]))
+            };
+            if !segments.iter().any(detail) && end == bytes.len() {
                 return Ok(None);
             }
             let mut out = bytes[..2].to_vec();
-            for &(marker, start, _, end) in &segments {
-                if !jpeg_detail(marker) {
-                    out.extend_from_slice(&bytes[start..end]);
+            for s in &segments {
+                if !detail(s) {
+                    out.extend_from_slice(&bytes[s.1..s.3]);
                 }
             }
-            out.extend_from_slice(&bytes[scan..]);
+            out.extend_from_slice(&bytes[scan..end]);
             Ok(Some(out))
         }
         Kind::Png => {
@@ -642,7 +777,11 @@ fn strip_details(bytes: &[u8], kind: Kind) -> Result<Option<Vec<u8>>, ()> {
             out.extend_from_slice(&body);
             Ok(Some(out))
         }
-        Kind::Gif | Kind::Bmp => Ok(None),
+        Kind::Gif => {
+            let (out, dropped) = gif_stripped(bytes).ok_or(())?;
+            Ok(dropped.then_some(out))
+        }
+        Kind::Bmp => Ok(None),
     }
 }
 
@@ -809,11 +948,12 @@ fn decode(bytes: &[u8], kind: Kind, width: u32, height: u32) -> Result<Image, Er
                 // EXPAND above leaves nothing indexed, and an unknown type must not be guessed.
                 png::ColorType::Indexed => return Err(Error::Corrupt(kind)),
             };
-            let used = buffer
-                .get(..frame.buffer_size())
-                .ok_or(Error::Corrupt(kind))?
-                .to_vec();
-            Image::new(width, height, channels, used).ok_or(Error::Corrupt(kind))
+            // The frame's part of the buffer, without a copy of it (Fable's review of V1, 22).
+            if frame.buffer_size() > buffer.len() {
+                return Err(Error::Corrupt(kind));
+            }
+            buffer.truncate(frame.buffer_size());
+            Image::new(width, height, channels, buffer).ok_or(Error::Corrupt(kind))
         }
         Kind::WebP => {
             let mut decoder = image_webp::WebPDecoder::new(Cursor::new(bytes))
@@ -1733,8 +1873,16 @@ mod tests {
 
     #[test]
     fn an_animation_over_the_byte_limit_is_refused() {
+        // Over the limit inside the picture: a plain text block (which is the picture, and
+        // stays) of MAX_BYTES before the trailer. Bytes after the trailer are not sent at all.
         let mut big = gif();
-        big.resize(MAX_BYTES + 1, 0);
+        big.pop();
+        big.extend_from_slice(&[0x21, 0x01]);
+        for _ in 0..MAX_BYTES / 255 + 1 {
+            big.push(255);
+            big.extend(std::iter::repeat_n(b'x', 255));
+        }
+        big.extend_from_slice(&[0, 0x3B]);
         assert_eq!(resize(&big), Err(Error::Animation));
         let mut screen = gif();
         screen[6..10].copy_from_slice(&[0, 0, 5, 0]);
@@ -1873,5 +2021,118 @@ mod tests {
                 .len()
             );
         }
+    }
+
+    /// Fable's review of V1, 13 and 14: a JPEG goes without what follows its end (a motion
+    /// photo's video, a second picture) and without any APPn but JFIF, the colour profile and
+    /// Adobe's; the colour profile stays.
+    #[test]
+    fn a_jpeg_keeps_only_what_shows_it() {
+        let plain = jpeg(80, 60, 90, 3);
+        let icc = {
+            let mut d = b"ICC_PROFILE\0".to_vec();
+            d.extend_from_slice(&[1, 1, 9, 9, 9, 9]);
+            d
+        };
+        let with_icc = with_segment(&plain, 0xE2, &icc);
+        let mut tagged = with_segment(&with_icc, 0xEB, b"c2pa credentials of the maker");
+        tagged = with_segment(&tagged, 0xE2, b"MPF\0second picture index");
+        tagged.extend_from_slice(b"motion photo video with GPS 41.0082N");
+        let out = resize(&tagged).unwrap();
+        assert_eq!(out.done(), vec!["details removed"]);
+        assert!(!contains(&out.bytes, b"c2pa"));
+        assert!(!contains(&out.bytes, b"MPF"));
+        assert!(!contains(&out.bytes, b"motion photo"));
+        assert!(contains(&out.bytes, b"ICC_PROFILE"));
+        assert_eq!(out.bytes, with_icc);
+        // A JPEG with nothing after its end and no detail goes as it came.
+        assert_eq!(resize(&with_icc).unwrap().done(), vec!["as it is"]);
+    }
+
+    /// Fable's review of V1, 14: a PNG chunk never seen before goes; what says how to show the
+    /// picture stays.
+    #[test]
+    fn a_png_keeps_only_what_shows_it() {
+        let plain = png(40, 30, 3);
+        let mut shown = plain[..33].to_vec();
+        png_chunk(&mut shown, b"pHYs", &[0, 0, 11, 19, 0, 0, 11, 19, 1]);
+        shown.extend_from_slice(&plain[33..]);
+        let mut tagged = shown[..33].to_vec();
+        png_chunk(&mut tagged, b"caBX", b"c2pa credentials of the maker");
+        tagged.extend_from_slice(&shown[33..]);
+        let out = resize(&tagged).unwrap();
+        assert!(out.stripped);
+        assert!(!contains(&out.bytes, b"c2pa"));
+        assert_eq!(out.bytes, shown);
+    }
+
+    /// A GIF with a comment, an application block and a loop count.
+    fn gif_tagged() -> (Vec<u8>, Vec<u8>) {
+        let plain = gif();
+        // After the screen and its two-colour table: 13 + 6 bytes.
+        let at = 19;
+        let looping = [
+            0x21, 0xFF, 11, b'N', b'E', b'T', b'S', b'C', b'A', b'P', b'E', b'2', b'.', b'0', 3, 1,
+            0, 0, 0,
+        ];
+        let mut kept = plain[..at].to_vec();
+        kept.extend_from_slice(&looping);
+        kept.extend_from_slice(&plain[at..]);
+        let mut tagged = plain[..at].to_vec();
+        tagged.extend_from_slice(&[0x21, 0xFE, 13]);
+        tagged.extend_from_slice(b"taken at home");
+        tagged.push(0);
+        tagged.extend_from_slice(&looping);
+        tagged.extend_from_slice(&[0x21, 0xFF, 11]);
+        tagged.extend_from_slice(b"XMP DataXMP");
+        tagged.push(9);
+        tagged.extend_from_slice(b"GPS 41.0N");
+        tagged.push(0);
+        tagged.extend_from_slice(&plain[at..]);
+        tagged.extend_from_slice(b"after the end");
+        (tagged, kept)
+    }
+
+    /// Fable's review of V1, 15: a GIF goes without its comments and application blocks (its
+    /// loop count stays) and without what follows its end; asked to keep them, as it came.
+    #[test]
+    fn a_gif_s_details_are_gone_and_its_loop_count_stays() {
+        let (tagged, kept) = gif_tagged();
+        let out = resize(&tagged).unwrap();
+        assert_eq!(out.done(), vec!["details removed"]);
+        assert!(!contains(&out.bytes, b"taken at home"));
+        assert!(!contains(&out.bytes, b"GPS"));
+        assert!(!contains(&out.bytes, b"after the end"));
+        assert_eq!(out.bytes, kept);
+        let as_came = prepare(
+            &tagged,
+            &Options {
+                long_side: LONG_SIDE,
+                strip: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(as_came.bytes, tagged);
+        // One whose blocks cannot be walked is refused while its details are to go.
+        let mut broken = tagged.clone();
+        let cut = broken.len() - 30;
+        broken.truncate(cut);
+        assert_eq!(resize(&broken), Err(Error::DetailsKept(Kind::Gif)));
+    }
+
+    /// Fable's review of V1, 23: an animated PNG is not flattened to its first frame: it goes
+    /// whole, like a GIF, its details taken out.
+    #[test]
+    fn an_animated_png_goes_whole() {
+        let plain = png(2000, 10, 3);
+        let mut apng = plain[..33].to_vec();
+        png_chunk(&mut apng, b"acTL", &[0, 0, 0, 1, 0, 0, 0, 0]);
+        png_chunk(&mut apng, b"tEXt", b"Location\0Istanbul");
+        apng.extend_from_slice(&plain[33..]);
+        let out = resize(&apng).unwrap();
+        assert_eq!((out.width, out.height), (2000, 10), "not scaled");
+        assert!(contains(&out.bytes, b"acTL"));
+        assert!(!contains(&out.bytes, b"Istanbul"));
+        assert_eq!(out.done(), vec!["details removed"]);
     }
 }

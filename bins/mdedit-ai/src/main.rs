@@ -32,11 +32,24 @@ pub struct Job {
     pub cancelled: Arc<AtomicBool>,
     /// The CLI process of a run, killed on cancel.
     pub child: Arc<Mutex<Option<std::process::Child>>>,
+    /// Called once, by the sender, as the request leaves: a run with pictures says `sent` then,
+    /// and never for a run that failed before anything went (Fable's review of V1, 17).
+    pub on_send: Arc<Mutex<Option<OnSend>>>,
 }
+
+pub type OnSend = Box<dyn FnOnce() + Send>;
 
 impl Job {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
+    }
+
+    /// The request is leaving: what was waiting for it is told, once.
+    pub fn sending(&self) {
+        let f = self.on_send.lock().ok().and_then(|mut f| f.take());
+        if let Some(f) = f {
+            f();
+        }
     }
 
     fn cancel(&self) {
@@ -54,6 +67,8 @@ type Jobs = Arc<Mutex<HashMap<u64, Job>>>;
 fn main() {
     let out = Out::stdout();
     out.send(proto::hello());
+    // What a killed engine left of a Codex run's pictures goes now, off the greeting's path.
+    spawn(|| cli::sweep(&std::env::temp_dir(), cli::PICTURES_STALE));
     let jobs: Jobs = Arc::default();
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -117,14 +132,18 @@ fn handle(req: Request, out: &Out, jobs: &Jobs) {
             spawn(move || {
                 let progress = |chars: usize| out.send(proto::delta(id, chars));
                 // The pictures are made ready and checked before anything is sent; `sent` says
-                // what goes, before it goes.
+                // what goes as it goes: the sender calls `Job::sending` where the request leaves.
                 let ready = pictures::for_run(&images, &pictures::options(long_side, strip));
                 let r = match ready {
                     Err(f) => Err(f),
                     Ok(_) if job.is_cancelled() => Err(Fail::new("cancelled", "Cancelled.")),
                     Ok(imgs) => {
                         if !imgs.is_empty() {
-                            out.send(pictures::sent(id, &imgs, system.len() + prompt.len()));
+                            let event = pictures::sent(id, &imgs, system.len() + prompt.len());
+                            let out = out.clone();
+                            if let Ok(mut f) = job.on_send.lock() {
+                                *f = Some(Box::new(move || out.send(event)));
+                            }
                         }
                         let (m, e, s, p) = (&model, &effort, &system, &prompt);
                         match &conn {

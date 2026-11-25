@@ -202,6 +202,7 @@ fn run(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| start_fail(cli, &program, e))?;
+    job.sending();
     let stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -485,7 +486,11 @@ pub const PICTURES_DIR: &str = "mdedit-ai-pictures-";
 
 /// A folder older than this is a run's that never cleaned up (the engine was killed): the
 /// longest a run can take is far below it.
-const PICTURES_STALE: Duration = Duration::from_secs(6 * 3600);
+pub const PICTURES_STALE: Duration = Duration::from_secs(6 * 3600);
+
+/// The runs' folders of this engine, counted, so two in one tick of the clock are two (Fable's
+/// review of V1, 20).
+static PICTURES_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A new private folder under the temp folder with a run's pictures in it, as `1.jpg`, `2.png`…;
 /// removed when it is dropped.
@@ -497,11 +502,15 @@ pub struct PictureFiles {
 impl PictureFiles {
     pub fn write(images: &[Ready]) -> Result<PictureFiles, Fail> {
         let temp = std::env::temp_dir();
-        sweep(&temp);
+        sweep(&temp, PICTURES_STALE);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        let dir = temp.join(format!("{PICTURES_DIR}{}-{nanos}", std::process::id()));
+        let seq = PICTURES_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = temp.join(format!(
+            "{PICTURES_DIR}{}-{nanos}-{seq}",
+            std::process::id()
+        ));
         let fail = |e: std::io::Error| {
             Fail::new(
                 "image",
@@ -542,8 +551,11 @@ impl Drop for PictureFiles {
     }
 }
 
-/// Removes the picture folders runs left behind (an engine that was killed).
-fn sweep(temp: &Path) {
+/// Removes the picture folders runs left behind (an engine that was killed): those under `temp`
+/// named for them and older than `stale`. Called before each Codex run with pictures and, on
+/// its own thread, when the engine starts (Fable's review of V1, 18: a killed engine's folder
+/// waited for a next Codex run that might never come).
+pub fn sweep(temp: &Path, stale: Duration) {
     let Ok(rd) = std::fs::read_dir(temp) else {
         return;
     };
@@ -554,7 +566,7 @@ fn sweep(temp: &Path) {
             .filter(|m| m.is_dir())
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.elapsed().ok())
-            .is_some_and(|age| age > PICTURES_STALE);
+            .is_some_and(|age| age >= stale);
         if stale && e.file_name().to_string_lossy().starts_with(PICTURES_DIR) {
             let _ = std::fs::remove_dir_all(e.path());
         }

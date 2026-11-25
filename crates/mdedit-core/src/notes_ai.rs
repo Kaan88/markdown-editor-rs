@@ -45,6 +45,9 @@ pub const TEXT_FOR_ARRANGE: usize = 300;
 pub const ALT_MAX: usize = 200;
 /// What marks a field cut to its limit.
 pub const CUT: &str = " (cut)";
+/// The most of a title a numbered one keeps before its number, so the number is never cut off
+/// by the name's cap of 64 characters.
+const NUMBERED_BASE: usize = 40;
 /// The folder beside a note its pictures go in (section 9).
 pub const PICTURES_DIR: &str = "pictures";
 
@@ -152,7 +155,7 @@ pub fn arrange_prompt(
             if !l.text.is_empty() {
                 s.push_str(&format!(
                     " Text: \"{}\"",
-                    one_line(&cut_chars(&l.text, TEXT_FOR_ARRANGE), usize::MAX)
+                    folded(&cut_chars(&l.text, TEXT_FOR_ARRANGE))
                 ));
             }
             s.push('\n');
@@ -453,9 +456,16 @@ pub fn per_picture(
             sections: Vec::new(),
             body,
         };
+        // A name is cut at 64 characters: the number goes on a base short enough to keep it, and
+        // the tries are bounded (Fable's review of V2, 7: two long titles alike looped forever).
+        let short: String = base.chars().take(NUMBERED_BASE).collect();
+        let short = short.trim_end();
         let mut n = 2;
         while notes.iter().any(|d| path_key(d) == path_key(&draft)) {
-            draft.title = format!("{base} {n}");
+            if n > NOTES_MAX + 1 {
+                break;
+            }
+            draft.title = format!("{short} {n}");
             n += 1;
         }
         notes.push(draft);
@@ -536,6 +546,12 @@ fn address(name: &str) -> String {
     for c in name.chars() {
         match c {
             ' ' => s.push_str("%20"),
+            // A viewer that reads the address as a URL cuts it at `#` or `?` and reads `%`
+            // (Fable's review of V2, 9).
+            '#' => s.push_str("%23"),
+            '?' => s.push_str("%3F"),
+            '%' => s.push_str("%25"),
+            '\\' => s.push_str("%5C"),
             '(' => s.push_str("%28"),
             ')' => s.push_str("%29"),
             '<' => s.push_str("%3C"),
@@ -552,7 +568,7 @@ fn escape_alt(alt: &str) -> String {
     let mut s = String::with_capacity(line.len());
     for c in line.chars() {
         match c {
-            '[' | ']' | '\\' => {
+            '[' | ']' | '\\' | '`' | '!' => {
                 s.push('\\');
                 s.push(c);
             }
@@ -561,6 +577,16 @@ fn escape_alt(alt: &str) -> String {
         }
     }
     s
+}
+
+/// `text` on one line: each run of line ends and controls one space (Fable's review of V2, 10:
+/// the arrange request is given the whole of a picture's text, not its first line).
+fn folded(text: &str) -> String {
+    text.split(|c: char| c.is_control())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// A heading's text: one line, a trailing run of `#` not taken for its close.
@@ -680,7 +706,7 @@ fn clean_text(text: &str) -> String {
 fn safe_text(text: &str) -> String {
     let mut parts = Vec::new();
     let mut placed = Vec::new();
-    inline(text, &[], &mut placed, &mut parts, 0);
+    inline(text, &[], &mut placed, &mut parts);
     parts
         .into_iter()
         .map(|p| match p {
@@ -720,58 +746,30 @@ fn clean_body(raw: &str, title: &str, sent: &[usize], placed: &mut Vec<usize>) -
     {
         lines.remove(first);
     }
+    // Nothing of the model is left live but what this writes itself (Fable's review of V2): a
+    // fence at the line's first column, whose lines go as they are, and on every other line the
+    // links and pictures `inline` rebuilds. Everything else that could open a picture, a link,
+    // a tag or a code span across lines is escaped, so a parser that reads blocks and
+    // paragraphs, not lines, finds no more in it than this does.
     let mut parts: Vec<Part> = Vec::new();
     let mut fence: Option<(char, usize)> = None;
-    let mut prev_blank = true;
-    let mut in_indented = false;
     for line in lines {
-        let lead = line.len() - line.trim_start_matches(' ').len();
-        let rest = line.trim_start_matches(' ');
         if let Some((ch, n)) = fence {
             push_text(&mut parts, line);
             push_text(&mut parts, "\n");
-            let run = rest.chars().take_while(|&c| c == ch).count();
-            if lead < 4 && run >= n && rest[run * ch.len_utf8()..].trim().is_empty() {
+            if fence_closes(line, ch, n) {
                 fence = None;
             }
-            prev_blank = false;
             continue;
         }
-        if lead < 4 {
-            let ch = rest.chars().next();
-            if let Some(ch @ ('`' | '~')) = ch {
-                let run = rest.chars().take_while(|&c| c == ch).count();
-                if run >= 3 {
-                    fence = Some((ch, run));
-                    push_text(&mut parts, line);
-                    push_text(&mut parts, "\n");
-                    prev_blank = false;
-                    continue;
-                }
-            }
-        }
-        // An indented code block: four spaces or a tab, after an empty line or more of it.
-        let indented = (lead >= 4 || line.starts_with('\t')) && !rest.trim().is_empty();
-        if indented && (prev_blank || in_indented) {
-            in_indented = true;
+        if let Some(open) = fence_opens(line) {
+            fence = Some(open);
             push_text(&mut parts, line);
             push_text(&mut parts, "\n");
-            prev_blank = false;
             continue;
         }
-        in_indented = false;
-        // A link's definition to anything but the web or mail goes.
-        if let Some(target) = definition(line) {
-            if allowed(target) {
-                push_text(&mut parts, line);
-                push_text(&mut parts, "\n");
-            }
-            prev_blank = false;
-            continue;
-        }
-        inline(line, sent, placed, &mut parts, 0);
+        inline(line, sent, placed, &mut parts);
         push_text(&mut parts, "\n");
-        prev_blank = line.trim().is_empty();
     }
     // The body ends with no run of empty lines.
     if let Some(Part::Text(t)) = parts.last_mut() {
@@ -806,21 +804,6 @@ fn heading_text(line: &str) -> Option<String> {
     Some(rest.trim().trim_end_matches('#').trim().to_string())
 }
 
-/// A link reference definition's target: `[label]: target`.
-fn definition(line: &str) -> Option<&str> {
-    let t = line.trim_start_matches(' ');
-    if line.len() - t.len() > 3 || !t.starts_with('[') {
-        return None;
-    }
-    let close = t.find("]:")?;
-    if close < 2 {
-        return None;
-    }
-    let target = t[close + 2..].trim();
-    let target = target.split_whitespace().next().unwrap_or("");
-    Some(target.trim_start_matches('<').trim_end_matches('>'))
-}
-
 /// Whether a link may lead there (check 7): the web and mail only.
 fn allowed(target: &str) -> bool {
     let t = target
@@ -841,33 +824,109 @@ fn push_text(parts: &mut Vec<Part>, s: &str) {
     }
 }
 
-/// How deep a link's words are read for more links.
-const INLINE_DEPTH: u8 = 3;
+/// A fence that opens a code block: three or more backticks or tildes at the line's first
+/// column, a backtick fence's words holding no backtick. A fence further in is not one here
+/// (Fable's review of V2, 6): it may sit in a list a parser ends before it, so its lines are read
+/// as text and its backticks escaped, and a parser finds no fence there either.
+fn fence_opens(line: &str) -> Option<(char, usize)> {
+    let ch = line.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let run = line.chars().take_while(|&c| c == ch).count();
+    if run < 3 || (ch == '`' && line[run..].contains('`')) {
+        return None;
+    }
+    Some((ch, run))
+}
 
-/// One line outside code, read for code spans, pictures and links; `<` escaped outside code.
-fn inline(line: &str, sent: &[usize], placed: &mut Vec<usize>, parts: &mut Vec<Part>, depth: u8) {
+/// Whether `line` closes a fence of `n` of `ch`. Wider than a parser's rule (any indent), so a
+/// fence is never taken as open here after a parser has closed it: what follows is escaped.
+fn fence_closes(line: &str, ch: char, n: usize) -> bool {
+    let rest = line.trim_start_matches([' ', '\t']);
+    let run = rest.chars().take_while(|&c| c == ch).count();
+    run >= n && rest[run..].trim().is_empty()
+}
+
+/// The most a link's address may hold.
+const DEST_MAX: usize = 2048;
+
+/// One line outside a fence (check 7), rebuilt: a code span closed on the line is kept as it
+/// is; `![…](picture:N)` becomes the app's picture and a link to the web or mail is written
+/// again from its checked parts; everything else that could open a picture, a link, a tag or a
+/// code span is escaped (`\[`, `\]`, `\!`, `` \` ``, `&lt;`). The work is linear in the line:
+/// the brackets and the backtick runs are matched once, before it is read.
+fn inline(line: &str, sent: &[usize], placed: &mut Vec<usize>, parts: &mut Vec<Part>) {
     let b: Vec<char> = line.chars().collect();
+    let n = b.len();
+    // Which characters a backslash escapes, and each unescaped `[`'s own `]`.
+    let mut escaped = vec![false; n];
+    for i in 1..n {
+        escaped[i] = b[i - 1] == '\\' && !escaped[i - 1];
+    }
+    let mut closes = vec![usize::MAX; n];
+    let mut open: Vec<usize> = Vec::new();
+    for i in 0..n {
+        match b[i] {
+            '[' if !escaped[i] => open.push(i),
+            ']' if !escaped[i] => {
+                if let Some(at) = open.pop() {
+                    closes[at] = i;
+                }
+            }
+            _ => {}
+        }
+    }
+    // Each run of backticks and the next run of the same length after it, which closes it.
+    let mut code_end = vec![usize::MAX; n];
+    {
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        let mut i = 0;
+        while i < n {
+            if b[i] == '`' {
+                let run = b[i..].iter().take_while(|&&x| x == '`').count();
+                runs.push((i, run));
+                i += run;
+            } else {
+                i += 1;
+            }
+        }
+        let mut next: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        for &(start, run) in runs.iter().rev() {
+            if let Some(&end) = next.get(&run) {
+                code_end[start] = end + run;
+            }
+            next.insert(run, start);
+        }
+    }
     let mut i = 0;
     let mut text = String::new();
-    while i < b.len() {
+    while i < n {
         let c = b[i];
         match c {
             '\\' => {
-                text.push(c);
-                if let Some(&n) = b.get(i + 1) {
-                    text.push(n);
+                // An escape goes with what it escapes; one that ends the line is a break.
+                text.push('\\');
+                if let Some(&e) = b.get(i + 1) {
+                    text.push(e);
                 }
                 i += 2;
             }
             '`' => {
                 let run = b[i..].iter().take_while(|&&x| x == '`').count();
-                match close_code(&b, i + run, run) {
+                // A span opens only at the start of a run: a run that follows an escaped backtick
+                // is escaped, as is one with nothing to close it on this line.
+                let starts = i == 0 || b[i - 1] != '`';
+                match code_end
+                    .get(i)
+                    .copied()
+                    .filter(|&e| starts && e != usize::MAX)
+                {
                     Some(end) => {
                         text.extend(&b[i..end]);
                         i = end;
                     }
                     None => {
-                        text.extend(&b[i..i + run]);
+                        for _ in 0..run {
+                            text.push_str("\\`");
+                        }
                         i += run;
                     }
                 }
@@ -876,42 +935,40 @@ fn inline(line: &str, sent: &[usize], placed: &mut Vec<usize>, parts: &mut Vec<P
                 text.push_str("&lt;");
                 i += 1;
             }
-            '!' if b.get(i + 1) == Some(&'[') => match bracket(&b, i + 1) {
-                Some((label, after)) if b.get(after) == Some(&'(') => {
-                    let Some((dest, end)) = paren(&b, after) else {
-                        text.push('!');
-                        i += 1;
-                        continue;
-                    };
+            ']' => {
+                text.push_str("\\]");
+                i += 1;
+            }
+            '!' if b.get(i + 1) == Some(&'[') => match link_at(&b, i + 1, &closes) {
+                Some((label, dest, end)) => {
                     i = end;
-                    if let Some(n) = picture_number(&dest) {
-                        if sent.contains(&n) && !placed.contains(&n) {
+                    if let Some(k) = picture_number(&dest) {
+                        if sent.contains(&k) && !placed.contains(&k) {
                             push_text(parts, &std::mem::take(&mut text));
-                            placed.push(n);
-                            parts.push(Part::Picture { id: n, alt: label });
+                            placed.push(k);
+                            parts.push(Part::Picture {
+                                id: k,
+                                alt: unescaped(&label),
+                            });
                         }
                         // A number not sent, or a picture placed already, is left out.
                         continue;
                     }
                     // Any other picture loses its `!` and is read as a link (check 6).
-                    link(&label, &dest, placed, &mut text, depth);
+                    link(&label, &dest, &mut text);
                 }
-                // `![alt][ref]` and the like: the `!` goes, the rest is read as it comes.
-                _ => i += 1,
+                None => {
+                    text.push_str("\\!");
+                    i += 1;
+                }
             },
-            '[' => match bracket(&b, i) {
-                Some((label, after)) if b.get(after) == Some(&'(') => match paren(&b, after) {
-                    Some((dest, end)) => {
-                        link(&label, &dest, placed, &mut text, depth);
-                        i = end;
-                    }
-                    None => {
-                        text.push('[');
-                        i += 1;
-                    }
-                },
-                _ => {
-                    text.push('[');
+            '[' => match link_at(&b, i, &closes) {
+                Some((label, dest, end)) => {
+                    link(&label, &dest, &mut text);
+                    i = end;
+                }
+                None => {
+                    text.push_str("\\[");
                     i += 1;
                 }
             },
@@ -924,100 +981,128 @@ fn inline(line: &str, sent: &[usize], placed: &mut Vec<usize>, parts: &mut Vec<P
     push_text(parts, &text);
 }
 
-/// A link (check 7): kept to the web and mail, its words read for more; to anything else, its
-/// words alone.
-fn link(label: &str, dest: &str, placed: &mut Vec<usize>, text: &mut String, depth: u8) {
-    let mut words = Vec::new();
-    if depth < INLINE_DEPTH {
-        inline(label, &[], placed, &mut words, depth + 1);
-    } else {
-        words.push(Part::Text(label.replace('<', "&lt;")));
+/// `[label](dest)` at `at` (a `[`): its words, its address and the index after `)`. The address
+/// is one plain token on the line, `<…>` or with its parentheses balanced: no space, no title,
+/// nothing a parser could read as more (Fable's review of V2, 5). It is written again without
+/// its angle brackets, so the same rule holds for it as written.
+fn link_at(b: &[char], at: usize, closes: &[usize]) -> Option<(String, String, usize)> {
+    let close = *closes.get(at)?;
+    if close == usize::MAX || b.get(close + 1) != Some(&'(') {
+        return None;
     }
-    let words: String = words
-        .into_iter()
-        .map(|p| match p {
-            Part::Text(t) => t,
-            Part::Picture { alt, .. } => alt,
-        })
-        .collect();
+    let plain = |c: char| {
+        !(c.is_whitespace()
+            || c.is_control()
+            || matches!(c, '<' | '>' | '`' | '\\' | '"' | '\'' | '[' | ']'))
+    };
+    let mut dest = String::new();
+    let mut j = close + 2;
+    if b.get(j) == Some(&'<') {
+        j += 1;
+        loop {
+            let c = *b.get(j)?;
+            j += 1;
+            if c == '>' {
+                break;
+            }
+            if !plain(c) || matches!(c, '(' | ')') || dest.len() >= DEST_MAX {
+                return None;
+            }
+            dest.push(c);
+        }
+        if b.get(j) != Some(&')') {
+            return None;
+        }
+    } else {
+        let mut depth = 0usize;
+        loop {
+            let c = *b.get(j)?;
+            match c {
+                ')' if depth == 0 => break,
+                ')' => depth -= 1,
+                '(' => depth += 1,
+                c if !plain(c) => return None,
+                _ => {}
+            }
+            if dest.len() >= DEST_MAX {
+                return None;
+            }
+            dest.push(c);
+            j += 1;
+        }
+    }
+    if dest.is_empty() {
+        return None;
+    }
+    Some((b[at + 1..close].iter().collect(), dest, j + 1))
+}
+
+/// A link (check 7): to the web or mail, written again with its words escaped; to anything
+/// else, its words alone. A `!` left just before it is escaped, so `!` and the link are never a
+/// picture (Fable's review of V2, 2).
+fn link(label: &str, dest: &str, text: &mut String) {
+    let words = escape_words(label);
     if allowed(dest) {
+        if ends_in_bang(text) {
+            text.pop();
+            text.push_str("\\!");
+        }
         text.push('[');
         text.push_str(&words);
         text.push_str("](");
-        text.push_str(dest.trim());
+        text.push_str(dest);
         text.push(')');
     } else {
         text.push_str(&words);
     }
 }
 
-/// The end of a code span of `run` backticks opened before `from`.
-fn close_code(b: &[char], from: usize, run: usize) -> Option<usize> {
-    let mut i = from;
-    while i < b.len() {
-        if b[i] == '`' {
-            let n = b[i..].iter().take_while(|&&x| x == '`').count();
-            if n == run {
-                return Some(i + n);
-            }
-            i += n;
-        } else {
-            i += 1;
-        }
-    }
-    None
+/// Whether `text` ends in a `!` no backslash escapes.
+fn ends_in_bang(text: &str) -> bool {
+    let Some(before) = text.strip_suffix('!') else {
+        return false;
+    };
+    (before.len() - before.trim_end_matches('\\').len()) % 2 == 0
 }
 
-/// `[label]` at `at`: its words and the index after `]`, brackets nested and escapes kept.
-fn bracket(b: &[char], at: usize) -> Option<(String, usize)> {
-    let mut depth = 0usize;
-    let mut i = at;
-    while i < b.len() {
-        match b[i] {
-            '\\' => i += 1,
-            '[' => depth += 1,
-            ']' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some((b[at + 1..i].iter().collect(), i + 1));
-                }
+/// A link's words, with nothing in them live: their escapes read, then every bracket, `!`,
+/// backtick and backslash escaped and `<` written `&lt;`.
+fn escape_words(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    for c in unescaped(label).chars() {
+        match c {
+            '[' | ']' | '!' | '`' | '\\' => {
+                out.push('\\');
+                out.push(c);
             }
-            _ => {}
+            '<' => out.push_str("&lt;"),
+            c => out.push(c),
         }
-        i += 1;
     }
-    None
+    out
 }
 
-/// `(dest "title")` at `at`: what is inside, and the index after `)`.
-fn paren(b: &[char], at: usize) -> Option<(String, usize)> {
-    let mut depth = 0usize;
-    let mut i = at;
-    while i < b.len() {
-        match b[i] {
-            '\\' => i += 1,
-            '(' => depth += 1,
-            ')' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some((b[at + 1..i].iter().collect(), i + 1));
-                }
-            }
-            _ => {}
+/// `text` with its backslash escapes read: `\[` is `[`.
+fn unescaped(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut it = text.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\\'
+            && let Some(&n) = it.peek()
+            && n.is_ascii_punctuation()
+        {
+            out.push(n);
+            it.next();
+            continue;
         }
-        i += 1;
+        out.push(c);
     }
-    None
+    out
 }
 
-/// `N` of `picture:N`, alone in a link's address.
+/// `N` of `picture:N`, the whole of a link's address.
 fn picture_number(dest: &str) -> Option<usize> {
-    let d = dest
-        .trim()
-        .trim_start_matches('<')
-        .trim_end_matches('>')
-        .trim();
-    let n = d.strip_prefix("picture:")?;
+    let n = dest.strip_prefix("picture:")?;
     if n.is_empty() || n.len() > 6 || !n.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }

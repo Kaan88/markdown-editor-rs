@@ -2265,3 +2265,41 @@ a record name any file anywhere for undo to create.
 **Decision.** For phase V1, the engine keeps its own BMP reader instead of moving the editor's DIB reader into `mdedit-core`, as plan section 7 said. It also has its own base64 writer of a dozen lines. A Codex run with pictures first removes picture folders that earlier runs left in the temp folder (`mdedit-ai-pictures-*`, older than six hours); the plan said this would happen when the engine starts. D-220's toast reads "the same file is in the library already: left where it is", because the run's own line may be the one that lists it (Fable's third look at C2).
 **Why.** The engine must not depend on `mdedit-core`, which brings ropey, regex and the rest into a program that only talks to providers. Neither the BMP reader nor the base64 writer needs a new package. Sweeping when the engine starts would put file work on every start, for a folder that only Codex runs make. Six hours is far longer than any run.
 **Overturned by.** A shared crate that both programs can depend on lightly.
+
+## D-223 · 2026-11-25 · A note's body keeps live only what the app wrote again
+
+**Decision.** Replaces the line-by-line cleaner of DESIGN 91 (phase V2). On a line of a note's body, only three things written by the model stay live:
+- a fence at the line's first column, whose lines go as they are;
+- a code span that closes on its own line;
+- the pictures and links the app writes again from checked parts.
+
+Every other `[`, `]`, unclosed backtick, `!` before a link, and `<` is escaped, so a link reference definition is never one. Indented lines are read like any other. A link's address is one plain token, with no title. A link's words are escaped whole. The work is linear in the line. A picture's name escapes `#`, `?`, `%` and `\` in its address. "One per picture" numbers a title on a 40-character base, at most 101 times. The arrange request is given a picture's whole text on one line.
+**Why.** Fable's review of V1 and V2. A parser reads blocks and paragraphs, not lines, and six inputs it found put a remote picture or a tag live in a note. Among them: an indented line under a list, `!!`, nested words, a definition, an address with a space, and a backtick or fence that spans lines. Two long titles alike looped for ever. A line of brackets took time in the square of its length.
+**Overturned by.** A CommonMark parser in the build to check against. Its test-only use was refused under rule 7 for now, so each case is tested by its exact output.
+
+## D-224 · 2026-11-25 · What is kept of a picture is listed, not what goes
+
+**Decision.** Replaces the details lists of DESIGN 90 (phase V1). When "Remove location and camera details" is on:
+- **JPEG:** keeps APP0, APP2's colour profile and APP14; every other APPn, every comment, and anything after the end of the image goes.
+- **PNG:** keeps its image, colour, transparency, density and animation chunks; any other chunk goes.
+- **GIF:** loses its comments and application blocks (but the loop count) and what follows its end.
+- **An animation whose blocks cannot be walked:** refused, with the reason and the option to untick.
+- **An animated PNG:** goes whole like a GIF, never flattened to its first frame.
+
+**Why.** Fable's review of V1. A phone's motion-photo video and a second picture's EXIF followed a JPEG's end. Content credentials and unknown chunks were kept. GIFs were never stripped. An unreadable animated WebP was sent as it came.
+**Overturned by.** The owner.
+
+## D-225 · 2026-11-25 · `sent` is said as the request leaves; "no pictures" is the server's own words
+
+**Decision.** Replaces the order of DESIGN 90.
+- **`sent`:** the engine says it when the sender lets the request go: the HTTP request is made, or the CLI process has started. It is never said for a run that failed first.
+- **"This model does not read pictures":** said only for a 400 or 422 whose server says, in its own words, that the model takes no images. The model's and the host's names are not read. A refusal of one picture (too large, a format) keeps its message. The server's words stay in the sentence.
+- **Codex picture folders:** swept also when the engine starts, on a thread of its own. Their names carry a counter.
+
+**Why.** Fable's review of V1:
+- a run with no model chosen had a `sent` record of pictures that never went;
+- a host named `images…`, a model named `…-vision`, or "image too large" read as no vision;
+- a killed engine's folder waited for a next Codex run.
+
+D-222's reason against sweeping at start (file work on every start) is met by the thread: the greeting does not wait for it.
+**Overturned by.** The owner.

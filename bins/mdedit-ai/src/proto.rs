@@ -119,6 +119,10 @@ pub struct Fail {
     pub message: String,
     /// Seconds the provider asks to wait (rate limits).
     pub retry_after: Option<u64>,
+    /// An HTTP error's status and the server's own words, apart from the host and the status
+    /// the message also holds: 0 and empty for any other failure.
+    pub status: u16,
+    pub said: String,
 }
 
 impl Fail {
@@ -127,6 +131,8 @@ impl Fail {
             kind,
             message: message.into(),
             retry_after: None,
+            status: 0,
+            said: String::new(),
         }
     }
 
@@ -311,6 +317,8 @@ mod tests {
             kind: "http",
             message: format!("the value {k} was refused"),
             retry_after: None,
+            status: 0,
+            said: String::new(),
         }
         .hide(Some(k));
         assert_eq!(f.message, format!("the value {HIDDEN} was refused"));
