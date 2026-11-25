@@ -440,7 +440,6 @@ pub fn progress(run: &Run, via: &str) -> String {
 /// "Show what is sent" for Write notes: each look request's pictures as they go and its text,
 /// word for word, then the arrange request, whose lines of what the pictures show are the
 /// model's own answers and so cannot be shown before the looks.
-/// `headings` are the group's sections, as the arrange request sends them.
 pub fn request_text(
     s: &crate::task_ui::TaskScreen,
     instruction: &str,
