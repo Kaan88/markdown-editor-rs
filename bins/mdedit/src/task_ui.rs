@@ -554,6 +554,9 @@ impl Limits {
 }
 /// The most text a file may hold to be read into the window at all.
 pub const ADD_MAX: u64 = 8 * 1024 * 1024;
+/// The most files one folder added to the window brings in: a folder is walked whole, so a drive
+/// with a million files in it cannot fill the window (D-247).
+pub const FILES_MAX: usize = 2_000;
 /// The first bytes of a text a digest sends.
 pub const DIGEST_BYTES: usize = 1200;
 /// The most a model's title takes.

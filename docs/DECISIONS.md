@@ -2522,3 +2522,9 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 **From.** Fable's review of f/task-fixes (VERDICT: FIX), items 1 to 16.
 **Why.** Each was a way the first fixes could still drop work, say something untrue, or be cut at 520 px.
 **Overturned by.** The owner, by looking at the shots.
+
+## D-247 · 2026-11-25 · A folder added to the AI task window is walked whole
+
+**Decision.** A folder added to the AI task window is walked for its whole tree by `import::walk_every`, with the library import's rules and bounds: a dot name, the hidden attribute, `target` and `node_modules` are left out, a link to a folder is not followed, and a walk stops at 50,000 entries read or 64 folders deep. Unlike the import walk it takes every file kind and reads nothing: a picture, a PDF or any other file is probed by `task_probe` as before. The folder's own files come first, then each subfolder's, by name, case-insensitively, and a file already in the window is not added twice. One add brings in at most 2,000 files (`task_ui::FILES_MAX`); a walk stopped at that cap, at the entries or at the depth says so in the window's notice. This replaces the doc comment that "a folder dropped on it is walked one level".
+**Why.** The owner's report of 2026-11-25: the window found only the files directly in a folder added to it, and files in its subfolders were never found.
+**Overturned by.** The owner.

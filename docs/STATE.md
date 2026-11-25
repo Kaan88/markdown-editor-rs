@@ -44,7 +44,8 @@ is newer, doubt "In hand" first.
   cards; shared still builds the Settings form motion (L10) and the tree chevron. No tab
   cross-fade in mdedit (memory), no sliding panes.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
-  `f/task-fixes`, in Fable's second round.
+  `f/task-fixes`, in Fable's second round; a folder added to it now brings its whole tree
+  (D-247).
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner

@@ -120,14 +120,71 @@ pub fn walk_for(folder: &Path, library: &Path, cancel: &dyn Fn() -> bool) -> Wal
     walk_with(folder, Some(library), LIMITS, cancel)
 }
 
+/// What a walk for the AI task window takes: every file in the folder, whatever its kind, and
+/// nothing of it read.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Every {
+    /// The files, in [`walk`]'s order: the folder's own first, then each subfolder's by name,
+    /// case-insensitively.
+    pub files: Vec<PathBuf>,
+    /// How many entries of folders the walk read, files and folders together.
+    pub read: usize,
+    /// The folder holds more files than the walk was allowed to take: it stopped at the cap.
+    pub more: bool,
+    /// The walk stopped before the end of the folder, at the entries read or the depth.
+    pub stopped: Option<Stop>,
+}
+
+/// Walks `folder` for every file in it, whatever its kind, for the task window's "Add": the
+/// Files pane's rules for what to leave out (a dot name, the hidden attribute, `target`,
+/// `node_modules`), links to folders not followed, and at most `files` of them, [`MAX_READ`]
+/// entries read and [`MAX_DEPTH`] folders deep. No file is read here: the window probes each of
+/// what comes back itself.
+pub fn walk_every(folder: &Path, files: usize, cancel: &dyn Fn() -> bool) -> Every {
+    let walk = walk_sorted(
+        folder,
+        None,
+        Limits { files, ..LIMITS },
+        Sort::Every,
+        cancel,
+    );
+    Every {
+        files: walk.found.into_iter().map(|f| f.path).collect(),
+        read: walk.read,
+        more: walk.more,
+        stopped: walk.stopped,
+    }
+}
+
+/// What a walk takes of each folder it reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Sort {
+    /// The library import: [`EXTENSIONS`] only, each file read for its first heading and preview.
+    Notes,
+    /// The AI task window: every file, whatever its kind, and none read: a [`Found`]'s `title`,
+    /// `head` and `start` stay empty.
+    Every,
+}
+
 fn walk_with(
     folder: &Path,
     library: Option<&Path>,
     limits: Limits,
     cancel: &dyn Fn() -> bool,
 ) -> Walk {
+    walk_sorted(folder, library, limits, Sort::Notes, cancel)
+}
+
+fn walk_sorted(
+    folder: &Path,
+    library: Option<&Path>,
+    limits: Limits,
+    sort: Sort,
+    cancel: &dyn Fn() -> bool,
+) -> Walk {
     let walker = Walker {
         limits,
+        sort,
         cancel,
         library: library.map(|dir| LibraryDir {
             dir: dir.to_path_buf(),
@@ -154,6 +211,7 @@ struct LibraryDir {
 
 struct Walker<'a> {
     limits: Limits,
+    sort: Sort,
     cancel: &'a dyn Fn() -> bool,
     library: Option<LibraryDir>,
 }
@@ -229,8 +287,12 @@ impl Walker<'_> {
                 } else {
                     dirs.push((name, path));
                 }
-            } else if meta.is_file() && takes(&path) {
-                files.push((name, path, meta.len(), modified_day(meta.modified().ok())));
+            } else if meta.is_file() && (self.sort == Sort::Every || takes(&path)) {
+                let modified = match self.sort {
+                    Sort::Notes => modified_day(meta.modified().ok()),
+                    Sort::Every => String::new(),
+                };
+                files.push((name, path, meta.len(), modified));
             }
         }
         let key = |name: &str| (name.to_lowercase(), name.to_string());
@@ -246,6 +308,18 @@ impl Walker<'_> {
             }
             if cancel() {
                 return;
+            }
+            if self.sort == Sort::Every {
+                out.found.push(Found {
+                    sections: sections.clone(),
+                    path,
+                    title: String::new(),
+                    head: Vec::new(),
+                    start: String::new(),
+                    bytes,
+                    modified,
+                });
+                continue;
             }
             let head = read_head(&path);
             let title = title_of(&head)
@@ -666,8 +740,8 @@ pub fn home_apart_reason(group: &str, home: &Path) -> String {
     )
 }
 
-/// `50000` as `50,000`.
-fn group_digits(n: usize) -> String {
+/// `50000` as `50,000`, for a sentence that names a count.
+pub fn group_digits(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {

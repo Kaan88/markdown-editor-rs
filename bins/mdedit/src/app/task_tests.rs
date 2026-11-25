@@ -2567,3 +2567,70 @@ fn after_esc_left_the_fields_typing_goes_to_the_instruction() {
         "and runs nothing"
     );
 }
+
+// ---- a folder added: its whole tree (D-247) ---------------------------------------------------
+
+/// The owner's report of 2026-11-25: a folder added to the window found only the files directly
+/// in it. Its whole tree is walked, the folder's own files first, then each subfolder's by name,
+/// and every kind of file is kept for `task_probe` to judge.
+#[test]
+fn a_folder_added_brings_its_whole_tree_its_own_files_first() {
+    let (mut a, dir) = open("task-walk-tree", TaskKind::File, Vec::new());
+    let folder = dir.join("Dishes");
+    std::fs::create_dir_all(folder.join("A/B/C")).expect("folders");
+    std::fs::write(folder.join("top.md"), "# Top\n").expect("top");
+    std::fs::write(folder.join("A/B/mid.md"), "# Mid\n").expect("mid");
+    std::fs::write(folder.join("A/B/C/pic.png"), [0x89, b'P', b'N', b'G']).expect("picture");
+    a.task_add_paths(vec![folder]);
+    let s = a.task.as_ref().expect("the window is open");
+    let names: Vec<&str> = s.files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["top.md", "mid.md", "pic.png"], "{names:?}");
+    assert_eq!(s.files[0].kind, FileKind::Text);
+    assert_eq!(s.files[1].kind, FileKind::Text);
+    assert_eq!(s.files[2].kind, FileKind::Picture, "every kind is kept");
+    assert!(s.files[2].text.is_none(), "a picture is never read");
+    assert_eq!(s.notice, None, "nothing was left out");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The import walk's rules: a dot name, the hidden attribute and `target`/`node_modules` folders
+/// are left out. A dot file at the top catches the one-level walk, which took it.
+#[test]
+fn a_folder_added_skips_dot_names_and_the_folders_the_files_pane_leaves_out() {
+    let (mut a, dir) = open("task-walk-skips", TaskKind::File, Vec::new());
+    let folder = dir.join("Code");
+    std::fs::create_dir_all(folder.join(".git")).expect("dot folder");
+    std::fs::create_dir_all(folder.join("node_modules")).expect("node_modules");
+    std::fs::create_dir_all(folder.join("target")).expect("target");
+    std::fs::write(folder.join("real.md"), "# Real\n").expect("real");
+    std::fs::write(folder.join(".hidden.md"), "# Hidden\n").expect("hidden file");
+    std::fs::write(folder.join(".git/inside.md"), "# Inside\n").expect("inside");
+    std::fs::write(folder.join("node_modules/dep.js"), "dep\n").expect("dep");
+    std::fs::write(folder.join("target/out.rs"), "out\n").expect("out");
+    a.task_add_paths(vec![folder]);
+    let s = a.task.as_ref().expect("the window is open");
+    let names: Vec<&str> = s.files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["real.md"], "{names:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A folder over the window's cap stops at it and says so in the window; the files it did take
+/// are there.
+#[test]
+fn a_folder_added_over_the_cap_stops_at_it_and_says_so() {
+    let (mut a, dir) = open("task-walk-cap", TaskKind::File, Vec::new());
+    let folder = dir.join("Many");
+    std::fs::create_dir_all(&folder).expect("folders");
+    for i in 0..=crate::task_ui::FILES_MAX {
+        std::fs::write(folder.join(format!("n{i:05}.md")), "# N\n").expect("a file");
+    }
+    a.task_add_paths(vec![folder]);
+    let s = a.task.as_ref().expect("the window is open");
+    assert_eq!(s.files.len(), crate::task_ui::FILES_MAX);
+    let note = format!(
+        "Stopped at {} files; the rest of Many was left out.",
+        mdedit_core::import::group_digits(crate::task_ui::FILES_MAX)
+    );
+    assert_eq!(s.notice.as_deref(), Some(note.as_str()));
+    let _ = std::fs::remove_dir_all(&dir);
+}

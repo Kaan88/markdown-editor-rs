@@ -10,6 +10,9 @@ Unreleased: menus fade in as they open, and a setting to turn motion off. (Renam
 
 ## The AI task window
 
+- **A folder added to the window is walked whole.** Files in its subfolders, at any depth, are
+  found and listed after the folder's own; a dot file or folder, `target` and `node_modules` are
+  left out, and one add stops at 2,000 files, saying so in the window.
 - **Settings opened from the window comes to the front.** "Open AI settings" hides the AI task
   window until Settings closes, then brings it back as it was, with the connection, the limits
   and the saved prompts read again.

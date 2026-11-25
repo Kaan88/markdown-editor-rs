@@ -3425,6 +3425,16 @@ the pointer names the file: `tab_command` opens the window with that tab's file,
 be the one in front, or says to save it first. The palette no longer lists it
 (`palette::listed`). Shot `task-add` (both themes) is the open menu over made-up tabs.
 
+**A folder added is its whole tree (2026-11-25, D-247).** The picker offers files; a folder
+reaches the window by a drop on it. A folder is walked by `import::walk_every`, the library
+import's walk with no extension filter and nothing read: a dot name, the hidden attribute,
+`target` and `node_modules` are left out, a link to a folder is not followed, and the walk stops
+at `MAX_READ` (50,000) entries read or `MAX_DEPTH` (64) folders deep. Every file kind comes back,
+and `task_probe` judges each as before. The folder's own files come first, then each subfolder's,
+by name, case-insensitively; a file already in the window is not added twice. One add brings in at
+most `task_ui::FILES_MAX` (2,000) files, and a walk stopped at that cap, at the entries or at the
+depth says so in the window's notice (`task_say`), naming the folder.
+
 **After the hand-driven run (2026-11-25, D-240 to D-245).** `task_is_open` is false while
 Settings is open, so Settings opened from the window takes every key and click and the window
 (and its plan card) is not drawn; `close_settings` calls `task_settings_closed`, which reads the

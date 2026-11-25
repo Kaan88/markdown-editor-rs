@@ -15,6 +15,7 @@ use crate::task_ui::{
     self, Asking, DestChoice, FileEntry, FileKind, Focus, Group, Hit, TaskKind, TaskScreen,
 };
 use mdedit_core::ai::{self as core_ai, Connection};
+use mdedit_core::import;
 use mdedit_core::runs::{self, Sent};
 use serde_json::json;
 
@@ -195,7 +196,9 @@ impl App {
     }
 
     /// Adds paths to the open window, each probed once. A path already in it is not added twice,
-    /// and a folder dropped on it is walked one level.
+    /// and a folder dropped on it is walked for its whole tree with the library import's rules
+    /// and bounds: the folder's own files first, then each subfolder's, by name (D-247). A walk
+    /// that stopped early says so in the window.
     pub(super) fn task_add_paths(&mut self, paths: Vec<PathBuf>) {
         let Some(s) = self.task.as_mut() else {
             return;
@@ -205,19 +208,15 @@ impl App {
             s.from = None;
         }
         let mut fresh: Vec<FileEntry> = Vec::new();
+        let mut stopped: Option<String> = None;
         for path in paths {
-            let mut list = Vec::new();
-            if path.is_dir() {
-                if let Ok(read) = std::fs::read_dir(&path) {
-                    for e in read.flatten() {
-                        if e.path().is_file() {
-                            list.push(e.path());
-                        }
-                    }
-                }
+            let list = if path.is_dir() {
+                let walked = import::walk_every(&path, task_ui::FILES_MAX, &|| false);
+                stopped = Self::walk_stopped_note(&path, &walked).or(stopped);
+                walked.files
             } else {
-                list.push(path);
-            }
+                vec![path]
+            };
             for p in list {
                 let known = self.task.as_ref().is_some_and(|s| {
                     s.files
@@ -236,9 +235,37 @@ impl App {
             s.recount_limit();
             s.tick += 1;
         }
+        if let Some(note) = stopped {
+            self.task_say(&note);
+        }
         self.notes_prepare(false);
         self.sent_whole_once();
         self.redraw();
+    }
+
+    /// What the window says of a folder walk that stopped before the end of the folder: at its cap
+    /// on files, at the entries it read, or at the depth it went to (D-247).
+    fn walk_stopped_note(folder: &Path, walked: &import::Every) -> Option<String> {
+        let name = folder
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| folder.display().to_string());
+        if walked.more {
+            return Some(format!(
+                "Stopped at {} files; the rest of {name} was left out.",
+                import::group_digits(task_ui::FILES_MAX)
+            ));
+        }
+        match walked.stopped? {
+            import::Stop::Entries => Some(format!(
+                "Stopped after reading {} files and folders; the rest of {name} was left out.",
+                import::group_digits(import::MAX_READ)
+            )),
+            import::Stop::Depth => Some(format!(
+                "Stopped at folders {} deep; the rest of {name} was left out.",
+                import::MAX_DEPTH
+            )),
+        }
     }
 
     /// What a file is to a task: text, a picture or another kind, and the reason it is left out
