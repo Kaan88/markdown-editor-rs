@@ -495,10 +495,11 @@ impl Outcome {
                 count: 0,
             });
         }
-        // What a "Move them in" run took away, back where it was (D-210).
+        // What undo put back: a move's originals where they were (D-210), a rewrite's original
+        // text. Said in words that fit both (Fable's review of C2, nit).
         if !done.restored.is_empty() {
             rows.push(OutRow::Heading(format!(
-                "Put back where it was ({})",
+                "Put back ({})",
                 done.restored.len()
             )));
             rows.extend(done.restored.iter().map(|p| OutRow::Changed {
@@ -513,7 +514,9 @@ impl Outcome {
             .as_ref()
             .map(|p| p.copies_kept.clone())
             .unwrap_or_default();
-        let listed = |p: &PathBuf| copies_kept.contains(p) || done.restore_kept.contains(p);
+        let listed = |p: &PathBuf| {
+            copies_kept.contains(p) || done.restore_kept.contains(p) || done.led_to.contains(p)
+        };
         if !copies_kept.is_empty() {
             rows.push(OutRow::Heading(format!(
                 "Copies kept, their originals gone or changed ({})",
@@ -524,6 +527,16 @@ impl Outcome {
                 why: "its original is gone or changed, so it may be the only copy".to_string(),
             }));
         }
+        if !done.led_to.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Copies kept for the notes that lead to them ({})",
+                done.led_to.len()
+            )));
+            rows.extend(done.led_to.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "a note kept as the move left it leads to it".to_string(),
+            }));
+        }
         if !done.restore_kept.is_empty() {
             rows.push(OutRow::Heading(format!(
                 "Not put back, kept ({})",
@@ -531,7 +544,7 @@ impl Outcome {
             )));
             rows.extend(done.restore_kept.iter().map(|p| OutRow::Skipped {
                 name: rel(root, p),
-                why: "its place is taken or it changed since".to_string(),
+                why: "changed since, or its place is taken".to_string(),
             }));
         }
         // A file the Recycle Bin would not take is kept for that reason, not for a change.
@@ -1634,7 +1647,7 @@ mod tests {
         let out = Outcome::undone(&done, lib);
         assert!(
             out.rows
-                .contains(&OutRow::Heading("Put back where it was (1)".to_string())),
+                .contains(&OutRow::Heading("Put back (1)".to_string())),
             "{:?}",
             out.rows
         );
@@ -1642,6 +1655,35 @@ mod tests {
             r,
             OutRow::Skipped { why, .. } if why.contains("its original is gone or changed")
         )));
+        assert!(
+            !out.rows
+                .iter()
+                .any(|r| matches!(r, OutRow::Skipped { why, .. } if why == "changed since, kept")),
+            "{:?}",
+            out.rows
+        );
+    }
+
+    /// A copy kept because a note undo kept still leads to it is said to be kept for that note,
+    /// not as "changed since".
+    #[test]
+    fn a_copy_kept_for_a_note_says_so() {
+        let lib = Path::new("/lib");
+        let copy = lib.join("Trips").join("trip.md");
+        let done = mdedit_core::runs::UndoReport {
+            kept: vec![copy.clone()],
+            led_to: vec![copy.clone()],
+            ..Default::default()
+        };
+        let out = Outcome::undone(&done, lib);
+        assert!(
+            out.rows.iter().any(|r| matches!(
+                r,
+                OutRow::Skipped { why, .. } if why.contains("a note kept as the move left it")
+            )),
+            "{:?}",
+            out.rows
+        );
         assert!(
             !out.rows
                 .iter()

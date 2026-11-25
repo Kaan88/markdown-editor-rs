@@ -385,18 +385,43 @@ pub fn moved_text(
             n => format!("{moved} moved in with {n} pictures"),
         });
     }
-    if let Some(first) = copied.first() {
-        let why = mp
-            .why_stays(&first.from)
-            .map(str::to_string)
-            .or_else(|| {
-                out.failures
-                    .iter()
-                    .find(|(p, _)| mdshared_app::paths::same_path(p, &first.from))
-                    .map(|(_, w)| w.clone())
-            })
-            .unwrap_or_else(|| "copied".to_string());
-        parts.push(format!("{} copied, not moved ({why})", copied.len()));
+    if !copied.is_empty() {
+        // Each file's own reason, so none is taken for another's (Fable's review of C2, nit):
+        // one sentence when they share it, else the first few by name.
+        let why = |p: &std::path::Path| {
+            mp.why_stays(p)
+                .map(str::to_string)
+                .or_else(|| {
+                    out.failures
+                        .iter()
+                        .find(|(f, _)| mdshared_app::paths::same_path(f, p))
+                        .map(|(_, w)| w.clone())
+                })
+                .unwrap_or_else(|| "copied".to_string())
+        };
+        let whys: Vec<String> = copied.iter().map(|p| why(&p.from)).collect();
+        if whys.iter().all(|w| *w == whys[0]) {
+            parts.push(format!("{} copied, not moved ({})", copied.len(), whys[0]));
+        } else {
+            const NAMED: usize = 3;
+            let mut named: Vec<String> = copied
+                .iter()
+                .zip(&whys)
+                .take(NAMED)
+                .map(|(p, w)| {
+                    let name = p.from.file_name().unwrap_or_default().to_string_lossy();
+                    format!("{name} ({w})")
+                })
+                .collect();
+            if copied.len() > NAMED {
+                named.push(format!("{} more", copied.len() - NAMED));
+            }
+            parts.push(format!(
+                "{} copied, not moved: {}",
+                copied.len(),
+                named.join("; ")
+            ));
+        }
     }
     if stays > 0 {
         parts.push(format!("{stays} linked where it is"));
@@ -1494,6 +1519,51 @@ mod tests {
                 ListRow::Heading(FileKind::Picture),
                 ListRow::File(0)
             ]
+        );
+    }
+
+    /// Fable's review of C2, nit: each file copied and not moved is given its own reason; one
+    /// reason for all is said once.
+    #[test]
+    fn the_message_gives_each_file_its_own_reason() {
+        use mdedit_core::moves::copy_in::{self as ci, Copy, MoveOut, MovePlan, Planned};
+        let planned = |name: &str| Planned {
+            from: PathBuf::from(format!("/desk/{name}")),
+            copy: Copy::New {
+                to: PathBuf::from(format!("/lib/{name}")),
+                text: None,
+            },
+            pictures: Vec::new(),
+            rewrites: 0,
+            note: None,
+        };
+        let plan = vec![planned("a.md"), planned("b.md")];
+        let mp = MovePlan {
+            stays: vec![
+                (PathBuf::from("/desk/a.md"), ci::OTHER_DRIVE.to_string()),
+                (PathBuf::from("/desk/b.md"), ci::UNSAVED.to_string()),
+            ],
+            ..MovePlan::default()
+        };
+        let text = moved_text(&plan, &mp, &MoveOut::default());
+        assert_eq!(
+            text,
+            format!(
+                "2 copied, not moved: a.md ({}); b.md ({})",
+                ci::OTHER_DRIVE,
+                ci::UNSAVED
+            )
+        );
+        let same = MovePlan {
+            stays: vec![
+                (PathBuf::from("/desk/a.md"), ci::UNSAVED.to_string()),
+                (PathBuf::from("/desk/b.md"), ci::UNSAVED.to_string()),
+            ],
+            ..MovePlan::default()
+        };
+        assert_eq!(
+            moved_text(&plan, &same, &MoveOut::default()),
+            format!("2 copied, not moved ({})", ci::UNSAVED)
         );
     }
 }

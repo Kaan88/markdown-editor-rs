@@ -184,4 +184,17 @@ impl runs::Bin for SparingUnsaved<'_> {
         }
         self.bin.recycle(path)
     }
+
+    /// A note a tab holds with changes not saved is not written by undo either (Fable's review
+    /// of C2, 3): the tab's next save would put back what undo took away.
+    fn may_write(&mut self, path: &Path) -> Result<(), String> {
+        if self
+            .unsaved
+            .iter()
+            .any(|p| crate::library_pane::same_note(p, path))
+        {
+            return Err(UNSAVED.to_string());
+        }
+        self.bin.may_write(path)
+    }
 }

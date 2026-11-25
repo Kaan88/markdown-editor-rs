@@ -2227,3 +2227,15 @@ footer says so. Undo follows D-210.
 **Why.** Every step can be undone or leaves both files: a copy that failed half way never loses
 the original, the bin holds what was taken, and a note undo could not give back is never changed.
 **Overturned by.** The owner.
+
+## D-219 · 2026-11-25 · Move them in: a picture follows its files, a tab's unsaved work is never moved
+
+**Decision.** Replaces nothing; tightens D-218 after Fable's review of C2. A picture goes only
+when every file of the run that shows it goes. A file or a library note open in a tab with changes
+not saved is never moved or rewritten, by the move or by its undo; what such a note links to stays.
+A move whose record could not be read back is a copy. Undo names each file it puts back, puts back
+only a file of its copy's kind whose copy the record made, and keeps a copy that a note it kept
+still leads to.
+**Why.** Each of these left a file showing or leading to nothing, wrote under an open tab, or let
+a record name any file anywhere for undo to create.
+**Overturned by.** The owner.

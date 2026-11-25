@@ -1233,7 +1233,9 @@ impl App {
                 let home = mdshared_app::library::parse(&before, &base)
                     .home
                     .unwrap_or_else(|| group.home.clone());
-                let reach_home = home.clone();
+                // The reach undo will see (Fable's review of C2, nit): the group's folder as its
+                // file declares it now, not as the lines were parsed.
+                let reach_home = runs::undo_home(&group.file, &library);
                 let rec_group = runs::Group {
                     name: group.name.clone(),
                     file: group.file.clone(),
@@ -1242,28 +1244,55 @@ impl App {
                 };
                 // "Move them in" (phase C2, D-210): what goes from where it was is decided now,
                 // with the lines in, and written into the record before any of it is done.
+                // A file or a note a tab holds with changes not saved is not changed from under
+                // it (Fable's review of C2, 3).
                 let mut moving_plan = None;
+                let mut not_moved = None;
                 let made = match &copies {
                     Some((plan, written)) if moving => {
+                        let unsaved: Vec<PathBuf> = self
+                            .docs
+                            .tabs
+                            .iter()
+                            .filter(|d| d.modified())
+                            .filter_map(|d| d.path.clone())
+                            .collect();
                         let mp = mdedit_core::moves::copy_in::move_plan(
                             plan,
                             written,
                             &library,
                             &reach_home,
+                            &unsaved,
                         );
-                        let made = runs::move_in_record(
+                        match runs::move_in_record(
                             &library,
                             &instruction,
-                            rec_group,
+                            rec_group.clone(),
                             &links,
                             &before,
                             written,
                             &mp,
-                        );
-                        if made.is_ok() {
-                            moving_plan = Some(mp);
+                        ) {
+                            Ok(made) => {
+                                moving_plan = Some(mp);
+                                Ok(made)
+                            }
+                            // A record that could not be read back would leave the move with no
+                            // undo: the files are copied in only, and the copies' record is
+                            // written (Fable's review of C2, 2).
+                            Err(e) if e.kind() == std::io::ErrorKind::FileTooLarge => {
+                                not_moved = Some(mp.none(mdedit_core::moves::copy_in::RECORD_FULL));
+                                runs::copies_record(
+                                    &library,
+                                    &instruction,
+                                    rec_group,
+                                    &links,
+                                    &before,
+                                    written,
+                                )
+                            }
+                            Err(e) => Err(e),
                         }
-                        made
                     }
                     Some((_, written)) => runs::copies_record(
                         &library,
@@ -1296,13 +1325,25 @@ impl App {
                         &mut crate::recycle::Through(&mut *self.recycle),
                     )
                 });
-                if moved_out.as_ref().is_some_and(|o| !o.relinked.is_empty()) {
-                    self.library_load();
-                    self.library_rows();
+                if let Some(out) = &moved_out {
+                    if !out.relinked.is_empty() {
+                        self.library_load();
+                        self.library_rows();
+                    }
+                    // A tab on a moved original or a rewritten note says so now, not at the next
+                    // look at the disk (Fable's review of C2, nit).
+                    if !out.relinked.is_empty() || !out.removed.is_empty() {
+                        self.docs.check_changed();
+                    }
                 }
                 let copied = copies.as_ref().map(|(plan, written)| {
-                    match (moving_plan.as_ref(), moved_out.as_ref()) {
-                        (Some(mp), Some(out)) => task_ui::moved_text(plan, mp, out),
+                    match (moving_plan.as_ref(), moved_out.as_ref(), not_moved.as_ref()) {
+                        (Some(mp), Some(out), _) => task_ui::moved_text(plan, mp, out),
+                        (_, _, Some(none)) => task_ui::moved_text(
+                            plan,
+                            none,
+                            &mdedit_core::moves::copy_in::MoveOut::default(),
+                        ),
                         _ => task_ui::copied_text(plan, written),
                     }
                 });

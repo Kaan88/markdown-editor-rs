@@ -91,6 +91,10 @@ pub enum ShotDialog {
     RunUndoLater,
     /// The report after that undo: what the later run wrote is listed as kept, with why.
     RunUndoneLater,
+    /// The question before undoing a "Move them in" run: each file it puts back, by name.
+    RunUndoMoved,
+    /// The report of that undo: what was put back, what was kept and why.
+    RunUndoneMoved,
     /// The question before a library file is deleted.
     LibraryDelete,
     /// The same question with a group and a file long enough to wrap onto a fourth line.
@@ -590,6 +594,8 @@ impl Args {
                         "run-undo-original" => Some(ShotDialog::RunUndoOriginal),
                         "run-undo-later" => Some(ShotDialog::RunUndoLater),
                         "run-undone-later" => Some(ShotDialog::RunUndoneLater),
+                        "run-undo-moved" => Some(ShotDialog::RunUndoMoved),
+                        "run-undone-moved" => Some(ShotDialog::RunUndoneMoved),
                         "library-delete" => Some(ShotDialog::LibraryDelete),
                         "library-delete-long" => Some(ShotDialog::LibraryDeleteLong),
                         "library-remove-long" => Some(ShotDialog::LibraryRemoveLong),
@@ -728,6 +734,14 @@ mod tests {
         assert_eq!(
             parse("--dialog run-undone-later").dialog,
             Some(ShotDialog::RunUndoneLater)
+        );
+        assert_eq!(
+            parse("--dialog run-undo-moved").dialog,
+            Some(ShotDialog::RunUndoMoved)
+        );
+        assert_eq!(
+            parse("--dialog run-undone-moved").dialog,
+            Some(ShotDialog::RunUndoneMoved)
         );
         assert_eq!(
             parse("--dialog library-delete").dialog,

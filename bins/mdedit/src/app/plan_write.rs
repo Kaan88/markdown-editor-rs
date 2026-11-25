@@ -931,6 +931,56 @@ impl App {
                 self.ui.runs.undo = Some((run.path.clone(), sentence, can));
                 self.open_dialog(DialogKind::RunUndo);
             }
+            Some(ShotDialog::RunUndoMoved) => {
+                // A "Move them in" run (D-210): its copy and its picture go, and each original
+                // and the note it rewrote are put back, named (Fable's review of C2, 4).
+                let run = &self.ui.runs.list[0];
+                let home = run.record.group.home.clone();
+                let plan = mdedit_core::runs::UndoPlan {
+                    notes: vec![home.join("trip.md")],
+                    pictures: vec![home.join("img").join("beach.png")],
+                    links: vec![(
+                        run.record.group.file.clone(),
+                        vec![mdedit_core::runs::LinkRemoval {
+                            path: home.join("trip.md"),
+                            sections: Vec::new(),
+                            line: "- [Trip](Trips/trip.md)".to_string(),
+                        }],
+                    )],
+                    put_back: vec![
+                        PathBuf::from(r"D:\Desk\trips\trip.md"),
+                        PathBuf::from(r"D:\Desk\trips\img\beach.png"),
+                        PathBuf::from(r"D:\Notes\Refs\ref.md"),
+                    ],
+                    ..Default::default()
+                };
+                let sentence = self.undo_sentence(&plan, &run.record.group_name());
+                self.ui.runs.undo = Some((run.path.clone(), sentence, true));
+                self.open_dialog(DialogKind::RunUndo);
+            }
+            Some(ShotDialog::RunUndoneMoved) => {
+                // Its report: two originals back, a note kept as the move wrote it, and the copy
+                // that note leads to kept with it.
+                let home = self.ui.runs.list[0].record.group.home.clone();
+                let copy = home.join("trip.md");
+                let note = root.join("Refs").join("ref.md");
+                // `root` is the library the demo shows; the note is named relative to it.
+                let report = mdedit_core::runs::UndoReport {
+                    removed_pictures: vec![home.join("img").join("beach.png")],
+                    removed_links: 1,
+                    restored: vec![
+                        PathBuf::from(r"D:\Desk\trips\trip.md"),
+                        PathBuf::from(r"D:\Desk\trips\img\beach.png"),
+                    ],
+                    restore_kept: vec![note.clone()],
+                    kept: vec![copy.clone(), note],
+                    led_to: vec![copy],
+                    ..Default::default()
+                };
+                self.show_outcome(Outcome::undone(&report, &root));
+                // Scrolled to its end, where the rows kept and why are; the draw clamps it.
+                self.ui.results.scroll = f32::MAX;
+            }
             Some(ShotDialog::RunUndoneLater) => {
                 // The report of that undo: two notes and their lines went, and the two a later
                 // run wrote are listed as kept, with why (S2).

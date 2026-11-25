@@ -482,6 +482,10 @@ for t in "" "-dark"; do
     # A run that died before its notes: the two a later run of the same plan wrote stay.
     shot "runs-undo-later$t" $th --dialog run-undo-later
     shot "runs-undone-later$t" $th --dialog run-undone-later
+    # Undo of "Move them in": the question names each file it puts back; the report says what
+    # went back, and what was kept and why.
+    shot "runs-undo-moved$t" $th --dialog run-undo-moved
+    shot "runs-undone-moved$t" $th --dialog run-undone-moved
     shot "runs-newer$t" $th --dialog runs-newer
 done
 

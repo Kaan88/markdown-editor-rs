@@ -2,7 +2,7 @@
 //! where it writes, and the undo of a rewrite.
 
 use super::ai_tests::{engine, wait};
-use super::files_tests::{app, scratch};
+use super::files_tests::{app, open_now, scratch};
 use super::*;
 use crate::ai::Panel;
 use crate::keys::KeyName;
@@ -1877,6 +1877,185 @@ fn move_them_in_moves_the_files_and_undo_puts_them_back() {
     );
     assert_eq!(std::fs::read(&picture).expect("put back"), b"\x89PNG beach");
     assert!(!copy.exists(), "the copy goes once its original is back");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of C2, 3: a file a tab holds with changes not saved is copied in, not moved:
+/// it stays under its tab with its picture, and the message says why.
+#[test]
+fn a_file_open_with_changes_not_saved_is_copied_not_moved() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-move-unsaved", TaskKind::File, Vec::new());
+    a.recycle = Box::new(crate::recycle::FolderBin::new(&dir.join("bin")));
+    let md = trip_with_picture(&dir);
+    let picture = dir.join("desk").join("img").join("beach.png");
+    let i = open_now(&mut a, &md);
+    a.docs.activate(i);
+    a.docs.edit(crate::docs::EditOp::Insert("x"), None);
+    assert!(a.docs.tabs[i].modified());
+    a.task_add_paths(vec![md.clone()]);
+    with_group(&mut a, "Trips");
+    a.task_act(Hit::FilesGo(FilesGo::Move));
+    a.task_run();
+    a.task_file_write();
+    assert!(md.exists() && picture.exists(), "{}", toast(&a));
+    assert!(
+        toast(&a).contains(mdedit_core::moves::copy_in::UNSAVED),
+        "{}",
+        toast(&a)
+    );
+    assert!(dir.join("library").join("Trips").join("trip.md").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of C2, 2: a move whose record would be too large to read back moves nothing:
+/// the files are copied in, the copies' record is written, and the message says why.
+#[test]
+fn a_move_too_large_for_its_record_is_a_copy() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-move-full", TaskKind::File, Vec::new());
+    a.recycle = Box::new(crate::recycle::FolderBin::new(&dir.join("bin")));
+    let md = trip_with_picture(&dir);
+    let library = dir.join("library");
+    let note = library.join("Refs").join("ref.md");
+    std::fs::create_dir_all(note.parent().expect("folder")).expect("refs");
+    let big = format!(
+        "# Ref
+
+[Trip](../../desk/trip.md)
+
+{}",
+        "\"
+"
+        .repeat(1_200_000)
+    );
+    std::fs::write(&note, &big).expect("note");
+    std::fs::write(
+        library.join("refs.md"),
+        format!(
+            "# Refs
+
+{}
+",
+            mdshared_app::library::link_line("Ref", Path::new("Refs/ref.md"))
+        ),
+    )
+    .expect("refs");
+    a.task_add_paths(vec![md.clone()]);
+    with_group(&mut a, "Trips");
+    a.task_act(Hit::FilesGo(FilesGo::Move));
+    a.task_run();
+    a.task_file_write();
+    assert!(md.exists(), "{}", toast(&a));
+    assert_eq!(std::fs::read_to_string(&note).expect("note"), big);
+    assert!(
+        toast(&a).contains(mdedit_core::moves::copy_in::RECORD_FULL),
+        "{}",
+        toast(&a)
+    );
+    let (list, _) = runs::list_all(&library);
+    assert_eq!(list.len(), 1, "the copies' record");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of C2, nit: a tab on a library note the move rewrote is read again at
+/// once.
+#[test]
+fn a_tab_on_a_note_the_move_rewrote_is_read_again() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-move-tab", TaskKind::File, Vec::new());
+    a.recycle = Box::new(crate::recycle::FolderBin::new(&dir.join("bin")));
+    let md = trip_with_picture(&dir);
+    let library = dir.join("library");
+    let note = library.join("Refs").join("ref.md");
+    std::fs::create_dir_all(note.parent().expect("folder")).expect("refs");
+    std::fs::write(
+        &note,
+        "# Ref
+
+[Trip](../../desk/trip.md)
+",
+    )
+    .expect("note");
+    std::fs::write(
+        library.join("refs.md"),
+        format!(
+            "# Refs
+
+{}
+",
+            mdshared_app::library::link_line("Ref", Path::new("Refs/ref.md"))
+        ),
+    )
+    .expect("refs");
+    let i = open_now(&mut a, &note);
+    a.task_add_paths(vec![md.clone()]);
+    with_group(&mut a, "Trips");
+    a.task_act(Hit::FilesGo(FilesGo::Move));
+    a.task_run();
+    a.task_file_write();
+    assert!(!md.exists(), "{}", toast(&a));
+    let on_disk = std::fs::read_to_string(&note).expect("note");
+    assert!(on_disk.contains("../Trips/trip.md"), "{on_disk}");
+    let i = a
+        .docs
+        .tabs
+        .iter()
+        .position(|d| d.path.as_deref() == Some(note.as_path()))
+        .unwrap_or(i);
+    // Its tab is read again now, not at the next look at the disk.
+    assert!(a.docs.tabs[i].is_loading(), "the tab reloads");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of C2, 3: undo of a move does not write a library note a tab holds with
+/// changes not saved, and keeps the copy it leads to.
+#[test]
+fn undo_of_a_move_leaves_a_note_open_with_changes_not_saved() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-move-undo-unsaved", TaskKind::File, Vec::new());
+    a.recycle = Box::new(crate::recycle::FolderBin::new(&dir.join("bin")));
+    let md = trip_with_picture(&dir);
+    let library = dir.join("library");
+    let note = library.join("Refs").join("ref.md");
+    std::fs::create_dir_all(note.parent().expect("folder")).expect("refs");
+    std::fs::write(
+        &note,
+        "# Ref
+
+[Trip](../../desk/trip.md)
+",
+    )
+    .expect("note");
+    std::fs::write(
+        library.join("refs.md"),
+        format!(
+            "# Refs
+
+{}
+",
+            mdshared_app::library::link_line("Ref", Path::new("Refs/ref.md"))
+        ),
+    )
+    .expect("refs");
+    a.task_add_paths(vec![md.clone()]);
+    with_group(&mut a, "Trips");
+    a.task_act(Hit::FilesGo(FilesGo::Move));
+    a.task_run();
+    a.task_file_write();
+    assert!(!md.exists(), "{}", toast(&a));
+    let relinked = std::fs::read_to_string(&note).expect("note");
+    let i = open_now(&mut a, &note);
+    a.docs.activate(i);
+    a.docs.edit(crate::docs::EditOp::Insert("x"), None);
+    let (list, _) = runs::list_all(&library);
+    a.run_undo(list[0].path.clone());
+    assert!(md.exists(), "the original is back");
+    assert_eq!(std::fs::read_to_string(&note).expect("note"), relinked);
+    assert!(
+        library.join("Trips").join("trip.md").exists(),
+        "the copy stays"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

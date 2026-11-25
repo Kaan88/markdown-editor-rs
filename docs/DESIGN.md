@@ -3699,6 +3699,26 @@ its first note however many the window ran before.
 
 In a narrow window the task switch drops "them" ("File · Split · Rewrite") and THE FILES reads "Link · Copy · Move" when its shorter words do not fit, so its three segments are never cut.
 
-Tests: `moves_copy_tests.rs` (+7), `runs_copies_tests.rs` (+4) in shared; `task_tests` (+3),
+**Fable's review of C2.** The files settle before their pictures: a picture goes only when every
+file of the run that shows it goes (`Remove::shown_by`), and `move_out` keeps one whose file the
+bin would not take (`SHOWN_BY_STAYING`). A file or a library note a tab holds with changes not
+saved keeps what it is and what it links to where it is (`move_plan`'s `unsaved`; `UNSAVED`,
+`UNSAVED_NOTE`), and undo asks the bin before it writes a note (`Bin::may_write`, which
+`recycle::SparingUnsaved` refuses for such a tab). An original goes only while its copy is the
+bytes that were written and the two are not one file. A record that would not read back
+(`RECORD_MAX`) is not written: `move_in_record` says `FileTooLarge`, the window writes the copies'
+record and says each file was copied only (`RECORD_FULL`). The question names each file it puts
+back; a record that would put back a file of another kind than its copy, or whose copy the record
+did not make, is refused whole. A rewritten note goes back only once the original it leads to is
+back, and a copy a kept note still leads to stays (`UndoReport::led_to`, its own row in the
+report: "Copies kept for the notes that lead to them"). The reach is the one undo will use
+(`runs::undo_home`). The toast gives each file copied and not moved its own reason; a tab on a
+rewritten note or a moved original is read again at once. The report's rows read "Put back" and
+"changed since, or its place is taken", which fit a rewrite's undo too.
+
+Tests: `moves_copy_tests.rs` (+4), `runs_copies_tests.rs` (+6) in shared; `task_tests` (+4),
+`task_ui` (+1), `replace_ui` (+1) here. Shots `runs-undo-moved`, `runs-undone-moved`, both themes.
+
+Tests of the phase: `moves_copy_tests.rs` (+7), `runs_copies_tests.rs` (+4) in shared; `task_tests` (+3),
 `library_ai_tests`, `replace_ui` here. Shots `task-files-move`, `task-files-move-520`, both
 themes.
