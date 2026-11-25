@@ -38,6 +38,8 @@ mod move_draw;
 mod move_ui;
 mod note_draw;
 mod note_ui;
+mod notes_plan_draw;
+mod notes_plan_ui;
 mod notes_task;
 mod outline;
 mod overlays;

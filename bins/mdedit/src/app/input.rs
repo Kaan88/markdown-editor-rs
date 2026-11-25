@@ -54,6 +54,10 @@ impl App {
             self.ai_pointer(x, y);
             return;
         }
+        if self.notes_plan_open() {
+            self.notes_plan_pointer(x, y);
+            return;
+        }
         if self.task_is_open() {
             self.task_pointer(x, y);
             return;
@@ -688,6 +692,10 @@ impl App {
             self.ai_press();
             return;
         }
+        if self.notes_plan_open() {
+            self.notes_plan_press();
+            return;
+        }
         if self.task_is_open() {
             self.task_press();
             return;
@@ -945,6 +953,10 @@ impl App {
             self.ai_release();
             return;
         }
+        if self.notes_plan_open() {
+            self.notes_plan_release();
+            return;
+        }
         if self.task_is_open() {
             self.task_release();
             return;
@@ -1010,6 +1022,10 @@ impl App {
             || self.ai_panel_open()
             || self.ui.settings.is_some()
         {
+            return;
+        }
+        if self.notes_plan_open() {
+            self.notes_plan_right_press();
             return;
         }
         if self.task_is_open() {
@@ -1140,6 +1156,8 @@ impl App {
                 self.plan_wheel(dy);
             } else if self.ai_panel_open() {
                 self.ai_wheel(dy);
+            } else if self.notes_plan_open() {
+                self.notes_plan_wheel(dy);
             } else if self.task_is_open() {
                 self.task_wheel(dy);
             } else if self.palette_open() {
@@ -1374,6 +1392,8 @@ impl App {
         let shown = if let Some(f) = self.ui.settings.as_mut() {
             self.ui.overlay_tick += 1;
             f.set_preedit(pre)
+        } else if self.notes_plan_open() {
+            self.notes_plan_preedit(pre)
         } else if self.task_is_open() {
             self.task_preedit(pre)
         } else if self.plan_is_open() {
@@ -1437,6 +1457,10 @@ impl App {
         }
         if self.ai_panel_open() {
             self.ai_key(name, typed);
+            return;
+        }
+        if self.notes_plan_open() {
+            self.notes_plan_key(key, typed);
             return;
         }
         if self.task_is_open() {

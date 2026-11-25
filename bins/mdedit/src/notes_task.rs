@@ -157,6 +157,9 @@ pub struct Run {
     pub requests: u64,
     /// The text files the arrange request is given, by their place in the window.
     pub texts: Vec<usize>,
+    /// The file names the owner gave pictures' copies on the plan card (picture place → name
+    /// with its extension); empty unless one was renamed there.
+    pub copy_names: std::collections::HashMap<usize, String>,
 }
 
 impl Run {

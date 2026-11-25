@@ -38,9 +38,54 @@ const LOOKS: [(&str, &str); 5] = [
     ),
 ];
 
+/// The arrange's answer for the plan card's shots (phase V4): a note per room in two sections,
+/// the shop's list in none of them; or, for "One note", one note with a heading per room.
+fn plan_answer(one: bool) -> String {
+    let notes = if one {
+        serde_json::json!([{
+            "title": "The house, room by room",
+            "sections": [],
+            "body": "What each room needs, from five pictures and the shopping list.\n\n\
+                     ## Kitchen\n\n![The oven, door open](picture:0)\n\n\
+                     The oven glass is brown with old fat: oven cleaner and a scraper.\n\n\
+                     ![Blue tiles, two cracked](picture:4)\n\nFour blue tiles and blue grout.\n\n\
+                     ## Bathroom\n\n![The sink under the window](picture:2)\n\n\
+                     ![A chrome mixer tap](picture:3)\n\n\
+                     The tap drips: a mixer with one lever fits the same holes."
+        }])
+    } else {
+        serde_json::json!([
+            {
+                "title": "The oven needs cleaning",
+                "sections": ["Kitchen"],
+                "body": "The oven door is open and the light is on: the glass is brown with old \
+                         fat.\n\n![The oven, door open](picture:0)\n\n\
+                         Buy oven cleaner, the spray kind, and a scraper for the glass."
+            },
+            {
+                "title": "New tiles behind the counter",
+                "sections": ["Kitchen"],
+                "body": "Two of the blue tiles behind the counter are cracked.\n\n\
+                         ![Blue tiles, two cracked](picture:4)\n\n## What to buy\n\n\
+                         - Four blue tiles, 10 cm square\n- Grout, blue"
+            },
+            {
+                "title": "A new tap for the sink",
+                "sections": ["Bathroom"],
+                "body": "The tap over the white sink drips day and night.\n\n\
+                         ![The sink under the window](picture:2)\n\n\
+                         A chrome mixer with one lever would fit the same holes:\n\n\
+                         ![A chrome mixer tap](picture:3)"
+            }
+        ])
+    };
+    serde_json::json!({"version": 1, "notes": notes, "unused": [1]}).to_string()
+}
+
 impl App {
     /// The demos: `notes` (the window), `notes-options`, `notes-looking`, `notes-failed`,
-    /// `notes-no-vision`, `notes-limit` and `notes-off`.
+    /// `notes-no-vision`, `notes-limit`, `notes-off`, and the plan card, `notes-plan` and
+    /// `notes-plan-one`.
     pub(super) fn notes_demo(&mut self, name: &str) -> bool {
         let dir = Path::new("fixtures/notes-demo");
         let mut names: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -191,10 +236,35 @@ impl App {
                     ..Run::default()
                 });
             }
+            "notes-plan" | "notes-plan-one" => {
+                let answer = plan_answer(name == "notes-plan-one");
+                let arranged = mdedit_core::notes_ai::read_arrange(&answer, &pictures).ok();
+                let texts: Vec<usize> = (0..s.files.len())
+                    .filter(|&i| s.files[i].kind == FileKind::Text)
+                    .collect();
+                s.library = PathBuf::from("library");
+                if let Some(g) = s.groups.first_mut() {
+                    g.home = s.library.join("House");
+                }
+                s.notes_run = Some(Run {
+                    looks: looks(&pictures),
+                    answered: (0..batches.len()).collect(),
+                    next: batches.len(),
+                    parallel: 3,
+                    requests: batches.len() as u64 + 1,
+                    batches,
+                    texts,
+                    arranged,
+                    ..Run::default()
+                });
+            }
             _ => {}
         }
         s.recount_limit();
         s.tick += 1;
+        if name.starts_with("notes-plan") {
+            self.notes_plan_show();
+        }
         self.relayout_areas();
         self.redraw();
         true

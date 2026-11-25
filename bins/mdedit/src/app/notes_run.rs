@@ -170,6 +170,11 @@ impl App {
         if s.busy() {
             return;
         }
+        // A plan kept by Esc on its card is opened again (D-053).
+        if s.notes_run.as_ref().is_some_and(|r| r.arranged.is_some()) {
+            self.notes_plan_show();
+            return;
+        }
         s.ai_on = on;
         if let Some(why) = s.notes_blocked() {
             s.blocked = Some(why);
@@ -544,19 +549,30 @@ impl App {
         self.redraw();
     }
 
-    /// The plan is ready. The plan card (phase V4) shows it; until then the window says it.
+    /// The plan is ready: its card opens over the window (phase V4, `app/notes_plan.rs`).
     fn notes_planned(&mut self) {
-        let n = self
-            .task
-            .as_ref()
-            .and_then(|s| s.notes_run.as_ref())
-            .and_then(|r| r.arranged.as_ref())
-            .map_or(0, |a| a.notes.len());
-        self.docs.set_toast(&format!(
-            "{n} note{} planned.",
-            if n == 1 { "" } else { "s" }
-        ));
-        self.redraw();
+        self.notes_plan_show();
+    }
+
+    /// "Arrange again…" on the plan card: the arrange request asked again with `instruction`,
+    /// and no picture sent again (D-201). The plan goes; the window shows the request out, and
+    /// the card opens on its answer.
+    pub(super) fn notes_arrange_again(&mut self, instruction: &str) {
+        if self.ai_conn() == Connection::Off {
+            return;
+        }
+        let Some(s) = self.task.as_mut() else { return };
+        if s.busy() {
+            return;
+        }
+        let Some(run) = s.notes_run.as_mut() else {
+            return;
+        };
+        run.arranged = None;
+        s.instruction.set_text(instruction);
+        s.blocked = None;
+        self.notes_plan = None;
+        self.notes_arrange();
     }
 
     /// Stop, Esc or the window's close: every request out is cancelled; what was looked at is
@@ -582,8 +598,9 @@ impl App {
         true
     }
 
-    /// The prepare requests of a window that closes go with it.
+    /// The prepare requests of a window that closes go with it, and its plan card.
     pub(super) fn notes_close(&mut self) {
+        self.notes_plan = None;
         self.notes_stop();
         let out: Vec<u64> = self
             .task
