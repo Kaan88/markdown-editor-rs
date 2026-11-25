@@ -2379,3 +2379,53 @@ when the owner changed the first copy and could break a kept note's picture; Fab
 and V5 found a crash during the copies left files no record owned, a pasted picture lost when its
 copy failed, and a share's pictures linked wrongly.
 **Overturned by.** The owner.
+
+## D-231 · 2026-11-25 · One animator for the window; menus fade in as they open, closing is instant
+
+**Decision.** mdedit takes up shared's motion (shared `main` `48eb3ce`). One `Animator` per window
+(`bins/mdedit/src/motion.rs`): `compose` begins and ends its frame, and the deadline it gives is a
+timer in `timers` that is cleared when it fires; nothing moving, no deadline, no frame. Whether
+anything moves is decided in `Motion::policy` alone: never in a shot or a test, never with the
+Animations setting off (D-232), and otherwise as the system asks (`motion_reduced`, read and
+watched with `watch_motion_reduced` (called on a short helper thread, since it can wait
+up to 5 s for its hidden window) from the first menu that could fade, not at launch, and read
+again when the window gains the focus).
+A menu, context menu or submenu fades in and drops 6 px into place by `anim::document::MENU`
+(167 ms, decelerating), the one place its timing is set; closing stays instant, and the word
+completion list is never animated. While a menu enters, a frame that only moves it puts back the
+pixels that were under the menus and draws the menus on them, so only the menus' presence bounds
+are drawn and presented; a frame where anything else changes draws everything under them, as
+before. The fade blends with the frost key (`Painter::set_frost_key`), so a menu over frosted
+chrome fades as the compositor shows it. The menus' damage is their `presence_bounds()` in place
+of `rect().inset(-20)`; the completion list keeps the old bounds.
+**Why.** STATE's "In hand": the menu open fade first, with the budgets measured before and after
+(`docs/measurements/2026-11-25-menu-fade.md`). The watch is a thread and a hidden window, so it
+waits for a menu.
+**Overturned by.** The owner, on looking at it; or a second thing that moves, which joins the same
+animator with a group of its own.
+
+## D-232 · 2026-11-25 · An Animations setting, on by default
+
+**Decision.** Settings › Appearance gains one switch, "Animations" (`animations` in
+`[preferences]`, on by default): off, every motion is instant, by the same path as a shot
+(`Policy::Never`). The system's wish for less motion still makes it instant while the switch is
+on. One switch, no setting per kind of motion. Its help says "Menus fade in as they open. Off, or
+when the system asks for less motion, nothing moves." and wraps at 520 px.
+**Why.** The owner (2026-11-25, through the coordinator): "ADD one setting to mdedit:
+'Animations', a single on/off toggle in Settings, ON by default"; "One toggle only, no per-kind
+settings." D-231 had left the switch to the owner.
+**Overturned by.** The owner.
+
+## D-233 · 2026-11-25 · The dependency changes of the pin at shared main 48eb3ce are accepted
+
+**Decision.** Moving the shared crates from `ac9fde1` to `48eb3ce` changes `Cargo.lock` by two
+things and no more: a new package `libloading 0.9.1` (registry, depends on `cfg-if` and
+`windows-link`), which `mdshared-fetch` now pins exactly (`=0.9.1`, shared `31d9602`), with
+`libloading 0.8.9` kept for the crates that ask for it; and a dependency edge from `mdshared-text`
+to `zune-jpeg`, a package already in the lock (`mdview-render` and `mdedit-ai` use it). Every other
+change in the lock is the shared crates' `rev`. The Windows release exe went from 10,045,440 to
+10,066,944 bytes (+21,504) with the pin alone, every shared change included; the menu fade and the
+setting add 32,256 more (10,099,200).
+**Why.** The owner (2026-11-25, through the coordinator), on these two changes: "accept". Rule 7
+asks for a new dependency to be priced; this one comes with shared, not from mdedit.
+**Overturned by.** The owner.
