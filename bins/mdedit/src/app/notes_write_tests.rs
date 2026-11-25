@@ -683,3 +683,15 @@ fn a_picture_on_a_network_share_is_copied_even_with_copy_off() {
         &crate::notes_task::pasted_dir().join("x.png")
     ));
 }
+
+/// Fable's review of V4 and V5, round 2: the record keeps the instruction that made the plan,
+/// "Arrange again…"'s own when it was asked.
+#[test]
+fn the_record_keeps_the_instruction_that_made_the_plan() {
+    let (mut a, _dir, _shots) = planned("nw-instruction");
+    if let Some(run) = a.task.as_mut().and_then(|s| s.notes_run.as_mut()) {
+        run.arrange_instruction = Some("By room".to_string());
+    }
+    a.notes_write();
+    assert_eq!(records(&a)[0].record.instruction, "By room");
+}

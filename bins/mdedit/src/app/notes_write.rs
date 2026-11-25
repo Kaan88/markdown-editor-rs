@@ -323,7 +323,11 @@ impl App {
                 })
         };
         let planned = nw::plan(&arranged.notes, &group.home, &of, &naming, &taken_at)?;
-        let instruction = s.instruction.text().trim().to_string();
+        // The instruction that made the plan: "Arrange again…"'s own, else the window's.
+        let instruction = run
+            .arrange_instruction
+            .clone()
+            .unwrap_or_else(|| s.instruction.text().trim().to_string());
         // What was sent, when anything was: the AI off sends nothing.
         let sent = (s.ai_on && run.requests > 0).then(|| {
             let p = &self.docs.prefs;

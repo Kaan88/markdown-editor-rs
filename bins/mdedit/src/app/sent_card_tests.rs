@@ -277,3 +277,23 @@ fn a_picture_is_sent_whole_is_said_by_the_first_window_only() {
         "a later window does not say it"
     );
 }
+
+/// Fable's review of V4 and V5, round 2: after "Arrange again…" the arrange tab shows the
+/// instruction it was asked with, not the window's.
+#[test]
+fn the_arrange_tab_shows_the_arrange_again_instruction() {
+    let (mut a, _dir) = window("sent-arrange-again", true);
+    if let Some(s) = a.task.as_mut() {
+        s.notes_run = Some(crate::notes_task::Run {
+            arrange_instruction: Some("By room, please".to_string()),
+            ..Default::default()
+        });
+        let tabs = crate::sent_card::tabs(s, "The window's own", &[]);
+        let arrange = tabs.last().expect("the arrange tab");
+        assert!(
+            arrange.prompt.contains("By room, please"),
+            "{}",
+            arrange.prompt
+        );
+    }
+}

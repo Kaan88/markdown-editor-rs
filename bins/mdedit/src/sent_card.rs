@@ -275,7 +275,17 @@ pub fn tabs(s: &TaskScreen, instruction: &str, headings: &[String]) -> Vec<SentT
             label: "Arrange".to_string(),
             pictures: Vec::new(),
             system: notes_ai::ARRANGE_SYSTEM,
-            prompt: notes_ai::arrange_prompt(instruction, s.notes.how_many, &[], &files, headings),
+            // "Arrange again…" asks the arrange with its own instruction.
+            prompt: notes_ai::arrange_prompt(
+                s.notes_run
+                    .as_ref()
+                    .and_then(|r| r.arrange_instruction.as_deref())
+                    .unwrap_or(instruction),
+                s.notes.how_many,
+                &[],
+                &files,
+                headings,
+            ),
             arrange: true,
         });
     }
