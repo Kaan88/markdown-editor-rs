@@ -1882,7 +1882,7 @@ impl App {
                 let name = self.ui.goto.text().to_string();
                 if self.macros.save_as(&name) {
                     let kept = crate::macros::clean_name(&name).unwrap_or_default();
-                    self.docs.set_toast(&strings::macro_saved(&kept));
+                    self.docs.confirm_toast(&strings::macro_saved(&kept));
                     self.ui.goto.clear();
                     self.ui.naming = false;
                     self.ui.field = BarField::Find;

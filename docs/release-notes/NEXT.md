@@ -7,3 +7,7 @@ Unreleased: menus fade in as they open, and a setting to turn motion off. (Renam
   once as before.
 - **Animations, in Settings › Appearance.** On by default. Off, nothing moves. With the system's
   animation effects off (Windows: Accessibility › Visual effects), nothing moves either.
+- **Messages rise in and fade out.** A message at the bottom of the text now rises into place
+  and fades away when its time is up. A message that updates (a count, a step) changes in place;
+  confirmations such as "File path copied" stack, at most three, and the same one said again
+  stays one.

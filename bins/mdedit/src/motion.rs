@@ -14,11 +14,17 @@
 //! menu fades, the frames that only move it put back the pixels that were under the menus
 //! ([`Motion::backing`]) and draw the menus again over them: only the menus' bounds are drawn
 //! and presented.
+//!
+//! A toast rises and fades in, and fades and sinks out as it leaves of itself ([`TOAST`]),
+//! through the shared `anim::Stack`: a status takes the place of the toasts showing, in place
+//! (`Docs::set_toast`); a one-shot confirmation comes in under them (`Docs::confirm_toast`).
 
 use crate::ui::{Popup, PopupKind};
+use mdshared_ui::anim::stack::Stack;
 use mdshared_ui::anim::{Animator, Clock, ManualClock, Policy, Snapshot, document, pop};
 use mdshared_ui::gfx::{Painter, Rect};
 use mdshared_ui::menu::MENU_DROP;
+use mdshared_ui::overlay::TOAST_H;
 use mdshared_ui::theme::Palette;
 use std::time::Instant;
 
@@ -84,6 +90,12 @@ pub struct Motion {
     pub drawn: Option<Menus>,
     /// A clock moved by hand: a test's, or a shot's half way fade. Real time without one.
     pub clock: Option<ManualClock>,
+    /// The toasts on screen and leaving ([`toasts`]).
+    pub toasts: Stack<String>,
+    /// The serial of the status message the toasts last took in (`Docs::toast_line`).
+    toast_seen: Option<u64>,
+    /// This frame's toasts, the bottom one first ([`Motion::sync_toasts`]).
+    pub toast_frame: Vec<ToastShown>,
 }
 
 /// Whether a window made from `args` holds still: a shot is drawn once and must not depend on
@@ -118,6 +130,9 @@ impl Motion {
             backing: None,
             drawn: None,
             clock: None,
+            toasts: toasts(),
+            toast_seen: None,
+            toast_frame: Vec::new(),
         };
         m.anim.set_policy(m.policy());
         m
@@ -340,4 +355,125 @@ pub fn menu_frame(
     } else {
         MenuFrame::Whole
     }
+}
+
+// ---- toasts --------------------------------------------------------------------------------
+
+/// A toast's entrance and exit: the shared preset as it is (167 ms each, decelerating in and
+/// accelerating out). A toast rises 8 px into place as it fades in, and fades and sinks as it
+/// leaves of itself; a toast taken away (`clear`) or put in another's place goes at once.
+pub const TOAST: document::Pair = document::TOAST;
+
+/// The damage group of the toasts.
+pub const TOASTS: &str = "toasts";
+
+/// The gap between two stacked toasts, in logical px.
+pub const TOAST_GAP: f32 = 8.0;
+
+/// The most toasts kept at once, those leaving included: a fourth sends the oldest away.
+pub const TOASTS_MAX: usize = 3;
+
+/// The toasts' stack: entering and leaving by [`TOAST`], at most [`TOASTS_MAX`] shown and as
+/// many kept.
+pub fn toasts() -> Stack<String> {
+    Stack::new()
+        .with_motion(TOAST.enter, TOAST.exit)
+        .with_max(TOASTS_MAX)
+        .with_max_drawn(TOASTS_MAX)
+}
+
+/// A toast as a frame shows it: its key, its text, its presence and how far above the bottom
+/// place it stands, in logical px.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToastShown {
+    pub key: u64,
+    pub text: String,
+    pub t: f32,
+    pub lift: f32,
+}
+
+/// What the window's status says, as the toasts follow it: `serial` names one message (a new
+/// one for each `set_toast` and `confirm_toast`), `stack` says it comes in under the toasts
+/// showing instead of in their place.
+#[derive(Clone, Copy, Debug)]
+pub struct ToastLine<'a> {
+    pub serial: u64,
+    pub text: &'a str,
+    pub until: Instant,
+    pub stack: bool,
+}
+
+impl Motion {
+    /// Brings the toasts up to date with the status line at `now`, the frame's time, and asks
+    /// for this frame of them, in the group [`TOASTS`]. Asked on every frame, whatever it draws,
+    /// so a toast at rest is never forgotten and taken for new. Each leaves of itself when its
+    /// time is up.
+    ///
+    /// A message set by `set_toast` takes the place of the toasts showing: the newest one shown
+    /// takes its text at once and keeps its presence and its place (a readout under key repeat
+    /// never flickers), and the others go at once; with none shown it comes in as a new toast.
+    /// One set by `confirm_toast`, a one-shot confirmation of its own, comes in under the ones
+    /// showing, or keeps the toast of the same text (brought back if it is leaving), so a repeat
+    /// never stands twice. A status cleared takes every toast away at once.
+    pub fn sync_toasts(&mut self, line: Option<ToastLine<'_>>, now: Instant) {
+        self.toasts.tick(now);
+        let serial = line.map(|l| l.serial);
+        if serial != self.toast_seen {
+            self.toast_seen = serial;
+            // What is left of its time, by the wall clock it was set by, counted on from this
+            // frame on the frame's clock (the same clock in a window; a test's or a shot's runs
+            // by hand).
+            let left = line.and_then(|l| l.until.checked_duration_since(Instant::now()));
+            match line {
+                // A message already past its time (set long before this frame) is not shown.
+                Some(l) if left.is_some_and(|d| !d.is_zero()) => {
+                    let until = left.map(|d| now + d);
+                    if l.stack {
+                        self.toasts.show(l.text.to_string(), until);
+                    } else {
+                        let key = self.toasts.replace_newest(l.text.to_string(), until);
+                        let others: Vec<u64> = (self.toasts.current())
+                            .map(|(k, _)| k)
+                            .filter(|k| *k != key)
+                            .collect();
+                        for k in others {
+                            self.toasts.remove(k);
+                        }
+                    }
+                }
+                Some(_) => {}
+                None => self.toasts.clear(),
+            }
+        }
+        self.toast_frame.clear();
+        if self.toasts.is_empty() {
+            return;
+        }
+        self.anim.group(TOASTS);
+        let shown = (self.toasts).frame(&mut self.anim, TOASTS, |_| TOAST_H, TOAST_GAP);
+        self.toast_frame
+            .extend(shown.into_iter().map(|s| ToastShown {
+                key: s.key,
+                text: s.item.clone(),
+                t: s.t,
+                lift: s.lift,
+            }));
+        self.anim.ungroup();
+    }
+
+    /// Whether `line` is a fresh message the toasts have not taken in yet: a frame is wanted.
+    pub fn toast_unseen(&self, line: Option<ToastLine<'_>>, now: Instant) -> bool {
+        line.is_some_and(|l| Some(l.serial) != self.toast_seen && l.until > now)
+    }
+
+    /// When the next toast leaves of itself.
+    pub fn toasts_due(&self) -> Option<Instant> {
+        self.toasts.deadline()
+    }
+}
+
+/// Where a toast whose place at rest is `rest` stands `lift` logical px above it: moved by a
+/// whole number of device pixels at `scale`, so its text stays on the grid it has at rest.
+pub fn toast_y(rest: f32, lift: f32, scale: f32) -> f32 {
+    rest - (lift * scale).round() / scale
 }

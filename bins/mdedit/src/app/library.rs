@@ -568,7 +568,8 @@ impl App {
             .find(|g| mdshared_app::paths::same_path(&g.file, file))
             .map(|g| g.name.clone())
             .unwrap_or_default();
-        self.docs.set_toast(&strings::library_added(&title, &group));
+        self.docs
+            .confirm_toast(&strings::library_added(&title, &group));
     }
 
     /// The library file "Edit a library file" opens without asking: the group of the row last

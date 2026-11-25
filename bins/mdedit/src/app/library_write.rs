@@ -386,7 +386,7 @@ impl App {
 
     fn library_copy_path(&mut self, path: &Path) {
         if platform::set_clipboard_text(&path.display().to_string()) {
-            self.docs.set_toast("Path copied");
+            self.docs.confirm_toast("Path copied");
         }
     }
 

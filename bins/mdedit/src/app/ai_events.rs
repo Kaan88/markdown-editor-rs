@@ -1035,7 +1035,7 @@ impl App {
                 // The review may be the only place the result is (its document closed): it
                 // closes only once the result is on the clipboard (audit 1 round 3, #3).
                 if copy_text(&text) {
-                    self.docs.set_toast("Copied the result.");
+                    self.docs.confirm_toast("Copied the result.");
                     if let Some(fr) = file {
                         // The file is left as it was, and the run goes on with the next
                         // (audit 4, B3).

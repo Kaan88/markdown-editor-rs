@@ -593,3 +593,317 @@ fn a_toast_over_an_entering_menu_stays_on_top() {
     settle(&mut a);
     same(&a, &b, "a toast over the entering menu");
 }
+
+// ---- toasts: they rise in and leave of themselves; a status replaces, a confirmation stacks ----
+
+/// The toasts this frame: text, presence and lift, the bottom one first.
+fn toasts(a: &App) -> Vec<(String, f32, f32)> {
+    (a.motion.toast_frame.iter())
+        .map(|s| (s.text.clone(), s.t, s.lift))
+        .collect()
+}
+
+/// Composes 16 ms frames for `ms`.
+fn frames_for(a: &mut App, ms: u64) {
+    for _ in 0..ms / 16 {
+        tick(a, 16);
+        a.compose();
+    }
+}
+
+/// Past a toast's time.
+const PAST: u64 = crate::commands::strings::TOAST_MS + 100;
+
+/// A toast's lift above the one under it: its height and the gap.
+const STEP: f32 = mdshared_ui::overlay::TOAST_H + crate::motion::TOAST_GAP;
+
+#[test]
+fn a_toast_rises_in_stays_then_leaves_of_itself_with_no_timer_left() {
+    let mut a = moving();
+    a.compose();
+    a.docs.set_toast("Saved");
+    a.compose();
+    let first = toasts(&a);
+    assert_eq!(first.len(), 1);
+    assert!(first[0].1 < 1.0, "it starts on its way in: {first:?}");
+    assert!(
+        a.motion.due.is_some(),
+        "a frame is asked for while it rises"
+    );
+    settle(&mut a);
+    assert_eq!(toasts(&a), [("Saved".to_string(), 1.0, 0.0)]);
+    assert!(
+        a.toast_until.is_some(),
+        "the toast's own time is the one timer left"
+    );
+    // Its time comes: it fades and sinks where it stands, then it is gone with no timer left.
+    tick(&mut a, PAST);
+    a.compose();
+    tick(&mut a, 16);
+    a.compose();
+    let leaving = toasts(&a);
+    assert!(leaving.len() == 1 && leaving[0].1 < 1.0, "{leaving:?}");
+    settle(&mut a);
+    assert!(toasts(&a).is_empty());
+    assert_eq!((a.motion.due, a.toast_until), (None, None));
+    assert!(a.motion.anim.group_deadlines().is_empty());
+}
+
+/// The pixels a toast passes over are put back: once it has risen in and once it has gone, the
+/// window is the still window's, pixel for pixel.
+#[test]
+fn a_toast_coming_and_going_leaves_the_still_windows_pixels() {
+    let (mut a, mut b) = pair();
+    let text = "Saved, and long enough to cross the text";
+    a.docs.set_toast(text);
+    a.compose();
+    frames_for(&mut a, 48);
+    settle(&mut a);
+    b.docs.set_toast(text);
+    b.compose();
+    same(&a, &b, "a toast risen in");
+    tick(&mut a, PAST);
+    a.compose();
+    frames_for(&mut a, 64);
+    settle(&mut a);
+    b.docs.clear_toast();
+    b.compose();
+    same(&a, &b, "a toast gone");
+}
+
+#[test]
+fn a_status_said_again_changes_in_place_and_never_flickers() {
+    let mut a = moving();
+    a.compose();
+    a.docs.set_toast("Zoom 110%");
+    a.compose();
+    frames_for(&mut a, 48);
+    let key = a.motion.toast_frame[0].key;
+    let mut t = a.motion.toast_frame[0].t;
+    assert!(t < 1.0, "still on its way in");
+    // Key repeat: a new readout every frame, on the way in and at rest.
+    for n in 0..20 {
+        a.docs.set_toast(&format!("Zoom {}%", 120 + n * 10));
+        tick(&mut a, 16);
+        a.compose();
+        let now = &a.motion.toast_frame;
+        assert_eq!(now.len(), 1, "one toast, never a second");
+        assert_eq!(now[0].key, key, "the same toast");
+        assert!(now[0].t >= t, "never fading: {} after {t}", now[0].t);
+        assert_eq!(now[0].text, format!("Zoom {}%", 120 + n * 10));
+        t = now[0].t;
+    }
+    assert_eq!(t, 1.0);
+}
+
+#[test]
+fn a_second_confirmation_stacks_under_the_first_which_moves_up() {
+    let mut a = moving();
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    settle(&mut a);
+    a.docs.confirm_toast("Image saved as a.png");
+    a.compose();
+    tick(&mut a, 16);
+    a.compose();
+    let rising = toasts(&a);
+    assert_eq!(rising.len(), 2);
+    assert_eq!(
+        rising[0].0, "Image saved as a.png",
+        "the new one at the bottom"
+    );
+    assert!(
+        rising[1].2 > 0.0 && rising[1].2 < STEP,
+        "the first on its way up: {rising:?}"
+    );
+    settle(&mut a);
+    assert_eq!(
+        toasts(&a),
+        [
+            ("Image saved as a.png".to_string(), 1.0, 0.0),
+            ("File path copied".to_string(), 1.0, STEP),
+        ]
+    );
+}
+
+#[test]
+fn a_status_takes_the_place_of_the_confirmations_showing() {
+    let mut a = moving();
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    a.docs.confirm_toast("Path copied");
+    a.compose();
+    settle(&mut a);
+    let newest = a.motion.toast_frame[0].key;
+    a.docs.set_toast("No more occurrences");
+    a.compose();
+    let now = &a.motion.toast_frame;
+    assert_eq!(now.len(), 1, "the others go at once");
+    assert_eq!(
+        (now[0].key, now[0].t),
+        (newest, 1.0),
+        "in the newest one's place"
+    );
+    assert_eq!(now[0].text, "No more occurrences");
+}
+
+#[test]
+fn a_progress_turning_into_its_result_leaves_one_toast() {
+    let mut a = moving();
+    a.compose();
+    a.docs.set_toast("An AI rewrite is running. Esc stops it.");
+    a.compose();
+    frames_for(&mut a, 32);
+    a.docs.set_toast("Stopped the AI rewrite.");
+    a.compose();
+    settle(&mut a);
+    assert_eq!(
+        toasts(&a),
+        [("Stopped the AI rewrite.".to_string(), 1.0, 0.0)]
+    );
+}
+
+#[test]
+fn the_same_confirmation_said_again_keeps_its_one_toast_even_while_it_leaves() {
+    let mut a = moving();
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    a.docs.confirm_toast("Path copied");
+    a.compose();
+    settle(&mut a);
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    settle(&mut a);
+    assert_eq!(toasts(&a).len(), 2, "not a third");
+    // Leaving: said again, it comes back instead of a second coming in.
+    tick(&mut a, PAST);
+    a.compose();
+    tick(&mut a, 32);
+    a.compose();
+    let leaving = toasts(&a);
+    assert!(
+        leaving.iter().all(|t| t.1 < 1.0),
+        "both leaving: {leaving:?}"
+    );
+    a.docs.confirm_toast("Path copied");
+    a.compose();
+    assert_eq!(toasts(&a).len(), 2, "brought back, not a second one");
+    settle(&mut a);
+    assert_eq!(toasts(&a), [("Path copied".to_string(), 1.0, 0.0)]);
+}
+
+#[test]
+fn never_more_than_three_toasts_those_leaving_included() {
+    let mut a = moving();
+    a.compose();
+    for text in [
+        "one copied",
+        "two copied",
+        "three copied",
+        "four copied",
+        "five",
+    ] {
+        a.docs.confirm_toast(text);
+        a.compose();
+        tick(&mut a, 16);
+        a.compose();
+        assert!(a.motion.toast_frame.len() <= 3, "{:?}", toasts(&a));
+    }
+    settle(&mut a);
+    let texts: Vec<String> = toasts(&a).into_iter().map(|t| t.0).collect();
+    assert_eq!(texts, ["five", "four copied", "three copied"]);
+}
+
+#[test]
+fn reduced_motion_the_setting_off_and_a_still_window_show_a_toast_at_once() {
+    for how in ["reduced", "setting", "still"] {
+        let mut a = match how {
+            "still" => still(),
+            _ => moving(),
+        };
+        match how {
+            "reduced" => a.motion.set_reduced(true),
+            "setting" => a.docs.prefs.animations = false,
+            _ => {}
+        }
+        a.compose();
+        a.docs.set_toast("Saved");
+        a.compose();
+        assert_eq!(toasts(&a), [("Saved".to_string(), 1.0, 0.0)], "{how}");
+        assert_eq!(a.motion.due, None, "{how}: no frame asked for");
+        // Past its time (a still window has no clock moved by hand: the frame's time is given).
+        let past = Instant::now() + Duration::from_millis(PAST);
+        tick(&mut a, PAST);
+        a.motion.anim.begin_frame(past);
+        a.motion.sync_toasts(a.docs.toast_line(), past);
+        a.motion.anim.end_frame();
+        assert!(toasts(&a).is_empty(), "{how}: gone at once");
+    }
+}
+
+/// A status cleared takes every toast away at once.
+#[test]
+fn a_cleared_status_takes_the_toasts_away_at_once() {
+    let mut a = moving();
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    a.docs.confirm_toast("Path copied");
+    a.compose();
+    a.docs.clear_toast();
+    a.compose();
+    assert!(toasts(&a).is_empty());
+    assert!(a.motion.toasts.is_empty());
+}
+
+/// A message set while a toast stands wakes the window for a frame, though the standing
+/// toast's own time is still far off.
+#[test]
+fn a_message_set_while_a_toast_stands_asks_for_a_frame() {
+    let mut a = moving();
+    a.compose();
+    a.docs.set_toast("Saved");
+    a.compose();
+    settle(&mut a);
+    assert!(a.toast_until.is_some());
+    a.docs.confirm_toast("File path copied");
+    a.wants_frame = false;
+    a.timers(Instant::now());
+    assert!(a.wants_frame, "the new message is drawn");
+    a.compose();
+    a.wants_frame = false;
+    a.timers(Instant::now());
+    assert!(!a.wants_frame, "and asks no more once taken in");
+}
+
+/// A short window: a toast that would reach above the page is left out, but never the bottom
+/// one. (With no other overlay, the overlays' bounds are the bubbles drawn.)
+#[test]
+fn toasts_that_would_reach_above_the_page_are_left_out() {
+    for (height, drawn) in [(800, 3), (190, 1)] {
+        let mut a = still();
+        a.size = (700, height);
+        a.compose();
+        for text in ["one copied", "two copied", "three copied"] {
+            a.docs.confirm_toast(text);
+            a.compose();
+        }
+        assert_eq!(a.motion.toast_frame.len(), 3);
+        assert_eq!(a.overlay_bounds.len(), drawn, "{height} px high");
+    }
+}
+
+/// A lifted toast stands on a whole device pixel at any scale.
+#[test]
+fn a_lifting_toast_stands_on_a_whole_device_pixel() {
+    for scale in [1.0_f32, 1.25, 1.5] {
+        for lift in [0.0_f32, 3.3, 21.7, 44.0] {
+            let y = crate::motion::toast_y(500.0, lift, scale);
+            let dev = y * scale;
+            assert!((dev - dev.round()).abs() < 1e-3, "{scale} {lift}: {dev}");
+        }
+    }
+}

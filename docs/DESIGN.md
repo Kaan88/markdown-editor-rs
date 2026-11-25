@@ -3971,3 +3971,40 @@ and a device pixel), not `rect().inset(-20)`.
 **Frost.** The overlay painter is given the frost key (`set_frost_key`), so a menu fading over
 frosted chrome mixes with it as the compositor shows it (`Snapshot::crossfade_keyed`) instead of
 turning opaque half way. Not seen on a frosted window.
+
+## 97. Motion: toasts rise in, stack and leave (2026-11-25)
+
+`bins/mdedit/src/motion.rs` (`toasts`, `Motion::sync_toasts`, `toast_y`), the status in
+`docs.rs` (`set_toast`, `confirm_toast`, `clear_toast`, `toast_line`), the drawing in
+`app.rs` (`compose`), tests in `app/motion_tests.rs`. D-251.
+
+**The status and the toasts.** `Docs` keeps one status message: its text, until when (2.5 s,
+`strings::TOAST_MS`), whether it stacks, and a serial, new for every message. The window's
+toasts follow it in `Motion::sync_toasts`, asked on every frame before the overlays are laid
+out: a serial not seen yet is taken in, by `Stack::replace_newest` and `remove` of the others
+for `set_toast` (a status: in place, no exit, no entrance), by `Stack::show` for
+`confirm_toast` (a confirmation: under the others, or the same text kept), and `Stack::clear`
+when the status is cleared. A message whose time is already past when it is taken in shows
+nothing. What is left of its time is counted on from that frame on the frame's clock, so a
+test's or a shot's clock moved by hand runs it too. `Stack::tick` sends away what is due; its
+`deadline` is `toast_until`, the timer that wakes for it (`timers`), and a message not taken in
+yet asks for a frame there (`toast_unseen`).
+
+**Drawing.** `Stack::frame` gives each toast, bottom first, with its presence and its lift (the
+heights and 8 px gaps of the ones under it, on its way by `fluent::MOVE`). `compose` places each
+with `Bubble::toast` and raises it by its lift to a whole device pixel (`toast_y`); one that
+would reach above the text area is left out unless it is the bottom one. A toast at rest is
+drawn with `Bubble::draw`, one on its way with `draw_presence` (it fades and rises 8 px). The
+overlays' bounds hold each toast's `presence_bounds()`, and the overlay signature holds each
+presence, so a moving toast redraws what is under it each frame. Under `Policy::Never` every
+presence is at once 1 or gone: one toast at rest is the pixels of before.
+
+**Who stacks** (`confirm_toast`): File path copied, Path copied, Copied the result, the crash
+report copied, Image saved as … (both paste paths), Renamed to …, the macro saved, a note added
+to the library. Everything else replaces (`set_toast`). Not built: "New waits for the lift"
+(D-251), asked of shared.
+
+**Shots.** `--toast TEXT` (repeatable: the earlier ones at rest and stacked, the last one coming
+in) and `--motion-ms MS` (the last one that far in, on the shot's clock): `toast-*`,
+`toast-rising-*` (50 ms), `toasts-stacking-*` (67 ms, the first on its way up), `toasts-stacked-*`,
+`toasts-short-*` (520 × 220, the third left out).

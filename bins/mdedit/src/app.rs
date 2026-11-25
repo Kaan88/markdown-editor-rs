@@ -1428,17 +1428,28 @@ impl App {
         self.caret_sig = caret_sig;
 
         // Overlays: lay them out, then redraw every region under them if they or those changed.
-        let now = Instant::now();
         let pal = self.pal;
-        let mut bubbles = Vec::new();
+        // The toasts follow the status message, on the frame's clock; asked on every frame.
+        self.motion.sync_toasts(self.docs.toast_line(), frame_at);
+        // Each bubble with its presence: 1 at rest.
+        let mut bubbles: Vec<(Bubble, f32)> = Vec::new();
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
             let page = self.areas.text;
-            if let Some(text) = self.docs.toast(now) {
-                bubbles.push(Bubble::toast(&mut p, text, page));
+            // The toasts, each lifted above the ones under it to a whole device pixel (so its
+            // text stays on the grid), at its presence. One that would reach above the page (a
+            // short window) is left out, except the bottom one: a window however short still
+            // shows its one status.
+            for s in &self.motion.toast_frame {
+                let mut b = Bubble::toast(&mut p, &s.text, page);
+                b.rect.y = crate::motion::toast_y(b.rect.y, s.lift, self.scale);
+                if s.lift > 0.0 && b.rect.y < page.y + crate::motion::TOAST_GAP {
+                    continue;
+                }
+                bubbles.push((b, s.t));
             }
             if let Some(tip) = self.ui.tip.as_ref().filter(|t| t.shown) {
-                bubbles.push(Bubble::tip(&mut p, &tip.text, tip.anchor, w, h));
+                bubbles.push((Bubble::tip(&mut p, &tip.text, tip.anchor, w, h), 1.0));
             }
             if let Some(popup) = self.ui.popup.as_mut() {
                 let room = menu_room(self.areas.title, w, h);
@@ -1450,7 +1461,7 @@ impl App {
                 }
             }
         }
-        self.toast_until = self.docs.toast(now).and(self.docs.toast_expires());
+        self.toast_until = self.motion.toasts_due();
         // The menus' fade: the system's wish is read once the window settled, or from the
         // first menu that could fade if the setting was off then.
         if !self.motion.watching()
@@ -1463,7 +1474,14 @@ impl App {
             self.watch_motion();
         }
         let menus = self.motion.menus(self.ui.popup.as_ref());
-        let mut bounds: Vec<Rect> = bubbles.iter().map(Bubble::bounds).collect();
+        // A toast touches more as it rises and sinks than at rest.
+        let mut bounds: Vec<Rect> = bubbles
+            .iter()
+            .map(|(b, _)| match b.kind {
+                mdshared_ui::overlay::Kind::Toast => b.presence_bounds(),
+                _ => b.bounds(),
+            })
+            .collect();
         if let Some(popup) = &self.ui.popup {
             // A menu that fades touches its presence bounds (its drop and shadow in them).
             let reach = |m: &mdshared_ui::menu::Menu<Act>| match menus {
@@ -1494,12 +1512,14 @@ impl App {
         let osig = sig((
             bubbles
                 .iter()
-                .map(|b| {
+                .map(|(b, t)| {
                     (
                         b.kind,
                         b.text.as_str(),
                         b.rect.x.to_bits(),
                         b.rect.y.to_bits(),
+                        // A toast coming or going is drawn anew on each frame of it.
+                        t.to_bits(),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -2014,8 +2034,12 @@ impl App {
                         false,
                     );
                 }
-                for b in &bubbles {
-                    b.draw(c.p, &pal);
+                for (b, t) in &bubbles {
+                    if *t >= 1.0 {
+                        b.draw(c.p, &pal);
+                    } else {
+                        b.draw_presence(c.p, &pal, *t);
+                    }
                 }
                 if let Some(plan) = self.plan.as_mut() {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
@@ -3876,6 +3900,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
     if app.args.demo_recovered.is_none() {
         app.docs.clear_toast();
     }
+    shot_toasts(&mut app);
     app.full = true;
     app.compose();
     // `--frame`: the window as the client-drawn margin puts it on screen.
@@ -3889,6 +3914,32 @@ fn shot(mut app: App, path: &Path) -> i32 {
             eprintln!("mdedit: could not write {}: {e}", path.display());
             1
         }
+    }
+}
+
+/// `--toast`: confirmations as toasts, the earlier ones at rest and stacked, the last one coming
+/// in under them; with `--motion-ms` it is that far into its entrance (and the ones above on
+/// their way up), on a clock moved by hand, at rest without it.
+fn shot_toasts(app: &mut App) {
+    let Some((last, earlier)) = app.args.toasts.split_last() else {
+        return;
+    };
+    let (last, earlier) = (last.clone(), earlier.to_vec());
+    app.compose();
+    for text in &earlier {
+        app.docs.confirm_toast(text);
+        app.compose();
+    }
+    let moving = app.args.motion_ms;
+    if moving.is_some() {
+        app.motion.shot_fade();
+        app.compose();
+    }
+    app.docs.confirm_toast(&last);
+    app.compose();
+    for step in crate::motion::shot_steps(moving.unwrap_or(0)) {
+        app.motion.advance_ms(step);
+        app.compose();
     }
 }
 

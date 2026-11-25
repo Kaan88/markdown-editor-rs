@@ -1571,7 +1571,11 @@ pub struct Docs {
     /// What the find workers have done and the window has not taken in: a list under a lock, not
     /// a channel, which costs the exe some 15 KB for each type sent.
     find_done: Arc<std::sync::Mutex<Vec<FindDone>>>,
-    toast: Option<(String, Instant)>,
+    /// The status message the window shows as a toast, until when, and whether it stacks
+    /// (`confirm_toast`) or takes the place of the toasts showing (`set_toast`); its serial
+    /// names it, a new one for every message (`toast_serial`).
+    toast: Option<(String, Instant, bool, u64)>,
+    toast_serial: u64,
     /// The set of open files changed: the watcher needs the new list.
     pub watch_changed: bool,
     /// The documents previewed in mdview, and what keeps the viewer scrolled to their carets.
@@ -1661,6 +1665,7 @@ impl Docs {
             load_done: Default::default(),
             find_done: Default::default(),
             toast: None,
+            toast_serial: 0,
             updates: crate::updater::Updates::default(),
             crash: None,
             ai_prompts: Vec::new(),
@@ -3584,26 +3589,53 @@ impl Docs {
         Ok(())
     }
 
+    /// A status message: it takes the place of the toasts showing (a step, a readout, a
+    /// refusal, a progress and its result), so a message said again changes in place.
     pub fn set_toast(&mut self, text: &str) {
+        self.put_toast(text, false);
+    }
+
+    /// A one-shot confirmation of an event of its own ("File path copied", "Image saved as
+    /// …"): it comes in under the toasts still showing instead of taking their place, and the
+    /// same one said again keeps its toast instead of standing twice.
+    pub fn confirm_toast(&mut self, text: &str) {
+        self.put_toast(text, true);
+    }
+
+    fn put_toast(&mut self, text: &str, stack: bool) {
+        self.toast_serial = self.toast_serial.wrapping_add(1);
         self.toast = Some((
             text.to_string(),
             Instant::now() + Duration::from_millis(strings::TOAST_MS),
+            stack,
+            self.toast_serial,
         ));
+    }
+
+    /// The last message as set, fresh or not, for the toasts to follow.
+    pub fn toast_line(&self) -> Option<crate::motion::ToastLine<'_>> {
+        self.toast
+            .as_ref()
+            .map(|(text, until, stack, serial)| crate::motion::ToastLine {
+                serial: *serial,
+                text,
+                until: *until,
+                stack: *stack,
+            })
     }
 
     pub fn clear_toast(&mut self) {
         self.toast = None;
     }
 
+    /// The status message while it is fresh. The window shows it as toasts
+    /// (`Motion::sync_toasts`, from `toast_line`); the tests read it here.
+    #[cfg(test)]
     pub fn toast(&self, now: Instant) -> Option<&str> {
         self.toast
             .as_ref()
-            .filter(|(_, until)| *until > now)
-            .map(|(t, _)| t.as_str())
-    }
-
-    pub fn toast_expires(&self) -> Option<Instant> {
-        self.toast.as_ref().map(|t| t.1)
+            .filter(|(_, until, ..)| *until > now)
+            .map(|(t, ..)| t.as_str())
     }
 
     /// The toast for a file shown with replaced bytes, or one that holds NUL characters (most

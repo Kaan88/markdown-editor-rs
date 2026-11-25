@@ -836,7 +836,8 @@ impl App {
         match image_paste::save_png(&path, &png) {
             Ok(saved) => {
                 if self.edit(EditOp::Paste(&saved.link)) {
-                    self.docs.set_toast(&image_paste::saved_toast(&saved.name));
+                    self.docs
+                        .confirm_toast(&image_paste::saved_toast(&saved.name));
                 } else {
                     // The text could not go in (a read-only document): no stray file.
                     let _ = std::fs::remove_file(&saved.path);
@@ -880,7 +881,7 @@ impl App {
                 let _ = std::fs::remove_file(&c.path);
             }
         } else if let Some(c) = copies.first() {
-            self.docs.set_toast(&image_paste::saved_toast(&c.name));
+            self.docs.confirm_toast(&image_paste::saved_toast(&c.name));
         }
     }
 
@@ -1203,7 +1204,7 @@ impl App {
                     if let (Some(from), Some(now)) = (from, self.docs.tabs[i].path.clone()) {
                         self.ui.results.renamed(&from, &now);
                     }
-                    self.docs.set_toast(&format!("Renamed to {name}."));
+                    self.docs.confirm_toast(&format!("Renamed to {name}."));
                 }
                 Err(e) => self.docs.set_toast(&e),
             }
@@ -1343,7 +1344,7 @@ impl App {
                 if let Some(path) = path
                     && platform::set_clipboard_text(&path.display().to_string())
                 {
-                    self.docs.set_toast("File path copied");
+                    self.docs.confirm_toast("File path copied");
                 }
             }
             C::ShowInFileManager => {
@@ -2571,10 +2572,10 @@ impl App {
             } else {
                 at(until);
             }
-        } else if let Some(until) = self.docs.toast_expires().filter(|&u| u > now) {
+        }
+        if self.motion.toast_unseen(self.docs.toast_line(), now) {
             // A message set since the last frame.
             self.wants_frame = true;
-            at(until);
         }
         if let Some(due) = self.ui.autoscroll_due {
             if now >= due {

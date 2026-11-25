@@ -172,6 +172,12 @@ pub struct Args {
     /// `--menu-fade-ms MS`: a `--shot` of the `--menu` this far into its entrance (0 to 1000;
     /// more is at rest). Ignored without `--shot` and `--menu`.
     pub menu_fade_ms: Option<u32>,
+    /// `--toast TEXT`, given once or more: the confirmations a `--shot` shows as toasts, the
+    /// earlier ones at rest and stacked, the last one coming in under them with `--motion-ms`.
+    pub toasts: Vec<String>,
+    /// `--motion-ms MS`: a `--shot` of what its last `--toast` sets moving, this far into its
+    /// motion (0 to 1000; more is at rest). Ignored without `--shot`.
+    pub motion_ms: Option<u32>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
     /// `--wrap`: word wrap.
@@ -535,6 +541,8 @@ impl Args {
                 }
                 "--menu-at" => out.menu_at = checked(&a, value(&a), |v| v.parse().ok()),
                 "--menu-fade-ms" => out.menu_fade_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--toast" => out.toasts.extend(value(&a)),
+                "--motion-ms" => out.motion_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),
@@ -690,6 +698,16 @@ mod tests {
         );
         assert!(a.find_in_files && a.results_focus && a.replace_dialog && a.replace_report);
         assert_eq!(a.results_replace.as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn motion_shot_flags() {
+        let a = parse("--toast Copied --toast Saved --motion-ms 67 --menu-fade-ms 40 a.rs");
+        assert_eq!(a.toasts, ["Copied", "Saved"]);
+        assert_eq!((a.motion_ms, a.menu_fade_ms), (Some(67), Some(40)));
+        let b = parse("--motion-ms soon a.rs");
+        assert_eq!(b.motion_ms, None);
+        assert!(b.toasts.is_empty());
     }
 
     #[test]

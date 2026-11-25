@@ -2476,3 +2476,34 @@ up (`f6a1497`). The pin also brings what the rest of the motion close-out is bui
 (`anim::Stack`'s replace and revive, `Tooltip::hover_at`, the paged form in motion, the turning
 disclosure).
 **Overturned by.** The owner; or a pin move that changes the lock beyond the shared `rev`.
+
+## D-251 · 2026-11-25 · Toasts rise in and leave of themselves; a status replaces, only one-shot confirmations stack
+
+**Decision.** The toast is drawn through shared's `anim::Stack` (`Motion::toasts`, asked on every
+frame in the group `toasts`): it rises 8 px and fades in, and fades and sinks out when its time
+is up, by `anim::document::TOAST` (167 ms each way, set in `motion.rs`). What a message does is
+said where it is set:
+- `Docs::set_toast`, the default and nearly every caller: the message **replaces** the toasts
+  showing (`Stack::replace_newest`): the newest one takes the new text at once and keeps its
+  presence and place, so a readout said again under key repeat never flickers, and a progress
+  turning into its result is one toast; the other toasts go at once (`Stack::remove`). With none
+  showing, it comes in.
+- `Docs::confirm_toast`, a one-shot confirmation that is an event of its own: it **stacks** under
+  the toasts showing (`Stack::show`), and the same text said again keeps its one toast (brought
+  back if it is leaving), never a second. The callers: File path copied, Path copied (Notes
+  pane), Copied the result (AI review), the crash report copied, Image saved as … (both pastes),
+  Renamed to …, the macro saved, a note added to the library.
+- `Docs::clear_toast` takes every toast away at once (`Stack::clear`).
+At most three are kept, the leaving ones counted (`with_max(3)`, `with_max_drawn(3)`); each
+stands `overlay::TOAST_H` and 8 px above the one under it, on a whole device pixel, and one that
+would reach above the text area is left out, never the bottom one. A toast's time (2.5 s) counts
+from the frame that takes it in. Under `Policy::Never` (a shot, a test, the setting off, reduced
+motion) a toast comes and goes at once, as before; one toast at rest is the pixels of before.
+The redraw holds each toast's `presence_bounds()`.
+**Not yet.** The owner decided (2026-11-25, through the coordinator) that when toasts stack, the
+new one waits for the older ones' lift to finish before it enters ("New waits for the lift").
+It is asked of shared's `anim::Stack`, not hand-rolled here; until shared has it, the new toast
+enters while the ones above lift. It is wired when shared lands it.
+**Why.** The motion close-out's M-B (the coordinator, 2026-11-25): "A status REPLACES by default
+… Only one-shot confirmations that are separate events STACK". mdview made the same split.
+**Overturned by.** The owner.
