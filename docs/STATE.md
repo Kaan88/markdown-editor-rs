@@ -25,20 +25,21 @@ is newer, doubt "In hand" first.
 
 ## On `main`, not released
 
+- **Motion, step 1: menus fade in as they open** (merged 2026-11-25 on the owner's word, after
+  they tried mdview's). Menus, context menus and submenus
+  come in over 117 ms (the owner, on mdview: "this is better"); closing is instant; the completion
+  list never fades. One "Animations" switch in Settings › Appearance, on by default; off, or the
+  system asking for less motion, makes everything instant (D-232 to D-235, DESIGN 96, notes in
+  `docs/release-notes/NEXT.md`). Budgets inside the noise, exe +58 KB over `main`
+  (`docs/measurements/2026-11-25-menu-fade.md`). Tried by the owner in mdview only; **not seen** over a frosted
+  window, on Linux or macOS. The 117 ms is set in each app's `motion.rs`; it belongs in shared's
+  `anim::document::MENU` at the next pin move (rule 8).
 - The release workflow: the next release carries its full notes as `release-notes-<version>.md`,
   named by `hub.txt`'s `notes.file` (D-231; seventeen assets; not yet run on a real release).
 
 ## In hand
 
-- **Motion, step 1: menus fade in as they open**, built on `f/motion` in both apps, Fable's
-  reviews done, waiting for the owner's look before it merges. Menus, context menus and submenus
-  come in over 117 ms (the owner, on mdview: "this is better"); closing is instant; the completion
-  list never fades. One "Animations" switch in Settings › Appearance, on by default; off, or the
-  system asking for less motion, makes everything instant (D-232 to D-235, DESIGN 96, notes in
-  `docs/release-notes/NEXT.md`). Budgets inside the noise, exe +58 KB over `main`
-  (`docs/measurements/2026-11-25-menu-fade.md`). **Not seen** in a real window, over a frosted
-  window, on Linux or macOS. The 117 ms is set in each app's `motion.rs`; it belongs in shared's
-  `anim::document::MENU` at the next pin move (rule 8). Next, in order: toasts and tooltips (the
+- **More motion**: toasts and tooltips (the
   tooltip delay question: from entering a control, or from the pointer resting), dialogs and
   cards; shared still builds the Settings form motion (L10) and the tree chevron. No tab
   cross-fade in mdedit (memory), no sliding panes.
@@ -65,7 +66,7 @@ is newer, doubt "In hand" first.
 
 ## Next
 
-1. The owner's look at the menu fade, then the merges, then the next motion.
+1. The task window's fixes, then more motion.
 2. The owner's look at 1.4.0's and 1.5.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes
    cards) and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
    mdview; D after R2.
