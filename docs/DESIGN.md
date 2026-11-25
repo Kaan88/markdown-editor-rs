@@ -3310,7 +3310,7 @@ that can file, split or **rewrite files in place** (D-074, D-076). The drawing i
 `ai-files`; the window takes files, not the open document, and opens none of them in a tab.
 
 **The window** (`task_ui.rs` state and numbers, `task_draw.rs` drawing, `app/task.rs` the three
-tasks). Card 880 x 704: the header and "Add…" (phase E), the WHAT TO DO switch (`File them |
+tasks). Card 880 x 704: the header and "Add…" (phase E), the task switch (`Write notes | File them |
 Split them | Rewrite them`), the 36 px instruction field, the saved prompts of the chosen kind
 (96 px, `kind: file` new in `mdedit_core::ai`), WHERE IT GOES, the list under its three group
 headings, and a footer with "Show what is sent" and the primary button. A review of a file
@@ -3383,8 +3383,8 @@ is off", and "Open AI settings" is beside Cancel. Nothing starts.
 send: the system text and prompt per batch, per file, or per split outline; with the AI off it
 says nothing is sent. It opens as a read-only copy tab and parks the window, which "AI task on
 your files…" brings back. A request in flight stops when the window closes (Escape stops it
-first, then a second Escape closes), and an engine error is the footer's sentence with Run
-still usable.
+first; then Esc leaves a field with words in it, warns once in the window, and closes, D-241),
+and an engine error is the footer's sentence with the button still usable.
 
 **Tests** (`task_ui::tests`, `app/task_tests.rs`; the fake engine answers `TASKFILE` with a
 filing JSON). A window opens empty; a picture is a picture, never read; a digest holds the
@@ -3439,6 +3439,19 @@ the file ticked. The last task closed is the pref `ai_task`. `card` grows from 8
 of it; the tab it opens records `sent_tab`, and closing that tab brings the window back
 (`task_sent_tab_closed`). Tests: `app/task_tests.rs` (the hand-driven run's section) and
 `task_draw.rs` `flow_tests`, each watched fail with its fix reverted.
+
+After Fable's review (D-246): `FileReview::back` says whether the review's window is open or
+parked (set when the review is made, read again by `task_review_back_sync` when a kept review is
+shown); Back is drawn only then, and `task_review_back` keeps the review otherwise.
+`task_settings_closed` also reads the saved prompts again and calls `task_read_again`.
+`take_back_notice` clears the notice and both warnings (`esc_warned`, `close_warned`; a click on
+Cancel keeps the latter). With `Focus::None` a printable key moves to the instruction and Enter
+only moves there. `task_remember_kind` saves `ai_task` from `task_close` and from the end of a
+rewrite run. `task_sent_tab_closed` runs after Close, Close others and Close all, and looks for
+the tab by id. `notes_run_requests` / `notes_failed_note` number a failed look out of the looks
+and the arrange (`notes_task::arranges`). The line under the title is drawn with the footer's
+link and takes shorter words to fit; the empty Saved prompts wraps under its label; the notice
+bar keeps to the list's top.
 
 ## 84. Sort a folder by AI (2026-11-23, phase 4)
 
@@ -3617,7 +3630,7 @@ its own with its own budget of requests.
 
 `docs/ai-pictures-plan.md` 4.3, D-209, D-215, after the owner's "I want to copy or move them
 along with images". **The switch.** File them has THE FILES, `Link them | Copy them in`, beside
-the task on the task row (where the other tasks show "WHAT TO DO"), on "Copy them in" by default
+the task on the task row (where the other tasks leave the row empty), on "Copy them in" by default
 and remembered once changed (`Prefs::ai_files`, `FilesGo`: `copy`, `link` in `settings.ini`).
 Too narrow for the full words it reads `Link | Copy in`, and the caption THE FILES goes first.
 On the plan face each placed row adds what happens to its file: "copied in", or "linked where it

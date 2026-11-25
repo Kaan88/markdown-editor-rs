@@ -2398,12 +2398,14 @@ parser). `hub.txt` keeps its one-line `notes`.
 
 **Decision.** "Open AI settings" from the AI task window (or its plan card) hides the window while Settings is open: it neither draws nor takes a key, a click or the wheel, and keeps all its state. When Settings closes the window comes back with the connection, its name and the limits read again, and its pictures measured if the AI is on now.
 **Why.** The hand-driven run of 2026-11-25 (finding 1): Settings was drawn under the window, which took the clicks, so Settings looked dead and only Esc got out. Hiding the window is the smaller change in the overlay order, which another branch is also changing.
+**Confirmed.** The owner, 2026-11-25: "Yes, keep them".
 **Overturned by.** The owner, preferring Settings drawn over the dimmed window.
 
 ## D-241 · 2026-11-25 · Esc in the task window leaves a field first, and says once what closing drops
 
 **Decision.** In the AI task window, Esc in a field with words in it (the instruction, the section, the new group's name) leaves the field; an empty field is no work to lose and Esc goes on as below. Then Esc stops a request, closes a list, and, on a window that holds files or words, says once in the window what closing drops ("Esc again closes the window, and the 3 files and the instruction in it go with it."); any other key or click takes that back, and the next Esc closes. Cancel closes at once. A kept plan of Write notes still says its own warning (D-228). This replaces DESIGN 83's "Escape stops it first, then a second Escape closes".
 **Why.** The hand-driven run (finding 2): Esc in the group-name box, whose hint says "Esc leaves it", closed the whole window and lost the files and the instruction. Asking once was chosen over keeping the setup for the next open because the window has no way to remove a file, so a setup kept for ever would come back unwanted.
+**Confirmed.** The owner, 2026-11-25: "Yes, keep them".
 **Overturned by.** The owner, if the setup should be kept for the next open instead.
 
 ## D-242 · 2026-11-25 · Write notes goes on only with something to make notes of; One per picture instead is for that plan
@@ -2414,8 +2416,9 @@ parser). `hub.txt` keeps its one-line `notes`.
 
 ## D-243 · 2026-11-25 · Back on a rewrite's review; a split plan closed unwritten keeps its file ticked
 
-**Decision.** A file's review in the task window (Rewrite them) has Back: the review goes, nothing is written, the file stays ticked and the run waits for Run; the files rewritten before it stay so. Discard is unchanged. A split's plan opened from the window and closed without writing (Cancel, Esc) brings the window back with the file still ticked; the plan card itself is shared and keeps the word "Cancel".
+**Decision.** A file's review in the task window (Rewrite them) has Back: the review goes, nothing is written, the file stays ticked and the run waits for Run; the files rewritten before it stay so. Discard is unchanged. A split's plan opened from the window and closed without writing (Cancel, Esc) brings the window back with the file still ticked; the plan card itself is shared and keeps the word "Cancel", which acts as Back.
 **Why.** The hand-driven run (finding 4): Rewrite's Discard on the last file ended the run and closed the window, and Split's Cancel came back with the file unticked; neither had a way back to the setup as it was.
+**Confirmed.** The owner, 2026-11-25: "Yes, keep them".
 **Overturned by.** The owner.
 
 ## D-244 · 2026-11-25 · The task window says its messages in itself, reopens on its last task, and grows
@@ -2427,10 +2430,26 @@ parser). `hub.txt` keeps its one-line `notes`.
 - Write notes' Files… lists pictures with the text ("Pictures and text"); the other tasks keep "Text and code".
 - "Show what is sent" for the other tasks stays a text tab (D-229), and closing that tab brings the window back. Its first line says "would send" before any request and "sends for the files ticked now", with the count made, after.
 **Why.** The hand-driven run (findings 5, 6, 7, 10, 11): toasts far from the dialog, a window always on File them, a small card in a big window, pictures hidden by the dialog's filter, and no way back from the tab but the command.
+**Confirmed.** The owner, 2026-11-25: "Yes, keep them" (the last task remembered, File them the first time; the card up to 1240 x 1000).
 **Overturned by.** The owner.
 
 ## D-245 · 2026-11-25 · The task window's button and its words
 
 **Decision.** The primary button reads "Make the plan for N files" (File them and Split them, the AI on or off), "Rewrite N files", "Add N to the library"; with no file it has no count, is off, and the footer says why ("Tick a file to take part, or add one with Add…"); "Add to the library" is off with no group, saying "Choose the group the files go to first.". On the plan face, files that went and were not placed are under NOT PLACED; files no request took are under NOT SENT (LEFT OUT when nothing was sent), each row saying why. The header no longer says that nothing is opened in a tab, the lone "WHAT TO DO" is gone, "Show what is sent" moves beside Add… when the footer's buttons leave it no room, Options is drawn last and inside the card, and a line count is singular for one.
 **Why.** The hand-driven run (findings 8, 12 to 18, 20).
+**Overturned by.** The owner, by looking at the shots.
+
+## D-246 · 2026-11-25 · After Fable's review of the task fixes
+
+**Decision.**
+- Back is on a file's review only while the window it came from is open or parked. A review kept by Esc and shown again after its window closed has no Back; Back reached anyway keeps the review and says why, so its answer is never dropped.
+- Esc's warning agrees in number ("the file in it goes", "the 2 files in it go", "what is typed in it goes"). A key or a click other than Cancel takes back Cancel's kept-plan warning too, so the next Cancel warns again.
+- Out of the fields (after Esc left one), a character typed goes into the instruction, and Enter runs nothing: it puts the keyboard back in the instruction, where the next Enter runs the task as before.
+- Messages name the window's button as it reads ("“Rewrite 1 file” asks for it again"), not "Run".
+- A rewrite run that ends remembers its task as Cancel does (D-244). Settings closed over the window reads the saved prompts again, and a text file kept without its text for the largest rewrite then is read again.
+- Close others and Close all bring the window back when they close the tab of "Show what is sent", as Close does.
+- After a failed look the footer says "Request N of M failed.", numbered out of the run's requests as the summary counts them (the looks and the arrange), and "or go on without it" only when going on is offered. A file left out unticked says "unticked" with the AI off, "unticked: not sent" with it on.
+- In a narrow window (520 px) the line under the title takes shorter words before it is cut, and stops short of "Show what is sent" when that is in the header; "Write notes" is "Notes" on the task switch when THE FILES needs the room. An empty Saved prompts says so right under its label, on two lines when one is too short. The notice bar keeps inside the list in a low window.
+**From.** Fable's review of f/task-fixes (VERDICT: FIX), items 1 to 16.
+**Why.** Each was a way the first fixes could still drop work, say something untrue, or be cut at 520 px.
 **Overturned by.** The owner, by looking at the shots.
