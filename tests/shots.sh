@@ -290,6 +290,8 @@ for t in "" "-dark"; do
     shot "task-files-520$t" $th --size 520x600 --task-demo files
     # Fable's review of the task fixes: Settings opened from the window, in front of it.
     shot "task-settings$t" $th --size 1280x800 --task-demo files-settings
+    # Fable's second review: the Add menu open in a narrow window, over the line under the title.
+    shot "task-add-800$t" $th --size 800x700 --task-demo files-add
 done
 # Write notes (pictures plan, phase V3): the window with a thumbnail and what each picture is
 # sent as, its Options, while the pictures are looked at, a failed look, a model that reads no

@@ -639,14 +639,6 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         );
     }
 
-    // ---- the destination menu -------------------------------------------------------------------
-    if s.dest_open {
-        draw_dest_menu(p, pal, s, &mut hits, hover);
-    }
-    if s.add_open {
-        draw_add_menu(p, pal, s, add, &mut hits, hover);
-    }
-
     // ---- what the window says, the width of the card, over the list's foot -------------------
     // What was just done in it first (finding 7), then what stopped Write notes.
     let run_notice = s
@@ -682,16 +674,19 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             );
             p.fill(bar, pal.popup);
             p.fill(Rect::new(bar.x, bar.y, bar.w, p.px()), pal.popup_line);
-            p.icon(glyph::WARN, 13.0, x + 7.0, bar.cy(), pal.muted);
-            p.text(
-                Face::Ui,
-                12.0,
-                x + 22.0,
-                bar.cy(),
-                &notice,
-                pal.text,
-                inner - 22.0,
-            );
+            // Too low for a line of text, the bar is a band only (Fable's second review, 2).
+            if bar.h >= 16.0 {
+                p.icon(glyph::WARN, 13.0, x + 7.0, bar.cy(), pal.muted);
+                p.text(
+                    Face::Ui,
+                    12.0,
+                    x + 22.0,
+                    bar.cy(),
+                    &notice,
+                    pal.text,
+                    inner - 22.0,
+                );
+            }
         }
     }
 
@@ -843,6 +838,13 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         add.x - x - 12.0
     } else {
         link.x - x - 4.0
+    };
+    // With the Add menu open, the line stops short of it too, in shorter words rather than
+    // running under it (Fable's second review, 1).
+    let under_room = if s.add_open {
+        under_room.min(add.right() - ADD_MENU_W - 8.0 - x)
+    } else {
+        under_room
     }
     .max(0.0);
     let under = if s.from.is_none() {
@@ -950,7 +952,15 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         );
     }
 
-    // Last, over the notice and the footer, so nothing is drawn over it (finding 15).
+    // The menus and Options last, over the notice, the footer and the line under the title
+    // (drawn with the footer's link), so nothing is drawn over them and their hits come first
+    // (finding 15; Fable's second review, 1).
+    if s.dest_open {
+        draw_dest_menu(p, pal, s, &mut hits, hover);
+    }
+    if s.add_open {
+        draw_add_menu(p, pal, s, add, &mut hits, hover);
+    }
     if s.options_open && s.task == TaskKind::Notes {
         draw_options(p, pal, s, &mut hits, hover);
     }
@@ -1208,6 +1218,9 @@ fn draw_options(
 
 /// The Add menu under its button (D-207): the open tabs' files, the one in front first, then
 /// "Files…". Its rows are hit before anything under them, being pushed last.
+/// The width of the Add menu, under the right of Add….
+const ADD_MENU_W: f32 = 320.0;
+
 fn draw_add_menu(
     p: &mut Painter,
     pal: &Palette,
@@ -1218,7 +1231,7 @@ fn draw_add_menu(
 ) {
     let row_h = task_ui::ADD_ROW_H;
     let h = row_h * s.add_items.len() as f32 + 8.0;
-    let width = 320.0;
+    let width = ADD_MENU_W;
     let r = Rect::new(button.right() - width, button.bottom() + 4.0, width, h);
     p.frame(r, 7.0, pal.popup, pal.popup_line);
     for (k, item) in s.add_items.iter().enumerate() {
@@ -1527,5 +1540,62 @@ mod flow_tests {
             assert_eq!(on, "Make the plan", "no count of nothing");
             assert!(s.primary_blocked().is_some());
         }
+    }
+
+    /// Fable's second review, 1: the Add menu is drawn over the line under the title, whatever
+    /// that line says: inside the menu the pixels are the same with a short line or a long one.
+    #[test]
+    fn the_add_menu_is_drawn_over_the_line_under_the_title() {
+        let pixels = |from: Option<&str>| {
+            let mut s = screen(TaskKind::File);
+            s.from = from.map(str::to_string);
+            s.add_items = vec![
+                task_ui::AddItem::Tab {
+                    path: "a.md".into(),
+                    name: "a.md".into(),
+                    front: true,
+                },
+                task_ui::AddItem::Files,
+            ];
+            s.add_open = true;
+            let (w, h) = (800u32, 700u32);
+            let mut bm = Bitmap::new(w, h);
+            let mut gfx = Gfx::new();
+            {
+                let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+                draw(
+                    &mut p,
+                    &mdshared_ui::theme::LIGHT,
+                    &mut s,
+                    w as f32,
+                    h as f32,
+                    false,
+                );
+            }
+            let rows: Vec<Rect> = s
+                .hits
+                .iter()
+                .filter(|(k, _)| matches!(k, Hit::AddItem(_)))
+                .map(|(_, r)| *r)
+                .collect();
+            assert_eq!(rows.len(), 2, "the menu is drawn");
+            let top = rows[0].y.floor() as usize;
+            let bottom = rows[1].bottom().ceil() as usize;
+            let (left, right) = (rows[0].x.floor() as usize, rows[0].right().ceil() as usize);
+            let mut inside = Vec::new();
+            for y in top..bottom {
+                for x in left..right {
+                    let at = (y * w as usize + x) * 4;
+                    inside.extend_from_slice(&bm.pixels[at..at + 4]);
+                }
+            }
+            inside
+        };
+        let long = "The 12 notes of Recipes \u{203A} Pasta \u{203A} Sauces and their many friends, \
+                    from the Notes pane.";
+        assert!(
+            pixels(None) == pixels(Some(long)),
+            "no letter of the line under the title is drawn over the menu"
+        );
     }
 }
