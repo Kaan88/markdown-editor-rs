@@ -438,7 +438,7 @@ fn no_answer_panics() {
 /// rules by hand: no parser is a dependency of this crate.)
 #[test]
 fn no_body_puts_a_live_picture_or_tag_in_a_note() {
-    let cases: [(&str, &str); 22] = [
+    let cases: [(&str, &str); 23] = [
         (
             r#"1. Step
 
@@ -548,6 +548,11 @@ y\](https://evil.test/p.png)"#,
         (
             " ~~~\n~~~\n<img src=https://evil.test/p.png>",
             " \\~~~\n~~~\n<img src=https://evil.test/p.png>\n~~~",
+        ),
+        // Round 3: the words of a link whose address is refused are written alone, tildes too.
+        (
+            "[~~~](x)\n~~~\n<img src=https://evil.test/p.png>",
+            "\\~\\~\\~\n~~~\n<img src=https://evil.test/p.png>\n~~~",
         ),
         (
             "![a](picture:0)~~~ and ~~gone~~",

@@ -57,7 +57,7 @@ pub const KINDS: [&str; 5] = ["screenshot", "photo", "diagram", "document", "cha
 // ---- the requests ------------------------------------------------------------------------------
 
 /// How many notes the run asks for.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum HowMany {
     #[default]
     AsNeeded,
@@ -1092,7 +1092,9 @@ fn escape_words(label: &str) -> String {
     let mut out = String::with_capacity(label.len());
     for c in unescaped(label).chars() {
         match c {
-            '[' | ']' | '!' | '`' | '\\' => {
+            // A tilde too (Fable's review of V2 round 3): words left alone when their address is
+            // refused start the line, and three tildes there open a fence.
+            '[' | ']' | '!' | '`' | '\\' | '~' => {
                 out.push('\\');
                 out.push(c);
             }
