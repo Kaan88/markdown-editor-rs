@@ -16,15 +16,23 @@
 //! and presented.
 
 use crate::ui::{Popup, PopupKind};
-use mdshared_ui::anim::{Animator, Policy, Snapshot, document, pop};
+use mdshared_ui::anim::{Animator, Clock, ManualClock, Policy, Snapshot, document, fluent, pop};
 use mdshared_ui::gfx::{Painter, Rect};
 use mdshared_ui::menu::MENU_DROP;
 use mdshared_ui::theme::Palette;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-/// How a menu enters and leaves: the one place its timing is chosen (the shared preset for the
-/// document applications, 167 ms).
-pub const MENU: document::Pair = document::MENU;
+/// How long a menu takes to enter. The shared preset's 167 ms made quicker at the owner's word,
+/// on mdview's fade (2026-11-25): "slightly faster", and at 117 ms "this is better".
+pub const MENU_IN: Duration = Duration::from_millis(117);
+
+/// How a menu enters and leaves: the one place its timing is chosen. The entrance is the shared
+/// preset's decelerating curve over [`MENU_IN`]; the exit is the preset's and unused (closing is
+/// instant).
+pub const MENU: document::Pair = document::Pair {
+    enter: mdshared_ui::anim::Motion::tween(MENU_IN, fluent::DECELERATE),
+    exit: document::MENU.exit,
+};
 
 /// The damage group of the open menus: what is asked for while they are drawn.
 pub const MENUS: &str = "menus";
@@ -70,14 +78,36 @@ pub struct Motion {
     /// Whether the system's wish is read and watched (from the first menu that could fade, so
     /// nothing of it is on the launch path).
     watching: bool,
+    /// A policy that overrides the shot, the setting and the system: a shot of a menu half way
+    /// in (`--menu-fade-ms`) animates whatever the system says.
+    forced: Option<Policy>,
+    /// What reads the system's wish for less motion: the platform's, or a test's.
+    reader: fn() -> bool,
     /// The pixels under the open menus as the frame drew them before the menus, while they
     /// move, and the logical rectangle they cover.
     pub backing: Option<(Snapshot, Rect)>,
     /// What the screen shows of the menus.
     pub drawn: Option<Menus>,
-    /// A test's clock.
-    #[cfg(test)]
-    pub clock: Option<mdshared_ui::anim::ManualClock>,
+    /// A clock moved by hand: a test's, or a shot's half way fade. Real time without one.
+    pub clock: Option<ManualClock>,
+}
+
+/// Whether a window made from `args` holds still: a shot is drawn once and must not depend on
+/// time. (Every test holds still too, `cfg(test)` at the call.)
+pub fn still_for(args: &crate::args::Args) -> bool {
+    args.shot.is_some()
+}
+
+/// The longest half way fade a shot draws, in ms: past the entrance everything is at rest.
+pub const SHOT_FADE_MAX_MS: u32 = 1000;
+/// The step of a shot's clock: a frame, never more than the animator's longest step (50 ms).
+const SHOT_STEP_MS: u64 = 16;
+
+/// The steps a shot's clock takes to reach `ms` (capped at [`SHOT_FADE_MAX_MS`]), each of at
+/// most a frame: the animator takes a longer step for a stall and moves only 50 ms for it.
+pub fn shot_steps(ms: u32) -> impl Iterator<Item = u64> {
+    let total = u64::from(ms.min(SHOT_FADE_MAX_MS));
+    (0..total.div_ceil(SHOT_STEP_MS)).map(move |k| (total - k * SHOT_STEP_MS).min(SHOT_STEP_MS))
 }
 
 impl Motion {
@@ -89,9 +119,10 @@ impl Motion {
             still,
             setting: true,
             watching: false,
+            forced: None,
+            reader: crate::platform::motion_reduced,
             backing: None,
             drawn: None,
-            #[cfg(test)]
             clock: None,
         };
         m.anim.set_policy(m.policy());
@@ -101,6 +132,9 @@ impl Motion {
     /// Whether anything moves, by the shot, the setting and the system: the one place that
     /// decides. `Never` makes every value its target at once and asks for no frame.
     pub fn policy(&self) -> Policy {
+        if let Some(p) = self.forced {
+            return p;
+        }
         if self.still || !self.setting {
             Policy::Never
         } else {
@@ -128,7 +162,7 @@ impl Motion {
             return;
         }
         self.watching = true;
-        self.set_reduced(crate::platform::motion_reduced());
+        self.set_reduced((self.reader)());
         // The watch makes its hidden window and waits for it (up to 5 s on Windows): on a short
         // helper thread, never on this one. A thread that cannot start leaves the wish as read.
         let _ = std::thread::Builder::new()
@@ -140,28 +174,54 @@ impl Motion {
     /// focus: macOS has nothing to watch).
     pub fn refresh(&mut self) {
         if self.watching {
-            self.set_reduced(crate::platform::motion_reduced());
+            self.set_reduced((self.reader)());
+        }
+    }
+
+    /// Whether the system's wish is read and watched yet.
+    pub fn watching(&self) -> bool {
+        self.watching
+    }
+
+    /// For a shot of a menu half way in: motion on whatever the system says, on a clock moved
+    /// by hand from now on, and the system never asked.
+    pub fn shot_fade(&mut self) {
+        self.forced = Some(Policy::Always);
+        self.anim.set_policy(Policy::Always);
+        self.watching = true;
+        self.clock = Some(ManualClock::new());
+    }
+
+    /// Moves the hand-moved clock by `ms`; nothing without one.
+    pub fn advance_ms(&self, ms: u64) {
+        if let Some(c) = &self.clock {
+            c.advance_ms(ms);
         }
     }
 
     /// The time of a frame.
     pub fn now(&self) -> Instant {
-        #[cfg(test)]
-        if let Some(c) = &self.clock {
-            use mdshared_ui::anim::Clock;
-            return c.now();
+        match &self.clock {
+            Some(c) => c.now(),
+            None => Instant::now(),
         }
-        Instant::now()
     }
 
     /// A motion for a test that moves, on a clock moved by hand, with the system asking for
     /// nothing.
     #[cfg(test)]
-    pub fn moving(clock: mdshared_ui::anim::ManualClock) -> Motion {
+    pub fn moving(clock: ManualClock) -> Motion {
         let mut m = Motion::new(false);
         m.watching = true;
+        m.reader = || false;
         m.clock = Some(clock);
         m
+    }
+
+    /// A test's reader of the system's wish.
+    #[cfg(test)]
+    pub fn set_reader(&mut self, reader: fn() -> bool) {
+        self.reader = reader;
     }
 
     /// The presences of the open menus this frame, asked in the group [`MENUS`]. A popup's

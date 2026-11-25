@@ -524,7 +524,7 @@ impl App {
             compare_wait: None,
             theme_from_args: args.dark.is_some(),
             save: args.shot.is_none(),
-            motion: crate::motion::Motion::new(args.shot.is_some() || cfg!(test)),
+            motion: crate::motion::Motion::new(crate::motion::still_for(&args) || cfg!(test)),
             args,
             trace,
             docs,
@@ -638,6 +638,17 @@ impl App {
 
     fn redraw(&mut self) {
         self.wants_frame = true;
+    }
+
+    /// Starts reading and watching the system's wish for less motion, once, unless nothing can
+    /// move (a shot, a test, the Animations setting off).
+    fn watch_motion(&mut self) {
+        if self.motion.watching() {
+            return;
+        }
+        self.motion.set_setting(self.docs.prefs.animations);
+        let wake = self.docs.waker();
+        self.motion.watch(move || wake(Wake::Motion));
     }
 
     fn logical(&self) -> (f32, f32) {
@@ -1440,15 +1451,16 @@ impl App {
             }
         }
         self.toast_until = self.docs.toast(now).and(self.docs.toast_expires());
-        // The menus' fade: the system's wish is read from the first menu that could fade.
-        if self
-            .ui
-            .popup
-            .as_ref()
-            .is_some_and(|p| crate::motion::fades(p.kind))
+        // The menus' fade: the system's wish is read once the window settled, or from the
+        // first menu that could fade if the setting was off then.
+        if !self.motion.watching()
+            && self
+                .ui
+                .popup
+                .as_ref()
+                .is_some_and(|p| crate::motion::fades(p.kind))
         {
-            let wake = self.docs.waker();
-            self.motion.watch(move || wake(Wake::Motion));
+            self.watch_motion();
         }
         let menus = self.motion.menus(self.ui.popup.as_ref());
         let mut bounds: Vec<Rect> = bubbles.iter().map(Bubble::bounds).collect();
@@ -1579,6 +1591,10 @@ impl App {
         self.overlay_sig = osig;
         let mut under: Vec<Rect> = bounds.clone();
         under.extend(self.overlay_bounds.iter().copied());
+        // What a fading menu's kept pixels cover is under it too.
+        if let Some((_, r)) = &self.motion.backing {
+            under.push(*r);
+        }
         if bands.is_some() && under.iter().any(|b| overlaps(*b, self.areas.text)) {
             bands = None;
             dirty[ti] = true;
@@ -3156,6 +3172,9 @@ impl ApplicationHandler<Wake> for App {
             // Off the path to the first frame: whether mdview is there to offer previews.
             self.look_for_viewer();
             self.look_for_crash();
+            // The system's wish for less motion, read and watched before the first menu opens
+            // (Linux's portal answers on a helper thread); nothing when motion is off.
+            self.watch_motion();
             self.trace.stage("loading and colouring idle");
             self.trace.memory("idle");
             self.trace.cpu("idle");
@@ -3548,6 +3567,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
         app.ui.goto.set_text(&t);
     }
     let text = app.areas.text;
+    // `--menu-fade-ms`: the menu part way into its entrance, on a clock moved by hand.
+    let fade = app.args.menu_fade_ms.filter(|_| app.args.menu.is_some());
+    if fade.is_some() {
+        app.motion.shot_fade();
+    }
     match app.args.menu {
         Some(ShotMenu::Main) => app.open_popup(PopupKind::Main),
         Some(ShotMenu::MainEnd) => {
@@ -3828,6 +3852,12 @@ fn shot(mut app: App, path: &Path) -> i32 {
         || app.task_is_open()
     {
         app.compose();
+    }
+    if let Some(ms) = fade {
+        for step in crate::motion::shot_steps(ms) {
+            app.motion.advance_ms(step);
+            app.compose();
+        }
     }
     if let Some((x, y)) = app.args.hover {
         app.pointer_moved(x, y);
