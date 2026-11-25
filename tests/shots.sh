@@ -270,6 +270,13 @@ for t in "" "-dark"; do
     shot "task-files-off$t" $th --size 1280x800 --task-demo files-off
     shot "task-other$t" $th --size 1280x800 --task-demo files-other
     shot "task-review$t" $th --size 1280x800 --task-demo review
+    # The hand-driven run of 2026-11-25: the card grown in a large window, the plan face with no
+    # group (Add off, the reason), Esc's warning in the window, and an empty window.
+    shot "task-big$t" $th --size 1920x1080 --task-demo files
+    shot "task-plan-nogroup$t" $th --size 1280x800 --task-demo files-plan-nogroup
+    shot "task-esc$t" $th --size 1280x800 --task-demo files-esc
+    shot "task-empty$t" $th --size 1280x800 --task-demo files-empty
+    shot "task-files-520$t" $th --size 520x600 --task-demo files
 done
 # Write notes (pictures plan, phase V3): the window with a thumbnail and what each picture is
 # sent as, its Options, while the pictures are looked at, a failed look, a model that reads no
@@ -281,9 +288,11 @@ for t in "" "-dark"; do
     th=--light
     [ -n "$t" ] && th=--dark
     for d in notes notes-options notes-looking notes-failed notes-arrange-failed notes-no-vision notes-limit notes-off notes-first notes-sent notes-sent-arrange notes-sent-off \
-        notes-plan notes-plan-one; do
+        notes-plan notes-plan-one notes-empty notes-failed-all; do
         shot "task-$d$t" $th --size 1280x800 --task-demo "$d"
     done
+    # Options in a low window: drawn whole, its lines closer (finding 15).
+    shot "task-notes-options-400$t" $th --size 900x400 --task-demo notes-options
 done
 shot task-sent --light --size 1280x800 --task-demo sent
 shot pref-tab8 --light --pref tab_width=8 "$fx/tabs-controls.txt"
