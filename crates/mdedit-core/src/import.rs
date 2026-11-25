@@ -80,6 +80,9 @@ pub struct Walk {
     /// them: a name with `%20` in it, which the reader takes for a space. They are left out, so
     /// the rest of the folder can go in, and the card names them (audit 4, C6).
     pub unlinkable: Vec<PathBuf>,
+    /// Folders the walk could not read at all: a permission refused, a folder gone between the
+    /// listing and the read. Each is named, so a folder that adds nothing can say why (D-250).
+    pub unreadable: Vec<PathBuf>,
 }
 
 /// Why a walk stopped before the end of its folder, besides the 2,000.
@@ -132,6 +135,8 @@ pub struct Every {
     pub more: bool,
     /// The walk stopped before the end of the folder, at the entries read or the depth.
     pub stopped: Option<Stop>,
+    /// The folders the walk could not read at all (D-250).
+    pub unreadable: Vec<PathBuf>,
 }
 
 /// What a walk for the task window is told before it starts: its room, the library, and which
@@ -175,6 +180,7 @@ fn every_of(walk: Walk) -> Every {
         files: walk.found.into_iter().map(|f| f.path).collect(),
         more: walk.more,
         stopped: walk.stopped,
+        unreadable: walk.unreadable,
     }
 }
 
@@ -273,6 +279,9 @@ impl Walker<'_> {
     fn list(&self, dir: &Path, sections: &mut Vec<String>, depth: usize, out: &mut Walk) {
         let cancel = self.cancel;
         let Ok(read) = std::fs::read_dir(dir) else {
+            // Nothing of it could be read: the folder is named, so an add that finds nothing can
+            // say why (D-250).
+            out.unreadable.push(dir.to_path_buf());
             return;
         };
         let mut dirs: Vec<(String, PathBuf)> = Vec::new();
@@ -1858,28 +1867,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&folder);
     }
 
-    /// A link to a folder is not followed, so a walk cannot loop; where one cannot be made the
-    /// test passes over it.
+    /// A link to a folder is not followed, so a walk cannot loop. A directory symlink or a
+    /// junction is tried; only when neither can be made does the test pass over it, and it says so
+    /// (D-250).
     #[cfg(windows)]
     #[test]
     fn a_walk_for_the_task_window_does_not_follow_a_junction() {
         let dir = scratch("every-junction");
         put(&dir, "a.md", "# A\n");
         let link = dir.join("loop");
-        let Ok(made) = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(&link)
-            .arg(&dir)
-            .output()
-        else {
-            return;
-        };
-        if !made.status.success() {
+        let made = std::os::windows::fs::symlink_dir(&dir, &link).is_ok()
+            || std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&link)
+                .arg(&dir)
+                .output()
+                .is_ok_and(|out| out.status.success());
+        if !made {
+            // A policy that forbids both: said, so a pass here is not read as the rule proved.
+            eprintln!("skipped: no folder link could be made in {dir:?}");
+            let _ = std::fs::remove_dir_all(&dir);
             return;
         }
         let w = every_at(&dir, LIMITS, &|_| true, &|| false);
         assert_eq!(every_names(&w), ["a.md"]);
-        std::fs::remove_dir(&link).unwrap();
+        let _ = std::fs::remove_dir(&link).or_else(|_| std::fs::remove_file(&link));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A folder the walk cannot read at all is named, so an add that finds nothing can say why
+    /// (D-250). A file given where a folder is expected is the unreadable folder this can make
+    /// without a policy change: `read_dir` refuses it.
+    #[test]
+    fn a_walk_for_the_task_window_names_a_folder_it_cannot_read() {
+        let dir = scratch("every-unreadable");
+        let file = dir.join("not-a-folder.md");
+        std::fs::write(&file, "# A file\n").expect("a file");
+        let w = every_at(&file, LIMITS, &|_| true, &|| false);
+        assert!(w.files.is_empty(), "nothing came out of it");
+        assert_eq!(w.unreadable, vec![file.clone()]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
