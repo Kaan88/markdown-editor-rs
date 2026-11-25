@@ -41,6 +41,15 @@ fn pasta(dir: &Path) -> PathBuf {
     p
 }
 
+/// THE FILES on "Link them" (D-209): for the tests of what linking does; the default is to
+/// copy the files in.
+fn link_them(a: &mut App) {
+    a.docs.prefs.ai_files = mdedit_core::prefs::FilesGo::Link;
+    if let Some(s) = a.task.as_mut() {
+        s.files_go = mdedit_core::prefs::FilesGo::Link;
+    }
+}
+
 /// A group made and chosen, so "Add N to the library" has somewhere to go.
 fn with_group(a: &mut App, name: &str) {
     if let Some(s) = a.task.as_mut() {
@@ -175,6 +184,7 @@ fn file_them_with_the_ai_off_plans_then_writes_the_link() {
     a.session_path = Some(dir.join("settings.ini"));
     a.task_open(TaskKind::File, vec![text.clone(), pdf.clone()]);
     with_group(&mut a, "Recipes");
+    link_them(&mut a);
     a.task_run();
     let s = a.task.as_ref().expect("open");
     assert!(s.planned, "the plan is made without a request");
@@ -222,6 +232,7 @@ fn file_them_sends_digests_and_writes_what_the_model_placed_and_never_a_picture(
     let sent = a.task_request_text().unwrap_or_default();
     assert!(sent.contains("Pasta"), "{sent}");
     assert!(!sent.contains("lasagne"), "the picture is not sent: {sent}");
+    link_them(&mut a);
     a.task_run();
     wait(&mut a, |a| a.task.as_ref().is_some_and(|s| s.planned));
     let s = a.task.as_ref().expect("open");
@@ -1078,6 +1089,7 @@ fn file_them_leaves_a_tmp_file_of_the_owners_beside_the_group_file_alone() {
     assert!(group.is_file(), "the group's file is made");
     let theirs = library.join("Recipes.md.tmp");
     std::fs::write(&theirs, "the owner's own notes\n").expect("theirs");
+    link_them(&mut a);
     a.task_run();
     assert!(a.task.as_ref().expect("open").planned);
     a.task_file_write();
@@ -1324,6 +1336,7 @@ fn file_them_leaves_a_record_that_undoes_its_links() {
     with_group(&mut a, "Recipes");
     let group = dir.join("library").join("Recipes.md");
     let before = std::fs::read_to_string(&group).expect("the group's file");
+    link_them(&mut a);
     a.task_run();
     a.task_file_write();
     assert!(a.task.is_none(), "the links are in");
@@ -1398,6 +1411,7 @@ fn file_them_puts_the_notes_pane_on_the_first_new_line() {
     a.task_add_paths(vec![text.clone()]);
     with_group(&mut a, "Recipes");
     let tabs = a.docs.tabs.len();
+    link_them(&mut a);
     a.task_run();
     a.task_file_write();
     assert!(a.task.is_none(), "the links are in");
@@ -1456,5 +1470,131 @@ fn the_window_takes_its_limits_from_the_settings() {
     let s = a.task.as_mut().expect("the window is open");
     s.ai_on = true;
     assert!(s.summary().contains("in 3 requests"), "{}", s.summary());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- THE FILES: Copy them in (pictures plan 4.3, phase C1, D-209) ------------------------------
+
+/// A Markdown file outside the library, with a picture it shows from its own folder.
+fn trip_with_picture(dir: &Path) -> PathBuf {
+    let desk = dir.join("desk");
+    std::fs::create_dir_all(desk.join("img")).expect("desk");
+    let md = desk.join("trip.md");
+    std::fs::write(&md, "# Trip\n\n![Beach](img/beach.png)\n").expect("trip");
+    std::fs::write(desk.join("img").join("beach.png"), b"\x89PNG beach").expect("beach");
+    md
+}
+
+/// By default File them copies the files in: the line leads to the copy in the group's folder,
+/// the picture it shows goes beside it, the original is left as it was, and the run is a run of
+/// copies that AI runs… can undo.
+#[test]
+fn file_them_copies_the_files_in_by_default_and_the_line_leads_to_the_copy() {
+    let (mut a, dir) = open("task-copy", TaskKind::File, Vec::new());
+    assert_eq!(
+        a.task.as_ref().map(|s| s.files_go),
+        Some(mdedit_core::prefs::FilesGo::Copy)
+    );
+    let md = trip_with_picture(&dir);
+    a.task_add_paths(vec![md.clone()]);
+    with_group(&mut a, "Trips");
+    a.task_run();
+    a.task_file_write();
+    assert!(a.task.is_none(), "the copies and the line are in");
+    let library = dir.join("library");
+    let body = std::fs::read_to_string(library.join("Trips.md")).expect("the group file");
+    let lib = mdshared_app::library::parse(&body, &library);
+    assert_eq!(lib.entries.len(), 1, "{body}");
+    let copy = lib.entries[0].path.clone();
+    assert!(
+        copy.starts_with(&library) && !crate::library_pane::same_note(&copy, &md),
+        "the line leads to the copy: {body}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&copy).expect("the copy"),
+        "# Trip\n\n![Beach](img/beach.png)\n"
+    );
+    let beside = copy
+        .parent()
+        .expect("its folder")
+        .join("img")
+        .join("beach.png");
+    assert_eq!(
+        std::fs::read(&beside).expect("the picture"),
+        b"\x89PNG beach"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&md).expect("the original"),
+        "# Trip\n\n![Beach](img/beach.png)\n"
+    );
+    let runs: Vec<String> = std::fs::read_dir(library.join(".runs"))
+        .expect("the record")
+        .filter_map(|e| e.ok())
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .collect();
+    assert!(
+        runs.iter().any(|r| r.contains("\"kind\": \"copies\"")),
+        "{runs:?}"
+    );
+    assert!(
+        toast(&a).contains("copied in with 1 picture"),
+        "{}",
+        toast(&a)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// THE FILES is remembered once changed, and a window opened later starts on it.
+#[test]
+fn the_files_switch_is_remembered() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-files-go", TaskKind::File, Vec::new());
+    a.task_act(Hit::FilesGo(FilesGo::Link));
+    assert_eq!(a.task.as_ref().map(|s| s.files_go), Some(FilesGo::Link));
+    assert_eq!(a.docs.prefs.ai_files, FilesGo::Link);
+    a.task_close();
+    a.task_open(TaskKind::File, Vec::new());
+    assert_eq!(a.task.as_ref().map(|s| s.files_go), Some(FilesGo::Link));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// On the plan face a row says what THE FILES does to it: copied in, or linked where it is when
+/// it is inside the library's folder already; nothing when the files are linked.
+#[test]
+fn a_row_says_whether_its_file_is_copied_in_or_linked_where_it_is() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-copy-note", TaskKind::File, Vec::new());
+    let outside = pasta(&dir);
+    let inside = dir.join("library").join("Old").join("kept.md");
+    std::fs::create_dir_all(inside.parent().expect("folder")).expect("folder");
+    std::fs::write(&inside, "# Kept\n").expect("kept");
+    a.task_add_paths(vec![outside, inside]);
+    let s = a.task.as_mut().expect("open");
+    assert_eq!(s.copy_note(0), Some("copied in"));
+    assert_eq!(
+        s.copy_note(1),
+        Some("linked where it is: already inside the library's folder")
+    );
+    s.files_go = FilesGo::Link;
+    assert_eq!(s.copy_note(0), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// When the library's line cannot be written, the copies made for it are taken away again.
+#[test]
+fn a_refused_line_takes_the_copies_away_again() {
+    let before = b"# Recipes\nhome: Recipes\n";
+    let (mut a, dir, group) = file_them_into("task-copy-refused", before);
+    super::files_tests::open_now(&mut a, &group);
+    super::files_tests::type_text(&mut a, "x");
+    file_pasta(&mut a, &dir);
+    assert_eq!(std::fs::read(&group).expect("the group"), before);
+    let copy = dir.join("library").join("Recipes").join("pasta.md");
+    assert!(!copy.exists(), "the copy is taken away");
+    assert!(
+        !dir.join("library").join("Recipes").exists(),
+        "and its folder"
+    );
+    assert!(dir.join("pasta.md").is_file(), "the original stays");
     let _ = std::fs::remove_dir_all(&dir);
 }

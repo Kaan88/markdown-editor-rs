@@ -1564,6 +1564,16 @@ pub fn draw_dialog(
                         },
                         run.record.group_name(),
                     ),
+                    // Files copied into a group (File them on "Copy them in", D-209).
+                    mdedit_core::runs::Kind::Copies => format!(
+                        "Copied \u{00B7} {} \u{2192} {}",
+                        if run.record.notes.len() == 1 {
+                            "1 file".to_string()
+                        } else {
+                            format!("{} files", run.record.notes.len())
+                        },
+                        run.record.group_name(),
+                    ),
                     kind => {
                         let word = match kind {
                             mdedit_core::runs::Kind::Markdown => "Markdown",

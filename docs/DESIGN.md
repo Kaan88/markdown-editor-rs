@@ -3575,3 +3575,42 @@ starting the pane's renderer or mdview.
 `task_ui::Limits` when it opens or comes back (`Limits::of`); a file's row keeps the limits it
 was counted with, so its reason says the figure ("only 3 files a run", "12 KB of 10 KB"). Shots
 `settings-ai-tasks` in both themes.
+
+## 88. File them copies the files in (2026-11-25, phase C1)
+
+`docs/ai-pictures-plan.md` 4.3, D-209, D-215, after the owner's "I want to copy or move them
+along with images". **The switch.** File them has THE FILES, `Link them | Copy them in`, beside
+the task on the task row (where the other tasks show "WHAT TO DO"), on "Copy them in" by default
+and remembered once changed (`Prefs::ai_files`, `FilesGo`: `copy`, `link` in `settings.ini`).
+Too narrow for the full words it reads `Link | Copy in`, and the caption THE FILES goes first.
+On the plan face each placed row adds what happens to its file: "copied in", or "linked where it
+is: already inside the library's folder" (`TaskScreen::copy_note`, from the paths alone: nothing
+is read to draw it). The plan's "how many pictures go with it" is said after the run, in the
+toast ("2 copied in with 3 pictures, 1 linked where it is"), not on the row: counting them means
+reading every Markdown file on the draw.
+
+**The copy** is shared, `mdshared_app::moves::copy_in` (a child of `moves`, so it uses the
+mover's own link reader and rewriter and its path rules): `plan(wanted, inside)` gives each file
+a `Copy` (`New` to a free name, `-2` to `-99`; `There` when a file with the same bytes is at
+that name; `Stays` for a file inside the library's folder or the group's home, a link, one past
+64 MiB, or one that cannot be read), and a Markdown file its `pictures` (those its text shows
+from its own folder or below, to the same place beside the copy, so its words do not change;
+one whose place holds other bytes is not carried) and its other relative links rewritten to lead
+where they did, to the copy of a file of the same run. A file that is not UTF-8 is copied byte
+for byte and its row's note says its links are as they were. `write(plan)` makes each copy with
+`create_new` (never replacing a file), records the folders it made, and on a failure takes away
+what it made while it is the bytes it wrote (`take_back`). The app copies first, then writes the
+lines to the copies; when the lines are refused (the group's file has unsaved changes, a UTF-16
+file) it calls `take_back` and nothing is left.
+
+**The record** is `Kind::Copies` (`runs::copies_record`, `links_record`'s record with the
+copies marked): a line that leads to a copy this run made is a note with `created: true` and
+its digest; every other line is a file linked as it was. A picture carries `original` and
+`original_sha256`. **Undo** (`plan_of`, `undo_with`): no source; a copy of any extension goes
+while it is the bytes written and no library file lists it; a picture copy goes only while its
+original is where it was with the same digest, so the copy is never the only one; folders it
+made go when empty; the group's file comes back to the byte as for a run of links. `Reach::of`
+refuses a record whose copy is outside the library and its home, or whose made picture names no
+original. AI runs reads "Copied · N files → Group". Tests: `moves_copy_tests.rs` (13),
+`runs_copies_tests.rs` (9) in shared; `task_tests` (4) here. Shots `task-files-copy`,
+`task-files-copy-520`, `task-files-link`, both themes.

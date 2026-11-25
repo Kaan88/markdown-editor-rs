@@ -296,6 +296,43 @@ impl FileEntry {
 
 /// Why File them leaves a picture out (D-204). Write notes, which puts pictures inside notes,
 /// is not built yet; until it is, the row says only that it is not filed, and why.
+/// What a run of "Copy them in" did, for its toast: "2 copied with 3 pictures, 1 linked where it
+/// is".
+pub fn copied_text(
+    plan: &[mdedit_core::moves::copy_in::Planned],
+    written: &mdedit_core::moves::copy_in::Written,
+) -> String {
+    use mdedit_core::moves::copy_in::Copy;
+    let new = plan
+        .iter()
+        .filter(|p| matches!(p.copy, Copy::New { .. }))
+        .count();
+    let there = plan
+        .iter()
+        .filter(|p| matches!(p.copy, Copy::There { .. }))
+        .count();
+    let stays = plan
+        .iter()
+        .filter(|p| matches!(p.copy, Copy::Stays { .. }))
+        .count();
+    let pictures = written.pictures.iter().filter(|p| p.created).count();
+    let mut parts: Vec<String> = Vec::new();
+    if new > 0 {
+        parts.push(match pictures {
+            0 => format!("{new} copied in"),
+            1 => format!("{new} copied in with 1 picture"),
+            n => format!("{new} copied in with {n} pictures"),
+        });
+    }
+    if there > 0 {
+        parts.push(format!("{there} already there"));
+    }
+    if stays > 0 {
+        parts.push(format!("{stays} linked where it is"));
+    }
+    parts.join(", ")
+}
+
 pub const PICTURE_NOT_FILED: &str = "not filed: a picture is not a note of its own";
 
 /// What the footer says when Rewrite them is run with nothing in the box (audit 4, B14).
@@ -447,6 +484,8 @@ pub enum Hit {
     Section,
     /// The name of a new group being typed.
     NewGroupField,
+    /// A side of File them's THE FILES switch (D-209).
+    FilesGo(mdedit_core::prefs::FilesGo),
     /// An item of the open destination list.
     DestItem(usize),
     ShowSent,
@@ -537,6 +576,10 @@ pub struct TaskScreen {
     /// Where the files came from, when the window was opened from a row of the Notes pane
     /// (pictures plan 4.2); said in the header, and forgotten when a file is added.
     pub from: Option<String>,
+    /// What File them does with the files (THE FILES, D-209), from the settings.
+    pub files_go: mdedit_core::prefs::FilesGo,
+    /// The library's folder: a file inside it is linked where it is, whatever THE FILES says.
+    pub library: PathBuf,
     pub dest_hot: Option<usize>,
     pub hover: Option<Hit>,
     pub pressed: Option<Hit>,
@@ -603,6 +646,8 @@ impl TaskScreen {
             add_items: Vec::new(),
             limits: Limits::default(),
             from: None,
+            files_go: mdedit_core::prefs::FilesGo::default(),
+            library: PathBuf::new(),
             dest_hot: None,
             hover: None,
             pressed: None,
@@ -695,6 +740,29 @@ impl TaskScreen {
                 std::slice::from_ref(&section)
             },
         ))
+    }
+
+    /// What THE FILES does to the file at `i` when it is filed, as its row says it on the plan
+    /// face: `None` when the files are linked, or the task is not File them.
+    pub fn copy_note(&self, i: usize) -> Option<&'static str> {
+        use mdedit_core::prefs::FilesGo;
+        if self.task != TaskKind::File || self.files_go != FilesGo::Copy {
+            return None;
+        }
+        let f = self.files.get(i)?;
+        let home = self.group().map(|g| g.home.clone());
+        let inside = f.path.ancestors().skip(1).any(|a| {
+            (!self.library.as_os_str().is_empty()
+                && mdshared_app::paths::same_path(a, &self.library))
+                || home.as_ref().is_some_and(|h| {
+                    !h.as_os_str().is_empty() && mdshared_app::paths::same_path(a, h)
+                })
+        });
+        Some(if inside {
+            "linked where it is: already inside the library's folder"
+        } else {
+            "copied in"
+        })
     }
 
     pub fn hit_at(&self, x: f32, y: f32) -> Option<Hit> {

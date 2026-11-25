@@ -32,3 +32,7 @@ mdedit, not yet released: the AI task window made one command with an Add menu, 
 - **"File them" leaves pictures out** and says why: a picture is not a note of its own.
 - **"File them" can be undone** from AI runs, like a rewrite: the links it added go, and the group
   it made, if it is unchanged.
+- **"File them" copies your files into the library** by default: each file goes into its
+  group's folder, a Markdown file with the pictures it shows from its own folder, and the library
+  links to the copy; your files are left as they were. THE FILES beside the task switches back to
+  "Link them". AI runs can undo a copy while it is unchanged.

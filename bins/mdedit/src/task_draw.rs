@@ -81,14 +81,51 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     for (k, seg) in TaskKind::ALL.iter().zip(segs) {
         hits.push((Hit::Kind(*k), seg));
     }
-    p.text_right(
-        Face::Ui,
-        12.0,
-        x + inner,
-        g.task.cy(),
-        "WHAT TO DO",
-        pal.faint,
-    );
+    if s.task == TaskKind::File {
+        // THE FILES (pictures plan 4.3, D-209): beside the task, right-aligned in the room the
+        // task switch leaves; short words when the full ones do not fit, no caption without
+        // room for it.
+        use mdedit_core::prefs::FilesGo;
+        let room = inner - sw_w - 16.0;
+        let full = ["Link them", "Copy them in"];
+        let short = ["Link", "Copy in"];
+        let labels: &[&str] = if switch_width(p, &full) <= room {
+            &full
+        } else {
+            &short
+        };
+        let fw = switch_width(p, labels).min(room.max(0.0));
+        let caption = "THE FILES";
+        let cw = p.measure(Face::Semibold, 11.0, caption) + 10.0;
+        let fr = Rect::new(x + inner - fw, g.task.y, fw, SEGMENT_H);
+        if fw + cw <= room {
+            p.text_right(
+                Face::Semibold,
+                11.0,
+                fr.x - 10.0,
+                g.task.cy(),
+                caption,
+                pal.muted,
+            );
+        }
+        let selected = FilesGo::ALL.iter().position(|v| *v == s.files_go);
+        let hovered = FilesGo::ALL
+            .iter()
+            .position(|v| hover == Some(Hit::FilesGo(*v)));
+        let segs = draw_segments(p, pal, fr, labels, selected, hovered);
+        for (v, seg) in FilesGo::ALL.iter().zip(segs) {
+            hits.push((Hit::FilesGo(*v), seg));
+        }
+    } else {
+        p.text_right(
+            Face::Ui,
+            12.0,
+            x + inner,
+            g.task.cy(),
+            "WHAT TO DO",
+            pal.faint,
+        );
+    }
 
     // ---- the instruction ------------------------------------------------------------------------
     let field = g.field;
@@ -440,7 +477,12 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                             .unwrap_or_default();
                         format!("with {target}")
                     } else if !f.sections.is_empty() {
-                        format!("in {}", f.sections.join(" \u{203A} "))
+                        match s.copy_note(*i).filter(|_| s.planned && !f.done) {
+                            Some(note) => {
+                                format!("in {} \u{00B7} {note}", f.sections.join(" \u{203A} "))
+                            }
+                            None => format!("in {}", f.sections.join(" \u{203A} ")),
+                        }
                     } else if s.planned {
                         "not placed".to_string()
                     } else if f.done {

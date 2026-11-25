@@ -255,6 +255,9 @@ for t in "" "-dark"; do
     [ -n "$t" ] && th=--dark
     shot "task-files$t" $th --size 1280x800 --task-demo files
     shot "task-files-plan$t" $th --size 1280x800 --task-demo files-plan
+    shot "task-files-copy$t" $th --size 1280x800 --task-demo files-copy
+    shot "task-files-copy-520$t" $th --size 520x600 --task-demo files-copy
+    shot "task-files-link$t" $th --size 1280x800 --task-demo files-link
     shot "task-add$t" $th --size 1280x800 --task-demo files-add
     shot "task-from$t" $th --size 1280x800 --task-demo files-from
     # A group with a long, deep folder and a section typed: the folder is cut from its left to

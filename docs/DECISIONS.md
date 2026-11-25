@@ -2179,3 +2179,17 @@ every page must fit (the settings layout test); a page of their own also says th
 task window, not to the rewrite of the open document. The split rule is the plan's (4.4).
 **Overturned by.** The owner, by looking at the shots `settings-ai-tasks`.
 **From.** Phase O of `docs/ai-pictures-plan.md`.
+
+## D-215 · 2026-11-25 · Copy them in: the copies, their record and their undo
+
+**Decision.** THE FILES on "Copy them in" (D-209) copies each file into the folder its group and
+section give it, before the library's lines are written; the lines lead to the copies. A file
+inside the library's folder or the group's home is linked where it is. A name taken by other
+bytes gets `-2` and on; the same bytes are linked and not written again. The run's record is a
+new kind, `copies`: undo removes a copy of any extension only while it is what was written and
+no library file lists it, and a picture copy only while its original is unchanged where it was.
+If the lines cannot be written, the copies are taken away at once. The plan face says "copied in"
+or "linked where it is" on each row; the picture count is in the report, not on the row.
+**Why.** The plan's rules (4.3, section 10), with nothing of the owner's changed. Counting the
+pictures on the row would read every Markdown file at each draw.
+**Overturned by.** The owner, by looking at the shots `task-files-copy` and `task-files-link`.

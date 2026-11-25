@@ -92,8 +92,12 @@ impl App {
         self.close_for_ai_panel();
         // The limits as the settings say now (D-203), for a window opened or brought back.
         let limits = task_ui::Limits::of(&self.docs.prefs);
+        let files_go = self.docs.prefs.ai_files;
+        let library = self.docs.library.dir.clone();
         if let Some(s) = self.task.as_mut() {
             s.limits = limits;
+            s.files_go = files_go;
+            s.library = library;
             s.recount_limit();
             s.tick += 1;
         }
@@ -640,6 +644,7 @@ impl App {
                     | Hit::Section
                     | Hit::Field
                     | Hit::NewGroupField
+                    | Hit::FilesGo(_)
             )
         {
             return;
@@ -694,6 +699,19 @@ impl App {
                     s.tick += 1;
                 }
                 self.caret_reset();
+                self.redraw();
+            }
+            Hit::FilesGo(go) => {
+                // THE FILES (D-209): the window's, and remembered once changed.
+                if let Some(s) = self.task.as_mut() {
+                    s.files_go = go;
+                    s.tick += 1;
+                }
+                if self.docs.prefs.ai_files != go {
+                    let mut p = self.docs.prefs.clone();
+                    p.ai_files = go;
+                    self.set_prefs(p);
+                }
                 self.redraw();
             }
             Hit::Dest => {
@@ -1030,6 +1048,45 @@ impl App {
             return;
         }
         let instruction = s.instruction.text().trim().to_string();
+        // THE FILES on "Copy them in" (pictures plan 4.3, D-209): the copies are made first,
+        // each in the folder its group and section give it, and the lines lead to them. A file
+        // inside the library's folder or the group's home is linked where it is.
+        let copying = s.files_go == mdedit_core::prefs::FilesGo::Copy;
+        let mut copies: Option<(
+            Vec<mdedit_core::moves::copy_in::Planned>,
+            mdedit_core::moves::copy_in::Written,
+        )> = None;
+        let mut targets = targets;
+        if copying {
+            use mdedit_core::moves::copy_in;
+            let inside: Vec<PathBuf> = [library.clone(), group.home.clone()]
+                .into_iter()
+                .filter(|d| !d.as_os_str().is_empty())
+                .collect();
+            let wanted: Vec<copy_in::Wanted> = targets
+                .iter()
+                .map(|(path, _, sections)| copy_in::Wanted {
+                    from: path.clone(),
+                    dir: mdshared_app::library::note_folder(&group.home, sections),
+                })
+                .collect();
+            let plan = copy_in::plan(&wanted, &inside);
+            match copy_in::write(&plan) {
+                Ok(written) => {
+                    for (t, p) in targets.iter_mut().zip(&plan) {
+                        t.0 = p.target().to_path_buf();
+                    }
+                    copies = Some((plan, written));
+                }
+                Err(why) => {
+                    // Nothing was added, and what was copied is taken away again.
+                    self.docs
+                        .set_toast(&format!("Nothing was added to the library: {why}."));
+                    self.redraw();
+                    return;
+                }
+            }
+        }
         // The links as the library file will hold them, each title cleaned as every writer
         // cleans it, so the file reads back as exactly its old notes plus these.
         let links: Vec<runs::Link> = targets
@@ -1053,18 +1110,23 @@ impl App {
                 let home = mdshared_app::library::parse(&before, &base)
                     .home
                     .unwrap_or_else(|| group.home.clone());
-                let made = runs::links_record(
-                    &library,
-                    &instruction,
-                    runs::Group {
-                        name: group.name.clone(),
-                        file: group.file.clone(),
-                        created,
-                        home,
-                    },
-                    &links,
-                    &before,
-                );
+                let rec_group = runs::Group {
+                    name: group.name.clone(),
+                    file: group.file.clone(),
+                    created,
+                    home,
+                };
+                let made = match &copies {
+                    Some((_, written)) => runs::copies_record(
+                        &library,
+                        &instruction,
+                        rec_group,
+                        &links,
+                        &before,
+                        written,
+                    ),
+                    None => runs::links_record(&library, &instruction, rec_group, &links, &before),
+                };
                 self.library_load();
                 self.library_rows();
                 self.task_close();
@@ -1077,11 +1139,20 @@ impl App {
                 } else {
                     format!("{n} files")
                 };
+                let copied = copies
+                    .as_ref()
+                    .map(|(plan, written)| task_ui::copied_text(plan, written));
                 match made {
-                    Ok(_) => self.docs.set_toast(&format!(
-                        "Added {what} to the library in {}. AI runs\u{2026} can undo it.",
-                        group.name
-                    )),
+                    Ok(_) => self.docs.set_toast(&match copied {
+                        Some(c) => format!(
+                            "Added {what} to the library in {}: {c}. AI runs\u{2026} can undo it.",
+                            group.name
+                        ),
+                        None => format!(
+                            "Added {what} to the library in {}. AI runs\u{2026} can undo it.",
+                            group.name
+                        ),
+                    }),
                     Err(e) => self.docs.set_toast(&format!(
                         "Added {what} to the library in {}, but its record could not be written \
                          ({e}), so AI runs\u{2026} cannot undo it.",
@@ -1090,7 +1161,11 @@ impl App {
                 }
             }
             Err(why) => {
-                // Nothing was written: the window stays, for the owner to put it right.
+                // Nothing was written: the window stays, for the owner to put it right, and the
+                // copies made for the lines are taken away again.
+                if let Some((_, written)) = &copies {
+                    mdedit_core::moves::copy_in::take_back(written);
+                }
                 self.docs.set_toast(&why);
             }
         }
@@ -2047,6 +2122,24 @@ impl App {
         });
         if name == "files-plan" {
             demo_plan(s);
+        }
+        if name == "files-copy" || name == "files-link" {
+            // THE FILES (pictures plan 4.3, D-209) on the plan face: on "Copy them in" each row
+            // says whether its file is copied in, and one already inside the library (made up
+            // for the shot) is linked where it is; "files-link" is the switch on "Link them".
+            demo_plan(s);
+            let library = if cfg!(windows) {
+                PathBuf::from(r"C:\Users\someone\Notes")
+            } else {
+                PathBuf::from("/home/someone/Notes")
+            };
+            if let Some(f) = s.files.iter_mut().find(|f| f.name == "notes.md") {
+                f.path = library.join("Bread").join("notes.md");
+            }
+            s.library = library;
+            if name == "files-link" {
+                s.files_go = mdedit_core::prefs::FilesGo::Link;
+            }
         }
         if name == "files-from" {
             // Opened from a section of the Notes pane (pictures plan 4.2): Rewrite them, and

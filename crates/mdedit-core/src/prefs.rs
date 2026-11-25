@@ -126,6 +126,8 @@ pub struct Prefs {
     /// What opens after an AI run that writes a note (D-211): the first note with its preview,
     /// by default.
     pub ai_after_run: AfterRun,
+    /// What File them does with the files it files (D-209): copies them in by default.
+    pub ai_files: FilesGo,
     /// The task window's limits (D-203), in their ranges by [`Prefs::clamp`].
     pub ai_task_batch: usize,
     pub ai_rewrite_files: usize,
@@ -257,6 +259,38 @@ impl AfterRun {
     }
 }
 
+/// THE FILES of the task window's File them (pictures plan 4.3, D-209): what happens to a file
+/// outside the library that is filed. Remembered once changed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FilesGo {
+    /// Each file is copied into its group's folder and the line leads to the copy.
+    #[default]
+    Copy,
+    /// A line in the group; the file stays where it is.
+    Link,
+}
+
+impl FilesGo {
+    /// In the order the switch shows them.
+    pub const ALL: [FilesGo; 2] = [FilesGo::Link, FilesGo::Copy];
+
+    /// The value in the settings file.
+    pub fn key(self) -> &'static str {
+        match self {
+            FilesGo::Copy => "copy",
+            FilesGo::Link => "link",
+        }
+    }
+
+    /// Reads [`FilesGo::key`]; anything else is `None` (the default).
+    pub fn parse(value: &str) -> Option<FilesGo> {
+        let v = value.trim();
+        FilesGo::ALL
+            .into_iter()
+            .find(|m| m.key().eq_ignore_ascii_case(v))
+    }
+}
+
 /// A setting's text longer than this many bytes is not a setting: the default is used.
 const AI_TEXT_MAX: usize = 2048;
 
@@ -303,6 +337,7 @@ impl Default for Prefs {
             ai_review: true,
             ai_review_preview: false,
             ai_after_run: AfterRun::Preview,
+            ai_files: FilesGo::Copy,
             ai_task_batch: AI_TASK_BATCH_DEFAULT,
             ai_rewrite_files: AI_REWRITE_FILES_DEFAULT,
             ai_rewrite_kb: AI_REWRITE_KB_DEFAULT,
@@ -497,6 +532,7 @@ impl Prefs {
                     "ai_after_run" => {
                         p.ai_after_run = AfterRun::parse(value).unwrap_or(d.ai_after_run)
                     }
+                    "ai_files" => p.ai_files = FilesGo::parse(value).unwrap_or(d.ai_files),
                     "ai_task_batch" => {
                         p.ai_task_batch = number(value, AI_TASK_BATCH_MIN, AI_TASK_BATCH_MAX)
                             .unwrap_or(d.ai_task_batch)
@@ -621,6 +657,7 @@ impl Prefs {
         w.line("ai_review", b(p.ai_review));
         w.line("ai_review_preview", b(p.ai_review_preview));
         w.line("ai_after_run", p.ai_after_run.key());
+        w.line("ai_files", p.ai_files.key());
         w.line("ai_task_batch", &p.ai_task_batch.to_string());
         w.line("ai_rewrite_files", &p.ai_rewrite_files.to_string());
         w.line("ai_rewrite_kb", &p.ai_rewrite_kb.to_string());
@@ -900,6 +937,26 @@ preview_mode= MDVIEW
         );
     }
 
+    /// D-209: File them copies the files in unless the owner chose to link them, and the
+    /// choice reads back.
+    #[test]
+    fn the_files_choice_is_copy_by_default_and_reads_back() {
+        assert_eq!(Prefs::default().ai_files, FilesGo::Copy);
+        assert_eq!(
+            Prefs::parse("[preferences]\nai_files=Link\n").ai_files,
+            FilesGo::Link
+        );
+        assert_eq!(
+            Prefs::parse("[preferences]\nai_files=fly\n").ai_files,
+            FilesGo::Copy
+        );
+        let q = Prefs {
+            ai_files: FilesGo::Link,
+            ..Prefs::default()
+        };
+        assert_eq!(Prefs::parse(&q.serialize()).ai_files, FilesGo::Link);
+    }
+
     /// D-211 and D-203: what opens after a run, and the task window's limits, are read back as
     /// written, put in their ranges, and a value that is not one is the default.
     #[test]
@@ -1082,6 +1139,7 @@ preview_mode= MDVIEW
             ai_review: false,
             ai_review_preview: true,
             ai_after_run: AfterRun::Nothing,
+            ai_files: FilesGo::Link,
             ai_task_batch: 12,
             ai_rewrite_files: 7,
             ai_rewrite_kb: 640,
@@ -1133,7 +1191,7 @@ preview_mode= MDVIEW
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 57);
+        assert_eq!(t.lines().count(), 58);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,
