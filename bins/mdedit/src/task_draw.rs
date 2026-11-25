@@ -662,7 +662,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 None
             }
         });
-    if let Some(notice) = s.notice.clone().or(run_notice) {
+    if let Some(notice) = s.reading_line().or_else(|| s.notice.clone()).or(run_notice) {
         {
             // In a list lower than the bar, the bar keeps to the list's top: it is never drawn
             // over the rows above the list (review of the task fixes, 13).

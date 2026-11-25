@@ -292,6 +292,9 @@ for t in "" "-dark"; do
     shot "task-settings$t" $th --size 1280x800 --task-demo files-settings
     # Fable's second review: the Add menu open in a narrow window, over the line under the title.
     shot "task-add-800$t" $th --size 800x700 --task-demo files-add
+    # D-248: the line a folder walk stopped at the window's cap says, at both widths.
+    shot "task-files-stopped$t" $th --size 1280x800 --task-demo files-stopped
+    shot "task-files-stopped-520$t" $th --size 520x600 --task-demo files-stopped
 done
 # Write notes (pictures plan, phase V3): the window with a thumbnail and what each picture is
 # sent as, its Options, while the pictures are looked at, a failed look, a model that reads no

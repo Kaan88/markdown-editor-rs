@@ -18,6 +18,7 @@ use mdedit_core::ai::{self as core_ai, Connection};
 use mdedit_core::import;
 use mdedit_core::runs::{self, Sent};
 use serde_json::json;
+use std::collections::HashSet;
 
 impl App {
     /// Whether the task window is open and in front. Settings opened from it ("Open AI
@@ -195,10 +196,11 @@ impl App {
         self.redraw();
     }
 
-    /// Adds paths to the open window, each probed once. A path already in it is not added twice,
-    /// and a folder dropped on it is walked for its whole tree with the library import's rules
-    /// and bounds: the folder's own files first, then each subfolder's, by name (D-247). A walk
-    /// that stopped early says so in the window.
+    /// Adds paths to the open window, each probed once. A path already in it is not added twice.
+    /// A single file is read here; a folder is walked and read for its whole tree on a thread of
+    /// its own, with the library import's rules and bounds (D-247), so that a big tree, a network
+    /// share or a cloud folder does not hold the window (D-248). A walk that stopped early says so
+    /// in the window; a later add that stops nowhere takes that away.
     pub(super) fn task_add_paths(&mut self, paths: Vec<PathBuf>) {
         let Some(s) = self.task.as_mut() else {
             return;
@@ -207,171 +209,154 @@ impl App {
             // The header's "from the Notes pane" is no longer the whole of it.
             s.from = None;
         }
-        let mut fresh: Vec<FileEntry> = Vec::new();
-        let mut stopped: Option<String> = None;
-        for path in paths {
-            let list = if path.is_dir() {
-                let walked = import::walk_every(&path, task_ui::FILES_MAX, &|| false);
-                stopped = Self::walk_stopped_note(&path, &walked).or(stopped);
-                walked.files
-            } else {
-                vec![path]
-            };
-            for p in list {
-                let known = self.task.as_ref().is_some_and(|s| {
-                    s.files
-                        .iter()
-                        .chain(fresh.iter())
-                        .any(|f| mdshared_app::paths::same_path(&f.path, &p))
-                });
-                if known {
-                    continue;
+        if paths.iter().any(|p| p.is_dir()) {
+            self.task_add_start(paths);
+            return;
+        }
+        let probe = self.probe();
+        let add = TaskAdd {
+            files: paths.iter().map(|p| probe.file(p)).collect(),
+            note: None,
+        };
+        self.task_add_apply(add);
+    }
+
+    /// Starts the walk and the probes of an add that holds a folder on a thread of its own, with a
+    /// copy of what a probe reads: the window's state is never touched from that thread.
+    fn task_add_start(&mut self, paths: Vec<PathBuf>) {
+        let Some(s) = self.task.as_ref() else {
+            return;
+        };
+        let known: HashSet<String> = s.files.iter().map(|f| path_key(&f.path)).collect();
+        let room = task_ui::FILES_MAX.saturating_sub(s.files.len());
+        let reading = paths
+            .iter()
+            .find(|p| p.is_dir())
+            .map(|p| folder_name(p))
+            .unwrap_or_else(|| "the folder".to_string());
+        let probe = self.probe();
+        let library = self
+            .library_dir()
+            .filter(|d| !d.as_os_str().is_empty() && d.is_absolute());
+        let wake = self.docs.waker();
+        let work_paths = paths.clone();
+        let job = mdshared_app::job::Job::start(
+            move || wake(Wake::Task),
+            move |cancel, _progress| {
+                task_add_work(work_paths, probe, library, known, room, &|| {
+                    cancel.cancelled()
+                })
+            },
+        );
+        match job {
+            Ok(job) => {
+                self.task_job = Some(job);
+                if let Some(s) = self.task.as_mut() {
+                    s.reading = Some(reading);
+                    s.tick += 1;
                 }
-                fresh.push(self.task_probe(&p));
+                self.redraw();
+            }
+            Err(_) => {
+                // A thread could not be made: read it here rather than add nothing.
+                let known = self
+                    .task
+                    .as_ref()
+                    .map(|s| s.files.iter().map(|f| path_key(&f.path)).collect())
+                    .unwrap_or_default();
+                let library = self
+                    .library_dir()
+                    .filter(|d| !d.as_os_str().is_empty() && d.is_absolute());
+                let add = task_add_work(paths, self.probe(), library, known, room, &|| false);
+                self.task_add_apply(add);
             }
         }
+    }
+
+    /// The folder's walk and probes on their thread have finished: its files join the window,
+    /// unless it was cancelled, which adds nothing (D-248).
+    pub(super) fn task_add_take(&mut self) {
+        let Some(job) = self.task_job.as_ref() else {
+            return;
+        };
+        let Some(add) = job.take() else {
+            return;
+        };
+        let cancelled = job.cancelled();
+        self.task_job = None;
+        if cancelled {
+            if let Some(s) = self.task.as_mut() {
+                s.reading = None;
+                s.tick += 1;
+            }
+            self.redraw();
+            return;
+        }
+        self.task_add_apply(add);
+    }
+
+    /// Esc while a folder is being read stops it: nothing of it is added (D-248). True when one
+    /// was being read.
+    fn task_add_stop(&mut self) -> bool {
+        let Some(job) = self.task_job.take() else {
+            return false;
+        };
+        job.cancel();
         if let Some(s) = self.task.as_mut() {
-            s.files.extend(fresh);
-            s.recount_limit();
+            let name = s.reading.take();
+            s.notice = Some(match name {
+                Some(name) => format!("Stopped: {name} was not added."),
+                None => "Stopped.".to_string(),
+            });
             s.tick += 1;
         }
-        if let Some(note) = stopped {
-            self.task_say(&note);
+        self.redraw();
+        true
+    }
+
+    /// Adds what was read to the window, each new path once, and says what a walk left out. A
+    /// later add that stops nowhere takes an earlier "Stopped…" away (D-248).
+    fn task_add_apply(&mut self, add: TaskAdd) {
+        let Some(s) = self.task.as_mut() else {
+            return;
+        };
+        let mut known: HashSet<String> = s.files.iter().map(|f| path_key(&f.path)).collect();
+        for file in add.files {
+            if known.insert(path_key(&file.path)) {
+                s.files.push(file);
+            }
         }
+        s.recount_limit();
+        match add.note {
+            Some(note) => s.notice = Some(note),
+            None => s.clear_stopped_note(),
+        }
+        s.reading = None;
+        s.tick += 1;
         self.notes_prepare(false);
         self.sent_whole_once();
         self.redraw();
     }
 
-    /// What the window says of a folder walk that stopped before the end of the folder: at its cap
-    /// on files, at the entries it read, or at the depth it went to (D-247).
-    fn walk_stopped_note(folder: &Path, walked: &import::Every) -> Option<String> {
-        let name = folder
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| folder.display().to_string());
-        if walked.more {
-            return Some(format!(
-                "Stopped at {} files; the rest of {name} was left out.",
-                import::group_digits(task_ui::FILES_MAX)
-            ));
-        }
-        match walked.stopped? {
-            import::Stop::Entries => Some(format!(
-                "Stopped after reading {} files and folders; the rest of {name} was left out.",
-                import::group_digits(import::MAX_READ)
-            )),
-            import::Stop::Depth => Some(format!(
-                "Stopped at folders {} deep; the rest of {name} was left out.",
-                import::MAX_DEPTH
-            )),
-        }
-    }
-
     /// What a file is to a task: text, a picture or another kind, and the reason it is left out
     /// when it is. A picture's bytes are never read; nor a PDF's or a Word file's.
     pub(super) fn task_probe(&self, path: &Path) -> FileEntry {
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
-        let mut out = FileEntry {
-            path: path.to_path_buf(),
-            name,
-            size: 0,
-            kind: FileKind::Other,
-            why: None,
-            ticked: true,
-            text: None,
-            bom: false,
-            sample: String::new(),
-            heading: None,
-            title: None,
-            sections: Vec::new(),
-            with: None,
-            over_limit: false,
-            limited: false,
-            eol: "\n".to_string(),
-            modified: None,
-            already: false,
-            done: false,
+        self.probe().file(path)
+    }
+
+    /// The window's state a probe reads, copied: a folder's probes run on a thread that reads none
+    /// of the window (D-248).
+    pub(super) fn probe(&self) -> Probe {
+        Probe {
             limits: task_ui::Limits::of(&self.docs.prefs),
-            measure: Default::default(),
-            thumb: None,
-        };
-        let meta = match std::fs::symlink_metadata(path) {
-            Ok(m) => m,
-            Err(e) => {
-                out.why = Some(format!("could not be read: {e}"));
-                return out;
-            }
-        };
-        if !meta.is_file() {
-            out.why = Some("not a file".to_string());
-            return out;
+            load: self.docs.load_options(),
+            listed: self
+                .docs
+                .library
+                .entries()
+                .map(|(_, e)| e.path.clone())
+                .collect(),
         }
-        out.size = meta.len();
-        out.modified = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| task_ui::date_of(d.as_secs()));
-        out.already = self
-            .docs
-            .library
-            .entries()
-            .any(|(_, e)| crate::library_pane::same_note(&e.path, path));
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if task_ui::PICTURES.contains(&ext.as_str()) {
-            out.kind = FileKind::Picture;
-            return out;
-        }
-        if task_ui::other_reason(&ext).is_some() {
-            out.why = task_ui::other_reason(&ext).map(str::to_string);
-            return out;
-        }
-        if out.size == 0 {
-            out.why = Some("empty".to_string());
-            return out;
-        }
-        if out.size > task_ui::ADD_MAX {
-            out.why = Some(format!(
-                "too large for this window: {} of {} MB",
-                task_ui::size_text(out.size),
-                task_ui::ADD_MAX / (1024 * 1024)
-            ));
-            return out;
-        }
-        let bytes = match std::fs::read(path) {
-            Ok(b) => b,
-            Err(e) => {
-                out.why = Some(format!("could not be read: {e}"));
-                return out;
-            }
-        };
-        let loaded = mdedit_core::load::load_bytes(&bytes, &self.docs.load_options());
-        if loaded.info.has_nul || loaded.info.lossy {
-            out.why = Some("not a text file".to_string());
-            return out;
-        }
-        let all = loaded.buffer.rope().to_string();
-        out.kind = FileKind::Text;
-        out.sample = all.chars().take(task_ui::DIGEST_BYTES).collect();
-        out.heading = task_ui::first_heading(&all);
-        out.eol = loaded.info.eol.dominant().to_string();
-        let utf8 = matches!(
-            loaded.info.encoding,
-            mdedit_core::encoding::Encoding::Utf8 | mdedit_core::encoding::Encoding::Utf8Bom
-        );
-        out.bom = loaded.info.encoding == mdedit_core::encoding::Encoding::Utf8Bom;
-        if utf8 && bytes.len() <= out.limits.rewrite_bytes {
-            out.text = Some(all);
-        }
-        out
     }
 
     /// "AI task on this note / these N notes…" (pictures plan 4.2): the window on the notes
@@ -524,6 +509,10 @@ impl App {
                 && s.asking.is_some()
             {
                 self.task_cancel_request();
+                return;
+            }
+            // A folder being read is stopped first, and nothing of it is added (D-248).
+            if self.task_add_stop() {
                 return;
             }
             if self.notes_stop() {
@@ -2395,6 +2384,13 @@ impl App {
         let Some(text) = self.task_request_text() else {
             return;
         };
+        // The window is parked behind the tab: a folder being read is stopped with it (D-248).
+        if let Some(job) = self.task_job.take() {
+            job.cancel();
+        }
+        if let Some(s) = self.task.as_mut() {
+            s.reading = None;
+        }
         self.task_parked = self.task.take();
         let title = "What is sent";
         let i = self
@@ -2539,6 +2535,10 @@ impl App {
     pub(super) fn task_close(&mut self) {
         self.task_remember_kind();
         self.notes_close();
+        // A folder being read goes with the window: its files are not added (D-248).
+        if let Some(job) = self.task_job.take() {
+            job.cancel();
+        }
         let asking = self.task.as_mut().and_then(|s| s.asking.take());
         if let Some(asking) = asking {
             self.ai.cancel_task(asking.request);
@@ -2727,6 +2727,14 @@ impl App {
             ];
             s.add_open = true;
         }
+        if name == "files-stopped" {
+            // The line a folder walk stopped at the window's cap says (D-248): the shots
+            // `task-files-stopped` and `task-files-stopped-520`.
+            s.notice = Some(format!(
+                "Stopped at {} files; the rest of Photos was left out.",
+                import::group_digits(task_ui::FILES_MAX)
+            ));
+        }
         let review = if name == "review" {
             // The rewrite's review over the first text file, with a made-up result and no
             // engine: 5.5's list over the whole file, Apply writing in place.
@@ -2813,4 +2821,229 @@ pub(super) fn demo_plan(s: &mut TaskScreen) {
         f.sections = vec!["Bread".to_string()];
     }
     s.leave_out_unplaced();
+}
+
+/// What one add brings back from its thread: the files it probed, and what it left out.
+#[derive(Default)]
+pub(super) struct TaskAdd {
+    pub(super) files: Vec<FileEntry>,
+    pub(super) note: Option<String>,
+}
+
+/// What probing a file needs of the window, copied before a folder is read on its thread: the
+/// window's own state is not read there (D-248).
+#[derive(Clone)]
+pub(super) struct Probe {
+    limits: task_ui::Limits,
+    load: mdedit_core::load::LoadOptions,
+    /// The library's notes, as "already in the library" reads them.
+    listed: Vec<PathBuf>,
+}
+
+impl Probe {
+    /// What a file is to a task: text, a picture or another kind, and the reason it is left out
+    /// when it is. A picture's bytes are never read; nor a PDF's or a Word file's. Nothing here
+    /// reads the window: everything it needs is in the [`Probe`].
+    fn file(&self, path: &Path) -> FileEntry {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        let mut out = FileEntry {
+            path: path.to_path_buf(),
+            name,
+            size: 0,
+            kind: FileKind::Other,
+            why: None,
+            ticked: true,
+            text: None,
+            bom: false,
+            sample: String::new(),
+            heading: None,
+            title: None,
+            sections: Vec::new(),
+            with: None,
+            over_limit: false,
+            limited: false,
+            eol: "\n".to_string(),
+            modified: None,
+            already: false,
+            done: false,
+            limits: self.limits,
+            measure: Default::default(),
+            thumb: None,
+        };
+        let meta = match std::fs::symlink_metadata(path) {
+            Ok(m) => m,
+            Err(e) => {
+                out.why = Some(format!("could not be read: {e}"));
+                return out;
+            }
+        };
+        if !meta.is_file() {
+            out.why = Some("not a file".to_string());
+            return out;
+        }
+        out.size = meta.len();
+        out.modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| task_ui::date_of(d.as_secs()));
+        out.already = self
+            .listed
+            .iter()
+            .any(|p| crate::library_pane::same_note(p, path));
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if task_ui::PICTURES.contains(&ext.as_str()) {
+            out.kind = FileKind::Picture;
+            return out;
+        }
+        if let Some(why) = task_ui::other_reason(&ext) {
+            out.why = Some(why.to_string());
+            return out;
+        }
+        if out.size == 0 {
+            out.why = Some("empty".to_string());
+            return out;
+        }
+        if out.size > task_ui::ADD_MAX {
+            out.why = Some(format!(
+                "too large for this window: {} of {} MB",
+                task_ui::size_text(out.size),
+                task_ui::ADD_MAX / (1024 * 1024)
+            ));
+            return out;
+        }
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => {
+                out.why = Some(format!("could not be read: {e}"));
+                return out;
+            }
+        };
+        let loaded = mdedit_core::load::load_bytes(&bytes, &self.load);
+        if loaded.info.has_nul || loaded.info.lossy {
+            out.why = Some("not a text file".to_string());
+            return out;
+        }
+        let all = loaded.buffer.rope().to_string();
+        out.kind = FileKind::Text;
+        out.sample = all.chars().take(task_ui::DIGEST_BYTES).collect();
+        out.heading = task_ui::first_heading(&all);
+        out.eol = loaded.info.eol.dominant().to_string();
+        let utf8 = matches!(
+            loaded.info.encoding,
+            mdedit_core::encoding::Encoding::Utf8 | mdedit_core::encoding::Encoding::Utf8Bom
+        );
+        out.bom = loaded.info.encoding == mdedit_core::encoding::Encoding::Utf8Bom;
+        if utf8 && bytes.len() <= out.limits.rewrite_bytes {
+            out.text = Some(all);
+        }
+        out
+    }
+}
+
+/// Walks `paths` for the window and probes each file that is new to it, on the job's thread:
+/// `known` and `room` are the window's, what it holds already and how many new files it takes. A
+/// cancel adds nothing at all (D-248).
+pub(super) fn task_add_work(
+    paths: Vec<PathBuf>,
+    probe: Probe,
+    library: Option<PathBuf>,
+    known: HashSet<String>,
+    room: usize,
+    cancel: &dyn Fn() -> bool,
+) -> TaskAdd {
+    let known = std::cell::RefCell::new(known);
+    let mut add = TaskAdd::default();
+    for path in paths {
+        if cancel() {
+            return TaskAdd::default();
+        }
+        if path.is_dir() {
+            // The window's room is the cap: a folder dropped into a window with no room adds
+            // nothing, and says nothing of a cap it never reached.
+            let left = room.saturating_sub(add.files.len());
+            if left == 0 {
+                continue;
+            }
+            let wanted = |p: &Path| !known.borrow().contains(&path_key(p));
+            let walked = import::walk_every(
+                &path,
+                import::EveryWalk {
+                    files: left,
+                    library: library.as_deref(),
+                    wanted: &wanted,
+                },
+                cancel,
+            );
+            if let Some(note) = walk_stopped_note(&path, &walked) {
+                add.note = Some(note);
+            }
+            for file in walked.files {
+                if cancel() {
+                    return TaskAdd::default();
+                }
+                if known.borrow_mut().insert(path_key(&file)) {
+                    add.files.push(probe.file(&file));
+                }
+            }
+        } else if known.borrow_mut().insert(path_key(&path)) {
+            add.files.push(probe.file(&path));
+        }
+    }
+    add
+}
+
+/// What the window says of a folder walk that stopped before the end of the folder: at its cap on
+/// files, at the entries it read, or at the depth it went to (D-247).
+fn walk_stopped_note(folder: &Path, walked: &import::Every) -> Option<String> {
+    let name = folder_name(folder);
+    if walked.more {
+        return Some(format!(
+            "Stopped at {} files; the rest of {name} was left out.",
+            import::group_digits(task_ui::FILES_MAX)
+        ));
+    }
+    match walked.stopped? {
+        import::Stop::Entries => Some(format!(
+            "Stopped after reading {} files and folders; the rest of {name} was left out.",
+            import::group_digits(import::MAX_READ)
+        )),
+        import::Stop::Depth => Some(format!(
+            "Stopped at folders {} deep; the rest of {name} was left out.",
+            import::MAX_DEPTH
+        )),
+    }
+}
+
+/// A folder as the window names it: its own name, or its whole path when it has none.
+fn folder_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+/// A path as the window tells two of them apart: the parts `same_path` compares, joined, each
+/// folded where it folds them. One key per file, so a file and its folder are never added twice
+/// (D-248).
+pub(super) fn path_key(path: &Path) -> String {
+    let mut out = String::new();
+    for part in path.components() {
+        if !out.is_empty() {
+            out.push('/');
+        }
+        let text = part.as_os_str().to_string_lossy();
+        if mdshared_app::paths::NAMES_IGNORE_CASE {
+            out.push_str(&text.to_lowercase());
+        } else {
+            out.push_str(&text);
+        }
+    }
+    out
 }

@@ -2568,7 +2568,17 @@ fn after_esc_left_the_fields_typing_goes_to_the_instruction() {
     );
 }
 
-// ---- a folder added: its whole tree (D-247) ---------------------------------------------------
+// ---- a folder added: its whole tree, on its own thread (D-247, D-248) -------------------------
+
+/// Runs the folder add's job to its end and takes its result, as the window's event loop would.
+fn read_folder(a: &mut App) {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while a.task_job.as_ref().is_some_and(|j| j.running()) {
+        assert!(std::time::Instant::now() < until, "the folder was not read");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    a.task_add_take();
+}
 
 /// The owner's report of 2026-11-25: a folder added to the window found only the files directly
 /// in it. Its whole tree is walked, the folder's own files first, then each subfolder's by name,
@@ -2582,6 +2592,8 @@ fn a_folder_added_brings_its_whole_tree_its_own_files_first() {
     std::fs::write(folder.join("A/B/mid.md"), "# Mid\n").expect("mid");
     std::fs::write(folder.join("A/B/C/pic.png"), [0x89, b'P', b'N', b'G']).expect("picture");
     a.task_add_paths(vec![folder]);
+    assert!(a.task_job.is_some(), "the folder is read on its thread");
+    read_folder(&mut a);
     let s = a.task.as_ref().expect("the window is open");
     let names: Vec<&str> = s.files.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["top.md", "mid.md", "pic.png"], "{names:?}");
@@ -2608,29 +2620,127 @@ fn a_folder_added_skips_dot_names_and_the_folders_the_files_pane_leaves_out() {
     std::fs::write(folder.join("node_modules/dep.js"), "dep\n").expect("dep");
     std::fs::write(folder.join("target/out.rs"), "out\n").expect("out");
     a.task_add_paths(vec![folder]);
+    read_folder(&mut a);
     let s = a.task.as_ref().expect("the window is open");
     let names: Vec<&str> = s.files.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["real.md"], "{names:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A folder over the window's cap stops at it and says so in the window; the files it did take
-/// are there.
+/// A folder over the window's cap stops at it and says so in the window. The same folder added
+/// again adds nothing and takes that "Stopped…" away.
 #[test]
-fn a_folder_added_over_the_cap_stops_at_it_and_says_so() {
+fn a_folder_added_over_the_cap_stops_at_it_and_a_second_add_says_nothing() {
     let (mut a, dir) = open("task-walk-cap", TaskKind::File, Vec::new());
     let folder = dir.join("Many");
     std::fs::create_dir_all(&folder).expect("folders");
     for i in 0..=crate::task_ui::FILES_MAX {
         std::fs::write(folder.join(format!("n{i:05}.md")), "# N\n").expect("a file");
     }
-    a.task_add_paths(vec![folder]);
-    let s = a.task.as_ref().expect("the window is open");
-    assert_eq!(s.files.len(), crate::task_ui::FILES_MAX);
+    a.task_add_paths(vec![folder.clone()]);
+    read_folder(&mut a);
     let note = format!(
         "Stopped at {} files; the rest of Many was left out.",
         mdedit_core::import::group_digits(crate::task_ui::FILES_MAX)
     );
-    assert_eq!(s.notice.as_deref(), Some(note.as_str()));
+    {
+        let s = a.task.as_ref().expect("the window is open");
+        assert_eq!(s.files.len(), crate::task_ui::FILES_MAX);
+        assert_eq!(s.notice.as_deref(), Some(note.as_str()));
+    }
+    // The window has no room left: the same folder adds nothing, and does not say "Stopped".
+    a.task_add_paths(vec![folder]);
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("the window is open");
+    assert_eq!(s.files.len(), crate::task_ui::FILES_MAX);
+    assert_eq!(
+        s.notice, None,
+        "nothing was added and nothing was cut short"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The cap is the room the window has left, and it counts only files it does not hold already:
+/// with one of the folder's files in and room for two, the next two come and the fourth is named
+/// as left out.
+#[test]
+fn the_cap_counts_only_the_files_that_are_new() {
+    let (a, dir) = open("task-cap-new", TaskKind::File, Vec::new());
+    let folder = dir.join("Many");
+    std::fs::create_dir_all(&folder).expect("folders");
+    for i in 0..4 {
+        std::fs::write(folder.join(format!("f{i}.md")), "# F\n").expect("a file");
+    }
+    let mut held = std::collections::HashSet::new();
+    held.insert(super::task::path_key(&folder.join("f0.md")));
+    let add = super::task::task_add_work(vec![folder.clone()], a.probe(), None, held, 2, &|| false);
+    let names: Vec<&str> = add.files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["f1.md", "f2.md"], "{names:?}");
+    assert!(add.note.is_some(), "f3.md is there and there is no room");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file added first, then its folder: the file is in once.
+#[test]
+fn a_file_added_before_its_folder_is_not_added_twice() {
+    let (mut a, dir) = open("task-walk-dedup", TaskKind::File, Vec::new());
+    let folder = dir.join("Shots");
+    std::fs::create_dir_all(&folder).expect("folders");
+    let one = folder.join("one.md");
+    std::fs::write(&one, "# One\n").expect("one");
+    std::fs::write(folder.join("two.md"), "# Two\n").expect("two");
+    a.task_add_paths(vec![one]);
+    assert_eq!(a.task.as_ref().expect("open").files.len(), 1);
+    a.task_add_paths(vec![folder]);
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("the window is open");
+    let names: Vec<&str> = s.files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["one.md", "two.md"], "{names:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// While a folder is read the window says so over its list's foot; the line goes when the files
+/// are in.
+#[test]
+fn while_a_folder_is_read_the_window_says_so() {
+    let (mut a, dir) = open("task-walk-reading", TaskKind::File, Vec::new());
+    let folder = dir.join("Dishes");
+    std::fs::create_dir_all(&folder).expect("folders");
+    std::fs::write(folder.join("one.md"), "# One\n").expect("one");
+    a.task_add_paths(vec![folder]);
+    let s = a.task.as_ref().expect("the window is open");
+    assert_eq!(s.reading.as_deref(), Some("Dishes"));
+    assert_eq!(s.reading_line().as_deref(), Some("Reading Dishes\u{2026}"));
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("the window is open");
+    assert!(s.reading_line().is_none(), "the line goes when it is read");
+    assert_eq!(s.files.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Esc while a folder is read stops it: nothing of it is added, and the window says so.
+#[test]
+fn escaping_while_a_folder_is_read_stops_it_and_adds_nothing() {
+    let (mut a, dir) = open("task-walk-escape", TaskKind::File, Vec::new());
+    let folder = dir.join("Dishes");
+    std::fs::create_dir_all(&folder).expect("folders");
+    for i in 0..50 {
+        std::fs::write(folder.join(format!("f{i}.md")), "# F\n").expect("a file");
+    }
+    a.task_add_paths(vec![folder]);
+    assert!(a.task_job.is_some(), "the folder is read on its thread");
+    a.task_key(Some(KeyName::Escape), None);
+    assert!(a.task_job.is_none(), "the read is stopped");
+    {
+        let s = a.task.as_ref().expect("the window stays open");
+        assert!(s.files.is_empty(), "nothing of it is added");
+        assert_eq!(s.notice.as_deref(), Some("Stopped: Dishes was not added."));
+        assert!(s.reading.is_none());
+    }
+    // Its thread ends and hands nothing back.
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    a.task_add_take();
+    let s = a.task.as_ref().expect("the window stays open");
+    assert!(s.files.is_empty(), "nothing of it is added");
     let _ = std::fs::remove_dir_all(&dir);
 }

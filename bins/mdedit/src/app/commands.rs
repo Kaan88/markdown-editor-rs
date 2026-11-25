@@ -2403,6 +2403,9 @@ impl App {
             Wake::Library => self.library_read_take(),
             // The import's walk is done: its plan opens, unless the folder was let go of.
             Wake::Import => self.import_take(),
+            // The task window's folder is read: the pass after this adds its files, or nothing
+            // when it was stopped.
+            Wake::Task => self.task_add_take(),
             Wake::Outline => {
                 self.ui.outline.poll();
             }

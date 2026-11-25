@@ -197,6 +197,9 @@ pub enum Wake {
     /// The folder "Add a folder to the library…" is reading on its own thread is done: the pass
     /// after this opens its plan.
     Import,
+    /// The AI task window's folder is walked and read on its own thread: the pass after this adds
+    /// its files.
+    Task,
     /// The search of a folder has matches or finished.
     Results,
     /// The library read on its own thread has finished: the pass after this takes its result.
@@ -416,6 +419,8 @@ struct App {
     /// The AI task window over files (5.6), and the copy "Show what is sent" parked.
     task: Option<crate::task_ui::TaskScreen>,
     task_parked: Option<crate::task_ui::TaskScreen>,
+    /// A folder dropped on the task window, walked and read on its own thread (D-248).
+    task_job: Option<mdshared_app::job::Job<task::TaskAdd>>,
     /// The file whose split plan is open from the task window.
     task_plan: Option<usize>,
     /// A rewrite run's record, made when its first file is written.
@@ -604,6 +609,7 @@ impl App {
             split_last: None,
             task: None,
             task_parked: None,
+            task_job: None,
             task_plan: None,
             task_record: None,
             task_seq: 0,

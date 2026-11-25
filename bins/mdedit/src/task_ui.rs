@@ -828,6 +828,9 @@ pub struct TaskScreen {
     /// "Stopped."): drawn in the window, over the foot of the list, while it is open, instead
     /// of a toast far from it. Taken away by the next key or click.
     pub notice: Option<String>,
+    /// A folder being walked and read on its own thread, by its name: the window says "Reading
+    /// <name>…" over the foot of the list while it runs, and Esc stops it (D-248).
+    pub reading: Option<String>,
 }
 
 /// A request in flight from the window.
@@ -901,6 +904,26 @@ impl TaskScreen {
             esc_warned: false,
             sent_tab: None,
             notice: None,
+            reading: None,
+        }
+    }
+
+    /// The line over the list's foot for a folder being read: "Reading <name>…", or `None` when
+    /// none is (D-248).
+    pub fn reading_line(&self) -> Option<String> {
+        self.reading
+            .as_ref()
+            .map(|name| format!("Reading {name}\u{2026}"))
+    }
+
+    /// An earlier "Stopped…" is taken away by a later add that stopped nowhere (D-248).
+    pub fn clear_stopped_note(&mut self) {
+        if self
+            .notice
+            .as_deref()
+            .is_some_and(|n| n.starts_with("Stopped"))
+        {
+            self.notice = None;
         }
     }
 
