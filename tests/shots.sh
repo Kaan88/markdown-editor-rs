@@ -193,6 +193,8 @@ for t in "" "-dark"; do
     done
     shot "settings-ai-service$t" $th "${custom[@]}" --ai-demo settings "$fx/sample.rs"
     shot "settings-ai-rewrite$t" $th --pref ai_connection=claude-api --ai-demo settings --settings-section ai-rewrite "$fx/sample.rs"
+    # The task window's page: what opens after a run (D-211) and its limits (D-203).
+    shot "settings-ai-tasks$t" $th --pref ai_connection=claude-api --ai-demo settings --settings-section ai-tasks "$fx/sample.rs"
 done
 # The other states: the tab rules on (the rows under them enabled), the connection off (AI
 # rewrite's rows disabled with the reason), Claude Code found, a model list that failed with a

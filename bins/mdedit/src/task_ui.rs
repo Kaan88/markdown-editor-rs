@@ -206,7 +206,7 @@ pub struct FileEntry {
     /// when it takes part.
     pub why: Option<String>,
     pub ticked: bool,
-    /// The text, when it is UTF-8 text of at most [`REWRITE_MAX`]: a rewrite sends it and its
+    /// The text, when it is UTF-8 text within [`Limits::rewrite_bytes`]: a rewrite sends it and its
     /// review edits it. `None` for a larger file or another encoding.
     pub text: Option<String>,
     pub bom: bool,
@@ -231,6 +231,8 @@ pub struct FileEntry {
     pub already: bool,
     /// The run wrote it (a split's plan was written, a rewrite went in).
     pub done: bool,
+    /// The window's limits, as its reason says them (D-203).
+    pub limits: Limits,
 }
 
 impl FileEntry {
@@ -254,14 +256,14 @@ impl FileEntry {
             TaskKind::Rewrite => match self.kind {
                 FileKind::Text => {
                     if self.over_limit {
-                        return Some(format!("only {} files a run", REWRITE_MAX_FILES));
+                        return Some(format!("only {} files a run", self.limits.rewrite_files));
                     }
                     if self.text.is_none() {
-                        if self.size as usize > REWRITE_MAX {
+                        if self.size as usize > self.limits.rewrite_bytes {
                             Some(format!(
                                 "too long for one request: {} KB of {} KB",
                                 self.size.div_ceil(1000),
-                                REWRITE_MAX / 1000
+                                self.limits.rewrite_bytes / 1000
                             ))
                         } else {
                             Some("not UTF-8: save it as UTF-8 first".to_string())
@@ -300,12 +302,35 @@ pub const PICTURE_NOT_FILED: &str = "not filed: a picture is not a note of its o
 pub const REWRITE_NEEDS_INSTRUCTION: &str =
     "Rewrite them needs an instruction: type one, or pick a saved prompt.";
 
-/// The most text one rewrite takes.
-pub const REWRITE_MAX: usize = 200_000;
-/// The most files one rewrite run takes.
-pub const REWRITE_MAX_FILES: usize = 20;
-/// The most files one "File them" request takes.
-pub const BATCH: usize = 40;
+/// The window's limits, from Settings › AI rewrite (D-203): the most text one rewrite takes,
+/// the most files one rewrite run takes, and the most files one "File them" request takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    pub rewrite_bytes: usize,
+    pub rewrite_files: usize,
+    pub batch: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Limits {
+        use mdedit_core::prefs as p;
+        Limits {
+            rewrite_bytes: p::AI_REWRITE_KB_DEFAULT * 1000,
+            rewrite_files: p::AI_REWRITE_FILES_DEFAULT,
+            batch: p::AI_TASK_BATCH_DEFAULT,
+        }
+    }
+}
+
+impl Limits {
+    pub fn of(prefs: &mdedit_core::prefs::Prefs) -> Limits {
+        Limits {
+            rewrite_bytes: prefs.ai_rewrite_kb.saturating_mul(1000),
+            rewrite_files: prefs.ai_rewrite_files.max(1),
+            batch: prefs.ai_task_batch.max(1),
+        }
+    }
+}
 /// The most text a file may hold to be read into the window at all.
 pub const ADD_MAX: u64 = 8 * 1024 * 1024;
 /// The first bytes of a text a digest sends.
@@ -507,6 +532,8 @@ pub struct TaskScreen {
     /// The Add menu is open, with these lines.
     pub add_open: bool,
     pub add_items: Vec<AddItem>,
+    /// The limits it was opened with (D-203), from the settings.
+    pub limits: Limits,
     /// Where the files came from, when the window was opened from a row of the Notes pane
     /// (pictures plan 4.2); said in the header, and forgotten when a file is added.
     pub from: Option<String>,
@@ -574,6 +601,7 @@ impl TaskScreen {
             dest_open: false,
             add_open: false,
             add_items: Vec::new(),
+            limits: Limits::default(),
             from: None,
             dest_hot: None,
             hover: None,
@@ -707,14 +735,16 @@ impl TaskScreen {
         self.tick += 1;
     }
 
-    /// A rewrite takes at most [`REWRITE_MAX_FILES`] files. Only the ticked files that could be
+    /// A rewrite takes at most [`Limits::rewrite_files`] files. Only the ticked files that could be
     /// rewritten count: one past the twentieth is unticked, and while twenty are ticked every
     /// other says so on its row. Unticking one frees its place; a file the limit unticked is
     /// ticked again when the task is another (audit 4, B13).
     pub fn recount_limit(&mut self) {
         let rewrite = self.task == TaskKind::Rewrite;
+        let max = self.limits.rewrite_files;
         let mut n = 0;
         for f in self.files.iter_mut() {
+            f.limits = self.limits;
             f.over_limit = false;
             if !rewrite {
                 if f.limited {
@@ -725,13 +755,13 @@ impl TaskScreen {
             }
             if f.ticked && f.can_be_rewritten() {
                 n += 1;
-                if n > REWRITE_MAX_FILES {
+                if n > max {
                     f.ticked = false;
                     f.limited = true;
                 }
             }
         }
-        if rewrite && n >= REWRITE_MAX_FILES {
+        if rewrite && n >= max {
             for f in self.files.iter_mut() {
                 f.over_limit = !f.ticked && f.can_be_rewritten();
             }
@@ -753,7 +783,7 @@ impl TaskScreen {
                 if !self.asks_ai() {
                     return format!("{n} file{s} \u{00B7} no request");
                 }
-                let requests = n.div_ceil(BATCH);
+                let requests = n.div_ceil(self.limits.batch);
                 let kb = self
                     .taking_part()
                     .iter()
@@ -1077,6 +1107,8 @@ pub fn content_h(rows: &[ListRow]) -> f32 {
 mod tests {
     use super::*;
 
+    const REWRITE_MAX_FILES: usize = mdedit_core::prefs::AI_REWRITE_FILES_DEFAULT;
+
     fn entry(name: &str, kind: FileKind) -> FileEntry {
         let path = PathBuf::from(name);
         FileEntry {
@@ -1099,6 +1131,7 @@ mod tests {
             modified: None,
             already: false,
             done: false,
+            limits: Limits::default(),
         }
     }
 

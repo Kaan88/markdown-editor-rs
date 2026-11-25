@@ -1341,7 +1341,7 @@ pub(crate) fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 /// A name that says Markdown: `.md` or `.markdown`.
-fn is_markdown_name(path: &Path) -> bool {
+pub(crate) fn is_markdown_name(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))

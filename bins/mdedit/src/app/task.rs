@@ -30,6 +30,7 @@ impl App {
     pub(super) fn task_open(&mut self, kind: TaskKind, add: Vec<PathBuf>) {
         self.library_load();
         if let Some(mut t) = self.task_parked.take() {
+            t.limits = task_ui::Limits::of(&self.docs.prefs);
             t.recount_limit();
             t.tick += 1;
             self.task = Some(t);
@@ -81,6 +82,7 @@ impl App {
             s.new_group = Some(mdshared_ui::textfield::TextField::new());
             s.focus = Focus::NewGroup;
         }
+        s.limits = task_ui::Limits::of(&self.docs.prefs);
         self.task = Some(s);
         self.task_add_paths(add);
         self.task_finish_open();
@@ -88,7 +90,11 @@ impl App {
 
     fn task_finish_open(&mut self) {
         self.close_for_ai_panel();
+        // The limits as the settings say now (D-203), for a window opened or brought back.
+        let limits = task_ui::Limits::of(&self.docs.prefs);
         if let Some(s) = self.task.as_mut() {
+            s.limits = limits;
+            s.recount_limit();
             s.tick += 1;
         }
         self.caret_reset();
@@ -167,6 +173,7 @@ impl App {
             modified: None,
             already: false,
             done: false,
+            limits: task_ui::Limits::of(&self.docs.prefs),
         };
         let meta = match std::fs::symlink_metadata(path) {
             Ok(m) => m,
@@ -237,7 +244,7 @@ impl App {
             mdedit_core::encoding::Encoding::Utf8 | mdedit_core::encoding::Encoding::Utf8Bom
         );
         out.bom = loaded.info.encoding == mdedit_core::encoding::Encoding::Utf8Bom;
-        if utf8 && bytes.len() <= task_ui::REWRITE_MAX {
+        if utf8 && bytes.len() <= out.limits.rewrite_bytes {
             out.text = Some(all);
         }
         out
@@ -842,7 +849,7 @@ impl App {
         if ids.is_empty() {
             return;
         }
-        s.batch_queue = ids.chunks(task_ui::BATCH).map(<[usize]>::to_vec).collect();
+        s.batch_queue = ids.chunks(s.limits.batch).map(<[usize]>::to_vec).collect();
         s.answers.clear();
         s.planned = false;
         s.tick += 1;
@@ -1061,6 +1068,9 @@ impl App {
                 self.library_load();
                 self.library_rows();
                 self.task_close();
+                if let Some((path, _, sections)) = targets.first() {
+                    self.library_show_link(&group.file, sections, path);
+                }
                 let n = links.len();
                 let what = if n == 1 {
                     "1 file".to_string()
@@ -1085,6 +1095,35 @@ impl App {
             }
         }
         self.redraw();
+    }
+
+    /// The Notes pane on the first line a run of File them added (pictures plan 4.4): shown,
+    /// unfolded to it, the cursor on it. The files are the owner's and were not changed, so
+    /// nothing opens in a tab.
+    fn library_show_link(&mut self, group: &Path, section: &[String], path: &Path) {
+        use crate::library_pane::{Kind, key_of};
+        self.ui.panes.files = true;
+        self.ui.set_pane_face(crate::ui::PaneFace::Notes);
+        self.ui.library.unfold_to(group, section);
+        self.library_build();
+        let rows = &self.ui.library.rows;
+        let group_key = key_of(group, &[]);
+        let Some(start) = rows
+            .iter()
+            .position(|r| r.kind == Kind::Group && r.key == group_key)
+        else {
+            return;
+        };
+        let at = rows[start + 1..]
+            .iter()
+            .take_while(|r| r.kind != Kind::Group)
+            .position(|r| {
+                matches!(&r.kind, Kind::Note { path: p, .. }
+                    if mdshared_app::paths::same_path(p, path))
+            });
+        if let Some(at) = at {
+            self.ui.library.set_cur(start + 1 + at);
+        }
     }
 
     /// Writes File them's links into the group's library file in one write: a new group's file
@@ -1491,6 +1530,9 @@ impl App {
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
+                // A tab that holds the file shows the new text at once, and a preview following
+                // it with it (pictures plan 4.4); one with unsaved changes is told instead.
+                self.docs.check_changed();
                 self.docs.set_toast(&format!(
                     "{name} rewritten. Its original is in AI runs, where Undo brings it back."
                 ));
@@ -1810,7 +1852,7 @@ impl App {
         );
         match s.task {
             TaskKind::File => {
-                let batches: Vec<&[usize]> = ids.chunks(task_ui::BATCH).collect();
+                let batches: Vec<&[usize]> = ids.chunks(s.limits.batch.max(1)).collect();
                 for (k, batch) in batches.iter().enumerate() {
                     out.push_str(&format!(
                         "=== REQUEST {} of {} ===\nSYSTEM:\n{}\n\nPROMPT:\n",

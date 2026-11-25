@@ -251,6 +251,10 @@ impl App {
         }
         self.show_outcome(outcome);
         self.open_notes_of(&report, &request);
+        // The first note in a tab (pictures plan 4.4); the preview is left as it was.
+        if let Some(first) = report.notes_written.first().cloned() {
+            self.open_after_run(&first, false);
+        }
         self.redraw();
     }
 

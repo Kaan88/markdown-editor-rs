@@ -655,7 +655,7 @@ impl App {
             .cloned()
         {
             if report.link_failures.is_empty() {
-                self.open(&path);
+                self.open_after_run(&path, true);
             }
             self.docs.set_toast(&format!(
                 "The note is written: {}. The original is where it was.",

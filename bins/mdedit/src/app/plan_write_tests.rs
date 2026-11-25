@@ -1296,3 +1296,31 @@ fn writing_the_plan_stops_its_split_that_is_still_out() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Pictures plan 4.4: after a split the first note is in a tab, and its preview is not turned
+/// on; with "Nothing" no tab opens.
+#[test]
+fn a_split_opens_its_first_note_and_leaves_the_preview_as_it_was() {
+    let (mut a, library, source, dir) = planned("plan-after");
+    let _ = super::preview::preview_asked();
+    press(&mut a, KeyName::Enter);
+    let first = library.join("Trip").join("Tokyo").join("asakusa.md");
+    let front = a.docs.active_doc().and_then(|d| d.path.clone());
+    assert_eq!(
+        front.as_deref(),
+        Some(first.as_path()),
+        "the first note is in front"
+    );
+    assert!(
+        super::preview::preview_asked().is_empty(),
+        "the preview is not turned on"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let (mut a, _library, source2, dir) = planned("plan-after-nothing");
+    a.docs.prefs.ai_after_run = mdedit_core::prefs::AfterRun::Nothing;
+    press(&mut a, KeyName::Enter);
+    let front = a.docs.active_doc().and_then(|d| d.path.clone());
+    assert_eq!(front.as_deref(), Some(source2.as_path()), "nothing opened");
+    let _ = (source, std::fs::remove_dir_all(&dir));
+}

@@ -453,6 +453,71 @@ impl App {
     }
 }
 
+impl App {
+    /// After an AI run that wrote notes (D-211, pictures plan 4.4): the first note opens in a
+    /// tab unless Settings › AI rewrite's "After a run, open" says "Nothing"; with "First
+    /// note and its preview" and `with_preview`, its preview is shown the Preview button's way.
+    /// A split passes `false`: its preview follows the tab if it was showing, and is not turned
+    /// on. Whether a tab was opened.
+    pub(super) fn open_after_run(&mut self, path: &Path, with_preview: bool) -> bool {
+        use mdedit_core::prefs::AfterRun;
+        let after = self.docs.prefs.ai_after_run;
+        if after == AfterRun::Nothing {
+            return false;
+        }
+        self.open(path);
+        if after == AfterRun::Preview && with_preview {
+            self.show_preview();
+        }
+        true
+    }
+
+    /// Shows the preview of the document in front when it is not showing, the way the Preview
+    /// button would; never closes one. Nothing for a document the preview does not draw.
+    pub(super) fn show_preview(&mut self) {
+        use mdedit_core::prefs::PreviewMode;
+        let Some(doc) = self.docs.active_doc() else {
+            return;
+        };
+        // A note just opened is still being read: its name says whether it will be Markdown.
+        let loading_markdown = doc.is_loading()
+            && doc
+                .path
+                .as_deref()
+                .is_some_and(crate::docs::is_markdown_name);
+        if !previewable(doc) && !loading_markdown {
+            return;
+        }
+        let shown = match crate::chrome::button_mode(&self.docs) {
+            PreviewMode::Window => self.preview.is_some(),
+            PreviewMode::Viewer | PreviewMode::SideBySide => self.docs.links.contains(doc.id),
+        };
+        if shown {
+            return;
+        }
+        let command = super::commands::preview_command(crate::chrome::button_mode(&self.docs));
+        #[cfg(test)]
+        {
+            PREVIEW_ASKED.with(|p| p.borrow_mut().push(command));
+        }
+        #[cfg(not(test))]
+        self.command(command);
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The preview commands [`App::show_preview`] would have run, on this thread: a test never
+    /// starts the pane's renderer or mdview.
+    static PREVIEW_ASKED: std::cell::RefCell<Vec<C>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// What [`App::show_preview`] asked for since the last call, on this thread.
+#[cfg(test)]
+pub(super) fn preview_asked() -> Vec<C> {
+    PREVIEW_ASKED.with(|p| std::mem::take(&mut *p.borrow_mut()))
+}
+
 /// Whether the pane draws this document: Markdown, or a document that has no file yet.
 pub(crate) fn previewable(doc: &crate::docs::Doc) -> bool {
     doc.is_markdown() || doc.path.is_none()

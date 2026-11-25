@@ -22,6 +22,13 @@ mdedit, not yet released: the AI task window made one command with an Add menu, 
   these 4 notes…" opens the task window on every note under it, folded or not, on Rewrite them,
   and says where they came from. With the Notes pane in use from the keyboard, "AI task…" takes
   the row you are on.
+- **After an AI run, the note opens with its preview.** A Markdown note made from a file opens
+  with its preview; a split opens its first note; a file rewritten by "Rewrite them" shows its new
+  text at once in its tab; after "File them" the Notes pane shows the new lines. Settings › AI
+  tasks › "After a run, open" can make it the note only, or nothing.
+- **The AI task window's limits are settings**, on the new page Settings › AI tasks: files in one
+  filing request (40), files in one rewrite run (20), and the largest file a rewrite sends
+  (200 KB).
 - **"File them" leaves pictures out** and says why: a picture is not a note of its own.
 - **"File them" can be undone** from AI runs, like a rewrite: the links it added go, and the group
   it made, if it is unchanged.

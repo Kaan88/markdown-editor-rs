@@ -2165,3 +2165,17 @@ would make the one-shot fit the clamp of every frame.
 **Why.** The owner said yes to phase V and the crate.
 **Overturned by.** The owner.
 **From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-214 · 2026-11-25 · The task window's settings are a page of their own, "AI tasks"
+
+**Decision.** D-211's choice ("After a run, open": first note and its preview, first note only,
+nothing) and D-203's three limits (files in one filing request 1 to 200, default 40; files in
+one rewrite run 1 to 100, default 20; the largest rewrite 10 to 2,000 KB, default 200) are a
+third AI page, "AI tasks", between AI rewrite and Updates. The picture limits join it with V3.
+A split opens its first note and leaves the preview as it was; a Markdown note from a file opens
+with its preview; File them opens nothing and puts the Notes pane on its first line.
+**Why.** On AI rewrite the four rows made the page 33 px taller than the default window, where
+every page must fit (the settings layout test); a page of their own also says they belong to the
+task window, not to the rewrite of the open document. The split rule is the plan's (4.4).
+**Overturned by.** The owner, by looking at the shots `settings-ai-tasks`.
+**From.** Phase O of `docs/ai-pictures-plan.md`.

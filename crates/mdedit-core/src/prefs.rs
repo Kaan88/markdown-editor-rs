@@ -37,6 +37,17 @@ pub const MINIMAP_WIDTH_MIN: usize = 48;
 pub const MINIMAP_WIDTH_MAX: usize = 240;
 /// Days of use a tab may go unopened before it is offered for closing: the default (as
 /// `mdshared_ui::stale::DAYS`) and the range the setting takes.
+/// The AI task window's limits, as settings (D-203): files in one "File them" request, files in
+/// one rewrite run, and the KB of text one rewrite sends. Defaults first, then the range.
+pub const AI_TASK_BATCH_DEFAULT: usize = 40;
+pub const AI_TASK_BATCH_MIN: usize = 1;
+pub const AI_TASK_BATCH_MAX: usize = 200;
+pub const AI_REWRITE_FILES_DEFAULT: usize = 20;
+pub const AI_REWRITE_FILES_MIN: usize = 1;
+pub const AI_REWRITE_FILES_MAX: usize = 100;
+pub const AI_REWRITE_KB_DEFAULT: usize = 200;
+pub const AI_REWRITE_KB_MIN: usize = 10;
+pub const AI_REWRITE_KB_MAX: usize = 2000;
 pub const STALE_DAYS_DEFAULT: u32 = 7;
 pub const STALE_DAYS_MIN: u32 = 1;
 pub const STALE_DAYS_MAX: u32 = 365;
@@ -112,6 +123,13 @@ pub struct Prefs {
     pub ai_review: bool,
     /// The review opens on the rendered preview rather than the changes.
     pub ai_review_preview: bool,
+    /// What opens after an AI run that writes a note (D-211): the first note with its preview,
+    /// by default.
+    pub ai_after_run: AfterRun,
+    /// The task window's limits (D-203), in their ranges by [`Prefs::clamp`].
+    pub ai_task_batch: usize,
+    pub ai_rewrite_files: usize,
+    pub ai_rewrite_kb: usize,
     /// The model and effort chosen for each connection but Off, in [`Connection::ALL`] order
     /// from the second; empty is the default.
     pub ai_models: [String; 4],
@@ -191,6 +209,54 @@ impl PreviewMode {
     }
 }
 
+/// What opens after an AI run that writes a note (D-211, pictures plan 4.4): only the first
+/// note, never one tab per note.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum AfterRun {
+    /// The first note in a tab, and the preview shown the way the Preview button shows it.
+    #[default]
+    Preview,
+    /// The first note in a tab; the preview as it was.
+    Open,
+    /// Nothing opens; the Notes pane and the report say where the notes are.
+    Nothing,
+}
+
+impl AfterRun {
+    /// In the order of [`AfterRun::LABELS`].
+    pub const ALL: [AfterRun; 3] = [AfterRun::Preview, AfterRun::Open, AfterRun::Nothing];
+    /// The choices as the settings row names them.
+    pub const LABELS: [&'static str; 3] =
+        ["First note and its preview", "First note only", "Nothing"];
+
+    /// The value in the settings file.
+    pub fn key(self) -> &'static str {
+        match self {
+            AfterRun::Preview => "preview",
+            AfterRun::Open => "open",
+            AfterRun::Nothing => "nothing",
+        }
+    }
+
+    /// Reads [`AfterRun::key`]; anything else is `None` (the default).
+    pub fn parse(value: &str) -> Option<AfterRun> {
+        let v = value.trim();
+        AfterRun::ALL
+            .into_iter()
+            .find(|m| m.key().eq_ignore_ascii_case(v))
+    }
+
+    /// The place in [`AfterRun::LABELS`].
+    pub fn index(self) -> usize {
+        AfterRun::ALL.iter().position(|m| *m == self).unwrap_or(0)
+    }
+
+    /// The choice at `index` of [`AfterRun::LABELS`]; out of range is the default.
+    pub fn from_index(index: usize) -> AfterRun {
+        AfterRun::ALL.get(index).copied().unwrap_or_default()
+    }
+}
+
 /// A setting's text longer than this many bytes is not a setting: the default is used.
 const AI_TEXT_MAX: usize = 2048;
 
@@ -236,6 +302,10 @@ impl Default for Prefs {
             ai_connection: Connection::Off,
             ai_review: true,
             ai_review_preview: false,
+            ai_after_run: AfterRun::Preview,
+            ai_task_batch: AI_TASK_BATCH_DEFAULT,
+            ai_rewrite_files: AI_REWRITE_FILES_DEFAULT,
+            ai_rewrite_kb: AI_REWRITE_KB_DEFAULT,
             ai_models: Default::default(),
             ai_efforts: Default::default(),
             ai_parallel: Default::default(),
@@ -289,6 +359,15 @@ impl Prefs {
             .clamp(MINIMAP_WIDTH_MIN, MINIMAP_WIDTH_MAX);
         self.stale_days = self.stale_days.clamp(STALE_DAYS_MIN, STALE_DAYS_MAX);
         self.brief_secs = self.brief_secs.clamp(BRIEF_SECS_MIN, BRIEF_SECS_MAX);
+        self.ai_task_batch = self
+            .ai_task_batch
+            .clamp(AI_TASK_BATCH_MIN, AI_TASK_BATCH_MAX);
+        self.ai_rewrite_files = self
+            .ai_rewrite_files
+            .clamp(AI_REWRITE_FILES_MIN, AI_REWRITE_FILES_MAX);
+        self.ai_rewrite_kb = self
+            .ai_rewrite_kb
+            .clamp(AI_REWRITE_KB_MIN, AI_REWRITE_KB_MAX);
         if self.font_family.len() > FONT_FAMILY_MAX || self.font_family.contains(['\n', '\r']) {
             self.font_family.clear();
         }
@@ -415,6 +494,22 @@ impl Prefs {
                     "ai_review_preview" => {
                         p.ai_review_preview = flag(value).unwrap_or(d.ai_review_preview)
                     }
+                    "ai_after_run" => {
+                        p.ai_after_run = AfterRun::parse(value).unwrap_or(d.ai_after_run)
+                    }
+                    "ai_task_batch" => {
+                        p.ai_task_batch = number(value, AI_TASK_BATCH_MIN, AI_TASK_BATCH_MAX)
+                            .unwrap_or(d.ai_task_batch)
+                    }
+                    "ai_rewrite_files" => {
+                        p.ai_rewrite_files =
+                            number(value, AI_REWRITE_FILES_MIN, AI_REWRITE_FILES_MAX)
+                                .unwrap_or(d.ai_rewrite_files)
+                    }
+                    "ai_rewrite_kb" => {
+                        p.ai_rewrite_kb = number(value, AI_REWRITE_KB_MIN, AI_REWRITE_KB_MAX)
+                            .unwrap_or(d.ai_rewrite_kb)
+                    }
                     "ai_preset" => {
                         let v = ai_text(value);
                         p.ai_preset = if crate::ai::PRESETS.iter().any(|x| x.key == v) {
@@ -525,6 +620,10 @@ impl Prefs {
         w.line("ai_connection", p.ai_connection.key());
         w.line("ai_review", b(p.ai_review));
         w.line("ai_review_preview", b(p.ai_review_preview));
+        w.line("ai_after_run", p.ai_after_run.key());
+        w.line("ai_task_batch", &p.ai_task_batch.to_string());
+        w.line("ai_rewrite_files", &p.ai_rewrite_files.to_string());
+        w.line("ai_rewrite_kb", &p.ai_rewrite_kb.to_string());
         for (i, c) in Connection::ALL[1..].iter().enumerate() {
             w.line(&format!("ai_model_{}", c.key()), &escape(&p.ai_models[i]));
             w.line(&format!("ai_effort_{}", c.key()), &escape(&p.ai_efforts[i]));
@@ -801,6 +900,41 @@ preview_mode= MDVIEW
         );
     }
 
+    /// D-211 and D-203: what opens after a run, and the task window's limits, are read back as
+    /// written, put in their ranges, and a value that is not one is the default.
+    #[test]
+    fn the_after_run_choice_and_the_task_limits_read_back_in_their_ranges() {
+        let text = "[preferences]\nai_after_run=open\nai_task_batch=999\nai_rewrite_files=0\n\
+                    ai_rewrite_kb=abc\n";
+        let p = Prefs::parse(text);
+        assert_eq!(p.ai_after_run, AfterRun::Open);
+        assert_eq!(p.ai_task_batch, AI_TASK_BATCH_MAX);
+        assert_eq!(p.ai_rewrite_files, AI_REWRITE_FILES_MIN);
+        assert_eq!(p.ai_rewrite_kb, AI_REWRITE_KB_DEFAULT);
+        let odd = Prefs::parse("[preferences]\nai_after_run=sometimes\n");
+        assert_eq!(odd.ai_after_run, AfterRun::Preview, "the default");
+        let mut q = Prefs {
+            ai_after_run: AfterRun::Nothing,
+            ai_task_batch: 7,
+            ai_rewrite_files: 3,
+            ai_rewrite_kb: 50,
+            ..Prefs::default()
+        };
+        let back = Prefs::parse(&q.serialize());
+        assert_eq!(back.ai_after_run, AfterRun::Nothing);
+        assert_eq!(
+            (
+                back.ai_task_batch,
+                back.ai_rewrite_files,
+                back.ai_rewrite_kb
+            ),
+            (7, 3, 50)
+        );
+        q.ai_rewrite_kb = 1;
+        q.clamp();
+        assert_eq!(q.ai_rewrite_kb, AI_REWRITE_KB_MIN);
+    }
+
     #[test]
     fn sections_are_respected() {
         let text =
@@ -947,6 +1081,10 @@ preview_mode= MDVIEW
             ai_connection: Connection::OpenAi,
             ai_review: false,
             ai_review_preview: true,
+            ai_after_run: AfterRun::Nothing,
+            ai_task_batch: 12,
+            ai_rewrite_files: 7,
+            ai_rewrite_kb: 640,
             ai_models: [
                 "opus".into(),
                 "".into(),
@@ -995,7 +1133,7 @@ preview_mode= MDVIEW
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 53);
+        assert_eq!(t.lines().count(), 57);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,

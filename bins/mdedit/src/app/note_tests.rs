@@ -595,3 +595,35 @@ fn a_refusal_at_the_write_that_can_pass_leaves_the_button_on() {
     assert!(note.is_file(), "the second press writes it");
     let _ = std::fs::remove_dir_all(&p.dir);
 }
+
+/// D-211, pictures plan 4.4: after the note is written it opens in a tab with its preview
+/// shown the Preview button's way, by default; "First note only" opens it and leaves the preview;
+/// "Nothing" opens nothing.
+#[test]
+fn a_written_note_opens_with_its_preview_as_the_setting_says() {
+    use mdedit_core::prefs::AfterRun;
+    for (after, opened, preview) in [
+        (AfterRun::Preview, true, vec![C::PreviewPane]),
+        (AfterRun::Open, true, Vec::new()),
+        (AfterRun::Nothing, false, Vec::new()),
+    ] {
+        let (mut a, p) = lib(&format!("note-after-{}", after.key()));
+        a.docs.prefs.ai_after_run = after;
+        engine();
+        open_card(&mut a, &p);
+        let note = target(&a);
+        answer(&mut a, "# Done\n");
+        let _ = super::preview::preview_asked();
+        press(&mut a, KeyName::Enter);
+        assert!(a.note.is_none(), "written");
+        assert_eq!(read(&note), "# Done\n");
+        let front = a.docs.active_doc().and_then(|d| d.path.clone());
+        assert_eq!(
+            front.as_deref() == Some(note.as_path()),
+            opened,
+            "{after:?}"
+        );
+        assert_eq!(super::preview::preview_asked(), preview, "{after:?}");
+        let _ = std::fs::remove_dir_all(&p.dir);
+    }
+}

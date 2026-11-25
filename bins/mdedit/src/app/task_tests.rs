@@ -1352,3 +1352,109 @@ fn file_them_leaves_a_record_that_undoes_its_links() {
     assert_eq!(std::fs::read_to_string(&pdf).expect("pdf"), "%PDF-1.4\n");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Pictures plan 4.4: a rewrite applied to a file open in a tab shows the new text there at
+/// once, with nothing to save.
+#[test]
+fn a_rewrite_applied_reloads_the_tab_that_holds_the_file() {
+    let dir = scratch("task-rewrite-tab");
+    std::fs::create_dir_all(dir.join("library")).expect("library");
+    let text = pasta(&dir);
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    let tab = super::files_tests::open_now(&mut a, &text);
+    a.task_open(TaskKind::Rewrite, vec![text.clone()]);
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    engine();
+    if let Some(s) = a.task.as_mut() {
+        s.ai_on = true;
+        s.instruction.set_text("Tidy it");
+    }
+    a.task_run();
+    wait(&mut a, |a| a.ai.panel.is_some());
+    a.task_review_apply();
+    assert_eq!(std::fs::read_to_string(&text).expect("written"), "# Done\n");
+    let shown = |a: &App| {
+        a.docs.tabs[tab]
+            .ready()
+            .map(|r| r.buffer.rope().to_string())
+            .unwrap_or_default()
+    };
+    let until = Instant::now() + std::time::Duration::from_secs(10);
+    while shown(&a) != "# Done\n" && Instant::now() < until {
+        a.docs.wait_load(until, None, false);
+    }
+    assert_eq!(shown(&a), "# Done\n", "the tab shows the new text");
+    assert!(!a.docs.tabs[tab].has_changes(), "nothing to save");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Pictures plan 4.4: after File them the Notes pane shows the group, its cursor on the first
+/// line the run added; no tab opens, since the files were not changed.
+#[test]
+fn file_them_puts_the_notes_pane_on_the_first_new_line() {
+    let (mut a, dir) = open("task-file-pane", TaskKind::File, Vec::new());
+    let text = pasta(&dir);
+    a.task_add_paths(vec![text.clone()]);
+    with_group(&mut a, "Recipes");
+    let tabs = a.docs.tabs.len();
+    a.task_run();
+    a.task_file_write();
+    assert!(a.task.is_none(), "the links are in");
+    assert!(a.ui.panes.files && a.ui.library.on, "the Notes pane shows");
+    let cur = a.ui.library.cur.expect("a row has the cursor");
+    match &a.ui.library.rows[cur].kind {
+        crate::library_pane::Kind::Note { path, .. } => {
+            assert!(mdshared_app::paths::same_path(path, &text), "{path:?}")
+        }
+        other => panic!("the cursor is on {other:?}"),
+    }
+    assert_eq!(a.docs.tabs.len(), tabs, "no tab opened");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D-203: the window's limits are the settings': files in a rewrite run, the largest file a
+/// rewrite sends, and files in one filing request.
+#[test]
+fn the_window_takes_its_limits_from_the_settings() {
+    let dir = scratch("task-limits");
+    std::fs::create_dir_all(dir.join("library")).expect("library");
+    let mut paths = Vec::new();
+    for i in 0..5 {
+        let p = dir.join(format!("n{i}.md"));
+        std::fs::write(&p, format!("# N{i}\n")).expect("note");
+        paths.push(p);
+    }
+    let big = dir.join("big.md");
+    std::fs::write(&big, "x".repeat(12_000)).expect("big");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.docs.prefs.ai_rewrite_files = 3;
+    a.docs.prefs.ai_rewrite_kb = 10;
+    a.docs.prefs.ai_task_batch = 2;
+    let mut all = paths.clone();
+    all.push(big.clone());
+    a.task_open(TaskKind::Rewrite, all);
+    let s = a.task.as_ref().expect("the window is open");
+    let ticked = s
+        .files
+        .iter()
+        .filter(|f| f.takes_part(TaskKind::Rewrite))
+        .count();
+    assert_eq!(ticked, 3, "three files a run");
+    assert_eq!(
+        s.files[3].reason_for(TaskKind::Rewrite).as_deref(),
+        Some("only 3 files a run")
+    );
+    let big_row = s.files.iter().find(|f| f.path == big).expect("big's row");
+    assert_eq!(
+        big_row.reason_for(TaskKind::Rewrite).as_deref(),
+        Some("too long for one request: 12 KB of 10 KB")
+    );
+    // File them: six files, two to a request.
+    a.task_act(Hit::Kind(TaskKind::File));
+    let s = a.task.as_mut().expect("the window is open");
+    s.ai_on = true;
+    assert!(s.summary().contains("in 3 requests"), "{}", s.summary());
+    let _ = std::fs::remove_dir_all(&dir);
+}

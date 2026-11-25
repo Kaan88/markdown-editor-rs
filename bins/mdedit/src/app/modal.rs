@@ -78,8 +78,13 @@ pub const AI_CUSTOM_NAME: u32 = 103;
 pub const AI_CUSTOM_REMOVE: u32 = 104;
 /// "Requests at once", added after the first ids so no existing row's id moved.
 pub const AI_PARALLEL: u32 = 105;
+/// What opens after a run that writes notes (D-211), and the task window's limits (D-203).
+pub const AI_AFTER_RUN: u32 = 106;
+pub const AI_TASK_BATCH: u32 = 107;
+pub const AI_REWRITE_FILES: u32 = 108;
+pub const AI_REWRITE_KB: u32 = 109;
 /// The last of the AI rows' ids.
-pub const AI_LAST: u32 = AI_PARALLEL;
+pub const AI_LAST: u32 = AI_REWRITE_KB;
 
 const THEMES: [&str; 3] = ["System", "Light", "Dark"];
 
@@ -116,8 +121,8 @@ fn can_offer_default_app() -> bool {
     }
 }
 
-// The pages, in the list's order. The two AI pages are made by the window, which knows what the
-// engine said (`App::ai_pages`); they go between Tabs and Updates.
+// The pages, in the list's order. The three AI pages are made by the window, which knows what
+// the engine said (`App::ai_pages`); they go between Tabs and Updates.
 pub const APPEARANCE: &str = "Appearance";
 pub const EDITOR: &str = "Editor";
 pub const INDENTATION: &str = "Indentation";
@@ -126,8 +131,10 @@ pub const NOTES_LIBRARY: &str = "Notes library";
 pub const TABS: &str = "Tabs";
 pub const AI_SERVICE: &str = "AI service";
 pub const AI_REWRITE: &str = "AI rewrite";
+/// The task window's: what opens after a run (D-211) and its limits (D-203).
+pub const AI_TASKS: &str = "AI tasks";
 pub const UPDATES: &str = "Updates";
-const PAGES: [&str; 9] = [
+const PAGES: [&str; 10] = [
     APPEARANCE,
     EDITOR,
     INDENTATION,
@@ -136,6 +143,7 @@ const PAGES: [&str; 9] = [
     TABS,
     AI_SERVICE,
     AI_REWRITE,
+    AI_TASKS,
     UPDATES,
 ];
 
@@ -162,7 +170,7 @@ pub fn page_for_section(name: &str) -> Option<&'static str> {
     })
 }
 
-/// The pages but the two AI ones, from the preferences and what else the window knows. `corners`
+/// The pages but the three AI ones, from the preferences and what else the window knows. `corners`
 /// is the window's corner setting, or `None` where the system gives the window no way to round
 /// them (the row is left out); `offer_default` adds "Make mdedit the default" to Updates.
 pub fn pages(
@@ -526,7 +534,7 @@ impl App {
         }
     }
 
-    /// The form's pages from the preferences, with the two AI pages before Updates.
+    /// The form's pages from the preferences, with the three AI pages before Updates.
     pub(super) fn settings_pages(&mut self) -> Vec<Page> {
         self.settings_pages_offering(can_offer_default_app())
     }
@@ -911,8 +919,9 @@ impl App {
         c.efforts().iter().map(|e| e.to_string()).collect()
     }
 
-    /// The two AI pages: AI service (who the text is sent to and how you sign in) and AI rewrite
-    /// (what the rewrite does once connected). Their help is written at run time (where the text
+    /// The three AI pages: AI service (who the text is sent to and how you sign in), AI rewrite
+    /// (what the rewrite does once connected) and AI tasks (the task window's: what opens after
+    /// a run, and its limits). Their help is written at run time (where the text
     /// goes, what the server said), so it is always under its row: a new message does not re-lay
     /// the page.
     fn ai_pages(&self) -> Vec<Page> {
@@ -1093,9 +1102,54 @@ impl App {
             format!("Saved prompts ({n} prompt{s})"),
             "Edit…",
         ))));
+        let mut tasks = Vec::new();
+        {
+            use mdedit_core::prefs::{self as mp, AfterRun};
+            tasks.push(why(Item::new(
+                Row::choice(
+                    AI_AFTER_RUN,
+                    "After a run, open",
+                    &AfterRun::LABELS,
+                    p.ai_after_run.index(),
+                )
+                .help("Only the first note opens, never a tab for each."),
+            )
+            .dropdown()));
+            tasks.push(why(Item::new(
+                Row::number(
+                    AI_TASK_BATCH,
+                    "Files in one filing request",
+                    p.ai_task_batch as i32,
+                    mp::AI_TASK_BATCH_MIN as i32,
+                    mp::AI_TASK_BATCH_MAX as i32,
+                )
+                .help("File them sends a short digest of each file. Fewer means more requests."),
+            )));
+            tasks.push(why(Item::new(
+                Row::number(
+                    AI_REWRITE_FILES,
+                    "Files in one rewrite run",
+                    p.ai_rewrite_files as i32,
+                    mp::AI_REWRITE_FILES_MIN as i32,
+                    mp::AI_REWRITE_FILES_MAX as i32,
+                )
+                .help("Rewrite them sends each file whole, one request per file."),
+            )));
+            tasks.push(why(Item::new(
+                Row::number(
+                    AI_REWRITE_KB,
+                    "Largest rewrite (KB)",
+                    p.ai_rewrite_kb as i32,
+                    mp::AI_REWRITE_KB_MIN as i32,
+                    mp::AI_REWRITE_KB_MAX as i32,
+                )
+                .help("The most text one rewrite sends. A larger file is left out, its size on its row."),
+            )));
+        }
         vec![
             Page::new(AI_SERVICE, service).help_under(),
             Page::new(AI_REWRITE, rewrite).help_under(),
+            Page::new(AI_TASKS, tasks).help_under(),
         ]
     }
 
@@ -1260,6 +1314,12 @@ impl App {
             }
             (AI_REVIEW, Value::Bool(on)) => p.ai_review = on,
             (AI_PARALLEL, Value::Number(n)) => p.set_ai_parallel(c, n.max(0) as usize),
+            (AI_AFTER_RUN, Value::Choice(i)) => {
+                p.ai_after_run = mdedit_core::prefs::AfterRun::from_index(i)
+            }
+            (AI_TASK_BATCH, Value::Number(n)) => p.ai_task_batch = n.max(0) as usize,
+            (AI_REWRITE_FILES, Value::Number(n)) => p.ai_rewrite_files = n.max(0) as usize,
+            (AI_REWRITE_KB, Value::Number(n)) => p.ai_rewrite_kb = n.max(0) as usize,
             _ => return,
         }
         p.clamp();

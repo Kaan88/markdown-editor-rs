@@ -3544,3 +3544,34 @@ opens the window empty on File them. Nothing in the shared tree changed.
 
 Shots: `library-ai-menu` (a section's menu, the line at its head) and `task-from` (the window
 opened from a section), both themes. Tests: `app/library_ai_tests.rs`.
+
+## 87. After a run: what opens, and the task window's settings (2026-11-25, phase O)
+
+`docs/ai-pictures-plan.md` 4.4, D-211, D-203, D-214, after the owner's "no preview shows up after
+AI". **The cause**, found in the code: after three of the four tasks nothing opened a tab, so
+there was nothing for the preview to follow, and nothing ever asked for one; and a note just
+opened is still being read, so `is_markdown()` (which needs the text) said no. **What each run
+does now:**
+
+- **A Markdown note from a file** opens the note (`open_after_run(path, true)`): with "First note
+  and its preview" (the default) the preview is shown the way the Preview button shows it
+  (`show_preview`: the pane, mdview or side by side by Settings › Editor; never closes one; a tab
+  still loading a `.md` or `.markdown` file counts as previewable by its name).
+- **A split** opens its first note (`open_after_run(path, false)`) as well as putting the Notes
+  pane on it; the preview follows the tab if it was showing and is not turned on.
+- **Rewrite them**: after Apply, `check_changed` re-reads a tab that holds the file, so it and a
+  preview following it show the new text at once; a tab with unsaved changes is told instead.
+- **File them** opens nothing (the files were not changed): the Notes pane shows, unfolded to the
+  group's section, its cursor on the first line the run added (`library_show_link`).
+- "Nothing" opens no tab after a split or a note; the pane and the report still say where.
+
+In tests `show_preview` records the command it would run (`preview::preview_asked`) instead of
+starting the pane's renderer or mdview.
+
+**Settings › AI tasks** (`AI_TASKS`, rows 106 to 109): "After a run, open" (`AfterRun`:
+`preview`, `open`, `nothing` in `settings.ini` as `ai_after_run`), "Files in one filing request"
+(`ai_task_batch`), "Files in one rewrite run" (`ai_rewrite_files`), "Largest rewrite (KB)"
+(`ai_rewrite_kb`), each clamped on read and in `Prefs::clamp`. The window takes them as
+`task_ui::Limits` when it opens or comes back (`Limits::of`); a file's row keeps the limits it
+was counted with, so its reason says the figure ("only 3 files a run", "12 KB of 10 KB"). Shots
+`settings-ai-tasks` in both themes.

@@ -30,16 +30,18 @@ released. If `git log -1` is newer, doubt "In hand" first.
 ## In hand
 
 - **`f/ai-workflow`** (worktree `md-wt\ai-work`, from `main` `37cd0b9` plus the pictures plan;
-  not merged, not pushed): the pictures plan's first four phases (F, E, L, O, section 17) and
+  pushed, not merged): the pictures plan's first four phases (F, E, L, O, section 17) and
   the owner's two reports on the bar and the task window. Done on it: AI edit sits with its
   group when the Preview button is hidden; the task window's WHERE IT GOES row no longer draws
   the folder over the section field; **F**, a library picture opens in the system's viewer,
   File them leaves pictures out and its links are undone from AI runs (shared `50e3401`,
   `Kind::Links`); **E**, one "AI task…" command with an Add menu, "AI task on this file…" in a
   tab's menu only; **L**, the AI task on a note, a section or a group of the Notes pane, and
-  "AI task…" taking the keyboard's row. Next: O, the limits as settings (D-203), then Fable's review of the
-  milestone. The engine side (V0 measured) is `f/ai-engine` in `md-wti-engine`. Release notes
-  so far: `docs/release-notes/unreleased.md`.
+  "AI task…" taking the keyboard's row; **O**, what opens after a run and Settings › AI tasks
+  (D-211, D-203, D-214), the "no preview" report's cause found in the code and fixed (not tried
+  in a real window with the AI). Next: the milestone's measurements and Fable's review, then
+  C1 and C2, then V1 to V6 with the engine side (V0 measured), which is `f/ai-engine` in
+  `md-wt\ai-engine`. Release notes so far: `docs/release-notes/unreleased.md`.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
@@ -89,7 +91,6 @@ released. If `git log -1` is newer, doubt "In hand" first.
   folders emptied in a home outside the library stay.
 - **A debug build aborts on a closed stderr** (not a release one): something only debug prints
   with `std`'s `eprintln!`; CI runs release and is unaffected.
-- **No preview shows up after an AI task** (owner's report, 2026-11-24, not yet reproduced).
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
 
 ## Known gaps, not planned unless they get in the way
