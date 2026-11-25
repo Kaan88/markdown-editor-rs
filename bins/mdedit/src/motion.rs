@@ -17,7 +17,8 @@
 //!
 //! A toast rises and fades in, and fades and sinks out as it leaves of itself ([`TOAST`]),
 //! through the shared `anim::Stack`: a status takes the place of the toasts showing, in place
-//! (`Docs::set_toast`); a one-shot confirmation comes in under them (`Docs::confirm_toast`).
+//! (`Docs::set_toast`); a one-shot confirmation comes in under them, once they have lifted
+//! (`Docs::confirm_toast`).
 
 use crate::ui::{Popup, PopupKind};
 use mdshared_ui::anim::stack::Stack;
@@ -374,12 +375,14 @@ pub const TOAST_GAP: f32 = 8.0;
 pub const TOASTS_MAX: usize = 3;
 
 /// The toasts' stack: entering and leaving by [`TOAST`], at most [`TOASTS_MAX`] shown and as
-/// many kept.
+/// many kept, and a new one entering only once the toasts above it have lifted ("New waits for
+/// the lift", D-252).
 pub fn toasts() -> Stack<String> {
     Stack::new()
         .with_motion(TOAST.enter, TOAST.exit)
         .with_max(TOASTS_MAX)
         .with_max_drawn(TOASTS_MAX)
+        .with_wait_for_lift()
 }
 
 /// A toast as a frame shows it: its key, its text, its presence and how far above the bottom
@@ -411,10 +414,12 @@ impl Motion {
     ///
     /// A message set by `set_toast` takes the place of the toasts showing: the newest one shown
     /// takes its text at once and keeps its presence and its place (a readout under key repeat
-    /// never flickers), and the others go at once; with none shown it comes in as a new toast.
+    /// never flickers), and every other toast goes at once, the ones still leaving included;
+    /// with none shown it comes in as a new toast.
     /// One set by `confirm_toast`, a one-shot confirmation of its own, comes in under the ones
-    /// showing, or keeps the toast of the same text (brought back if it is leaving), so a repeat
-    /// never stands twice. A status cleared takes every toast away at once.
+    /// showing — the one just triggered, even one said again that stood higher, so it is the one
+    /// in sight — and then enters once they have lifted.
+    /// A status cleared takes every toast away at once.
     pub fn sync_toasts(&mut self, line: Option<ToastLine<'_>>, now: Instant) {
         self.toasts.tick(now);
         let serial = line.map(|l| l.serial);
@@ -429,16 +434,25 @@ impl Motion {
                 Some(l) if left.is_some_and(|d| !d.is_zero()) => {
                     let until = left.map(|d| now + d);
                     if l.stack {
+                        // A confirmation that is not the newest goes to the bottom: what the
+                        // user just triggered is the one in sight, even in a short window.
+                        if let Some((old, _)) = self.toasts.find(|t| t.as_str() == l.text) {
+                            self.toasts.remove(old);
+                        }
                         self.toasts.show(l.text.to_string(), until);
                     } else {
-                        let key = self.toasts.replace_newest(l.text.to_string(), until);
-                        let others: Vec<u64> = (self.toasts.current())
-                            .map(|(k, _)| k)
-                            .filter(|k| *k != key)
+                        // A status replaces in place, and every other toast goes at once — the
+                        // ones still playing their exit too, named by the last frame's list,
+                        // which holds them, not by `current`, which does not.
+                        let keep = self.toasts.current().last().map(|(k, _)| k);
+                        let others: Vec<u64> = (self.toast_frame.iter())
+                            .map(|s| s.key)
+                            .filter(|k| Some(*k) != keep)
                             .collect();
                         for k in others {
                             self.toasts.remove(k);
                         }
+                        self.toasts.replace_newest(l.text.to_string(), until);
                     }
                 }
                 Some(_) => {}

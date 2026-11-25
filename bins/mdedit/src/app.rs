@@ -1436,11 +1436,12 @@ impl App {
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
             let page = self.areas.text;
-            // The toasts, each lifted above the ones under it to a whole device pixel (so its
-            // text stays on the grid), at its presence. One that would reach above the page (a
-            // short window) is left out, except the bottom one: a window however short still
-            // shows its one status.
-            for s in &self.motion.toast_frame {
+            // The toasts, the newest last: it stands at the bottom, and drawing it after the
+            // ones above it puts its body over the shadow they throw. Each lifted above the
+            // ones under it to a whole device pixel (so its text stays on the grid), at its
+            // presence. One that would reach above the page (a short window) is left out,
+            // except the bottom one: a window however short still shows its one status.
+            for s in self.motion.toast_frame.iter().rev() {
                 let mut b = Bubble::toast(&mut p, &s.text, page);
                 b.rect.y = crate::motion::toast_y(b.rect.y, s.lift, self.scale);
                 if s.lift > 0.0 && b.rect.y < page.y + crate::motion::TOAST_GAP {
@@ -3918,27 +3919,42 @@ fn shot(mut app: App, path: &Path) -> i32 {
 }
 
 /// `--toast`: confirmations as toasts, the earlier ones at rest and stacked, the last one coming
-/// in under them; with `--motion-ms` it is that far into its entrance (and the ones above on
-/// their way up), on a clock moved by hand, at rest without it.
+/// in under them; with `--motion-ms` it is that far into its entrance, on a clock moved by hand,
+/// at rest without it. A toast pushed onto another waits for its lift before it enters, so a
+/// toast shot runs the animator on its own clock even at rest: what it draws is at rest, and
+/// still the same on every run.
 fn shot_toasts(app: &mut App) {
     let Some((last, earlier)) = app.args.toasts.split_last() else {
         return;
     };
     let (last, earlier) = (last.clone(), earlier.to_vec());
+    app.motion.shot_fade();
     app.compose();
     for text in &earlier {
         app.docs.confirm_toast(text);
         app.compose();
-    }
-    let moving = app.args.motion_ms;
-    if moving.is_some() {
-        app.motion.shot_fade();
-        app.compose();
+        shot_settle(app);
     }
     app.docs.confirm_toast(&last);
     app.compose();
-    for step in crate::motion::shot_steps(moving.unwrap_or(0)) {
-        app.motion.advance_ms(step);
+    match app.args.motion_ms {
+        Some(ms) => {
+            for step in crate::motion::shot_steps(ms) {
+                app.motion.advance_ms(step);
+                app.compose();
+            }
+        }
+        None => shot_settle(app),
+    }
+}
+
+/// Steps a shot's clock 16 ms at a time until nothing moves (a second's worth at most).
+fn shot_settle(app: &mut App) {
+    for _ in 0..63 {
+        if app.motion.due.is_none() {
+            break;
+        }
+        app.motion.advance_ms(16);
         app.compose();
     }
 }

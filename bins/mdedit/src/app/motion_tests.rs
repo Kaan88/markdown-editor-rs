@@ -727,6 +727,126 @@ fn a_second_confirmation_stacks_under_the_first_which_moves_up() {
     );
 }
 
+/// With motion on, the new confirmation is out until the ones above have lifted, then enters
+/// ("New waits for the lift", D-252).
+#[test]
+fn a_new_confirmation_enters_only_once_the_one_above_has_lifted() {
+    let mut a = moving();
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    settle(&mut a);
+    a.docs.confirm_toast("Image saved as a.png");
+    a.compose();
+    let mut entered = 0;
+    for _ in 0..30 {
+        tick(&mut a, 16);
+        a.compose();
+        let f = toasts(&a);
+        assert_eq!(f.len(), 2, "{f:?}");
+        if f[1].2 < STEP {
+            assert_eq!(
+                f[0].1, 0.0,
+                "in while the one above is still on its way up: {f:?}"
+            );
+        } else if f[0].1 > 0.0 {
+            entered += 1;
+        }
+    }
+    assert!(entered > 0, "and then it enters");
+    settle(&mut a);
+    assert_eq!(
+        toasts(&a),
+        [
+            ("Image saved as a.png".to_string(), 1.0, 0.0),
+            ("File path copied".to_string(), 1.0, STEP),
+        ]
+    );
+}
+
+/// The newest toast is drawn last, over the shadow the one above it throws: the top of its
+/// body is the pixels it has when it stands alone.
+#[test]
+fn the_newest_toast_covers_the_shadow_of_the_one_above() {
+    let text = "Image saved as a.png";
+    let (mut a, mut b) = pair();
+    // A toast pushed onto another waits for its lift, so the moving window is stepped to rest.
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    settle(&mut a);
+    a.docs.confirm_toast(text);
+    a.compose();
+    settle(&mut a);
+    assert_eq!(a.motion.toast_frame.len(), 2, "two at rest");
+    assert_eq!(a.motion.toast_frame[0].lift, 0.0);
+    b.docs.confirm_toast(text);
+    b.compose();
+    assert_eq!(b.motion.toast_frame.len(), 1, "one alone");
+    let rect = {
+        let mut p = Painter::new(&mut b.screen, &mut b.gfx, b.scale);
+        Bubble::toast(&mut p, text, b.areas.text).rect
+    };
+    assert_eq!(
+        (a.size, a.scale),
+        (b.size, b.scale),
+        "the two windows are alike"
+    );
+    // The top of the newest toast's body, clear of its rounded corners: where the shadow of
+    // the toast 44 px above it falls (it reaches 8 px past that one's bottom).
+    let s = a.scale;
+    let w = a.screen.width as usize;
+    let (x0, x1) = (
+        ((rect.x + 20.0) * s) as usize,
+        ((rect.right() - 20.0) * s) as usize,
+    );
+    let (y0, y1) = (
+        ((rect.y + 1.0) * s) as usize,
+        ((rect.y + 12.0) * s) as usize,
+    );
+    let mut differ = 0;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = (y * w + x) * 4;
+            if a.screen.pixels[i..i + 4] != b.screen.pixels[i..i + 4] {
+                differ += 1;
+            }
+        }
+    }
+    assert_eq!(
+        differ, 0,
+        "the shadow of the toast above shows on the newest one"
+    );
+}
+
+/// Under `Policy::Never` — a shot, a test, the setting off, reduced motion — a stacked toast is
+/// there at once: the wait for the lift is a delay, and a delay must not outlive motion switched
+/// off, or the toast would arrive 167 ms late with nothing moving. Shared's `Stack` waits anyway
+/// until shared PR 24 lands, so this is left out until the pin moves.
+#[test]
+#[ignore = "needs shared PR 24"]
+fn with_no_motion_two_confirmations_are_both_there_at_once() {
+    for how in ["still", "setting", "reduced"] {
+        let mut a = match how {
+            "still" => still(),
+            _ => moving(),
+        };
+        match how {
+            "reduced" => a.motion.set_reduced(true),
+            "setting" => a.docs.prefs.animations = false,
+            _ => {}
+        }
+        a.compose();
+        a.docs.confirm_toast("File path copied");
+        a.compose();
+        a.docs.confirm_toast("Image saved as a.png");
+        a.compose();
+        let now = toasts(&a);
+        assert_eq!(now.len(), 2, "{how}");
+        assert!(now.iter().all(|t| t.1 == 1.0), "{how}: {now:?}");
+        assert_eq!(a.motion.due, None, "{how}: nothing asked for");
+    }
+}
+
 #[test]
 fn a_status_takes_the_place_of_the_confirmations_showing() {
     let mut a = moving();
@@ -747,6 +867,39 @@ fn a_status_takes_the_place_of_the_confirmations_showing() {
         "in the newest one's place"
     );
     assert_eq!(now[0].text, "No more occurrences");
+}
+
+/// A status also takes away the toasts still playing their exit: it stands alone, with no echo
+/// of what it replaced left fading beside it.
+#[test]
+fn a_status_takes_away_the_toasts_still_leaving_too() {
+    let mut a = moving();
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    a.docs.confirm_toast("Path copied");
+    a.compose();
+    settle(&mut a);
+    tick(&mut a, PAST);
+    a.compose();
+    tick(&mut a, 32);
+    a.compose();
+    let leaving = toasts(&a);
+    assert!(
+        leaving.len() == 2 && leaving.iter().all(|t| t.1 < 1.0),
+        "both on their way out: {leaving:?}"
+    );
+    a.docs.set_toast("No more occurrences");
+    a.compose();
+    let one = toasts(&a);
+    assert_eq!(one.len(), 1, "the leaving ones go at once too: {one:?}");
+    assert_eq!(one[0].0, "No more occurrences");
+    settle(&mut a);
+    assert_eq!(
+        toasts(&a),
+        [("No more occurrences".to_string(), 1.0, 0.0)],
+        "and none comes back"
+    );
 }
 
 #[test]
@@ -793,6 +946,47 @@ fn the_same_confirmation_said_again_keeps_its_one_toast_even_while_it_leaves() {
     assert_eq!(toasts(&a).len(), 2, "brought back, not a second one");
     settle(&mut a);
     assert_eq!(toasts(&a), [("Path copied".to_string(), 1.0, 0.0)]);
+}
+
+/// A confirmation said again that is not the newest moves to the bottom, under the ones above:
+/// the one the user just triggered is the one in sight, even in a short window.
+#[test]
+fn a_confirmation_said_again_moves_to_the_bottom() {
+    let mut a = moving();
+    a.compose();
+    for text in ["File path copied", "Path copied", "Image saved as a.png"] {
+        a.docs.confirm_toast(text);
+        a.compose();
+        tick(&mut a, 16);
+        a.compose();
+    }
+    settle(&mut a);
+    let bottom_first =
+        |a: &App| -> Vec<String> { toasts(a).into_iter().map(|t| t.0).collect::<Vec<_>>() };
+    assert_eq!(
+        bottom_first(&a),
+        ["Image saved as a.png", "Path copied", "File path copied"]
+    );
+    // The oldest, still standing at the top, is triggered again.
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    assert_eq!(toasts(&a).len(), 3, "not a fourth: the same one moved");
+    assert_eq!(
+        toasts(&a)[0].0,
+        "File path copied",
+        "the one just triggered is at the bottom"
+    );
+    settle(&mut a);
+    let rest = toasts(&a);
+    assert_eq!(
+        rest.iter().map(|t| t.0.as_str()).collect::<Vec<_>>(),
+        ["File path copied", "Image saved as a.png", "Path copied"]
+    );
+    assert_eq!(
+        rest.iter().map(|t| t.2).collect::<Vec<_>>(),
+        [0.0, STEP, STEP * 2.0],
+        "and the rest stand above it in order"
+    );
 }
 
 #[test]
@@ -853,6 +1047,10 @@ fn a_cleared_status_takes_the_toasts_away_at_once() {
     a.compose();
     a.docs.confirm_toast("Path copied");
     a.compose();
+    // Both stand before the clear: the second has waited for the first to lift, so there is
+    // something for the clear to take away.
+    settle(&mut a);
+    assert_eq!(toasts(&a).len(), 2);
     a.docs.clear_toast();
     a.compose();
     assert!(toasts(&a).is_empty());
@@ -883,20 +1081,40 @@ fn a_message_set_while_a_toast_stands_asks_for_a_frame() {
 /// one. (With no other overlay, the overlays' bounds are the bubbles drawn.)
 #[test]
 fn toasts_that_would_reach_above_the_page_are_left_out() {
-    for (height, drawn) in [(800, 3), (190, 1)] {
+    for (height, drawn) in [(800, 3), (190, 1), (140, 1)] {
         let mut a = still();
         a.size = (700, height);
         a.compose();
+        if height < 190 {
+            // A page shorter than a toast and its 28 px of air under it: no lifted toast
+            // could be drawn, and the bottom one must be.
+            assert!(
+                a.areas.text.h < 72.0,
+                "{height} px high: the page is {} tall",
+                a.areas.text.h
+            );
+        }
         for text in ["one copied", "two copied", "three copied"] {
             a.docs.confirm_toast(text);
             a.compose();
         }
         assert_eq!(a.motion.toast_frame.len(), 3);
         assert_eq!(a.overlay_bounds.len(), drawn, "{height} px high");
+        if height < 190 {
+            assert_eq!(
+                (
+                    a.motion.toast_frame[0].text.as_str(),
+                    a.motion.toast_frame[0].lift
+                ),
+                ("three copied", 0.0),
+                "the bottom one, at rest at the bottom"
+            );
+        }
     }
 }
 
-/// A lifted toast stands on a whole device pixel at any scale.
+/// A lifted toast stands on a whole device pixel at any scale: the arithmetic, and a real
+/// window at 1.25 with a second confirmation arriving and the one above on its way up.
 #[test]
 fn a_lifting_toast_stands_on_a_whole_device_pixel() {
     for scale in [1.0_f32, 1.25, 1.5] {
@@ -906,4 +1124,63 @@ fn a_lifting_toast_stands_on_a_whole_device_pixel() {
             assert!((dev - dev.round()).abs() < 1e-3, "{scale} {lift}: {dev}");
         }
     }
+    // A toast's bounds start 18 px above its place (16 for its shadow, 2 more for the rise).
+    // The toast above the newest is moved up by a whole number of device pixels: what it is
+    // drawn at differs from its place at rest by that much, so its text is on the grid it has
+    // at rest. (The toasts are drawn top first, the newest last.)
+    let mut a = moving();
+    a.scale = 1.25;
+    a.size = (900, 700);
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    settle(&mut a);
+    assert_eq!(a.overlay_bounds.len(), 1, "one toast at rest");
+    let rest = a.overlay_bounds[0].y;
+    a.docs.confirm_toast("Image saved as a.png");
+    a.compose();
+    let mut lifted = false;
+    for _ in 0..6 {
+        tick(&mut a, 16);
+        a.compose();
+        let f = toasts(&a);
+        assert_eq!(f.len(), 2, "{f:?}");
+        if f[1].2 > 0.0 && f[1].2 < STEP {
+            lifted = true;
+            assert_eq!(a.overlay_bounds.len(), 2, "the toast above and the new one");
+            let dev = (rest - a.overlay_bounds[0].y) * a.scale;
+            assert!(
+                (dev - dev.round()).abs() < 1e-3,
+                "moved by {dev} device px, not a whole number: {:?}",
+                a.overlay_bounds
+            );
+        }
+    }
+    assert!(lifted, "the toast above never moved");
+}
+
+/// A message whose time is already past when the frame takes it in shows nothing: a window
+/// resumed from a sleep does not show a stale readout.
+#[test]
+fn a_message_already_past_its_time_is_not_shown() {
+    let mut a = moving();
+    a.compose();
+    let now = a.motion.now();
+    let line = crate::motion::ToastLine {
+        serial: 1,
+        text: "Saved",
+        until: Instant::now() - Duration::from_secs(5),
+        stack: false,
+    };
+    a.motion.anim.begin_frame(now);
+    a.motion.sync_toasts(Some(line), now);
+    a.motion.anim.end_frame();
+    assert!(toasts(&a).is_empty(), "{:?}", toasts(&a));
+    assert!(a.motion.toasts.is_empty());
+    // The same for a confirmation.
+    let line = crate::motion::ToastLine { serial: 2, ..line };
+    a.motion.anim.begin_frame(now);
+    a.motion.sync_toasts(Some(line), now);
+    a.motion.anim.end_frame();
+    assert!(a.motion.toasts.is_empty(), "a confirmation too");
 }

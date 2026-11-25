@@ -78,17 +78,20 @@ shot menu-main --light --menu main "$fx/sample.rs"
 shot menu-main-fade --light --menu main --menu-fade-ms 40 "$fx/sample.rs"
 shot menu-main-fade-dark --dark --menu main --menu-fade-ms 40 "$fx/sample.rs"
 # Toasts (--toast, a confirmation each; --motion-ms, the last one part way in): one at rest; one
-# 50 ms into its entrance (faded, below its place); a second 67 ms in under the first, which is on
-# its way up; two at rest; three in a short window, where the one that would reach above the page
-# is left out.
+# 50 ms into its entrance (faded, below its place); a second 200 ms in — the first has lifted out
+# of its way and the second is part way in under it; two at rest; the first confirmed again, which
+# moves it to the bottom instead of standing twice; three in a short window, where the one that
+# would reach above the page is left out.
 shot toast-light --light --toast "File path copied" "$fx/sample.rs"
 shot toast-dark --dark --toast "File path copied" "$fx/sample.rs"
 shot toast-rising-light --light --toast "File path copied" --motion-ms 50 "$fx/sample.rs"
 shot toast-rising-dark --dark --toast "File path copied" --motion-ms 50 "$fx/sample.rs"
-shot toasts-stacking-light --light --toast "File path copied" --toast "Image saved as a.png" --motion-ms 67 "$fx/sample.rs"
-shot toasts-stacking-dark --dark --toast "File path copied" --toast "Image saved as a.png" --motion-ms 67 "$fx/sample.rs"
+shot toasts-stacking-light --light --toast "File path copied" --toast "Image saved as a.png" --motion-ms 200 "$fx/sample.rs"
+shot toasts-stacking-dark --dark --toast "File path copied" --toast "Image saved as a.png" --motion-ms 200 "$fx/sample.rs"
 shot toasts-stacked-light --light --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
 shot toasts-stacked-dark --dark --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
+shot toast-repeated-light --light --toast "File path copied" --toast "Image saved as a.png" --toast "File path copied" "$fx/sample.rs"
+shot toast-repeated-dark --dark --toast "File path copied" --toast "Image saved as a.png" --toast "File path copied" "$fx/sample.rs"
 shot toasts-short-light --light --size 520x220 --toast "Path copied" --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
 shot toasts-short-dark --dark --size 520x220 --toast "Path copied" --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
 shot menu-recent --light --menu recent "$fx/sample.rs" "$fx/sample.md" "$fx/sample.toml"
