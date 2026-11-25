@@ -3656,3 +3656,49 @@ any other choice, a press outside the menu or Escape forgets it. The task window
 it is drawn at (`s.win`), so its menus are placed in the window as it is after a resize. Split
 them opens only its first run's note by a mark of the window's own (`split_opened`), not by its
 files done, which Rewrite them in the same window marks too.
+
+## 89. File them moves the files in (2026-11-25, phase C2)
+
+THE FILES has a third choice, **Move them in** (`FilesGo::Move`, key `move`). It is C1's copy
+and then the originals go: nothing is moved by a rename, so a failure part way leaves a copy and
+an original, never a file in neither place.
+
+**What goes** is `copy_in::move_plan(plan, written, library, home)`, asked once the copies are
+made and listed. An original goes only when it is on the copy's drive (else its row's reason is
+"on another drive: copied"), still the bytes that were copied, listed by no group, and linked to
+by no note of the library outside the library's reach (the library folder and the group's home),
+since undo could not give that note back. A picture goes only when no other file shows it: the
+files the library lists and the Markdown files beside the originals, read as the mover's carry
+rule reads them (`Users::others_than`). The library's notes inside the reach that link to an
+original that goes are rewritten to lead to its copy (`Relink`). Any other file on the disk is
+not looked for; the footer says so on Move them in (`MOVE_WARNING`). The texts undo needs (a
+rewritten note's text before, an original whose copy's links changed) are kept up to 3 MiB, past
+which the file is copied only.
+
+**The order.** The copies, the lines, then the record (`runs::move_in_record`, a run of copies
+with `removed` and `originals`), then `copy_in::move_out`: each note rewritten while it still says
+what was read, then each original to the Recycle Bin (`recycle::Through`) while it is the bytes
+that were copied and its copy is there, and only when every note that links to it was rewritten.
+A record that cannot be written moves nothing. The toast says what was moved, what was only
+copied and why, and how many notes now lead to the copies (`task_ui::moved_text`).
+
+**Undo** (D-210) puts back before it removes: each original at the path the record holds, only
+while nothing is there, only in a folder that is still there, only with its own bytes (its kept
+text, or the copy's while they are the original's), made with `create_new`; each rewritten note
+while it holds what the run wrote. Then the copies go as C1's do, since their originals are there
+again. What cannot be put back is kept and listed (`UndoPlan::put_back_kept`); the question says
+"Puts back N files…" (`UndoPlan::put_back`), and a copy kept because its original is gone says
+so (`copies_kept`), not "changed since". `Reach::of` takes a taken original only as an absolute
+path with no `..` whose copy is inside the reach.
+
+**Fable's second review of C1, the nits.** A file that stays after all hands the pictures it was
+to write to another file of the run that shows them; the link passes run until a chain of any
+length settles (at most one more than the files); the row an AI edit or main menu click
+remembered lives in that menu (`Popup::library_row`) and dies with it; a new Split them run opens
+its first note however many the window ran before.
+
+In a narrow window the task switch drops "them" ("File · Split · Rewrite") and THE FILES reads "Link · Copy · Move" when its shorter words do not fit, so its three segments are never cut.
+
+Tests: `moves_copy_tests.rs` (+7), `runs_copies_tests.rs` (+4) in shared; `task_tests` (+3),
+`library_ai_tests`, `replace_ui` here. Shots `task-files-move`, `task-files-move-520`, both
+themes.

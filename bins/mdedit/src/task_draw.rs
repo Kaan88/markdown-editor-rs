@@ -73,7 +73,20 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     hits.push((Hit::AddFiles, add));
 
     // ---- what to do -----------------------------------------------------------------------------
-    let labels: Vec<&str> = TaskKind::ALL.iter().map(|k| k.label()).collect();
+    // On File them THE FILES needs room beside it: in a narrow window the tasks lose their
+    // "them" first ("File · Split · Rewrite"), so the three ways the files go stay whole.
+    let mut labels: Vec<&str> = TaskKind::ALL.iter().map(|k| k.label()).collect();
+    let files_need = if s.task == TaskKind::File {
+        switch_width(p, &["Link", "Copy", "Move"]) + 16.0
+    } else {
+        0.0
+    };
+    if switch_width(p, &labels) + files_need > inner {
+        labels = TaskKind::ALL
+            .iter()
+            .map(|k| k.label().trim_end_matches(" them"))
+            .collect();
+    }
     let sw_w = switch_width(p, &labels).min(inner);
     let sw = Rect::new(x, g.task.y, sw_w, SEGMENT_H);
     let selected = TaskKind::ALL.iter().position(|k| *k == s.task);
@@ -90,12 +103,15 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         // room for it.
         use mdedit_core::prefs::FilesGo;
         let room = inner - sw_w - 16.0;
-        let full = ["Link them", "Copy them in"];
-        let short = ["Link", "Copy in"];
+        let full = ["Link them", "Copy them in", "Move them in"];
+        let short = ["Link", "Copy in", "Move in"];
+        let shortest = ["Link", "Copy", "Move"];
         let labels: &[&str] = if switch_width(p, &full) <= room {
             &full
-        } else {
+        } else if switch_width(p, &short) <= room {
             &short
+        } else {
+            &shortest
         };
         let fw = switch_width(p, labels).min(room.max(0.0));
         let caption = "THE FILES";
@@ -665,8 +681,11 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     // What goes and what it costs, and why it cannot, at the left.
     let room = (link.x - x - 12.0).max(0.0);
     let sum = s.summary();
+    let moving = s.task == TaskKind::File && s.files_go == mdedit_core::prefs::FilesGo::Move;
     let note = if let Some(why) = &s.blocked {
         why.clone()
+    } else if moving {
+        task_ui::MOVE_WARNING.to_string()
     } else if ai_off {
         "The AI connection is off. Rewrite them needs it; File them and Split them do not."
             .to_string()
@@ -696,7 +715,9 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         x,
         footer.cy() + 9.0,
         &note,
-        if s.blocked.is_some() || ai_off {
+        if moving && s.blocked.is_none() {
+            pal.text
+        } else if s.blocked.is_some() || ai_off {
             pal.faint
         } else {
             pal.muted

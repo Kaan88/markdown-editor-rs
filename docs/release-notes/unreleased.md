@@ -36,3 +36,8 @@ mdedit, not yet released: the AI task window made one command with an Add menu, 
   group's folder, a Markdown file with the pictures it shows from its own folder, and the library
   links to the copy; your files are left as they were. THE FILES beside the task switches back to
   "Link them". AI runs can undo a copy while it is unchanged.
+- **"Move them in"**, the third choice of THE FILES: the files are copied in as above, and then
+  your originals go to the Recycle Bin. Notes of the library that link to a moved file are made to
+  lead to its copy; a file on another drive, or one something else still needs, is copied only,
+  and the message says why. Files outside the library that link to them are not looked for, and
+  the window says so. AI runs puts each file back where it was.

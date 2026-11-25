@@ -112,8 +112,8 @@ pub struct LibraryPane {
     /// The keyboard is in the pane: its keys move the cursor, and none reaches the text.
     pub focused: bool,
     /// The row the keyboard was on when a press on AI edit or the main menu took the keyboard
-    /// away: "AI task…" chosen from that menu works on it (pictures plan 4.2). Only the menu's
-    /// choice reads it; it goes when the menu closes any other way.
+    /// away (pictures plan 4.2), until the release opens that menu and it moves into the menu
+    /// (`Popup::library_row`).
     pub menu_row: Option<usize>,
     /// The cursor's row, and what the row is (see [`RowId`]) so that it stays on the same note
     /// or heading when the rows are made again.

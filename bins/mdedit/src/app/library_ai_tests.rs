@@ -311,10 +311,26 @@ fn a_menu_closed_without_a_choice_forgets_the_pane_s_row() {
     a.ui.mouse = (r.cx(), r.cy());
     a.left_press();
     a.left_release();
-    assert!(a.ui.library.menu_row.is_some(), "the row is remembered");
+    assert!(
+        a.ui.popup.as_ref().is_some_and(|p| p.library_row.is_some()),
+        "the menu holds the row"
+    );
     a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Escape), None);
-    assert_eq!(a.ui.library.menu_row, None);
-    a.command(C::AiTaskFiles);
+    assert!(a.ui.popup.is_none());
+    // The AI menu again, from the keyboard this time: it holds no row.
+    a.ui.keyboard = true;
+    a.open_popup(crate::ui::PopupKind::Ai);
+    let item =
+        a.ui.popup
+            .as_ref()
+            .expect("the AI menu is open")
+            .menu
+            .items
+            .iter()
+            .find(|i| i.label.starts_with("AI tas&k"))
+            .map(|i| i.id.clone())
+            .expect("AI task… is in the AI menu");
+    a.choose(item, false);
     assert!(files(&a).is_empty(), "the window opens empty");
     let _ = std::fs::remove_dir_all(&l.dir);
 }

@@ -1426,7 +1426,14 @@ impl App {
         let Some(menu) = self.build_menu(kind, x, y, right) else {
             return;
         };
-        self.ui.popup = Some(Popup::with_cues(kind, menu, self.ui.keyboard));
+        let mut popup = Popup::with_cues(kind, menu, self.ui.keyboard);
+        // The row a click on AI edit or the main menu remembered goes into the menu it opens,
+        // and lives only as long as that menu.
+        let row = self.ui.library.menu_row.take();
+        if !self.ui.keyboard && matches!(kind, PopupKind::Ai | PopupKind::Main) {
+            popup.library_row = row;
+        }
+        self.ui.popup = Some(popup);
         self.ui.tip = None;
     }
 
@@ -1512,7 +1519,8 @@ impl App {
         }
         // "AI task…" chosen from the menu a press on the bar opened works on the row the Notes
         // pane's keyboard was on before that press; any other choice forgets the row.
-        let row = self.ui.library.menu_row.take();
+        let row = self.ui.popup.as_ref().and_then(|p| p.library_row);
+        self.ui.library.menu_row = None;
         self.ui.popup = None;
         if matches!(act, Act::Cmd(C::AiTaskFiles))
             && let Some(i) = row.filter(|&i| self.library_row_has_notes(i))

@@ -2215,3 +2215,15 @@ removed a copy whenever it was the bytes written and nothing listed it.
 **Why.** Fable's review of C1: the owner may have deleted or changed the original after the
 copy was made, and then the copy is the only one; undo is the one thing that deletes.
 **Overturned by.** The owner.
+
+## D-218 · 2026-11-25 · What Move them in moves, and what it leaves
+
+**Decision.** Move them in is a copy, then the original to the Recycle Bin, never a rename. An
+original stays (copied only) when it is on another drive, changed since it was copied, listed by
+a group, or linked to by a library note outside the library's folder and the group's home; a
+picture stays when another file beside it or listed by the library shows it. Library notes inside
+that reach are rewritten to lead to the copy; nothing else on the disk is looked for, and the
+footer says so. Undo follows D-210.
+**Why.** Every step can be undone or leaves both files: a copy that failed half way never loses
+the original, the bin holds what was taken, and a note undo could not give back is never changed.
+**Overturned by.** The owner.

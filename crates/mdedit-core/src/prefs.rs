@@ -268,17 +268,20 @@ pub enum FilesGo {
     Copy,
     /// A line in the group; the file stays where it is.
     Link,
+    /// Copied in as `Copy`, and then the original is gone from where it was (phase C2, D-210).
+    Move,
 }
 
 impl FilesGo {
     /// In the order the switch shows them.
-    pub const ALL: [FilesGo; 2] = [FilesGo::Link, FilesGo::Copy];
+    pub const ALL: [FilesGo; 3] = [FilesGo::Link, FilesGo::Copy, FilesGo::Move];
 
     /// The value in the settings file.
     pub fn key(self) -> &'static str {
         match self {
             FilesGo::Copy => "copy",
             FilesGo::Link => "link",
+            FilesGo::Move => "move",
         }
     }
 

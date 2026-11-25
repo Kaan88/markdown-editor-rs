@@ -589,6 +589,10 @@ pub struct Popup {
     /// Whether the access-key underlines show (the menu was opened by keyboard, or a key has
     /// been used in it since). The shared menu cannot be asked, so it is kept here.
     pub cues: bool,
+    /// The Notes pane's row the keyboard was on when the click that opened this menu took the
+    /// keyboard away: "AI task…" chosen here works on it. It goes with the menu, however the
+    /// menu closes (Fable's second review of C1).
+    pub library_row: Option<usize>,
 }
 
 /// How long the pointer rests on an item with a submenu before the submenu opens.
@@ -620,6 +624,7 @@ impl Popup {
             sub: None,
             dwell: None,
             cues: true,
+            library_row: None,
         }
     }
 

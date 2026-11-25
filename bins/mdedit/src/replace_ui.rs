@@ -495,11 +495,51 @@ impl Outcome {
                 count: 0,
             });
         }
+        // What a "Move them in" run took away, back where it was (D-210).
+        if !done.restored.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Put back where it was ({})",
+                done.restored.len()
+            )));
+            rows.extend(done.restored.iter().map(|p| OutRow::Changed {
+                name: rel(root, p),
+                count: 0,
+            }));
+        }
+        // A copy kept because its original is gone, and what could not be put back, are kept
+        // for those reasons, not for a change of theirs (Fable's second review of C1).
+        let copies_kept: Vec<PathBuf> = done
+            .plan
+            .as_ref()
+            .map(|p| p.copies_kept.clone())
+            .unwrap_or_default();
+        let listed = |p: &PathBuf| copies_kept.contains(p) || done.restore_kept.contains(p);
+        if !copies_kept.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Copies kept, their originals gone or changed ({})",
+                copies_kept.len()
+            )));
+            rows.extend(copies_kept.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "its original is gone or changed, so it may be the only copy".to_string(),
+            }));
+        }
+        if !done.restore_kept.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Not put back, kept ({})",
+                done.restore_kept.len()
+            )));
+            rows.extend(done.restore_kept.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "its place is taken or it changed since".to_string(),
+            }));
+        }
         // A file the Recycle Bin would not take is kept for that reason, not for a change.
         let changed: Vec<&PathBuf> = done
             .kept
             .iter()
             .filter(|p| !done.bin_failures.iter().any(|f| &f.path == *p))
+            .filter(|p| !listed(p))
             .collect();
         if !changed.is_empty() {
             rows.push(OutRow::Heading(format!(
@@ -1574,6 +1614,41 @@ mod tests {
         let osaka = Path::new("Trip").join("Osaka.md").display().to_string();
         assert_eq!(names, vec![nara.as_str(), osaka.as_str()]);
         assert!(out.title.contains("1 file"), "{}", out.title);
+    }
+
+    /// Fable's second review of C1, nit: a copy kept because its original is gone is said to be
+    /// kept for that, not as "changed since"; what a move put back is listed.
+    #[test]
+    fn a_copy_kept_for_its_original_says_so() {
+        let lib = Path::new("/lib");
+        let copy = lib.join("Trips").join("trip.md");
+        let done = mdedit_core::runs::UndoReport {
+            kept: vec![copy.clone()],
+            restored: vec![PathBuf::from("/desk/a.md")],
+            plan: Some(mdedit_core::runs::UndoPlan {
+                copies_kept: vec![copy.clone()],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let out = Outcome::undone(&done, lib);
+        assert!(
+            out.rows
+                .contains(&OutRow::Heading("Put back where it was (1)".to_string())),
+            "{:?}",
+            out.rows
+        );
+        assert!(out.rows.iter().any(|r| matches!(
+            r,
+            OutRow::Skipped { why, .. } if why.contains("its original is gone or changed")
+        )));
+        assert!(
+            !out.rows
+                .iter()
+                .any(|r| matches!(r, OutRow::Skipped { why, .. } if why == "changed since, kept")),
+            "{:?}",
+            out.rows
+        );
     }
 
     #[test]

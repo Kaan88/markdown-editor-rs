@@ -792,6 +792,7 @@ impl App {
                         originals: Vec::new(),
                         added: Vec::new(),
                         copied: Vec::new(),
+                        removed: Vec::new(),
                     },
                     path: root.join(".runs").join(format!("{started}-split.json")),
                     library: root.clone(),

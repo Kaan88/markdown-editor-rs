@@ -481,6 +481,7 @@ impl App {
             originals: Vec::new(),
             added: Vec::new(),
             copied: Vec::new(),
+            removed: Vec::new(),
         };
         let report = Report {
             record: Some(record),

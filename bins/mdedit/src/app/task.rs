@@ -885,6 +885,8 @@ impl App {
         }
         s.ai_on = on;
         s.blocked = None;
+        // A new run opens its first note again, however many runs this window made before.
+        s.split_opened = false;
         let task = s.task;
         let count = s.count();
         let empty = s.instruction.text().trim().is_empty();
@@ -1134,7 +1136,8 @@ impl App {
         // THE FILES on "Copy them in" (pictures plan 4.3, D-209): the copies are made first,
         // each in the folder its group and section give it, and the lines lead to them. A file
         // inside the library's folder or the group's home is linked where it is.
-        let copying = s.files_go == mdedit_core::prefs::FilesGo::Copy;
+        let copying = s.files_go != mdedit_core::prefs::FilesGo::Link;
+        let moving = s.files_go == mdedit_core::prefs::FilesGo::Move;
         let mut copies: Option<(
             Vec<mdedit_core::moves::copy_in::Planned>,
             mdedit_core::moves::copy_in::Written,
@@ -1230,13 +1233,38 @@ impl App {
                 let home = mdshared_app::library::parse(&before, &base)
                     .home
                     .unwrap_or_else(|| group.home.clone());
+                let reach_home = home.clone();
                 let rec_group = runs::Group {
                     name: group.name.clone(),
                     file: group.file.clone(),
                     created,
                     home,
                 };
+                // "Move them in" (phase C2, D-210): what goes from where it was is decided now,
+                // with the lines in, and written into the record before any of it is done.
+                let mut moving_plan = None;
                 let made = match &copies {
+                    Some((plan, written)) if moving => {
+                        let mp = mdedit_core::moves::copy_in::move_plan(
+                            plan,
+                            written,
+                            &library,
+                            &reach_home,
+                        );
+                        let made = runs::move_in_record(
+                            &library,
+                            &instruction,
+                            rec_group,
+                            &links,
+                            &before,
+                            written,
+                            &mp,
+                        );
+                        if made.is_ok() {
+                            moving_plan = Some(mp);
+                        }
+                        made
+                    }
                     Some((_, written)) => runs::copies_record(
                         &library,
                         &instruction,
@@ -1259,9 +1287,25 @@ impl App {
                 } else {
                     format!("{n} files")
                 };
-                let copied = copies
-                    .as_ref()
-                    .map(|(plan, written)| task_ui::copied_text(plan, written));
+                // The originals go last, once the record holds them: the library's notes that
+                // lead to them first, then each original to the Recycle Bin. A record that could
+                // not be written moves nothing: the files are copied in.
+                let moved_out = moving_plan.as_ref().map(|mp| {
+                    mdedit_core::moves::copy_in::move_out(
+                        mp,
+                        &mut crate::recycle::Through(&mut *self.recycle),
+                    )
+                });
+                if moved_out.as_ref().is_some_and(|o| !o.relinked.is_empty()) {
+                    self.library_load();
+                    self.library_rows();
+                }
+                let copied = copies.as_ref().map(|(plan, written)| {
+                    match (moving_plan.as_ref(), moved_out.as_ref()) {
+                        (Some(mp), Some(out)) => task_ui::moved_text(plan, mp, out),
+                        _ => task_ui::copied_text(plan, written),
+                    }
+                });
                 match made {
                     Ok(_) => self.docs.set_toast(&match copied {
                         Some(c) => format!(
@@ -2243,7 +2287,7 @@ impl App {
         if name == "files-plan" {
             demo_plan(s);
         }
-        if name == "files-copy" || name == "files-link" {
+        if name == "files-copy" || name == "files-link" || name == "files-move" {
             // THE FILES (pictures plan 4.3, D-209) on the plan face: on "Copy them in" each row
             // says whether its file is copied in, and one already inside the library (made up
             // for the shot) is linked where it is; "files-link" is the switch on "Link them".
@@ -2259,6 +2303,9 @@ impl App {
             s.library = library;
             if name == "files-link" {
                 s.files_go = mdedit_core::prefs::FilesGo::Link;
+            }
+            if name == "files-move" {
+                s.files_go = mdedit_core::prefs::FilesGo::Move;
             }
         }
         if name == "files-from" {

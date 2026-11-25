@@ -1839,3 +1839,86 @@ fn a_copy_the_library_lists_already_is_not_listed_twice() {
     assert!(toast(&a).contains("lists every one"), "{}", toast(&a));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// File them on "Move them in" (phase C2): a file filed with its picture goes in as File them's
+/// copy does, and then the original and the picture are in the Recycle Bin; "AI runs…" puts them
+/// back where they were and takes the copies away.
+#[test]
+fn move_them_in_moves_the_files_and_undo_puts_them_back() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-move", TaskKind::File, Vec::new());
+    a.recycle = Box::new(crate::recycle::FolderBin::new(&dir.join("bin")));
+    let md = trip_with_picture(&dir);
+    let picture = dir.join("desk").join("img").join("beach.png");
+    a.task_add_paths(vec![md.clone()]);
+    with_group(&mut a, "Trips");
+    a.task_act(Hit::FilesGo(FilesGo::Move));
+    a.task_run();
+    a.task_file_write();
+    assert!(a.task.is_none(), "the move is in: {}", toast(&a));
+    assert!(!md.exists() && !picture.exists(), "moved: {}", toast(&a));
+    assert!(
+        toast(&a).contains("1 moved in with 1 picture"),
+        "{}",
+        toast(&a)
+    );
+    let library = dir.join("library");
+    let copy = library.join("Trips").join("trip.md");
+    assert_eq!(
+        std::fs::read_to_string(&copy).expect("the copy"),
+        "# Trip\n\n![Beach](img/beach.png)\n"
+    );
+    let (list, _) = runs::list_all(&library);
+    assert_eq!(list.len(), 1, "one record");
+    a.run_undo(list[0].path.clone());
+    assert_eq!(
+        std::fs::read_to_string(&md).expect("put back"),
+        "# Trip\n\n![Beach](img/beach.png)\n"
+    );
+    assert_eq!(std::fs::read(&picture).expect("put back"), b"\x89PNG beach");
+    assert!(!copy.exists(), "the copy goes once its original is back");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// On "Move them in" a row says its file is moved in, and the footer warns that files outside
+/// the library that link to them are not looked for.
+#[test]
+fn a_row_says_its_file_is_moved_in() {
+    use mdedit_core::prefs::FilesGo;
+    let (mut a, dir) = open("task-move-note", TaskKind::File, Vec::new());
+    let outside = pasta(&dir);
+    a.task_add_paths(vec![outside]);
+    a.task_act(Hit::FilesGo(FilesGo::Move));
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.copy_note(0), Some("moved in"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's second review of C1, nit: a second Split them in the same window opens its first
+/// note too; only the later files of one run open none.
+#[test]
+fn a_second_split_in_the_same_window_opens_its_note() {
+    let (mut a, dir) = open("task-split-twice", TaskKind::Split, Vec::new());
+    let kyoto = trip(&dir, "kyoto.md", "Kyoto");
+    let nara = trip(&dir, "nara.md", "Nara");
+    a.task_add_paths(vec![kyoto, nara]);
+    with_group(&mut a, "Trips");
+    a.task_run();
+    a.plan_write();
+    assert!(a.plan.is_some(), "nara.md's plan");
+    a.plan_write();
+    let tabs = a.docs.tabs.len();
+    let window = a.task_parked.take().or_else(|| a.task.take());
+    assert!(
+        window.as_ref().is_some_and(|w| w.split_opened),
+        "the first run opened its note"
+    );
+    a.task = window;
+    let osaka = trip(&dir, "osaka.md", "Osaka");
+    a.task_add_paths(vec![osaka]);
+    a.task_run();
+    assert!(a.plan.is_some(), "osaka.md's plan");
+    a.plan_write();
+    assert_eq!(a.docs.tabs.len(), tabs + 1, "the second run's note opens");
+    let _ = std::fs::remove_dir_all(&dir);
+}

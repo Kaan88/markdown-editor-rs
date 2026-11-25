@@ -41,12 +41,13 @@ released. If `git log -1` is newer, doubt "In hand" first.
   (D-211, D-203, D-214), the "no preview" report's cause found in the code and fixed (not tried
   in a real window with the AI); measured against `main`, no change on the budgets
   (`docs/measurements/2026-11-25-ai-workflow-m1.md`); **C1**, File them copies the files in by
-  default with their pictures (D-215, D-217, shared branch `f/copy-in` `6762fff`, not merged
-  into shared `main`). Fable reviewed the milestone (VERDICT: FIX, 12 points, D-216), then the
-  fixes and C1 (VERDICT: FIX, 7 points: the copy plan's second pass, folders above the home, A7
-  for copies, the pane's keyboard through a menu, a copy's original on undo, the window's size,
-  nits); each fixed with a test that fails without it. Next: Fable's next look, then C2, then
-  V1 to V6 with the engine side (V0 measured), which is `f/ai-engine` in
+  default with their pictures (D-215, D-217); Fable reviewed the milestone and C1 three times,
+  VERDICT: OK on the third (D-216; its last nits fixed in C2's round); **C2**, Move them in:
+  the copy, then the originals to the Recycle Bin, the library's notes inside its reach
+  rewritten to the copies, undo putting each original back at its own path (D-210, D-218,
+  DESIGN 89; shared branch `f/move-in` `60eeb51` on `f/copy-in`, neither merged into shared
+  `main`). Not tried in a real window with real files. Next: Fable's review of C2, then V1 to
+  V6 with the engine side (V0 measured), which is `f/ai-engine` in
   `md-wt\ai-engine`. Release notes so far: `docs/release-notes/unreleased.md`.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 

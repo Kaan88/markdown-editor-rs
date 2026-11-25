@@ -343,6 +343,72 @@ pub fn copied_text(
     parts.join(", ")
 }
 
+/// The footer's warning on "Move them in" (pictures plan 4.3): the library's notes that link to
+/// a moved file are rewritten, and nothing else on the disk is looked for.
+pub const MOVE_WARNING: &str =
+    "Moved in: files outside the library that link to them will not find them.";
+
+/// What a run of "Move them in" did, for its toast: "2 moved in with 3 pictures, 1 copied (on
+/// another drive: copied), 1 library note now leads to its copy".
+pub fn moved_text(
+    plan: &[mdedit_core::moves::copy_in::Planned],
+    mp: &mdedit_core::moves::copy_in::MovePlan,
+    out: &mdedit_core::moves::copy_in::MoveOut,
+) -> String {
+    use mdedit_core::moves::copy_in::Copy;
+    let gone = |p: &std::path::Path| {
+        out.removed
+            .iter()
+            .any(|r| mdshared_app::paths::same_path(r, p))
+    };
+    let filed: Vec<_> = plan
+        .iter()
+        .filter(|p| !matches!(p.copy, Copy::Stays { .. }))
+        .collect();
+    let moved = filed.iter().filter(|p| gone(&p.from)).count();
+    let pictures = out
+        .removed
+        .iter()
+        .filter(|r| {
+            !plan
+                .iter()
+                .any(|p| mdshared_app::paths::same_path(&p.from, r))
+        })
+        .count();
+    let copied: Vec<_> = filed.iter().filter(|p| !gone(&p.from)).collect();
+    let stays = plan.len() - filed.len();
+    let mut parts: Vec<String> = Vec::new();
+    if moved > 0 {
+        parts.push(match pictures {
+            0 => format!("{moved} moved in"),
+            1 => format!("{moved} moved in with 1 picture"),
+            n => format!("{moved} moved in with {n} pictures"),
+        });
+    }
+    if let Some(first) = copied.first() {
+        let why = mp
+            .why_stays(&first.from)
+            .map(str::to_string)
+            .or_else(|| {
+                out.failures
+                    .iter()
+                    .find(|(p, _)| mdshared_app::paths::same_path(p, &first.from))
+                    .map(|(_, w)| w.clone())
+            })
+            .unwrap_or_else(|| "copied".to_string());
+        parts.push(format!("{} copied, not moved ({why})", copied.len()));
+    }
+    if stays > 0 {
+        parts.push(format!("{stays} linked where it is"));
+    }
+    match out.relinked.len() {
+        0 => {}
+        1 => parts.push("1 library note now leads to its copy".to_string()),
+        n => parts.push(format!("{n} library notes now lead to the copies")),
+    }
+    parts.join(", ")
+}
+
 /// Why File them leaves a picture out (D-204). Write notes, which puts pictures inside notes,
 /// is not built yet; until it is, the row says only that it is not filed, and why.
 pub const PICTURE_NOT_FILED: &str = "not filed: a picture is not a note of its own";
@@ -762,7 +828,7 @@ impl TaskScreen {
     /// face: `None` when the files are linked, or the task is not File them.
     pub fn copy_note(&self, i: usize) -> Option<&'static str> {
         use mdedit_core::prefs::FilesGo;
-        if self.task != TaskKind::File || self.files_go != FilesGo::Copy {
+        if self.task != TaskKind::File || self.files_go == FilesGo::Link {
             return None;
         }
         let f = self.files.get(i)?;
@@ -776,6 +842,8 @@ impl TaskScreen {
         });
         Some(if inside {
             "linked where it is: already inside the library's folder"
+        } else if self.files_go == FilesGo::Move {
+            "moved in"
         } else {
             "copied in"
         })
