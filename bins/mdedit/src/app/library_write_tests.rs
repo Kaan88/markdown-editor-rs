@@ -705,6 +705,38 @@ fn a_note_moved_to_a_groups_own_row_goes_before_its_first_section() {
     let _ = std::fs::remove_dir_all(&l2.dir);
 }
 
+/// Which one-shot confirmations of the library stack, and which message replaces (D-252): a
+/// moved note and a deleted group come in under the toasts showing; a refusal takes their place.
+#[test]
+fn a_moved_note_and_a_deleted_group_stack_and_a_refusal_replaces() {
+    let (mut a, l) = lib("libw-toast-kinds");
+    assert!(
+        a.library_move(&l.file, 5, "Taxes 2026", &l.taxes, &l.file, &[]),
+        "{}",
+        toast(&a)
+    );
+    let line = a.docs.toast_line().expect("a toast for the move");
+    assert!(line.stack, "a note moved stacks: {}", line.text);
+    assert!(line.text.contains("Personal"), "{}", line.text);
+
+    // A group file of its own, deleted from the pane.
+    let work = l.dir.join("library").join("work.md");
+    std::fs::write(&work, "# Work\n\nhome: Work\n").unwrap();
+    a.library_rows();
+    assert!(a.library_delete_file(&work), "{}", toast(&a));
+    let line = a.docs.toast_line().expect("a toast for the deletion");
+    assert!(line.stack, "a group deleted stacks: {}", line.text);
+    assert!(line.text.contains("Work"), "{}", line.text);
+
+    // A file the library folder does not hold: refused, and the refusal replaces.
+    let outside = l.dir.join("elsewhere.md");
+    std::fs::write(&outside, "# Elsewhere\n").unwrap();
+    assert!(!a.library_delete_file(&outside));
+    let line = a.docs.toast_line().expect("a toast for the refusal");
+    assert!(!line.stack, "a refusal replaces: {}", line.text);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
 #[test]
 fn when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so() {
     let (mut a, l) = lib("libw-move-half");

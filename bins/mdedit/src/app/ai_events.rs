@@ -169,7 +169,7 @@ impl App {
                 if let Some(i) = self.ai.instruction() {
                     i.selected = k;
                 }
-                self.docs.set_toast(&format!(
+                self.docs.confirm_toast(&format!(
                     "Saved as \u{201c}{name}\u{201d}. Edit saved prompts to rename it."
                 ));
             }

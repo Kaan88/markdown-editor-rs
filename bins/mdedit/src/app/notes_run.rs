@@ -852,7 +852,7 @@ impl App {
             Ok(()) => {
                 self.task_add_paths(vec![path]);
                 self.docs
-                    .set_toast("The picture on the clipboard is added.");
+                    .confirm_toast("The picture on the clipboard is added.");
             }
             Err(e) => self
                 .docs
