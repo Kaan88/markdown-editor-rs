@@ -2074,3 +2074,94 @@ take away the scroll past the end that wrapped scrolling has had since phase 4.
 **Overturned by.** The owner; or the owner asking that wrapped scrolling stop at the end too, which
 would make the one-shot fit the clamp of every frame.
 **From.** The owner's report and screenshot, 2026-11-24.
+
+## D-200 · 2026-11-25 · A fourth task, Write notes, writes notes from pictures and text
+
+**Decision.** Write notes writes one or many Markdown notes, in as many groups and sections as needed, with the pictures copied into `pictures\` in each note's folder and embedded and described in it. Pictures are sent only by this task, only after a button that says so. Completes D-078.
+**Why.** The owner: give it images and have it make markdowns, multiple or single, in as many trees as needed, with the pictures linked inside.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-201 · 2026-11-25 · Look, then arrange
+
+**Decision.** The pictures are looked at four to a request (the model says what each shows); the notes are arranged in a separate text-only request that places pictures by number. The app writes every picture path; the model never does. Arrange again sends no picture.
+**Why.** The owner chose the recommendation: any number of pictures, a failure costs four, a retry sends none.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-202 · 2026-11-25 · A picture's file name is sent, never its folder
+
+**Decision.** With each picture its file name goes, never a folder or path.
+**Why.** The owner chose the recommendation: names tell the model the order.
+**Overturned by.** The owner, if names prove private.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-203 · 2026-11-25 · The picture limits are settings, with the plan's defaults
+
+**Decision.** 100 pictures a run, 4 per request, 1568 px on the long side (2576 for small print), 3.5 MB each as sent are defaults the owner can change in Settings > AI, as are the other per-run limits of the AI tasks (files per request, the rewrite's 20 files and 200 KB). Each is clamped to a safe range.
+**Why.** The owner: configurable, and other similar things configurable too, with the recommended defaults.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-204 · 2026-11-25 · File them never files a picture
+
+**Decision.** A picture is never a library entry of its own: File them leaves pictures out, with a row that points to Write notes. Replaces D-050 and the listed-beside-it half of D-079.
+**Why.** The owner called a picture listed as itself not useful, and chose the recommendation.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-205 · 2026-11-25 · New notes are reviewed as whole notes
+
+**Decision.** Write notes' review shows the proposed tree and each note as it will read (and as Markdown), with ticks and renames, not change by change.
+**Why.** There is no before to compare; the owner chose the recommendation.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-206 · 2026-11-25 · What is sent is a card
+
+**Decision.** For the task window, Show what is sent is a card in the window, each picture as it goes then each request's text, with Open the text in a tab.
+**Why.** The owner chose the recommendation.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-207 · 2026-11-25 · One command, AI task...
+
+**Decision.** AI task on this file... and AI task on your files... become one command, AI task...; the document in front is the first line of the window's Add menu, never added by itself. AI task on this file... stays only where the pointer names a file (a tab's menu, a pane row). A note, a section or a group of the Notes pane has the AI task in its own menu; a section or group means every note under it.
+**Why.** The owner reported the two commands as doing the same thing and chose the recommendation.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-208 · 2026-11-25 · Selecting several rows waits
+
+**Decision.** Ctrl and Shift selection in the Notes pane and the Files pane is not built until the owner asks after using one row.
+**Why.** The owner chose later.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-209 · 2026-11-25 · File them copies files in by default
+
+**Decision.** File them has Link them, Copy them in and Move them in; Copy them in is the default. A file's pictures inside its own folder travel with it, links kept; others are linked where they are.
+**Why.** The owner asked that Markdown files be copied or moved like pictures, and chose copy as the default.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-210 · 2026-11-25 · Undoing a move in may write outside the library
+
+**Decision.** Undo of Move them in puts each file back at its recorded path only, only while that path is free, only the bytes the run moved. A named exception to D-072.
+**Why.** Without it a move cannot be undone; the owner said yes.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-211 · 2026-11-25 · After a run, the first written note opens with its preview
+
+**Decision.** After a task writes notes the first opens in a tab with the preview; a rewritten file that is open is re-read at once; a setting turns the opening off.
+**Why.** The owner reported no preview after an AI task and chose the recommendation.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
+
+## D-212 · 2026-11-25 · The engine speaks protocol 2 and shrinks pictures
+
+**Decision.** proto::VERSION becomes 2 with images in a run; the engine reads, resizes and strips metadata from each picture itself with the jpeg-encoder crate (approved by the owner, D-078's condition); the copies in the library are untouched. mdedit reads the engine's version and sends no picture to an engine of version 1. HEIC, AVIF, TIFF and SVG are not sent.
+**Why.** The owner said yes to phase V and the crate.
+**Overturned by.** The owner.
+**From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
