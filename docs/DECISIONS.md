@@ -2360,3 +2360,22 @@ button.
 **Why.** Plan section 13: pictures cannot be shown in a text tab, and what a picture gives away
 is not in its file's name.
 **Overturned by.** The owner.
+
+## D-230 · 2026-11-25 · A run of Write notes is a record of its own kind, and undo keeps what a kept note shows
+
+**Decision.** Shared `runs.rs` gains `Kind::Notes` (written "notes", an addition: no other kind
+changes). Its undo checks no source file; a copy goes only while it is the bytes written, its
+original (when it names one) is there unchanged, and no note undo kept shows it, decided from the
+kept notes as they read at undo. A pasted picture's copy names no original. Every planned copy is
+in the record from its first save, and each folder before it is made. Further:
+- with Copy off, a picture on a network share is copied, as a pasted one is, never linked by a
+  `file:///` address that would not lead to it;
+- a note path already taken refuses the run (split's "already there" is not used);
+- a failed copy leaves a line in its note saying so;
+- when no note was written, or a pasted picture's copy failed, the window stays open.
+
+**Why.** V5 first recorded a notes run as a Markdown run with a faked source, so undo refused
+when the owner changed the first copy and could break a kept note's picture; Fable's review of V4
+and V5 found a crash during the copies left files no record owned, a pasted picture lost when its
+copy failed, and a share's pictures linked wrongly.
+**Overturned by.** The owner.

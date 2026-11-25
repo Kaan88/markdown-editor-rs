@@ -3884,3 +3884,36 @@ reads "Review the plan"), "Arrange again…" (the arrange asked again with its o
 picture sent; the plan before it is kept until the answer is read, and given back if it fails or
 is stopped), and "Write N notes". The plan lives in its window: Cancel on a window that keeps one
 says once that closing throws it away (D-228).
+
+## 95. Write notes writes the notes (2026-11-25, phase V5)
+
+`app/notes_write.rs` (the window's part), `mdedit-core/src/notes_write.rs` (the names, the
+copies' list, `compose_at`), and shared `runs.rs`'s `Kind::Notes` (`f/move-in` `ac9fde1`).
+
+**Before anything is written** (`notes_job`), each refusal writing nothing and saying why: a plan
+and a group made; every note and copy inside the library or the group's declared folder; no note
+path taken; at most 100 notes of 200 KB, 100 copies, 200 MB of copies, 64 MiB a copy; an
+extension undo knows; the group file saved, writable and not full; a dry run of the links that
+reads back. The card's button follows a light check of its own, and the write asks these when
+pressed.
+
+**The order** (plan 4.3): the record (state "writing", every note and every planned copy in it),
+each folder saved to the record before it is made, the copies into `<note folder>/pictures/` once
+per folder (a name taken by other bytes numbered `-2` … `-99`; the same bytes reused), the notes
+(`compose_at`: a copy by its name, with Copy off a path relative to the note, or `file:///` on
+another drive), the read-back, the links (the group file's text before them kept for undo), and
+the record closed Done or LinksPending. A copy's name is the owner's from the card, else the
+look's title with Rename on, else the original's own name, always with the original's extension.
+A pasted picture and one on a network share are always copied (D-227, D-230).
+
+**A copy that fails** is said in the report and the toast, and its note is written with a line in
+its place saying so, checked again against the 200 KB limit. When no note was written, or a pasted
+picture's copy failed, the window stays open with its pictures and says how to write again;
+otherwise it closes, the Notes pane shows the first note and it opens with its preview.
+
+**Undo** (AI runs…) of a `Kind::Notes` run checks no source. It removes the notes that are
+unchanged and keeps the changed ones; removes a copy only while it is the bytes written, its
+original (if it names one) is there unchanged, and no kept note shows it ("Pictures kept for the
+notes that show them"); never an original; restores the links and removes the empty folders it
+made. A run that died at any step is undone or finished from its record. An older mdedit reads a
+notes record as written by a newer version.
