@@ -3444,19 +3444,32 @@ of a cap; a walk stopped at the cap, at the entries or at the depth says so in t
 told apart by a key per path in a `HashSet`, not one `same_path` per pair. Shot
 `task-files-stopped` (1280 and 520 px, both themes) is the "Stopped…" line.
 
-**More than 200 new files are asked about first (2026-11-26, D-249).** The owner: "ask before
-anything is in, if it's possible and not disruptive or slows it down. otherwise ask above 200."
-The read runs on its own thread, so the count of new files is known before anything is added: a
-folder add whose read ends with more than `task_ui::ASK_FILES` (200) new files adds nothing yet.
-The window holds them in `App::task_pending` and asks where it says things — the notice line over
+**More than 200 new files are asked about first (2026-11-26, D-249, D-250).** The owner: "ask
+before anything is in, if it's possible and not disruptive or slows it down. otherwise ask above
+200." The read runs on its own thread, so the count of new files is known before anything is
+added, and nothing is read until the question is answered: the job walks the dropped folders,
+counting the files that are new to the window and to a question already standing, and reads no
+file's content; `task_ui::ASK_FILES` (200) or fewer carry on to the probes in that same job. The
+window holds the paths in `App::task_held` and asks where it says things — the notice line over
 the foot of the list, not a modal and not a toast — "Add 1,240 files from Recipes?", or "… from 3
-folders?" for one drop of several, with "Leave them out" and the filled "Add them". A click on
-either, Enter for adding and Esc for leaving, answers it; Esc does not close the window. "Add
-them" adds the held files as an ordinary add does, every one ticked, and a second folder read
-while the question stands is folded into it, once per path. 200 or fewer new files go in at once
-with no question; closing the window, or parking it behind "What is sent", drops a held add and
-its question. While a question stands only Enter and Esc are taken: the instruction and the other
-fields are typed in as before. Shots `task-files-ask` (1280 and 520 px, both themes).
+folders?" counting only folders that brought something new, with "Leave them out" and the filled
+"Add them". A click on either, Enter for adding (only when no field, dropdown or menu has the key
+first) and Esc for leaving (likewise), answers it; Esc does not close the window. "Add them"
+starts a read of its own, with the bar's "Reading…" line, and adds every file ticked. The main
+button is drawn off while the question stands, so "Make the plan" cannot leave the held files
+out. A folder that brings nothing — unreadable, empty, all of it held already — says so, and an
+unreadable one is named ("Could not read Locked."). Shots `task-files-ask` (1280 and 520 px, both
+themes), `task-files-ask-empty` and `task-files-unreadable`.
+
+**One read at a time, and a drop never lost (2026-11-26, D-250).** winit sends one `DroppedFile`
+per path: the window gathers a pass's paths (`App::task_batch`) and the event loop's
+`about_to_wait` flushes them as one read, so two folders dropped together are one read and one
+question. A drop that arrives while a read runs waits in `App::task_queue` for it, and a drop
+while the question stands is walked and folded into the question, once per path, so a small add
+cannot slip in past it. The window's room is `FILES_MAX` less what it holds and what the question
+holds. Every path that ends or replaces the window — close, Cancel, a rewrite run's end, parking
+behind a plan or behind "What is sent" — goes through `App::task_add_forget`, and a read's result
+is applied only to the window whose id it was started for.
 
 **After the hand-driven run (2026-11-25, D-240 to D-245).** `task_is_open` is false while
 Settings is open, so Settings opened from the window takes every key and click and the window
