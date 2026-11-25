@@ -106,6 +106,8 @@ mod library_write;
 #[cfg(test)]
 mod library_write_tests;
 pub(crate) mod modal;
+#[cfg(test)]
+mod motion_tests;
 mod moving;
 #[cfg(test)]
 mod moving_tests;
@@ -201,6 +203,8 @@ pub enum Wake {
     Library,
     /// The function list of a document is made.
     Outline,
+    /// The system's wish for less motion changed.
+    Motion,
     /// The palette's list of the folder's files, or of a document's symbols, is made.
     Palette,
     /// The comparison of two files is made.
@@ -304,6 +308,8 @@ struct App {
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     /// The "Window backdrop" setting at work (Windows 11): idle unless the setting is on.
     frost: crate::frost::Frost,
+    /// The animator, and whether anything moves.
+    pub(crate) motion: crate::motion::Motion,
     incoming: Option<Receiver<Request>>,
     /// When the viewer is next told the caret's line, if an update is held back.
     link_due: Option<Instant>,
@@ -518,6 +524,7 @@ impl App {
             compare_wait: None,
             theme_from_args: args.dark.is_some(),
             save: args.shot.is_none(),
+            motion: crate::motion::Motion::new(crate::motion::still_for(&args) || cfg!(test)),
             args,
             trace,
             docs,
@@ -631,6 +638,17 @@ impl App {
 
     fn redraw(&mut self) {
         self.wants_frame = true;
+    }
+
+    /// Starts reading and watching the system's wish for less motion, once, unless nothing can
+    /// move (a shot, a test, the Animations setting off).
+    fn watch_motion(&mut self) {
+        if self.motion.watching() {
+            return;
+        }
+        self.motion.set_setting(self.docs.prefs.animations);
+        let wake = self.docs.waker();
+        self.motion.watch(move || wake(Wake::Motion));
     }
 
     fn logical(&self) -> (f32, f32) {
@@ -1314,6 +1332,9 @@ impl App {
         self.ai_review_sync();
         let mut times = FrameTimes::default();
         let t0 = Instant::now();
+        self.motion.set_setting(self.docs.prefs.animations);
+        let frame_at = self.motion.now();
+        self.motion.anim.begin_frame(frame_at);
         let (pw, ph) = (self.size.0.max(1), self.size.1.max(1));
         if self.screen.width != pw || self.screen.height != ph {
             self.screen = Bitmap::new(pw, ph);
@@ -1430,11 +1451,28 @@ impl App {
             }
         }
         self.toast_until = self.docs.toast(now).and(self.docs.toast_expires());
+        // The menus' fade: the system's wish is read once the window settled, or from the
+        // first menu that could fade if the setting was off then.
+        if !self.motion.watching()
+            && self
+                .ui
+                .popup
+                .as_ref()
+                .is_some_and(|p| crate::motion::fades(p.kind))
+        {
+            self.watch_motion();
+        }
+        let menus = self.motion.menus(self.ui.popup.as_ref());
         let mut bounds: Vec<Rect> = bubbles.iter().map(Bubble::bounds).collect();
         if let Some(popup) = &self.ui.popup {
-            bounds.push(popup.menu.rect().inset(-20.0));
+            // A menu that fades touches its presence bounds (its drop and shadow in them).
+            let reach = |m: &mdshared_ui::menu::Menu<Act>| match menus {
+                Some(_) => m.presence_bounds(),
+                None => m.rect().inset(-20.0),
+            };
+            bounds.push(reach(&popup.menu));
             if let Some(s) = &popup.sub {
-                bounds.push(s.menu.rect().inset(-20.0));
+                bounds.push(reach(&s.menu));
             }
         }
         if self.ui.dialog.is_some()
@@ -1553,6 +1591,10 @@ impl App {
         self.overlay_sig = osig;
         let mut under: Vec<Rect> = bounds.clone();
         under.extend(self.overlay_bounds.iter().copied());
+        // What a fading menu's kept pixels cover is under it too.
+        if let Some((_, r)) = &self.motion.backing {
+            under.push(*r);
+        }
         if bands.is_some() && under.iter().any(|b| overlaps(*b, self.areas.text)) {
             bands = None;
             dirty[ti] = true;
@@ -1564,6 +1606,25 @@ impl App {
                     .region(r)
                     .is_some_and(|rr| under.iter().any(|b| overlaps(*b, rr)))
         });
+        // A menu on its way in: drawn alone over what was under it, or with everything else.
+        let others = !bubbles.is_empty()
+            || self.ui.dialog.is_some()
+            || self.ui.settings.is_some()
+            || self.ai_panel_open()
+            || self.plan.is_some()
+            || self.task.is_some()
+            || self.mover.is_some()
+            || self.importer.is_some()
+            || self.note.is_some()
+            || self.palette.open.is_some();
+        let menu_frame = crate::motion::menu_frame(
+            menus,
+            self.motion.drawn,
+            self.motion.backing.as_ref(),
+            self.ui.popup.as_ref().map(crate::motion::popup_bounds),
+            overlay_changed || any_under_dirty || self.full || others,
+        );
+        let overlay_changed = overlay_changed || menu_frame == crate::motion::MenuFrame::Whole;
         let draw_overlays = !bounds.is_empty() && (overlay_changed || any_under_dirty || self.full);
         if overlay_changed || any_under_dirty {
             for r in REGIONS {
@@ -1635,6 +1696,8 @@ impl App {
         let task_shown = self.task_is_open();
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
+            // A fade over frosted chrome mixes as the compositor shows it.
+            p.set_frost_key(self.frost.key().copied());
             let mut order = REGIONS.to_vec();
             if visual_box.is_some() || self.visual.is_some() {
                 order.retain(|&r| r != Region::Preview);
@@ -1942,17 +2005,16 @@ impl App {
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
-                    popup.menu.draw_in(c.p, &pal, room);
-                    // The AI menu stands on its own under the bar's AI edit button.
-                    if popup.kind == PopupKind::Ai {
-                        crate::ai_ui::draw_menu_modify(c.p, &pal, &popup.menu, self.ui.mouse);
-                    }
-                    if let Some(s) = popup.sub.as_mut() {
-                        s.menu.draw_in(c.p, &pal, room);
-                        if s.kind == PopupKind::Ai {
-                            crate::ai_ui::draw_menu_modify(c.p, &pal, &s.menu, self.ui.mouse);
-                        }
-                    }
+                    crate::motion::draw_popup(
+                        c.p,
+                        &pal,
+                        popup,
+                        room,
+                        menus,
+                        self.ui.mouse,
+                        &mut self.motion.backing,
+                        false,
+                    );
                 }
                 for b in &bubbles {
                     b.draw(c.p, &pal);
@@ -2015,11 +2077,35 @@ impl App {
                         crate::palette::draw_note(c.p, &pal, p.palette.rect(), note);
                     }
                 }
+            } else if menu_frame == crate::motion::MenuFrame::Alone
+                && let Some(popup) = self.ui.popup.as_mut()
+            {
+                // Only the menus moved: what was under them goes back, and they are drawn on it.
+                if let Some((under, _)) = &self.motion.backing {
+                    under.restore(p.bmp);
+                    damage.push(under.rect());
+                }
+                let room = menu_room(self.areas.title, w, h);
+                crate::motion::draw_popup(
+                    &mut p,
+                    &pal,
+                    popup,
+                    room,
+                    menus,
+                    self.ui.mouse,
+                    &mut self.motion.backing,
+                    true,
+                );
             }
         }
         if dirty[ti] || bands.is_some() {
             self.caret_line = caret_line;
         }
+        self.motion.drawn = menus;
+        if !menus.is_some_and(|m| m.moving()) {
+            self.motion.backing = None;
+        }
+        self.motion.due = self.motion.anim.end_frame();
         self.full = false;
         times.compose = t1.elapsed().saturating_sub(times.paint);
         times.rows = damage.iter().map(|d| (d.3 - d.1).max(0) as u32).sum();
@@ -2763,6 +2849,7 @@ impl App {
                     self.redraw();
                 }
                 if focused {
+                    self.motion.refresh();
                     self.focus_gained();
                 } else {
                     self.ui.caret_on = true;
@@ -3087,6 +3174,9 @@ impl ApplicationHandler<Wake> for App {
             // Off the path to the first frame: whether mdview is there to offer previews.
             self.look_for_viewer();
             self.look_for_crash();
+            // The system's wish for less motion, read and watched before the first menu opens
+            // (Linux's portal answers on a helper thread); nothing when motion is off.
+            self.watch_motion();
             self.trace.stage("loading and colouring idle");
             self.trace.memory("idle");
             self.trace.cpu("idle");
@@ -3479,6 +3569,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
         app.ui.goto.set_text(&t);
     }
     let text = app.areas.text;
+    // `--menu-fade-ms`: the menu part way into its entrance, on a clock moved by hand.
+    let fade = app.args.menu_fade_ms.filter(|_| app.args.menu.is_some());
+    if fade.is_some() {
+        app.motion.shot_fade();
+    }
     match app.args.menu {
         Some(ShotMenu::Main) => app.open_popup(PopupKind::Main),
         Some(ShotMenu::MainEnd) => {
@@ -3759,6 +3854,12 @@ fn shot(mut app: App, path: &Path) -> i32 {
         || app.task_is_open()
     {
         app.compose();
+    }
+    if let Some(ms) = fade {
+        for step in crate::motion::shot_steps(ms) {
+            app.motion.advance_ms(step);
+            app.compose();
+        }
     }
     if let Some((x, y)) = app.args.hover {
         app.pointer_moved(x, y);

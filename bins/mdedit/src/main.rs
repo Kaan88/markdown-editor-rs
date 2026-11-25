@@ -34,6 +34,7 @@ mod live;
 mod macros;
 mod marks;
 mod minimap;
+mod motion;
 mod move_draw;
 mod move_ui;
 mod note_draw;

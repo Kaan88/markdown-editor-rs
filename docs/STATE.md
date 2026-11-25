@@ -1,6 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-25, when mdedit 1.5.0 was released. If `git log -1`
+Rewritten, not appended to. Last rewritten 2026-11-25, when the menu fade was built. If `git log -1`
 is newer, doubt "In hand" first.
 
 ## Released
@@ -19,23 +19,32 @@ is newer, doubt "In hand" first.
   window (D-228), not yet "Plan ready" in the Notes pane.
 - **mdview 1.1.0**, 2026-11-24, tag `v1.1.0` at `0310e01`, fourteen assets: click to zoom a large
   diagram, the notes library, audit 4's report E (mdview `docs/HANDOFF.md`).
-- The shared crates are not released; the apps pin them by commit. Shared `main` is `294d330`:
-  `feat/anim` (motion, tokens, the new widgets) merged with `ci` green on Linux, Windows and both
-  Macs. **Hub** is its own app (its `docs/STATE.md` is its record).
+- The shared crates are not released; the apps pin them by commit. mdedit pins shared `main` at
+  `48eb3ce` (`feat/anim` and the "Fast-tracked for the md apps" items, `ci` green on Linux,
+  Windows and both Macs; the lock change accepted by the owner, D-234). **Hub** is its own app (its `docs/STATE.md` is its record).
 
 ## On `main`, not released
 
+- **Motion, step 1: menus fade in as they open** (merged 2026-11-25 on the owner's word, after
+  they tried mdview's). Menus, context menus and submenus
+  come in over 117 ms (the owner, on mdview: "this is better"); closing is instant; the completion
+  list never fades. One "Animations" switch in Settings › Appearance, on by default; off, or the
+  system asking for less motion, makes everything instant (D-232 to D-235, DESIGN 96, notes in
+  `docs/release-notes/NEXT.md`). Budgets inside the noise, exe +58 KB over `main`
+  (`docs/measurements/2026-11-25-menu-fade.md`). Tried by the owner in mdview only; **not seen** over a frosted
+  window, on Linux or macOS. The 117 ms is set in each app's `motion.rs`; it belongs in shared's
+  `anim::document::MENU` at the next pin move (rule 8).
 - The release workflow: the next release carries its full notes as `release-notes-<version>.md`,
   named by `hub.txt`'s `notes.file` (D-231; seventeen assets; not yet run on a real release).
 
 ## In hand
 
-- **Motion in mdedit and mdview**, starting now that `feat/anim` is in shared `main`: shared
-  `docs/ROADMAP.md`, "Fast-tracked for the md apps" (D1 to D7, and X3, X4, L1, L3, L10, W2, W3).
-  Order (Fable's review): shared's D2, D3 first; then the menu open fade in mdview, then in mdedit
-  with the budgets measured before and after (the completion popup left out); toasts and tooltips;
-  dialogs and cards. No tab cross-fade in mdedit (memory), no sliding panes. Both apps pin
-  shared `main` from `294d330` on.
+- **More motion**: toasts and tooltips (the
+  tooltip delay question: from entering a control, or from the pointer resting), dialogs and
+  cards; shared still builds the Settings form motion (L10) and the tree chevron. No tab
+  cross-fade in mdedit (memory), no sliding panes.
+- **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
+  `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
@@ -57,7 +66,7 @@ is newer, doubt "In hand" first.
 
 ## Next
 
-1. The motion above.
+1. The task window's fixes, then more motion.
 2. The owner's look at 1.4.0's and 1.5.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes
    cards) and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
    mdview; D after R2.
@@ -65,6 +74,9 @@ is newer, doubt "In hand" first.
 
 ## Known to be wrong on `main`
 
+- A debug-profile `cargo test` fails `closed_stderr` on the motion branch: ICU4X prints a data
+  warning with `eprintln!` in debug builds only, and the test closes stderr. Release builds (what
+  CI and CODE.md test) are fine. Not yet checked whether debug `main` fails it too.
 - **A closed mdview is still missed** (D-101): closing it by hand leaves "Stop the preview" in
   mdedit after its window has the focus again (tried with 1.0.4, which sends no `?closed`), so
   D-097's focus check does not hold. D-102 and D-105 change this (merged, not tried): three
