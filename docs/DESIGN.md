@@ -3318,6 +3318,17 @@ headings, and a footer with "Show what is sent" and the primary button. A review
 review first (`app/input.rs`). The window's own state raises one tick, in the overlay signature
 and in the full-window bounds, so every change paints.
 
+**The WHERE IT GOES row** (`task_ui::dest_row`, 2026-11-25, the owner's report of the folder
+drawn over the section field). The label's 100 px, the group's button (240 px) and, for File
+them, the section field (180 px), each narrowed in proportion when the card has less room; then
+the folder the files go to (`→ …\library\Recipes\Pasta\`, the last three parts) right-aligned
+in what the row leaves, cut from its left (`library_pane::elide_left`) so its end stays readable,
+the arrow kept. Under 72 px of room it is left out; the button still names the group. A test
+draws the window at every width from 520 to 1600 px with a long folder and with a one-letter one
+and finds the button and the field the same, pixel for pixel, and inside the card. Shots
+`task-dest-long` (1280), `task-dest-long-760`, `task-dest-long-520` (the folder left out),
+`--task-demo files-long-dest`.
+
 **Three kinds of file**, decided once when a file is added (`App::task_probe`), and what each
 does for each task: **Text** (the editor's loader, no NUL, not lossy) is read and sent; **Picture**
 (the image paste's extensions) is never read — its name only is sent, and it is linked; **Other**

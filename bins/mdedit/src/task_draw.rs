@@ -264,7 +264,8 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             pal.muted,
             100.0,
         );
-        let button = Rect::new(x + 100.0, g.dest.y + 2.0, 240.0, 30.0);
+        let row = task_ui::dest_row(x, inner, g.dest.y, s.task == TaskKind::File);
+        let button = row.button;
         let open = s.dest_open;
         let fill = if hover == Some(Hit::Dest) || open {
             mix(pal.accent, pal.popup, 0.82)
@@ -290,9 +291,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         );
         hits.push((Hit::Dest, button));
 
-        let mut right = x + inner;
-        if s.task == TaskKind::File {
-            let sec = Rect::new(x + 352.0, g.dest.y + 2.0, 180.0, 30.0);
+        if let Some(sec) = row.section {
             p.frame(sec, 6.0, pal.field, pal.line);
             hits.push((Hit::Section, sec));
             let colors = FieldColors {
@@ -311,24 +310,24 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 true,
                 caret_on && s.focus == crate::task_ui::Focus::Section,
             );
-            right = sec.right() + 10.0;
         }
-        let folder = match s.dest_folder() {
-            Some(path) => format!("\u{2192} {}", shown(&path)),
+        // The arrow, then the path; each plan deciding has no path.
+        let (lead, folder) = match s.dest_folder() {
+            Some(path) => ("\u{2192} ", shown(&path)),
             None => match s.dest {
-                DestChoice::Decide => "each plan decides".to_string(),
-                _ => String::new(),
+                DestChoice::Decide => ("", "each plan decides".to_string()),
+                _ => ("", String::new()),
             },
         };
-        if !folder.is_empty() {
-            p.text_right(
-                Face::Ui,
-                11.5,
-                right + (x + inner - right).min(0.0),
-                g.dest.cy(),
-                &folder,
-                pal.faint,
-            );
+        // Right-aligned in the room the row leaves it, the path cut from its left so its end
+        // (the group's folder, the section's) stays readable; left out with no room.
+        if let (false, Some(room)) = (folder.is_empty(), row.folder) {
+            let lead_w = p.measure(Face::Ui, 11.5, lead);
+            let fit = crate::library_pane::elide_left(p, 11.5, &folder, room.w - lead_w);
+            if !fit.is_empty() {
+                let text = format!("{lead}{fit}");
+                p.text_right(Face::Ui, 11.5, room.right(), room.cy(), &text, pal.faint);
+            }
         }
     }
 
@@ -724,4 +723,98 @@ fn shown(path: &std::path::Path) -> String {
         String::new()
     };
     format!("{lead}{}{}", tail.join(&sep), std::path::MAIN_SEPARATOR)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task_ui::Group;
+    use mdshared_text::Bitmap;
+    use mdshared_ui::gfx::Gfx;
+    use std::path::PathBuf;
+
+    /// File them over a group whose folder is `home`, drawn into a `w` x 800 bitmap: the
+    /// pixels, and the button's and the section field's places.
+    fn drawn(home: &str, w: u32) -> (Bitmap, Rect, Rect) {
+        let mut s = TaskScreen::new(
+            TaskKind::File,
+            Vec::new(),
+            DestChoice::Group(0),
+            Vec::new(),
+            "Claude".into(),
+        );
+        s.groups = vec![Group {
+            name: "test".into(),
+            file: PathBuf::from("test.md"),
+            home: PathBuf::from(home),
+        }];
+        let mut bm = Bitmap::new(w, 800);
+        let mut gfx = Gfx::new();
+        {
+            let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+            draw(
+                &mut p,
+                &mdshared_ui::theme::LIGHT,
+                &mut s,
+                w as f32,
+                800.0,
+                false,
+            );
+        }
+        let at = |h: Hit| {
+            s.hits
+                .iter()
+                .find(|(k, _)| *k == h)
+                .map(|(_, r)| *r)
+                .unwrap()
+        };
+        (bm, at(Hit::Dest), at(Hit::Section))
+    }
+
+    fn same(a: &Bitmap, b: &Bitmap, r: Rect) -> bool {
+        let (x0, y0) = (r.x.floor() as u32, r.y.floor() as u32);
+        let (x1, y1) = (r.right().ceil() as u32, r.bottom().ceil() as u32);
+        (y0..y1.min(a.height)).all(|y| {
+            (x0..x1.min(a.width)).all(|x| {
+                let o = ((y * a.width + x) * 4) as usize;
+                a.pixels[o..o + 3] == b.pixels[o..o + 3]
+            })
+        })
+    }
+
+    /// The owner's report (2026-11-24): the folder the files go to was drawn over the "under a
+    /// section (none)" field. At every width the window allows, the button and the field draw
+    /// the same with a long folder beside them as with a one-letter one, and both stay inside the card;
+    /// where there is room the folder is drawn.
+    #[test]
+    fn the_folder_never_draws_over_the_section_field_or_the_button() {
+        let long = if cfg!(windows) {
+            r"C:\Users\someone\AppData\Local\mdedit\library\Recipes from my grandmother's kitchen"
+        } else {
+            "/home/someone/.local/share/mdedit/library/Recipes from my grandmother's kitchen"
+        };
+        let mut shown_somewhere = false;
+        for w in (520..=1600).step_by(40) {
+            let (with, button, section) = drawn(long, w);
+            // A one-letter folder, drawn at the row's right end, far from both.
+            let (without, button2, section2) = drawn("x", w);
+            assert_eq!((button, section), (button2, section2), "{w}");
+            let card = task_ui::card(w as f32, 800.0);
+            let right = card.right() - PAD;
+            assert!(
+                button.right() <= section.x && section.right() <= right,
+                "{w}"
+            );
+            assert!(same(&with, &without, button.inset(-1.0)), "button at {w}");
+            assert!(same(&with, &without, section.inset(-1.0)), "section at {w}");
+            let folder = Rect::new(
+                section.right() + 1.0,
+                section.y,
+                right - section.right(),
+                30.0,
+            );
+            shown_somewhere |= folder.w > 1.0 && !same(&with, &without, folder);
+        }
+        assert!(shown_somewhere, "the folder is drawn where there is room");
+    }
 }

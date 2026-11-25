@@ -76,6 +76,49 @@ pub fn geo(card: Rect) -> Geo {
     }
 }
 
+/// The WHERE IT GOES row of File them and Split them: the group's button, File them's section
+/// field, and the room left for the folder the files go to. Each part is cut to the row, so
+/// nothing overlaps at any width the window allows (the owner's report, 2026-11-24: the folder
+/// was drawn over the section field). `folder` is `None` when less than [`FOLDER_MIN`] is left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DestRow {
+    pub button: Rect,
+    pub section: Option<Rect>,
+    pub folder: Option<Rect>,
+}
+
+/// The label's column, left of the button.
+pub const DEST_LABEL_W: f32 = 100.0;
+/// Below this the folder is left out of the row: the button still names the group.
+pub const FOLDER_MIN: f32 = 72.0;
+
+/// The row for a card whose inner part starts at `x` and is `inner` wide, its top at `y`.
+pub fn dest_row(x: f32, inner: f32, y: f32, with_section: bool) -> DestRow {
+    const GAP: f32 = 12.0;
+    let right = x + inner;
+    let start = x + DEST_LABEL_W;
+    let room = (right - start).max(0.0);
+    let (button_w, section_w) = if with_section {
+        // Each as wide as it was (240 and 180) while the row has room; narrower in proportion
+        // when it does not.
+        let both = (room - GAP).max(0.0);
+        let scale = (both / 420.0).min(1.0);
+        ((240.0 * scale).floor(), (180.0 * scale).floor())
+    } else {
+        (240.0_f32.min(room), 0.0)
+    };
+    let button = Rect::new(start, y + 2.0, button_w, 30.0);
+    let section = with_section.then(|| Rect::new(button.right() + GAP, y + 2.0, section_w, 30.0));
+    let taken = section.map_or(button.right(), |s| s.right());
+    let left = taken + GAP;
+    let folder = (right - left >= FOLDER_MIN).then(|| Rect::new(left, y, right - left, DEST_H));
+    DestRow {
+        button,
+        section,
+        folder,
+    }
+}
+
 // ---- what a task is, and what a file is -------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

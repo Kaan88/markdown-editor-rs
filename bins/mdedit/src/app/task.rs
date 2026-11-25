@@ -1840,6 +1840,21 @@ impl App {
         if name == "files-off" {
             s.ai_on = false;
         }
+        if name == "files-long-dest" {
+            // A group whose folder is deep and long, made up for the shot: the WHERE IT GOES
+            // row must fit it beside the section field at every width.
+            let home = if cfg!(windows) {
+                r"C:\Users\someone\AppData\Local\mdedit\library\Recipes from my grandmother's kitchen"
+            } else {
+                "/home/someone/.local/share/mdedit/library/Recipes from my grandmother's kitchen"
+            };
+            s.groups = vec![crate::task_ui::Group {
+                name: "Recipes from my grandmother's kitchen".to_string(),
+                file: PathBuf::from(home).with_extension("md"),
+                home: PathBuf::from(home),
+            }];
+            s.section.set_text("Italian main courses");
+        }
         if !s.groups.is_empty() {
             s.dest = DestChoice::Group(0);
         } else {

@@ -253,6 +253,11 @@ for t in "" "-dark"; do
     [ -n "$t" ] && th=--dark
     shot "task-files$t" $th --size 1280x800 --task-demo files
     shot "task-files-plan$t" $th --size 1280x800 --task-demo files-plan
+    # A group with a long, deep folder and a section typed: the folder is cut from its left to
+    # the room the row leaves it, never over the section field; shorter at 760 px, left out at 520.
+    shot "task-dest-long$t" $th --size 1280x800 --task-demo files-long-dest
+    shot "task-dest-long-760$t" $th --size 760x700 --task-demo files-long-dest
+    shot "task-dest-long-520$t" $th --size 520x600 --task-demo files-long-dest
     shot "task-files-off$t" $th --size 1280x800 --task-demo files-off
     shot "task-other$t" $th --size 1280x800 --task-demo files-other
     shot "task-review$t" $th --size 1280x800 --task-demo review
