@@ -80,12 +80,119 @@ pub enum Event {
         id: u64,
         stored: bool,
     },
+    /// What one picture of a `prepare` would be sent as, or why it cannot be (protocol 2).
+    Picture {
+        id: u64,
+        index: usize,
+        info: Result<PictureInfo, String>,
+    },
+    /// Every picture of a `prepare` has been told.
+    Prepared {
+        id: u64,
+    },
+    /// What a run with pictures sends, said as it goes: each picture's bytes, and the text's.
+    Sent {
+        id: u64,
+        bytes: u64,
+        text_bytes: u64,
+    },
     /// The engine ended, could not start or did not answer.
     Ended(String),
 }
 
+/// What the engine said a picture would be sent as (`picture` event, protocol 2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PictureInfo {
+    pub format: String,
+    pub width: u32,
+    pub height: u32,
+    pub bytes: u64,
+    pub sha256: String,
+    pub original_width: u32,
+    pub original_height: u32,
+    /// What was done to it, in the engine's words ("made smaller", "details removed").
+    pub done: Vec<String>,
+    /// A PNG of at most 160 px of what is sent; `None` when the engine made none (a GIF).
+    pub thumb: Option<Vec<u8>>,
+}
+
+impl PictureInfo {
+    /// Whether it goes smaller than it is.
+    pub fn smaller(&self) -> bool {
+        self.width < self.original_width || self.height < self.original_height
+    }
+}
+
+/// Standard base64 with or without padding, as the engine writes a thumbnail; `None` for
+/// anything else. Nothing read from the engine may panic (the release build aborts on one).
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let t = text.trim().trim_end_matches('=').as_bytes();
+    if t.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(t.len() / 4 * 3 + 2);
+    for chunk in t.chunks(4) {
+        let mut n = 0u32;
+        for (k, &c) in chunk.iter().enumerate() {
+            n |= value(c)? << (18 - 6 * k as u32);
+        }
+        out.push((n >> 16) as u8);
+        if chunk.len() > 2 {
+            out.push((n >> 8) as u8);
+        }
+        if chunk.len() > 3 {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
+}
+
+/// The most a thumbnail of the engine's may be, as base64: past it there is none.
+const THUMB_MAX: usize = 256 * 1024;
+
+fn picture_info(v: &Value) -> Option<PictureInfo> {
+    let n = |k: &str| v[k].as_u64();
+    let px = |k: &str| n(k).and_then(|x| u32::try_from(x).ok());
+    Some(PictureInfo {
+        format: v["format"].as_str()?.to_string(),
+        width: px("width")?,
+        height: px("height")?,
+        bytes: n("bytes")?,
+        sha256: v["sha256"].as_str()?.to_string(),
+        original_width: px("original_width").unwrap_or(0),
+        original_height: px("original_height").unwrap_or(0),
+        done: v["done"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        thumb: v["thumb"]
+            .as_str()
+            .filter(|t| t.len() <= THUMB_MAX)
+            .and_then(base64_decode),
+    })
+}
+
 /// The first protocol version that sends pictures (`docs/ai-pictures-plan.md` section 6).
 pub const PICTURES_VERSION: u32 = 2;
+
+/// Why an engine that greeted with `version` cannot be sent pictures, if it cannot.
+pub fn pictures_refused_at(version: u32) -> Option<&'static str> {
+    (version < PICTURES_VERSION).then_some(OLD_ENGINE)
+}
 
 /// Said where pictures would be sent, when the engine beside mdedit is older than it.
 #[allow(dead_code)]
@@ -158,6 +265,23 @@ pub fn parse_event(line: &str) -> Option<Event> {
             id,
             stored: v["stored"].as_bool().unwrap_or(false),
         },
+        "picture" => Event::Picture {
+            id,
+            index: v["index"].as_u64().and_then(|i| usize::try_from(i).ok())?,
+            info: match v["error"].as_str() {
+                Some(why) => Err(why.to_string()),
+                None => picture_info(&v).ok_or_else(|| "the engine's answer was not read".into()),
+            },
+        },
+        "prepared" => Event::Prepared { id },
+        "sent" => {
+            let images = v["images"].as_array();
+            Event::Sent {
+                id,
+                bytes: images.map_or(0, |a| a.iter().filter_map(|i| i["bytes"].as_u64()).sum()),
+                text_bytes: v["text_bytes"].as_u64().unwrap_or(0),
+            }
+        }
         _ => return None,
     })
 }
@@ -278,11 +402,10 @@ impl Client {
         self.version.load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// Why the engine cannot be sent pictures, if it cannot: one older than mdedit. The
-    /// pictures task (phase V3) asks this where its button is.
-    #[allow(dead_code)]
+    /// Why the engine cannot be sent pictures, if it cannot: one older than mdedit. Write notes
+    /// asks this where its button is.
     pub fn pictures_refused(&self) -> Option<&'static str> {
-        (self.version() < PICTURES_VERSION).then_some(OLD_ENGINE)
+        pictures_refused_at(self.version())
     }
 
     pub fn send(&self, v: Value) -> bool {
@@ -318,6 +441,12 @@ pub enum Ask {
     Task,
     /// A Markdown note from a text file (5.8): the answer goes to the note card.
     Note,
+    /// Write notes (pictures plan): what each picture of the window would be sent as.
+    Prepare,
+    /// Write notes: a look request, by batch number.
+    Look(usize),
+    /// Write notes: the arrange request.
+    Arrange,
     /// A model list, under its key in [`Ai::models`].
     Models(String),
     Detect(Connection),
@@ -598,6 +727,12 @@ impl Ai {
         Ok(id)
     }
 
+    /// How many requests are waited for.
+    #[cfg(test)]
+    pub fn waiting(&self) -> usize {
+        self.pending.len()
+    }
+
     /// What request `id` was for, once; `None` for one already answered or cancelled.
     pub fn answered(&mut self, id: u64, last: bool) -> Option<Ask> {
         if last {
@@ -643,6 +778,15 @@ impl Ai {
     }
 
     /// Stops a task window's request; its answer, if it still comes, is not read.
+    /// Why the running engine cannot be sent pictures (one older than mdedit), once it has said
+    /// hello; `None` while none runs or before it has.
+    pub fn pictures_refused(&self) -> Option<&'static str> {
+        self.client
+            .as_ref()
+            .filter(|c| c.version() > 0)
+            .and_then(Client::pictures_refused)
+    }
+
     pub fn cancel_task(&mut self, id: u64) {
         self.pending.remove(&id);
         if let Some(c) = &self.client {

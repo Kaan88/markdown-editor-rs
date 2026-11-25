@@ -128,6 +128,8 @@ pub struct Prefs {
     pub ai_after_run: AfterRun,
     /// What File them does with the files it files (D-209): copies them in by default.
     pub ai_files: FilesGo,
+    /// Write notes' options (pictures plan section 12).
+    pub ai_notes: NotesOptions,
     /// The task window's limits (D-203), in their ranges by [`Prefs::clamp`].
     pub ai_task_batch: usize,
     pub ai_rewrite_files: usize,
@@ -294,6 +296,96 @@ impl FilesGo {
     }
 }
 
+/// Write notes' options (pictures plan section 12): kept in the settings file once changed, as
+/// the words of those that are on (`as-needed copy rename describe strip`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NotesOptions {
+    pub how_many: crate::notes_ai::HowMany,
+    /// Copy the pictures beside the notes; off links them where they are.
+    pub copy: bool,
+    /// Name the copies after what they show.
+    pub rename: bool,
+    /// Describe each picture under it.
+    pub describe: bool,
+    /// Write out the text in the pictures, as a quote under each.
+    pub text_out: bool,
+    /// Remove location and camera details before sending.
+    pub strip: bool,
+    /// Send larger pictures (2576 px on the long side), for small print.
+    pub larger: bool,
+}
+
+impl Default for NotesOptions {
+    fn default() -> NotesOptions {
+        NotesOptions {
+            how_many: crate::notes_ai::HowMany::AsNeeded,
+            copy: true,
+            rename: true,
+            describe: true,
+            text_out: false,
+            strip: true,
+            larger: false,
+        }
+    }
+}
+
+impl NotesOptions {
+    /// The value in the settings file.
+    pub fn key(&self) -> String {
+        use crate::notes_ai::HowMany;
+        let mut words = vec![match self.how_many {
+            HowMany::AsNeeded => "as-needed",
+            HowMany::One => "one",
+            HowMany::PerPicture => "per-picture",
+        }];
+        for (on, word) in [
+            (self.copy, "copy"),
+            (self.rename, "rename"),
+            (self.describe, "describe"),
+            (self.text_out, "text"),
+            (self.strip, "strip"),
+            (self.larger, "larger"),
+        ] {
+            if on {
+                words.push(word);
+            }
+        }
+        words.join(" ")
+    }
+
+    /// Reads [`NotesOptions::key`]: a value with no word of how many notes is `None` (the
+    /// default); a word not known is passed over.
+    pub fn parse(value: &str) -> Option<NotesOptions> {
+        use crate::notes_ai::HowMany;
+        let mut how = None;
+        let mut o = NotesOptions {
+            how_many: HowMany::AsNeeded,
+            copy: false,
+            rename: false,
+            describe: false,
+            text_out: false,
+            strip: false,
+            larger: false,
+        };
+        for w in value.split([' ', ',']).filter(|w| !w.is_empty()) {
+            match w.to_ascii_lowercase().as_str() {
+                "as-needed" => how = Some(HowMany::AsNeeded),
+                "one" => how = Some(HowMany::One),
+                "per-picture" => how = Some(HowMany::PerPicture),
+                "copy" => o.copy = true,
+                "rename" => o.rename = true,
+                "describe" => o.describe = true,
+                "text" => o.text_out = true,
+                "strip" => o.strip = true,
+                "larger" => o.larger = true,
+                _ => {}
+            }
+        }
+        o.how_many = how?;
+        Some(o)
+    }
+}
+
 /// A setting's text longer than this many bytes is not a setting: the default is used.
 const AI_TEXT_MAX: usize = 2048;
 
@@ -341,6 +433,7 @@ impl Default for Prefs {
             ai_review_preview: false,
             ai_after_run: AfterRun::Preview,
             ai_files: FilesGo::Copy,
+            ai_notes: NotesOptions::default(),
             ai_task_batch: AI_TASK_BATCH_DEFAULT,
             ai_rewrite_files: AI_REWRITE_FILES_DEFAULT,
             ai_rewrite_kb: AI_REWRITE_KB_DEFAULT,
@@ -536,6 +629,7 @@ impl Prefs {
                         p.ai_after_run = AfterRun::parse(value).unwrap_or(d.ai_after_run)
                     }
                     "ai_files" => p.ai_files = FilesGo::parse(value).unwrap_or(d.ai_files),
+                    "ai_notes" => p.ai_notes = NotesOptions::parse(value).unwrap_or(d.ai_notes),
                     "ai_task_batch" => {
                         p.ai_task_batch = number(value, AI_TASK_BATCH_MIN, AI_TASK_BATCH_MAX)
                             .unwrap_or(d.ai_task_batch)
@@ -661,6 +755,7 @@ impl Prefs {
         w.line("ai_review_preview", b(p.ai_review_preview));
         w.line("ai_after_run", p.ai_after_run.key());
         w.line("ai_files", p.ai_files.key());
+        w.line("ai_notes", &p.ai_notes.key());
         w.line("ai_task_batch", &p.ai_task_batch.to_string());
         w.line("ai_rewrite_files", &p.ai_rewrite_files.to_string());
         w.line("ai_rewrite_kb", &p.ai_rewrite_kb.to_string());
@@ -940,6 +1035,40 @@ preview_mode= MDVIEW
         );
     }
 
+    /// Pictures plan section 12: Write notes' options are the plan's defaults, read back as
+    /// they were written, and a value that names no number of notes is the default.
+    #[test]
+    fn write_notes_options_read_back() {
+        use crate::notes_ai::HowMany;
+        let d = Prefs::default().ai_notes;
+        assert_eq!(d.how_many, HowMany::AsNeeded);
+        assert!(d.copy && d.rename && d.describe && d.strip);
+        assert!(!d.text_out && !d.larger);
+        assert_eq!(d.key(), "as-needed copy rename describe strip");
+        let mine = NotesOptions {
+            how_many: HowMany::One,
+            copy: false,
+            text_out: true,
+            larger: true,
+            ..NotesOptions::default()
+        };
+        let q = Prefs {
+            ai_notes: mine,
+            ..Prefs::default()
+        };
+        assert_eq!(Prefs::parse(&q.serialize()).ai_notes, mine);
+        assert_eq!(
+            Prefs::parse("[preferences]\nai_notes=copy strip\n").ai_notes,
+            d
+        );
+        assert_eq!(
+            Prefs::parse("[preferences]\nai_notes=per-picture, wobble\n")
+                .ai_notes
+                .how_many,
+            HowMany::PerPicture
+        );
+    }
+
     /// D-209: File them copies the files in unless the owner chose to link them, and the
     /// choice reads back.
     #[test]
@@ -1143,6 +1272,10 @@ preview_mode= MDVIEW
             ai_review_preview: true,
             ai_after_run: AfterRun::Nothing,
             ai_files: FilesGo::Link,
+            ai_notes: NotesOptions {
+                how_many: crate::notes_ai::HowMany::PerPicture,
+                ..NotesOptions::default()
+            },
             ai_task_batch: 12,
             ai_rewrite_files: 7,
             ai_rewrite_kb: 640,
@@ -1194,7 +1327,7 @@ preview_mode= MDVIEW
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 58);
+        assert_eq!(t.lines().count(), 59);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,

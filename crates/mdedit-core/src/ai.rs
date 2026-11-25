@@ -372,6 +372,8 @@ pub enum PromptKind {
     Split,
     /// A file task's prompt (`docs/ai-library-plan.md` 5.6): `kind: file`.
     File,
+    /// A Write notes prompt (pictures plan section 12): `kind: notes`.
+    Notes,
     Other,
 }
 
@@ -382,6 +384,7 @@ impl PromptKind {
             PromptKind::Rewrite => "rewrite",
             PromptKind::Split => "split",
             PromptKind::File => "file",
+            PromptKind::Notes => "notes",
             PromptKind::Other => "other",
         }
     }
@@ -401,6 +404,7 @@ fn kind_line(line: &str) -> Option<PromptKind> {
         "rewrite" => PromptKind::Rewrite,
         "split" => PromptKind::Split,
         "file" => PromptKind::File,
+        "notes" => PromptKind::Notes,
         _ => PromptKind::Other,
     })
 }

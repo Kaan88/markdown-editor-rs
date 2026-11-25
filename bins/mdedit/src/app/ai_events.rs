@@ -57,6 +57,7 @@ impl App {
         self.docs.ai_prompts = of(PromptKind::Rewrite);
         self.docs.ai_split_prompts = of(PromptKind::Split);
         self.docs.ai_file_prompts = of(PromptKind::File);
+        self.docs.ai_notes_prompts = of(PromptKind::Notes);
     }
 
     /// Whether the instruction panel is the split's (5.2).
@@ -522,6 +523,8 @@ impl App {
                         match ask {
                             Some(Ask::SortScheme) => self.sort_scheme_done(&text),
                             Some(Ask::SortFiles(_)) => self.sort_batch_done(id, &text),
+                            Some(Ask::Look(_)) => self.notes_look_done(id, &text),
+                            Some(Ask::Arrange) => self.notes_arrange_done(id, &text),
                             _ => {}
                         }
                     }
@@ -567,6 +570,9 @@ impl App {
                             self.note_failed(&kind, &message);
                         }
                     }
+                    Some(Ask::Prepare) => self.notes_prepare_failed(id, &kind, &message),
+                    Some(Ask::Look(_)) => self.notes_look_failed(id, &kind, &message, retry_after),
+                    Some(Ask::Arrange) => self.notes_arrange_failed(id, &kind, &message),
                     Some(Ask::Models(key)) => {
                         self.ai.models.insert(key, Err(message));
                         self.ai.fetching = None;
@@ -604,10 +610,31 @@ impl App {
                         needs = true;
                     }
                 }
+                Event::Picture { id, index, info } => {
+                    if self.ai.answered(id, false) == Some(Ask::Prepare) {
+                        self.notes_picture(id, index, info);
+                    }
+                }
+                Event::Prepared { id } => {
+                    if self.ai.answered(id, true) == Some(Ask::Prepare) {
+                        self.notes_prepared(id);
+                    }
+                }
+                Event::Sent {
+                    id,
+                    bytes,
+                    text_bytes,
+                    ..
+                } => {
+                    if matches!(self.ai.answered(id, false), Some(Ask::Look(_))) {
+                        self.notes_sent(id, bytes, text_bytes);
+                    }
+                }
                 Event::Ended(why) => {
                     if self.task.as_ref().is_some_and(|t| t.asking.is_some()) {
                         self.task_failed("ended", &why);
                     }
+                    self.notes_engine_ended(&why);
                     if self.ai.split.is_some() {
                         self.split_failed("ended", &why);
                     }

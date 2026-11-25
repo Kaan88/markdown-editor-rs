@@ -70,6 +70,7 @@ impl App {
             DestChoice::Decide
         };
         let prompts = match kind {
+            TaskKind::Notes => self.docs.ai_notes_prompts.clone(),
             TaskKind::File => self.docs.ai_file_prompts.clone(),
             TaskKind::Split => self.docs.ai_split_prompts.clone(),
             TaskKind::Rewrite => self.docs.ai_prompts.clone(),
@@ -85,6 +86,7 @@ impl App {
             s.focus = Focus::NewGroup;
         }
         s.limits = task_ui::Limits::of(&self.docs.prefs);
+        s.notes = self.docs.prefs.ai_notes;
         self.task = Some(s);
         self.task_add_paths(add);
         self.task_finish_open();
@@ -139,6 +141,7 @@ impl App {
             s.recount_limit();
             s.tick += 1;
         }
+        self.notes_prepare(false);
         self.caret_reset();
         self.redraw();
     }
@@ -185,12 +188,13 @@ impl App {
             s.recount_limit();
             s.tick += 1;
         }
+        self.notes_prepare(false);
         self.redraw();
     }
 
     /// What a file is to a task: text, a picture or another kind, and the reason it is left out
     /// when it is. A picture's bytes are never read; nor a PDF's or a Word file's.
-    fn task_probe(&self, path: &Path) -> FileEntry {
+    pub(super) fn task_probe(&self, path: &Path) -> FileEntry {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -216,6 +220,8 @@ impl App {
             already: false,
             done: false,
             limits: task_ui::Limits::of(&self.docs.prefs),
+            measure: Default::default(),
+            thumb: None,
         };
         let meta = match std::fs::symlink_metadata(path) {
             Ok(m) => m,
@@ -318,7 +324,7 @@ impl App {
         }
         let from = self.ui.library.came_from(i, notes.len());
         self.task_open(TaskKind::Rewrite, notes);
-        if self.task.as_ref().is_none_or(|s| s.asking.is_some()) {
+        if self.task.as_ref().is_none_or(|s| s.busy()) {
             return;
         }
         self.task_act(Hit::Kind(TaskKind::Rewrite));
@@ -345,7 +351,7 @@ impl App {
             TaskKind::File
         };
         self.task_open(kind, vec![path]);
-        if listed && !parked && self.task.as_ref().is_some_and(|s| s.asking.is_none()) {
+        if listed && !parked && self.task.as_ref().is_some_and(|s| !s.busy()) {
             self.task_act(Hit::Kind(TaskKind::Rewrite));
         }
     }
@@ -436,14 +442,18 @@ impl App {
                 self.task_cancel_request();
                 return;
             }
+            if self.notes_stop() {
+                return;
+            }
             if self
                 .task
                 .as_ref()
-                .is_some_and(|s| s.dest_open || s.add_open)
+                .is_some_and(|s| s.dest_open || s.add_open || s.options_open)
             {
                 if let Some(s) = self.task.as_mut() {
                     s.dest_open = false;
                     s.add_open = false;
+                    s.options_open = false;
                     s.tick += 1;
                 }
                 self.redraw();
@@ -458,7 +468,12 @@ impl App {
             s.add_open = false;
             s.tick += 1;
         }
-        if self.task.as_ref().is_some_and(|s| s.asking.is_some()) {
+        if self.task.as_ref().is_some_and(|s| s.busy()) {
+            return;
+        }
+        // Ctrl+V with a picture on the clipboard adds it (pictures plan 4.1); text goes to the
+        // field as before.
+        if name == KeyName::Char('v') && mods.ctrl && !mods.alt && self.notes_paste() {
             return;
         }
         if self.task.as_ref().is_some_and(|s| s.dest_open) {
@@ -710,11 +725,14 @@ impl App {
         // While a request is out the window takes no key that changes what it asked about, and
         // no click either: the task, the files, the prompt and the group stay as they were sent
         // (audit 4, B5). Stop, Cancel and the scrollbars still work.
-        let asking = self.task.as_ref().is_some_and(|s| s.asking.is_some());
+        let asking = self.task.as_ref().is_some_and(|s| s.busy());
         if asking
             && matches!(
                 hit,
                 Hit::Kind(_)
+                    | Hit::Options
+                    | Hit::HowMany(_)
+                    | Hit::Tick(_)
                     | Hit::File(_)
                     | Hit::Prompt(_)
                     | Hit::Dest
@@ -729,11 +747,20 @@ impl App {
         {
             return;
         }
-        // A click anywhere but the Add menu closes it.
+        // A click anywhere but the Add menu closes it; anywhere but the Options popover, that.
         if !matches!(hit, Hit::AddItem(_) | Hit::AddFiles)
             && let Some(s) = self.task.as_mut()
         {
             s.add_open = false;
+        }
+        if !matches!(
+            hit,
+            Hit::Options | Hit::HowMany(_) | Hit::Tick(_) | Hit::Popover
+        ) && let Some(s) = self.task.as_mut()
+            && s.options_open
+        {
+            s.options_open = false;
+            s.tick += 1;
         }
         match hit {
             Hit::AddFiles => self.task_add_menu(),
@@ -755,21 +782,38 @@ impl App {
                 if let Some(s) = self.task.as_mut() {
                     s.set_task(task);
                     s.prompts = task.prompts_of(
+                        &self.docs.ai_notes_prompts,
                         &self.docs.ai_file_prompts,
                         &self.docs.ai_split_prompts,
                         &self.docs.ai_prompts,
                     );
                     s.focus = Focus::Instruction;
                 }
+                self.notes_prepare(false);
                 self.caret_reset();
                 self.redraw();
             }
             Hit::File(i) => {
                 if let Some(s) = self.task.as_mut() {
                     s.toggle(i);
+                    // A plan made of other files is no longer the plan.
+                    if let Some(run) = s.notes_run.as_mut() {
+                        run.arranged = None;
+                    }
                 }
                 self.redraw();
             }
+            Hit::Options => {
+                if let Some(s) = self.task.as_mut() {
+                    s.options_open = !s.options_open;
+                    s.tick += 1;
+                }
+                self.redraw();
+            }
+            Hit::HowMany(h) => self.notes_option(None, Some(h)),
+            Hit::Tick(t) => self.notes_option(Some(t), None),
+            Hit::TryAgain => self.notes_again(false),
+            Hit::GoOn => self.notes_again(true),
             Hit::Prompt(k) => {
                 let prompt = self.task.as_ref().and_then(|s| s.prompts.get(k)).cloned();
                 if let (Some(s), Some(p)) = (self.task.as_mut(), prompt) {
@@ -836,7 +880,7 @@ impl App {
             Hit::Primary => self.task_primary(),
             Hit::Cancel => self.task_close(),
             Hit::OpenSettings => self.ai_open_settings(),
-            Hit::Card | Hit::Body | Hit::Track | Hit::Thumb => {}
+            Hit::Card | Hit::Body | Hit::Track | Hit::Thumb | Hit::Popover => {}
         }
     }
 
@@ -880,7 +924,7 @@ impl App {
     pub(super) fn task_run(&mut self) {
         let on = self.ai_conn() != Connection::Off;
         let Some(s) = self.task.as_mut() else { return };
-        if s.asking.is_some() {
+        if s.busy() {
             return;
         }
         s.ai_on = on;
@@ -915,6 +959,7 @@ impl App {
             return;
         }
         match task {
+            TaskKind::Notes => self.notes_start(),
             TaskKind::File if on => self.task_file_start(),
             TaskKind::File => self.task_file_plan_now(),
             TaskKind::Split => self.task_split_start(),
@@ -2045,8 +2090,9 @@ impl App {
         match asking.task {
             TaskKind::File => self.task_file_answer(text),
             TaskKind::Rewrite => self.task_rewrite_answer(text),
-            // Split them asks through each file's plan card, never through the window.
-            TaskKind::Split => {
+            // Split them asks through each file's plan card, and Write notes through its own
+            // run, never through the window's one request.
+            TaskKind::Split | TaskKind::Notes => {
                 if let Some(s) = self.task.as_mut() {
                     s.asking = None;
                     s.tick += 1;
@@ -2093,7 +2139,7 @@ impl App {
     /// "Show what is sent": the literal request text in a read-only tab. The window is parked
     /// behind it, and "AI task…" brings it back.
     pub(super) fn task_show_sent(&mut self) {
-        if self.task.as_ref().is_some_and(|s| s.asking.is_some()) {
+        if self.task.as_ref().is_some_and(|s| s.busy()) {
             self.docs
                 .set_toast("The request is out. Its answer comes first.");
             return;
@@ -2131,6 +2177,7 @@ impl App {
              The window is behind it: AI task\u{2026} brings it back.\n\n",
         );
         match s.task {
+            TaskKind::Notes => out.push_str(&crate::notes_task::request_text(s, &instruction)),
             TaskKind::File => {
                 let batches: Vec<&[usize]> = ids.chunks(s.limits.batch.max(1)).collect();
                 for (k, batch) in batches.iter().enumerate() {
@@ -2210,6 +2257,7 @@ impl App {
     /// Escape, Cancel, or the end of a task: the window goes, a request with it. A rewrite's
     /// record stays, closed as done, so what was written can be undone.
     pub(super) fn task_close(&mut self) {
+        self.notes_close();
         let asking = self.task.as_mut().and_then(|s| s.asking.take());
         if let Some(asking) = asking {
             self.ai.cancel_task(asking.request);
@@ -2235,6 +2283,10 @@ impl App {
 
     /// The primary button's work on the plan face: the links.
     pub(super) fn task_primary(&mut self) {
+        // While Write notes looks or arranges, the button is Stop.
+        if self.notes_stop() {
+            return;
+        }
         let Some(s) = self.task.as_ref() else { return };
         if s.planned {
             self.task_file_write();
@@ -2246,6 +2298,9 @@ impl App {
     /// `--ai-demo files|files-other|files-off|files-plan|sent`: the window for a shot, made
     /// from the fixtures under `fixtures/task-demo/`, with no engine and nothing sent.
     pub(super) fn task_demo(&mut self, name: &str) -> bool {
+        if name.starts_with("notes") {
+            return self.notes_demo(name);
+        }
         let dir = Path::new("fixtures/task-demo");
         if !dir.is_dir() {
             return false;
@@ -2321,6 +2376,7 @@ impl App {
             s.dest = DestChoice::New("Recipes".to_string());
         }
         s.instruction.set_text(match s.task {
+            TaskKind::Notes => "One note per room, with what to buy for it.",
             TaskKind::File => "Sort these into my recipes and bread notes.",
             TaskKind::Split => "One note per recipe.",
             TaskKind::Rewrite => "Make the method clearer, not longer.",

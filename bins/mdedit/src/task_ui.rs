@@ -26,6 +26,10 @@ pub const DEST_H: f32 = 40.0;
 pub const PROMPT_ROW: f32 = 44.0;
 pub const GROUP_H: f32 = 26.0;
 pub const ROW_H: f32 = 34.0;
+/// A picture's row on Write notes: its thumbnail beside the name (pictures plan 5).
+pub const PICTURE_ROW_H: f32 = 52.0;
+/// The thumbnail's square on that row.
+pub const THUMB: f32 = 40.0;
 
 /// The card for a `w` x `h` window.
 pub fn card(w: f32, h: f32) -> Rect {
@@ -138,16 +142,24 @@ pub fn dest_row(x: f32, inner: f32, y: f32, with_section: bool) -> DestRow {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TaskKind {
+    /// Write notes (pictures plan): notes from pictures and text files.
+    Notes,
     File,
     Split,
     Rewrite,
 }
 
 impl TaskKind {
-    pub const ALL: [TaskKind; 3] = [TaskKind::File, TaskKind::Split, TaskKind::Rewrite];
+    pub const ALL: [TaskKind; 4] = [
+        TaskKind::Notes,
+        TaskKind::File,
+        TaskKind::Split,
+        TaskKind::Rewrite,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
+            TaskKind::Notes => "Write notes",
             TaskKind::File => "File them",
             TaskKind::Split => "Split them",
             TaskKind::Rewrite => "Rewrite them",
@@ -157,20 +169,23 @@ impl TaskKind {
     /// The saved prompts this task lists.
     pub fn prompt_kind(self) -> PromptKind {
         match self {
+            TaskKind::Notes => PromptKind::Notes,
             TaskKind::File => PromptKind::File,
             TaskKind::Split => PromptKind::Split,
             TaskKind::Rewrite => PromptKind::Rewrite,
         }
     }
 
-    /// The prompts of this task's kind, from the three lists the window keeps.
+    /// The prompts of this task's kind, from the four lists the window keeps.
     pub fn prompts_of(
         self,
+        notes: &[mdedit_core::ai::SavedPrompt],
         file: &[mdedit_core::ai::SavedPrompt],
         split: &[mdedit_core::ai::SavedPrompt],
         rewrite: &[mdedit_core::ai::SavedPrompt],
     ) -> Vec<mdedit_core::ai::SavedPrompt> {
         match self.prompt_kind() {
+            PromptKind::Notes => notes.to_vec(),
             PromptKind::Split => split.to_vec(),
             PromptKind::File => file.to_vec(),
             _ => rewrite.to_vec(),
@@ -179,6 +194,9 @@ impl TaskKind {
 
     pub fn placeholder(self) -> &'static str {
         match self {
+            TaskKind::Notes => {
+                "What should the notes be? For example: one note per room, with what to buy"
+            }
             TaskKind::File => "How should they be filed? For example: by dish and by occasion",
             TaskKind::Split => "How should each be cut? For example: one note per chapter",
             TaskKind::Rewrite => "What should change? For example: make the prices a table",
@@ -197,6 +215,10 @@ impl FileKind {
     /// What the group heading says of this kind of file for `task`.
     pub fn heading(self, task: TaskKind) -> &'static str {
         match (self, task) {
+            (FileKind::Text, TaskKind::Notes) => {
+                "TEXT \u{00B7} READ AND SENT WHOLE, WITH WHAT THE PICTURES SHOW"
+            }
+            (FileKind::Picture, TaskKind::Notes) => crate::notes_task::pictures_heading(true, true),
             (FileKind::Text, TaskKind::File) => "TEXT \u{00B7} READ AND SENT: A DIGEST GOES",
             (FileKind::Text, _) => "TEXT \u{00B7} READ AND SENT",
             (FileKind::Picture, TaskKind::File) => {
@@ -250,12 +272,17 @@ pub struct FileEntry {
     pub done: bool,
     /// The window's limits, as its reason says them (D-203).
     pub limits: Limits,
+    /// Write notes: what the engine said the picture is sent as.
+    pub measure: crate::notes_task::Measure,
+    /// Its thumbnail, as the engine made it, decoded and made small (RGBA, width, height).
+    pub thumb: Option<(Vec<u8>, u32, u32)>,
 }
 
 impl FileEntry {
     /// Why this file takes no part in `task`, on top of what `task_add` found.
     pub fn reason_for(&self, task: TaskKind) -> Option<String> {
         match task {
+            TaskKind::Notes => crate::notes_task::reason(self, &self.measure),
             // Filed already: "Move the notes…" is the way to put it elsewhere.
             TaskKind::File if self.already => Some("already in the library".to_string()),
             // A PDF, a Word file, an archive: never read, but its name is a link like any other.
@@ -597,6 +624,15 @@ pub enum Hit {
     OpenSettings,
     Track,
     Thumb,
+    /// Write notes' Options button, and its popover's lines.
+    Options,
+    HowMany(mdedit_core::notes_ai::HowMany),
+    Tick(crate::notes_task::Tick),
+    /// A look request failed: send the failed ones again, or go on without them.
+    TryAgain,
+    GoOn,
+    /// The Options popover's own ground: a click there does nothing, and keeps it open.
+    Popover,
 }
 
 /// The list's scroll and the places the last draw put its rows.
@@ -708,6 +744,16 @@ pub struct TaskScreen {
     /// A run of Split them from this window has opened its note: the later runs open none, so
     /// a split over several files is one tab, not one per file.
     pub split_opened: bool,
+    /// Write notes' options, as the settings keep them.
+    pub notes: mdedit_core::prefs::NotesOptions,
+    /// The Options popover is open.
+    pub options_open: bool,
+    /// The `prepare` request out, and the files it measures, by their place in the window.
+    pub prepare: Vec<(u64, Vec<usize>)>,
+    /// Write notes' run: the looks, then the arrange.
+    pub notes_run: Option<crate::notes_task::Run>,
+    /// Why no picture can be sent with this connection (an older engine, a CLI that takes none).
+    pub pictures_refused: Option<String>,
 }
 
 /// A request in flight from the window.
@@ -770,7 +816,56 @@ impl TaskScreen {
             win: (1280.0, 800.0),
             split_opened: false,
             ai_on: false,
+            notes: mdedit_core::prefs::NotesOptions::default(),
+            options_open: false,
+            prepare: Vec::new(),
+            notes_run: None,
+            pictures_refused: None,
         }
+    }
+
+    /// A request is out: the window keeps what it asked about as it was sent.
+    pub fn busy(&self) -> bool {
+        self.asking.is_some()
+            || self
+                .notes_run
+                .as_ref()
+                .is_some_and(|r| r.looking() || r.arrange.is_some())
+    }
+
+    /// Write notes: the pictures and the text files that take part, by their place.
+    pub fn notes_parts(&self) -> (Vec<usize>, Vec<usize>) {
+        let ids = self.taking_part();
+        let pictures = ids
+            .iter()
+            .copied()
+            .filter(|&i| self.files[i].kind == FileKind::Picture)
+            .collect();
+        let texts = ids
+            .into_iter()
+            .filter(|&i| self.files[i].kind == FileKind::Text)
+            .collect();
+        (pictures, texts)
+    }
+
+    /// Why Write notes cannot be sent now, with both numbers where there are two.
+    pub fn notes_blocked(&self) -> Option<String> {
+        let (pictures, texts) = self.notes_parts();
+        if self.ai_on
+            && !pictures.is_empty()
+            && let Some(why) = &self.pictures_refused
+        {
+            return Some(why.clone());
+        }
+        let text_bytes = texts
+            .iter()
+            .map(|&i| self.files[i].text.as_ref().map_or(0, String::len))
+            .sum();
+        let waiting = self.ai_on
+            && pictures
+                .iter()
+                .any(|&i| self.files[i].measure == crate::notes_task::Measure::Waiting);
+        crate::notes_task::blocked(pictures.len(), text_bytes, waiting)
     }
 
     /// The files that take part, by their place in `files`.
@@ -889,6 +984,7 @@ impl TaskScreen {
         }
         self.task = task;
         self.planned = false;
+        self.options_open = false;
         self.dest_open = false;
         self.add_open = false;
         self.focus = Focus::Instruction;
@@ -953,6 +1049,12 @@ impl TaskScreen {
         }
         let s = if n == 1 { "" } else { "s" };
         match self.task {
+            TaskKind::Notes => {
+                let (pictures, texts) = self.notes_parts();
+                let measures: Vec<&crate::notes_task::Measure> =
+                    pictures.iter().map(|&i| &self.files[i].measure).collect();
+                crate::notes_task::summary(&measures, texts.len(), self.notes.how_many, self.ai_on)
+            }
             TaskKind::File => {
                 if self.planned {
                     return format!("{n} file{s} placed");
@@ -995,6 +1097,10 @@ impl TaskScreen {
             return format!("Add {n} to the library");
         }
         match self.task {
+            TaskKind::Notes => {
+                let (pictures, texts) = self.notes_parts();
+                crate::notes_task::primary_label(pictures.len(), texts.len(), self.ai_on)
+            }
             TaskKind::File | TaskKind::Split if self.asks_ai() => {
                 format!("Run on {n} file{}", if n == 1 { "" } else { "s" })
             }
@@ -1010,7 +1116,7 @@ impl TaskScreen {
     pub fn asks_ai(&self) -> bool {
         match self.task {
             TaskKind::Rewrite => true,
-            TaskKind::File => self.ai_on,
+            TaskKind::File | TaskKind::Notes => self.ai_on,
             TaskKind::Split => false,
         }
     }
@@ -1224,6 +1330,8 @@ pub enum ListRow {
     File(usize),
     /// The heading over the files a model could not place, on the plan face.
     Unplaced,
+    /// A picture's row on Write notes, with its thumbnail: taller than a file's.
+    Picture(usize),
 }
 
 /// The rows to draw, in order. On the plan face the placed files come first, in the order they
@@ -1256,7 +1364,13 @@ pub fn rows(s: &TaskScreen) -> Vec<ListRow> {
         }
         return out;
     }
-    for kind in [FileKind::Text, FileKind::Picture, FileKind::Other] {
+    // Write notes puts its pictures first: they are what it is for.
+    let order = if s.task == TaskKind::Notes {
+        [FileKind::Picture, FileKind::Text, FileKind::Other]
+    } else {
+        [FileKind::Text, FileKind::Picture, FileKind::Other]
+    };
+    for kind in order {
         let of: Vec<usize> = (0..s.files.len())
             .filter(|&i| s.files[i].kind == kind)
             .collect();
@@ -1264,7 +1378,11 @@ pub fn rows(s: &TaskScreen) -> Vec<ListRow> {
             continue;
         }
         out.push(ListRow::Heading(kind));
-        out.extend(of.into_iter().map(ListRow::File));
+        if kind == FileKind::Picture && s.task == TaskKind::Notes {
+            out.extend(of.into_iter().map(ListRow::Picture));
+        } else {
+            out.extend(of.into_iter().map(ListRow::File));
+        }
     }
     out
 }
@@ -1275,6 +1393,7 @@ pub fn content_h(rows: &[ListRow]) -> f32 {
         .map(|r| match r {
             ListRow::Heading(_) | ListRow::Placed | ListRow::Unplaced => GROUP_H,
             ListRow::File(_) => ROW_H,
+            ListRow::Picture(_) => PICTURE_ROW_H,
         })
         .sum::<f32>()
         + 8.0
@@ -1309,6 +1428,8 @@ mod tests {
             already: false,
             done: false,
             limits: Limits::default(),
+            measure: Default::default(),
+            thumb: None,
         }
     }
 

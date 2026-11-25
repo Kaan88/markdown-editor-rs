@@ -24,7 +24,7 @@ impl App {
         let via = self.ai_via();
         let busy = self.ai.run.is_some()
             || self.ai.split.is_some()
-            || self.task.as_ref().is_some_and(|t| t.asking.is_some())
+            || self.task.as_ref().is_some_and(|t| t.busy())
             || self.note.as_ref().is_some_and(|c| c.asking.is_some());
         let reason = if connection == Connection::Off {
             Some("The AI is off: choose a connection in Settings \u{203A} AI.".to_string())
@@ -47,7 +47,7 @@ impl App {
         if self.ai.run.is_some()
             || self.ai.split.is_some()
             || self.ai.sort.is_some()
-            || self.task.as_ref().is_some_and(|t| t.asking.is_some())
+            || self.task.as_ref().is_some_and(|t| t.busy())
             || self.note.as_ref().is_some_and(|c| c.asking.is_some())
         {
             return;

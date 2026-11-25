@@ -12,10 +12,26 @@ use mdedit_core::ai::Connection;
 use std::sync::Once;
 
 const ENGINE: &str = r##"#!/bin/sh
-echo '{"ev":"hello","version":1,"engine":"fake"}'
+echo '{"ev":"hello","version":2,"engine":"fake"}'
 while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
   case "$line" in
+    *'"op":"prepare"'*)
+      for i in 0 1 2 3 4 5; do
+        printf '%s%s%s%s%s\n' '{"ev":"picture","id":' "$id" ',"index":' "$i" ',"format":"png","width":800,"height":600,"bytes":1000,"sha256":"s","done":[],"original_width":800,"original_height":600}'
+      done
+      printf '%s%s%s\n' '{"ev":"prepared","id":' "$id" ',"count":6}';;
+    *'"op":"run"'*NOVISION*'You look at pictures'*)
+      printf '%s%s%s\n' '{"ev":"error","id":' "$id" ',"kind":"no_vision","message":"This model does not read pictures: test at test."}';;
+    *'"op":"run"'*LOOKFAIL*'You look at pictures'*)
+      printf '%s%s%s\n' '{"ev":"error","id":' "$id" ',"kind":"rate","message":"Too many requests.","retry_after":30}';;
+    *'"op":"run"'*LOOKSLOW*'You look at pictures'*)
+      ;;
+    *'"op":"run"'*'You look at pictures'*)
+      printf '%s%s%s\n' '{"ev":"sent","id":' "$id" ',"images":[{"bytes":1000,"sha256":"s"}],"text_bytes":50}'
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"{\"version\":1,\"pictures\":[{\"id\":0,\"title\":\"Sink\",\"says\":\"A sink.\",\"subjects\":[\"kitchen\"],\"kind\":\"photo\",\"text\":\"\"},{\"id\":1,\"title\":\"Tiles\",\"says\":\"Blue tiles.\",\"subjects\":[],\"kind\":\"photo\",\"text\":\"\"},{\"id\":2,\"title\":\"Tap\",\"says\":\"A tap.\",\"subjects\":[],\"kind\":\"photo\",\"text\":\"\"},{\"id\":3,\"title\":\"Oven\",\"says\":\"An oven.\",\"subjects\":[],\"kind\":\"photo\",\"text\":\"\"},{\"id\":4,\"title\":\"Door\",\"says\":\"A door.\",\"subjects\":[],\"kind\":\"photo\",\"text\":\"\"}]}"}';;
+    *'"op":"run"'*'You arrange notes'*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"{\"version\":1,\"notes\":[{\"title\":\"Kitchen\",\"sections\":[\"Rooms\"],\"body\":\"![The sink](picture:0)\\n\\nBuy a tap.\"}],\"unused\":[1]}"}';;
     *'"op":"run"'*SPLITOK*)
       printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"Here it is:\n{\"version\":1,\"notes\":[{\"from\":5,\"to\":11,\"title\":\"Both\",\"sections\":[\"Tokyo\"]}]}"}';;
     *'"op":"run"'*SPLITJUNK*)
@@ -1070,8 +1086,8 @@ fn a_new_run_drops_the_result_escape_kept() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Plan 6: the editor reads the version the engine's greeting says, and an engine of version 1
-/// (the stand-in says 1) is not sent pictures.
+/// Plan 6: the editor reads the version the engine's greeting says (the stand-in says 2, and
+/// takes pictures), and an engine of version 1 is not sent pictures.
 #[test]
 fn the_engine_s_version_is_read_and_an_old_one_takes_no_pictures() {
     engine();
@@ -1081,6 +1097,11 @@ fn the_engine_s_version_is_read_and_an_old_one_takes_no_pictures() {
         assert!(Instant::now() < until, "no greeting");
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert_eq!(c.version(), 1);
-    assert_eq!(c.pictures_refused(), Some(crate::ai::OLD_ENGINE));
+    assert_eq!(c.version(), 2);
+    assert_eq!(c.pictures_refused(), None);
+    assert_eq!(
+        crate::ai::pictures_refused_at(1),
+        Some(crate::ai::OLD_ENGINE)
+    );
+    assert_eq!(crate::ai::pictures_refused_at(2), None);
 }

@@ -271,6 +271,16 @@ for t in "" "-dark"; do
     shot "task-other$t" $th --size 1280x800 --task-demo files-other
     shot "task-review$t" $th --size 1280x800 --task-demo review
 done
+# Write notes (pictures plan, phase V3): the window with a thumbnail and what each picture is
+# sent as, its Options, while the pictures are looked at, a failed look, a model that reads no
+# pictures, the limit, and the AI off.
+for t in "" "-dark"; do
+    th=--light
+    [ -n "$t" ] && th=--dark
+    for d in notes notes-options notes-looking notes-failed notes-no-vision notes-limit notes-off; do
+        shot "task-$d$t" $th --size 1280x800 --task-demo "$d"
+    done
+done
 shot task-sent --light --size 1280x800 --task-demo sent
 shot pref-tab8 --light --pref tab_width=8 "$fx/tabs-controls.txt"
 shot pref-no-numbers --light --pref line_numbers=0 --pref highlight_line=0 --goto 12:5 "$fx/sample.rs"

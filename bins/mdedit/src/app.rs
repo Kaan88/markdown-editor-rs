@@ -112,6 +112,10 @@ mod moving_tests;
 mod note;
 #[cfg(test)]
 mod note_tests;
+mod notes_demo;
+mod notes_run;
+#[cfg(test)]
+mod notes_run_tests;
 mod palette_events;
 mod plan;
 #[cfg(test)]

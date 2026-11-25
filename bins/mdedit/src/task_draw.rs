@@ -3,9 +3,12 @@
 //! the footer. The state and the layout numbers are `task_ui.rs`; the window's part is
 //! `app/task.rs`.
 
+use crate::notes_task::{self, Measure};
 use crate::task_ui::{
-    self, DestChoice, FileKind, GROUP_H, Hit, ListRow, ROW_H, TaskKind, TaskScreen,
+    self, DestChoice, FileKind, GROUP_H, Hit, ListRow, PICTURE_ROW_H, ROW_H, THUMB, TaskKind,
+    TaskScreen,
 };
+use mdshared_text::Bitmap;
 use mdshared_ui::check::{Tick, draw_tick};
 use mdshared_ui::gfx::{Face, Painter, Rect, mix};
 use mdshared_ui::glyph;
@@ -148,15 +151,12 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
 
     // ---- the instruction ------------------------------------------------------------------------
     let field = g.field;
+    let busy = s.busy();
     p.frame(
         field,
         6.0,
         pal.field,
-        if s.asking.is_some() {
-            pal.line
-        } else {
-            pal.accent
-        },
+        if busy { pal.line } else { pal.accent },
     );
     hits.push((Hit::Field, field));
     let colors = FieldColors {
@@ -165,25 +165,33 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         selection: pal.selection,
         caret: pal.text,
     };
-    let enabled = s.asking.is_none();
-    s.instruction.draw(
-        p,
-        Rect::new(field.x + 12.0, field.y, field.w - 24.0, field.h),
-        Face::Ui,
-        13.5,
-        &colors,
-        s.task.placeholder(),
-        enabled,
-        caret_on && s.focus == crate::task_ui::Focus::Instruction,
-    );
-    if !enabled {
+    let enabled = !busy;
+    // While a request is out the field says what it is doing instead of the instruction: the
+    // two drawn together read as neither.
+    if enabled {
+        s.instruction.draw(
+            p,
+            Rect::new(field.x + 12.0, field.y, field.w - 24.0, field.h),
+            Face::Ui,
+            13.5,
+            &colors,
+            s.task.placeholder(),
+            enabled,
+            caret_on && s.focus == crate::task_ui::Focus::Instruction,
+        );
+    } else {
         // What the request is doing, over the field: the window says it where the instruction was.
+        let what = match (&s.asking, &s.notes_run) {
+            (Some(a), _) => a.what.clone(),
+            (None, Some(run)) => notes_task::progress(run, &s.via),
+            (None, None) => String::new(),
+        };
         p.text(
             Face::Ui,
             12.5,
             field.x + 12.0,
             field.cy(),
-            s.asking.as_ref().map(|a| a.what.as_str()).unwrap_or(""),
+            &what,
             pal.muted,
             field.w - 24.0,
         );
@@ -207,7 +215,9 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             12.0,
             x,
             list.cy(),
-            if s.task == TaskKind::File {
+            if s.task == TaskKind::Notes {
+                "None of this kind yet. A prompt saved with \u{201c}kind: notes\u{201d} is listed here."
+            } else if s.task == TaskKind::File {
                 "None of this kind yet. A prompt saved with \u{201c}kind: file\u{201d} is listed here."
             } else if s.task == TaskKind::Split {
                 "None of this kind yet. A prompt saved with \u{201c}kind: split\u{201d} is listed here."
@@ -326,7 +336,25 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             pal.muted,
             100.0,
         );
-        let row = task_ui::dest_row(x, inner, g.dest.y, s.task == TaskKind::File);
+        // Write notes keeps its Options at the row's end (pictures plan 5).
+        let options = (s.task == TaskKind::Notes).then(|| {
+            let w = dialog_button_w(p, "Options\u{2026}");
+            Rect::new(x + inner - w, g.dest.y + 2.0, w, 30.0)
+        });
+        let row_w = options.map_or(inner, |o| o.x - 12.0 - x);
+        let row = task_ui::dest_row(x, row_w, g.dest.y, s.task == TaskKind::File);
+        if let Some(o) = options {
+            draw_dialog_button(
+                p,
+                pal,
+                o,
+                "Options\u{2026}",
+                false,
+                hover == Some(Hit::Options) || s.options_open,
+                pressed == Some(Hit::Options),
+            );
+            hits.push((Hit::Options, o));
+        }
         let button = row.button;
         let open = s.dest_open;
         let fill = if hover == Some(Hit::Dest) || open {
@@ -412,7 +440,13 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                         10.5,
                         g.list.x + PAD,
                         y + GROUP_H / 2.0,
-                        kind.heading(s.task),
+                        if *kind == FileKind::Picture && s.task == TaskKind::Notes {
+                            notes_task::pictures_heading(s.notes.strip, s.ai_on)
+                        } else if *kind == FileKind::Text && s.task == TaskKind::Notes && !s.ai_on {
+                            "TEXT \u{00B7} READ HERE, NOTHING IS SENT"
+                        } else {
+                            kind.heading(s.task)
+                        },
                         pal.muted,
                         g.list.w - 2.0 * PAD,
                     );
@@ -451,6 +485,10 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 }
                 y += GROUP_H;
             }
+            ListRow::Picture(i) => {
+                draw_picture_row(p, pal, s, *i, y, g.list, &mut hits);
+                y += PICTURE_ROW_H;
+            }
             ListRow::File(i) => {
                 let f = &s.files[*i];
                 let row = Rect::new(g.list.x + 8.0, y + 1.0, g.list.w - 16.0, ROW_H - 2.0);
@@ -459,7 +497,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                         p.rbox(row, 5.0, mix(pal.popup, pal.text, 0.05));
                     }
                     let reason = f.reason_for(s.task);
-                    let enabled = reason.is_none() && !f.done && s.asking.is_none();
+                    let enabled = reason.is_none() && !f.done && !busy;
                     let tick_at = Rect::new(row.x + 12.0, row.cy() - 8.0, 16.0, 16.0);
                     draw_tick(
                         p,
@@ -587,17 +625,71 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     if s.add_open {
         draw_add_menu(p, pal, s, add, &mut hits, hover);
     }
+    if s.options_open && s.task == TaskKind::Notes {
+        draw_options(p, pal, s, &mut hits, hover);
+    }
+
+    // ---- what stopped Write notes, the width of the card, over the list's foot ----------------
+    if let Some(run) = s.notes_run.as_ref().filter(|_| s.task == TaskKind::Notes) {
+        let notice = if let Some(why) = run.fault.as_ref() {
+            Some(why.clone())
+        } else if let Some((b, why)) = run.failed.first().filter(|_| !s.busy()) {
+            Some(format!(
+                "Request {} of {} failed: {why} What was looked at is kept.",
+                b + 1,
+                run.batches.len()
+            ))
+        } else {
+            None
+        };
+        if let Some(notice) = notice {
+            let bar = Rect::new(g.list.x, g.list.bottom() - 32.0, g.list.w, 32.0);
+            p.fill(bar, pal.popup);
+            p.fill(Rect::new(bar.x, bar.y, bar.w, p.px()), pal.popup_line);
+            p.icon(glyph::WARN, 13.0, x + 7.0, bar.cy(), pal.muted);
+            p.text(
+                Face::Ui,
+                12.0,
+                x + 22.0,
+                bar.cy(),
+                &notice,
+                pal.text,
+                inner - 22.0,
+            );
+        }
+    }
 
     // ---- footer --------------------------------------------------------------------------------
     let by = footer.y + (DIALOG_FOOTER - 32.0) / 2.0;
     let mut bx = r.right() - PAD;
     let n = s.count();
     let ai_off = s.task == TaskKind::Rewrite && !s.ai_on;
-    let primary_enabled = !ai_off && n > 0 && s.asking.is_none();
+    let notes = s.task == TaskKind::Notes;
+    let run = s.notes_run.as_ref().filter(|_| notes);
+    // Write notes: Stop while it looks or arranges; after a failed look, "Try it again", and
+    // "Go on with N" beside it; when the model reads no pictures, the settings.
+    let stopping = run.is_some_and(|r| r.looking() || r.arrange.is_some());
+    let failed = run.filter(|r| !stopping && !r.failed.is_empty());
+    let fault = run.and_then(|r| r.fault.clone()).filter(|_| !stopping);
+    let notes_blocked = if notes { s.notes_blocked() } else { None };
+    let primary_enabled = if stopping {
+        true
+    } else {
+        !ai_off && n > 0 && !busy && (notes_blocked.is_none() || !s.ai_on)
+    };
     let label = if ai_off {
         "The AI connection is off".to_string()
+    } else if stopping {
+        "Stop".to_string()
+    } else if failed.is_some() {
+        "Try it again".to_string()
     } else {
         s.primary_label()
+    };
+    let primary_hit = if failed.is_some() {
+        Hit::TryAgain
+    } else {
+        Hit::Primary
     };
     let pw = dialog_button_w(p, &label);
     bx -= pw;
@@ -609,10 +701,10 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             primary,
             &label,
             true,
-            hover == Some(Hit::Primary),
-            pressed == Some(Hit::Primary),
+            hover == Some(primary_hit),
+            pressed == Some(primary_hit),
         );
-        hits.push((Hit::Primary, primary));
+        hits.push((primary_hit, primary));
     } else {
         draw_dialog_button_disabled(p, pal, primary, &label, true);
         if !ai_off && s.blocked.is_none() {
@@ -631,7 +723,24 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         }
     }
     bx -= 10.0;
-    if ai_off {
+    if let Some(run) = failed {
+        let go_on = format!("Go on with {}", run.looked());
+        let w = dialog_button_w(p, &go_on);
+        bx -= w;
+        let b = Rect::new(bx, by, w, 32.0);
+        draw_dialog_button(
+            p,
+            pal,
+            b,
+            &go_on,
+            false,
+            hover == Some(Hit::GoOn),
+            pressed == Some(Hit::GoOn),
+        );
+        hits.push((Hit::GoOn, b));
+        bx -= 10.0;
+    }
+    if ai_off || fault.is_some() {
         let w = dialog_button_w(p, "Open AI settings");
         bx -= w;
         let b = Rect::new(bx, by, w, 32.0);
@@ -684,6 +793,23 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     let moving = s.task == TaskKind::File && s.files_go == mdedit_core::prefs::FilesGo::Move;
     let note = if let Some(why) = &s.blocked {
         why.clone()
+    } else if fault.is_some() {
+        "Choose a model that reads pictures in Settings \u{203A} AI.".to_string()
+    } else if let Some(run) = failed {
+        let (b, _) = &run.failed[0];
+        format!(
+            "Request {} of {} failed. Try it again, or go on without it.",
+            b + 1,
+            run.batches.len()
+        )
+    } else if let Some(why) = notes_blocked.as_ref().filter(|_| s.ai_on) {
+        why.clone()
+    } else if notes && s.ai_on && s.notes_parts().0.is_empty() {
+        format!("{} \u{00B7} sent to it, no picture", s.via)
+    } else if notes && s.ai_on {
+        format!("{} \u{00B7} the pictures themselves are sent", s.via)
+    } else if notes {
+        "The AI is off: the notes are made here, and nothing is sent.".to_string()
     } else if moving {
         task_ui::MOVE_WARNING.to_string()
     } else if ai_off {
@@ -717,7 +843,12 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         &note,
         if moving && s.blocked.is_none() {
             pal.text
-        } else if s.blocked.is_some() || ai_off {
+        } else if s.blocked.is_some()
+            || ai_off
+            || fault.is_some()
+            || failed.is_some()
+            || (notes_blocked.is_some() && s.ai_on)
+        {
             pal.faint
         } else {
             pal.muted
@@ -727,6 +858,232 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
 
     s.hits = hits;
     s.caret_on = caret_on;
+}
+
+/// A picture's row on Write notes: its tick, its thumbnail as the engine made it, its name, what
+/// the model said of it (or its own pixels and size), and at the right what is sent.
+fn draw_picture_row(
+    p: &mut Painter,
+    pal: &Palette,
+    s: &TaskScreen,
+    i: usize,
+    y: f32,
+    list: Rect,
+    hits: &mut Vec<(Hit, Rect)>,
+) {
+    let Some(f) = s.files.get(i) else { return };
+    let row = Rect::new(list.x + 8.0, y + 1.0, list.w - 16.0, PICTURE_ROW_H - 2.0);
+    if row.bottom() <= list.y || row.y >= list.bottom() {
+        return;
+    }
+    let hover = s.hover;
+    if hover == Some(Hit::File(i)) {
+        p.rbox(row, 5.0, mix(pal.popup, pal.text, 0.05));
+    }
+    let reason = f.reason_for(s.task);
+    let enabled = reason.is_none() && !f.done && !s.busy();
+    let tick_at = Rect::new(row.x + 12.0, row.cy() - 8.0, 16.0, 16.0);
+    draw_tick(
+        p,
+        pal,
+        tick_at,
+        Tick {
+            on: (f.ticked && reason.is_none()) || f.done,
+            enabled,
+            focused: false,
+        },
+    );
+    hits.push((Hit::File(i), row));
+    let thumb = Rect::new(tick_at.right() + 12.0, row.cy() - THUMB / 2.0, THUMB, THUMB);
+    draw_thumb(p, pal, thumb, f.thumb.as_ref());
+    let name_x = thumb.right() + 12.0;
+    let right_w = 250.0;
+    let text_w = (row.right() - 12.0 - right_w - name_x).max(80.0);
+    let run = s.notes_run.as_ref();
+    let look = run.and_then(|r| r.look(i));
+    p.text(
+        Face::Ui,
+        13.0,
+        name_x,
+        row.y + 17.0,
+        &f.name,
+        if enabled || f.done || s.busy() {
+            pal.text
+        } else {
+            pal.muted
+        },
+        text_w,
+    );
+    let sub = match (&reason, look) {
+        (Some(why), _) => why.clone(),
+        (None, Some(l)) if !l.says.is_empty() => format!("{}: {}", l.title, l.says),
+        (None, Some(l)) => l.title.clone(),
+        (None, None) => notes_task::picture_line(f, &f.measure),
+    };
+    p.text(
+        Face::Ui,
+        11.0,
+        name_x,
+        row.y + 34.0,
+        &sub,
+        if reason.is_some() {
+            pal.faint
+        } else if look.is_some() {
+            pal.text
+        } else {
+            pal.muted
+        },
+        text_w,
+    );
+    let out = run.is_some_and(|r| {
+        r.in_flight
+            .iter()
+            .any(|(_, b)| r.batches.get(*b).is_some_and(|ids| ids.contains(&i)))
+    });
+    let right = if reason.is_some() {
+        String::new()
+    } else if !s.ai_on {
+        "nothing is sent".to_string()
+    } else if out {
+        "looking\u{2026}".to_string()
+    } else if run.is_some_and(|r| r.failed_at(i)) {
+        "not looked at: the request failed".to_string()
+    } else if look.is_some() {
+        "looked at".to_string()
+    } else {
+        notes_task::sent_as(&f.measure)
+    };
+    if !right.is_empty() {
+        let right = p.elide(Face::Ui, 11.5, &right, right_w);
+        p.text_right(
+            Face::Ui,
+            11.5,
+            row.right() - 12.0,
+            row.cy(),
+            &right,
+            if matches!(f.measure, Measure::Waiting) || out {
+                pal.faint
+            } else {
+                pal.muted
+            },
+        );
+    }
+}
+
+/// A thumbnail in its square, kept to its shape on the field's colour; an empty square while
+/// there is none (measuring, or a GIF the engine makes none of). Drawn through a bitmap of its
+/// own so the list's clip holds for it.
+fn draw_thumb(p: &mut Painter, pal: &Palette, r: Rect, thumb: Option<&(Vec<u8>, u32, u32)>) {
+    p.frame(r, 4.0, pal.field, pal.line);
+    let Some((rgba, w, h)) = thumb.filter(|t| t.1 > 0 && t.2 > 0) else {
+        return;
+    };
+    let (x0, y0, x1, y1) = p.dev_rect(r.inset(2.0));
+    let (dw, dh) = (x1 - x0, y1 - y0);
+    if dw <= 0 || dh <= 0 {
+        return;
+    }
+    let fit = (dw as f32 / *w as f32).min(dh as f32 / *h as f32);
+    let (iw, ih) = (*w as f32 * fit, *h as f32 * fit);
+    let mut bmp = Bitmap::new(dw as u32, dh as u32);
+    bmp.clear(pal.field);
+    bmp.image(
+        rgba,
+        *w,
+        *h,
+        (dw as f32 - iw) / 2.0,
+        (dh as f32 - ih) / 2.0,
+        iw,
+        ih,
+    );
+    p.blit(&bmp, 0, dh, x0, y0);
+}
+
+/// Write notes' Options (pictures plan 12): How many notes, then the seven ticks, each with the
+/// line under it. Under the Options button, inside the card.
+fn draw_options(
+    p: &mut Painter,
+    pal: &Palette,
+    s: &TaskScreen,
+    hits: &mut Vec<(Hit, Rect)>,
+    hover: Option<Hit>,
+) {
+    use crate::notes_task::{HOW_MANY, Tick as Opt, how_many_label};
+    const ROW: f32 = 40.0;
+    let g = task_ui::geo(task_ui::card(s.win.0, s.win.1));
+    let width = 440.0;
+    let h = 16.0 + 18.0 + SEGMENT_H + 14.0 + ROW * Opt::ALL.len() as f32 + 8.0;
+    let r = Rect::new(
+        g.dest.right() - width,
+        (g.dest.bottom() + 2.0).min(g.footer.y - h - 4.0),
+        width,
+        h,
+    );
+    p.frame(r, 8.0, pal.popup, pal.popup_line);
+    hits.push((Hit::Popover, r));
+    let x = r.x + 16.0;
+    p.text(
+        Face::Semibold,
+        11.0,
+        x,
+        r.y + 22.0,
+        "HOW MANY NOTES",
+        pal.muted,
+        r.w - 32.0,
+    );
+    let labels: Vec<&str> = HOW_MANY.iter().map(|h| how_many_label(*h)).collect();
+    let sw = Rect::new(
+        x,
+        r.y + 34.0,
+        switch_width(p, &labels).min(r.w - 32.0),
+        SEGMENT_H,
+    );
+    let selected = HOW_MANY.iter().position(|h| *h == s.notes.how_many);
+    let hovered = HOW_MANY
+        .iter()
+        .position(|h| hover == Some(Hit::HowMany(*h)));
+    let segs = draw_segments(p, pal, sw, &labels, selected, hovered);
+    for (h, seg) in HOW_MANY.iter().zip(segs) {
+        hits.push((Hit::HowMany(*h), seg));
+    }
+    let mut y = sw.bottom() + 14.0;
+    for t in Opt::ALL {
+        let row = Rect::new(r.x + 4.0, y, r.w - 8.0, ROW);
+        let enabled = t.enabled(&s.notes);
+        if enabled && hover == Some(Hit::Tick(t)) {
+            p.rbox(row, 5.0, pal.hover);
+        }
+        draw_tick(
+            p,
+            pal,
+            Rect::new(x, row.y + 6.0, 16.0, 16.0),
+            Tick {
+                on: t.on(&s.notes),
+                enabled,
+                focused: false,
+            },
+        );
+        p.text(
+            Face::Ui,
+            13.0,
+            x + 28.0,
+            row.y + 14.0,
+            t.label(),
+            if enabled { pal.text } else { pal.faint },
+            r.w - 60.0,
+        );
+        p.text(
+            Face::Ui,
+            11.0,
+            x + 28.0,
+            row.y + 30.0,
+            t.line(),
+            pal.faint,
+            r.w - 60.0,
+        );
+        hits.push((Hit::Tick(t), row));
+        y += ROW;
+    }
 }
 
 /// The Add menu under its button (D-207): the open tabs' files, the one in front first, then

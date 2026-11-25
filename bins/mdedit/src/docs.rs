@@ -1503,6 +1503,8 @@ pub struct Docs {
     pub ai_split_prompts: Vec<mdedit_core::ai::SavedPrompt>,
     /// The saved prompts of the kind "file", which the AI task window lists (5.6).
     pub ai_file_prompts: Vec<mdedit_core::ai::SavedPrompt>,
+    /// Write notes' saved prompts (`kind: notes`).
+    pub ai_notes_prompts: Vec<mdedit_core::ai::SavedPrompt>,
     /// The notes library, as the palette lists it: read when it is first shown and whenever a
     /// library file has been saved since ([`App::library_load`](crate::app::App)).
     pub library: mdshared_app::library::Library,
@@ -1664,6 +1666,7 @@ impl Docs {
             ai_prompts: Vec::new(),
             ai_split_prompts: Vec::new(),
             ai_file_prompts: Vec::new(),
+            ai_notes_prompts: Vec::new(),
             library: mdshared_app::library::Library::default(),
             library_stamp: mdshared_app::library::Library::default(),
             ai_status: None,
