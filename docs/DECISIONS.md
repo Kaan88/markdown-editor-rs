@@ -2379,3 +2379,44 @@ when the owner changed the first copy and could break a kept note's picture; Fab
 and V5 found a crash during the copies left files no record owned, a pasted picture lost when its
 copy failed, and a share's pictures linked wrongly.
 **Overturned by.** The owner.
+
+## D-240 · 2026-11-25 · Settings opened from the task window hides it until Settings closes
+
+**Decision.** "Open AI settings" from the AI task window (or its plan card) hides the window while Settings is open: it neither draws nor takes a key, a click or the wheel, and keeps all its state. When Settings closes the window comes back with the connection, its name and the limits read again, and its pictures measured if the AI is on now.
+**Why.** The hand-driven run of 2026-11-25 (finding 1): Settings was drawn under the window, which took the clicks, so Settings looked dead and only Esc got out. Hiding the window is the smaller change in the overlay order, which another branch is also changing.
+**Overturned by.** The owner, preferring Settings drawn over the dimmed window.
+
+## D-241 · 2026-11-25 · Esc in the task window leaves a field first, and says once what closing drops
+
+**Decision.** In the AI task window, Esc in a field with words in it (the instruction, the section, the new group's name) leaves the field; an empty field is no work to lose and Esc goes on as below. Then Esc stops a request, closes a list, and, on a window that holds files or words, says once in the window what closing drops ("Esc again closes the window, and the 3 files and the instruction in it go with it."); any other key or click takes that back, and the next Esc closes. Cancel closes at once. A kept plan of Write notes still says its own warning (D-228). This replaces DESIGN 83's "Escape stops it first, then a second Escape closes".
+**Why.** The hand-driven run (finding 2): Esc in the group-name box, whose hint says "Esc leaves it", closed the whole window and lost the files and the instruction. Asking once was chosen over keeping the setup for the next open because the window has no way to remove a file, so a setup kept for ever would come back unwanted.
+**Overturned by.** The owner, if the setup should be kept for the next open instead.
+
+## D-242 · 2026-11-25 · Write notes goes on only with something to make notes of; One per picture instead is for that plan
+
+**Decision.** After a failed look, "Go on with N" counts the pictures looked at (kept from an earlier Send too) and those still to send; it is offered only when that is more than none or a text file takes part ("Go on with the text only"). No arrange request is sent with no look and no text. A note is made only of a picture that was looked at. "One note per picture instead" after a failed arrange makes that one plan one note per picture: the window's How many and the setting stay as they were, so a text file keeps its tick. This replaces D-226's last point (it applied to the window). The plan card counts the requests answered apart from those that failed.
+**Why.** The hand-driven run (findings 3, 9, 19): "Go on with 0" sent an arrange of nothing, which failed, and "Try it again" then asked only the arrange again, so the run was stuck; the window's How many changed silently and unticked the text file; a failed request was counted as answered.
+**Overturned by.** The owner.
+
+## D-243 · 2026-11-25 · Back on a rewrite's review; a split plan closed unwritten keeps its file ticked
+
+**Decision.** A file's review in the task window (Rewrite them) has Back: the review goes, nothing is written, the file stays ticked and the run waits for Run; the files rewritten before it stay so. Discard is unchanged. A split's plan opened from the window and closed without writing (Cancel, Esc) brings the window back with the file still ticked; the plan card itself is shared and keeps the word "Cancel".
+**Why.** The hand-driven run (finding 4): Rewrite's Discard on the last file ended the run and closed the window, and Split's Cancel came back with the file unticked; neither had a way back to the setup as it was.
+**Overturned by.** The owner.
+
+## D-244 · 2026-11-25 · The task window says its messages in itself, reopens on its last task, and grows
+
+**Decision.**
+- What the window says about something done in it ("Choose the group…", "Stopped.", a group that could not be made, a write refused, the kept plan's warning, a pasted picture) is a line over the foot of its list while it is open, not a toast; the next key or click takes it away. A message said as the window closes stays a toast.
+- "AI task…" opens on the task the window was on when it last closed (`ai_task` in the settings; File them until then). "AI task on this file…" and the Notes pane keep their own rules.
+- The card grows with the window: 200 px of the window either side and 48 above and below, from 880 × 704 up to 1240 × 1000.
+- Write notes' Files… lists pictures with the text ("Pictures and text"); the other tasks keep "Text and code".
+- "Show what is sent" for the other tasks stays a text tab (D-229), and closing that tab brings the window back. Its first line says "would send" before any request and "sends for the files ticked now", with the count made, after.
+**Why.** The hand-driven run (findings 5, 6, 7, 10, 11): toasts far from the dialog, a window always on File them, a small card in a big window, pictures hidden by the dialog's filter, and no way back from the tab but the command.
+**Overturned by.** The owner.
+
+## D-245 · 2026-11-25 · The task window's button and its words
+
+**Decision.** The primary button reads "Make the plan for N files" (File them and Split them, the AI on or off), "Rewrite N files", "Add N to the library"; with no file it has no count, is off, and the footer says why ("Tick a file to take part, or add one with Add…"); "Add to the library" is off with no group, saying "Choose the group the files go to first.". On the plan face, files that went and were not placed are under NOT PLACED; files no request took are under NOT SENT (LEFT OUT when nothing was sent), each row saying why. The header no longer says that nothing is opened in a tab, the lone "WHAT TO DO" is gone, "Show what is sent" moves beside Add… when the footer's buttons leave it no room, Options is drawn last and inside the card, and a line count is singular for one.
+**Why.** The hand-driven run (findings 8, 12 to 18, 20).
+**Overturned by.** The owner, by looking at the shots.

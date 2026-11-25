@@ -3424,6 +3424,22 @@ the pointer names the file: `tab_command` opens the window with that tab's file,
 be the one in front, or says to save it first. The palette no longer lists it
 (`palette::listed`). Shot `task-add` (both themes) is the open menu over made-up tabs.
 
+**After the hand-driven run (2026-11-25, D-240 to D-245).** `task_is_open` is false while
+Settings is open, so Settings opened from the window takes every key and click and the window
+(and its plan card) is not drawn; `close_settings` calls `task_settings_closed`, which reads the
+connection, its name and the limits again. `Focus::None` is the window with no field: Esc leaves a
+field with words in it, then a window that `holds_setup` says `esc_warning` once and the next Esc
+closes. `TaskScreen::notice` is what `task_say` puts in the window (a toast only with the window
+closed), drawn as the bar over the list's foot before Write notes' own notice; a key or a click
+clears it. A rewrite's review has Back (`task_review_back`); a split plan closed unwritten leaves
+the file ticked. The last task closed is the pref `ai_task`. `card` grows from 880 × 704 to 1240 ×
+1000 with the window. On the plan face `rows` puts what no request took under `ListRow::NotSent`
+(`was_sent` reads the answered batches). `primary_blocked` turns the button off with its reason
+(no file, no group). "Show what is sent" goes beside Add… when the footer has under 140 px left
+of it; the tab it opens records `sent_tab`, and closing that tab brings the window back
+(`task_sent_tab_closed`). Tests: `app/task_tests.rs` (the hand-driven run's section) and
+`task_draw.rs` `flow_tests`, each watched fail with its fix reverted.
+
 ## 84. Sort a folder by AI (2026-11-23, phase 4)
 
 `ai-library-plan.md` 5.7's second half, on 4a's card. The AI proposes the **headings** and the
@@ -3849,8 +3865,11 @@ batches then those never sent; "Go on with N" sends those never sent without the
 picture the answer says nothing of is a failure of its own (a batch with none said fails whole).
 A picture changed since it was measured is measured again first. A model that reads no pictures
 stops the run with Open AI settings. A failed arrange offers "Try it again" and "One note per
-picture instead" (for the window only, not the setting). A notice bar over the list's foot says
-which.
+picture instead" (that plan only: neither the window's How many nor the setting changes, D-242).
+"Go on with N" counts the looks kept and the pictures still to send (`Run::going_on_with`) and is
+offered only when `can_go_on` (a picture or a text file left); with no look and no text no arrange
+is sent. A note is made only of a picture that was looked at. A notice bar over the list's foot
+says which. The plan card counts `answers` apart from `failures`.
 
 **Pasting.** Ctrl+V on Write notes with no text on the clipboard adds its picture, saved as
 `%TEMP%\mdedit-pasted\Screenshot <ms>.png`; the window's pasted files go when it closes, and any
