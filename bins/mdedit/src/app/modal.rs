@@ -581,6 +581,8 @@ impl App {
         self.ui.pressed = None;
         self.ui.hover = None;
         self.set_cursor(CursorIcon::Default);
+        // A task window hidden behind Settings comes back, with what Settings changed.
+        self.task_settings_closed();
         self.modal_changed();
     }
 

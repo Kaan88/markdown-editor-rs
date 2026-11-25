@@ -557,9 +557,11 @@ fn closing_a_window_that_keeps_a_plan_asks_once() {
     a.task_act(crate::task_ui::Hit::Cancel);
     assert!(a.task.is_some(), "the first Cancel says so");
     assert!(
-        a.docs
-            .toast(std::time::Instant::now())
-            .is_some_and(|t| t.starts_with("A plan is kept"))
+        a.task
+            .as_ref()
+            .and_then(|s| s.notice.as_deref())
+            .is_some_and(|t| t.starts_with("A plan is kept")),
+        "in the window (the hand-driven run, finding 7)"
     );
     a.task_act(crate::task_ui::Hit::Cancel);
     assert!(a.task.is_none(), "the second closes");

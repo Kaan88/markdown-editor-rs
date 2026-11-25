@@ -6,7 +6,7 @@ use super::files_tests::{app, open_now, scratch};
 use super::*;
 use crate::ai::Panel;
 use crate::keys::KeyName;
-use crate::task_ui::{DestChoice, FileKind, Hit, TaskKind};
+use crate::task_ui::{DestChoice, FileKind, Focus, Hit, TaskKind};
 use mdedit_core::ai::Connection;
 use mdedit_core::runs;
 
@@ -516,8 +516,11 @@ fn escape_stops_the_request_then_closes_the_window() {
     a.task_key(Some(KeyName::Escape), None);
     let s = a.task.as_ref().expect("the window stays");
     assert!(s.asking.is_none(), "the request is stopped");
+    // Then (the hand-driven run, finding 2) Escape says once what closing drops, and closes.
     a.task_key(Some(KeyName::Escape), None);
-    assert!(a.task.is_none(), "a second Escape closes it");
+    assert!(a.task.as_ref().expect("open").esc_warned);
+    a.task_key(Some(KeyName::Escape), None);
+    assert!(a.task.is_none(), "then Escape closes it");
 }
 
 #[test]
@@ -742,8 +745,13 @@ fn escape(a: &mut App) {
     a.key_pressed(crate::keys::Key::Name(KeyName::Escape), None);
 }
 
-fn toast(a: &App) -> String {
-    a.docs.toast(Instant::now()).unwrap_or_default().to_string()
+/// What the window said, or a toast when it is closed: a message about what was done in the
+/// window is said in it while it is open (the hand-driven run, finding 7).
+fn said(a: &App) -> String {
+    a.task
+        .as_ref()
+        .and_then(|s| s.notice.clone())
+        .unwrap_or_else(|| a.docs.toast(Instant::now()).unwrap_or_default().to_string())
 }
 
 /// Audit 4, B3: Discard leaves the file as it was and the run asks for the next file, not for
@@ -909,7 +917,7 @@ fn run_shows_the_kept_review_and_run_again_without_its_window_keeps_it() {
         matches!(a.ai.panel, Some(Panel::Review(_))),
         "the review stays, with its result"
     );
-    assert!(toast(&a).contains("is closed"), "{}", toast(&a));
+    assert!(said(&a).contains("is closed"), "{}", said(&a));
 }
 
 /// Audit 4, B12: the file is read again when its request is made, so an edit made after it was
@@ -1030,7 +1038,7 @@ fn a_rewrite_run_past_what_one_record_holds_goes_on_in_a_second_record() {
     assert_eq!(originals, fillers + 1);
     assert!(listed.iter().all(|r| r.record.state == runs::State::Done));
     assert_eq!(
-        toast(&a),
+        said(&a),
         format!("{} files rewritten. Undo is in AI runs.", fillers + 1)
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -1282,7 +1290,7 @@ fn file_them_is_refused_while_the_group_file_has_unsaved_changes() {
     file_pasta(&mut a, &dir);
     assert_eq!(std::fs::read(&group).expect("the group"), before);
     assert!(a.task.is_some(), "the window stays");
-    let said = toast(&a);
+    let said = said(&a);
     assert!(
         said.contains("Recipes.md") && said.contains("not saved"),
         "{said}"
@@ -1318,7 +1326,7 @@ fn file_them_keeps_a_byte_order_mark_and_refuses_a_utf16_file() {
     let (mut a, dir, group) = file_them_into("task-file-utf16", &utf16);
     file_pasta(&mut a, &dir);
     assert_eq!(std::fs::read(&group).expect("the group"), utf16);
-    let said = toast(&a);
+    let said = said(&a);
     // Refused as every library writer refuses it, in its words.
     assert!(said.contains("is not UTF-8 text"), "{said}");
     let _ = std::fs::remove_dir_all(&dir);
@@ -1537,9 +1545,9 @@ fn file_them_copies_the_files_in_by_default_and_the_line_leads_to_the_copy() {
         "{runs:?}"
     );
     assert!(
-        toast(&a).contains("copied in with 1 picture"),
+        said(&a).contains("copied in with 1 picture"),
         "{}",
-        toast(&a)
+        said(&a)
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1806,7 +1814,7 @@ fn file_them_never_copies_into_the_library_folder_itself() {
     }
     a.task_run();
     a.task_file_write();
-    assert_eq!(toast(&a), crate::commands::strings::LIBRARY_HOME_IS_LIBRARY);
+    assert_eq!(said(&a), crate::commands::strings::LIBRARY_HOME_IS_LIBRARY);
     assert!(!library.join("notes.md").exists(), "nothing is copied");
     assert!(a.task.is_some(), "the window stays");
     let _ = std::fs::remove_dir_all(&dir);
@@ -1836,7 +1844,7 @@ fn a_copy_the_library_lists_already_is_not_listed_twice() {
         std::fs::read_to_string(&group).expect("the group file"),
         once
     );
-    assert!(toast(&a).contains("lists every one"), "{}", toast(&a));
+    assert!(said(&a).contains("lists every one"), "{}", said(&a));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1855,12 +1863,12 @@ fn move_them_in_moves_the_files_and_undo_puts_them_back() {
     a.task_act(Hit::FilesGo(FilesGo::Move));
     a.task_run();
     a.task_file_write();
-    assert!(a.task.is_none(), "the move is in: {}", toast(&a));
-    assert!(!md.exists() && !picture.exists(), "moved: {}", toast(&a));
+    assert!(a.task.is_none(), "the move is in: {}", said(&a));
+    assert!(!md.exists() && !picture.exists(), "moved: {}", said(&a));
     assert!(
-        toast(&a).contains("1 moved in with 1 picture"),
+        said(&a).contains("1 moved in with 1 picture"),
         "{}",
-        toast(&a)
+        said(&a)
     );
     let library = dir.join("library");
     let copy = library.join("Trips").join("trip.md");
@@ -1898,11 +1906,11 @@ fn a_file_open_with_changes_not_saved_is_copied_not_moved() {
     a.task_act(Hit::FilesGo(FilesGo::Move));
     a.task_run();
     a.task_file_write();
-    assert!(md.exists() && picture.exists(), "{}", toast(&a));
+    assert!(md.exists() && picture.exists(), "{}", said(&a));
     assert!(
-        toast(&a).contains(mdedit_core::moves::copy_in::UNSAVED),
+        said(&a).contains(mdedit_core::moves::copy_in::UNSAVED),
         "{}",
-        toast(&a)
+        said(&a)
     );
     assert!(dir.join("library").join("Trips").join("trip.md").exists());
     let _ = std::fs::remove_dir_all(&dir);
@@ -1946,12 +1954,12 @@ fn a_move_too_large_for_its_record_is_a_copy() {
     a.task_act(Hit::FilesGo(FilesGo::Move));
     a.task_run();
     a.task_file_write();
-    assert!(md.exists(), "{}", toast(&a));
+    assert!(md.exists(), "{}", said(&a));
     assert_eq!(std::fs::read_to_string(&note).expect("note"), big);
     assert!(
-        toast(&a).contains(mdedit_core::moves::copy_in::RECORD_FULL),
+        said(&a).contains(mdedit_core::moves::copy_in::RECORD_FULL),
         "{}",
-        toast(&a)
+        said(&a)
     );
     let (list, _) = runs::list_all(&library);
     assert_eq!(list.len(), 1, "the copies' record");
@@ -1994,7 +2002,7 @@ fn a_tab_on_a_note_the_move_rewrote_is_read_again() {
     a.task_act(Hit::FilesGo(FilesGo::Move));
     a.task_run();
     a.task_file_write();
-    assert!(!md.exists(), "{}", toast(&a));
+    assert!(!md.exists(), "{}", said(&a));
     let on_disk = std::fs::read_to_string(&note).expect("note");
     assert!(on_disk.contains("../Trips/trip.md"), "{on_disk}");
     let i = a
@@ -2043,7 +2051,7 @@ fn undo_of_a_move_leaves_a_note_open_with_changes_not_saved() {
     a.task_act(Hit::FilesGo(FilesGo::Move));
     a.task_run();
     a.task_file_write();
-    assert!(!md.exists(), "{}", toast(&a));
+    assert!(!md.exists(), "{}", said(&a));
     let relinked = std::fs::read_to_string(&note).expect("note");
     let i = open_now(&mut a, &note);
     a.docs.activate(i);
@@ -2115,15 +2123,15 @@ fn a_move_beside_a_file_listed_already_can_be_undone() {
     with_group(&mut a, "Trips");
     a.task_run();
     a.task_file_write();
-    assert!(a.task.is_none(), "the copy is in: {}", toast(&a));
+    assert!(a.task.is_none(), "the copy is in: {}", said(&a));
     let other = dir.join("desk").join("other.md");
     std::fs::write(&other, "# Other\n").expect("other");
     a.task_open(TaskKind::File, vec![md.clone(), other.clone()]);
     a.task_act(Hit::FilesGo(FilesGo::Move));
     a.task_run();
     a.task_file_write();
-    assert!(md.exists(), "listed already, left: {}", toast(&a));
-    assert!(!other.exists(), "moved: {}", toast(&a));
+    assert!(md.exists(), "listed already, left: {}", said(&a));
+    assert!(!other.exists(), "moved: {}", said(&a));
     let library = dir.join("library");
     let (list, _) = runs::list_all(&library);
     let moved = list
@@ -2131,7 +2139,83 @@ fn a_move_beside_a_file_listed_already_can_be_undone() {
         .find(|r| runs::load(&r.path, &library).is_some_and(|x| !x.removed.is_empty()))
         .expect("the move's record");
     a.run_undo(moved.path.clone());
-    assert!(other.exists(), "put back: {}", toast(&a));
+    assert!(other.exists(), "put back: {}", said(&a));
     assert!(md.exists());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- the hand-driven run of 2026-11-25 ---------------------------------------------------------
+
+/// The centre of what the window last drew for `hit`.
+fn centre_of(a: &App, hit: Hit) -> Option<(f32, f32)> {
+    a.task.as_ref().and_then(|s| {
+        s.hits
+            .iter()
+            .find(|(h, _)| *h == hit)
+            .map(|(_, r)| (r.x + r.w / 2.0, r.y + r.h / 2.0))
+    })
+}
+
+/// Finding 1: "Open AI settings" from the window put Settings under it, and the window took the
+/// clicks. Settings is in front: the window takes no pointer while it is open, and comes back
+/// when it closes with the connection read again.
+#[test]
+fn settings_opened_from_the_window_is_in_front_and_the_window_comes_back() {
+    let (mut a, dir) = open("task-settings-front", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    a.compose();
+    let (x, y) = centre_of(&a, Hit::Cancel).expect("Cancel was drawn");
+    a.task_act(Hit::OpenSettings);
+    assert!(a.ui.settings.is_some(), "Settings opens");
+    assert!(!a.task_is_open(), "the window is not in front of it");
+    a.pointer_moved(x, y);
+    assert_eq!(
+        a.task.as_ref().expect("kept").hover,
+        None,
+        "the pointer over Settings is Settings', not the window's"
+    );
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    a.close_settings();
+    assert!(a.task_is_open(), "the window comes back");
+    let s = a.task.as_ref().expect("kept");
+    assert_eq!(s.files.len(), 1, "as it was");
+    assert!(s.ai_on, "with the connection Settings turned on");
+}
+
+/// Finding 2: Esc in the new group's box leaves the box (its hint says so), not the window.
+#[test]
+fn escape_in_the_new_group_box_leaves_the_box() {
+    let (mut a, _dir) = open("task-esc-group", TaskKind::File, Vec::new());
+    assert_eq!(a.task.as_ref().expect("open").focus, Focus::NewGroup);
+    a.task_key(Some(KeyName::Char('R')), Some("R"));
+    a.task_key(Some(KeyName::Escape), None);
+    let s = a.task.as_ref().expect("the window stays");
+    assert_eq!(s.focus, Focus::None);
+    assert_eq!(s.new_group.as_ref().map(|f| f.text()), Some("R"), "kept");
+}
+
+/// Finding 2: Esc in the instruction leaves it; then a window holding files says once, in the
+/// window, what closing drops; any other key takes that back; the next Esc closes.
+#[test]
+fn escape_leaves_the_instruction_then_says_what_closing_drops() {
+    let (mut a, dir) = open("task-esc-setup", TaskKind::Rewrite, Vec::new());
+    a.task_add_paths(vec![pasta(&dir)]);
+    instruct(&mut a, "Tidy it");
+    a.task_act(Hit::Field);
+    a.task_key(Some(KeyName::Escape), None);
+    let s = a.task.as_ref().expect("the window stays");
+    assert_eq!(s.focus, Focus::None, "the field is left");
+    assert_eq!(s.instruction.text(), "Tidy it");
+    a.task_key(Some(KeyName::Escape), None);
+    let s = a.task.as_ref().expect("the window stays");
+    assert_eq!(
+        s.notice.as_deref(),
+        Some("Esc again closes the window, and the file and the instruction in it go with it.")
+    );
+    a.task_key(Some(KeyName::Down), None);
+    assert!(!a.task.as_ref().expect("open").esc_warned, "taken back");
+    a.task_key(Some(KeyName::Escape), None);
+    assert!(a.task.is_some(), "it says so again first");
+    a.task_key(Some(KeyName::Escape), None);
+    assert!(a.task.is_none(), "and closes");
 }

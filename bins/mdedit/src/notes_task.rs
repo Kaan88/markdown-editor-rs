@@ -172,6 +172,10 @@ pub struct Run {
     /// The plan card's renames of the copies: a picture's place in the window to its copy's file
     /// name with its extension, set only when the owner renamed one (phase V5 honours it).
     pub copy_names: std::collections::HashMap<usize, String>,
+    /// The requests the provider answered, and those that failed: a stopped one is neither.
+    /// The plan card says them apart ("answered 3 requests, 1 failed").
+    pub answers: u64,
+    pub failures: u64,
 }
 
 impl Run {
@@ -288,14 +292,36 @@ impl Run {
         self.rebatch(&unsent);
     }
 
-    /// How many pictures "Go on with N" goes on with: all but those of the failed batches.
+    /// How many pictures "Go on with N" goes on with: those looked at (in this Send or kept from
+    /// an earlier one) and those still to send; never those of the failed batches.
     pub fn going_on_with(&self) -> usize {
-        self.pictures()
-            - self
-                .failed
-                .iter()
-                .map(|(b, _)| self.batches.get(*b).map_or(0, Vec::len))
-                .sum::<usize>()
+        let unsent: usize = self
+            .unsent()
+            .iter()
+            .map(|&b| self.batches.get(b).map_or(0, Vec::len))
+            .sum();
+        let mut looked = self.sent_ids();
+        for &b in &self.answered {
+            looked.extend(self.batches.get(b).into_iter().flatten().copied());
+        }
+        looked.sort_unstable();
+        looked.dedup();
+        looked.len() + unsent
+    }
+
+    /// Whether going on without the failed looks leaves anything to make notes of: a picture
+    /// looked at or still to send, or a text file. Going on with nothing would send an arrange
+    /// request that cannot work, so it is not offered (the hand-driven run, 2026-11-25).
+    pub fn can_go_on(&self) -> bool {
+        self.going_on_with() > 0 || !self.texts.is_empty()
+    }
+
+    /// The words of "Go on with N" (the button that leaves the failed looks out).
+    pub fn go_on_label(&self) -> String {
+        match self.going_on_with() {
+            0 => "Go on with the text only".to_string(),
+            n => format!("Go on with {n}"),
+        }
     }
 }
 

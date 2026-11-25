@@ -13,7 +13,7 @@ use mdshared_ui::textfield::TextField;
 impl App {
     /// The card is on screen over the task window.
     pub(super) fn notes_plan_open(&self) -> bool {
-        self.task.is_some() && self.notes_plan.as_ref().is_some_and(|c| c.shown)
+        self.task_is_open() && self.notes_plan.as_ref().is_some_and(|c| c.shown)
     }
 
     /// The card over the window, on the run's plan: the card kept while it is still of this plan

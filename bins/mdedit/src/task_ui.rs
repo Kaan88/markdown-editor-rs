@@ -465,6 +465,9 @@ pub fn moved_text(
 /// is not built yet; until it is, the row says only that it is not filed, and why.
 pub const PICTURE_NOT_FILED: &str = "not filed: a picture is not a note of its own";
 
+/// Why "Add N to the library" cannot be pressed with no group chosen.
+pub const CHOOSE_GROUP: &str = "Choose the group the files go to first.";
+
 /// What the footer says when Rewrite them is run with nothing in the box (audit 4, B14).
 pub const REWRITE_NEEDS_INSTRUCTION: &str =
     "Rewrite them needs an instruction: type one, or pick a saved prompt.";
@@ -761,6 +764,13 @@ pub struct TaskScreen {
     pub whole_note: bool,
     /// Write notes: Cancel or Esc has said once that closing throws the kept plan away.
     pub close_warned: bool,
+    /// Esc has said once that closing drops what the window holds; the next Esc closes. Any
+    /// other key or click takes the warning back.
+    pub esc_warned: bool,
+    /// What the window has to say about the last thing done in it ("Choose the group…",
+    /// "Stopped."): drawn in the window, over the foot of the list, while it is open, instead
+    /// of a toast far from it. Taken away by the next key or click.
+    pub notice: Option<String>,
 }
 
 /// A request in flight from the window.
@@ -831,6 +841,8 @@ impl TaskScreen {
             sent: None,
             whole_note: false,
             close_warned: false,
+            esc_warned: false,
+            notice: None,
         }
     }
 
@@ -841,6 +853,47 @@ impl TaskScreen {
                 .notes_run
                 .as_ref()
                 .is_some_and(|r| r.looking() || r.arrange.is_some())
+    }
+
+    /// Whether the window holds something its owner put in it: a file, or words typed in one of
+    /// its fields. Esc says once what closing drops before it closes such a window.
+    pub fn holds_setup(&self) -> bool {
+        !self.files.is_empty()
+            || !self.instruction.text().trim().is_empty()
+            || !self.section.text().trim().is_empty()
+            || self
+                .new_group
+                .as_ref()
+                .is_some_and(|f| !f.text().trim().is_empty())
+    }
+
+    /// What Esc says before it closes a window that holds a setup.
+    pub fn esc_warning(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        match self.files.len() {
+            0 => {}
+            1 => parts.push("the file".to_string()),
+            n => parts.push(format!("the {n} files")),
+        }
+        if !self.instruction.text().trim().is_empty() {
+            parts.push("the instruction".to_string());
+        }
+        let what = if parts.is_empty() {
+            "what is typed in it".to_string()
+        } else {
+            parts.join(" and ")
+        };
+        format!("Esc again closes the window, and {what} in it go with it.")
+    }
+
+    /// The text field the keyboard is in, when there is one.
+    pub fn focused_text(&self) -> Option<&str> {
+        match self.focus {
+            Focus::Instruction => Some(self.instruction.text()),
+            Focus::Section => Some(self.section.text()),
+            Focus::NewGroup => self.new_group.as_ref().map(|f| f.text()),
+            Focus::None => None,
+        }
     }
 
     /// Write notes: the pictures and the text files that take part, by their place.
@@ -1388,6 +1441,8 @@ pub enum Focus {
     Instruction,
     Section,
     NewGroup,
+    /// No field: Esc has left the one the keyboard was in.
+    None,
 }
 
 /// A line of the list: a group's heading or a file.

@@ -734,10 +734,18 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     }
     bx -= 10.0;
     let go_on = if arrange_failed {
-        // With text files only there is no picture to make a note of.
-        (!s.notes_parts().0.is_empty()).then(|| "One note per picture instead".to_string())
+        // With text files only, or no picture looked at, there is no picture to make a note of.
+        let looked = s
+            .notes_parts()
+            .0
+            .into_iter()
+            .any(|i| run.is_some_and(|r| r.look(i).is_some()));
+        looked.then(|| "One note per picture instead".to_string())
     } else {
-        failed.map(|run| format!("Go on with {}", run.going_on_with()))
+        // Going on with nothing to make notes of is not offered: "Try it again" is the way.
+        failed
+            .filter(|run| run.can_go_on())
+            .map(|run| run.go_on_label())
     };
     if let Some(go_on) = go_on {
         let w = dialog_button_w(p, &go_on);

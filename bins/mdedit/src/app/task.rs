@@ -19,9 +19,40 @@ use mdedit_core::runs::{self, Sent};
 use serde_json::json;
 
 impl App {
-    /// Whether the task window is open.
+    /// Whether the task window is open and in front. Settings opened from it ("Open AI
+    /// settings") hides it until Settings closes: the window keeps its state, but neither draws
+    /// nor takes a key or a click meanwhile, so Settings is never drawn under it.
     pub(super) fn task_is_open(&self) -> bool {
-        self.task.is_some()
+        self.task.is_some() && self.ui.settings.is_none()
+    }
+
+    /// What the window says about what was just done in it: in the window while it is open,
+    /// over the foot of its list, rather than in a toast far from it; a toast when it is not.
+    pub(super) fn task_say(&mut self, text: &str) {
+        match self.task.as_mut() {
+            Some(s) => {
+                s.notice = Some(text.to_string());
+                s.tick += 1;
+            }
+            None => self.docs.set_toast(text),
+        }
+        self.redraw();
+    }
+
+    /// Settings closed while the window was open behind it: the connection, its name and the
+    /// limits are read again, and the pictures measured if the AI is on now.
+    pub(super) fn task_settings_closed(&mut self) {
+        if self.task.is_none() {
+            return;
+        }
+        let on = self.ai_conn() != Connection::Off;
+        let via = self.ai_via();
+        if let Some(s) = self.task.as_mut() {
+            s.ai_on = on;
+            s.via = via;
+            s.blocked = None;
+        }
+        self.task_finish_open();
     }
 
     /// ""AI task…" and a tab's "AI task on this file…": the window, with `add` in it.
@@ -464,8 +495,46 @@ impl App {
                 self.redraw();
                 return;
             }
+            // In a field with words in it (the instruction, the section, the new group's name,
+            // whose hint says "Esc leaves it"), Esc leaves the field first. An empty field is no
+            // work to lose, and Esc closes as it always did.
+            let leave = self
+                .task
+                .as_ref()
+                .is_some_and(|s| s.focused_text().is_some_and(|t| !t.is_empty()));
+            if leave {
+                if let Some(s) = self.task.as_mut() {
+                    s.focus = Focus::None;
+                    s.esc_warned = false;
+                    s.notice = None;
+                    s.tick += 1;
+                }
+                self.redraw();
+                return;
+            }
+            // A window holding files or words says once, in the window, what closing drops; the
+            // next Esc closes it. A kept plan says its own (D-228), in `task_close_asked`.
+            if let Some(s) = self.task.as_mut() {
+                let plan_kept = s.task == TaskKind::Notes
+                    && s.notes_run.as_ref().is_some_and(|r| r.arranged.is_some());
+                if !plan_kept && s.holds_setup() && !s.esc_warned {
+                    s.esc_warned = true;
+                    s.notice = Some(s.esc_warning());
+                    s.tick += 1;
+                    self.redraw();
+                    return;
+                }
+            }
             self.task_close_asked();
             return;
+        }
+        // Any other key takes back what the window said, and Esc's warning with it.
+        if let Some(s) = self.task.as_mut()
+            && (s.notice.is_some() || s.esc_warned)
+        {
+            s.notice = None;
+            s.esc_warned = false;
+            s.tick += 1;
         }
         if let Some(s) = self.task.as_mut()
             && s.add_open
@@ -536,6 +605,8 @@ impl App {
                     f.handle_key(&name, mods, typed, true);
                 }
             }
+            // Esc left the fields: a click or Tab puts the keyboard in one again.
+            Focus::None => {}
         }
         self.caret_reset();
         self.redraw();
@@ -598,8 +669,7 @@ impl App {
             return;
         };
         let Some(stem) = super::library_write::file_stem_for(&name) else {
-            self.docs
-                .set_toast(&crate::commands::strings::library_not_a_name(&name));
+            self.task_say(&crate::commands::strings::library_not_a_name(&name));
             return;
         };
         let Some(text) = mdshared_app::library::new_group_with_home(&name, Some(Path::new(&stem)))
@@ -608,17 +678,15 @@ impl App {
         };
         let file = root.join(format!("{stem}.md"));
         if file.exists() {
-            self.docs
-                .set_toast(&crate::commands::strings::library_exists(&format!(
-                    "{stem}.md"
-                )));
+            self.task_say(&crate::commands::strings::library_exists(&format!(
+                "{stem}.md"
+            )));
             return;
         }
         if let Err(e) = std::fs::create_dir_all(&root)
             .and_then(|()| mdshared_app::files::create_new(&file, text.as_bytes()))
         {
-            self.docs
-                .set_toast(&crate::commands::strings::library_failed(&e.to_string()));
+            self.task_say(&crate::commands::strings::library_failed(&e.to_string()));
             return;
         }
         self.library_load();
@@ -739,6 +807,14 @@ impl App {
         // While a request is out the window takes no key that changes what it asked about, and
         // no click either: the task, the files, the prompt and the group stay as they were sent
         // (audit 4, B5). Stop, Cancel and the scrollbars still work.
+        // A click takes back what the window said, and Esc's warning with it.
+        if let Some(s) = self.task.as_mut()
+            && (s.notice.is_some() || s.esc_warned)
+        {
+            s.notice = None;
+            s.esc_warned = false;
+            s.tick += 1;
+        }
         let asking = self.task.as_ref().is_some_and(|s| s.busy());
         if asking
             && matches!(
@@ -929,6 +1005,7 @@ impl App {
             Focus::Instruction => s.instruction.set_preedit(pre),
             Focus::Section => s.section.set_preedit(pre),
             Focus::NewGroup => s.new_group.as_mut().is_some_and(|f| f.set_preedit(pre)),
+            Focus::None => false,
         }
     }
 
@@ -1158,8 +1235,7 @@ impl App {
     pub(super) fn task_file_write(&mut self) {
         let Some(s) = self.task.as_ref() else { return };
         let DestChoice::Group(group_i) = s.dest else {
-            self.docs
-                .set_toast("Choose the group the files go to first.");
+            self.task_say(task_ui::CHOOSE_GROUP);
             return;
         };
         let Some(group) = s.groups.get(group_i).cloned() else {
@@ -1191,8 +1267,7 @@ impl App {
             })
             .collect();
         if targets.is_empty() {
-            self.docs
-                .set_toast("Nothing is placed to add to the library.");
+            self.task_say("Nothing is placed to add to the library.");
             return;
         }
         let library = self.docs.library.dir.clone();
@@ -1234,9 +1309,7 @@ impl App {
                         .parent()
                         .is_some_and(|d| super::library_write::same_folder(d, &library))
             }) {
-                self.docs
-                    .set_toast(crate::commands::strings::LIBRARY_HOME_IS_LIBRARY);
-                self.redraw();
+                self.task_say(crate::commands::strings::LIBRARY_HOME_IS_LIBRARY);
                 return;
             }
             match copy_in::write(&plan, &library, &group.home) {
@@ -1262,7 +1335,7 @@ impl App {
                     targets.retain(|_| k.next().copied().unwrap_or(true));
                     if targets.is_empty() {
                         copy_in::take_back(&written);
-                        self.docs.set_toast(
+                        self.task_say(
                             "Nothing was added: the library lists every one of these files already.",
                         );
                         self.redraw();
@@ -1272,8 +1345,7 @@ impl App {
                 }
                 Err(why) => {
                     // Nothing was added, and what was copied is taken away again.
-                    self.docs
-                        .set_toast(&format!("Nothing was added to the library: {why}."));
+                    self.task_say(&format!("Nothing was added to the library: {why}."));
                     self.redraw();
                     return;
                 }
@@ -1440,7 +1512,7 @@ impl App {
                 if let Some((_, written)) = &copies {
                     mdedit_core::moves::copy_in::take_back(written);
                 }
-                self.docs.set_toast(&why);
+                self.task_say(&why);
             }
         }
         self.redraw();
@@ -1542,15 +1614,14 @@ impl App {
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) => {
-                self.docs
-                    .set_toast(&format!("{} could not be read: {e}", path.display()));
+                self.task_say(&format!("{} could not be read: {e}", path.display()));
                 return;
             }
         };
         let loaded = mdedit_core::load::load_bytes(&bytes, &self.docs.load_options());
         if loaded.info.lossy || loaded.info.has_nul {
-            self.docs
-                .set_toast(&crate::commands::strings::split_lossy(&s.files[index].name));
+            let said = crate::commands::strings::split_lossy(&s.files[index].name);
+            self.task_say(&said);
             return;
         }
         let buffer = loaded.buffer;
@@ -2155,7 +2226,7 @@ impl App {
                 s.blocked = None;
                 s.tick += 1;
             }
-            self.docs.set_toast("Stopped.");
+            self.task_say("Stopped.");
             self.redraw();
         }
     }
@@ -2164,8 +2235,7 @@ impl App {
     /// (pictures plan 13); on the other tasks the literal request text in a read-only tab.
     pub(super) fn task_show_sent(&mut self) {
         if self.task.as_ref().is_some_and(|s| s.busy()) {
-            self.docs
-                .set_toast("The request is out. Its answer comes first.");
+            self.task_say("The request is out. Its answer comes first.");
             return;
         }
         if self

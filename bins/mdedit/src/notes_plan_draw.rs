@@ -638,11 +638,15 @@ fn draw_footer(
     };
     let line2 = if !line2.is_empty() {
         line2
-    } else if s.ai_on && run.requests > 0 {
+    } else if s.ai_on && run.answers > 0 {
+        let failed = match run.failures {
+            0 => String::new(),
+            n => format!(", {n} failed"),
+        };
         format!(
-            "{} answered {}. Your pictures and files are not moved or changed.",
+            "{} answered {}{failed}. Your pictures and files are not moved or changed.",
             s.via.split(" \u{00B7} ").next().unwrap_or(&s.via),
-            ui::count(run.requests as usize, "request", "requests")
+            ui::count(run.answers as usize, "request", "requests")
         )
     } else {
         "Made here, with no request. Your pictures and files are not moved or changed.".to_string()
