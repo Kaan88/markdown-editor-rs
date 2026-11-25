@@ -440,7 +440,12 @@ pub fn progress(run: &Run, via: &str) -> String {
 /// "Show what is sent" for Write notes: each look request's pictures as they go and its text,
 /// word for word, then the arrange request, whose lines of what the pictures show are the
 /// model's own answers and so cannot be shown before the looks.
-pub fn request_text(s: &crate::task_ui::TaskScreen, instruction: &str) -> String {
+/// `headings` are the group's sections, as the arrange request sends them.
+pub fn request_text(
+    s: &crate::task_ui::TaskScreen,
+    instruction: &str,
+    headings: &[String],
+) -> String {
     let (pictures, texts) = s.notes_parts();
     let mut out = String::new();
     let batches = batches(&pictures);
@@ -516,7 +521,7 @@ PROMPT:
             s.notes.how_many,
             &[],
             &files,
-            &[],
+            headings,
         ));
         out.push('\n');
     }

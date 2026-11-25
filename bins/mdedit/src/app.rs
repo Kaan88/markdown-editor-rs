@@ -135,6 +135,9 @@ mod issues_tests;
 #[cfg(test)]
 mod pin_tests;
 mod replace_files;
+mod sent_card;
+#[cfg(test)]
+mod sent_card_tests;
 mod split_ai;
 #[cfg(test)]
 mod split_ai_tests;

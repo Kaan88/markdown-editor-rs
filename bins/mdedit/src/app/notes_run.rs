@@ -339,6 +339,28 @@ impl App {
         self.notes_planned();
     }
 
+    /// The sections of the group the notes go to, each a path joined with " › ": the arrange
+    /// request is given them, and "Show what is sent" shows them.
+    pub(super) fn notes_headings(&self) -> Vec<String> {
+        self.task
+            .as_ref()
+            .and_then(|s| s.group())
+            .and_then(|g| {
+                self.docs
+                    .library
+                    .groups
+                    .iter()
+                    .find(|lg| mdshared_app::paths::same_path(&lg.file, &g.file))
+            })
+            .map(|lg| {
+                lg.sections
+                    .iter()
+                    .map(|path| path.join(" \u{203A} "))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// The arrange request: what the looks said, the text files whole, the group's sections.
     fn notes_arrange(&mut self) {
         let Some(s) = self.task.as_ref() else { return };
@@ -359,22 +381,7 @@ impl App {
                 })
             })
             .collect();
-        let headings: Vec<String> = s
-            .group()
-            .and_then(|g| {
-                self.docs
-                    .library
-                    .groups
-                    .iter()
-                    .find(|lg| mdshared_app::paths::same_path(&lg.file, &g.file))
-            })
-            .map(|lg| {
-                lg.sections
-                    .iter()
-                    .map(|path| path.join(" \u{203A} "))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let headings = self.notes_headings();
         let prompt =
             notes_ai::arrange_prompt(&instruction, s.notes.how_many, &looks, &files, &headings);
         let p = &self.docs.prefs;
