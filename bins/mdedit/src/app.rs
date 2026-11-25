@@ -116,6 +116,9 @@ mod notes_demo;
 mod notes_run;
 #[cfg(test)]
 mod notes_run_tests;
+mod notes_write;
+#[cfg(test)]
+mod notes_write_tests;
 mod palette_events;
 mod plan;
 #[cfg(test)]
@@ -3662,7 +3665,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
             | ShotDialog::RunUndoLater
             | ShotDialog::RunUndoneLater
             | ShotDialog::RunUndoMoved
-            | ShotDialog::RunUndoneMoved,
+            | ShotDialog::RunUndoneMoved
+            | ShotDialog::RunUndoPictures,
         ) => {
             let which = app.args.dialog;
             app.runs_demo(which);

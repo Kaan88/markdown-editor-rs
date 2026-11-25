@@ -958,6 +958,7 @@ impl App {
                 self.ui.runs.undo = Some((run.path.clone(), sentence, true));
                 self.open_dialog(DialogKind::RunUndo);
             }
+            Some(ShotDialog::RunUndoPictures) => self.notes_undo_demo(&root),
             Some(ShotDialog::RunUndoneMoved) => {
                 // Its report: two originals back, a note kept as the move wrote it, and the copy
                 // that note leads to kept with it.
@@ -1029,7 +1030,7 @@ impl App {
 
     /// The undo question's sentence: what goes and what stays, and where the files go when the
     /// drive has a Recycle Bin (4.5, rule 3).
-    fn undo_sentence(&self, plan: &runs::UndoPlan, group: &str) -> String {
+    pub(super) fn undo_sentence(&self, plan: &runs::UndoPlan, group: &str) -> String {
         let mut sentence = plan.sentence(group);
         let first = plan.notes.first().or(plan.pictures.first());
         if plan.refusal.is_none() && first.is_some_and(|p| self.recycle.refusal(p).is_none()) {

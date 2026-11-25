@@ -31,6 +31,7 @@ pub mod merge;
 pub mod multi;
 pub mod multiline;
 pub mod notes_ai;
+pub mod notes_write;
 pub mod prefs;
 pub mod recovery;
 pub mod replace;

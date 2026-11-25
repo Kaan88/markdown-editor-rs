@@ -95,6 +95,9 @@ pub enum ShotDialog {
     RunUndoMoved,
     /// The report of that undo: what was put back, what was kept and why.
     RunUndoneMoved,
+    /// The question before undoing a run of Write notes: its notes and the copies of its
+    /// pictures go, with their lines (pictures plan, phase V5).
+    RunUndoPictures,
     /// The question before a library file is deleted.
     LibraryDelete,
     /// The same question with a group and a file long enough to wrap onto a fourth line.
@@ -596,6 +599,7 @@ impl Args {
                         "run-undone-later" => Some(ShotDialog::RunUndoneLater),
                         "run-undo-moved" => Some(ShotDialog::RunUndoMoved),
                         "run-undone-moved" => Some(ShotDialog::RunUndoneMoved),
+                        "run-undo-pictures" => Some(ShotDialog::RunUndoPictures),
                         "library-delete" => Some(ShotDialog::LibraryDelete),
                         "library-delete-long" => Some(ShotDialog::LibraryDeleteLong),
                         "library-remove-long" => Some(ShotDialog::LibraryRemoveLong),
@@ -742,6 +746,10 @@ mod tests {
         assert_eq!(
             parse("--dialog run-undone-moved").dialog,
             Some(ShotDialog::RunUndoneMoved)
+        );
+        assert_eq!(
+            parse("--dialog run-undo-pictures").dialog,
+            Some(ShotDialog::RunUndoPictures)
         );
         assert_eq!(
             parse("--dialog library-delete").dialog,

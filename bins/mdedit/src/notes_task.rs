@@ -163,6 +163,9 @@ pub struct Run {
     pub text_out: bool,
     /// Why the arrange request failed, with "Try it again" and "One note per picture instead".
     pub arrange_failed: Option<String>,
+    /// The plan card's renames of the copies: a picture's place in the window to its copy's file
+    /// name with its extension, set only when the owner renamed one (phase V5 honours it).
+    pub copy_names: std::collections::HashMap<usize, String>,
 }
 
 impl Run {
