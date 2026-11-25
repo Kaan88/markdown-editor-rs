@@ -1405,7 +1405,7 @@ preview_mode= MDVIEW
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 61);
+        assert_eq!(t.lines().count(), 62);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,
