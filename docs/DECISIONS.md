@@ -2528,3 +2528,14 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 **Decision.** A folder added to the AI task window is walked for its whole tree by `import::walk_every`, with the library import's rules and bounds: a dot name, the hidden attribute, `target` and `node_modules` are left out, a link to a folder is not followed, and a walk stops at 50,000 entries read or 64 folders deep. Unlike the import walk it takes every file kind and reads nothing: a picture, a PDF or any other file is probed by `task_probe` as before. The folder's own files come first, then each subfolder's, by name, case-insensitively, and a file already in the window is not added twice. One add brings in at most 2,000 files (`task_ui::FILES_MAX`); a walk stopped at that cap, at the entries or at the depth says so in the window's notice. This replaces the doc comment that "a folder dropped on it is walked one level".
 **Why.** The owner's report of 2026-11-25: the window found only the files directly in a folder added to it, and files in its subfolders were never found.
 **Overturned by.** The owner.
+
+## D-248 · 2026-11-25 · A folder added to the task window is read on its own thread, and Esc stops it
+
+**Decision.**
+- A folder added to the AI task window (dropped on it) is walked and probed on one `mdshared_app::job::Job` thread, never on the UI thread: a big tree, a network share or a cloud folder (whose text a read downloads) cannot freeze the window. The probe is a pure function of a copy of what it reads — the window's limits, the load options and the library's note paths — so the thread touches nothing of the window. A single file added stays inline, and a thread that cannot be made reads the folder inline.
+- While it runs the window says "Reading <folder>…" over the foot of its list. Esc stops it and nothing of it is added; closing the window and parking it behind "Show what is sent" stop it too, and a stopped job hands nothing back.
+- The walk's cap is the room left in the window (2,000 files less what it holds), and it counts only files the window does not hold: a folder added again adds nothing and does not say "Stopped". A later add that stops nowhere takes an earlier "Stopped…" away.
+- The walk is given the library folder, which it leaves out when the folder walked holds it (audit 4, C5).
+- Files are told apart by one key per path — the parts `same_path` compares, folded as it folds them — in a `HashSet`, not one `same_path` per pair; and a walk for the window no longer clones a section path per file.
+**Why.** The review of `9e15a66`: the walk and up to 2,000 probes ran on the UI thread with no cancel, so a large tree, a network share or a OneDrive folder froze the window with Esc dead; the cap counted files already in it; the library folder was not left out; and the dedup was one allocating comparison per pair.
+**Overturned by.** The owner.

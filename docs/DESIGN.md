@@ -3425,15 +3425,24 @@ the pointer names the file: `tab_command` opens the window with that tab's file,
 be the one in front, or says to save it first. The palette no longer lists it
 (`palette::listed`). Shot `task-add` (both themes) is the open menu over made-up tabs.
 
-**A folder added is its whole tree (2026-11-25, D-247).** The picker offers files; a folder
-reaches the window by a drop on it. A folder is walked by `import::walk_every`, the library
-import's walk with no extension filter and nothing read: a dot name, the hidden attribute,
-`target` and `node_modules` are left out, a link to a folder is not followed, and the walk stops
-at `MAX_READ` (50,000) entries read or `MAX_DEPTH` (64) folders deep. Every file kind comes back,
-and `task_probe` judges each as before. The folder's own files come first, then each subfolder's,
-by name, case-insensitively; a file already in the window is not added twice. One add brings in at
-most `task_ui::FILES_MAX` (2,000) files, and a walk stopped at that cap, at the entries or at the
-depth says so in the window's notice (`task_say`), naming the folder.
+**A folder added is its whole tree (2026-11-25, D-247, D-248).** The picker offers files; a folder
+reaches the window by a drop on it. Its walk and every probe run on one job thread
+(`mdshared_app::job::Job`), with a copy of what a probe reads — the limits, the load options and
+the library's note paths — so the window's state is never touched from it; a single file added
+stays inline, and a thread that cannot be made reads the folder inline. The window says "Reading
+<folder>…" over the foot of its list while it runs; Esc stops it and adds nothing, as does
+closing the window or parking it behind "Show what is sent". The walk is `import::walk_every`,
+the library import's walk with no extension filter and nothing read: a dot name, the hidden
+attribute, `target` and `node_modules` are left out, a link to a folder is not followed, the
+library folder is left out when the folder walked holds it (audit 4, C5), and the walk stops at
+`MAX_READ` (50,000) entries read or `MAX_DEPTH` (64) folders deep. Every file kind comes back and
+`task_probe` judges each as before. The folder's own files come first, then each subfolder's, by
+name, case-insensitively. The cap is the room the window has left (2,000 less what it holds) and
+counts only files it does not hold already, so a folder added again adds nothing and says nothing
+of a cap; a walk stopped at the cap, at the entries or at the depth says so in the window's notice
+(`task_say`), naming the folder, and a later add that stops nowhere takes that away. Files are
+told apart by a key per path in a `HashSet`, not one `same_path` per pair. Shot
+`task-files-stopped` (1280 and 520 px, both themes) is the "Stopped…" line.
 
 **After the hand-driven run (2026-11-25, D-240 to D-245).** `task_is_open` is false while
 Settings is open, so Settings opened from the window takes every key and click and the window
