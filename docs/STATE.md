@@ -33,9 +33,8 @@ is newer, doubt "In hand" first.
   `docs/ROADMAP.md`, "Fast-tracked for the md apps" (D1 to D7, and X3, X4, L1, L3, L10, W2, W3).
   Order (Fable's review): shared's D2, D3 first; then the menu open fade in mdview, then in mdedit
   with the budgets measured before and after (the completion popup left out); toasts and tooltips;
-  dialogs and cards. No tab cross-fade in mdedit (memory), no sliding panes. A local mdview
-  worktree `mv-wt\menu-fade` (branch `f/menu-fade`, the pin only, nothing committed) was started
-  too early and stopped by the owner.
+  dialogs and cards. No tab cross-fade in mdedit (memory), no sliding panes. Both apps pin
+  shared `main` from `294d330` on.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
