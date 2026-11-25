@@ -130,6 +130,9 @@ pub struct Prefs {
     pub ai_files: FilesGo,
     /// Write notes' options (pictures plan section 12).
     pub ai_notes: NotesOptions,
+    /// A window of Write notes has said, once ever, that a picture is sent whole (pictures plan
+    /// section 13): no later window says it.
+    pub ai_pictures_told: bool,
     /// The task window's limits (D-203), in their ranges by [`Prefs::clamp`].
     pub ai_task_batch: usize,
     pub ai_rewrite_files: usize,
@@ -434,6 +437,7 @@ impl Default for Prefs {
             ai_after_run: AfterRun::Preview,
             ai_files: FilesGo::Copy,
             ai_notes: NotesOptions::default(),
+            ai_pictures_told: false,
             ai_task_batch: AI_TASK_BATCH_DEFAULT,
             ai_rewrite_files: AI_REWRITE_FILES_DEFAULT,
             ai_rewrite_kb: AI_REWRITE_KB_DEFAULT,
@@ -630,6 +634,9 @@ impl Prefs {
                     }
                     "ai_files" => p.ai_files = FilesGo::parse(value).unwrap_or(d.ai_files),
                     "ai_notes" => p.ai_notes = NotesOptions::parse(value).unwrap_or(d.ai_notes),
+                    "ai_pictures_told" => {
+                        p.ai_pictures_told = flag(value).unwrap_or(d.ai_pictures_told)
+                    }
                     "ai_task_batch" => {
                         p.ai_task_batch = number(value, AI_TASK_BATCH_MIN, AI_TASK_BATCH_MAX)
                             .unwrap_or(d.ai_task_batch)
@@ -756,6 +763,7 @@ impl Prefs {
         w.line("ai_after_run", p.ai_after_run.key());
         w.line("ai_files", p.ai_files.key());
         w.line("ai_notes", &p.ai_notes.key());
+        w.line("ai_pictures_told", b(p.ai_pictures_told));
         w.line("ai_task_batch", &p.ai_task_batch.to_string());
         w.line("ai_rewrite_files", &p.ai_rewrite_files.to_string());
         w.line("ai_rewrite_kb", &p.ai_rewrite_kb.to_string());
@@ -1276,6 +1284,7 @@ preview_mode= MDVIEW
                 how_many: crate::notes_ai::HowMany::PerPicture,
                 ..NotesOptions::default()
             },
+            ai_pictures_told: true,
             ai_task_batch: 12,
             ai_rewrite_files: 7,
             ai_rewrite_kb: 640,
@@ -1327,7 +1336,7 @@ preview_mode= MDVIEW
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 59);
+        assert_eq!(t.lines().count(), 60);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,

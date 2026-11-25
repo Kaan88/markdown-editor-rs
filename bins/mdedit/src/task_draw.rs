@@ -28,7 +28,12 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     // Add menu's lines): the window may have been resized since it opened.
     s.win = (w, h);
     let r = task_ui::card(w, h);
-    let g = task_ui::geo(r);
+    let mut g = task_ui::geo(r);
+    // The first-time sentence of Write notes takes a band of the list's foot (pictures plan 13).
+    let whole = crate::sent_card::shows_whole(s);
+    if whole {
+        g.list.h = (g.list.h - crate::sent_card::WHOLE_H).max(0.0);
+    }
     let mut hits: Vec<(Hit, Rect)> = Vec::new();
     draw_backdrop(p, pal, w, h);
     hits.push((Hit::Card, r));
@@ -866,8 +871,31 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         room,
     );
 
+    // ---- once ever: a picture is sent whole, above the button --------------------------------
+    if whole {
+        let band = Rect::new(x, g.list.bottom() + 2.0, inner, crate::sent_card::WHOLE_H);
+        let text_w = p.measure(Face::Semibold, 12.0, crate::sent_card::WHOLE);
+        let right = band.right().min(primary.right());
+        let left = (right - text_w).max(band.x + 18.0);
+        p.icon(glyph::WARN, 13.0, left - 11.0, band.cy(), pal.muted);
+        p.text(
+            Face::Semibold,
+            12.0,
+            left,
+            band.cy(),
+            crate::sent_card::WHOLE,
+            pal.text,
+            right - left,
+        );
+    }
+
     s.hits = hits;
     s.caret_on = caret_on;
+
+    // ---- "What is sent", over the window ----------------------------------------------------------
+    if let Some(card) = s.sent.as_mut() {
+        crate::sent_card_draw::draw(p, pal, card, &s.files, w, h);
+    }
 }
 
 /// A picture's row on Write notes: its tick, its thumbnail as the engine made it, its name, what
@@ -983,7 +1011,12 @@ fn draw_picture_row(
 /// A thumbnail in its square, kept to its shape on the field's colour; an empty square while
 /// there is none (measuring, or a GIF the engine makes none of). Drawn through a bitmap of its
 /// own so the list's clip holds for it.
-fn draw_thumb(p: &mut Painter, pal: &Palette, r: Rect, thumb: Option<&(Vec<u8>, u32, u32)>) {
+pub(crate) fn draw_thumb(
+    p: &mut Painter,
+    pal: &Palette,
+    r: Rect,
+    thumb: Option<&(Vec<u8>, u32, u32)>,
+) {
     p.frame(r, 4.0, pal.field, pal.line);
     let Some((rgba, w, h)) = thumb.filter(|t| t.1 > 0 && t.2 > 0) else {
         return;

@@ -754,6 +754,11 @@ pub struct TaskScreen {
     pub notes_run: Option<crate::notes_task::Run>,
     /// Why no picture can be sent with this connection (an older engine, a CLI that takes none).
     pub pictures_refused: Option<String>,
+    /// Write notes' "What is sent", open over the window (pictures plan 13).
+    pub sent: Option<crate::sent_card::SentCard>,
+    /// This window says, above its button, that a picture is sent whole: the first window ever
+    /// of Write notes with pictures and the AI on (pictures plan 13).
+    pub whole_note: bool,
 }
 
 /// A request in flight from the window.
@@ -821,6 +826,8 @@ impl TaskScreen {
             prepare: Vec::new(),
             notes_run: None,
             pictures_refused: None,
+            sent: None,
+            whole_note: false,
         }
     }
 

@@ -142,6 +142,7 @@ impl App {
             s.tick += 1;
         }
         self.notes_prepare(false);
+        self.sent_whole_once();
         self.caret_reset();
         self.redraw();
     }
@@ -189,6 +190,7 @@ impl App {
             s.tick += 1;
         }
         self.notes_prepare(false);
+        self.sent_whole_once();
         self.redraw();
     }
 
@@ -433,6 +435,9 @@ impl App {
     /// The window's keys. It takes every key while it is open, as the plan screen does.
     pub(super) fn task_key(&mut self, name: Option<KeyName>, typed: Option<&str>) {
         let Some(name) = name else { return };
+        if self.sent_card_open() {
+            return self.sent_card_key(name);
+        }
         let mods = self.mods;
         // Escape stops a request first, then closes a list, then the window.
         if name == KeyName::Escape {
@@ -631,6 +636,9 @@ impl App {
     }
 
     pub(super) fn task_pointer(&mut self, x: f32, y: f32) {
+        if self.sent_card_open() {
+            return self.sent_card_pointer(x, y);
+        }
         if self.task_drag_thumb(y) {
             return;
         }
@@ -659,6 +667,9 @@ impl App {
     }
 
     pub(super) fn task_press(&mut self) {
+        if self.sent_card_open() {
+            return self.sent_card_press();
+        }
         let (x, y) = self.ui.mouse;
         let hit = self.task.as_ref().and_then(|s| s.hit_at(x, y));
         let mut dragged = false;
@@ -709,6 +720,9 @@ impl App {
     }
 
     pub(super) fn task_release(&mut self) {
+        if self.sent_card_open() {
+            return self.sent_card_release();
+        }
         let (x, y) = self.ui.mouse;
         let Some(s) = self.task.as_mut() else { return };
         s.list.grab = None;
@@ -790,6 +804,7 @@ impl App {
                     s.focus = Focus::Instruction;
                 }
                 self.notes_prepare(false);
+                self.sent_whole_once();
                 self.caret_reset();
                 self.redraw();
             }
@@ -886,6 +901,9 @@ impl App {
 
     /// `dy` in logical px, positive towards the end.
     pub(super) fn task_wheel(&mut self, dy: f32) {
+        if self.sent_card_open() {
+            return self.sent_card_wheel(dy);
+        }
         let (x, y) = self.ui.mouse;
         let Some(s) = self.task.as_mut() else { return };
         let g = task_ui::geo(task_ui::card(s.win.0, s.win.1));
@@ -900,6 +918,9 @@ impl App {
 
     /// What an input method composes goes to the field the keyboard is in.
     pub(super) fn task_preedit(&mut self, pre: Option<mdshared_ui::textfield::Preedit>) -> bool {
+        if self.sent_card_open() {
+            return false;
+        }
         let Some(s) = self.task.as_mut() else {
             return false;
         };
@@ -912,6 +933,9 @@ impl App {
     }
 
     pub(super) fn task_right_press(&mut self) {
+        if self.sent_card_open() {
+            return;
+        }
         if let Some(s) = self.task.as_mut() {
             s.dest_open = false;
             s.tick += 1;
@@ -2136,14 +2160,28 @@ impl App {
         }
     }
 
-    /// "Show what is sent": the literal request text in a read-only tab. The window is parked
-    /// behind it, and "AI task…" brings it back.
+    /// "Show what is sent": on Write notes a card over the window, with the pictures as they go
+    /// (pictures plan 13); on the other tasks the literal request text in a read-only tab.
     pub(super) fn task_show_sent(&mut self) {
         if self.task.as_ref().is_some_and(|s| s.busy()) {
             self.docs
                 .set_toast("The request is out. Its answer comes first.");
             return;
         }
+        if self
+            .task
+            .as_ref()
+            .is_some_and(|s| s.task == TaskKind::Notes)
+        {
+            self.sent_card_show();
+            return;
+        }
+        self.task_sent_tab();
+    }
+
+    /// The literal request text in a read-only tab. The window is parked behind it, and "AI
+    /// task…" brings it back.
+    pub(super) fn task_sent_tab(&mut self) {
         let Some(text) = self.task_request_text() else {
             return;
         };

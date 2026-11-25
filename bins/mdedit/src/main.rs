@@ -53,6 +53,8 @@ mod recovery;
 mod recycle;
 mod replace_ui;
 mod results;
+mod sent_card;
+mod sent_card_draw;
 mod session;
 mod status;
 mod task_draw;

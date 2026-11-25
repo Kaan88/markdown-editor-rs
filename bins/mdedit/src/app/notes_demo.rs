@@ -40,7 +40,9 @@ const LOOKS: [(&str, &str); 5] = [
 
 impl App {
     /// The demos: `notes` (the window), `notes-options`, `notes-looking`, `notes-failed`,
-    /// `notes-arrange-failed`, `notes-no-vision`, `notes-limit` and `notes-off`.
+    /// `notes-arrange-failed`, `notes-no-vision`, `notes-limit` and `notes-off`; `notes-first`,
+    /// the window saying once that a picture is sent whole; `notes-sent`, `notes-sent-arrange` and `notes-sent-off`,
+    /// "What is sent" on its first look, on the arrange, and with the AI off.
     pub(super) fn notes_demo(&mut self, name: &str) -> bool {
         let dir = Path::new("fixtures/notes-demo");
         let mut names: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -51,7 +53,7 @@ impl App {
         }
         names.sort();
         self.task_seq += 1;
-        let on = name != "notes-off";
+        let on = name != "notes-off" && name != "notes-sent-off";
         let via = if on {
             "Claude API \u{00B7} Claude Sonnet 5.5".to_string()
         } else {
@@ -92,14 +94,21 @@ impl App {
             f.size = bytes.max(f.size) * 3;
             f.measure = if on {
                 Measure::Ready(PictureInfo {
-                    format: "jpeg".to_string(),
+                    // The fixtures are PNGs, and a PNG is sent as a PNG.
+                    format: "png".to_string(),
                     width: w,
                     height: h,
                     bytes,
                     sha256: String::new(),
                     original_width: ow,
                     original_height: oh,
-                    done: Vec::new(),
+                    // What the engine would say was done: the photos made smaller and their
+                    // camera details taken out, the others as they are.
+                    done: match (w < ow, k % FIGURES.len()) {
+                        (true, 0 | 3) => vec!["smaller".into(), "details removed".into()],
+                        (true, _) => vec!["smaller".into()],
+                        (false, _) => vec!["as it is".into()],
+                    },
                     thumb: None,
                 })
             } else {
@@ -203,11 +212,20 @@ impl App {
                     ..Run::default()
                 });
             }
+            "notes-first" => s.whole_note = true,
             _ => {}
         }
         s.recount_limit();
         s.tick += 1;
         self.relayout_areas();
+        if name.starts_with("notes-sent") {
+            self.sent_card_show();
+            if name == "notes-sent-arrange"
+                && let Some(c) = self.task.as_mut().and_then(|s| s.sent.as_mut())
+            {
+                c.show(c.tabs.len().saturating_sub(1));
+            }
+        }
         self.redraw();
         true
     }

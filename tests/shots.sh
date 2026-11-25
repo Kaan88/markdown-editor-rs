@@ -273,11 +273,13 @@ for t in "" "-dark"; do
 done
 # Write notes (pictures plan, phase V3): the window with a thumbnail and what each picture is
 # sent as, its Options, while the pictures are looked at, a failed look, a model that reads no
-# pictures, the limit, and the AI off.
+# pictures, the limit, and the AI off. Then (pictures plan 13) the first window ever saying a
+# picture is sent whole, and "What is sent" as a card: the first look's pictures and text, the
+# arrange with no picture in it, the AI off.
 for t in "" "-dark"; do
     th=--light
     [ -n "$t" ] && th=--dark
-    for d in notes notes-options notes-looking notes-failed notes-arrange-failed notes-no-vision notes-limit notes-off; do
+    for d in notes notes-options notes-looking notes-failed notes-arrange-failed notes-no-vision notes-limit notes-off notes-first notes-sent notes-sent-arrange notes-sent-off; do
         shot "task-$d$t" $th --size 1280x800 --task-demo "$d"
     done
 done
