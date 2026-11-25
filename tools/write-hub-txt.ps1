@@ -1,4 +1,4 @@
-# Copied from the Hub repository (local, tools/write-hub-txt.ps1) at Hub commit 8caeef1; the script itself last changed in 26be12a. Do not edit here: change it in Hub and copy it again.
+# Copied from the Hub repository (local, tools/write-hub-txt.ps1) at Hub commit 13f418f; the script itself last changed in 160c006. Do not edit here: change it in Hub and copy it again.
 <#
 .SYNOPSIS
   Writes hub.txt, the one manifest every app's release carries for Hub (docs/launcher-plan.md 3.4,
@@ -53,16 +53,27 @@ function Test-Name([string]$v) {
     $v -match '^[A-Za-z0-9._-]{1,128}$' -and -not $v.StartsWith('.') -and -not $v.EndsWith('.') -and
         ($v.Split('.')[0].ToUpperInvariant() -notmatch '^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$')
 }
+# A relative path as the parser reads one (valid_rel): plain names joined by \ or /, and nothing
+# else: no space, no empty segment, no drive, nothing absolute.
 function Test-Rel([string]$v) {
-    $v -ne '' -and $v.Length -le 128 -and $v -match '^[A-Za-z0-9._ \\/-]+$' -and $v -notmatch '(^|[\\/])\.\.([\\/]|$)' -and
-        $v -notmatch '^[\\/]' -and $v -notmatch '^[A-Za-z]:'
+    if ($v -eq '' -or $v.Length -gt 128) { return $false }
+    foreach ($seg in ($v -split '[\\/]')) { if (-not (Test-Name $seg)) { return $false } }
+    $true
 }
 
 if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') { Fail "version '$Version' is not X.Y.Z[-pre]" }
 if ($Date -eq '') { $Date = [DateTime]::UtcNow.ToString('yyyy-MM-dd') }
 if ($Date -notmatch '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$') { Fail "date '$Date' is not YYYY-MM-DD" }
 $Notes = ($Notes -replace '[\p{Cc}]+', ' ').Trim()
-if ($Notes.Length -gt 1024) { $Notes = $Notes.Substring(0, 1021) + '...' }
+# The parser's limit is 1024 bytes of UTF-8, not 1024 characters.
+if ([Text.Encoding]::UTF8.GetByteCount($Notes) -gt 1024) {
+    while ([Text.Encoding]::UTF8.GetByteCount($Notes) -gt 1021) {
+        $cut = $Notes.Length - 1
+        if ($cut -gt 0 -and [char]::IsLowSurrogate($Notes[$cut])) { $cut-- }
+        $Notes = $Notes.Substring(0, $cut)
+    }
+    $Notes = $Notes.TrimEnd() + '...'
+}
 if ($NotesFile -ne '' -and -not (Test-Name $NotesFile)) { Fail "notes file name '$NotesFile' is not a plain file name" }
 if ($Uninstall -ne '' -and $Uninstall -notmatch '^[A-Za-z0-9{}._-]{1,80}$') { Fail "uninstall key '$Uninstall' has characters Hub refuses" }
 if ($Min -ne '' -and $Min -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') { Fail "min '$Min' is not a version" }
@@ -74,7 +85,9 @@ foreach ($w in $waitList) { if (-not (Test-Rel $w)) { Fail "wait entry '$w' is n
 $list = @($Files)
 if ($FilesJson -ne '') {
     $json = if (Test-Path -LiteralPath $FilesJson -PathType Leaf) { Get-Content -LiteralPath $FilesJson -Raw } else { $FilesJson }
-    $list = @(ConvertFrom-Json -InputObject $json)
+    # Piped on, so that Windows PowerShell 5.1 (which hands a JSON array over as one object) gives
+    # the files one by one, as PowerShell 7 does.
+    $list = @(ConvertFrom-Json -InputObject $json | ForEach-Object { $_ })
 }
 if ($list.Count -eq 0) { Fail 'no files' }
 

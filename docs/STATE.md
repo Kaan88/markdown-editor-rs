@@ -25,7 +25,8 @@ is newer, doubt "In hand" first.
 
 ## On `main`, not released
 
-- Nothing.
+- The release workflow: the next release carries its full notes as `release-notes-<version>.md`,
+  named by `hub.txt`'s `notes.file` (D-231; seventeen assets; not yet run on a real release).
 
 ## In hand
 

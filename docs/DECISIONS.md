@@ -2379,3 +2379,17 @@ when the owner changed the first copy and could break a kept note's picture; Fab
 and V5 found a crash during the copies left files no record owned, a pasted picture lost when its
 copy failed, and a share's pictures linked wrongly.
 **Overturned by.** The owner.
+
+## D-231 · 2026-11-25 · The release carries its full notes as an asset for Hub
+
+**Decision.** From the next release the `publish` job copies the release text (the file the
+GitHub release body is made from) to `release-notes-<version>.md`, checks it is at most 64 KiB,
+passes `-NotesFile release-notes-<version>.md` to `tools/write-hub-txt.ps1` and uploads it as the
+seventeenth asset. `tools/write-hub-txt.ps1` is copied again from Hub at `13f418f` (fixes: the
+5.1 `-FilesJson` read, notes limited in bytes, relative paths with a space, matching the Rust
+parser). `hub.txt` keeps its one-line `notes`.
+**Why.** Hub's release-notes page fetches the full notes from the `notes.file` asset named in
+`hub.txt`, so it can show more than the one line.
+**Overturned by.** Nothing yet. Replaces nothing; it adds to D-098.
+**From.** The owner's request for Hub, 2026-11-23 (written then as a D-102 on the branch
+`hub/notes-file`, renumbered when merged); merged on the owner's word, 2026-11-25.
