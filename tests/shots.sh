@@ -47,7 +47,7 @@ shot() {
     shift
     # The scale is pinned, so the system's display scale cannot change the pictures; a shot
     # that asks for its own --scale comes later on the line and wins.
-    "$exe" --no-session --scale 1.0 --shot "$out/$name.png" "$@"
+    "$exe" --no-session --behind --scale 1.0 --shot "$out/$name.png" "$@"
 }
 
 shot rs-light --light "$fx/sample.rs"
@@ -353,6 +353,8 @@ for t in "" "-dark"; do
     shot "preview-menu-mdview$t" $th --pref preview_mode=mdview --menu preview "$fx/sample.md"
     shot "bar-new-save-ai$t" $th --pref ai_connection=claude-api --type x "$fx/sample.md"
     shot "bar-ai-menu$t" $th --pref ai_connection=claude-api --menu bar-ai "$fx/sample.md"
+    # A document with no preview: AI edit takes the Preview button's place beside Notes.
+    shot "bar-ai-no-preview$t" $th --pref ai_connection=claude-api "$fx/sample.rs"
     shot "bar-900$t" $th --size 900x500 --pref ai_connection=claude-api --type x "$fx/sample.md"
     shot "bar-560$t" $th --size 560x500 --pref ai_connection=claude-api --type x "$fx/sample.md"
     shot "settings-editor-preview$t" $th --dialog settings --settings-section editor "$fx/sample.md"

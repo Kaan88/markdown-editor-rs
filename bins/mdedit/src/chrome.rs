@@ -1046,8 +1046,13 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             c.p.icon(CHEVRON, 12.0, b.cx(), cy, pal.muted);
             c.hit(hit, b);
         }
-        // The slot is kept while the button is hidden, so AI edit does not move between tabs.
-        x += labelled(t.preview, plan.labels) + CHEVRON_W + GAP;
+        // AI edit sits right after the Preview button and its arrow, or in their place while
+        // the button is hidden (a document with no preview, no viewer), so it never stands
+        // apart from its group across an empty slot. The plan keeps the slot's width either
+        // way, so what the bar shows at a width does not change between tabs.
+        if preview.is_some() {
+            x += labelled(t.preview, plan.labels) + CHEVRON_W + GAP;
+        }
         if t.ai > 0.0 {
             button(c, x, BarItem::AiEdit, SPARKLE, lab(AI_EDIT), false);
         }

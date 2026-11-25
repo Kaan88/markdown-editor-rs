@@ -305,6 +305,39 @@ fn choose_language(a: &mut App, name: &str) {
 
 // ---- #8: New, Save and AI edit on the bar ------------------------------------------------------
 
+/// The owner's report (2026-11-24): with no Preview button (a document with no preview) AI edit
+/// stood alone across the empty slot. It sits right after the Notes button's separator then, as
+/// it sits right after the Preview button's arrow when the button is there.
+#[test]
+fn ai_edit_sits_with_its_group_when_the_preview_button_is_hidden() {
+    let dir = scratch("bar-ai-group");
+    let txt = dir.join("a.txt");
+    let md = dir.join("b.md");
+    std::fs::write(&txt, "one\n").unwrap();
+    std::fs::write(&md, "# one\n").unwrap();
+    let mut a = app();
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    open_now(&mut a, &txt);
+    a.compose();
+    assert!(a.hit_rect(Hit::Bar(BarItem::Preview)).is_none());
+    let notes = a.hit_rect(Hit::Bar(BarItem::Library)).expect("Notes");
+    let ai = a.hit_rect(Hit::Bar(BarItem::AiEdit)).expect("AI edit");
+    // Only the gap and the separator between Notes and AI edit, as between Notes and Preview.
+    let gap = ai.x - notes.right();
+    open_now(&mut a, &md);
+    a.compose();
+    let preview = a.hit_rect(Hit::Bar(BarItem::Preview)).expect("Preview");
+    assert!(
+        (preview.x - notes.right() - gap).abs() < 0.5,
+        "{gap} {preview:?} {notes:?}"
+    );
+    assert!(gap < 20.0, "{gap}");
+    // With the button there AI edit follows its arrow, as before.
+    let ai_md = a.hit_rect(Hit::Bar(BarItem::AiEdit)).expect("AI edit");
+    assert!(ai_md.x > preview.right() + 15.0 && ai_md.x - preview.right() < 30.0);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn the_bar_has_new_save_and_ai_edit_with_the_menus_availability() {
     let (mut a, dir) = md_doc("bar", "one\n");

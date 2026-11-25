@@ -2929,7 +2929,11 @@ preview tests, `prefs` and `chrome` tests, and `html_md`'s 14 in the shared repo
   every width (as Reload is), so the labels of the other buttons still fit at 1280. Save is
   enabled while the document has unsaved changes (as the main menu has it) and runs the same
   `Save` command. AI edit (label "AI edit") sits after the preview group only while an AI
-  connection is chosen, is enabled while a document is ready, and opens the AI menu under itself
+  connection is chosen; while the Preview button is hidden (a document with no preview) it takes
+  the button's place right after the Notes button's separator, so it never stands apart across an
+  empty slot (the owner's report, 2026-11-24; shots `bar-ai-no-preview`, `bar-new-save-ai`).
+  `plan_width` still counts the slot, so what the bar shows at a width is the same for every tab.
+  It is enabled while a document is ready, and opens the AI menu under itself
   (the same `ai_menu`, with its Modify button). It is in the Files group of `bar_plan`, so it goes
   with that group at narrow widths. The bar's signature (`region_sig`) carries the unsaved state,
   the AI setting and the preview mode: without it Save stayed grey after an edit.

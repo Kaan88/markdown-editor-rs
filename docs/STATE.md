@@ -29,6 +29,10 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## In hand
 
+- **`f/ai-workflow`** (worktree `md-wti-work`, from `main` `37cd0b9` plus the pictures plan;
+  not merged, not pushed): the pictures plan's first four phases (F, E, L, O, section 17) and
+  the owner's two reports on the bar and the task window. Done on it: AI edit sits with its
+  group when the Preview button is hidden. Release notes so far: `docs/release-notes/unreleased.md`.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
@@ -78,9 +82,6 @@ released. If `git log -1` is newer, doubt "In hand" first.
   folders emptied in a home outside the library stay.
 - **A debug build aborts on a closed stderr** (not a release one): something only debug prints
   with `std`'s `eprintln!`; CI runs release and is unaffected.
-- **"AI edit" stands alone at the toolbar's right end when the preview button is not shown**
-  (owner's report, 2026-11-24, for later): with no preview it is cut off from the group it
-  belongs with.
 - **The task window's WHERE IT GOES row overlaps** (owner's report, 2026-11-24, for later): the
   destination path ("…\mdedit\library\test\") is drawn over the "under a section (none)" field.
 - **"AI task on this file…" and "AI task on your files…" do the same thing** (owner's report,
