@@ -236,7 +236,12 @@ impl Run {
             .filter_map(|&b| self.batches.get(b).cloned())
             .collect();
         let n = kept.len();
-        kept.extend(then.iter().filter_map(|&b| self.batches.get(b).cloned()));
+        // A batch with no picture left in it is never sent.
+        kept.extend(
+            then.iter()
+                .filter_map(|&b| self.batches.get(b).cloned())
+                .filter(|ids| !ids.is_empty()),
+        );
         self.batches = kept;
         self.answered = (0..n).collect();
         self.next = n;

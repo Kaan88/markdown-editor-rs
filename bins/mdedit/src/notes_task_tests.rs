@@ -227,3 +227,17 @@ fn a_paste_takes_the_text_before_the_picture() {
     assert!(!paste_is_a_picture(TaskKind::Notes, Some("A1\tB1")));
     assert!(!paste_is_a_picture(TaskKind::Rewrite, None));
 }
+
+/// Fable's review of V3 round 2, 1: a batch left with no picture is never sent again.
+#[test]
+fn an_empty_batch_is_never_sent_again() {
+    let mut r = Run {
+        batches: vec![vec![], vec![0, 1]],
+        next: 2,
+        failed: vec![(1, "Lost.".into())],
+        stopped: true,
+        ..Run::default()
+    };
+    r.again();
+    assert_eq!(r.batches, vec![vec![0, 1]]);
+}

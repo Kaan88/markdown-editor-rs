@@ -297,7 +297,11 @@ fn a_failed_arrange_is_tried_again_or_made_one_per_picture() {
     assert_eq!(plan.notes.len(), 3);
     assert_eq!(plan.notes[1].title, "Tiles");
     assert_eq!(a.task_sent.requests, sent + 1, "nothing more is sent");
-    assert_eq!(a.docs.prefs.ai_notes.how_many, HowMany::PerPicture);
+    assert_ne!(
+        a.docs.prefs.ai_notes.how_many,
+        HowMany::PerPicture,
+        "a way out of one failure is not a setting"
+    );
 }
 
 /// Fable's review of V3, 10: a picture the look's answer says nothing of is not looked at: it
@@ -481,4 +485,96 @@ fn what_is_sent_shows_the_sections_the_arrange_is_given() {
     }
     let text = a.task_request_text().expect("text");
     assert!(text.contains("Rooms \u{203A} Kitchen"), "{text}");
+}
+
+/// Fable's review of V3 round 2, 1: an answer that says nothing of any picture fails the batch
+/// whole, and trying again sends no request without a picture.
+#[test]
+fn an_answer_that_names_no_picture_fails_its_batch_whole() {
+    let (mut a, _dir) = window("notes-nothing", true, 2, "p");
+    wait(&mut a, measured);
+    a.task
+        .as_mut()
+        .expect("open")
+        .instruction
+        .set_text("NOTHINGSAID");
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let run = run_of(&a);
+    assert_eq!(run.failed.len(), 1);
+    assert!(
+        run.batches.iter().all(|b| !b.is_empty()),
+        "{:?}",
+        run.batches
+    );
+    assert_eq!(run.looked(), 0);
+    let sent = a.task_sent.requests;
+    a.task_act(Hit::TryAgain);
+    assert_eq!(
+        a.task_sent.requests,
+        sent + 1,
+        "one look, with its pictures"
+    );
+}
+
+/// Fable's review of V3 round 2, 2: with text files only, a failed arrange offers no note per
+/// picture, for there is none.
+#[test]
+fn a_failed_arrange_of_text_alone_offers_no_note_per_picture() {
+    let (mut a, dir) = window("notes-text-fail", true, 0, "p");
+    let text = dir.join("list.md");
+    std::fs::write(&text, "# List").expect("text");
+    a.task_add_paths(vec![text]);
+    a.task
+        .as_mut()
+        .expect("open")
+        .instruction
+        .set_text("ARRANGEFAIL");
+    a.task_run();
+    wait(&mut a, |a| {
+        a.task
+            .as_ref()
+            .and_then(|s| s.notes_run.as_ref())
+            .is_some_and(|r| r.arrange_failed.is_some())
+    });
+    a.task_act(Hit::GoOn);
+    assert!(arranged(&a).is_none(), "no empty plan");
+    assert!(
+        run_of(&a).arrange_failed.is_some(),
+        "the failure is still said"
+    );
+}
+
+/// Fable's review of V3 round 2, 4: "Try it again" after the instruction changed asks every
+/// picture anew, not only the failed ones.
+#[test]
+fn trying_again_with_another_instruction_asks_every_picture_anew() {
+    let (mut a, dir) = window("notes-retry-asked", true, 4, "ok");
+    let late = dir.join("LOOKFAIL.png");
+    std::fs::write(&late, b"x").expect("picture");
+    a.task_add_paths(vec![late]);
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, looks_ended);
+    assert_eq!(run_of(&a).failed.len(), 1);
+    a.task
+        .as_mut()
+        .expect("open")
+        .instruction
+        .set_text("Rooms, and what to buy");
+    if let Some(s) = a.task.as_mut() {
+        let lookfail = s.files.iter().position(|f| f.name == "LOOKFAIL.png");
+        if let Some(i) = lookfail {
+            s.files[i].ticked = false;
+        }
+    }
+    let sent = a.task_sent.requests;
+    a.task_act(Hit::TryAgain);
+    wait(&mut a, |a| arranged(a).is_some());
+    assert_eq!(
+        a.task_sent.requests,
+        sent + 2,
+        "the four again, and the arrange"
+    );
+    assert_eq!(run_of(&a).instruction, "Rooms, and what to buy");
 }

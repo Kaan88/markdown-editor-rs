@@ -729,7 +729,8 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     }
     bx -= 10.0;
     let go_on = if arrange_failed {
-        Some("One note per picture instead".to_string())
+        // With text files only there is no picture to make a note of.
+        (!s.notes_parts().0.is_empty()).then(|| "One note per picture instead".to_string())
     } else {
         failed.map(|run| format!("Go on with {}", run.going_on_with()))
     };

@@ -27,6 +27,8 @@ while IFS= read -r line; do
       printf '%s%s%s\n' '{"ev":"error","id":' "$id" ',"kind":"rate","message":"Too many requests.","retry_after":30}';;
     *'"op":"run"'*LOOKSLOW*'You look at pictures'*)
       ;;
+    *'"op":"run"'*NOTHINGSAID*'You look at pictures'*)
+      printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"{\"version\":1,\"pictures\":[]}"}';;
     *'"op":"run"'*CHANGED*'You look at pictures'*)
       printf '%s%s%s\n' '{"ev":"error","id":' "$id" ',"kind":"image","message":"p0.png: changed since it was measured"}';;
     *'"op":"run"'*ARRANGEFAIL*'You arrange notes'*)

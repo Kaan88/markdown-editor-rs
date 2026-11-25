@@ -454,8 +454,18 @@ impl App {
                 let (said, missed): (Vec<usize>, Vec<usize>) =
                     ids.iter().partition(|&&i| looks.iter().any(|l| l.id == i));
                 run.looks.extend(looks);
+                let said_of =
+                    |names: &[String]| format!("The answer said nothing of {}.", names.join(", "));
                 if missed.is_empty() {
                     run.answered.push(b);
+                } else if said.is_empty() {
+                    // Nothing was said of any: the batch failed whole.
+                    let names: Vec<String> = ids
+                        .iter()
+                        .filter_map(|&i| s.files.get(i).map(|f| f.name.clone()))
+                        .collect();
+                    run.failed.push((b, said_of(&names)));
+                    run.stopped = true;
                 } else {
                     // The batch is split: what was said of is answered, the rest a batch of
                     // its own that failed, to try again or go on without.
@@ -464,16 +474,11 @@ impl App {
                         .filter_map(|&i| s.files.get(i).map(|f| f.name.clone()))
                         .collect();
                     if let Some(batch) = run.batches.get_mut(b) {
-                        *batch = said.clone();
+                        *batch = said;
                     }
-                    if !said.is_empty() {
-                        run.answered.push(b);
-                    }
+                    run.answered.push(b);
                     run.batches.push(missed);
-                    run.failed.push((
-                        run.batches.len() - 1,
-                        format!("The answer said nothing of {}.", names.join(", ")),
-                    ));
+                    run.failed.push((run.batches.len() - 1, said_of(&names)));
                     run.stopped = true;
                 }
             }
@@ -667,15 +672,19 @@ impl App {
         let Some(run) = self.task.as_mut().and_then(|s| s.notes_run.as_mut()) else {
             return;
         };
-        if run.arrange_failed.take().is_some() {
+        if run.arrange_failed.is_some() {
+            let Some(s) = self.task.as_mut() else { return };
+            let pictures = s.notes_parts().0;
+            if go_on && pictures.is_empty() {
+                return;
+            }
+            if let Some(run) = s.notes_run.as_mut() {
+                run.arrange_failed = None;
+            }
             if go_on {
-                // "One note per picture instead": made here from the looks, no request.
-                self.notes_option(None, Some(HowMany::PerPicture));
-                let pictures = self
-                    .task
-                    .as_ref()
-                    .map(|s| s.notes_parts().0)
-                    .unwrap_or_default();
+                // "One note per picture instead": made here from the looks, no request. For
+                // this window only: the setting stays as it was.
+                s.notes.how_many = HowMany::PerPicture;
                 self.notes_made_here(&pictures);
             } else {
                 self.notes_arrange();
@@ -683,6 +692,18 @@ impl App {
             return;
         }
         if run.failed.is_empty() {
+            return;
+        }
+        // What is asked changed since the looks: everything not kept is asked anew.
+        let Some(s) = self.task.as_ref() else { return };
+        let (instruction, text_out) = (s.instruction.text().trim().to_string(), s.notes.text_out);
+        let Some(run) = self.task.as_mut().and_then(|s| s.notes_run.as_mut()) else {
+            return;
+        };
+        if !go_on && (run.instruction != instruction || run.text_out != text_out) {
+            run.failed.clear();
+            run.stopped = true;
+            self.notes_start();
             return;
         }
         if go_on {
