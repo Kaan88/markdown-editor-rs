@@ -882,10 +882,10 @@ pub fn write_blocked(s: &TaskScreen, plan: &NotesPlan) -> Option<String> {
     if plan.on_notes() == 0 {
         return Some("No note is ticked.".to_string());
     }
-    match &s.dest {
-        DestChoice::Group(i) if s.groups.get(*i).is_some() => None,
-        DestChoice::New(name) if !name.trim().is_empty() => None,
-        _ => Some("Choose where the notes go in the window first: Back.".to_string()),
+    // The write needs the group itself: a new one's name typed but not yet made is not one.
+    match s.group() {
+        Some(_) => None,
+        None => Some("Choose where the notes go in the window first: Back.".to_string()),
     }
 }
 

@@ -464,7 +464,7 @@ impl App {
                 self.redraw();
                 return;
             }
-            self.task_close();
+            self.task_close_asked();
             return;
         }
         if let Some(s) = self.task.as_mut()
@@ -893,7 +893,7 @@ impl App {
             }
             Hit::ShowSent => self.task_show_sent(),
             Hit::Primary => self.task_primary(),
-            Hit::Cancel => self.task_close(),
+            Hit::Cancel => self.task_close_asked(),
             Hit::OpenSettings => self.ai_open_settings(),
             Hit::Card | Hit::Body | Hit::Track | Hit::Thumb | Hit::Popover => {}
         }

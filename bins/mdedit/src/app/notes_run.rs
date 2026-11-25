@@ -378,7 +378,10 @@ impl App {
         let Some(run) = s.notes_run.as_ref() else {
             return;
         };
-        let instruction = s.instruction.text().trim().to_string();
+        let instruction = run
+            .arrange_instruction
+            .clone()
+            .unwrap_or_else(|| s.instruction.text().trim().to_string());
         let mut looks = run.looks.clone();
         looks.sort_by_key(|l| l.id);
         let files: Vec<notes_ai::TextFile> = run
@@ -417,11 +420,7 @@ impl App {
                     run.bytes += bytes;
                 }
             }
-            Err(why) => {
-                if let Some(run) = self.task.as_mut().and_then(|s| s.notes_run.as_mut()) {
-                    run.arrange_failed = Some(why);
-                }
-            }
+            Err(why) => self.notes_arrange_lost(Some(why)),
         }
         if let Some(s) = self.task.as_mut() {
             s.tick += 1;
@@ -563,6 +562,7 @@ impl App {
         let sent = run.sent_ids();
         match notes_ai::read_arrange(text, &sent) {
             Ok(a) if !a.notes.is_empty() => {
+                run.previous = None;
                 run.arranged = Some(if how_many == HowMany::One {
                     notes_ai::joined(a)
                 } else {
@@ -571,18 +571,33 @@ impl App {
                 s.tick += 1;
                 self.notes_planned();
             }
-            Ok(_) => {
-                run.arrange_failed = Some("The answer placed no note.".to_string());
-                s.tick += 1;
-                self.redraw();
-            }
-            Err(fault) => {
-                run.arrange_failed =
-                    Some(format!("The answer could not be read: {}.", fault.text()));
-                s.tick += 1;
-                self.redraw();
-            }
+            Ok(_) => self.notes_arrange_lost(Some("The answer placed no note.".to_string())),
+            Err(fault) => self.notes_arrange_lost(Some(format!(
+                "The answer could not be read: {}.",
+                fault.text()
+            ))),
         }
+    }
+
+    /// The arrange failed (`why`) or was stopped. A plan asked again gives back the one before
+    /// it, card and all, saying why; a first plan offers the ways on.
+    fn notes_arrange_lost(&mut self, why: Option<String>) {
+        let Some(s) = self.task.as_mut() else { return };
+        let Some(run) = s.notes_run.as_mut() else {
+            return;
+        };
+        let restored = run.arrange_lost(why.clone());
+        s.tick += 1;
+        if restored {
+            let said = why.map_or_else(
+                || "Stopped.".to_string(),
+                |w| format!("The plan could not be arranged again: {w}"),
+            );
+            self.docs
+                .set_toast(&format!("{said} The plan you had is kept."));
+            self.notes_plan_show();
+        }
+        self.redraw();
     }
 
     pub(super) fn notes_arrange_failed(&mut self, id: u64, kind: &str, message: &str) {
@@ -591,11 +606,7 @@ impl App {
             return;
         };
         run.arrange = None;
-        if kind != "cancelled" {
-            run.arrange_failed = Some(message.to_string());
-        }
-        s.tick += 1;
-        self.redraw();
+        self.notes_arrange_lost((kind != "cancelled").then(|| message.to_string()));
     }
 
     /// The plan is ready: its card opens over the window (phase V4, `app/notes_plan.rs`).
@@ -617,8 +628,9 @@ impl App {
         let Some(run) = s.notes_run.as_mut() else {
             return;
         };
-        run.arranged = None;
-        s.instruction.set_text(instruction);
+        run.previous = run.arranged.take();
+        run.arrange_instruction = Some(instruction.to_string());
+        run.arrange_failed = None;
         s.blocked = None;
         self.notes_plan = None;
         self.notes_arrange();
@@ -645,7 +657,11 @@ impl App {
         }
         run.stopped = true;
         let mut out: Vec<u64> = run.in_flight.drain(..).map(|(r, _)| r).collect();
-        out.extend(run.arrange.take());
+        if let Some(id) = run.arrange.take() {
+            // A plan asked again: the one before it is kept.
+            run.arrange_lost(None);
+            out.push(id);
+        }
         for r in out {
             self.ai.cancel_id(r);
         }
@@ -682,6 +698,25 @@ impl App {
         for p in pasted {
             let _ = std::fs::remove_file(p);
         }
+    }
+
+    /// Cancel or Esc on the window. A window that keeps a plan of Write notes says first that
+    /// closing throws the plan away (the plan does not outlive its window); the second closes.
+    pub(super) fn task_close_asked(&mut self) {
+        let Some(s) = self.task.as_mut() else { return };
+        let kept =
+            s.task == TaskKind::Notes && s.notes_run.as_ref().is_some_and(|r| r.arranged.is_some());
+        if kept && !s.close_warned {
+            s.close_warned = true;
+            s.tick += 1;
+            self.docs.set_toast(
+                "A plan is kept in this window: closing throws it away. Cancel again to close, \
+                 or Review the plan.",
+            );
+            self.redraw();
+            return;
+        }
+        self.task_close();
     }
 
     /// "Try it again": the failed looks go again; "Go on with N": without them.
@@ -746,7 +781,7 @@ impl App {
                 run.failed.push((b, why.to_string()));
             }
             if run.arrange.take().is_some() {
-                run.arrange_failed = Some(why.to_string());
+                run.arrange_lost(Some(why.to_string()));
             }
             run.stopped = true;
         }

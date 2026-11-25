@@ -253,10 +253,16 @@ impl App {
 
     /// "Arrange again…": its box, with the window's instruction in it.
     fn notes_plan_again_open(&mut self) {
+        // What the last arrange was asked, or the window's instruction.
         let text = self
             .task
             .as_ref()
-            .map(|s| s.instruction.text().to_string())
+            .map(|s| {
+                s.notes_run
+                    .as_ref()
+                    .and_then(|r| r.arrange_instruction.clone())
+                    .unwrap_or_else(|| s.instruction.text().to_string())
+            })
             .unwrap_or_default();
         let mut field = TextField::new();
         field.set_text(&text);

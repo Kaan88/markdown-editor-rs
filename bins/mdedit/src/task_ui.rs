@@ -759,6 +759,8 @@ pub struct TaskScreen {
     /// This window says, above its button, that a picture is sent whole: the first window ever
     /// of Write notes with pictures and the AI on (pictures plan 13).
     pub whole_note: bool,
+    /// Write notes: Cancel or Esc has said once that closing throws the kept plan away.
+    pub close_warned: bool,
 }
 
 /// A request in flight from the window.
@@ -828,6 +830,7 @@ impl TaskScreen {
             pictures_refused: None,
             sent: None,
             whole_note: false,
+            close_warned: false,
         }
     }
 

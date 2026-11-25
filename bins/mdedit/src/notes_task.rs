@@ -163,6 +163,12 @@ pub struct Run {
     pub text_out: bool,
     /// Why the arrange request failed, with "Try it again" and "One note per picture instead".
     pub arrange_failed: Option<String>,
+    /// What "Arrange again…" asked, apart from the instruction the looks were asked with: the
+    /// looks stay kept for the window's own Send.
+    pub arrange_instruction: Option<String>,
+    /// The plan "Arrange again…" replaces, kept until the new one is read: a failure or a stop
+    /// gives it back as it was.
+    pub previous: Option<Arranged>,
     /// The plan card's renames of the copies: a picture's place in the window to its copy's file
     /// name with its extension, set only when the owner renamed one (phase V5 honours it).
     pub copy_names: std::collections::HashMap<usize, String>,
@@ -201,6 +207,20 @@ impl Run {
         self.failed
             .iter()
             .any(|(b, _)| self.batches.get(*b).is_some_and(|ids| ids.contains(&i)))
+    }
+
+    /// An arrange request failed or was stopped (`why` is `None`): a plan asked again gives back
+    /// the one it was to replace, and says so by returning true; a first plan keeps why, with the
+    /// ways on.
+    pub fn arrange_lost(&mut self, why: Option<String>) -> bool {
+        if let Some(p) = self.previous.take() {
+            self.arranged = Some(p);
+            return true;
+        }
+        if why.is_some() {
+            self.arrange_failed = why;
+        }
+        false
     }
 
     /// Whether this run's looks may be kept for a Send asked `instruction`, with the text in

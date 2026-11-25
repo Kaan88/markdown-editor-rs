@@ -455,12 +455,18 @@ fn arrange_again_asks_again_without_the_pictures() {
     press_key(&mut a, KeyName::Enter, None);
     assert!(!a.notes_plan_open(), "the window shows the request out");
     let s = a.task.as_ref().expect("open");
-    assert_eq!(s.instruction.text(), "By room");
-    assert!(
-        s.notes_run
-            .as_ref()
-            .is_some_and(|r| r.arrange.is_some() && r.in_flight.is_empty() && r.arranged.is_none())
+    // Fable's review of V4, 3: the window's instruction, which the looks were asked with, stays;
+    // the arrange keeps its own, and the plan before it is kept until the answer is read.
+    assert_eq!(
+        s.instruction.text(),
+        "",
+        "the window's instruction is not overwritten"
     );
+    assert!(s.notes_run.as_ref().is_some_and(|r| r.arrange.is_some()
+        && r.in_flight.is_empty()
+        && r.arranged.is_none()
+        && r.previous.is_some()
+        && r.arrange_instruction.as_deref() == Some("By room")));
     wait(&mut a, |a| a.notes_plan_open());
     assert_eq!(a.task_sent.requests, requests + 1, "the arrange alone");
     assert_eq!(
@@ -471,4 +477,102 @@ fn arrange_again_asks_again_without_the_pictures() {
         looked,
         "no picture is looked at again"
     );
+}
+
+fn two_pictures_planned(tag: &str, instruction: &str) -> App {
+    engine();
+    let dir = scratch(tag);
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    std::fs::create_dir_all(dir.join("library")).expect("library");
+    a.docs.prefs.ai_connection = Connection::ClaudeApi;
+    let files: Vec<PathBuf> = (0..2)
+        .map(|i| {
+            let p = dir.join(format!("room{i}.png"));
+            std::fs::write(&p, b"not read").expect("picture");
+            p
+        })
+        .collect();
+    a.task_open(TaskKind::Notes, files);
+    wait(&mut a, |a| {
+        a.task
+            .as_ref()
+            .is_some_and(|s| s.prepare.is_empty() && s.notes_blocked().is_none())
+    });
+    if let Some(s) = a.task.as_mut() {
+        s.instruction.set_text(instruction);
+    }
+    a.task_run();
+    wait(&mut a, |a| a.notes_plan_open());
+    a
+}
+
+/// Fable's review of V4, 3: an "Arrange again…" that fails gives back the plan it was to
+/// replace, edits and all, and its card; the looks stay kept for the window's Send.
+#[test]
+fn a_failed_arrange_again_gives_back_the_plan_before_it() {
+    let mut a = two_pictures_planned("notes-plan-again-fail", "Rooms");
+    let before = a
+        .task
+        .as_ref()
+        .and_then(|s| s.notes_run.as_ref())
+        .and_then(|r| r.arranged.clone())
+        .expect("plan");
+    a.notes_arrange_again("ARRANGEFAIL");
+    wait(&mut a, |a| a.notes_plan_open());
+    let s = a.task.as_ref().expect("open");
+    let run = s.notes_run.as_ref().expect("run");
+    assert_eq!(run.arranged.as_ref(), Some(&before), "the plan comes back");
+    assert!(
+        a.docs
+            .toast(std::time::Instant::now())
+            .is_some_and(|t| t.contains("could not be arranged again")),
+        "the arrange was asked its own instruction, and that failed"
+    );
+    assert!(run.arrange_failed.is_none() && run.previous.is_none());
+    assert!(run.keeps(s.instruction.text().trim(), s.notes.text_out));
+}
+
+/// Fable's review of V4, 3: Esc while "Arrange again…" is out keeps the plan before it.
+#[test]
+fn stopping_an_arrange_again_keeps_the_plan_before_it() {
+    let mut a = two_pictures_planned("notes-plan-again-stop", "Rooms");
+    a.notes_arrange_again("SPLITSLOW is not asked here");
+    a.notes_stop();
+    let run = a
+        .task
+        .as_ref()
+        .and_then(|s| s.notes_run.clone())
+        .expect("run");
+    assert!(run.arranged.is_some() && run.arrange.is_none());
+}
+
+/// Fable's review of V4, 4: a window that keeps a plan says what closing throws away first, and
+/// closes on the second Cancel.
+#[test]
+fn closing_a_window_that_keeps_a_plan_asks_once() {
+    let mut a = two_pictures_planned("notes-plan-close", "Rooms");
+    a.notes_plan_act(Hit::Back);
+    a.task_act(crate::task_ui::Hit::Cancel);
+    assert!(a.task.is_some(), "the first Cancel says so");
+    assert!(
+        a.docs
+            .toast(std::time::Instant::now())
+            .is_some_and(|t| t.starts_with("A plan is kept"))
+    );
+    a.task_act(crate::task_ui::Hit::Cancel);
+    assert!(a.task.is_none(), "the second closes");
+}
+
+/// Fable's review of V4, 7: a new group's name typed but not yet made is no place to write.
+#[test]
+fn a_group_not_yet_made_blocks_the_write() {
+    let mut a = two_pictures_planned("notes-plan-new-group", "Rooms");
+    if let Some(s) = a.task.as_mut() {
+        s.dest = crate::task_ui::DestChoice::New("Kitchen".to_string());
+    }
+    let s = a.task.as_ref().expect("open");
+    let c = a.notes_plan.as_ref().expect("card");
+    assert!(crate::notes_plan_ui::write_blocked(s, c).is_some());
 }
