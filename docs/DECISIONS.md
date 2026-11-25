@@ -2462,3 +2462,17 @@ better". The settled watch: Fable's review of the branch, so the system's answer
 on its helper thread) is in before the first menu, and nothing is added to the first frame. The
 shot: the owner approves by looking, and a menu at rest does not show the fade.
 **Overturned by.** The owner.
+
+## D-250 · 2026-11-25 · Shared pinned at f45a71c; the menus take shared's 117 ms and the local override goes
+
+**Decision.** The shared crates move from `48eb3ce` to shared `main` `f45a71c`. `Cargo.lock`
+changes by the shared `rev` alone: no crate added, removed or bumped. `motion::MENU` is
+`anim::document::MENU` as it is, which now enters in 117 ms decelerating
+(`document::MENU_ENTER`); D-235's local `MENU_IN` and its tween go. What a menu draws is the
+same: every shot is byte-identical to `main`'s, `menu-main-fade` and `menu-main-fade-dark`
+included, but for the four `runs*` shots, which draw the clock.
+**Why.** D-235 said the 117 ms belonged in shared at the next pin move (rule 8); shared took it
+up (`f6a1497`). The pin also brings what the rest of the motion close-out is built on
+(`anim::Stack`'s replace and revive, `Tooltip::hover_at`, the paged form in motion, the turning
+disclosure).
+**Overturned by.** The owner; or a pin move that changes the lock beyond the shared `rev`.

@@ -3949,8 +3949,8 @@ only, at most 1000 ms) animates whatever the system says, on a clock stepped 16 
 **The menus' fade.** `Motion::menus` asks each open menu's presence, in the group `MENUS`, by the
 popup's `serial` (a new number for every `Popup` made, so a menu opened again, or Recent replacing
 the main menu, enters again; a menu listed again in place keeps its serial). Each enters by
-`MENU` (the shared preset's decelerating curve over `MENU_IN`, 117 ms at the owner's word; both
-in `motion.rs`, the one place timings live): it fades as one thing and drops
+`MENU` (in `motion.rs`, the one place timings live: shared's `document::MENU` as it is, 117 ms
+decelerating since shared `f45a71c`, D-250): it fades as one thing and drops
 `MENU_DROP` (6 px) into place, rising for a menu above its anchor; a submenu enters the same way
 beside its parent. The AI menu's Modify buttons are drawn inside the same `pop`. Closing is
 instant: the popup goes, and the regions under its bounds are drawn the next frame. The word

@@ -16,23 +16,17 @@
 //! and presented.
 
 use crate::ui::{Popup, PopupKind};
-use mdshared_ui::anim::{Animator, Clock, ManualClock, Policy, Snapshot, document, fluent, pop};
+use mdshared_ui::anim::{Animator, Clock, ManualClock, Policy, Snapshot, document, pop};
 use mdshared_ui::gfx::{Painter, Rect};
 use mdshared_ui::menu::MENU_DROP;
 use mdshared_ui::theme::Palette;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-/// How long a menu takes to enter. The shared preset's 167 ms made quicker at the owner's word,
-/// on mdview's fade (2026-11-25): "slightly faster", and at 117 ms "this is better".
-pub const MENU_IN: Duration = Duration::from_millis(117);
-
-/// How a menu enters and leaves: the one place its timing is chosen. The entrance is the shared
-/// preset's decelerating curve over [`MENU_IN`]; the exit is the preset's and unused (closing is
-/// instant).
-pub const MENU: document::Pair = document::Pair {
-    enter: mdshared_ui::anim::Motion::tween(MENU_IN, fluent::DECELERATE),
-    exit: document::MENU.exit,
-};
+/// How a menu enters and leaves: the one place its timing is chosen. The shared preset as it
+/// is: in over 117 ms, decelerating (`document::MENU_ENTER`, the owner's choice over 167 ms on
+/// 2026-11-25, which shared took up at `f45a71c`); the exit is the preset's and unused (closing
+/// is instant).
+pub const MENU: document::Pair = document::MENU;
 
 /// The damage group of the open menus: what is asked for while they are drawn.
 pub const MENUS: &str = "menus";
