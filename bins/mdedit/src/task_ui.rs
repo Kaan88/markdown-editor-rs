@@ -851,6 +851,18 @@ impl TaskScreen {
     /// Why Write notes cannot be sent now, with both numbers where there are two.
     pub fn notes_blocked(&self) -> Option<String> {
         let (pictures, texts) = self.notes_parts();
+        if pictures.is_empty() && texts.is_empty() {
+            let texts_ticked = self
+                .files
+                .iter()
+                .any(|f| f.kind == FileKind::Text && f.ticked);
+            return Some(if texts_ticked && !self.ai_on {
+                "With the AI off only pictures make notes: add a picture, or turn the AI on."
+                    .to_string()
+            } else {
+                "No file takes part.".to_string()
+            });
+        }
         if self.ai_on
             && !pictures.is_empty()
             && let Some(why) = &self.pictures_refused
@@ -871,8 +883,37 @@ impl TaskScreen {
     /// The files that take part, by their place in `files`.
     pub fn taking_part(&self) -> Vec<usize> {
         (0..self.files.len())
-            .filter(|&i| self.files[i].takes_part(self.task) && !self.files[i].done)
+            .filter(|&i| {
+                let f = &self.files[i];
+                f.ticked && !f.done && self.reason_of(i).is_none()
+            })
             .collect()
+    }
+
+    /// Why the file at `i` takes no part: its own reason, or (Write notes) a text file that
+    /// this run would not use.
+    pub fn reason_of(&self, i: usize) -> Option<String> {
+        let f = self.files.get(i)?;
+        f.reason_for(self.task).or_else(|| {
+            (self.task == TaskKind::Notes && f.kind == FileKind::Text)
+                .then(|| self.notes_text_unused())
+                .flatten()
+                .map(str::to_string)
+        })
+    }
+
+    /// Write notes: why the text files are not used now, if they are not. With the AI off the
+    /// notes are the pictures' own; with One per picture no request reads the text.
+    pub fn notes_text_unused(&self) -> Option<&'static str> {
+        if !self.ai_on {
+            return Some("not used with the AI off: the pictures alone make the notes");
+        }
+        let pictures = self
+            .files
+            .iter()
+            .any(|f| f.kind == FileKind::Picture && f.ticked && !f.done && f.takes_part(self.task));
+        (self.notes.how_many == mdedit_core::notes_ai::HowMany::PerPicture && pictures)
+            .then_some("not used with One per picture: no request reads it")
     }
 
     /// Whether a file has a place on the plan face.
@@ -1099,7 +1140,17 @@ impl TaskScreen {
         match self.task {
             TaskKind::Notes => {
                 let (pictures, texts) = self.notes_parts();
-                crate::notes_task::primary_label(pictures.len(), texts.len(), self.ai_on)
+                // After a stop, the pictures looked at already do not go again.
+                let instruction = self.instruction.text();
+                let to_send = match self
+                    .notes_run
+                    .as_ref()
+                    .filter(|r| r.keeps(instruction.trim(), self.notes.text_out))
+                {
+                    Some(run) => pictures.iter().filter(|&&i| run.look(i).is_none()).count(),
+                    None => pictures.len(),
+                };
+                crate::notes_task::primary_label(to_send, texts.len(), self.ai_on)
             }
             TaskKind::File | TaskKind::Split if self.asks_ai() => {
                 format!("Run on {n} file{}", if n == 1 { "" } else { "s" })

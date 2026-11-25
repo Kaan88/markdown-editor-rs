@@ -253,7 +253,7 @@ pub struct Args {
     /// `--move-demo move|results`: the "Move the notes…" card over a plan made in the program,
     /// or the results panel after a move (`move_ui::demo`).
     pub move_demo: Option<String>,
-    /// `--task-demo files|files-add|files-from|files-other|files-off|files-plan|files-copy|files-link|files-move|files-long-dest|review|sent|notes|notes-options|notes-looking|notes-failed|notes-no-vision|notes-limit|notes-off`: the AI task window over
+    /// `--task-demo files|files-add|files-from|files-other|files-off|files-plan|files-copy|files-link|files-move|files-long-dest|review|sent|notes|notes-options|notes-looking|notes-failed|notes-arrange-failed|notes-no-vision|notes-limit|notes-off`: the AI task window over
     /// files for a shot, made from `fixtures/task-demo/`, with no engine and nothing sent.
     pub task_demo: Option<String>,
     /// `--note-demo ready|asking|changes|result|blocked`: the Markdown note card over a file and

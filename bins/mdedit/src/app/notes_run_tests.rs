@@ -235,3 +235,250 @@ fn an_option_is_kept_and_a_change_of_what_is_sent_measures_again() {
     a.task_act(Hit::Body);
     assert!(!a.task.as_ref().expect("open").options_open);
 }
+
+fn run_of(a: &App) -> crate::notes_task::Run {
+    a.task
+        .as_ref()
+        .and_then(|s| s.notes_run.clone())
+        .expect("run")
+}
+
+fn looks_ended(a: &App) -> bool {
+    a.task
+        .as_ref()
+        .and_then(|s| s.notes_run.as_ref())
+        .is_some_and(|r| r.looks_ended() && !r.looking())
+}
+
+/// Fable's review of V3, 1: a second Send keeps the looks and the arrange still places the
+/// pictures they were of, though no look goes this time.
+#[test]
+fn a_second_send_arranges_the_pictures_looked_at_before() {
+    let (mut a, _dir) = window("notes-again-send", true, 5, "room");
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, |a| arranged(a).is_some());
+    let before = a.task_sent.requests;
+    if let Some(run) = a.task.as_mut().and_then(|s| s.notes_run.as_mut()) {
+        run.arranged = None;
+    }
+    a.task_run();
+    wait(&mut a, |a| arranged(a).is_some());
+    assert_eq!(a.task_sent.requests, before + 1, "only the arrange goes");
+    assert_eq!(arranged(&a).expect("plan").notes[0].pictures(), vec![0]);
+}
+
+/// Fable's review of V3, 12: a failed arrange keeps the looks and offers "Try it again" (the
+/// arrange asked again) and "One note per picture instead" (made here, nothing sent).
+#[test]
+fn a_failed_arrange_is_tried_again_or_made_one_per_picture() {
+    let (mut a, _dir) = window("notes-arrange-fail", true, 3, "room");
+    wait(&mut a, measured);
+    a.task
+        .as_mut()
+        .expect("open")
+        .instruction
+        .set_text("ARRANGEFAIL");
+    a.task_run();
+    let failed = |a: &App| {
+        a.task
+            .as_ref()
+            .and_then(|s| s.notes_run.as_ref())
+            .is_some_and(|r| r.arrange_failed.is_some())
+    };
+    wait(&mut a, failed);
+    assert!(arranged(&a).is_none());
+    let sent = a.task_sent.requests;
+    a.task_act(Hit::TryAgain);
+    assert_eq!(a.task_sent.requests, sent + 1, "the arrange is asked again");
+    wait(&mut a, failed);
+    a.task_act(Hit::GoOn);
+    let plan = arranged(&a).expect("made here");
+    assert_eq!(plan.notes.len(), 3);
+    assert_eq!(plan.notes[1].title, "Tiles");
+    assert_eq!(a.task_sent.requests, sent + 1, "nothing more is sent");
+    assert_eq!(a.docs.prefs.ai_notes.how_many, HowMany::PerPicture);
+}
+
+/// Fable's review of V3, 10: a picture the look's answer says nothing of is not looked at: it
+/// is a failure of its own, and "Go on with N" counts the others.
+#[test]
+fn a_picture_the_answer_leaves_out_is_not_counted_as_looked_at() {
+    // The stand-in answers for pictures 0 to 4: the sixth is left out.
+    let (mut a, _dir) = window("notes-missed", true, 6, "room");
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let run = run_of(&a);
+    assert_eq!(run.looked(), 5);
+    assert_eq!(run.failed.len(), 1);
+    assert!(run.failed[0].1.contains("room5.png"), "{:?}", run.failed);
+    assert!(run.failed_at(5) && !run.failed_at(4));
+    assert_eq!(run.going_on_with(), 5);
+    assert!(arranged(&a).is_none());
+}
+
+/// Fable's review of V3, 4: a picture changed since it was measured is measured again, so
+/// "Try it again" sends what it is now.
+#[test]
+fn a_picture_changed_since_it_was_measured_is_measured_again() {
+    let (mut a, _dir) = window("notes-changed", true, 1, "p");
+    wait(&mut a, measured);
+    a.task
+        .as_mut()
+        .expect("open")
+        .instruction
+        .set_text("CHANGED");
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let s = a.task.as_ref().expect("open");
+    assert!(!s.prepare.is_empty(), "measured again");
+    assert_eq!(s.files[0].measure, Measure::Waiting);
+    assert!(
+        s.notes_run.as_ref().expect("run").failed[0]
+            .1
+            .contains("measured again")
+    );
+    wait(&mut a, measured);
+}
+
+/// Fable's review of V3, 5: a look asked without the text written out is not kept once it is
+/// asked for, nor one asked another instruction: those pictures are looked at again.
+#[test]
+fn looks_are_asked_again_when_what_is_asked_changes() {
+    let (mut a, _dir) = window("notes-asked", true, 2, "p");
+    wait(&mut a, measured);
+    if let Some(s) = a.task.as_mut() {
+        s.notes.text_out = false;
+    }
+    a.task_run();
+    wait(&mut a, |a| arranged(a).is_some());
+    let before = a.task_sent.requests;
+    if let Some(s) = a.task.as_mut() {
+        s.notes.text_out = true;
+        assert_eq!(s.primary_label(), "Send 2 pictures");
+    }
+    a.task_run();
+    wait(&mut a, |a| arranged(a).is_some());
+    assert_eq!(a.task_sent.requests, before + 2, "a look and the arrange");
+}
+
+/// Fable's review of V3, 13: after a stop the button counts only the pictures still to go.
+#[test]
+fn the_button_counts_only_the_pictures_still_to_look_at() {
+    let (mut a, _dir) = window("notes-count", true, 5, "room");
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, |a| arranged(a).is_some());
+    let s = a.task.as_mut().expect("open");
+    if let Some(run) = s.notes_run.as_mut() {
+        run.looks.retain(|l| l.id != 4);
+    }
+    assert_eq!(s.primary_label(), "Send 1 picture");
+}
+
+/// Fable's review of V3, 9: a text file no request reads says so on its row, and the button
+/// does not count it.
+#[test]
+fn a_text_file_no_request_reads_takes_no_part() {
+    let (mut a, dir) = window("notes-texts", true, 2, "p");
+    let text = dir.join("list.md");
+    std::fs::write(&text, "# List\n\nA tap.\n").expect("text");
+    a.task_add_paths(vec![text]);
+    wait(&mut a, |a| {
+        a.task.as_ref().is_some_and(|s| s.prepare.is_empty())
+    });
+    let s = a.task.as_mut().expect("open");
+    assert_eq!(s.primary_label(), "Send 2 pictures and 1 file");
+    s.notes.how_many = HowMany::PerPicture;
+    assert_eq!(s.primary_label(), "Send 2 pictures");
+    assert!(
+        s.reason_of(2)
+            .is_some_and(|r| r.starts_with("not used with One per picture"))
+    );
+    s.ai_on = false;
+    assert!(
+        s.reason_of(2)
+            .is_some_and(|r| r.starts_with("not used with the AI off"))
+    );
+    for f in s.files.iter_mut().take(2) {
+        f.ticked = false;
+    }
+    assert!(
+        s.notes_blocked()
+            .is_some_and(|w| w.starts_with("With the AI off only pictures"))
+    );
+}
+
+/// Fable's review of V1 round 2, 7: a `sent` for a request the window no longer waits for is
+/// not counted.
+#[test]
+fn a_sent_for_a_request_not_out_is_not_counted() {
+    let (mut a, _dir) = window("notes-late-sent", true, 1, "p");
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, |a| arranged(a).is_some());
+    let bytes = a.task_sent.bytes;
+    a.notes_sent(9999, 1000, 50);
+    assert_eq!(a.task_sent.bytes, bytes);
+}
+
+/// Fable's review of V3, 7 and 14: a picture pasted into the window goes when the window
+/// closes, and closing says nothing of a stop.
+#[test]
+fn a_pasted_picture_goes_with_the_window() {
+    let (mut a, _dir) = window("notes-pasted", true, 1, "p");
+    let dir = crate::notes_task::pasted_dir();
+    std::fs::create_dir_all(&dir).expect("dir");
+    let pasted = dir.join(format!("Screenshot test-{}.png", std::process::id()));
+    std::fs::write(&pasted, b"x").expect("pasted");
+    assert!(crate::notes_task::is_pasted(&pasted));
+    a.task_add_paths(vec![pasted.clone()]);
+    a.task
+        .as_mut()
+        .expect("open")
+        .instruction
+        .set_text("LOOKSLOW");
+    wait(&mut a, measured);
+    a.task_run();
+    a.docs.clear_toast();
+    a.task_close();
+    assert!(!pasted.exists(), "the pasted picture is removed");
+    assert!(
+        a.docs
+            .toast(std::time::Instant::now())
+            .is_none_or(|t| !t.contains("Stopped"))
+    );
+}
+
+/// Fable's review of V3, 8: "Show what is sent" shows the group's sections, which the arrange
+/// request is given.
+#[test]
+fn what_is_sent_shows_the_sections_the_arrange_is_given() {
+    use mdshared_app::files::FileStamp;
+    use mdshared_app::library::Group;
+    let (mut a, dir) = window("notes-sections", true, 1, "p");
+    let file = dir.join("library").join("house.md");
+    a.docs.library.groups = vec![Group {
+        name: "House".to_string(),
+        home: Some("House".into()),
+        file: file.clone(),
+        stamp: FileStamp::Missing,
+        sections: vec![
+            vec!["Rooms".to_string()],
+            vec!["Rooms".to_string(), "Kitchen".to_string()],
+        ],
+        entries: Vec::new(),
+    }];
+    if let Some(s) = a.task.as_mut() {
+        s.groups = vec![crate::task_ui::Group {
+            name: "House".to_string(),
+            file,
+            home: dir.join("library").join("House"),
+        }];
+        s.dest = crate::task_ui::DestChoice::Group(0);
+        s.notes.how_many = HowMany::AsNeeded;
+    }
+    let text = a.task_request_text().expect("text");
+    assert!(text.contains("Rooms \u{203A} Kitchen"), "{text}");
+}

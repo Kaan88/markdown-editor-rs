@@ -101,7 +101,81 @@ fn a_failed_look_is_sent_again_or_left_out_and_the_answers_stay() {
     r.go_on();
     assert_eq!(r.batches, vec![vec![0, 1, 2, 3]]);
     assert!(r.looks_ended() && r.failed.is_empty());
-    assert_eq!(r.looked_ids(), vec![0, 1, 2, 3]);
+    assert_eq!(r.looked(), 4);
+}
+
+/// Fable's review of V3, 2 and 3: a failure stops the batches not yet sent; "Try it again"
+/// sends them after the failed one, and "Go on with N" sends them without it. Neither counts
+/// them as looked at.
+#[test]
+fn the_batches_never_sent_still_go_after_a_failure() {
+    let r = Run {
+        batches: vec![vec![0, 1], vec![2, 3], vec![4, 5], vec![6]],
+        next: 2,
+        answered: vec![1],
+        failed: vec![(0, "Lost.".into())],
+        stopped: true,
+        ..Run::default()
+    };
+    assert_eq!(r.going_on_with(), 5);
+    let mut again = r.clone();
+    again.again();
+    assert_eq!(
+        again.batches,
+        vec![vec![2, 3], vec![0, 1], vec![4, 5], vec![6]]
+    );
+    assert_eq!((again.next, again.answered.clone()), (1, vec![0]));
+    assert_eq!(again.looked(), 2);
+    let mut on = r;
+    on.go_on();
+    assert_eq!(on.batches, vec![vec![2, 3], vec![4, 5], vec![6]]);
+    assert_eq!((on.next, on.answered.clone()), (1, vec![0]));
+    assert!(on.looking(), "the rest still go");
+    assert_eq!(on.looked(), 2);
+}
+
+/// Fable's review of V3, 5: looks are kept for the same instruction, and for the text written
+/// out only when they were asked for it.
+#[test]
+fn looks_are_kept_only_for_what_they_were_asked() {
+    let r = Run {
+        instruction: "Rooms".into(),
+        text_out: false,
+        ..Run::default()
+    };
+    assert!(r.keeps("Rooms", false));
+    assert!(!r.keeps("Rooms", true));
+    assert!(!r.keeps("Shops", false));
+    let t = Run {
+        text_out: true,
+        ..r
+    };
+    assert!(t.keeps("Rooms", false));
+}
+
+/// Fable's review of V3, 7: a pasted picture left by a window that never closed goes after a
+/// day; a younger one, and any other file, stays.
+#[test]
+fn only_old_pasted_pictures_are_swept() {
+    let dir = std::env::temp_dir().join(format!("mdedit-sweep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let old = dir.join("Screenshot 1.png");
+    let young = dir.join("Screenshot 2.png");
+    let other = dir.join("mine.png");
+    for p in [&old, &young, &other] {
+        std::fs::write(p, b"x").expect("file");
+    }
+    let then = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 24 * 3600);
+    for p in [&old, &other] {
+        std::fs::File::options()
+            .write(true)
+            .open(p)
+            .and_then(|f| f.set_modified(then))
+            .expect("time");
+    }
+    let swept = stale_pasted(&dir, std::time::SystemTime::now());
+    assert_eq!(swept, vec![old]);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A thumbnail is kept small (pictures plan 6: the editor's memory does not grow with a photo),
@@ -141,4 +215,15 @@ fn a_row_says_what_the_picture_is_sent_as() {
         "sent smaller: 1568 \u{00D7} 784 \u{00B7} 204 KB"
     );
     assert_eq!(sent_as(&ready(204_000, 800, 800)), "sent as it is");
+}
+
+/// Fable's review of V3, 6: Ctrl+V takes the clipboard's text when there is some, and a
+/// picture only on Write notes.
+#[test]
+fn a_paste_takes_the_text_before_the_picture() {
+    use crate::task_ui::TaskKind;
+    assert!(paste_is_a_picture(TaskKind::Notes, None));
+    assert!(paste_is_a_picture(TaskKind::Notes, Some("  ")));
+    assert!(!paste_is_a_picture(TaskKind::Notes, Some("A1\tB1")));
+    assert!(!paste_is_a_picture(TaskKind::Rewrite, None));
 }

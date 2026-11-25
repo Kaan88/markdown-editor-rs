@@ -40,7 +40,7 @@ const LOOKS: [(&str, &str); 5] = [
 
 impl App {
     /// The demos: `notes` (the window), `notes-options`, `notes-looking`, `notes-failed`,
-    /// `notes-no-vision`, `notes-limit` and `notes-off`.
+    /// `notes-arrange-failed`, `notes-no-vision`, `notes-limit` and `notes-off`.
     pub(super) fn notes_demo(&mut self, name: &str) -> bool {
         let dir = Path::new("fixtures/notes-demo");
         let mut names: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -174,6 +174,18 @@ impl App {
                     stopped: true,
                     parallel: 3,
                     requests: 2,
+                    batches,
+                    ..Run::default()
+                });
+            }
+            "notes-arrange-failed" => {
+                s.notes_run = Some(Run {
+                    looks: looks(&pictures),
+                    answered: (0..batches.len()).collect(),
+                    next: batches.len(),
+                    parallel: 3,
+                    requests: 2,
+                    arrange_failed: Some("The connection was lost.".to_string()),
                     batches,
                     ..Run::default()
                 });

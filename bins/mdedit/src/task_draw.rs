@@ -443,7 +443,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                         if *kind == FileKind::Picture && s.task == TaskKind::Notes {
                             notes_task::pictures_heading(s.notes.strip, s.ai_on)
                         } else if *kind == FileKind::Text && s.task == TaskKind::Notes && !s.ai_on {
-                            "TEXT \u{00B7} READ HERE, NOTHING IS SENT"
+                            "TEXT \u{00B7} NOT USED WITH THE AI OFF"
                         } else {
                             kind.heading(s.task)
                         },
@@ -496,7 +496,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                     if hover == Some(Hit::File(*i)) {
                         p.rbox(row, 5.0, mix(pal.popup, pal.text, 0.05));
                     }
-                    let reason = f.reason_for(s.task);
+                    let reason = s.reason_of(*i);
                     let enabled = reason.is_none() && !f.done && !busy;
                     let tick_at = Rect::new(row.x + 12.0, row.cy() - 8.0, 16.0, 16.0);
                     draw_tick(
@@ -633,6 +633,10 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     if let Some(run) = s.notes_run.as_ref().filter(|_| s.task == TaskKind::Notes) {
         let notice = if let Some(why) = run.fault.as_ref() {
             Some(why.clone())
+        } else if let Some(why) = run.arrange_failed.as_ref().filter(|_| !s.busy()) {
+            Some(format!(
+                "The notes could not be arranged: {why} What was looked at is kept."
+            ))
         } else if let Some((b, why)) = run.failed.first().filter(|_| !s.busy()) {
             Some(format!(
                 "Request {} of {} failed: {why} What was looked at is kept.",
@@ -670,6 +674,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     // "Go on with N" beside it; when the model reads no pictures, the settings.
     let stopping = run.is_some_and(|r| r.looking() || r.arrange.is_some());
     let failed = run.filter(|r| !stopping && !r.failed.is_empty());
+    let arrange_failed = run.is_some_and(|r| !stopping && r.arrange_failed.is_some());
     let fault = run.and_then(|r| r.fault.clone()).filter(|_| !stopping);
     let notes_blocked = if notes { s.notes_blocked() } else { None };
     let primary_enabled = if stopping {
@@ -681,12 +686,12 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         "The AI connection is off".to_string()
     } else if stopping {
         "Stop".to_string()
-    } else if failed.is_some() {
+    } else if failed.is_some() || arrange_failed {
         "Try it again".to_string()
     } else {
         s.primary_label()
     };
-    let primary_hit = if failed.is_some() {
+    let primary_hit = if failed.is_some() || arrange_failed {
         Hit::TryAgain
     } else {
         Hit::Primary
@@ -723,8 +728,12 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         }
     }
     bx -= 10.0;
-    if let Some(run) = failed {
-        let go_on = format!("Go on with {}", run.looked());
+    let go_on = if arrange_failed {
+        Some("One note per picture instead".to_string())
+    } else {
+        failed.map(|run| format!("Go on with {}", run.going_on_with()))
+    };
+    if let Some(go_on) = go_on {
         let w = dialog_button_w(p, &go_on);
         bx -= w;
         let b = Rect::new(bx, by, w, 32.0);
@@ -880,7 +889,7 @@ fn draw_picture_row(
     if hover == Some(Hit::File(i)) {
         p.rbox(row, 5.0, mix(pal.popup, pal.text, 0.05));
     }
-    let reason = f.reason_for(s.task);
+    let reason = s.reason_of(i);
     let enabled = reason.is_none() && !f.done && !s.busy();
     let tick_at = Rect::new(row.x + 12.0, row.cy() - 8.0, 16.0, 16.0);
     draw_tick(

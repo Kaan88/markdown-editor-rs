@@ -277,7 +277,7 @@ done
 for t in "" "-dark"; do
     th=--light
     [ -n "$t" ] && th=--dark
-    for d in notes notes-options notes-looking notes-failed notes-no-vision notes-limit notes-off; do
+    for d in notes notes-options notes-looking notes-failed notes-arrange-failed notes-no-vision notes-limit notes-off; do
         shot "task-$d$t" $th --size 1280x800 --task-demo "$d"
     done
 done

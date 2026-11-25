@@ -179,9 +179,12 @@ impl App {
         }
         s.blocked = None;
         let (pictures, texts) = s.notes_parts();
+        let instruction = s.instruction.text().trim().to_string();
+        let text_out = s.notes.text_out;
         let kept: Vec<notes_ai::Look> = s
             .notes_run
             .take()
+            .filter(|r| r.keeps(&instruction, text_out))
             .map(|r| r.looks)
             .unwrap_or_default()
             .into_iter()
@@ -200,6 +203,8 @@ impl App {
             parallel,
             texts,
             answered,
+            instruction,
+            text_out,
             ..Run::default()
         });
         s.tick += 1;
@@ -293,6 +298,7 @@ impl App {
             || run.fault.is_some()
             || run.arrange.is_some()
             || run.arranged.is_some()
+            || run.arrange_failed.is_some()
             || (run.stopped && run.next < run.batches.len())
         {
             return;
@@ -339,6 +345,28 @@ impl App {
         self.notes_planned();
     }
 
+    /// The sections of the group the notes go to, each a path joined with " › ": the arrange
+    /// request is given them, and "Show what is sent" shows them.
+    pub(super) fn notes_headings(&self) -> Vec<String> {
+        self.task
+            .as_ref()
+            .and_then(|s| s.group())
+            .and_then(|g| {
+                self.docs
+                    .library
+                    .groups
+                    .iter()
+                    .find(|lg| mdshared_app::paths::same_path(&lg.file, &g.file))
+            })
+            .map(|lg| {
+                lg.sections
+                    .iter()
+                    .map(|path| path.join(" \u{203A} "))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// The arrange request: what the looks said, the text files whole, the group's sections.
     fn notes_arrange(&mut self) {
         let Some(s) = self.task.as_ref() else { return };
@@ -359,22 +387,7 @@ impl App {
                 })
             })
             .collect();
-        let headings: Vec<String> = s
-            .group()
-            .and_then(|g| {
-                self.docs
-                    .library
-                    .groups
-                    .iter()
-                    .find(|lg| mdshared_app::paths::same_path(&lg.file, &g.file))
-            })
-            .map(|lg| {
-                lg.sections
-                    .iter()
-                    .map(|path| path.join(" \u{203A} "))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let headings = self.notes_headings();
         let prompt =
             notes_ai::arrange_prompt(&instruction, s.notes.how_many, &looks, &files, &headings);
         let p = &self.docs.prefs;
@@ -388,7 +401,7 @@ impl App {
             "prompt": prompt,
         });
         let wake = self.docs.waker();
-        let bytes = prompt.len() as u64;
+        let bytes = (notes_ai::ARRANGE_SYSTEM.len() + prompt.len()) as u64;
         match self.ai.ask(&wake, Ask::Arrange, req) {
             Ok(id) => {
                 self.task_sent.bytes += bytes;
@@ -400,8 +413,8 @@ impl App {
                 }
             }
             Err(why) => {
-                if let Some(s) = self.task.as_mut() {
-                    s.blocked = Some(why);
+                if let Some(run) = self.task.as_mut().and_then(|s| s.notes_run.as_mut()) {
+                    run.arrange_failed = Some(why);
                 }
             }
         }
@@ -426,7 +439,8 @@ impl App {
 
     /// A look answered: each picture's row shows what the model said of it.
     pub(super) fn notes_look_done(&mut self, id: u64, text: &str) {
-        let Some(run) = self.task.as_mut().and_then(|s| s.notes_run.as_mut()) else {
+        let Some(s) = self.task.as_mut() else { return };
+        let Some(run) = s.notes_run.as_mut() else {
             return;
         };
         let Some(at) = run.in_flight.iter().position(|(r, _)| *r == id) else {
@@ -437,8 +451,31 @@ impl App {
         match notes_ai::read_look(text, &ids) {
             Ok(looks) => {
                 run.looks.retain(|l| !ids.contains(&l.id));
+                let (said, missed): (Vec<usize>, Vec<usize>) =
+                    ids.iter().partition(|&&i| looks.iter().any(|l| l.id == i));
                 run.looks.extend(looks);
-                run.answered.push(b);
+                if missed.is_empty() {
+                    run.answered.push(b);
+                } else {
+                    // The batch is split: what was said of is answered, the rest a batch of
+                    // its own that failed, to try again or go on without.
+                    let names: Vec<String> = missed
+                        .iter()
+                        .filter_map(|&i| s.files.get(i).map(|f| f.name.clone()))
+                        .collect();
+                    if let Some(batch) = run.batches.get_mut(b) {
+                        *batch = said.clone();
+                    }
+                    if !said.is_empty() {
+                        run.answered.push(b);
+                    }
+                    run.batches.push(missed);
+                    run.failed.push((
+                        run.batches.len() - 1,
+                        format!("The answer said nothing of {}.", names.join(", ")),
+                    ));
+                    run.stopped = true;
+                }
             }
             Err(fault) => {
                 run.failed.push((
@@ -483,7 +520,21 @@ impl App {
             if let Some(secs) = retry_after.filter(|_| kind == "rate") {
                 why.push_str(&format!(" Try again in {secs} s."));
             }
+            let changed = kind == "image" && message.contains("changed since it was measured");
+            if changed {
+                why.push_str(": it is measured again.");
+            }
             run.failed.push((b, why));
+            if changed {
+                // What is sent is measured again; "Try it again" waits for it.
+                let ids = run.batches.get(b).cloned().unwrap_or_default();
+                for i in ids {
+                    if let Some(f) = s.files.get_mut(i) {
+                        f.measure = Measure::Waiting;
+                    }
+                }
+                self.notes_prepare(false);
+            }
         }
         if let Some(s) = self.task.as_mut() {
             s.tick += 1;
@@ -499,7 +550,7 @@ impl App {
             return;
         };
         run.arrange = None;
-        let sent = run.looked_ids();
+        let sent = run.sent_ids();
         match notes_ai::read_arrange(text, &sent) {
             Ok(a) if !a.notes.is_empty() => {
                 run.arranged = Some(if how_many == HowMany::One {
@@ -511,20 +562,13 @@ impl App {
                 self.notes_planned();
             }
             Ok(_) => {
-                s.blocked = Some(
-                    "The answer placed no note. Send it again, or choose One per picture \
-                     under Options."
-                        .to_string(),
-                );
+                run.arrange_failed = Some("The answer placed no note.".to_string());
                 s.tick += 1;
                 self.redraw();
             }
             Err(fault) => {
-                s.blocked = Some(format!(
-                    "The answer could not be read: {}. Send it again, or choose One per picture \
-                     under Options.",
-                    fault.text()
-                ));
+                run.arrange_failed =
+                    Some(format!("The answer could not be read: {}.", fault.text()));
                 s.tick += 1;
                 self.redraw();
             }
@@ -538,7 +582,7 @@ impl App {
         };
         run.arrange = None;
         if kind != "cancelled" {
-            s.blocked = Some(message.to_string());
+            run.arrange_failed = Some(message.to_string());
         }
         s.tick += 1;
         self.redraw();
@@ -562,6 +606,16 @@ impl App {
     /// Stop, Esc or the window's close: every request out is cancelled; what was looked at is
     /// kept, and the button comes back.
     pub(super) fn notes_stop(&mut self) -> bool {
+        let stopped = self.notes_cancel();
+        if stopped {
+            self.docs.set_toast("Stopped. What was looked at is kept.");
+            self.redraw();
+        }
+        stopped
+    }
+
+    /// Every request of the run out is cancelled; whether there was one.
+    fn notes_cancel(&mut self) -> bool {
         let Some(run) = self.task.as_mut().and_then(|s| s.notes_run.as_mut()) else {
             return false;
         };
@@ -577,14 +631,13 @@ impl App {
         if let Some(s) = self.task.as_mut() {
             s.tick += 1;
         }
-        self.docs.set_toast("Stopped. What was looked at is kept.");
-        self.redraw();
         true
     }
 
-    /// The prepare requests of a window that closes go with it.
+    /// The requests of a window that closes go with it, and so do the pictures pasted into
+    /// it: a note that took one has its copy by then.
     pub(super) fn notes_close(&mut self) {
-        self.notes_stop();
+        self.notes_cancel();
         let out: Vec<u64> = self
             .task
             .as_mut()
@@ -593,6 +646,20 @@ impl App {
         for id in out {
             self.ai.cancel_id(id);
         }
+        let pasted: Vec<PathBuf> = self
+            .task
+            .as_ref()
+            .map(|s| {
+                s.files
+                    .iter()
+                    .filter(|f| notes_task::is_pasted(&f.path))
+                    .map(|f| f.path.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for p in pasted {
+            let _ = std::fs::remove_file(p);
+        }
     }
 
     /// "Try it again": the failed looks go again; "Go on with N": without them.
@@ -600,6 +667,21 @@ impl App {
         let Some(run) = self.task.as_mut().and_then(|s| s.notes_run.as_mut()) else {
             return;
         };
+        if run.arrange_failed.take().is_some() {
+            if go_on {
+                // "One note per picture instead": made here from the looks, no request.
+                self.notes_option(None, Some(HowMany::PerPicture));
+                let pictures = self
+                    .task
+                    .as_ref()
+                    .map(|s| s.notes_parts().0)
+                    .unwrap_or_default();
+                self.notes_made_here(&pictures);
+            } else {
+                self.notes_arrange();
+            }
+            return;
+        }
         if run.failed.is_empty() {
             return;
         }
@@ -626,7 +708,7 @@ impl App {
                 run.failed.push((b, why.to_string()));
             }
             if run.arrange.take().is_some() {
-                s.blocked = Some(why.to_string());
+                run.arrange_failed = Some(why.to_string());
             }
             run.stopped = true;
         }
@@ -672,10 +754,22 @@ impl App {
     /// Ctrl+V in the window with a picture on the clipboard: it is saved to a file of its own
     /// under the temp folder and added, as a screenshot dropped on the window would be.
     pub(super) fn notes_paste(&mut self) -> bool {
+        let Some(task) = self.task.as_ref().map(|s| s.task) else {
+            return false;
+        };
+        // Only Write notes takes a picture, and the clipboard's text is asked first.
+        if task != TaskKind::Notes
+            || !notes_task::paste_is_a_picture(task, crate::platform::clipboard_line().as_deref())
+        {
+            return false;
+        }
         let Some(png) = crate::platform::clipboard_png() else {
             return false;
         };
-        let dir = std::env::temp_dir().join("mdedit-pasted");
+        let dir = notes_task::pasted_dir();
+        for old in notes_task::stale_pasted(&dir, std::time::SystemTime::now()) {
+            let _ = std::fs::remove_file(old);
+        }
         let secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis());

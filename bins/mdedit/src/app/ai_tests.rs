@@ -27,6 +27,10 @@ while IFS= read -r line; do
       printf '%s%s%s\n' '{"ev":"error","id":' "$id" ',"kind":"rate","message":"Too many requests.","retry_after":30}';;
     *'"op":"run"'*LOOKSLOW*'You look at pictures'*)
       ;;
+    *'"op":"run"'*CHANGED*'You look at pictures'*)
+      printf '%s%s%s\n' '{"ev":"error","id":' "$id" ',"kind":"image","message":"p0.png: changed since it was measured"}';;
+    *'"op":"run"'*ARRANGEFAIL*'You arrange notes'*)
+      printf '%s%s%s\n' '{"ev":"error","id":' "$id" ',"kind":"network","message":"The connection was lost."}';;
     *'"op":"run"'*'You look at pictures'*)
       printf '%s%s%s\n' '{"ev":"sent","id":' "$id" ',"images":[{"bytes":1000,"sha256":"s"}],"text_bytes":50}'
       printf '%s%s%s\n' '{"ev":"done","id":' "$id" ',"text":"{\"version\":1,\"pictures\":[{\"id\":0,\"title\":\"Sink\",\"says\":\"A sink.\",\"subjects\":[\"kitchen\"],\"kind\":\"photo\",\"text\":\"\"},{\"id\":1,\"title\":\"Tiles\",\"says\":\"Blue tiles.\",\"subjects\":[],\"kind\":\"photo\",\"text\":\"\"},{\"id\":2,\"title\":\"Tap\",\"says\":\"A tap.\",\"subjects\":[],\"kind\":\"photo\",\"text\":\"\"},{\"id\":3,\"title\":\"Oven\",\"says\":\"An oven.\",\"subjects\":[],\"kind\":\"photo\",\"text\":\"\"},{\"id\":4,\"title\":\"Door\",\"says\":\"A door.\",\"subjects\":[],\"kind\":\"photo\",\"text\":\"\"}]}"}';;

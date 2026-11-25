@@ -157,6 +157,12 @@ pub struct Run {
     pub requests: u64,
     /// The text files the arrange request is given, by their place in the window.
     pub texts: Vec<usize>,
+    /// What the looks were asked with: a look is kept for the next Send only when it was asked
+    /// the same instruction, and with the text written out if that is asked now.
+    pub instruction: String,
+    pub text_out: bool,
+    /// Why the arrange request failed, with "Try it again" and "One note per picture instead".
+    pub arrange_failed: Option<String>,
 }
 
 impl Run {
@@ -194,29 +200,43 @@ impl Run {
             .any(|(b, _)| self.batches.get(*b).is_some_and(|ids| ids.contains(&i)))
     }
 
-    /// The pictures of every batch answered, in the window's order.
-    pub fn looked_ids(&self) -> Vec<usize> {
-        let mut ids: Vec<usize> = self
-            .answered
-            .iter()
-            .filter_map(|&b| self.batches.get(b))
-            .flatten()
-            .copied()
-            .collect();
+    /// Whether this run's looks may be kept for a Send asked `instruction`, with the text in
+    /// the pictures written out or not: a look asked otherwise is asked again.
+    pub fn keeps(&self, instruction: &str, text_out: bool) -> bool {
+        self.instruction == instruction && (self.text_out || !text_out)
+    }
+
+    /// Every picture the model has said something of, in the window's order: what the arrange
+    /// request may place. Looks kept from an earlier Send count, as do the ones of this one.
+    pub fn sent_ids(&self) -> Vec<usize> {
+        let mut ids: Vec<usize> = self.looks.iter().map(|l| l.id).collect();
         ids.sort_unstable();
+        ids.dedup();
         ids
     }
 
-    /// The batches that failed are sent again: the answered ones are kept (plan section 15).
-    pub fn again(&mut self) {
-        let failed: Vec<usize> = self.failed.drain(..).map(|(b, _)| b).collect();
+    /// The batches neither answered, failed nor out: the ones a stop or a failure kept from
+    /// leaving.
+    fn unsent(&self) -> Vec<usize> {
+        (0..self.batches.len())
+            .filter(|b| {
+                !self.answered.contains(b)
+                    && !self.failed.iter().any(|(f, _)| f == b)
+                    && !self.in_flight.iter().any(|(_, f)| f == b)
+            })
+            .collect()
+    }
+
+    /// The batches made again: the answered ones first, still counted as answered, then the
+    /// batches `then`, still to send.
+    fn rebatch(&mut self, then: &[usize]) {
         let mut kept: Vec<Vec<usize>> = self
             .answered
             .iter()
             .filter_map(|&b| self.batches.get(b).cloned())
             .collect();
         let n = kept.len();
-        kept.extend(failed.iter().filter_map(|&b| self.batches.get(b).cloned()));
+        kept.extend(then.iter().filter_map(|&b| self.batches.get(b).cloned()));
         self.batches = kept;
         self.answered = (0..n).collect();
         self.next = n;
@@ -224,21 +244,30 @@ impl Run {
         self.fault = None;
     }
 
-    /// "Go on with N": the failed batches are left out, and the run goes on with what was
-    /// looked at.
+    /// "Try it again": the batches that failed go again, then those never sent; the answered
+    /// ones are kept (plan section 15).
+    pub fn again(&mut self) {
+        let unsent = self.unsent();
+        let mut then: Vec<usize> = self.failed.drain(..).map(|(b, _)| b).collect();
+        then.extend(unsent);
+        self.rebatch(&then);
+    }
+
+    /// "Go on with N": the failed batches are left out; those never sent still go.
     pub fn go_on(&mut self) {
-        let failed: Vec<usize> = self.failed.drain(..).map(|(b, _)| b).collect();
-        let kept: Vec<Vec<usize>> = self
-            .batches
-            .iter()
-            .enumerate()
-            .filter(|(b, _)| !failed.contains(b))
-            .map(|(_, ids)| ids.clone())
-            .collect();
-        self.answered = (0..kept.len()).collect();
-        self.next = kept.len();
-        self.batches = kept;
-        self.stopped = false;
+        let unsent = self.unsent();
+        self.failed.clear();
+        self.rebatch(&unsent);
+    }
+
+    /// How many pictures "Go on with N" goes on with: all but those of the failed batches.
+    pub fn going_on_with(&self) -> usize {
+        self.pictures()
+            - self
+                .failed
+                .iter()
+                .map(|(b, _)| self.batches.get(*b).map_or(0, Vec::len))
+                .sum::<usize>()
     }
 }
 
@@ -440,7 +469,11 @@ pub fn progress(run: &Run, via: &str) -> String {
 /// "Show what is sent" for Write notes: each look request's pictures as they go and its text,
 /// word for word, then the arrange request, whose lines of what the pictures show are the
 /// model's own answers and so cannot be shown before the looks.
-pub fn request_text(s: &crate::task_ui::TaskScreen, instruction: &str) -> String {
+pub fn request_text(
+    s: &crate::task_ui::TaskScreen,
+    instruction: &str,
+    headings: &[String],
+) -> String {
     let (pictures, texts) = s.notes_parts();
     let mut out = String::new();
     let batches = batches(&pictures);
@@ -516,11 +549,53 @@ PROMPT:
             s.notes.how_many,
             &[],
             &files,
-            &[],
+            headings,
         ));
         out.push('\n');
     }
     out
+}
+
+/// Where a picture pasted from the clipboard is kept until the window closes: the engine
+/// reads pictures from a path. A note never links one here: it is always copied.
+pub fn pasted_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("mdedit-pasted")
+}
+
+/// Whether Ctrl+V in the task window adds the clipboard's picture: only on Write notes, and
+/// only when the clipboard has no text, which goes to the field as in any other paste (a
+/// spreadsheet's cells offer both).
+pub fn paste_is_a_picture(task: crate::task_ui::TaskKind, text: Option<&str>) -> bool {
+    task == crate::task_ui::TaskKind::Notes && text.is_none_or(|t| t.trim().is_empty())
+}
+
+/// Whether `path` is a picture pasted from the clipboard.
+pub fn is_pasted(path: &std::path::Path) -> bool {
+    path.parent()
+        .is_some_and(|d| mdshared_app::paths::same_path(d, &pasted_dir()))
+}
+
+/// The pasted pictures older than a day, left by a window that never closed (a crash): the
+/// ones of a window still open elsewhere are younger.
+pub fn stale_pasted(dir: &std::path::Path, now: std::time::SystemTime) -> Vec<std::path::PathBuf> {
+    let day = std::time::Duration::from_secs(24 * 3600);
+    std::fs::read_dir(dir)
+        .map(|r| {
+            r.flatten()
+                .filter(|e| {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    name.starts_with("Screenshot ")
+                        && name.ends_with(".png")
+                        && e.metadata()
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| now.duration_since(t).ok())
+                            .is_some_and(|age| age > day)
+                })
+                .map(|e| e.path())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The most a kept thumbnail is on its long side, in pixels: twice the row's square, for a

@@ -2177,7 +2177,11 @@ impl App {
              The window is behind it: AI task\u{2026} brings it back.\n\n",
         );
         match s.task {
-            TaskKind::Notes => out.push_str(&crate::notes_task::request_text(s, &instruction)),
+            TaskKind::Notes => out.push_str(&crate::notes_task::request_text(
+                s,
+                &instruction,
+                &self.notes_headings(),
+            )),
             TaskKind::File => {
                 let batches: Vec<&[usize]> = ids.chunks(s.limits.batch.max(1)).collect();
                 for (k, batch) in batches.iter().enumerate() {
