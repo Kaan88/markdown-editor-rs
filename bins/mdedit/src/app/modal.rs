@@ -1118,7 +1118,7 @@ impl App {
             tasks.push(why(Item::new(
                 Row::number(
                     AI_TASK_BATCH,
-                    "Files in one filing request",
+                    "Files per filing request",
                     p.ai_task_batch as i32,
                     mp::AI_TASK_BATCH_MIN as i32,
                     mp::AI_TASK_BATCH_MAX as i32,

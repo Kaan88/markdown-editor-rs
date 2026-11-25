@@ -3580,7 +3580,7 @@ In tests `show_preview` records the command it would run (`preview::preview_aske
 starting the pane's renderer or mdview.
 
 **Settings › AI tasks** (`AI_TASKS`, rows 106 to 109): "After a run, open" (`AfterRun`:
-`preview`, `open`, `nothing` in `settings.ini` as `ai_after_run`), "Files in one filing request"
+`preview`, `open`, `nothing` in `settings.ini` as `ai_after_run`), "Files per filing request"
 (`ai_task_batch`), "Files in one rewrite run" (`ai_rewrite_files`), "Largest rewrite (KB)"
 (`ai_rewrite_kb`), each clamped on read and in `Prefs::clamp`. The window takes them as
 `task_ui::Limits` when it opens or comes back (`Limits::of`); a file's row keeps the limits it

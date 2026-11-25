@@ -1694,7 +1694,7 @@ fn a_parked_window_reads_a_long_file_again_when_the_limit_is_raised() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Review of phase O, 9: "Files in one filing request" is what File them sends in each request,
+/// Review of phase O, 9: "Files per filing request" is what File them sends in each request,
 /// and what "Show what is sent" shows: five files at two a request are three requests.
 #[test]
 fn file_them_sends_as_many_files_a_request_as_the_setting_says() {
