@@ -560,6 +560,11 @@ pub fn sweep(temp: &Path, stale: Duration) {
         return;
     };
     for e in rd.flatten() {
+        // The name first (Fable's review of V1 round 2, 5): the rest of the temp folder is not
+        // looked at.
+        if !e.file_name().to_string_lossy().starts_with(PICTURES_DIR) {
+            continue;
+        }
         let stale = e
             .metadata()
             .ok()
@@ -567,7 +572,7 @@ pub fn sweep(temp: &Path, stale: Duration) {
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.elapsed().ok())
             .is_some_and(|age| age >= stale);
-        if stale && e.file_name().to_string_lossy().starts_with(PICTURES_DIR) {
+        if stale {
             let _ = std::fs::remove_dir_all(e.path());
         }
     }

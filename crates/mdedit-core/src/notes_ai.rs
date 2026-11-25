@@ -755,11 +755,16 @@ fn clean_body(raw: &str, title: &str, sent: &[usize], placed: &mut Vec<usize>) -
     let mut fence: Option<(char, usize)> = None;
     for line in lines {
         if let Some((ch, n)) = fence {
-            push_text(&mut parts, line);
-            push_text(&mut parts, "\n");
             if fence_closes(line, ch, n) {
+                // The closer is written as a parser reads one, whatever the model put around it
+                // (Fable's review of V2 round 2, 1): a line this takes as closing then closes for
+                // a parser too, so the two agree on what follows.
                 fence = None;
+                push_text(&mut parts, &ch.to_string().repeat(n));
+            } else {
+                push_text(&mut parts, line);
             }
+            push_text(&mut parts, "\n");
             continue;
         }
         if let Some(open) = fence_opens(line) {
@@ -771,9 +776,14 @@ fn clean_body(raw: &str, title: &str, sent: &[usize], placed: &mut Vec<usize>) -
         inline(line, sent, placed, &mut parts);
         push_text(&mut parts, "\n");
     }
-    // The body ends with no run of empty lines.
+    // The body ends with no run of empty lines, and with its fence closed (Fable's review of V2
+    // round 2, 3): an open one would take in what a joined note or the cut puts after it.
     if let Some(Part::Text(t)) = parts.last_mut() {
         t.truncate(t.trim_end().len());
+    }
+    if let Some((ch, n)) = fence {
+        push_text(&mut parts, "\n");
+        push_text(&mut parts, &ch.to_string().repeat(n));
     }
     parts
 }
@@ -934,6 +944,17 @@ fn inline(line: &str, sent: &[usize], placed: &mut Vec<usize>, parts: &mut Vec<P
             '<' => {
                 text.push_str("&lt;");
                 i += 1;
+            }
+            '~' => {
+                // A run of three or more could open a fence where a parser reads one (an indent
+                // of up to three, or the start of a line after a picture): its first is escaped
+                // (Fable's review of V2 round 2, 2).
+                let run = b[i..].iter().take_while(|&&x| x == '~').count();
+                if run >= 3 {
+                    text.push('\\');
+                }
+                text.extend(&b[i..i + run]);
+                i += run;
             }
             ']' => {
                 text.push_str("\\]");

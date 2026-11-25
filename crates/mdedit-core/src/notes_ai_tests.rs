@@ -438,7 +438,7 @@ fn no_answer_panics() {
 /// rules by hand: no parser is a dependency of this crate.)
 #[test]
 fn no_body_puts_a_live_picture_or_tag_in_a_note() {
-    let cases: [(&str, &str); 18] = [
+    let cases: [(&str, &str); 22] = [
         (
             r#"1. Step
 
@@ -509,6 +509,7 @@ baz ` <img src=https://evil.test/p.png> ` qux"#,
 ```"#,
             r#"\`\`\` a \`b
 &lt;img src=https://evil.test/p.png>
+```
 ```"#,
         ),
         (
@@ -532,6 +533,25 @@ y\](https://evil.test/p.png)"#,
         (
             r#"[ok](https://a.test/(b)) [j](javascript:alert(1)) [a](<https://a.test/x>)"#,
             r#"[ok](https://a.test/(b)) j [a](https://a.test/x)"#,
+        ),
+        // Fable's review of V2 round 2, 1: a closer this reads wider than a parser is written as
+        // one, so the next first-column fence opens for both.
+        (
+            "```\n    ```\n```\n<img src=https://evil.test/p.png>",
+            "```\n```\n```\n<img src=https://evil.test/p.png>\n```",
+        ),
+        (
+            "```\n```\u{a0}\n<img src=https://evil.test/p.png>",
+            "```\n```\n&lt;img src=https://evil.test/p.png>",
+        ),
+        // 2: a run of tildes a parser could open a fence with is escaped.
+        (
+            " ~~~\n~~~\n<img src=https://evil.test/p.png>",
+            " \\~~~\n~~~\n<img src=https://evil.test/p.png>\n~~~",
+        ),
+        (
+            "![a](picture:0)~~~ and ~~gone~~",
+            "<<0:a>>\\~~~ and ~~gone~~",
         ),
     ];
     for (input, want) in cases {
@@ -592,4 +612,25 @@ Your session has expired"
     }];
     let p = arrange_prompt("", HowMany::AsNeeded, &looks, &[], &[]);
     assert!(p.contains("Text: \"OK Your session has expired\""), "{p}");
+}
+
+/// Fable's review of V2 round 2, 3: a body that ends in an open fence is closed, so "One note"
+/// answered with two cannot have the second's fence close the first's and its tag go live.
+#[test]
+fn a_fence_left_open_is_closed_before_the_next_note() {
+    let names = |_: usize| None;
+    let answer = serde_like(&[
+        ("A", "```\nx"),
+        ("B", "```\n<img src=https://evil.test/p.png>\n```"),
+    ]);
+    let one = joined(read_arrange(&answer, &[]).expect("read"));
+    let c = Compose {
+        looks: &[],
+        name: &names,
+        text_out: false,
+    };
+    assert_eq!(
+        compose(&one.notes[0], &c),
+        "# A\n\n```\nx\n```\n\n## B\n\n```\n<img src=https://evil.test/p.png>\n```\n"
+    );
 }

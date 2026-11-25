@@ -174,8 +174,8 @@ impl fmt::Display for Error {
             Error::Encode => f.write_str("the picture could not be written again"),
             Error::DetailsKept(kind) => write!(
                 f,
-                "the {}'s details could not be found to take out: untick \
-                 \"Remove location and camera details\" to send it with them",
+                "the {}'s blocks could not be read to the end, so its details could not be \
+                 taken out: untick \"Remove location and camera details\" to send it with them",
                 kind_name(*kind)
             ),
             Error::StillTooBig => write!(
@@ -642,12 +642,46 @@ fn png_detail(ty: &[u8; 4]) -> bool {
 /// motion photo's video, a depth map, a second picture with its own EXIF) is not the picture
 /// (Fable's review of V1, 13). `None` when there is no EOI: a file cut short.
 fn jpeg_end(b: &[u8], scan: usize) -> Option<usize> {
-    let rest = b.get(scan..)?;
-    // Inside the entropy-coded data a 0xFF is followed by 0x00 or a restart marker, never by
-    // 0xD9, so the first FF D9 is the end.
-    rest.windows(2)
-        .position(|w| w == [0xFF, 0xD9])
-        .map(|at| scan + at + 2)
+    // Walked marker by marker (Fable's review of V1 round 2, 4): a progressive JPEG has tables
+    // between its scans, and a table may hold the bytes FF D9. Only the scan data is searched,
+    // where a 0xFF is followed by 0x00 or a restart marker unless a marker begins there.
+    let mut i = scan;
+    loop {
+        if *b.get(i)? != 0xFF {
+            return None;
+        }
+        let mut j = i + 1;
+        while *b.get(j)? == 0xFF {
+            j += 1;
+        }
+        let marker = *b.get(j)?;
+        match marker {
+            0xD9 => return Some(j + 1),
+            0xD0..=0xD7 | 0x01 => i = j + 1,
+            _ => {
+                let len = usize::from(u16_be(b, j + 1)?);
+                if len < 2 {
+                    return None;
+                }
+                i = (j + 1).checked_add(len)?;
+                if i > b.len() {
+                    return None;
+                }
+            }
+        }
+        if marker == 0xDA || (0xD0..=0xD7).contains(&marker) {
+            loop {
+                let at = i + b.get(i..)?.iter().position(|&x| x == 0xFF)?;
+                match *b.get(at + 1)? {
+                    0x00 | 0xD0..=0xD7 => i = at + 2,
+                    _ => {
+                        i = at;
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// A GIF without its comments and application blocks (but the loop count's), and without what
@@ -725,7 +759,10 @@ fn strip_details(bytes: &[u8], kind: Kind) -> Result<Option<Vec<u8>>, ()> {
             let detail = |&(marker, _, data, end): &(u8, usize, usize, usize)| {
                 jpeg_detail(marker, bytes.get(data..end).unwrap_or(&[]))
             };
-            if !segments.iter().any(detail) && end == bytes.len() {
+            // Padding after the end is not a detail (Fable's review of V1 round 2, 8): it is
+            // sent as it is, and the row does not say details went.
+            let padding = bytes[end..].iter().all(|&x| x == 0x00 || x == 0xFF);
+            if !segments.iter().any(detail) && padding {
                 return Ok(None);
             }
             let mut out = bytes[..2].to_vec();
@@ -2134,5 +2171,21 @@ mod tests {
         assert!(contains(&out.bytes, b"acTL"));
         assert!(!contains(&out.bytes, b"Istanbul"));
         assert_eq!(out.done(), vec!["details removed"]);
+    }
+
+    /// Fable's review of V1 round 2, 4: the end of a progressive JPEG is found by walking its
+    /// markers, so the bytes FF D9 inside a table between two scans do not cut it there.
+    #[test]
+    fn a_table_between_scans_does_not_end_the_jpeg() {
+        let mut b = vec![0xFF, 0xD8];
+        b.extend([0xFF, 0xDA, 0x00, 0x04, 0x01, 0x02]);
+        b.extend([0x12, 0xFF, 0x00, 0x34, 0xFF, 0xD0, 0x56]);
+        b.extend([0xFF, 0xC4, 0x00, 0x06, 0xFF, 0xD9, 0x00, 0x00]);
+        b.extend([0xFF, 0xDA, 0x00, 0x04, 0x01, 0x02, 0x78]);
+        b.extend([0xFF, 0xD9]);
+        let end = b.len();
+        b.extend(b"trailer");
+        assert_eq!(jpeg_end(&b, 2), Some(end));
+        assert_eq!(jpeg_end(&b[..end - 1], 2), None, "cut short");
     }
 }
