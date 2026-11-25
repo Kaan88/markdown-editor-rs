@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use crate::pictures::{Ready, base64};
 use crate::proto::{Fail, Model};
 use crate::{Job, keys, sse};
 
@@ -269,20 +270,35 @@ fn claude_key() -> Result<String, Fail> {
     })
 }
 
-/// The body of a Claude API request.
+/// The body of a Claude API request: with pictures, the user's content is a list of the pictures,
+/// then the text.
 pub fn claude_body(
     model: &str,
     effort: &str,
     system: &str,
     prompt: &str,
+    images: &[Ready],
     max_tokens: u64,
 ) -> Value {
+    let content = if images.is_empty() {
+        Value::from(prompt)
+    } else {
+        let mut parts: Vec<Value> = images
+            .iter()
+            .map(|r| {
+                json!({"type": "image", "source": {
+                    "type": "base64", "media_type": r.mime, "data": base64(&r.bytes)}})
+            })
+            .collect();
+        parts.push(json!({"type": "text", "text": prompt}));
+        Value::Array(parts)
+    };
     let mut body = json!({
         "model": model,
         "max_tokens": max_tokens,
         "stream": true,
         "system": system,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content}],
     });
     if !effort.is_empty() {
         body["output_config"] = json!({"effort": effort});
@@ -295,11 +311,12 @@ pub fn run_claude(
     effort: &str,
     system: &str,
     prompt: &str,
+    images: &[Ready],
     job: &Job,
     progress: &dyn Fn(usize),
 ) -> Result<String, Fail> {
     let key = claude_key()?;
-    run_claude_with(&key, model, effort, system, prompt, job, progress)
+    run_claude_with(&key, model, effort, system, prompt, images, job, progress)
         .map_err(|f| f.hide(Some(&key)))
 }
 
@@ -310,6 +327,7 @@ fn run_claude_with(
     effort: &str,
     system: &str,
     prompt: &str,
+    images: &[Ready],
     job: &Job,
     progress: &dyn Fn(usize),
 ) -> Result<String, Fail> {
@@ -339,7 +357,7 @@ fn run_claude_with(
         .and_then(|l| l.get(model).copied())
         .filter(|&m| m > 0)
         .map_or(CLAUDE_MAX_TOKENS, |m| m.min(CLAUDE_MAX_TOKENS));
-    let body = claude_body(model, effort, system, prompt, max_tokens);
+    let body = claude_body(model, effort, system, prompt, images, max_tokens);
     let resp = checked(
         P,
         Some(key),
@@ -575,13 +593,31 @@ fn host_of(base: &str) -> String {
     }
 }
 
-pub fn openai_body(model: &str, effort: &str, system: &str, prompt: &str) -> Value {
+/// The body of an OpenAI-style request: with pictures, the user's content is the text, then one
+/// `image_url` part per picture as a data URL.
+pub fn openai_body(
+    model: &str,
+    effort: &str,
+    system: &str,
+    prompt: &str,
+    images: &[Ready],
+) -> Value {
+    let content = if images.is_empty() {
+        Value::from(prompt)
+    } else {
+        let mut parts = vec![json!({"type": "text", "text": prompt})];
+        parts.extend(images.iter().map(|r| {
+            json!({"type": "image_url", "image_url": {
+                "url": format!("data:{};base64,{}", r.mime, base64(&r.bytes))}})
+        }));
+        Value::Array(parts)
+    };
     let mut body = json!({
         "model": model,
         "stream": true,
         "messages": [
             {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": content},
         ],
     });
     if !effort.is_empty() {
@@ -598,6 +634,7 @@ pub fn run_openai(
     effort: &str,
     system: &str,
     prompt: &str,
+    images: &[Ready],
     job: &Job,
     progress: &dyn Fn(usize),
 ) -> Result<String, Fail> {
@@ -627,9 +664,16 @@ pub fn run_openai(
         &p,
         key.as_deref(),
         Some(job),
-        req.send(openai_body(model, effort, system, prompt).to_string()),
+        req.send(openai_body(model, effort, system, prompt, images).to_string()),
     )
-    .map_err(|f| hide(explain_effort(f, effort)))?;
+    .map_err(|f| {
+        hide(no_vision(
+            explain_effort(f, effort),
+            !images.is_empty(),
+            model,
+            &p,
+        ))
+    })?;
     let mut s = OpenAiStream {
         key: key.clone(),
         ..OpenAiStream::default()
@@ -642,6 +686,29 @@ pub fn run_openai(
     })
     .map_err(hide)?;
     s.finish(&p).map_err(hide)
+}
+
+/// Words in a refusal of a request with pictures that say the model reads none.
+const NO_VISION_WORDS: &[&str] = &[
+    "image",
+    "vision",
+    "multimodal",
+    "multi-modal",
+    "image_url",
+    "picture",
+];
+
+/// A 400 or 422 for a request with pictures that speaks of them: the model reads no pictures.
+pub fn no_vision(f: Fail, with_images: bool, model: &str, host: &str) -> Fail {
+    let refused = f.kind == "http" && (f.message.contains(" 400:") || f.message.contains(" 422:"));
+    let low = f.message.to_lowercase();
+    if with_images && refused && NO_VISION_WORDS.iter().any(|w| low.contains(w)) {
+        return Fail::new(
+            "no_vision",
+            format!("This model does not read pictures: {model} at {host}."),
+        );
+    }
+    f
 }
 
 /// A 400 for a request with an effort is most likely the effort: say so.

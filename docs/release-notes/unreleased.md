@@ -11,6 +11,9 @@ mdedit, not yet released: the AI task window made one command with an Add menu, 
 
 ## Changed
 
+- **Claude Code runs load none of your MCP servers.** An AI task run through Claude Code had
+  no tools of its own, but still loaded the MCP servers of your Claude Code configuration. It
+  now loads none, so a run can only answer with text, as was always meant.
 - **One "AI task…" command.** "AI task on your files…" and "AI task on this file…" did the same
   thing. Now there is "AI task…", whose Add… button lists your open files, the one in front
   first, and Files… to pick others. "AI task on this file…" is in a tab's right-click menu, for

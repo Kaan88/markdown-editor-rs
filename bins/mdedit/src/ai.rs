@@ -84,6 +84,26 @@ pub enum Event {
     Ended(String),
 }
 
+/// The first protocol version that sends pictures (`docs/ai-pictures-plan.md` section 6).
+pub const PICTURES_VERSION: u32 = 2;
+
+/// Said where pictures would be sent, when the engine beside mdedit is older than it.
+#[allow(dead_code)]
+pub const OLD_ENGINE: &str = "The AI engine beside mdedit is older than mdedit and cannot be sent pictures. Reinstall or update.";
+
+/// The protocol version a greeting says, if `line` is the engine's greeting.
+pub fn hello_version(line: &str) -> Option<u32> {
+    let v: Value = serde_json::from_str(line).ok()?;
+    if v["ev"] != "hello" {
+        return None;
+    }
+    Some(
+        v["version"]
+            .as_u64()
+            .map_or(1, |n| u32::try_from(n).unwrap_or(u32::MAX)),
+    )
+}
+
 /// Reads one line the engine wrote; `None` for the greeting and anything not understood.
 pub fn parse_event(line: &str) -> Option<Event> {
     let v: Value = serde_json::from_str(line).ok()?;
@@ -147,6 +167,8 @@ pub struct Client {
     input: Sender<String>,
     events: Receiver<Event>,
     child: Arc<Mutex<Child>>,
+    /// The protocol version the engine's greeting said; 0 until it came.
+    version: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl Client {
@@ -212,13 +234,16 @@ impl Client {
             })
             .ok();
         let reaper = child.clone();
+        let version = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let said = version.clone();
         std::thread::Builder::new()
             .name("ai-out".into())
             .spawn(move || {
                 let mut hello = Some(hello_tx);
                 for line in BufReader::new(stdout).lines() {
                     let Ok(line) = line else { break };
-                    if line.contains("\"ev\":\"hello\"") {
+                    if let Some(n) = hello_version(&line) {
+                        said.store(n, std::sync::atomic::Ordering::Release);
                         if let Some(h) = hello.take() {
                             let _ = h.send(());
                         }
@@ -244,7 +269,20 @@ impl Client {
             input,
             events,
             child,
+            version,
         })
+    }
+
+    /// The protocol version the engine said; 0 until its greeting came.
+    pub fn version(&self) -> u32 {
+        self.version.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Why the engine cannot be sent pictures, if it cannot: one older than mdedit. The
+    /// pictures task (phase V3) asks this where its button is.
+    #[allow(dead_code)]
+    pub fn pictures_refused(&self) -> Option<&'static str> {
+        (self.version() < PICTURES_VERSION).then_some(OLD_ENGINE)
     }
 
     pub fn send(&self, v: Value) -> bool {
@@ -710,6 +748,17 @@ mod tests {
     #[test]
     fn engine_events_are_read() {
         assert!(parse_event(r#"{"ev":"hello","version":1}"#).is_none());
+        // Plan 6: the greeting's version is read; an engine that says none is version 1.
+        assert_eq!(
+            hello_version(r#"{"ev":"hello","version":2,"engine":"0.9"}"#),
+            Some(2)
+        );
+        assert_eq!(hello_version(r#"{"ev":"hello"}"#), Some(1));
+        assert_eq!(
+            hello_version(r#"{"ev":"done","id":1,"text":"\"ev\":\"hello\""}"#),
+            None
+        );
+        assert_eq!(hello_version("not json"), None);
         match parse_event(r#"{"ev":"error","id":4,"kind":"rate","message":"m","retry_after":40}"#) {
             Some(Event::Error {
                 id: 4,

@@ -45,12 +45,14 @@ released. If `git log -1` is newer, doubt "In hand" first.
   VERDICT: OK on the third (D-216; its last nits fixed in C2's round); **C2**, Move them in:
   the copy, then the originals to the Recycle Bin, the library's notes inside its reach
   rewritten to the copies, undo putting each original back at its own path (D-210, D-218,
-  DESIGN 89; shared branch `f/move-in` `8101079` on `f/copy-in`, neither merged into shared
+  DESIGN 89; shared branch `f/move-in` `aacba51` on `f/copy-in`, neither merged into shared
   `main`). Fable's first review of C2 found five faults and some nits, all fixed (D-219); its
-  re-review found one more, fixed (D-220); its third look is next. Not tried in a real window
-  with real files. Then V1 to V6 with the engine side (V0 measured), which is `f/ai-engine` in
-  `md-wt\ai-engine` (V1's engine half is built there: protocol 2, `prepare`, `sent`, the four
-  senders). Release notes so far: `docs/release-notes/unreleased.md`.
+  re-review found one more, fixed (D-220); VERDICT: OK on its third look. Not tried in a real
+  window with real files. **V1**, the engine sends pictures (protocol 2, `prepare`, `sent`, the
+  four senders, the resizer; D-221, D-222, DESIGN 90): `f/ai-engine` is merged into this
+  branch, its D-214 renumbered D-221. No picture has been sent to a provider by the engine; the
+  unix fake-CLI tests run only in CI. Next V2 to V6. Release notes so far:
+  `docs/release-notes/unreleased.md`.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
@@ -90,8 +92,7 @@ released. If `git log -1` is newer, doubt "In hand" first.
   from 1.0.4 at all.
 - **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
-- Opening Settings during an AI review discards the result. The editor never reads the AI
-  engine's version.
+- Opening Settings during an AI review discards the result.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
   keeps every note unlisted and splitting that document again writes nothing (every note reads
   "already there" and comes unticked). Found by the owner. The question now says the notes are

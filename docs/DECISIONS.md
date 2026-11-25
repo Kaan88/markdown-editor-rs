@@ -2166,6 +2166,13 @@ would make the one-shot fit the clamp of every frame.
 **Overturned by.** The owner.
 **From.** The owner's answers to `docs/ai-pictures-plan.md` section 18, 2026-11-25.
 
+## D-213 · 2026-11-25 · A Claude Code run loads no MCP server
+
+**Decision.** Every Claude Code run of the engine, text or pictures, adds `--strict-mcp-config` (with no `--mcp-config`) to `--tools ""`, so the model has no tool at all, not even the MCP servers of the user's own Claude Code configuration.
+**Why.** Phase V0 found that `--tools ""` turns off the built-in tools only: the run's `init` line listed about fifty MCP tools from the user's configuration. The engine's design has always been that a run can only answer with text. With the flag the same picture was read the same way and no tool was listed.
+**Overturned by.** A Claude Code release where `--tools ""` covers MCP tools, or where the flag goes away.
+**From.** `docs/measurements/2026-11-25-v0-pictures.md`.
+
 ## D-214 · 2026-11-25 · The task window's settings are a page of their own, "AI tasks"
 
 **Decision.** D-211's choice ("After a run, open": first note and its preview, first note only,
@@ -2245,3 +2252,16 @@ a record name any file anywhere for undo to create.
 **Decision.** Tightens D-218 and D-219. A file of a move whose very bytes the library already holds and lists is not moved: its original stays where it is, and so does the picture it shows. The toast says "the library lists the same file already: left where it is". The rest of the run moves.
 **Why.** Fable's re-review of C2: such a file gets no copy from the run, yet its original went, and the record named a copy the record never made. `Reach::of` then refused the whole record, so no file of the run could be put back.
 **Overturned by.** The owner.
+
+## D-221 · 2026-11-25 · Pictures go to Claude Code; Codex waits for one try by hand
+
+**Decision.** Written as D-214 on the engine's branch and numbered again when it was merged, since D-214 was taken. Claude Code is sent pictures as stream-json image blocks on stdin, the text last. The engine can send Codex pictures (`--image` per file, then `-- -`), but the window offers Codex no pictures until one made-up picture has been read through it by hand. The two APIs are sent the documented shapes; each is proven the first time a key is used.
+**Why.** V0: Claude Code read "V0 TEST 42" exactly. Codex's account was over its usage limit, so no model saw the picture; and Codex does not refuse a missing image file before the turn, so the engine checks its own files first. No API key was available to the session.
+**Overturned by.** A by-hand try that fails (that connection is offered no pictures, plan section 6), or one that works (Codex is offered them).
+**From.** `docs/measurements/2026-11-25-v0-pictures.md`.
+
+## D-222 · 2026-11-25 · The engine keeps its own picture readers, and its Codex folders are swept by a run
+
+**Decision.** For phase V1, the engine keeps its own BMP reader instead of moving the editor's DIB reader into `mdedit-core`, as plan section 7 said. It also has its own base64 writer of a dozen lines. A Codex run with pictures first removes picture folders that earlier runs left in the temp folder (`mdedit-ai-pictures-*`, older than six hours); the plan said this would happen when the engine starts. D-220's toast reads "the same file is in the library already: left where it is", because the run's own line may be the one that lists it (Fable's third look at C2).
+**Why.** The engine must not depend on `mdedit-core`, which brings ropey, regex and the rest into a program that only talks to providers. Neither the BMP reader nor the base64 writer needs a new package. Sweeping when the engine starts would put file work on every start, for a folder that only Codex runs make. Six hours is far longer than any run.
+**Overturned by.** A shared crate that both programs can depend on lightly.

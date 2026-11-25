@@ -1069,3 +1069,18 @@ fn a_new_run_drops_the_result_escape_kept() {
     assert!(a.ai.kept.is_none() && !a.docs.ai_kept);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Plan 6: the editor reads the version the engine's greeting says, and an engine of version 1
+/// (the stand-in says 1) is not sent pictures.
+#[test]
+fn the_engine_s_version_is_read_and_an_old_one_takes_no_pictures() {
+    engine();
+    let c = crate::ai::Client::start(Arc::new(|_| {})).expect("the stand-in starts");
+    let until = Instant::now() + Duration::from_secs(10);
+    while c.version() == 0 {
+        assert!(Instant::now() < until, "no greeting");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(c.version(), 1);
+    assert_eq!(c.pictures_refused(), Some(crate::ai::OLD_ENGINE));
+}

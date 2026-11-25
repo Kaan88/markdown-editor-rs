@@ -13,8 +13,10 @@
 mod api;
 mod cli;
 mod keys;
+mod pictures;
 mod proto;
 mod reply;
+mod resize;
 mod sse;
 
 use std::collections::HashMap;
@@ -103,6 +105,9 @@ fn handle(req: Request, out: &Out, jobs: &Jobs) {
             effort,
             system,
             prompt,
+            images,
+            long_side,
+            strip,
         } => {
             let job = Job::default();
             if let Ok(mut j) = jobs.lock() {
@@ -111,19 +116,32 @@ fn handle(req: Request, out: &Out, jobs: &Jobs) {
             let (out, jobs) = (out.clone(), jobs.clone());
             spawn(move || {
                 let progress = |chars: usize| out.send(proto::delta(id, chars));
-                let r = match &conn {
-                    proto::Conn::ClaudeCode { program } => {
-                        cli::run_claude(program, &model, &effort, &system, &prompt, &job, &progress)
+                // The pictures are made ready and checked before anything is sent; `sent` says
+                // what goes, before it goes.
+                let ready = pictures::for_run(&images, &pictures::options(long_side, strip));
+                let r = match ready {
+                    Err(f) => Err(f),
+                    Ok(_) if job.is_cancelled() => Err(Fail::new("cancelled", "Cancelled.")),
+                    Ok(imgs) => {
+                        if !imgs.is_empty() {
+                            out.send(pictures::sent(id, &imgs, system.len() + prompt.len()));
+                        }
+                        let (m, e, s, p) = (&model, &effort, &system, &prompt);
+                        match &conn {
+                            proto::Conn::ClaudeCode { program } => {
+                                cli::run_claude(program, m, e, s, p, &imgs, &job, &progress)
+                            }
+                            proto::Conn::Codex { program } => {
+                                cli::run_codex(program, m, e, s, p, &imgs, &job, &progress)
+                            }
+                            proto::Conn::ClaudeApi => {
+                                api::run_claude(m, e, s, p, &imgs, &job, &progress)
+                            }
+                            proto::Conn::Openai { base_url, slot } => {
+                                api::run_openai(base_url, slot, m, e, s, p, &imgs, &job, &progress)
+                            }
+                        }
                     }
-                    proto::Conn::Codex { program } => {
-                        cli::run_codex(program, &model, &effort, &system, &prompt, &job, &progress)
-                    }
-                    proto::Conn::ClaudeApi => {
-                        api::run_claude(&model, &effort, &system, &prompt, &job, &progress)
-                    }
-                    proto::Conn::Openai { base_url, slot } => api::run_openai(
-                        base_url, slot, &model, &effort, &system, &prompt, &job, &progress,
-                    ),
                 };
                 // A cancelled run was already answered.
                 let still = jobs.lock().ok().and_then(|mut j| j.remove(&id)).is_some();
@@ -133,6 +151,32 @@ fn handle(req: Request, out: &Out, jobs: &Jobs) {
                 match r {
                     Ok(text) => out.send(proto::done(id, &reply::unwrap_fence(&text))),
                     Err(f) => out.send(proto::error(id, &f)),
+                }
+            });
+        }
+        Request::Prepare {
+            id,
+            images,
+            long_side,
+            strip,
+        } => {
+            let job = Job::default();
+            if let Ok(mut j) = jobs.lock() {
+                j.insert(id, job.clone());
+            }
+            let (out, jobs) = (out.clone(), jobs.clone());
+            spawn(move || {
+                let opts = pictures::options(long_side, strip);
+                for (i, p) in images.iter().enumerate() {
+                    if job.is_cancelled() {
+                        return;
+                    }
+                    let r = pictures::prepare_one(&p.path, &opts);
+                    out.send(pictures::picture_event(id, i, &p.path, &r));
+                }
+                let still = jobs.lock().ok().and_then(|mut j| j.remove(&id)).is_some();
+                if still && !job.is_cancelled() {
+                    out.send(proto::prepared(id, images.len()));
                 }
             });
         }

@@ -3725,3 +3725,49 @@ Tests: `moves_copy_tests.rs` (+4), `runs_copies_tests.rs` (+6) in shared; `task_
 Tests of the phase: `moves_copy_tests.rs` (+7), `runs_copies_tests.rs` (+4) in shared; `task_tests` (+3),
 `library_ai_tests`, `replace_ui` here. Shots `task-files-move`, `task-files-move-520`, both
 themes.
+
+## 90. The engine sends pictures (2026-11-25, phase V1)
+
+The engine half of `docs/ai-pictures-plan.md` sections 6 and 7, and the editor reading the
+engine's greeting. Nothing of the window yet: that is V3.
+
+**Protocol 2** (`proto.rs`). `run` takes `images` (`path`, `sha256`), `long_side` (0 is 1568,
+at most 2576) and `strip` (default on); an older request without them reads as before. The new
+`prepare` sends one `picture` event per picture (format, pixels as sent and of the original,
+bytes, digest, what was done, a PNG thumbnail of 160 px in base64), or `error` with the reason
+naming the file, then `prepared`. `hello` says `"version":2`.
+
+**The pictures** (`pictures.rs`). A file is read up to 64 MiB and made ready by `resize.rs`, the
+spike's resizer rewritten. It sniffs the format from the bytes, reads the size from the header
+before anything is allocated, and refuses HEIC, AVIF, TIFF and SVG with their names. A picture
+inside both limits goes byte for byte, without its details where `strip` is on: JPEG
+APP1/APP13/COM, PNG text, eXIf and tIME chunks and anything after IEND, WebP EXIF and XMP with
+VP8X's flags cleared, all without decoding. Over a limit, or sideways by its orientation, it is
+decoded, turned, scaled by area average and written again (JPEG at 85, PNG and WebP as PNG). A
+BMP has its own small reader and goes as a PNG (D-222). A run makes every picture ready first.
+One whose digest is not the one `prepare` gave fails the run with kind `image` ("IMG_4032.jpg
+changed since it was measured"), and nothing is sent. Otherwise `sent` says the bytes and digest
+of each, and the text's bytes, before the request goes.
+
+**The senders.** The Claude API gets the user content as a list: image blocks, then the text.
+OpenAI-style servers get the text, then one `image_url` data URL per picture; a 400 or 422 that
+speaks of images or vision, for a request with pictures, is `no_vision` ("This model does not
+read pictures: llama3 at localhost:11434."). Claude Code gets `--input-format stream-json` and
+one user message on stdin, pictures first (D-221). Every Claude Code run, text or not, adds
+`--strict-mcp-config` (D-213). Codex gets the pictures written as `1.jpg`, `2.png`… in a new
+folder `mdedit-ai-pictures-<pid>-<time>` under the temp folder (0700 on unix), one `--image`
+each, then `--` and `-`. The folder goes when the run ends, and a Codex picture run first
+removes such folders older than six hours (D-222). The window offers Codex no pictures until a
+try by hand (D-221).
+
+**The editor.** `ai::hello_version` reads the greeting, and `Client::version` keeps it. A done
+text that contains the greeting's words is no longer taken for it. `Client::pictures_refused`
+gives `OLD_ENGINE` for an engine older than 2; the window will ask it (V3).
+
+The engine's exe grows from 2.27 MB to 2.78 MB (Windows release, the decoders and the JPEG
+encoder). It is not on the editor's launch path, which does not change.
+
+Tests: `resize.rs` (33), `pictures.rs` (5), `proto.rs` (+1), `api/tests.rs` (+3),
+`cli/tests.rs` (+4), `tests/engine.rs` (+4, and +2 with fake CLIs on unix only, not run on
+this PC), `ai.rs` (+1), `ai_tests.rs` (+1). Each was checked to fail with its fix reverted. No
+picture has been sent to a real provider by the engine. V0 sent one through Claude Code by hand.
