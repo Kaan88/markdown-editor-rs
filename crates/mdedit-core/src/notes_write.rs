@@ -292,17 +292,10 @@ pub fn plan(
     Ok(planned)
 }
 
-/// Whether a record is one of Write notes'. Until the shared record has a kind of its own for
-/// them (`notes`, plan section 10), a run of Write notes is written as a `markdown` run, the kind
-/// whose notes hold a model's words; it is told from the Markdown note of 5.8 (one note, of a text
-/// file, with no picture) by its pictures, its source or its count.
+/// Whether a record is one of Write notes': the shared record's `notes` kind (plan section 10).
+/// A `markdown` record is 5.8's Markdown note, however many notes or pictures it holds.
 pub fn is_notes_run(record: &runs::Record) -> bool {
-    record.kind == runs::Kind::Markdown
-        && (!record.pictures.is_empty()
-            || record.notes.len() != 1
-            || record.source.path.extension().is_some_and(|e| {
-                COPY_EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str())
-            }))
+    record.kind == runs::Kind::Notes
 }
 
 /// Two paths that name one file on a disk that does not tell case apart.

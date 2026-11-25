@@ -515,7 +515,10 @@ impl Outcome {
             .map(|p| p.copies_kept.clone())
             .unwrap_or_default();
         let listed = |p: &PathBuf| {
-            copies_kept.contains(p) || done.restore_kept.contains(p) || done.led_to.contains(p)
+            copies_kept.contains(p)
+                || done.restore_kept.contains(p)
+                || done.led_to.contains(p)
+                || done.shown.contains(p)
         };
         if !copies_kept.is_empty() {
             rows.push(OutRow::Heading(format!(
@@ -535,6 +538,17 @@ impl Outcome {
             rows.extend(done.led_to.iter().map(|p| OutRow::Skipped {
                 name: rel(root, p),
                 why: "a note kept as the move left it leads to it".to_string(),
+            }));
+        }
+        // A copy of Write notes kept because a note undo kept shows it (plan section 10).
+        if !done.shown.is_empty() {
+            rows.push(OutRow::Heading(format!(
+                "Pictures kept for the notes that show them ({})",
+                done.shown.len()
+            )));
+            rows.extend(done.shown.iter().map(|p| OutRow::Skipped {
+                name: rel(root, p),
+                why: "a note undo kept shows it".to_string(),
             }));
         }
         if !done.restore_kept.is_empty() {
@@ -1684,6 +1698,38 @@ mod tests {
             "{:?}",
             out.rows
         );
+        assert!(
+            !out.rows
+                .iter()
+                .any(|r| matches!(r, OutRow::Skipped { why, .. } if why == "changed since, kept")),
+            "{:?}",
+            out.rows
+        );
+    }
+
+    /// A copy of Write notes kept because a kept note shows it is said to be kept for that note,
+    /// not as "changed since".
+    #[test]
+    fn a_picture_kept_for_a_note_that_shows_it_says_so() {
+        let lib = Path::new("/lib");
+        let copy = lib.join("Shots").join("pictures").join("a.png");
+        let done = mdedit_core::runs::UndoReport {
+            kept: vec![copy.clone()],
+            shown: vec![copy.clone()],
+            ..Default::default()
+        };
+        let out = Outcome::undone(&done, lib);
+        assert!(
+            out.rows.contains(&OutRow::Heading(
+                "Pictures kept for the notes that show them (1)".to_string()
+            )),
+            "{:?}",
+            out.rows
+        );
+        assert!(out.rows.iter().any(|r| matches!(
+            r,
+            OutRow::Skipped { why, .. } if why == "a note undo kept shows it"
+        )));
         assert!(
             !out.rows
                 .iter()

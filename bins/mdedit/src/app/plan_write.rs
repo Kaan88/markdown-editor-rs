@@ -959,6 +959,7 @@ impl App {
                 self.open_dialog(DialogKind::RunUndo);
             }
             Some(ShotDialog::RunUndoPictures) => self.notes_undo_demo(&root),
+            Some(ShotDialog::RunUndonePictures) => self.notes_undone_demo(&root),
             Some(ShotDialog::RunUndoneMoved) => {
                 // Its report: two originals back, a note kept as the move wrote it, and the copy
                 // that note leads to kept with it.

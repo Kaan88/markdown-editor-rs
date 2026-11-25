@@ -3682,7 +3682,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
             | ShotDialog::RunUndoneLater
             | ShotDialog::RunUndoMoved
             | ShotDialog::RunUndoneMoved
-            | ShotDialog::RunUndoPictures,
+            | ShotDialog::RunUndoPictures
+            | ShotDialog::RunUndonePictures,
         ) => {
             let which = app.args.dialog;
             app.runs_demo(which);

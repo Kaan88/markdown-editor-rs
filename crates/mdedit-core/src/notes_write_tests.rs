@@ -304,10 +304,10 @@ fn a_missing_picture_says_so_and_a_linked_one_leads_where_it_is() {
     assert!(text.contains("![](../../desk/a%20b.png)"), "{text}");
 }
 
-/// Until the shared record has a kind of its own, a run of Write notes is told from 5.8's
-/// Markdown note by its pictures, its source or its count.
+/// A run of Write notes is the shared record's `notes` kind; a Markdown record is 5.8's note even
+/// when it holds pictures, more than one note, or a picture as its source.
 #[test]
-fn a_notes_run_is_told_from_a_markdown_note() {
+fn a_notes_run_is_told_from_a_markdown_note_by_its_kind() {
     let mut r = runs::Record {
         version: runs::RECORD_VERSION,
         kind: runs::Kind::Markdown,
@@ -349,6 +349,9 @@ fn a_notes_run_is_told_from_a_markdown_note() {
     };
     assert!(!is_notes_run(&r), "one note of a text file is 5.8's");
     r.source.path = PathBuf::from("D:/desk/shot.PNG");
+    r.notes.push(r.notes[0].clone());
+    assert!(!is_notes_run(&r), "a Markdown record is never a notes run");
+    r.kind = runs::Kind::Notes;
     assert!(is_notes_run(&r));
     r.kind = runs::Kind::Split;
     assert!(!is_notes_run(&r));

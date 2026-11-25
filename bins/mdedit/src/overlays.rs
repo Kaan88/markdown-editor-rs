@@ -1574,12 +1574,12 @@ pub fn draw_dialog(
                         },
                         run.record.group_name(),
                     ),
-                    // Write notes (phase V5), written as a Markdown run until the shared record has
-                    // a kind of its own: the pictures it copied, the group, the notes.
+                    // Write notes (phase V5, the record's `notes` kind): the pictures it copied, the
+                    // group, the notes. It has no source to name.
                     _ if mdedit_core::notes_write::is_notes_run(&run.record) => format!(
                         "Notes \u{00B7} {} \u{2192} {} \u{00B7} {}",
                         match run.record.pictures.len() {
-                            0 => run.record.source_name(),
+                            0 => "no copies".to_string(),
                             1 => "1 picture".to_string(),
                             n => format!("{n} pictures"),
                         },
@@ -1774,14 +1774,16 @@ fn when(started: &str) -> String {
     }
 }
 
-/// Whether "AI runs…" offers Finish for a run: a split or a Markdown run whose links did not
-/// all go in, stopped, still writing or left "links pending" (audit 3 C4, audit 4 F3). A move
+/// Whether "AI runs…" offers Finish for a run: a split, a Markdown run or a run of Write notes
+/// whose links did not all go in, stopped, still writing or left "links pending" (audit 3 C4, audit 4 F3). A move
 /// and a rewrite have nothing to finish: they are put back or undone. A run partly undone is
 /// not finished: Undo takes the rest of it out.
 pub(crate) fn offers_finish(record: &mdedit_core::runs::Record) -> bool {
     matches!(
         record.kind,
-        mdedit_core::runs::Kind::Split | mdedit_core::runs::Kind::Markdown
+        mdedit_core::runs::Kind::Split
+            | mdedit_core::runs::Kind::Markdown
+            | mdedit_core::runs::Kind::Notes
     ) && record.state.finishable()
 }
 

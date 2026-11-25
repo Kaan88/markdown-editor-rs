@@ -111,9 +111,16 @@ fn the_notes_are_written_with_their_copies_beside_them() {
     let list = records(&a);
     assert_eq!(list.len(), 1, "one record");
     let r = &list[0].record;
-    assert_eq!(r.kind, runs::Kind::Markdown);
+    assert_eq!(r.kind, runs::Kind::Notes);
     assert_eq!(r.state, runs::State::Done);
     assert!(mdedit_core::notes_write::is_notes_run(r));
+    assert!(
+        list[0].path.to_string_lossy().ends_with("-notes.json"),
+        "{:?}",
+        list[0].path
+    );
+    // No source: nothing was cut, and undo checks none (section 10).
+    assert_eq!((r.source.len, r.source.sha256.as_str()), (0, ""));
     assert_eq!(r.notes.len(), 3);
     assert!(r.notes.iter().all(|n| n.created));
     assert_eq!(r.pictures.len(), 3);
@@ -318,7 +325,7 @@ fn undo_removes_the_notes_copies_and_links_and_never_an_original() {
 }
 
 /// Section 10: a copy whose original is gone is the only one left, and undo keeps it; the rest
-/// of the run goes. The first picture's original goes too, since the record's source is its copy.
+/// of the run goes.
 #[test]
 fn undo_keeps_a_copy_whose_original_is_gone() {
     let (mut a, dir, shots) = planned("nw-undo-gone");
@@ -424,4 +431,255 @@ fn the_cards_write_button_writes_the_notes() {
             .expect("group file")
             .contains("Shot 0")
     );
+}
+
+/// The first defect of the record V5 wrote as a Markdown run: its faked source was the first
+/// copy, so undo refused once the owner deleted or edited that copy, saying "the file these
+/// notes were cut from". A run of Write notes has no source: undo goes on, and the rest goes.
+#[test]
+fn undo_runs_when_the_owner_deleted_or_changed_a_copy() {
+    for edit in [false, true] {
+        let (mut a, dir, shots) = planned(if edit {
+            "nw-copy-edited"
+        } else {
+            "nw-copy-gone"
+        });
+        a.notes_write();
+        let first = home(&dir).join("pictures").join("Shot 0.png");
+        if edit {
+            std::fs::write(&first, "drawn on").expect("edited");
+        } else {
+            std::fs::remove_file(&first).expect("deleted");
+        }
+        let path = records(&a)[0].path.clone();
+        a.run_undo_ask(path.clone());
+        let (_, question, can) = a.ui.runs.undo.clone().expect("the question");
+        assert!(can, "{question}");
+        assert!(!question.contains("cut from"), "{question}");
+        a.run_undo(path);
+        assert!(!home(&dir).join("shot-0.md").exists(), "the notes go");
+        assert!(!home(&dir).join("pictures").join("Shot 1.png").exists());
+        assert_eq!(
+            first.is_file(),
+            edit,
+            "an edited copy stays, a deleted one is gone"
+        );
+        assert!(shots.iter().all(|s| s.is_file()), "never an original");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The same with "Copy the pictures" off: the faked source was the first original, so undo
+/// refused once the owner deleted that screenshot. Undo goes on.
+#[test]
+fn with_copy_off_undo_runs_when_an_original_is_gone() {
+    let (mut a, dir, shots) = planned("nw-link-undo");
+    if let Some(s) = a.task.as_mut() {
+        s.notes.copy = false;
+    }
+    a.notes_write();
+    std::fs::remove_file(&shots[0]).expect("deleted");
+    let path = records(&a)[0].path.clone();
+    a.run_undo_ask(path.clone());
+    let (_, question, can) = a.ui.runs.undo.clone().expect("the question");
+    assert!(can, "{question}");
+    a.run_undo(path);
+    assert!(
+        !home(&dir).exists(),
+        "{:?}",
+        files_under(&dir.join("library"))
+    );
+    assert_eq!(records(&a)[0].record.state, runs::State::Undone);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The second defect: a note changed since is kept by undo, and the copy it shows was removed
+/// with the others, breaking its picture. It stays with the note, and the question says so.
+#[test]
+fn undo_keeps_a_changed_note_and_the_copy_it_shows() {
+    let (mut a, dir, _) = planned("nw-undo-kept");
+    a.notes_write();
+    let note = home(&dir).join("shot-0.md");
+    let mut text = std::fs::read_to_string(&note).expect("note");
+    text.push_str("\nMy own words.\n");
+    std::fs::write(&note, &text).expect("edited");
+    let path = records(&a)[0].path.clone();
+    a.run_undo_ask(path.clone());
+    let (_, question, can) = a.ui.runs.undo.clone().expect("the question");
+    assert!(can, "{question}");
+    assert!(
+        question.contains("1 picture stays with the note that shows it."),
+        "{question}"
+    );
+    a.run_undo(path);
+    let pics = home(&dir).join("pictures");
+    assert_eq!(std::fs::read_to_string(&note).expect("kept"), text);
+    assert!(
+        pics.join("Shot 0.png").is_file(),
+        "the picture it shows stays"
+    );
+    assert!(!pics.join("Shot 1.png").exists() && !pics.join("Shot 2.png").exists());
+    assert!(!home(&dir).join("shot-1.md").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of V5, 1: a run that dies at any step leaves a record that owns everything it
+/// made, so undo from that record leaves the library and the desk as they were.
+#[test]
+fn a_run_that_died_at_any_step_is_undone_from_its_record() {
+    for step in [
+        "after the record",
+        "after the folders",
+        "mid-copies",
+        "before the notes",
+        "mid-notes",
+        "before the links",
+    ] {
+        let (mut a, dir, shots) = planned("nw-died-at");
+        let group = std::fs::read(group_file(&dir)).expect("group");
+        super::notes_write::DIES_AT.with(|d| d.set(Some(step)));
+        a.notes_write();
+        super::notes_write::DIES_AT.with(|d| d.set(None));
+        let list = records(&a);
+        assert_eq!(list.len(), 1, "{step}");
+        assert_eq!(list[0].record.state, runs::State::Writing, "{step}");
+        a.run_undo(list[0].path.clone());
+        assert!(
+            !home(&dir).exists(),
+            "{step}: {:?}",
+            files_under(&dir.join("library"))
+        );
+        assert_eq!(
+            std::fs::read(group_file(&dir)).expect("group"),
+            group,
+            "{step}"
+        );
+        assert!(shots.iter().all(|s| s.is_file()), "{step}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// A file where the copies' folder would be, so every copy of the run fails to be written.
+fn block_the_copies(dir: &Path) {
+    std::fs::create_dir_all(home(dir)).expect("home");
+    std::fs::write(home(dir).join("pictures"), "a file, not a folder").expect("blocked");
+}
+
+/// Fable's review of V5, 9: a note recomposed with the copies that failed said in it is held to
+/// the note's limit again, and left out past it; and review 2: when no note is written, the
+/// window stays open with its pictures and says why.
+#[test]
+fn a_note_grown_past_its_limit_by_a_failed_copy_is_left_out() {
+    let (mut a, dir, _) = planned("nw-too-large");
+    // Each note just under its limit as planned, so that saying its copy failed takes it over.
+    let pad = "x".repeat(mdedit_core::notes_write::NOTE_BYTES_MAX - 200);
+    if let Some(run) = a.task.as_mut().and_then(|s| s.notes_run.as_mut()) {
+        for d in run.arranged.as_mut().expect("plan").notes.iter_mut() {
+            d.body.push(mdedit_core::notes_ai::Part::Text(pad.clone()));
+            d.body.push(mdedit_core::notes_ai::Part::Text(
+                "y".repeat(150).to_string(),
+            ));
+        }
+    }
+    assert_eq!(a.notes_write_blocked(), None, "the plan fits as planned");
+    block_the_copies(&dir);
+    a.notes_write();
+    let written: Vec<PathBuf> = files_under(&home(&dir))
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "md"))
+        .collect();
+    assert!(written.is_empty(), "{written:?}");
+    assert!(a.task.is_some(), "the window stays");
+    let said = toast(&a);
+    assert!(said.contains("No note could be written"), "{said}");
+    assert!(said.contains("KB a note may hold"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A window of Write notes over one pasted picture, Copy off, its plan made.
+fn pasted_run(tag: &str) -> (App, PathBuf, PathBuf) {
+    let dir = scratch(tag);
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    std::fs::create_dir_all(dir.join("library")).expect("library");
+    let pasted_dir = crate::notes_task::pasted_dir();
+    std::fs::create_dir_all(&pasted_dir).expect("pasted");
+    let pasted = pasted_dir.join(format!("Screenshot {tag}-{}.png", std::process::id()));
+    std::fs::write(&pasted, b"pasted bytes").expect("pasted");
+    a.task_open(TaskKind::Notes, vec![pasted.clone()]);
+    if let Some(s) = a.task.as_mut() {
+        s.dest = DestChoice::New("Shots".to_string());
+        s.new_group = Some(mdshared_ui::textfield::TextField::new());
+        s.new_group.as_mut().expect("field").set_text("Shots");
+        s.notes.how_many = HowMany::PerPicture;
+        s.notes.copy = false;
+    }
+    a.task_new_group_commit();
+    a.task_run();
+    (a, dir, pasted)
+}
+
+/// Fable's review of V5, 2: a pasted picture whose copy failed is the only copy of that
+/// screenshot, so the window does not close (closing deletes the pasted files) and says why.
+#[test]
+fn a_pasted_picture_whose_copy_failed_keeps_the_window_open() {
+    let (mut a, dir, pasted) = pasted_run("nw-pasted-fail");
+    block_the_copies(&dir);
+    a.notes_write();
+    assert!(a.task.is_some(), "the window stays");
+    assert!(pasted.is_file(), "the pasted picture is not lost");
+    let said = toast(&a);
+    assert!(said.contains("pasted picture"), "{said}");
+    assert!(
+        said.contains("undo this run from AI runs"),
+        "how to write again: {said}"
+    );
+    a.task_close();
+    let _ = std::fs::remove_file(&pasted);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of V5, 5: a copy of a pasted picture names no original in the record, since
+/// its temp file goes with the window; undo removes it while it is what was written.
+#[test]
+fn a_pasted_picture_s_copy_is_undone_after_the_window_closed() {
+    let (mut a, dir, pasted) = pasted_run("nw-pasted-undo");
+    a.notes_write();
+    assert!(a.task.is_none(), "the window closed");
+    assert!(!pasted.exists(), "its pasted file went with it");
+    let list = records(&a);
+    let r = &list[0].record;
+    assert_eq!(r.pictures.len(), 1);
+    assert!(r.pictures[0].created);
+    assert_eq!(r.pictures[0].original, None, "{:?}", r.pictures[0]);
+    a.run_undo(list[0].path.clone());
+    assert!(
+        !home(&dir).exists(),
+        "{:?}",
+        files_under(&dir.join("library"))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fable's review of V5, 6: with Copy off a picture on a network share is copied, as a pasted
+/// one is, since no `file:` link from a note leads to it; one on a drive is linked where it is.
+#[test]
+fn a_picture_on_a_network_share_is_copied_even_with_copy_off() {
+    use super::notes_write::{copied_anyway, on_share};
+    for share in [
+        r"\\server\share\a.png",
+        r"\\?\UNC\server\share\a.png",
+        "//server/share/a.png",
+    ] {
+        assert!(on_share(Path::new(share)), "{share}");
+        assert!(copied_anyway(Path::new(share)), "{share}");
+    }
+    for local in [r"C:\desk\a.png", r"\\?\C:\desk\a.png", "D:/desk/a.png"] {
+        assert!(!on_share(Path::new(local)), "{local}");
+        assert!(!copied_anyway(Path::new(local)), "{local}");
+    }
+    assert!(copied_anyway(
+        &crate::notes_task::pasted_dir().join("x.png")
+    ));
 }
