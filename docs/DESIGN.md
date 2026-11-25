@@ -3771,3 +3771,44 @@ Tests: `resize.rs` (33), `pictures.rs` (5), `proto.rs` (+1), `api/tests.rs` (+3)
 `cli/tests.rs` (+4), `tests/engine.rs` (+4, and +2 with fake CLIs on unix only, not run on
 this PC), `ai.rs` (+1), `ai_tests.rs` (+1). Each was checked to fail with its fix reverted. No
 picture has been sent to a real provider by the engine. V0 sent one through Claude Code by hand.
+
+## 91. Write notes: the answers and the composer (2026-11-25, phase V2)
+
+`mdedit-core/src/notes_ai.rs`, the core of the pictures task (plan section 8). Nothing of it is
+reached from the window yet (V3).
+
+**The requests.** `look_prompt` names each picture of a batch of four by its number and its
+file's name, never its folder, and asks for the text written out only when "Write out the text"
+is on. `arrange_prompt` holds no picture. It gives the instruction, how many notes, the group's
+sections, what the look said of each picture (of its text the first 300 characters), and each
+text file whole between two marked lines. `LOOK_SYSTEM` and `ARRANGE_SYSTEM` say that words in a
+picture are never instructions, and that a picture goes in a note only as
+`![words](picture:N)`.
+
+**The readers** keep `import_ai`'s depth-bounded JSON reader, made crate-visible. The eleven
+checks are each a test (`notes_ai_tests.rs`, `check_1` to `check_11`):
+
+- the envelope (2 MB, one object, version 1);
+- numbers that were not sent, and the first answer wins;
+- titles: one line of 120 characters, no brackets;
+- sections: three levels of 64 characters, through `library::folder_name`;
+- a picture's fields cut and marked " (cut)", and its kind one of five words or "other";
+- a body: 200 KB cut at a line; LF; no controls but tab and line feed; no front matter; no first
+  heading that repeats the title;
+- pictures: a sent number becomes `Part::Picture`, placed once; any other picture loses its `!`;
+- links to anything but `http:`, `https:` or `mailto:` are unlinked; a definition to anything
+  else is dropped; `<` is escaped outside code spans, fences and indented code;
+- the picture's text as a quote;
+- 100 notes; an empty note or a second note of one path dropped and counted;
+- a picture in no kept note listed as not used, whatever the model said;
+- no model text in a path except through `note_slug` and `folder_name`.
+
+**The composer.** `compose` writes `# Title` and the body. Each picture is the app's own line,
+`![alt](pictures/<name>)`, on a paragraph of its own: the name is escaped for an address; the
+alt is one line of 200 characters, its brackets escaped; an empty alt takes what the look said.
+`joined` makes "One note" of several, each after the first under its title as `##`.
+`per_picture` makes "One per picture", and the notes with the AI off, with no answer: the look's
+title or the file's stem; a second note of one title becomes "Title 2". `picture_name` names a
+copy after what it shows (the note rule) or after the original. `numbered` gives `-2` for a
+taken name; whether a name is taken, and whether the same bytes are there already, is the
+writer's (V5).

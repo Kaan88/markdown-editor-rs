@@ -803,7 +803,7 @@ fn reads_back(text: &str) -> bool {
 // app aborts on a panic and a model's answer is text from outside.
 
 #[derive(Debug)]
-enum Json {
+pub(crate) enum Json {
     Null,
     Bool,
     Num(f64),
@@ -813,21 +813,21 @@ enum Json {
 }
 
 impl Json {
-    fn get(&self, key: &str) -> Option<&Json> {
+    pub(crate) fn get(&self, key: &str) -> Option<&Json> {
         match self {
             Json::Obj(items) => items.iter().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
         }
     }
 
-    fn str(&self) -> Option<&str> {
+    pub(crate) fn str(&self) -> Option<&str> {
         match self {
             Json::Str(s) => Some(s),
             _ => None,
         }
     }
 
-    fn num(&self) -> Option<f64> {
+    pub(crate) fn num(&self) -> Option<f64> {
         match self {
             Json::Num(n) if n.is_finite() => Some(*n),
             _ => None,
@@ -835,12 +835,12 @@ impl Json {
     }
 
     /// A whole number that is 0 or more, as a row or file number.
-    fn whole(&self) -> Option<usize> {
+    pub(crate) fn whole(&self) -> Option<usize> {
         let n = self.num()?;
         (n >= 0.0 && n.fract() == 0.0 && n <= usize::MAX as f64).then_some(n as usize)
     }
 
-    fn arr(&self) -> Option<&[Json]> {
+    pub(crate) fn arr(&self) -> Option<&[Json]> {
         match self {
             Json::Arr(items) => Some(items),
             _ => None,
@@ -851,7 +851,7 @@ impl Json {
 const JSON_DEPTH: u8 = 32;
 
 /// The first balanced `{…}` in `text`, braces inside strings not counted.
-fn first_object(text: &str) -> Option<&str> {
+pub(crate) fn first_object(text: &str) -> Option<&str> {
     let start = text.find('{')?;
     let b = text.as_bytes();
     let mut depth = 0usize;
@@ -885,7 +885,7 @@ fn first_object(text: &str) -> Option<&str> {
     None
 }
 
-fn parse_json(text: &str) -> Option<Json> {
+pub(crate) fn parse_json(text: &str) -> Option<Json> {
     let mut r = Reader {
         b: text.as_bytes(),
         at: 0,

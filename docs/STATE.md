@@ -51,7 +51,8 @@ released. If `git log -1` is newer, doubt "In hand" first.
   window with real files. **V1**, the engine sends pictures (protocol 2, `prepare`, `sent`, the
   four senders, the resizer; D-221, D-222, DESIGN 90): `f/ai-engine` is merged into this
   branch, its D-214 renumbered D-221. No picture has been sent to a provider by the engine; the
-  unix fake-CLI tests run only in CI. Next V2 to V6. Release notes so far:
+  unix fake-CLI tests run only in CI. **V2**, the core of Write notes (`notes_ai`, the eleven
+  checks, the composer; DESIGN 91). Next V3 to V6. Release notes so far:
   `docs/release-notes/unreleased.md`.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 

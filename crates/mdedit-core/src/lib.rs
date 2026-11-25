@@ -30,6 +30,7 @@ pub mod markdown;
 pub mod merge;
 pub mod multi;
 pub mod multiline;
+pub mod notes_ai;
 pub mod prefs;
 pub mod recovery;
 pub mod replace;
