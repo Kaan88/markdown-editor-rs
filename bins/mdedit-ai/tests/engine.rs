@@ -139,7 +139,7 @@ impl Engine {
         };
         let hello = e.next();
         assert_eq!(hello["ev"], "hello");
-        assert_eq!(hello["version"], 1);
+        assert_eq!(hello["version"], 2);
         e
     }
 
@@ -523,7 +523,7 @@ mod fake_cli {
 
     /// A shell script standing in for a CLI: it saves its arguments and stdin beside itself,
     /// then prints `out`.
-    fn script(name: &str, out: &str, exit: i32) -> std::path::PathBuf {
+    pub(super) fn script(name: &str, out: &str, exit: i32) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "mdedit-ai-test-{}-{name}-{exit}",
             std::process::id()
@@ -531,7 +531,7 @@ mod fake_cli {
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join(name);
         let body = format!(
-            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '9.9.9 (fake)'; exit 0; fi\nprintf '%s\\n' \"$@\" > \"{d}/args\"\ncat > \"{d}/stdin\"\ncat <<'EOF'\n{out}\nEOF\nexit {exit}\n",
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '9.9.9 (fake)'; exit 0; fi\nprintf '%s\\n' \"$@\" > \"{d}/args\"\nfor a in \"$@\"; do if [ -f \"$a\" ]; then echo \"$a\" >> \"{d}/existed\"; fi; done\ncat >\"{d}/stdin\"\ncat <<'EOF'\n{out}\nEOF\nexit {exit}\n",
             d = dir.display()
         );
         std::fs::write(&p, body).unwrap();
@@ -663,5 +663,264 @@ mod fake_cli {
         assert!(t.elapsed() < Duration::from_secs(5));
         // Nothing more comes for the cancelled run.
         assert!(e.events.recv_timeout(Duration::from_millis(500)).is_err());
+    }
+}
+
+/// A PNG of `w` × `h` in a scratch folder of its own, and its path.
+fn picture(name: &str, w: u32, h: u32) -> String {
+    let dir =
+        std::env::temp_dir().join(format!("mdedit-ai-test-{}-pic-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut b = Vec::new();
+    {
+        let mut e = png::Encoder::new(&mut b, w, h);
+        e.set_color(png::ColorType::Rgb);
+        let mut wr = e.write_header().unwrap();
+        wr.write_image_data(&vec![90u8; (w * h * 3) as usize])
+            .unwrap();
+    }
+    let p = dir.join(format!("{name}.png"));
+    std::fs::write(&p, b).unwrap();
+    p.to_string_lossy().into_owned()
+}
+
+/// `prepare` of one picture: its `picture` event, after which `prepared` comes.
+fn measure(e: &mut Engine, path: &str) -> Value {
+    e.send(json!({"op": "prepare", "id": 30, "images": [{"path": path}]}));
+    let p = e.answer();
+    assert_eq!(p["ev"], "picture", "{p}");
+    let end = e.answer();
+    assert_eq!(end, json!({"ev": "prepared", "id": 30, "count": 1}));
+    p
+}
+
+fn run_with(conn: Value, model: &str, images: Value) -> Value {
+    let mut r = run(conn, model, "");
+    r["images"] = images;
+    r
+}
+
+/// Plan 6: `prepare` says what would be sent, one event per picture, and why not for one that
+/// cannot go; nothing is sent anywhere.
+#[test]
+fn prepare_says_what_each_picture_would_be() {
+    let big = picture("big", 2000, 1000);
+    let mut e = Engine::start(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")]);
+    e.send(json!({"op": "prepare", "id": 4,
+                  "images": [{"path": big}, {"path": "/no/such/IMG_1.jpg"}]}));
+    let a = e.answer();
+    assert_eq!(a["index"], 0, "{a}");
+    assert_eq!(a["format"], "png");
+    assert_eq!(a["width"], 1568);
+    assert_eq!(a["original_width"], 2000);
+    assert!(a["thumb"].as_str().is_some());
+    let b = e.answer();
+    assert_eq!(b["index"], 1, "{b}");
+    assert_eq!(b["error"], "IMG_1.jpg: it is not there any more");
+    assert_eq!(e.answer(), json!({"ev": "prepared", "id": 4, "count": 2}));
+    // The larger long side is taken when asked for.
+    e.send(json!({"op": "prepare", "id": 5, "images": [{"path": big}], "long_side": 2576}));
+    assert_eq!(e.answer()["width"], 2000);
+}
+
+/// Plan 6 and 16: a run with pictures says what went (`sent`) before the answer, and the Claude
+/// API is sent the picture before the text.
+#[test]
+fn claude_api_is_sent_the_pictures_first() {
+    let (base, seen) = stub(|path| match path {
+        p if p.starts_with("/v1/models") => (200, vec![], r#"{"data":[],"has_more":false}"#.into()),
+        _ => (
+            200,
+            vec![("content-type", "text/event-stream".into())],
+            sse(&[
+                json!({"type": "content_block_delta", "index": 0,
+                       "delta": {"type": "text_delta", "text": "A beach."}}),
+                json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}}),
+                json!({"type": "message_stop"}),
+            ]),
+        ),
+    });
+    let pic = picture("claude", 40, 20);
+    let mut e = Engine::start(&[("ANTHROPIC_BASE_URL", &base)]);
+    let m = measure(&mut e, &pic);
+    let sha = m["sha256"].as_str().unwrap().to_string();
+    e.send(run_with(
+        json!({"kind": "claude-api"}),
+        "claude-opus-5-5",
+        json!([{"path": pic, "sha256": sha}]),
+    ));
+    let s = e.answer();
+    assert_eq!(s["ev"], "sent", "{s}");
+    assert_eq!(s["images"][0]["sha256"], sha.as_str());
+    assert_eq!(s["images"][0]["bytes"], m["bytes"]);
+    assert_eq!(
+        s["text_bytes"],
+        "Rewrite as Markdown.".len() + "trip notes".len()
+    );
+    let a = e.answer();
+    assert_eq!(a["text"], "A beach.", "{a}");
+    let _models = seen.recv().unwrap();
+    let msg = seen.recv().unwrap();
+    let body: Value = serde_json::from_str(&msg.body).unwrap();
+    let c = &body["messages"][0]["content"];
+    assert_eq!(c[0]["type"], "image");
+    assert_eq!(c[0]["source"]["media_type"], "image/png");
+    assert!(
+        c[0]["source"]["data"]
+            .as_str()
+            .unwrap()
+            .starts_with("iVBORw0KGgo")
+    );
+    assert_eq!(c[1]["text"], "trip notes");
+}
+
+/// Plan 6: a picture that no longer makes the bytes measured is refused, and nothing is sent.
+#[test]
+fn a_picture_changed_since_measured_sends_nothing() {
+    let (base, seen) = stub(|_| (500, vec![], String::new()));
+    let pic = picture("changed", 40, 20);
+    let mut e = Engine::start(&[("ANTHROPIC_BASE_URL", &base)]);
+    let sha = measure(&mut e, &pic)["sha256"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    std::fs::write(&pic, b"not a picture any more").unwrap();
+    e.send(run_with(
+        json!({"kind": "claude-api"}),
+        "m",
+        json!([{"path": pic, "sha256": sha}]),
+    ));
+    let a = e.answer();
+    assert_eq!(a["ev"], "error", "{a}");
+    assert_eq!(a["kind"], "image");
+    assert!(
+        a["message"].as_str().unwrap().starts_with("changed.png:"),
+        "{a}"
+    );
+    assert!(seen.recv_timeout(Duration::from_millis(500)).is_err());
+    // A digest that was never measured is refused the same way.
+    let pic = picture("unmeasured", 40, 20);
+    e.send(run_with(
+        json!({"kind": "claude-api"}),
+        "m",
+        json!([{"path": pic, "sha256": "00"}]),
+    ));
+    let a = e.answer();
+    assert_eq!(
+        a["message"],
+        "unmeasured.png: changed since it was measured"
+    );
+    assert!(seen.recv_timeout(Duration::from_millis(500)).is_err());
+}
+
+/// Plan 6 and 15: an OpenAI-style server is sent data URLs after the text; one that answers 400
+/// about images is a model that reads no pictures.
+#[test]
+fn an_openai_model_that_reads_no_pictures_is_said_so() {
+    let (base, seen) = stub(|_| {
+        (
+            400,
+            vec![],
+            r#"{"error":{"message":"This model does not support image inputs."}}"#.into(),
+        )
+    });
+    let pic = picture("openai", 40, 20);
+    let mut e = Engine::start(&[]);
+    let sha = measure(&mut e, &pic)["sha256"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let conn = json!({"kind": "openai", "base_url": format!("{base}/v1"), "slot": "openai:ollama"});
+    e.send(run_with(
+        conn,
+        "llama3",
+        json!([{"path": pic, "sha256": sha}]),
+    ));
+    assert_eq!(e.answer()["ev"], "sent");
+    let a = e.answer();
+    assert_eq!(a["kind"], "no_vision", "{a}");
+    let host = base.trim_start_matches("http://");
+    assert_eq!(
+        a["message"],
+        format!("This model does not read pictures: llama3 at {host}.")
+    );
+    let chat = seen.recv().unwrap();
+    let body: Value = serde_json::from_str(&chat.body).unwrap();
+    let c = &body["messages"][1]["content"];
+    assert_eq!(c[0]["text"], "trip notes");
+    assert!(
+        c[1]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,iVBOR")
+    );
+}
+
+#[cfg(unix)]
+mod fake_cli_pictures {
+    use super::fake_cli::script;
+    use super::*;
+
+    /// D-214: Claude Code is sent one stream-json line on stdin with the picture first.
+    #[test]
+    fn claude_code_reads_the_pictures_on_stdin() {
+        let out = json!({"type": "result", "subtype": "success", "is_error": false,
+                         "result": "A beach."})
+        .to_string();
+        let p = script("claude-pic", &out, 0);
+        let pic = picture("cc", 40, 20);
+        let mut e = Engine::start(&[]);
+        let sha = measure(&mut e, &pic)["sha256"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        e.send(run_with(
+            json!({"kind": "claude-code", "program": p}),
+            "",
+            json!([{"path": pic, "sha256": sha}]),
+        ));
+        assert_eq!(e.answer()["ev"], "sent");
+        assert_eq!(e.answer()["text"], "A beach.");
+        let dir = p.parent().unwrap();
+        let args = std::fs::read_to_string(dir.join("args")).unwrap();
+        assert!(args.contains("--input-format\nstream-json\n"), "{args}");
+        assert!(args.contains("--strict-mcp-config\n"), "{args}");
+        let stdin = std::fs::read_to_string(dir.join("stdin")).unwrap();
+        let v: Value = serde_json::from_str(stdin.trim_end()).unwrap();
+        assert_eq!(v["message"]["content"][0]["type"], "image");
+        assert_eq!(v["message"]["content"][1]["text"], "trip notes");
+    }
+
+    /// D-214 and plan 13: Codex is named each picture file, which is there during the run and
+    /// gone after it.
+    #[test]
+    fn codex_is_given_picture_files_that_are_gone_afterwards() {
+        let out = json!({"type": "item.completed",
+                         "item": {"type": "agent_message", "text": "A beach."}})
+        .to_string();
+        let p = script("codex-pic", &out, 0);
+        let pic = picture("codex", 40, 20);
+        let mut e = Engine::start(&[]);
+        let sha = measure(&mut e, &pic)["sha256"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        e.send(run_with(
+            json!({"kind": "codex", "program": p}),
+            "",
+            json!([{"path": pic, "sha256": sha}]),
+        ));
+        assert_eq!(e.answer()["ev"], "sent");
+        assert_eq!(e.answer()["text"], "A beach.");
+        let dir = p.parent().unwrap();
+        let args = std::fs::read_to_string(dir.join("args")).unwrap();
+        let lines: Vec<&str> = args.lines().collect();
+        let at = lines.iter().position(|l| *l == "--image").expect("--image");
+        let file = lines[at + 1];
+        assert!(file.ends_with("/1.png"), "{args}");
+        assert_eq!(&lines[lines.len() - 2..], ["--", "-"]);
+        let existed = std::fs::read_to_string(dir.join("existed")).unwrap();
+        assert!(existed.lines().any(|l| l == file), "{existed}");
+        assert!(!std::path::Path::new(file).exists());
     }
 }

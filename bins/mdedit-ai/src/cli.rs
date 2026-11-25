@@ -12,6 +12,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::Job;
+use crate::pictures::{Ready, base64};
 use crate::proto::{Cli, Fail};
 
 impl Cli {
@@ -306,7 +307,10 @@ fn classify(cli: Cli, msg: &str) -> Fail {
     Fail::new(kind, format!("{}: {msg}", cli.name()))
 }
 
-pub fn claude_args(model: &str, effort: &str, system: &str) -> Vec<String> {
+/// Claude Code's arguments. `--tools ""` turns off its own tools and `--strict-mcp-config`, with
+/// no `--mcp-config`, the MCP servers of the user's configuration (D-213). With pictures the
+/// input is one stream-json line (D-214).
+pub fn claude_args(model: &str, effort: &str, system: &str, with_images: bool) -> Vec<String> {
     let mut a: Vec<String> = [
         "-p",
         "--output-format",
@@ -315,6 +319,7 @@ pub fn claude_args(model: &str, effort: &str, system: &str) -> Vec<String> {
         "--include-partial-messages",
         "--tools",
         "",
+        "--strict-mcp-config",
         "--no-session-persistence",
         "--system-prompt",
         system,
@@ -322,6 +327,9 @@ pub fn claude_args(model: &str, effort: &str, system: &str) -> Vec<String> {
     .iter()
     .map(|s| s.to_string())
     .collect();
+    if with_images {
+        a.extend(["--input-format".into(), "stream-json".into()]);
+    }
     if !model.is_empty() {
         a.extend(["--model".into(), model.into()]);
     }
@@ -329,6 +337,24 @@ pub fn claude_args(model: &str, effort: &str, system: &str) -> Vec<String> {
         a.extend(["--effort".into(), effort.into()]);
     }
     a
+}
+
+/// What Claude Code reads on stdin for a run with pictures: one user message whose content is
+/// the pictures, then the text.
+pub fn claude_input(prompt: &str, images: &[Ready]) -> String {
+    let mut content: Vec<Value> = images
+        .iter()
+        .map(|r| {
+            serde_json::json!({"type": "image", "source": {
+                "type": "base64", "media_type": r.mime, "data": base64(&r.bytes)}})
+        })
+        .collect();
+    content.push(serde_json::json!({"type": "text", "text": prompt}));
+    let line = serde_json::json!({
+        "type": "user",
+        "message": {"role": "user", "content": content},
+    });
+    format!("{line}\n")
 }
 
 /// Claude Code's stream-json lines: text deltas for progress, then one `result` line.
@@ -375,22 +401,29 @@ impl ClaudeLines {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_claude(
     program: &str,
     model: &str,
     effort: &str,
     system: &str,
     prompt: &str,
+    images: &[Ready],
     job: &Job,
     progress: &dyn Fn(usize),
 ) -> Result<String, Fail> {
     let cli = Cli::ClaudeCode;
     let mut lines = ClaudeLines::default();
+    let input = if images.is_empty() {
+        prompt.to_string()
+    } else {
+        claude_input(prompt, images)
+    };
     let r = run(
         cli,
         program,
-        &claude_args(model, effort, system),
-        prompt,
+        &claude_args(model, effort, system, !images.is_empty()),
+        &input,
         job,
         progress,
         &mut |v| lines.line(v),
@@ -416,7 +449,9 @@ fn said(status: std::process::ExitStatus, stderr: &str) -> String {
     }
 }
 
-pub fn codex_args(model: &str, effort: &str) -> Vec<String> {
+/// Codex's arguments: one `--image` per picture file, and the prompt on stdin (`-`), after `--`
+/// when there are pictures, since `--image` takes several values.
+pub fn codex_args(model: &str, effort: &str, images: &[PathBuf]) -> Vec<String> {
     let mut a: Vec<String> = [
         "exec",
         "--json",
@@ -434,9 +469,96 @@ pub fn codex_args(model: &str, effort: &str) -> Vec<String> {
     if !effort.is_empty() {
         a.extend(["-c".into(), format!("model_reasoning_effort=\"{effort}\"")]);
     }
+    for p in images {
+        a.extend(["--image".into(), p.to_string_lossy().into_owned()]);
+    }
+    if !images.is_empty() {
+        a.push("--".into());
+    }
     // The prompt is read from stdin.
     a.push("-".into());
     a
+}
+
+/// The start of the name of a folder that holds a Codex run's pictures.
+pub const PICTURES_DIR: &str = "mdedit-ai-pictures-";
+
+/// A folder older than this is a run's that never cleaned up (the engine was killed): the
+/// longest a run can take is far below it.
+const PICTURES_STALE: Duration = Duration::from_secs(6 * 3600);
+
+/// A new private folder under the temp folder with a run's pictures in it, as `1.jpg`, `2.png`…;
+/// removed when it is dropped.
+pub struct PictureFiles {
+    pub dir: PathBuf,
+    pub files: Vec<PathBuf>,
+}
+
+impl PictureFiles {
+    pub fn write(images: &[Ready]) -> Result<PictureFiles, Fail> {
+        let temp = std::env::temp_dir();
+        sweep(&temp);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let dir = temp.join(format!("{PICTURES_DIR}{}-{nanos}", std::process::id()));
+        let fail = |e: std::io::Error| {
+            Fail::new(
+                "image",
+                format!("The pictures could not be written for Codex: {e}"),
+            )
+        };
+        let b = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        let b = {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut b = b;
+            b.mode(0o700);
+            b
+        };
+        b.create(&dir).map_err(fail)?;
+        let mut me = PictureFiles {
+            dir,
+            files: Vec::new(),
+        };
+        if me.dir.to_string_lossy().contains(',') {
+            return Err(Fail::new(
+                "image",
+                "Codex cannot be sent pictures from a temp folder whose path has a comma in it.",
+            ));
+        }
+        for (i, r) in images.iter().enumerate() {
+            let f = me.dir.join(format!("{}.{}", i + 1, r.ext));
+            std::fs::write(&f, &r.bytes).map_err(fail)?;
+            me.files.push(f);
+        }
+        Ok(me)
+    }
+}
+
+impl Drop for PictureFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// Removes the picture folders runs left behind (an engine that was killed).
+fn sweep(temp: &Path) {
+    let Ok(rd) = std::fs::read_dir(temp) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let stale = e
+            .metadata()
+            .ok()
+            .filter(|m| m.is_dir())
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > PICTURES_STALE);
+        if stale && e.file_name().to_string_lossy().starts_with(PICTURES_DIR) {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
 }
 
 /// Codex's `exec --json` lines: `item.completed` items of type `agent_message` carry the answer;
@@ -465,12 +587,14 @@ impl CodexLines {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_codex(
     program: &str,
     model: &str,
     effort: &str,
     system: &str,
     prompt: &str,
+    images: &[Ready],
     job: &Job,
     progress: &dyn Fn(usize),
 ) -> Result<String, Fail> {
@@ -478,10 +602,17 @@ pub fn run_codex(
     let mut lines = CodexLines::default();
     // Codex takes no system prompt on its command line: the rules go first in the prompt.
     let input = format!("{system}\n\n{prompt}");
+    // Kept to the end of the run: the folder goes when this does.
+    let pictures = if images.is_empty() {
+        None
+    } else {
+        Some(PictureFiles::write(images)?)
+    };
+    let files = pictures.as_ref().map_or(&[][..], |p| &p.files[..]);
     let r = run(
         cli,
         program,
-        &codex_args(model, effort),
+        &codex_args(model, effort, files),
         &input,
         job,
         progress,

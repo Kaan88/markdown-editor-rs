@@ -17,6 +17,13 @@ serde_json = "1"
 keyring = "=4.2.0"
 # Names a custom endpoint's key by a digest of its URL (fixed length, case kept).
 sha2 = "0.11"
+# Pictures made ready to send (resize.rs, docs/ai-pictures-plan.md section 7). The decoders were
+# in Cargo.lock already through mdedit's preview; jpeg-encoder is the one new package (no
+# dependencies of its own), approved by the owner for phase V1.
+zune-jpeg = "=0.5.15"
+png = { version = "=0.18.1", default-features = false }
+image-webp = { version = "=0.2.4", default-features = false }
+jpeg-encoder = { version = "=0.7.1", default-features = false }
 
 # HTTPS with the system's own TLS and certificates where there is one: SChannel on Windows (with
 # the system proxy from the registry), Security.framework on macOS. Linux has rustls with the
@@ -27,3 +34,7 @@ ureq = { version = "=3.5.2", default-features = false, features = ["native-tls-n
 ureq = { version = "=3.5.2", default-features = false, features = ["native-tls-no-default"] }
 [target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 ureq = { version = "=3.5.2", default-features = false, features = ["rustls", "platform-verifier"] }
+
+[dev-dependencies]
+# Only makes the GIF fixture: a GIF is never decoded here.
+gif = { version = "=0.14.2", default-features = false, features = ["std"] }

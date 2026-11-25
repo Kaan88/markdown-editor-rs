@@ -2,20 +2,20 @@ use super::*;
 
 #[test]
 fn claude_runs_with_no_tools_and_no_session() {
-    let a = claude_args("sonnet", "high", "Rules.");
+    let a = claude_args("sonnet", "high", "Rules.", false);
     let at = |s: &str| a.iter().position(|x| x == s).unwrap();
     assert_eq!(a[at("--tools") + 1], "");
     assert_eq!(a[at("--system-prompt") + 1], "Rules.");
     assert_eq!(a[at("--model") + 1], "sonnet");
     assert_eq!(a[at("--effort") + 1], "high");
     assert!(a.contains(&"--no-session-persistence".to_string()));
-    let a = claude_args("", "", "R");
+    let a = claude_args("", "", "R", false);
     assert!(!a.contains(&"--model".to_string()) && !a.contains(&"--effort".to_string()));
 }
 
 #[test]
 fn codex_runs_read_only_with_the_prompt_on_stdin() {
-    let a = codex_args("gpt-5", "low");
+    let a = codex_args("gpt-5", "low", &[]);
     assert_eq!(a[0], "exec");
     assert_eq!(a.last().unwrap(), "-");
     let at = |s: &str| a.iter().position(|x| x == s).unwrap();
@@ -85,4 +85,83 @@ fn stderr_at_its_limit_loses_the_cut_line() {
     assert!(!s.contains("sk-ant"), "the cut line stays");
     assert_eq!(s.len(), STDERR_MAX - 20);
     assert_eq!(stderr_text(b"error: no\nsk-x".to_vec()), "error: no\nsk-x");
+}
+
+fn ready(bytes: &[u8], mime: &'static str, ext: &'static str) -> Ready {
+    Ready {
+        bytes: bytes.to_vec(),
+        mime,
+        ext,
+        sha256: crate::pictures::digest(bytes),
+    }
+}
+
+/// D-213: no MCP server of the user's own configuration is loaded, text run or not; D-214: a run
+/// with pictures reads its input as stream-json.
+#[test]
+fn claude_loads_no_mcp_server_and_takes_pictures_as_stream_json() {
+    let a = claude_args("", "", "R", false);
+    assert!(a.contains(&"--strict-mcp-config".to_string()));
+    assert!(!a.contains(&"--mcp-config".to_string()));
+    assert!(!a.contains(&"--input-format".to_string()));
+    let a = claude_args("", "", "R", true);
+    let at = |s: &str| a.iter().position(|x| x == s).unwrap();
+    assert_eq!(a[at("--input-format") + 1], "stream-json");
+    assert!(a.contains(&"--strict-mcp-config".to_string()));
+}
+
+/// D-214: the pictures go first in one user message, then the text, as one line.
+#[test]
+fn claude_input_is_one_user_message_with_the_pictures_first() {
+    let s = claude_input("describe", &[ready(b"one", "image/png", "png")]);
+    assert!(s.ends_with('\n'));
+    assert_eq!(s.matches('\n').count(), 1);
+    let v: Value = serde_json::from_str(s.trim_end()).unwrap();
+    assert_eq!(v["type"], "user");
+    assert_eq!(v["message"]["role"], "user");
+    let c = &v["message"]["content"];
+    assert_eq!(c[0]["type"], "image");
+    assert_eq!(c[0]["source"]["media_type"], "image/png");
+    assert_eq!(c[0]["source"]["data"], "b25l");
+    assert_eq!(c[1]["type"], "text");
+    assert_eq!(c[1]["text"], "describe");
+}
+
+/// D-214: one `--image` per file, then `--` before the `-` that means "prompt on stdin".
+#[test]
+fn codex_names_each_picture_and_ends_its_options() {
+    let files = [PathBuf::from("/t/1.jpg"), PathBuf::from("/t/2.png")];
+    let a = codex_args("", "", &files);
+    let n = a.len();
+    assert_eq!(
+        &a[n - 6..],
+        ["--image", "/t/1.jpg", "--image", "/t/2.png", "--", "-"]
+    );
+}
+
+/// Plan 13: the pictures written for Codex are in a folder of their own, gone when the run is.
+#[test]
+fn codex_pictures_are_written_and_removed() {
+    let p = PictureFiles::write(&[
+        ready(b"one", "image/jpeg", "jpg"),
+        ready(b"two", "image/png", "png"),
+    ])
+    .unwrap();
+    let dir = p.dir.clone();
+    assert!(
+        dir.file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(PICTURES_DIR)
+    );
+    assert_eq!(std::fs::read(dir.join("1.jpg")).unwrap(), b"one");
+    assert_eq!(std::fs::read(dir.join("2.png")).unwrap(), b"two");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "{mode:o}");
+    }
+    drop(p);
+    assert!(!dir.exists());
 }

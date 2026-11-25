@@ -1,9 +1,10 @@
 //! The wire between mdedit and this engine: one JSON object per line.
 //!
-//! Requests (`"op"`): `hello`, `detect`, `models`, `run`, `cancel`, `key_set`, `key_clear`,
-//! `key_has`. Events (`"ev"`): `hello`, `delta` (characters received so far, for the status
-//! strip), `done` (the whole text), `error`, `models`, `detected`, `key`. Every event but `hello`
-//! carries the `id` of the request it answers.
+//! Requests (`"op"`): `hello`, `detect`, `models`, `run`, `prepare`, `cancel`, `key_set`,
+//! `key_clear`, `key_has`. Events (`"ev"`): `hello`, `sent` (what a run with pictures sends,
+//! before it is sent), `delta` (characters received so far, for the status strip), `done` (the
+//! whole text), `error`, `models`, `detected`, `key`, `picture` (one per picture of `prepare`)
+//! and `prepared` (its end). Every event but `hello` carries the `id` of the request it answers.
 
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -11,8 +12,14 @@ use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+pub use crate::pictures::Picture;
+
+fn yes() -> bool {
+    true
+}
+
 /// Bumped when a request or event changes shape.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -39,6 +46,23 @@ pub enum Request {
         effort: String,
         system: String,
         prompt: String,
+        /// Pictures sent before the text, each with the digest `prepare` gave (version 2).
+        #[serde(default)]
+        images: Vec<Picture>,
+        /// 0: the default long side.
+        #[serde(default)]
+        long_side: u32,
+        #[serde(default = "yes")]
+        strip: bool,
+    },
+    /// The pictures made ready as a run would send them; nothing is sent anywhere.
+    Prepare {
+        id: u64,
+        images: Vec<Picture>,
+        #[serde(default)]
+        long_side: u32,
+        #[serde(default = "yes")]
+        strip: bool,
     },
     Cancel {
         id: u64,
@@ -89,7 +113,8 @@ pub enum Conn {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fail {
     /// `auth`, `rate`, `declined`, `length`, `not_found`, `network`, `http`, `cli`,
-    /// `cancelled`, `keystore`, `bad_request`.
+    /// `cancelled`, `keystore`, `bad_request`, `no_vision` (the model reads no pictures),
+    /// `image` (a picture could not be made ready; the message names it).
     pub kind: &'static str,
     pub message: String,
     /// Seconds the provider asks to wait (rate limits).
@@ -270,6 +295,10 @@ pub fn key(id: u64, slot: &str, stored: bool) -> Value {
     json!({"ev": "key", "id": id, "slot": slot, "stored": stored})
 }
 
+pub fn prepared(id: u64, count: usize) -> Value {
+    json!({"ev": "prepared", "id": id, "count": count})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,6 +396,46 @@ mod tests {
             r,
             Request::Models {
                 conn: Conn::ClaudeApi,
+                ..
+            }
+        ));
+    }
+
+    /// Version 2: a run names its pictures; an older request without them still parses.
+    #[test]
+    fn a_run_names_its_pictures() {
+        assert_eq!(VERSION, 2);
+        assert_eq!(hello()["version"], 2);
+        let r: Request = serde_json::from_str(
+            r#"{"op":"run","id":9,"conn":{"kind":"claude-api"},"system":"s","prompt":"p","images":[{"path":"C:\\a\\IMG.jpg","sha256":"ab"}],"long_side":2576,"strip":false}"#,
+        )
+        .unwrap();
+        let Request::Run {
+            images,
+            long_side,
+            strip,
+            ..
+        } = r
+        else {
+            panic!()
+        };
+        assert_eq!(images[0].path, r"C:\a\IMG.jpg");
+        assert_eq!(images[0].sha256, "ab");
+        assert_eq!((long_side, strip), (2576, false));
+        let r: Request = serde_json::from_str(
+            r#"{"op":"run","id":1,"conn":{"kind":"claude-api"},"system":"s","prompt":"p"}"#,
+        )
+        .unwrap();
+        assert!(
+            matches!(r, Request::Run { ref images, long_side: 0, strip: true, .. } if images.is_empty())
+        );
+        let r: Request =
+            serde_json::from_str(r#"{"op":"prepare","id":2,"images":[{"path":"x.png"}]}"#).unwrap();
+        assert!(matches!(
+            r,
+            Request::Prepare {
+                id: 2,
+                strip: true,
                 ..
             }
         ));

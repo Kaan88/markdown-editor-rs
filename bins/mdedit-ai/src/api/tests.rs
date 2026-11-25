@@ -44,19 +44,19 @@ fn refusals_and_cut_answers_are_not_used() {
 
 #[test]
 fn the_claude_body_has_effort_only_when_set() {
-    let b = claude_body("claude-opus-5-5", "high", "sys", "text", 64000);
+    let b = claude_body("claude-opus-5-5", "high", "sys", "text", &[], 64000);
     assert_eq!(b["output_config"]["effort"], "high");
     assert_eq!(b["system"], "sys");
     assert_eq!(b["messages"][0]["content"], "text");
     assert_eq!(b["stream"], true);
-    let b = claude_body("m", "", "s", "t", 1);
+    let b = claude_body("m", "", "s", "t", &[], 1);
     assert!(b.get("output_config").is_none());
     assert!(b.get("thinking").is_none());
-    let o = openai_body("gpt", "", "s", "t");
+    let o = openai_body("gpt", "", "s", "t", &[]);
     assert!(o.get("reasoning_effort").is_none());
     assert_eq!(o["messages"][0]["role"], "system");
     assert_eq!(
-        openai_body("gpt", "low", "s", "t")["reasoning_effort"],
+        openai_body("gpt", "low", "s", "t", &[])["reasoning_effort"],
         "low"
     );
 }
@@ -228,4 +228,63 @@ fn an_address_s_user_and_password_are_not_shown() {
     );
     assert_eq!(host_of("http://127.0.0.1:1234/v1"), "127.0.0.1:1234");
     assert_eq!(host_of("https://"), "The server");
+}
+
+fn ready(bytes: &[u8], mime: &'static str) -> Ready {
+    Ready {
+        bytes: bytes.to_vec(),
+        mime,
+        ext: "jpg",
+        sha256: crate::pictures::digest(bytes),
+    }
+}
+
+/// Plan 6: the Claude API is sent the pictures first, then the text.
+#[test]
+fn a_claude_body_with_pictures_puts_them_before_the_text() {
+    let imgs = [ready(b"one", "image/jpeg"), ready(b"two", "image/png")];
+    let b = claude_body("m", "", "s", "describe", &imgs, 1);
+    let c = &b["messages"][0]["content"];
+    assert_eq!(c.as_array().map(Vec::len), Some(3));
+    assert_eq!(c[0]["type"], "image");
+    assert_eq!(c[0]["source"]["type"], "base64");
+    assert_eq!(c[0]["source"]["media_type"], "image/jpeg");
+    assert_eq!(c[0]["source"]["data"], "b25l");
+    assert_eq!(c[1]["source"]["media_type"], "image/png");
+    assert_eq!(c[2], json!({"type": "text", "text": "describe"}));
+}
+
+/// Plan 6: an OpenAI-style server is sent the text, then one data URL per picture.
+#[test]
+fn an_openai_body_with_pictures_has_data_urls_after_the_text() {
+    let imgs = [ready(b"one", "image/jpeg")];
+    let b = openai_body("gpt", "", "s", "describe", &imgs);
+    let c = &b["messages"][1]["content"];
+    assert_eq!(c[0], json!({"type": "text", "text": "describe"}));
+    assert_eq!(c[1]["type"], "image_url");
+    assert_eq!(c[1]["image_url"]["url"], "data:image/jpeg;base64,b25l");
+    assert_eq!(b["messages"][0]["content"], "s");
+}
+
+/// Plan 15: a refusal that speaks of pictures, for a request with pictures, says the model reads
+/// none; the same refusal of a text request, or one about something else, is left as it is.
+#[test]
+fn a_refusal_about_pictures_is_no_vision() {
+    let f = http_fail(
+        "localhost:11434",
+        400,
+        None,
+        r#"{"error":{"message":"model does not support image input"}}"#,
+    );
+    let v = no_vision(f.clone(), true, "llama3", "localhost:11434");
+    assert_eq!(v.kind, "no_vision");
+    assert_eq!(
+        v.message,
+        "This model does not read pictures: llama3 at localhost:11434."
+    );
+    assert_eq!(no_vision(f, false, "llama3", "h").kind, "http");
+    let other = http_fail("h", 400, None, r#"{"error":{"message":"bad temperature"}}"#);
+    assert_eq!(no_vision(other, true, "m", "h").kind, "http");
+    let auth = http_fail("h", 401, None, "image");
+    assert_eq!(no_vision(auth, true, "m", "h").kind, "auth");
 }
