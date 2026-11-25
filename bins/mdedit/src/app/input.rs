@@ -771,8 +771,13 @@ impl App {
             || hit == Hit::ResultsEdge;
         self.ui.results.set_focus(in_panel);
         // The notes pane keeps the keyboard through a press on its rows and its name box (a
-        // click on a row settles it); a press anywhere else takes it away.
-        if !matches!(hit, Hit::LibraryRow(_) | Hit::LibraryField) {
+        // click on a row settles it), and through one that only opens the AI menu or the main
+        // menu, so "AI task…" chosen there still works on its row (pictures plan 4.2); a press
+        // anywhere else takes it away.
+        if !matches!(
+            hit,
+            Hit::LibraryRow(_) | Hit::LibraryField | Hit::Bar(BarItem::AiEdit | BarItem::More)
+        ) {
             self.ui.library.focused = false;
         }
         let clicks = self.click_count(x, y);

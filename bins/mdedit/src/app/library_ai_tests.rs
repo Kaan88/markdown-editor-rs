@@ -152,3 +152,111 @@ fn ai_task_takes_the_row_the_keyboard_is_on() {
     assert_eq!(a.task.as_ref().map(|s| s.task), Some(TaskKind::Rewrite));
     let _ = std::fs::remove_dir_all(&l.dir);
 }
+
+/// Review of phase L, 1: the notes the line opens the window on are the library's own, and they
+/// take part in Rewrite them and Split them; only File them leaves them out, as filed already.
+#[test]
+fn the_notes_from_the_pane_take_part_in_rewrite_and_split() {
+    let (mut a, l) = lib("libai-part");
+    let money = row(&a, "Money");
+    pick(&mut a, LibAct::AiTask, money);
+    let s = a.task.as_mut().expect("the window is open");
+    let all: Vec<usize> = (0..s.files.len()).collect();
+    assert_eq!(
+        s.taking_part(),
+        all,
+        "every note takes part in Rewrite them"
+    );
+    s.set_task(TaskKind::Split);
+    assert_eq!(s.taking_part(), all, "and in Split them");
+    s.set_task(TaskKind::File);
+    assert!(s.taking_part().is_empty());
+    assert_eq!(
+        s.files[0].reason_for(TaskKind::File).as_deref(),
+        Some("already in the library")
+    );
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Review of phase L, 2: "AI task…" chosen with the mouse from the AI menu works on the row the
+/// pane had: the press on AI edit does not take the keyboard from the pane.
+#[test]
+fn ai_task_from_the_ai_menu_by_mouse_takes_the_pane_s_row() {
+    let (mut a, l) = lib("libai-mouse");
+    a.docs.prefs.ai_connection = mdedit_core::ai::Connection::ClaudeApi;
+    a.size = (1280, 800);
+    super::files_tests::open_now(&mut a, &l.taxes);
+    assert!(a.library_focus(), "the pane takes the keyboard");
+    let y2025 = row(&a, "2025");
+    a.ui.library.set_cur(y2025);
+    a.compose();
+    let r = a
+        .hit_rect(Hit::Bar(crate::ui::BarItem::AiEdit))
+        .expect("AI edit");
+    a.ui.mouse = (r.cx(), r.cy());
+    a.left_press();
+    a.left_release();
+    let item =
+        a.ui.popup
+            .as_ref()
+            .expect("the AI menu is open")
+            .menu
+            .items
+            .iter()
+            .find(|i| i.label.starts_with("AI tas&k"))
+            .map(|i| i.id.clone())
+            .expect("AI task… is in the AI menu");
+    a.choose(item, false);
+    assert_eq!(files(&a), vec![l.last.clone()]);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Review of phase L, 3: with a window parked by "Show what is sent", the line brings that
+/// window back as it was, its task and files with it, and does not put the notes into it.
+#[test]
+fn the_ai_task_on_a_row_brings_a_parked_window_back_as_it_was() {
+    let (mut a, l) = lib("libai-parked");
+    a.task_open(TaskKind::File, vec![l.taxes.clone()]);
+    a.task_parked = a.task.take();
+    let money = row(&a, "Money");
+    pick(&mut a, LibAct::AiTask, money);
+    let s = a.task.as_ref().expect("the window is back");
+    assert_eq!(s.task, TaskKind::File, "its task as it was");
+    assert_eq!(files(&a), vec![l.taxes.clone()], "its files as they were");
+    assert_eq!(a.task.as_ref().and_then(|s| s.from.clone()), None);
+    assert!(toast(&a).contains("back as it was"), "{}", toast(&a));
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Review of phase L, 10: "AI task…" with the keyboard on a section that has no note opens the
+/// window empty, as from anywhere else, rather than nothing.
+#[test]
+fn ai_task_on_an_empty_section_from_the_keyboard_opens_the_window_empty() {
+    let (mut a, l) = lib("libai-keys-empty");
+    assert!(a.library_focus(), "the pane takes the keyboard");
+    let trips = row(&a, "Trips");
+    a.ui.library.set_cur(trips);
+    a.command(C::AiTaskFiles);
+    let s = a.task.as_ref().expect("the window opens");
+    assert!(s.files.is_empty() && s.task == TaskKind::File);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// Review of phase L, 12: "AI task on this file…" on a note the library lists starts on Rewrite
+/// them, which can work on it; File them would only say it is filed already.
+#[test]
+fn ai_task_on_this_file_starts_on_rewrite_for_a_library_note() {
+    let (mut a, l) = lib("libai-tab");
+    super::files_tests::open_now(&mut a, &l.taxes);
+    a.command(C::AiTaskThisFile);
+    let s = a.task.as_ref().expect("the window is open");
+    assert_eq!(s.task, TaskKind::Rewrite);
+    assert_eq!(files(&a), vec![l.taxes.clone()]);
+    a.task = None;
+    let other = l.dir.join("other.md");
+    std::fs::write(&other, "# Other\n").expect("other");
+    super::files_tests::open_now(&mut a, &other);
+    a.command(C::AiTaskThisFile);
+    assert_eq!(a.task.as_ref().map(|s| s.task), Some(TaskKind::File));
+    let _ = std::fs::remove_dir_all(&l.dir);
+}

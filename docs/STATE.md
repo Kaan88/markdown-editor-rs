@@ -42,7 +42,7 @@ released. If `git log -1` is newer, doubt "In hand" first.
   in a real window with the AI); measured against `main`, no change on the budgets
   (`docs/measurements/2026-11-25-ai-workflow-m1.md`); **C1**, File them copies the files in by
   default with their pictures (D-215, shared branch `f/copy-in` `068d7f3`, not merged into
-  shared `main`). Next: Fable's review of the milestone and of C1, then C2, then V1 to V6 with the engine side (V0 measured), which is `f/ai-engine` in
+  shared `main`). Fable reviewed the milestone (VERDICT: FIX, 12 points, each fixed with a test that fails without it, D-216). Next: Fable's re-review of the fixes and of C1, then C2, then V1 to V6 with the engine side (V0 measured), which is `f/ai-engine` in
   `md-wt\ai-engine`. Release notes so far: `docs/release-notes/unreleased.md`.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 

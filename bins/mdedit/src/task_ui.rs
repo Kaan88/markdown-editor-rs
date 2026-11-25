@@ -32,6 +32,21 @@ pub fn card(w: f32, h: f32) -> Rect {
     mdshared_ui::overlay::dialog_card(CARD_W, CARD_H, w, h)
 }
 
+/// The height of a line of the Add menu.
+pub const ADD_ROW_H: f32 = 30.0;
+
+/// How many lines the Add menu has room for inside the card, under its button, in a window
+/// `w` by `h`: at least one, for "Files…". The tabs beyond it are left out of the menu, so
+/// "Files…", its last line, can always be clicked.
+pub fn add_menu_lines(w: f32, h: f32) -> usize {
+    let r = card(w, h);
+    // The menu starts 4 px under the button (19 px down the card, 30 px high) and keeps 8 px
+    // of the card under it; it has 4 px inside at the top and the bottom.
+    let top = r.y + 19.0 + 30.0 + 4.0;
+    let room = r.bottom() - 8.0 - top - 8.0;
+    ((room / ADD_ROW_H).floor().max(1.0)) as usize
+}
+
 /// Where the parts of the card go.
 #[derive(Clone, Copy, Debug)]
 pub struct Geo {
@@ -227,7 +242,9 @@ pub struct FileEntry {
     pub eol: String,
     /// Its date of last change, `YYYY-MM-DD`, in the digest.
     pub modified: Option<String>,
-    /// The library already lists it: shown, never ticked, never sent.
+    /// The library already lists it: File them shows it, never ticked, never sent; the other
+    /// tasks take it like any file (a note of the library is what they work on, pictures plan
+    /// 4.2).
     pub already: bool,
     /// The run wrote it (a split's plan was written, a rewrite went in).
     pub done: bool,
@@ -238,10 +255,9 @@ pub struct FileEntry {
 impl FileEntry {
     /// Why this file takes no part in `task`, on top of what `task_add` found.
     pub fn reason_for(&self, task: TaskKind) -> Option<String> {
-        if self.already {
-            return Some("already in the library".to_string());
-        }
         match task {
+            // Filed already: "Move the notes…" is the way to put it elsewhere.
+            TaskKind::File if self.already => Some("already in the library".to_string()),
             // A PDF, a Word file, an archive: never read, but its name is a link like any other.
             // A picture is never a library entry of its own (D-204): not filed, not sent.
             TaskKind::File => match self.kind {
@@ -286,16 +302,10 @@ impl FileEntry {
     /// Whether it could take a place of a rewrite's twenty: a text file with nothing else
     /// keeping it out.
     fn can_be_rewritten(&self) -> bool {
-        self.kind == FileKind::Text
-            && self.text.is_some()
-            && self.why.is_none()
-            && !self.already
-            && !self.done
+        self.kind == FileKind::Text && self.text.is_some() && self.why.is_none() && !self.done
     }
 }
 
-/// Why File them leaves a picture out (D-204). Write notes, which puts pictures inside notes,
-/// is not built yet; until it is, the row says only that it is not filed, and why.
 /// What a run of "Copy them in" did, for its toast: "2 copied with 3 pictures, 1 linked where it
 /// is".
 pub fn copied_text(
@@ -333,13 +343,15 @@ pub fn copied_text(
     parts.join(", ")
 }
 
+/// Why File them leaves a picture out (D-204). Write notes, which puts pictures inside notes,
+/// is not built yet; until it is, the row says only that it is not filed, and why.
 pub const PICTURE_NOT_FILED: &str = "not filed: a picture is not a note of its own";
 
 /// What the footer says when Rewrite them is run with nothing in the box (audit 4, B14).
 pub const REWRITE_NEEDS_INSTRUCTION: &str =
     "Rewrite them needs an instruction: type one, or pick a saved prompt.";
 
-/// The window's limits, from Settings › AI rewrite (D-203): the most text one rewrite takes,
+/// The window's limits, from Settings › AI tasks (D-203, D-214): the most text one rewrite takes,
 /// the most files one rewrite run takes, and the most files one "File them" request takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
@@ -1229,9 +1241,13 @@ mod tests {
             Some(limit.clone())
         );
         assert_eq!(
-            s.files[24].reason_for(TaskKind::Rewrite).as_deref(),
+            s.files[24].reason_for(TaskKind::File).as_deref(),
             Some("already in the library"),
-            "a file already in the library takes no place"
+            "File them leaves out a file the library lists"
+        );
+        assert!(
+            !s.files[24].ticked,
+            "an unticked file is not ticked by the change of task"
         );
         // Unticking the first frees its place: the twenty-first can be ticked.
         s.toggle(0);

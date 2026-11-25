@@ -3504,9 +3504,12 @@ split, because nothing is written until Add.
 `docs/ai-pictures-plan.md` phase F, after the owner's report that a picture filed by "File them"
 opened as garbage. **A library row opens by its kind** (`app/library.rs`, `note_opener`): a text
 note opens in a tab; a picture, a PDF, an office document or a media file (the `OUTSIDE` list) is
-handed to the system's own viewer (`system::open`); a program or a script (`PROGRAMS`) is never
-run, only shown in its folder (`system::reveal`); anything else is opened in a tab only when its
-first 8 KB hold no NUL byte, and otherwise shown in its folder. The palette's note targets and
+handed to the system's own viewer (`system::open`); a program (`PROGRAMS`) is never run: a
+script, which is text, opens in a tab like any text (Fable's review of the milestone: it is text,
+and a tab runs nothing), and a program's bytes, or one that cannot be read, are only shown in
+its folder (`system::reveal`); anything else is opened in a tab only when its first 8 KB hold no
+NUL byte, and otherwise shown in its folder. "Show the notes" in AI runs opens a run's first
+file the same way (`open_note`), so a filed PDF goes to its program, not into a tab. The palette's note targets and
 "Open another…" go the same way (`open_note`). Tests record what was handed to the system
 (`handed_to_system`) instead of starting it.
 
@@ -3545,6 +3548,14 @@ opens the window empty on File them. Nothing in the shared tree changed.
 Shots: `library-ai-menu` (a section's menu, the line at its head) and `task-from` (the window
 opened from a section), both themes. Tests: `app/library_ai_tests.rs`.
 
+**After Fable's review of the milestone.** The notes the line opens the window on take part in
+Rewrite them and Split them: `already` (the library lists the file) keeps a file out of File
+them only. A press on AI edit or the main menu (`Hit::Bar(AiEdit | More)`) no longer takes the
+keyboard from the pane, so "AI task…" chosen there with the mouse takes the pane's row; with
+the keyboard on a row with no note under it, "AI task…" opens the window empty. A window parked
+by "Show what is sent" comes back as it was when the line is used, and says so; the notes are
+not put into it. "AI task on this file…" on a note the library lists starts on Rewrite them.
+
 ## 87. After a run: what opens, and the task window's settings (2026-11-25, phase O)
 
 `docs/ai-pictures-plan.md` 4.4, D-211, D-203, D-214, after the owner's "no preview shows up after
@@ -3575,6 +3586,16 @@ starting the pane's renderer or mdview.
 `task_ui::Limits` when it opens or comes back (`Limits::of`); a file's row keeps the limits it
 was counted with, so its reason says the figure ("only 3 files a run", "12 KB of 10 KB"). Shots
 `settings-ai-tasks` in both themes.
+
+**After Fable's review of the milestone.** A note still loading takes the preview mode Settings ›
+Editor chose (`chrome::preview_mode`), since the button's mode needs the text; the preview is
+asked for only when the note came to the front. Split them over several files in the task
+window opens the first run's note only (asked at the start of `plan_write`, before the window
+marks the file done). A window brought back after "Largest rewrite" changed reads again the text
+files it kept without their text (`task_read_again`). The Add menu lists only as many tabs as
+the card has room for (`add_menu_lines`), so "Files…" is always on screen. The batch setting is
+the task window's; the folder import keeps its own 40 (`import_ai::BATCH`), being a feature of
+its own with its own budget of requests.
 
 ## 88. File them copies the files in (2026-11-25, phase C1)
 

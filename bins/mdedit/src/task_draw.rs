@@ -715,7 +715,7 @@ fn draw_add_menu(
     hits: &mut Vec<(Hit, Rect)>,
     hover: Option<Hit>,
 ) {
-    let row_h = 30.0;
+    let row_h = task_ui::ADD_ROW_H;
     let h = row_h * s.add_items.len() as f32 + 8.0;
     let width = 320.0;
     let r = Rect::new(button.right() - width, button.bottom() + 4.0, width, h);

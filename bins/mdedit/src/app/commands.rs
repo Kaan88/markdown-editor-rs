@@ -1327,7 +1327,7 @@ impl App {
                 self.command(id);
             }
             C::AiTaskThisFile => match path {
-                Some(p) => self.task_open(crate::task_ui::TaskKind::File, vec![p]),
+                Some(p) => self.task_open_on_file(p),
                 None => self
                     .docs
                     .set_toast("AI task on this file\u{2026} needs a file on disk: save it first."),
@@ -2163,7 +2163,13 @@ impl App {
                 self.plan_open_active();
             }
             C::AiRuns => self.open_runs(),
-            C::AiTaskFiles => match self.library_keyboard_row() {
+            // The keyboard's row of the Notes pane when it has notes under it (pictures plan
+            // 4.2); otherwise the window opens empty, as it does from anywhere else.
+            C::AiTaskFiles => match self.library_keyboard_row().filter(|&i| {
+                self.ui.library.rows.get(i).is_some_and(|row| {
+                    !crate::library_pane::notes_under(&self.docs.library, row).is_empty()
+                })
+            }) {
                 Some(i) => self.task_from_library(i),
                 None => self.task_open(crate::task_ui::TaskKind::File, Vec::new()),
             },
@@ -2174,9 +2180,7 @@ impl App {
                     .and_then(|d| d.path.clone())
                     .filter(|_| self.docs.active_doc().is_some());
                 match path {
-                    Some(p) => {
-                        self.task_open(crate::task_ui::TaskKind::File, vec![p]);
-                    }
+                    Some(p) => self.task_open_on_file(p),
                     None => self.docs.set_toast(
                         "AI task on this file\u{2026} needs a file on disk: save it first.",
                     ),

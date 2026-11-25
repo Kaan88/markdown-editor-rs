@@ -379,8 +379,10 @@ impl App {
             }
             Some(text)
         } else {
-            match std::fs::read_to_string(&plan.group_file) {
-                Ok(text) => Some(text),
+            // As File them reads it: without a byte order mark, which the writer keeps, so the
+            // run's record holds the text exactly as the links were added to it.
+            match super::library_write::library_text(&plan.group_file) {
+                Ok((text, _)) => Some(text),
                 Err(e) => {
                     return Err(format!(
                         "{} could not be read: {e}",

@@ -627,3 +627,43 @@ fn a_written_note_opens_with_its_preview_as_the_setting_says() {
         let _ = std::fs::remove_dir_all(&p.dir);
     }
 }
+
+/// Review of phase O, 4: the note is still being read when its preview is asked for, and the
+/// preview comes in the mode Settings › Editor chose, not the built-in pane whatever it says.
+#[test]
+fn a_written_note_s_preview_comes_in_the_mode_the_settings_chose() {
+    use mdedit_core::prefs::PreviewMode;
+    let (mut a, p) = lib("note-after-viewer");
+    a.docs.prefs.preview_mode = PreviewMode::Viewer;
+    a.docs.viewer = true;
+    engine();
+    open_card(&mut a, &p);
+    answer(
+        &mut a, "# Done
+",
+    );
+    let _ = super::preview::preview_asked();
+    press(&mut a, KeyName::Enter);
+    assert!(a.note.is_none(), "written");
+    assert_eq!(super::preview::preview_asked(), vec![C::PreviewInViewer]);
+    let _ = std::fs::remove_dir_all(&p.dir);
+}
+
+/// Review of phase O, 4: when the note cannot be opened, the document in front is not the run's
+/// and its preview is not turned on.
+#[test]
+fn a_note_that_does_not_open_turns_no_preview_on() {
+    let (mut a, p) = lib("note-after-missing");
+    let other = p.dir.join("other.md");
+    std::fs::write(
+        &other, "# Other
+",
+    )
+    .expect("other");
+    super::files_tests::open_now(&mut a, &other);
+    let _ = super::preview::preview_asked();
+    let opened = a.open_after_run(&p.dir.join("gone.md"), true);
+    assert!(!opened);
+    assert!(super::preview::preview_asked().is_empty());
+    let _ = std::fs::remove_dir_all(&p.dir);
+}

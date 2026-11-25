@@ -30,10 +30,12 @@ impl App {
     pub(super) fn task_open(&mut self, kind: TaskKind, add: Vec<PathBuf>) {
         self.library_load();
         if let Some(mut t) = self.task_parked.take() {
+            let before = t.limits.rewrite_bytes;
             t.limits = task_ui::Limits::of(&self.docs.prefs);
             t.recount_limit();
             t.tick += 1;
             self.task = Some(t);
+            self.task_read_again(before);
             self.task_add_paths(add);
             self.task_finish_open();
             return;
@@ -86,6 +88,42 @@ impl App {
         self.task = Some(s);
         self.task_add_paths(add);
         self.task_finish_open();
+    }
+
+    /// A window brought back after the largest rewrite changed from `before`: a text file it
+    /// kept without its text (too long then) is read again, so its row says what it is now
+    /// (review of phase O, 8).
+    fn task_read_again(&mut self, before: usize) {
+        let again: Vec<(usize, PathBuf)> = self
+            .task
+            .as_ref()
+            .filter(|s| s.limits.rewrite_bytes != before)
+            .map(|s| {
+                s.files
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| f.kind == FileKind::Text && f.text.is_none() && !f.done)
+                    .map(|(i, f)| (i, f.path.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let probed: Vec<(usize, FileEntry)> = again
+            .into_iter()
+            .map(|(i, p)| (i, self.task_probe(&p)))
+            .collect();
+        if let Some(s) = self.task.as_mut() {
+            for (i, new) in probed {
+                if let Some(f) = s.files.get_mut(i) {
+                    f.text = new.text;
+                    f.why = new.why;
+                    f.size = new.size;
+                    f.eol = new.eol;
+                    f.bom = new.bom;
+                    f.sample = new.sample;
+                    f.heading = new.heading;
+                }
+            }
+        }
     }
 
     fn task_finish_open(&mut self) {
@@ -267,6 +305,17 @@ impl App {
             self.redraw();
             return;
         }
+        // A window parked by "Show what is sent" comes back as it was, its task, files and
+        // plan with it (audit 4, B7): the notes are not put into it.
+        if self.task_parked.is_some() {
+            self.task_open(TaskKind::Rewrite, Vec::new());
+            self.docs.set_toast(
+                "The AI task window you left is back as it was. Close it to start one on these \
+                 notes.",
+            );
+            self.redraw();
+            return;
+        }
         let from = self.ui.library.came_from(i, notes.len());
         self.task_open(TaskKind::Rewrite, notes);
         if self.task.as_ref().is_none_or(|s| s.asking.is_some()) {
@@ -278,6 +327,27 @@ impl App {
             s.tick += 1;
         }
         self.redraw();
+    }
+
+    /// "AI task on this file…": the window with the tab's file, on File them, or on Rewrite
+    /// them when the library lists the file already (pictures plan 4.1: a note of the library is
+    /// filed; what is left is to work on it). A parked window comes back on its own task.
+    pub(super) fn task_open_on_file(&mut self, path: PathBuf) {
+        let listed = self
+            .docs
+            .library
+            .entries()
+            .any(|(_, e)| crate::library_pane::same_note(&e.path, &path));
+        let parked = self.task_parked.is_some();
+        let kind = if listed {
+            TaskKind::Rewrite
+        } else {
+            TaskKind::File
+        };
+        self.task_open(kind, vec![path]);
+        if listed && !parked && self.task.as_ref().is_some_and(|s| s.asking.is_none()) {
+            self.task_act(Hit::Kind(TaskKind::Rewrite));
+        }
     }
 
     /// The row of the Notes pane the keyboard is on, when the pane has the keyboard: "AI
@@ -308,6 +378,9 @@ impl App {
             .collect();
         tabs.sort_by_key(|(front, _, _)| !*front);
         let Some(s) = self.task.as_mut() else { return };
+        // As many tabs as the card has room for under the button, the one in front first, and
+        // "Files…" always last and on screen (review of phase E, 5).
+        let lines = task_ui::add_menu_lines(s.win.0, s.win.1);
         let mut items: Vec<task_ui::AddItem> = tabs
             .into_iter()
             .filter(|(_, p, _)| {
@@ -316,6 +389,7 @@ impl App {
                     .any(|f| crate::library_pane::same_note(&f.path, p))
             })
             .map(|(front, path, name)| task_ui::AddItem::Tab { path, name, front })
+            .take(lines.saturating_sub(1))
             .collect();
         items.push(task_ui::AddItem::Files);
         s.add_items = items;
@@ -867,7 +941,10 @@ impl App {
         if ids.is_empty() {
             return;
         }
-        s.batch_queue = ids.chunks(s.limits.batch).map(<[usize]>::to_vec).collect();
+        s.batch_queue = ids
+            .chunks(s.limits.batch.max(1))
+            .map(<[usize]>::to_vec)
+            .collect();
         s.answers.clear();
         s.planned = false;
         s.tick += 1;

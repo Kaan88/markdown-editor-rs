@@ -758,3 +758,27 @@ fn an_import_leaves_a_record_that_undoes_it() {
     assert_eq!(std::fs::read(&l.lasagne).unwrap(), lasagne);
     let _ = std::fs::remove_dir_all(&l.dir);
 }
+
+/// Review of phase F, 11: joining a group whose file begins with a byte order mark keeps the
+/// text it had before the links in the record, so "AI runs…" gives the file back byte for byte,
+/// its mark too.
+#[test]
+fn an_import_into_a_file_with_a_byte_order_mark_is_undone_to_the_byte() {
+    let (mut a, l) = lib("import-bom-undo");
+    let group = l.library.join("Recipes.md");
+    let text = format!(
+        "# Recipes\nhome: {}\n",
+        l.folder.file_name().unwrap().to_string_lossy()
+    );
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(text.as_bytes());
+    std::fs::write(&group, &bytes).unwrap();
+    open_card(&mut a, &l);
+    a.import_write();
+    let (list, _) = mdedit_core::runs::list_all(&l.library);
+    assert_eq!(list.len(), 1, "one record");
+    assert_eq!(list[0].record.added.len(), 1, "the text before is kept");
+    a.run_undo(list[0].path.clone());
+    assert_eq!(std::fs::read(&group).unwrap(), bytes, "back to the byte");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}

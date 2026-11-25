@@ -384,10 +384,25 @@ fn a_note_opens_by_its_kind() {
         NoteOpen::Tab,
         "SVG is text"
     );
-    assert!(matches!(
-        note_opener(&dir.join("x.bat")),
-        NoteOpen::Folder(_)
-    ));
+    // Review of phase F, 6: a script is text, and opens in a tab (which runs nothing); a
+    // program's bytes, or one that cannot be read, are only shown.
+    let script = dir.join("deploy.sh");
+    std::fs::write(&script, "#!/bin/sh\necho hi\n").unwrap();
+    assert_eq!(note_opener(&script), NoteOpen::Tab, "a script is text");
+    let js = dir.join("app.js");
+    std::fs::write(&js, "console.log(1);\n").unwrap();
+    assert_eq!(note_opener(&js), NoteOpen::Tab);
+    let dll = dir.join("x.dll");
+    std::fs::write(&dll, b"MZ\0\0").unwrap();
+    assert_eq!(
+        note_opener(&dll),
+        NoteOpen::Folder(crate::commands::strings::LIBRARY_PROGRAM)
+    );
+    assert_eq!(
+        note_opener(&dir.join("gone.bat")),
+        NoteOpen::Folder(crate::commands::strings::LIBRARY_PROGRAM),
+        "a program that cannot be read is not handed to a tab"
+    );
     assert!(
         matches!(note_opener(&blob), NoteOpen::Folder(_)),
         "bytes with a NUL are not text"

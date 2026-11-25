@@ -666,7 +666,9 @@ const OUTSIDE: &[&str] = &[
     "mp4", "mkv", "mov", "avi", "webm", "wmv",
 ];
 
-/// Kinds that run, or start something that does: never started from the library.
+/// Kinds that run, or start something that does: never started from the library. One that is
+/// text (a script) opens in a tab like any text, which runs nothing; one that is not is shown
+/// in its folder as a program.
 const PROGRAMS: &[&str] = &[
     "exe", "com", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "msi", "msp",
     "scr", "pif", "lnk", "url", "reg", "hta", "cpl", "jar", "app", "dll", "so", "dylib", "sh",
@@ -674,9 +676,10 @@ const PROGRAMS: &[&str] = &[
 ];
 
 /// What a click on a note whose file is `path` does. A picture or a document goes to the
-/// system; a program is only shown; Markdown and plain text open in a tab; any other file opens
-/// in a tab when its first 8 KB hold no NUL byte (what the editor's loader calls text), and is
-/// only shown otherwise. A file that cannot be read is left to the tab, which says why.
+/// system; Markdown and plain text open in a tab; any other file opens in a tab when its first
+/// 8 KB hold no NUL byte (what the editor's loader calls text), a script too, and is only shown
+/// otherwise, as a program for the kinds that run. A file that cannot be read is left to the
+/// tab, which says why, unless it is of a kind that runs: that is only shown.
 pub(super) fn note_opener(path: &Path) -> NoteOpen {
     let ext = path
         .extension()
@@ -686,10 +689,8 @@ pub(super) fn note_opener(path: &Path) -> NoteOpen {
     if let Some(k) = OUTSIDE.iter().find(|k| **k == ext) {
         return NoteOpen::System(k);
     }
-    if PROGRAMS.contains(&ext.as_str()) {
-        return NoteOpen::Folder(strings::LIBRARY_PROGRAM);
-    }
-    if matches!(ext.as_str(), "md" | "markdown" | "txt" | "svg") {
+    let program = PROGRAMS.contains(&ext.as_str());
+    if !program && matches!(ext.as_str(), "md" | "markdown" | "txt" | "svg") {
         return NoteOpen::Tab;
     }
     let mut head = [0u8; 8192];
@@ -698,8 +699,11 @@ pub(super) fn note_opener(path: &Path) -> NoteOpen {
         f.read(&mut head)
     });
     match read {
+        Ok(n) if head[..n].contains(&0) && program => NoteOpen::Folder(strings::LIBRARY_PROGRAM),
         Ok(n) if head[..n].contains(&0) => NoteOpen::Folder(strings::LIBRARY_NOT_TEXT),
-        _ => NoteOpen::Tab,
+        Ok(_) => NoteOpen::Tab,
+        Err(_) if program => NoteOpen::Folder(strings::LIBRARY_PROGRAM),
+        Err(_) => NoteOpen::Tab,
     }
 }
 

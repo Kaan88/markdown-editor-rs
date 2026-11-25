@@ -455,7 +455,7 @@ impl App {
 
 impl App {
     /// After an AI run that wrote notes (D-211, pictures plan 4.4): the first note opens in a
-    /// tab unless Settings › AI rewrite's "After a run, open" says "Nothing"; with "First
+    /// tab unless Settings › AI tasks' "After a run, open" says "Nothing"; with "First
     /// note and its preview" and `with_preview`, its preview is shown the Preview button's way.
     /// A split passes `false`: its preview follows the tab if it was showing, and is not turned
     /// on. Whether a tab was opened.
@@ -466,10 +466,17 @@ impl App {
             return false;
         }
         self.open(path);
-        if after == AfterRun::Preview && with_preview {
+        // Only for the note itself: if it did not come to the front (it could not be opened),
+        // the document in front is not the run's and its preview is left as it was.
+        let in_front = self
+            .docs
+            .active_doc()
+            .and_then(|d| d.path.as_deref())
+            .is_some_and(|p| mdshared_app::paths::same_path(p, path));
+        if after == AfterRun::Preview && with_preview && in_front {
             self.show_preview();
         }
-        true
+        in_front
     }
 
     /// Shows the preview of the document in front when it is not showing, the way the Preview
@@ -488,14 +495,21 @@ impl App {
         if !previewable(doc) && !loading_markdown {
             return;
         }
-        let shown = match crate::chrome::button_mode(&self.docs) {
+        // The button's mode needs the text to know it is Markdown; a note still loading takes
+        // the mode Settings › Editor chose, as the button will once it is read.
+        let mode = if loading_markdown {
+            crate::chrome::preview_mode(&self.docs)
+        } else {
+            crate::chrome::button_mode(&self.docs)
+        };
+        let shown = match mode {
             PreviewMode::Window => self.preview.is_some(),
             PreviewMode::Viewer | PreviewMode::SideBySide => self.docs.links.contains(doc.id),
         };
         if shown {
             return;
         }
-        let command = super::commands::preview_command(crate::chrome::button_mode(&self.docs));
+        let command = super::commands::preview_command(mode);
         #[cfg(test)]
         {
             PREVIEW_ASKED.with(|p| p.borrow_mut().push(command));

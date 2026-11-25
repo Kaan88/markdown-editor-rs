@@ -1598,3 +1598,156 @@ fn a_refused_line_takes_the_copies_away_again() {
     assert!(dir.join("pasta.md").is_file(), "the original stays");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Review of phase E, 5: with more tabs than the card has room for, the Add menu lists as many
+/// as fit, the one in front first, and "Files…" is its last line, inside the window.
+#[test]
+fn the_add_menu_keeps_files_on_screen_with_many_tabs() {
+    let (mut a, dir) = open("task-add-many", TaskKind::File, Vec::new());
+    for i in 0..40 {
+        let p = dir.join(format!("t{i}.txt"));
+        std::fs::write(&p, "x\n").expect("a tab's file");
+        super::files_tests::open_now(&mut a, &p);
+    }
+    if let Some(s) = a.task.as_mut() {
+        s.win = (1280.0, 800.0);
+    }
+    a.task_add_menu();
+    let s = a.task.as_ref().expect("open");
+    assert!(matches!(
+        s.add_items.last(),
+        Some(crate::task_ui::AddItem::Files)
+    ));
+    assert!(
+        matches!(
+            s.add_items.first(),
+            Some(crate::task_ui::AddItem::Tab { front: true, .. })
+        ),
+        "the one in front first"
+    );
+    let lines = crate::task_ui::add_menu_lines(1280.0, 800.0);
+    assert!(lines < 41, "{lines}");
+    assert_eq!(s.add_items.len(), lines);
+    let card = crate::task_ui::card(1280.0, 800.0);
+    let bottom = card.y + 53.0 + 4.0 + crate::task_ui::ADD_ROW_H * lines as f32;
+    assert!(bottom <= card.bottom(), "{bottom} {card:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of phase F, 7: "Show the notes" on a run of File them opens its first file as a click
+/// on its line does: a PDF with its own program, never as text in a tab.
+#[test]
+fn show_the_notes_of_a_filing_hands_a_pdf_to_the_system() {
+    let (mut a, dir) = open("task-show-pdf", TaskKind::File, Vec::new());
+    let pdf = dir.join("menu.pdf");
+    std::fs::write(
+        &pdf,
+        "%PDF-1.4
+",
+    )
+    .expect("pdf");
+    a.task_add_paths(vec![pdf.clone()]);
+    with_group(&mut a, "Recipes");
+    link_them(&mut a);
+    a.task_run();
+    a.task_file_write();
+    assert!(a.task.is_none(), "the line is in");
+    let runs = runs::list(&dir.join("library"));
+    let path = runs[0].path.clone();
+    let tabs = a.docs.tabs.len();
+    let _ = super::library::handed_to_system();
+    a.run_show(&path);
+    assert_eq!(
+        super::library::handed_to_system(),
+        vec![("open", pdf.clone())]
+    );
+    assert_eq!(a.docs.tabs.len(), tabs, "no tab of its bytes");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of phase O, 8: a window parked with a file too long to rewrite, brought back after the
+/// largest rewrite was raised, reads the file again: it takes part, not "not UTF-8".
+#[test]
+fn a_parked_window_reads_a_long_file_again_when_the_limit_is_raised() {
+    let (mut a, dir) = ai_open("task-park-limit", TaskKind::Rewrite, Vec::new());
+    a.docs.prefs.ai_rewrite_kb = 10;
+    if let Some(s) = a.task.as_mut() {
+        s.limits = crate::task_ui::Limits::of(&a.docs.prefs);
+    }
+    let long = dir.join("long.md");
+    std::fs::write(&long, "# Long\n\n".to_string() + &"word ".repeat(4000)).expect("long");
+    a.task_add_paths(vec![long]);
+    let reason = |a: &App| {
+        a.task
+            .as_ref()
+            .and_then(|s| s.files[0].reason_for(TaskKind::Rewrite))
+    };
+    assert!(
+        reason(&a).is_some_and(|r| r.contains("too long")),
+        "{:?}",
+        reason(&a)
+    );
+    a.task_parked = a.task.take();
+    a.docs.prefs.ai_rewrite_kb = 500;
+    a.task_open(TaskKind::Rewrite, Vec::new());
+    assert_eq!(reason(&a), None, "it takes part now");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of phase O, 9: "Files in one filing request" is what File them sends in each request,
+/// and what "Show what is sent" shows: five files at two a request are three requests.
+#[test]
+fn file_them_sends_as_many_files_a_request_as_the_setting_says() {
+    let (mut a, dir) = ai_open("task-batch", TaskKind::File, Vec::new());
+    a.docs.prefs.ai_task_batch = 2;
+    let mut paths = Vec::new();
+    for i in 0..5 {
+        let p = dir.join(format!("n{i}.md"));
+        std::fs::write(
+            &p,
+            format!(
+                "# N{i}
+"
+            ),
+        )
+        .expect("note");
+        paths.push(p);
+    }
+    a.task_close();
+    a.task_open(TaskKind::File, paths);
+    with_group(&mut a, "Recipes");
+    if let Some(s) = a.task.as_mut() {
+        s.ai_on = true;
+        s.instruction.set_text("TASKFILE: by dish");
+    }
+    let shown = a.task_request_text().unwrap_or_default();
+    assert!(shown.contains("REQUEST 1 of 3"), "{shown}");
+    a.task_run();
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.batch_queue.len(), 3, "{:?}", s.batch_queue);
+    assert_eq!(s.batch_queue[0].len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of phase O, 12: Split them over two files writes two runs and opens only the first
+/// run's note, not one tab per file.
+#[test]
+fn split_them_over_two_files_opens_one_tab() {
+    let (mut a, dir) = open("task-split-tabs", TaskKind::Split, Vec::new());
+    let kyoto = trip(&dir, "kyoto.md", "Kyoto");
+    let nara = trip(&dir, "nara.md", "Nara");
+    a.task_add_paths(vec![kyoto, nara]);
+    with_group(&mut a, "Trips");
+    // A pristine untitled tab gives its place to the first file opened, so the files in tabs
+    // are counted.
+    let files = |a: &App| a.docs.tabs.iter().filter(|d| d.path.is_some()).count();
+    let tabs = files(&a);
+    a.task_run();
+    assert!(a.plan.is_some(), "kyoto.md's plan");
+    a.plan_write();
+    assert_eq!(files(&a), tabs + 1, "the first run's note opens");
+    assert!(a.plan.is_some(), "nara.md's plan");
+    a.plan_write();
+    assert_eq!(files(&a), tabs + 1, "the second run opens no tab");
+    let _ = std::fs::remove_dir_all(&dir);
+}

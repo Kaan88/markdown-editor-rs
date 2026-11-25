@@ -116,6 +116,13 @@ impl App {
         let Some(screen) = self.plan.take() else {
             return;
         };
+        // A run after the first of the task window's Split them (asked here, before the window
+        // marks this file done): its note does not open a tab of its own.
+        let later_of_window = self.task_plan.is_some()
+            && self
+                .task_parked
+                .as_ref()
+                .is_some_and(|t| t.files.iter().any(|f| f.done));
         let mut request = match plan_request(&screen) {
             Ok(request) => request,
             Err(why) => {
@@ -251,8 +258,12 @@ impl App {
         }
         self.show_outcome(outcome);
         self.open_notes_of(&report, &request);
-        // The first note in a tab (pictures plan 4.4); the preview is left as it was.
-        if let Some(first) = report.notes_written.first().cloned() {
+        // The first note in a tab (pictures plan 4.4); the preview is left as it was. Split them
+        // over several files in the task window is one run per file: only the first run's
+        // note opens, not one tab per file.
+        if let Some(first) = report.notes_written.first().cloned()
+            && !later_of_window
+        {
             self.open_after_run(&first, false);
         }
         self.redraw();
@@ -1069,7 +1080,9 @@ impl App {
         let sections = note.sections.clone();
         let file = record.group.file.clone();
         self.ui.dialog = None;
-        self.open(&path);
+        // A run of links or copies names files of any kind: each opens as a click on its line
+        // in the Notes pane opens it, a PDF or a picture with its own program, not as text.
+        self.open_note(&path);
         self.ui.panes.files = true;
         self.ui.set_pane_face(PaneFace::Notes);
         self.ui.library.unfold_to(&file, &sections);

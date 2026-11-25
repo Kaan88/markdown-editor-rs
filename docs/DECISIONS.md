@@ -2193,3 +2193,14 @@ or "linked where it is" on each row; the picture count is in the report, not on 
 **Why.** The plan's rules (4.3, section 10), with nothing of the owner's changed. Counting the
 pictures on the row would read every Markdown file at each draw.
 **Overturned by.** The owner, by looking at the shots `task-files-copy` and `task-files-link`.
+
+## D-216 · 2026-11-25 · A script in the library opens as text
+
+**Decision.** A note of the library whose file is of a kind that runs (`.sh`, `.js`, `.bat`,
+`.ps1` and the rest of `PROGRAMS`) opens in a tab when it is text, like any text file; only a
+program's bytes, or one that cannot be read, are shown in its folder. Nothing is ever started.
+This replaces phase F's rule (DESIGN 85, 2026-11-25) that showed every such file in its folder.
+**Why.** Fable's review of the milestone: before phase F a click opened a script in a tab, and
+the plan (section 14) says everything but pictures and documents "opens in a tab as now". A
+tab runs nothing.
+**Overturned by.** The owner.
