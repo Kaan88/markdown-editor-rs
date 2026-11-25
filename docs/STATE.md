@@ -1,7 +1,7 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-24, when mdedit 1.4.0 and mdview 1.1.0 were
-released. If `git log -1` is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-25, when the pictures plan was merged into
+`main` for mdedit 1.5.0. If `git log -1` is newer, doubt "In hand" first.
 
 ## Released
 
@@ -25,36 +25,28 @@ released. If `git log -1` is newer, doubt "In hand" first.
 
 ## On `main`, not released
 
-- Nothing but documents.
+- **mdedit 1.5.0**, version set, notes `docs/release-notes/1.5.0.md`; to be tagged when `ci` is
+  green. The whole of `docs/ai-pictures-plan.md` (merged from `f/ai-workflow`):
+  - **F, E, L, O** (D-203, D-211, D-214): pictures open in the system's viewer, one "AI task…"
+    command with an Add menu, the AI task from the Notes pane, what opens after a run, Settings ›
+    AI tasks; the bar's and WHERE IT GOES's fixes.
+  - **C1, C2** (D-210, D-215 to D-220, DESIGN 88, 89): File them copies the files in, or moves
+    them in with the originals to the Recycle Bin.
+  - **V1 to V5 and the sent card** (D-221 to D-230, DESIGN 90 to 95): the engine sends pictures
+    (protocol 2); Write notes measures, looks, arranges, shows its plan on a card, writes the
+    notes and copies with a record of the new shared kind `notes` that AI runs can undo; "What is
+    sent" is a card with the pictures.
+  - Fable reviewed every milestone (opencode, `claude-code/fable`) until VERDICT: OK.
+  - Budgets against `main` unchanged, exe +439 KB
+    (`docs/measurements/2026-11-25-write-notes.md`).
+  - **Not tried in a real window**, by the owner or by me: none of the above. **No picture has
+    been sent to a provider.** The unix fake-CLI tests of the engine run only in CI. Copies are
+    written on the UI thread (up to 200 MB). The plan lives in its task window (D-228), not yet
+    "Plan ready" in the Notes pane.
 
 ## In hand
 
-- **`f/ai-workflow`** (worktree `md-wt\ai-work`, from `main` `37cd0b9` plus the pictures plan;
-  pushed, not merged): the pictures plan's first four phases (F, E, L, O, section 17) and
-  the owner's two reports on the bar and the task window. Done on it: AI edit sits with its
-  group when the Preview button is hidden; the task window's WHERE IT GOES row no longer draws
-  the folder over the section field; **F**, a library picture opens in the system's viewer,
-  File them leaves pictures out and its links are undone from AI runs (shared `50e3401`,
-  `Kind::Links`); **E**, one "AI task…" command with an Add menu, "AI task on this file…" in a
-  tab's menu only; **L**, the AI task on a note, a section or a group of the Notes pane, and
-  "AI task…" taking the keyboard's row; **O**, what opens after a run and Settings › AI tasks
-  (D-211, D-203, D-214), the "no preview" report's cause found in the code and fixed (not tried
-  in a real window with the AI); measured against `main`, no change on the budgets
-  (`docs/measurements/2026-11-25-ai-workflow-m1.md`); **C1**, File them copies the files in by
-  default with their pictures (D-215, D-217); Fable reviewed the milestone and C1 three times,
-  VERDICT: OK on the third (D-216; its last nits fixed in C2's round); **C2**, Move them in:
-  the copy, then the originals to the Recycle Bin, the library's notes inside its reach
-  rewritten to the copies, undo putting each original back at its own path (D-210, D-218,
-  DESIGN 89; shared branch `f/move-in` `aacba51` on `f/copy-in`, neither merged into shared
-  `main`). Fable's first review of C2 found five faults and some nits, all fixed (D-219); its
-  re-review found one more, fixed (D-220); VERDICT: OK on its third look. Not tried in a real
-  window with real files. **V1**, the engine sends pictures (protocol 2, `prepare`, `sent`, the
-  four senders, the resizer; D-221, D-222, DESIGN 90): `f/ai-engine` is merged into this
-  branch, its D-214 renumbered D-221. No picture has been sent to a provider by the engine; the
-  unix fake-CLI tests run only in CI. **V2**, the core of Write notes (`notes_ai`, the eleven
-  checks, the composer; DESIGN 91). Next V3 to V6. Release notes so far:
-  `docs/release-notes/unreleased.md`.
-- **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
+- Nothing. **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
 
@@ -119,11 +111,12 @@ Linux blur, image paste on Linux, the AppImage and packages, the macOS builds, t
 installer, an installed copy updating itself, and `hub.txt` read by Hub from a real release.
 
 ## Pins, branches, worktrees (tidied 2026-11-24)
-- Shared crates at `ef88814` (shared `main`) in both apps. Viewer crates at viewer `e2b3e31`;
-  winit `62fa727`, softbuffer `dd18fec`.
+
+- Shared crates: mdedit at `ac9fde1` (shared `main`, the notes kind); mdview at `ef88814`.
+  Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`.
 - Branches: `main`; the drawings (`mock/ai-review`, `mock/settings`, `mock/terminal`,
   `mock/downloader`, `mock/workbench` local only, `mock/launcher`, `mock/file-manager`,
-  `mock/task-manager`, `mock/ai-pictures` with the pictures plan `docs/ai-pictures-plan.md`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub
+  `mock/task-manager`, `mock/ai-pictures`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub
   `spike/frosted-window` and `chore/dependabot`; Hub's `hub/notes-file` in both apps. Merged
   branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
