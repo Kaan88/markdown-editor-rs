@@ -618,6 +618,16 @@ pub mod strings {
     }
     pub const LIBRARY_EMPTY_PANE: &str = "No notes yet";
     pub const LIBRARY_MISSING_FILE: &str = "That note is not where the library says it is.";
+    /// A picture or a document of the library handed to the system (the pictures plan, 14).
+    pub const LIBRARY_OPENED_OUTSIDE: &str = "Opened in the system\u{2019}s viewer.";
+    pub fn library_not_opened_outside(name: &str) -> String {
+        format!("{name} could not be opened: the system has no app for it.")
+    }
+    /// A program listed in the library is never started from it.
+    pub const LIBRARY_PROGRAM: &str =
+        "A program is not opened from the notes library: shown in its folder.";
+    /// A file of no kind the editor knows and not text: shown, never started.
+    pub const LIBRARY_NOT_TEXT: &str = "Not a text file: shown in its folder.";
     pub const LIBRARY_NEEDS_FILE: &str = "Save this file first: the library keeps links to files.";
     pub fn library_added(title: &str, group: &str) -> String {
         format!("\u{201c}{title}\u{201d} is in {group} now.")

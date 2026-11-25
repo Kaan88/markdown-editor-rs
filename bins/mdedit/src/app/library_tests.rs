@@ -322,3 +322,75 @@ fn edit_a_library_file_opens_the_only_group_without_asking() {
     assert_eq!(open_paths(&a), vec![file]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_picture_in_the_library_opens_with_the_system_and_a_program_is_only_shown() {
+    let dir = scratch("library-outside");
+    let lib = dir.join("library");
+    std::fs::create_dir_all(&lib).unwrap();
+    let photo = dir.join("lasagne.jpg");
+    std::fs::write(&photo, [0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 1]).unwrap();
+    let tool = dir.join("setup.exe");
+    std::fs::write(&tool, b"MZ\0\0").unwrap();
+    std::fs::write(
+        lib.join("food.md"),
+        format!(
+            "# Food\n\n- [Lasagne](<{}>)\n- [Setup](<{}>)\n",
+            slash(&photo),
+            slash(&tool)
+        ),
+    )
+    .unwrap();
+    let mut a = app_in(&dir);
+    let _ = library::handed_to_system();
+    let tabs = open_paths(&a).len();
+
+    a.command(C::Library);
+    choose(&mut a, "Lasagne");
+    assert_eq!(
+        library::handed_to_system(),
+        vec![("open", photo.clone())],
+        "the picture goes to the system's viewer"
+    );
+    assert_eq!(open_paths(&a).len(), tabs, "and never into a tab as text");
+
+    a.command(C::Library);
+    choose(&mut a, "Setup");
+    assert_eq!(
+        library::handed_to_system(),
+        vec![("reveal", tool.clone())],
+        "a program is shown in its folder, never started"
+    );
+    assert_eq!(open_paths(&a).len(), tabs);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_note_opens_by_its_kind() {
+    use library::{NoteOpen, note_opener};
+    let dir = scratch("library-kinds");
+    let md = dir.join("a.md");
+    std::fs::write(&md, "# A\n").unwrap();
+    let rs = dir.join("b.rs");
+    std::fs::write(&rs, "fn main() {}\n").unwrap();
+    let blob = dir.join("c.dat");
+    std::fs::write(&blob, [1u8, 0, 2, 3]).unwrap();
+    assert_eq!(note_opener(&md), NoteOpen::Tab);
+    assert_eq!(note_opener(&rs), NoteOpen::Tab, "text of any kind is a tab");
+    assert_eq!(note_opener(&dir.join("x.PNG")), NoteOpen::System("png"));
+    assert_eq!(note_opener(&dir.join("x.pdf")), NoteOpen::System("pdf"));
+    assert_eq!(
+        note_opener(&dir.join("x.svg")),
+        NoteOpen::Tab,
+        "SVG is text"
+    );
+    assert!(matches!(
+        note_opener(&dir.join("x.bat")),
+        NoteOpen::Folder(_)
+    ));
+    assert!(
+        matches!(note_opener(&blob), NoteOpen::Folder(_)),
+        "bytes with a NUL are not text"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

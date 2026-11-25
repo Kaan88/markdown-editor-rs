@@ -416,6 +416,7 @@ impl App {
                 .and_then(|()| mdshared_app::files::create_new(&plan.group_file, new.as_bytes()))
             {
                 Ok(()) => {
+                    self.import_record(plan, &links, &before, true);
                     self.library_load();
                     Ok(links.len())
                 }
@@ -432,9 +433,36 @@ impl App {
             |old, new| runs::check_links_added(old, new, &links, &library),
         );
         match wrote {
-            Wrote::Done => Ok(links.len()),
+            Wrote::Done => {
+                self.import_record(plan, &links, &before, false);
+                Ok(links.len())
+            }
             Wrote::Nothing => Err("The library file was not changed.".to_string()),
             Wrote::Refused(why) => Err(why),
+        }
+    }
+
+    /// The import's record, a run of links, so "AI runs…" can undo it (the pictures plan,
+    /// section 14): made after the links are in, since a run of links leaves nothing half made.
+    /// A record that cannot be written leaves the links, and the import is not undone by it.
+    fn import_record(
+        &mut self,
+        plan: &import::Plan,
+        links: &[runs::Link],
+        before: &str,
+        made: bool,
+    ) {
+        let group = runs::Group {
+            name: plan.group_name.clone(),
+            file: plan.group_file.clone(),
+            created: made,
+            home: plan.folder.clone(),
+        };
+        if let Err(e) = runs::links_record(&plan.library, "", group, links, before) {
+            self.docs.set_toast(&format!(
+                "The folder's notes are in, but the run's record could not be written ({e}), so \
+                 AI runs\u{2026} cannot undo it."
+            ));
         }
     }
 

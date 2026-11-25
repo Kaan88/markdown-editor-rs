@@ -910,95 +910,128 @@ impl App {
                 .set_toast("Nothing is placed to add to the library.");
             return;
         }
-        // Refused while a tab holds changes to the group's file that are not saved, as every
-        // library write is: the tab's next save would take the links out again (review of the
-        // audit 4 fixes, W1). The window stays, for the owner to save and add again.
-        if let Err(why) = self.library_file_free(&group.file) {
-            self.docs.set_toast(&why);
+        let library = self.docs.library.dir.clone();
+        if library.as_os_str().is_empty() || !library.is_absolute() {
+            self.docs
+                .set_toast(crate::commands::strings::LIBRARY_NO_FOLDER);
             return;
         }
-        // The group's file, made first when it is new.
-        if !group.file.is_file() {
-            let name = group.name.clone();
+        let instruction = s.instruction.text().trim().to_string();
+        // The links as the library file will hold them, each title cleaned as every writer
+        // cleans it, so the file reads back as exactly its old notes plus these.
+        let links: Vec<runs::Link> = targets
+            .iter()
+            .map(|(path, title, sections)| {
+                let link = crate::library_pane::link_path(&base, path);
+                let title = title.trim().replace(['[', ']'], "");
+                runs::Link {
+                    line: mdshared_app::library::link_line(&title, &link),
+                    path: link,
+                    title,
+                    sections: sections.clone(),
+                }
+            })
+            .collect();
+        match self.task_file_links(&group, &base, &links) {
+            Ok((before, created)) => {
+                // The run's record, so "AI runs…" can undo it (the pictures plan, section 14):
+                // made after the add, since a run of links writes nothing it could leave half
+                // made; a record that cannot be written is said, and the links stay.
+                let home = mdshared_app::library::parse(&before, &base)
+                    .home
+                    .unwrap_or_else(|| group.home.clone());
+                let made = runs::links_record(
+                    &library,
+                    &instruction,
+                    runs::Group {
+                        name: group.name.clone(),
+                        file: group.file.clone(),
+                        created,
+                        home,
+                    },
+                    &links,
+                    &before,
+                );
+                self.library_load();
+                self.library_rows();
+                self.task_close();
+                let n = links.len();
+                let what = if n == 1 {
+                    "1 file".to_string()
+                } else {
+                    format!("{n} files")
+                };
+                match made {
+                    Ok(_) => self.docs.set_toast(&format!(
+                        "Added {what} to the library in {}. AI runs\u{2026} can undo it.",
+                        group.name
+                    )),
+                    Err(e) => self.docs.set_toast(&format!(
+                        "Added {what} to the library in {}, but its record could not be written \
+                         ({e}), so AI runs\u{2026} cannot undo it.",
+                        group.name
+                    )),
+                }
+            }
+            Err(why) => {
+                // Nothing was written: the window stays, for the owner to put it right.
+                self.docs.set_toast(&why);
+            }
+        }
+        self.redraw();
+    }
+
+    /// Writes File them's links into the group's library file in one write: a new group's file
+    /// made whole by one exclusive create, from the library's template; a group the library has
+    /// through the window's gate, refused while a tab holds it unsaved, a byte order mark kept and
+    /// a file that is not UTF-8 left alone (W1, RB3). Gives the file's text before the links and
+    /// whether the run made the file; `Err` is what the toast says, with nothing written.
+    fn task_file_links(
+        &mut self,
+        group: &task_ui::Group,
+        base: &Path,
+        links: &[runs::Link],
+    ) -> Result<(String, bool), String> {
+        use super::library_write::Wrote;
+        use crate::commands::strings;
+        self.library_file_free(&group.file)?;
+        if !group.file.exists() {
             let stem = group
                 .file
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| name.clone());
-            let Some(text) =
-                mdshared_app::library::new_group_with_home(&name, Some(Path::new(&stem)))
-            else {
-                return;
-            };
-            if let Err(e) = mdshared_app::files::create_new(&group.file, text.as_bytes()) {
-                self.docs
-                    .set_toast(&crate::commands::strings::library_failed(&e.to_string()));
-                return;
-            }
-        }
-        let mut added = 0usize;
-        let mut failed: Option<String> = None;
-        for (path, title, sections) in targets {
-            // Read as every library writer reads it: a byte order mark set aside to be written
-            // back, and a file that is not UTF-8 text refused rather than changed (W1).
-            let (text, bom) = match super::library_write::library_text(&group.file) {
-                Ok(read) => read,
-                Err(why) => {
-                    failed = Some(why);
-                    break;
-                }
-            };
-            let new = mdshared_app::library::add_note_in_group(
-                &text,
-                &sections,
-                &title,
-                &crate::library_pane::link_path(&base, &path),
-            );
-            let before = mdshared_app::library::parse(&text, &base).entries.len();
-            let after = mdshared_app::library::parse(&new, &base);
-            let reads = after.entries.len() == before + 1
-                && after
-                    .entries
-                    .iter()
-                    .any(|e| crate::library_pane::same_note(&e.path, &path));
-            if !reads {
-                failed = Some(format!(
-                    "{} would not read back as a note",
-                    path.file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default()
+                .unwrap_or_else(|| group.name.clone());
+            let template =
+                mdshared_app::library::new_group_with_home(&group.name, Some(Path::new(&stem)))
+                    .ok_or_else(|| "The group's name cannot be a heading.".to_string())?;
+            let new = runs::with_links_added(&template, links);
+            if !runs::check_links_added(
+                &mdshared_app::library::parse(&template, base),
+                &mdshared_app::library::parse(&new, base),
+                links,
+                base,
+            ) {
+                return Err(strings::library_failed(
+                    "the new group would not read back as these notes",
                 ));
-                break;
             }
-            // The group's file is the owner's: written through a temporary of its own, so a
-            // `Recipes.md.tmp` of theirs is never taken, its mode is kept, and nothing is left
-            // beside it when the write fails (audit 4, RB3); with its byte order mark (W1).
-            if let Err(e) = super::library_write::library_put_text(&group.file, &new, bom) {
-                failed = Some(e.to_string());
-                break;
-            }
-            added += 1;
+            std::fs::create_dir_all(base)
+                .and_then(|()| mdshared_app::files::create_new(&group.file, new.as_bytes()))
+                .map_err(|e| strings::library_failed(&e.to_string()))?;
+            return Ok((template, true));
         }
-        self.library_load();
-        self.library_rows();
-        self.task_close();
-        if let Some(why) = failed {
-            self.docs.set_toast(&format!(
-                "Added {added} to {}; the rest could not be: {why}",
-                group.name
-            ));
-        } else {
-            self.docs.set_toast(&format!(
-                "Added {} to the library in {}.",
-                if added == 1 {
-                    "1 file".to_string()
-                } else {
-                    format!("{added} files")
-                },
-                group.name
-            ));
+        let (before, _) = super::library_write::library_text(&group.file)
+            .map_err(|why| strings::library_failed(&why))?;
+        match self.library_attempt_at(
+            &group.file,
+            base,
+            |text| Some(runs::with_links_added(text, links)),
+            |old, new| runs::check_links_added(old, new, links, base),
+        ) {
+            Wrote::Done => Ok((before, false)),
+            Wrote::Nothing => Err("The library file was not changed.".to_string()),
+            Wrote::Refused(why) => Err(why),
         }
-        self.redraw();
     }
 
     /// "Split them": each file's plan card, in turn. The window waits behind the plan; its
@@ -1654,7 +1687,7 @@ impl App {
     }
 
     /// The exact text of every request the window would send, or why none is.
-    fn task_request_text(&self) -> Option<String> {
+    pub(super) fn task_request_text(&self) -> Option<String> {
         let s = self.task.as_ref()?;
         if !s.ai_on {
             return Some(

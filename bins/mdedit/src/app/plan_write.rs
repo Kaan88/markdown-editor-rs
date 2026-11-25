@@ -800,6 +800,30 @@ impl App {
             ),
             make(&now.1, now.0, State::Done, "Work notes", 3, true),
         ];
+        // A run of links (File them, a folder added): files linked where they are, no source.
+        // Second in the list, so the shots that take the last run are as they were.
+        let mut links = make(
+            &mdedit_core::runs::utc(earlier - 3600),
+            earlier - 3600,
+            State::Done,
+            "Travel",
+            4,
+            false,
+        );
+        links.record.kind = mdedit_core::runs::Kind::Links;
+        links.record.sent = None;
+        links.record.source = Source {
+            path: PathBuf::new(),
+            len: 0,
+            sha256: String::new(),
+            recycled: false,
+        };
+        links.record.group.created = false;
+        for (i, note) in links.record.notes.iter_mut().enumerate() {
+            note.created = false;
+            note.path = PathBuf::from(format!("D:/Docs/Trips/trip-{}.md", i + 1));
+        }
+        self.ui.runs.list.insert(1, links);
         self.ui.runs.sel = 0;
         self.ui.runs.unread = Vec::new();
         match which {

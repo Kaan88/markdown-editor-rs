@@ -473,12 +473,6 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                         } else {
                             "linked by name".to_string()
                         }
-                    } else if f.kind == FileKind::Picture {
-                        if s.task == TaskKind::File {
-                            "linked".to_string()
-                        } else {
-                            String::new()
-                        }
                     } else {
                         String::new()
                     };

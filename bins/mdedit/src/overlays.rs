@@ -1522,6 +1522,16 @@ pub fn draw_dialog(
                             format!("{} files", run.record.originals.len())
                         }
                     ),
+                    // Files linked into a group (File them, a folder added): no source.
+                    mdedit_core::runs::Kind::Links => format!(
+                        "Linked \u{00B7} {} \u{2192} {}",
+                        if run.record.notes.len() == 1 {
+                            "1 file".to_string()
+                        } else {
+                            format!("{} files", run.record.notes.len())
+                        },
+                        run.record.group_name(),
+                    ),
                     kind => {
                         let word = match kind {
                             mdedit_core::runs::Kind::Markdown => "Markdown",

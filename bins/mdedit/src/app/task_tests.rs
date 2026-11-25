@@ -200,7 +200,7 @@ fn file_them_with_the_ai_off_plans_then_writes_the_link() {
 }
 
 #[test]
-fn file_them_sends_names_and_digests_and_writes_what_the_model_placed() {
+fn file_them_sends_digests_and_writes_what_the_model_placed_and_never_a_picture() {
     let dir = scratch("task-file-ai");
     std::fs::create_dir_all(dir.join("library")).expect("library");
     let text = pasta(&dir);
@@ -217,15 +217,19 @@ fn file_them_sends_names_and_digests_and_writes_what_the_model_placed() {
         s.instruction.set_text("TASKFILE: by dish");
         s.files[1].ticked = true;
     }
+    // A picture is never a library entry of its own (D-204): ticked or not, it takes no part,
+    // so nothing of it is sent.
+    let sent = a.task_request_text().unwrap_or_default();
+    assert!(sent.contains("Pasta"), "{sent}");
+    assert!(!sent.contains("lasagne"), "the picture is not sent: {sent}");
     a.task_run();
     wait(&mut a, |a| a.task.as_ref().is_some_and(|s| s.planned));
     let s = a.task.as_ref().expect("open");
     assert_eq!(s.files[0].title.as_deref(), Some("Pasta"));
     assert_eq!(s.files[0].sections, ["Food", "Dinner"]);
     assert_eq!(
-        s.files[1].with,
-        Some(0),
-        "the picture is placed with the text"
+        s.files[1].reason_for(TaskKind::File).as_deref(),
+        Some(crate::task_ui::PICTURE_NOT_FILED)
     );
     a.task_file_write();
     let group = dir.join("library").join("Recipes.md");
@@ -233,15 +237,13 @@ fn file_them_sends_names_and_digests_and_writes_what_the_model_placed() {
     assert!(body.contains("## Food"), "{body}");
     assert!(body.contains("### Dinner"), "{body}");
     assert!(body.contains("[Pasta]"), "{body}");
-    assert!(body.contains("[lasagne]"), "{body}");
     assert!(
-        body.contains("lasagne.jpg"),
-        "the picture is linked by name"
+        !body.contains("lasagne"),
+        "the picture is not filed: {body}"
     );
-    assert!(crate::library_pane::same_note(
-        &mdshared_app::library::parse(&body, &dir.join("library")).entries[0].path,
-        &text
-    ));
+    let lib = mdshared_app::library::parse(&body, &dir.join("library"));
+    assert_eq!(lib.entries.len(), 1, "{body}");
+    assert!(crate::library_pane::same_note(&lib.entries[0].path, &text));
 }
 
 #[test]
@@ -982,7 +984,7 @@ fn file_them_leaves_a_tmp_file_of_the_owners_beside_the_group_file_alone() {
         .expect("the library")
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| !n.ends_with(".json") && n != "runs")
+        .filter(|n| !n.ends_with(".json") && n != ".runs")
         .collect();
     names.sort();
     assert_eq!(names, ["Recipes.md", "Recipes.md.tmp"]);
@@ -1199,5 +1201,46 @@ fn file_them_keeps_a_byte_order_mark_and_refuses_a_utf16_file() {
     let said = toast(&a);
     // Refused as every library writer refuses it, in its words.
     assert!(said.contains("is not UTF-8 text"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// File them leaves a record of kind links, and "AI runs…" undoes it: the group's file back to
+/// the byte, and the files it linked untouched (the pictures plan, section 14).
+#[test]
+fn file_them_leaves_a_record_that_undoes_its_links() {
+    let (mut a, dir) = open("task-record", TaskKind::File, Vec::new());
+    let text = pasta(&dir);
+    let pdf = dir.join("menu.pdf");
+    std::fs::write(&pdf, "%PDF-1.4\n").expect("pdf");
+    a.task_add_paths(vec![text.clone(), pdf.clone()]);
+    with_group(&mut a, "Recipes");
+    let group = dir.join("library").join("Recipes.md");
+    let before = std::fs::read_to_string(&group).expect("the group's file");
+    a.task_run();
+    a.task_file_write();
+    assert!(a.task.is_none(), "the links are in");
+    let body = std::fs::read_to_string(&group).expect("the group's file");
+    assert!(
+        body.contains("[Pasta]") && body.contains("[menu]"),
+        "{body}"
+    );
+    let library = a.library_dir().expect("the library");
+    let (list, _) = mdedit_core::runs::list_all(&library);
+    assert_eq!(list.len(), 1, "one record");
+    let record = &list[0];
+    assert_eq!(record.record.kind, mdedit_core::runs::Kind::Links);
+    assert_eq!(record.record.notes.len(), 2);
+    assert!(record.record.notes.iter().all(|n| !n.created));
+    a.run_undo(record.path.clone());
+    assert_eq!(
+        std::fs::read_to_string(&group).expect("the group's file"),
+        before,
+        "the group's file is given back to the byte"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&text).expect("pasta"),
+        "# Pasta\n\nBoil it.\n"
+    );
+    assert_eq!(std::fs::read_to_string(&pdf).expect("pdf"), "%PDF-1.4\n");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -238,11 +238,45 @@ impl App {
                 self.docs.set_toast(strings::LIBRARY_MISSING_FILE);
             }
             Kind::Note { path, .. } => {
-                self.ui.library.focused = false;
-                self.open(&path);
-                self.caret_reset();
+                if self.open_note(&path) {
+                    self.ui.library.focused = false;
+                    self.caret_reset();
+                } else {
+                    self.ui.library.focused = true;
+                }
             }
             Kind::Editing => {}
+        }
+    }
+
+    /// Opens a note of the library where it belongs: text in a tab; a picture, a PDF or a Word
+    /// file with the system's own app, never as text in a tab (the pictures plan, section 14:
+    /// a picture opened in the editor is garbage); a program, or bytes of no known kind, only
+    /// shown in their folder, never started. True when a tab has it.
+    pub(super) fn open_note(&mut self, path: &Path) -> bool {
+        match note_opener(path) {
+            NoteOpen::Tab => {
+                self.open(path);
+                true
+            }
+            NoteOpen::System(ext) => {
+                if system::open(path, ext) {
+                    self.docs.set_toast(strings::LIBRARY_OPENED_OUTSIDE);
+                } else {
+                    let name = path.file_name().map_or_else(
+                        || path.display().to_string(),
+                        |n| n.to_string_lossy().into_owned(),
+                    );
+                    self.docs
+                        .set_toast(&strings::library_not_opened_outside(&name));
+                }
+                false
+            }
+            NoteOpen::Folder(why) => {
+                system::reveal(path);
+                self.docs.set_toast(why);
+                false
+            }
         }
     }
 
@@ -612,3 +646,103 @@ pub(super) fn first_library_file(dir: &Path) -> std::io::Result<PathBuf> {
         Err(e) => Err(e),
     }
 }
+
+/// Where a note of the library opens, by its file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NoteOpen {
+    /// In a tab, as text.
+    Tab,
+    /// With the system's app for its kind; the extension, which the system call is limited to.
+    System(&'static str),
+    /// Shown in its folder and nothing started, for the reason said.
+    Folder(&'static str),
+}
+
+/// The kinds handed to the system: the pictures (SVG excepted: it is text, and the editor
+/// colours it) and the documents the task window calls "other". Nothing that runs.
+const OUTSIDE: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "pdf", "doc", "docx", "odt", "rtf", "xls",
+    "xlsx", "ods", "ppt", "pptx", "odp", "zip", "7z", "rar", "mp3", "wav", "flac", "ogg", "m4a",
+    "mp4", "mkv", "mov", "avi", "webm", "wmv",
+];
+
+/// Kinds that run, or start something that does: never started from the library.
+const PROGRAMS: &[&str] = &[
+    "exe", "com", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "msi", "msp",
+    "scr", "pif", "lnk", "url", "reg", "hta", "cpl", "jar", "app", "dll", "so", "dylib", "sh",
+    "command",
+];
+
+/// What a click on a note whose file is `path` does. A picture or a document goes to the
+/// system; a program is only shown; Markdown and plain text open in a tab; any other file opens
+/// in a tab when its first 8 KB hold no NUL byte (what the editor's loader calls text), and is
+/// only shown otherwise. A file that cannot be read is left to the tab, which says why.
+pub(super) fn note_opener(path: &Path) -> NoteOpen {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if let Some(k) = OUTSIDE.iter().find(|k| **k == ext) {
+        return NoteOpen::System(k);
+    }
+    if PROGRAMS.contains(&ext.as_str()) {
+        return NoteOpen::Folder(strings::LIBRARY_PROGRAM);
+    }
+    if matches!(ext.as_str(), "md" | "markdown" | "txt" | "svg") {
+        return NoteOpen::Tab;
+    }
+    let mut head = [0u8; 8192];
+    let read = std::fs::File::open(path).and_then(|mut f| {
+        use std::io::Read;
+        f.read(&mut head)
+    });
+    match read {
+        Ok(n) if head[..n].contains(&0) => NoteOpen::Folder(strings::LIBRARY_NOT_TEXT),
+        _ => NoteOpen::Tab,
+    }
+}
+
+/// The system's own app, and the file manager. A test build starts neither: it notes what it
+/// would have done, for the test to read.
+mod system {
+    use std::path::Path;
+    #[cfg(test)]
+    use std::path::PathBuf;
+
+    #[cfg(test)]
+    thread_local! {
+        static DONE: std::cell::RefCell<Vec<(&'static str, PathBuf)>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// Opens `path` with the system's app for `ext`, the only extension it is allowed.
+    pub fn open(path: &Path, ext: &str) -> bool {
+        #[cfg(test)]
+        {
+            let _ = ext;
+            DONE.with(|d| d.borrow_mut().push(("open", path.to_path_buf())));
+            path.is_file()
+        }
+        #[cfg(not(test))]
+        {
+            mdshared_ui::platform::open_file(path, &[ext])
+        }
+    }
+
+    pub fn reveal(path: &Path) {
+        #[cfg(test)]
+        DONE.with(|d| d.borrow_mut().push(("reveal", path.to_path_buf())));
+        #[cfg(not(test))]
+        mdshared_ui::platform::reveal_in_file_manager(path);
+    }
+
+    /// What was handed over since the last call, on this thread.
+    #[cfg(test)]
+    pub fn taken() -> Vec<(&'static str, PathBuf)> {
+        DONE.with(|d| std::mem::take(&mut *d.borrow_mut()))
+    }
+}
+
+#[cfg(test)]
+pub(super) use system::taken as handed_to_system;

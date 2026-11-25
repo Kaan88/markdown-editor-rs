@@ -738,3 +738,23 @@ fn the_failed_sorts_demo_says_nothing_was_written_once() {
     };
     assert!(!why.contains("Nothing was written"), "{why}");
 }
+
+/// A folder added to the library leaves a record of kind links, and "AI runs…" undoes it: the
+/// group the import made goes, and the folder's files are untouched (the pictures plan, 14).
+#[test]
+fn an_import_leaves_a_record_that_undoes_it() {
+    let (mut a, l) = lib("import-record");
+    let lasagne = std::fs::read(&l.lasagne).unwrap();
+    open_card(&mut a, &l);
+    a.import_write();
+    let group = l.library.join("Recipes.md");
+    assert!(group.is_file());
+    let (list, _) = mdedit_core::runs::list_all(&l.library);
+    assert_eq!(list.len(), 1, "one record");
+    assert_eq!(list[0].record.kind, mdedit_core::runs::Kind::Links);
+    assert!(list[0].record.group.created);
+    a.run_undo(list[0].path.clone());
+    assert!(!group.exists(), "the group the import made goes");
+    assert_eq!(std::fs::read(&l.lasagne).unwrap(), lasagne);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}

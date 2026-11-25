@@ -301,8 +301,9 @@ impl App {
         match (op, &row.kind) {
             (LibAct::Open, Kind::Note { .. }) => self.library_row(i),
             (LibAct::OpenOther, Kind::Note { path, .. }) => {
-                self.open(path);
-                self.command(C::ShowInOtherPane);
+                if self.open_note(path) {
+                    self.command(C::ShowInOtherPane);
+                }
             }
             (LibAct::Rename, Kind::Group) => {
                 self.library_start(

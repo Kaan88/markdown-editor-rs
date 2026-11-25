@@ -185,7 +185,7 @@ impl FileKind {
             (FileKind::Text, TaskKind::File) => "TEXT \u{00B7} READ AND SENT: A DIGEST GOES",
             (FileKind::Text, _) => "TEXT \u{00B7} READ AND SENT",
             (FileKind::Picture, TaskKind::File) => {
-                "PICTURES \u{00B7} NAMES ARE SENT, THE PICTURES ARE NOT: LINKED"
+                "PICTURES \u{00B7} NOT FILED: A PICTURE IS NOT A NOTE"
             }
             (FileKind::Picture, _) => "PICTURES \u{00B7} NOT SENT FOR THIS TASK",
             (FileKind::Other, TaskKind::File) => "OTHER \u{00B7} LINKED BY NAME, NEVER READ",
@@ -241,7 +241,11 @@ impl FileEntry {
         }
         match task {
             // A PDF, a Word file, an archive: never read, but its name is a link like any other.
-            TaskKind::File => None,
+            // A picture is never a library entry of its own (D-204): not filed, not sent.
+            TaskKind::File => match self.kind {
+                FileKind::Picture => Some(PICTURE_NOT_FILED.to_string()),
+                _ => None,
+            },
             TaskKind::Split => match self.kind {
                 FileKind::Text => None,
                 FileKind::Picture => Some("a picture: not sent for this task".to_string()),
@@ -287,6 +291,10 @@ impl FileEntry {
             && !self.done
     }
 }
+
+/// Why File them leaves a picture out (D-204). Write notes, which puts pictures inside notes,
+/// is not built yet; until it is, the row says only that it is not filed, and why.
+pub const PICTURE_NOT_FILED: &str = "not filed: a picture is not a note of its own";
 
 /// What the footer says when Rewrite them is run with nothing in the box (audit 4, B14).
 pub const REWRITE_NEEDS_INSTRUCTION: &str =
@@ -1121,7 +1129,13 @@ mod tests {
             f.reason_for(TaskKind::Rewrite).as_deref(),
             Some("a picture: not sent for this task")
         );
-        assert!(f.reason_for(TaskKind::File).is_none());
+        assert_eq!(
+            f.reason_for(TaskKind::File).as_deref(),
+            Some(PICTURE_NOT_FILED),
+            "File them never files a picture (D-204)"
+        );
+        f.ticked = true;
+        assert!(!f.takes_part(TaskKind::File));
         let mut pdf = entry("menu.pdf", FileKind::Other);
         pdf.why = other_reason("pdf").map(str::to_string);
         assert_eq!(
