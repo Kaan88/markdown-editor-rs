@@ -14,7 +14,9 @@ Unreleased: menus fade in as they open, and a setting to turn motion off. (Renam
   found and listed after the folder's own; a dot file or folder, `target` and `node_modules` are
   left out, and one add stops at 2,000 files, saying so in the window. The folder is read on its
   own thread — the window says "Reading <folder>…" meanwhile, and Esc stops it — and the cap
-  counts only the files the window does not hold already.
+  counts only the files the window does not hold already. More than 200 new files are held and
+  asked about in the window first ("Add 1,240 files from Recipes?", Add them or Leave them out;
+  Enter adds them, Esc leaves them out); 200 or fewer go in at once.
 - **Settings opened from the window comes to the front.** "Open AI settings" hides the AI task
   window until Settings closes, then brings it back as it was, with the connection, the limits
   and the saved prompts read again.

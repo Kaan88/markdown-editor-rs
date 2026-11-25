@@ -3444,6 +3444,20 @@ of a cap; a walk stopped at the cap, at the entries or at the depth says so in t
 told apart by a key per path in a `HashSet`, not one `same_path` per pair. Shot
 `task-files-stopped` (1280 and 520 px, both themes) is the "Stopped…" line.
 
+**More than 200 new files are asked about first (2026-11-26, D-249).** The owner: "ask before
+anything is in, if it's possible and not disruptive or slows it down. otherwise ask above 200."
+The read runs on its own thread, so the count of new files is known before anything is added: a
+folder add whose read ends with more than `task_ui::ASK_FILES` (200) new files adds nothing yet.
+The window holds them in `App::task_pending` and asks where it says things — the notice line over
+the foot of the list, not a modal and not a toast — "Add 1,240 files from Recipes?", or "… from 3
+folders?" for one drop of several, with "Leave them out" and the filled "Add them". A click on
+either, Enter for adding and Esc for leaving, answers it; Esc does not close the window. "Add
+them" adds the held files as an ordinary add does, every one ticked, and a second folder read
+while the question stands is folded into it, once per path. 200 or fewer new files go in at once
+with no question; closing the window, or parking it behind "What is sent", drops a held add and
+its question. While a question stands only Enter and Esc are taken: the instruction and the other
+fields are typed in as before. Shots `task-files-ask` (1280 and 520 px, both themes).
+
 **After the hand-driven run (2026-11-25, D-240 to D-245).** `task_is_open` is false while
 Settings is open, so Settings opened from the window takes every key and click and the window
 (and its plan card) is not drawn; `close_settings` calls `task_settings_closed`, which reads the

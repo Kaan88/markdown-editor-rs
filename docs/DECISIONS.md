@@ -2539,3 +2539,9 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 - Files are told apart by one key per path — the parts `same_path` compares, folded as it folds them — in a `HashSet`, not one `same_path` per pair; and a walk for the window no longer clones a section path per file.
 **Why.** The review of `9e15a66`: the walk and up to 2,000 probes ran on the UI thread with no cancel, so a large tree, a network share or a OneDrive folder froze the window with Esc dead; the cap counted files already in it; the library folder was not left out; and the dedup was one allocating comparison per pair.
 **Overturned by.** The owner.
+
+## D-249 · 2026-11-26 · A folder add of more than 200 new files asks before anything goes in
+
+**Decision.** A folder add to the AI task window that brings more than 200 new files adds none of them when its read ends: the window asks on its notice line over the foot of the list — "Add N files from <folder>?", or "from <k> folders" for one drop of several — with "Leave them out" and "Add them". "Add them", or Enter, adds all of them, ticked, as an add does; "Leave them out", or Esc, adds nothing and the question goes, and Esc does not close the window. 200 or fewer new files go in at once with no question. Closing the window, or parking it behind "What is sent", drops a held add. The threshold is `task_ui::ASK_FILES` (200), beside `FILES_MAX`.
+**Why.** The owner (2026-11-25): "ask before anything is in, if it's possible and not disruptive or slows it down. otherwise ask above 200." The read runs on its own thread (D-248), so the count of new files is known before anything is added: asking costs nothing and holds nothing up.
+**Overturned by.** The owner.
