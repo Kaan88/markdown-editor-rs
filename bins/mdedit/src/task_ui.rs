@@ -412,7 +412,10 @@ pub enum Hit {
     Field,
     Prompt(usize),
     Kind(TaskKind),
+    /// "Add": opens the Add menu.
     AddFiles,
+    /// An item of the open Add menu.
+    AddItem(usize),
     File(usize),
     Body,
     Dest,
@@ -454,6 +457,29 @@ impl ListState {
     }
 }
 
+/// One line of the window's Add menu (D-207): an open tab's file, by name, the one in front
+/// first; then "Files…", the file dialog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AddItem {
+    Tab {
+        path: PathBuf,
+        name: String,
+        /// The document in front.
+        front: bool,
+    },
+    Files,
+}
+
+impl AddItem {
+    pub fn label(&self) -> String {
+        match self {
+            AddItem::Tab { name, front, .. } if *front => format!("{name} \u{00B7} in front"),
+            AddItem::Tab { name, .. } => name.clone(),
+            AddItem::Files => "Files\u{2026}".to_string(),
+        }
+    }
+}
+
 pub struct TaskScreen {
     /// Which window this is: a review kept from one window is never applied to another's files
     /// (audit 4, B4). Set by the app when it opens the window; 0 in a test that makes one.
@@ -478,6 +504,9 @@ pub struct TaskScreen {
     pub prompt_scroll: f32,
     /// The destination list is open.
     pub dest_open: bool,
+    /// The Add menu is open, with these lines.
+    pub add_open: bool,
+    pub add_items: Vec<AddItem>,
     pub dest_hot: Option<usize>,
     pub hover: Option<Hit>,
     pub pressed: Option<Hit>,
@@ -540,6 +569,8 @@ impl TaskScreen {
             prompt_sel: None,
             prompt_scroll: 0.0,
             dest_open: false,
+            add_open: false,
+            add_items: Vec::new(),
             dest_hot: None,
             hover: None,
             pressed: None,
@@ -650,6 +681,7 @@ impl TaskScreen {
         self.task = task;
         self.planned = false;
         self.dest_open = false;
+        self.add_open = false;
         self.focus = Focus::Instruction;
         self.recount_limit();
         self.tick += 1;

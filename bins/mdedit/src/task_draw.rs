@@ -37,7 +37,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         17.0,
         x,
         r.y + 30.0,
-        "AI task on your files",
+        "AI task",
         pal.text,
         inner - 130.0,
     );
@@ -56,9 +56,9 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         p,
         pal,
         add,
-        "Add files\u{2026}",
+        "Add\u{2026}",
         false,
-        hover == Some(Hit::AddFiles),
+        hover == Some(Hit::AddFiles) || s.add_open,
         pressed == Some(Hit::AddFiles),
     );
     hits.push((Hit::AddFiles, add));
@@ -508,7 +508,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             Face::Ui,
             13.0,
             Rect::new(g.list.x, g.list.y + 40.0, g.list.w, 24.0),
-            "Add files\u{2026} or drop them here from File Explorer.",
+            "Add\u{2026} a file, or drop files here from File Explorer.",
             pal.faint,
         );
     }
@@ -516,6 +516,9 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     // ---- the destination menu -------------------------------------------------------------------
     if s.dest_open {
         draw_dest_menu(p, pal, s, &mut hits, hover);
+    }
+    if s.add_open {
+        draw_add_menu(p, pal, s, add, &mut hits, hover);
     }
 
     // ---- footer --------------------------------------------------------------------------------
@@ -652,6 +655,39 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
 
     s.hits = hits;
     s.caret_on = caret_on;
+}
+
+/// The Add menu under its button (D-207): the open tabs' files, the one in front first, then
+/// "Files…". Its rows are hit before anything under them, being pushed last.
+fn draw_add_menu(
+    p: &mut Painter,
+    pal: &Palette,
+    s: &TaskScreen,
+    button: Rect,
+    hits: &mut Vec<(Hit, Rect)>,
+    hover: Option<Hit>,
+) {
+    let row_h = 30.0;
+    let h = row_h * s.add_items.len() as f32 + 8.0;
+    let width = 320.0;
+    let r = Rect::new(button.right() - width, button.bottom() + 4.0, width, h);
+    p.frame(r, 7.0, pal.popup, pal.popup_line);
+    for (k, item) in s.add_items.iter().enumerate() {
+        let row = Rect::new(r.x + 4.0, r.y + 4.0 + k as f32 * row_h, r.w - 8.0, row_h);
+        if hover == Some(Hit::AddItem(k)) {
+            p.rbox(row, 5.0, pal.hover);
+        }
+        p.text(
+            Face::Ui,
+            13.0,
+            row.x + 10.0,
+            row.cy(),
+            &item.label(),
+            pal.text,
+            row.w - 20.0,
+        );
+        hits.push((Hit::AddItem(k), row));
+    }
 }
 
 /// The destination list: the groups, "A new group…", and "Decide on the plan".

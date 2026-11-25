@@ -595,20 +595,128 @@ fn a_rewrites_record_is_listed_shown_and_not_a_later_versions() {
     );
 }
 
+/// D-207: "AI task on this file…" is in a tab's menu, where the pointer names the file, and
+/// opens the window with that tab's file, which need not be the one in front.
 #[test]
-fn task_on_this_file_opens_file_them_with_that_file() {
+fn task_on_this_file_from_a_tab_opens_the_window_with_that_tab_s_file() {
+    use crate::commands::CommandId as C;
+    use crate::ui::Act;
     let dir = scratch("task-this-file");
     std::fs::create_dir_all(dir.join("library")).expect("library");
     let text = pasta(&dir);
+    let other = dir.join("bread.md");
+    std::fs::write(&other, "# Bread\n\nBake it.\n").expect("bread");
     let mut a = app();
     a.session_path = Some(dir.join("settings.ini"));
     a.library_rows();
     a.open(&text);
-    a.command(crate::commands::CommandId::AiTaskThisFile);
+    a.open(&other);
+    let i = a
+        .docs
+        .tabs
+        .iter()
+        .position(|d| d.path.as_deref() == Some(text.as_path()))
+        .expect("pasta's tab");
+    assert_ne!(a.docs.active(), Some(i), "pasta is not the tab in front");
+    let menu = crate::overlays::tab_menu(&a.docs, i, 0.0, 0.0);
+    assert!(
+        menu.items
+            .iter()
+            .any(|it| it.id == Act::TabCmd(C::AiTaskThisFile, i) && it.enabled),
+        "the tab's menu has it"
+    );
+    a.tab_command(C::AiTaskThisFile, i);
     let s = a.task.as_ref().expect("the window is open");
     assert_eq!(s.task, TaskKind::File, "it starts on File them");
     assert_eq!(s.files.len(), 1);
     assert_eq!(s.files[0].path, text);
+}
+
+/// D-207: one command, "AI task…". The palette and the menus no longer list "AI task on this
+/// file…", which read as a duplicate of it.
+#[test]
+fn there_is_one_ai_task_command_in_the_palette_and_the_menus() {
+    use crate::commands::CommandId as C;
+    use crate::ui::Act;
+    let dir = scratch("task-one-command");
+    let text = pasta(&dir);
+    let mut a = app();
+    a.open(&text);
+    assert!(crate::palette::listed(C::AiTaskFiles, &a.docs));
+    assert!(!crate::palette::listed(C::AiTaskThisFile, &a.docs));
+    for menu in [
+        crate::overlays::ai_menu(&a.docs, 0.0, 0.0, false),
+        crate::overlays::library_menu(true, 0.0, 0.0, false),
+    ] {
+        assert!(
+            !menu
+                .items
+                .iter()
+                .any(|it| it.id == Act::Cmd(C::AiTaskThisFile)),
+            "not in a menu bar menu"
+        );
+        let item = menu
+            .items
+            .iter()
+            .find(|it| it.id == Act::Cmd(C::AiTaskFiles))
+            .expect("AI task… is there");
+        assert_eq!(item.label, "AI tas&k\u{2026}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D-207: "Add…" opens a menu of the open tabs' files, the one in front first and said so,
+/// those already in the window left out, then "Files…"; choosing a tab adds its file.
+#[test]
+fn the_add_menu_offers_the_tab_in_front_first_and_leaves_out_what_is_added() {
+    use crate::task_ui::AddItem;
+    let dir = scratch("task-add-menu");
+    std::fs::create_dir_all(dir.join("library")).expect("library");
+    let one = pasta(&dir);
+    let two = dir.join("bread.md");
+    std::fs::write(&two, "# Bread\n\nBake it.\n").expect("bread");
+    let three = dir.join("soup.md");
+    std::fs::write(&three, "# Soup\n\nStir it.\n").expect("soup");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.library_rows();
+    a.open(&one);
+    a.open(&two);
+    a.open(&three);
+    a.command(crate::commands::CommandId::NewFile);
+    // The untitled tab is in front now; bring soup back to the front.
+    let soup = a
+        .docs
+        .tabs
+        .iter()
+        .position(|d| d.path.as_deref() == Some(three.as_path()))
+        .expect("soup's tab");
+    a.docs.activate(soup);
+    a.task_open(TaskKind::Rewrite, vec![two.clone()]);
+    a.task_act(Hit::AddFiles);
+    let s = a.task.as_ref().expect("the window is open");
+    assert!(s.add_open, "the menu is open");
+    let labels: Vec<String> = s.add_items.iter().map(AddItem::label).collect();
+    assert_eq!(
+        labels,
+        vec![
+            "soup.md \u{b7} in front".to_string(),
+            "pasta.md".to_string(),
+            "Files\u{2026}".to_string(),
+        ],
+        "the tab in front first; bread is in the window already; the untitled tab has no file"
+    );
+    a.task_act(Hit::AddItem(1));
+    let s = a.task.as_ref().expect("the window is open");
+    assert!(!s.add_open, "choosing closes the menu");
+    let paths: Vec<&Path> = s.files.iter().map(|f| f.path.as_path()).collect();
+    assert_eq!(paths, vec![two.as_path(), one.as_path()]);
+    // Escape closes the menu and leaves the window open.
+    a.task_act(Hit::AddFiles);
+    escape(&mut a);
+    let s = a.task.as_ref().expect("the window stays open");
+    assert!(!s.add_open);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---- audit 4 ----------------------------------------------------------------------------------

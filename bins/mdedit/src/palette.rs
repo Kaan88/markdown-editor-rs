@@ -580,29 +580,32 @@ pub fn enabled(id: C, docs: &Docs, ui: &Ui, macro_idle: bool) -> bool {
     }
 }
 
-/// Every command that is not the palette itself, an Escape, or the theme's cycle (which has its
-/// three choices), with its first shortcut.
+/// Whether the palette lists a command at all: not the palette itself, an Escape, or the theme's
+/// cycle (which has its three choices).
+pub fn listed(id: C, docs: &Docs) -> bool {
+    match id {
+        // "AI task on this file…" belongs where the pointer names the file, a tab's menu:
+        // the palette has "AI task…", whose Add menu offers the document in front (D-207).
+        C::CommandPalette | C::Escape | C::Theme | C::OpenRecent | C::AiTaskThisFile => false,
+        C::MakeDefault => make_default_offered(),
+        // Without mdview the previews in it are not listed, not even greyed; the pane is
+        // listed while it is offered.
+        C::PreviewInViewer | C::PreviewSideBySide => docs.viewer,
+        C::PreviewPane | C::VisualEdit => docs.pane,
+        _ => true,
+    }
+}
+
+/// Every command [`listed`], with its first shortcut.
 fn commands(src: &Sources) -> (Vec<Entry>, Vec<Target>) {
     let (mut entries, mut targets) = (Vec::new(), Vec::new());
     for c in COMMANDS {
-        let listed = match c.id {
-            C::CommandPalette | C::Escape | C::Theme | C::OpenRecent => false,
-            C::MakeDefault => make_default_offered(),
-            // Without mdview the previews in it are not listed, not even greyed; the pane is
-            // listed while it is offered.
-            C::PreviewInViewer | C::PreviewSideBySide => src.docs.viewer,
-            C::PreviewPane | C::VisualEdit => src.docs.pane,
-            _ => true,
-        };
-        if !listed {
+        if !listed(c.id, src.docs) {
             continue;
         }
         let on = enabled(c.id, src.docs, src.ui, src.macro_idle);
         let hint = match (c.id, on) {
             (C::SplitIntoNotes, false) => split_reason(src.docs).unwrap_or_default(),
-            (C::AiTaskThisFile, false) => {
-                "Save the document first: the task window works on files.".to_string()
-            }
             _ => hint(c.id).to_string(),
         };
         push(&mut entries, &mut targets, Target::Cmd(c.id), |id| {

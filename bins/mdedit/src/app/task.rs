@@ -24,7 +24,7 @@ impl App {
         self.task.is_some()
     }
 
-    /// "AI task on your files…" and "AI task on this file…": the window, with `add` in it.
+    /// ""AI task…" and a tab's "AI task on this file…": the window, with `add` in it.
     /// A window parked by "Show what is sent" comes back as it was, its task with it: `kind` is
     /// for a new window only (audit 4, B7).
     pub(super) fn task_open(&mut self, kind: TaskKind, add: Vec<PathBuf>) {
@@ -239,7 +239,38 @@ impl App {
         out
     }
 
-    /// "Add files…": the file dialog, then the same path as a drop.
+    /// "Add…": the menu of what can be added (D-207): each open tab's file by name, the
+    /// document in front first and said so, those already in the window left out; then
+    /// "Files…". The document in front is never added by itself.
+    pub(super) fn task_add_menu(&mut self) {
+        let active = self.docs.active();
+        let mut tabs: Vec<(bool, PathBuf, String)> = self
+            .docs
+            .tabs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, d)| d.path.clone().map(|p| (Some(i) == active, p, d.name())))
+            .collect();
+        tabs.sort_by_key(|(front, _, _)| !*front);
+        let Some(s) = self.task.as_mut() else { return };
+        let mut items: Vec<task_ui::AddItem> = tabs
+            .into_iter()
+            .filter(|(_, p, _)| {
+                !s.files
+                    .iter()
+                    .any(|f| crate::library_pane::same_note(&f.path, p))
+            })
+            .map(|(front, path, name)| task_ui::AddItem::Tab { path, name, front })
+            .collect();
+        items.push(task_ui::AddItem::Files);
+        s.add_items = items;
+        s.add_open = !s.add_open;
+        s.dest_open = false;
+        s.tick += 1;
+        self.redraw();
+    }
+
+    /// "Files…": the file dialog, then the same path as a drop.
     pub(super) fn task_pick_files(&mut self) {
         let start = self.docs.active_doc().and_then(|d| d.path.clone());
         let start = start.as_deref().and_then(Path::parent);
@@ -270,9 +301,14 @@ impl App {
                 self.task_cancel_request();
                 return;
             }
-            if self.task.as_ref().is_some_and(|s| s.dest_open) {
+            if self
+                .task
+                .as_ref()
+                .is_some_and(|s| s.dest_open || s.add_open)
+            {
                 if let Some(s) = self.task.as_mut() {
                     s.dest_open = false;
+                    s.add_open = false;
                     s.tick += 1;
                 }
                 self.redraw();
@@ -280,6 +316,12 @@ impl App {
             }
             self.task_close();
             return;
+        }
+        if let Some(s) = self.task.as_mut()
+            && s.add_open
+        {
+            s.add_open = false;
+            s.tick += 1;
         }
         if self.task.as_ref().is_some_and(|s| s.asking.is_some()) {
             return;
@@ -529,7 +571,7 @@ impl App {
         self.task_act(pressed);
     }
 
-    fn task_act(&mut self, hit: Hit) {
+    pub(super) fn task_act(&mut self, hit: Hit) {
         // While a request is out the window takes no key that changes what it asked about, and
         // no click either: the task, the files, the prompt and the group stay as they were sent
         // (audit 4, B5). Stop, Cancel and the scrollbars still work.
@@ -543,6 +585,7 @@ impl App {
                     | Hit::Dest
                     | Hit::DestItem(_)
                     | Hit::AddFiles
+                    | Hit::AddItem(_)
                     | Hit::Section
                     | Hit::Field
                     | Hit::NewGroupField
@@ -550,8 +593,27 @@ impl App {
         {
             return;
         }
+        // A click anywhere but the Add menu closes it.
+        if !matches!(hit, Hit::AddItem(_) | Hit::AddFiles)
+            && let Some(s) = self.task.as_mut()
+        {
+            s.add_open = false;
+        }
         match hit {
-            Hit::AddFiles => self.task_pick_files(),
+            Hit::AddFiles => self.task_add_menu(),
+            Hit::AddItem(k) => {
+                let item = self.task.as_mut().and_then(|s| {
+                    s.add_open = false;
+                    s.tick += 1;
+                    s.add_items.get(k).cloned()
+                });
+                match item {
+                    Some(task_ui::AddItem::Tab { path, .. }) => self.task_add_paths(vec![path]),
+                    Some(task_ui::AddItem::Files) => self.task_pick_files(),
+                    None => {}
+                }
+                self.redraw();
+            }
             Hit::Kind(k) => {
                 let task = k;
                 if let Some(s) = self.task.as_mut() {
@@ -1663,7 +1725,7 @@ impl App {
     }
 
     /// "Show what is sent": the literal request text in a read-only tab. The window is parked
-    /// behind it, and "AI task on your files…" brings it back.
+    /// behind it, and "AI task…" brings it back.
     pub(super) fn task_show_sent(&mut self) {
         if self.task.as_ref().is_some_and(|s| s.asking.is_some()) {
             self.docs
@@ -1679,9 +1741,8 @@ impl App {
             .docs
             .open_copy(title.to_string(), text.as_bytes(), None);
         self.docs.activate(i);
-        self.docs.set_toast(
-            "The request text is in this tab. AI task on your files brings the window back.",
-        );
+        self.docs
+            .set_toast("The request text is in this tab. AI task… brings the window back.");
         self.relayout_areas();
         self.redraw();
     }
@@ -1701,7 +1762,7 @@ impl App {
         let mut out = String::new();
         out.push_str(
             "What the AI task window would send. Nothing has been sent by this tab.\n\
-             The window is behind it: AI task on your files \u{2026} brings it back.\n\n",
+             The window is behind it: AI task\u{2026} brings it back.\n\n",
         );
         match s.task {
             TaskKind::File => {
@@ -1900,6 +1961,20 @@ impl App {
         });
         if name == "files-plan" {
             demo_plan(s);
+        }
+        if name == "files-add" {
+            // The Add menu open, over made-up tabs: the one in front first and said so (D-207).
+            let tab = |n: &str, front: bool| crate::task_ui::AddItem::Tab {
+                path: PathBuf::from(n),
+                name: n.to_string(),
+                front,
+            };
+            s.add_items = vec![
+                tab("shopping list.md", true),
+                tab("week plan.txt", false),
+                crate::task_ui::AddItem::Files,
+            ];
+            s.add_open = true;
         }
         let review = if name == "review" {
             // The rewrite's review over the first text file, with a made-up result and no

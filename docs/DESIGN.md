@@ -3310,7 +3310,7 @@ that can file, split or **rewrite files in place** (D-074, D-076). The drawing i
 `ai-files`; the window takes files, not the open document, and opens none of them in a tab.
 
 **The window** (`task_ui.rs` state and numbers, `task_draw.rs` drawing, `app/task.rs` the three
-tasks). Card 880 x 704: the header and "Add files…", the WHAT TO DO switch (`File them |
+tasks). Card 880 x 704: the header and "Add…" (phase E), the WHAT TO DO switch (`File them |
 Split them | Rewrite them`), the 36 px instruction field, the saved prompts of the chosen kind
 (96 px, `kind: file` new in `mdedit_core::ai`), WHERE IT GOES, the list under its three group
 headings, and a footer with "Show what is sent" and the primary button. A review of a file
@@ -3412,10 +3412,17 @@ reached from the command and the drop alone, the window reads files only then, a
 crate (`docs/measurements/2026-11-23-task-window.md`: 7 interleaved runs against R2, no figure
 outside the runs' ranges; the executable +102,400 bytes).
 
-**Not built of 5.6.** "AI task on this file" is in the AI menu, the Library menu and the palette,
-on the document in front; a row of the Files pane has no menu of its own in this program, and the
-tab menu does not open the window on the tab under the pointer (it would have to activate it
-first). Add files… and a drop from Explorer are the ways in.
+**One command, and the Add menu (phase E, 2026-11-25, D-207).** There is one command, "AI
+task…" (`C::AiTaskFiles`; "AI tas&k…" in the AI and Library menus, listed in the palette). Its
+**Add…** button opens a menu under it (`draw_add_menu`, 320 px): each open tab that has a file, by
+name, the one in front first and labelled "· in front", those already in the window left out;
+then "Files…", the picker. Nothing is added by opening the window. The menu closes on a choice,
+on Escape (which leaves the window open), on any other key and on a click elsewhere; while a
+request is out it takes no click (`Hit::AddItem` joins audit 4's B5 list). "AI task on this
+file…" (`C::AiTaskThisFile`) is now only in a **tab's** menu ("AI tas&k on this file…"), where
+the pointer names the file: `tab_command` opens the window with that tab's file, which need not
+be the one in front, or says to save it first. The palette no longer lists it
+(`palette::listed`). Shot `task-add` (both themes) is the open menu over made-up tabs.
 
 ## 84. Sort a folder by AI (2026-11-23, phase 4)
 
@@ -3491,3 +3498,25 @@ offer would be, and nothing is asked (D-079).
 re-ask of one batch and no manual "Unsorted" heading in the scheme (Unsorted is added when it is
 needed); and the request's answer is not kept in a run record -- a sort leaves no record, unlike a
 split, because nothing is written until Add.
+
+## 85. Pictures and links in the library (2026-11-25, phase F)
+
+`docs/ai-pictures-plan.md` phase F, after the owner's report that a picture filed by "File them"
+opened as garbage. **A library row opens by its kind** (`app/library.rs`, `note_opener`): a text
+note opens in a tab; a picture, a PDF, an office document or a media file (the `OUTSIDE` list) is
+handed to the system's own viewer (`system::open`); a program or a script (`PROGRAMS`) is never
+run, only shown in its folder (`system::reveal`); anything else is opened in a tab only when its
+first 8 KB hold no NUL byte, and otherwise shown in its folder. The palette's note targets and
+"Open another…" go the same way (`open_note`). Tests record what was handed to the system
+(`handed_to_system`) instead of starting it.
+
+**File them never files a picture** (D-204): a picture in the task window is unticked with the
+reason "not filed: a picture is not a note of its own", under the header "PICTURES · NOT FILED".
+Pictures are the work of V1 to V6 (Write notes).
+
+**A run of File them leaves a record** (`runs::Kind::Links`, shared `50e3401`): the group file's
+text before the run, the lines added, and the group's own creation when the run made it
+(`links_record`). Undo in "AI runs" takes the lines out to the byte and, when the run made the
+group and it is unchanged since, the group file; it never touches the linked files, and a Links
+record that says it created a note, a folder or a picture is refused as not its own. A 4a import
+leaves the same record (`import_record`). The "AI runs" row reads "Linked · N files → Group".

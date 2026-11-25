@@ -1326,6 +1326,12 @@ impl App {
                 self.docs.activate(index);
                 self.command(id);
             }
+            C::AiTaskThisFile => match path {
+                Some(p) => self.task_open(crate::task_ui::TaskKind::File, vec![p]),
+                None => self
+                    .docs
+                    .set_toast("AI task on this file\u{2026} needs a file on disk: save it first."),
+            },
             C::CloseTab => self.request(After::CloseTab(doc)),
             C::CloseOtherTabs => self.request(After::CloseOthers(doc)),
             C::CloseAllTabs => self.request(After::CloseAll),

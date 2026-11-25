@@ -179,17 +179,7 @@ pub fn library_menu(has_file: bool, x: f32, y: f32, align_right: bool) -> Menu<A
         cmd(C::SplitIntoNotes, "Spli&t into notes…", glyph::SPLIT)
             .sep()
             .enabled(has_file),
-        cmd(
-            C::AiTaskFiles,
-            "AI task on &your files…",
-            crate::chrome::SPARKLE,
-        ),
-        cmd(
-            C::AiTaskThisFile,
-            "AI task on th&is file…",
-            crate::chrome::SPARKLE,
-        )
-        .enabled(has_file),
+        cmd(C::AiTaskFiles, "AI tas&k…", crate::chrome::SPARKLE),
         cmd(C::AiRuns, "AI &runs…", glyph::MACRO),
     ];
     Menu::new(items, x, y, align_right).access_keys(true)
@@ -655,6 +645,14 @@ pub fn tab_menu(docs: &Docs, index: usize, x: f32, y: f32) -> Menu<Act> {
             }
             item
         },
+        // The AI task window on this tab's file (D-207): the one place the command names a
+        // file, the one under the pointer.
+        Item::new(
+            Act::TabCmd(C::AiTaskThisFile, index),
+            "AI tas&k on this file\u{2026}",
+        )
+        .icon(crate::chrome::SPARKLE)
+        .enabled(has_file),
     ]);
     Menu::new(items, x, y, false).access_keys(true)
 }
@@ -883,7 +881,6 @@ fn split_ok(docs: &Docs) -> bool {
 /// The ai menu: the built-in requests, the saved ones, the settings, and what a run left behind.
 pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     let idle = docs.active_ready().is_some() && docs.ai_status.is_none();
-    let disk_file = docs.active_doc().is_some_and(|d| d.path.is_some());
     let mut items = vec![
         cmd(C::AiFormat, "&Format as Markdown", crate::chrome::SPARKLE).enabled(idle),
         cmd(C::AiFix, "Fi&x Markdown", crate::chrome::SPARKLE).enabled(idle),
@@ -917,17 +914,9 @@ pub fn ai_menu(docs: &Docs, x: f32, y: f32, align_right: bool) -> Menu<Act> {
     );
     items.push(cmd(
         C::AiTaskFiles,
-        "AI task on &your files\u{2026}",
+        "AI tas&k\u{2026}",
         crate::chrome::SPARKLE,
     ));
-    items.push(
-        cmd(
-            C::AiTaskThisFile,
-            "AI task on th&is file\u{2026}",
-            crate::chrome::SPARKLE,
-        )
-        .enabled(disk_file),
-    );
     items.push(cmd(C::AiRuns, "AI runs\u{2026}", glyph::MACRO));
     if docs.ai_status.is_some() {
         items.push(cmd(C::AiCancel, "&Stop rewriting", glyph::STOP));
