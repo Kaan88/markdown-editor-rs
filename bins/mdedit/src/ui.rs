@@ -593,6 +593,8 @@ pub struct Popup {
     /// keyboard away: "AI task…" chosen here works on it. It goes with the menu, however the
     /// menu closes (Fable's second review of C1).
     pub library_row: Option<usize>,
+    /// This popup's own number, new for every popup made: what names its fade as it opens.
+    pub serial: u64,
 }
 
 /// How long the pointer rests on an item with a submenu before the submenu opens.
@@ -625,6 +627,10 @@ impl Popup {
             dwell: None,
             cues: true,
             library_row: None,
+            serial: {
+                static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            },
         }
     }
 

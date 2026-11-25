@@ -81,6 +81,9 @@ pub struct Prefs {
     pub final_newline_on_save: bool,
     pub line_numbers: bool,
     pub highlight_line: bool,
+    /// Whether menus and the other things that move are animated (on by default). Off, every
+    /// motion is instant, as when the system asks for less motion (which wins while this is on).
+    pub animations: bool,
     /// Whether a new window shows the minimap.
     pub minimap: bool,
     /// The minimap column's width, logical px, 48 to 240 (default 96).
@@ -416,6 +419,7 @@ impl Default for Prefs {
             final_newline_on_save: false,
             line_numbers: true,
             highlight_line: true,
+            animations: true,
             minimap: false,
             minimap_width: MINIMAP_WIDTH_DEFAULT,
             word_wrap: false,
@@ -590,6 +594,7 @@ impl Prefs {
                     }
                     "line_numbers" => p.line_numbers = flag(value).unwrap_or(d.line_numbers),
                     "highlight_line" => p.highlight_line = flag(value).unwrap_or(d.highlight_line),
+                    "animations" => p.animations = flag(value).unwrap_or(d.animations),
                     "minimap" => p.minimap = flag(value).unwrap_or(d.minimap),
                     "minimap_width" => {
                         p.minimap_width = number(value, MINIMAP_WIDTH_MIN, MINIMAP_WIDTH_MAX)
@@ -742,6 +747,7 @@ impl Prefs {
         w.line("final_newline_on_save", b(p.final_newline_on_save));
         w.line("line_numbers", b(p.line_numbers));
         w.line("highlight_line", b(p.highlight_line));
+        w.line("animations", b(p.animations));
         w.line("minimap", b(p.minimap));
         w.line("minimap_width", &p.minimap_width.to_string());
         w.line("word_wrap", b(p.word_wrap));
@@ -961,6 +967,17 @@ mod tests {
         assert_eq!((d.indent_size, d.font_family.as_str()), (4, ""));
         assert_eq!(Prefs::parse(""), d);
         assert_eq!(Prefs::parse("garbage\n\n=\n[x]\n"), d);
+    }
+
+    /// Animations are on unless the file says off, and the value goes round the file.
+    #[test]
+    fn animations_on_by_default_and_kept() {
+        assert!(Prefs::default().animations);
+        assert!(Prefs::parse("[preferences]\nanimations=maybe\n").animations);
+        let off = Prefs::parse("[preferences]\nanimations=0\n");
+        assert!(!off.animations);
+        assert!(!Prefs::parse(&off.serialize()).animations);
+        assert!(Prefs::parse(&Prefs::default().serialize()).animations);
     }
 
     #[test]
@@ -1260,6 +1277,7 @@ preview_mode= MDVIEW
             final_newline_on_save: true,
             line_numbers: false,
             highlight_line: false,
+            animations: false,
             minimap: true,
             minimap_width: 150,
             word_wrap: true,
@@ -1336,7 +1354,7 @@ preview_mode= MDVIEW
             ..Prefs::default()
         };
         let t = wild.serialize();
-        assert_eq!(t.lines().count(), 60);
+        assert_eq!(t.lines().count(), 61);
         assert_eq!(Prefs::parse(&t).ai_url(), "");
         assert_eq!(
             Prefs::parse("ai_preset=nope\nai_connection=x\n").ai_preset,
