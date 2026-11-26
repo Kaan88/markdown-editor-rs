@@ -4153,8 +4153,12 @@ Escape and Left cancel the pending pointer change before acting on the current s
 The root and open child keep their own 117 ms entrance tracks; closing stays instant.
 `menu-cascade-entering-*` shows the Main/View entrance in both themes. Existing Main and Text
 shots show the shared chevrons and the child placed against its opening row rather than the
-old guessed anchor. A rest on the root's padding can now close the submenu; crossing it
-before the deadline does not.
+old guessed anchor. As in shared `Cascade` and mdview, a 300 ms rest on the root
+menu's padding closes the open submenu (D-273, clarifying D-269). Crossing the
+padding does not close it immediately; entering the submenu before the 300 ms
+deadline cancels the pending close. The revised assertions in
+`the_pointer_reaches_the_submenu_across_the_padding_and_another_row` deliberately
+cover both outcomes.
 
 **M-F, L3.** An overflowing embedded preview uses the same shared track and thumb
 whether alongside the editor or filling its area. `Hit::ScrollBar(Scroller::Page)`

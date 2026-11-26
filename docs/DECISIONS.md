@@ -2821,3 +2821,17 @@ title-row reachability check.
 The extra setting preserves enough information to distinguish a missing monitor from a
 reachable point, without breaking sessions for earlier builds.
 **Overturned by.** A change to the saved monitor identity or placement contract.
+
+## D-273 — 2026-11-26 — Close the submenu after a rest on root padding
+
+**Decision.** Clarifies D-269. Asked what a 300 ms rest on the root menu's padding
+should do to an open submenu, the owner answered: “Close it”. Keep the current
+behavior of shared `submenu::Cascade` and mdview: crossing the padding does not
+close the submenu immediately, and entering the submenu before 300 ms cancels the
+pending close.
+**Why.** The existing test
+`the_pointer_reaches_the_submenu_across_the_padding_and_another_row` was changed on
+purpose in `a35a7a0` to match. Its new assertions document the intended behavior:
+the submenu stays open before the deadline, closes at the deadline if the pointer
+rests on padding, and stays open if the pointer reaches the submenu in time.
+**Overturned by.** A new decision from the owner about padding dwell.
