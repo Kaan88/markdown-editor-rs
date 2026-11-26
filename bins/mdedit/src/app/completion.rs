@@ -282,7 +282,7 @@ impl App {
         };
         menu.hover = Some(0);
         self.ui.popup = Some(Popup::new(PopupKind::Complete, menu));
-        self.ui.tip = None;
+        self.ui.tip.hide();
         self.redraw();
         true
     }

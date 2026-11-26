@@ -175,6 +175,9 @@ pub struct Args {
     /// `--toast TEXT`, given once or more: the confirmations a `--shot` shows as toasts, the
     /// earlier ones at rest and stacked, the last one coming in under them with `--motion-ms`.
     pub toasts: Vec<String>,
+    /// `--tip-ms MS`: a `--shot` of the `--hover` control's tooltip this far into its fade (0 to
+    /// 1000; more is at rest). Ignored without `--shot` and `--hover`.
+    pub tip_ms: Option<u32>,
     /// `--motion-ms MS`: a `--shot` of what its last `--toast` sets moving, this far into its
     /// motion (0 to 1000; more is at rest). Ignored without `--shot`.
     pub motion_ms: Option<u32>,
@@ -543,6 +546,7 @@ impl Args {
                 "--menu-fade-ms" => out.menu_fade_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--toast" => out.toasts.extend(value(&a)),
                 "--motion-ms" => out.motion_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--tip-ms" => out.tip_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),

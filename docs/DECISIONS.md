@@ -2616,3 +2616,18 @@ motion on the animator keeps a name's delay after `Stack::replace` gives the wai
 **Why.** The owner (2026-11-26), after D-255: "Move the shared pin … Un-ignore the tests marked
 needs shared PR 24. They must pass now."
 **Overturned by.** The owner; or shared dropping `wait_for_lift`.
+
+## D-257 · 2026-11-26 · Tooltips fade in, and their wait counts from the pointer's rest
+
+**Decision.** M-C, tooltips: a tooltip fades in (`document::TIP`, a plain short fade where the eye
+already is) and is gone at once, with nothing asked for after it. The wait before it counts
+**from the pointer coming to rest**, not from entering the control: the owner's choice, so a
+pointer crossing a row of buttons shows no tips at all until it stops. mdedit's own `Tip` is
+replaced by shared's `Tooltip<Hit>` (`Tooltip::waiting` beside `shown`, `hover_at`, `press`,
+`deadline`, `tick`), its 500 ms in `document::TIP_DELAY`. With motion off nothing changes: the
+presence is 1 on the first frame and the tip is drawn by `Bubble::draw`, the pixels of before.
+`--tip-ms MS` renders a shot of a tip part way in on the shot's clock.
+**Why.** The owner (2026-11-26), after the pin move: "M-C, tooltips: tooltips fade in, with the
+delay measured from resting … Under the Animations setting, motion off must draw exactly as now."
+**Overturned by.** The owner; or a Windows' `SPI_GETMOUSEHOVERTIME` read, if tips should follow
+the system's own delay.

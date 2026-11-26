@@ -38,6 +38,14 @@ pub const MENU: document::Pair = document::MENU;
 /// The damage group of the open menus: what is asked for while they are drawn.
 pub const MENUS: &str = "menus";
 
+/// How a tooltip enters: the shared preset, a plain short fade, where the eye already is. It
+/// goes at once (there is nothing to watch leave), and the wait before it is
+/// `document::TIP_DELAY` from the pointer coming to rest (`Tooltip::hover_at`).
+pub const TIP: document::Pair = document::TIP;
+
+/// The damage group of the tooltip.
+pub const TIP_GROUP: &str = "tip";
+
 /// The presence of an open menu: the popup's serial and how far it has entered (1 at rest).
 pub type Shown = (u64, f32);
 
@@ -98,6 +106,8 @@ pub struct Motion {
     /// The toast last pushed onto a stack that already held something: with the wait for the
     /// lift, it is the only one that can still be at nothing when a status takes its place.
     toast_waiting: Option<u64>,
+    /// The tooltip's presence on this frame, 0 when none shows ([`Motion::tip_presence`]).
+    pub tip_t: f32,
     /// This frame's toasts, the bottom one first ([`Motion::sync_toasts`]).
     pub toast_frame: Vec<ToastShown>,
 }
@@ -137,6 +147,7 @@ impl Motion {
             toasts: toasts(),
             toast_seen: None,
             toast_waiting: None,
+            tip_t: 0.0,
             toast_frame: Vec::new(),
         };
         m.anim.set_policy(m.policy());
@@ -236,6 +247,22 @@ impl Motion {
     #[cfg(test)]
     pub fn set_reader(&mut self, reader: fn() -> bool) {
         self.reader = reader;
+    }
+
+    /// How present the tooltip is this frame, asked in the group [`TIP_GROUP`]: it fades in and
+    /// is gone at once when it goes. `shown` is whether one is on screen. The answer is kept in
+    /// `tip_t` for the rest of the frame (the region's signature, and tests).
+    pub fn tip_presence(&mut self, shown: bool) -> f32 {
+        self.anim.group(TIP_GROUP);
+        let t = self.anim.presence(
+            Id::new(TIP_GROUP).with("in"),
+            shown,
+            TIP.enter,
+            mdshared_ui::anim::Motion::SNAP,
+        );
+        self.anim.ungroup();
+        self.tip_t = t;
+        t
     }
 
     /// The presences of the open menus this frame, asked in the group [`MENUS`]. A popup's

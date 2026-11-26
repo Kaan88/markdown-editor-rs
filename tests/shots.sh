@@ -170,6 +170,10 @@ shot dialog-about --dark --dialog about "$fx/sample.rs"
 shot dialog-shortcuts --light --dialog shortcuts "$fx/sample.rs"
 shot dialog-recent --light --dialog recent "$fx/sample.rs" "$fx/sample.md" "$fx/cjk.txt"
 shot hover-open --light --hover 46,63 "$fx/sample.rs"
+# A tooltip part way into its fade (--tip-ms, on the shot's clock), in both themes: the Open
+# button's tip, over a document.
+shot tip-rising-light --light --hover 46,63 --tip-ms 90 "$fx/sample.rs"
+shot tip-rising-dark --dark --hover 46,63 --tip-ms 90 "$fx/sample.rs"
 shot scale-150 --light --scale 1.5 "$fx/sample.rs"
 shot small --light --size 520x360 "$fx/sample.rs"
 shot files-pane --light --files --folder "$fx" "$fx/sample.rs"

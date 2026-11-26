@@ -155,7 +155,6 @@ mod task_tests;
 #[cfg(test)]
 mod widget_pixels_tests;
 
-const TIP_DELAY: Duration = Duration::from_millis(500);
 const AUTOSCROLL_TICK: Duration = Duration::from_millis(16);
 const SIZE_SAVE_DELAY: Duration = Duration::from_millis(800);
 /// The hidden first frame waits for the active load until this long after launch.
@@ -1449,8 +1448,12 @@ impl App {
                 }
                 bubbles.push((b, s.t));
             }
-            if let Some(tip) = self.ui.tip.as_ref().filter(|t| t.shown) {
-                bubbles.push((Bubble::tip(&mut p, &tip.text, tip.anchor, w, h), 1.0));
+            // The tooltip fades in where the eye already is (`document::TIP`), and is gone at
+            // once: with motion off the presence is 1 on its first frame, the pixels of before.
+            let tip = self.ui.tip.shown().map(|o| (o.text.clone(), o.anchor));
+            let tip_t = self.motion.tip_presence(tip.is_some());
+            if let Some((text, anchor)) = tip {
+                bubbles.push((Bubble::tip(&mut p, &text, anchor, w, h), tip_t));
             }
             if let Some(popup) = self.ui.popup.as_mut() {
                 let room = menu_room(self.areas.title, w, h);
@@ -2876,7 +2879,7 @@ impl App {
                     self.focus_gained();
                 } else {
                     self.ui.caret_on = true;
-                    self.ui.tip = None;
+                    self.ui.tip.hide();
                     self.docs.seal();
                 }
                 self.redraw();
@@ -2897,7 +2900,7 @@ impl App {
             WindowEvent::CursorLeft { .. } => {
                 if self.ui.drag.is_none() {
                     self.ui.hover = None;
-                    self.ui.tip = None;
+                    self.ui.tip.hide();
                     self.redraw();
                 }
             }
@@ -3889,8 +3892,16 @@ fn shot(mut app: App, path: &Path) -> i32 {
         // What the pointer is over can change what is drawn and hit (the fold chevrons).
         app.compose();
         app.pointer_moved(x, y);
-        if let Some(t) = app.ui.tip.as_mut() {
-            t.shown = true;
+        // A shot shows the tip at once (no pointer waits for its rest), and `--tip-ms` steps
+        // the animator into its fade.
+        let due = app.motion.now() + mdshared_ui::anim::document::TIP_DELAY;
+        app.ui.tip.tick(due);
+        if let Some(ms) = app.args.tip_ms {
+            app.motion.shot_fade();
+            for step in crate::motion::shot_steps(ms) {
+                app.motion.advance_ms(step);
+                app.compose();
+            }
         }
         if let Some(p) = app.ui.popup.as_mut() {
             p.menu.pointer(x, y);

@@ -874,16 +874,6 @@ pub enum Drag {
     },
 }
 
-/// A tooltip waiting to show, or showing.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Tip {
-    pub hit: Hit,
-    pub text: String,
-    pub anchor: Rect,
-    pub due: Instant,
-    pub shown: bool,
-}
-
 pub struct Panes {
     pub files: bool,
     pub files_w: f32,
@@ -979,9 +969,9 @@ pub struct Ui {
     pub dialog: Option<Dialog>,
     /// What the question dialog on screen is about.
     pub pending: Option<Pending>,
-    pub tip: Option<Tip>,
-    /// A tooltip was dismissed by a press; it stays hidden until the pointer leaves that hit.
-    pub tip_blocked: Option<Hit>,
+    /// The window's tooltip: which control's it is, when it shows, and what a press hides
+    /// (shared's , its delay counted from the pointer coming to rest).
+    pub tip: mdshared_ui::tooltip::Tooltip<Hit>,
     /// Hover row in the Manage recent dialog.
     pub dlg_hover_row: Option<usize>,
     /// The last left press, for double and triple clicks: when, where, and the count.
@@ -1075,8 +1065,7 @@ impl Ui {
             popup: None,
             dialog: None,
             pending: None,
-            tip: None,
-            tip_blocked: None,
+            tip: mdshared_ui::tooltip::Tooltip::new(),
             dlg_hover_row: None,
             last_press: None,
             autoscroll_due: None,

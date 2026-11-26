@@ -1435,7 +1435,7 @@ impl App {
             popup.library_row = row;
         }
         self.ui.popup = Some(popup);
-        self.ui.tip = None;
+        self.ui.tip.hide();
     }
 
     fn build_menu(
@@ -1505,7 +1505,7 @@ impl App {
             p.sub = Some(Box::new(Popup::with_cues(sub, menu, cues)));
             p.dwell = None;
         }
-        self.ui.tip = None;
+        self.ui.tip.hide();
         self.redraw();
     }
 
@@ -1534,7 +1534,7 @@ impl App {
 
     pub(super) fn open_dialog(&mut self, kind: DialogKind) {
         self.ui.popup = None;
-        self.ui.tip = None;
+        self.ui.tip.hide();
         self.ui.find_focused = false;
         self.ui.dialog = Some(Dialog::new(kind));
         self.ui.dlg_hover_row = None;
@@ -2543,12 +2543,15 @@ impl App {
                 at(due);
             }
         }
-        if let Some(tip) = self.ui.tip.as_mut().filter(|t| !t.shown) {
-            if now >= tip.due {
-                tip.shown = true;
-                self.wants_frame = true;
+        // The tooltip's wait for the pointer's rest; showing it is a frame of its own (it fades
+        // in), so the animator asks for the next ones.
+        if let Some(due) = self.ui.tip.deadline() {
+            if now >= due {
+                if self.ui.tip.tick(now) {
+                    self.redraw();
+                }
             } else {
-                at(tip.due);
+                at(due);
             }
         }
         // The pointer resting on a menu item with a submenu; no menu, no timer.

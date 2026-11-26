@@ -17,7 +17,7 @@ impl App {
             return;
         }
         self.ui.popup = None;
-        self.ui.tip = None;
+        self.ui.tip.hide();
         self.ui.hover = None;
         self.ui.find_focused = false;
         self.ai_load_prompts();
@@ -38,7 +38,7 @@ impl App {
             return;
         }
         self.ui.popup = None;
-        self.ui.tip = None;
+        self.ui.tip.hide();
         self.ui.hover = None;
         self.ui.find_focused = false;
         self.palette

@@ -4,7 +4,7 @@
 use super::*;
 use crate::docs::EditOp;
 use crate::keys::{self, KeyName};
-use crate::ui::{BarField, BarItem, Popup, SelectUnit, Tip};
+use crate::ui::{BarField, BarItem, Popup, SelectUnit};
 use crate::view::offset_for_hthumb;
 use mdedit_core::selection::{self, Motion, Unit};
 use mdshared_ui::gfx::Face;
@@ -89,9 +89,9 @@ impl App {
         };
         if hit != self.ui.hover {
             self.ui.hover = hit;
-            self.update_tip(hit);
             self.redraw();
         }
+        self.update_tip(hit, (x, y), Instant::now());
         if let Some(d) = self.ui.dialog.as_ref() {
             let row = match &self.ui.results.replace.confirm {
                 Some(cf) if crate::replace_ui::is_confirm(d.kind) => {
@@ -134,31 +134,23 @@ impl App {
         self.set_cursor(cursor);
     }
 
-    pub(super) fn update_tip(&mut self, hit: Option<Hit>) {
-        if self.ui.tip_blocked.is_some() && self.ui.tip_blocked != hit {
-            self.ui.tip_blocked = None;
+    /// Points the tooltip at what is under the pointer, which is at `(x, y)` now: a control's
+    /// tip counts its delay from the pointer coming to rest there (`Tooltip::hover_at`), so it
+    /// is asked on every move, not only when the control changes; moving to a neighbour while a
+    /// tip shows shows the neighbour's at once.
+    pub(super) fn update_tip(&mut self, hit: Option<Hit>, at: (f32, f32), now: Instant) {
+        let over = hit.and_then(|h| {
+            let text = chrome::tooltip(h, &self.docs, self.maximized)
+                .or_else(|| self.ui.results.replace.tip(h))?;
+            Some(mdshared_ui::tooltip::Over {
+                key: h,
+                text,
+                anchor: self.hit_rect(h).unwrap_or_default(),
+            })
+        });
+        if self.ui.tip.hover_at(now, over, at) {
+            self.redraw();
         }
-        let text = hit
-            .filter(|h| Some(*h) != self.ui.tip_blocked)
-            .and_then(|h| {
-                chrome::tooltip(h, &self.docs, self.maximized)
-                    .or_else(|| self.ui.results.replace.tip(h))
-            });
-        self.ui.tip = match (hit, text) {
-            (Some(h), Some(text)) => {
-                // Moving between neighbouring buttons while a tip shows keeps tips immediate.
-                let shown = self.ui.tip.as_ref().is_some_and(|t| t.shown);
-                let anchor = self.hit_rect(h).unwrap_or_default();
-                Some(Tip {
-                    hit: h,
-                    text,
-                    anchor,
-                    due: Instant::now() + if shown { Duration::ZERO } else { TIP_DELAY },
-                    shown: false,
-                })
-            }
-            _ => None,
-        };
     }
 
     /// The buffer offset under `(x, y)`, clamped into the text area first.
@@ -676,8 +668,10 @@ impl App {
     pub(super) fn left_press(&mut self) {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
-        self.ui.tip = None;
-        self.ui.tip_blocked = self.ui.hover;
+        // A press hides the tip, and the control under the pointer shows none until the
+        // pointer has left it (`Tooltip::press`).
+        let pressed = self.ui.hover;
+        self.ui.tip.press(pressed);
         if let Some(dir) = self.edge_at(x, y) {
             if let Some(w) = &self.window {
                 let _ = w.drag_resize_window(dir);
@@ -1012,7 +1006,7 @@ impl App {
     pub(super) fn right_press(&mut self) {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
-        self.ui.tip = None;
+        self.ui.tip.hide();
         if self.plan_is_open() {
             self.plan_right_press();
             return;
@@ -1430,7 +1424,7 @@ impl App {
 
     pub(super) fn key_pressed(&mut self, key: keys::Key, typed: Option<&str>) {
         let mods = self.mods;
-        self.ui.tip = None;
+        self.ui.tip.hide();
         self.ui.keyboard = true;
         self.redraw();
         let name = match &key {

@@ -3941,6 +3941,20 @@ not offer; and the pool's cancel (#28) and the window-procedure hand-over (#29) 
 `Form::menu_rect` and `Form::menu_bounds` are additions a host may use; the before-and-after
 shots of the pin are identical but for the clock-stamped `runs*`.
 
+**Tooltips.** `Ui::tip` is shared's `Tooltip<Hit>`: `update_tip` (`app/input.rs`) gives it the
+control under the pointer, its text from `chrome::tooltip` (or the replace strip's own) and its
+rectangle, and the pointer's place **on every move** — `Tooltip::hover_at`, so the
+`document::TIP_DELAY` 500 ms counts from the pointer coming to rest, not from entering the
+control (D-257). `timers` turns `Tooltip::deadline` into the wake-up and `Tooltip::tick` shows
+it; a neighbour's tip shows at once while one shows, a press hides it and blocks that control
+until the pointer leaves (`Tooltip::press`), and a key, a scroll or a popup hides it
+(`Tooltip::hide`). It is drawn as a bubble with the presence `Motion::tip_presence` asks for in
+the group `TIP_GROUP`: it fades in by `document::TIP` and is gone at once, so no frame is asked
+for after it goes. Under `Policy::Never` the presence is 1 on its first frame and the bubble is
+drawn by `Bubble::draw`, the pixels of before. The fade's `t` is in the overlay signature with
+the bubbles', so each frame of it redraws what the tip covers. `tests/shots.sh` shows it part way
+in with `--tip-ms 90` (`tip-rising-light`, `tip-rising-dark`).
+
 **Whether anything moves** is `Motion::policy`, the one place: `Policy::Never` in a shot and in
 every test (`args.shot` or `cfg(test)`), and with the Animations setting off (`prefs.animations`,
 read every frame); otherwise `Policy::System`, which is instant while the system asks for less

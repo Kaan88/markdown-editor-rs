@@ -1387,3 +1387,136 @@ fn a_message_already_past_its_time_is_not_shown() {
     a.motion.anim.end_frame();
     assert!(a.motion.toasts.is_empty(), "a confirmation too");
 }
+
+// ---- the tooltip -------------------------------------------------------------------------------
+
+/// The control a tip is taken from: the New file button beside the tabs.
+fn a_tip_hit() -> crate::ui::Hit {
+    crate::ui::Hit::NewTab
+}
+
+/// How long the pointer must rest on a control before its tip shows.
+const TIP_WAIT: Duration = mdshared_ui::anim::document::TIP_DELAY;
+
+/// With motion off the tip is the whole of itself on its first frame: `t` is 1.0, so the bubble
+/// is drawn by `Bubble::draw`, the pixels of before, and nothing asks for a frame after it.
+#[test]
+fn with_motion_off_the_tip_is_there_on_its_first_frame() {
+    let mut a = still();
+    // No caret blinking: the only timer left would be the tip's.
+    a.focused = false;
+    a.compose();
+    let t = a.motion.now();
+    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
+    assert!(a.ui.tip.waiting().is_some(), "it waits for the rest");
+    a.timers(t + TIP_WAIT);
+    a.compose();
+    assert!(a.ui.tip.shown().is_some());
+    assert_eq!(a.motion.tip_t, 1.0, "the whole tip, at once");
+    assert_eq!(a.motion.due, None, "nothing moves");
+    a.wants_frame = false;
+    assert_eq!(a.timers(t + TIP_WAIT), None, "and no timer");
+    assert!(!a.wants_frame);
+}
+
+/// With motion on the tip fades in from nothing, and once it is at rest no timer is left.
+#[test]
+fn a_tip_fades_in_and_settles_with_no_timer_left() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let t = a.motion.now();
+    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
+    a.timers(t + TIP_WAIT);
+    a.compose();
+    let start = a.motion.tip_t;
+    assert!(start < 1.0, "it starts to fade: {start}");
+    tick(&mut a, 16);
+    a.compose();
+    let early = a.motion.tip_t;
+    assert!(
+        early > start && early < 1.0,
+        "on its way in: {start} -> {early}"
+    );
+    for _ in 0..40 {
+        if a.motion.due.is_none() {
+            break;
+        }
+        tick(&mut a, 16);
+        a.compose();
+    }
+    assert_eq!(a.motion.tip_t, 1.0, "at rest");
+    assert_eq!(a.motion.due, None, "no frame asked for");
+    a.wants_frame = false;
+    assert_eq!(a.timers(a.motion.now()), None, "and none once settled");
+    assert!(!a.wants_frame);
+}
+
+/// The delay counts from the pointer coming to rest, not from entering the control: moving on
+/// while the tip waits starts the wait again.
+#[test]
+fn a_tip_waits_from_the_pointer_coming_to_rest() {
+    let mut a = still();
+    a.compose();
+    // The pointer itself, on the New file button: it waits from where it came to rest.
+    let b = a.hit_rect(a_tip_hit()).expect("the button");
+    let (cx, cy) = (b.cx(), b.cy());
+    a.pointer_moved(cx, cy);
+    let first = a.ui.tip.deadline().expect("a tip waits");
+    assert!(
+        first >= Instant::now() + TIP_WAIT - Duration::from_millis(50),
+        "the whole delay from entering"
+    );
+    std::thread::sleep(Duration::from_millis(30));
+    a.pointer_moved(cx + 2.0, cy);
+    let again = a.ui.tip.deadline().expect("a tip still waits");
+    assert!(
+        again >= first + Duration::from_millis(20),
+        "the pointer moved on the same control: the wait starts again ({first:?} -> {again:?})"
+    );
+    let t = a.motion.now();
+    let hit = a_tip_hit();
+    a.update_tip(Some(hit), (10.0, 10.0), t);
+    assert_eq!(a.ui.tip.deadline(), Some(t + TIP_WAIT), "from the rest");
+    // Still on the same control, the pointer moves: the wait starts again from there.
+    let moved = t + Duration::from_millis(300);
+    a.update_tip(Some(hit), (12.0, 10.0), moved);
+    assert_eq!(
+        a.ui.tip.deadline(),
+        Some(moved + TIP_WAIT),
+        "counted from the last move, not the first"
+    );
+    a.timers(moved + TIP_WAIT - Duration::from_millis(1));
+    assert!(a.ui.tip.shown().is_none(), "not before its time");
+    a.timers(moved + TIP_WAIT);
+    assert!(a.ui.tip.shown().is_some(), "when the pointer has rested");
+}
+
+/// A press takes the tip away, and the control under the pointer shows none again until the
+/// pointer has left it.
+#[test]
+fn a_press_hides_the_tip_until_the_pointer_leaves() {
+    let mut a = still();
+    a.compose();
+    let t = a.motion.now();
+    let hit = a_tip_hit();
+    a.ui.hover = Some(hit);
+    a.update_tip(Some(hit), (10.0, 10.0), t);
+    a.timers(t + TIP_WAIT);
+    assert!(a.ui.tip.shown().is_some());
+    a.left_press();
+    assert!(a.ui.tip.shown().is_none(), "the press takes it away");
+    // Back on the same control: still nothing.
+    a.update_tip(Some(hit), (11.0, 10.0), t + TIP_WAIT * 2);
+    a.timers(t + TIP_WAIT * 3);
+    assert!(a.ui.tip.shown().is_none(), "until the pointer leaves it");
+    // Another control: its own tip, as ever.
+    a.ui.hover = Some(hit);
+    a.update_tip(
+        Some(crate::ui::Hit::WinClose),
+        (11.0, 10.0),
+        t + TIP_WAIT * 4,
+    );
+    a.timers(t + TIP_WAIT * 5);
+    assert!(a.ui.tip.shown().is_some(), "a neighbour's shows");
+}
