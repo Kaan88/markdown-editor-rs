@@ -188,6 +188,10 @@ pub struct Args {
     /// `--tree-ms MS`: a `--shot` of the Files tree with its first folder opened, this far into
     /// the chevron's turn (0 to 1000; more is at rest). Ignored without `--shot`.
     pub tree_ms: Option<u32>,
+    /// `--hover-ms MS`: a `--shot` of what `--hover` sets moving in the title row (a caption
+    /// button's or a tab's hover fill), this far into it (0 to 1000; more is at rest). Ignored
+    /// without `--shot` and `--hover`.
+    pub hover_ms: Option<u32>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
     /// `--wrap`: word wrap.
@@ -556,6 +560,7 @@ impl Args {
                 "--tip-ms" => out.tip_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--settings-ms" => out.settings_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--tree-ms" => out.tree_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--hover-ms" => out.hover_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),

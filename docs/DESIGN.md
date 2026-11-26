@@ -4100,3 +4100,17 @@ opened, its chevron that far into its turn: `tree-chevron-*` at 60 ms), both the
 pace is a sixtieth of a second, so a test that steps a hand-moved clock by 16 ms never reaches
 the deadline the animator asked for: 17 ms does (the review of mdview's D4 found that an
 assertion at 16 ms checked nothing).
+
+**The title row (M-E, D4).** `chrome::draw_title` draws its tabs with `chrome::draw_tab_animated`
+(named `("tab", document id)`, so a tab that moves keeps its fade), its caption buttons with
+`draw_win_button_animated` (named `("win", hit)`; Close's fill turns red and its glyph white) and
+the new-tab button with `draw_new_tab_button_animated` (`("new-tab",)`), all in the group
+`TITLE`: a quiet tab's hover fill and its close button fade by `document::HOVER` (shared's
+`FADE`, 83 ms linear). While the group is in flight the frame damages the title row, and a frame
+that skips it keeps the group. The bar's buttons (`Ctx::fill_for`) are not animated: they are
+not the title row (X3's `Menu::draw_in_animated` covers a menu's rows, not the bar's).
+The shared fix of the `t == 0` hover flash (shared #31) is in the pin, so the fade starts from
+the rest look rather than a frame of the full one. Shots: `--hover-ms MS` takes the tip away and
+moves on a clock from the first frame that sets the hover — a still window would draw the
+finished fade and the steps after it would prove nothing (`title-hover-*`, `tab-hover-*`, 40 ms
+of 83, both themes; the second shot needs two files for a quiet tab).

@@ -2682,3 +2682,21 @@ tip … Set `tip_point = None` on CursorLeft and whenever the tip is hidden … 
 and D-258 say 'one String, one clone', but it is two clones (three allocations a move) … Re-measure
 by timing the whole batch and dividing."
 **Overturned by.** The owner; or a tooltip that keeps its place across a scroll on the owner's word.
+
+## D-261 · 2026-11-26 · M-E, part D4: the title row's hovers fade
+
+**Decision.** The title row draws with shared's `chrome::draw_tab_animated`,
+`draw_win_button_animated` and `draw_new_tab_button_animated` in place of the plain functions:
+a quiet tab's hover fill and its close button, a caption button's fill (red for Close, its glyph
+white) and the new-tab button's fill fade by `document::HOVER` (shared's `FADE`, 83 ms linear).
+They are one damage group, `TITLE`: a frame whose group is due damages the title row, a frame
+that skips it calls `keep_group(TITLE)`, and with motion off the pixels are those of before
+(`with_motion_off_the_title_row_is_the_plain_drawing`). The title row is named by its document
+id for tabs and by its hit otherwise, so a tab that moves keeps its fade. The bar's buttons
+(`Ctx::fill_for`) stay instant, as the owner's brief did not name them.
+Shared's `t == 0` hover-flash fix (#31, in the pin) is what makes the fade start from the rest
+look; nothing in shared changed for this part.
+**Why.** The owner's M-E item (2026-11-26): "M-E (title row, X3, popups): `chrome::draw_win_button_animated`,
+`draw_tab_animated`, `draw_new_tab_button_animated` (D4; shared #31 fixed the t == 0 flash at
+09b01c1)".
+**Overturned by.** The owner; or the bar's buttons being brought under motion too.

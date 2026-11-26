@@ -170,6 +170,12 @@ shot dialog-about --dark --dialog about "$fx/sample.rs"
 shot dialog-shortcuts --light --dialog shortcuts "$fx/sample.rs"
 shot dialog-recent --light --dialog recent "$fx/sample.rs" "$fx/sample.md" "$fx/cjk.txt"
 shot hover-open --light --hover 46,63 "$fx/sample.rs"
+# M-E, D4: the title row's hover fills fade (shared's `chrome::*_animated`): the Close button and
+# a quiet tab part way in, on the shot's clock, in both themes.
+shot title-hover-light --light --hover 1258,21 --hover-ms 40 "$fx/sample.rs"
+shot title-hover-dark --dark --hover 1258,21 --hover-ms 40 "$fx/sample.rs"
+shot tab-hover-light --light --hover 210,21 --hover-ms 40 "$fx/sample.md" "$fx/sample.rs"
+shot tab-hover-dark --dark --hover 210,21 --hover-ms 40 "$fx/sample.md" "$fx/sample.rs"
 # A tooltip part way into its fade (--tip-ms, on the shot's clock), in both themes: the Open
 # button's tip, over a document.
 shot tip-rising-light --light --hover 46,63 --tip-ms 90 "$fx/sample.rs"

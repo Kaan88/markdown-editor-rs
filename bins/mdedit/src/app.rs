@@ -1405,6 +1405,10 @@ impl App {
         if self.motion.anim.group_due(crate::motion::SIDEBAR, now) {
             dirty[Region::Files.index()] = true;
         }
+        if self.motion.anim.group_due(crate::motion::TITLE, now) {
+            dirty[Region::Title.index()] = true;
+        }
+
         if self.ui.settings.is_some() && self.motion.anim.group_due(crate::motion::SETTINGS, now) {
             self.full = true;
             dirty = [true; 10];
@@ -1741,8 +1745,10 @@ impl App {
                 if !dirty[r.index()] {
                     // A region drawn by nothing this frame: what its groups hold goes on to
                     // its target instead of being taken for new next time (D1).
-                    if r == Region::Files {
-                        self.motion.anim.keep_group(crate::motion::SIDEBAR);
+                    match r {
+                        Region::Files => self.motion.anim.keep_group(crate::motion::SIDEBAR),
+                        Region::Title => self.motion.anim.keep_group(crate::motion::TITLE),
+                        _ => {}
                     }
                     continue;
                 }
@@ -1762,7 +1768,16 @@ impl App {
                 };
                 match r {
                     Region::Title => {
-                        chrome::draw_title(&mut c, &self.docs, &self.ui, rect, maximized)
+                        self.motion.anim.group(crate::motion::TITLE);
+                        chrome::draw_title(
+                            &mut c,
+                            &self.docs,
+                            &self.ui,
+                            rect,
+                            maximized,
+                            &mut self.motion.anim,
+                        );
+                        self.motion.anim.ungroup();
                     }
                     Region::Bar => {
                         let bar = Rect::new(rect.x, rect.y, rect.w, crate::ui::BAR_H);
@@ -3966,15 +3981,26 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
     }
     if let Some((x, y)) = app.args.hover {
+        // A shot of a hover fade moves on a clock of its own from the first frame that sets
+        // it: a still window would draw the hovered look at rest on that frame, and the steps
+        // after it would show a finished fade.
+        if app.args.hover_ms.is_some() {
+            app.motion.shot_fade();
+        }
         app.pointer_moved(x, y);
         // What the pointer is over can change what is drawn and hit (the fold chevrons).
         app.compose();
         app.pointer_moved(x, y);
         // A shot shows the tip at once (no pointer waits for its rest), and `--tip-ms` steps
         // the animator into its fade. The tip counts on the real clock (`pointer_moved` chose
-        // its due by it), so it is shown by that one, not by the animator's moved clock.
-        let due = Instant::now() + mdshared_ui::anim::document::TIP_DELAY;
-        app.ui.tip.tick(due);
+        // its due by it), so it is shown by that one, not by the animator's moved clock. A
+        // shot of what the hover sets moving in the title row takes no tip: none is stray.
+        if app.args.hover_ms.is_some() {
+            app.ui.hide_tip();
+        } else {
+            let due = Instant::now() + mdshared_ui::anim::document::TIP_DELAY;
+            app.ui.tip.tick(due);
+        }
         if let Some(ms) = app.args.tip_ms {
             app.motion.shot_fade();
             for step in crate::motion::shot_steps(ms) {
@@ -3984,6 +4010,13 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
         if let Some(p) = app.ui.popup.as_mut() {
             p.menu.pointer(x, y);
+        }
+        // `--hover-ms`: what the title row's hover set moving, that far in, on the shot's clock.
+        if let Some(ms) = app.args.hover_ms {
+            for step in crate::motion::shot_steps(ms) {
+                app.motion.advance_ms(step);
+                app.compose();
+            }
         }
     }
     // The caret in its visible phase, and no toast: a shot is the same on every run.

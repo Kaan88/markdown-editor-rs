@@ -55,9 +55,11 @@ Rewritten, not appended to. Last rewritten 2026-11-26, when the pin moved and to
     `glyph::draw_disclosure_animated_with` (motion from `motion.rs`); the groups `SIDEBAR` and
     `SETTINGS`, `keep_group` on frames that skip the pane; shots `settings-switch-*`,
     `tree-chevron-*`.
-  - **M-E, title row, X3 and the rest of the popups**: `chrome::draw_win_button_animated`,
-    `draw_tab_animated`, `draw_new_tab_button_animated` (D4; shared #31 fixed the `t == 0`
-    flash at `09b01c1`); X3: `Menu::draw_in_animated` (the hover row), `Palette::draw_presence`,
+  - **M-E, title row, X3 and the rest of the popups**: D4 (the title row) is done, `a6b51cf`'s
+    successor (DESIGN 98, D-261): `chrome::draw_win_button_animated`, `draw_tab_animated`,
+    `draw_new_tab_button_animated`, group `TITLE`, shots `title-hover-*`, `tab-hover-*` (shared
+    #31's `t == 0` flash fix is in `09b01c1`); still to do — X3: `Menu::draw_in_animated`
+    (the hover row), `Palette::draw_presence`,
     `notice::draw_sliding` and `bar_height`; popup damage by `presence_bounds()`, never
     `rect.inset(-20)`. **The completion popup stays instant.**
   - **M-F, four fixes**: L1, `submenu::Cascade` for the hand-made submenus and their dwell

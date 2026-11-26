@@ -7,10 +7,11 @@ use crate::docs::Docs;
 use crate::session::ThemeChoice;
 use crate::ui::{BarField, BarItem, Drag, FindOpt, Hit, PaneFace, PopupKind, Ui};
 use mdedit_core::prefs::PreviewMode;
+use mdshared_ui::anim::Animator;
 use mdshared_ui::chrome::{
     BAR_H, DRAG_MIN, NATIVE_FRAME, NEW_TAB_W, TABS_LEFT, TITLE_H, TabState, WIN_BTN_W, WinButton,
-    button_fill, draw_new_tab_button, draw_tab, draw_win_button, tab_natural_width, tab_widths,
-    win_button_rect,
+    button_fill, draw_new_tab_button_animated, draw_tab_animated, draw_win_button_animated,
+    tab_natural_width, tab_widths, win_button_rect,
 };
 use mdshared_ui::gfx::{Face, Painter, Rect, Rgb, mix};
 pub use mdshared_ui::glyph;
@@ -373,7 +374,14 @@ pub fn snap_button_rect(title: Rect, margin: f32, maximized: bool, covered: bool
 }
 
 /// Draws the title row into `r` (the full window width, `TITLE_H` tall).
-pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
+pub fn draw_title(
+    c: &mut Ctx,
+    docs: &Docs,
+    ui: &Ui,
+    r: Rect,
+    maximized: bool,
+    anim: &mut Animator,
+) {
     let pal = *c.pal;
     c.p.fill(r, pal.title);
     c.hit(Hit::TitleDrag, r);
@@ -397,9 +405,12 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
     for &(hit, kind) in buttons {
         let b = win_button_rect(right, 0);
         right -= WIN_BTN_W;
-        draw_win_button(
+        // The hover fill fades by `document::HOVER` (D4, shared's `t == 0` fix in the pin).
+        draw_win_button_animated(
             c.p,
             &pal,
+            anim,
+            ("win", hit),
             kind,
             b,
             maximized,
@@ -435,7 +446,18 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
             close_pressed: c.pressed == Some(Hit::TabClose(i)),
             pinned: docs.tabs[i].pinned,
         };
-        let drawn = draw_tab(c.p, &pal, x, w, r.w, label, &state);
+        // Named by its document, not its place: a tab that moves keeps its fade.
+        let drawn = draw_tab_animated(
+            c.p,
+            &pal,
+            anim,
+            ("tab", docs.tabs[i].id),
+            x,
+            w,
+            r.w,
+            label,
+            &state,
+        );
         c.hit(Hit::Tab(i), drawn.tab);
         // The tab in the second pane of a split view: a short line under its name.
         // When both panes show this tab the line runs the whole width of the tab.
@@ -459,9 +481,11 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
         x += w;
     }
     c.p.restore(clip);
-    let b = draw_new_tab_button(
+    let b = draw_new_tab_button_animated(
         c.p,
         &pal,
+        anim,
+        ("new-tab",),
         x,
         avail,
         c.hover == Some(Hit::NewTab),

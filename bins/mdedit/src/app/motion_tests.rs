@@ -1938,3 +1938,108 @@ fn coming_back_to_the_same_place_waits_the_whole_delay_again() {
     a.timers(back + TIP_WAIT);
     assert!(a.ui.tip.shown().is_some(), "and then it shows");
 }
+
+// ---- the title row (M-E, D4) ---------------------------------------------------------------------
+
+/// With motion off a caption button and a tab are the plain drawings, pixel for pixel, hovered.
+#[test]
+fn with_motion_off_the_title_row_is_the_plain_drawing() {
+    use mdshared_text::Bitmap;
+    use mdshared_ui::gfx::{Gfx, Painter, Rect};
+    let pal = mdshared_ui::theme::LIGHT;
+    let b = Rect::new(4.0, 4.0, 46.0, 32.0);
+    for hovered in [false, true] {
+        let mut plain = Bitmap::new(60, 44);
+        let mut gfx = Gfx::new();
+        {
+            let mut p = Painter::new(&mut plain, &mut gfx, 1.0);
+            p.fill(Rect::new(0.0, 0.0, 60.0, 44.0), pal.title);
+            mdshared_ui::chrome::draw_win_button(
+                &mut p,
+                &pal,
+                mdshared_ui::chrome::WinButton::Close,
+                b,
+                false,
+                hovered,
+                false,
+            );
+        }
+        let mut moved = Bitmap::new(60, 44);
+        {
+            let mut anim = mdshared_ui::anim::Animator::new();
+            anim.set_policy(Policy::Never);
+            anim.begin_frame(Instant::now());
+            let mut p = Painter::new(&mut moved, &mut gfx, 1.0);
+            p.fill(Rect::new(0.0, 0.0, 60.0, 44.0), pal.title);
+            mdshared_ui::chrome::draw_win_button_animated(
+                &mut p,
+                &pal,
+                &mut anim,
+                "close",
+                mdshared_ui::chrome::WinButton::Close,
+                b,
+                false,
+                hovered,
+                false,
+            );
+            assert_eq!(anim.end_frame(), None, "nothing moves, hovered: {hovered}");
+        }
+        assert!(plain.pixels == moved.pixels, "hovered: {hovered}");
+    }
+}
+
+/// Hovering a caption button fades its fill in: frames are asked for, they change the title
+/// row, and once it has arrived no timer is left.
+#[test]
+fn a_caption_button_fades_in_and_then_rests() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let b = a
+        .hit_rect(crate::ui::Hit::WinClose)
+        .expect("the close button");
+    let before = a.screen.pixels.clone();
+    a.pointer_moved(b.cx(), b.cy());
+    a.compose();
+    assert!(a.motion.due.is_some(), "the fill is on its way");
+    let mid_before = a.screen.pixels.clone();
+    tick(&mut a, 17);
+    let (damage, _) = a.compose();
+    assert!(a.screen.pixels != mid_before, "the button changed");
+    assert!(a.screen.pixels != before);
+    assert_eq!(
+        changed_outside(&a, &mid_before, &damage),
+        0,
+        "every pixel the fade changed is inside the damage"
+    );
+    for _ in 0..80 {
+        if a.motion.due.is_none() {
+            break;
+        }
+        tick(&mut a, 17);
+        a.compose();
+    }
+    assert_eq!(a.motion.due, None, "and no timer once it rests");
+}
+
+/// The new-tab button's fill fades too, from the tab strip's own group, and the tab's hover with
+/// it: the title region is damaged while either moves.
+#[test]
+fn the_new_tab_button_and_a_tab_fade_with_the_title_row() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let b = a
+        .hit_rect(crate::ui::Hit::NewTab)
+        .expect("the new tab button");
+    a.pointer_moved(b.cx(), b.cy());
+    a.compose();
+    assert!(a.motion.due.is_some(), "the new-tab fill is on its way");
+    settle(&mut a);
+    let t = a.hit_rect(crate::ui::Hit::Tab(0)).expect("the tab");
+    a.pointer_moved(t.cx(), t.cy());
+    a.compose();
+    assert!(a.motion.due.is_some(), "the tab's hover is on its way");
+    settle(&mut a);
+    assert_eq!(a.motion.due, None);
+}
