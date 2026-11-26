@@ -27,3 +27,5 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
   through a long page without selecting its text.
 - **Files and Functions have keyboard focus.** Use the pane's shortcut, move with the
   arrow keys, press Enter to open the row, or press Escape to go back to the editor.
+- **Window placement follows the saved monitor.** If that monitor is no longer
+  available, the operating system chooses where the window opens.

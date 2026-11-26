@@ -258,6 +258,8 @@ pub struct Session {
     pub format_bar: bool,
     /// `WxH[ max][ @x,y]`, the viewer's format.
     pub geometry: String,
+    /// Monitor-aware placement; keep `geometry` for sessions written by older builds.
+    pub window_state: Option<String>,
     /// Whether the Files pane shows; `None` when never set.
     pub files: Option<bool>,
     /// What the pane showed (`pane=files`, `functions` or `notes`); `None` when never set, which
@@ -310,6 +312,7 @@ impl Default for Session {
             minimap: false,
             format_bar: true,
             geometry: String::new(),
+            window_state: None,
             files: None,
             pane: None,
             files_w: None,
@@ -410,6 +413,7 @@ impl Session {
                     "minimap" => s.minimap = value.trim() == "1",
                     "format_bar" => s.format_bar = value.trim() != "0",
                     "geometry" => s.geometry = unescape(value),
+                    "window_state" => s.window_state = Some(unescape(value)),
                     "files" => {
                         s.files = match value.trim() {
                             "1" => Some(true),
@@ -556,6 +560,9 @@ impl Session {
         }
         if !self.geometry.is_empty() {
             out.line("geometry", &escape(&self.geometry));
+        }
+        if let Some(state) = &self.window_state {
+            out.line("window_state", &escape(state));
         }
         if let Some(f) = self.files {
             out.line("files", if f { "1" } else { "0" });

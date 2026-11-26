@@ -4161,3 +4161,10 @@ row and ring target are part of the Files region signature. The `SIDEBAR` group
 owns the ring fade, so a skipped pane paint cannot lose it or keep waking the window
 after it settles. The `*-keyboard-focus-*` and `*-keyboard-empty-*` shots show
 the two pane faces partway through the fade, with and without rows.
+
+**M-F, W3.** `Session` keeps the legacy content size and position for compatibility.
+The shared monitor-aware value supplies the launch position when its monitor still
+exists; the legacy value still supplies the window size. `app/window_restore.rs` gates
+the shared restore before it can pick a different monitor. A modern session whose
+monitor is gone passes no position to winit. The monitor-aware lookup runs only for
+a session with a valid `window_state` value.

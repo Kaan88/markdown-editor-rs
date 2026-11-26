@@ -2809,3 +2809,15 @@ The toolbar and menu commands still toggle the pane.
 editor caret. Showing that distinction gives the panes keyboard access without changing
 what a pointer-only user sees.
 **Overturned by.** A different keyboard navigation contract for the left pane.
+
+## D-272 — 2026-11-26 — Restore a window only on its saved monitor
+
+**Decision.** Keep the legacy `geometry` value and save a separate shared `window_state`
+value for monitor-aware placement. Restore the position through `window_state::restore`
+only if the saved monitor's name, position and size match a current display. Otherwise
+leave the position unset for the OS. Old sessions without monitor identity retain the
+title-row reachability check.
+**Why.** A missing monitor is not a reason to move the window to another display's corner.
+The extra setting preserves enough information to distinguish a missing monitor from a
+reachable point, without breaking sessions for earlier builds.
+**Overturned by.** A change to the saved monitor identity or placement contract.

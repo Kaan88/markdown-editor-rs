@@ -138,6 +138,7 @@ mod recycle_tests;
 #[cfg(test)]
 mod review_tests;
 mod visual;
+mod window_restore;
 pub(crate) use preview::previewable;
 #[cfg(test)]
 mod issues_tests;
@@ -2635,7 +2636,7 @@ impl App {
                 self.docs.marks.version,
                 self.docs.places.version,
             ),
-            &self.session.geometry,
+            (&self.session.geometry, &self.session.window_state),
             (
                 self.docs.check_updates,
                 self.session.update_checked,
@@ -2988,6 +2989,9 @@ impl App {
                     && w.fullscreen().is_none()
                 {
                     self.session.set_window_position(position.x, position.y);
+                    if self.save && self.session_path.is_some() {
+                        self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
+                    }
                 }
             }
             WindowEvent::Resized(size) => {
@@ -3164,16 +3168,31 @@ impl ApplicationHandler<Wake> for App {
             "mdedit",
             Some(include_bytes!("../../../assets/mdedit.png")),
         );
-        // Back where it was, if a screen still shows that place: the title row's left end has
-        // to be on one, or the window could not be reached.
-        if let Some((x, y)) = self.session.window_position() {
+        // Back on the saved monitor if it is still there. Older settings only have a point
+        // and still use the title-row reachability check.
+        if let Some(state) = self
+            .session
+            .window_state
+            .as_deref()
+            .and_then(mdshared_ui::window_state::WindowState::from_setting)
+        {
+            let monitors: Vec<_> = event_loop
+                .available_monitors()
+                .map(window_restore::monitor)
+                .collect();
+            if let Some(place) = window_restore::restore(&state, &monitors) {
+                attributes =
+                    attributes.with_position(PhysicalPosition::new(place.rect.x, place.rect.y));
+            }
+        } else if let Some((x, y)) = self.session.window_position() {
             let reachable = event_loop.available_monitors().any(|monitor| {
                 let (origin, size) = (monitor.position(), monitor.size());
-                let (px, py) = (x + 60, y + 16);
-                px >= origin.x
-                    && px < origin.x + size.width as i32
-                    && py >= origin.y
-                    && py < origin.y + size.height as i32
+                let (px, py) = (i64::from(x) + 60, i64::from(y) + 16);
+                let (mx, my) = (i64::from(origin.x), i64::from(origin.y));
+                px >= mx
+                    && px < mx + i64::from(size.width)
+                    && py >= my
+                    && py < my + i64::from(size.height)
             });
             if reachable {
                 attributes = attributes.with_position(PhysicalPosition::new(x, y));

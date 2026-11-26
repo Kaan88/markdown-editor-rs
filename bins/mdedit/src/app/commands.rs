@@ -2672,6 +2672,14 @@ impl App {
         let content = self.content_size(surface.width, surface.height);
         let (lw, lh) = logical_size(content, w.scale_factor());
         self.session.set_window_size(lw, lh, w.is_maximized());
+        if self.save
+            && self.session_path.is_some()
+            && w.fullscreen().is_none()
+            && self.tiling.before(w).is_none()
+            && let Some(state) = mdshared_ui::window_state::capture(w)
+        {
+            self.session.window_state = Some(state.to_setting());
+        }
     }
 
     /// The exit while the windows are side by side: the place the window had before is the one
