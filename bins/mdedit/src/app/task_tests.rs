@@ -3453,6 +3453,93 @@ fn a_single_file_beyond_the_windows_room_is_left_out() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A second "Add them" while one answer waits adds to it through `task_ask_add`: nothing of the
+/// earlier folder is lost (D-254).
+#[test]
+fn a_second_add_them_while_one_answer_waits_merges() {
+    let (mut a, dir) = open("task-answer-second-add", TaskKind::File, Vec::new());
+    let first = many(&dir, "First", 201);
+    a.task_add_paths(vec![first]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    let late = many(&dir, "Late", 50);
+    a.dropped(late);
+    a.task_flush_drops();
+    answer_question(&mut a);
+    assert!(a.task_answer.is_some(), "First waits for the late read");
+    let third = many(&dir, "Third", 60);
+    a.dropped(third);
+    a.task_flush_drops();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while a.task_job.as_ref().is_some_and(|j| j.running()) {
+        assert!(
+            std::time::Instant::now() < until,
+            "the late folder was not read"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    a.task_add_take();
+    assert!(a.task_job.is_some(), "the third folder is read");
+    assert_eq!(a.task_held.as_ref().map_or(0, |h| h.paths.len()), 50);
+    // A second "Add them", for the held 50, while First's answer still waits.
+    a.task_ask_add();
+    assert_eq!(
+        a.task_answer.as_ref().map_or(0, |h| h.paths.len()),
+        251,
+        "First's 201 and Late's 50, not the 50 alone"
+    );
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.files.len(), 311, "201 + 50 + 60");
+    assert!(s.ask.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// "Leave them out" drops only its own question and the paths folded into it: an answer already
+/// waiting still goes in (D-254).
+#[test]
+fn leave_them_out_keeps_an_answer_already_waiting() {
+    let (mut a, dir) = open("task-answer-leave", TaskKind::File, Vec::new());
+    let first = many(&dir, "First", 201);
+    a.task_add_paths(vec![first]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    let late = many(&dir, "Late", 50);
+    a.dropped(late);
+    a.task_flush_drops();
+    answer_question(&mut a);
+    let third = many(&dir, "Third", 60);
+    a.dropped(third);
+    a.task_flush_drops();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while a.task_job.as_ref().is_some_and(|j| j.running()) {
+        assert!(
+            std::time::Instant::now() < until,
+            "the late folder was not read"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    a.task_add_take();
+    assert!(a.task_job.is_some(), "the third folder is read");
+    // The question on screen while First's answer waits.
+    if let Some(s) = a.task.as_mut() {
+        s.ask = Some("Add 50 files from Late?".to_string());
+        s.tick += 1;
+    }
+    a.task_key(Some(KeyName::Escape), None);
+    assert!(
+        a.task_answer.as_ref().is_some_and(|h| h.paths.len() == 201),
+        "the answer already given stays"
+    );
+    assert!(a.task_held.is_none(), "the question's own paths go");
+    assert!(a.task_queue.is_empty());
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.files.len(), 201, "First's files went in");
+    assert!(s.ask.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A file dropped by name from the folder the question holds is counted once: it goes in, and
 /// the count follows while it is still above the threshold (D-251, D-253).
 #[test]

@@ -54,7 +54,7 @@ is newer, doubt "In hand" first.
   for single files as well; the question's keys keep out of menus and fields; the main button is
   off while it stands (D-251); a file added again is not "left out", a question with nothing left
   goes, notes speak per folder, and the plan waits while answered files are probed (D-252); a stop ends the probes and gives the button back, and a question at 200 or fewer comes in at once (D-253); an answer waiting for a read is merged with any other, never replaced (D-254). fmt,
-  clippy `-D warnings` and the release workspace tests clean (mdedit 1,099, core 609); shots `task-files-ask`, `task-files-ask-empty`,
+  clippy `-D warnings` and the release workspace tests clean (mdedit 1,101, core 609); shots `task-files-ask`, `task-files-ask-empty`,
   `task-files-unreadable` and `task-files-nothing-new` looked at in both themes. Not pushed, no CI
   run, not seen in a real window, not yet in Fable's round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
