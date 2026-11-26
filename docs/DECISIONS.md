@@ -2770,3 +2770,11 @@ chevron tracks and the original paint deadline. Hiding the pane drops both.
 **Why.** Repeated 16 ms frames could move the reported deadline forward without painting the
 turn.
 **Overturned by.** Shared scheduling that preserves the deadline itself.
+
+## D-268 — 2026-11-26 — Pin `1588e0f` before M-F
+
+**Decision.** Move D-256's five workspace references from `09b01c1` to `1588e0f`. Do not
+move the viewer pin or activate a new feature in the pin commit. L1 opts in separately.
+**Why.** The owner requested the pin already used by mdview, with shared's cancellation of
+waiting cascade changes (PR 40). See `docs/measurements/2026-11-26-motion-mf-pin.md`.
+**Overturned by.** A later deliberate shared pin move.

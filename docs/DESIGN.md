@@ -3922,7 +3922,7 @@ notes record as written by a newer version.
 ## 96. Motion: one animator, and the menus' fade (2026-11-25)
 
 `bins/mdedit/src/motion.rs`, its wiring in `app.rs` (`compose`) and `app/commands.rs`
-(`timers`, `woken`), tests in `app/motion_tests.rs`. Built on shared `anim` (`09b01c1`; shared's
+(`timers`, `woken`), tests in `app/motion_tests.rs`. Built on shared `anim` (`1588e0f`; shared's
 `docs/ANIMATION.md` says how its pieces work). D-232, D-233, D-235, D-250, D-252.
 
 **The animator.** `App::motion` holds the window's one `Animator`. `compose` calls
@@ -3941,6 +3941,10 @@ not offer; and the pool's cancel (#28) and the window-procedure hand-over (#29) 
 `mdshared_app::pool` and `single_mutex`, which mdedit does not. `pages::CARD_RADIUS`,
 `Form::menu_rect` and `Form::menu_bounds` are additions a host may use; the before-and-after
 shots of the pin are identical but for the clock-stamped `runs*`.
+
+**The pin `1588e0f`** (D-268) makes `Cascade::keys_cancel_wait` available without enabling
+it anywhere by itself. The Linux portal change is upstream; the new layout, terminal and
+scroll-area modules are not used by mdedit merely by moving the pin.
 
 **Tooltips.** `Ui::tip` is shared's `Tooltip<Hit>`: `update_tip` (`app/input.rs`) gives it the
 control under the pointer, its text from `chrome::tooltip` (or the replace strip's own) and its

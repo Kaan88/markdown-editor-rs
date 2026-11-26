@@ -44,12 +44,12 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
 
 - **Motion, on `f/motion2`**: menus fade (released work), the toasts (D-251 to D-255,
   DESIGN 97), tooltips (M-C, D-257 and D-264), and the plan below. Not merged or tried by hand.
-  The pin is `09b01c1` (D-256), which carries shared PR 24: the two
-  tests ignored for it are un-ignored and pass. Left open: the status snap in
+  The branch pins `1588e0f` (D-268), ready for L1's opt-in cascade cancellation.
+  Left open: the status snap in
   `Motion::sync_toasts` (`Animator::set`), still needed with motion on because shared's animator
   keeps a target's first delay. **On the owner's word: quick, quiet motion; menus open in
   117 ms; menus and dialogs close instantly; everything under the one Animations setting, and
-  motion off draws exactly as now; only what shared has at `09b01c1`.**
+  motion off draws exactly as now.**
   - **M-D, Settings and tree chevrons**: done, `8ab68f1` with the review fixes at `46a7740`
     (DESIGN 98, D-259 corrected by D-263):
     `settings::pages::Form::draw_animated` in place of `draw`; tree chevrons through
