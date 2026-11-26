@@ -2408,7 +2408,8 @@ impl BannerDemo {
                 Hit::UpdateGo
             }
             Self::Crash => {
-                // Drawing uses presence only. Never open or mark a real crash report.
+                // A synthetic notice: real startup checks for crash reports at settle,
+                // after the first paint. Never open or mark a real report here.
                 a.docs.crash = Some("test-report.txt".into());
                 Hit::CrashOpen
             }

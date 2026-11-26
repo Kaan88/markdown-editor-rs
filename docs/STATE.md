@@ -60,8 +60,8 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
     (DESIGN 98, D-261 and D-265): `chrome::draw_win_button_animated`, `draw_tab_animated`,
     `draw_new_tab_button_animated`, group `TITLE`, shots `title-hover-*`, `tab-hover-*` (shared
     #31's `t == 0` flash fix is in `09b01c1`). X3 is wired at `d116f9e` (D-262): menu-row
-    hover fades, the command palette pops in, and later notices slide into their measured
-    strips. Launch notices, returning rename offers, and completion stay instant (D-266).
+    hover fades, the command palette pops in, and the crash bar slides in just after launch with motion on.
+    Notices present on the first paint, returning rename offers, and completion stay instant (D-266).
     Popup damage uses `presence_bounds()`. Windows launch: 121.40 ms and 134.4 ms exceeded
     the 100 ms budget; all later 31 at `0bacb93` were under (97.0 ms max). Idle CPU and
     transition frames weren't measured in that [repeat](measurements/2026-11-26-motion-launch-repeat.md). [Stale-tab launch](measurements/2026-11-26-motion-stale-launch.md): five extra full-height frames eliminated; slowest 102.0 ms after.

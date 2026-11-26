@@ -3742,7 +3742,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
-    // A report from last time shows its bar in a picture too.
+    // A static shot can show a report from last time on its first paint. A native
+    // launch checks for it only after that paint, when the window settles.
     app.look_for_crash();
     if app.args.preview_pane {
         app.look_for_viewer();
