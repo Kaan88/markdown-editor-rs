@@ -1882,6 +1882,67 @@ fn early_frames_do_not_postpone_the_sidebar_paint() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn keyboard_focus_in_files_and_functions_fades_and_rests() {
+    use crate::commands::CommandId;
+    use crate::keys::{Key, KeyName};
+    use crate::ui::PaneFace;
+    for (face, cmd, shortcut) in [
+        (PaneFace::Files, CommandId::ToggleFiles, '1'),
+        (PaneFace::Functions, CommandId::ToggleOutline, '2'),
+    ] {
+        let (mut a, dir) = if face == PaneFace::Files {
+            tree_app("files-key-focus")
+        } else {
+            let dir = scratch("functions-key-focus");
+            let path = dir.join("symbols.rs");
+            std::fs::write(&path, "fn one() {}\n\nfn two() {}\n").unwrap();
+            let mut a = moving_on(&path);
+            a.focused = false;
+            a.command(cmd);
+            a.ui.outline.fill_now(&a.docs);
+            (a, dir)
+        };
+        a.compose();
+        let track = ("pane-focus", face);
+        assert!(a.motion.anim.get::<f32>(track).is_none());
+        assert_eq!(a.motion.due, None);
+        a.mods.ctrl = true;
+        a.mods.shift = true;
+        a.key_pressed(Key::Name(KeyName::Char(shortcut)), None);
+        a.mods = Default::default();
+        a.compose();
+        assert_eq!(
+            a.ui.pane_focus.focused(),
+            Some(face),
+            "the shortcut gives it the keys"
+        );
+        assert_eq!(
+            a.motion.anim.get::<f32>(track),
+            Some(0.0),
+            "the ring starts from nothing"
+        );
+        assert!(a.motion.due.is_some());
+        let start = a.screen.pixels.clone();
+        tick(&mut a, 40);
+        a.compose();
+        let t = a.motion.anim.get::<f32>(track).unwrap();
+        assert!(0.0 < t && t < 1.0);
+        assert!(a.screen.pixels != start, "the ring is actually painted");
+        settle(&mut a);
+        assert_eq!(a.motion.anim.get::<f32>(track), Some(1.0));
+        a.key_pressed(Key::Name(KeyName::Down), None);
+        a.compose();
+        assert_eq!(a.ui.pane_cursor, Some(1));
+        a.key_pressed(Key::Name(KeyName::Escape), None);
+        a.compose();
+        assert!(a.ui.pane_focus.focused().is_none());
+        settle(&mut a);
+        assert_eq!(a.motion.anim.get::<f32>(track), Some(0.0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// The frames of the turn damage the chevron that changed: no changed pixel is left undamaged.
 #[test]
 fn the_frames_of_the_turn_damage_what_changes() {

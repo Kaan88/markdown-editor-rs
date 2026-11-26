@@ -25,3 +25,5 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
   change and closes the submenu that's actually on screen.
 - **The split preview has a scrollbar.** Click the track or drag the thumb to move
   through a long page without selecting its text.
+- **Files and Functions have keyboard focus.** Use the pane's shortcut, move with the
+  arrow keys, press Enter to open the row, or press Escape to go back to the editor.

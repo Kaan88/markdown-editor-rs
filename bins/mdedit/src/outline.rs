@@ -233,7 +233,7 @@ pub fn caret_row(docs: &Docs, outline: &Outline) -> Option<usize> {
     outline.row_of(r.buffer.line_of(r.view.sel.caret))
 }
 
-pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, ring: Option<(usize, f32)>) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
     crate::panes::draw_pane_head(c, ui, r);
@@ -268,6 +268,8 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         };
         let at = Rect::new(r.x, area.y + 30.0, r.w, 20.0);
         c.p.text_center(Face::Ui, 13.0, at, text, pal.muted);
+        let frame = Rect::new(r.x + 6.0, at.y - 3.0, r.w - 12.0, at.h + 6.0);
+        crate::panes::draw_focus_ring(c, frame, ring, 0);
     }
     let quiet = mix(pal.text, pal.muted, 0.35);
     let old = c.p.clip(area);
@@ -288,6 +290,7 @@ pub fn draw(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             c.pressed == Some(hit),
             selected,
         );
+        crate::panes::draw_focus_ring(c, rr, ring, i);
         let x = r.x + 18.0 + f32::from(s.depth.min(5)) * 12.0;
         // What holds other things stands out from what is held.
         let (face, color) = match s.kind {

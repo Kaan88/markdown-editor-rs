@@ -1048,6 +1048,8 @@ pub struct RunsDialog {
 
 pub struct Ui {
     pub panes: Panes,
+    pub pane_focus: mdshared_ui::focus::Focus<PaneFace>,
+    pub pane_cursor: Option<usize>,
     /// What "Find in files" found, in the panel under the text.
     pub results: crate::results::Results,
     /// The function list, shown in the left pane in the Files tree's place.
@@ -1134,6 +1136,10 @@ impl Ui {
     /// Sets what the left pane shows (and opens the pane); the flags the faces are kept in
     /// never disagree.
     pub fn set_pane_face(&mut self, face: PaneFace) {
+        if face != self.pane_face() {
+            self.pane_focus.blur();
+            self.pane_cursor = None;
+        }
         self.panes.files = true;
         self.outline.on = face == PaneFace::Functions;
         self.library.on = face == PaneFace::Notes;
@@ -1155,6 +1161,8 @@ impl Ui {
 
     /// Shuts the left pane, whatever it shows.
     pub fn hide_pane(&mut self) {
+        self.pane_focus.blur();
+        self.pane_cursor = None;
         self.panes.files = false;
         self.outline.on = false;
         self.library.on = false;
@@ -1166,6 +1174,8 @@ impl Ui {
 
     pub fn new() -> Ui {
         Ui {
+            pane_focus: mdshared_ui::focus::Focus::new(),
+            pane_cursor: None,
             panes: Panes {
                 files: false,
                 files_w: PANE_DEFAULT,

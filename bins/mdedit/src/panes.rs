@@ -46,7 +46,14 @@ pub fn draw_pane_head(c: &mut Ctx, ui: &Ui, r: Rect) {
     c.hit(hit, b);
 }
 
-pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, anim: &mut Animator) {
+pub fn draw_files(
+    c: &mut Ctx,
+    docs: &Docs,
+    ui: &mut Ui,
+    r: Rect,
+    anim: &mut Animator,
+    ring: Option<(usize, f32)>,
+) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
     draw_pane_head(c, ui, r);
@@ -69,6 +76,7 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, anim: &mut Ani
             .unwrap_or(pal.bar);
         c.p.frame(b, 6.0, fill, pal.line);
         c.p.text_center(Face::Ui, 13.0, b, label, pal.text);
+        draw_focus_ring(c, b, ring, 0);
         c.hit(Hit::FilesOpenFolder, b);
         ui.panes.files_content = 0.0;
         edge(c, r, dragging);
@@ -99,6 +107,9 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, anim: &mut Ani
 
     let list = files_list(r);
     let rows = ui.tree.rows();
+    if rows.is_empty() {
+        draw_focus_ring(c, Rect::new(r.x + 6.0, ry, r.w - 12.0, ROW_H), ring, 0);
+    }
     ui.panes.files_content = rows.len() as f32 * ROW + 8.0;
     ui.panes.files_view = list.h;
     ui.panes.files_scroll = ui
@@ -126,6 +137,7 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, anim: &mut Ani
             c.pressed == Some(hit),
             selected,
         );
+        draw_focus_ring(c, rr, ring, i);
         let ix = r.x + 14.0 + (row.depth as f32 + 1.0) * 14.0;
         let cy = rr.cy();
         if row.is_dir {
@@ -179,6 +191,19 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, anim: &mut Ani
         c.hit(thumb_hit, track);
     }
     edge(c, r, dragging);
+}
+
+/// The shared keyboard ring, fading from its pane's background. Nothing is painted at rest
+/// without keyboard focus (and a pointer highlight is still a separate state).
+pub fn draw_focus_ring(c: &mut Ctx, row: Rect, ring: Option<(usize, f32)>, i: usize) {
+    if let Some((at, t)) = ring
+        && at == i
+        && t > 0.0
+    {
+        let mut pal = *c.pal;
+        pal.accent = mix(pal.pane, pal.accent, t);
+        mdshared_ui::focus::draw_ring(c.p, &pal, row.inset(3.0), 4.0);
+    }
 }
 
 /// The splitter on the pane's right edge, and the hairline that marks it.

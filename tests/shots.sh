@@ -51,6 +51,14 @@ shot() {
 }
 
 shot rs-light --light "$fx/sample.rs"
+shot files-keyboard-focus-light --light --files --folder "$fx" --pane-focus --motion-clock 40 "$fx/cjk.txt"
+shot files-keyboard-focus-dark --dark --files --folder "$fx" --pane-focus --motion-clock 40 "$fx/cjk.txt"
+shot functions-keyboard-focus-light --light --outline --pane-focus --motion-clock 40 "$fx/sample.rs"
+shot functions-keyboard-focus-dark --dark --outline --pane-focus --motion-clock 40 "$fx/sample.rs"
+shot files-keyboard-empty-light --light --files --pane-focus --motion-clock 40 --new
+shot files-keyboard-empty-dark --dark --files --pane-focus --motion-clock 40 --new
+shot functions-keyboard-empty-light --light --outline --pane-focus --motion-clock 40 --new
+shot functions-keyboard-empty-dark --dark --outline --pane-focus --motion-clock 40 --new
 shot rs-dark --dark "$fx/sample.rs"
 shot md-light --light "$fx/sample.md"
 shot toml-dark --dark "$fx/sample.toml"

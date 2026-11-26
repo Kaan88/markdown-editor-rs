@@ -208,6 +208,8 @@ pub struct Args {
     pub find_in_tabs: bool,
     /// `--outline`: the left pane with the active document's function list.
     pub outline: bool,
+    /// `--pane-focus`: give the pane the keyboard before capturing a shot.
+    pub pane_focus: bool,
     /// `--bookmark <line>`, as often as wanted: bookmarked lines of the active document.
     pub bookmarks: Vec<usize>,
     /// `--split`: two files side by side, the tab after the active one in the second pane.
@@ -416,6 +418,7 @@ impl Args {
                 "--minimap" => out.minimap = true,
                 "--find-in-tabs" => out.find_in_tabs = true,
                 "--outline" => out.outline = true,
+                "--pane-focus" => out.pane_focus = true,
                 "--bookmark" => {
                     if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
                         out.bookmarks.push(n);

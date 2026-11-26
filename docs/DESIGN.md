@@ -4154,3 +4154,10 @@ before the deadline does not.
 whether alongside the editor or filling its area. `Hit::ScrollBar(Scroller::Page)`
 wins over the page selection hit; page clicks and thumb drag send the normal preview
 scroll request. `preview-scrollbar-*` shows the split preview partway down in both themes.
+
+**M-F, W2.** `app/pane_keys.rs` routes the left-pane shortcuts and cursor keys.
+`Ui::pane_focus` distinguishes keyboard focus from the document's active row; the
+row and ring target are part of the Files region signature. The `SIDEBAR` group
+owns the ring fade, so a skipped pane paint cannot lose it or keep waking the window
+after it settles. The `*-keyboard-focus-*` and `*-keyboard-empty-*` shots show
+the two pane faces partway through the fade, with and without rows.

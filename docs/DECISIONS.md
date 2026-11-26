@@ -2797,3 +2797,15 @@ preview, not just when the page fills the text area for visual editing.
 in visual mode. These point at the scrollbar, not at the rendered text; scrolling
 continues to synchronize the editor.
 **Overturned by.** A change to the embedded preview's scrolling contract.
+
+## D-271 — 2026-11-26 — Keyboard focus in Files and Functions
+
+**Decision.** The Files and Functions shortcuts give their pane the keyboard; press the
+same shortcut again to close it. Arrow and paging keys move its cursor, Enter activates
+the row, and Escape or a click gives up pane focus. The keyboard ring uses the shared
+focus drawing and fades under Animations; when motion is off it changes on the first paint.
+The toolbar and menu commands still toggle the pane.
+**Why.** A keyboard cursor is different from the active file or the function at the
+editor caret. Showing that distinction gives the panes keyboard access without changing
+what a pointer-only user sees.
+**Overturned by.** A different keyboard navigation contract for the left pane.

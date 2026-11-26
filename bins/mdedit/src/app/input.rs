@@ -717,6 +717,10 @@ impl App {
         }
         // Not under a dialog: its buttons come first (About's OK lay on the page and did nothing).
         // The page's scrollbar lies on the page too, and is not a press on it.
+        if self.ui.dialog.is_none() && self.ui.pane_focus.focused().is_some() {
+            self.ui.pane_focus.blur();
+            self.redraw();
+        }
         if self.on_page(x, y) && self.hit_at(x, y) == Some(Hit::ScrollBar(Scroller::Page)) {
             self.scrollbar_press(Scroller::Page, x, y);
             self.redraw();
@@ -1570,7 +1574,12 @@ impl App {
         {
             return;
         }
-        // The notes pane, while it has the keyboard; its keys never reach the text.
+        // The left pane, while it has the keyboard; its keys never reach the text.
+        if let Some(n) = &name
+            && self.pane_key(n, mods)
+        {
+            return;
+        }
         if self.ui.library.focused
             && !self.ui.find_focused
             && !self.ui.results.focused
@@ -1590,6 +1599,22 @@ impl App {
             return;
         }
         if let Some(id) = keys::command_for(&key, mods) {
+            let face = match id {
+                C::ToggleFiles => Some(crate::ui::PaneFace::Files),
+                C::ToggleOutline => Some(crate::ui::PaneFace::Functions),
+                _ => None,
+            };
+            if let Some(face) = face {
+                if !self.ui.pane_focus.is_focused(face) {
+                    if !self.ui.panes.files || self.ui.pane_face() != face {
+                        self.show_pane_face(face);
+                    }
+                    self.focus_pane(face);
+                } else {
+                    self.command(id);
+                }
+                return;
+            }
             // Its shortcut, with the notes pane showing and the keyboard elsewhere, takes the
             // keyboard there; pressed again it closes the pane as the command does.
             if id == C::ToggleLibraryPane && self.library_focus() {

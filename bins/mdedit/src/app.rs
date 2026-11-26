@@ -125,6 +125,7 @@ mod notes_write;
 #[cfg(test)]
 mod notes_write_tests;
 mod palette_events;
+mod pane_keys;
 mod plan;
 #[cfg(test)]
 mod plan_tests;
@@ -745,6 +746,7 @@ impl App {
             && !self.preview_focused()
             && !self.ui.results.focused
             && !self.ui.library.focused
+            && self.ui.pane_focus.focused().is_none()
             && self.ui.dialog.is_none()
             && !self.palette_open()
             && !self.ai_panel_open()
@@ -1104,6 +1106,7 @@ impl App {
                 sig((
                     common,
                     ui.outline.generation,
+                    (ui.pane_cursor, ui.pane_focus.ring_visible(ui.pane_face())),
                     ui.outline.scroll.to_bits(),
                     crate::outline::caret_row(&self.docs, &ui.outline),
                     self.docs.active_doc().map(|d| d.id),
@@ -1193,6 +1196,7 @@ impl App {
                     rows,
                     active,
                     ui.panes.files_scroll.to_bits(),
+                    (ui.pane_cursor, ui.pane_focus.ring_visible(ui.pane_face())),
                     drag,
                 ))
             }
@@ -1868,8 +1872,19 @@ impl App {
                     }
                     Region::Files => {
                         self.motion.anim.group(crate::motion::SIDEBAR);
+                        let face = self.ui.pane_face();
+                        let ring = self.ui.pane_cursor.map(|i| {
+                            let target = f32::from(self.ui.pane_focus.ring_visible(face));
+                            let t = self.motion.anim.value_from(
+                                ("pane-focus", face),
+                                0.0_f32,
+                                target,
+                                mdshared_ui::anim::document::HOVER,
+                            );
+                            (i, t)
+                        });
                         if self.ui.outline.on {
-                            crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect);
+                            crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect, ring);
                         } else if self.ui.library.on {
                             let ready = self.plan_parked.as_ref().map(|p| p.plan.notes().len());
                             crate::library_pane::draw(
@@ -1886,6 +1901,7 @@ impl App {
                                 &mut self.ui,
                                 rect,
                                 &mut self.motion.anim,
+                                ring,
                             );
                         }
                         self.motion.anim.ungroup();
@@ -3748,6 +3764,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
     }
     app.compose();
+    if app.args.pane_focus {
+        app.focus_pane(app.ui.pane_face());
+    }
     // Unlike a launch notice, this demo is meant to enter after the first paint.
     if app.args.motion_clock.is_some()
         && let Some(stage) = &app.args.update_bar
