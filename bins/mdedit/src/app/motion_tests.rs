@@ -2439,6 +2439,161 @@ fn launch_layout_with_a_stale_notice_matches_the_first_paint_and_goto() {
     assert_eq!(a.docs.active_ready().unwrap().view.top, top);
 }
 
+#[test]
+fn motion_off_menu_hover_uses_plain_drawing() {
+    let mut a = moving();
+    a.focused = false;
+    a.docs.prefs.animations = false;
+    a.compose();
+    a.open_popup(PopupKind::Main);
+    a.compose();
+    let rest = a.screen.pixels.clone();
+    let menu = a.ui.popup.as_ref().unwrap().menu.rect();
+    a.pointer_moved(menu.cx(), menu.y + 26.0);
+    a.compose();
+    assert!(
+        a.screen.pixels != rest,
+        "the first hover frame draws the fill"
+    );
+    let (w, h) = a.logical();
+    let mut plain = mdshared_text::Bitmap::new(a.screen.width, a.screen.height);
+    let popup = a.ui.popup.as_mut().unwrap();
+    let row = popup.menu.hover.expect("an enabled row under the pointer");
+    let mut p = Painter::new(&mut plain, &mut a.gfx, a.scale);
+    popup
+        .menu
+        .draw_in(&mut p, &a.pal, menu_room(a.areas.title, w, h));
+    let (x0, y0, x1, y1) = p.dev_rect(popup.menu.row_rect(row).inset(3.0));
+    let stride = a.screen.width as usize * 4;
+    assert!(
+        (y0 as usize..y1 as usize).all(|y| {
+            let span = y * stride + x0 as usize * 4..y * stride + x1 as usize * 4;
+            a.screen.pixels[span.clone()] == plain.pixels[span]
+        }),
+        "hovered row matches draw_in"
+    );
+    let id = mdshared_ui::anim::Id::new(("row-hover", popup.serial)).with(("row", row));
+    assert!(
+        a.motion.anim.get::<f32>(id).is_none(),
+        "plain drawing creates no row track"
+    );
+    assert_eq!(a.motion.due, None);
+}
+
+#[test]
+fn motion_off_command_palette_is_full_on_its_first_frame() {
+    let mut a = moving();
+    a.focused = false;
+    a.docs.prefs.animations = false;
+    a.compose();
+    let clean = a.screen.pixels.clone();
+    a.open_palette(">fold");
+    a.compose();
+    assert_eq!(a.motion.palette_t, 1.0);
+    assert!(
+        a.screen.pixels != clean,
+        "the palette painted on the first frame"
+    );
+    assert_eq!(a.motion.due, None);
+}
+
+#[test]
+fn motion_off_notices_get_full_height_when_they_appear_later() {
+    for demo in BannerDemo::ALL {
+        let mut a = banner_app();
+        a.docs.prefs.animations = false;
+        a.compose();
+        let top = a.areas.text.y;
+        let hit = demo.show(&mut a);
+        a.compose();
+        assert_eq!(a.areas.text.y, top + view::BANNER_H, "{demo:?}: full strip");
+        assert!(a.hit_rect(hit).is_some(), "{demo:?}: controls are visible");
+        assert_eq!(a.motion.due, None, "{demo:?}: no follow-up frame");
+    }
+}
+
+#[test]
+fn the_anchored_language_list_opens_without_motion() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let clean = a.screen.pixels.clone();
+    a.open_languages();
+    a.compose();
+    assert!(a.palette.open.as_ref().unwrap().anchored);
+    assert_eq!(a.motion.palette_t, 1.0);
+    assert!(
+        a.screen.pixels != clean,
+        "the list painted on the first frame"
+    );
+    assert_eq!(a.motion.due, None);
+}
+
+#[test]
+fn closing_the_palette_mid_entrance_erases_it_at_once() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let clean = a.screen.pixels.clone();
+    a.open_palette(">fold");
+    a.compose();
+    tick(&mut a, 40);
+    a.compose();
+    assert!(a.motion.palette_t > 0.0 && a.motion.palette_t < 1.0);
+    assert!(a.screen.pixels != clean);
+    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Escape), None);
+    a.compose();
+    assert!(!a.palette_open());
+    assert!(a.screen.pixels == clean, "nothing of the palette remains");
+    assert_eq!(a.motion.due, None);
+}
+
+#[test]
+fn a_notice_dismissed_mid_entrance_releases_its_strip_at_once() {
+    let mut a = banner_app();
+    a.compose();
+    let top = a.areas.text.y;
+    let hit = BannerDemo::Stale.show(&mut a);
+    a.compose();
+    tick(&mut a, 40);
+    a.compose();
+    assert!(a.areas.text.y > top);
+    assert!(a.hit_rect(hit).is_some());
+    a.docs.keep_stale();
+    a.compose();
+    assert_eq!(a.areas.text.y, top);
+    assert!(
+        a.hit_rect(hit).is_none(),
+        "no live hits from the dismissed notice"
+    );
+    assert_eq!(a.motion.due, None);
+}
+
+#[test]
+fn late_crash_stale_and_rename_notices_slide_with_their_hits() {
+    for demo in [BannerDemo::Crash, BannerDemo::Stale, BannerDemo::Rename] {
+        let mut a = banner_app();
+        a.compose();
+        let top = a.areas.text.y;
+        let hit = demo.show(&mut a);
+        a.compose();
+        assert_eq!(a.areas.text.y, top, "{demo:?}: no strip before it enters");
+        assert!(a.hit_rect(hit).is_none());
+        tick(&mut a, 40);
+        a.compose();
+        let y = a.areas.text.y;
+        assert!(top < y && y < top + view::BANNER_H, "{demo:?}: mid-slide");
+        let b = a.hit_rect(hit).expect("partly visible button");
+        assert!(b.y >= top && b.bottom() <= y, "{demo:?}: clipped hit");
+        settle(&mut a);
+        assert_eq!(
+            a.areas.text.y,
+            top + view::BANNER_H,
+            "{demo:?}: set at rest"
+        );
+    }
+}
+
 /// A menu's hovered row fades its fill in (`Menu::draw_in_animated`): once the menu itself has
 /// arrived, putting the pointer on a row asks the animator for frames again, the row changes,
 /// and it rests with no timer left.
