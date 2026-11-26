@@ -1837,6 +1837,51 @@ fn a_frame_that_skips_the_pane_keeps_the_chevrons_turn() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn early_frames_do_not_postpone_the_sidebar_paint() {
+    let (mut a, dir) = tree_app("motion-tree-cadence");
+    a.compose();
+    let i = tree_row(&a, "sub");
+    let row = a.hit_rect(Hit::FilesRow(i)).unwrap();
+    let x = a.areas.files.unwrap().x + 20.0 + a.ui.tree.rows()[i].depth as f32 * 14.0;
+    let chevron = |a: &App| {
+        let mut pixels = Vec::new();
+        for dy in -6..6 {
+            for dx in -6..6 {
+                pixels.push(screen_pixel(a, x + dx as f32, row.cy() + dy as f32));
+            }
+        }
+        pixels
+    };
+
+    a.ui.tree.toggle(i);
+    a.compose();
+    let before = chevron(&a);
+    let due = a.motion.due.unwrap();
+    tick(&mut a, 16);
+    assert!(a.compose().0.is_empty(), "the early frame skips the pane");
+    assert_eq!(a.motion.due, Some(due));
+    tick(&mut a, 16);
+    assert!(!a.compose().0.is_empty(), "the next frame paints the turn");
+    let mid = chevron(&a);
+    assert_ne!(mid, before);
+    settle(&mut a);
+    assert_ne!(
+        chevron(&a),
+        mid,
+        "reached the endpoint during 16 ms redraws"
+    );
+
+    a.ui.tree.toggle(i);
+    a.compose();
+    assert!(a.motion.due.is_some());
+    a.command(crate::commands::CommandId::ToggleFiles);
+    a.compose();
+    assert!(a.areas.files.is_none());
+    assert_eq!(a.motion.due, None, "an absent pane has no deadline");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The frames of the turn damage the chevron that changed: no changed pixel is left undamaged.
 #[test]
 fn the_frames_of_the_turn_damage_what_changes() {

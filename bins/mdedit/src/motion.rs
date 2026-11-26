@@ -128,6 +128,7 @@ pub enum MenuFrame {
 
 pub struct Motion {
     pub anim: Animator,
+    pub sidebar_due: PaintDeadline,
     pub title_due: PaintDeadline,
     pub rows_due: PaintDeadline,
     pub settings_due: PaintDeadline,
@@ -197,6 +198,7 @@ impl Motion {
     pub fn new(still: bool) -> Motion {
         let mut m = Motion {
             anim: Animator::new(),
+            sidebar_due: PaintDeadline::default(),
             title_due: PaintDeadline::default(),
             rows_due: PaintDeadline::default(),
             settings_due: PaintDeadline::default(),

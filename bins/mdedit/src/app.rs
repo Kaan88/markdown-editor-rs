@@ -1417,7 +1417,7 @@ impl App {
         // the tree's turning chevrons damage the pane, and the Settings form, which covers the
         // window, damages all of it.
         let now = self.motion.now();
-        if self.motion.anim.group_due(crate::motion::SIDEBAR, now) {
+        if self.motion.sidebar_due.due(now) {
             dirty[Region::Files.index()] = true;
         }
         if self.motion.title_due.due(now) {
@@ -1779,7 +1779,9 @@ impl App {
                     // A region drawn by nothing this frame: what its groups hold goes on to
                     // its target instead of being taken for new next time (D1).
                     match r {
-                        Region::Files => self.motion.anim.keep_group(crate::motion::SIDEBAR),
+                        Region::Files if self.areas.files.is_some() => {
+                            self.motion.anim.keep_group(crate::motion::SIDEBAR);
+                        }
                         Region::Title => self.motion.anim.keep_group(crate::motion::TITLE),
                         _ => {}
                     }
@@ -2242,6 +2244,13 @@ impl App {
             self.motion.backing = None;
         }
         self.motion.due = self.motion.anim.end_frame();
+        if let Some(due) = self.motion.sidebar_due.update(
+            &self.motion.anim,
+            crate::motion::SIDEBAR,
+            self.areas.files.is_some() && !dirty[Region::Files.index()],
+        ) {
+            self.motion.due = Some(self.motion.due.map_or(due, |at| at.min(due)));
+        }
         if let Some(due) = self.motion.title_due.update(
             &self.motion.anim,
             crate::motion::TITLE,
