@@ -6,17 +6,47 @@
 #
 #   tests/mac-update.sh <out-dir> <app-bundle>
 set -euo pipefail
+if [[ "${RUNNER_ENVIRONMENT:-}" != github-hosted || "$(uname -s)" != Darwin ]]; then
+    echo "FAIL this test requires a GitHub-hosted macOS runner" >&2
+    exit 1
+fi
 out="$1"
 src="$2"
 name="$(basename "$src" .app)"
 upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
-rm -rf "$out"
-mkdir -p "$out/apps" "$out/new" "$out/srv"
+mkdir -p "$out"
+out="$(mktemp -d "$out/update.XXXXXX")"
+mkdir "$out/apps" "$out/new" "$out/srv"
 out="$(cd "$out" && pwd)"
 mkdir -p "$out/settings"
 settings="$out/settings/settings.ini"
 port=8443
 fail() { echo "FAIL $*"; exit 1; }
+server=""
+pid=""
+cert_hash=""
+keychain=/Library/Keychains/System.keychain
+cleanup() {
+    local status=$?
+    if [ -n "$pid" ] && [ "$(ps -o args= -p "$pid" 2>/dev/null)" = "$exe --restarted" ]; then
+        kill "$pid" 2>/dev/null || true
+    fi
+    [ -z "$server" ] || kill "$server" 2>/dev/null || true
+    if [ -n "$cert_hash" ]; then
+        if ! sudo security remove-trusted-cert -d "$out/cert.pem"; then
+            echo "Could not remove temporary trust setting" >&2
+            status=1
+        fi
+        if ! sudo security delete-certificate -Z "$cert_hash" "$keychain"; then
+            echo "Could not remove temporary certificate by fingerprint" >&2
+            status=1
+        fi
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # The installed copy, in a folder this user can write (as /Applications is), and the newer copy:
 # the same program with a marker, signed again (a changed bundle must be).
@@ -49,7 +79,12 @@ done
 "$openssl" req -x509 -newkey rsa:2048 -nodes -days 2 -keyout "$out/key.pem" -out "$out/cert.pem" \
     -subj /CN=localhost -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
     -addext "extendedKeyUsage=serverAuth" -addext "basicConstraints=critical,CA:true" 2>/dev/null
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$out/cert.pem"
+fingerprint="$("$openssl" x509 -in "$out/cert.pem" -noout -fingerprint -sha1)"
+fingerprint="${fingerprint##*=}"
+fingerprint="${fingerprint//:/}"
+[[ "$fingerprint" =~ ^[[:xdigit:]]{40}$ ]] || fail "invalid temporary certificate fingerprint"
+cert_hash="$fingerprint"
+sudo security add-trusted-cert -d -r trustRoot -k "$keychain" "$out/cert.pem"
 cat > "$out/serve.py" <<'PY'
 import http.server, ssl, sys
 root, cert, key, port = sys.argv[1:5]
@@ -64,12 +99,6 @@ srv.serve_forever()
 PY
 python3 "$out/serve.py" "$out/srv" "$out/cert.pem" "$out/key.pem" "$port" > "$out/server.log" 2>&1 &
 server=$!
-pid=""
-cleanup() {
-    [ -z "$pid" ] || kill "$pid" 2>/dev/null || true
-    kill "$server" 2>/dev/null || true
-}
-trap cleanup EXIT
 for _ in $(seq 1 40); do curl -s -o /dev/null "https://localhost:$port/update.txt" && break; sleep 0.25; done
 curl -sS "https://localhost:$port/update.txt" > /dev/null || fail "the system does not trust the test server"
 
@@ -99,7 +128,7 @@ for _ in $(seq 1 60); do
 done
 [ -n "$pid" ] || fail "the new version was not started"
 args="$(ps -o args= -p "$pid")"
-[[ "$args" == *" --restarted" ]] || fail "the new version did not start with --restarted"
+[[ "$args" == "$exe --restarted" ]] || fail "the scratch version did not start with --restarted"
 [ -s "$out/settings/instance.port" ] || fail "the restarted editor did not use scratch settings"
 port="$(cat "$out/settings/instance.port")"
 /usr/sbin/lsof -a -p "$pid" -iTCP:"$port" -sTCP:LISTEN >/dev/null \

@@ -10,7 +10,7 @@ default `GITHUB_TOKEN`.
 | Workflow | Runs on | What it is for |
 | --- | --- | --- |
 | `ci` | A push to `main`, every pull request, by hand | fmt, clippy, the tests and the screenshot suite on Linux, Windows and two Macs |
-| `mac-look` | A push to `main`, by hand | Builds on a Mac, renders the shots and uploads them, to see how the app looks there |
+| `mac-look` | A push to `main`, by hand | Builds on a Mac, runs the updater and native UI checks, and uploads only the named scratch-window captures and headless shots |
 | `preview-test` | By hand only | On Windows: builds mdedit with and without the built-in preview beside a build of the viewer, runs the preview tests, uploads shots; a second job builds `main` beside the branch to compare them |
 | `release` | A pushed tag `v*`, by hand | Builds every package and publishes the release |
 
@@ -50,6 +50,14 @@ Both timing jobs use the same scratch-environment wrapper as shots and pass `--b
 The `mac-look` updater uses scratch settings directly; its replacement test bundle carries
 the path in `LSEnvironment` for LaunchServices. The test checks the restart owns the port
 registered beside those settings.
+The updater refuses to touch the keychain outside a GitHub-hosted Mac runner and registers
+cleanup before trusting its temporary certificate; cleanup removes trust and deletes the
+certificate by fingerprint. The native window and typing tests launch a newly signed scratch
+bundle with a unique identifier and scratch settings. Their Swift driver verifies the bundle,
+PID, document and window, sends keys to that PID and opens the Edit menu through its
+accessibility object. Captures target only the verified window or owned Open panel; the tests
+fail closed if macOS permissions or ownership checks prevent that. The typing test checks the
+exact recent-document bookmark and verifies the custom Quit confirmation appears and is cancelled.
 
 No test is skipped and no step may fail: `ci.yml` has no `--skip`, no `continue-on-error` and no
 `TEMP` override. (A few tests are `#[ignore]`d in the source: timing benchmarks and sheet
