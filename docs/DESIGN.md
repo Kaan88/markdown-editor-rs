@@ -3463,8 +3463,10 @@ not read Locked."), and a walk that both could not read a folder and stopped at 
 A file added again is not one left out, a question whose files have all been added by name goes,
 and while answered files wait or are being probed the main button is drawn off and runs nothing
 (D-252). Files taken by name out of a held folder lower its count, and at 200 or fewer the rest
-come in at once without a question (D-253). Shots `task-files-ask` (1280 and 520 px, both
-themes), `task-files-ask-empty`, `task-files-unreadable` and `task-files-nothing-new`.
+come in at once without a question (D-253). An answered set waiting for a running read is merged
+with any answer already waiting, never replaced, and "Leave them out" leaves an answer alone
+(D-254). Shots `task-files-ask` (1280 and 520 px, both themes), `task-files-ask-empty`,
+`task-files-unreadable` and `task-files-nothing-new`.
 
 **One read at a time, and a drop never lost (2026-11-26, D-250, D-251).** winit sends one
 `DroppedFile` per path: the window gathers a pass's paths (`App::task_batch`) and the event loop's

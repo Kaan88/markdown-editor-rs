@@ -2592,3 +2592,11 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 - Files taken by name out of the folder a question holds lower its count; when 200 or fewer are left they are read and added at once, as any set of that size is, and the question goes with them. Above 200 the question stays and its count follows.
 **Why.** The review of `4103067`: a stopped probe job left `task_probing` set, so the plan stayed off with no reason; and a count under the threshold still stood on screen as a question, which D-250's rule does not allow.
 **Overturned by.** The owner.
+
+## D-254 · 2026-11-26 · An answer waits merged, and is never replaced
+
+**Decision.**
+- An answered set waiting for a running read is put where it waits by one helper, `App::task_answer_put`, which merges into a set already there: its paths once each, its notes, its folder count and its first folder name. Every path that answers a set while a read runs goes through it, so a later answer — "Add them" or a set that fell to the threshold — adds to the waiting answer and cannot replace it.
+- "Leave them out" drops the question it is asked of, and the queued paths that were folded into it, but not a set already answered: an answer is a promise the read's end will keep.
+**Why.** The review of `4903067`: with an answer waiting and a read still running, a held set that fell to the threshold called the probe start, which wrote over the waiting answer, and the folder it held was lost in silence.
+**Overturned by.** The owner.
