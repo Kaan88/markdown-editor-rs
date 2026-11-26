@@ -994,7 +994,9 @@ impl App {
                     crate::ai_ui::menu_modify_rect(menu.row_rect(i)).contains(x, y)
                 })
             });
-            if let mdshared_ui::submenu::Outcome::Chosen(act) = p.click(x, y) {
+            if let Some(mdshared_ui::submenu::Outcome::Chosen(act)) =
+                self.with_popup_transition(|p| p.click(x, y))
+            {
                 self.choose(
                     match act {
                         Act::AiPrompt(k) if on_edit => Act::AiEditPrompt(k),
@@ -1477,7 +1479,7 @@ impl App {
             return;
         }
         // A menu takes the keyboard; an open submenu has it first.
-        if let Some(p) = self.ui.popup.as_mut() {
+        if self.ui.popup.is_some() {
             use mdshared_ui::submenu::Outcome;
             let key = match name {
                 Some(
@@ -1492,7 +1494,10 @@ impl App {
                 ) => name,
                 _ => access_char(&name, typed, mods).map(KeyName::Char),
             };
-            match key.as_ref().map(|k| p.key(k)) {
+            match key
+                .as_ref()
+                .and_then(|k| self.with_popup_transition(|p| p.key(k)))
+            {
                 Some(Outcome::Chosen(act)) => self.choose(act, true),
                 Some(Outcome::Close) => {
                     self.ui.popup = None;

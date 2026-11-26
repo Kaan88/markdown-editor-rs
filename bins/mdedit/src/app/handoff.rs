@@ -118,9 +118,9 @@ impl App {
         }
     }
 
-    /// `popup` and its submenu listed again. A menu whose items are now more or fewer (the
-    /// items are listed for a file that is not Markdown only while it is previewed) is closed:
-    /// its rows were laid out for the old ones.
+    /// `popup` and its visible submenu listed again. A menu with a different row count is
+    /// closed: its rows were laid out for the old listing. A child opened later is listed
+    /// from current state by `with_popup_transition`.
     fn relisted(&self, mut popup: Popup) -> Option<Popup> {
         if popup.sub_kind() == Some(PopupKind::View) {
             let items = overlays::view_menu(&self.docs, &self.ui, 0.0, 0.0, false).items;

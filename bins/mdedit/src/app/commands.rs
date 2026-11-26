@@ -1508,14 +1508,37 @@ impl App {
     /// Opens `sub` as a cascade beside the open menu, which stays. With `keys` its first item
     /// is lit, since the keyboard opened it; the pointer lights its own.
     pub(super) fn open_sub(&mut self, _parent: PopupKind, sub: PopupKind, keys: bool) {
-        if let Some(p) = self.ui.popup.as_mut() {
+        self.with_popup_transition(|p| {
             if keys {
                 p.show_cues();
             }
             p.open_sub(sub, keys);
-        }
+        });
         self.ui.hide_tip();
         self.redraw();
+    }
+
+    /// Shared owns the path and dwell, but its nodes are a snapshot from when the root opened.
+    /// List a newly opened child from live state before it can be drawn or used.
+    pub(super) fn with_popup_transition<R>(
+        &mut self,
+        change: impl FnOnce(&mut Popup) -> R,
+    ) -> Option<R> {
+        let p = self.ui.popup.as_mut()?;
+        let before = p.sub_serial();
+        let result = change(p);
+        if p.sub_serial() != before
+            && let Some(kind) = p.sub_kind()
+            && let Some(menu) = self.build_menu(kind, 0.0, 0.0, false)
+            && let Some(sub) = self.ui.popup.as_mut().and_then(Popup::sub_mut)
+        {
+            let with_keys = sub.hover.take().is_some();
+            sub.items = menu.items;
+            if with_keys {
+                sub.step(true);
+            }
+        }
+        Some(result)
     }
 
     /// An item of a menu was chosen, by click or key: a menu item opens its submenu and leaves
@@ -2564,11 +2587,9 @@ impl App {
             }
         }
         // The pointer resting on a menu item with a submenu; no menu, no timer.
-        if let Some(p) = self.ui.popup.as_mut()
-            && let Some(due) = p.deadline()
-        {
+        if let Some(due) = self.ui.popup.as_ref().and_then(Popup::deadline) {
             if now >= due {
-                if p.tick(now) {
+                if self.with_popup_transition(|p| p.tick(now)) == Some(true) {
                     self.redraw();
                 }
             } else {

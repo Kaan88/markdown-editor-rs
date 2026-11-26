@@ -4142,7 +4142,9 @@ by hand: `menu-row-hover-*`, `palette-in-*` and `{update,crash,stale,rename}-sli
 
 **M-F, L1.** `ui::Popup` owns a plain menu or a `submenu::Cascade`; only a root with
 submenu items uses the cascade. It keeps the root's anchor, then uses shared layout for
-each opened child. `App::timers` only asks for the cascade's deadline while it has one.
+each opened child. Shared's nodes are a snapshot; after a child opens, mdedit replaces
+its items with the current listing before paint or use. `App::timers` only asks for
+the cascade's deadline while it has one.
 Escape and Left cancel the pending pointer change before acting on the current submenu.
 The root and open child keep their own 117 ms entrance tracks; closing stays instant.
 `menu-cascade-entering-*` shows the Main/View entrance in both themes. Existing Main and Text
