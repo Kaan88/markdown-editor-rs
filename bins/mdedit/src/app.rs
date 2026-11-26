@@ -1495,18 +1495,24 @@ impl App {
             }
         }
         self.toast_until = self.motion.toasts_due();
-        // The menus' fade: the system's wish is read once the window settled, or from the
-        // first menu that could fade if the setting was off then.
+        // Read the system's wish once the window settles, or before an entrance that can
+        // fade if the setting was off then.
         if !self.motion.watching()
-            && self
-                .ui
-                .popup
-                .as_ref()
-                .is_some_and(|p| crate::motion::fades(p.kind))
+            && (self.ui.settings.is_some()
+                || self
+                    .ui
+                    .popup
+                    .as_ref()
+                    .is_some_and(|p| crate::motion::fades(p.kind)))
         {
             self.watch_motion();
         }
         let menus = self.motion.menus(self.ui.popup.as_ref());
+        let settings_t = self
+            .ui
+            .settings
+            .is_some()
+            .then(|| self.motion.settings_presence());
         // The command palette's pop, asked each frame (at rest 1, so it draws as it does now).
         self.motion.palette_t = if self.palette.open.as_ref().is_some_and(|p| !p.anchored) {
             self.motion.palette()
@@ -1582,10 +1588,7 @@ impl App {
                     }),
                 )
             }),
-            self.ui
-                .settings
-                .as_ref()
-                .map(|_| (self.ui.overlay_tick, self.ui.caret_on)),
+            settings_t.map(|t| (self.ui.overlay_tick, self.ui.caret_on, t.to_bits())),
             self.ui.dialog.as_ref().map(|d| {
                 (
                     d.kind,
@@ -2126,18 +2129,24 @@ impl App {
                     }
                 }
                 if let Some(f) = self.ui.settings.as_mut() {
-                    // Shared's paged form animates the controls, not the page itself. At rest
-                    // and with motion off, the pixels are those of `draw`.
+                    // Fade the dim and card as one overlay over this frame's editor.
+                    let window = Rect::new(0.0, 0.0, w, h);
+                    let under = settings_t
+                        .filter(|&t| t < 1.0)
+                        .map(|t| (c.p.snapshot(window), t));
                     self.motion.anim.group(crate::motion::SETTINGS);
                     f.draw_animated(
                         c.p,
                         &pal,
-                        Rect::new(0.0, 0.0, w, h),
+                        window,
                         self.ui.caret_on,
                         &mut self.motion.anim,
                         crate::motion::SETTINGS,
                     );
                     self.motion.anim.ungroup();
+                    if let Some((under, t)) = under {
+                        c.p.fade(&under, t);
+                    }
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
@@ -3707,7 +3716,7 @@ impl App {
 /// Renders one state to a PNG without a window (`--shot`).
 fn shot(mut app: App, path: &Path) -> i32 {
     // `--motion-clock MS`: what the shot sets moving — an open menu's hover rows, the command
-    // palette, a notice bar — moves on a clock of its own from the first frame that shows it,
+    // palette, Settings, a notice bar — moves on a clock of its own from the first frame that shows it,
     // and is stepped by `MS` before the picture is taken (a still window would draw it done).
     if app.args.motion_clock.is_some() {
         app.motion.shot_fade();
@@ -4066,6 +4075,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
     if let Some(ms) = app.args.settings_ms
         && app.ui.settings.is_some()
     {
+        // Paint the open dialog at rest before setting just the switch in motion.
+        app.compose();
         app.motion.shot_fade();
         if let Some(f) = app.ui.settings.as_mut() {
             f.focus_row(crate::app::modal::AUTO_PAIR);

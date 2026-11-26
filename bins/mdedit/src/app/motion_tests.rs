@@ -2013,6 +2013,7 @@ fn settings_app() -> App {
     a.focused = false;
     a.open_settings_at(crate::app::modal::TYPING);
     a.compose();
+    settle(&mut a);
     a
 }
 
@@ -2101,6 +2102,7 @@ fn closing_settings_mid_slide_restores_the_editor_on_the_first_frame() {
     let editor = a.screen.pixels.clone();
     a.open_settings_at(crate::app::modal::TYPING);
     a.compose();
+    settle(&mut a);
     start_settings_slide(&mut a);
     tick(&mut a, 40);
     a.compose();
@@ -2112,6 +2114,113 @@ fn closing_settings_mid_slide_restores_the_editor_on_the_first_frame() {
     assert!(a.ui.settings.is_none());
     assert!(a.screen.pixels == editor, "no trace of the dialog");
     assert_eq!(a.motion.due, None, "no dialog deadline");
+}
+
+#[test]
+fn settings_dim_and_card_enter_together_and_reach_the_plain_dialog_at_117_ms() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let editor = a.screen.clone();
+    a.open_settings();
+    a.compose();
+    assert!(
+        a.screen.pixels == editor.pixels,
+        "the Settings entrance starts at zero"
+    );
+    assert!(a.motion.due.is_some());
+
+    let mut plain = editor.clone();
+    let (w, h) = a.logical();
+    a.ui.settings.as_mut().unwrap().draw(
+        &mut Painter::new(&mut plain, &mut a.gfx, a.scale),
+        &a.pal,
+        Rect::new(0.0, 0.0, w, h),
+        a.ui.caret_on,
+    );
+    let at = |x: u32, y: u32| ((y * editor.width + x) * 4) as usize;
+    let mid = [at(2, 2), at(editor.width / 2, editor.height / 2)];
+    for step in crate::motion::shot_steps(67) {
+        tick(&mut a, step);
+        let before = a.screen.pixels.clone();
+        let (damage, _) = a.compose();
+        assert_eq!(changed_outside(&a, &before, &damage), 0);
+    }
+    for (label, i) in ["dim", "card"].into_iter().zip(mid) {
+        let px = i..i + 4;
+        assert_ne!(
+            &a.screen.pixels[px.clone()],
+            &editor.pixels[px.clone()],
+            "{label} starts fading"
+        );
+        assert_ne!(
+            &a.screen.pixels[px.clone()],
+            &plain.pixels[px],
+            "{label} is not at rest"
+        );
+    }
+    for step in crate::motion::shot_steps(50) {
+        tick(&mut a, step);
+        a.compose();
+    }
+    assert!(
+        a.screen.pixels == plain.pixels,
+        "the Settings entrance is done at 117 ms"
+    );
+    assert_eq!(a.motion.due, None);
+}
+
+#[test]
+fn asking_for_open_settings_keeps_its_presence_but_reopening_starts_over() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let editor = a.screen.pixels.clone();
+    a.open_settings();
+    a.compose();
+    tick(&mut a, 17);
+    a.compose();
+    let serial = a.motion.settings_serial;
+    let mid = a.screen.pixels.clone();
+    assert!(mid != editor);
+    a.open_settings();
+    a.compose();
+    assert_eq!(a.motion.settings_serial, serial, "same opening");
+    assert!(a.screen.pixels == mid, "same presence");
+
+    a.close_settings();
+    // Also exercise a reopen that happens before the just-closed frame can paint.
+    a.open_settings();
+    a.compose();
+    assert_ne!(a.motion.settings_serial, serial);
+    assert!(a.screen.pixels == editor, "the new opening starts at zero");
+    tick(&mut a, 17);
+    a.compose();
+    assert!(a.screen.pixels != editor);
+    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Escape), None);
+    a.compose();
+    assert!(a.screen.pixels == editor, "closing halfway is instant");
+    assert_eq!(a.motion.due, None);
+}
+
+#[test]
+fn reduced_motion_draws_settings_whole_on_the_first_frame() {
+    let mut a = moving();
+    a.focused = false;
+    a.motion.set_reduced(true);
+    a.compose();
+    let mut plain = a.screen.clone();
+    a.open_settings();
+    a.compose();
+    let (w, h) = a.logical();
+    a.ui.settings.as_mut().unwrap().draw(
+        &mut Painter::new(&mut plain, &mut a.gfx, a.scale),
+        &a.pal,
+        Rect::new(0.0, 0.0, w, h),
+        a.ui.caret_on,
+    );
+    assert!(a.screen.pixels == plain.pixels);
+    assert_eq!(a.motion.due, None);
 }
 
 /// A switch turned in the dialog slides: frames are asked for, they change the pixels, and once

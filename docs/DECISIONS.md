@@ -2835,3 +2835,15 @@ purpose in `a35a7a0` to match. Its new assertions document the intended behavior
 the submenu stays open before the deadline, closes at the deadline if the pointer
 rests on padding, and stays open if the pointer reaches the submenu in time.
 **Overturned by.** A new decision from the owner about padding dwell.
+
+## D-274 — 2026-11-26 — Fade in the Settings window, not its pages
+
+**Decision.** The owner's clarification was “I meant settings menu window should fade
+in when I open it”. Fade the dim and Settings card together over the menu's 117 ms
+entrance. Closing and page changes have no transition. Opening it again after closing
+starts a new entrance; asking while it is already open keeps its current presence.
+Animations off or reduced motion draws the whole dialog at once, as before.
+**Why.** Match the reviewed mdview behavior and keep Settings as quick as the menu
+that can open it. For now the entrance uses a temporary whole-window snapshot on each
+paint of the fade, as mdview does; making that cheaper remains open.
+**Overturned by.** A new decision about Settings transitions.

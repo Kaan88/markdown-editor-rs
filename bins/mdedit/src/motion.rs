@@ -132,6 +132,8 @@ pub struct Motion {
     pub title_due: PaintDeadline,
     pub rows_due: PaintDeadline,
     pub settings_due: PaintDeadline,
+    /// A name per Settings opening, so closing and reopening before a paint still starts fresh.
+    pub settings_serial: u64,
     /// The command palette's presence as the last frame drew it (1 when it is not open).
     pub palette_t: f32,
     /// Presences of the update, crash, stale-tab and rename bars, in layout order.
@@ -202,6 +204,7 @@ impl Motion {
             title_due: PaintDeadline::default(),
             rows_due: PaintDeadline::default(),
             settings_due: PaintDeadline::default(),
+            settings_serial: 0,
             palette_t: 1.0,
             banner_t: [0.0; 4],
             banners_composed: false,
@@ -359,6 +362,17 @@ impl Motion {
     pub fn palette(&mut self) -> f32 {
         self.anim
             .presence("palette", true, document::MENU_ENTER, document::MENU_ENTER)
+    }
+
+    /// The dim and Settings card enter together at the menu's speed. No track is asked for
+    /// after closing, so it disappears in one paint.
+    pub fn settings_presence(&mut self) -> f32 {
+        self.anim.presence(
+            ("settings-in", self.settings_serial),
+            true,
+            MENU.enter,
+            MENU.exit,
+        )
     }
 
     /// The same offer is returning to view, not appearing for the first time.

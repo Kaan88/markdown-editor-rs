@@ -492,6 +492,9 @@ pub fn rows_of(pages: &[Page]) -> Vec<Row> {
 
 impl App {
     pub(super) fn open_settings(&mut self) {
+        if self.ui.settings.is_some() {
+            return;
+        }
         // One modal at a time: the palette gives way.
         if self.palette_open() {
             self.close_palette();
@@ -507,6 +510,7 @@ impl App {
         let mut form = Form::new("Settings", pages);
         // The page last shown this run; the keyboard starts in the list.
         form.show_page(self.ui.settings_page);
+        self.motion.settings_serial = self.motion.settings_serial.wrapping_add(1);
         self.ui.settings = Some(form);
         self.ai_settings_needs();
         self.modal_changed();
@@ -537,6 +541,7 @@ impl App {
             && let Some(c) = f.page_names().iter().position(|n| *n == name)
         {
             f.show_page(c);
+            self.modal_changed();
         }
     }
 

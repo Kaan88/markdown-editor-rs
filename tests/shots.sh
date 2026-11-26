@@ -263,6 +263,8 @@ shot settings-tabs-on --light --pref skip_brief=1 --dialog settings --settings-s
 # the Files tree's chevron turning, each part way in on the shot's clock, in both themes.
 shot settings-switch-light --light --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"
 shot settings-switch-dark --dark --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"
+shot settings-opening-light --light --dialog settings --motion-clock 67 "$fx/sample.rs"
+shot settings-opening-dark --dark --dialog settings --motion-clock 67 "$fx/sample.rs"
 shot tree-chevron-light --light --files "$fx" --tree-ms 60 "$fx/sample.rs"
 shot tree-chevron-dark --dark --files "$fx" --tree-ms 60 "$fx/sample.rs"
 shot settings-ai-rewrite-off --light --dialog settings --settings-section ai-rewrite "$fx/sample.rs"

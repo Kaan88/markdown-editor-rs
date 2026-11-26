@@ -72,8 +72,10 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
     keyboard focus for Files and Functions; W3 done (D-272), placement restored only
     on the saved monitor. The [Windows M-F repeat](measurements/2026-11-26-motion-mf.md)
     found no launch regression: 77.5 → 76.6 ms median, 86.9 ms slowest after, 0/31 over 100 ms.
-  Next: the requested Settings opening fade and light/dark crossfade. No
-  page-change transitions.
+  - **Settings entrance** (D-274): the dim and card fade in together over 117 ms.
+    Closing and page changes stay instant. Open: a whole-window snapshot per entrance
+    frame, as in mdview. Existing menu entrance confirmed without changes.
+  Next: the light/dark crossfade.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.

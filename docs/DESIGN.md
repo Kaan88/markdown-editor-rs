@@ -4160,6 +4160,16 @@ deadline cancels the pending close. The revised assertions in
 `the_pointer_reaches_the_submenu_across_the_padding_and_another_row` deliberately
 cover both outcomes.
 
+**Settings entrance (D-274).** Each opening names a 117 ms presence. The overlay
+signature includes that presence, so the editor underneath and the dim and card
+are redrawn together. While entering, `Painter` takes a temporary whole-window
+snapshot before drawing the form and fades the dim and card together over it.
+This per-frame snapshot is still open for optimization, as in mdview. At rest,
+with Animations off, or with reduced motion, the form is drawn normally without
+a snapshot. Repeating the request for an open dialog does not restart it; closing
+forgets the presence at once, and opening again gets a fresh one. Changing pages
+does not get a transition. `settings-opening-*` captures the entrance in both themes.
+
 **M-F, L3.** An overflowing embedded preview uses the same shared track and thumb
 whether alongside the editor or filling its area. `Hit::ScrollBar(Scroller::Page)`
 wins over the page selection hit; page clicks and thumb drag send the normal preview

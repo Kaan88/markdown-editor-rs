@@ -19,6 +19,8 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
   it slides in just after launch when animations are on.
 - **Settings switches slide and folder chevrons turn.** Changing Settings pages or closing
   the dialog is still instant.
+- **Settings fades in when you open it.** Its card and dimmed background fade in together;
+  closing it is still instant.
 - **Tooltip and title hover fixes.** Scrolling or middle-clicking a tab clears its tooltip
   immediately; hovering the active tab does not schedule an invisible fade.
 - **Submenus follow the pointer and keyboard.** Escape or Left drops any pending hover
