@@ -4192,7 +4192,8 @@ first presented frame. There is no extra pass
 when motion is off or capture is otherwise disabled. A close during an active
 fade instead drops the snapshot and snaps, so the old image cannot linger.
 Root and submenu serials distinguish replacing a menu from keeping it open;
-the inventory also tracks the identity of dialogs, Settings and palettes.
+the inventory also tracks dialog and palette serials, Settings openings and page
+indices, and tooltip keys and text.
 The cap limits the theme copy, not total private memory (D-276).
 
 Visual preview and the full-window plan, task, import, move, note and AI cards

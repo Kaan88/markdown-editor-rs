@@ -398,6 +398,32 @@ fn replacing_an_open_menu_during_a_system_flip_drops_its_old_image() {
 }
 
 #[test]
+fn changing_settings_page_during_a_flip_drops_the_old_page_image() {
+    let mut a = window(false);
+    a.compose();
+    a.open_settings();
+    a.compose();
+    advance(&mut a, 117);
+    flip(&mut a, true);
+    a.compose();
+    advance(&mut a, 34);
+    assert!(a.motion.theme_fade.is_some());
+
+    let form = a.ui.settings.as_ref().unwrap();
+    assert_eq!(form.page(), 0);
+    let r = form.list_item_rect(1);
+    a.ui.mouse = (r.cx(), r.cy());
+    a.settings_press();
+    a.settings_release();
+    assert_eq!(a.ui.settings.as_ref().unwrap().page(), 1);
+    a.compose();
+    assert!(
+        a.motion.theme_fade.is_none(),
+        "the old page's snapshot is gone"
+    );
+}
+
+#[test]
 fn the_system_theme_flip_shot_keeps_settings_on_system_in_both_directions() {
     let dir = scratch("system-theme-with-settings");
     let out = dir.join("theme.png");

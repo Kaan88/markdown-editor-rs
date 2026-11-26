@@ -368,7 +368,7 @@ struct App {
     overlay_sig: u64,
     overlay_bounds: Vec<Rect>,
     /// Overlays in the last composition; a closing overlay must never survive in a theme copy.
-    painted_overlays: (u16, [Option<u64>; 5]),
+    painted_overlays: (u16, [Option<u64>; 7]),
     /// Redraw everything next frame (size, scale or theme changed).
     full: bool,
     wants_frame: bool,
@@ -655,7 +655,7 @@ impl App {
         self.wants_frame = true;
     }
 
-    fn overlay_mask(&self) -> (u16, [Option<u64>; 5]) {
+    fn overlay_mask(&self) -> (u16, [Option<u64>; 7]) {
         let present = [
             self.ui.popup.is_some(),
             self.ui.popup.as_ref().is_some_and(|p| p.sub().is_some()),
@@ -687,6 +687,9 @@ impl App {
                 .as_ref()
                 .map(|_| self.motion.settings_serial),
             self.palette.open.as_ref().map(|p| p.serial),
+            // A visible neighbour can replace a tip without a hidden frame in between.
+            self.ui.tip.shown().map(|o| sig((o.key, &o.text))),
+            self.ui.settings.as_ref().map(|f| f.page() as u64),
         ];
         (present, instances)
     }
