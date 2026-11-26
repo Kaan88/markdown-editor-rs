@@ -2066,22 +2066,28 @@ fn coming_back_to_the_same_place_waits_the_whole_delay_again() {
     let mut a = still();
     a.focused = false;
     a.compose();
-    let t = a.motion.now();
-    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
-    assert!(a.ui.tip.waiting().is_some());
-    // The window loses the pointer: the same control and place again must wait afresh.
-    a.ui.hover = None;
-    a.ui.hide_tip();
-    let back = t + Duration::from_millis(40);
-    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), back);
-    assert_eq!(
-        a.ui.tip.deadline(),
-        Some(back + TIP_WAIT),
-        "the whole delay again, not the first one's left-over"
-    );
-    a.timers(back + TIP_WAIT - Duration::from_millis(1));
+    let b = a.hit_rect(a_tip_hit()).unwrap();
+    let device_id = winit::event::DeviceId::dummy();
+    let back_at = || WindowEvent::CursorMoved {
+        device_id,
+        position: PhysicalPosition::new(f64::from(b.cx()), f64::from(b.cy())),
+    };
+    a.on_window_event(back_at());
+    let first = a.ui.tip.deadline().expect("initial rest delay");
+    a.timers(first);
+    assert!(a.ui.tip.shown().is_some());
+    a.on_window_event(WindowEvent::CursorLeft { device_id });
+    assert!(a.ui.tip.shown().is_none());
+    let back = Instant::now();
+    a.on_window_event(back_at());
+    let due =
+        a.ui.tip
+            .deadline()
+            .expect("the same spot arms a fresh delay");
+    assert!(due >= back + TIP_WAIT, "the whole delay again");
+    a.timers(due - Duration::from_millis(1));
     assert!(a.ui.tip.shown().is_none(), "not before its time");
-    a.timers(back + TIP_WAIT);
+    a.timers(due);
     assert!(a.ui.tip.shown().is_some(), "and then it shows");
 }
 
