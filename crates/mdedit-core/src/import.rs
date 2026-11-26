@@ -1867,31 +1867,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(&folder);
     }
 
-    /// A link to a folder is not followed, so a walk cannot loop. A directory symlink or a
-    /// junction is tried; only when neither can be made does the test pass over it, and it says so
-    /// (D-250).
+    /// A junction is not followed, so a walk cannot loop. A real junction, made by `mklink /J`;
+    /// when it cannot be made the test passes over it and says so (D-250).
     #[cfg(windows)]
     #[test]
     fn a_walk_for_the_task_window_does_not_follow_a_junction() {
         let dir = scratch("every-junction");
         put(&dir, "a.md", "# A\n");
         let link = dir.join("loop");
-        let made = std::os::windows::fs::symlink_dir(&dir, &link).is_ok()
-            || std::process::Command::new("cmd")
-                .args(["/C", "mklink", "/J"])
-                .arg(&link)
-                .arg(&dir)
-                .output()
-                .is_ok_and(|out| out.status.success());
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&dir)
+            .output()
+            .is_ok_and(|out| out.status.success());
         if !made {
-            // A policy that forbids both: said, so a pass here is not read as the rule proved.
-            eprintln!("skipped: no folder link could be made in {dir:?}");
+            eprintln!("skipped: no junction could be made in {dir:?}");
             let _ = std::fs::remove_dir_all(&dir);
             return;
         }
         let w = every_at(&dir, LIMITS, &|_| true, &|| false);
         assert_eq!(every_names(&w), ["a.md"]);
-        let _ = std::fs::remove_dir(&link).or_else(|_| std::fs::remove_file(&link));
+        let _ = std::fs::remove_dir(&link);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same for a directory symlink, which needs Developer Mode or a privilege (D-251).
+    #[cfg(windows)]
+    #[test]
+    fn a_walk_for_the_task_window_does_not_follow_a_directory_symlink() {
+        let dir = scratch("every-dir-symlink");
+        put(&dir, "a.md", "# A\n");
+        let link = dir.join("loop");
+        if std::os::windows::fs::symlink_dir(&dir, &link).is_err() {
+            eprintln!("skipped: no directory symlink could be made in {dir:?}");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let w = every_at(&dir, LIMITS, &|_| true, &|| false);
+        assert_eq!(every_names(&w), ["a.md"]);
+        let _ = std::fs::remove_file(&link);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
