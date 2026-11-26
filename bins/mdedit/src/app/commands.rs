@@ -1592,7 +1592,7 @@ impl App {
         self.ui.pressed = None;
         self.ui.dlg_hover_row = None;
         self.ui.hover = None;
-        self.wants_frame = true;
+        self.redraw();
     }
 
     pub(super) fn start_dir(&self) -> Option<PathBuf> {

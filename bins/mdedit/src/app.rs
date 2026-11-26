@@ -365,6 +365,8 @@ struct App {
     caret_line: Option<usize>,
     overlay_sig: u64,
     overlay_bounds: Vec<Rect>,
+    /// Overlays in the last composition; a closing overlay must never survive in a theme copy.
+    painted_overlays: u16,
     /// Redraw everything next frame (size, scale or theme changed).
     full: bool,
     wants_frame: bool,
@@ -575,6 +577,7 @@ impl App {
             caret_line: None,
             overlay_sig: 0,
             overlay_bounds: Vec::new(),
+            painted_overlays: 0,
             full: true,
             wants_frame: true,
             requested: false,
@@ -643,7 +646,39 @@ impl App {
     }
 
     fn redraw(&mut self) {
+        if self.motion.theme_fade.is_some() && self.overlay_closed_since_paint() {
+            self.drop_theme_fade();
+        }
         self.wants_frame = true;
+    }
+
+    fn overlay_mask(&self) -> u16 {
+        [
+            self.ui.popup.is_some(),
+            self.ui.popup.as_ref().is_some_and(|p| p.sub().is_some()),
+            self.ui.dialog.is_some(),
+            self.ui.settings.is_some(),
+            self.palette_open(),
+            self.ui.tip.shown().is_some(),
+            self.ai_panel_open(),
+            self.plan_is_open(),
+            self.task_is_open(),
+            self.notes_plan.as_ref().is_some_and(|p| p.shown),
+            self.mover.is_some(),
+            self.importer.is_some(),
+            self.note.is_some(),
+            self.ui
+                .settings
+                .as_ref()
+                .is_some_and(|f| f.menu_bounds().is_some()),
+        ]
+        .into_iter()
+        .enumerate()
+        .fold(0, |mask, (i, shown)| mask | (u16::from(shown) << i))
+    }
+
+    fn overlay_closed_since_paint(&self) -> bool {
+        self.painted_overlays & !self.overlay_mask() != 0
     }
 
     /// A shown tip can have painted pixels, even if the input that dismisses it does not
@@ -675,7 +710,9 @@ impl App {
     }
 
     fn sync_theme(&mut self, painting: bool) {
-        if !painting {
+        let closed = (self.motion.theme_fade.is_some() || self.dark() != self.pal.dark)
+            && self.overlay_closed_since_paint();
+        if !painting || closed {
             self.drop_theme_fade();
         }
         let dark = self.dark();
@@ -684,6 +721,7 @@ impl App {
             self.drop_theme_fade();
             let (w, h) = self.size;
             if painting
+                && !closed
                 && self.frames > 0
                 && (w, h) == (self.screen.width, self.screen.height)
                 && w > 0
@@ -2343,6 +2381,8 @@ impl App {
             damage.clear();
             damage.push((0, 0, self.screen.width as i32, self.screen.height as i32));
         }
+        // No inventory is needed for a partially initialized frame.
+        self.painted_overlays = self.overlay_mask();
         self.frames = self.frames.saturating_add(1);
         self.motion.due = self.motion.anim.end_frame();
         if let Some(due) = self.motion.sidebar_due.update(

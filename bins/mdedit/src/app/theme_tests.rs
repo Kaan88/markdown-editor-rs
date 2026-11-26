@@ -265,6 +265,57 @@ fn closing_settings_during_a_theme_flip_leaves_no_image_of_it() {
 }
 
 #[test]
+fn choosing_a_theme_from_the_palette_closes_it_on_the_first_paint() {
+    let mut a = window(false);
+    a.compose();
+    a.open_palette(">dark theme");
+    a.compose();
+    advance(&mut a, 117);
+    let with_palette = a.screen.pixels.clone();
+    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Enter), None);
+    assert!(!a.palette_open() && a.dark());
+    a.compose();
+    assert_eq!(
+        a.motion.theme_serial, 0,
+        "do not capture the closed palette"
+    );
+    at_rest(&a);
+    assert!(a.screen.pixels != with_palette);
+    let first = a.screen.pixels.clone();
+    a.full = true;
+    a.compose();
+    assert!(
+        a.screen.pixels == first,
+        "the first paint was already final"
+    );
+}
+
+#[test]
+fn closing_a_dialog_drops_an_active_theme_snapshot_before_the_next_paint() {
+    use crate::commands::CommandId;
+    let mut a = window(false);
+    a.compose();
+    a.command(CommandId::About);
+    a.compose();
+    assert!(a.ui.dialog.is_some());
+    flip(&mut a, true);
+    a.compose();
+    advance(&mut a, 17);
+    assert!(a.motion.theme_fade.is_some());
+    a.close_dialog();
+    assert!(
+        a.motion.theme_fade.is_none(),
+        "closing releases the snapshot immediately"
+    );
+    a.compose();
+    at_rest(&a);
+    let first = a.screen.pixels.clone();
+    a.full = true;
+    a.compose();
+    assert!(a.screen.pixels == first, "no ghost of the dialog");
+}
+
+#[test]
 fn the_system_theme_flip_shot_keeps_settings_on_system_in_both_directions() {
     let dir = scratch("system-theme-with-settings");
     let out = dir.join("theme.png");
