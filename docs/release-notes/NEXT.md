@@ -16,8 +16,9 @@ Unreleased: menus fade in as they open, and a setting to turn motion off. (Renam
   own thread — the window says "Reading <folder>…" meanwhile, and Esc stops it — and the cap
   counts only the files the window and a question hold not already. A folder of more than 200 new
   files is counted first and asked about before anything is read ("Add 1,240 files from
-  Recipes?"); Add them reads and adds them, Leave them out reads none. A folder that cannot be
-  read is named in the window.
+  Recipes?"); Add them reads and adds them, Leave them out reads none, and a folder that brings
+  nothing new says so. A folder that cannot be read is named in the window, and so is one the walk
+  stopped short of.
 - **Settings opened from the window comes to the front.** "Open AI settings" hides the AI task
   window until Settings closes, then brings it back as it was, with the connection, the limits
   and the saved prompts read again.

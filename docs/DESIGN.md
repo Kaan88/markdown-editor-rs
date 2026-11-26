@@ -3457,19 +3457,25 @@ folders?" counting only folders that brought something new, with "Leave them out
 first) and Esc for leaving (likewise), answers it; Esc does not close the window. "Add them"
 starts a read of its own, with the bar's "Reading…" line, and adds every file ticked. The main
 button is drawn off while the question stands, so "Make the plan" cannot leave the held files
-out. A folder that brings nothing — unreadable, empty, all of it held already — says so, and an
-unreadable one is named ("Could not read Locked."). Shots `task-files-ask` (1280 and 520 px, both
-themes), `task-files-ask-empty` and `task-files-unreadable`.
+out. A folder that brings nothing new says "Nothing new in <folder>.", an unreadable one is named
+("Could not read Locked."), and a walk that both could not read a folder and stopped at its cap
+says both. Shots `task-files-ask` (1280 and 520 px, both themes), `task-files-ask-empty`,
+`task-files-unreadable` and `task-files-nothing-new`.
 
-**One read at a time, and a drop never lost (2026-11-26, D-250).** winit sends one `DroppedFile`
-per path: the window gathers a pass's paths (`App::task_batch`) and the event loop's
+**One read at a time, and a drop never lost (2026-11-26, D-250, D-251).** winit sends one
+`DroppedFile` per path: the window gathers a pass's paths (`App::task_batch`) and the event loop's
 `about_to_wait` flushes them as one read, so two folders dropped together are one read and one
 question. A drop that arrives while a read runs waits in `App::task_queue` for it, and a drop
 while the question stands is walked and folded into the question, once per path, so a small add
-cannot slip in past it. The window's room is `FILES_MAX` less what it holds and what the question
-holds. Every path that ends or replaces the window — close, Cancel, a rewrite run's end, parking
-behind a plan or behind "What is sent" — goes through `App::task_add_forget`, and a read's result
-is applied only to the window whose id it was started for.
+cannot slip in past it. An answer given while that folded read still runs waits in
+`App::task_answer` for it to end, and a question declined while it runs drops what it finds
+(`App::task_fold`, `App::task_declined`): the running read is never overwritten and nothing it
+found is lost or added past a "Leave them out". The window's room is `FILES_MAX` less what it
+holds and what the question holds, checked for a single file as well and again as files go in.
+Every path that ends or replaces the window — close, Cancel, a rewrite run's end, parking behind a
+plan or behind "What is sent" — goes through `App::task_add_forget`, and a read's result is applied
+only to the window whose id it was started for. A stop (Esc while reading) drops the question's
+paths and the answered set too, and says how many.
 
 **After the hand-driven run (2026-11-25, D-240 to D-245).** `task_is_open` is false while
 Settings is open, so Settings opened from the window takes every key and click and the window

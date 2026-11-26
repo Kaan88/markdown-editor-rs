@@ -2544,7 +2544,7 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 
 **Decision.** A folder add to the AI task window that brings more than 200 new files adds none of them when its read ends: the window asks on its notice line over the foot of the list — "Add N files from <folder>?", or "from <k> folders" for one drop of several — with "Leave them out" and "Add them". "Add them", or Enter, adds all of them, ticked, as an add does; "Leave them out", or Esc, adds nothing and the question goes, and Esc does not close the window. 200 or fewer new files go in at once with no question. Closing the window, or parking it behind "What is sent", drops a held add. The threshold is `task_ui::ASK_FILES` (200), beside `FILES_MAX`.
 **Why.** The owner (2026-11-25): "ask before anything is in, if it's possible and not disruptive or slows it down. otherwise ask above 200." The read runs on its own thread (D-248), so the count of new files is known before anything is added: asking costs nothing and holds nothing up.
-**Overturned by.** D-250: the question is asked before any file is read, from the walk alone.
+**Overturned by.** The owner.
 
 ## D-250 · 2026-11-26 · A big folder add is counted first and asked about before any file is read
 
@@ -2557,4 +2557,17 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 - A folder the walk cannot read at all is named: "Could not read <folder>.".
 - "Leave them out" is drawn as an ordinary button; only "Add them" is filled.
 **Why.** The review of `d02eb83..8ab6b3f`: the question came after up to 2,000 files had been read, which is the cost the owner said should be avoided if the ask can come first; two `DroppedFile` events lost the first folder; a run's end left a read and its question behind; a split parked the window with its read running; the room ignored the held files; keys went to the question before the window's own menus; a single file cleared the "Reading…" line; an unreadable folder said nothing.
+**Overturned by.** D-251, in part: a fold read that is still running is no longer overwritten by the answer, and nothing it finds is lost.
+
+## D-251 · 2026-11-26 · One read at a time, and every folder speaks
+
+**Decision.**
+- "Add them" while a read still runs does not start the probes: the answer waits in `App::task_answer`, the read's own result is taken first, and the probes start when it ends. A read started while the question stood is a *fold* read (`TaskAdd::fold`); a "Leave them out" that comes before it ends sets `App::task_declined` and its result is dropped. The bar keeps its "Reading…" line while a read runs, beside the question.
+- "Leave them out" also drops the queue. A stop (Esc while reading) drops the paths waiting on the question and the answered set too, and says how many.
+- Notes are a list, not one line: what a walk could not read ("Could not read <folder>.") and where it stopped are both kept, from every folder of the add. A folder that brings nothing new says "Nothing new in <folder>." rather than adding nothing in silence.
+- The room is checked when single files are added too, and again as files go in; a file dropped by name out of the folder a question holds is taken out of that set, so it is counted once and the question's count falls.
+- The probes of an answered set that cannot get a thread run in the window with the walk's notes, and clear the question.
+- D-249 stands exactly as written; the overturn is recorded here.
+- The junction test makes a real junction (`mklink /J`) and a directory symlink has a test of its own, each saying why when the system refuses; the cap test's name says the window tells what it left out.
+**Why.** The review of `8ab6b3f..7470c91`: an answer before a fold read ended overwrote that read's job and lost the folder; a stop left the question's paths behind; one note replaced another; single files and the answered set skipped the room; a declined question could still see its read's files added; a test's plain Enter had been changed to an answer.
 **Overturned by.** The owner.
