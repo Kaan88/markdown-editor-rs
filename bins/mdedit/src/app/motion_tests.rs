@@ -820,10 +820,9 @@ fn the_newest_toast_covers_the_shadow_of_the_one_above() {
 
 /// Under `Policy::Never` — a shot, a test, the setting off, reduced motion — a stacked toast is
 /// there at once: the wait for the lift is a delay, and a delay must not outlive motion switched
-/// off, or the toast would arrive 167 ms late with nothing moving. Shared's `Stack` waits anyway
-/// until shared PR 24 lands, so this is left out until the pin moves.
+/// off, or the toast would arrive 167 ms late with nothing moving. Shared's `Stack` keeps the
+/// wait only while something animates (its PR 24), which the pin to `09b01c1` carries.
 #[test]
-#[ignore = "needs shared PR 24"]
 fn with_no_motion_two_confirmations_are_both_there_at_once() {
     for how in ["still", "setting", "reduced"] {
         let mut a = match how {
@@ -1291,10 +1290,8 @@ fn toasts_that_would_reach_above_the_page_are_left_out() {
 }
 
 /// The one toast a window shorter than a toast still shows is there at once, not waiting for a
-/// lift that nothing moves. Shared's `Stack` keeps the wait with motion off, so this waits for
-/// shared PR 24.
+/// lift that nothing moves.
 #[test]
-#[ignore = "needs shared PR 24"]
 fn the_one_toast_a_very_short_window_shows_is_there_at_once() {
     let mut a = still();
     a.size = (700, 140);

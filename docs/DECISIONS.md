@@ -2601,3 +2601,18 @@ key cleared on a repeat) and `a_status_lets_a_toast_past_its_wait_go_on_rising` 
 `t == 0` half).
 **Why.** The review of `3cebea0` (the owner, 2026-11-26).
 **Overturned by.** The owner; or shared telling a toast's wait apart from its rise.
+
+## D-256 · 2026-11-26 · Shared PR 24 lands in the pin: the two tests come back
+
+**Decision.** The pin moves to `09b01c1` (through `8d35a07`, PR 24). `Stack::frame` now asks for
+the wait for the lift only while the animator animates, so with nothing moving (a shot, a test,
+the setting off, reduced motion) a stacked toast is there on the frame it is pushed. The two
+tests left `#[ignore = "needs shared PR 24"]` by D-252 and D-253 are un-ignored and pass:
+`with_no_motion_two_confirmations_are_both_there_at_once` (all three ways of having no motion)
+and `the_one_toast_a_very_short_window_shows_is_there_at_once`. No workaround was needed for this
+pin and none was removed: the status's `Animator::set` snap (D-253) is not the same fault — with
+motion on the animator keeps a name's delay after `Stack::replace` gives the wait up, and
+`a_status_takes_the_place_of_a_waiting_confirmation_and_shows_at_once` still fails without it.
+**Why.** The owner (2026-11-26), after D-255: "Move the shared pin … Un-ignore the tests marked
+needs shared PR 24. They must pass now."
+**Overturned by.** The owner; or shared dropping `wait_for_lift`.

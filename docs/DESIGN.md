@@ -4012,12 +4012,13 @@ text area is left out unless it is the bottom one, however short the window. A t
 drawn with `Bubble::draw`, one on its way with `draw_presence` (it fades and rises 8 px). The
 overlays' bounds hold each toast's `presence_bounds()`, and the overlay signature holds each
 presence, so a moving toast redraws what is under it each frame. Under `Policy::Never` every
-presence is at once 1 or gone: one toast at rest is the pixels of before. Shared's wait for the
-lift is a delay, and shared still applies it with nothing animating (its PR 24 fixes that): a
-stacked toast under `Policy::Never` stays out `fluent::MOVE`'s 167 ms, and the two tests that
-would catch it are `#[ignore = "needs shared PR 24"]`
-(`with_no_motion_two_confirmations_are_both_there_at_once`,
-`the_one_toast_a_very_short_window_shows_is_there_at_once`).
+presence is at once 1 or gone: one toast at rest is the pixels of before. The wait for the lift
+is a delay, and `Stack::frame` asks for it only while the animator animates (shared PR 24, in
+the pin `09b01c1`): with nothing moving there is no lift, so a stacked toast is there on the
+frame it is pushed. `with_no_motion_two_confirmations_are_both_there_at_once` and
+`the_one_toast_a_very_short_window_shows_is_there_at_once` hold that, in all three ways of
+having no motion. The status's snap (`Animator::set`) stays: with motion on, the animator keeps
+a name's delay even after `Stack::replace` gives the wait up.
 
 **Who stacks** (`confirm_toast`): File path copied, Path copied, Copied the result, the crash
 report copied, Image saved as … (both paste paths), Renamed to …, the macro saved, a note added
