@@ -424,6 +424,43 @@ fn changing_settings_page_during_a_flip_drops_the_old_page_image() {
 }
 
 #[test]
+fn replacing_a_toolbar_tooltip_during_a_flip_drops_its_old_image() {
+    let mut a = window(false);
+    a.compose();
+    let first = Hit::Bar(BarItem::Files);
+    let next = Hit::Bar(BarItem::Library);
+    let hover = |a: &mut App, hit| {
+        let r = a.hit_rect(hit).unwrap();
+        a.pointer_moved(r.cx(), r.cy());
+    };
+    hover(&mut a, first);
+    let due = a.ui.tip.deadline().expect("the first tooltip is waiting");
+    a.timers(due);
+    a.compose();
+    advance(&mut a, 117);
+    assert_eq!(a.ui.tip.shown().map(|tip| tip.key), Some(first));
+    assert_eq!(a.motion.tip_t, 1.0, "the first tooltip was fully painted");
+
+    flip(&mut a, true);
+    a.compose();
+    advance(&mut a, 34);
+    assert!(a.motion.theme_fade.is_some(), "the flip is in flight");
+    assert_eq!(a.ui.tip.shown().map(|tip| tip.key), Some(first));
+
+    hover(&mut a, next);
+    assert_eq!(
+        a.ui.tip.shown().map(|tip| tip.key),
+        Some(next),
+        "the second tooltip replaced the first without a hidden frame"
+    );
+    a.compose();
+    assert!(
+        a.motion.theme_fade.is_none(),
+        "the old tooltip's snapshot is gone"
+    );
+}
+
+#[test]
 fn the_system_theme_flip_shot_keeps_settings_on_system_in_both_directions() {
     let dir = scratch("system-theme-with-settings");
     let out = dir.join("theme.png");
