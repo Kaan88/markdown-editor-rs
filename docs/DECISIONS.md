@@ -3076,3 +3076,12 @@ same discovery to offer and open the viewer. D-284/D-285's engine lookup is unch
 This mirrors mdview's Edit in mdedit discovery (`3429250`).
 **Overturned by.** A shared toolkit API that supplies the same discovery order.
 **From.** The owner's decision on the renderer re-review's Linux lookup finding.
+
+## D-287 — 2026-11-27 — The toolkit's font hinting is accepted
+
+The move to toolkit `7fd559f` brings vertical-only hinting (toolkit #49), which changes glyph
+edges in every shot. The owner approved it: "text rendering is great on other apps, mark it
+fine." The shot goldens are regenerated from it.
+**Why.** The owner looked at the hinting in the other apps and is happy with it.
+**Overturned by.** The owner finding text worse in mdedit itself.
+**From.** The owner, 2026-11-27.
