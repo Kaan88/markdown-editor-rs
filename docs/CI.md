@@ -45,6 +45,11 @@ job installs the system packages the build links against (the list of `packaging
 The `preview-test` comparison requires the viewer lockfile to resolve the same shared renderer
 as mdedit, then builds the viewer with `--locked`. External tests require an explicit absolute
 `MDEDIT_TEST_MDVIEW`; CI also points `MDV_ENGINE` at the staged helper for the test binaries.
+Invalid viewer diagnostics include the configured path only with `MDEDIT_TEST_VERBOSE=1`.
+Both timing jobs use the same scratch-environment wrapper as shots and pass `--behind`.
+The `mac-look` updater uses scratch settings directly; its replacement test bundle carries
+the path in `LSEnvironment` for LaunchServices. The test checks the restart owns the port
+registered beside those settings.
 
 No test is skipped and no step may fail: `ci.yml` has no `--skip`, no `continue-on-error` and no
 `TEMP` override. (A few tests are `#[ignore]`d in the source: timing benchmarks and sheet
@@ -80,7 +85,7 @@ of `Cargo.toml`, before anything is built.
 | Job | Runs on | Does |
 | --- | --- | --- |
 | `windows` | windows-latest | Installs Inno Setup (`choco install innosetup`), runs `tools\release.ps1` without `-Publish` (the native build of `mdedit.exe` and of `mdview-engine.exe` from the pinned toolkit revision, the Inno Setup installer), then `packaging\windows\build-zip.ps1` (the portable zip). |
-| `linux` | ubuntu-latest | `packaging/linux/build-packages.sh`: builds the binary in the Ubuntu 20.04 image of `packaging/linux/Dockerfile` (glibc 2.31), then the AppImage, tar.gz, deb, rpm and generated PKGBUILD. The tarball is installed in a temporary prefix, renders a distinctive SVG headlessly, then must omit it without the sibling helper and must not start a fallback helper. Finally it is uninstalled. |
+| `linux` | ubuntu-latest | `packaging/linux/build-packages.sh`: builds in the Ubuntu 20.04 image (glibc 2.31), then makes the AppImage, tar.gz, deb, rpm and generated PKGBUILD. The tarball smoke test renders an SVG headlessly, then removes the sibling helper and requires neither SVG pixels nor a helper start from the parent directory, `PATH`, or a discoverable scratch viewer's directory. Finally the tarball is uninstalled. |
 | `macos` | macos-15, macos-15-intel | Builds `mdview-engine` from the pinned toolkit revision and `mdedit.app` with `packaging/macos/make-bundle.sh` (the engine in `Contents/MacOS`) (ad-hoc signature, checked with `codesign --verify`) and zips it as `mdedit-<version>-macos-aarch64.zip` and `-x86_64.zip`. |
 | `attach` | ubuntu-latest | Only for a manual run with `attach_macos_to: v<version>` (then `windows`, `linux` and `publish` are skipped): adds the two macOS zips and `mdedit-update-macos.txt` to that existing release, and the macOS paragraph to its text. |
 | `publish` | ubuntu-latest | Needs `windows`, `linux` and `macos`. Also writes `mdedit-update-macos.txt` (`packaging/macos/write-manifest.sh`) and adds the macOS paragraph (`packaging/macos/release-notes.md`) to the release text. Writes `mdedit-update.txt` with both platforms (`tools/write-manifest.sh`: the Windows entry names the native exe the `windows` job built and its engine, the Linux entry the AppImage), checks every hash against its file, copies the release text to `release-notes-<version>.md` (at most 64 KiB), writes `hub.txt` for Hub with `-NotesFile` naming it (`tools/write-hub-txt.ps1` under `pwsh`, which refuses what Hub's parser would refuse), runs the repo's manifest test (`cargo test --release -p mdedit --test release_manifest`) against the assembled `target/release-files-all/`, and, only for a tag or `publish: true`, runs `gh release create v<version>` at the tagged commit with all assets, marked latest. This is the only job with `contents: write`. |

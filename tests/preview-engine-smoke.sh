@@ -35,19 +35,30 @@ cat > "$scratch/probe.svg" <<'EOF'
 EOF
 
 # Also catch a helper spawned via stale search rules, even if it draws nothing.
+viewer_dir="$scratch/viewer-install"
+mkdir "$viewer_dir"
+cat > "$viewer_dir/mdview" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
 cat > "$parent_engine" <<'EOF'
 #!/bin/sh
 echo started >> "$MDEDIT_UNEXPECTED_HELPER"
 exit 1
 EOF
-chmod +x "$parent_engine"
+cp "$parent_engine" "$viewer_dir/mdview-engine"
+chmod +x "$parent_engine" "$viewer_dir/mdview" "$viewer_dir/mdview-engine"
 export MDEDIT_UNEXPECTED_HELPER="$scratch/unexpected-helper"
 for state in with without; do
     if [ "$state" = without ]; then mv "$engine" "$saved"; fi
-    bash "$here/isolated.sh" env PATH="$(dirname "$bin"):$PATH" \
+    # Inject the scratch viewer after isolation cleared any inherited overrides.
+    bash "$here/isolated.sh" env MD_SISTER_MDVIEW="$viewer_dir/mdview" PATH="$(dirname "$bin"):$PATH" \
         "$launcher" --no-session --behind --light --scale 1.0 --preview-pane \
         --shot "$scratch/$state.png" "$scratch/input.md"
-    test ! -e "$MDEDIT_UNEXPECTED_HELPER"
+    if [ -e "$MDEDIT_UNEXPECTED_HELPER" ]; then
+        echo "A fallback preview helper started ($state sibling)" >&2
+        exit 1
+    fi
 done
 py=python
 command -v "$py" >/dev/null 2>&1 || py=python3

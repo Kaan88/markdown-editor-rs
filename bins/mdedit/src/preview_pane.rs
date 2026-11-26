@@ -163,12 +163,34 @@ pub(crate) fn test_viewer() -> Option<PathBuf> {
         let path = PathBuf::from(std::env::var_os("MDEDIT_TEST_MDVIEW").expect(
             "external preview tests require MDEDIT_TEST_MDVIEW to name an absolute viewer executable",
         ));
-        assert!(
-            path.is_absolute() && path.is_file(),
-            "invalid MDEDIT_TEST_MDVIEW: {}",
-            path.display()
-        );
+        if !path.is_absolute() {
+            panic!(
+                "{}",
+                invalid_test_viewer(&path, "expected an absolute path", verbose_test_viewer())
+            );
+        }
+        if !path.is_file() {
+            panic!(
+                "{}",
+                invalid_test_viewer(&path, "expected a file", verbose_test_viewer())
+            );
+        }
         Some(path)
+    }
+}
+
+#[cfg(all(test, not(feature = "embedded-preview")))]
+fn verbose_test_viewer() -> bool {
+    std::env::var_os("MDEDIT_TEST_VERBOSE").is_some_and(|v| v == "1")
+}
+
+#[cfg(test)]
+fn invalid_test_viewer(path: &Path, reason: &str, verbose: bool) -> String {
+    let message = format!("invalid MDEDIT_TEST_MDVIEW: {reason}");
+    if verbose {
+        format!("{message} ({})", path.display())
+    } else {
+        message
     }
 }
 
@@ -754,6 +776,18 @@ pub fn draw(
 #[cfg(test)]
 mod engine_tests {
     use super::*;
+
+    #[test]
+    fn invalid_viewer_diagnostic_hides_its_path_unless_verbose() {
+        let path = Path::new("private-viewer.exe");
+        let reason = "expected an absolute path";
+        let quiet = invalid_test_viewer(path, reason, false);
+        assert_eq!(
+            quiet,
+            "invalid MDEDIT_TEST_MDVIEW: expected an absolute path"
+        );
+        assert!(invalid_test_viewer(path, reason, true).contains("private-viewer.exe"));
+    }
 
     #[test]
     fn the_packaged_engine_is_only_looked_for_beside_the_exe() {
