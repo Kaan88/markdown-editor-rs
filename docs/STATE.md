@@ -66,9 +66,9 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
     the 100 ms budget; all later 31 at `0bacb93` were under (97.0 ms max). Idle CPU and
     transition frames weren't measured in that [repeat](measurements/2026-11-26-motion-launch-repeat.md). [Stale-tab launch](measurements/2026-11-26-motion-stale-launch.md): five extra full-height frames eliminated; slowest 102.0 ms after.
   - **M-F**: L1 done (D-269), `submenu::Cascade` for Main/Text submenus and their dwell
-    timer; L3, the plain preview's scrollbar from shared; W2, focus for the Files and Functions
+    timer; L3 done (D-270), the plain preview's scrollbar from shared; W2, focus for the Files and Functions
     panes; W3, `window_state` restored onto a monitor that still exists.
-  Next: L3, W2, W3; then the requested Settings opening fade and light/dark crossfade. No
+  Next: W2, W3; then the requested Settings opening fade and light/dark crossfade. No
   page-change transitions.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.

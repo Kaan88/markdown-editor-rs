@@ -1747,17 +1747,14 @@ impl App {
                     })
                 ),
         };
-        // The page has a scrollbar when it fills the text area; no other mode draws one.
-        let page_bar = self.visual_on().then(|| {
-            hover == Some(Hit::ScrollBar(Scroller::Page))
-                || matches!(
-                    self.ui.drag,
-                    Some(Drag::Thumb {
-                        target: Scroller::Page,
-                        ..
-                    })
-                )
-        });
+        let page_bar_active = hover == Some(Hit::ScrollBar(Scroller::Page))
+            || matches!(
+                self.ui.drag,
+                Some(Drag::Thumb {
+                    target: Scroller::Page,
+                    ..
+                })
+            );
         let mut damage = Vec::new();
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
@@ -1957,7 +1954,7 @@ impl App {
                             self.preview.as_ref(),
                             &self.docs,
                             rect,
-                            page_bar,
+                            page_bar_active,
                         );
                         if let Some(b) = visual_box {
                             c.p.frame(b, 6.0, visual::box_fill(&pal), pal.accent);

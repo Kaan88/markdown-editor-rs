@@ -4149,3 +4149,8 @@ The root and open child keep their own 117 ms entrance tracks; closing stays ins
 shots show the shared chevrons and the child placed against its opening row rather than the
 old guessed anchor. A rest on the root's padding can now close the submenu; crossing it
 before the deadline does not.
+
+**M-F, L3.** An overflowing embedded preview uses the same shared track and thumb
+whether alongside the editor or filling its area. `Hit::ScrollBar(Scroller::Page)`
+wins over the page selection hit; page clicks and thumb drag send the normal preview
+scroll request. `preview-scrollbar-*` shows the split preview partway down in both themes.

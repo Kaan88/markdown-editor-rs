@@ -2788,3 +2788,12 @@ rest. Escape and Left use `keys_cancel_wait(true)` before any synthetic navigati
 **Why.** L1 replaces duplicate placement and dwell code. A pointer move on its way to the
 submenu must not close it, and a key must act on the open path rather than a waiting change.
 **Overturned by.** A different shared navigation or menu-placement contract.
+
+## D-270 — 2026-11-26 — A scrollbar on the plain preview
+
+**Decision.** Draw and hit-test the shared scrollbar on any overflowing embedded
+preview, not just when the page fills the text area for visual editing.
+**Why.** L3 gives the split preview the same page clicks and thumb drag already used
+in visual mode. These point at the scrollbar, not at the rendered text; scrolling
+continues to synchronize the editor.
+**Overturned by.** A change to the embedded preview's scrolling contract.

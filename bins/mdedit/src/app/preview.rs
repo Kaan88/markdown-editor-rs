@@ -1425,6 +1425,54 @@ Last.
         )
     }
 
+    #[cfg(feature = "embedded-preview")]
+    #[test]
+    fn the_plain_preview_scrollbar_pages_and_drags_without_selecting_text() {
+        let dir = scratch("plain-preview-scrollbar");
+        let md = dir.join("a.md");
+        std::fs::write(&md, long_with_a_list()).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(None);
+        a.toggle_preview_pane();
+        pump(&mut a, |a| a.preview_ready());
+        a.compose();
+        assert!(!a.visual_on() && a.areas.text.w > 0.0);
+        let (track, thumb) = page_bar(&a).expect("overflowing page");
+        let bar = Hit::ScrollBar(Scroller::Page);
+        assert_eq!(
+            a.hit_rect(bar),
+            Some(track),
+            "the plain preview has a live track"
+        );
+        assert_eq!(thumb.y, track.y);
+        a.pointer_moved(track.cx(), track.bottom() - 6.0);
+        a.left_press();
+        a.left_release();
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top > 0.0);
+        settle(&mut a);
+        let top = a.preview.as_ref().unwrap().top;
+        assert!(top > 0.0, "the track scrolls the rendered page");
+        assert!(view::source_top(a.docs.active_ready_mut().unwrap()) > 0.0);
+        let (_, thumb) = page_bar(&a).unwrap();
+        a.pointer_moved(thumb.cx(), thumb.cy());
+        a.left_press();
+        assert!(matches!(
+            a.ui.drag,
+            Some(Drag::Thumb {
+                target: Scroller::Page,
+                ..
+            })
+        ));
+        a.pointer_moved(thumb.cx(), track.y + thumb.h * 0.5);
+        a.left_release();
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top < top);
+        settle(&mut a);
+        let p = a.preview.as_ref().unwrap();
+        assert!(p.top < top && p.selection.is_empty() && !p.focused);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Pump until the pane has answered everything and the page stands still.
     fn settle(a: &mut App) {
         let mut last = f32::NAN;

@@ -425,6 +425,15 @@ shot menu-view-md-linked-dark --dark --demo-link --menu view "$fx/sample.md"
 shot menu-view-rs-linked --light --demo-link --menu view "$fx/sample.rs"
 shot menu-tab-md --light --menu tab "$fx/sample.md" "$fx/sample.rs"
 shot menu-tab-md-linked-dark --dark --demo-link --menu tab "$fx/sample.md" "$fx/sample.rs"
+"$py" - "$data/preview-scroll.md" <<'EOF'
+import sys
+from pathlib import Path
+Path(sys.argv[1]).write_text("# Preview scroll\n\n" + "".join(
+    f"Paragraph {i}. The preview and the editor scroll together.\n\n" for i in range(1, 81)
+), encoding="utf-8")
+EOF
+shot preview-scrollbar-light --light --preview-pane --goto 45:1 "$data/preview-scroll.md"
+shot preview-scrollbar-dark --dark --preview-pane --goto 45:1 "$data/preview-scroll.md"
 shot previewing --light --demo-link --goto 12:3 "$fx/sample.md"
 shot previewing-dark --dark --demo-link --goto 12:3 "$fx/sample.md"
 # A document that has no file is previewed too: the commands are listed for it, and it carries

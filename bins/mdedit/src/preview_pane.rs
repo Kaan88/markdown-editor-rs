@@ -672,14 +672,13 @@ fn start(
 }
 
 /// Draws the pane: the line that parts it from the text, then the page, or why there is none.
-/// `bar` is `Some(active)` when the page has a scrollbar (visual editing), `active` while the
-/// pointer is on it or its thumb is held.
+/// The page's shared scrollbar is active while hovered or dragged and absent when it fits.
 pub fn draw(
     c: &mut crate::chrome::Ctx,
     pane: Option<&Pane>,
     docs: &crate::docs::Docs,
     rect: Rect,
-    bar: Option<bool>,
+    bar_active: bool,
 ) {
     use mdshared_ui::gfx::Face;
     let pal = c.pal;
@@ -720,12 +719,10 @@ pub fn draw(
             c.p.fill_dev(a, t, b, u, color, alpha);
         }
     }
-    if let Some(active) = bar {
-        let (content, view, top) = pane.extent(1.0 / px);
-        if let Some((track, thumb)) = mdshared_ui::scroll::scrollbar(rect, content, view, top) {
-            mdshared_ui::scroll::draw_scrollbar(c.p, pal, track, thumb, active);
-            c.hit(crate::ui::Hit::ScrollBar(crate::ui::Scroller::Page), track);
-        }
+    let (content, view, top) = pane.extent(1.0 / px);
+    if let Some((track, thumb)) = mdshared_ui::scroll::scrollbar(rect, content, view, top) {
+        mdshared_ui::scroll::draw_scrollbar(c.p, pal, track, thumb, bar_active);
+        c.hit(crate::ui::Hit::ScrollBar(crate::ui::Scroller::Page), track);
     }
 }
 
