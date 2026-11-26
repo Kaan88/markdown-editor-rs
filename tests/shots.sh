@@ -249,7 +249,7 @@ done
 # rewrite's rows disabled with the reason), Claude Code found, a model list that failed with a
 # model typed, and the window backdrop set to Mica (a shot has no window, so the chrome is flat).
 shot settings-tabs-on --light --pref skip_brief=1 --dialog settings --settings-section tabs "$fx/sample.rs"
-# M-D: the Settings form's own motion (a switch's knob sliding; shared's `draw_animated`) and
+# M-D: the Typing knob 60 ms after changing a drawn switch (not 60 ms after opening the form), and
 # the Files tree's chevron turning, each part way in on the shot's clock, in both themes.
 shot settings-switch-light --light --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"
 shot settings-switch-dark --dark --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"

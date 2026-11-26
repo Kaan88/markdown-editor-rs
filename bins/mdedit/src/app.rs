@@ -1417,7 +1417,7 @@ impl App {
         if self.motion.anim.group_due(crate::motion::TITLE, now) {
             dirty[Region::Title.index()] = true;
         }
-        if self.ui.settings.is_some() && self.motion.anim.group_due(crate::motion::SETTINGS, now) {
+        if self.ui.settings.is_some() && self.motion.settings_due.due(now) {
             self.full = true;
             dirty = [true; 10];
         }
@@ -1683,6 +1683,10 @@ impl App {
         );
         let overlay_changed = overlay_changed || menu_frame == crate::motion::MenuFrame::Whole;
         let draw_overlays = !bounds.is_empty() && (overlay_changed || any_under_dirty || self.full);
+        let keep_settings = self.ui.settings.is_some() && !draw_overlays;
+        if keep_settings {
+            self.motion.anim.keep_group(crate::motion::SETTINGS);
+        }
         let keep_rows =
             menus.is_some() && !draw_overlays && menu_frame != crate::motion::MenuFrame::Alone;
         if keep_rows {
@@ -2105,9 +2109,8 @@ impl App {
                     }
                 }
                 if let Some(f) = self.ui.settings.as_mut() {
-                    // Shared's motion for the form (L10): switches slide, the chosen segments
-                    // and the hover fills follow; at rest, and with motion off, the pixels of
-                    // `draw`.
+                    // Shared's paged form animates the controls, not the page itself. At rest
+                    // and with motion off, the pixels are those of `draw`.
                     self.motion.anim.group(crate::motion::SETTINGS);
                     f.draw_animated(
                         c.p,
@@ -2233,6 +2236,13 @@ impl App {
             self.motion.backing = None;
         }
         self.motion.due = self.motion.anim.end_frame();
+        if let Some(due) = self.motion.settings_due.update(
+            &self.motion.anim,
+            crate::motion::SETTINGS,
+            keep_settings,
+        ) {
+            self.motion.due = Some(self.motion.due.map_or(due, |at| at.min(due)));
+        }
         if let Some(due) =
             self.motion
                 .rows_due
@@ -3971,7 +3981,10 @@ fn shot(mut app: App, path: &Path) -> i32 {
         if let Some(f) = app.ui.settings.as_mut() {
             f.focus_row(crate::app::modal::AUTO_PAIR);
         }
+        // Register the old knob position, then start the transition at t = 0.
+        app.compose();
         app.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Space), None);
+        app.compose();
         for step in crate::motion::shot_steps(ms) {
             app.motion.advance_ms(step);
             app.compose();

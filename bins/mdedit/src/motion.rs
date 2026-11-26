@@ -128,6 +128,7 @@ pub enum MenuFrame {
 pub struct Motion {
     pub anim: Animator,
     pub rows_due: OverlayDeadline,
+    pub settings_due: OverlayDeadline,
     /// The command palette's presence as the last frame drew it (1 when it is not open).
     pub palette_t: f32,
     /// Presences of the update, crash, stale-tab and rename bars, in layout order.
@@ -191,6 +192,7 @@ impl Motion {
         let mut m = Motion {
             anim: Animator::new(),
             rows_due: OverlayDeadline::default(),
+            settings_due: OverlayDeadline::default(),
             palette_t: 1.0,
             banner_t: [0.0; 4],
             due: None,

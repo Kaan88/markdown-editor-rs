@@ -1784,6 +1784,39 @@ fn a_folder_opening_turns_its_chevron_and_then_rests() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn collapsing_mid_turn_reverses_the_same_chevron() {
+    let (mut a, dir) = tree_app("motion-tree-reverse");
+    a.compose();
+    let i = tree_row(&a, "sub");
+    let id = disclosure_id(&a, i);
+    a.ui.tree.toggle(i);
+    a.compose();
+    tick(&mut a, 40);
+    a.compose();
+    let mid = a.motion.anim.get::<f32>(id).unwrap();
+    assert!(0.0 < mid && mid < 1.0, "opening: {mid}");
+
+    a.ui.tree.toggle(i);
+    a.compose();
+    assert_eq!(a.motion.anim.get::<f32>(id), Some(mid), "no jump");
+    tick(&mut a, 32);
+    a.compose();
+    let reversed = a.motion.anim.get::<f32>(id).unwrap();
+    assert!(0.0 < reversed && reversed < mid, "closing: {reversed}");
+    // Use frame deadlines for the sidebar; its 16 ms early-frame keep is covered separately.
+    for _ in 0..20 {
+        if a.motion.due.is_none() {
+            break;
+        }
+        tick(&mut a, 20);
+        a.compose();
+    }
+    assert_eq!(a.motion.anim.get::<f32>(id), Some(0.0), "closed");
+    assert_eq!(a.motion.due, None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A frame that redraws only the text keeps the turn going: the pane it skips is kept (D1), so
 /// the chevron goes on from where it was rather than starting again from the target.
 #[test]
@@ -1844,14 +1877,7 @@ fn the_frames_of_the_turn_damage_what_changes() {
 fn settings_app() -> App {
     let mut a = moving();
     a.focused = false;
-    a.open_settings();
-    let f = a.ui.settings.as_mut().unwrap();
-    let typing = f
-        .page_names()
-        .iter()
-        .position(|n| *n == crate::app::modal::TYPING)
-        .unwrap();
-    f.show_page(typing);
+    a.open_settings_at(crate::app::modal::TYPING);
     a.compose();
     a
 }
@@ -1868,6 +1894,79 @@ fn with_motion_off_the_settings_dialog_is_one_frame() {
     assert_eq!(a.motion.due, None, "nothing moves");
     a.compose();
     assert!(a.screen.pixels == first, "the same frame, pixel for pixel");
+}
+
+fn start_settings_slide(a: &mut App) {
+    assert!(
+        a.ui.settings
+            .as_mut()
+            .unwrap()
+            .focus_row(crate::app::modal::AUTO_PAIR),
+        "the switch"
+    );
+    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Space), None);
+    a.compose();
+}
+
+#[test]
+fn settings_keeps_the_slide_on_early_frames() {
+    let mut a = settings_app();
+    start_settings_slide(&mut a);
+    let initial = a.screen.pixels.clone();
+    let due = a.motion.due.expect("a slide is scheduled");
+    tick(&mut a, 16);
+    assert!(a.compose().0.is_empty(), "early frame skips the form");
+    assert_eq!(a.motion.due, Some(due), "keep the promised paint");
+    tick(&mut a, 16);
+    assert!(!a.compose().0.is_empty(), "the next frame draws the form");
+    assert!(a.screen.pixels != initial, "the knob moved");
+    let mid = a.screen.pixels.clone();
+    settle(&mut a);
+    assert!(a.screen.pixels != mid, "the knob then reached the endpoint");
+}
+
+#[test]
+fn switching_settings_pages_discards_the_slide_on_the_old_page() {
+    let mut a = settings_app();
+    let typing = a.ui.settings.as_ref().unwrap().page();
+    start_settings_slide(&mut a);
+    tick(&mut a, 40);
+    a.compose();
+    assert!(a.motion.due.is_some(), "slide still in progress");
+    let mid = a.screen.pixels.clone();
+    let click = |a: &mut App, page| {
+        let row = a.ui.settings.as_ref().unwrap().list_item_rect(page);
+        a.ui.mouse = (row.cx(), row.cy());
+        a.settings_press();
+        a.settings_release();
+        a.compose();
+        assert_eq!(a.ui.settings.as_ref().unwrap().page(), page);
+        assert_eq!(a.motion.due, None, "no old page animation");
+    };
+    click(&mut a, usize::from(typing == 0));
+    assert!(a.screen.pixels != mid, "new page is visible immediately");
+    click(&mut a, typing);
+}
+
+#[test]
+fn closing_settings_mid_slide_restores_the_editor_on_the_first_frame() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let editor = a.screen.pixels.clone();
+    a.open_settings_at(crate::app::modal::TYPING);
+    a.compose();
+    start_settings_slide(&mut a);
+    tick(&mut a, 40);
+    a.compose();
+    assert!(a.motion.due.is_some());
+    assert!(a.screen.pixels != editor);
+
+    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Escape), None);
+    a.compose();
+    assert!(a.ui.settings.is_none());
+    assert!(a.screen.pixels == editor, "no trace of the dialog");
+    assert_eq!(a.motion.due, None, "no dialog deadline");
 }
 
 /// A switch turned in the dialog slides: frames are asked for, they change the pixels, and once
