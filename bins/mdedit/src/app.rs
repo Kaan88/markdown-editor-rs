@@ -3893,8 +3893,9 @@ fn shot(mut app: App, path: &Path) -> i32 {
         app.compose();
         app.pointer_moved(x, y);
         // A shot shows the tip at once (no pointer waits for its rest), and `--tip-ms` steps
-        // the animator into its fade.
-        let due = app.motion.now() + mdshared_ui::anim::document::TIP_DELAY;
+        // the animator into its fade. The tip counts on the real clock (`pointer_moved` chose
+        // its due by it), so it is shown by that one, not by the animator's moved clock.
+        let due = Instant::now() + mdshared_ui::anim::document::TIP_DELAY;
         app.ui.tip.tick(due);
         if let Some(ms) = app.args.tip_ms {
             app.motion.shot_fade();

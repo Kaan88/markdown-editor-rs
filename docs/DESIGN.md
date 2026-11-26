@@ -3925,10 +3925,11 @@ notes record as written by a newer version.
 (`timers`, `woken`), tests in `app/motion_tests.rs`. Built on shared `anim` (`09b01c1`; shared's
 `docs/ANIMATION.md` says how its pieces work). D-232, D-233, D-235, D-250, D-252.
 
-**The animator.** `App::motion` holds the window's one `Animator`. `compose` calls `begin_frame` first and `end_frame` last; the deadline is kept in `Motion::due`, which `timers` turns into a
-wake-up and clears when it fires (it asks for a frame, `about_to_wait` requests the redraw). While
-nothing moves the deadline is `None`, so there is no timer and no frame: an idle window, menu open
-or not, costs nothing.
+**The animator.** `App::motion` holds the window's one `Animator`. `compose` calls
+`begin_frame` first and `end_frame` last; the deadline is kept in `Motion::due`, which `timers`
+turns into a wake-up and clears when it fires (it asks for a frame, `about_to_wait` requests the
+redraw). While nothing moves the deadline is `None`, so there is no timer and no frame: an idle
+window, menu open or not, costs nothing.
 
 **The pin `09b01c1`** (through `8d35a07`, shared PR 24; D-256) changed one thing for mdedit: the
 stack's wait for the lift is skipped when nothing animates. The rest of that pin is not mdedit's:
@@ -3952,8 +3953,20 @@ until the pointer leaves (`Tooltip::press`), and a key, a scroll or a popup hide
 the group `TIP_GROUP`: it fades in by `document::TIP` and is gone at once, so no frame is asked
 for after it goes. Under `Policy::Never` the presence is 1 on its first frame and the bubble is
 drawn by `Bubble::draw`, the pixels of before. The fade's `t` is in the overlay signature with
-the bubbles', so each frame of it redraws what the tip covers. `tests/shots.sh` shows it part way
-in with `--tip-ms 90` (`tip-rising-light`, `tip-rising-dark`).
+the bubbles', so each frame of it redraws what the tip covers; a tip taken away mid-fade goes at
+once and the pixels under it come back. A move that changes neither the control nor the pointer's
+place is skipped before any text is asked for (`Ui::tip_point`): 200 ns a move within one control
+and under the clock's tick when skipped
+(`docs/measurements/2026-11-26-tooltip-moves.md`). `tests/shots.sh` shows it part way in with
+`--tip-ms 90` (`tip-rising-light`, `tip-rising-dark`).
+
+**Its tests**, four from M-C — `with_motion_off_the_tip_is_there_on_its_first_frame` (the whole
+tip on its first frame, `Bubble::draw`, no timer), `a_tip_fades_in_and_settles_with_no_timer_left`,
+`a_tip_waits_from_the_pointer_coming_to_rest` (through `pointer_moved`) and
+`a_press_hides_the_tip_until_the_pointer_leaves` — and three from the review of them:
+`a_tip_taken_away_mid_fade_goes_at_once_and_the_pixels_come_back`,
+`a_neighbours_tip_shows_at_once_without_a_second_fade` and
+`every_frame_of_the_fade_damages_what_the_tip_covers`.
 
 **Whether anything moves** is `Motion::policy`, the one place: `Policy::Never` in a shot and in
 every test (`args.shot` or `cfg(test)`), and with the Animations setting off (`prefs.animations`,

@@ -2631,3 +2631,16 @@ presence is 1 on the first frame and the tip is drawn by `Bubble::draw`, the pix
 delay measured from resting … Under the Animations setting, motion off must draw exactly as now."
 **Overturned by.** The owner; or a Windows' `SPI_GETMOUSEHOVERTIME` read, if tips should follow
 the system's own delay.
+
+## D-258 · 2026-11-26 · A pointer move that changes nothing about the tooltip costs nothing
+
+**Decision.** `App::update_tip` keeps `Ui::tip_point`, the control and pointer place it was last
+given, and returns at once when both are unchanged: no text from `chrome::tooltip` and no clone.
+A move within one control still goes through `Tooltip::hover_at` (one `String` and one clone) so
+the wait starts again from the rest. Measured at 200 ns a move within a control and under the
+clock's tick when skipped, seven runs, the method and the figures in
+`docs/measurements/2026-11-26-tooltip-moves.md`.
+**Why.** The review of `019d91b` (the owner, 2026-11-26): "Measure the per-move cost now that
+update_tip runs on every CursorMoved … If it can be avoided cheaply (for example, skip when the
+hit and position are unchanged), do so."
+**Overturned by.** The owner; or a profile showing the skip is not worth its two comparisons.

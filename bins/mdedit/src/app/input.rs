@@ -137,8 +137,14 @@ impl App {
     /// Points the tooltip at what is under the pointer, which is at `(x, y)` now: a control's
     /// tip counts its delay from the pointer coming to rest there (`Tooltip::hover_at`), so it
     /// is asked on every move, not only when the control changes; moving to a neighbour while a
-    /// tip shows shows the neighbour's at once.
+    /// tip shows shows the neighbour's at once. A move that changes neither the control nor the
+    /// pointer's place is no work at all: no text is asked for and nothing is cloned.
     pub(super) fn update_tip(&mut self, hit: Option<Hit>, at: (f32, f32), now: Instant) {
+        let point = (hit, at);
+        if self.ui.tip_point == Some(point) {
+            return;
+        }
+        self.ui.tip_point = Some(point);
         let over = hit.and_then(|h| {
             let text = chrome::tooltip(h, &self.docs, self.maximized)
                 .or_else(|| self.ui.results.replace.tip(h))?;

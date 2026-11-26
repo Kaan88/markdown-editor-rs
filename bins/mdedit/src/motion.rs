@@ -106,7 +106,8 @@ pub struct Motion {
     /// The toast last pushed onto a stack that already held something: with the wait for the
     /// lift, it is the only one that can still be at nothing when a status takes its place.
     toast_waiting: Option<u64>,
-    /// The tooltip's presence on this frame, 0 when none shows ([`Motion::tip_presence`]).
+    /// The tooltip's presence as the last frame drew it, 0 when none showed
+    /// ([`Motion::tip_presence`]): the compositor's and a test's to read, never to set.
     pub tip_t: f32,
     /// This frame's toasts, the bottom one first ([`Motion::sync_toasts`]).
     pub toast_frame: Vec<ToastShown>,

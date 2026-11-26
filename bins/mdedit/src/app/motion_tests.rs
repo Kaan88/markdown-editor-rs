@@ -1520,3 +1520,147 @@ fn a_press_hides_the_tip_until_the_pointer_leaves() {
     a.timers(t + TIP_WAIT * 5);
     assert!(a.ui.tip.shown().is_some(), "a neighbour's shows");
 }
+
+/// The pixels a frame changed that no damaged rectangle holds (device px, as the screen is).
+fn changed_outside(a: &App, before: &[u8], damage: &[(i32, i32, i32, i32)]) -> usize {
+    let (w, h) = (a.screen.width as usize, a.screen.height as usize);
+    let mut outside = 0;
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            if a.screen.pixels[i..i + 4] == before[i..i + 4] {
+                continue;
+            }
+            let (px, py) = (x as i32, y as i32);
+            let inside = damage
+                .iter()
+                .any(|d| px >= d.0 && px < d.2 && py >= d.1 && py < d.3);
+            if !inside {
+                outside += 1;
+            }
+        }
+    }
+    outside
+}
+
+/// A tip taken away half way into its fade goes at once, and the pixels under it come back: the
+/// frame that takes it away damages what it covered.
+#[test]
+fn a_tip_taken_away_mid_fade_goes_at_once_and_the_pixels_come_back() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let before = a.screen.pixels.clone();
+    let t = a.motion.now();
+    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
+    a.timers(t + TIP_WAIT);
+    a.compose();
+    tick(&mut a, 30);
+    a.compose();
+    let mid = a.motion.tip_t;
+    assert!(mid > 0.0 && mid < 1.0, "part way in: {mid}");
+    assert!(a.screen.pixels != before, "the tip is drawn");
+    a.ui.tip.hide();
+    let (damage, _) = a.compose();
+    assert_eq!(a.motion.tip_t, 0.0, "it goes at once, with no fade out");
+    assert_eq!(a.motion.due, None, "and nothing is left moving");
+    assert!(
+        a.screen.pixels == before,
+        "the pixels under the tip come back"
+    );
+    assert_eq!(
+        changed_outside(&a, &before, &damage),
+        0,
+        "nothing changed outside the damage"
+    );
+}
+
+/// A neighbour's tip shows at once while one shows, at presence 1: it does not fade in again.
+#[test]
+fn a_neighbours_tip_shows_at_once_without_a_second_fade() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let t = a.motion.now();
+    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
+    a.timers(t + TIP_WAIT);
+    a.compose();
+    settle(&mut a);
+    assert_eq!(a.motion.tip_t, 1.0, "the first at rest");
+    let next = crate::ui::Hit::WinClose;
+    a.update_tip(Some(next), (400.0, 10.0), a.motion.now());
+    a.compose();
+    assert_eq!(
+        a.ui.tip.shown().map(|o| o.key),
+        Some(next),
+        "the neighbour's tip"
+    );
+    assert_eq!(a.motion.tip_t, 1.0, "at once, no second fade");
+    assert_eq!(a.motion.due, None, "and nothing asked for");
+}
+
+/// Every frame of the fade damages what the tip covers: no pixel it changed is left undamaged.
+#[test]
+fn every_frame_of_the_fade_damages_what_the_tip_covers() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let t = a.motion.now();
+    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
+    a.timers(t + TIP_WAIT);
+    a.compose();
+    for _ in 0..3 {
+        tick(&mut a, 16);
+        let before = a.screen.pixels.clone();
+        let (damage, _) = a.compose();
+        assert!(
+            !damage.is_empty(),
+            "the frame of the fade redraws something"
+        );
+        assert_eq!(
+            changed_outside(&a, &before, &damage),
+            0,
+            "every pixel the fade changed is inside the damage"
+        );
+    }
+    assert!(a.motion.tip_t > 0.0 && a.motion.tip_t < 1.0, "still fading");
+}
+
+/// A measurement, not a test: what a pointer move costs in `update_tip` — the common case (a
+/// move within one control: one `String` from `chrome::tooltip` and two clones in
+/// `Tooltip::hover` while a tip shows) and the free one (the same control at the same place:
+/// skipped). Run it on its own, several times:
+/// `cargo test --release -p mdedit -- --ignored --nocapture tip_move_cost`.
+#[test]
+#[ignore = "a measurement, not a test"]
+fn tip_move_cost() {
+    let mut a = still();
+    a.focused = false;
+    a.compose();
+    let hit = a_tip_hit();
+    // A tip showing: the warm path, with its two clones.
+    let t = a.motion.now();
+    a.update_tip(Some(hit), (10.0, 10.0), t);
+    a.timers(t + TIP_WAIT);
+    assert!(a.ui.tip.shown().is_some());
+    let calls = 20_000;
+    let mut moving = Vec::with_capacity(calls);
+    let mut same = Vec::with_capacity(calls);
+    for i in 0..calls {
+        let at = (10.0 + (i % 7) as f32 * 0.5, 10.0);
+        let now = Instant::now();
+        a.update_tip(Some(hit), at, now);
+        moving.push(now.elapsed().as_nanos());
+        let now = Instant::now();
+        a.update_tip(Some(hit), at, now);
+        same.push(now.elapsed().as_nanos());
+    }
+    let median = |mut v: Vec<u128>| {
+        v.sort_unstable();
+        (v[v.len() / 2], v[v.len() / 10])
+    };
+    let (m, p10) = median(moving);
+    let (s, s10) = median(same);
+    eprintln!("tip_move_cost: moving within a control: median {m} ns, p10 {p10} ns");
+    eprintln!("tip_move_cost: same place, skipped:     median {s} ns, p10 {s10} ns");
+}

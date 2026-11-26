@@ -22,8 +22,9 @@ Rewritten, not appended to. Last rewritten 2026-11-26, when the pin moved and to
 - The shared crates are not released; the apps pin them by commit. mdedit pins shared `main` at
   `09b01c1` (through `8d35a07`, shared PR 24 with the toasts' wait, plus the D4 hover flash, the
   colour row, the backdrop veil, the pool's cancel and the hand-over; `ci` green on Linux, Windows
-  and both Macs; the lock change accepted by the owner, D-234; the pin moved four times since, by
-  the shared `rev` alone, D-250, D-252, D-253 and D-256). **Hub** is its own app (its `docs/STATE.md` is its record).
+  and both Macs; the lock change accepted by the owner, D-234; the pin moved three times since, by
+  the shared `rev` alone: `f45a71c` (D-250), `535ad4c` (D-252) and `09b01c1` (D-256); D-253 moved
+  no pin). **Hub** is its own app (its `docs/STATE.md` is its record).
 
 ## On `main`, not released
 
@@ -45,9 +46,9 @@ Rewritten, not appended to. Last rewritten 2026-11-26, when the pin moved and to
   DESIGN 97) and the tooltips (M-C, D-257). Not merged, not tried in a real window. The pin is
   `09b01c1` (D-256), which carries shared PR 24: the two tests ignored for it are un-ignored and
   pass. Left open: the status snap in `Motion::sync_toasts` (`Animator::set`), still needed with
-  motion on because shared's animator keeps a target's first delay; a status that pushes beside
-  leaving toasts is untested. **Next**: merge this branch, then the rest of motion (dialogs and
-  cards, shared's Settings form motion L10, the tree chevron) on the owner's word.
+  motion on because shared's animator keeps a target's first delay. **Next**: merge this branch,
+  then the rest of motion (M-D, M-E, M-F: dialogs and cards, shared's Settings form motion L10,
+  the tree chevron) on the owner's word.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.

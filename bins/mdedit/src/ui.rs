@@ -970,8 +970,11 @@ pub struct Ui {
     /// What the question dialog on screen is about.
     pub pending: Option<Pending>,
     /// The window's tooltip: which control's it is, when it shows, and what a press hides
-    /// (shared's , its delay counted from the pointer coming to rest).
+    /// (shared's `Tooltip`, its delay counted from the pointer coming to rest).
     pub tip: mdshared_ui::tooltip::Tooltip<Hit>,
+    /// What the tooltip was last pointed at, and where the pointer was: a move that changes
+    /// neither takes no work at all (`App::update_tip`).
+    pub tip_point: Option<(Option<Hit>, (f32, f32))>,
     /// Hover row in the Manage recent dialog.
     pub dlg_hover_row: Option<usize>,
     /// The last left press, for double and triple clicks: when, where, and the count.
@@ -1066,6 +1069,7 @@ impl Ui {
             dialog: None,
             pending: None,
             tip: mdshared_ui::tooltip::Tooltip::new(),
+            tip_point: None,
             dlg_hover_row: None,
             last_press: None,
             autoscroll_due: None,
