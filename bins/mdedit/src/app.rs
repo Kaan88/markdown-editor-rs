@@ -125,6 +125,7 @@ mod notes_write;
 #[cfg(test)]
 mod notes_write_tests;
 mod palette_events;
+mod pane_keys;
 mod plan;
 #[cfg(test)]
 mod plan_tests;
@@ -136,7 +137,10 @@ mod preview;
 mod recycle_tests;
 #[cfg(test)]
 mod review_tests;
+#[cfg(test)]
+mod theme_tests;
 mod visual;
+mod window_restore;
 pub(crate) use preview::previewable;
 #[cfg(test)]
 mod issues_tests;
@@ -155,7 +159,6 @@ mod task_tests;
 #[cfg(test)]
 mod widget_pixels_tests;
 
-const TIP_DELAY: Duration = Duration::from_millis(500);
 const AUTOSCROLL_TICK: Duration = Duration::from_millis(16);
 const SIZE_SAVE_DELAY: Duration = Duration::from_millis(800);
 /// The hidden first frame waits for the active load until this long after launch.
@@ -338,6 +341,8 @@ struct App {
     format: Option<crate::format_bar::State>,
     gfx: Gfx,
     pal: Palette,
+    /// The theme control choice baked into the last drawing, independent of the palette.
+    drawn_theme_choice: ThemeChoice,
     system_dark: bool,
     /// The theme came from `--light` / `--dark` and the user has not picked one since: the
     /// session keeps the theme it had.
@@ -365,6 +370,8 @@ struct App {
     caret_line: Option<usize>,
     overlay_sig: u64,
     overlay_bounds: Vec<Rect>,
+    /// Overlays in the last composition; a closing overlay must never survive in a theme copy.
+    painted_overlays: (u16, [Option<u64>; 7]),
     /// Redraw everything next frame (size, scale or theme changed).
     full: bool,
     wants_frame: bool,
@@ -372,6 +379,8 @@ struct App {
     requested: bool,
     expose: bool,
     first: bool,
+    /// Paint passes, including headless shots. A layout-only pass is not a frame.
+    frames: u64,
     exit: bool,
     /// The file to start once the window is closed: set by a Restart that was carried out.
     restart: Option<PathBuf>,
@@ -575,6 +584,7 @@ impl App {
             format: None,
             gfx: Gfx::new(),
             pal: theme::LIGHT,
+            drawn_theme_choice: ThemeChoice::System,
             system_dark,
             scale: 1.0,
             size: (1, 1),
@@ -592,11 +602,13 @@ impl App {
             caret_line: None,
             overlay_sig: 0,
             overlay_bounds: Vec::new(),
+            painted_overlays: Default::default(),
             full: true,
             wants_frame: true,
             requested: false,
             expose: false,
             first: true,
+            frames: 0,
             exit: false,
             restart: None,
             mods: Mods::default(),
@@ -667,7 +679,69 @@ impl App {
     }
 
     fn redraw(&mut self) {
+        if self.motion.theme_fade.is_some() && self.overlay_closed_since_paint() {
+            self.drop_theme_fade();
+        }
         self.wants_frame = true;
+    }
+
+    fn overlay_mask(&self) -> (u16, [Option<u64>; 7]) {
+        let present = [
+            self.ui.popup.is_some(),
+            self.ui.popup.as_ref().is_some_and(|p| p.sub().is_some()),
+            self.ui.dialog.is_some(),
+            self.ui.settings.is_some(),
+            self.palette_open(),
+            self.ui.tip.shown().is_some(),
+            self.ai_panel_open(),
+            self.plan_is_open(),
+            self.task_is_open(),
+            self.notes_plan.as_ref().is_some_and(|p| p.shown),
+            self.mover.is_some(),
+            self.importer.is_some(),
+            self.note.is_some(),
+            self.ui
+                .settings
+                .as_ref()
+                .is_some_and(|f| f.menu_bounds().is_some()),
+        ]
+        .into_iter()
+        .enumerate()
+        .fold(0, |mask, (i, shown)| mask | (u16::from(shown) << i));
+        let instances = [
+            self.ui.popup.as_ref().map(|p| p.serial),
+            self.ui.popup.as_ref().and_then(|p| p.sub_serial()),
+            self.ui.dialog.as_ref().map(|d| d.serial),
+            self.ui
+                .settings
+                .as_ref()
+                .map(|_| self.motion.settings_serial),
+            self.palette.open.as_ref().map(|p| p.serial),
+            // A visible neighbour can replace a tip without a hidden frame in between.
+            self.ui.tip.shown().map(|o| sig((o.key, &o.text))),
+            self.ui.settings.as_ref().map(|f| f.page() as u64),
+        ];
+        (present, instances)
+    }
+
+    fn overlay_closed_since_paint(&self) -> bool {
+        let (present, instances) = self.overlay_mask();
+        let (painted, old) = self.painted_overlays;
+        painted & !present != 0
+            || old
+                .into_iter()
+                .zip(instances)
+                .any(|(old, now)| old.is_some() && old != now)
+    }
+
+    /// A shown tip can have painted pixels, even if the input that dismisses it does not
+    /// change anything else. A waiting tip has nothing to erase.
+    fn hide_tip(&mut self) {
+        let shown = self.ui.tip.shown().is_some();
+        self.ui.hide_tip();
+        if shown {
+            self.redraw();
+        }
     }
 
     /// Starts reading and watching the system's wish for less motion, once, unless nothing can
@@ -688,10 +762,22 @@ impl App {
         )
     }
 
-    fn sync_theme(&mut self) {
+    fn sync_theme(&mut self, painting: bool) {
+        let closed = (self.motion.theme_fade.is_some() || self.dark() != self.pal.dark)
+            && self.overlay_closed_since_paint();
+        if !painting || closed {
+            self.drop_theme_fade();
+        }
         let dark = self.dark();
         let pal = if dark { theme::DARK } else { theme::LIGHT };
         if pal != self.pal {
+            self.drop_theme_fade();
+            if painting && !closed && self.can_capture_theme_frame() {
+                let (w, h) = self.logical();
+                let p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
+                self.motion.theme_fade = Some(p.snapshot(Rect::new(0.0, 0.0, w, h)));
+                self.motion.theme_serial = self.motion.theme_serial.wrapping_add(1);
+            }
             self.pal = pal;
             self.full = true;
             self.view.clear();
@@ -707,6 +793,63 @@ impl App {
                 s.set_dark(dark);
             }
             self.service_dark = Some(dark);
+        }
+    }
+
+    fn can_capture_theme_frame(&mut self) -> bool {
+        let (w, h) = self.size;
+        if self.frames == 0
+            || (w, h) != (self.screen.width, self.screen.height)
+            || w == 0
+            || h == 0
+            || u64::from(w) * u64::from(h) > 2560 * 1600
+            || !self.theme_is_flat()
+            || self
+                .window
+                .as_ref()
+                .is_some_and(|w| w.is_minimized() == Some(true))
+        {
+            return false;
+        }
+        // The settings may have just enabled motion after a launch with it off.
+        self.watch_motion();
+        self.motion.anim.animates()
+    }
+
+    fn theme_is_flat(&self) -> bool {
+        self.frost.key().is_none()
+            && self.docs.prefs.backdrop == mdshared_app::backdrop::Backdrop::Off
+    }
+
+    /// If the screen was partly blended, the next drawing must replace all of it.
+    fn drop_theme_fade(&mut self) {
+        if self.motion.theme_fade.take().is_some() {
+            self.full = true;
+        }
+    }
+
+    fn resize_theme_fade(&mut self, minimized: bool) {
+        if minimized
+            || self
+                .motion
+                .theme_fade
+                .as_ref()
+                .is_some_and(|s| s.bitmap_size() != self.size)
+        {
+            self.drop_theme_fade();
+        }
+    }
+
+    fn blend_theme_frame(&mut self) -> bool {
+        if let Some(under) = self.motion.theme_fade.take() {
+            let t = self.motion.theme_presence();
+            if t < 1.0 {
+                under.crossfade(&mut self.screen, t);
+                self.motion.theme_fade = Some(under);
+            }
+            true
+        } else {
+            false
         }
     }
 
@@ -766,6 +909,7 @@ impl App {
             && !self.preview_focused()
             && !self.ui.results.focused
             && !self.ui.library.focused
+            && self.ui.pane_focus.focused().is_none()
             && self.ui.dialog.is_none()
             && !self.palette_open()
             && !self.ai_panel_open()
@@ -849,7 +993,7 @@ impl App {
     /// Asks the highlight worker for the visible lines and a screen each side, when the view has
     /// left the middle of what was asked last, the theme changed, or another document was asked.
     fn request_colours(&mut self) {
-        let dark = self.dark();
+        let dark = self.pal.dark;
         let Some(service) = &self.service else {
             return;
         };
@@ -884,7 +1028,7 @@ impl App {
 
     /// The colours of the second pane's lines: asked for beside the active document's.
     fn request_colours_other(&mut self) {
-        let dark = self.dark();
+        let dark = self.pal.dark;
         let Some(service) = &self.service else {
             return;
         };
@@ -930,7 +1074,7 @@ impl App {
     /// an edit made the answer stale.
     fn request_colours_map(&mut self, pane: usize) {
         self.map_lines[pane] = None;
-        let dark = self.dark();
+        let dark = self.pal.dark;
         let Some(plan) = self.map_plan[pane] else {
             return;
         };
@@ -1107,6 +1251,9 @@ impl App {
                         self.docs.updates.relaunch_target().is_some(),
                         self.docs.crash.is_some(),
                         (self.docs.stale.len(), self.docs.rename_bar()),
+                        self.motion
+                            .banner_t
+                            .map(|t| crate::motion::banner_height(t) as u16),
                     ),
                 ))
             }
@@ -1122,6 +1269,7 @@ impl App {
                 sig((
                     common,
                     ui.outline.generation,
+                    (ui.pane_cursor, ui.pane_focus.ring_visible(ui.pane_face())),
                     ui.outline.scroll.to_bits(),
                     crate::outline::caret_row(&self.docs, &ui.outline),
                     self.docs.active_doc().map(|d| d.id),
@@ -1211,6 +1359,7 @@ impl App {
                     rows,
                     active,
                     ui.panes.files_scroll.to_bits(),
+                    (ui.pane_cursor, ui.pane_focus.ring_visible(ui.pane_face())),
                     drag,
                 ))
             }
@@ -1359,12 +1508,42 @@ impl App {
 
     /// Composes one frame into `screen` and returns the device-px rectangles changed.
     fn compose(&mut self) -> (Vec<(i32, i32, i32, i32)>, FrameTimes) {
+        self.motion.set_setting(self.docs.prefs.animations);
+        let clean = if self.dark() != self.pal.dark
+            && self.overlay_closed_since_paint()
+            && self.can_capture_theme_frame()
+        {
+            // Draw the live overlays in the old palette before taking the one theme snapshot.
+            // This pass is never presented; only the blend from it is.
+            self.drop_theme_fade();
+            self.full = true;
+            Some(self.compose_frame(Some(self.drawn_theme_choice)).1)
+        } else {
+            None
+        };
+        let (damage, mut times) = self.compose_frame(None);
+        if let Some(clean) = clean {
+            times.layout += clean.layout;
+            times.paint += clean.paint;
+            times.compose += clean.compose;
+        }
+        (damage, times)
+    }
+
+    fn compose_frame(
+        &mut self,
+        cleanup_theme: Option<ThemeChoice>,
+    ) -> (Vec<(i32, i32, i32, i32)>, FrameTimes) {
         self.ai_review_sync();
         let mut times = FrameTimes::default();
         let t0 = Instant::now();
-        self.motion.set_setting(self.docs.prefs.animations);
         let frame_at = self.motion.now();
         self.motion.anim.begin_frame(frame_at);
+        // Capture the previous drawing, never the replacement bitmap for a new size.
+        if cleanup_theme.is_none() {
+            self.sync_theme(true);
+        }
+        let paint_theme = cleanup_theme.unwrap_or(self.docs.theme);
         let (pw, ph) = (self.size.0.max(1), self.size.1.max(1));
         if self.screen.width != pw || self.screen.height != ph {
             self.screen = Bitmap::new(pw, ph);
@@ -1378,15 +1557,24 @@ impl App {
             }
             self.full = true;
         }
-        self.sync_theme();
         self.sync_frost();
+        // Frost or motion policy may have changed without another palette flip.
+        if self.motion.theme_fade.is_some() {
+            if !self.motion.anim.animates() || !self.theme_is_flat() {
+                self.drop_theme_fade();
+            }
+            self.resize_theme_fade(false);
+            self.full = true;
+        }
         self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
         self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
+        self.motion
+            .sync_banners(self.banner_flags(), self.docs.rename_offer);
         self.sync_side_by_side();
-        self.relayout_areas();
+        self.relayout_areas_for(self.motion.banner_t);
         // Lay the text out first: it clamps the scroll and says which lines want colours.
         let text = self.areas.text;
         let mut geom = None;
@@ -1429,6 +1617,20 @@ impl App {
                 dirty[r.index()] = true;
             }
         }
+        // A group with something in flight draws its part again at each of its deadlines (D1):
+        // the tree's turning chevrons damage the pane, and the Settings form, which covers the
+        // window, damages all of it.
+        let now = self.motion.now();
+        if self.motion.sidebar_due.due(now) {
+            dirty[Region::Files.index()] = true;
+        }
+        if self.motion.title_due.due(now) {
+            dirty[Region::Title.index()] = true;
+        }
+        if self.ui.settings.is_some() && self.motion.settings_due.due(now) {
+            self.full = true;
+            dirty = [true; 10];
+        }
         for r in REGIONS {
             if self.areas.region(r).is_none() {
                 dirty[r.index()] = false;
@@ -1458,51 +1660,76 @@ impl App {
         self.caret_sig = caret_sig;
 
         // Overlays: lay them out, then redraw every region under them if they or those changed.
-        let now = Instant::now();
         let pal = self.pal;
-        let mut bubbles = Vec::new();
+        // The toasts follow the status message, on the frame's clock; asked on every frame.
+        self.motion.sync_toasts(self.docs.toast_line(), frame_at);
+        // Each bubble with its presence: 1 at rest.
+        let mut bubbles: Vec<(Bubble, f32)> = Vec::new();
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
             let page = self.areas.text;
-            if let Some(text) = self.docs.toast(now) {
-                bubbles.push(Bubble::toast(&mut p, text, page));
+            // The toasts, the newest last: it stands at the bottom, and drawing it after the
+            // ones above it puts its body over the shadow they throw. Each lifted above the
+            // ones under it to a whole device pixel (so its text stays on the grid), at its
+            // presence. One that would reach above the page (a short window) is left out,
+            // except the bottom one: a window however short still shows its one status.
+            for s in self.motion.toast_frame.iter().rev() {
+                let mut b = Bubble::toast(&mut p, &s.text, page);
+                b.rect.y = crate::motion::toast_y(b.rect.y, s.lift, self.scale);
+                if s.lift > 0.0 && b.rect.y < page.y + crate::motion::TOAST_GAP {
+                    continue;
+                }
+                bubbles.push((b, s.t));
             }
-            if let Some(tip) = self.ui.tip.as_ref().filter(|t| t.shown) {
-                bubbles.push(Bubble::tip(&mut p, &tip.text, tip.anchor, w, h));
+            // The tooltip fades in where the eye already is (`document::TIP`), and is gone at
+            // once: with motion off the presence is 1 on its first frame, the pixels of before.
+            let tip = self.ui.tip.shown().map(|o| (o.text.clone(), o.anchor));
+            let tip_t = self.motion.tip_presence(tip.is_some());
+            if let Some((text, anchor)) = tip {
+                bubbles.push((Bubble::tip(&mut p, &text, anchor, w, h), tip_t));
             }
             if let Some(popup) = self.ui.popup.as_mut() {
                 let room = menu_room(self.areas.title, w, h);
-                overlays::fit_modify_room(&mut popup.menu, &mut p);
-                popup.menu.place_in(&mut p, room);
-                if let Some(s) = popup.sub.as_mut() {
-                    overlays::fit_modify_room(&mut s.menu, &mut p);
-                    s.menu.place_in(&mut p, room);
-                }
+                popup.place_in(&mut p, room);
             }
         }
-        self.toast_until = self.docs.toast(now).and(self.docs.toast_expires());
-        // The menus' fade: the system's wish is read once the window settled, or from the
-        // first menu that could fade if the setting was off then.
+        self.toast_until = self.motion.toasts_due();
+        // Read the system's wish once the window settles, or before an entrance that can
+        // fade if the setting was off then.
         if !self.motion.watching()
-            && self
-                .ui
-                .popup
-                .as_ref()
-                .is_some_and(|p| crate::motion::fades(p.kind))
+            && (self.ui.settings.is_some()
+                || self
+                    .ui
+                    .popup
+                    .as_ref()
+                    .is_some_and(|p| crate::motion::fades(p.kind)))
         {
             self.watch_motion();
         }
         let menus = self.motion.menus(self.ui.popup.as_ref());
-        let mut bounds: Vec<Rect> = bubbles.iter().map(Bubble::bounds).collect();
+        let settings_t = self
+            .ui
+            .settings
+            .as_ref()
+            .map(|f| self.motion.settings_presence(f.menu_rect().is_some()));
+        // The command palette's pop, asked each frame (at rest 1, so it draws as it does now).
+        self.motion.palette_t = if self.palette.open.as_ref().is_some_and(|p| !p.anchored) {
+            self.motion.palette()
+        } else {
+            1.0
+        };
+        // A toast touches more as it rises and sinks than at rest.
+        let mut bounds: Vec<Rect> = bubbles
+            .iter()
+            .map(|(b, _)| match b.kind {
+                mdshared_ui::overlay::Kind::Toast => b.presence_bounds(),
+                _ => b.bounds(),
+            })
+            .collect();
         if let Some(popup) = &self.ui.popup {
-            // A menu that fades touches its presence bounds (its drop and shadow in them).
-            let reach = |m: &mdshared_ui::menu::Menu<Act>| match menus {
-                Some(_) => m.presence_bounds(),
-                None => m.rect().inset(-20.0),
-            };
-            bounds.push(reach(&popup.menu));
-            if let Some(s) = &popup.sub {
-                bounds.push(reach(&s.menu));
+            bounds.push(popup.root().presence_bounds());
+            if let Some(s) = popup.sub() {
+                bounds.push(s.presence_bounds());
             }
         }
         if self.ui.dialog.is_some()
@@ -1513,50 +1740,54 @@ impl App {
         {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
+        let field = self
+            .palette
+            .open
+            .as_ref()
+            .filter(|p| p.anchored)
+            .and_then(|_| self.hit_rect(Hit::StatusLanguage));
         if let Some(p) = self.palette.open.as_mut() {
-            // The card's place is needed here, to redraw what it covers; drawing lays it out
-            // again.
-            let card = p
-                .palette
-                .layout(Rect::new(0.0, 0.0, w, h), crate::ui::TITLE_H);
-            bounds.push(card.inset(-20.0));
+            // What the card touches at any presence: its own bounds, from the pop it enters
+            // by (never an invented inset).
+            let (window, title) = crate::palette::placement(p, field, w, h);
+            p.palette.layout(window, title);
+            bounds.push(p.palette.presence_bounds());
         }
         let osig = sig((
             bubbles
                 .iter()
-                .map(|b| {
+                .map(|(b, t)| {
                     (
                         b.kind,
                         b.text.as_str(),
                         b.rect.x.to_bits(),
                         b.rect.y.to_bits(),
+                        // A toast coming or going is drawn anew on each frame of it.
+                        t.to_bits(),
                     )
                 })
                 .collect::<Vec<_>>(),
             self.ui.popup.as_ref().map(|p| {
                 (
                     p.kind,
-                    (p.menu.hover, p.menu.scroll().to_bits()),
-                    p.menu.items.len(),
+                    (p.root().hover, p.root().scroll().to_bits()),
+                    p.root().items.len(),
                     (p.kind == PopupKind::Ai)
-                        .then(|| crate::ai_ui::menu_modify_at(&p.menu, self.ui.mouse)),
-                    p.sub.as_ref().map(|s| {
+                        .then(|| crate::ai_ui::menu_modify_at(p.root(), self.ui.mouse)),
+                    p.sub().map(|s| {
                         (
-                            s.kind,
-                            s.menu.hover,
-                            s.menu.scroll().to_bits(),
+                            p.sub_kind(),
+                            s.hover,
+                            s.scroll().to_bits(),
                             // A saved prompt's Modify button lit under the pointer (the owner:
                             // it lit only half a second later, with the next other change).
-                            (s.kind == PopupKind::Ai)
-                                .then(|| crate::ai_ui::menu_modify_at(&s.menu, self.ui.mouse)),
+                            (p.sub_kind() == Some(PopupKind::Ai))
+                                .then(|| crate::ai_ui::menu_modify_at(s, self.ui.mouse)),
                         )
                     }),
                 )
             }),
-            self.ui
-                .settings
-                .as_ref()
-                .map(|_| (self.ui.overlay_tick, self.ui.caret_on)),
+            settings_t.map(|t| (self.ui.overlay_tick, self.ui.caret_on, t.to_bits())),
             self.ui.dialog.as_ref().map(|d| {
                 (
                     d.kind,
@@ -1584,10 +1815,11 @@ impl App {
                 .map(|_| (self.ui.hover, self.ui.pressed)),
             // The palette does not say what changed inside: every event it handled raised the
             // tick; the caret's blink is the one thing that changes alone.
-            self.palette
-                .open
-                .is_some()
-                .then_some((self.palette.tick, self.ui.caret_on)),
+            self.palette.open.is_some().then_some((
+                self.palette.tick,
+                self.ui.caret_on,
+                self.motion.palette_t.to_bits(),
+            )),
             // The AI panels raise their tick for every change, as the palette does.
             self.ai_panel_open().then_some((
                 self.ai.tick,
@@ -1617,7 +1849,10 @@ impl App {
             // So does the import card; the caret blinks in a scheme name being typed.
             self.importer.as_ref().map(|c| c.sig(self.ui.caret_on)),
         ));
-        let overlay_changed = osig != self.overlay_sig;
+        // A menu's hovered row fading is a change inside the popup: its bounds are drawn again
+        // at each of the group's deadlines, as a region is.
+        let rows_due = menus.is_some() && self.motion.rows_due.due(now);
+        let overlay_changed = osig != self.overlay_sig || rows_due;
         self.overlay_sig = osig;
         let mut under: Vec<Rect> = bounds.clone();
         under.extend(self.overlay_bounds.iter().copied());
@@ -1656,6 +1891,15 @@ impl App {
         );
         let overlay_changed = overlay_changed || menu_frame == crate::motion::MenuFrame::Whole;
         let draw_overlays = !bounds.is_empty() && (overlay_changed || any_under_dirty || self.full);
+        let keep_settings = self.ui.settings.is_some() && !draw_overlays;
+        if keep_settings {
+            self.motion.anim.keep_group(crate::motion::SETTINGS);
+        }
+        let keep_rows =
+            menus.is_some() && !draw_overlays && menu_frame != crate::motion::MenuFrame::Alone;
+        if keep_rows {
+            self.motion.anim.keep_group(crate::motion::ROWS);
+        }
         if overlay_changed || any_under_dirty {
             for r in REGIONS {
                 if let Some(rr) = self.areas.region(r)
@@ -1687,7 +1931,7 @@ impl App {
         let maximized = self.maximized;
         let (hover, pressed) = (self.ui.hover, self.ui.pressed);
         let ds = DrawState {
-            dark: self.dark(),
+            dark: pal.dark,
             caret: self.text_focused() && self.focused && self.ui.caret_on,
             band: true,
             whitespace: self.docs.whitespace,
@@ -1710,17 +1954,14 @@ impl App {
                     })
                 ),
         };
-        // The page has a scrollbar when it fills the text area; no other mode draws one.
-        let page_bar = self.visual_on().then(|| {
-            hover == Some(Hit::ScrollBar(Scroller::Page))
-                || matches!(
-                    self.ui.drag,
-                    Some(Drag::Thumb {
-                        target: Scroller::Page,
-                        ..
-                    })
-                )
-        });
+        let page_bar_active = hover == Some(Hit::ScrollBar(Scroller::Page))
+            || matches!(
+                self.ui.drag,
+                Some(Drag::Thumb {
+                    target: Scroller::Page,
+                    ..
+                })
+            );
         let mut damage = Vec::new();
         // Settings opened from the task window hides it until Settings closes.
         let task_shown = self.task_is_open();
@@ -1736,6 +1977,15 @@ impl App {
             }
             for r in order {
                 if !dirty[r.index()] {
+                    // A region drawn by nothing this frame: what its groups hold goes on to
+                    // its target instead of being taken for new next time (D1).
+                    match r {
+                        Region::Files if self.areas.files.is_some() => {
+                            self.motion.anim.keep_group(crate::motion::SIDEBAR);
+                        }
+                        Region::Title => self.motion.anim.keep_group(crate::motion::TITLE),
+                        _ => {}
+                    }
                     continue;
                 }
                 let Some(rect) = self.areas.region(r) else {
@@ -1754,11 +2004,20 @@ impl App {
                 };
                 match r {
                     Region::Title => {
-                        chrome::draw_title(&mut c, &self.docs, &self.ui, rect, maximized)
+                        self.motion.anim.group(crate::motion::TITLE);
+                        chrome::draw_title(
+                            &mut c,
+                            &self.docs,
+                            &self.ui,
+                            rect,
+                            maximized,
+                            &mut self.motion.anim,
+                        );
+                        self.motion.anim.ungroup();
                     }
                     Region::Bar => {
                         let bar = Rect::new(rect.x, rect.y, rect.w, crate::ui::BAR_H);
-                        chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar);
+                        chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar, paint_theme);
                         let mut y = bar.bottom();
                         if let Some(state) = self.format {
                             let row = Rect::new(rect.x, y, rect.w, crate::format_bar::FORMAT_H);
@@ -1767,18 +2026,29 @@ impl App {
                         }
                         if self.ui.replace_open {
                             let strip = Rect::new(rect.x, y, rect.w, crate::ui::REPLACE_H);
-                            chrome::draw_replace_strip(&mut c, &self.docs, &mut self.ui, strip);
+                            chrome::draw_replace_strip(
+                                &mut c,
+                                &self.docs,
+                                &mut self.ui,
+                                strip,
+                                paint_theme,
+                            );
                             y = strip.bottom();
                         }
                         if self.docs.updates.bar().is_some() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
-                            chrome::draw_update_bar(&mut c, &self.docs, under);
-                            y = under.bottom();
+                            chrome::draw_update_bar(
+                                &mut c,
+                                &self.docs,
+                                under,
+                                self.motion.banner_t[0],
+                            );
+                            y += crate::motion::banner_height(self.motion.banner_t[0]);
                         }
                         if self.docs.crash.is_some() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
-                            chrome::draw_crash_bar(&mut c, under);
-                            y = under.bottom();
+                            chrome::draw_crash_bar(&mut c, under, self.motion.banner_t[1]);
+                            y += crate::motion::banner_height(self.motion.banner_t[1]);
                         }
                         if !self.docs.stale.is_empty() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
@@ -1787,8 +2057,9 @@ impl App {
                                 under,
                                 self.docs.stale.len(),
                                 self.docs.prefs.stale_days,
+                                self.motion.banner_t[2],
                             );
-                            y = under.bottom();
+                            y += crate::motion::banner_height(self.motion.banner_t[2]);
                         }
                         if let Some((name, to)) = self.docs.rename_bar() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
@@ -1796,22 +2067,56 @@ impl App {
                                 .file_name()
                                 .map(|n| n.to_string_lossy().into_owned())
                                 .unwrap_or_default();
-                            chrome::draw_rename_bar(&mut c, under, &name, &to);
-                            y = under.bottom();
+                            chrome::draw_rename_bar(
+                                &mut c,
+                                under,
+                                &name,
+                                &to,
+                                self.motion.banner_t[3],
+                            );
+                            y += crate::motion::banner_height(self.motion.banner_t[3]);
                         }
                         if let Some(bar) = &self.ai.bar {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
                             chrome::draw_ai_bar(&mut c, bar, under);
                         }
                     }
-                    Region::Files if self.ui.outline.on => {
-                        crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect)
+                    Region::Files => {
+                        self.motion.anim.group(crate::motion::SIDEBAR);
+                        let face = self.ui.pane_face();
+                        let ring = self.ui.pane_cursor.map(|i| {
+                            let target = f32::from(self.ui.pane_focus.ring_visible(face));
+                            let t = self.motion.anim.value_from(
+                                ("pane-focus", face),
+                                0.0_f32,
+                                target,
+                                mdshared_ui::anim::document::HOVER,
+                            );
+                            (i, t)
+                        });
+                        if self.ui.outline.on {
+                            crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect, ring);
+                        } else if self.ui.library.on {
+                            let ready = self.plan_parked.as_ref().map(|p| p.plan.notes().len());
+                            crate::library_pane::draw(
+                                &mut c,
+                                &self.docs,
+                                &mut self.ui,
+                                rect,
+                                ready,
+                            );
+                        } else {
+                            panes::draw_files(
+                                &mut c,
+                                &self.docs,
+                                &mut self.ui,
+                                rect,
+                                &mut self.motion.anim,
+                                ring,
+                            );
+                        }
+                        self.motion.anim.ungroup();
                     }
-                    Region::Files if self.ui.library.on => {
-                        let ready = self.plan_parked.as_ref().map(|p| p.plan.notes().len());
-                        crate::library_pane::draw(&mut c, &self.docs, &mut self.ui, rect, ready)
-                    }
-                    Region::Files => panes::draw_files(&mut c, &self.docs, &mut self.ui, rect),
                     Region::Text => match self.docs.active() {
                         None => overlays::draw_empty(&mut c, &self.docs, rect),
                         Some(i) => {
@@ -1876,7 +2181,7 @@ impl App {
                             self.preview.as_ref(),
                             &self.docs,
                             rect,
-                            page_bar,
+                            page_bar_active,
                         );
                         if let Some(b) = visual_box {
                             c.p.frame(b, 6.0, visual::box_fill(&pal), pal.accent);
@@ -2030,8 +2335,24 @@ impl App {
                         ),
                     }
                 }
-                if let Some(f) = self.ui.settings.as_mut() {
-                    f.draw(c.p, &pal, Rect::new(0.0, 0.0, w, h), self.ui.caret_on);
+                if let (Some(f), Some(t)) = (self.ui.settings.as_mut(), settings_t) {
+                    let window = Rect::new(0.0, 0.0, w, h);
+                    let under = crate::settings_entrance::backing(c.p, f, window, t);
+                    if t > 0.0 {
+                        self.motion.anim.group(crate::motion::SETTINGS);
+                        f.draw_animated(
+                            c.p,
+                            &pal,
+                            window,
+                            self.ui.caret_on,
+                            &mut self.motion.anim,
+                            crate::motion::SETTINGS,
+                        );
+                        self.motion.anim.ungroup();
+                    }
+                    if let Some(under) = under {
+                        crate::settings_entrance::fade(c.p, &pal, &under, t);
+                    }
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
@@ -2044,10 +2365,15 @@ impl App {
                         self.ui.mouse,
                         &mut self.motion.backing,
                         false,
+                        &mut self.motion.anim,
                     );
                 }
-                for b in &bubbles {
-                    b.draw(c.p, &pal);
+                for (b, t) in &bubbles {
+                    if *t >= 1.0 {
+                        b.draw(c.p, &pal);
+                    } else {
+                        b.draw_presence(c.p, &pal, *t);
+                    }
                 }
                 if let Some(plan) = self.plan.as_mut() {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
@@ -2093,21 +2419,26 @@ impl App {
                     );
                 }
                 if let Some(p) = self.palette.open.as_mut() {
-                    let (window, title) = match anchor {
-                        Some(field) => (
-                            crate::palette::anchored_window(
-                                &mut p.palette,
-                                field,
-                                w,
-                                crate::ui::TITLE_H + 8.0,
-                            ),
-                            0.0,
-                        ),
-                        None => (Rect::new(0.0, 0.0, w, h), crate::ui::TITLE_H),
-                    };
-                    p.palette.draw(c.p, &pal, window, title, self.ui.caret_on);
+                    let (window, title) = crate::palette::placement(p, anchor, w, h);
+                    // It pops in as a menu does, over its own presence bounds.
+                    p.palette.draw_presence(
+                        c.p,
+                        &pal,
+                        window,
+                        title,
+                        self.ui.caret_on,
+                        self.motion.palette_t,
+                    );
                     if let Some(note) = &p.note {
                         crate::palette::draw_note(c.p, &pal, p.palette.rect(), note);
+                    }
+                    // The status field may have moved when the status region was drawn.
+                    if let Some(bounds) = self.overlay_bounds.last_mut() {
+                        let actual = p.palette.presence_bounds();
+                        if *bounds != actual {
+                            damage.push(c.p.dev_rect(actual));
+                            *bounds = actual;
+                        }
                     }
                 }
             } else if menu_frame == crate::motion::MenuFrame::Alone
@@ -2128,6 +2459,7 @@ impl App {
                     self.ui.mouse,
                     &mut self.motion.backing,
                     true,
+                    &mut self.motion.anim,
                 );
             }
         }
@@ -2138,7 +2470,44 @@ impl App {
         if !menus.is_some_and(|m| m.moving()) {
             self.motion.backing = None;
         }
+        if self.blend_theme_frame() {
+            // The blend touches the screen, not just the regions that drew into it.
+            damage.clear();
+            damage.push((0, 0, self.screen.width as i32, self.screen.height as i32));
+        }
+        // No inventory is needed for a partially initialized frame.
+        self.painted_overlays = self.overlay_mask();
+        self.drawn_theme_choice = paint_theme;
+        self.frames = self.frames.saturating_add(1);
         self.motion.due = self.motion.anim.end_frame();
+        if let Some(due) = self.motion.sidebar_due.update(
+            &self.motion.anim,
+            crate::motion::SIDEBAR,
+            self.areas.files.is_some() && !dirty[Region::Files.index()],
+        ) {
+            self.motion.due = Some(self.motion.due.map_or(due, |at| at.min(due)));
+        }
+        if let Some(due) = self.motion.title_due.update(
+            &self.motion.anim,
+            crate::motion::TITLE,
+            !dirty[Region::Title.index()],
+        ) {
+            self.motion.due = Some(self.motion.due.map_or(due, |at| at.min(due)));
+        }
+        if let Some(due) = self.motion.settings_due.update(
+            &self.motion.anim,
+            crate::motion::SETTINGS,
+            keep_settings,
+        ) {
+            self.motion.due = Some(self.motion.due.map_or(due, |at| at.min(due)));
+        }
+        if let Some(due) =
+            self.motion
+                .rows_due
+                .update(&self.motion.anim, crate::motion::ROWS, keep_rows)
+        {
+            self.motion.due = Some(self.motion.due.map_or(due, |at| at.min(due)));
+        }
         self.full = false;
         times.compose = t1.elapsed().saturating_sub(times.paint);
         times.rows = damage.iter().map(|d| (d.3 - d.1).max(0) as u32).sum();
@@ -2494,7 +2863,7 @@ impl App {
                 self.docs.marks.version,
                 self.docs.places.version,
             ),
-            &self.session.geometry,
+            (&self.session.geometry, &self.session.window_state),
             (
                 self.docs.check_updates,
                 self.session.update_checked,
@@ -2847,6 +3216,9 @@ impl App {
                     && w.fullscreen().is_none()
                 {
                     self.session.set_window_position(position.x, position.y);
+                    if self.save && self.session_path.is_some() {
+                        self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
+                    }
                 }
             }
             WindowEvent::Resized(size) => {
@@ -2857,6 +3229,16 @@ impl App {
                 // The window reports the surface; the app lives in the content inside the margin
                 // (the margin in force was just re-read by `update_shadow`).
                 self.size = self.content_size(size.width, size.height);
+                if self.motion.theme_fade.is_some() {
+                    self.resize_theme_fade(
+                        size.width == 0
+                            || size.height == 0
+                            || self
+                                .window
+                                .as_ref()
+                                .is_some_and(|w| w.is_minimized() == Some(true)),
+                    );
+                }
                 self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
                 self.redraw();
             }
@@ -2867,6 +3249,7 @@ impl App {
                     let s = w.inner_size();
                     self.size = self.content_size(s.width, s.height);
                 }
+                self.resize_theme_fade(false);
                 self.full = true;
                 self.redraw();
             }
@@ -2886,7 +3269,7 @@ impl App {
                     self.focus_gained();
                 } else {
                     self.ui.caret_on = true;
-                    self.ui.tip = None;
+                    self.ui.hide_tip();
                     self.docs.seal();
                 }
                 self.redraw();
@@ -2907,7 +3290,9 @@ impl App {
             WindowEvent::CursorLeft { .. } => {
                 if self.ui.drag.is_none() {
                     self.ui.hover = None;
-                    self.ui.tip = None;
+                    // Leaving forgets what the tip was pointed at: coming back to the same spot
+                    // arms it again with its whole delay, as before the tooltip had a state.
+                    self.ui.hide_tip();
                     self.redraw();
                 }
             }
@@ -3021,16 +3406,31 @@ impl ApplicationHandler<Wake> for App {
             "mdedit",
             Some(include_bytes!("../../../assets/mdedit.png")),
         );
-        // Back where it was, if a screen still shows that place: the title row's left end has
-        // to be on one, or the window could not be reached.
-        if let Some((x, y)) = self.session.window_position() {
+        // Back on the saved monitor if it is still there. Older settings only have a point
+        // and still use the title-row reachability check.
+        if let Some(state) = self
+            .session
+            .window_state
+            .as_deref()
+            .and_then(mdshared_ui::window_state::WindowState::from_setting)
+        {
+            let monitors: Vec<_> = event_loop
+                .available_monitors()
+                .map(window_restore::monitor)
+                .collect();
+            if let Some(place) = window_restore::restore(&state, &monitors) {
+                attributes =
+                    attributes.with_position(PhysicalPosition::new(place.rect.x, place.rect.y));
+            }
+        } else if let Some((x, y)) = self.session.window_position() {
             let reachable = event_loop.available_monitors().any(|monitor| {
                 let (origin, size) = (monitor.position(), monitor.size());
-                let (px, py) = (x + 60, y + 16);
-                px >= origin.x
-                    && px < origin.x + size.width as i32
-                    && py >= origin.y
-                    && py < origin.y + size.height as i32
+                let (px, py) = (i64::from(x) + 60, i64::from(y) + 16);
+                let (mx, my) = (i64::from(origin.x), i64::from(origin.y));
+                px >= mx
+                    && px < mx + i64::from(size.width)
+                    && py >= my
+                    && py < my + i64::from(size.height)
             });
             if reachable {
                 attributes = attributes.with_position(PhysicalPosition::new(x, y));
@@ -3256,21 +3656,39 @@ impl ApplicationHandler<Wake> for App {
 }
 
 impl App {
-    /// The height of what shows under the command bar: the format bar, the replace strip, the
-    /// update bar, then the crash bar.
-    fn notice_h(&self) -> f32 {
+    fn banner_flags(&self) -> [bool; 4] {
+        [
+            self.docs.updates.bar().is_some(),
+            self.docs.crash.is_some(),
+            !self.docs.stale.is_empty(),
+            self.docs.rename_bar().is_some(),
+        ]
+    }
+
+    /// The colour wait and position requests may lay out before any paint. Reserve full
+    /// height then, just as the first paint will. Later, use the last painted heights
+    /// for animations in progress, without starting or advancing them from layout.
+    fn layout_banner_t(&self) -> [f32; 4] {
+        let shown = self.banner_flags();
+        let snap = !self.motion.banners_composed
+            || !self.docs.prefs.animations
+            || !self.motion.anim.animates();
+        std::array::from_fn(|i| {
+            match (
+                shown[i],
+                snap || (i == 3 && shown[i] && self.motion.rename_returns(self.docs.rename_offer)),
+            ) {
+                (false, _) => 0.0,
+                (true, true) => 1.0,
+                (true, false) => self.motion.banner_t[i],
+            }
+        })
+    }
+
+    /// The height below the command bar: formatting, replace, and the notice strips.
+    fn notice_h(&self, banner_t: [f32; 4]) -> f32 {
         let strip = if self.ui.replace_open {
             crate::ui::REPLACE_H
-        } else {
-            0.0
-        };
-        let update = if self.docs.updates.bar().is_some() {
-            view::BANNER_H
-        } else {
-            0.0
-        };
-        let crash = if self.docs.crash.is_some() {
-            view::BANNER_H
         } else {
             0.0
         };
@@ -3279,34 +3697,34 @@ impl App {
         } else {
             0.0
         };
-        let stale = if self.docs.stale.is_empty() {
-            0.0
-        } else {
-            view::BANNER_H
-        };
-        let rename = if self.docs.rename_bar().is_some() {
-            view::BANNER_H
-        } else {
-            0.0
-        };
         let ai = if self.ai.bar.is_some() {
             view::BANNER_H
         } else {
             0.0
         };
-        format + strip + update + crash + stale + rename + ai
+        format
+            + strip
+            + banner_t
+                .into_iter()
+                .map(crate::motion::banner_height)
+                .sum::<f32>()
+            + ai
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
     /// panels) and makes it the current layout; a change repaints everything.
     pub(super) fn relayout_areas(&mut self) {
+        self.relayout_areas_for(self.layout_banner_t());
+    }
+
+    fn relayout_areas_for(&mut self, banner_t: [f32; 4]) {
         let (w, h) = self.logical();
         let areas = Areas::compute(
             w,
             h,
             self.ui.panes.files,
             self.ui.panes.files_w,
-            self.notice_h(),
+            self.notice_h(banner_t),
         )
         .with_results(self.ui.results.open, self.ui.results.height);
         // A split whose second tab was closed, or became the active one, is over.
@@ -3342,7 +3760,7 @@ impl App {
         self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
         self.sync_side_by_side();
-        self.sync_theme();
+        self.sync_theme(false);
         self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
@@ -3351,7 +3769,7 @@ impl App {
             h,
             self.ui.panes.files,
             self.ui.panes.files_w,
-            self.notice_h(),
+            self.notice_h(self.layout_banner_t()),
         )
         .with_results(self.ui.results.open, self.ui.results.height)
         .with_preview(
@@ -3530,14 +3948,27 @@ impl App {
 
 /// Renders one state to a PNG without a window (`--shot`).
 fn shot(mut app: App, path: &Path) -> i32 {
+    // `--motion-clock MS`: what the shot sets moving — an open menu's hover rows, the command
+    // palette, Settings, a notice bar — moves on a clock of its own from the first frame that shows it,
+    // and is stepped by `MS` before the picture is taken (a still window would draw it done).
+    if app.args.motion_clock.is_some() && app.args.theme_flip.is_none() {
+        app.motion.shot_fade();
+    }
     let (lw, lh) = app.args.size.unwrap_or((1280, 800));
     app.scale = app.args.scale.unwrap_or_else(platform::system_scale);
     app.size = (
         (lw as f32 * app.scale).round() as u32,
         (lh as f32 * app.scale).round() as u32,
     );
+    if let Some(dark) = app.args.theme_flip
+        && app.args.dark.is_none()
+    {
+        // The form is built with Theme set to System in both palettes.
+        app.docs.theme = ThemeChoice::System;
+        app.system_dark = !dark;
+    }
     let dark = app.dark();
-    app.sync_theme();
+    app.sync_theme(false);
     if app.args.split {
         app.docs.toggle_split();
         if app.docs.other.is_some() {
@@ -3587,7 +4018,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
-    // A report from last time shows its bar in a picture too.
+    // A static shot can show a report from last time on its first paint. A native
+    // launch checks for it only after that paint, when the window settles.
     app.look_for_crash();
     if app.args.preview_pane {
         app.look_for_viewer();
@@ -3600,6 +4032,15 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
     }
     app.compose();
+    if app.args.pane_focus {
+        app.focus_pane(app.ui.pane_face());
+    }
+    // Unlike a launch notice, this demo is meant to enter after the first paint.
+    if app.args.motion_clock.is_some()
+        && let Some(stage) = &app.args.update_bar
+    {
+        app.docs.updates.preview(stage);
+    }
     if let Some(t) = app.args.macro_prompt.clone() {
         app.ui.naming = true;
         app.ui.focus_field(crate::ui::BarField::Goto);
@@ -3616,7 +4057,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotMenu::MainEnd) => {
             app.open_popup(PopupKind::Main);
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.scroll_to_end();
+                p.root_mut().scroll_to_end();
             }
         }
         Some(ShotMenu::Recent) => app.open_popup(PopupKind::Recent),
@@ -3631,7 +4072,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.open_popup(PopupKind::Main);
             app.compose();
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::ViewMenu);
+                p.root_mut().hover = p.root().items.iter().position(|i| i.id == Act::ViewMenu);
             }
             app.open_sub(PopupKind::Main, PopupKind::View, true);
         }
@@ -3639,7 +4080,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.open_popup(PopupKind::Main);
             app.compose();
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::MacroMenu);
+                p.root_mut().hover = p.root().items.iter().position(|i| i.id == Act::MacroMenu);
             }
             app.open_sub(PopupKind::Main, PopupKind::Macro, true);
         }
@@ -3694,8 +4135,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 _ => PopupKind::Markdown,
             };
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = p
-                    .menu
+                p.root_mut().hover = p
+                    .root()
                     .items
                     .iter()
                     .position(|i| i.id.submenu() == Some(sub));
@@ -3710,7 +4151,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.open_popup(PopupKind::Main);
             app.compose();
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::LibraryMenu);
+                p.root_mut().hover = p.root().items.iter().position(|i| i.id == Act::LibraryMenu);
             }
             app.open_sub(PopupKind::Main, PopupKind::Library, true);
         }
@@ -3787,6 +4228,15 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 app.ai_made_markdown(doc, None);
             }
         }
+        Some(ShotMenu::CrashBar) => {
+            // Only presence is read while drawing; this demo never opens a report.
+            app.docs.crash = Some("crash-demo.txt".into());
+        }
+        Some(ShotMenu::StaleBar) => {
+            if let Some(id) = app.docs.active_doc().map(|d| d.id) {
+                app.docs.stale = vec![id];
+            }
+        }
         Some(ShotMenu::Find) => {
             if let Some(r) = app.hit_rect(Hit::Find) {
                 app.ui.mouse = (r.x + 60.0, r.cy());
@@ -3860,6 +4310,43 @@ fn shot(mut app: App, path: &Path) -> i32 {
     if let Some(name) = app.args.settings_section.clone() {
         app.show_settings_section(&name);
     }
+    // A Settings switch turned, and the frame caught part way into its slide, on a clock moved
+    // by hand: the Typing page's pair switch (the Animations one would turn motion off).
+    if let Some(ms) = app.args.settings_ms
+        && app.ui.settings.is_some()
+    {
+        // Paint the open dialog at rest before setting just the switch in motion.
+        app.compose();
+        app.motion.shot_fade();
+        if let Some(f) = app.ui.settings.as_mut() {
+            f.focus_row(crate::app::modal::AUTO_PAIR);
+        }
+        // Register the old knob position, then start the transition at t = 0.
+        app.compose();
+        app.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Space), None);
+        app.compose();
+        for step in crate::motion::shot_steps(ms) {
+            app.motion.advance_ms(step);
+            app.compose();
+        }
+    }
+    // The Files tree with its first folder opened, the chevron part way through its turn.
+    if let Some(ms) = app.args.tree_ms {
+        app.motion.shot_fade();
+        if let Some(i) = app
+            .ui
+            .tree
+            .rows()
+            .iter()
+            .position(|r| r.is_dir && !r.expanded)
+        {
+            app.ui.tree.toggle(i);
+        }
+        for step in crate::motion::shot_steps(ms) {
+            app.motion.advance_ms(step);
+            app.compose();
+        }
+    }
     if let Some(kind) = app.args.plan_demo.clone() {
         app.plan_demo(&kind);
     }
@@ -3899,15 +4386,61 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
     }
     if let Some((x, y)) = app.args.hover {
+        // Show the row's own fade, not another picture of the menu entering.
+        if app.args.motion_clock.is_some() && app.ui.popup.is_some() {
+            for step in crate::motion::shot_steps(117) {
+                app.motion.advance_ms(step);
+                app.compose();
+            }
+        }
+        // A shot of a hover fade moves on a clock of its own from the first frame that sets
+        // it: a still window would draw the hovered look at rest on that frame, and the steps
+        // after it would show a finished fade.
+        if app.args.hover_ms.is_some() {
+            app.motion.shot_fade();
+        }
         app.pointer_moved(x, y);
         // What the pointer is over can change what is drawn and hit (the fold chevrons).
         app.compose();
         app.pointer_moved(x, y);
-        if let Some(t) = app.ui.tip.as_mut() {
-            t.shown = true;
+        // A shot shows the tip at once (no pointer waits for its rest), and `--tip-ms` steps
+        // the animator into its fade. The tip counts on the real clock (`pointer_moved` chose
+        // its due by it), so it is shown by that one, not by the animator's moved clock. A
+        // shot of what the hover sets moving in the title row takes no tip: none is stray.
+        if app.args.hover_ms.is_some() || app.args.motion_clock.is_some() {
+            app.ui.hide_tip();
+        } else {
+            let due = Instant::now() + mdshared_ui::anim::document::TIP_DELAY;
+            app.ui.tip.tick(due);
+        }
+        if let Some(ms) = app.args.tip_ms {
+            app.motion.shot_fade();
+            for step in crate::motion::shot_steps(ms) {
+                app.motion.advance_ms(step);
+                app.compose();
+            }
         }
         if let Some(p) = app.ui.popup.as_mut() {
-            p.menu.pointer(x, y);
+            p.root_mut().pointer(x, y);
+        }
+        // `--hover-ms`: what the title row's hover set moving, that far in, on the shot's clock.
+        if let Some(ms) = app.args.hover_ms {
+            for step in crate::motion::shot_steps(ms) {
+                app.motion.advance_ms(step);
+                app.compose();
+            }
+        }
+    }
+    // `--motion-clock MS`: the menu rows, the palette and the bars, that far into their motion.
+    if let Some(ms) = app
+        .args
+        .motion_clock
+        .filter(|_| app.args.theme_flip.is_none())
+    {
+        app.compose();
+        for step in crate::motion::shot_steps(ms) {
+            app.motion.advance_ms(step);
+            app.compose();
         }
     }
     // The caret in its visible phase, and no toast: a shot is the same on every run.
@@ -3915,19 +4448,84 @@ fn shot(mut app: App, path: &Path) -> i32 {
     if app.args.demo_recovered.is_none() {
         app.docs.clear_toast();
     }
+    shot_toasts(&mut app);
+    if let Some(dark) = app.args.theme_flip {
+        // Establish the old palette (and an already-open Settings dialog) before flipping.
+        app.compose();
+        app.motion.shot_fade();
+        if app.args.dark.is_none() {
+            app.on_window_event(WindowEvent::ThemeChanged(if dark {
+                WinTheme::Dark
+            } else {
+                WinTheme::Light
+            }));
+        } else {
+            app.set_theme(if dark {
+                ThemeChoice::Dark
+            } else {
+                ThemeChoice::Light
+            });
+        }
+        app.compose();
+        for step in crate::motion::shot_steps(app.args.motion_clock.unwrap_or(85)) {
+            app.motion.advance_ms(step);
+            app.compose();
+        }
+    }
     app.full = true;
     app.compose();
     // `--frame`: the window as the client-drawn margin puts it on screen.
     let framed = app
         .args
         .frame
-        .map(|c| frame_of(&app.screen, c, app.scale as f64, dark));
+        .map(|c| frame_of(&app.screen, c, app.scale as f64, app.dark()));
     match framed.as_ref().unwrap_or(&app.screen).write_png(path) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("mdedit: could not write {}: {e}", path.display());
             1
         }
+    }
+}
+
+/// `--toast`: confirmations as toasts, the earlier ones at rest and stacked, the last one coming
+/// in under them; with `--motion-ms` it is that far into its entrance, on a clock moved by hand,
+/// at rest without it. A toast pushed onto another waits for its lift before it enters, so a
+/// toast shot runs the animator on its own clock even at rest: what it draws is at rest, and
+/// still the same on every run.
+fn shot_toasts(app: &mut App) {
+    let Some((last, earlier)) = app.args.toasts.split_last() else {
+        return;
+    };
+    let (last, earlier) = (last.clone(), earlier.to_vec());
+    app.motion.shot_fade();
+    app.compose();
+    for text in &earlier {
+        app.docs.confirm_toast(text);
+        app.compose();
+        shot_settle(app);
+    }
+    app.docs.confirm_toast(&last);
+    app.compose();
+    match app.args.motion_ms {
+        Some(ms) => {
+            for step in crate::motion::shot_steps(ms) {
+                app.motion.advance_ms(step);
+                app.compose();
+            }
+        }
+        None => shot_settle(app),
+    }
+}
+
+/// Steps a shot's clock 16 ms at a time until nothing moves (a second's worth at most).
+fn shot_settle(app: &mut App) {
+    for _ in 0..63 {
+        if app.motion.due.is_none() {
+            break;
+        }
+        app.motion.advance_ms(16);
+        app.compose();
     }
 }
 
@@ -4074,7 +4672,9 @@ pub fn run() -> i32 {
     crate::live::apply(&session.prefs);
     docs.recents = session.recent.clone();
     docs.check_updates = session.check_updates;
-    if let Some(stage) = &args.update_bar {
+    if let Some(stage) = &args.update_bar
+        && !(args.shot.is_some() && args.motion_clock.is_some())
+    {
         docs.updates.preview(stage);
     }
     docs.zoom = args.zoom.unwrap_or(session.zoom);
@@ -4188,7 +4788,7 @@ pub fn run() -> i32 {
     app.ui.replace_recall = crate::recall::Recall::from_items(app.session.replace_history.clone());
     app.service = Some(service);
     app.view.zoom = app.docs.zoom;
-    app.sync_theme();
+    app.sync_theme(false);
     // Read at once, so their tabs show as modified without being visited.
     for k in restored {
         if matches!(app.docs.tabs[k].state, DocState::Pending) {

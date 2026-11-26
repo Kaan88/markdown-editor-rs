@@ -875,6 +875,13 @@ impl App {
         let Some(png) = crate::platform::clipboard_png() else {
             return false;
         };
+        self.notes_add_picture(png)
+    }
+
+    /// The picture `png` is kept in a file of its own under the temp folder and added to the
+    /// task, as a screenshot dropped on the window would be. The task reports the result
+    /// inline, and a successful paste also stacks as a one-shot confirmation.
+    pub(super) fn notes_add_picture(&mut self, png: Vec<u8>) -> bool {
         let dir = notes_task::pasted_dir();
         for old in notes_task::stale_pasted(&dir, std::time::SystemTime::now()) {
             let _ = std::fs::remove_file(old);
@@ -888,6 +895,8 @@ impl App {
             Ok(()) => {
                 self.task_add_paths(vec![path]);
                 self.task_say("The picture on the clipboard is added.");
+                self.docs
+                    .confirm_toast("The picture on the clipboard is added.");
             }
             Err(e) => self.task_say(&format!("The picture could not be kept: {e}")),
         }

@@ -216,7 +216,7 @@ pub fn pages(
     }
     appearance.push(Item::new(
         Row::toggle(ANIMATIONS, "Animations", prefs.animations)
-            .help("Menus fade in as they open. Off, or when the system asks for less motion, nothing moves."),
+            .help("Menus fade in and toasts rise in and out. Off, or when the system asks for less motion, nothing moves."),
     ));
     appearance.extend([
         Item::gap(),
@@ -492,12 +492,15 @@ pub fn rows_of(pages: &[Page]) -> Vec<Row> {
 
 impl App {
     pub(super) fn open_settings(&mut self) {
+        if self.ui.settings.is_some() {
+            return;
+        }
         // One modal at a time: the palette gives way.
         if self.palette_open() {
             self.close_palette();
         }
         self.ui.popup = None;
-        self.ui.tip = None;
+        self.ui.hide_tip();
         self.ui.hover = None;
         self.ui.find_focused = false;
         self.ui.dialog = None;
@@ -507,6 +510,7 @@ impl App {
         let mut form = Form::new("Settings", pages);
         // The page last shown this run; the keyboard starts in the list.
         form.show_page(self.ui.settings_page);
+        self.motion.settings_serial = self.motion.settings_serial.wrapping_add(1);
         self.ui.settings = Some(form);
         self.ai_settings_needs();
         self.modal_changed();
@@ -537,6 +541,7 @@ impl App {
             && let Some(c) = f.page_names().iter().position(|n| *n == name)
         {
             f.show_page(c);
+            self.modal_changed();
         }
     }
 
@@ -582,6 +587,8 @@ impl App {
     pub(super) fn close_settings(&mut self) {
         if let Some(f) = &self.ui.settings {
             self.ui.settings_page = f.page();
+            // A theme snapshot may contain the dialog. Closing must not leave its image behind.
+            self.drop_theme_fade();
         }
         self.ui.settings = None;
         self.ui.pressed = None;

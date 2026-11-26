@@ -118,12 +118,19 @@ impl App {
         }
     }
 
-    /// `popup` and its submenu listed again. A menu whose items are now more or fewer (the
-    /// items are listed for a file that is not Markdown only while it is previewed) is closed:
-    /// its rows were laid out for the old ones.
+    /// `popup` and its visible submenu listed again. A menu with a different row count is
+    /// closed: its rows were laid out for the old listing. A child opened later is listed
+    /// from current state by `with_popup_transition`.
     fn relisted(&self, mut popup: Popup) -> Option<Popup> {
-        if let Some(sub) = popup.sub.take() {
-            popup.sub = self.relisted(*sub).map(Box::new);
+        if popup.sub_kind() == Some(PopupKind::View) {
+            let items = overlays::view_menu(&self.docs, &self.ui, 0.0, 0.0, false).items;
+            if let Some(sub) = popup.sub_mut() {
+                if sub.items.len() == items.len() {
+                    sub.items = items;
+                } else {
+                    popup.key(&crate::keys::KeyName::Left);
+                }
+            }
         }
         let items = match popup.kind {
             PopupKind::View => overlays::view_menu(&self.docs, &self.ui, 0.0, 0.0, false).items,
@@ -131,11 +138,11 @@ impl App {
             PopupKind::Tab(i) => overlays::tab_menu(&self.docs, i, 0.0, 0.0).items,
             _ => return Some(popup),
         };
-        if items.len() != popup.menu.items.len() {
+        if items.len() != popup.root().items.len() {
             return None;
         }
         // Same items in the same rows: only the check marks differ.
-        popup.menu.items = items;
+        popup.root_mut().items = items;
         Some(popup)
     }
 
@@ -1300,7 +1307,7 @@ mod tests {
         // Whether the Preview button's menu offers to stop the preview in mdview.
         let preview = |a: &App| {
             let popup = a.ui.popup.as_ref().expect("the menu stays open");
-            let items = popup.menu.items.iter();
+            let items = popup.root().items.iter();
             let mut rows = items.filter(|it| it.id == Act::Cmd(C::PreviewInViewer));
             rows.next().map(|it| it.label.starts_with("&Stop"))
         };
@@ -1313,11 +1320,11 @@ mod tests {
             .link(id, path.into(), Some(1), None, Instant::now());
         a.open_popup(PopupKind::Preview);
         assert_eq!(preview(&a), Some(true));
-        let rows = a.ui.popup.as_ref().unwrap().menu.items.len();
+        let rows = a.ui.popup.as_ref().unwrap().root().items.len();
         a.handed_over(closed(&md));
         assert!(!a.docs.links.contains(id));
         assert_eq!(preview(&a), Some(false));
-        assert_eq!(a.ui.popup.as_ref().unwrap().menu.items.len(), rows);
+        assert_eq!(a.ui.popup.as_ref().unwrap().root().items.len(), rows);
         // A file that is not Markdown lists the preview only while it runs: its rows would be
         // fewer, so the menu is closed rather than left with rows for items that are gone.
         a.ui.popup = None;
@@ -1329,8 +1336,8 @@ mod tests {
             .link(jd, path.into(), Some(1), None, Instant::now());
         a.open_popup(PopupKind::Preview);
         assert_eq!(preview(&a), Some(true));
-        let last = a.ui.popup.as_ref().unwrap().menu.items.len() - 1;
-        a.ui.popup.as_mut().unwrap().menu.hover = Some(last);
+        let last = a.ui.popup.as_ref().unwrap().root().items.len() - 1;
+        a.ui.popup.as_mut().unwrap().root_mut().hover = Some(last);
         a.handed_over(closed(&txt));
         assert!(!a.docs.links.contains(jd));
         assert!(a.ui.popup.is_none(), "closed, not left with stale rows");
@@ -1387,7 +1394,7 @@ mod tests {
         a.open_popup(PopupKind::Preview);
         let checked = |a: &App| {
             let popup = a.ui.popup.as_ref().expect("the menu stays open");
-            let items = popup.menu.items.iter();
+            let items = popup.root().items.iter();
             items
                 .filter(|it| it.id == Act::Cmd(C::PreviewInViewer))
                 .any(|it| it.label.starts_with("&Stop"))
@@ -1406,7 +1413,7 @@ mod tests {
         let tab_checked = |a: &App| {
             let popup = a.ui.popup.as_ref().expect("the tab menu stays open");
             assert_eq!(popup.kind, PopupKind::Tab(i));
-            let items = popup.menu.items.iter();
+            let items = popup.root().items.iter();
             items
                 .filter(|it| it.id == Act::TabCmd(C::PreviewInViewer, i))
                 .any(|it| it.label.starts_with("Sto&p"))

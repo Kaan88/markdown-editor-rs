@@ -4,7 +4,7 @@
 use super::*;
 use crate::docs::EditOp;
 use crate::keys::{self, KeyName};
-use crate::ui::{BarField, BarItem, Popup, SelectUnit, Tip};
+use crate::ui::{BarField, BarItem, Popup, SelectUnit};
 use crate::view::offset_for_hthumb;
 use mdedit_core::selection::{self, Motion, Unit};
 use mdshared_ui::gfx::Face;
@@ -33,12 +33,9 @@ impl App {
         // when the pointer crosses its edge, though the menu's row stays the same.
         let ai_menu = self.ui.popup.as_ref().and_then(|p| {
             if p.kind == PopupKind::Ai {
-                Some(&p.menu)
+                Some(p.root())
             } else {
-                p.sub
-                    .as_ref()
-                    .filter(|s| s.kind == PopupKind::Ai)
-                    .map(|s| &s.menu)
+                p.sub().filter(|_| p.sub_kind() == Some(PopupKind::Ai))
             }
         });
         if let Some(menu) = ai_menu
@@ -89,9 +86,9 @@ impl App {
         };
         if hit != self.ui.hover {
             self.ui.hover = hit;
-            self.update_tip(hit);
             self.redraw();
         }
+        self.update_tip(hit, (x, y), Instant::now());
         if let Some(d) = self.ui.dialog.as_ref() {
             let row = match &self.ui.results.replace.confirm {
                 Some(cf) if crate::replace_ui::is_confirm(d.kind) => {
@@ -134,31 +131,29 @@ impl App {
         self.set_cursor(cursor);
     }
 
-    pub(super) fn update_tip(&mut self, hit: Option<Hit>) {
-        if self.ui.tip_blocked.is_some() && self.ui.tip_blocked != hit {
-            self.ui.tip_blocked = None;
+    /// Points the tooltip at what is under the pointer, which is at `(x, y)` now: a control's
+    /// tip counts its delay from the pointer coming to rest there (`Tooltip::hover_at`), so it
+    /// is asked on every move, not only when the control changes; moving to a neighbour while a
+    /// tip shows shows the neighbour's at once. A move that changes neither the control nor the
+    /// pointer's place is no work at all: no text is asked for and nothing is cloned.
+    pub(super) fn update_tip(&mut self, hit: Option<Hit>, at: (f32, f32), now: Instant) {
+        let point = (hit, at);
+        if self.ui.tip_point == Some(point) {
+            return;
         }
-        let text = hit
-            .filter(|h| Some(*h) != self.ui.tip_blocked)
-            .and_then(|h| {
-                chrome::tooltip(h, &self.docs, self.maximized)
-                    .or_else(|| self.ui.results.replace.tip(h))
-            });
-        self.ui.tip = match (hit, text) {
-            (Some(h), Some(text)) => {
-                // Moving between neighbouring buttons while a tip shows keeps tips immediate.
-                let shown = self.ui.tip.as_ref().is_some_and(|t| t.shown);
-                let anchor = self.hit_rect(h).unwrap_or_default();
-                Some(Tip {
-                    hit: h,
-                    text,
-                    anchor,
-                    due: Instant::now() + if shown { Duration::ZERO } else { TIP_DELAY },
-                    shown: false,
-                })
-            }
-            _ => None,
-        };
+        self.ui.tip_point = Some(point);
+        let over = hit.and_then(|h| {
+            let text = chrome::tooltip(h, &self.docs, self.maximized)
+                .or_else(|| self.ui.results.replace.tip(h))?;
+            Some(mdshared_ui::tooltip::Over {
+                key: h,
+                text,
+                anchor: self.hit_rect(h).unwrap_or_default(),
+            })
+        });
+        if self.ui.tip.hover_at(now, over, at) {
+            self.redraw();
+        }
     }
 
     /// The buffer offset under `(x, y)`, clamped into the text area first.
@@ -676,8 +671,10 @@ impl App {
     pub(super) fn left_press(&mut self) {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
-        self.ui.tip = None;
-        self.ui.tip_blocked = self.ui.hover;
+        // A press hides the tip, and the control under the pointer shows none until the
+        // pointer has left it (`Tooltip::press`).
+        let pressed = self.ui.hover;
+        self.ui.tip.press(pressed);
         if let Some(dir) = self.edge_at(x, y) {
             if let Some(w) = &self.window {
                 let _ = w.drag_resize_window(dir);
@@ -720,6 +717,10 @@ impl App {
         }
         // Not under a dialog: its buttons come first (About's OK lay on the page and did nothing).
         // The page's scrollbar lies on the page too, and is not a press on it.
+        if self.ui.dialog.is_none() && self.ui.pane_focus.focused().is_some() {
+            self.ui.pane_focus.blur();
+            self.redraw();
+        }
         if self.on_page(x, y) && self.hit_at(x, y) == Some(Hit::ScrollBar(Scroller::Page)) {
             self.scrollbar_press(Scroller::Page, x, y);
             self.redraw();
@@ -984,19 +985,25 @@ impl App {
             return;
         }
         if let Some(p) = self.ui.popup.as_mut()
-            && let Some(menu) = p.menu_at(x, y)
+            && p.contains(x, y)
         {
             // A saved AI prompt's Modify button (at the row's right) puts it in the instruction
             // panel to be changed; the rest of the row runs it.
-            let on_edit = menu
-                .hover
-                .is_some_and(|i| crate::ai_ui::menu_modify_rect(menu.row_rect(i)).contains(x, y));
-            let act = menu.chosen().map(|a| match a {
-                Act::AiPrompt(k) if on_edit => Act::AiEditPrompt(k),
-                a => a,
+            let on_edit = p.menu_at(x, y).is_some_and(|menu| {
+                menu.hover.is_some_and(|i| {
+                    crate::ai_ui::menu_modify_rect(menu.row_rect(i)).contains(x, y)
+                })
             });
-            if let Some(act) = act {
-                self.choose(act, false);
+            if let Some(mdshared_ui::submenu::Outcome::Chosen(act)) =
+                self.with_popup_transition(|p| p.click(x, y))
+            {
+                self.choose(
+                    match act {
+                        Act::AiPrompt(k) if on_edit => Act::AiEditPrompt(k),
+                        a => a,
+                    },
+                    false,
+                );
             }
             self.redraw();
             return;
@@ -1012,7 +1019,7 @@ impl App {
     pub(super) fn right_press(&mut self) {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
-        self.ui.tip = None;
+        self.ui.hide_tip();
         if self.plan_is_open() {
             self.plan_right_press();
             return;
@@ -1083,10 +1090,9 @@ impl App {
                     }
                 }
                 self.ui.find_focused = false;
-                self.ui.popup = Some(Popup::with_cues(
+                self.ui.popup = Some(self.make_popup(
                     PopupKind::Text,
                     overlays::text_menu(&self.docs, x + 2.0, y + 2.0),
-                    cues,
                 ));
             }
             Some(h @ (Hit::Find | Hit::FindClear | Hit::Replace)) => {
@@ -1130,12 +1136,15 @@ impl App {
             return;
         }
         if let Some(Hit::Tab(i) | Hit::TabClose(i)) = self.hit_at(x, y) {
+            self.hide_tip();
             self.close_tab(i);
             self.redraw();
         }
     }
 
     pub(super) fn wheel(&mut self, delta: MouseScrollDelta) {
+        // A scroll takes the tip away, wherever it happens (as a key does).
+        self.hide_tip();
         let (x, y) = self.ui.mouse;
         // Notches (positive = scroll up / left).
         let (nx, ny, pixels) = match delta {
@@ -1180,18 +1189,12 @@ impl App {
             // While a menu is open the wheel belongs to the menus: over one that is taller than
             // its room it scrolls that menu; over one that is not, or outside all of them, it
             // does nothing (a click outside closes the menus, the wheel does not).
-            let scale = self.scale;
-            if let Some(m) = p.menu_at(x, y)
-                && m.scrolls()
-            {
-                let dy = match pixels {
-                    Some((_, py)) => -(py as f32) / scale,
-                    None => -(ny as f32) * PANE_WHEEL,
-                };
-                if m.scroll_by(dy) {
-                    p.pointer(x, y, Instant::now());
-                    self.redraw();
-                }
+            let dy = match pixels {
+                Some((_, py)) => -(py as f32) / self.scale,
+                None => -(ny as f32) * PANE_WHEEL,
+            };
+            if p.wheel(x, y, dy) {
+                self.redraw();
             }
             return;
         }
@@ -1430,7 +1433,7 @@ impl App {
 
     pub(super) fn key_pressed(&mut self, key: keys::Key, typed: Option<&str>) {
         let mods = self.mods;
-        self.ui.tip = None;
+        self.ui.hide_tip();
         self.ui.keyboard = true;
         self.redraw();
         let name = match &key {
@@ -1476,54 +1479,31 @@ impl App {
             return;
         }
         // A menu takes the keyboard; an open submenu has it first.
-        if let Some(p) = self.ui.popup.as_mut() {
-            let kind = p.kind;
-            let open = p.sub.is_some();
-            match name {
-                Some(KeyName::Up) => match p.sub.as_mut() {
-                    Some(s) => s.menu.step(false),
-                    None => p.menu.step(false),
-                },
-                Some(KeyName::Down | KeyName::Tab) => match p.sub.as_mut() {
-                    Some(s) => s.menu.step(true),
-                    None => p.menu.step(true),
-                },
-                Some(KeyName::Enter | KeyName::Space) => {
-                    let act = match p.sub.as_ref().filter(|s| s.menu.hover.is_some()) {
-                        Some(s) => s.menu.chosen(),
-                        None => p.menu.chosen(),
-                    };
-                    if let Some(act) = act {
-                        self.choose(act, true);
-                    }
-                }
-                Some(KeyName::Right) if !open => {
-                    if let Some(sub) = p.menu.chosen().and_then(|a| a.submenu()) {
-                        self.open_sub(kind, sub, true);
-                    }
-                }
-                Some(KeyName::Left) if open => {
-                    p.sub = None;
-                    p.dwell = None;
-                }
-                Some(KeyName::Escape) if open => p.sub = None,
-                Some(KeyName::Escape) => {
+        if self.ui.popup.is_some() {
+            use mdshared_ui::submenu::Outcome;
+            let key = match name {
+                Some(
+                    KeyName::Up
+                    | KeyName::Down
+                    | KeyName::Tab
+                    | KeyName::Enter
+                    | KeyName::Space
+                    | KeyName::Right
+                    | KeyName::Left
+                    | KeyName::Escape,
+                ) => name,
+                _ => access_char(&name, typed, mods).map(KeyName::Char),
+            };
+            match key
+                .as_ref()
+                .and_then(|k| self.with_popup_transition(|p| p.key(k)))
+            {
+                Some(Outcome::Chosen(act)) => self.choose(act, true),
+                Some(Outcome::Close) => {
                     self.ui.popup = None;
                     self.ui.library.menu_row = None;
                 }
-                // A letter picks the item marked with it, as Enter would. Nothing else a typed
-                // character did in an open menu is lost: it did nothing.
-                _ => {
-                    if let Some(ch) = access_char(&name, typed, mods) {
-                        let act = match p.sub.as_mut() {
-                            Some(s) => s.menu.access_key(ch),
-                            None => p.menu.access_key(ch),
-                        };
-                        if let Some(act) = act {
-                            self.choose(act, true);
-                        }
-                    }
-                }
+                _ => {}
             }
             // The keyboard is in use: the underlines show from now on (the Windows convention).
             if let Some(p) = self.ui.popup.as_mut() {
@@ -1599,7 +1579,12 @@ impl App {
         {
             return;
         }
-        // The notes pane, while it has the keyboard; its keys never reach the text.
+        // The left pane, while it has the keyboard; its keys never reach the text.
+        if let Some(n) = &name
+            && self.pane_key(n, mods)
+        {
+            return;
+        }
         if self.ui.library.focused
             && !self.ui.find_focused
             && !self.ui.results.focused
@@ -1619,6 +1604,22 @@ impl App {
             return;
         }
         if let Some(id) = keys::command_for(&key, mods) {
+            let face = match id {
+                C::ToggleFiles => Some(crate::ui::PaneFace::Files),
+                C::ToggleOutline => Some(crate::ui::PaneFace::Functions),
+                _ => None,
+            };
+            if let Some(face) = face {
+                if !self.ui.pane_focus.is_focused(face) {
+                    if !self.ui.panes.files || self.ui.pane_face() != face {
+                        self.show_pane_face(face);
+                    }
+                    self.focus_pane(face);
+                } else {
+                    self.command(id);
+                }
+                return;
+            }
             // Its shortcut, with the notes pane showing and the keyboard elsewhere, takes the
             // keyboard there; pressed again it closes the pane as the command does.
             if id == C::ToggleLibraryPane && self.library_focus() {
@@ -1882,7 +1883,7 @@ impl App {
                 let name = self.ui.goto.text().to_string();
                 if self.macros.save_as(&name) {
                     let kept = crate::macros::clean_name(&name).unwrap_or_default();
-                    self.docs.set_toast(&strings::macro_saved(&kept));
+                    self.docs.confirm_toast(&strings::macro_saved(&kept));
                     self.ui.goto.clear();
                     self.ui.naming = false;
                     self.ui.field = BarField::Find;

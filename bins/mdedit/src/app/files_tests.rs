@@ -904,8 +904,8 @@ fn placed_menu(a: &mut App, kind: PopupKind, h: f32) -> Rect {
     let mut gfx = Gfx::new();
     let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
     let popup = a.ui.popup.as_mut().expect("the menu opened");
-    popup.menu.place(&mut p, 1280.0, h);
-    popup.menu.rect()
+    popup.root_mut().place(&mut p, 1280.0, h);
+    popup.root().rect()
 }
 
 /// The owner: a long saved prompt's name ran under its Modify button in the AI menu. The menu
@@ -949,7 +949,7 @@ fn the_wheel_while_a_menu_is_open_belongs_to_the_menus() {
 
     // A menu that fits: over it, and beside it, the wheel does nothing at all.
     let r = placed_menu(&mut a, PopupKind::View, 800.0);
-    assert!(!a.ui.popup.as_mut().unwrap().menu.scrolls());
+    assert!(!a.ui.popup.as_ref().unwrap().root().scrolls());
     a.ui.mouse = (r.x + r.w / 2.0, r.y + r.h / 2.0);
     a.wheel(notch);
     assert!(a.ui.popup.is_some(), "over a menu that does not scroll");
@@ -976,16 +976,16 @@ fn the_wheel_while_a_menu_is_open_belongs_to_the_menus() {
     // A menu taller than its room scrolls under the wheel, and only that.
     a.ui.popup = None;
     let r = placed_menu(&mut a, PopupKind::Main, 200.0);
-    assert!(a.ui.popup.as_mut().unwrap().menu.scrolls());
+    assert!(a.ui.popup.as_ref().unwrap().root().scrolls());
     a.ui.mouse = (r.x + r.w / 2.0, r.y + r.h / 2.0);
     a.wheel(notch);
-    assert!(a.ui.popup.as_mut().unwrap().menu.scroll() > 0.0);
+    assert!(a.ui.popup.as_ref().unwrap().root().scroll() > 0.0);
     assert_eq!(top(&a), scrolled);
     a.ui.mouse = (5.0, 300.0);
-    let before = a.ui.popup.as_mut().unwrap().menu.scroll();
+    let before = a.ui.popup.as_ref().unwrap().root().scroll();
     a.wheel(notch);
     assert!(a.ui.popup.is_some());
-    assert_eq!(a.ui.popup.as_mut().unwrap().menu.scroll(), before);
+    assert_eq!(a.ui.popup.as_ref().unwrap().root().scroll(), before);
     assert_eq!(top(&a), scrolled);
     let _ = std::fs::remove_dir_all(&dir);
 }

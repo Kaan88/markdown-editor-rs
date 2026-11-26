@@ -47,7 +47,7 @@ fn the_arrow_opens_each_mode_once_and_chooses_the_buttons_own_as_a_radio() {
     assert!(a.hit_rect(Hit::Bar(BarItem::Preview)).is_some());
     a.activate(Hit::Bar(BarItem::PreviewMenu));
     assert_eq!(a.ui.popup_kind(), Some(PopupKind::Preview));
-    let menu = &a.ui.popup.as_ref().unwrap().menu;
+    let menu = a.ui.popup.as_ref().unwrap().root();
     // The three modes, as actions: no tick on any.
     assert_eq!(
         commands_in(menu),
@@ -359,13 +359,13 @@ fn the_bar_has_new_save_and_ai_edit_with_the_menus_availability() {
     a.activate(Hit::Bar(BarItem::AiEdit));
     assert_eq!(a.ui.popup_kind(), Some(PopupKind::Ai));
     a.compose();
-    let menu = a.ui.popup.as_ref().unwrap().menu.rect();
+    let menu = a.ui.popup.as_ref().unwrap().root().rect();
     assert!(
         (menu.x - ai.x).abs() < 1.0 && menu.y >= ai.bottom(),
         "{menu:?} {ai:?} {:?}",
         a.size
     );
-    assert!(commands_in(&a.ui.popup.as_ref().unwrap().menu).contains(&C::AiRewrite));
+    assert!(commands_in(a.ui.popup.as_ref().unwrap().root()).contains(&C::AiRewrite));
     a.ui.popup = None;
     // New makes an untitled tab, as Ctrl+N.
     a.activate(Hit::Bar(BarItem::New));
@@ -565,6 +565,74 @@ fn a_file_that_is_not_markdown_is_offered_only_the_pane_it_can_close() {
     a.docs.links.unlink(id);
     a.docs.pane_open = false;
     assert_eq!(preview_button(&a.docs), None);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn reopening_view_after_the_preview_ends_uses_current_items() {
+    let (mut a, dir) = md_doc("relist-view", "# T\n");
+    let doc = a.docs.active_doc().unwrap();
+    let id = doc.id;
+    let path = doc.path.clone().unwrap();
+    a.docs
+        .links
+        .link(id, path.into(), Some(1), None, Instant::now());
+    let preview_label = |a: &App| {
+        overlays::preview_menu(&a.docs, 0.0, 0.0, false)
+            .items
+            .into_iter()
+            .find(|item| item.id == Act::Cmd(C::PreviewInViewer))
+            .unwrap()
+            .label
+    };
+    let wrap_checked = |a: &App| {
+        a.ui.popup
+            .as_ref()
+            .unwrap()
+            .sub()
+            .unwrap()
+            .items
+            .iter()
+            .find(|item| item.id == Act::Cmd(C::ToggleWrap))
+            .unwrap()
+            .checked
+    };
+    let rest_on = |a: &mut App, kind| {
+        a.compose();
+        let root = a.ui.popup.as_ref().unwrap().root();
+        let i = root
+            .items
+            .iter()
+            .position(|item| item.id.submenu() == Some(kind))
+            .unwrap();
+        let row = root.row_rect(i);
+        a.pointer_moved(row.cx(), row.cy());
+        let due = a.ui.popup.as_ref().unwrap().deadline().unwrap();
+        a.timers(due);
+        assert_eq!(a.ui.popup.as_ref().unwrap().sub_kind(), Some(kind));
+    };
+    assert!(preview_label(&a).contains("Stop the preview"));
+    a.open_popup(PopupKind::Main);
+    rest_on(&mut a, PopupKind::View);
+    let before = wrap_checked(&a);
+    // View no longer contains preview commands. Change a real View checkmark at the
+    // same time so the relist and reopening both have an observable state to update.
+    a.docs.wrap = !before;
+    a.docs.links.unlink(id);
+    a.follow_links();
+    assert!(preview_label(&a).contains("Preview in"));
+    assert_eq!(
+        wrap_checked(&a),
+        !before,
+        "the currently open child was relisted"
+    );
+    rest_on(&mut a, PopupKind::Recent);
+    rest_on(&mut a, PopupKind::View);
+    assert_eq!(
+        wrap_checked(&a),
+        !before,
+        "the reopened child must not use the old snapshot"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 

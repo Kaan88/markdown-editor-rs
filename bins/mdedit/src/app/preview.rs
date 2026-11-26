@@ -979,7 +979,7 @@ mod tests {
         a.right_press();
         let items: Vec<(Act, bool)> = {
             let p = a.ui.popup.as_ref().expect("the page's menu");
-            p.menu
+            p.root()
                 .items
                 .iter()
                 .map(|i| (i.id.clone(), i.enabled))
@@ -1011,7 +1011,7 @@ mod tests {
         // With nothing selected on the page, its menu's Copy is off.
         a.pointer_moved(r.x + 40.0, r.y + 40.0);
         a.right_press();
-        let copy_on = a.ui.popup.as_ref().unwrap().menu.items[0].enabled;
+        let copy_on = a.ui.popup.as_ref().unwrap().root().items[0].enabled;
         assert!(!copy_on);
         a.ui.popup = None;
 
@@ -1121,7 +1121,7 @@ mod tests {
         assert!(
             a.ui.popup
                 .as_ref()
-                .is_some_and(|p| p.kind == crate::ui::PopupKind::Text && p.menu.items.len() > 2),
+                .is_some_and(|p| p.kind == crate::ui::PopupKind::Text && p.root().items.len() > 2),
             "the text's menu in the box"
         );
         a.ui.popup = None;
@@ -1423,6 +1423,62 @@ Last.
             p.frame.height as f32 / s,
             p.top / s,
         )
+    }
+
+    #[cfg(feature = "embedded-preview")]
+    #[test]
+    fn the_plain_preview_scrollbar_pages_and_drags_without_selecting_text() {
+        let dir = scratch("plain-preview-scrollbar");
+        let md = dir.join("a.md");
+        std::fs::write(&md, long_with_a_list()).unwrap();
+        let mut a = app();
+        open_now(&mut a, &md);
+        a.viewer_path = Some(None);
+        a.toggle_preview_pane();
+        pump(&mut a, |a| a.preview_ready());
+        a.compose();
+        assert!(!a.visual_on() && a.areas.text.w > 0.0);
+        let (track, thumb) = page_bar(&a).expect("overflowing page");
+        let bar = Hit::ScrollBar(Scroller::Page);
+        assert_eq!(
+            a.hit_rect(bar),
+            Some(track),
+            "the plain preview has a live track"
+        );
+        assert_eq!(thumb.y, track.y);
+        a.pointer_moved(track.cx(), track.bottom() - 6.0);
+        a.left_press();
+        a.left_release();
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top > 0.0);
+        settle(&mut a);
+        let top = a.preview.as_ref().unwrap().top;
+        assert!(top > 0.0, "the track scrolls the rendered page");
+        let source_before_drag = view::source_top(a.docs.active_ready_mut().unwrap());
+        assert!(
+            source_before_drag > 0.0,
+            "the editor follows the track click"
+        );
+        let (_, thumb) = page_bar(&a).unwrap();
+        a.pointer_moved(thumb.cx(), thumb.cy());
+        a.left_press();
+        assert!(matches!(
+            a.ui.drag,
+            Some(Drag::Thumb {
+                target: Scroller::Page,
+                ..
+            })
+        ));
+        a.pointer_moved(thumb.cx(), track.y + thumb.h * 0.5);
+        a.left_release();
+        pump(&mut a, |a| a.preview.as_ref().unwrap().top < top);
+        settle(&mut a);
+        let p = a.preview.as_ref().unwrap();
+        assert!(p.top < top && p.selection.is_empty() && !p.focused);
+        assert!(
+            view::source_top(a.docs.active_ready_mut().unwrap()) < source_before_drag,
+            "the editor follows the thumb drag back up"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Pump until the pane has answered everything and the page stands still.

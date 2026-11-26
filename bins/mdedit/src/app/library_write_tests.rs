@@ -705,6 +705,63 @@ fn a_note_moved_to_a_groups_own_row_goes_before_its_first_section() {
     let _ = std::fs::remove_dir_all(&l2.dir);
 }
 
+/// Which one-shot confirmations of the library stack, and which message replaces (D-257): a
+/// moved note and a deleted group come in under the toasts showing; a refusal takes their place.
+#[test]
+fn a_moved_note_and_a_deleted_group_stack_and_a_refusal_replaces() {
+    let (mut a, l) = lib("libw-toast-kinds");
+    assert!(
+        a.library_move(&l.file, 5, "Taxes 2026", &l.taxes, &l.file, &[]),
+        "{}",
+        toast(&a)
+    );
+    let line = a.docs.toast_line().expect("a toast for the move");
+    assert!(line.stack, "a note moved stacks: {}", line.text);
+    assert!(line.text.contains("Personal"), "{}", line.text);
+
+    // A group file of its own, deleted from the pane.
+    let work = l.dir.join("library").join("work.md");
+    std::fs::write(&work, "# Work\n\nhome: Work\n").unwrap();
+    a.library_rows();
+    assert!(a.library_delete_file(&work), "{}", toast(&a));
+    let line = a.docs.toast_line().expect("a toast for the deletion");
+    assert!(line.stack, "a group deleted stacks: {}", line.text);
+    assert!(line.text.contains("Work"), "{}", line.text);
+
+    // A file the library folder does not hold: refused, and the refusal replaces.
+    let outside = l.dir.join("elsewhere.md");
+    std::fs::write(&outside, "# Elsewhere\n").unwrap();
+    assert!(!a.library_delete_file(&outside));
+    let line = a.docs.toast_line().expect("a toast for the refusal");
+    assert!(!line.stack, "a refusal replaces: {}", line.text);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
+/// The note moved into another file confirms as a toast of its own too (D-257).
+#[test]
+fn a_note_moved_into_another_file_stacks_its_toast() {
+    let (mut a, l) = lib("libw-toast-move-file");
+    let work = l.dir.join("library").join("work.md");
+    std::fs::write(&work, "# Work\n\n## Projects\n").unwrap();
+    a.library_rows();
+    assert!(
+        a.library_move(
+            &l.file,
+            5,
+            "Taxes 2026",
+            &l.taxes,
+            &work,
+            &["Projects".to_string()],
+        ),
+        "{}",
+        toast(&a)
+    );
+    let line = a.docs.toast_line().expect("a toast for the move");
+    assert!(line.stack, "a note moved stacks: {}", line.text);
+    assert!(line.text.contains("Work"), "{}", line.text);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
 #[test]
 fn when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so() {
     let (mut a, l) = lib("libw-move-half");
@@ -976,7 +1033,7 @@ fn a_right_click_on_a_row_moves_the_pane_to_it_and_opens_its_menu() {
             Some(l.file.as_path()),
             "the pane's row is the one under the pointer"
         );
-        let menu = &a.ui.popup.as_ref().unwrap().menu;
+        let menu = a.ui.popup.as_ref().unwrap().root();
         assert_eq!(
             menu.items
                 .iter()

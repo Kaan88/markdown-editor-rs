@@ -386,7 +386,7 @@ impl App {
 
     fn library_copy_path(&mut self, path: &Path) {
         if platform::set_clipboard_text(&path.display().to_string()) {
-            self.docs.set_toast("Path copied");
+            self.docs.confirm_toast("Path copied");
         }
     }
 
@@ -983,7 +983,7 @@ impl App {
             return false;
         }
         self.library_changed();
-        self.docs.set_toast(&strings::library_deleted(&group));
+        self.docs.confirm_toast(&strings::library_deleted(&group));
         true
     }
 
@@ -1031,7 +1031,8 @@ impl App {
             );
             if done {
                 let group = self.library_group_name(to);
-                self.docs.set_toast(&strings::library_moved(title, &group));
+                self.docs
+                    .confirm_toast(&strings::library_moved(title, &group));
             }
             return done;
         }
@@ -1081,7 +1082,8 @@ impl App {
         let here = self.library_group_name(from);
         match removed {
             Wrote::Done => {
-                self.docs.set_toast(&strings::library_moved(title, &there));
+                self.docs
+                    .confirm_toast(&strings::library_moved(title, &there));
                 true
             }
             Wrote::Nothing => {

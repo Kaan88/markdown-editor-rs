@@ -97,7 +97,13 @@ fn a_menu_over_the_chrome_is_opaque_and_its_shadow_is_not() {
     app.compose();
     app.open_popup(PopupKind::Recent);
     app.compose();
-    let menu = app.ui.popup.as_ref().expect("the menu is open").menu.rect();
+    let menu = app
+        .ui
+        .popup
+        .as_ref()
+        .expect("the menu is open")
+        .root()
+        .rect();
     let scale = app.scale;
     let (stray, opaque_chrome, other) = census(&app);
     assert_eq!((stray, other), (0, 0));

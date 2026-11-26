@@ -14,28 +14,87 @@
 //! menu fades, the frames that only move it put back the pixels that were under the menus
 //! ([`Motion::backing`]) and draw the menus again over them: only the menus' bounds are drawn
 //! and presented.
+//!
+//! A toast rises and fades in, and fades and sinks out as it leaves of itself ([`TOAST`]),
+//! through the shared `anim::Stack`: a status takes the place of the toasts showing, in place
+//! (`Docs::set_toast`); a one-shot confirmation comes in under them, once they have lifted
+//! (`Docs::confirm_toast`).
 
 use crate::ui::{Popup, PopupKind};
-use mdshared_ui::anim::{Animator, Clock, ManualClock, Policy, Snapshot, document, fluent, pop};
+use mdedit_highlight::DocId;
+use mdshared_ui::anim::stack::Stack;
+use mdshared_ui::anim::{Animator, Clock, Id, ManualClock, Policy, Snapshot, document, pop};
 use mdshared_ui::gfx::{Painter, Rect};
 use mdshared_ui::menu::MENU_DROP;
+use mdshared_ui::overlay::TOAST_H;
 use mdshared_ui::theme::Palette;
 use std::time::{Duration, Instant};
 
-/// How long a menu takes to enter. The shared preset's 167 ms made quicker at the owner's word,
-/// on mdview's fade (2026-11-25): "slightly faster", and at 117 ms "this is better".
-pub const MENU_IN: Duration = Duration::from_millis(117);
-
-/// How a menu enters and leaves: the one place its timing is chosen. The entrance is the shared
-/// preset's decelerating curve over [`MENU_IN`]; the exit is the preset's and unused (closing is
-/// instant).
-pub const MENU: document::Pair = document::Pair {
-    enter: mdshared_ui::anim::Motion::tween(MENU_IN, fluent::DECELERATE),
-    exit: document::MENU.exit,
-};
+/// How a menu enters and leaves: the one place its timing is chosen. The shared preset as it
+/// is: in over 117 ms, decelerating (`document::MENU_ENTER`, the owner's choice over 167 ms on
+/// 2026-11-25, which shared took up at `f45a71c`); the exit is the preset's and unused (closing
+/// is instant).
+pub const MENU: document::Pair = document::MENU;
 
 /// The damage group of the open menus: what is asked for while they are drawn.
 pub const MENUS: &str = "menus";
+
+/// The damage group of a menu's hover rows: a row's fill fades in and out with the pointer
+/// (`Menu::draw_in_animated`, shared's `HOVER`), inside the popup's own bounds.
+pub const ROWS: &str = "menu-rows";
+
+/// The earliest outstanding paint for a skipped region or overlay. The animator advances tracks when
+/// kept, but offers a fresh deadline relative to each frame: preserve the paint already
+/// promised so successive early frames cannot keep postponing it.
+#[derive(Default)]
+pub struct PaintDeadline(Option<Instant>);
+
+impl PaintDeadline {
+    pub fn due(&self, now: Instant) -> bool {
+        self.0.is_some_and(|at| now >= at)
+    }
+
+    pub fn update(&mut self, anim: &Animator, group: &str, kept: bool) -> Option<Instant> {
+        let next = anim
+            .group_deadlines()
+            .iter()
+            .find(|(id, _)| *id == Id::new(group))
+            .map(|(_, when)| *when);
+        self.0 = match (kept, self.0, next) {
+            (true, Some(old), Some(new)) => Some(old.min(new)),
+            (true, Some(old), None) => Some(old),
+            _ => next,
+        };
+        self.0
+    }
+}
+
+/// The height both the notice drawing and the editor layout give a sliding bar.
+pub fn banner_height(t: f32) -> f32 {
+    mdshared_ui::notice::bar_height(Rect::new(0.0, 0.0, 0.0, crate::view::BANNER_H), t)
+}
+
+/// How a tooltip enters: the shared preset, a plain short fade, where the eye already is. It
+/// goes at once (there is nothing to watch leave), and the wait before it is
+/// `document::TIP_DELAY` from the pointer coming to rest (`Tooltip::hover_at`).
+pub const TIP: document::Pair = document::TIP;
+
+/// The damage group of the tooltip.
+pub const TIP_GROUP: &str = "tip";
+
+/// The damage group of the left pane (the Files tree's chevrons).
+pub const SIDEBAR: &str = "sidebar";
+
+/// The damage group of the title row (a tab's, a caption button's or the new-tab button's
+/// hover, and a drop-down it opens).
+pub const TITLE: &str = "title";
+
+/// How a tree row's disclosure turns: shared's own for it, 167 ms both ways, made of
+/// [`fluent::MOVE`] and ended as the row's body opens.
+pub const DISCLOSURE: mdshared_ui::anim::Motion = mdshared_ui::glyph::DISCLOSURE_MOTION;
+
+/// The damage group of the Settings form.
+pub const SETTINGS: &str = "settings";
 
 /// The presence of an open menu: the popup's serial and how far it has entered (1 at rest).
 pub type Shown = (u64, f32);
@@ -69,6 +128,23 @@ pub enum MenuFrame {
 
 pub struct Motion {
     pub anim: Animator,
+    pub sidebar_due: PaintDeadline,
+    pub title_due: PaintDeadline,
+    pub rows_due: PaintDeadline,
+    pub settings_due: PaintDeadline,
+    /// A name per Settings opening, so closing and reopening before a paint still starts fresh.
+    pub settings_serial: u64,
+    /// The previous visible frame while a light/dark flip is in flight.
+    pub theme_fade: Option<Snapshot>,
+    pub theme_serial: u64,
+    /// The command palette's presence as the last frame drew it (1 when it is not open).
+    pub palette_t: f32,
+    /// Presences of the update, crash, stale-tab and rename bars, in layout order.
+    pub banner_t: [f32; 4],
+    /// A layout-only pass is not a paint. Notices already present on the first paint snap.
+    pub banners_composed: bool,
+    /// The rename offer we have already shown. Changing tabs does not create a new offer.
+    rename_seen: Option<DocId>,
     /// When the animator next needs a frame; cleared by the timer that wakes for it.
     pub due: Option<Instant>,
     /// A shot or a test: nothing moves.
@@ -90,6 +166,18 @@ pub struct Motion {
     pub drawn: Option<Menus>,
     /// A clock moved by hand: a test's, or a shot's half way fade. Real time without one.
     pub clock: Option<ManualClock>,
+    /// The toasts on screen and leaving ([`toasts`]).
+    pub toasts: Stack<String>,
+    /// The serial of the status message the toasts last took in (`Docs::toast_line`).
+    toast_seen: Option<u64>,
+    /// The toast last pushed onto a stack that already held something: with the wait for the
+    /// lift, it is the only one that can still be at nothing when a status takes its place.
+    toast_waiting: Option<u64>,
+    /// The tooltip's presence as the last frame drew it, 0 when none showed
+    /// ([`Motion::tip_presence`]): the compositor's and a test's to read, never to set.
+    pub tip_t: f32,
+    /// This frame's toasts, the bottom one first ([`Motion::sync_toasts`]).
+    pub toast_frame: Vec<ToastShown>,
 }
 
 /// Whether a window made from `args` holds still: a shot is drawn once and must not depend on
@@ -115,6 +203,17 @@ impl Motion {
     pub fn new(still: bool) -> Motion {
         let mut m = Motion {
             anim: Animator::new(),
+            sidebar_due: PaintDeadline::default(),
+            title_due: PaintDeadline::default(),
+            rows_due: PaintDeadline::default(),
+            settings_due: PaintDeadline::default(),
+            settings_serial: 0,
+            theme_fade: None,
+            theme_serial: 0,
+            palette_t: 1.0,
+            banner_t: [0.0; 4],
+            banners_composed: false,
+            rename_seen: None,
             due: None,
             still,
             setting: true,
@@ -124,6 +223,11 @@ impl Motion {
             backing: None,
             drawn: None,
             clock: None,
+            toasts: toasts(),
+            toast_seen: None,
+            toast_waiting: None,
+            tip_t: 0.0,
+            toast_frame: Vec::new(),
         };
         m.anim.set_policy(m.policy());
         m
@@ -224,22 +328,104 @@ impl Motion {
         self.reader = reader;
     }
 
+    /// How present the tooltip is this frame, asked in the group [`TIP_GROUP`]: it fades in and
+    /// is gone at once when it goes. `shown` is whether one is on screen. The answer is kept in
+    /// `tip_t` for the rest of the frame (the region's signature, and tests).
+    pub fn tip_presence(&mut self, shown: bool) -> f32 {
+        self.anim.group(TIP_GROUP);
+        let t = self.anim.presence(
+            Id::new(TIP_GROUP).with("in"),
+            shown,
+            TIP.enter,
+            mdshared_ui::anim::Motion::SNAP,
+        );
+        self.anim.ungroup();
+        self.tip_t = t;
+        t
+    }
+
     /// The presences of the open menus this frame, asked in the group [`MENUS`]. A popup's
     /// serial names it, so a menu opened again enters again. `None` for no popup and for the
     /// completion list.
     pub fn menus(&mut self, popup: Option<&Popup>) -> Option<Menus> {
         let popup = popup.filter(|p| fades(p.kind))?;
         self.anim.group(MENUS);
-        let mut shown = |p: &Popup| {
+        let mut shown = |serial| {
             let t = self
                 .anim
-                .presence(("menu", p.serial), true, MENU.enter, MENU.exit);
-            (p.serial, t)
+                .presence(("menu", serial), true, MENU.enter, MENU.exit);
+            (serial, t)
         };
-        let main = shown(popup);
-        let sub = popup.sub.as_deref().map(&mut shown);
+        let main = shown(popup.serial);
+        let sub = popup.sub_serial().map(&mut shown);
         self.anim.ungroup();
         Some(Menus { main, sub })
+    }
+
+    /// The command palette's presence: it pops in like a menu (117 ms, decelerating) and is
+    /// drawn by `Palette::draw_presence`; its deadline comes through `end_frame`.
+    pub fn palette(&mut self) -> f32 {
+        self.anim
+            .presence("palette", true, document::MENU_ENTER, document::MENU_ENTER)
+    }
+
+    /// The dim and Settings card enter together at the menu's speed. No track is asked for
+    /// after closing, so it disappears in one paint.
+    pub fn settings_presence(&mut self, has_dropdown: bool) -> f32 {
+        let id = ("settings-in", self.settings_serial);
+        if has_dropdown {
+            // A dropdown may extend outside the card's copy. Finish the entrance before
+            // drawing it instead of treating its pixels as backdrop.
+            self.anim.set(id, 1.0_f32);
+            1.0
+        } else {
+            self.anim.presence(id, true, MENU.enter, MENU.exit)
+        }
+    }
+
+    pub fn theme_presence(&mut self) -> f32 {
+        use mdshared_ui::anim::{Easing, Motion};
+        const CROSSFADE: Motion = Motion::tween(Duration::from_millis(170), Easing::Linear);
+        self.anim
+            .presence(("theme", self.theme_serial), true, CROSSFADE, Motion::SNAP)
+    }
+
+    /// The same offer is returning to view, not appearing for the first time.
+    pub fn rename_returns(&self, offer: Option<DocId>) -> bool {
+        offer.is_some()
+            && offer == self.rename_seen
+            && self.anim.get::<f32>(banner_id(3, offer)).is_none()
+    }
+
+    /// Ask before layout: a change in summed rounded heights damages the resized regions.
+    pub fn sync_banners(&mut self, shown: [bool; 4], rename_offer: Option<DocId>) {
+        let first = !std::mem::replace(&mut self.banners_composed, true);
+        let returning = shown[3] && self.rename_returns(rename_offer);
+        self.rename_seen = rename_offer.filter(|_| shown[3] || self.rename_seen == rename_offer);
+        self.banner_t = std::array::from_fn(|i| {
+            if !shown[i] {
+                0.0
+            } else if first || (i == 3 && returning) {
+                // Establish the track at rest too, or the next frame would start an entrance.
+                self.anim.set(banner_id(i, rename_offer), 1.0_f32);
+                1.0
+            } else {
+                self.anim.presence(
+                    banner_id(i, rename_offer),
+                    true,
+                    document::MENU_ENTER,
+                    MENU.exit,
+                )
+            }
+        });
+    }
+}
+
+fn banner_id(i: usize, offer: Option<DocId>) -> Id {
+    if i == 3 {
+        Id::new(("bar", i, offer))
+    } else {
+        Id::new(("bar", i))
     }
 }
 
@@ -250,9 +436,9 @@ pub fn fades(kind: PopupKind) -> bool {
 
 /// Everything a popup's fade touches: its menu's presence bounds and its submenu's, in one.
 pub fn popup_bounds(popup: &Popup) -> Rect {
-    let r = popup.menu.presence_bounds();
-    match &popup.sub {
-        Some(s) => union(r, s.menu.presence_bounds()),
+    let r = popup.root().presence_bounds();
+    match popup.sub() {
+        Some(s) => union(r, s.presence_bounds()),
         None => r,
     }
 }
@@ -280,6 +466,7 @@ pub fn draw_popup(
     mouse: (f32, f32),
     backing: &mut Option<(Snapshot, Rect)>,
     keep: bool,
+    anim: &mut Animator,
 ) {
     if !keep {
         *backing = menus.filter(Menus::moving).map(|_| {
@@ -289,32 +476,54 @@ pub fn draw_popup(
     }
     let main = menus.map_or(1.0, |m| m.main.1);
     let sub = menus.and_then(|m| m.sub).map_or(1.0, |s| s.1);
-    draw_menu(p, pal, popup, room, main, mouse);
-    if let Some(s) = popup.sub.as_deref_mut() {
-        draw_menu(p, pal, s, room, sub, mouse);
+    anim.group(ROWS);
+    let kind = popup.kind;
+    let serial = popup.serial;
+    draw_menu(
+        p,
+        pal,
+        popup.root_mut(),
+        (kind, serial),
+        room,
+        main,
+        mouse,
+        anim,
+    );
+    if let Some(which) = popup.sub_kind().zip(popup.sub_serial())
+        && let Some(s) = popup.sub_mut()
+    {
+        draw_menu(p, pal, s, which, room, sub, mouse, anim);
     }
+    anim.ungroup();
 }
 
 /// One menu at presence `t`: faded as a whole and dropped [`MENU_DROP`] px into place (raised,
 /// for a menu above its anchor), the AI menu's Modify buttons with it.
+#[allow(clippy::too_many_arguments)]
 fn draw_menu(
     p: &mut Painter,
     pal: &Palette,
-    popup: &mut Popup,
+    menu: &mut mdshared_ui::menu::Menu<crate::ui::Act>,
+    (kind, serial): (PopupKind, u64),
     room: Rect,
     t: f32,
     mouse: (f32, f32),
+    anim: &mut Animator,
 ) {
-    let ai = popup.kind == PopupKind::Ai;
-    let drop = if popup.menu.opened_above() {
+    let ai = kind == PopupKind::Ai;
+    let drop = if menu.opened_above() {
         MENU_DROP
     } else {
         -MENU_DROP
     };
-    let bounds = popup.menu.presence_bounds();
-    let menu = &mut popup.menu;
+    let bounds = menu.presence_bounds();
+    let (animated, id) = (fades(kind), ("row-hover", serial));
     pop(p, bounds, t, (0.0, drop), |p| {
-        menu.draw_in(p, pal, room);
+        if animated && anim.animates() {
+            menu.draw_in_animated(p, pal, room, anim, id);
+        } else {
+            menu.draw_in(p, pal, room);
+        }
         // The AI menu stands on its own under the bar's AI edit button.
         if ai {
             crate::ai_ui::draw_menu_modify(p, pal, menu, mouse);
@@ -346,4 +555,186 @@ pub fn menu_frame(
     } else {
         MenuFrame::Whole
     }
+}
+
+// ---- toasts --------------------------------------------------------------------------------
+
+/// A toast's entrance and exit: the shared preset as it is (167 ms each, decelerating in and
+/// accelerating out). A toast rises 8 px into place as it fades in, and fades and sinks as it
+/// leaves of itself; a toast taken away (`clear`) or put in another's place goes at once.
+pub const TOAST: document::Pair = document::TOAST;
+
+/// The damage group of the toasts.
+pub const TOASTS: &str = "toasts";
+
+/// The gap between two stacked toasts, in logical px.
+pub const TOAST_GAP: f32 = 8.0;
+
+/// The most toasts kept at once, those leaving included: a fourth sends the oldest away.
+pub const TOASTS_MAX: usize = 3;
+
+/// The toasts' stack: entering and leaving by [`TOAST`], at most [`TOASTS_MAX`] shown and as
+/// many kept, and a new one entering only once the toasts above it have lifted ("New waits for
+/// the lift", D-257).
+pub fn toasts() -> Stack<String> {
+    Stack::new()
+        .with_motion(TOAST.enter, TOAST.exit)
+        .with_max(TOASTS_MAX)
+        .with_max_drawn(TOASTS_MAX)
+        .with_wait_for_lift()
+}
+
+/// A toast as a frame shows it: its key, its text, its presence and how far above the bottom
+/// place it stands, in logical px.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToastShown {
+    pub key: u64,
+    pub text: String,
+    pub t: f32,
+    pub lift: f32,
+}
+
+/// What the window's status says, as the toasts follow it: `serial` names one message (a new
+/// one for each `set_toast` and `confirm_toast`), `stack` says it comes in under the toasts
+/// showing instead of in their place.
+#[derive(Clone, Copy, Debug)]
+pub struct ToastLine<'a> {
+    pub serial: u64,
+    pub text: &'a str,
+    pub until: Instant,
+    pub stack: bool,
+}
+
+impl Motion {
+    /// Brings the toasts up to date with the status line at `now`, the frame's time, and asks
+    /// for this frame of them, in the group [`TOASTS`]. Asked on every frame, whatever it draws,
+    /// so a toast at rest is never forgotten and taken for new. Each leaves of itself when its
+    /// time is up.
+    ///
+    /// A message set by `set_toast` takes the place of the toasts showing: the newest one shown
+    /// takes its text at once and keeps its presence and its place (a readout under key repeat
+    /// never flickers), and every other toast goes at once, the ones still leaving included;
+    /// with none shown it comes in as a new toast. One it takes over that had not come in yet
+    /// (it was waiting for the toasts above to lift) stands there at once, rather than waiting
+    /// in the dark for a lift that no longer matters.
+    /// One set by `confirm_toast`, a one-shot confirmation of its own, comes in under the ones
+    /// showing and then enters once they have lifted. Said again, it never stands twice: the
+    /// newest keeps its own toast where it is, at rest, while one standing higher is taken out
+    /// and comes in at the bottom, so the one just triggered is the one in sight.
+    /// A status cleared takes every toast away at once.
+    pub fn sync_toasts(&mut self, line: Option<ToastLine<'_>>, now: Instant) {
+        self.toasts.tick(now);
+        let serial = line.map(|l| l.serial);
+        let mut come_in: Option<u64> = None;
+        if serial != self.toast_seen {
+            self.toast_seen = serial;
+            // What is left of its time, by the wall clock it was set by, counted on from this
+            // frame on the frame's clock (the same clock in a window; a test's or a shot's runs
+            // by hand).
+            let left = line.and_then(|l| l.until.checked_duration_since(Instant::now()));
+            match line {
+                // A message already past its time (set long before this frame) is not shown.
+                Some(l) if left.is_some_and(|d| !d.is_zero()) => {
+                    let until = left.map(|d| now + d);
+                    if l.stack {
+                        // A confirmation said again that is not the newest goes to the bottom:
+                        // what the user just triggered is the one in sight, even in a short
+                        // window. The newest keeps its toast, its key and its presence, so a
+                        // repeat never makes it blink; `show` only resets its time.
+                        let newest = self.toasts.current().last().map(|(k, _)| k);
+                        let equal = self.toasts.find(|t| t.as_str() == l.text);
+                        let kept = equal.is_some() && equal.map(|(k, _)| k) == newest;
+                        if let Some((old, _)) = equal
+                            && !kept
+                        {
+                            self.toasts.remove(old);
+                        }
+                        // `show` pushes unless the same one is still the newest; a push onto a
+                        // stack that holds anything, a toast at rest or one leaving, gives the
+                        // newcomer the wait for the lift. Only such a toast can be at nothing
+                        // when a status takes its place. A repeat revives the newest and does
+                        // not touch the animator, so a toast that was waiting goes on waiting
+                        // and stays the one to snap.
+                        if !kept {
+                            let held = !self.toasts.is_empty();
+                            let key = self.toasts.show(l.text.to_string(), until);
+                            self.toast_waiting = held.then_some(key);
+                        } else {
+                            self.toasts.show(l.text.to_string(), until);
+                        }
+                    } else {
+                        // A status replaces in place, and every other toast goes at once — the
+                        // ones still playing their exit too, named by the last frame's list,
+                        // which holds them, not by `current`, which does not.
+                        let newest = self.toasts.current().last().map(|(k, _)| k);
+                        let others: Vec<u64> = (self.toast_frame.iter())
+                            .map(|s| s.key)
+                            .filter(|k| Some(*k) != newest)
+                            .collect();
+                        for k in others {
+                            self.toasts.remove(k);
+                        }
+                        // Everything the last frame held is gone, so a push here is onto
+                        // nothing and enters at once: it is not one that waits.
+                        if newest.is_none() {
+                            debug_assert!(self.toasts.is_empty());
+                        }
+                        let key = self.toasts.replace_newest(l.text.to_string(), until);
+                        // The toast it takes over may still have been waiting for its lift, and
+                        // the animator keeps that wait even after the stack gives it up (a new
+                        // motion for an unchanged target is ignored): it stands there now. Both
+                        // things must hold: it was pushed onto others, and it is still at
+                        // nothing on the last frame. One past its wait is coming in, and a
+                        // status lets it go on from where it is.
+                        let waiting = newest.is_some_and(|k| {
+                            self.toast_waiting == Some(k)
+                                && !self.toast_frame.iter().any(|s| s.key == k && s.t > 0.0)
+                        });
+                        self.toast_waiting = None;
+                        if waiting {
+                            come_in = Some(key);
+                        }
+                    }
+                }
+                Some(_) => {}
+                None => {
+                    self.toasts.clear();
+                    self.toast_waiting = None;
+                }
+            }
+        }
+        self.toast_frame.clear();
+        if self.toasts.is_empty() {
+            return;
+        }
+        self.anim.group(TOASTS);
+        if let Some(key) = come_in {
+            self.anim.set(Id::new(TOASTS).with(("in", key)), 1.0);
+        }
+        let shown = (self.toasts).frame(&mut self.anim, TOASTS, |_| TOAST_H, TOAST_GAP);
+        self.toast_frame
+            .extend(shown.into_iter().map(|s| ToastShown {
+                key: s.key,
+                text: s.item.clone(),
+                t: s.t,
+                lift: s.lift,
+            }));
+        self.anim.ungroup();
+    }
+
+    /// Whether `line` is a fresh message the toasts have not taken in yet: a frame is wanted.
+    pub fn toast_unseen(&self, line: Option<ToastLine<'_>>, now: Instant) -> bool {
+        line.is_some_and(|l| Some(l.serial) != self.toast_seen && l.until > now)
+    }
+
+    /// When the next toast leaves of itself.
+    pub fn toasts_due(&self) -> Option<Instant> {
+        self.toasts.deadline()
+    }
+}
+
+/// Where a toast whose place at rest is `rest` stands `lift` logical px above it: moved by a
+/// whole number of device pixels at `scale`, so its text stays on the grid it has at rest.
+pub fn toast_y(rest: f32, lift: f32, scale: f32) -> f32 {
+    rest - (lift * scale).round() / scale
 }

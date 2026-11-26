@@ -5,6 +5,7 @@ use crate::chrome::{Ctx, glyph};
 use crate::docs::Docs;
 use crate::ui::{Drag, Hit, PaneFace, Scroller, Ui};
 use mdshared_app::paths::same_path;
+use mdshared_ui::anim::Animator;
 use mdshared_ui::gfx::{Face, Rect, mix};
 pub use mdshared_ui::pane::ROW;
 use mdshared_ui::pane::{HEAD, ROW_H, Switch, draw_head_switches, draw_row_fill, draw_splitter};
@@ -45,7 +46,14 @@ pub fn draw_pane_head(c: &mut Ctx, ui: &Ui, r: Rect) {
     c.hit(hit, b);
 }
 
-pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+pub fn draw_files(
+    c: &mut Ctx,
+    docs: &Docs,
+    ui: &mut Ui,
+    r: Rect,
+    anim: &mut Animator,
+    ring: Option<(usize, f32)>,
+) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
     draw_pane_head(c, ui, r);
@@ -68,6 +76,7 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             .unwrap_or(pal.bar);
         c.p.frame(b, 6.0, fill, pal.line);
         c.p.text_center(Face::Ui, 13.0, b, label, pal.text);
+        draw_focus_ring(c, b, ring, 0);
         c.hit(Hit::FilesOpenFolder, b);
         ui.panes.files_content = 0.0;
         edge(c, r, dragging);
@@ -98,6 +107,9 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
 
     let list = files_list(r);
     let rows = ui.tree.rows();
+    if rows.is_empty() {
+        draw_focus_ring(c, Rect::new(r.x + 6.0, ry, r.w - 12.0, ROW_H), ring, 0);
+    }
     ui.panes.files_content = rows.len() as f32 * ROW + 8.0;
     ui.panes.files_view = list.h;
     ui.panes.files_scroll = ui
@@ -125,15 +137,23 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
             c.pressed == Some(hit),
             selected,
         );
+        draw_focus_ring(c, rr, ring, i);
         let ix = r.x + 14.0 + (row.depth as f32 + 1.0) * 14.0;
         let cy = rr.cy();
         if row.is_dir {
-            let arrow = if row.expanded {
-                glyph::DOWN
-            } else {
-                glyph::RIGHT
-            };
-            c.p.icon(arrow, 8.0, ix - 8.0, cy, pal.faint);
+            // The disclosure turns from right to down as the folder opens, by the one motion
+            // for it ([`crate::motion::DISCLOSURE`]): at rest it is the plain chevron.
+            mdshared_ui::glyph::draw_disclosure_animated_with(
+                c.p,
+                anim,
+                ("files", &row.path),
+                ix - 8.0,
+                cy,
+                8.0,
+                row.expanded,
+                pal.faint,
+                crate::motion::DISCLOSURE,
+            );
             let folder = if row.expanded {
                 glyph::FOLDER_OPEN
             } else {
@@ -171,6 +191,19 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         c.hit(thumb_hit, track);
     }
     edge(c, r, dragging);
+}
+
+/// The shared keyboard ring, fading from its pane's background. Nothing is painted at rest
+/// without keyboard focus (and a pointer highlight is still a separate state).
+pub fn draw_focus_ring(c: &mut Ctx, row: Rect, ring: Option<(usize, f32)>, i: usize) {
+    if let Some((at, t)) = ring
+        && at == i
+        && t > 0.0
+    {
+        let mut pal = *c.pal;
+        pal.accent = mix(pal.pane, pal.accent, t);
+        mdshared_ui::focus::draw_ring(c.p, &pal, row.inset(3.0), 4.0);
+    }
 }
 
 /// The splitter on the pane's right edge, and the hairline that marks it.

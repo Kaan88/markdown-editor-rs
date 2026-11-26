@@ -2600,3 +2600,439 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 - "Leave them out" drops the question it is asked of, and the queued paths that were folded into it, but not a set already answered: an answer is a promise the read's end will keep.
 **Why.** The review of `4903067`: with an answer waiting and a read still running, a held set that fell to the threshold called the probe start, which wrote over the waiting answer, and the folder it held was lost in silence.
 **Overturned by.** The owner.
+
+## D-255 · 2026-11-25 · Shared pinned at f45a71c; the menus take shared's 117 ms and the local override goes
+
+**Decision.** The shared crates move from `48eb3ce` to shared `main` `f45a71c`. `Cargo.lock`
+changes by the shared `rev` alone: no crate added, removed or bumped. `motion::MENU` is
+`anim::document::MENU` as it is, which now enters in 117 ms decelerating
+(`document::MENU_ENTER`); D-235's local `MENU_IN` and its tween go. What a menu draws is the
+same: every shot is byte-identical to `main`'s, `menu-main-fade` and `menu-main-fade-dark`
+included, but for the four `runs*` shots, which draw the clock.
+**Why.** D-235 said the 117 ms belonged in shared at the next pin move (rule 8); shared took it
+up (`f6a1497`). The pin also brings what the rest of the motion close-out is built on
+(`anim::Stack`'s replace and revive, `Tooltip::hover_at`, the paged form in motion, the turning
+disclosure).
+**Overturned by.** The owner; or a pin move that changes the lock beyond the shared `rev`.
+
+## D-256 · 2026-11-25 · Toasts rise in and leave of themselves; a status replaces, only one-shot confirmations stack
+
+**Decision.** The toast is drawn through shared's `anim::Stack` (`Motion::toasts`, asked on every
+frame in the group `toasts`): it rises 8 px and fades in, and fades and sinks out when its time
+is up, by `anim::document::TOAST` (167 ms each way, set in `motion.rs`). What a message does is
+said where it is set:
+- `Docs::set_toast`, the default and nearly every caller: the message **replaces** the toasts
+  showing (`Stack::replace_newest`): the newest one takes the new text at once and keeps its
+  presence and place, so a readout said again under key repeat never flickers, and a progress
+  turning into its result is one toast; the other toasts go at once (`Stack::remove`). With none
+  showing, it comes in.
+- `Docs::confirm_toast`, a one-shot confirmation that is an event of its own: it **stacks** under
+  the toasts showing (`Stack::show`), and the same text said again keeps its one toast (brought
+  back if it is leaving), never a second. The callers: File path copied, Path copied (Notes
+  pane), Copied the result (AI review), the crash report copied, Image saved as … (both pastes),
+  Renamed to …, the macro saved, a note added to the library.
+- `Docs::clear_toast` takes every toast away at once (`Stack::clear`).
+At most three are kept, the leaving ones counted (`with_max(3)`, `with_max_drawn(3)`); each
+stands `overlay::TOAST_H` and 8 px above the one under it, on a whole device pixel, and one that
+would reach above the text area is left out, never the bottom one. A toast's time (2.5 s) counts
+from the frame that takes it in. Under `Policy::Never` (a shot, a test, the setting off, reduced
+motion) a toast comes and goes at once, as before; one toast at rest is the pixels of before.
+The redraw holds each toast's `presence_bounds()`.
+**Not yet.** The owner decided (2026-11-25, through the coordinator) that when toasts stack, the
+new one waits for the older ones' lift to finish before it enters ("New waits for the lift").
+It is asked of shared's `anim::Stack`, not hand-rolled here; until shared has it, the new toast
+enters while the ones above lift. It is wired when shared lands it.
+**Why.** The motion close-out's M-B (the coordinator, 2026-11-25): "A status REPLACES by default
+… Only one-shot confirmations that are separate events STACK". mdview made the same split.
+**Overturned by.** The owner.
+
+## D-257 · 2026-11-26 · The toasts wait for the lift; a status sweeps the leaving ones; a repeat goes to the bottom
+
+**Decision.** D-256 stands, with these changes, and the shared crates are pinned at `535ad4c`
+(D-255 named `f45a71c`; DESIGN 96 said `48eb3ce`):
+- **New waits for the lift.** The toasts' stack is built with `Stack::with_wait_for_lift()`
+  (`motion::toasts`), so a toast pushed onto others stays out until they have lifted, which is
+  the owner's "New waits for the lift". Shared's own delay still applies when nothing animates
+  (`Policy::Never`: a shot, a test, the setting off, reduced motion), where the toast would
+  arrive 167 ms late with nothing moving. That is shared's bug, fixed by its PR 24, not worked
+  around here; the test that proves it (`with_no_motion_two_confirmations_are_both_there_at_once`)
+  is `#[ignore = "needs shared PR 24"]` until the pin moves past it.
+- **A status takes every other toast away at once**, the ones still playing their exit
+  included: the list of the last frame names them, `current` does not. It then replaces in
+  place, or comes in when nothing was shown.
+- **A confirmation said again that is not the newest moves to the bottom** (taken out and shown
+  again), so the one the user just triggered is the one in sight, even in a short window.
+- **The newest toast is drawn last**, over the shadow the one above it throws.
+- **Who stacks** gains: "Saved as …" for a saved AI prompt, "The picture on the clipboard is
+  added.", a note moved, and a group deleted. Everything else replaces.
+- A toast's 2.5 s counts from when the message was **set** (`Docs::put_toast`), not, as D-256
+  said, from the frame that takes it in; what is left of that time runs on the frame's clock. A
+  message already past its time when a frame takes it in shows nothing (tested).
+- Settings › Appearance's "Animations" help says "Menus fade in and toasts rise in and out. Off,
+  or when the system asks for less motion, nothing moves." (D-233's text named the menus only),
+  and still fits every Settings page at 520 px.
+The toast shots render on the animator's hand-moved clock (`shot_toasts`), since a toast pushed
+onto another waits for its lift before it enters; `toasts-stacking-*` shows the newcomer part way
+in after the lift (`--motion-ms 200`), and `toast-repeated-*` the first said again, at the bottom.
+**Why.** The review of the toast branch (the owner, 2026-11-25/26): the owner's "New waits for
+the lift" was left as "asked of shared", and three faults in the stack were found — a status
+leaving the leaving toasts fading, a repeated confirmation lost in a short window, and the new
+toast drawn under the shadow above it. Rule 2 asks for a test per behaviour.
+**Overturned by.** The owner; or the pin that carries shared PR 24, which would un-ignore the
+test above.
+
+## D-258 · 2026-11-26 · A repeat keeps the newest toast as it is; a status over a waiting toast stands at once
+
+**Decision.** Two corrections to D-257's stack, from the review of `3424963..ff53b65`
+(D-257's own words — "that is not the newest" — already said the first; its code did not):
+- **A confirmation said again keeps the newest toast where it is** when it is the newest: the
+  same key, its presence at 1, only its time reset (`Stack::show`, which revives the toast it
+  finds). Only one standing higher is taken out and shown again, at the bottom. Removing and
+  re-pushing even the newest gave it a new key and started its presence from 0: pressing Copy
+  path twice made the toast at rest vanish and rise again, and with toasts above it, it waited
+  for a lift that never moved, so under a key repeat it stayed nearly invisible.
+- **A status that takes the place of a toast still waiting for its lift stands there at once.**
+  The stack gives the wait up (`replace` clears it), but the animator keeps the delay it was
+  first given for that name: a new motion for an unchanged target is ignored (`Animator::track`).
+  So the toast is put at presence 1 through `Animator::set` for the frame the status arrives —
+  not by `revive`, which was tried and does not clear it (the test still showed presence 0.0).
+  This is a real behaviour of the status, not a workaround for the `Policy::Never` bug.
+Two tests are now `#[ignore = "needs shared PR 24"]`:
+`with_no_motion_two_confirmations_are_both_there_at_once` (D-257) and its short-window sibling
+`the_one_toast_a_very_short_window_shows_is_there_at_once`, both failing only because shared
+keeps the wait with motion off. The picture a paste adds is kept by `App::notes_add_picture` so
+that its toast can be tested without a clipboard.
+**Why.** The owner (2026-11-26, on the review of the toast branch): "a repeat removes and
+re-pushes even the NEWEST toast… Fix: move a repeat to the bottom only when it is not the newest
+shown toast", and "a status shows in place at once".
+**Overturned by.** The owner; or shared PR 24, which would un-ignore both tests.
+
+## D-259 · 2026-11-26 · The snap covers only a toast still waiting for its lift
+
+**Decision.** D-258's second correction is narrowed: a status puts the toast it takes over at
+presence 1 **only when that toast is still waiting for its lift**, meaning the one `Stack::show`
+pushed onto a stack that already held something. `Motion::toast_waiting` holds that key; a toast
+that came onto an empty stack, or one already coming in, keeps rising from where it is when a
+status takes it over. Presence 0 on the last frame is not the test: a toast on its first frame
+is at 0 too, so a status set a frame after a status with no toasts under it used to jump in
+without a rise. Two tests hold it (`a_status_taking_over_a_rising_toast_lets_it_keep_rising`: on
+the first frame, and part way in), and both fail if the snap is made unconditional.
+**Why.** The review of `3afc7e0` (the owner, 2026-11-26): "A toast that came onto an empty stack
+is also at 0.0 on its first frame… Fix: snap only a key that was really pushed with a wait."
+**Overturned by.** The owner; or shared learning to tell "waiting" apart from "coming in".
+
+## D-260 · 2026-11-26 · The snap needs both the key and nothing on screen, and a repeat keeps the wait
+
+**Decision.** Two more corrections to D-259's condition, from the review of `3cebea0`:
+- **A repeat of the waiting toast leaves `Motion::toast_waiting` alone.** `Stack::revive` no
+  longer waits, but it does not touch the animator, whose delay for that name runs on; clearing
+  the key there meant a status taking the toast over sat at nothing until the rest of the 167 ms
+  passed. Only a real push sets the key now.
+- **The key must also still be at nothing on the last frame.** A toast past its wait is coming in:
+  the status lets it go on rising from where it is, rather than standing it up at once. Both
+  conditions are read from `Motion::toast_waiting` and the last frame's list (`t == 0`).
+- `pushed_onto` goes: the status takes away every toast the last frame held, so when no toast is
+  the newest the stack is empty and the push that follows waits for nothing. A
+  `debug_assert!(self.toasts.is_empty())` says so in debug builds.
+Two tests hold it: `a_repeat_of_a_waiting_toast_leaves_the_status_standing_at_once` (fails with the
+key cleared on a repeat) and `a_status_lets_a_toast_past_its_wait_go_on_rising` (fails without the
+`t == 0` half).
+**Why.** The review of `3cebea0` (the owner, 2026-11-26).
+**Overturned by.** The owner; or shared telling a toast's wait apart from its rise.
+
+## D-261 · 2026-11-26 · Shared PR 24 lands in the pin: the two tests come back
+
+**Decision.** The pin moves to `09b01c1` (through `8d35a07`, PR 24). `Stack::frame` now asks for
+the wait for the lift only while the animator animates, so with nothing moving (a shot, a test,
+the setting off, reduced motion) a stacked toast is there on the frame it is pushed. The two
+tests left `#[ignore = "needs shared PR 24"]` by D-257 and D-258 are un-ignored and pass:
+`with_no_motion_two_confirmations_are_both_there_at_once` (all three ways of having no motion)
+and `the_one_toast_a_very_short_window_shows_is_there_at_once`. No workaround was needed for this
+pin and none was removed: the status's `Animator::set` snap (D-258) is not the same fault — with
+motion on the animator keeps a name's delay after `Stack::replace` gives the wait up, and
+`a_status_takes_the_place_of_a_waiting_confirmation_and_shows_at_once` still fails without it.
+**Why.** The owner (2026-11-26), after D-260: "Move the shared pin … Un-ignore the tests marked
+needs shared PR 24. They must pass now."
+**Overturned by.** The owner; or shared dropping `wait_for_lift`.
+
+## D-262 · 2026-11-26 · Tooltips fade in, and their wait counts from the pointer's rest
+
+**Decision.** M-C, tooltips: a tooltip fades in (`document::TIP`, a plain short fade where the eye
+already is) and is gone at once, with nothing asked for after it. The wait before it counts
+**from the pointer coming to rest**, not from entering the control: the owner's choice, so a
+pointer crossing a row of buttons shows no tips at all until it stops. mdedit's own `Tip` is
+replaced by shared's `Tooltip<Hit>` (`Tooltip::waiting` beside `shown`, `hover_at`, `press`,
+`deadline`, `tick`), its 500 ms in `document::TIP_DELAY`. With motion off nothing changes: the
+presence is 1 on the first frame and the tip is drawn by `Bubble::draw`, the pixels of before.
+`--tip-ms MS` renders a shot of a tip part way in on the shot's clock.
+**Why.** The owner (2026-11-26), after the pin move: "M-C, tooltips: tooltips fade in, with the
+delay measured from resting … Under the Animations setting, motion off must draw exactly as now."
+**Overturned by.** The owner; or a Windows' `SPI_GETMOUSEHOVERTIME` read, if tips should follow
+the system's own delay.
+
+## D-263 · 2026-11-26 · A pointer move that changes nothing about the tooltip costs nothing
+
+**Decision.** `App::update_tip` keeps `Ui::tip_point`, the control and pointer place it was last
+given, and returns at once when both are unchanged: no text from `chrome::tooltip` and no clone.
+A move within one control still goes through `Tooltip::hover_at` (one `String` and one clone) so
+the wait starts again from the rest. Measured at 200 ns a move within a control and under the
+clock's tick when skipped, seven runs, the method and the figures in
+`docs/measurements/2026-11-26-tooltip-moves.md`.
+**Why.** The review of `019d91b` (the owner, 2026-11-26): "Measure the per-move cost now that
+update_tip runs on every CursorMoved … If it can be avoided cheaply (for example, skip when the
+hit and position are unchanged), do so."
+**Overturned by.** The owner; or a profile showing the skip is not worth its two comparisons.
+
+## D-264 · 2026-11-26 · M-D: the Settings form and the tree's chevrons move
+
+**Decision.** M-D, from the owner's close-out brief: the Settings dialog draws with shared's
+`Form::draw_animated` (a switch's knob slides, a chosen segment slides, hover fills and the
+scrollbar fade), named `SETTINGS`; every folder row's disclosure turns with
+`glyph::draw_disclosure_animated_with` by `motion::DISCLOSURE` (shared's 167 ms `MOVE`), inside
+the group `SIDEBAR`. Both are D1 groups: a frame whose group is due damages the part it draws
+(all of the window for the form; the Files region for the tree), and a frame that draws
+something else calls `keep_group(SIDEBAR)` so a turn goes on. With motion off — `Policy::Never`,
+the setting off, reduced motion — nothing moves and the pixels are those of before. New shots:
+`--settings-ms` and `--tree-ms` (`settings-switch-*`, `tree-chevron-*`, 60 ms, both themes).
+**Why.** The owner (2026-11-26): "M-D (Settings, chevrons): `settings::pages::Form::draw_animated`
+… Tree chevrons through `glyph::draw_disclosure_animated_with` … Use D1 groups, and keep_group on
+frames that skip the pane", under "quick, quiet motion".
+**Overturned by.** The owner; or shared changing `DISCLOSURE_MOTION`.
+
+## D-265 · 2026-11-26 · A scroll and a leaving pointer take the tip away, and the move costs what it is
+
+**Decision.** Three corrections to M-C (D-262, D-263) from the review of `8279ff9`:
+- **A wheel scroll hides the tooltip**, as a key does and as DESIGN 96 said it did (`App::wheel`
+  called nothing). A test holds it.
+- **`Ui::hide_tip` forgets what the tip was pointed at** (`tip_point = None`), beside taking the
+  tip away, and `CursorLeft` and every other hiding call use it: coming back to the same control
+  at the same place arms the tip again with its whole delay, where the skip D-263 added would
+  have left it waiting for a deadline that had gone by (it showed at once, or not at all).
+- **The measurement was wrong and is remeasured.** D-263 said "one `String` and one clone"; the
+  warm path is one `String` from `chrome::tooltip` and **two** clones in `Tooltip::hover` (its
+  memory of the earlier frame, and its "what shows changed" comparison) — three allocations a
+  move. And the first measurement timed every call with `Instant::now()`, whose step on Windows
+  is about 100 ns, so it reported 200 ns and "0 ns" when the truth is 215 ns and 25 ns: the new
+  one times a batch of 200,000 moves and divides. Seven runs:
+  `docs/measurements/2026-11-26-tooltip-moves.md`.
+**Why.** The review of `8279ff9` (the owner, 2026-11-26): "A mouse-wheel scroll doesn't hide the
+tip … Set `tip_point = None` on CursorLeft and whenever the tip is hidden … the measurement doc
+and D-263 say 'one String, one clone', but it is two clones (three allocations a move) … Re-measure
+by timing the whole batch and dividing."
+**Overturned by.** The owner; or a tooltip that keeps its place across a scroll on the owner's word.
+
+## D-266 · 2026-11-26 · M-E, part D4: the title row's hovers fade
+
+**Decision.** The title row draws with shared's `chrome::draw_tab_animated`,
+`draw_win_button_animated` and `draw_new_tab_button_animated` in place of the plain functions:
+a quiet tab's hover fill and its close button, a caption button's fill (red for Close, its glyph
+white) and the new-tab button's fill fade by `document::HOVER` (shared's `FADE`, 83 ms linear).
+They are one damage group, `TITLE`: a frame whose group is due damages the title row, a frame
+that skips it calls `keep_group(TITLE)`, and with motion off the pixels are those of before
+(`with_motion_off_the_title_row_is_the_plain_drawing`). The title row is named by its document
+id for tabs and by its hit otherwise, so a tab that moves keeps its fade. The bar's buttons
+(`Ctx::fill_for`) stay instant, as the owner's brief did not name them.
+Shared's `t == 0` hover-flash fix (#31, in the pin) is what makes the fade start from the rest
+look; nothing in shared changed for this part.
+**Why.** The owner's M-E item (2026-11-26): "M-E (title row, X3, popups): `chrome::draw_win_button_animated`,
+`draw_tab_animated`, `draw_new_tab_button_animated` (D4; shared #31 fixed the t == 0 flash at
+09b01c1)".
+**Overturned by.** The owner; or the bar's buttons being brought under motion too.
+
+## D-267 · 2026-11-26 · M-E, part X3: a menu's hovered row, the palette and the bars move
+
+**Decision.** A menu's rows draw with shared's `Menu::draw_in_animated` (the hovered row's fill
+fades by `document::HOVER`, 83 ms linear) in the group `ROWS`; the command palette draws with
+`Palette::draw_presence` at `Motion::palette_t` (117 ms decelerating between composes) and is
+damaged by its `presence_bounds()`; the anchored language list stays instant. The four notice
+bars draw through `notice::draw_sliding` at a presence each. `notice::bar_height` gives the
+layout and the hits the same visible height. Popup damage is `presence_bounds()` for both menus
+and the palette. The completion popup stays instant. With motion off nothing moves and the
+pixels are those of before. Shots: `--motion-clock MS`, which lets a shot animate from its
+first frame and then steps the clock by hand (`menu-row-hover-*`, `palette-in-*`,
+`{update,crash,stale,rename}-sliding-*`).
+**Why.** The owner's M-E item (2026-11-26): "X3: `Menu::draw_in_animated` for the hover row,
+`Palette::draw_presence`, `notice::draw_sliding`/`bar_height`; popup damage by
+`presence_bounds()`, never `rect.inset(-20)`; the completion popup stays instant." Under the
+owner's rule: quick, quiet motion; menus open in 117 ms; close instantly.
+**Overturned by.** The owner; or shared changing `HOVER`/`MENU_ENTER`.
+
+## D-268 — 2026-11-26 — Keep Settings motion across early frames; correct D-264
+
+**Decision.** This corrects D-264 and the description in `8ab68f1`. The paged form animates
+switches and selected segments, unselected category highlights and open dropdown rows. It
+does not animate general control hover fills, draw a form scrollbar, or transition between
+pages. Switching pages or closing the dialog immediately discards the old controls' motion.
+Frames that skip the open form keep `SETTINGS` and its earliest pending redraw so 16 ms
+frames cannot defer it indefinitely. Start the Settings shot's clock with the old and new
+knob positions registered before advancing it.
+**Why.** M-D review: early frames dropped live tracks, the switch shot could capture the
+endpoint, and the implementation was described as the other Settings form.
+**Overturned by.** The owner; or the shared paged form taking on different motions.
+
+## D-269 — 2026-11-26 — Dismissing a painted tooltip requests a frame
+
+**Decision.** Corrects D-265: a wheel event dismisses the tooltip even on a path that otherwise
+does not redraw. `App::hide_tip` requests an erasing frame only for a shown tip, including one
+still fading in. Middle-clicking a tab dismisses its tip before asking to close the tab. A
+window event test verifies that `CursorLeft` still clears the same-position shortcut.
+**Why.** Review of `a6b51cf`: clearing the state alone could leave an old bubble on the screen.
+**Overturned by.** An input path that owns all tooltip repaint requests.
+
+## D-270 — 2026-11-26 — Keep the title paint deadline; animate only a visible hover
+
+**Decision.** Refines D-266: keep both `TITLE` and its earliest redraw on skipped frames, as for
+Settings in D-268. The active tab draws plain instead of scheduling an invisible fade. It is
+the quiet tab's hover fill and label that fade; the close button appears immediately. Tests
+check intermediate pixels and damage on a quiet tab next to the active one, and compare
+mdedit's motion-off title output to plain caption and tab drawing.
+**Why.** Review of `9b7551f`: the tests had missed skipped frames, the quiet tab's animation,
+and the app's motion-off path.
+**Overturned by.** A shared title-row API that owns scheduling and damage.
+
+## D-271 — 2026-11-26 — Only notices that arrive after the first paint slide
+
+**Decision.** Refines D-267: any update, crash, stale-tab or rename notice already present on
+the first paint gets its full strip immediately. Before that paint, layout-only passes reserve
+the same strip. With motion off, a later notice also occupies its full strip immediately.
+A rename offer that comes back with its tab returns at full height, not as a new entrance.
+The anchored language list and closing a bar or palette remain instant.
+**Why.** The X3 review found startup repaints before the system's motion preference was read,
+a 32 px gap between layout and paint, and a replay on tab switches.
+**Overturned by.** An explicit change to startup or notice motion.
+
+## D-272 — 2026-11-26 — Keep the Files pane's original paint deadline
+
+**Decision.** Extends D-268/D-270 to `SIDEBAR`: a frame that skips the Files pane keeps the
+chevron tracks and the original paint deadline. Hiding the pane drops both.
+**Why.** Repeated 16 ms frames could move the reported deadline forward without painting the
+turn.
+**Overturned by.** Shared scheduling that preserves the deadline itself.
+
+## D-273 — 2026-11-26 — Pin `1588e0f` before M-F
+
+**Decision.** Move D-261's five workspace references from `09b01c1` to `1588e0f`. Do not
+move the viewer pin or activate a new feature in the pin commit. L1 opts in separately.
+**Why.** The owner requested the pin already used by mdview, with shared's cancellation of
+waiting cascade changes (PR 40). See `docs/measurements/2026-11-26-motion-mf-pin.md`.
+**Overturned by.** A later deliberate shared pin move.
+
+## D-274 — 2026-11-26 — Let shared own the open submenu path
+
+**Decision.** Main and text menus with children use `submenu::Cascade`; menus without
+children, including completion, keep their plain path. The root retains its own anchor.
+Shared measures and places the submenu beside the opening row and owns the pointer's 300 ms
+rest. Escape and Left use `keys_cancel_wait(true)` before any synthetic navigation key.
+**Why.** L1 replaces duplicate placement and dwell code. A pointer move on its way to the
+submenu must not close it, and a key must act on the open path rather than a waiting change.
+**Overturned by.** A different shared navigation or menu-placement contract.
+
+## D-275 — 2026-11-26 — A scrollbar on the plain preview
+
+**Decision.** Draw and hit-test the shared scrollbar on any overflowing embedded
+preview, not just when the page fills the text area for visual editing.
+**Why.** L3 gives the split preview the same page clicks and thumb drag already used
+in visual mode. These point at the scrollbar, not at the rendered text; scrolling
+continues to synchronize the editor.
+**Overturned by.** A change to the embedded preview's scrolling contract.
+
+## D-276 — 2026-11-26 — Keyboard focus in Files and Functions
+
+**Decision.** The Files and Functions shortcuts give their pane the keyboard; press the
+same shortcut again to close it. Arrow and paging keys move its cursor, Enter activates
+the row, and Escape or a click gives up pane focus. The keyboard ring uses the shared
+focus drawing and fades under Animations; when motion is off it changes on the first paint.
+The toolbar and menu commands still toggle the pane.
+**Why.** A keyboard cursor is different from the active file or the function at the
+editor caret. Showing that distinction gives the panes keyboard access without changing
+what a pointer-only user sees.
+**Overturned by.** A different keyboard navigation contract for the left pane.
+
+## D-277 — 2026-11-26 — Restore a window only on its saved monitor
+
+**Decision.** Keep the legacy `geometry` value and save a separate shared `window_state`
+value for monitor-aware placement. Restore the position through `window_state::restore`
+only if the saved monitor's name, position and size match a current display. Otherwise
+leave the position unset for the OS. Old sessions without monitor identity retain the
+title-row reachability check.
+**Why.** A missing monitor is not a reason to move the window to another display's corner.
+The extra setting preserves enough information to distinguish a missing monitor from a
+reachable point, without breaking sessions for earlier builds.
+**Overturned by.** A change to the saved monitor identity or placement contract.
+
+## D-278 — 2026-11-26 — Close the submenu after a rest on root padding
+
+**Decision.** Clarifies D-274. Asked what a 300 ms rest on the root menu's padding
+should do to an open submenu, the owner answered: “Close it”. Keep the current
+behavior of shared `submenu::Cascade` and mdview: crossing the padding does not
+close the submenu immediately, and entering the submenu before 300 ms cancels the
+pending close.
+**Why.** The existing test
+`the_pointer_reaches_the_submenu_across_the_padding_and_another_row` was changed on
+purpose in `a35a7a0` to match. Its new assertions document the intended behavior:
+the submenu stays open before the deadline, closes at the deadline if the pointer
+rests on padding, and stays open if the pointer reaches the submenu in time.
+**Overturned by.** A new decision from the owner about padding dwell.
+
+## D-279 — 2026-11-26 — Fade in the Settings window, not its pages
+
+**Decision.** The owner's clarification was “I meant settings menu window should fade
+in when I open it”. Fade the dim and Settings card together over the menu's 117 ms
+entrance. Closing and page changes have no transition. Opening it again after closing
+starts a new entrance; asking while it is already open keeps its current presence.
+Animations off or reduced motion draws the whole dialog at once, as before.
+**Why.** Match the reviewed mdview behavior and keep Settings as quick as the menu
+that can open it. For now the entrance uses a temporary whole-window snapshot on each
+paint of the fade, as mdview does; making that cheaper remains open.
+**Overturned by.** A new decision about Settings transitions.
+
+## D-280 — 2026-11-26 — Crossfade light and dark from the last painted frame
+
+**Decision.** Use shared `Painter::snapshot` and `Snapshot::crossfade` for a
+170 ms linear blend on an explicit theme change or a desktop change in System.
+The first paint takes no snapshot. The fade holds one previous theme frame; a
+new flip releases it before copying the currently blended frame. Above
+2560 × 1600 pixels the palette snaps to limit private memory. It also snaps
+with backdrop enabled (the pinned blend accepts only one frost key), with
+Animations off or reduced motion, or when there is no compatible painted
+frame. Size changes release the image immediately; same-size notifications
+keep it. Layout-only passes do not retain or take one.
+**Why.** Match the reviewed mdview transition without putting a capture on the
+launch path. When the blend finishes, it releases the snapshot and stops
+requesting frames.
+**Overturned by.** A change to the requested transition or shared's blend contract.
+
+## D-281 — 2026-11-26 — The theme cap is a snapshot limit, not a memory budget
+
+**Decision.** Corrects D-280: 2560 × 1600 limits only the pixels copied for one
+theme snapshot. It does not bound total private memory. If Settings opens during
+a theme fade, a Settings backing copy can coexist with the retained theme copy.
+The measured overshoot of the 30 MiB private-memory budget has not been accepted;
+the owner's word is needed before accepting it or changing the theme copy.
+**Why.** Both effects exceeded the budget in the Windows transition samples,
+even at 1280 × 800.
+**Overturned by.** The owner's decision on the active-memory budget and the theme copy.
+
+## D-282 — 2026-11-26 — Accept the brief theme crossfade memory overshoot
+
+**Decision.** On 2026-11-26 the owner said: “Accept the brief overshoot”.
+Keep D-280's 170 ms light/dark crossfade and its full-window snapshot. The
+crossfade may take private memory above 30 MiB only while it runs; the
+snapshot is freed as soon as the fade ends. This resolves the pending
+decision in D-281 without changing its snapshot-only cap.
+**Why.** Windows sampled about 31.4 MiB during the fade at 1280 × 800 and
+100% scale. The overlap with the Settings entrance remains unmeasured.
+**Overturned by.** A new owner decision on the crossfade or its memory budget.
+
+## D-283 — 2026-11-26 — Close the menu without losing the theme fade
+
+**Decision.** Refines D-280: when a theme flip and an overlay dismissal land in
+the same frame, compose once in the old palette with the live overlays, then
+capture that clean frame and crossfade normally. Do not present the cleanup
+pass separately. If an overlay closes during an already-running fade, drop the
+snapshot and finish the flip instantly rather than trying to reconstruct the
+old frame. Motion-off and other snap paths do not run the extra pass.
+**Why.** A palette or menu used to choose a theme must close immediately without
+making the switch instant. This keeps one retained theme snapshot and does not
+change D-282's memory exception.
+**Overturned by.** A change to the owner's menu-close or theme-motion rules.

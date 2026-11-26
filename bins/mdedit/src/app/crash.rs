@@ -90,7 +90,7 @@ impl App {
             Hit::CrashCopy => {
                 let text = std::fs::read_to_string(&seen).unwrap_or_default();
                 if !text.is_empty() && platform::set_clipboard_text(&text) {
-                    self.docs.set_toast(strings::CRASH_REPORT_COPIED);
+                    self.docs.confirm_toast(strings::CRASH_REPORT_COPIED);
                 }
             }
             _ => {}

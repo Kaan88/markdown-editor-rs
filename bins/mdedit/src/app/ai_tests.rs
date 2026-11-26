@@ -737,15 +737,7 @@ fn a_saved_prompts_pencil_puts_it_in_the_box_to_be_changed() {
     a.right_press();
     a.open_sub(PopupKind::Text, PopupKind::Ai, false);
     a.compose();
-    let row =
-        a.ui.popup
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap()
-            .menu
-            .row_rect(3);
+    let row = a.ui.popup.as_ref().unwrap().sub().unwrap().row_rect(3);
     a.pointer_moved(row.right() - 20.0, row.cy());
     a.left_release();
     assert_eq!(
@@ -760,7 +752,7 @@ fn a_saved_prompts_pencil_puts_it_in_the_box_to_be_changed() {
     a.right_press();
     a.open_sub(PopupKind::Text, PopupKind::Ai, false);
     a.compose();
-    let menu = &a.ui.popup.as_ref().unwrap().sub.as_ref().unwrap().menu;
+    let menu = a.ui.popup.as_ref().unwrap().sub().unwrap();
     let row = menu.row_rect(4);
     a.pointer_moved(row.x + 18.0, row.cy());
     a.left_release();
@@ -811,6 +803,20 @@ fn a_prompt_the_template_has_is_not_saved_twice() {
             .unwrap()
             .starts_with("Already saved")
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// "Saved as …" is a one-shot confirmation of its own, so it stacks under the toasts showing
+/// rather than taking their place (D-257).
+#[test]
+fn a_saved_prompt_confirms_as_a_toast_of_its_own() {
+    let (mut a, dir, file) = r5_panel("Say it twice");
+    assert!(!file.exists());
+    a.ai_save_prompt();
+    assert!(file.exists(), "the prompt is saved");
+    let line = a.docs.toast_line().expect("a toast for the save");
+    assert!(line.text.starts_with("Saved as"), "{}", line.text);
+    assert!(line.stack, "\"Saved as …\" stacks: {}", line.text);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

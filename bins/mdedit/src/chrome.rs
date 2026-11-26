@@ -7,10 +7,11 @@ use crate::docs::Docs;
 use crate::session::ThemeChoice;
 use crate::ui::{BarField, BarItem, Drag, FindOpt, Hit, PaneFace, PopupKind, Ui};
 use mdedit_core::prefs::PreviewMode;
+use mdshared_ui::anim::Animator;
 use mdshared_ui::chrome::{
     BAR_H, DRAG_MIN, NATIVE_FRAME, NEW_TAB_W, TABS_LEFT, TITLE_H, TabState, WIN_BTN_W, WinButton,
-    button_fill, draw_new_tab_button, draw_tab, draw_win_button, tab_natural_width, tab_widths,
-    win_button_rect,
+    button_fill, draw_new_tab_button_animated, draw_tab_animated, draw_win_button_animated,
+    tab_natural_width, tab_widths, win_button_rect,
 };
 use mdshared_ui::gfx::{Face, Painter, Rect, Rgb, mix};
 pub use mdshared_ui::glyph;
@@ -373,7 +374,14 @@ pub fn snap_button_rect(title: Rect, margin: f32, maximized: bool, covered: bool
 }
 
 /// Draws the title row into `r` (the full window width, `TITLE_H` tall).
-pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
+pub fn draw_title(
+    c: &mut Ctx,
+    docs: &Docs,
+    ui: &Ui,
+    r: Rect,
+    maximized: bool,
+    anim: &mut Animator,
+) {
     let pal = *c.pal;
     c.p.fill(r, pal.title);
     c.hit(Hit::TitleDrag, r);
@@ -397,9 +405,12 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
     for &(hit, kind) in buttons {
         let b = win_button_rect(right, 0);
         right -= WIN_BTN_W;
-        draw_win_button(
+        // The hover fill fades by `document::HOVER` (D4, shared's `t == 0` fix in the pin).
+        draw_win_button_animated(
             c.p,
             &pal,
+            anim,
+            ("win", hit),
             kind,
             b,
             maximized,
@@ -435,7 +446,24 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
             close_pressed: c.pressed == Some(Hit::TabClose(i)),
             pinned: docs.tabs[i].pinned,
         };
-        let drawn = draw_tab(c.p, &pal, x, w, r.w, label, &state);
+        let drawn = if state.active {
+            // Shared already paints the active tab plain, but its animated entry point still
+            // starts an invisible hover timer. Keep the close button's instant hover and hits.
+            mdshared_ui::chrome::draw_tab(c.p, &pal, x, w, r.w, label, &state)
+        } else {
+            // Named by its document, not its place: a tab that moves keeps its fade.
+            draw_tab_animated(
+                c.p,
+                &pal,
+                anim,
+                ("tab", docs.tabs[i].id),
+                x,
+                w,
+                r.w,
+                label,
+                &state,
+            )
+        };
         c.hit(Hit::Tab(i), drawn.tab);
         // The tab in the second pane of a split view: a short line under its name.
         // When both panes show this tab the line runs the whole width of the tab.
@@ -459,9 +487,11 @@ pub fn draw_title(c: &mut Ctx, docs: &Docs, ui: &Ui, r: Rect, maximized: bool) {
         x += w;
     }
     c.p.restore(clip);
-    let b = draw_new_tab_button(
+    let b = draw_new_tab_button_animated(
         c.p,
         &pal,
+        anim,
+        ("new-tab",),
         x,
         avail,
         c.hover == Some(Hit::NewTab),
@@ -539,7 +569,7 @@ pub fn preview_mode(docs: &Docs) -> PreviewMode {
 pub const AI_EDIT: &str = "AI edit";
 
 /// The measured text widths the bar's fit depends on.
-pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
+fn bar_text(p: &mut Painter, docs: &Docs, choice: ThemeChoice) -> BarText {
     let (count, _) = find_label(docs);
     BarText {
         open: p.measure(Face::Ui, 13.0, "Open"),
@@ -552,7 +582,7 @@ pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
         } else {
             p.measure(Face::Ui, 13.0, AI_EDIT)
         },
-        theme: p.measure(Face::Ui, 13.0, theme_label(docs.theme)),
+        theme: p.measure(Face::Ui, 13.0, theme_label(choice)),
         count: if count.is_empty() {
             0.0
         } else {
@@ -673,7 +703,7 @@ const TOGGLE_W: f32 = 32.0;
 
 /// Draws the replace strip into `r`: the replacement's box exactly under the find box, the search
 /// options to its left, Replace, Replace all and Close to its right (see [`replace_layout`]).
-pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, choice: ThemeChoice) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);
     let y = r.y;
@@ -685,7 +715,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let scope = docs
         .active_ready()
         .filter(|r| r.view.replace_scope.is_some());
-    let t = bar_text(c.p, docs);
+    let t = bar_text(c.p, docs, choice);
     let plan = bar_plan(r.w, &t);
     let lay = replace_layout(r, &t, &plan, one_t, all_t, scope.is_some());
 
@@ -761,7 +791,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
 /// Draws the command bar into `r`.
 /// The bar under the command bar that offers a newer version, shows its download, and says
 /// when it is in place.
-pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect) {
+pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect, t: f32) {
     use mdshared_ui::notice::{self, UpdateBarState};
     let Some(stage) = docs.updates.bar() else {
         return;
@@ -774,20 +804,26 @@ pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect) {
         restart_hovered: c.hover == Some(Hit::UpdateRestart),
         restart_pressed: c.pressed == Some(Hit::UpdateRestart),
     };
-    let hits = notice::draw_update_bar(c.p, c.pal, bar, &crate::updater::APP, stage, state);
+    // It slides down into its strip as it shows (`notice::draw_sliding`).
+    let pal = *c.pal;
+    let Some(hits) = notice::draw_sliding(c.p, bar, t, |p, moved| {
+        notice::draw_update_bar(p, &pal, moved, &crate::updater::APP, stage, state)
+    }) else {
+        return;
+    };
     if let Some(r) = hits.go {
-        c.hit(Hit::UpdateGo, r);
+        banner_hit(c, bar, t, Hit::UpdateGo, r);
     }
     if let Some(r) = hits.restart {
-        c.hit(Hit::UpdateRestart, r);
+        banner_hit(c, bar, t, Hit::UpdateRestart, r);
     }
     if let Some(r) = hits.close {
-        c.hit(Hit::UpdateClose, r);
+        banner_hit(c, bar, t, Hit::UpdateClose, r);
     }
 }
 
 /// The bar under the command bar that offers the report of last time's crash.
-pub fn draw_crash_bar(c: &mut Ctx, bar: Rect) {
+pub fn draw_crash_bar(c: &mut Ctx, bar: Rect, t: f32) {
     use mdshared_ui::notice::{self, CrashBarState};
     let state = CrashBarState {
         open_hovered: c.hover == Some(Hit::CrashOpen),
@@ -796,14 +832,19 @@ pub fn draw_crash_bar(c: &mut Ctx, bar: Rect) {
         copy_pressed: c.pressed == Some(Hit::CrashCopy),
         close_hovered: c.hover == Some(Hit::CrashClose),
     };
-    let hits = notice::draw_crash_bar(c.p, c.pal, bar, "mdedit", state);
+    let pal = *c.pal;
+    let Some(hits) = notice::draw_sliding(c.p, bar, t, |p, moved| {
+        notice::draw_crash_bar(p, &pal, moved, "mdedit", state)
+    }) else {
+        return;
+    };
     for (hit, r) in [
         (Hit::CrashOpen, hits.open),
         (Hit::CrashCopy, hits.copy),
         (Hit::CrashClose, hits.close),
     ] {
         if let Some(r) = r {
-            c.hit(hit, r);
+            banner_hit(c, bar, t, hit, r);
         }
     }
 }
@@ -826,7 +867,7 @@ pub fn stale_label(n: usize, days: u32) -> String {
 
 /// The bar under the command bar that offers to close the tabs not opened in the last `days`
 /// days of use.
-pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize, days: u32) {
+pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize, days: u32, t: f32) {
     use mdshared_ui::notice::{self, OfferBarState};
     use mdshared_ui::stale;
     let state = OfferBarState {
@@ -837,30 +878,35 @@ pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize, days: u32) {
         close_hovered: c.hover == Some(Hit::StaleDismiss),
     };
     let text = stale_label(count, days);
-    let hits = notice::draw_offer_bar(
-        c.p,
-        c.pal,
-        bar,
-        glyph::RECENT,
-        &text,
-        stale::CLOSE_THEM,
-        stale::KEEP,
-        state,
-    );
+    let pal = *c.pal;
+    let Some(hits) = notice::draw_sliding(c.p, bar, t, |p, moved| {
+        notice::draw_offer_bar(
+            p,
+            &pal,
+            moved,
+            glyph::RECENT,
+            &text,
+            stale::CLOSE_THEM,
+            stale::KEEP,
+            state,
+        )
+    }) else {
+        return;
+    };
     for (hit, r) in [
         (Hit::StaleClose, hits.yes),
         (Hit::StaleKeep, hits.no),
         (Hit::StaleDismiss, hits.close),
     ] {
         if let Some(r) = r {
-            c.hit(hit, r);
+            banner_hit(c, bar, t, hit, r);
         }
     }
 }
 
 /// The bar under the command bar that offers a `.md` name to a file whose text the AI made
 /// Markdown: `name` is the file's name now, `to` the one offered.
-pub fn draw_rename_bar(c: &mut Ctx, bar: Rect, name: &str, to: &str) {
+pub fn draw_rename_bar(c: &mut Ctx, bar: Rect, name: &str, to: &str, t: f32) {
     use mdshared_ui::notice::{self, OfferBarState};
     let state = OfferBarState {
         yes_hovered: c.hover == Some(Hit::RenameGo),
@@ -870,15 +916,33 @@ pub fn draw_rename_bar(c: &mut Ctx, bar: Rect, name: &str, to: &str) {
         close_hovered: c.hover == Some(Hit::RenameDismiss),
     };
     let text = format!("{name} is Markdown now. Rename it to {to}?");
-    let hits = notice::draw_offer_bar(c.p, c.pal, bar, glyph::DOC, &text, "Rename", "Keep", state);
+    let pal = *c.pal;
+    let Some(hits) = notice::draw_sliding(c.p, bar, t, |p, moved| {
+        notice::draw_offer_bar(p, &pal, moved, glyph::DOC, &text, "Rename", "Keep", state)
+    }) else {
+        return;
+    };
     for (hit, r) in [
         (Hit::RenameGo, hits.yes),
         (Hit::RenameKeep, hits.no),
         (Hit::RenameDismiss, hits.close),
     ] {
         if let Some(r) = r {
-            c.hit(hit, r);
+            banner_hit(c, bar, t, hit, r);
         }
+    }
+}
+
+/// Shared returns moved targets. Hidden parts must not steal clicks from what is above them.
+fn banner_hit(c: &mut Ctx, bar: Rect, t: f32, hit: Hit, r: Rect) {
+    if t >= 1.0 {
+        c.hit(hit, r);
+        return;
+    }
+    let y = r.y.max(bar.y);
+    let end = r.bottom().min(bar.y + crate::motion::banner_height(t));
+    if end > y {
+        c.hit(hit, Rect::new(r.x, y, r.w, end - y));
     }
 }
 
@@ -933,10 +997,10 @@ pub fn draw_ai_bar(c: &mut Ctx, ai: &crate::ai::Bar, bar: Rect) {
     );
 }
 
-pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, choice: ThemeChoice) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);
-    let t = bar_text(c.p, docs);
+    let t = bar_text(c.p, docs, choice);
     let plan = bar_plan(r.w, &t);
     let y = r.y + (BAR_H - 32.0) / 2.0;
     let cy = y + 16.0;
@@ -1061,7 +1125,6 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     // Right group, from the right edge.
     let mut rx = r.right() - MARGIN - ICON_BTN;
     button(c, rx, BarItem::More, glyph::MORE, None, false);
-    let choice = docs.theme;
     let tw = labelled(t.theme, plan.labels);
     rx -= GAP + tw;
     button(

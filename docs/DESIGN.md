@@ -4012,14 +4012,64 @@ notes record as written by a newer version.
 ## 96. Motion: one animator, and the menus' fade (2026-11-25)
 
 `bins/mdedit/src/motion.rs`, its wiring in `app.rs` (`compose`) and `app/commands.rs`
-(`timers`, `woken`), tests in `app/motion_tests.rs`. Built on shared `anim` (`48eb3ce`; shared's
-`docs/ANIMATION.md` says how its pieces work). D-232, D-233, D-235.
+(`timers`, `woken`), tests in `app/motion_tests.rs`. Built on shared `anim` (`1588e0f`; shared's
+`docs/ANIMATION.md` says how its pieces work). D-232, D-233, D-235, D-255, D-257.
 
-**The animator.** `App::motion` holds the window's one `Animator`. `compose` calls `begin_frame`
-first and `end_frame` last; the deadline is kept in `Motion::due`, which `timers` turns into a
-wake-up and clears when it fires (it asks for a frame, `about_to_wait` requests the redraw). While
-nothing moves the deadline is `None`, so there is no timer and no frame: an idle window, menu open
-or not, costs nothing.
+**The animator.** `App::motion` holds the window's one `Animator`. `compose` calls
+`begin_frame` first and `end_frame` last; the deadline is kept in `Motion::due`, which `timers`
+turns into a wake-up and clears when it fires (it asks for a frame, `about_to_wait` requests the
+redraw). While nothing moves the deadline is `None`, so there is no timer and no frame: an idle
+window, menu open or not, costs nothing.
+
+**The pin `09b01c1`** (through `8d35a07`, shared PR 24; D-261) changed one thing for mdedit: the
+stack's wait for the lift is skipped when nothing animates. The rest of that pin is not mdedit's:
+the one-frame hover flash (#31) was in `chrome::*_animated`, and mdedit draws its title row with
+the static `chrome::draw_tab`, `draw_win_button`, `draw_new_tab_button` and `button_fill`;
+colour rows and drag-number rows (#30) are opt-in rows of shared's Settings form that mdedit does
+not build; the application's veil (#27, `Frost::set_veil`) is for a backdrop strength mdedit does
+not offer; and the pool's cancel (#28) and the window-procedure hand-over (#29) are for apps using
+`mdshared_app::pool` and `single_mutex`, which mdedit does not. `pages::CARD_RADIUS`,
+`Form::menu_rect` and `Form::menu_bounds` are additions a host may use; the before-and-after
+shots of the pin are identical but for the clock-stamped `runs*`.
+
+**The pin `1588e0f`** (D-273) makes `Cascade::keys_cancel_wait` available without enabling
+it anywhere by itself. On Linux, `App::new` reads the system theme at launch; with this
+pin that first read starts `mdshared-theme`, a long-lived helper that keeps a session
+D-Bus connection open to watch the settings portal when available. The first read can
+wait for the portal's initial reply up to the existing limit. Launch and idle costs of
+this Linux change have not been measured. The new layout, terminal and scroll-area modules
+are not used by mdedit merely by moving the pin.
+
+**Tooltips.** `Ui::tip` is shared's `Tooltip<Hit>`: `update_tip` (`app/input.rs`) gives it the
+control under the pointer, its text from `chrome::tooltip` (or the replace strip's own) and its
+rectangle, and the pointer's place **on every move** — `Tooltip::hover_at`, so the
+`document::TIP_DELAY` 500 ms counts from the pointer coming to rest, not from entering the
+control (D-262). `timers` turns `Tooltip::deadline` into the wake-up and `Tooltip::tick` shows
+it; a neighbour's tip shows at once while one shows, a press hides it and blocks that control
+until the pointer leaves (`Tooltip::press`), and a key, a scroll, a popup, a middle click on a
+tab, or the pointer leaving the window hides it. `Ui::hide_tip` also forgets the control and
+place, so coming back arms its delay again. `App::hide_tip` additionally requests a frame if a
+tip was showing, even when the wheel does nothing else. It is drawn as a bubble with the
+presence `Motion::tip_presence` asks for in
+the group `TIP_GROUP`: it fades in by `document::TIP` and is gone at once, so no frame is asked
+for after it goes. Under `Policy::Never` the presence is 1 on its first frame and the bubble is
+drawn by `Bubble::draw`, the pixels of before. The fade's `t` is in the overlay signature with
+the bubbles', so each frame of it redraws what the tip covers; a tip taken away mid-fade goes at
+once and the pixels under it come back. A move that changes neither the control nor the pointer's
+place is skipped before any text is asked for (`Ui::tip_point`): 215 ns a move within one
+control and 25 ns when skipped, a batch of 200,000 divided
+(`docs/measurements/2026-11-26-tooltip-moves.md`). `tests/shots.sh` shows it part way in with
+`--tip-ms 90` (`tip-rising-light`, `tip-rising-dark`).
+
+**Its tests**, four from M-C — `with_motion_off_the_tip_is_there_on_its_first_frame` (the whole
+tip on its first frame, `Bubble::draw`, no timer), `a_tip_fades_in_and_settles_with_no_timer_left`,
+`a_tip_waits_from_the_pointer_coming_to_rest` (through `pointer_moved`) and
+`a_press_hides_the_tip_until_the_pointer_leaves` — and three from the review of them:
+`a_tip_taken_away_mid_fade_goes_at_once_and_the_pixels_come_back`,
+`a_neighbours_tip_shows_at_once_without_a_second_fade` and
+`every_frame_of_the_fade_damages_what_the_tip_covers`. Input tests show a wheel that otherwise
+does nothing still erases the pixels, a real `CursorLeft` resets the rest delay, and a middle
+click dismisses the closed tab's tip (D-265, D-269).
 
 **Whether anything moves** is `Motion::policy`, the one place: `Policy::Never` in a shot and in
 every test (`args.shot` or `cfg(test)`), and with the Animations setting off (`prefs.animations`,
@@ -4039,8 +4089,8 @@ only, at most 1000 ms) animates whatever the system says, on a clock stepped 16 
 **The menus' fade.** `Motion::menus` asks each open menu's presence, in the group `MENUS`, by the
 popup's `serial` (a new number for every `Popup` made, so a menu opened again, or Recent replacing
 the main menu, enters again; a menu listed again in place keeps its serial). Each enters by
-`MENU` (the shared preset's decelerating curve over `MENU_IN`, 117 ms at the owner's word; both
-in `motion.rs`, the one place timings live): it fades as one thing and drops
+`MENU` (in `motion.rs`, the one place timings live: shared's `document::MENU` as it is, 117 ms
+decelerating since shared `f45a71c`, D-255): it fades as one thing and drops
 `MENU_DROP` (6 px) into place, rising for a menu above its anchor; a submenu enters the same way
 beside its parent. The AI menu's Modify buttons are drawn inside the same `pop`. Closing is
 instant: the popup goes, and the regions under its bounds are drawn the next frame. The word
@@ -4061,3 +4111,202 @@ and a device pixel), not `rect().inset(-20)`.
 **Frost.** The overlay painter is given the frost key (`set_frost_key`), so a menu fading over
 frosted chrome mixes with it as the compositor shows it (`Snapshot::crossfade_keyed`) instead of
 turning opaque half way. Not seen on a frosted window.
+
+## 97. Motion: toasts rise in, stack and leave (2026-11-25)
+
+`bins/mdedit/src/motion.rs` (`toasts`, `Motion::sync_toasts`, `toast_y`), the status in
+`docs.rs` (`set_toast`, `confirm_toast`, `clear_toast`, `toast_line`), the drawing in
+`app.rs` (`compose`), tests in `app/motion_tests.rs`. D-256, D-257.
+
+**The status and the toasts.** `Docs` keeps one status message: its text, until when (2.5 s from
+when it is set, `strings::TOAST_MS`), whether it stacks, and a serial, new for every message. The
+window's toasts follow it in `Motion::sync_toasts`, asked on every frame before the overlays are
+laid out: a serial not seen yet is taken in, by `Stack::replace_newest` for `set_toast` (a status:
+in place, no exit, no entrance) after `remove` of every other toast the last frame showed — the
+ones still playing their exit included, which `current` does not name — by `Stack::show` for
+`confirm_toast` (a confirmation: under the others, and it enters once they have lifted,
+`Stack::with_wait_for_lift`), and `Stack::clear` when the status is cleared. A status that takes
+over **a toast still waiting for its lift** — and only such a toast — is put at presence 1
+through `Animator::set` for that frame: the stack gives the wait up, but the animator keeps the
+delay it was first given for the name, since a new motion for an unchanged target is ignored, and
+the status would wait in the dark. Which toast that is is `Motion::toast_waiting`, the key
+`Stack::show` returned while the stack already held something (a toast at rest, or one leaving),
+**and** that key must still be at nothing on the last frame: one past its wait is coming in, and
+the status lets it go on from where it is. A toast that came onto an empty stack was pushed
+without a wait, so a status taking it over lets it keep rising, first frame or part way. A repeat
+of the waiting toast leaves `toast_waiting` as it was, since `revive` keeps the animator's delay.
+A confirmation said again never stands twice: while it is the newest it keeps its own toast,
+key and presence (its time reset, so Copy path pressed twice does not blink), and one standing
+higher is taken out first and comes in again at the bottom. A message whose time is already past
+when it is taken in shows nothing. What is left of its time is counted on from that frame on the
+frame's clock, so a test's or a shot's clock moved by hand runs it too. `Stack::tick` sends away
+what is due; its `deadline` is `toast_until`, the timer that wakes for it (`timers`), and a
+message not taken in yet asks for a frame there (`toast_unseen`).
+
+**Drawing.** `Stack::frame` gives each toast, bottom first, with its presence and its lift (the
+heights and 8 px gaps of the ones under it, on its way by `fluent::MOVE`). `compose` walks them
+the other way, newest last, so the bottom toast's body covers the shadow the one above it throws;
+places each with `Bubble::toast` and raises it by its lift to a whole device pixel (`toast_y`,
+which moves it by whole device pixels from its place at rest); one that would reach above the
+text area is left out unless it is the bottom one, however short the window. A toast at rest is
+drawn with `Bubble::draw`, one on its way with `draw_presence` (it fades and rises 8 px). The
+overlays' bounds hold each toast's `presence_bounds()`, and the overlay signature holds each
+presence, so a moving toast redraws what is under it each frame. Under `Policy::Never` every
+presence is at once 1 or gone: one toast at rest is the pixels of before. The wait for the lift
+is a delay, and `Stack::frame` asks for it only while the animator animates (shared PR 24, in
+the pin `09b01c1`): with nothing moving there is no lift, so a stacked toast is there on the
+frame it is pushed. `with_no_motion_two_confirmations_are_both_there_at_once` and
+`the_one_toast_a_very_short_window_shows_is_there_at_once` hold that, in all three ways of
+having no motion. The status's snap (`Animator::set`) stays: with motion on, the animator keeps
+a name's delay even after `Stack::replace` gives the wait up.
+
+**Who stacks** (`confirm_toast`): File path copied, Path copied, Copied the result, the crash
+report copied, Image saved as … (both paste paths), Renamed to …, the macro saved, a note added
+to the library, Saved as … (an AI prompt), The picture on the clipboard is added, a note moved,
+a group deleted. Everything else replaces (`set_toast`).
+
+**Shots.** `--toast TEXT` (repeatable: the earlier ones at rest and stacked, the last one coming
+in) and `--motion-ms MS` (the last one that far in, on the shot's clock). A toast pushed onto
+another waits for its lift, so a toast shot steps the animator's clock (`Motion::shot_fade`):
+each earlier toast is stepped to rest, and the last one by `--motion-ms`, or to rest without it.
+`toast-*`, `toast-rising-*` (50 ms), `toasts-stacking-*` (200 ms: the lift done, the newcomer
+part way in), `toasts-stacked-*`, `toast-repeated-*` (the first said again, at the bottom),
+`toasts-short-*` (520 × 220, the third left out).
+
+## 98. Motion: the Settings form and the tree's chevrons (M-D, 2026-11-26)
+
+`motion.rs` (`DISCLOSURE`, `SIDEBAR`, `SETTINGS`), `panes.rs` (`draw_files`), `app.rs` (`compose`,
+the shot's `--settings-ms` and `--tree-ms`), shared's `settings::pages::Form::draw_animated` and
+`glyph::draw_disclosure_animated_with`. D-264.
+
+**The Settings form.** `Form::draw_animated` slides switches and the selected segment's fill.
+It fades an unselected category's highlight and the rows of an open dropdown, not general
+control hover fills. The paged form has no scrollbar. Changing pages or closing the dialog
+is instant and forgets the old page's tracks. The `SETTINGS` group repaints the whole window
+when due; an early frame that skips the form keeps the group and its pending paint deadline.
+With Animations off, a real toggle in the app matches a reference drawn with `Form::draw` on
+the first frame. The tree test compares the live Files pane's chevrons against plain glyphs.
+
+**The tree's chevron.** Each folder row's disclosure is `glyph::draw_disclosure_animated_with`
+under the name `("files", path)`, turned by `motion::DISCLOSURE` (shared's `DISCLOSURE_MOTION`,
+167 ms, `fluent::MOVE`): at rest it is the plain right or down chevron, pixel for pixel. The pane
+draws inside the group `SIDEBAR`; its paint deadline damages the Files region when due. An
+early frame keeps the group and that original deadline, just as for Settings, so the turn
+continues even during a stream of 16 ms frames. Hiding Files drops the tracks and the deadline
+(D-272).
+
+**Shots.** `--settings-ms MS` draws the old knob position, changes the Typing switch at time
+zero, then advances to the requested sample (`settings-switch-*`, 60 ms). `--tree-ms MS`
+samples the first closed folder's turn (`tree-chevron-*`, 60 ms). Both use the shot's manual
+clock and run in both themes. The Settings test uses 16 ms ticks: the first is early at a
+60 Hz cadence and skips the form; the second reaches the original deadline.
+
+**The title row (M-E, D4).** `chrome::draw_title` draws its inactive tabs with `chrome::draw_tab_animated`
+(named `("tab", document id)`, so a tab that moves keeps its fade), its caption buttons with
+`draw_win_button_animated` (named `("win", hit)`; Close's fill turns red and its glyph white) and
+the new-tab button with `draw_new_tab_button_animated` (`("new-tab",)`), all in the group
+`TITLE`: a quiet tab's hover fill and label fade by `document::HOVER` (shared's `FADE`, 83 ms
+linear); its close button shows at once. The active tab takes the plain path, so hovering it
+does not schedule identical frames and its close-button hover remains instant. The group
+damages the title row when due; an early frame that skips it keeps the tracks and the original
+paint deadline (D-270). The bar's buttons (`Ctx::fill_for`) are not animated: they are
+not the title row (X3's `Menu::draw_in_animated` covers a menu's rows, not the bar's).
+The shared fix of the `t == 0` hover flash (shared #31) is in the pin, so the fade starts from
+the rest look rather than a frame of the full one. Shots: `--hover-ms MS` takes the tip away and
+moves on a clock from the first frame that sets the hover — a still window would draw the
+finished fade and the steps after it would prove nothing (`title-hover-*`, `tab-hover-*`, 40 ms
+of 83, both themes; the second shot needs two files for a quiet tab).
+
+**A menu's hovered row, the palette and the bars (M-E, X3).** `motion::draw_menu` draws each
+menu with `Menu::draw_in_animated`, keyed by the popup serial, in the group `ROWS`. A frame
+whose group is due damages the overlay; a frame that skips the popup keeps the group and its
+earlier deadline. The completion popup uses plain drawing for both entrance and hover. The
+command palette draws by `Palette::draw_presence` at `Motion::palette_t` (117 ms decelerating)
+and is damaged by its
+`presence_bounds()` — the same bounds a menu is damaged by, `rect().inset(-20)` having gone from
+both. The anchored language list stays instant. Each update, crash, stale-tab and rename
+notice uses `notice::draw_sliding`; `notice::bar_height` sets its visible height for
+layout and clips its button hits. Only notices arriving after the first paint slide on: the
+editor moves down as the strip grows, with no empty space reserved ahead of it. On the first
+paint or with motion off, both layout and paint give a visible notice full height. A rename
+offer returning with its tab snaps back, and closing any bar or palette is instant (D-271).
+Shots: `--motion-clock MS` sets the demo in motion after the initial paint and steps the clock
+by hand: `menu-row-hover-*`, `palette-in-*` and `{update,crash,stale,rename}-sliding-*`,
+40 ms in both themes.
+
+**M-F, L1.** `ui::Popup` owns a plain menu or a `submenu::Cascade`; only a root with
+submenu items uses the cascade. It keeps the root's anchor, then uses shared layout for
+each opened child. Shared's nodes are a snapshot; after a child opens, mdedit replaces
+its items with the current listing before paint or use. `App::timers` only asks for
+the cascade's deadline while it has one.
+Escape and Left cancel the pending pointer change before acting on the current submenu.
+The root and open child keep their own 117 ms entrance tracks; closing stays instant.
+`menu-cascade-entering-*` shows the Main/View entrance in both themes. Existing Main and Text
+shots show the shared chevrons and the child placed against its opening row rather than the
+old guessed anchor. As in shared `Cascade` and mdview, a 300 ms rest on the root
+menu's padding closes the open submenu (D-278, clarifying D-274). Crossing the
+padding does not close it immediately; entering the submenu before the 300 ms
+deadline cancels the pending close. The revised assertions in
+`the_pointer_reaches_the_submenu_across_the_padding_and_another_row` deliberately
+cover both outcomes.
+
+**Settings entrance (D-279).** Each opening names a 117 ms presence. The overlay
+signature includes that presence, so the editor underneath and the dim and card
+are redrawn together. The zero-presence frame lays out the form but does not
+paint or copy it. Mid-fade, `Painter` copies only `dialog_bounds(form.rect())`,
+including the shadow; `p.fade` blends that area. Outside it, the already dimmed
+RGB values are corrected in place by the ratio `(1 − a·t)/(1 − a)`, implemented
+as a lookup matching the pinned painter's byte rounding within one level.
+At rest, with Animations off, or with reduced motion, no copy is needed and the
+form uses its normal drawing. Opening a Settings dropdown during the entrance
+finishes the entrance so a menu extending outside the card is never treated as
+backdrop. Repeating the request for an open dialog does not restart it; closing
+forgets the presence at once, and opening again gets a fresh one. Changing pages
+does not get a transition. `settings-opening-*` captures the entrance in both themes.
+
+**Light/dark crossfade (D-280).** Before replacing the palette or resizing its
+bitmap, a normal compose can snapshot its last displayed content. `frames > 0`
+excludes the initial palette sync. The one retained theme snapshot is at most
+2560 × 1600 pixels (15.625 MiB at four bytes per pixel); a quick second flip
+releases it before taking a snapshot of the already blended pixels. Each step
+paints and presents the whole window and then drops the snapshot at 170 ms, with
+no further motion deadline. Requested or active frost, reduced motion, and
+Animations off snap. A size-changing resize (including minimization) clears
+the snapshot even if another frame does not paint; same-size resize keeps it.
+If the next palette differs and a painted overlay closed, a fade-eligible flip
+first composes the live overlays in the old palette without presenting that pass
+(D-283). The toolbar and replace strip use the last drawn Theme choice for
+the button's glyph and text and the layout they share. Compose then captures
+that clean frame and presents the blend. The palette or menu closes on the
+first presented frame. There is no extra pass
+when motion is off or capture is otherwise disabled. A close during an active
+fade instead drops the snapshot and snaps, so the old image cannot linger.
+Root and submenu serials distinguish replacing a menu from keeping it open;
+the inventory also tracks dialog and palette serials, Settings openings and page
+indices, and tooltip keys and text.
+The cap limits the theme copy, not total private memory (D-281).
+
+Visual preview and the full-window plan, task, import, move, note and AI cards
+are drawn inside the same compose, not in a separate renderer. The startup and
+shot palette syncs and `compose_layout_only` do not capture; the layout-only
+pass drops any retained image. `theme-fading-*` shows both directions 85 ms in,
+including a simulated desktop flip while the Settings Theme row stays on System.
+
+**M-F, L3.** An overflowing embedded preview uses the same shared track and thumb
+whether alongside the editor or filling its area. `Hit::ScrollBar(Scroller::Page)`
+wins over the page selection hit; page clicks and thumb drag send the normal preview
+scroll request. `preview-scrollbar-*` shows the split preview partway down in both themes.
+
+**M-F, W2.** `app/pane_keys.rs` routes the left-pane shortcuts and cursor keys.
+`Ui::pane_focus` distinguishes keyboard focus from the document's active row; the
+row and ring target are part of the Files region signature. The `SIDEBAR` group
+owns the ring fade, so a skipped pane paint cannot lose it or keep waking the window
+after it settles. The `*-keyboard-focus-*` and `*-keyboard-empty-*` shots show
+the two pane faces partway through the fade, with and without rows.
+
+**M-F, W3.** `Session` keeps the legacy content size and position for compatibility.
+The shared monitor-aware value supplies the launch position when its monitor still
+exists; the legacy value still supplies the window size. `app/window_restore.rs` gates
+the shared restore before it can pick a different monitor. A modern session whose
+monitor is gone passes no position to winit. The monitor-aware lookup runs only for
+a session with a valid `window_state` value.

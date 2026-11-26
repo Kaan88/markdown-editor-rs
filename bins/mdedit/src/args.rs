@@ -62,6 +62,8 @@ pub enum ShotMenu {
     /// The active document made Markdown as the AI's Format as Markdown does, with the bar
     /// offering its `.md` name.
     RenameBar,
+    CrashBar,
+    StaleBar,
     /// The menu of the Preview button's arrow, drawn as it is when mdview is found.
     Preview,
     /// The AI menu under the bar's AI edit button (needs `--pref ai_connection=…`).
@@ -123,6 +125,9 @@ pub struct Args {
     pub files: Vec<PathBuf>,
     /// `--light` (false) or `--dark` (true).
     pub dark: Option<bool>,
+    /// `--theme-flip light|dark`: crossfade from the opposite system theme unless
+    /// `--light` or `--dark` names the starting theme. For `--shot` only.
+    pub theme_flip: Option<bool>,
     /// `--folder <dir>`: the Files pane's folder.
     pub folder: Option<PathBuf>,
     /// `--files` / `--no-files`: show or hide the Files pane.
@@ -172,6 +177,30 @@ pub struct Args {
     /// `--menu-fade-ms MS`: a `--shot` of the `--menu` this far into its entrance (0 to 1000;
     /// more is at rest). Ignored without `--shot` and `--menu`.
     pub menu_fade_ms: Option<u32>,
+    /// `--toast TEXT`, given once or more: the confirmations a `--shot` shows as toasts, the
+    /// earlier ones at rest and stacked, the last one coming in under them with `--motion-ms`.
+    pub toasts: Vec<String>,
+    /// `--tip-ms MS`: a `--shot` of the `--hover` control's tooltip this far into its fade (0 to
+    /// 1000; more is at rest). Ignored without `--shot` and `--hover`.
+    pub tip_ms: Option<u32>,
+    /// `--motion-ms MS`: a `--shot` of what its last `--toast` sets moving, this far into its
+    /// motion (0 to 1000; more is at rest). Ignored without `--shot`.
+    pub motion_ms: Option<u32>,
+    /// `--settings-ms MS`: a `--shot` of the Settings dialog one switch turned, this far into
+    /// its slide (0 to 1000; more is at rest). Needs `--settings-section` on a page with a
+    /// switch, and is ignored without `--shot`.
+    pub settings_ms: Option<u32>,
+    /// `--tree-ms MS`: a `--shot` of the Files tree with its first folder opened, this far into
+    /// the chevron's turn (0 to 1000; more is at rest). Ignored without `--shot`.
+    pub tree_ms: Option<u32>,
+    /// `--hover-ms MS`: a `--shot` of what `--hover` sets moving in the title row (a caption
+    /// button's or a tab's hover fill), this far into it (0 to 1000; more is at rest). Ignored
+    /// without `--shot` and `--hover`.
+    pub hover_ms: Option<u32>,
+    /// `--motion-clock MS`: a `--shot` of everything else it sets moving (a menu's hover rows,
+    /// the command palette, a notice bar) that far into its motion, on a clock of the shot's
+    /// own (0 to 1000; more is at rest). Ignored without `--shot`.
+    pub motion_clock: Option<u32>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
     /// `--wrap`: word wrap.
@@ -182,6 +211,8 @@ pub struct Args {
     pub find_in_tabs: bool,
     /// `--outline`: the left pane with the active document's function list.
     pub outline: bool,
+    /// `--pane-focus`: give the pane the keyboard before capturing a shot.
+    pub pane_focus: bool,
     /// `--bookmark <line>`, as often as wanted: bookmarked lines of the active document.
     pub bookmarks: Vec<usize>,
     /// `--split`: two files side by side, the tab after the active one in the second pane.
@@ -390,6 +421,7 @@ impl Args {
                 "--minimap" => out.minimap = true,
                 "--find-in-tabs" => out.find_in_tabs = true,
                 "--outline" => out.outline = true,
+                "--pane-focus" => out.pane_focus = true,
                 "--bookmark" => {
                     if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
                         out.bookmarks.push(n);
@@ -535,6 +567,20 @@ impl Args {
                 }
                 "--menu-at" => out.menu_at = checked(&a, value(&a), |v| v.parse().ok()),
                 "--menu-fade-ms" => out.menu_fade_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--toast" => out.toasts.extend(value(&a)),
+                "--motion-ms" => out.motion_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--tip-ms" => out.tip_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--settings-ms" => out.settings_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--tree-ms" => out.tree_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--hover-ms" => out.hover_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--motion-clock" => out.motion_clock = checked(&a, value(&a), |v| v.parse().ok()),
+                "--theme-flip" => {
+                    out.theme_flip = checked(&a, value(&a), |v| match v {
+                        "light" => Some(false),
+                        "dark" => Some(true),
+                        _ => None,
+                    });
+                }
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),
@@ -583,6 +629,8 @@ impl Args {
                         "library-newgroup" => Some(ShotMenu::LibraryNewGroup),
                         "library-remove" => Some(ShotMenu::LibraryRemove),
                         "rename-bar" => Some(ShotMenu::RenameBar),
+                        "crash-bar" => Some(ShotMenu::CrashBar),
+                        "stale-bar" => Some(ShotMenu::StaleBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
                         "preview" => Some(ShotMenu::Preview),
                         "bar-ai" => Some(ShotMenu::BarAi),
@@ -690,6 +738,16 @@ mod tests {
         );
         assert!(a.find_in_files && a.results_focus && a.replace_dialog && a.replace_report);
         assert_eq!(a.results_replace.as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn motion_shot_flags() {
+        let a = parse("--toast Copied --toast Saved --motion-ms 67 --menu-fade-ms 40 a.rs");
+        assert_eq!(a.toasts, ["Copied", "Saved"]);
+        assert_eq!((a.motion_ms, a.menu_fade_ms), (Some(67), Some(40)));
+        let b = parse("--motion-ms soon a.rs");
+        assert_eq!(b.motion_ms, None);
+        assert!(b.toasts.is_empty());
     }
 
     #[test]

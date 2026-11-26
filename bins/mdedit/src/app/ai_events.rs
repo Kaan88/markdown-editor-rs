@@ -169,7 +169,7 @@ impl App {
                 if let Some(i) = self.ai.instruction() {
                     i.selected = k;
                 }
-                self.docs.set_toast(&format!(
+                self.docs.confirm_toast(&format!(
                     "Saved as \u{201c}{name}\u{201d}. Edit saved prompts to rename it."
                 ));
             }
@@ -840,7 +840,7 @@ impl App {
             self.close_palette();
         }
         self.ui.popup = None;
-        self.ui.tip = None;
+        self.ui.hide_tip();
         self.ui.hover = None;
         self.ui.find_focused = false;
         self.ai.hover = None;
@@ -1037,7 +1037,7 @@ impl App {
                 // The review may be the only place the result is (its document closed): it
                 // closes only once the result is on the clipboard (audit 1 round 3, #3).
                 if copy_text(&text) {
-                    self.docs.set_toast("Copied the result.");
+                    self.docs.confirm_toast("Copied the result.");
                     if let Some(fr) = file {
                         // The file is left as it was, and the run goes on with the next
                         // (audit 4, B3).

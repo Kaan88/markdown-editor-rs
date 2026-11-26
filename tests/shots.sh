@@ -51,6 +51,14 @@ shot() {
 }
 
 shot rs-light --light "$fx/sample.rs"
+shot files-keyboard-focus-light --light --files --folder "$fx" --pane-focus --motion-clock 40 "$fx/cjk.txt"
+shot files-keyboard-focus-dark --dark --files --folder "$fx" --pane-focus --motion-clock 40 "$fx/cjk.txt"
+shot functions-keyboard-focus-light --light --outline --pane-focus --motion-clock 40 "$fx/sample.rs"
+shot functions-keyboard-focus-dark --dark --outline --pane-focus --motion-clock 40 "$fx/sample.rs"
+shot files-keyboard-empty-light --light --files --pane-focus --motion-clock 40 --new
+shot files-keyboard-empty-dark --dark --files --pane-focus --motion-clock 40 --new
+shot functions-keyboard-empty-light --light --outline --pane-focus --motion-clock 40 --new
+shot functions-keyboard-empty-dark --dark --outline --pane-focus --motion-clock 40 --new
 shot rs-dark --dark "$fx/sample.rs"
 shot md-light --light "$fx/sample.md"
 shot toml-dark --dark "$fx/sample.toml"
@@ -77,6 +85,27 @@ shot menu-main --light --menu main "$fx/sample.rs"
 # The main menu half way into its entrance (--menu-fade-ms, a shot's clock): faded and dropped.
 shot menu-main-fade --light --menu main --menu-fade-ms 40 "$fx/sample.rs"
 shot menu-main-fade-dark --dark --menu main --menu-fade-ms 40 "$fx/sample.rs"
+# Toasts (--toast, a confirmation each; --motion-ms, the last one part way in): one at rest; one
+# 50 ms into its entrance (faded, below its place); a second 200 ms in — the first has lifted out
+# of its way and the second is part way in under it; two at rest; the first confirmed again, which
+# moves it to the bottom instead of standing twice; three in a short window, where the one that
+# would reach above the page is left out.
+shot toast-light --light --toast "File path copied" "$fx/sample.rs"
+shot toast-dark --dark --toast "File path copied" "$fx/sample.rs"
+shot toast-rising-light --light --toast "File path copied" --motion-ms 50 "$fx/sample.rs"
+shot toast-rising-dark --dark --toast "File path copied" --motion-ms 50 "$fx/sample.rs"
+shot toasts-stacking-light --light --toast "File path copied" --toast "Image saved as a.png" --motion-ms 200 "$fx/sample.rs"
+shot toasts-stacking-dark --dark --toast "File path copied" --toast "Image saved as a.png" --motion-ms 200 "$fx/sample.rs"
+shot toasts-stacked-light --light --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
+shot toasts-stacked-dark --dark --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
+shot toast-repeated-light --light --toast "File path copied" --toast "Image saved as a.png" --toast "File path copied" "$fx/sample.rs"
+shot toast-repeated-dark --dark --toast "File path copied" --toast "Image saved as a.png" --toast "File path copied" "$fx/sample.rs"
+# The newest confirmed again, 0 ms after: it keeps its own toast at rest instead of being taken
+# out and coming in again (which would leave nothing there for this frame).
+shot toast-repeat-newest-light --light --toast "File path copied" --toast "Image saved as a.png" --toast "Image saved as a.png" --motion-ms 0 "$fx/sample.rs"
+shot toast-repeat-newest-dark --dark --toast "File path copied" --toast "Image saved as a.png" --toast "Image saved as a.png" --motion-ms 0 "$fx/sample.rs"
+shot toasts-short-light --light --size 520x220 --toast "Path copied" --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
+shot toasts-short-dark --dark --size 520x220 --toast "Path copied" --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
 shot menu-recent --light --menu recent "$fx/sample.rs" "$fx/sample.md" "$fx/sample.toml"
 shot menu-tab --dark --menu tab "$fx/sample.rs" "$fx/sample.md"
 shot menu-text --light --select 9:1-10:20 --menu text "$fx/sample.rs"
@@ -132,6 +161,8 @@ shot whitespace-dark --dark --whitespace "$fx/mixed.txt"
 shot menu-view --light --menu view "$fx/sample.rs"
 shot menu-macro --light --menu macro "$fx/sample.rs"
 shot menu-main-view --light --menu main-view "$fx/sample.rs"
+shot menu-cascade-entering-light --light --menu main-view --menu-fade-ms 40 "$fx/sample.rs"
+shot menu-cascade-entering-dark --dark --menu main-view --menu-fade-ms 40 "$fx/sample.rs"
 shot menu-main-macro-dark --dark --menu main-macro "$fx/sample.rs"
 shot split --light --split --goto 12:5 "$fx/sample.rs" "$fx/sample.md"
 shot split-dark --dark --split --wrap --size 900x600 "$fx/sample.md" "$fx/sample.rs"
@@ -149,6 +180,31 @@ shot dialog-about --dark --dialog about "$fx/sample.rs"
 shot dialog-shortcuts --light --dialog shortcuts "$fx/sample.rs"
 shot dialog-recent --light --dialog recent "$fx/sample.rs" "$fx/sample.md" "$fx/cjk.txt"
 shot hover-open --light --hover 46,63 "$fx/sample.rs"
+# M-E, X3: a menu's hovered row fading (shared's `Menu::draw_in_animated`), the command palette
+# popping in (`Palette::draw_presence`) and the update bar sliding into its strip
+# (`notice::draw_sliding`), each 40 ms in on the shot's clock, in both themes.
+shot menu-row-hover-light --light --menu main --hover 1150,397 --motion-clock 40 "$fx/sample.rs"
+shot menu-row-hover-dark --dark --menu main --hover 1150,397 --motion-clock 40 "$fx/sample.rs"
+shot palette-in-light --light --palette ">fold" --motion-clock 40 "$fx/sample.rs"
+shot palette-in-dark --dark --palette ">fold" --motion-clock 40 "$fx/sample.rs"
+shot update-sliding-light --light --update-bar available --motion-clock 40 "$fx/sample.rs"
+shot update-sliding-dark --dark --update-bar available --motion-clock 40 "$fx/sample.rs"
+shot crash-sliding-light --light --menu crash-bar --motion-clock 40 "$fx/sample.rs"
+shot crash-sliding-dark --dark --menu crash-bar --motion-clock 40 "$fx/sample.rs"
+shot stale-sliding-light --light --menu stale-bar --motion-clock 40 "$fx/sample.rs"
+shot stale-sliding-dark --dark --menu stale-bar --motion-clock 40 "$fx/sample.rs"
+shot rename-sliding-light --light --menu rename-bar --motion-clock 40 "$fx/sample.rs"
+shot rename-sliding-dark --dark --menu rename-bar --motion-clock 40 "$fx/sample.rs"
+# M-E, D4: the title row's hover fills fade (shared's `chrome::*_animated`): the Close button and
+# a quiet tab part way in, on the shot's clock, in both themes.
+shot title-hover-light --light --hover 1258,21 --hover-ms 40 "$fx/sample.rs"
+shot title-hover-dark --dark --hover 1258,21 --hover-ms 40 "$fx/sample.rs"
+shot tab-hover-light --light --hover 210,21 --hover-ms 40 "$fx/sample.md" "$fx/sample.rs"
+shot tab-hover-dark --dark --hover 210,21 --hover-ms 40 "$fx/sample.md" "$fx/sample.rs"
+# A tooltip part way into its fade (--tip-ms, on the shot's clock), in both themes: the Open
+# button's tip, over a document.
+shot tip-rising-light --light --hover 46,63 --tip-ms 90 "$fx/sample.rs"
+shot tip-rising-dark --dark --hover 46,63 --tip-ms 90 "$fx/sample.rs"
 shot scale-150 --light --scale 1.5 "$fx/sample.rs"
 shot small --light --size 520x360 "$fx/sample.rs"
 shot files-pane --light --files --folder "$fx" "$fx/sample.rs"
@@ -203,6 +259,19 @@ done
 # rewrite's rows disabled with the reason), Claude Code found, a model list that failed with a
 # model typed, and the window backdrop set to Mica (a shot has no window, so the chrome is flat).
 shot settings-tabs-on --light --pref skip_brief=1 --dialog settings --settings-section tabs "$fx/sample.rs"
+# M-D: the Typing knob 60 ms after changing a drawn switch (not 60 ms after opening the form), and
+# the Files tree's chevron turning, each part way in on the shot's clock, in both themes.
+shot settings-switch-light --light --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"
+shot settings-switch-dark --dark --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"
+shot settings-opening-light --light --dialog settings --motion-clock 67 "$fx/sample.rs"
+shot settings-opening-dark --dark --dialog settings --motion-clock 67 "$fx/sample.rs"
+shot theme-fading-dark --light --theme-flip dark --motion-clock 85 "$fx/sample.rs"
+shot theme-fading-light --dark --theme-flip light --motion-clock 85 "$fx/sample.rs"
+# Keep the Theme row on System while simulating a desktop theme flip.
+shot theme-fading-settings-dark --dialog settings --theme-flip dark --motion-clock 85 "$fx/sample.rs"
+shot theme-fading-settings-light --dialog settings --theme-flip light --motion-clock 85 "$fx/sample.rs"
+shot tree-chevron-light --light --files "$fx" --tree-ms 60 "$fx/sample.rs"
+shot tree-chevron-dark --dark --files "$fx" --tree-ms 60 "$fx/sample.rs"
 shot settings-ai-rewrite-off --light --dialog settings --settings-section ai-rewrite "$fx/sample.rs"
 shot settings-ai-service-cli --light --pref ai_connection=claude-code --ai-demo settings "$fx/sample.rs"
 shot settings-ai-rewrite-error --light "${custom[@]}" --pref ai_custom_0_model=gpt-4.1-mini --ai-demo settings-error --settings-section ai-rewrite "$fx/sample.rs"
@@ -396,6 +465,15 @@ shot menu-view-md-linked-dark --dark --demo-link --menu view "$fx/sample.md"
 shot menu-view-rs-linked --light --demo-link --menu view "$fx/sample.rs"
 shot menu-tab-md --light --menu tab "$fx/sample.md" "$fx/sample.rs"
 shot menu-tab-md-linked-dark --dark --demo-link --menu tab "$fx/sample.md" "$fx/sample.rs"
+"$py" - "$data/preview-scroll.md" <<'EOF'
+import sys
+from pathlib import Path
+Path(sys.argv[1]).write_text("# Preview scroll\n\n" + "".join(
+    f"Paragraph {i}. The preview and the editor scroll together.\n\n" for i in range(1, 81)
+), encoding="utf-8")
+EOF
+shot preview-scrollbar-light --light --preview-pane --goto 45:1 "$data/preview-scroll.md"
+shot preview-scrollbar-dark --dark --preview-pane --goto 45:1 "$data/preview-scroll.md"
 shot previewing --light --demo-link --goto 12:3 "$fx/sample.md"
 shot previewing-dark --dark --demo-link --goto 12:3 "$fx/sample.md"
 # A document that has no file is previewed too: the commands are listed for it, and it carries

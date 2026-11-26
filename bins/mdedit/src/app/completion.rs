@@ -282,7 +282,7 @@ impl App {
         };
         menu.hover = Some(0);
         self.ui.popup = Some(Popup::new(PopupKind::Complete, menu));
-        self.ui.tip = None;
+        self.ui.hide_tip();
         self.redraw();
         true
     }
@@ -345,7 +345,7 @@ impl App {
             Some(KeyName::Up) if !mods.ctrl && !mods.alt => self.step_completion(false),
             Some(KeyName::Down) if !mods.ctrl && !mods.alt => self.step_completion(true),
             Some(KeyName::Enter | KeyName::Tab) if !mods.ctrl && !mods.alt && !mods.shift => {
-                let chosen = self.ui.popup.as_ref().and_then(|p| p.menu.chosen());
+                let chosen = self.ui.popup.as_ref().and_then(|p| p.root().chosen());
                 self.ui.popup = None;
                 match chosen {
                     Some(Act::Complete(n)) => self.accept_completion(n),
@@ -374,7 +374,7 @@ impl App {
 
     fn step_completion(&mut self, forward: bool) {
         if let Some(p) = self.ui.popup.as_mut() {
-            p.menu.step(forward);
+            p.root_mut().step(forward);
         }
         self.redraw();
     }
@@ -595,7 +595,7 @@ mod tests {
     fn rows(a: &App) -> Vec<String> {
         a.ui.popup
             .as_ref()
-            .map(|p| p.menu.items.iter().map(|i| i.label.clone()).collect())
+            .map(|p| p.root().items.iter().map(|i| i.label.clone()).collect())
             .unwrap_or_default()
     }
 
@@ -609,7 +609,7 @@ mod tests {
         assert_eq!(r.len(), 2, "{r:?}");
         assert!(r.contains(&"parser".to_string()) && r.contains(&"parameter".to_string()));
         press(&mut a, KeyName::Down, None);
-        let second = a.ui.popup.as_ref().unwrap().menu.chosen();
+        let second = a.ui.popup.as_ref().unwrap().root().chosen();
         assert_eq!(second, Some(Act::Complete(1)));
         press(&mut a, KeyName::Enter, None);
         assert!(!a.completion_showing() && a.ui.popup.is_none());
@@ -736,7 +736,7 @@ mod tests {
         let (mut a, _d) = md_app("sn1", "intro\ntable");
         ctrl_space(&mut a);
         assert_eq!(rows(&a), ["table"]);
-        assert_eq!(a.ui.popup.as_ref().unwrap().menu.items[0].hint, "snippet");
+        assert_eq!(a.ui.popup.as_ref().unwrap().root().items[0].hint, "snippet");
         press(&mut a, KeyName::Enter, None);
         let eol = a.docs.active_ready().unwrap().info.eol.dominant();
         let want =

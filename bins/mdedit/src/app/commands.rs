@@ -836,7 +836,8 @@ impl App {
         match image_paste::save_png(&path, &png) {
             Ok(saved) => {
                 if self.edit(EditOp::Paste(&saved.link)) {
-                    self.docs.set_toast(&image_paste::saved_toast(&saved.name));
+                    self.docs
+                        .confirm_toast(&image_paste::saved_toast(&saved.name));
                 } else {
                     // The text could not go in (a read-only document): no stray file.
                     let _ = std::fs::remove_file(&saved.path);
@@ -880,7 +881,7 @@ impl App {
                 let _ = std::fs::remove_file(&c.path);
             }
         } else if let Some(c) = copies.first() {
-            self.docs.set_toast(&image_paste::saved_toast(&c.name));
+            self.docs.confirm_toast(&image_paste::saved_toast(&c.name));
         }
     }
 
@@ -1203,7 +1204,7 @@ impl App {
                     if let (Some(from), Some(now)) = (from, self.docs.tabs[i].path.clone()) {
                         self.ui.results.renamed(&from, &now);
                     }
-                    self.docs.set_toast(&format!("Renamed to {name}."));
+                    self.docs.confirm_toast(&format!("Renamed to {name}."));
                 }
                 Err(e) => self.docs.set_toast(&e),
             }
@@ -1349,7 +1350,7 @@ impl App {
                 if let Some(path) = path
                     && platform::set_clipboard_text(&path.display().to_string())
                 {
-                    self.docs.set_toast("File path copied");
+                    self.docs.confirm_toast("File path copied");
                 }
             }
             C::ShowInFileManager => {
@@ -1424,7 +1425,7 @@ impl App {
             (Some(p), PopupKind::Recent | PopupKind::View | PopupKind::Macro)
                 if p.kind == PopupKind::Main =>
             {
-                let r = p.menu.rect();
+                let r = p.root().rect();
                 (r.right(), r.y, true)
             }
             _ => self.popup_anchor(kind),
@@ -1432,7 +1433,7 @@ impl App {
         let Some(menu) = self.build_menu(kind, x, y, right) else {
             return;
         };
-        let mut popup = Popup::with_cues(kind, menu, self.ui.keyboard);
+        let mut popup = self.make_popup(kind, menu);
         // The row a click on AI edit or the main menu remembered goes into the menu it opens,
         // and lives only as long as that menu.
         let row = self.ui.library.menu_row.take();
@@ -1440,7 +1441,37 @@ impl App {
             popup.library_row = row;
         }
         self.ui.popup = Some(popup);
-        self.ui.tip = None;
+        self.ui.hide_tip();
+    }
+
+    pub(super) fn make_popup(
+        &mut self,
+        kind: PopupKind,
+        menu: mdshared_ui::menu::Menu<Act>,
+    ) -> Popup {
+        use mdshared_ui::submenu::Node;
+        if !menu.items.iter().any(|i| i.id.submenu().is_some()) {
+            return Popup::with_cues(kind, menu, self.ui.keyboard);
+        }
+        let nodes = menu
+            .items
+            .iter()
+            .map(|item| {
+                item.id
+                    .submenu()
+                    .and_then(|kind| self.build_menu(kind, 0.0, 0.0, false))
+                    .map_or_else(
+                        || Node::new(item.clone()),
+                        |sub| {
+                            Node::submenu(
+                                item.clone(),
+                                sub.items.into_iter().map(Node::new).collect(),
+                            )
+                        },
+                    )
+            })
+            .collect();
+        Popup::cascade(kind, menu, nodes, self.ui.keyboard)
     }
 
     fn build_menu(
@@ -1483,35 +1514,37 @@ impl App {
     /// Opens `sub` as a cascade beside the open menu, which stays. With `keys` its first item
     /// is lit, since the keyboard opened it; the pointer lights its own.
     pub(super) fn open_sub(&mut self, _parent: PopupKind, sub: PopupKind, keys: bool) {
-        let mouse_y = self.ui.mouse.1;
-        let Some(p) = self.ui.popup.as_ref() else {
-            return;
-        };
-        if p.sub.as_ref().is_some_and(|s| s.kind == sub) {
-            return;
-        }
-        let r = p.menu.rect();
-        // Level with the item the pointer is on, else with the menu's top.
-        let y = if keys || !r.contains(self.ui.mouse.0, mouse_y) {
-            r.y
-        } else {
-            mouse_y - 14.0
-        };
-        // Beside the parent: on its right when there is room, otherwise on its left.
-        let (x, right) = overlays::sub_side(r, self.logical().0);
-        let Some(mut menu) = self.build_menu(sub, x, y, right) else {
-            return;
-        };
-        if keys {
-            menu.step(true);
-        }
-        if let Some(p) = self.ui.popup.as_mut() {
-            let cues = keys || self.ui.keyboard;
-            p.sub = Some(Box::new(Popup::with_cues(sub, menu, cues)));
-            p.dwell = None;
-        }
-        self.ui.tip = None;
+        self.with_popup_transition(|p| {
+            if keys {
+                p.show_cues();
+            }
+            p.open_sub(sub, keys);
+        });
+        self.ui.hide_tip();
         self.redraw();
+    }
+
+    /// Shared owns the path and dwell, but its nodes are a snapshot from when the root opened.
+    /// List a newly opened child from live state before it can be drawn or used.
+    pub(super) fn with_popup_transition<R>(
+        &mut self,
+        change: impl FnOnce(&mut Popup) -> R,
+    ) -> Option<R> {
+        let p = self.ui.popup.as_mut()?;
+        let before = p.sub_serial();
+        let result = change(p);
+        if p.sub_serial() != before
+            && let Some(kind) = p.sub_kind()
+            && let Some(menu) = self.build_menu(kind, 0.0, 0.0, false)
+            && let Some(sub) = self.ui.popup.as_mut().and_then(Popup::sub_mut)
+        {
+            let with_keys = sub.hover.take().is_some();
+            sub.items = menu.items;
+            if with_keys {
+                sub.step(true);
+            }
+        }
+        Some(result)
     }
 
     /// An item of a menu was chosen, by click or key: a menu item opens its submenu and leaves
@@ -1539,7 +1572,7 @@ impl App {
 
     pub(super) fn open_dialog(&mut self, kind: DialogKind) {
         self.ui.popup = None;
-        self.ui.tip = None;
+        self.ui.hide_tip();
         self.ui.find_focused = false;
         self.ui.dialog = Some(Dialog::new(kind));
         self.ui.dlg_hover_row = None;
@@ -1565,7 +1598,7 @@ impl App {
         self.ui.pressed = None;
         self.ui.dlg_hover_row = None;
         self.ui.hover = None;
-        self.wants_frame = true;
+        self.redraw();
     }
 
     pub(super) fn start_dir(&self) -> Option<PathBuf> {
@@ -2555,23 +2588,22 @@ impl App {
                 at(due);
             }
         }
-        if let Some(tip) = self.ui.tip.as_mut().filter(|t| !t.shown) {
-            if now >= tip.due {
-                tip.shown = true;
-                self.wants_frame = true;
+        // The tooltip's wait for the pointer's rest; showing it is a frame of its own (it fades
+        // in), so the animator asks for the next ones.
+        if let Some(due) = self.ui.tip.deadline() {
+            if now >= due {
+                if self.ui.tip.tick(now) {
+                    self.redraw();
+                }
             } else {
-                at(tip.due);
+                at(due);
             }
         }
         // The pointer resting on a menu item with a submenu; no menu, no timer.
-        if let Some((_, due)) = self.ui.popup.as_ref().and_then(|p| p.dwell) {
+        if let Some(due) = self.ui.popup.as_ref().and_then(Popup::deadline) {
             if now >= due {
-                let kind = self.ui.popup_kind();
-                let sub = self.ui.popup.as_mut().and_then(Popup::rested);
-                match sub.zip(kind) {
-                    Some((sub, kind)) => self.open_sub(kind, sub, false),
-                    // A rest on a plain item closed the submenu.
-                    None => self.redraw(),
+                if self.with_popup_transition(|p| p.tick(now)) == Some(true) {
+                    self.redraw();
                 }
             } else {
                 at(due);
@@ -2584,10 +2616,10 @@ impl App {
             } else {
                 at(until);
             }
-        } else if let Some(until) = self.docs.toast_expires().filter(|&u| u > now) {
+        }
+        if self.motion.toast_unseen(self.docs.toast_line(), now) {
             // A message set since the last frame.
             self.wants_frame = true;
-            at(until);
         }
         if let Some(due) = self.ui.autoscroll_due {
             if now >= due {
@@ -2674,6 +2706,14 @@ impl App {
         let content = self.content_size(surface.width, surface.height);
         let (lw, lh) = logical_size(content, w.scale_factor());
         self.session.set_window_size(lw, lh, w.is_maximized());
+        if self.save
+            && self.session_path.is_some()
+            && w.fullscreen().is_none()
+            && self.tiling.before(w).is_none()
+            && let Some(state) = mdshared_ui::window_state::capture(w)
+        {
+            self.session.window_state = Some(state.to_setting());
+        }
     }
 
     /// The exit while the windows are side by side: the place the window had before is the one

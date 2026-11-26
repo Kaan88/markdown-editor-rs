@@ -1,7 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-26, after D-250. If `git log -1`
-is newer, doubt "In hand" first.
+Rewritten, not appended to. Last rewritten 2026-11-26, for the task-fixes and motion merge.
 
 ## Released
 
@@ -19,49 +18,60 @@ is newer, doubt "In hand" first.
   window (D-228), not yet "Plan ready" in the Notes pane.
 - **mdview 1.1.0**, 2026-11-24, tag `v1.1.0` at `0310e01`, fourteen assets: click to zoom a large
   diagram, the notes library, audit 4's report E (mdview `docs/HANDOFF.md`).
-- The shared crates are not released; the apps pin them by commit. mdedit pins shared `main` at
-  `48eb3ce` (`feat/anim` and the "Fast-tracked for the md apps" items, `ci` green on Linux,
-  Windows and both Macs; the lock change accepted by the owner, D-234). **Hub** is its own app (its `docs/STATE.md` is its record).
+- The shared crates are not released; the apps pin them by commit. **Hub** is its own app (see
+  its `docs/STATE.md`).
 
 ## On `main`, not released
 
-- **Motion, step 1: menus fade in as they open** (merged 2026-11-25 on the owner's word, after
-  they tried mdview's). Menus, context menus and submenus
-  come in over 117 ms (the owner, on mdview: "this is better"); closing is instant; the completion
-  list never fades. One "Animations" switch in Settings › Appearance, on by default; off, or the
-  system asking for less motion, makes everything instant (D-232 to D-235, DESIGN 96, notes in
-  `docs/release-notes/NEXT.md`). Budgets inside the noise, exe +58 KB over `main`
-  (`docs/measurements/2026-11-25-menu-fade.md`). Tried by the owner in mdview only; **not seen** over a frosted
-  window, on Linux or macOS. The 117 ms is set in each app's `motion.rs`; it belongs in shared's
-  `anim::document::MENU` at the next pin move (rule 8).
+- **Motion** (D-232 to D-235, D-255 to D-283; DESIGN 96–98, `docs/release-notes/NEXT.md`).
+  Menus open in 117 ms (now from shared's `anim::document::MENU`); menus and dialogs close
+  instantly. One Animations setting (on by default); off or reduced motion draws without the
+  effects. The owner tried mdview's menus only; mdedit's motion has **not** been tried by hand,
+  including menus over a frosted window, on Linux or macOS.
+  - Toasts rise, fade, stack and wait for the lift (D-256 to D-261). The status snap in
+    `Motion::sync_toasts` (`Animator::set`) is still needed with motion on: shared's animator
+    keeps a target's first delay. Tooltips fade after the pointer rests (D-262, D-269).
+  - Settings switches, folder chevrons and title/menu hovers animate; the palette pops in
+    and the crash bar slides in just after launch with motion on. First-paint notices,
+    returning rename notices, completion and the language list stay instant.
+  - Main/Text submenus use shared's cascade; the split preview has a scrollbar; Files and
+    Functions have keyboard focus; placement restores only on the saved monitor (D-274 to D-278).
+  - Settings fades in the dim and card together in 117 ms; pages stay instant. Mid-entrance
+    paints copy only the card and shadow. Light/dark changes blend in 170 ms except on first
+    paint, oversize windows, backdrop or disabled/reduced motion. Choosing a theme from a
+    menu or palette first dismisses it; closing or replacing a menu mid-fade ends the fade.
+  - **Windows launch**: 121.40 ms and 134.4 ms exceeded 100 ms; all later 31 at `0bacb93` were
+    under (97.0 ms max), with idle CPU and transition frames unmeasured in that
+    [repeat](measurements/2026-11-26-motion-launch-repeat.md). [Stale-tab launch](measurements/2026-11-26-motion-stale-launch.md)
+    still reached 102.0 ms after five extra full-height frames were eliminated.
+    [M-F repeat](measurements/2026-11-26-motion-mf.md): 77.5 → 76.6 ms median, 86.9 ms max
+    after, 0/31 over 100 ms.
+  - **Windows transitions** ([measurements](measurements/2026-11-26-settings-theme-transitions.md)):
+    initially 4/31 launches over 100 ms both before and after; idle private memory 27.10 → 27.00 MiB.
+    Final launch repeat against the pre-transition baseline: 77.0 → 78.0 ms median,
+    96.7 → 103.2 ms slowest, 0/31 → 1/31 over budget.
+    At 1280 × 800 logical, the original effects sampled 31.95 MiB (Settings) and 31.41 MiB
+    (theme); card-only Settings sampled 29.31 MiB at 100%, 34.61 at 125%, and 40.97 at 150%.
+    The scaled runs already exceeded 30 MiB before opening. The owner accepted the 30 MiB
+    exception only during the 170 ms theme fade; its copy is then freed (D-282). Opening
+    Settings during a theme fade holds both copies; that overlap was not measured.
+  - **Linux**: shared pin `1588e0f` (D-273) starts a long-lived system-theme thread with a D-Bus
+    connection at launch if the settings portal is available. Linux launch and idle costs
+    are unmeasured.
+- **AI task window fixes** (D-240 to D-254; `docs/release-notes/NEXT.md`): Settings returns to
+  the same task, Esc warns before discarding the setup, and rewrite/split can return without
+  writing. Task messages are inline, with a stacking confirmation also sent for a successful
+  picture paste. Folder reads walk the tree off-thread, ask above 200 new files before probing,
+  and keep queued drops and answered sets distinct. The task folder-add shots were looked at
+  in both themes, but the fixes have not been seen in a real window. No CI run for this merge;
+  the final folder-add changes have not had their Fable round. D-254 cites `4903067` where it
+  should read `49028b2`; its "a second Add them" case cannot be reached through today's window
+  and is tested by constructing the state directly.
 - The release workflow: the next release carries its full notes as `release-notes-<version>.md`,
   named by `hub.txt`'s `notes.file` (D-231; seventeen assets; not yet run on a real release).
 
 ## In hand
 
-- **More motion**: toasts and tooltips (the
-  tooltip delay question: from entering a control, or from the pointer resting), dialogs and
-  cards; shared still builds the Settings form motion (L10) and the tree chevron. No tab
-  cross-fade in mdedit (memory), no sliding panes.
-- **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
-  `f/task-fixes` at `7470c91` plus D-251's review fixes: a folder added brings its whole tree
-  (D-247), is read on its own thread (D-248), and a set of more than 200 new files is counted
-  first and asked about before any file is read (D-249, D-250). One read at a time — a gathered
-  drop, then a queue — so two folders dropped together are one read and one question; an answer
-  given while a read runs waits for it, a declined question drops what that read finds, and one
-  helper ends a window's read and question on every path; a stop takes the question's paths too;
-  notes from every folder are kept and a folder that brings nothing new says so; the room holds
-  for single files as well; the question's keys keep out of menus and fields; the main button is
-  off while it stands (D-251); a file added again is not "left out", a question with nothing left
-  goes, notes speak per folder, and the plan waits while answered files are probed (D-252); a stop
-  ends the probes and gives the button back, and a question at 200 or fewer comes in at once
-  (D-253); an answer waiting for a read is merged with any other, never replaced (D-254; its text
-  cites the review as `4903067` where it should read `49028b2`, and its "a second Add them" case
-  cannot be reached through the window today — the merge is guarded by a test that builds the
-  state by hand). fmt,
-  clippy `-D warnings` and the release workspace tests clean (mdedit 1,101, core 609); shots `task-files-ask`, `task-files-ask-empty`,
-  `task-files-unreadable` and `task-files-nothing-new` looked at in both themes. Not pushed, no CI
-  run, not seen in a real window, not yet in Fable's round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
@@ -83,7 +93,7 @@ is newer, doubt "In hand" first.
 
 ## Next
 
-1. The task window's fixes, then more motion.
+1. CI and real-window verification of the task fixes and motion before release.
 2. The owner's look at 1.4.0's and 1.5.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes
    cards) and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
    mdview; D after R2.
@@ -91,9 +101,9 @@ is newer, doubt "In hand" first.
 
 ## Known to be wrong on `main`
 
-- A debug-profile `cargo test` fails `closed_stderr` on the motion branch: ICU4X prints a data
-  warning with `eprintln!` in debug builds only, and the test closes stderr. Release builds (what
-  CI and CODE.md test) are fine. Not yet checked whether debug `main` fails it too.
+- A debug-profile `cargo test` failed `closed_stderr` on the motion branch: ICU4X prints a
+  data warning with `eprintln!`, and the test closes stderr. Release builds (used by CI) were
+  unaffected; debug has not been rechecked on the merged tree.
 - **A closed mdview is still missed** (D-101): closing it by hand leaves "Stop the preview" in
   mdedit after its window has the focus again (tried with 1.0.4, which sends no `?closed`), so
   D-097's focus check does not hold. D-102 and D-105 change this (merged, not tried): three
@@ -110,17 +120,15 @@ is newer, doubt "In hand" first.
   kept on disk; deleting itself is unchanged.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;
   folders emptied in a home outside the library stay.
-- **A debug build aborts on a closed stderr** (not a release one): something only debug prints
-  with `std`'s `eprintln!`; CI runs release and is unaffected.
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
 
 ## Known gaps, not planned unless they get in the way
 
 A Linux trash entry gets no deletion date (D-092); a note missing on disk is marked at the next
-re-read; the Files and Functions faces have no keyboard; the notes pane has no sort or filter; the
-plain preview and side-by-side have no scrollbar; no access keys in the line-ending and encoding
-menus; no function list for Vue or Svelte; column selection pads short lines on typing only; no
-compare arrows with wrap on; the Markdown menu needs more than 800 px. Split by AI has no progress
+re-read; the notes pane has no sort or filter; side-by-side has no scrollbar; no access keys in
+the line-ending and encoding menus; no function list for Vue or Svelte; column selection pads
+short lines on typing only; no compare arrows with wrap on; the Markdown menu needs more than
+800 px. Split by AI has no progress
 row with Cancel and no headings per source; the Recycle Bin cannot restore an original (D-071).
 
 ## Not checked by hand
@@ -130,7 +138,7 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
 
 ## Pins, branches, worktrees (tidied 2026-11-24)
 
-- Shared crates: mdedit at `ac9fde1` (shared `main`, the notes kind); mdview at `ef88814`.
+- Shared crates: mdedit at `1588e0f`; mdview pin recorded in its own repository.
   Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`.
 - Branches: `main`; the drawings (`mock/ai-review`, `mock/settings`, `mock/terminal`,
   `mock/downloader`, `mock/workbench` local only, `mock/launcher`, `mock/file-manager`,
@@ -139,6 +147,4 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main`; `hub-wt\app-prs2\mdedit`; `md-wt\ai-pictures`; `md-wt\ai-web` (detached at
-  the spike, kept for its exe). `md-wt\review-a4fix` holds the review of the
-  fixes, not a worktree.
+- Worktrees: `main`, `hub-wt\app-prs2\mdedit`, `md-wt\ai-pictures`, `md-wt\ai-web` (spike exe); `md-wt\review-a4fix` holds the review, not a worktree.

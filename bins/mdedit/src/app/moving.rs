@@ -95,7 +95,7 @@ impl App {
             self.close_palette();
         }
         self.ui.popup = None;
-        self.ui.tip = None;
+        self.ui.hide_tip();
         self.ui.hover = None;
         self.ui.find_focused = false;
         let (w, h) = self.logical();

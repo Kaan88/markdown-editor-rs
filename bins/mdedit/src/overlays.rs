@@ -2113,47 +2113,36 @@ mod tests {
     }
 }
 
-/// The widest a submenu is (its longest label plus the icon column), used to decide on which side
-/// of its parent it stands before it has been measured.
-pub const SUB_WIDTH: f32 = 260.0;
-
-/// Where a submenu stands beside its parent `parent` in a window `win_w` wide: to the right of it
-/// when there is room, otherwise to the left. Returns the menu's anchor x and whether that x is
-/// the menu's right edge. One rule for the main menu (which hangs at the window's right edge) and
-/// for a context menu anywhere in the window.
-pub fn sub_side(parent: Rect, win_w: f32) -> (f32, bool) {
-    if parent.right() + SUB_WIDTH + 4.0 <= win_w {
-        (parent.right(), false)
-    } else {
-        (parent.x, true)
-    }
-}
-
 #[cfg(test)]
 mod placement_tests {
     use super::*;
+    use crate::ui::{Popup, PopupKind};
+    use mdshared_ui::submenu::Node;
 
     #[test]
     fn a_submenu_stands_beside_its_parent_on_the_side_with_room() {
-        let win = 1000.0;
-        // Parent near the left edge: the submenu goes to its right.
-        let (x, right) = sub_side(Rect::new(10.0, 50.0, 220.0, 300.0), win);
-        assert!(!right && x == 230.0);
-        // In the middle: still to the right.
-        let (x, right) = sub_side(Rect::new(400.0, 50.0, 220.0, 300.0), win);
-        assert!(!right && x == 620.0);
-        // Hugging the right edge (the main menu, or a context menu there): to the left,
-        // its right edge at the parent's left edge.
-        let (x, right) = sub_side(Rect::new(770.0, 50.0, 220.0, 300.0), win);
-        assert!(right && x == 770.0);
-        // Neither side overlaps the parent.
-        for px in [4.0, 100.0, 300.0, 500.0, 700.0, 776.0] {
-            let parent = Rect::new(px, 0.0, 220.0, 100.0);
-            let (x, right) = sub_side(parent, win);
+        let mut bmp = mdshared_text::Bitmap::new(1000, 400);
+        let mut gfx = mdshared_ui::gfx::Gfx::new();
+        let room = Rect::new(0.0, 0.0, 1000.0, 400.0);
+        let mut p = Painter::new(&mut bmp, &mut gfx, 1.0);
+        for (x, right) in [(10.0, true), (400.0, true), (990.0, false)] {
+            let opener = Item::new(Act::ViewMenu, "View");
+            let nodes = vec![Node::submenu(
+                opener.clone(),
+                vec![Node::new(Item::new(Act::Cmd(C::Settings), "Settings"))],
+            )];
+            let root = Menu::new(vec![opener], x, 50.0, !right);
+            let mut popup = Popup::cascade(PopupKind::Main, root, nodes, false);
+            popup.place_in(&mut p, room);
+            popup.open_sub(PopupKind::View, true);
+            popup.place_in(&mut p, room);
+            let root = popup.root().rect();
+            let sub = popup.sub().unwrap().rect();
+            assert!(sub.x >= room.x && sub.right() <= room.right());
             if right {
-                assert!(x - SUB_WIDTH >= 0.0 && x == parent.x);
+                assert!(sub.x > root.right());
             } else {
-                assert!(x == parent.right() && x + SUB_WIDTH <= win);
+                assert!(sub.right() < root.x);
             }
         }
     }
