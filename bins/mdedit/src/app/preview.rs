@@ -1453,7 +1453,11 @@ Last.
         settle(&mut a);
         let top = a.preview.as_ref().unwrap().top;
         assert!(top > 0.0, "the track scrolls the rendered page");
-        assert!(view::source_top(a.docs.active_ready_mut().unwrap()) > 0.0);
+        let source_before_drag = view::source_top(a.docs.active_ready_mut().unwrap());
+        assert!(
+            source_before_drag > 0.0,
+            "the editor follows the track click"
+        );
         let (_, thumb) = page_bar(&a).unwrap();
         a.pointer_moved(thumb.cx(), thumb.cy());
         a.left_press();
@@ -1470,6 +1474,10 @@ Last.
         settle(&mut a);
         let p = a.preview.as_ref().unwrap();
         assert!(p.top < top && p.selection.is_empty() && !p.focused);
+        assert!(
+            view::source_top(a.docs.active_ready_mut().unwrap()) < source_before_drag,
+            "the editor follows the thumb drag back up"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
