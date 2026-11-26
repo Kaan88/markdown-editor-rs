@@ -1,6 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-26, when the toasts' stack was fixed. If
+Rewritten, not appended to. Last rewritten 2026-11-26, after the toast branch's second review. If
 `git log -1` is newer, doubt "In hand" first.
 
 ## Released
@@ -43,9 +43,15 @@ Rewritten, not appended to. Last rewritten 2026-11-26, when the toasts' stack wa
 - **More motion**: tooltips (the
   tooltip delay question: from entering a control, or from the pointer resting), dialogs and
   cards; shared still builds the Settings form motion (L10) and the tree chevron. No tab
-  cross-fade in mdedit (memory), no sliding panes. The toasts are built on `f/motion2` (D-251,
-  D-252, DESIGN 97): not merged, not tried in a real window, and their wait for the lift waits
-  on shared PR 24 under motion off.
+  cross-fade in mdedit (memory), no sliding panes. The toasts are built on `f/motion2` (D-251 to
+  D-253, DESIGN 97): not merged, not tried in a real window, and their wait for the lift waits
+  on shared PR 24 under motion off. Two reviews of the branch are answered, the last one's six
+  items included; the next steps are the pin move to shared `8d35a07`, then M-C, tooltips, on
+  `Tooltip::waiting`. Left open: the two tests ignored for shared PR 24
+  (`with_no_motion_two_confirmations_are_both_there_at_once`,
+  `the_one_toast_a_very_short_window_shows_is_there_at_once`), and the fact that a status taking
+  over a toast that was waiting for a lift is put at presence 1 by `Animator::set` in
+  `Motion::sync_toasts`, since shared's animator keeps a target's first delay.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.

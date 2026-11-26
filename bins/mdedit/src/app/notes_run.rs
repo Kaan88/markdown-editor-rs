@@ -839,6 +839,12 @@ impl App {
         let Some(png) = crate::platform::clipboard_png() else {
             return false;
         };
+        self.notes_add_picture(png)
+    }
+
+    /// The picture `png` is kept in a file of its own under the temp folder and added to the
+    /// task, as a screenshot dropped on the window would be; the toast says so.
+    pub(super) fn notes_add_picture(&mut self, png: Vec<u8>) -> bool {
         let dir = notes_task::pasted_dir();
         for old in notes_task::stale_pasted(&dir, std::time::SystemTime::now()) {
             let _ = std::fs::remove_file(old);

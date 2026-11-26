@@ -2542,3 +2542,29 @@ leaving the leaving toasts fading, a repeated confirmation lost in a short windo
 toast drawn under the shadow above it. Rule 2 asks for a test per behaviour.
 **Overturned by.** The owner; or the pin that carries shared PR 24, which would un-ignore the
 test above.
+
+## D-253 · 2026-11-26 · A repeat keeps the newest toast as it is; a status over a waiting toast stands at once
+
+**Decision.** Two corrections to D-252's stack, from the review of `3424963..ff53b65`
+(D-252's own words — "that is not the newest" — already said the first; its code did not):
+- **A confirmation said again keeps the newest toast where it is** when it is the newest: the
+  same key, its presence at 1, only its time reset (`Stack::show`, which revives the toast it
+  finds). Only one standing higher is taken out and shown again, at the bottom. Removing and
+  re-pushing even the newest gave it a new key and started its presence from 0: pressing Copy
+  path twice made the toast at rest vanish and rise again, and with toasts above it, it waited
+  for a lift that never moved, so under a key repeat it stayed nearly invisible.
+- **A status that takes the place of a toast still waiting for its lift stands there at once.**
+  The stack gives the wait up (`replace` clears it), but the animator keeps the delay it was
+  first given for that name: a new motion for an unchanged target is ignored (`Animator::track`).
+  So the toast is put at presence 1 through `Animator::set` for the frame the status arrives —
+  not by `revive`, which was tried and does not clear it (the test still showed presence 0.0).
+  This is a real behaviour of the status, not a workaround for the `Policy::Never` bug.
+Two tests are now `#[ignore = "needs shared PR 24"]`:
+`with_no_motion_two_confirmations_are_both_there_at_once` (D-252) and its short-window sibling
+`the_one_toast_a_very_short_window_shows_is_there_at_once`, both failing only because shared
+keeps the wait with motion off. The picture a paste adds is kept by `App::notes_add_picture` so
+that its toast can be tested without a clipboard.
+**Why.** The owner (2026-11-26, on the review of the toast branch): "a repeat removes and
+re-pushes even the NEWEST toast… Fix: move a repeat to the bottom only when it is not the newest
+shown toast", and "a status shows in place at once".
+**Overturned by.** The owner; or shared PR 24, which would un-ignore both tests.

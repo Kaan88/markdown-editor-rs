@@ -814,6 +814,20 @@ fn a_prompt_the_template_has_is_not_saved_twice() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// "Saved as …" is a one-shot confirmation of its own, so it stacks under the toasts showing
+/// rather than taking their place (D-252).
+#[test]
+fn a_saved_prompt_confirms_as_a_toast_of_its_own() {
+    let (mut a, dir, file) = r5_panel("Say it twice");
+    assert!(!file.exists());
+    a.ai_save_prompt();
+    assert!(file.exists(), "the prompt is saved");
+    let line = a.docs.toast_line().expect("a toast for the save");
+    assert!(line.text.starts_with("Saved as"), "{}", line.text);
+    assert!(line.stack, "\"Saved as …\" stacks: {}", line.text);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Audit 1 round 5: the prompts file open in a tab with changes not saved is not written under
 /// them; nothing is saved until the tab is saved or closed.
 #[test]

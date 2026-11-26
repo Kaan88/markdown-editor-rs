@@ -3985,13 +3985,17 @@ laid out: a serial not seen yet is taken in, by `Stack::replace_newest` for `set
 in place, no exit, no entrance) after `remove` of every other toast the last frame showed — the
 ones still playing their exit included, which `current` does not name — by `Stack::show` for
 `confirm_toast` (a confirmation: under the others, and it enters once they have lifted,
-`Stack::with_wait_for_lift`), and `Stack::clear` when the status is cleared. A confirmation that
-is not the newest — the same text said again — is taken out first, so it moves to the bottom and
-is the one in sight. A message whose time is already past when it is taken in shows nothing.
-What is left of its time is counted on from that frame on the frame's clock, so a test's or a
-shot's clock moved by hand runs it too. `Stack::tick` sends away what is due; its `deadline` is
-`toast_until`, the timer that wakes for it (`timers`), and a message not taken in yet asks for a
-frame there (`toast_unseen`).
+`Stack::with_wait_for_lift`), and `Stack::clear` when the status is cleared. A status that takes
+over a toast still waiting for its lift is put at presence 1 through `Animator::set` for that
+frame: the stack gives the wait up, but the animator keeps the delay it was first given for the
+name, since a new motion for an unchanged target is ignored, and the status would wait in the
+dark. A confirmation said again never stands twice: while it is the newest it keeps its own toast,
+key and presence (its time reset, so Copy path pressed twice does not blink), and one standing
+higher is taken out first and comes in again at the bottom. A message whose time is already past
+when it is taken in shows nothing. What is left of its time is counted on from that frame on the
+frame's clock, so a test's or a shot's clock moved by hand runs it too. `Stack::tick` sends away
+what is due; its `deadline` is `toast_until`, the timer that wakes for it (`timers`), and a
+message not taken in yet asks for a frame there (`toast_unseen`).
 
 **Drawing.** `Stack::frame` gives each toast, bottom first, with its presence and its lift (the
 heights and 8 px gaps of the ones under it, on its way by `fluent::MOVE`). `compose` walks them
@@ -4004,8 +4008,10 @@ overlays' bounds hold each toast's `presence_bounds()`, and the overlay signatur
 presence, so a moving toast redraws what is under it each frame. Under `Policy::Never` every
 presence is at once 1 or gone: one toast at rest is the pixels of before. Shared's wait for the
 lift is a delay, and shared still applies it with nothing animating (its PR 24 fixes that): a
-stacked toast under `Policy::Never` stays out `fluent::MOVE`'s 167 ms, and the test that would
-catch it is `#[ignore = "needs shared PR 24"]`.
+stacked toast under `Policy::Never` stays out `fluent::MOVE`'s 167 ms, and the two tests that
+would catch it are `#[ignore = "needs shared PR 24"]`
+(`with_no_motion_two_confirmations_are_both_there_at_once`,
+`the_one_toast_a_very_short_window_shows_is_there_at_once`).
 
 **Who stacks** (`confirm_toast`): File path copied, Path copied, Copied the result, the crash
 report copied, Image saved as … (both paste paths), Renamed to …, the macro saved, a note added

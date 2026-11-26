@@ -22,7 +22,7 @@
 
 use crate::ui::{Popup, PopupKind};
 use mdshared_ui::anim::stack::Stack;
-use mdshared_ui::anim::{Animator, Clock, ManualClock, Policy, Snapshot, document, pop};
+use mdshared_ui::anim::{Animator, Clock, Id, ManualClock, Policy, Snapshot, document, pop};
 use mdshared_ui::gfx::{Painter, Rect};
 use mdshared_ui::menu::MENU_DROP;
 use mdshared_ui::overlay::TOAST_H;
@@ -415,14 +415,18 @@ impl Motion {
     /// A message set by `set_toast` takes the place of the toasts showing: the newest one shown
     /// takes its text at once and keeps its presence and its place (a readout under key repeat
     /// never flickers), and every other toast goes at once, the ones still leaving included;
-    /// with none shown it comes in as a new toast.
+    /// with none shown it comes in as a new toast. One it takes over that had not come in yet
+    /// (it was waiting for the toasts above to lift) stands there at once, rather than waiting
+    /// in the dark for a lift that no longer matters.
     /// One set by `confirm_toast`, a one-shot confirmation of its own, comes in under the ones
-    /// showing — the one just triggered, even one said again that stood higher, so it is the one
-    /// in sight — and then enters once they have lifted.
+    /// showing and then enters once they have lifted. Said again, it never stands twice: the
+    /// newest keeps its own toast where it is, at rest, while one standing higher is taken out
+    /// and comes in at the bottom, so the one just triggered is the one in sight.
     /// A status cleared takes every toast away at once.
     pub fn sync_toasts(&mut self, line: Option<ToastLine<'_>>, now: Instant) {
         self.toasts.tick(now);
         let serial = line.map(|l| l.serial);
+        let mut come_in: Option<u64> = None;
         if serial != self.toast_seen {
             self.toast_seen = serial;
             // What is left of its time, by the wall clock it was set by, counted on from this
@@ -434,9 +438,13 @@ impl Motion {
                 Some(l) if left.is_some_and(|d| !d.is_zero()) => {
                     let until = left.map(|d| now + d);
                     if l.stack {
-                        // A confirmation that is not the newest goes to the bottom: what the
-                        // user just triggered is the one in sight, even in a short window.
-                        if let Some((old, _)) = self.toasts.find(|t| t.as_str() == l.text) {
+                        // A confirmation said again that is not the newest goes to the bottom:
+                        // what the user just triggered is the one in sight, even in a short
+                        // window. The newest keeps its toast, its key and its presence, so a
+                        // repeat never makes it blink; `show` only resets its time.
+                        if let Some((old, _)) = self.toasts.find(|t| t.as_str() == l.text)
+                            && Some(old) != self.toasts.current().last().map(|(k, _)| k)
+                        {
                             self.toasts.remove(old);
                         }
                         self.toasts.show(l.text.to_string(), until);
@@ -444,15 +452,24 @@ impl Motion {
                         // A status replaces in place, and every other toast goes at once — the
                         // ones still playing their exit too, named by the last frame's list,
                         // which holds them, not by `current`, which does not.
-                        let keep = self.toasts.current().last().map(|(k, _)| k);
+                        let newest = self.toasts.current().last().map(|(k, _)| k);
+                        let shown = newest.and_then(|k| {
+                            (self.toast_frame.iter()).find(|s| s.key == k).map(|s| s.t)
+                        });
                         let others: Vec<u64> = (self.toast_frame.iter())
                             .map(|s| s.key)
-                            .filter(|k| Some(*k) != keep)
+                            .filter(|k| Some(*k) != newest)
                             .collect();
                         for k in others {
                             self.toasts.remove(k);
                         }
-                        self.toasts.replace_newest(l.text.to_string(), until);
+                        let key = self.toasts.replace_newest(l.text.to_string(), until);
+                        // The toast it takes over may still have been waiting for a lift, and
+                        // the animator keeps that wait even after the stack gives it up (a new
+                        // motion for an unchanged target is ignored): it stands there now.
+                        if newest.is_some() && !shown.is_some_and(|t| t > 0.0) {
+                            come_in = Some(key);
+                        }
                     }
                 }
                 Some(_) => {}
@@ -464,6 +481,9 @@ impl Motion {
             return;
         }
         self.anim.group(TOASTS);
+        if let Some(key) = come_in {
+            self.anim.set(Id::new(TOASTS).with(("in", key)), 1.0);
+        }
         let shown = (self.toasts).frame(&mut self.anim, TOASTS, |_| TOAST_H, TOAST_GAP);
         self.toast_frame
             .extend(shown.into_iter().map(|s| ToastShown {

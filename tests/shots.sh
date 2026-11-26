@@ -92,6 +92,10 @@ shot toasts-stacked-light --light --toast "File path copied" --toast "Image save
 shot toasts-stacked-dark --dark --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
 shot toast-repeated-light --light --toast "File path copied" --toast "Image saved as a.png" --toast "File path copied" "$fx/sample.rs"
 shot toast-repeated-dark --dark --toast "File path copied" --toast "Image saved as a.png" --toast "File path copied" "$fx/sample.rs"
+# The newest confirmed again, 0 ms after: it keeps its own toast at rest instead of being taken
+# out and coming in again (which would leave nothing there for this frame).
+shot toast-repeat-newest-light --light --toast "File path copied" --toast "Image saved as a.png" --toast "Image saved as a.png" --motion-ms 0 "$fx/sample.rs"
+shot toast-repeat-newest-dark --dark --toast "File path copied" --toast "Image saved as a.png" --toast "Image saved as a.png" --motion-ms 0 "$fx/sample.rs"
 shot toasts-short-light --light --size 520x220 --toast "Path copied" --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
 shot toasts-short-dark --dark --size 520x220 --toast "Path copied" --toast "File path copied" --toast "Image saved as a.png" "$fx/sample.rs"
 shot menu-recent --light --menu recent "$fx/sample.rs" "$fx/sample.md" "$fx/sample.toml"

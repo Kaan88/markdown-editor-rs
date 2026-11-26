@@ -737,6 +737,31 @@ fn a_moved_note_and_a_deleted_group_stack_and_a_refusal_replaces() {
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
+/// The note moved into another file confirms as a toast of its own too (D-252).
+#[test]
+fn a_note_moved_into_another_file_stacks_its_toast() {
+    let (mut a, l) = lib("libw-toast-move-file");
+    let work = l.dir.join("library").join("work.md");
+    std::fs::write(&work, "# Work\n\n## Projects\n").unwrap();
+    a.library_rows();
+    assert!(
+        a.library_move(
+            &l.file,
+            5,
+            "Taxes 2026",
+            &l.taxes,
+            &work,
+            &["Projects".to_string()],
+        ),
+        "{}",
+        toast(&a)
+    );
+    let line = a.docs.toast_line().expect("a toast for the move");
+    assert!(line.stack, "a note moved stacks: {}", line.text);
+    assert!(line.text.contains("Work"), "{}", line.text);
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
 #[test]
 fn when_the_removal_fails_the_note_is_in_the_new_place_and_the_toast_says_so() {
     let (mut a, l) = lib("libw-move-half");

@@ -582,3 +582,35 @@ fn trying_again_with_another_instruction_asks_every_picture_anew() {
     );
     assert_eq!(run_of(&a).instruction, "Rooms, and what to buy");
 }
+
+/// A picture arriving from the clipboard is an event of its own: it says so as a toast that
+/// stacks under the ones showing (D-252), and the picture joins the task.
+#[test]
+fn a_picture_added_from_the_clipboard_stacks_its_toast() {
+    engine();
+    let dir = scratch("notes-pasted-toast");
+    let mut a = app();
+    a.session_path = Some(dir.join("settings.ini"));
+    a.task_open(TaskKind::Notes, Vec::new());
+    let before = a.task.as_ref().expect("open").files.len();
+    assert!(
+        a.notes_add_picture(b"\x89PNG\r\n\x1a\n".to_vec()),
+        "the picture is kept"
+    );
+    let line = a.docs.toast_line().expect("a toast for the picture");
+    assert!(line.text.contains("clipboard"), "{}", line.text);
+    assert!(line.stack, "the picture's toast stacks: {}", line.text);
+    assert_eq!(
+        a.task.as_ref().expect("open").files.len(),
+        before + 1,
+        "and the picture is in the task"
+    );
+    if let Some(s) = a.task.as_ref() {
+        for f in &s.files {
+            if crate::notes_task::is_pasted(&f.path) {
+                let _ = std::fs::remove_file(&f.path);
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -3596,8 +3596,9 @@ impl Docs {
     }
 
     /// A one-shot confirmation of an event of its own ("File path copied", "Image saved as
-    /// …"): it comes in under the toasts still showing instead of taking their place, and the
-    /// same one said again keeps its toast instead of standing twice.
+    /// …"): it comes in under the toasts still showing instead of taking their place. Said
+    /// again it never stands twice: it keeps its own toast while it is the newest, and moves to
+    /// the bottom when one above it is the toast it repeats.
     pub fn confirm_toast(&mut self, text: &str) {
         self.put_toast(text, true);
     }
