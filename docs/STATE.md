@@ -73,13 +73,20 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
     on the saved monitor. The [Windows M-F repeat](measurements/2026-11-26-motion-mf.md)
     found no launch regression: 77.5 → 76.6 ms median, 86.9 ms slowest after, 0/31 over 100 ms.
   - **Settings entrance** (D-274): the dim and card fade in together over 117 ms.
-    Closing and page changes stay instant. Open: a whole-window snapshot per entrance
-    frame, as in mdview. Existing menu entrance confirmed without changes.
+    Closing and page changes stay instant. Mid-entrance paints copy only the card
+    and shadow; the dim outside is adjusted in place. Existing menu entrance confirmed.
   - **Theme crossfade** (D-275): explicit and System light/dark changes blend for
     170 ms. First paint, oversize windows, backdrop and disabled/reduced motion snap.
+    An overlay closing cancels the blend or prevents it from starting.
     [Windows measurements](measurements/2026-11-26-settings-theme-transitions.md):
     4/31 launches over 100 ms both before and after; idle private memory 27.10 → 27.00 MiB.
-    Both active effects temporarily exceeded 30 MiB (Settings 31.95, theme 31.41 MiB sampled).
+    Both originally exceeded 30 MiB during the effect (Settings 31.95, theme 31.41 MiB sampled).
+    The card-only Settings entrance sampled 29.31 MiB at 100%, 34.61 at 125%, and 40.97 at
+    150%, for a 1280 × 800 logical window. The scaled runs exceeded 30 MiB before opening.
+    The overshoot is not accepted; it needs the owner's word (D-276). Opening Settings
+    during a theme fade holds both copies at once; that overlap was not measured.
+    Final launch repeat against the pre-transition baseline: 77.0 → 78.0 ms median,
+    slowest 96.7 → 103.2 ms, 0/31 → 1/31 over budget.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.

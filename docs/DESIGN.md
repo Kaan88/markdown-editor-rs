@@ -4162,11 +4162,15 @@ cover both outcomes.
 
 **Settings entrance (D-274).** Each opening names a 117 ms presence. The overlay
 signature includes that presence, so the editor underneath and the dim and card
-are redrawn together. While entering, `Painter` takes a temporary whole-window
-snapshot before drawing the form and fades the dim and card together over it.
-This per-frame snapshot is still open for optimization, as in mdview. At rest,
-with Animations off, or with reduced motion, the form is drawn normally without
-a snapshot. Repeating the request for an open dialog does not restart it; closing
+are redrawn together. The zero-presence frame lays out the form but does not
+paint or copy it. Mid-fade, `Painter` copies only `dialog_bounds(form.rect())`,
+including the shadow; `p.fade` blends that area. Outside it, the already dimmed
+RGB values are corrected in place by the ratio `(1 − a·t)/(1 − a)`, implemented
+as a lookup matching the pinned painter's byte rounding within one level.
+At rest, with Animations off, or with reduced motion, no copy is needed and the
+form uses its normal drawing. Opening a Settings dropdown during the entrance
+finishes the entrance so a menu extending outside the card is never treated as
+backdrop. Repeating the request for an open dialog does not restart it; closing
 forgets the presence at once, and opening again gets a fresh one. Changing pages
 does not get a transition. `settings-opening-*` captures the entrance in both themes.
 
@@ -4179,7 +4183,11 @@ paints and presents the whole window and then drops the snapshot at 170 ms, with
 no further motion deadline. Requested or active frost, reduced motion, and
 Animations off snap. A size-changing resize (including minimization) clears
 the snapshot even if another frame does not paint; same-size resize keeps it.
-Closing Settings mid-flip cancels the blend so its old image cannot linger.
+Closing an overlay during a flip cancels the blend so its image cannot linger.
+Before taking a new theme snapshot, compose checks that none of the last
+painted overlays closed. Choosing a theme from the command palette therefore
+closes it and snaps the theme on the next paint. The cap limits the theme copy,
+not total private memory (D-276).
 
 Visual preview and the full-window plan, task, import, move, note and AI cards
 are drawn inside the same compose, not in a separate renderer. The startup and

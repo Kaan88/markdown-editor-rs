@@ -2863,3 +2863,14 @@ keep it. Layout-only passes do not retain or take one.
 launch path. When the blend finishes, it releases the snapshot and stops
 requesting frames.
 **Overturned by.** A change to the requested transition or shared's blend contract.
+
+## D-276 — 2026-11-26 — The theme cap is a snapshot limit, not a memory budget
+
+**Decision.** Corrects D-275: 2560 × 1600 limits only the pixels copied for one
+theme snapshot. It does not bound total private memory. If Settings opens during
+a theme fade, a Settings backing copy can coexist with the retained theme copy.
+The measured overshoot of the 30 MiB private-memory budget has not been accepted;
+the owner's word is needed before accepting it or changing the theme copy.
+**Why.** Both effects exceeded the budget in the Windows transition samples,
+even at 1280 × 800.
+**Overturned by.** The owner's decision on the active-memory budget and the theme copy.

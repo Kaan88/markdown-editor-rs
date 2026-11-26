@@ -23,7 +23,8 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
   closing it is still instant.
 - **Light and dark themes crossfade.** The change takes 170 ms, including when the
   desktop changes while Theme is set to System. With a window backdrop, a very large
-  window, or motion off, the theme still switches instantly.
+  window, or motion off, the theme still switches instantly. Choosing a theme from
+  the command palette closes it immediately and switches without a fade.
 - **Tooltip and title hover fixes.** Scrolling or middle-clicking a tab clears its tooltip
   immediately; hovering the active tab does not schedule an invisible fade.
 - **Submenus follow the pointer and keyboard.** Escape or Left drops any pending hover
