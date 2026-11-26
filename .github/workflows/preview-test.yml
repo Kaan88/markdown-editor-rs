@@ -49,8 +49,9 @@ jobs:
       - name: Build mdview and both mdedit builds
         shell: bash
         run: |
-          (cd viewer && cargo build --release -p mdview)
           cd editor
+          bash packaging/engine-source.sh --check-lock ../viewer/Cargo.lock
+          (cd ../viewer && cargo build --release --locked -p mdview)
           pwsh -File packaging/windows/build-engine.ps1
           cargo build --release -p mdedit --no-default-features
           mkdir -p ../out/renderer ../out/embedded
@@ -70,8 +71,9 @@ jobs:
           MDEDIT_TEST_MDVIEW: ${{ github.workspace }}\out\renderer\mdview.exe
         run: |
           cd editor
-          cargo test --release -p mdedit --no-default-features preview
-          cargo test --release -p mdedit preview
+          bash tests/isolated.sh env MDV_ENGINE="$(cygpath -w "$PWD/target/release/mdview-engine.exe")" \
+            cargo test --release -p mdedit --no-default-features preview
+          bash tests/isolated.sh cargo test --release -p mdedit preview
       - name: Timings (a real window on the runner)
         shell: pwsh
         continue-on-error: true
@@ -129,12 +131,12 @@ jobs:
         run: |
           mkdir -p out/shots
           for b in renderer embedded; do
-            out/$b/mdedit.exe --no-session --size 1400x860 --scale 1 --preview-pane --shot out/shots/$b-light.png out/everything.md
-            out/$b/mdedit.exe --no-session --dark --size 1400x860 --scale 1.5 --preview-pane --shot out/shots/$b-dark.png out/plan.md
+            bash editor/tests/isolated.sh out/$b/mdedit.exe --no-session --behind --size 1400x860 --scale 1 --preview-pane --shot out/shots/$b-light.png out/everything.md
+            bash editor/tests/isolated.sh out/$b/mdedit.exe --no-session --behind --dark --size 1400x860 --scale 1.5 --preview-pane --shot out/shots/$b-dark.png out/plan.md
           done
           # No mdview beside it: formulas and diagrams from the engine shipped with mdedit.
           for f in math diagrams; do
-            out/embedded/mdedit.exe --no-session --size 1400x860 --scale 1 --preview-pane --shot out/shots/standalone-$f.png out/$f.md
+            bash editor/tests/isolated.sh out/embedded/mdedit.exe --no-session --behind --size 1400x860 --scale 1 --preview-pane --shot out/shots/standalone-$f.png out/$f.md
           done
           ls -l out/shots
       - uses: actions/upload-artifact@v7

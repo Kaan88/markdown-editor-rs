@@ -85,6 +85,10 @@ fifteen before.
 | `hub.txt` | The manifest of Hub, the owner's launcher and updater (`tools/write-hub-txt.ps1`, a copy of the script in the Hub repository, whose first line names the Hub commit it came from). Windows only: the exe, both engines and the setup, with their hashes. Written by the `publish` job after the other manifests; a release whose files it refuses fails there. Older builds never read it. Its `notes.file` line names the next file. |
 | `release-notes-<version>.md` | The full release text, the same file as the GitHub release body (`docs/release-notes/<version>.md` with the macOS paragraph), at most 64 KiB, for the release-notes page of Hub; named by `hub.txt`'s `notes.file`. Copied by the `publish` job from `notes/release-notes.md`. |
 
+The Windows installer preflight and Inno Setup both read the helper from `target\release`.
+The engine build scripts refuse cached source checkouts with tracked edits or extra files.
+Use the release-generated Arch `PKGBUILD`; `packaging/arch/PKGBUILD` is a template only.
+
 ## The manifests
 
 Three, because copies of different ages read different ones:

@@ -19,10 +19,18 @@ $matchesAt = [regex]::Matches($lock, '(?m)^name = "mdshared-md-render"\r?\nversi
 if ($matchesAt.Count -ne 1) { Fail 'No unique shared renderer revision in Cargo.lock.' }
 $rev = $matchesAt[0].Groups[1].Value
 $src = Join-Path $root 'target\engine-src'
-$head = if (Test-Path -LiteralPath (Join-Path $src '.git')) { (& git -C $src rev-parse HEAD 2>$null) } else { '' }
+$hasCheckout = Test-Path -LiteralPath (Join-Path $src '.git')
+$head = ''
+if ($hasCheckout) {
+  $dirty = & git --no-optional-locks -C $src status --porcelain --untracked-files=all --ignored
+  if ($LASTEXITCODE -ne 0 -or $dirty) { Fail "Dirty or extra files in $src." }
+  $head = & git -C $src rev-parse HEAD
+  if ($LASTEXITCODE -ne 0) { Fail "Could not read HEAD in $src." }
+} elseif (Test-Path -LiteralPath $src) { Fail "$src exists and is not a checkout." }
 if ($head -ne $rev) {
-  if (Test-Path -LiteralPath $src) { Remove-Item -LiteralPath $src -Recurse -Force }
-  & git init -q $src; if ($LASTEXITCODE -ne 0) { Fail 'git init failed' }
+  if (-not $hasCheckout) {
+    & git init -q $src; if ($LASTEXITCODE -ne 0) { Fail 'git init failed' }
+  }
   & git -C $src fetch -q --depth 1 https://github.com/Kaan88/markdown-shared-rs $rev; if ($LASTEXITCODE -ne 0) { Fail 'git fetch failed' }
   & git -C $src -c advice.detachedHead=false checkout -q FETCH_HEAD; if ($LASTEXITCODE -ne 0) { Fail 'git checkout failed' }
 }

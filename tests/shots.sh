@@ -6,7 +6,7 @@
 #
 # Needs a release build (cargo build --release -p mdedit). The large files are made under
 # target/data on the first run and never committed. Every shot uses --no-session, so the user's
-# session is neither read nor written.
+# session is neither read nor written. isolated.sh gives each shot its own scratch environment.
 
 set -euo pipefail
 
@@ -47,7 +47,7 @@ shot() {
     shift
     # The scale is pinned, so the system's display scale cannot change the pictures; a shot
     # that asks for its own --scale comes later on the line and wins.
-    "$exe" --no-session --behind --scale 1.0 --shot "$out/$name.png" "$@"
+    bash tests/isolated.sh "$exe" --no-session --behind --scale 1.0 --shot "$out/$name.png" "$@"
 }
 
 shot rs-light --light "$fx/sample.rs"

@@ -1,6 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migration.
+Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migration and review fixes.
 
 ## Released
 
@@ -93,7 +93,7 @@ Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migratio
 
 ## Next
 
-1. CI and real-window verification of the task fixes and motion before release.
+1. CI for the renderer packaging and real-window verification of task fixes and motion before release.
 2. The owner's look at 1.4.0's and 1.5.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes
    cards) and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
    mdview; D after R2.
@@ -138,8 +138,8 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
 
 ## Pins, branches, worktrees (tidied 2026-11-24)
 
-- Shared crates and embedded preview: `7fd559f` (D-284), with safety fixes and vertical-only
-  hinting. The helper ships beside the real executable. winit `62fa727`, softbuffer `dd18fec`.
+- Shared crates and embedded preview: `7fd559f` (D-284). The helper ships beside the real
+  executable; release smoke tests now exercise it. winit `62fa727`, softbuffer `dd18fec`.
 - Branches: `main`; the drawings (`mock/ai-review`, `mock/settings`, `mock/terminal`,
   `mock/downloader`, `mock/workbench` local only, `mock/launcher`, `mock/file-manager`,
   `mock/task-manager`, `mock/ai-pictures`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub

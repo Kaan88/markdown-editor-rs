@@ -129,7 +129,7 @@ PowerShell refused it as unsigned (not re-checked since).
 ```bash
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp   # keep temp files off the system drive
 cargo build --release --workspace
-cargo test --release --workspace
+bash tests/isolated.sh cargo test --release --workspace
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
@@ -168,8 +168,6 @@ macros, `ai-prompts.md` and the `library` folder sit beside that file.
 
 ```bash
 cargo build --release -p mdedit
-mkdir -p target/shots/settings
-export MDEDIT_SETTINGS="$PWD/target/shots/settings/settings.ini"
 bash tests/shots.sh target/shots/a        # renders every state into the folder
 bash tests/shots-check.sh target/shots/a  # fails if a shot is missing, empty or not a PNG
 ```
@@ -178,6 +176,9 @@ bash tests/shots-check.sh target/shots/a  # fails if a shot is missing, empty or
   `--scale N`, `--light` or `--dark`, and flags that put the app in a state: `--menu NAME`,
   `--dialog NAME`, `--palette`, `--ai-demo KIND`, `--replace-dialog`, `--compare A B`,
   `--pref key=value`, `--hover X,Y`, `--type TEXT`. All of them are in `args.rs`.
+- For a standalone shot or test command, `bash tests/isolated.sh …` provides scratch settings
+  and application data and clears inherited engine and sister overrides; `shots.sh` does this
+  separately for every shot.
 - Compare the generated PNGs on the same machine; fonts differ between machines, and `runs*`
   shots can vary with the clock. `ci` checks only that
   every required shot exists, and uploads them (`shots-windows`, `shots-linux`, `shots-macos-…`).

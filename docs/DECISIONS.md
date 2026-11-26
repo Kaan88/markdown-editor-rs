@@ -3054,3 +3054,14 @@ Move `regex-syntax` from `0.8.12` to `0.8.11` and `regex-automata` from `0.4.19`
 in the editor lockfile, matching the toolkit lock.
 **Overturned by.** A deliberate toolkit pin or packaging contract change.
 **From.** The renderer migration brief and the owner's approval of both patch downgrades.
+
+## D-285 — 2026-11-27 — Pin the external preview helper and reject dirty engine sources
+
+**Decision.** Refines D-284. The external preview hands the viewer the validated absolute
+`MDV_ENGINE` value (the packaged sibling if there is no override). If that path is missing or
+the override is relative, do not start the viewer. The comparison workflow checks the viewer's
+resolved renderer revision first. Engine build scripts reuse only a clean source checkout.
+**Why.** A viewer with older lookup rules must not be allowed to supply an unchecked helper,
+and a matching Git revision is not proof that the working tree matches it.
+**Overturned by.** A change to the supported external preview or release build contract.
+**From.** The renderer migration review and follow-up brief.

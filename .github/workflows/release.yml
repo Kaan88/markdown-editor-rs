@@ -127,12 +127,11 @@ jobs:
         run: |
           v='${{ needs.meta.outputs.version }}'
           d="$(mktemp -d)"
+          trap 'rm -rf "$d"' EXIT
           tar -xzf "target/dist-linux/mdedit-$v-linux-x86_64.tar.gz" -C "$d"
           "$d/mdedit-$v-linux-x86_64/install.sh" "$d/prefix"
           test "$(readlink -f "$d/prefix/bin/mdedit")" = "$d/prefix/lib/mdedit/mdedit"
-          MDEDIT_SETTINGS="$d/settings.ini" "$d/prefix/bin/mdedit" --no-session --behind --scale 1.0 --preview-pane --shot "$d/shot.png" --light fixtures/sample.md
-          test -s "$d/shot.png"
-          test -x "$d/prefix/lib/mdedit/mdview-engine"
+          bash tests/preview-engine-smoke.sh "$d/prefix/bin/mdedit" "$d/prefix/lib/mdedit"
           test -x "$d/prefix/lib/mdedit/mdedit-ai"
           "$d/mdedit-$v-linux-x86_64/uninstall.sh" "$d/prefix"
           test ! -e "$d/prefix/bin/mdedit" && test ! -e "$d/prefix/lib/mdedit"
@@ -305,7 +304,7 @@ jobs:
             ) -Out "$all/hub.txt"
           Get-Content "$all/hub.txt"
       - name: The manifest test, run against the assembled folder
-        run: cargo test --release -p mdedit --test release_manifest -- --nocapture
+        run: bash tests/isolated.sh cargo test --release -p mdedit --test release_manifest -- --nocapture
       - name: Create the GitHub release
         if: needs.meta.outputs.publish == 'true'
         run: |

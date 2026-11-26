@@ -132,10 +132,44 @@ pub fn viewer() -> Option<PathBuf> {
 }
 
 /// The sole packaged engine path; the renderer checks it when it needs the engine.
-#[cfg(any(feature = "embedded-preview", test))]
 fn packaged_engine(exe: Option<&Path>) -> Option<PathBuf> {
     let dir = exe.filter(|p| p.is_absolute())?.parent()?;
     Some(dir.join(format!("mdview-engine{}", std::env::consts::EXE_SUFFIX)))
+}
+
+/// Never leave engine discovery to an external viewer, which may have older lookup rules.
+#[cfg(any(not(feature = "embedded-preview"), test))]
+fn external_engine(exe: Option<&Path>, override_path: Option<PathBuf>) -> Option<PathBuf> {
+    let path = match override_path {
+        Some(path) => path,
+        None => packaged_engine(exe)?,
+    };
+    (path.is_absolute() && path.is_file()).then_some(path)
+}
+
+#[cfg(any(not(feature = "embedded-preview"), test))]
+fn external_server(viewer: &Path, engine: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new(viewer);
+    command.arg("--preview-server").env("MDV_ENGINE", engine);
+    command
+}
+
+#[cfg(test)]
+pub(crate) fn test_viewer() -> Option<PathBuf> {
+    #[cfg(feature = "embedded-preview")]
+    return None;
+    #[cfg(not(feature = "embedded-preview"))]
+    {
+        let path = PathBuf::from(std::env::var_os("MDEDIT_TEST_MDVIEW").expect(
+            "external preview tests require MDEDIT_TEST_MDVIEW to name an absolute viewer executable",
+        ));
+        assert!(
+            path.is_absolute() && path.is_file(),
+            "invalid MDEDIT_TEST_MDVIEW: {}",
+            path.display()
+        );
+        Some(path)
+    }
 }
 
 impl Pane {
@@ -561,7 +595,7 @@ fn start(
     wake: Waker,
 ) -> &'static str {
     use std::io::{BufReader, BufWriter};
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     let ended = |tx: &Sender<Event>, wake: &Waker, why: String| {
         let _ = tx.send(Event::Ended(why));
         wake(Wake::Preview);
@@ -571,8 +605,19 @@ fn start(
         wake(Wake::Preview);
         return "mdview";
     };
-    let child = Command::new(viewer)
-        .arg("--preview-server")
+    let exe = std::env::current_exe().ok();
+    let Some(engine) = external_engine(
+        exe.as_deref(),
+        std::env::var_os("MDV_ENGINE").map(PathBuf::from),
+    ) else {
+        ended(
+            &tx,
+            &wake,
+            "No preview engine beside mdedit, or MDV_ENGINE is not an absolute file.".into(),
+        );
+        return "mdview";
+    };
+    let child = external_server(viewer, &engine)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -720,6 +765,36 @@ mod engine_tests {
         assert_eq!(packaged_engine(Some(Path::new("bin/mdedit"))), None);
         assert_eq!(packaged_engine(None), None);
     }
+
+    #[test]
+    fn external_engine_rejects_missing_sibling_and_invalid_overrides() {
+        let root =
+            std::env::temp_dir().join(format!("mdedit-preview-engine-{}", std::process::id()));
+        let dir = root.join("bin");
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("mdedit");
+        let engine = packaged_engine(Some(&exe)).unwrap();
+        let parent_engine = root.join(engine.file_name().unwrap());
+        std::fs::write(&parent_engine, []).unwrap();
+        assert_eq!(external_engine(Some(&exe), None), None);
+        std::fs::write(&engine, []).unwrap();
+        assert_eq!(external_engine(Some(&exe), None), Some(engine.clone()));
+        let relative = PathBuf::from("Cargo.toml");
+        assert!(relative.is_file());
+        assert_eq!(external_engine(Some(&exe), Some(relative)), None);
+        assert_eq!(external_engine(Some(&exe), Some(dir.join("missing"))), None);
+        assert_eq!(
+            external_engine(Some(&exe), Some(parent_engine.clone())),
+            Some(parent_engine)
+        );
+        let command = external_server(&dir.join("mdview"), &engine);
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| { key == "MDV_ENGINE" && value == Some(engine.as_os_str()) })
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -742,11 +817,7 @@ mod tests {
     /// block of that text in the new document.
     #[test]
     fn a_block_answer_the_old_text_was_still_owed_is_dropped() {
-        let viewer = viewer();
-        if !STANDALONE && viewer.is_none() {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        }
+        let viewer = test_viewer();
         let wake: Waker = std::sync::Arc::new(|_| {});
         let mut p = Pane::open(viewer.as_deref(), wake);
         p.set_view(800, 600, 1.0, false);

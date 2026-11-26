@@ -45,12 +45,13 @@ jobs:
           key: linux
       - run: cargo fmt --all --check
       - run: cargo clippy --release --workspace --all-targets -- -D warnings
-      - run: cargo test --release --workspace
+      - run: bash tests/isolated.sh cargo test --release --workspace
       - name: Screenshot suite (smoke test)
         if: ${{ !cancelled() }}
         run: |
           cargo build --release -p mdedit
           bash packaging/engine-source.sh target/engine-src
+          bash tests/engine-source-check.sh target/engine-src
           cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path target/engine-src/Cargo.toml --target-dir target/engine-build
           cp target/engine-build/release/mdview-engine target/release/
           bash tests/shots.sh target/shots
@@ -78,7 +79,14 @@ jobs:
           key: windows
       - run: cargo fmt --all --check
       - run: cargo clippy --release --workspace --all-targets -- -D warnings
-      - run: cargo test --release --workspace --no-fail-fast
+      - shell: bash
+        run: bash tests/isolated.sh cargo test --release --workspace --no-fail-fast
+      - name: Installer preflight with a clean output folder
+        shell: pwsh
+        run: tests/windows-installer-layout.ps1
+      - name: Scratch settings and install isolation
+        shell: bash
+        run: bash tests/isolated-check.sh
       - name: Screenshot suite (smoke test)
         if: ${{ !cancelled() }}
         shell: bash
@@ -117,7 +125,7 @@ jobs:
           key: macos-${{ matrix.arch }}
       - run: cargo fmt --all --check
       - run: cargo clippy --release --workspace --all-targets -- -D warnings
-      - run: cargo test --release --workspace --no-fail-fast
+      - run: bash tests/isolated.sh cargo test --release --workspace --no-fail-fast
       - name: Screenshot suite (smoke test)
         if: ${{ !cancelled() }}
         run: |

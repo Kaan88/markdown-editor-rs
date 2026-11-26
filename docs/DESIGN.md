@@ -4317,7 +4317,8 @@ to a thread running `mdshared-md-preview` with its `server` feature. The server 
 draws through `mdshared-md-core` and `mdshared-md-render`; the pane applies frame updates and
 uses the same page for selection, task toggles and visual block editing. The preview thread
 starts when a pane opens, not on a normal editor launch. The optional external comparison
-build instead starts `mdview --preview-server` and expects the `MDVPREVIEW7` greeting. Neither
+build instead starts `mdview --preview-server`, passes it the validated absolute engine path, and
+expects the `MDVPREVIEW7` greeting. It does not start the viewer if that path is unavailable. Neither
 mode changes the separate hand-off to a visible mdview window.
 
 Formulas, diagrams and SVG go to `mdview-engine`, built from `mdshared-md-engine` at the same

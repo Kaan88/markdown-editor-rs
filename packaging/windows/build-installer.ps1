@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Builds the Inno Setup installer for mdedit from the release exe (target\release\mdedit.exe) and
-  the engine (target\engine\mdview-engine.exe), and writes its .sha256 file. Modelled on the viewer's packaging\windows\build-installer.ps1.
+  the engine beside it (target\release\mdview-engine.exe), and writes its .sha256 file.
 .NOTES
   pwsh packaging\windows\build-installer.ps1 [-SkipBuild]
   Output: target\installer\mdedit-setup-<version>.exe and .exe.sha256.
@@ -40,7 +40,7 @@ if (-not $SkipBuild) {
 }
 if (-not (Test-Path -LiteralPath (Join-Path $root 'target\release\mdedit.exe'))) { Fail 'target\release\mdedit.exe is missing.' }
 if (-not (Test-Path -LiteralPath (Join-Path $root 'target\release\mdedit-ai.exe'))) { Fail 'target\release\mdedit-ai.exe is missing.' }
-if (-not (Test-Path -LiteralPath (Join-Path $root 'target\engine\mdview-engine.exe'))) { Fail 'target\engine\mdview-engine.exe is missing (packaging\windows\build-engine.ps1).' }
+if (-not (Test-Path -LiteralPath (Join-Path $root 'target\release\mdview-engine.exe') -PathType Leaf)) { Fail 'target\release\mdview-engine.exe is missing (packaging\windows\build-engine.ps1).' }
 
 & $iscc "/DAppVersion=$version" (Join-Path $PSScriptRoot 'mdedit.iss')
 if ($LASTEXITCODE -ne 0) { Fail 'ISCC failed.' }

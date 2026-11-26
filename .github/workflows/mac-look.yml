@@ -36,7 +36,12 @@ jobs:
           key: mac-look
       - run: cargo build --release -p mdedit
       - name: The bundle
-        run: bash packaging/macos/make-bundle.sh target/release target/dist
+        run: |
+          bash packaging/engine-source.sh target/engine-src
+          cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path target/engine-src/Cargo.toml --target-dir target/engine-build
+          cp target/engine-build/release/mdview-engine target/release/
+          bash packaging/macos/make-bundle.sh target/release target/dist
+          test -x target/dist/mdedit.app/Contents/MacOS/mdview-engine
       - name: Updating itself (a newer bundle from a local HTTPS server)
         run: bash tests/mac-update.sh target/update target/dist/mdedit.app
       - name: Typing in a real window
