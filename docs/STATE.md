@@ -78,7 +78,7 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
   - **Theme crossfade** (D-275): explicit and System light/dark changes blend for
     170 ms. First paint, oversize windows, backdrop and disabled/reduced motion snap.
     A theme choice from a menu or the palette fades from a clean old-palette frame
-    with the overlay already gone (D-278). Closing an overlay during an
+    with the overlay already gone (D-278). Closing or replacing a menu during an
     already-running fade ends the fade immediately.
     [Windows measurements](measurements/2026-11-26-settings-theme-transitions.md):
     4/31 launches over 100 ms both before and after; idle private memory 27.10 → 27.00 MiB.

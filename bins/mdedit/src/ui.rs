@@ -604,7 +604,7 @@ enum PopupBody {
 
 const SUBMENU_DWELL: std::time::Duration = std::time::Duration::from_millis(300);
 
-fn popup_serial() -> u64 {
+pub(crate) fn overlay_serial() -> u64 {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
@@ -634,7 +634,7 @@ impl Popup {
             body: PopupBody::Single(menu),
             cues: true,
             library_row: None,
-            serial: popup_serial(),
+            serial: overlay_serial(),
             sub_serial: 0,
         }
     }
@@ -659,7 +659,7 @@ impl Popup {
             body: PopupBody::Cascade(c),
             cues,
             library_row: None,
-            serial: popup_serial(),
+            serial: overlay_serial(),
             sub_serial: 0,
         }
     }
@@ -838,7 +838,7 @@ impl Popup {
         let before = self.sub_kind();
         let out = f(&mut self.body);
         if self.sub_kind().is_some_and(|k| Some(k) != before) {
-            self.sub_serial = popup_serial();
+            self.sub_serial = overlay_serial();
         }
         out
     }
@@ -908,6 +908,7 @@ pub struct Pending {
 
 pub struct Dialog {
     pub kind: DialogKind,
+    pub serial: u64,
     /// Scroll of a long list, logical px.
     pub scroll: f32,
     /// The scrollable list's height and its content's, set when drawn.
@@ -922,6 +923,7 @@ impl Dialog {
     pub fn new(kind: DialogKind) -> Dialog {
         Dialog {
             kind,
+            serial: overlay_serial(),
             scroll: 0.0,
             view: 0.0,
             content: 0.0,

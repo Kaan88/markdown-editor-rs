@@ -366,7 +366,7 @@ struct App {
     overlay_sig: u64,
     overlay_bounds: Vec<Rect>,
     /// Overlays in the last composition; a closing overlay must never survive in a theme copy.
-    painted_overlays: u16,
+    painted_overlays: (u16, [Option<u64>; 5]),
     /// Redraw everything next frame (size, scale or theme changed).
     full: bool,
     wants_frame: bool,
@@ -577,7 +577,7 @@ impl App {
             caret_line: None,
             overlay_sig: 0,
             overlay_bounds: Vec::new(),
-            painted_overlays: 0,
+            painted_overlays: Default::default(),
             full: true,
             wants_frame: true,
             requested: false,
@@ -652,8 +652,8 @@ impl App {
         self.wants_frame = true;
     }
 
-    fn overlay_mask(&self) -> u16 {
-        [
+    fn overlay_mask(&self) -> (u16, [Option<u64>; 5]) {
+        let present = [
             self.ui.popup.is_some(),
             self.ui.popup.as_ref().is_some_and(|p| p.sub().is_some()),
             self.ui.dialog.is_some(),
@@ -674,11 +674,28 @@ impl App {
         ]
         .into_iter()
         .enumerate()
-        .fold(0, |mask, (i, shown)| mask | (u16::from(shown) << i))
+        .fold(0, |mask, (i, shown)| mask | (u16::from(shown) << i));
+        let instances = [
+            self.ui.popup.as_ref().map(|p| p.serial),
+            self.ui.popup.as_ref().and_then(|p| p.sub_serial()),
+            self.ui.dialog.as_ref().map(|d| d.serial),
+            self.ui
+                .settings
+                .as_ref()
+                .map(|_| self.motion.settings_serial),
+            self.palette.open.as_ref().map(|p| p.serial),
+        ];
+        (present, instances)
     }
 
     fn overlay_closed_since_paint(&self) -> bool {
-        self.painted_overlays & !self.overlay_mask() != 0
+        let (present, instances) = self.overlay_mask();
+        let (painted, old) = self.painted_overlays;
+        painted & !present != 0
+            || old
+                .into_iter()
+                .zip(instances)
+                .any(|(old, now)| old.is_some() && old != now)
     }
 
     /// A shown tip can have painted pixels, even if the input that dismisses it does not

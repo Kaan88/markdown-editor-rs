@@ -152,6 +152,7 @@ pub struct Sources<'a> {
 
 pub struct PaletteState {
     pub palette: Palette,
+    pub serial: u64,
     targets: Vec<Target>,
     /// The source the entries came from; `None` before the first.
     mode: Option<Mode>,
@@ -177,6 +178,7 @@ impl PaletteState {
         palette.open(query);
         PaletteState {
             palette,
+            serial: crate::ui::overlay_serial(),
             targets: Vec::new(),
             mode: None,
             with_files: false,

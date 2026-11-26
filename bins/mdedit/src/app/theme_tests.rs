@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app::files_tests::{app, scratch};
+use crate::ui::BarItem;
 use mdshared_app::backdrop::Backdrop;
 use mdshared_ui::anim::ManualClock;
 use winit::dpi::PhysicalSize;
@@ -362,6 +363,44 @@ fn closing_a_dialog_drops_an_active_theme_snapshot_before_the_next_paint() {
     a.full = true;
     a.compose();
     assert!(a.screen.pixels == first, "no ghost of the dialog");
+}
+
+#[test]
+fn replacing_an_open_menu_during_a_system_flip_drops_its_old_image() {
+    let mut a = window(false);
+    a.set_theme(ThemeChoice::System);
+    a.system_dark = false;
+    a.compose();
+    a.open_popup(PopupKind::Main);
+    a.compose();
+    advance(&mut a, 117);
+    let previous = a.ui.popup.as_ref().unwrap().serial;
+    a.system_dark = true;
+    a.compose();
+    advance(&mut a, 34);
+    assert!(a.motion.theme_fade.is_some());
+
+    // The menu is swapped in one input path, with no intervening closed paint.
+    a.activate(Hit::Bar(BarItem::AiEdit));
+    let current = a.ui.popup.as_ref().unwrap();
+    assert_eq!(current.kind, PopupKind::Ai);
+    assert_ne!(current.serial, previous);
+    a.compose();
+    assert!(
+        a.motion.theme_fade.is_none(),
+        "the replaced menu's snapshot is gone"
+    );
+
+    let mut plain = window(true);
+    plain.set_theme(ThemeChoice::System);
+    plain.system_dark = true;
+    plain.compose();
+    plain.activate(Hit::Bar(BarItem::AiEdit));
+    plain.compose();
+    assert!(
+        a.screen.pixels == plain.screen.pixels,
+        "no trace of the first menu"
+    );
 }
 
 #[test]
