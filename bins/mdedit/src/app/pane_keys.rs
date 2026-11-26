@@ -137,3 +137,153 @@ impl App {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::Key;
+    use std::path::PathBuf;
+
+    fn tree(tag: &str, files: usize) -> (App, PathBuf) {
+        let dir = super::super::files_tests::scratch(tag);
+        let folder = dir.join("a-folder");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("inside.txt"), "inside").unwrap();
+        for i in 0..files {
+            std::fs::write(dir.join(format!("file-{i:03}.txt")), "outside").unwrap();
+        }
+        let mut a = super::super::files_tests::app();
+        a.ui.tree.set_root(Some(dir.clone()));
+        a.ui.tree.refresh();
+        shortcut(&mut a);
+        a.compose();
+        assert_eq!(a.ui.pane_focus.focused(), Some(PaneFace::Files));
+        assert_eq!(a.ui.pane_cursor, Some(0));
+        (a, dir)
+    }
+
+    fn key(a: &mut App, name: KeyName) {
+        a.key_pressed(Key::Name(name), None);
+    }
+
+    fn shortcut(a: &mut App) {
+        a.mods.ctrl = true;
+        a.mods.shift = true;
+        key(a, KeyName::Char('1'));
+        a.mods = Mods::default();
+    }
+
+    #[test]
+    fn enter_on_a_folder_keeps_focus_but_enter_on_its_file_opens_it_and_blurs() {
+        let (mut a, dir) = tree("pane-enter", 1);
+        let folder = &a.ui.tree.rows()[0];
+        assert!(folder.is_dir && !folder.expanded);
+        key(&mut a, KeyName::Enter);
+        assert!(a.ui.tree.rows()[0].expanded, "Enter expands the folder");
+        assert_eq!(
+            a.ui.pane_focus.focused(),
+            Some(PaneFace::Files),
+            "folder keeps focus"
+        );
+        key(&mut a, KeyName::Down);
+        assert_eq!(a.ui.pane_cursor, Some(1));
+        let file = a.ui.tree.rows()[1].path.clone();
+        key(&mut a, KeyName::Enter);
+        assert_eq!(a.ui.pane_focus.focused(), None, "file gives up focus");
+        assert_eq!(
+            a.docs.active_doc().and_then(|doc| doc.path.as_ref()),
+            Some(&file),
+            "Enter opens the selected file"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn left_and_right_expand_enter_return_and_collapse_the_tree() {
+        let (mut a, dir) = tree("pane-tree-keys", 1);
+        key(&mut a, KeyName::Right);
+        assert!(
+            a.ui.tree.rows()[0].expanded,
+            "Right expands a closed folder"
+        );
+        assert_eq!(a.ui.pane_cursor, Some(0));
+        key(&mut a, KeyName::Right);
+        assert_eq!(a.ui.pane_cursor, Some(1), "Right enters an expanded folder");
+        key(&mut a, KeyName::Left);
+        assert_eq!(
+            a.ui.pane_cursor,
+            Some(0),
+            "Left from a file returns to its parent"
+        );
+        key(&mut a, KeyName::Left);
+        assert!(
+            !a.ui.tree.rows()[0].expanded,
+            "Left collapses an open folder"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn home_end_and_page_keys_move_and_reveal_the_row() {
+        let (mut a, dir) = tree("pane-page-keys", 99);
+        let list = panes::files_list(a.areas.files.unwrap());
+        let page = (list.h / panes::ROW).floor() as usize;
+        let last = a.ui.tree.rows().len() - 1;
+        assert!(page > 1 && page * 2 < last);
+        for (name, at) in [
+            (KeyName::PageDown, page),
+            (KeyName::PageDown, 2 * page),
+            (KeyName::PageUp, page),
+            (KeyName::End, last),
+            (KeyName::Home, 0),
+        ] {
+            let label = format!("{name:?}");
+            key(&mut a, name);
+            assert_eq!(a.ui.pane_cursor, Some(at), "{label}");
+            a.compose();
+            let row = a.hit_rect(Hit::FilesRow(at)).unwrap();
+            assert!(
+                row.y >= list.y && row.bottom() <= list.bottom(),
+                "{label} reveals the row"
+            );
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_click_in_the_editor_gives_up_pane_focus() {
+        let (mut a, dir) = tree("pane-click", 1);
+        let text = a.areas.text;
+        a.pointer_moved(text.cx(), text.cy());
+        a.left_press();
+        a.left_release();
+        assert_eq!(a.ui.pane_focus.focused(), None, "a click gives up focus");
+        assert!(a.ui.panes.files);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn pressing_the_same_shortcut_again_closes_the_pane() {
+        let (mut a, dir) = tree("pane-close", 1);
+        shortcut(&mut a);
+        a.compose();
+        assert!(!a.ui.panes.files, "the second shortcut closes the pane");
+        assert_eq!(a.ui.pane_focus.focused(), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn switching_face_gives_up_the_old_pane_focus() {
+        let (mut a, dir) = tree("pane-switch", 1);
+        // Activate the switch directly so the pointer press cannot blur first.
+        a.activate(Hit::PaneFace(PaneFace::Functions));
+        assert!(a.ui.panes.files);
+        assert_eq!(a.ui.pane_face(), PaneFace::Functions);
+        assert_eq!(
+            a.ui.pane_focus.focused(),
+            None,
+            "switching face gives up focus"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
