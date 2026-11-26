@@ -21,3 +21,5 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
   the dialog is still instant.
 - **Tooltip and title hover fixes.** Scrolling or middle-clicking a tab clears its tooltip
   immediately; hovering the active tab does not schedule an invisible fade.
+- **Submenus follow the pointer and keyboard.** Escape or Left drops any pending hover
+  change and closes the submenu that's actually on screen.

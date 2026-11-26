@@ -1486,12 +1486,7 @@ impl App {
             }
             if let Some(popup) = self.ui.popup.as_mut() {
                 let room = menu_room(self.areas.title, w, h);
-                overlays::fit_modify_room(&mut popup.menu, &mut p);
-                popup.menu.place_in(&mut p, room);
-                if let Some(s) = popup.sub.as_mut() {
-                    overlays::fit_modify_room(&mut s.menu, &mut p);
-                    s.menu.place_in(&mut p, room);
-                }
+                popup.place_in(&mut p, room);
             }
         }
         self.toast_until = self.motion.toasts_due();
@@ -1522,9 +1517,9 @@ impl App {
             })
             .collect();
         if let Some(popup) = &self.ui.popup {
-            bounds.push(popup.menu.presence_bounds());
-            if let Some(s) = &popup.sub {
-                bounds.push(s.menu.presence_bounds());
+            bounds.push(popup.root().presence_bounds());
+            if let Some(s) = popup.sub() {
+                bounds.push(s.presence_bounds());
             }
         }
         if self.ui.dialog.is_some()
@@ -1565,19 +1560,19 @@ impl App {
             self.ui.popup.as_ref().map(|p| {
                 (
                     p.kind,
-                    (p.menu.hover, p.menu.scroll().to_bits()),
-                    p.menu.items.len(),
+                    (p.root().hover, p.root().scroll().to_bits()),
+                    p.root().items.len(),
                     (p.kind == PopupKind::Ai)
-                        .then(|| crate::ai_ui::menu_modify_at(&p.menu, self.ui.mouse)),
-                    p.sub.as_ref().map(|s| {
+                        .then(|| crate::ai_ui::menu_modify_at(p.root(), self.ui.mouse)),
+                    p.sub().map(|s| {
                         (
-                            s.kind,
-                            s.menu.hover,
-                            s.menu.scroll().to_bits(),
+                            p.sub_kind(),
+                            s.hover,
+                            s.scroll().to_bits(),
                             // A saved prompt's Modify button lit under the pointer (the owner:
                             // it lit only half a second later, with the next other change).
-                            (s.kind == PopupKind::Ai)
-                                .then(|| crate::ai_ui::menu_modify_at(&s.menu, self.ui.mouse)),
+                            (p.sub_kind() == Some(PopupKind::Ai))
+                                .then(|| crate::ai_ui::menu_modify_at(s, self.ui.mouse)),
                         )
                     }),
                 )
@@ -3778,7 +3773,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         Some(ShotMenu::MainEnd) => {
             app.open_popup(PopupKind::Main);
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.scroll_to_end();
+                p.root_mut().scroll_to_end();
             }
         }
         Some(ShotMenu::Recent) => app.open_popup(PopupKind::Recent),
@@ -3793,7 +3788,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.open_popup(PopupKind::Main);
             app.compose();
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::ViewMenu);
+                p.root_mut().hover = p.root().items.iter().position(|i| i.id == Act::ViewMenu);
             }
             app.open_sub(PopupKind::Main, PopupKind::View, true);
         }
@@ -3801,7 +3796,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.open_popup(PopupKind::Main);
             app.compose();
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::MacroMenu);
+                p.root_mut().hover = p.root().items.iter().position(|i| i.id == Act::MacroMenu);
             }
             app.open_sub(PopupKind::Main, PopupKind::Macro, true);
         }
@@ -3856,8 +3851,8 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 _ => PopupKind::Markdown,
             };
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = p
-                    .menu
+                p.root_mut().hover = p
+                    .root()
                     .items
                     .iter()
                     .position(|i| i.id.submenu() == Some(sub));
@@ -3872,7 +3867,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             app.open_popup(PopupKind::Main);
             app.compose();
             if let Some(p) = app.ui.popup.as_mut() {
-                p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::LibraryMenu);
+                p.root_mut().hover = p.root().items.iter().position(|i| i.id == Act::LibraryMenu);
             }
             app.open_sub(PopupKind::Main, PopupKind::Library, true);
         }
@@ -4140,7 +4135,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
             }
         }
         if let Some(p) = app.ui.popup.as_mut() {
-            p.menu.pointer(x, y);
+            p.root_mut().pointer(x, y);
         }
         // `--hover-ms`: what the title row's hover set moving, that far in, on the shot's clock.
         if let Some(ms) = app.args.hover_ms {

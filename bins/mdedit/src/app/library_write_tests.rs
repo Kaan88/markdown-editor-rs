@@ -1033,7 +1033,7 @@ fn a_right_click_on_a_row_moves_the_pane_to_it_and_opens_its_menu() {
             Some(l.file.as_path()),
             "the pane's row is the one under the pointer"
         );
-        let menu = &a.ui.popup.as_ref().unwrap().menu;
+        let menu = a.ui.popup.as_ref().unwrap().root();
         assert_eq!(
             menu.items
                 .iter()

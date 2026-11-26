@@ -390,7 +390,7 @@ fn shift_f10_and_the_menu_key_open_the_cursor_rows_menu_by_the_keyboard() {
     );
     a.compose();
     let row = a.hit_rect(Hit::LibraryRow(1)).unwrap();
-    let menu = a.ui.popup.as_ref().unwrap().menu.rect();
+    let menu = a.ui.popup.as_ref().unwrap().root().rect();
     assert!(
         menu.y >= row.y && menu.y <= row.bottom() + 8.0,
         "under the row: {menu:?} {row:?}"
@@ -794,7 +794,7 @@ fn the_tab_menu_and_the_palette_offer_it_only_for_a_file_the_library_lists() {
         a.ui.popup
             .as_ref()
             .unwrap()
-            .menu
+            .root()
             .items
             .iter()
             .find(|m| m.id == Act::TabCmd(C::ShowInLibrary, i))

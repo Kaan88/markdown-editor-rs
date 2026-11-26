@@ -2778,3 +2778,13 @@ move the viewer pin or activate a new feature in the pin commit. L1 opts in sepa
 **Why.** The owner requested the pin already used by mdview, with shared's cancellation of
 waiting cascade changes (PR 40). See `docs/measurements/2026-11-26-motion-mf-pin.md`.
 **Overturned by.** A later deliberate shared pin move.
+
+## D-269 — 2026-11-26 — Let shared own the open submenu path
+
+**Decision.** Main and text menus with children use `submenu::Cascade`; menus without
+children, including completion, keep their plain path. The root retains its own anchor.
+Shared measures and places the submenu beside the opening row and owns the pointer's 300 ms
+rest. Escape and Left use `keys_cancel_wait(true)` before any synthetic navigation key.
+**Why.** L1 replaces duplicate placement and dwell code. A pointer move on its way to the
+submenu must not close it, and a key must act on the open path rather than a waiting change.
+**Overturned by.** A different shared navigation or menu-placement contract.

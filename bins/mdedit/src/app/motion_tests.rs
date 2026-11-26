@@ -245,7 +245,7 @@ fn the_completion_list_never_fades() {
     assert!(a.motion.anim.group_deadlines().is_empty());
     let before = a.screen.pixels.clone();
     let popup = a.ui.popup.as_mut().unwrap();
-    popup.menu.hover = Some(0);
+    popup.root_mut().hover = Some(0);
     a.compose();
     assert!(
         a.screen.pixels != before,
@@ -444,7 +444,7 @@ fn a_toast_that_comes_and_goes_during_the_entrance_leaves_nothing() {
 fn the_pointer_moving_over_an_entering_menu_lights_its_row() {
     let (mut a, mut b) = pair();
     part_way(&mut a, PopupKind::Main, 3);
-    let r = a.ui.popup.as_ref().unwrap().menu.rect();
+    let r = a.ui.popup.as_ref().unwrap().root().rect();
     let at = (r.x + r.w / 2.0, r.y + 60.0);
     a.pointer_moved(at.0, at.1);
     a.compose();
@@ -454,7 +454,7 @@ fn the_pointer_moving_over_an_entering_menu_lights_its_row() {
     b.pointer_moved(at.0, at.1);
     b.compose();
     assert!(
-        a.ui.popup.as_ref().unwrap().menu.hover.is_some(),
+        a.ui.popup.as_ref().unwrap().root().hover.is_some(),
         "a row is lit"
     );
     same(&a, &b, "hover moved mid-fade");
@@ -480,7 +480,7 @@ fn a_resize_and_a_new_scale_during_the_entrance() {
 /// Main with View beside it, opened by keys as the shots do.
 fn open_view(a: &mut App) {
     if let Some(p) = a.ui.popup.as_mut() {
-        p.menu.hover = p.menu.items.iter().position(|i| i.id == Act::ViewMenu);
+        p.root_mut().hover = p.root().items.iter().position(|i| i.id == Act::ViewMenu);
     }
     a.open_sub(PopupKind::Main, PopupKind::View, true);
 }
@@ -540,7 +540,7 @@ fn recent_replacing_the_main_menu_while_it_enters() {
 fn a_menu_above_its_anchor_rises_into_place() {
     let (mut a, mut b) = pair();
     part_way(&mut a, PopupKind::Eol, 3);
-    assert!(a.ui.popup.as_ref().unwrap().menu.opened_above());
+    assert!(a.ui.popup.as_ref().unwrap().root().opened_above());
     settle(&mut a);
     b.open_popup(PopupKind::Eol);
     b.compose();
@@ -560,7 +560,7 @@ fn the_ai_menus_modify_buttons_enter_with_it() {
         }];
     }
     part_way(&mut a, PopupKind::Ai, 3);
-    let menu = &a.ui.popup.as_ref().unwrap().menu;
+    let menu = a.ui.popup.as_ref().unwrap().root();
     assert!(menu.items.iter().any(|i| matches!(i.id, Act::AiPrompt(_))));
     settle(&mut a);
     b.open_popup(PopupKind::Ai);
@@ -2506,7 +2506,7 @@ fn motion_off_menu_hover_uses_plain_drawing() {
     a.open_popup(PopupKind::Main);
     a.compose();
     let rest = a.screen.pixels.clone();
-    let menu = a.ui.popup.as_ref().unwrap().menu.rect();
+    let menu = a.ui.popup.as_ref().unwrap().root().rect();
     a.pointer_moved(menu.cx(), menu.y + 26.0);
     a.compose();
     assert!(
@@ -2516,12 +2516,15 @@ fn motion_off_menu_hover_uses_plain_drawing() {
     let (w, h) = a.logical();
     let mut plain = mdshared_text::Bitmap::new(a.screen.width, a.screen.height);
     let popup = a.ui.popup.as_mut().unwrap();
-    let row = popup.menu.hover.expect("an enabled row under the pointer");
+    let row = popup
+        .root()
+        .hover
+        .expect("an enabled row under the pointer");
     let mut p = Painter::new(&mut plain, &mut a.gfx, a.scale);
     popup
-        .menu
+        .root_mut()
         .draw_in(&mut p, &a.pal, menu_room(a.areas.title, w, h));
-    let (x0, y0, x1, y1) = p.dev_rect(popup.menu.row_rect(row).inset(3.0));
+    let (x0, y0, x1, y1) = p.dev_rect(popup.root().row_rect(row).inset(3.0));
     let stride = a.screen.width as usize * 4;
     assert!(
         (y0 as usize..y1 as usize).all(|y| {
@@ -2705,7 +2708,7 @@ fn a_menu_row_fades_its_fill_in_and_then_rests() {
     settle(&mut a);
     assert_eq!(a.motion.due, None, "the menu itself has arrived");
     let arrived = a.screen.pixels.clone();
-    let menu = a.ui.popup.as_ref().expect("a menu").menu.rect();
+    let menu = a.ui.popup.as_ref().expect("a menu").root().rect();
     a.pointer_moved(menu.cx(), menu.y + 26.0);
     a.compose();
     assert!(a.motion.due.is_some(), "a row's fill is on its way");

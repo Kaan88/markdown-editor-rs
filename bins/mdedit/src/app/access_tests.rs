@@ -137,7 +137,7 @@ fn a_letter_picks_the_marked_item_as_enter_would() {
     // "&View" opens its submenu, which has the keyboard.
     letter(&mut a, 'v');
     let p = a.ui.popup.as_ref().expect("the menus stay up");
-    assert_eq!(p.sub.as_ref().map(|s| s.kind), Some(PopupKind::View));
+    assert_eq!(p.sub_kind(), Some(PopupKind::View));
     // In it, "&Word wrap" runs and everything closes; the capital letter does the same.
     let wrapped = a.docs.wrap;
     letter(&mut a, 'W');
@@ -151,6 +151,48 @@ fn a_letter_picks_the_marked_item_as_enter_would() {
     letter(&mut a, 's');
     assert!(a.ui.popup.is_some());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn submenu_keys_cancel_the_app_timers_pending_pointer_change() {
+    for key in [KeyName::Escape, KeyName::Left] {
+        let (mut a, dir) = open_app("cascade-cancel");
+        a.open_popup(PopupKind::Main);
+        a.compose();
+        let row = |a: &App, act: Act| {
+            let m = a.ui.popup.as_ref().unwrap().root();
+            let i = m.items.iter().position(|item| item.id == act).unwrap();
+            (i, m.row_rect(i))
+        };
+        let (view, open) = row(&a, Act::ViewMenu);
+        a.pointer_moved(open.cx(), open.cy());
+        let due = a.ui.popup.as_ref().unwrap().deadline().expect("a dwell");
+        a.timers(due);
+        a.compose();
+        assert_eq!(
+            a.ui.popup.as_ref().unwrap().sub_kind(),
+            Some(PopupKind::View)
+        );
+        let (_, other) = row(&a, Act::MacroMenu);
+        a.pointer_moved(other.cx(), other.cy());
+        let due =
+            a.ui.popup
+                .as_ref()
+                .unwrap()
+                .deadline()
+                .expect("a waiting open");
+        a.key_pressed(Key::Name(key.clone()), None);
+        a.timers(due);
+        let p = a.ui.popup.as_ref().expect("the root remains");
+        assert!(p.sub().is_none(), "{key:?}: no sibling opens");
+        assert_eq!(
+            p.root().hover,
+            Some(view),
+            "{key:?}: the first opener stays lit"
+        );
+        assert_eq!(p.deadline(), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[test]
@@ -171,7 +213,7 @@ fn a_letter_with_ctrl_or_alt_does_nothing_in_a_menu() {
         letter(&mut a, 'v');
         a.mods = Mods::default();
         let p = a.ui.popup.as_ref().expect("still the main menu");
-        assert!(p.sub.is_none());
+        assert!(p.sub().is_none());
         a.ui.popup = None;
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -192,7 +234,10 @@ fn the_completion_list_does_not_read_access_keys_and_typing_goes_on() {
     press(&mut a, chord.key, None);
     a.mods = Mods::default();
     assert!(a.completion_showing());
-    assert_eq!(a.ui.popup.as_mut().unwrap().menu.access_key('p'), None);
+    assert_eq!(
+        a.ui.popup.as_mut().unwrap().root_mut().access_key('p'),
+        None
+    );
     // 's' narrows the list and is typed into the text, as before.
     letter(&mut a, 's');
     assert!(a.completion_showing());
@@ -252,8 +297,10 @@ fn menus_opened_by_a_right_click_hide_the_underlines_until_a_key() {
     a.ui.popup = None;
     right_click(&mut a, Hit::Text);
     a.open_sub(PopupKind::Text, PopupKind::Lines, false);
-    assert!(!a.ui.popup.as_ref().unwrap().sub.as_ref().unwrap().cues);
+    assert!(a.ui.popup.as_ref().unwrap().sub().is_some());
+    assert!(!a.ui.popup.as_ref().unwrap().cues);
     press(&mut a, KeyName::Down, None);
-    assert!(a.ui.popup.as_ref().unwrap().sub.as_ref().unwrap().cues);
+    assert!(a.ui.popup.as_ref().unwrap().sub().is_some());
+    assert!(a.ui.popup.as_ref().unwrap().cues);
     let _ = std::fs::remove_dir_all(&dir);
 }

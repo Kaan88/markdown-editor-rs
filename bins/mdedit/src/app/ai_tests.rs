@@ -737,15 +737,7 @@ fn a_saved_prompts_pencil_puts_it_in_the_box_to_be_changed() {
     a.right_press();
     a.open_sub(PopupKind::Text, PopupKind::Ai, false);
     a.compose();
-    let row =
-        a.ui.popup
-            .as_ref()
-            .unwrap()
-            .sub
-            .as_ref()
-            .unwrap()
-            .menu
-            .row_rect(3);
+    let row = a.ui.popup.as_ref().unwrap().sub().unwrap().row_rect(3);
     a.pointer_moved(row.right() - 20.0, row.cy());
     a.left_release();
     assert_eq!(
@@ -760,7 +752,7 @@ fn a_saved_prompts_pencil_puts_it_in_the_box_to_be_changed() {
     a.right_press();
     a.open_sub(PopupKind::Text, PopupKind::Ai, false);
     a.compose();
-    let menu = &a.ui.popup.as_ref().unwrap().sub.as_ref().unwrap().menu;
+    let menu = a.ui.popup.as_ref().unwrap().sub().unwrap();
     let row = menu.row_rect(4);
     a.pointer_moved(row.x + 18.0, row.cy());
     a.left_release();

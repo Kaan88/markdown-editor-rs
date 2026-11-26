@@ -4139,3 +4139,13 @@ offer returning with its tab snaps back, and closing any bar or palette is insta
 Shots: `--motion-clock MS` sets the demo in motion after the initial paint and steps the clock
 by hand: `menu-row-hover-*`, `palette-in-*` and `{update,crash,stale,rename}-sliding-*`,
 40 ms in both themes.
+
+**M-F, L1.** `ui::Popup` owns a plain menu or a `submenu::Cascade`; only a root with
+submenu items uses the cascade. It keeps the root's anchor, then uses shared layout for
+each opened child. `App::timers` only asks for the cascade's deadline while it has one.
+Escape and Left cancel the pending pointer change before acting on the current submenu.
+The root and open child keep their own 117 ms entrance tracks; closing stays instant.
+`menu-cascade-entering-*` shows the Main/View entrance in both themes. Existing Main and Text
+shots show the shared chevrons and the child placed against its opening row rather than the
+old guessed anchor. A rest on the root's padding can now close the submenu; crossing it
+before the deadline does not.

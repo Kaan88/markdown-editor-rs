@@ -342,14 +342,14 @@ impl Motion {
     pub fn menus(&mut self, popup: Option<&Popup>) -> Option<Menus> {
         let popup = popup.filter(|p| fades(p.kind))?;
         self.anim.group(MENUS);
-        let mut shown = |p: &Popup| {
+        let mut shown = |serial| {
             let t = self
                 .anim
-                .presence(("menu", p.serial), true, MENU.enter, MENU.exit);
-            (p.serial, t)
+                .presence(("menu", serial), true, MENU.enter, MENU.exit);
+            (serial, t)
         };
-        let main = shown(popup);
-        let sub = popup.sub.as_deref().map(&mut shown);
+        let main = shown(popup.serial);
+        let sub = popup.sub_serial().map(&mut shown);
         self.anim.ungroup();
         Some(Menus { main, sub })
     }
@@ -407,9 +407,9 @@ pub fn fades(kind: PopupKind) -> bool {
 
 /// Everything a popup's fade touches: its menu's presence bounds and its submenu's, in one.
 pub fn popup_bounds(popup: &Popup) -> Rect {
-    let r = popup.menu.presence_bounds();
-    match &popup.sub {
-        Some(s) => union(r, s.menu.presence_bounds()),
+    let r = popup.root().presence_bounds();
+    match popup.sub() {
+        Some(s) => union(r, s.presence_bounds()),
         None => r,
     }
 }
@@ -448,9 +448,22 @@ pub fn draw_popup(
     let main = menus.map_or(1.0, |m| m.main.1);
     let sub = menus.and_then(|m| m.sub).map_or(1.0, |s| s.1);
     anim.group(ROWS);
-    draw_menu(p, pal, popup, room, main, mouse, anim);
-    if let Some(s) = popup.sub.as_deref_mut() {
-        draw_menu(p, pal, s, room, sub, mouse, anim);
+    let kind = popup.kind;
+    let serial = popup.serial;
+    draw_menu(
+        p,
+        pal,
+        popup.root_mut(),
+        (kind, serial),
+        room,
+        main,
+        mouse,
+        anim,
+    );
+    if let Some(which) = popup.sub_kind().zip(popup.sub_serial())
+        && let Some(s) = popup.sub_mut()
+    {
+        draw_menu(p, pal, s, which, room, sub, mouse, anim);
     }
     anim.ungroup();
 }
@@ -461,21 +474,21 @@ pub fn draw_popup(
 fn draw_menu(
     p: &mut Painter,
     pal: &Palette,
-    popup: &mut Popup,
+    menu: &mut mdshared_ui::menu::Menu<crate::ui::Act>,
+    (kind, serial): (PopupKind, u64),
     room: Rect,
     t: f32,
     mouse: (f32, f32),
     anim: &mut Animator,
 ) {
-    let ai = popup.kind == PopupKind::Ai;
-    let drop = if popup.menu.opened_above() {
+    let ai = kind == PopupKind::Ai;
+    let drop = if menu.opened_above() {
         MENU_DROP
     } else {
         -MENU_DROP
     };
-    let bounds = popup.menu.presence_bounds();
-    let (animated, id) = (fades(popup.kind), ("row-hover", popup.serial));
-    let menu = &mut popup.menu;
+    let bounds = menu.presence_bounds();
+    let (animated, id) = (fades(kind), ("row-hover", serial));
     pop(p, bounds, t, (0.0, drop), |p| {
         if animated && anim.animates() {
             menu.draw_in_animated(p, pal, room, anim, id);

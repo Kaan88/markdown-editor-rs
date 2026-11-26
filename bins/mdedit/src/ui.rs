@@ -7,8 +7,11 @@ use crate::status::STATUS_H;
 use mdedit_core::encoding::Encoding;
 use mdedit_core::find::FindOptions;
 use mdedit_highlight::DocId;
+use mdshared_ui::gfx::Painter;
 use mdshared_ui::gfx::Rect;
+use mdshared_ui::keys::KeyName;
 use mdshared_ui::menu::Menu;
+use mdshared_ui::submenu::{Cascade, Node, Outcome};
 use mdshared_ui::textfield::TextField;
 use mdshared_ui::tree::{FileTree, Rules};
 use std::path::PathBuf;
@@ -581,11 +584,7 @@ pub enum PopupKind {
 
 pub struct Popup {
     pub kind: PopupKind,
-    pub menu: Menu<Act>,
-    /// The submenu standing beside this menu, if one is open.
-    pub sub: Option<Box<Popup>>,
-    /// The item with a submenu the pointer rests on, and when its submenu opens.
-    pub dwell: Option<(usize, Instant)>,
+    body: PopupBody,
     /// Whether the access-key underlines show (the menu was opened by keyboard, or a key has
     /// been used in it since). The shared menu cannot be asked, so it is kept here.
     pub cues: bool,
@@ -595,10 +594,20 @@ pub struct Popup {
     pub library_row: Option<usize>,
     /// This popup's own number, new for every popup made: what names its fade as it opens.
     pub serial: u64,
+    sub_serial: u64,
 }
 
-/// How long the pointer rests on an item with a submenu before the submenu opens.
-pub const SUBMENU_DWELL: std::time::Duration = std::time::Duration::from_millis(300);
+enum PopupBody {
+    Single(Menu<Act>),
+    Cascade(Cascade<Act>),
+}
+
+const SUBMENU_DWELL: std::time::Duration = std::time::Duration::from_millis(300);
+
+fn popup_serial() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 impl Popup {
     /// A popup whose access-key underlines show when `cues` (it was opened by keyboard).
@@ -613,106 +622,225 @@ impl Popup {
     /// Shows the underlines of this menu and of its submenu: a key was used in it.
     pub fn show_cues(&mut self) {
         self.cues = true;
-        self.menu.set_access_visible(true);
-        if let Some(s) = self.sub.as_mut() {
-            s.show_cues();
+        match &mut self.body {
+            PopupBody::Single(m) => m.set_access_visible(true),
+            PopupBody::Cascade(c) => c.set_access_visible(true),
         }
     }
 
     pub fn new(kind: PopupKind, menu: Menu<Act>) -> Popup {
         Popup {
             kind,
-            menu,
-            sub: None,
-            dwell: None,
+            body: PopupBody::Single(menu),
             cues: true,
             library_row: None,
-            serial: {
-                static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            },
+            serial: popup_serial(),
+            sub_serial: 0,
+        }
+    }
+
+    /// Keep the root's own anchor (the More button is right aligned), but let shared place,
+    /// open and close everything below it. Only menus with children take the cascade path.
+    pub fn cascade(kind: PopupKind, root: Menu<Act>, nodes: Vec<Node<Act>>, cues: bool) -> Popup {
+        let openers: Vec<_> = nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| n.opens().then_some(i))
+            .collect();
+        let mut c = Cascade::at(nodes, 0.0, 0.0)
+            .access_keys(true)
+            .with_look(root.look())
+            .with_delay(SUBMENU_DWELL)
+            .keys_cancel_wait(true);
+        *c.menu_mut(0).expect("a cascade has a root") = root.submenu_rows(openers);
+        c.set_access_visible(cues);
+        Popup {
+            kind,
+            body: PopupBody::Cascade(c),
+            cues,
+            library_row: None,
+            serial: popup_serial(),
+            sub_serial: 0,
+        }
+    }
+
+    pub fn root(&self) -> &Menu<Act> {
+        match &self.body {
+            PopupBody::Single(m) => m,
+            PopupBody::Cascade(c) => c.menu(0).expect("a cascade has a root"),
+        }
+    }
+
+    pub fn root_mut(&mut self) -> &mut Menu<Act> {
+        match &mut self.body {
+            PopupBody::Single(m) => m,
+            PopupBody::Cascade(c) => c.menu_mut(0).expect("a cascade has a root"),
+        }
+    }
+
+    pub fn sub_kind(&self) -> Option<PopupKind> {
+        let PopupBody::Cascade(c) = &self.body else {
+            return None;
+        };
+        c.path()
+            .first()
+            .and_then(|&i| self.root().items.get(i)?.id.submenu())
+    }
+
+    pub fn sub(&self) -> Option<&Menu<Act>> {
+        let PopupBody::Cascade(c) = &self.body else {
+            return None;
+        };
+        c.menu(1)
+    }
+
+    pub fn sub_mut(&mut self) -> Option<&mut Menu<Act>> {
+        let PopupBody::Cascade(c) = &mut self.body else {
+            return None;
+        };
+        c.menu_mut(1)
+    }
+
+    pub fn sub_serial(&self) -> Option<u64> {
+        self.sub().map(|_| self.sub_serial)
+    }
+
+    pub fn place_in(&mut self, p: &mut Painter, room: Rect) {
+        crate::overlays::fit_modify_room(self.root_mut(), p);
+        if let Some(sub) = self.sub_mut() {
+            crate::overlays::fit_modify_room(sub, p);
+        }
+        match &mut self.body {
+            PopupBody::Single(m) => m.place_in(p, room),
+            PopupBody::Cascade(c) => c.place_in(p, room),
         }
     }
 
     /// The menu under the point, the submenu first.
-    pub fn menu_at(&mut self, x: f32, y: f32) -> Option<&mut Menu<Act>> {
-        if let Some(s) = self.sub.as_mut().filter(|s| s.menu.contains(x, y)) {
-            return Some(&mut s.menu);
+    pub fn menu_at(&self, x: f32, y: f32) -> Option<&Menu<Act>> {
+        if let Some(s) = self.sub().filter(|s| s.contains(x, y)) {
+            return Some(s);
         }
-        self.menu.contains(x, y).then_some(&mut self.menu)
+        self.root().contains(x, y).then(|| self.root())
     }
 
     /// Whether the point is on this menu or its submenu.
     pub fn contains(&self, x: f32, y: f32) -> bool {
-        self.menu.contains(x, y) || self.sub.as_ref().is_some_and(|s| s.menu.contains(x, y))
+        self.menu_at(x, y).is_some()
     }
 
-    /// The parent's item that opened the submenu standing beside it.
-    fn opener(&self) -> Option<usize> {
-        let kind = self.sub.as_ref()?.kind;
-        self.menu
+    pub fn pointer(&mut self, x: f32, y: f32, now: Instant) -> bool {
+        self.changed(|body| match body {
+            PopupBody::Single(m) => m.pointer(x, y),
+            PopupBody::Cascade(c) => c.pointer(x, y, now),
+        })
+    }
+
+    pub fn deadline(&self) -> Option<Instant> {
+        match &self.body {
+            PopupBody::Single(_) => None,
+            PopupBody::Cascade(c) => c.deadline(),
+        }
+    }
+
+    pub fn tick(&mut self, now: Instant) -> bool {
+        self.changed(|body| match body {
+            PopupBody::Single(_) => false,
+            PopupBody::Cascade(c) => c.tick(now),
+        })
+    }
+
+    pub fn click(&mut self, x: f32, y: f32) -> Outcome<Act> {
+        self.changed(|body| match body {
+            PopupBody::Single(m) => m.chosen().map_or(Outcome::Nothing, Outcome::Chosen),
+            PopupBody::Cascade(c) => c.click(x, y),
+        })
+    }
+
+    pub fn wheel(&mut self, x: f32, y: f32, dy: f32) -> bool {
+        let moved = match &mut self.body {
+            PopupBody::Single(m) => m.contains(x, y) && m.scroll_by(dy),
+            PopupBody::Cascade(c) => c.wheel(x, y, dy),
+        };
+        if moved {
+            self.pointer(x, y, Instant::now());
+        }
+        moved
+    }
+
+    pub fn key(&mut self, key: &KeyName) -> Outcome<Act> {
+        self.changed(|body| match body {
+            PopupBody::Single(m) => match key {
+                KeyName::Up | KeyName::Down | KeyName::Tab => {
+                    m.step(*key != KeyName::Up);
+                    Outcome::Changed
+                }
+                KeyName::Enter | KeyName::Space => {
+                    m.chosen().map_or(Outcome::Nothing, Outcome::Chosen)
+                }
+                KeyName::Escape => Outcome::Close,
+                KeyName::Char(c) => m.access_key(*c).map_or(Outcome::Ignored, Outcome::Chosen),
+                _ => Outcome::Ignored,
+            },
+            PopupBody::Cascade(c) => {
+                // Escape and Left must reach the builder's cancellation before a synthetic
+                // Right can apply a pending pointer change. Other keys go to the open submenu.
+                if matches!(key, KeyName::Escape | KeyName::Left) {
+                    return c.key(key);
+                }
+                if matches!(key, KeyName::Home | KeyName::End) {
+                    return Outcome::Ignored;
+                }
+                if c.depth() > 1 && c.focus() == 0 && c.deadline().is_none() {
+                    let lit = c.menu(1).is_some_and(|m| m.hover.is_some());
+                    c.key(&KeyName::Right);
+                    if !lit && let Some(m) = c.menu_mut(1) {
+                        m.hover = None;
+                    }
+                }
+                c.key(if *key == KeyName::Tab {
+                    &KeyName::Down
+                } else {
+                    key
+                })
+            }
+        })
+    }
+
+    pub fn open_sub(&mut self, kind: PopupKind, keys: bool) {
+        if self.sub_kind() == Some(kind) {
+            return;
+        }
+        let Some(i) = self
+            .root()
             .items
             .iter()
-            .position(|it| it.id.submenu() == Some(kind))
-    }
-
-    /// The pointer moved to `(x, y)`; `now` starts the dwell. Returns true if anything changed.
-    ///
-    /// An open submenu is never closed by the move itself, or the pointer could not reach it:
-    /// on its way there it crosses the menu's padding, a separator, or the corner of another
-    /// row. Off the rows the submenu stays; on another row it stays until the pointer has rested
-    /// there for the dwell ([`rested`](Self::rested)).
-    pub fn pointer(&mut self, x: f32, y: f32, now: Instant) -> bool {
-        let opener = self.opener();
-        let before = self.menu.hover;
-        if let Some(s) = self.sub.as_mut().filter(|s| s.menu.contains(x, y)) {
-            // In the submenu: the parent keeps its item lit and nothing is pending.
-            self.dwell = None;
-            let moved = s.menu.pointer(x, y);
-            self.menu.hover = opener;
-            return moved || before != opener;
-        }
-        if self.sub.is_some() && !self.menu.contains(x, y) {
-            // Outside both menus: the cascade stays as it is.
-            self.dwell = None;
-            self.menu.hover = opener;
-            return before != opener;
-        }
-        self.menu.pointer(x, y);
-        match self.menu.hover {
-            // Between the rows of a menu with a submenu open: its item stays lit.
-            None => {
-                self.dwell = None;
-                if opener.is_some() {
-                    self.menu.hover = opener;
+            .position(|item| item.id.submenu() == Some(kind))
+        else {
+            return;
+        };
+        self.changed(|body| {
+            if let PopupBody::Cascade(c) = body {
+                c.cancel_wait();
+                if c.depth() > 1 {
+                    c.key(&KeyName::Left);
+                }
+                c.menu_mut(0).expect("a cascade has a root").hover = Some(i);
+                c.key(&KeyName::Right);
+                if !keys && let Some(m) = c.menu_mut(1) {
+                    m.hover = None;
                 }
             }
-            Some(i) => {
-                let wanted = self.menu.items[i].id.submenu();
-                let open = self.sub.as_ref().map(|s| s.kind);
-                // Something happens after a rest here only if it would change what is open.
-                self.dwell = if wanted == open {
-                    None
-                } else {
-                    match self.dwell {
-                        Some((j, due)) if j == i => Some((j, due)),
-                        _ => Some((i, now + SUBMENU_DWELL)),
-                    }
-                };
-            }
-        }
-        self.menu.hover != before
+        });
     }
 
-    /// The pointer has rested on the dwell's item: returns the submenu to open, or closes the
-    /// open one when the item has none.
-    pub fn rested(&mut self) -> Option<PopupKind> {
-        let (i, _) = self.dwell.take()?;
-        let wanted = self.menu.items.get(i).and_then(|it| it.id.submenu());
-        if wanted.is_none() {
-            self.sub = None;
+    fn changed<R>(&mut self, f: impl FnOnce(&mut PopupBody) -> R) -> R {
+        let before = self.sub_kind();
+        let out = f(&mut self.body);
+        if self.sub_kind().is_some_and(|k| Some(k) != before) {
+            self.sub_serial = popup_serial();
         }
-        wanted
+        out
     }
 }
 
@@ -1640,144 +1768,203 @@ mod popup_tests {
 
     /// A parent with submenu items in its second and fourth rows, and the two-item submenu that goes
     /// beside it, both placed in a 600x400 window.
-    fn cascade() -> (Popup, Popup) {
+    fn cascade() -> Popup {
         let items = vec![
             Item::new(Act::Theme(ThemeChoice::Dark), "Dark"),
             Item::new(Act::ViewMenu, "View").hint("›"),
             Item::new(Act::Theme(ThemeChoice::Light), "Light"),
             Item::new(Act::MacroMenu, "Macro").hint("›"),
         ];
-        let mut parent = Popup::new(PopupKind::Main, Menu::new(items, 400.0, 20.0, true));
+        let nodes = items
+            .iter()
+            .cloned()
+            .map(|item| {
+                if item.id.submenu().is_some() {
+                    Node::submenu(
+                        item,
+                        vec![
+                            Node::new(Item::new(Act::Theme(ThemeChoice::System), "A")),
+                            Node::new(Item::new(Act::Theme(ThemeChoice::Light), "B")),
+                        ],
+                    )
+                } else {
+                    Node::new(item)
+                }
+            })
+            .collect();
+        let mut parent = Popup::cascade(
+            PopupKind::Main,
+            Menu::new(items, 400.0, 20.0, true),
+            nodes,
+            false,
+        );
+        place(&mut parent);
+        parent
+    }
+
+    fn place(parent: &mut Popup) {
         let mut bm = Bitmap::new(600, 400);
         let mut gfx = Gfx::new();
         let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
-        parent.menu.place(&mut p, 600.0, 400.0);
-        let subitems = vec![
-            Item::new(Act::Theme(ThemeChoice::System), "A"),
-            Item::new(Act::Theme(ThemeChoice::Light), "B"),
-        ];
-        let mut sub = Popup::new(
-            PopupKind::View,
-            Menu::new(subitems, parent.menu.rect().x, 20.0, true),
-        );
-        sub.menu.place(&mut p, 600.0, 400.0);
-        (parent, sub)
+        parent.place_in(&mut p, Rect::new(0.0, 0.0, 600.0, 400.0));
     }
 
     /// The centre of the parent's row `i`, from the shared menu's own row layout.
     fn row(parent: &Popup, i: usize) -> (f32, f32) {
-        let r = parent.menu.rect();
-        let (offset, height) = mdshared_ui::menu::row_span(&parent.menu.items, i);
-        (r.x + r.w / 2.0, r.y + offset + height / 2.0)
+        let r = parent.root().row_rect(i);
+        (r.cx(), r.cy())
     }
 
     #[test]
     fn resting_on_a_submenu_item_starts_the_dwell() {
-        let (mut parent, _sub) = cascade();
+        let mut parent = cascade();
         let t0 = Instant::now();
         let (x, y) = row(&parent, 1);
         assert!(parent.pointer(x, y, t0));
-        assert_eq!(parent.dwell, Some((1, t0 + SUBMENU_DWELL)));
+        assert_eq!(parent.root().hover, Some(1));
+        assert_eq!(parent.deadline(), Some(t0 + SUBMENU_DWELL));
         // Moving within the same row keeps the first deadline.
         parent.pointer(x + 3.0, y, t0 + Duration::from_millis(100));
-        assert_eq!(parent.dwell, Some((1, t0 + SUBMENU_DWELL)));
+        assert_eq!(parent.deadline(), Some(t0 + SUBMENU_DWELL));
     }
 
     #[test]
     fn a_plain_item_or_leaving_cancels_the_dwell() {
-        let (mut parent, _sub) = cascade();
+        let mut parent = cascade();
         let t0 = Instant::now();
         let (x, y) = row(&parent, 1);
         parent.pointer(x, y, t0);
         let (x0, y0) = row(&parent, 0);
         parent.pointer(x0, y0, t0);
-        assert_eq!(parent.dwell, None);
+        assert_eq!(parent.deadline(), None);
         parent.pointer(x, y, t0);
-        assert!(parent.dwell.is_some());
+        assert!(parent.deadline().is_some());
         parent.pointer(5.0, 5.0, t0);
-        assert_eq!(parent.dwell, None);
+        assert_eq!(parent.deadline(), None);
     }
 
     #[test]
     fn the_submenu_keeps_the_parent_lit_and_another_item_closes_it_after_a_rest() {
-        let (mut parent, sub) = cascade();
-        let s = sub.menu.rect();
-        parent.sub = Some(Box::new(sub));
+        let mut parent = cascade();
+        parent.open_sub(PopupKind::View, false);
+        place(&mut parent);
+        let s = parent.sub().unwrap().row_rect(0);
         let t0 = Instant::now();
         let (x, y) = row(&parent, 1);
         parent.pointer(x, y, t0);
-        assert!(parent.sub.is_some(), "the item that opened it keeps it");
-        assert_eq!(parent.dwell, None, "already open: no new dwell");
+        assert!(parent.sub().is_some(), "the item that opened it keeps it");
+        assert_eq!(parent.deadline(), None, "already open: no new dwell");
         // Into the submenu: the parent's item stays lit.
-        parent.pointer(s.x + s.w / 2.0, s.y + 12.0, t0);
-        assert_eq!(parent.menu.hover, Some(1));
-        assert!(parent.sub.as_ref().unwrap().menu.hover.is_some());
+        parent.pointer(s.cx(), s.cy(), t0);
+        assert_eq!(parent.root().hover, Some(1));
+        assert!(parent.sub().unwrap().hover.is_some());
         // Outside both: nothing moves.
         parent.pointer(2.0, 390.0, t0);
-        assert!(parent.sub.is_some());
-        assert_eq!(parent.menu.hover, Some(1));
+        assert!(parent.sub().is_some());
+        assert_eq!(parent.root().hover, Some(1));
         // Another item of the parent does not close it at once, only after a rest there.
         let (x2, y2) = row(&parent, 2);
         assert!(parent.pointer(x2, y2, t0));
         assert!(
-            parent.sub.is_some(),
+            parent.sub().is_some(),
             "crossing another row keeps the submenu"
         );
-        assert_eq!(parent.dwell, Some((2, t0 + SUBMENU_DWELL)));
-        assert_eq!(parent.rested(), None);
-        assert!(parent.sub.is_none(), "resting on a plain item closes it");
-        assert_eq!(parent.dwell, None);
+        assert_eq!(parent.deadline(), Some(t0 + SUBMENU_DWELL));
+        assert!(parent.tick(t0 + SUBMENU_DWELL));
+        assert!(parent.sub().is_none(), "resting on a plain item closes it");
+        assert_eq!(parent.deadline(), None);
     }
 
     /// The bug of 0.5.0: the pointer leaving the opener row sideways crosses the menu's padding,
     /// where no row is hovered, and that closed the submenu before the pointer reached it.
     #[test]
     fn the_pointer_reaches_the_submenu_across_the_padding_and_another_row() {
-        let (mut parent, sub) = cascade();
-        let s = sub.menu.rect();
-        parent.sub = Some(Box::new(sub));
+        let mut parent = cascade();
+        parent.open_sub(PopupKind::View, false);
+        place(&mut parent);
+        let s = parent.sub().unwrap().row_rect(0);
         let t0 = Instant::now();
         let (x, y) = row(&parent, 1);
         parent.pointer(x, y, t0);
-        let m = parent.menu.rect();
+        let m = parent.root().rect();
         // Every px from the row's middle to the submenu, along the row and then into the strip
         // between the rows and the menu's edge.
         let mut px = x;
-        while px >= m.x {
+        let edge = if s.x < m.x { m.x } else { m.right() - 1.0 };
+        let step = if edge < x { -1.0 } else { 1.0 };
+        while (edge - px) * step >= 0.0 {
             parent.pointer(px, y, t0);
-            assert!(parent.sub.is_some(), "closed at x = {px}");
+            assert!(parent.sub().is_some(), "closed at x = {px}");
             assert_eq!(
-                parent.menu.hover,
+                parent.root().hover,
                 Some(1),
                 "the opener stays lit at x = {px}"
             );
-            assert_eq!(parent.dwell, None);
-            px -= 1.0;
+            px += step;
         }
+        let due = parent.deadline().expect("a rest on padding waits");
+        assert!(!parent.tick(due - Duration::from_millis(1)));
+        assert!(parent.tick(due));
+        assert!(parent.sub().is_none(), "resting on padding closes it");
+        parent.open_sub(PopupKind::View, false);
+        place(&mut parent);
         // Diagonally, over the next row, and then into the submenu before the dwell is up.
         let (_, y2) = row(&parent, 2);
-        parent.pointer(m.x + 8.0, y2, t0);
-        assert!(parent.sub.is_some());
-        assert!(parent.dwell.is_some());
-        parent.pointer(s.x + s.w / 2.0, s.y + 12.0, t0 + Duration::from_millis(50));
-        assert!(parent.sub.is_some());
-        assert_eq!(parent.dwell, None, "in the submenu nothing is pending");
-        assert_eq!(parent.menu.hover, Some(1));
-        assert_eq!(parent.rested(), None);
-        assert!(parent.sub.is_some(), "no rest, no close");
+        parent.pointer(m.cx(), y2, due);
+        assert!(parent.sub().is_some());
+        assert!(parent.deadline().is_some());
+        parent.pointer(s.cx(), s.cy(), due + Duration::from_millis(50));
+        assert!(parent.sub().is_some());
+        assert_eq!(parent.deadline(), None, "in the submenu nothing is pending");
+        assert_eq!(parent.root().hover, Some(1));
+        assert!(!parent.tick(due + SUBMENU_DWELL));
+        assert!(parent.sub().is_some(), "no rest, no close");
     }
 
     #[test]
     fn resting_on_another_submenu_item_swaps_the_submenu() {
-        let (mut parent, sub) = cascade();
-        parent.sub = Some(Box::new(sub));
+        let mut parent = cascade();
+        parent.open_sub(PopupKind::View, false);
+        place(&mut parent);
         let t0 = Instant::now();
         let other = 3;
         let (x, y) = row(&parent, other);
         parent.pointer(x, y, t0);
-        assert!(parent.sub.is_some());
-        assert_eq!(parent.dwell, Some((other, t0 + SUBMENU_DWELL)));
-        assert_eq!(parent.rested(), Some(PopupKind::Macro));
+        assert_eq!(parent.sub_kind(), Some(PopupKind::View));
+        assert_eq!(parent.deadline(), Some(t0 + SUBMENU_DWELL));
+        assert!(parent.tick(t0 + SUBMENU_DWELL));
+        assert_eq!(parent.sub_kind(), Some(PopupKind::Macro));
+    }
+
+    #[test]
+    fn escape_and_left_discard_the_wait_before_closing_the_open_submenu() {
+        for key in [KeyName::Escape, KeyName::Left] {
+            let mut parent = cascade();
+            parent.open_sub(PopupKind::View, false);
+            place(&mut parent);
+            let (x, y) = row(&parent, 3);
+            let now = Instant::now();
+            parent.pointer(x, y, now);
+            assert_eq!(parent.sub_kind(), Some(PopupKind::View));
+            assert!(parent.deadline().is_some());
+            assert!(
+                matches!(parent.key(&key), Outcome::Changed),
+                "{key:?}: the root stays"
+            );
+            assert!(
+                parent.sub().is_none(),
+                "{key:?}: only the open submenu closes"
+            );
+            assert_eq!(
+                parent.root().hover,
+                Some(1),
+                "{key:?}: the original opener stays lit"
+            );
+            assert!(
+                !parent.tick(now + SUBMENU_DWELL),
+                "{key:?}: no delayed open"
+            );
+        }
     }
 
     #[test]

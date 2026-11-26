@@ -979,7 +979,7 @@ mod tests {
         a.right_press();
         let items: Vec<(Act, bool)> = {
             let p = a.ui.popup.as_ref().expect("the page's menu");
-            p.menu
+            p.root()
                 .items
                 .iter()
                 .map(|i| (i.id.clone(), i.enabled))
@@ -1011,7 +1011,7 @@ mod tests {
         // With nothing selected on the page, its menu's Copy is off.
         a.pointer_moved(r.x + 40.0, r.y + 40.0);
         a.right_press();
-        let copy_on = a.ui.popup.as_ref().unwrap().menu.items[0].enabled;
+        let copy_on = a.ui.popup.as_ref().unwrap().root().items[0].enabled;
         assert!(!copy_on);
         a.ui.popup = None;
 
@@ -1121,7 +1121,7 @@ mod tests {
         assert!(
             a.ui.popup
                 .as_ref()
-                .is_some_and(|p| p.kind == crate::ui::PopupKind::Text && p.menu.items.len() > 2),
+                .is_some_and(|p| p.kind == crate::ui::PopupKind::Text && p.root().items.len() > 2),
             "the text's menu in the box"
         );
         a.ui.popup = None;

@@ -33,12 +33,9 @@ impl App {
         // when the pointer crosses its edge, though the menu's row stays the same.
         let ai_menu = self.ui.popup.as_ref().and_then(|p| {
             if p.kind == PopupKind::Ai {
-                Some(&p.menu)
+                Some(p.root())
             } else {
-                p.sub
-                    .as_ref()
-                    .filter(|s| s.kind == PopupKind::Ai)
-                    .map(|s| &s.menu)
+                p.sub().filter(|_| p.sub_kind() == Some(PopupKind::Ai))
             }
         });
         if let Some(menu) = ai_menu
@@ -984,19 +981,23 @@ impl App {
             return;
         }
         if let Some(p) = self.ui.popup.as_mut()
-            && let Some(menu) = p.menu_at(x, y)
+            && p.contains(x, y)
         {
             // A saved AI prompt's Modify button (at the row's right) puts it in the instruction
             // panel to be changed; the rest of the row runs it.
-            let on_edit = menu
-                .hover
-                .is_some_and(|i| crate::ai_ui::menu_modify_rect(menu.row_rect(i)).contains(x, y));
-            let act = menu.chosen().map(|a| match a {
-                Act::AiPrompt(k) if on_edit => Act::AiEditPrompt(k),
-                a => a,
+            let on_edit = p.menu_at(x, y).is_some_and(|menu| {
+                menu.hover.is_some_and(|i| {
+                    crate::ai_ui::menu_modify_rect(menu.row_rect(i)).contains(x, y)
+                })
             });
-            if let Some(act) = act {
-                self.choose(act, false);
+            if let mdshared_ui::submenu::Outcome::Chosen(act) = p.click(x, y) {
+                self.choose(
+                    match act {
+                        Act::AiPrompt(k) if on_edit => Act::AiEditPrompt(k),
+                        a => a,
+                    },
+                    false,
+                );
             }
             self.redraw();
             return;
@@ -1083,10 +1084,9 @@ impl App {
                     }
                 }
                 self.ui.find_focused = false;
-                self.ui.popup = Some(Popup::with_cues(
+                self.ui.popup = Some(self.make_popup(
                     PopupKind::Text,
                     overlays::text_menu(&self.docs, x + 2.0, y + 2.0),
-                    cues,
                 ));
             }
             Some(h @ (Hit::Find | Hit::FindClear | Hit::Replace)) => {
@@ -1183,18 +1183,12 @@ impl App {
             // While a menu is open the wheel belongs to the menus: over one that is taller than
             // its room it scrolls that menu; over one that is not, or outside all of them, it
             // does nothing (a click outside closes the menus, the wheel does not).
-            let scale = self.scale;
-            if let Some(m) = p.menu_at(x, y)
-                && m.scrolls()
-            {
-                let dy = match pixels {
-                    Some((_, py)) => -(py as f32) / scale,
-                    None => -(ny as f32) * PANE_WHEEL,
-                };
-                if m.scroll_by(dy) {
-                    p.pointer(x, y, Instant::now());
-                    self.redraw();
-                }
+            let dy = match pixels {
+                Some((_, py)) => -(py as f32) / self.scale,
+                None => -(ny as f32) * PANE_WHEEL,
+            };
+            if p.wheel(x, y, dy) {
+                self.redraw();
             }
             return;
         }
@@ -1480,53 +1474,27 @@ impl App {
         }
         // A menu takes the keyboard; an open submenu has it first.
         if let Some(p) = self.ui.popup.as_mut() {
-            let kind = p.kind;
-            let open = p.sub.is_some();
-            match name {
-                Some(KeyName::Up) => match p.sub.as_mut() {
-                    Some(s) => s.menu.step(false),
-                    None => p.menu.step(false),
-                },
-                Some(KeyName::Down | KeyName::Tab) => match p.sub.as_mut() {
-                    Some(s) => s.menu.step(true),
-                    None => p.menu.step(true),
-                },
-                Some(KeyName::Enter | KeyName::Space) => {
-                    let act = match p.sub.as_ref().filter(|s| s.menu.hover.is_some()) {
-                        Some(s) => s.menu.chosen(),
-                        None => p.menu.chosen(),
-                    };
-                    if let Some(act) = act {
-                        self.choose(act, true);
-                    }
-                }
-                Some(KeyName::Right) if !open => {
-                    if let Some(sub) = p.menu.chosen().and_then(|a| a.submenu()) {
-                        self.open_sub(kind, sub, true);
-                    }
-                }
-                Some(KeyName::Left) if open => {
-                    p.sub = None;
-                    p.dwell = None;
-                }
-                Some(KeyName::Escape) if open => p.sub = None,
-                Some(KeyName::Escape) => {
+            use mdshared_ui::submenu::Outcome;
+            let key = match name {
+                Some(
+                    KeyName::Up
+                    | KeyName::Down
+                    | KeyName::Tab
+                    | KeyName::Enter
+                    | KeyName::Space
+                    | KeyName::Right
+                    | KeyName::Left
+                    | KeyName::Escape,
+                ) => name,
+                _ => access_char(&name, typed, mods).map(KeyName::Char),
+            };
+            match key.as_ref().map(|k| p.key(k)) {
+                Some(Outcome::Chosen(act)) => self.choose(act, true),
+                Some(Outcome::Close) => {
                     self.ui.popup = None;
                     self.ui.library.menu_row = None;
                 }
-                // A letter picks the item marked with it, as Enter would. Nothing else a typed
-                // character did in an open menu is lost: it did nothing.
-                _ => {
-                    if let Some(ch) = access_char(&name, typed, mods) {
-                        let act = match p.sub.as_mut() {
-                            Some(s) => s.menu.access_key(ch),
-                            None => p.menu.access_key(ch),
-                        };
-                        if let Some(act) = act {
-                            self.choose(act, true);
-                        }
-                    }
-                }
+                _ => {}
             }
             // The keyboard is in use: the underlines show from now on (the Windows convention).
             if let Some(p) = self.ui.popup.as_mut() {

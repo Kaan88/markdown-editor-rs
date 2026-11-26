@@ -12,7 +12,7 @@ use crate::ui::LibAct;
 fn ai_line(a: &mut App, i: usize) -> (String, bool) {
     a.library_row_menu(i, 0.0, 0.0, false);
     let popup = a.ui.popup.as_ref().expect("the menu is open");
-    let first = popup.menu.items.first().expect("an item");
+    let first = popup.root().items.first().expect("an item");
     assert_eq!(
         first.id,
         Act::Library(LibAct::AiTask, i),
@@ -200,7 +200,7 @@ fn ai_task_from_the_ai_menu_by_mouse_takes_the_pane_s_row() {
         a.ui.popup
             .as_ref()
             .expect("the AI menu is open")
-            .menu
+            .root()
             .items
             .iter()
             .find(|i| i.label.starts_with("AI tas&k"))
@@ -324,7 +324,7 @@ fn a_menu_closed_without_a_choice_forgets_the_pane_s_row() {
         a.ui.popup
             .as_ref()
             .expect("the AI menu is open")
-            .menu
+            .root()
             .items
             .iter()
             .find(|i| i.label.starts_with("AI tas&k"))

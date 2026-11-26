@@ -1419,7 +1419,7 @@ impl App {
             (Some(p), PopupKind::Recent | PopupKind::View | PopupKind::Macro)
                 if p.kind == PopupKind::Main =>
             {
-                let r = p.menu.rect();
+                let r = p.root().rect();
                 (r.right(), r.y, true)
             }
             _ => self.popup_anchor(kind),
@@ -1427,7 +1427,7 @@ impl App {
         let Some(menu) = self.build_menu(kind, x, y, right) else {
             return;
         };
-        let mut popup = Popup::with_cues(kind, menu, self.ui.keyboard);
+        let mut popup = self.make_popup(kind, menu);
         // The row a click on AI edit or the main menu remembered goes into the menu it opens,
         // and lives only as long as that menu.
         let row = self.ui.library.menu_row.take();
@@ -1436,6 +1436,36 @@ impl App {
         }
         self.ui.popup = Some(popup);
         self.ui.hide_tip();
+    }
+
+    pub(super) fn make_popup(
+        &mut self,
+        kind: PopupKind,
+        menu: mdshared_ui::menu::Menu<Act>,
+    ) -> Popup {
+        use mdshared_ui::submenu::Node;
+        if !menu.items.iter().any(|i| i.id.submenu().is_some()) {
+            return Popup::with_cues(kind, menu, self.ui.keyboard);
+        }
+        let nodes = menu
+            .items
+            .iter()
+            .map(|item| {
+                item.id
+                    .submenu()
+                    .and_then(|kind| self.build_menu(kind, 0.0, 0.0, false))
+                    .map_or_else(
+                        || Node::new(item.clone()),
+                        |sub| {
+                            Node::submenu(
+                                item.clone(),
+                                sub.items.into_iter().map(Node::new).collect(),
+                            )
+                        },
+                    )
+            })
+            .collect();
+        Popup::cascade(kind, menu, nodes, self.ui.keyboard)
     }
 
     fn build_menu(
@@ -1478,32 +1508,11 @@ impl App {
     /// Opens `sub` as a cascade beside the open menu, which stays. With `keys` its first item
     /// is lit, since the keyboard opened it; the pointer lights its own.
     pub(super) fn open_sub(&mut self, _parent: PopupKind, sub: PopupKind, keys: bool) {
-        let mouse_y = self.ui.mouse.1;
-        let Some(p) = self.ui.popup.as_ref() else {
-            return;
-        };
-        if p.sub.as_ref().is_some_and(|s| s.kind == sub) {
-            return;
-        }
-        let r = p.menu.rect();
-        // Level with the item the pointer is on, else with the menu's top.
-        let y = if keys || !r.contains(self.ui.mouse.0, mouse_y) {
-            r.y
-        } else {
-            mouse_y - 14.0
-        };
-        // Beside the parent: on its right when there is room, otherwise on its left.
-        let (x, right) = overlays::sub_side(r, self.logical().0);
-        let Some(mut menu) = self.build_menu(sub, x, y, right) else {
-            return;
-        };
-        if keys {
-            menu.step(true);
-        }
         if let Some(p) = self.ui.popup.as_mut() {
-            let cues = keys || self.ui.keyboard;
-            p.sub = Some(Box::new(Popup::with_cues(sub, menu, cues)));
-            p.dwell = None;
+            if keys {
+                p.show_cues();
+            }
+            p.open_sub(sub, keys);
         }
         self.ui.hide_tip();
         self.redraw();
@@ -2555,14 +2564,12 @@ impl App {
             }
         }
         // The pointer resting on a menu item with a submenu; no menu, no timer.
-        if let Some((_, due)) = self.ui.popup.as_ref().and_then(|p| p.dwell) {
+        if let Some(p) = self.ui.popup.as_mut()
+            && let Some(due) = p.deadline()
+        {
             if now >= due {
-                let kind = self.ui.popup_kind();
-                let sub = self.ui.popup.as_mut().and_then(Popup::rested);
-                match sub.zip(kind) {
-                    Some((sub, kind)) => self.open_sub(kind, sub, false),
-                    // A rest on a plain item closed the submenu.
-                    None => self.redraw(),
+                if p.tick(now) {
+                    self.redraw();
                 }
             } else {
                 at(due);

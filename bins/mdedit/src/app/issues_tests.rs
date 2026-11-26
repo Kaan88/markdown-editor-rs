@@ -47,7 +47,7 @@ fn the_arrow_opens_each_mode_once_and_chooses_the_buttons_own_as_a_radio() {
     assert!(a.hit_rect(Hit::Bar(BarItem::Preview)).is_some());
     a.activate(Hit::Bar(BarItem::PreviewMenu));
     assert_eq!(a.ui.popup_kind(), Some(PopupKind::Preview));
-    let menu = &a.ui.popup.as_ref().unwrap().menu;
+    let menu = a.ui.popup.as_ref().unwrap().root();
     // The three modes, as actions: no tick on any.
     assert_eq!(
         commands_in(menu),
@@ -359,13 +359,13 @@ fn the_bar_has_new_save_and_ai_edit_with_the_menus_availability() {
     a.activate(Hit::Bar(BarItem::AiEdit));
     assert_eq!(a.ui.popup_kind(), Some(PopupKind::Ai));
     a.compose();
-    let menu = a.ui.popup.as_ref().unwrap().menu.rect();
+    let menu = a.ui.popup.as_ref().unwrap().root().rect();
     assert!(
         (menu.x - ai.x).abs() < 1.0 && menu.y >= ai.bottom(),
         "{menu:?} {ai:?} {:?}",
         a.size
     );
-    assert!(commands_in(&a.ui.popup.as_ref().unwrap().menu).contains(&C::AiRewrite));
+    assert!(commands_in(a.ui.popup.as_ref().unwrap().root()).contains(&C::AiRewrite));
     a.ui.popup = None;
     // New makes an untitled tab, as Ctrl+N.
     a.activate(Hit::Bar(BarItem::New));
