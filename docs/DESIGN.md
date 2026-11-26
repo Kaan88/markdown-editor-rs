@@ -3948,9 +3948,11 @@ rectangle, and the pointer's place **on every move** — `Tooltip::hover_at`, so
 `document::TIP_DELAY` 500 ms counts from the pointer coming to rest, not from entering the
 control (D-257). `timers` turns `Tooltip::deadline` into the wake-up and `Tooltip::tick` shows
 it; a neighbour's tip shows at once while one shows, a press hides it and blocks that control
-until the pointer leaves (`Tooltip::press`), and a key, a scroll, a popup or the pointer leaving
-the window hides it (`Ui::hide_tip`, which also forgets the control and place it was pointed at,
-so coming back arms its delay again). It is drawn as a bubble with the presence `Motion::tip_presence` asks for in
+until the pointer leaves (`Tooltip::press`), and a key, a scroll, a popup, a middle click on a
+tab, or the pointer leaving the window hides it. `Ui::hide_tip` also forgets the control and
+place, so coming back arms its delay again. `App::hide_tip` additionally requests a frame if a
+tip was showing, even when the wheel does nothing else. It is drawn as a bubble with the
+presence `Motion::tip_presence` asks for in
 the group `TIP_GROUP`: it fades in by `document::TIP` and is gone at once, so no frame is asked
 for after it goes. Under `Policy::Never` the presence is 1 on its first frame and the bubble is
 drawn by `Bubble::draw`, the pixels of before. The fade's `t` is in the overlay signature with
@@ -3967,9 +3969,9 @@ tip on its first frame, `Bubble::draw`, no timer), `a_tip_fades_in_and_settles_w
 `a_press_hides_the_tip_until_the_pointer_leaves` — and three from the review of them:
 `a_tip_taken_away_mid_fade_goes_at_once_and_the_pixels_come_back`,
 `a_neighbours_tip_shows_at_once_without_a_second_fade` and
-`every_frame_of_the_fade_damages_what_the_tip_covers` — and two from the review of them, a
-scroll hiding the tip and a pointer coming back to the same place waiting its whole delay again
-(D-260).
+`every_frame_of_the_fade_damages_what_the_tip_covers`. Input tests show a wheel that otherwise
+does nothing still erases the pixels, a real `CursorLeft` resets the rest delay, and a middle
+click dismisses the closed tab's tip (D-260, D-264).
 
 **Whether anything moves** is `Motion::policy`, the one place: `Policy::Never` in a shot and in
 every test (`args.shot` or `cfg(test)`), and with the Animations setting off (`prefs.animations`,
@@ -4100,13 +4102,15 @@ samples the first closed folder's turn (`tree-chevron-*`, 60 ms). Both use the s
 clock and run in both themes. The Settings test uses 16 ms ticks: the first is early at a
 60 Hz cadence and skips the form; the second reaches the original deadline.
 
-**The title row (M-E, D4).** `chrome::draw_title` draws its tabs with `chrome::draw_tab_animated`
+**The title row (M-E, D4).** `chrome::draw_title` draws its inactive tabs with `chrome::draw_tab_animated`
 (named `("tab", document id)`, so a tab that moves keeps its fade), its caption buttons with
 `draw_win_button_animated` (named `("win", hit)`; Close's fill turns red and its glyph white) and
 the new-tab button with `draw_new_tab_button_animated` (`("new-tab",)`), all in the group
-`TITLE`: a quiet tab's hover fill and its close button fade by `document::HOVER` (shared's
-`FADE`, 83 ms linear). While the group is in flight the frame damages the title row, and a frame
-that skips it keeps the group. The bar's buttons (`Ctx::fill_for`) are not animated: they are
+`TITLE`: a quiet tab's hover fill and label fade by `document::HOVER` (shared's `FADE`, 83 ms
+linear); its close button shows at once. The active tab takes the plain path, so hovering it
+does not schedule identical frames and its close-button hover remains instant. The group
+damages the title row when due; an early frame that skips it keeps the tracks and the original
+paint deadline (D-265). The bar's buttons (`Ctx::fill_for`) are not animated: they are
 not the title row (X3's `Menu::draw_in_animated` covers a menu's rows, not the bar's).
 The shared fix of the `t == 0` hover flash (shared #31) is in the pin, so the fade starts from
 the rest look rather than a frame of the full one. Shots: `--hover-ms MS` takes the tip away and

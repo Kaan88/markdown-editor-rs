@@ -2731,3 +2731,23 @@ knob positions registered before advancing it.
 **Why.** M-D review: early frames dropped live tracks, the switch shot could capture the
 endpoint, and the implementation was described as the other Settings form.
 **Overturned by.** The owner; or the shared paged form taking on different motions.
+
+## D-264 — 2026-11-26 — Dismissing a painted tooltip requests a frame
+
+**Decision.** Corrects D-260: a wheel event dismisses the tooltip even on a path that otherwise
+does not redraw. `App::hide_tip` requests an erasing frame only for a shown tip, including one
+still fading in. Middle-clicking a tab dismisses its tip before asking to close the tab. A
+window event test verifies that `CursorLeft` still clears the same-position shortcut.
+**Why.** Review of `a6b51cf`: clearing the state alone could leave an old bubble on the screen.
+**Overturned by.** An input path that owns all tooltip repaint requests.
+
+## D-265 — 2026-11-26 — Keep the title paint deadline; animate only a visible hover
+
+**Decision.** Refines D-261: keep both `TITLE` and its earliest redraw on skipped frames, as for
+Settings in D-263. The active tab draws plain instead of scheduling an invisible fade. It is
+the quiet tab's hover fill and label that fade; the close button appears immediately. Tests
+check intermediate pixels and damage on a quiet tab next to the active one, and compare
+mdedit's motion-off title output to plain caption and tab drawing.
+**Why.** Review of `9b7551f`: the tests had missed skipped frames, the quiet tab's animation,
+and the app's motion-off path.
+**Overturned by.** A shared title-row API that owns scheduling and damage.

@@ -1,6 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-26, after M-E and the M-D review fixes. If
+Rewritten, not appended to. Last rewritten 2026-11-26, after the tooltip and title-row review. If
 `git log -1` is newer, doubt "In hand" first.
 
 ## Released
@@ -43,8 +43,8 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after M-E and the M-D rev
 ## In hand
 
 - **Motion, on `f/motion2`**: menus fade (released work), the toasts (D-251 to D-255,
-  DESIGN 97), the tooltips (M-C, D-257), and the rest of the motion plan below. Not merged,
-  not tried in a real window. The pin is `09b01c1` (D-256), which carries shared PR 24: the two
+  DESIGN 97), tooltips (M-C, D-257 and D-264), and the plan below. Not merged or tried by hand.
+  The pin is `09b01c1` (D-256), which carries shared PR 24: the two
   tests ignored for it are un-ignored and pass. Left open: the status snap in
   `Motion::sync_toasts` (`Animator::set`), still needed with motion on because shared's animator
   keeps a target's first delay. **On the owner's word: quick, quiet motion; menus open in
@@ -57,12 +57,12 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after M-E and the M-D rev
     `SETTINGS` are kept on frames that skip drawing them. `settings-switch-*` shows a knob
     mid-slide; `tree-chevron-*` shows an opening chevron. Pages and dialog closing stay instant.
   - **M-E, title row, X3 and the rest of the popups**: D4 (the title row) is done, `9b7551f`
-    (DESIGN 98, D-261): `chrome::draw_win_button_animated`, `draw_tab_animated`,
+    (DESIGN 98, D-261 and D-265): `chrome::draw_win_button_animated`, `draw_tab_animated`,
     `draw_new_tab_button_animated`, group `TITLE`, shots `title-hover-*`, `tab-hover-*` (shared
     #31's `t == 0` flash fix is in `09b01c1`). X3 is wired at `d116f9e` (D-262): menu-row
     hover fades, the command palette pops in, and four notices slide into their measured
     strips. Popup damage uses `presence_bounds()`. **The completion popup stays instant.**
-    Windows budget check: `docs/measurements/2026-11-26-motion-x3-md.md`.
+    Windows launch repeat: `docs/measurements/2026-11-26-motion-launch-repeat.md`.
   - **M-F, four fixes**: L1, `submenu::Cascade` for the hand-made submenus and their dwell
     timer; L3, the plain preview's scrollbar from shared; W2, focus for the Files and Functions
     panes; W3, `window_state` restored onto a monitor that still exists.
@@ -118,8 +118,6 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after M-E and the M-D rev
   kept on disk; deleting itself is unchanged.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;
   folders emptied in a home outside the library stay.
-- **A debug build aborts on a closed stderr** (not a release one): something only debug prints
-  with `std`'s `eprintln!`; CI runs release and is unaffected.
 - **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
 
 ## Known gaps, not planned unless they get in the way

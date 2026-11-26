@@ -17,3 +17,5 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
   Word completion remains instant.
 - **Settings switches slide and folder chevrons turn.** Changing Settings pages or closing
   the dialog is still instant.
+- **Tooltip and title hover fixes.** Scrolling or middle-clicking a tab clears its tooltip
+  immediately; hovering the active tab does not schedule an invisible fade.
