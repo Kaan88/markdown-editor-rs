@@ -3454,27 +3454,102 @@ fn a_single_file_beyond_the_windows_room_is_left_out() {
 }
 
 /// A file dropped by name from the folder the question holds is counted once: it goes in, and
-/// the 200 left are at the threshold, so they come in with it rather than waiting on a question
-/// (D-251, D-253).
+/// the count follows while it is still above the threshold (D-251, D-253).
 #[test]
 fn a_file_from_the_held_folder_is_counted_once() {
     let (mut a, dir) = open("task-held-one", TaskKind::File, Vec::new());
-    let folder = many(&dir, "Many", 201);
+    let folder = many(&dir, "Many", 202);
     a.task_add_paths(vec![folder.clone()]);
     a.task_flush_drops();
     read_folder(&mut a);
+    assert_eq!(
+        a.task.as_ref().expect("open").ask.as_deref(),
+        Some("Add 202 files from Many?")
+    );
     a.task_add_paths(vec![folder.join("0001.md")]);
     {
         let s = a.task.as_ref().expect("open");
         assert_eq!(s.files.len(), 1, "the file is in");
-        assert!(s.ask.is_none(), "no question for 200 (D-253)");
+        assert_eq!(
+            s.ask.as_deref(),
+            Some("Add 201 files from Many?"),
+            "and the question counts what it still holds"
+        );
+    }
+    assert_eq!(a.task_held.as_ref().map_or(0, |h| h.paths.len()), 201);
+    answer_question(&mut a);
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.files.len(), 202, "the folder's 202, each once");
+    assert!(s.files.iter().all(|f| f.ticked));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// When the question's count falls to the threshold, the rest come in at once and it goes
+/// (D-253).
+#[test]
+fn the_last_two_hundred_of_a_question_come_in_at_once() {
+    let (mut a, dir) = open("task-held-threshold", TaskKind::File, Vec::new());
+    let folder = many(&dir, "Many", 201);
+    a.task_add_paths(vec![folder.clone()]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    assert!(a.task.as_ref().expect("open").ask.is_some());
+    a.task_add_paths(vec![folder.join("0001.md")]);
+    {
+        let s = a.task.as_ref().expect("open");
+        assert_eq!(s.files.len(), 1, "the file is in");
+        assert!(s.ask.is_none(), "no question for 200");
     }
     assert!(a.task_probing, "the 200 are read at once");
     assert_eq!(a.task_held.as_ref().map_or(0, |h| h.paths.len()), 0);
     read_folder(&mut a);
+    assert_eq!(a.task.as_ref().expect("open").files.len(), 201);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An answer already waiting is never replaced: a later answer, or a set that falls to the
+/// threshold, adds to it, so no folder is lost silently (D-254).
+#[test]
+fn an_answer_waiting_is_merged_with_a_later_one_never_replaced() {
+    let (mut a, dir) = open("task-answer-merge", TaskKind::File, Vec::new());
+    let first = many(&dir, "First", 201);
+    a.task_add_paths(vec![first]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    let late = many(&dir, "Late", 50);
+    a.dropped(late.clone());
+    a.task_flush_drops();
+    assert!(a.task_job.is_some(), "the late folder is read");
+    answer_question(&mut a);
+    assert!(a.task_answer.is_some(), "First waits for that read");
+    let third = many(&dir, "Third", 60);
+    a.dropped(third);
+    a.task_flush_drops();
+    // The late read ends: its files are held, and the third folder's read starts.
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while a.task_job.as_ref().is_some_and(|j| j.running()) {
+        assert!(
+            std::time::Instant::now() < until,
+            "the late folder was not read"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    a.task_add_take();
+    assert!(a.task_job.is_some(), "the third folder is read");
+    assert_eq!(a.task_held.as_ref().map_or(0, |h| h.paths.len()), 50);
+    // One of the held files by name: 49 left, under the threshold, while that read runs.
+    a.task_add_paths(vec![late.join("0001.md")]);
+    assert_eq!(
+        a.task_answer.as_ref().map_or(0, |h| h.paths.len()),
+        250,
+        "First's 201 are kept with Late's 49"
+    );
+    read_folder(&mut a);
     let s = a.task.as_ref().expect("open");
-    assert_eq!(s.files.len(), 201);
-    assert!(s.files.iter().all(|f| f.ticked));
+    assert_eq!(s.files.len(), 311, "1 + 201 + 49 + 60");
+    assert!(s.ask.is_none());
+    assert!(a.task_answer.is_none() && a.task_held.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -601,11 +601,32 @@ impl App {
             s.tick += 1;
         }
         if self.task_job.is_some() {
-            self.task_answer = Some(held);
+            self.task_answer_put(held);
             self.redraw();
             return;
         }
         self.task_probe_start(held);
+    }
+
+    /// Puts an answered set where it waits for the read that runs, merged with any set already
+    /// waiting: a later answer adds to it and never replaces it (D-254).
+    fn task_answer_put(&mut self, held: TaskHeld) {
+        match self.task_answer.as_mut() {
+            None => self.task_answer = Some(held),
+            Some(answer) => {
+                let mut known: HashSet<String> = answer.paths.iter().map(|p| path_key(p)).collect();
+                for path in held.paths {
+                    if known.insert(path_key(&path)) {
+                        answer.paths.push(path);
+                    }
+                }
+                answer.folders += held.folders;
+                if answer.folder.is_none() {
+                    answer.folder = held.folder;
+                }
+                answer.notes.extend(held.notes);
+            }
+        }
     }
 
     /// "Leave them out", or Esc, on the question: nothing is added, and not one of the held files
@@ -613,7 +634,8 @@ impl App {
     /// stays while that read runs (D-251).
     fn task_ask_leave(&mut self) {
         self.task_held = None;
-        self.task_answer = None;
+        // A set already answered is not the question being left out: it stays, and goes in when
+        // the read that runs ends (D-254).
         // Paths a read had folded into the question, or queued for it, are left out with it.
         self.task_declined = self.task_fold && self.task_job.is_some();
         self.task_queue.clear();
@@ -631,8 +653,9 @@ impl App {
     /// "Reading…" line (D-250). Called only when no read runs (D-251).
     fn task_probe_start(&mut self, held: TaskHeld) {
         if self.task_job.is_some() {
-            // A read still runs: its result is not thrown away for this (D-251).
-            self.task_answer = Some(held);
+            // A read still runs: its result is not thrown away for this, and neither is an answer
+            // already waiting (D-251, D-254).
+            self.task_answer_put(held);
             return;
         }
         // The question these files came from is settled now (D-252).
