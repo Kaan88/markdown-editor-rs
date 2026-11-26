@@ -1715,45 +1715,39 @@ fn disclosure_id(a: &App, i: usize) -> mdshared_ui::anim::Id {
 /// With motion off the disclosure is the plain chevron, pixel for pixel, at both ends.
 #[test]
 fn with_motion_off_the_disclosure_is_the_plain_chevron() {
-    use mdshared_text::Bitmap;
-    use mdshared_ui::gfx::{Gfx, Painter, Rect};
-    let pal = mdshared_ui::theme::LIGHT;
-    for (size, open) in [(8.0_f32, false), (8.0, true)] {
-        let mut plain = Bitmap::new(60, 60);
-        let mut gfx = Gfx::new();
+    use mdshared_ui::glyph;
+    let (mut a, dir) = tree_app("motion-off-tree");
+    a.docs.prefs.animations = false;
+    a.compose();
+    let i = tree_row(&a, "sub");
+    for (open, icon) in [(true, glyph::DOWN), (false, glyph::RIGHT)] {
+        a.ui.tree.toggle(i);
+        a.compose();
+        let row = a.hit_rect(Hit::FilesRow(i)).expect("folder row");
+        let pane = a.areas.files.unwrap();
+        let depth = a.ui.tree.rows()[i].depth as f32;
+        let x = pane.x + 14.0 + (depth + 1.0) * 14.0 - 8.0;
+        let y = row.cy();
+        let crop = Rect::new(x - 6.0, y - 6.0, 12.0, 12.0);
+        let mut plain = mdshared_text::Bitmap::new(a.screen.width, a.screen.height);
         {
-            let mut p = Painter::new(&mut plain, &mut gfx, 1.0);
-            p.fill(Rect::new(0.0, 0.0, 60.0, 60.0), pal.page);
-            let icon = if open {
-                mdshared_ui::glyph::DOWN
-            } else {
-                mdshared_ui::glyph::RIGHT
-            };
-            p.icon(icon, size, 30.0, 30.0, pal.text);
+            let mut p = Painter::new(&mut plain, &mut a.gfx, a.scale);
+            p.fill(crop, a.pal.pane);
+            p.icon(icon, 8.0, x, y, a.pal.faint);
         }
-        let mut moved = Bitmap::new(60, 60);
-        {
-            let mut anim = mdshared_ui::anim::Animator::new();
-            anim.set_policy(Policy::Never);
-            let now = Instant::now();
-            anim.begin_frame(now);
-            let mut p = Painter::new(&mut moved, &mut gfx, 1.0);
-            p.fill(Rect::new(0.0, 0.0, 60.0, 60.0), pal.page);
-            mdshared_ui::glyph::draw_disclosure_animated_with(
-                &mut p,
-                &mut anim,
-                "row",
-                30.0,
-                30.0,
-                size,
-                open,
-                pal.text,
-                crate::motion::DISCLOSURE,
+        let (x0, y0, x1, y1) = Painter::new(&mut plain, &mut a.gfx, a.scale).dev_rect(crop);
+        let stride = a.screen.width as usize * 4;
+        for y in y0 as usize..y1 as usize {
+            let x = y * stride + x0 as usize * 4..y * stride + x1 as usize * 4;
+            assert_eq!(
+                &a.screen.pixels[x.clone()],
+                &plain.pixels[x],
+                "open: {open}"
             );
-            assert_eq!(anim.end_frame(), None, "nothing moves");
         }
-        assert!(plain.pixels == moved.pixels, "open: {open}");
+        assert_eq!(a.motion.due, None, "nothing moves");
     }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A folder opens: its chevron turns from the right chevron to the down one, frame by frame,
@@ -1882,18 +1876,29 @@ fn settings_app() -> App {
     a
 }
 
-/// With motion off the Settings dialog is one frame: two composes are the same pixels and no
-/// timer is left, as `draw` drew it.
+/// Toggling through the app with Animations off paints the new position on the first frame.
 #[test]
 fn with_motion_off_the_settings_dialog_is_one_frame() {
-    let mut a = still();
+    let mut a = moving();
     a.focused = false;
-    a.open_settings();
+    a.docs.prefs.animations = false;
     a.compose();
-    let first = a.screen.pixels.clone();
+    let mut plain = a.screen.clone();
+    a.open_settings_at(crate::app::modal::TYPING);
+    a.compose();
+    start_settings_slide(&mut a);
+    let (w, h) = a.logical();
+    a.ui.settings.as_mut().unwrap().draw(
+        &mut Painter::new(&mut plain, &mut a.gfx, a.scale),
+        &a.pal,
+        Rect::new(0.0, 0.0, w, h),
+        a.ui.caret_on,
+    );
+    assert!(
+        a.screen.pixels == plain.pixels,
+        "same first frame as Form::draw"
+    );
     assert_eq!(a.motion.due, None, "nothing moves");
-    a.compose();
-    assert!(a.screen.pixels == first, "the same frame, pixel for pixel");
 }
 
 fn start_settings_slide(a: &mut App) {
