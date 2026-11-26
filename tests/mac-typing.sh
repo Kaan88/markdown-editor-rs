@@ -45,12 +45,10 @@ echo "PASS the owned Open panel appeared and dismissed"
 ui edit-menu clean main "$wid"
 keys clean 53
 keys clean 3:ctrl:cmd
-sleep 2
-wid="$(wait_ui window clean main)"
+wid="$(wait_ui fullscreen clean main true)"
 ui capture clean main "$wid" "$out/full-screen.png"
 keys clean 3:ctrl:cmd
-sleep 2
-wid="$(wait_ui window clean main)"
+wid="$(wait_ui fullscreen clean main false)"
 wait_ui recent clean main "$wid"
 echo "PASS the scratch identity's recent list contains the exact document"
 

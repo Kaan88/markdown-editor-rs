@@ -10,6 +10,7 @@ launch() {
     scratch="$(cd "$scratch" && pwd -P)"
     pid=""
     owned=""
+    launch_requested=false
     trap stop EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
@@ -27,6 +28,7 @@ launch() {
     mkdir "$scratch/local"
     document="${!#}"
     [[ "$document" == /* && -f "$document" ]] || mac_fail "expected an absolute scratch document"
+    launch_requested=true
     open -n -g \
         --env "MDEDIT_SETTINGS=$scratch/settings.ini" --env "LOCALAPPDATA=$scratch/local" \
         --stdout "$out/app.log" --stderr "$out/app.log" \
@@ -59,6 +61,13 @@ wait_ui() {
 
 stop() {
     local status=$?
+    if [[ "$launch_requested" == true && -z "$owned" ]]; then
+        if ! owned="$("$mac_tool" discover "$exe" "$bundle_id")" ||
+            ! [[ "$owned" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Could not establish scratch process ownership; keeping $scratch" >&2
+            exit 1
+        fi
+    fi
     if [[ -n "$owned" ]]; then
         if ! "$mac_tool" terminate "$exe" "$bundle_id" "$owned"; then
             echo "Scratch process could not be safely terminated; leaving its bundle in place" >&2

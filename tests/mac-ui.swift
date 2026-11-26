@@ -159,6 +159,13 @@ struct MacUI {
             }
         }
         if action == "window" { print(window); return }
+        if action == "fullscreen" {
+            guard !panel, stillOwned(), a.count == 9, ["true", "false"].contains(a[8]),
+                  let full = attr(editor, "AXFullScreen") as? Bool,
+                  full == (a[8] == "true") else { fail("scratch window did not reach expected full-screen state") }
+            print(window)
+            return
+        }
         guard a.count >= 9, UInt32(a[8]) == window else { fail("scratch window changed") }
         switch action {
         case "capture":

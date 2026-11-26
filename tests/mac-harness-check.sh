@@ -33,7 +33,10 @@ echo "$action" >> "$MOCK_LOG"
 [[ "$action" == quit-title || ( "$2" == */mdedit.app/Contents/MacOS/mdedit && "$3" == com.kaan88.mdedit.uitest.* ) ]]
 case "$action" in
     absent) [[ "$MOCK_MODE" != existing ]];;
-    discover) [[ "$MOCK_MODE" != no-pid ]] && echo 27;;
+    discover)
+        printf '%s\n' "${2%/mdedit.app/Contents/MacOS/mdedit}" > "$MOCK_LOG.scratch"
+        if [[ "$MOCK_MODE" == late-pid && "$(grep -cx discover "$MOCK_LOG")" -le 40 ]]; then exit 1; fi
+        [[ "$MOCK_MODE" != no-pid ]] && echo 27;;
     terminate) [[ "$4" == 27 ]];;
     window)
         [[ "$4" == 27 && "$MOCK_MODE" != no-window && -f "$5" ]] || exit 1
@@ -43,6 +46,9 @@ case "$action" in
         else
             [[ ! -f "$MOCK_LOG.panel" ]] && echo 91
         fi;;
+    fullscreen)
+        [[ "$4" == 27 && "$MOCK_MODE" != no-fullscreen ]] || exit 1
+        [[ "$(cat "$MOCK_LOG.full")" == "$8" ]] && echo 91;;
     capture)
         [[ "$4" == 27 ]] || exit 1
         if [[ "$7" == open ]]; then [[ "$8" == 92 && -f "$MOCK_LOG.panel" ]]; else [[ "$8" == 91 ]]; fi
@@ -56,6 +62,12 @@ case "$action" in
             *"6:cmd"*) printf 'Xabc é' > "$5";;
             *"7:cmd"*) printf 'Xabc éXabc é' > "$5";;
             *"31:cmd"*) [[ "$MOCK_MODE" == no-panel ]] || touch "$MOCK_LOG.panel";;
+            *"3:ctrl:cmd"*)
+                if [[ "$(cat "$MOCK_LOG.full" 2>/dev/null || true)" == true ]]; then
+                    echo false > "$MOCK_LOG.full"
+                else
+                    echo true > "$MOCK_LOG.full"
+                fi;;
             *"18:shift"*) touch "$MOCK_LOG.dirty";;
             *"12:cmd"*) [[ "$MOCK_MODE" == no-quit ]] || printf dim > "$MOCK_LOG.modal";;
             *" 53") rm -f "$MOCK_LOG.modal";;
@@ -81,7 +93,7 @@ EOF
 chmod +x "$temp/bin/"*
 
 window() { bash "$temp/tests/mac-window.sh" "$temp/$MOCK_MODE" "$temp/input.app" "$temp/sample.md"; }
-for mode in existing no-pid no-window good; do
+for mode in existing no-pid late-pid no-window good; do
     export MOCK_MODE="$mode"
     : > "$MOCK_LOG"
     if [[ "$mode" == good ]]; then
@@ -91,19 +103,28 @@ for mode in existing no-pid no-window good; do
     else
         if window; then echo "unsafe launch accepted ($mode)" >&2; exit 1; fi
         [[ ! -e "$temp/$mode/window.png" ]]
-        ! grep -Eq '^(keys|capture)$' "$MOCK_LOG"
+        if grep -Eq '^(keys|capture)$' "$MOCK_LOG"; then echo "unsafe UI call ($mode)" >&2; exit 1; fi
     fi
-    if [[ "$mode" == no-window || "$mode" == good ]]; then
+    if [[ "$mode" == existing ]] && grep -qx open "$MOCK_LOG"; then
+        echo "open called before rejecting an existing process" >&2; exit 1
+    fi
+    if [[ "$mode" == no-pid ]]; then
+        [[ "$(grep -cx discover "$MOCK_LOG")" == 41 ]]
+        [[ -d "$(cat "$MOCK_LOG.scratch")" ]]
+        rm -rf "$(cat "$MOCK_LOG.scratch")"
+    elif [[ "$mode" == late-pid ]]; then
+        [[ ! -e "$(cat "$MOCK_LOG.scratch")" ]]
+    fi
+    if [[ "$mode" == no-window || "$mode" == good || "$mode" == late-pid ]]; then
         grep -qx terminate "$MOCK_LOG"
     else
-        ! grep -qx terminate "$MOCK_LOG"
+        if grep -qx terminate "$MOCK_LOG"; then echo "terminated an unowned process ($mode)" >&2; exit 1; fi
     fi
-    if [[ "$mode" == existing ]]; then ! grep -qx open "$MOCK_LOG"; fi
 done
-for mode in no-panel no-recent no-quit typing-good; do
+for mode in no-panel no-fullscreen no-recent no-quit typing-good; do
     export MOCK_MODE="$mode"
     : > "$MOCK_LOG"
-    rm -f "$MOCK_LOG".{panel,dirty,modal}
+    rm -f "$MOCK_LOG".{panel,dirty,modal,full}
     if bash "$temp/tests/mac-typing.sh" "$temp/$mode" "$temp/input.app" > "$temp/typing.log" 2>&1; then
         [[ "$mode" == typing-good ]]
         grep -Fq 'confirmation appeared and was cancelled' "$temp/typing.log"
@@ -112,9 +133,12 @@ for mode in no-panel no-recent no-quit typing-good; do
             no-panel)
                 grep -Fq 'the owned Open panel did not appear' "$temp/typing.log"
                 [[ ! -e "$temp/$mode/open-panel.png" ]];;
+            no-fullscreen)
+                grep -qx fullscreen "$MOCK_LOG"
+                [[ ! -e "$temp/$mode/full-screen.png" ]];;
             no-recent)
                 grep -qx recent "$MOCK_LOG"
-                ! grep -qx quit-title "$MOCK_LOG";;
+                if grep -qx quit-title "$MOCK_LOG"; then echo "continued after a missing recent item" >&2; exit 1; fi;;
             no-quit) [[ "$(grep -cx quit-title "$MOCK_LOG")" == 2 ]];;
             *) cat "$temp/typing.log"; exit 1;;
         esac

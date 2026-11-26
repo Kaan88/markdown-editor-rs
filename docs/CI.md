@@ -58,6 +58,9 @@ PID, document and window, sends keys to that PID and opens the Edit menu through
 accessibility object. Captures target only the verified window or owned Open panel; the tests
 fail closed if macOS permissions or ownership checks prevent that. The typing test checks the
 exact recent-document bookmark and verifies the custom Quit confirmation appears and is cancelled.
+The full-screen capture requires `AXFullScreen` to be true, and the test also verifies
+it returns to false. If launch times out and cleanup cannot verify ownership, it reports
+and retains the scratch bundle rather than guessing a PID.
 
 No test is skipped and no step may fail: `ci.yml` has no `--skip`, no `continue-on-error` and no
 `TEMP` override. (A few tests are `#[ignore]`d in the source: timing benchmarks and sheet
