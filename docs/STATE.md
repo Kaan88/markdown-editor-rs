@@ -44,14 +44,18 @@ is newer, doubt "In hand" first.
   cards; shared still builds the Settings form motion (L10) and the tree chevron. No tab
   cross-fade in mdedit (memory), no sliding panes.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
-  `f/task-fixes` at `b8ab752`: a folder added brings its whole tree (D-247), is read on its own
-  thread (D-248), and a set of more than 200 new files is now counted first and asked about before
-  any file is read (D-249, D-250). One read at a time — a gathered drop, then a queue — so two
-  folders dropped together are one read and one question; one helper ends a window's read and
-  question on every path; the question's keys keep out of menus and fields; the main button is off
-  while it stands. fmt, clippy `-D warnings` and the release workspace tests clean (mdedit 1,082,
-  core 608); shots `task-files-ask`, `task-files-ask-empty`, `task-files-unreadable` looked at in
-  both themes. Not pushed, no CI run, not seen in a real window, not yet in Fable's round.
+  `f/task-fixes` at `7470c91` plus D-251's review fixes: a folder added brings its whole tree
+  (D-247), is read on its own thread (D-248), and a set of more than 200 new files is counted
+  first and asked about before any file is read (D-249, D-250). One read at a time — a gathered
+  drop, then a queue — so two folders dropped together are one read and one question; an answer
+  given while a read runs waits for it, a declined question drops what that read finds, and one
+  helper ends a window's read and question on every path; a stop takes the question's paths too;
+  notes from every folder are kept and a folder that brings nothing new says so; the room holds
+  for single files as well; the question's keys keep out of menus and fields; the main button is
+  off while it stands (D-251). fmt, clippy `-D warnings` and the release workspace tests clean
+  (mdedit 1,089, core 609); shots `task-files-ask`, `task-files-ask-empty`,
+  `task-files-unreadable` and `task-files-nothing-new` looked at in both themes. Not pushed, no CI
+  run, not seen in a real window, not yet in Fable's round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
 ## Waiting for the owner
