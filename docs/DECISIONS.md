@@ -2874,3 +2874,14 @@ the owner's word is needed before accepting it or changing the theme copy.
 **Why.** Both effects exceeded the budget in the Windows transition samples,
 even at 1280 × 800.
 **Overturned by.** The owner's decision on the active-memory budget and the theme copy.
+
+## D-277 — 2026-11-26 — Accept the brief theme crossfade memory overshoot
+
+**Decision.** On 2026-11-26 the owner said: “Accept the brief overshoot”.
+Keep D-275's 170 ms light/dark crossfade and its full-window snapshot. The
+crossfade may take private memory above 30 MiB only while it runs; the
+snapshot is freed as soon as the fade ends. This resolves the pending
+decision in D-276 without changing its snapshot-only cap.
+**Why.** Windows sampled about 31.4 MiB during the fade at 1280 × 800 and
+100% scale. The overlap with the Settings entrance remains unmeasured.
+**Overturned by.** A new owner decision on the crossfade or its memory budget.

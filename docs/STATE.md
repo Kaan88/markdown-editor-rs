@@ -83,8 +83,10 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
     Both originally exceeded 30 MiB during the effect (Settings 31.95, theme 31.41 MiB sampled).
     The card-only Settings entrance sampled 29.31 MiB at 100%, 34.61 at 125%, and 40.97 at
     150%, for a 1280 × 800 logical window. The scaled runs exceeded 30 MiB before opening.
-    The overshoot is not accepted; it needs the owner's word (D-276). Opening Settings
-    during a theme fade holds both copies at once; that overlap was not measured.
+    The owner accepted the theme fade's brief overshoot (D-277): keep the full-window
+    copy for the 170 ms blend and free it as soon as the fade ends. The 30 MiB exception
+    applies only while the theme fade runs. Opening Settings during a theme fade holds
+    both copies at once; that overlap was not measured.
     Final launch repeat against the pre-transition baseline: 77.0 → 78.0 ms median,
     slowest 96.7 → 103.2 ms, 0/31 → 1/31 over budget.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on

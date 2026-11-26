@@ -32,7 +32,10 @@ guaranteed peaks.
 
 Both effects temporarily exceeded the 30 MiB private-memory budget even at
 1280 × 800. The theme cap limits the snapshot's size, not total process memory.
-These overshoots have not been accepted and need the owner's word (D-276).
+On 2026-11-26 the owner accepted the theme fade's brief overshoot (D-277):
+about 31.4 MiB at 1280 × 800 and 100% scale. The 170 ms fade keeps its
+full-window snapshot, may exceed 30 MiB only while it runs, and frees the
+snapshot as soon as it ends. This exception is for the theme fade only.
 Opening Settings during a theme fade can hold both copies at once; the overlap
 was not measured. At `4134fed`, Settings took a temporary full-window snapshot
 per entrance paint. Idle memory was under budget.
