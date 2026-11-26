@@ -1,6 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-26, when the pin moved and tooltips faded in. If
+Rewritten, not appended to. Last rewritten 2026-11-26, after M-E and the M-D review fixes. If
 `git log -1` is newer, doubt "In hand" first.
 
 ## Released
@@ -50,21 +50,24 @@ Rewritten, not appended to. Last rewritten 2026-11-26, when the pin moved and to
   keeps a target's first delay. **On the owner's word: quick, quiet motion; menus open in
   117 ms; menus and dialogs close instantly; everything under the one Animations setting, and
   motion off draws exactly as now; only what shared has at `09b01c1`.**
-  - **M-D, Settings and tree chevrons**: done, `8ab68f1` (DESIGN 98, D-259):
+  - **M-D, Settings and tree chevrons**: done, `8ab68f1` with the review fixes at `46a7740`
+    (DESIGN 98, D-259 corrected by D-263):
     `settings::pages::Form::draw_animated` in place of `draw`; tree chevrons through
     `glyph::draw_disclosure_animated_with` (motion from `motion.rs`); the groups `SIDEBAR` and
-    `SETTINGS`, `keep_group` on frames that skip the pane; shots `settings-switch-*`,
-    `tree-chevron-*`.
-  - **M-E, title row, X3 and the rest of the popups**: D4 (the title row) is done, `a6b51cf`'s
-    successor (DESIGN 98, D-261): `chrome::draw_win_button_animated`, `draw_tab_animated`,
-     `draw_new_tab_button_animated`, group `TITLE`, shots `title-hover-*`, `tab-hover-*` (shared
-     #31's `t == 0` flash fix is in `09b01c1`). X3 is wired (D-262): menu-row hover fades,
-     the command palette pops in, and four notices slide into their measured strips. Popup
-     damage uses `presence_bounds()`. **The completion popup stays instant.**
+    `SETTINGS` are kept on frames that skip drawing them. `settings-switch-*` shows a knob
+    mid-slide; `tree-chevron-*` shows an opening chevron. Pages and dialog closing stay instant.
+  - **M-E, title row, X3 and the rest of the popups**: D4 (the title row) is done, `9b7551f`
+    (DESIGN 98, D-261): `chrome::draw_win_button_animated`, `draw_tab_animated`,
+    `draw_new_tab_button_animated`, group `TITLE`, shots `title-hover-*`, `tab-hover-*` (shared
+    #31's `t == 0` flash fix is in `09b01c1`). X3 is wired at `d116f9e` (D-262): menu-row
+    hover fades, the command palette pops in, and four notices slide into their measured
+    strips. Popup damage uses `presence_bounds()`. **The completion popup stays instant.**
+    Windows budget check: `docs/measurements/2026-11-26-motion-x3-md.md`.
   - **M-F, four fixes**: L1, `submenu::Cascade` for the hand-made submenus and their dwell
     timer; L3, the plain preview's scrollbar from shared; W2, focus for the Files and Functions
     panes; W3, `window_state` restored onto a monitor that still exists.
-  Next: these, in that order, a commit each.
+  Next: M-F in order; then the requested Settings opening fade and light/dark crossfade. No
+  page-change transitions.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.

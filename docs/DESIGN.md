@@ -4079,13 +4079,13 @@ part way in), `toasts-stacked-*`, `toast-repeated-*` (the first said again, at t
 the shot's `--settings-ms` and `--tree-ms`), shared's `settings::pages::Form::draw_animated` and
 `glyph::draw_disclosure_animated_with`. D-259.
 
-**The Settings form.** The dialog draws with `Form::draw_animated`, named `SETTINGS`, in the
-group `SETTINGS`: a switch's knob slides, its fill fades, a chosen segment slides, a row's hover
-fill and the scrollbar follow (`settings/motion` in shared). While anything in the group is in
-flight the frame is `full` — the form covers the window, so every region and the dialog are
-drawn again (`group_due(SETTINGS, now)`, D1) — and the last frame of a motion draws it once more
-at rest. `Form::draw` and `draw_animated` draw the same pixels at rest and under `Policy::Never`;
-mdedit's test holds two composes to that, and shared's own tests hold the form.
+**The Settings form.** `Form::draw_animated` slides switches and the selected segment's fill.
+It fades an unselected category's highlight and the rows of an open dropdown, not general
+control hover fills. The paged form has no scrollbar. Changing pages or closing the dialog
+is instant and forgets the old page's tracks. The `SETTINGS` group repaints the whole window
+when due; an early frame that skips the form keeps the group and its pending paint deadline.
+With Animations off, a real toggle in the app matches a reference drawn with `Form::draw` on
+the first frame. The tree test compares the live Files pane's chevrons against plain glyphs.
 
 **The tree's chevron.** Each folder row's disclosure is `glyph::draw_disclosure_animated_with`
 under the name `("files", path)`, turned by `motion::DISCLOSURE` (shared's `DISCLOSURE_MOTION`,
@@ -4094,12 +4094,11 @@ draws inside the group `SIDEBAR`; a frame whose deadlines have come damages the 
 (`group_due(SIDEBAR, now)`), and a frame that draws something else keeps the group
 (`keep_group(SIDEBAR)`) so a turn goes on from where it was instead of being taken for new.
 
-**Shots.** `--settings-ms MS` (the Typing page's pair switch turned, that far into its slide, on
-the shot's clock: `settings-switch-*` at 60 ms) and `--tree-ms MS` (the first closed folder
-opened, its chevron that far into its turn: `tree-chevron-*` at 60 ms), both themes. A frame's
-pace is a sixtieth of a second, so a test that steps a hand-moved clock by 16 ms never reaches
-the deadline the animator asked for: 17 ms does (the review of mdview's D4 found that an
-assertion at 16 ms checked nothing).
+**Shots.** `--settings-ms MS` draws the old knob position, changes the Typing switch at time
+zero, then advances to the requested sample (`settings-switch-*`, 60 ms). `--tree-ms MS`
+samples the first closed folder's turn (`tree-chevron-*`, 60 ms). Both use the shot's manual
+clock and run in both themes. The Settings test uses 16 ms ticks: the first is early at a
+60 Hz cadence and skips the form; the second reaches the original deadline.
 
 **The title row (M-E, D4).** `chrome::draw_title` draws its tabs with `chrome::draw_tab_animated`
 (named `("tab", document id)`, so a tab that moves keeps its fade), its caption buttons with

@@ -2718,3 +2718,16 @@ first frame and then steps the clock by hand (`menu-row-hover-*`, `palette-in-*`
 `presence_bounds()`, never `rect.inset(-20)`; the completion popup stays instant." Under the
 owner's rule: quick, quiet motion; menus open in 117 ms; close instantly.
 **Overturned by.** The owner; or shared changing `HOVER`/`MENU_ENTER`.
+
+## D-263 — 2026-11-26 — Keep Settings motion across early frames; correct D-259
+
+**Decision.** This corrects D-259 and the description in `8ab68f1`. The paged form animates
+switches and selected segments, unselected category highlights and open dropdown rows. It
+does not animate general control hover fills, draw a form scrollbar, or transition between
+pages. Switching pages or closing the dialog immediately discards the old controls' motion.
+Frames that skip the open form keep `SETTINGS` and its earliest pending redraw so 16 ms
+frames cannot defer it indefinitely. Start the Settings shot's clock with the old and new
+knob positions registered before advancing it.
+**Why.** M-D review: early frames dropped live tracks, the switch shot could capture the
+endpoint, and the implementation was described as the other Settings form.
+**Overturned by.** The owner; or the shared paged form taking on different motions.

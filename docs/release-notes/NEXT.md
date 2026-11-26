@@ -15,3 +15,5 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
   before the new one rises in underneath.
 - **Menu highlights fade, the command palette pops in, and notice bars slide into place.**
   Word completion remains instant.
+- **Settings switches slide and folder chevrons turn.** Changing Settings pages or closing
+  the dialog is still instant.
