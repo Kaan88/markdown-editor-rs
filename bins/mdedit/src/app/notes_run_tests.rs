@@ -582,3 +582,133 @@ fn trying_again_with_another_instruction_asks_every_picture_anew() {
     );
     assert_eq!(run_of(&a).instruction, "Rooms, and what to buy");
 }
+
+/// The hand-driven run, finding 3: after the only look failed, "Go on with 0" sent an arrange of
+/// nothing, which failed, and "Try it again" then asked only the arrange again. Going on with
+/// nothing is refused and sends nothing; "Try it again" sends the look again.
+#[test]
+fn going_on_with_no_picture_sends_nothing_and_trying_again_looks_again() {
+    let (mut a, dir) = window("notes-go-on-none", true, 0, "p");
+    let only = dir.join("LOOKFAIL.png");
+    std::fs::write(&only, b"x").expect("picture");
+    a.task_add_paths(vec![only]);
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let run = run_of(&a);
+    assert_eq!(run.failed.len(), 1);
+    assert_eq!(run.going_on_with(), 0);
+    assert!(!run.can_go_on());
+    let sent = a.task_sent.requests;
+    a.compose();
+    assert!(
+        !a.task
+            .as_ref()
+            .expect("open")
+            .hits
+            .iter()
+            .any(|(h, _)| *h == Hit::GoOn),
+        "no Go on with 0 is drawn"
+    );
+    a.task_act(Hit::GoOn);
+    assert_eq!(a.task_sent.requests, sent, "no arrange of nothing is sent");
+    assert!(run_of(&a).arrange.is_none() && run_of(&a).arrange_failed.is_none());
+    a.task_act(Hit::TryAgain);
+    let run = run_of(&a);
+    assert_eq!(a.task_sent.requests, sent + 1, "the look goes again");
+    assert!(run.arrange.is_none(), "not the arrange");
+    assert_eq!(run.in_flight.len(), 1);
+}
+
+/// The hand-driven run, finding 9: "One note per picture instead" after a failed arrange makes
+/// that plan one note per picture and changes nothing else: the window's How many stays, so a
+/// text file keeps its tick and takes part again.
+#[test]
+fn one_note_per_picture_instead_leaves_how_many_and_the_text_file() {
+    let (mut a, dir) = window("notes-per-picture-once", true, 2, "room");
+    wait(&mut a, measured);
+    let text = dir.join("list.md");
+    std::fs::write(&text, "# List\n\nPaint.\n").expect("text");
+    a.task_add_paths(vec![text]);
+    a.task
+        .as_mut()
+        .expect("open")
+        .instruction
+        .set_text("ARRANGEFAIL");
+    a.task_run();
+    wait(&mut a, |a| {
+        a.task
+            .as_ref()
+            .and_then(|s| s.notes_run.as_ref())
+            .is_some_and(|r| r.arrange_failed.is_some())
+    });
+    let before = a.task.as_ref().expect("open").notes.how_many;
+    assert_ne!(before, HowMany::PerPicture);
+    a.task_act(Hit::GoOn);
+    assert_eq!(arranged(&a).expect("made here").notes.len(), 2);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(
+        s.notes.how_many, before,
+        "the window's How many is unchanged"
+    );
+    assert!(
+        s.files[2].ticked && s.reason_of(2).is_none(),
+        "the text file takes part"
+    );
+}
+
+/// The hand-driven run, finding 19: the plan card counts the requests answered apart from
+/// those that failed.
+#[test]
+fn the_requests_answered_and_failed_are_counted_apart() {
+    let (mut a, dir) = window("notes-answered", true, 4, "ok");
+    let late = dir.join("LOOKFAIL.png");
+    std::fs::write(&late, b"x").expect("picture");
+    a.task_add_paths(vec![late]);
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let run = run_of(&a);
+    assert_eq!((run.answers, run.failures), (1, 1));
+    assert_eq!(run.requests, 2);
+}
+
+/// Review of the task fixes, 3: after a failed look the footer offers going on only when there
+/// is something to go on with, and numbers the request out of the run's requests as the summary
+/// counts them (the look and the arrange).
+#[test]
+fn a_failed_look_with_nothing_to_go_on_with_offers_only_trying_again() {
+    let (mut a, dir) = window("notes-failed-note", true, 0, "p");
+    let only = dir.join("LOOKFAIL.png");
+    std::fs::write(&only, b"x").expect("picture");
+    a.task_add_paths(vec![only]);
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let run = run_of(&a);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.notes_run_requests(&run), 2, "one look and the arrange");
+    assert_eq!(
+        s.notes_failed_note(&run),
+        "Request 1 of 2 failed. Try it again."
+    );
+}
+
+/// The same with a picture looked at: going on is offered.
+#[test]
+fn a_failed_look_beside_one_answered_offers_going_on() {
+    let (mut a, dir) = window("notes-failed-note-go", true, 4, "ok");
+    let late = dir.join("LOOKFAIL.png");
+    std::fs::write(&late, b"x").expect("picture");
+    a.task_add_paths(vec![late]);
+    wait(&mut a, measured);
+    a.task_run();
+    wait(&mut a, looks_ended);
+    let run = run_of(&a);
+    let s = a.task.as_ref().expect("open");
+    assert!(run.can_go_on());
+    assert_eq!(
+        s.notes_failed_note(&run),
+        "Request 2 of 3 failed. Try it again, or go on without it."
+    );
+}

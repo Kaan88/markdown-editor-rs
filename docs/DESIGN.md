@@ -3311,7 +3311,7 @@ that can file, split or **rewrite files in place** (D-074, D-076). The drawing i
 `ai-files`; the window takes files, not the open document, and opens none of them in a tab.
 
 **The window** (`task_ui.rs` state and numbers, `task_draw.rs` drawing, `app/task.rs` the three
-tasks). Card 880 x 704: the header and "Add…" (phase E), the WHAT TO DO switch (`File them |
+tasks). Card 880 x 704: the header and "Add…" (phase E), the task switch (`Write notes | File them |
 Split them | Rewrite them`), the 36 px instruction field, the saved prompts of the chosen kind
 (96 px, `kind: file` new in `mdedit_core::ai`), WHERE IT GOES, the list under its three group
 headings, and a footer with "Show what is sent" and the primary button. A review of a file
@@ -3384,8 +3384,8 @@ is off", and "Open AI settings" is beside Cancel. Nothing starts.
 send: the system text and prompt per batch, per file, or per split outline; with the AI off it
 says nothing is sent. It opens as a read-only copy tab and parks the window, which "AI task on
 your files…" brings back. A request in flight stops when the window closes (Escape stops it
-first, then a second Escape closes), and an engine error is the footer's sentence with Run
-still usable.
+first; then Esc leaves a field with words in it, warns once in the window, and closes, D-241),
+and an engine error is the footer's sentence with the button still usable.
 
 **Tests** (`task_ui::tests`, `app/task_tests.rs`; the fake engine answers `TASKFILE` with a
 filing JSON). A window opens empty; a picture is a picture, never read; a digest holds the
@@ -3424,6 +3424,93 @@ file…" (`C::AiTaskThisFile`) is now only in a **tab's** menu ("AI tas&k on thi
 the pointer names the file: `tab_command` opens the window with that tab's file, which need not
 be the one in front, or says to save it first. The palette no longer lists it
 (`palette::listed`). Shot `task-add` (both themes) is the open menu over made-up tabs.
+
+**A folder added is its whole tree (2026-11-25, D-247, D-248).** The picker offers files; a folder
+reaches the window by a drop on it. Its walk and every probe run on one job thread
+(`mdshared_app::job::Job`), with a copy of what a probe reads — the limits, the load options and
+the library's note paths — so the window's state is never touched from it; a single file added
+stays inline, and a thread that cannot be made reads the folder inline. The window says "Reading
+<folder>…" over the foot of its list while it runs; Esc stops it and adds nothing, as does
+closing the window or parking it behind "Show what is sent". The walk is `import::walk_every`,
+the library import's walk with no extension filter and nothing read: a dot name, the hidden
+attribute, `target` and `node_modules` are left out, a link to a folder is not followed, the
+library folder is left out when the folder walked holds it (audit 4, C5), and the walk stops at
+`MAX_READ` (50,000) entries read or `MAX_DEPTH` (64) folders deep. Every file kind comes back and
+`task_probe` judges each as before. The folder's own files come first, then each subfolder's, by
+name, case-insensitively. The cap is the room the window has left (2,000 less what it holds) and
+counts only files it does not hold already, so a folder added again adds nothing and says nothing
+of a cap; a walk stopped at the cap, at the entries or at the depth says so in the window's notice
+(`task_say`), naming the folder, and a later add that stops nowhere takes that away. Files are
+told apart by a key per path in a `HashSet`, not one `same_path` per pair. Shot
+`task-files-stopped` (1280 and 520 px, both themes) is the "Stopped…" line.
+
+**More than 200 new files are asked about first (2026-11-26, D-249, D-250).** The owner: "ask
+before anything is in, if it's possible and not disruptive or slows it down. otherwise ask above
+200." The read runs on its own thread, so the count of new files is known before anything is
+added, and nothing is read until the question is answered: the job walks the dropped folders,
+counting the files that are new to the window and to a question already standing, and reads no
+file's content; `task_ui::ASK_FILES` (200) or fewer carry on to the probes in that same job. The
+window holds the paths in `App::task_held` and asks where it says things — the notice line over
+the foot of the list, not a modal and not a toast — "Add 1,240 files from Recipes?", or "… from 3
+folders?" counting only folders that brought something new, with "Leave them out" and the filled
+"Add them". A click on either, Enter for adding (only when no field, dropdown or menu has the key
+first) and Esc for leaving (likewise), answers it; Esc does not close the window. "Add them"
+starts a read of its own, with the bar's "Reading…" line, and adds every file ticked. The main
+button is drawn off while the question stands, so "Make the plan" cannot leave the held files
+out. A folder that brings nothing new says "Nothing new in <folder>." itself, even beside another
+folder of the same drop that did bring files; a folder the walk could not read is named ("Could
+not read Locked."), and a walk that both could not read a folder and stopped at its cap says both.
+A file added again is not one left out, a question whose files have all been added by name goes,
+and while answered files wait or are being probed the main button is drawn off and runs nothing
+(D-252). Files taken by name out of a held folder lower its count, and at 200 or fewer the rest
+come in at once without a question (D-253). An answered set waiting for a running read is merged
+with any answer already waiting, never replaced, and "Leave them out" leaves an answer alone
+(D-254). Shots `task-files-ask` (1280 and 520 px, both themes), `task-files-ask-empty`,
+`task-files-unreadable` and `task-files-nothing-new`.
+
+**One read at a time, and a drop never lost (2026-11-26, D-250, D-251).** winit sends one
+`DroppedFile` per path: the window gathers a pass's paths (`App::task_batch`) and the event loop's
+`about_to_wait` flushes them as one read, so two folders dropped together are one read and one
+question. A drop that arrives while a read runs waits in `App::task_queue` for it, and a drop
+while the question stands is walked and folded into the question, once per path, so a small add
+cannot slip in past it. An answer given while that folded read still runs waits in
+`App::task_answer` for it to end, and a question declined while it runs drops what it finds
+(`App::task_fold`, `App::task_declined`): the running read is never overwritten and nothing it
+found is lost or added past a "Leave them out". The window's room is `FILES_MAX` less what it
+holds and what the question holds, checked for a single file as well and again as files go in.
+Every path that ends or replaces the window — close, Cancel, a rewrite run's end, parking behind a
+plan or behind "What is sent" — goes through `App::task_add_forget`, and a read's result is applied
+only to the window whose id it was started for. A stop (Esc while reading or probing) drops the
+question's paths and the answered set too, says how many, and gives the main button back (D-253).
+
+**After the hand-driven run (2026-11-25, D-240 to D-245).** `task_is_open` is false while
+Settings is open, so Settings opened from the window takes every key and click and the window
+(and its plan card) is not drawn; `close_settings` calls `task_settings_closed`, which reads the
+connection, its name and the limits again. `Focus::None` is the window with no field: Esc leaves a
+field with words in it, then a window that `holds_setup` says `esc_warning` once and the next Esc
+closes. `TaskScreen::notice` is what `task_say` puts in the window (a toast only with the window
+closed), drawn as the bar over the list's foot before Write notes' own notice; a key or a click
+clears it. A rewrite's review has Back (`task_review_back`); a split plan closed unwritten leaves
+the file ticked. The last task closed is the pref `ai_task`. `card` grows from 880 × 704 to 1240 ×
+1000 with the window. On the plan face `rows` puts what no request took under `ListRow::NotSent`
+(`was_sent` reads the answered batches). `primary_blocked` turns the button off with its reason
+(no file, no group). "Show what is sent" goes beside Add… when the footer has under 140 px left
+of it; the tab it opens records `sent_tab`, and closing that tab brings the window back
+(`task_sent_tab_closed`). Tests: `app/task_tests.rs` (the hand-driven run's section) and
+`task_draw.rs` `flow_tests`, each watched fail with its fix reverted.
+
+After Fable's review (D-246): `FileReview::back` says whether the review's window is open or
+parked (set when the review is made, read again by `task_review_back_sync` when a kept review is
+shown); Back is drawn only then, and `task_review_back` keeps the review otherwise.
+`task_settings_closed` also reads the saved prompts again and calls `task_read_again`.
+`take_back_notice` clears the notice and both warnings (`esc_warned`, `close_warned`; a click on
+Cancel keeps the latter). With `Focus::None` a printable key moves to the instruction and Enter
+only moves there. `task_remember_kind` saves `ai_task` from `task_close` and from the end of a
+rewrite run. `task_sent_tab_closed` runs after Close, Close others and Close all, and looks for
+the tab by id. `notes_run_requests` / `notes_failed_note` number a failed look out of the looks
+and the arrange (`notes_task::arranges`). The line under the title is drawn with the footer's
+link and takes shorter words to fit; the empty Saved prompts wraps under its label; the notice
+bar keeps to the list's top.
 
 ## 84. Sort a folder by AI (2026-11-23, phase 4)
 
@@ -3602,7 +3689,7 @@ its own with its own budget of requests.
 
 `docs/ai-pictures-plan.md` 4.3, D-209, D-215, after the owner's "I want to copy or move them
 along with images". **The switch.** File them has THE FILES, `Link them | Copy them in`, beside
-the task on the task row (where the other tasks show "WHAT TO DO"), on "Copy them in" by default
+the task on the task row (where the other tasks leave the row empty), on "Copy them in" by default
 and remembered once changed (`Prefs::ai_files`, `FilesGo`: `copy`, `link` in `settings.ini`).
 Too narrow for the full words it reads `Link | Copy in`, and the caption THE FILES goes first.
 On the plan face each placed row adds what happens to its file: "copied in", or "linked where it
@@ -3850,8 +3937,11 @@ batches then those never sent; "Go on with N" sends those never sent without the
 picture the answer says nothing of is a failure of its own (a batch with none said fails whole).
 A picture changed since it was measured is measured again first. A model that reads no pictures
 stops the run with Open AI settings. A failed arrange offers "Try it again" and "One note per
-picture instead" (for the window only, not the setting). A notice bar over the list's foot says
-which.
+picture instead" (that plan only: neither the window's How many nor the setting changes, D-242).
+"Go on with N" counts the looks kept and the pictures still to send (`Run::going_on_with`) and is
+offered only when `can_go_on` (a picture or a text file left); with no look and no text no arrange
+is sent. A note is made only of a picture that was looked at. A notice bar over the list's foot
+says which. The plan card counts `answers` apart from `failures`.
 
 **Pasting.** Ctrl+V on Write notes with no text on the clipboard adds its picture, saved as
 `%TEMP%\mdedit-pasted\Screenshot <ms>.png`; the window's pasted files go when it closes, and any

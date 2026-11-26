@@ -1223,13 +1223,19 @@ impl App {
                 if let Some(i) = index(&self.docs, id) {
                     self.docs.close(i, service);
                 }
+                // "Show what is sent"'s tab closed: its window comes back.
+                self.task_sent_tab_closed();
             }
             After::CloseOthers(id) => {
                 if let Some(i) = index(&self.docs, id) {
                     self.docs.close_others(i, service);
                 }
+                self.task_sent_tab_closed();
             }
-            After::CloseAll => self.docs.close_all(service),
+            After::CloseAll => {
+                self.docs.close_all(service);
+                self.task_sent_tab_closed();
+            }
             After::Exit => self.exit = true,
             After::Restart => {
                 // The file is looked at again now: it must still be there to be started.
@@ -2187,7 +2193,11 @@ impl App {
                 .filter(|&i| self.library_row_has_notes(i))
             {
                 Some(i) => self.task_from_library(i),
-                None => self.task_open(crate::task_ui::TaskKind::File, Vec::new()),
+                // On the task the window last closed on (the hand-driven run, finding 10).
+                None => self.task_open(
+                    crate::task_ui::TaskKind::of_pref(self.docs.prefs.ai_task),
+                    Vec::new(),
+                ),
             },
             C::AiTaskThisFile => {
                 let path = self
@@ -2393,6 +2403,9 @@ impl App {
             Wake::Library => self.library_read_take(),
             // The import's walk is done: its plan opens, unless the folder was let go of.
             Wake::Import => self.import_take(),
+            // The task window's folder is read: the pass after this adds its files, or nothing
+            // when it was stopped.
+            Wake::Task => self.task_add_take(),
             Wake::Outline => {
                 self.ui.outline.poll();
             }

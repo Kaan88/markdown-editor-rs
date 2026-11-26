@@ -80,6 +80,9 @@ pub struct Walk {
     /// them: a name with `%20` in it, which the reader takes for a space. They are left out, so
     /// the rest of the folder can go in, and the card names them (audit 4, C6).
     pub unlinkable: Vec<PathBuf>,
+    /// Folders the walk could not read at all: a permission refused, a folder gone between the
+    /// listing and the read. Each is named, so a folder that adds nothing can say why (D-250).
+    pub unreadable: Vec<PathBuf>,
 }
 
 /// Why a walk stopped before the end of its folder, besides the 2,000.
@@ -120,14 +123,98 @@ pub fn walk_for(folder: &Path, library: &Path, cancel: &dyn Fn() -> bool) -> Wal
     walk_with(folder, Some(library), LIMITS, cancel)
 }
 
+/// What a walk for the AI task window takes: every file in the folder, whatever its kind, and
+/// nothing of it read.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Every {
+    /// The files, in [`walk`]'s order: the folder's own first, then each subfolder's by name,
+    /// case-insensitively.
+    pub files: Vec<PathBuf>,
+    /// The folder holds more files the walk takes than it was allowed to take: it stopped at the
+    /// cap. Only files [`EveryWalk::wanted`] takes are counted.
+    pub more: bool,
+    /// The walk stopped before the end of the folder, at the entries read or the depth.
+    pub stopped: Option<Stop>,
+    /// The folders the walk could not read at all (D-250).
+    pub unreadable: Vec<PathBuf>,
+}
+
+/// What a walk for the task window is told before it starts: its room, the library, and which
+/// files are new to the window.
+pub struct EveryWalk<'a> {
+    /// The most files to take: files [`EveryWalk::wanted`] turns away are not counted, so this is
+    /// the window's room for new files.
+    pub files: usize,
+    /// The library folder, left out when the folder walked holds it, as the import does (audit 4,
+    /// C5).
+    pub library: Option<&'a Path>,
+    /// Whether a file is to be taken: the task window takes the ones it holds already out, so the
+    /// cap counts only the files an add brings.
+    pub wanted: &'a dyn Fn(&Path) -> bool,
+}
+
+/// Walks `folder` for every file in it, whatever its kind, for the task window's "Add": the
+/// Files pane's rules for what to leave out (a dot name, the hidden attribute, `target`,
+/// `node_modules`), links to folders not followed, the library folder left out, and at most
+/// [`EveryWalk::files`] of what [`EveryWalk::wanted`] takes, [`MAX_READ`] entries read and
+/// [`MAX_DEPTH`] folders deep. No file is read here: the window probes each of what comes back
+/// itself.
+pub fn walk_every(folder: &Path, walk: EveryWalk<'_>, cancel: &dyn Fn() -> bool) -> Every {
+    let sorted = walk_sorted(
+        folder,
+        walk.library,
+        Limits {
+            files: walk.files,
+            ..LIMITS
+        },
+        Sort::Every,
+        walk.wanted,
+        cancel,
+    );
+    every_of(sorted)
+}
+
+/// A [`Walk`] as a walk for the task window says it: its files, and whether it was cut short.
+fn every_of(walk: Walk) -> Every {
+    Every {
+        files: walk.found.into_iter().map(|f| f.path).collect(),
+        more: walk.more,
+        stopped: walk.stopped,
+        unreadable: walk.unreadable,
+    }
+}
+
+/// What a walk takes of each folder it reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Sort {
+    /// The library import: [`EXTENSIONS`] only, each file read for its first heading and preview.
+    Notes,
+    /// The AI task window: every file, whatever its kind, and none read: a [`Found`]'s `title`,
+    /// `head` and `start` stay empty.
+    Every,
+}
+
 fn walk_with(
     folder: &Path,
     library: Option<&Path>,
     limits: Limits,
     cancel: &dyn Fn() -> bool,
 ) -> Walk {
+    walk_sorted(folder, library, limits, Sort::Notes, &|_| true, cancel)
+}
+
+fn walk_sorted(
+    folder: &Path,
+    library: Option<&Path>,
+    limits: Limits,
+    sort: Sort,
+    wanted: &dyn Fn(&Path) -> bool,
+    cancel: &dyn Fn() -> bool,
+) -> Walk {
     let walker = Walker {
         limits,
+        sort,
+        wanted,
         cancel,
         library: library.map(|dir| LibraryDir {
             dir: dir.to_path_buf(),
@@ -154,6 +241,8 @@ struct LibraryDir {
 
 struct Walker<'a> {
     limits: Limits,
+    sort: Sort,
+    wanted: &'a dyn Fn(&Path) -> bool,
     cancel: &'a dyn Fn() -> bool,
     library: Option<LibraryDir>,
 }
@@ -190,6 +279,9 @@ impl Walker<'_> {
     fn list(&self, dir: &Path, sections: &mut Vec<String>, depth: usize, out: &mut Walk) {
         let cancel = self.cancel;
         let Ok(read) = std::fs::read_dir(dir) else {
+            // Nothing of it could be read: the folder is named, so an add that finds nothing can
+            // say why (D-250).
+            out.unreadable.push(dir.to_path_buf());
             return;
         };
         let mut dirs: Vec<(String, PathBuf)> = Vec::new();
@@ -229,8 +321,12 @@ impl Walker<'_> {
                 } else {
                     dirs.push((name, path));
                 }
-            } else if meta.is_file() && takes(&path) {
-                files.push((name, path, meta.len(), modified_day(meta.modified().ok())));
+            } else if meta.is_file() && (self.sort == Sort::Every || takes(&path)) {
+                let modified = match self.sort {
+                    Sort::Notes => modified_day(meta.modified().ok()),
+                    Sort::Every => String::new(),
+                };
+                files.push((name, path, meta.len(), modified));
             }
         }
         let key = |name: &str| (name.to_lowercase(), name.to_string());
@@ -240,12 +336,29 @@ impl Walker<'_> {
             out.folders += 1;
         }
         for (_, path, bytes, modified) in files {
+            // A walk for the task window takes only the files it was told are new; the others take
+            // no room from its cap.
+            if self.sort == Sort::Every && !(self.wanted)(&path) {
+                continue;
+            }
             if out.found.len() >= self.limits.files {
                 out.more = true;
                 return;
             }
             if cancel() {
                 return;
+            }
+            if self.sort == Sort::Every {
+                out.found.push(Found {
+                    sections: Vec::new(),
+                    path,
+                    title: String::new(),
+                    head: Vec::new(),
+                    start: String::new(),
+                    bytes,
+                    modified,
+                });
+                continue;
             }
             let head = read_head(&path);
             let title = title_of(&head)
@@ -666,8 +779,8 @@ pub fn home_apart_reason(group: &str, home: &Path) -> String {
     )
 }
 
-/// `50000` as `50,000`.
-fn group_digits(n: usize) -> String {
+/// `50000` as `50,000`, for a sentence that names a count.
+pub fn group_digits(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
@@ -1607,5 +1720,221 @@ mod tests {
         assert_eq!(p.problem(), None);
         assert!(p.home.as_os_str().is_empty(), "the group names no folder");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- the task window's walk (D-247, D-248) -------------------------------------------------
+
+    fn every_at(
+        dir: &Path,
+        limits: Limits,
+        wanted: &dyn Fn(&Path) -> bool,
+        cancel: &dyn Fn() -> bool,
+    ) -> Every {
+        every_of(walk_sorted(dir, None, limits, Sort::Every, wanted, cancel))
+    }
+
+    fn every_names(w: &Every) -> Vec<String> {
+        w.files
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// The task window's walk stops where the import's does: at the entries it reads and at the
+    /// depth it goes to.
+    #[test]
+    fn a_walk_for_the_task_window_stops_at_its_bounds() {
+        let dir = scratch("every-bounds");
+        for i in 0..12 {
+            put(&dir, &format!("f{i:02}.md"), "x\n");
+        }
+        let few = Limits {
+            files: 100,
+            read: 10,
+            depth: MAX_DEPTH,
+        };
+        let w = every_at(&dir, few, &|_| true, &|| false);
+        assert_eq!(w.stopped, Some(Stop::Entries));
+
+        let deep = scratch("every-depth");
+        put(&deep, "a/b/c/d/x.md", "# X\n");
+        let shallow = Limits {
+            files: 100,
+            read: 1000,
+            depth: 2,
+        };
+        let w = every_at(&deep, shallow, &|_| true, &|| false);
+        assert_eq!(w.stopped, Some(Stop::Depth));
+        assert!(w.files.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&deep);
+    }
+
+    /// A walk for the task window takes only the files it was told are new, so its cap is the room
+    /// left in the window, not the folder's size.
+    #[test]
+    fn a_walk_for_the_task_window_counts_only_the_files_it_was_told_are_new() {
+        let dir = scratch("every-wanted");
+        for i in 0..5 {
+            put(&dir, &format!("f{i}.md"), "x\n");
+        }
+        let held = |p: &Path| p.file_name().is_some_and(|n| n == "f0.md" || n == "f1.md");
+        let w = walk_every(
+            &dir,
+            EveryWalk {
+                files: 2,
+                library: None,
+                wanted: &|p| !held(p),
+            },
+            &|| false,
+        );
+        assert_eq!(every_names(&w), ["f2.md", "f3.md"]);
+        assert!(w.more, "f4 is there and there is no room for it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The import's rule, for the task window too: the library folder inside the folder walked is
+    /// left out, and a walk that knows no library reads it like any other folder (audit 4, C5).
+    #[test]
+    fn a_walk_for_the_task_window_leaves_the_library_folder_out() {
+        let dir = scratch("every-library");
+        put(&dir, "a.md", "# A\n");
+        put(&dir, "library/note.md", "# Note\n");
+        let library = dir.join("library");
+        let w = walk_every(
+            &dir,
+            EveryWalk {
+                files: 100,
+                library: Some(&library),
+                wanted: &|_| true,
+            },
+            &|| false,
+        );
+        assert_eq!(every_names(&w), ["a.md"]);
+        let all = walk_every(
+            &dir,
+            EveryWalk {
+                files: 100,
+                library: None,
+                wanted: &|_| true,
+            },
+            &|| false,
+        );
+        assert_eq!(all.files.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A folder is entered by name, ignoring case: `A` before `b`.
+    #[test]
+    fn a_walk_for_the_task_window_orders_subfolders_by_name_ignoring_case() {
+        let dir = scratch("every-order");
+        put(&dir, "b/second.md", "x\n");
+        put(&dir, "A/first.md", "x\n");
+        let w = every_at(&dir, LIMITS, &|_| true, &|| false);
+        assert_eq!(every_names(&w), ["first.md", "second.md"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A cancel stops the walk between files, and before a folder is entered.
+    #[test]
+    fn a_walk_for_the_task_window_stops_when_a_cancel_comes() {
+        let dir = scratch("every-cancel-files");
+        for i in 0..5 {
+            put(&dir, &format!("f{i}.md"), "x\n");
+        }
+        // The second file looked at: the first is taken, and the walk stops there.
+        let seen = std::cell::Cell::new(0);
+        let wanted = |_: &Path| {
+            seen.set(seen.get() + 1);
+            true
+        };
+        let cancel = || seen.get() >= 2;
+        let w = every_at(&dir, LIMITS, &wanted, &cancel);
+        assert_eq!(every_names(&w), ["f0.md"]);
+
+        // Cancelled after the first folder's file: the second folder is never entered.
+        let folder = scratch("every-cancel-folders");
+        put(&folder, "one/first.md", "x\n");
+        put(&folder, "two/second.md", "x\n");
+        let calls = std::cell::Cell::new(0);
+        let cancel = || {
+            calls.set(calls.get() + 1);
+            calls.get() >= 7
+        };
+        let w = every_at(&folder, LIMITS, &|_| true, &cancel);
+        assert_eq!(every_names(&w), ["first.md"]);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    /// A junction is not followed, so a walk cannot loop. A real junction, made by `mklink /J`;
+    /// when it cannot be made the test passes over it and says so (D-250).
+    #[cfg(windows)]
+    #[test]
+    fn a_walk_for_the_task_window_does_not_follow_a_junction() {
+        let dir = scratch("every-junction");
+        put(&dir, "a.md", "# A\n");
+        let link = dir.join("loop");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&dir)
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if !made {
+            eprintln!("skipped: no junction could be made in {dir:?}");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let w = every_at(&dir, LIMITS, &|_| true, &|| false);
+        assert_eq!(every_names(&w), ["a.md"]);
+        let _ = std::fs::remove_dir(&link);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same for a directory symlink, which needs Developer Mode or a privilege (D-251).
+    #[cfg(windows)]
+    #[test]
+    fn a_walk_for_the_task_window_does_not_follow_a_directory_symlink() {
+        let dir = scratch("every-dir-symlink");
+        put(&dir, "a.md", "# A\n");
+        let link = dir.join("loop");
+        if std::os::windows::fs::symlink_dir(&dir, &link).is_err() {
+            eprintln!("skipped: no directory symlink could be made in {dir:?}");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let w = every_at(&dir, LIMITS, &|_| true, &|| false);
+        assert_eq!(every_names(&w), ["a.md"]);
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A folder the walk cannot read at all is named, so an add that finds nothing can say why
+    /// (D-250). A file given where a folder is expected is the unreadable folder this can make
+    /// without a policy change: `read_dir` refuses it.
+    #[test]
+    fn a_walk_for_the_task_window_names_a_folder_it_cannot_read() {
+        let dir = scratch("every-unreadable");
+        let file = dir.join("not-a-folder.md");
+        std::fs::write(&file, "# A file\n").expect("a file");
+        let w = every_at(&file, LIMITS, &|_| true, &|| false);
+        assert!(w.files.is_empty(), "nothing came out of it");
+        assert_eq!(w.unreadable, vec![file.clone()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same with a symlink, where the system makes one.
+    #[cfg(unix)]
+    #[test]
+    fn a_walk_for_the_task_window_does_not_follow_a_symlink() {
+        let dir = scratch("every-symlink");
+        put(&dir, "a.md", "# A\n");
+        if std::os::unix::fs::symlink(&dir, dir.join("loop")).is_err() {
+            return;
+        }
+        let w = every_at(&dir, LIMITS, &|_| true, &|| false);
+        assert_eq!(every_names(&w), ["a.md"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

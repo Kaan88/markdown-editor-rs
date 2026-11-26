@@ -281,6 +281,29 @@ for t in "" "-dark"; do
     shot "task-files-off$t" $th --size 1280x800 --task-demo files-off
     shot "task-other$t" $th --size 1280x800 --task-demo files-other
     shot "task-review$t" $th --size 1280x800 --task-demo review
+    # The hand-driven run of 2026-11-25: the card grown in a large window, the plan face with no
+    # group (Add off, the reason), Esc's warning in the window, and an empty window.
+    shot "task-big$t" $th --size 1920x1080 --task-demo files
+    shot "task-plan-nogroup$t" $th --size 1280x800 --task-demo files-plan-nogroup
+    shot "task-esc$t" $th --size 1280x800 --task-demo files-esc
+    shot "task-empty$t" $th --size 1280x800 --task-demo files-empty
+    shot "task-files-520$t" $th --size 520x600 --task-demo files
+    # Fable's review of the task fixes: Settings opened from the window, in front of it.
+    shot "task-settings$t" $th --size 1280x800 --task-demo files-settings
+    # Fable's second review: the Add menu open in a narrow window, over the line under the title.
+    shot "task-add-800$t" $th --size 800x700 --task-demo files-add
+    # D-248: the line a folder walk stopped at the window's cap says, at both widths.
+    shot "task-files-stopped$t" $th --size 1280x800 --task-demo files-stopped
+    shot "task-files-stopped-520$t" $th --size 520x600 --task-demo files-stopped
+    # D-249/D-250: the question a folder add of more than 200 files asks, at both widths, on a
+    # window that has files and on an empty one (the first add).
+    shot "task-files-ask$t" $th --size 1280x800 --task-demo files-ask
+    shot "task-files-ask-520$t" $th --size 520x600 --task-demo files-ask
+    shot "task-files-ask-empty$t" $th --size 1280x800 --task-demo files-ask-empty
+    # A folder the walk could not read at all says so in the window (D-250).
+    shot "task-files-unreadable$t" $th --size 1280x800 --task-demo files-unreadable
+    # A folder that brought nothing new says so (D-251).
+    shot "task-files-nothing-new$t" $th --size 1280x800 --task-demo files-nothing-new
 done
 # Write notes (pictures plan, phase V3): the window with a thumbnail and what each picture is
 # sent as, its Options, while the pictures are looked at, a failed look, a model that reads no
@@ -292,9 +315,11 @@ for t in "" "-dark"; do
     th=--light
     [ -n "$t" ] && th=--dark
     for d in notes notes-options notes-looking notes-failed notes-arrange-failed notes-no-vision notes-limit notes-off notes-first notes-sent notes-sent-arrange notes-sent-off \
-        notes-plan notes-plan-one; do
+        notes-plan notes-plan-one notes-empty notes-failed-all; do
         shot "task-$d$t" $th --size 1280x800 --task-demo "$d"
     done
+    # Options in a low window: drawn whole, its lines closer (finding 15).
+    shot "task-notes-options-400$t" $th --size 900x400 --task-demo notes-options
 done
 shot task-sent --light --size 1280x800 --task-demo sent
 shot pref-tab8 --light --pref tab_width=8 "$fx/tabs-controls.txt"

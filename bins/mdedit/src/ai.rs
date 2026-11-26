@@ -615,6 +615,9 @@ pub struct FileReview {
     /// What the window had sent when the answer came: the record of a review applied after its
     /// window closed says it.
     pub sent: mdedit_core::runs::Sent,
+    /// The window it came from is open or parked: Back returns to it. A review kept from a
+    /// window since closed has no Back (review of the task fixes, 1).
+    pub back: bool,
 }
 
 // One panel is open at a time, kept in an `Option` in `Ai`: boxing the review would only add a
@@ -643,6 +646,8 @@ pub enum Hit {
     Copy,
     Apply,
     RunAgain,
+    /// A file's review in the task window: back to the window, nothing written.
+    Back,
     /// The review's bar: the previous and the next change, the strip's mark for change `i`,
     /// and every change ticked or none.
     Prev,

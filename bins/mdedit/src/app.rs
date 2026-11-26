@@ -197,6 +197,9 @@ pub enum Wake {
     /// The folder "Add a folder to the library…" is reading on its own thread is done: the pass
     /// after this opens its plan.
     Import,
+    /// The AI task window's folder is walked and read on its own thread: the pass after this adds
+    /// its files.
+    Task,
     /// The search of a folder has matches or finished.
     Results,
     /// The library read on its own thread has finished: the pass after this takes its result.
@@ -416,6 +419,25 @@ struct App {
     /// The AI task window over files (5.6), and the copy "Show what is sent" parked.
     task: Option<crate::task_ui::TaskScreen>,
     task_parked: Option<crate::task_ui::TaskScreen>,
+    /// A folder dropped on the task window, walked and read on its own thread (D-248).
+    task_job: Option<mdshared_app::job::Job<task::TaskAdd>>,
+    /// A walked folder set of more than ASK_FILES files, waiting for its question; nothing of
+    /// it has been read (D-250).
+    task_held: Option<task::TaskHeld>,
+    /// A set the question said yes to while a read still ran: its probes wait for that read to
+    /// end, so a read is never overwritten (D-251).
+    task_answer: Option<task::TaskHeld>,
+    /// The running read was started while the question stood, and the question was declined
+    /// while it ran: its result is dropped (D-251).
+    task_fold: bool,
+    task_declined: bool,
+    /// A probe job of the question's files runs: the window's main button waits for them to be
+    /// in (D-252).
+    task_probing: bool,
+    /// Folder paths waiting for the read that runs to finish, and the drop being gathered: one
+    /// read at a time, so no drop is lost and one question covers them all (D-250).
+    task_queue: Vec<PathBuf>,
+    task_batch: Vec<PathBuf>,
     /// The file whose split plan is open from the task window.
     task_plan: Option<usize>,
     /// A rewrite run's record, made when its first file is written.
@@ -604,6 +626,14 @@ impl App {
             split_last: None,
             task: None,
             task_parked: None,
+            task_job: None,
+            task_held: None,
+            task_answer: None,
+            task_fold: false,
+            task_declined: false,
+            task_probing: false,
+            task_queue: Vec::new(),
+            task_batch: Vec::new(),
             task_plan: None,
             task_record: None,
             task_seq: 0,
@@ -1692,6 +1722,8 @@ impl App {
                 )
         });
         let mut damage = Vec::new();
+        // Settings opened from the task window hides it until Settings closes.
+        let task_shown = self.task_is_open();
         {
             let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
             // A fade over frosted chrome mixes as the compositor shows it.
@@ -2020,12 +2052,15 @@ impl App {
                 if let Some(plan) = self.plan.as_mut() {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
-                if let Some(s) = self.task.as_mut() {
+                if let Some(s) = self.task.as_mut().filter(|_| task_shown) {
+                    let waiting = self.task_answer.is_some() || self.task_probing;
                     match self.notes_plan.as_mut().filter(|card| card.shown) {
                         Some(card) => {
                             crate::notes_plan_draw::draw(c.p, &pal, card, s, w, h, self.ui.caret_on)
                         }
-                        None => crate::task_draw::draw(c.p, &pal, s, w, h, self.ui.caret_on),
+                        None => {
+                            crate::task_draw::draw(c.p, &pal, s, w, h, self.ui.caret_on, waiting)
+                        }
                     }
                 }
                 if let Some(card) = self.mover.as_mut() {
@@ -3120,6 +3155,10 @@ impl ApplicationHandler<Wake> for App {
         self.library_tick(Instant::now());
         // A folder read for the library that waited for another card to close (audit 4, C8).
         self.import_take();
+        // A drop's paths are all in once the pass is done: one read for them, and its result
+        // taken here as well (D-250).
+        self.task_flush_drops();
+        self.task_add_take();
         if self.drain() {
             self.redraw();
         }

@@ -17,6 +17,34 @@ pub fn pick_files(start_dir: Option<&Path>) -> Vec<PathBuf> {
     mdshared_ui::platform::pick_files(start_dir, "Text and code", OPEN_FILTER)
 }
 
+/// The task window's "Files…": as the open dialog, or (`pictures`, for Write notes) with the
+/// pictures listed beside the text, under "Pictures and text".
+pub fn task_filter(pictures: bool) -> (&'static str, Vec<&'static str>) {
+    if pictures {
+        let mut list: Vec<&str> = crate::task_ui::PICTURES.to_vec();
+        list.extend_from_slice(OPEN_FILTER);
+        ("Pictures and text", list)
+    } else {
+        ("Text and code", OPEN_FILTER.to_vec())
+    }
+}
+
+#[cfg(windows)]
+pub fn pick_task_files(start_dir: Option<&Path>, pictures: bool) -> Vec<PathBuf> {
+    let (label, list) = task_filter(pictures);
+    mdshared_ui::platform::pick_files(start_dir, label, &list)
+}
+
+#[cfg(not(windows))]
+pub fn pick_task_files_async(
+    start_dir: Option<&Path>,
+    pictures: bool,
+    done: impl FnOnce(Vec<PathBuf>) + Send + 'static,
+) -> bool {
+    let (label, list) = task_filter(pictures);
+    mdshared_ui::platform::pick_files_async(start_dir, label, &list, done)
+}
+
 /// The open dialog without blocking the UI thread; `done` runs on a helper thread. False when
 /// another dialog is open (`done` has then been called with an empty list).
 #[cfg(not(windows))]

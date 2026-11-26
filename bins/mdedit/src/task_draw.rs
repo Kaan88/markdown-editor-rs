@@ -23,7 +23,15 @@ use mdshared_ui::theme::Palette;
 
 const PAD: f32 = DIALOG_PAD;
 
-pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, caret_on: bool) {
+pub fn draw(
+    p: &mut Painter,
+    pal: &Palette,
+    s: &mut TaskScreen,
+    w: f32,
+    h: f32,
+    caret_on: bool,
+    waiting: bool,
+) {
     // The size the window is drawn at, for what is placed from it later (the group menu, the
     // Add menu's lines): the window may have been resized since it opened.
     s.win = (w, h);
@@ -54,19 +62,10 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     );
     let under = match &s.from {
         Some(from) => format!("{from} Read here and sent only to the provider you chose."),
-        None => "They are read here and sent only to the provider you chose. Nothing is opened \
-                 in a tab."
-            .to_string(),
+        // The window opens none of them in a tab; other tabs may well be open (finding 17).
+        None => task_ui::HEADER_UNDER.to_string(),
     };
-    p.text(
-        Face::Ui,
-        12.5,
-        x,
-        r.y + 50.0,
-        &under,
-        pal.muted,
-        inner - 130.0,
-    );
+    // The line under the title is drawn with the footer's link, which may take its room.
     let add_w = dialog_button_w(p, "Add files\u{2026}");
     let add = Rect::new(r.right() - PAD - add_w, r.y + 19.0, add_w, 30.0);
     draw_dialog_button(
@@ -93,6 +92,17 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         labels = TaskKind::ALL
             .iter()
             .map(|k| k.label().trim_end_matches(" them"))
+            .collect();
+    }
+    // Narrower still (520 px), "Write notes" is "Notes", so "Move" keeps its padding (review of
+    // the task fixes, 12).
+    if switch_width(p, &labels) + files_need > inner {
+        labels = TaskKind::ALL
+            .iter()
+            .map(|k| match k {
+                TaskKind::Notes => "Notes",
+                k => k.label().trim_end_matches(" them"),
+            })
             .collect();
     }
     let sw_w = switch_width(p, &labels).min(inner);
@@ -143,15 +153,6 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         for (v, seg) in FilesGo::ALL.iter().zip(segs) {
             hits.push((Hit::FilesGo(*v), seg));
         }
-    } else {
-        p.text_right(
-            Face::Ui,
-            12.0,
-            x + inner,
-            g.task.cy(),
-            "WHAT TO DO",
-            pal.faint,
-        );
     }
 
     // ---- the instruction ------------------------------------------------------------------------
@@ -215,23 +216,21 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     );
     let list = Rect::new(prompts.x, prompts.y + 16.0, prompts.w, prompts.h - 16.0);
     if s.prompts.is_empty() {
-        p.text(
-            Face::Ui,
-            12.0,
-            x,
-            list.cy(),
-            if s.task == TaskKind::Notes {
-                "None of this kind yet. A prompt saved with \u{201c}kind: notes\u{201d} is listed here."
-            } else if s.task == TaskKind::File {
-                "None of this kind yet. A prompt saved with \u{201c}kind: file\u{201d} is listed here."
-            } else if s.task == TaskKind::Split {
-                "None of this kind yet. A prompt saved with \u{201c}kind: split\u{201d} is listed here."
-            } else {
-                "None yet. Settings \u{203A} AI \u{203A} Saved prompts \u{203A} Edit adds some."
-            },
-            pal.faint,
-            inner,
-        );
+        // Right under its label, and on a second line in a narrow window rather than cut.
+        let text = task_ui::prompts_empty(s.task);
+        let rows = crate::hunks_ui::wrap(&text, inner, &mut |t| p.measure(Face::Ui, 12.0, t));
+        for (k, row) in rows.into_iter().take(2).enumerate() {
+            let line = text.get(row).unwrap_or("").trim();
+            p.text(
+                Face::Ui,
+                12.0,
+                x,
+                list.y + 12.0 + k as f32 * 18.0,
+                line,
+                pal.faint,
+                inner,
+            );
+        }
     } else {
         let content = s.prompts.len() as f32 * task_ui::PROMPT_ROW;
         s.prompt_scroll = s.prompt_scroll.clamp(0.0, (content - list.h).max(0.0));
@@ -472,6 +471,28 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                 }
                 y += GROUP_H;
             }
+            ListRow::NotSent => {
+                if y + GROUP_H > g.list.y && y < g.list.bottom() {
+                    p.fill(
+                        Rect::new(g.list.x + 1.0, y + GROUP_H - p.px(), g.list.w - 2.0, p.px()),
+                        pal.popup_line,
+                    );
+                    p.text(
+                        Face::Semibold,
+                        10.5,
+                        g.list.x + PAD,
+                        y + GROUP_H / 2.0,
+                        if s.answers.is_empty() {
+                            "LEFT OUT \u{00B7} EACH ROW SAYS WHY"
+                        } else {
+                            "NOT SENT \u{00B7} EACH ROW SAYS WHY"
+                        },
+                        pal.muted,
+                        g.list.w - 2.0 * PAD,
+                    );
+                }
+                y += GROUP_H;
+            }
             ListRow::Unplaced => {
                 if y + GROUP_H > g.list.y && y < g.list.bottom() {
                     p.fill(
@@ -545,6 +566,8 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                             }
                             None => format!("in {}", f.sections.join(" \u{203A} ")),
                         }
+                    } else if s.planned && !s.was_sent(*i) {
+                        s.left_out_note().to_string()
                     } else if s.planned {
                         "not placed".to_string()
                     } else if f.done {
@@ -575,7 +598,8 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
                             (Some(t), Some(sec)) => format!("{t} \u{2192} {sec}"),
                             (Some(t), None) => t.clone(),
                             (None, Some(sec)) => format!("\u{2192} {sec}"),
-                            (None, None) => "not placed".to_string(),
+                            (None, None) if s.was_sent(*i) => "not placed".to_string(),
+                            (None, None) => String::new(),
                         }
                     } else if f.kind == FileKind::Other {
                         if reason.is_some() {
@@ -623,55 +647,104 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         );
     }
 
-    // ---- the destination menu -------------------------------------------------------------------
-    if s.dest_open {
-        draw_dest_menu(p, pal, s, &mut hits, hover);
-    }
-    if s.add_open {
-        draw_add_menu(p, pal, s, add, &mut hits, hover);
-    }
-    if s.options_open && s.task == TaskKind::Notes {
-        draw_options(p, pal, s, &mut hits, hover);
-    }
-
-    // ---- what stopped Write notes, the width of the card, over the list's foot ----------------
-    if let Some(run) = s.notes_run.as_ref().filter(|_| s.task == TaskKind::Notes) {
-        let notice = if let Some(why) = run.fault.as_ref() {
-            Some(why.clone())
-        } else if let Some(why) = run.arrange_failed.as_ref().filter(|_| !s.busy()) {
-            Some(format!(
-                "The notes could not be arranged: {why} What was looked at is kept."
-            ))
-        } else if let Some((b, why)) = run.failed.first().filter(|_| !s.busy()) {
-            Some(format!(
-                "Request {} of {} failed: {why} What was looked at is kept.",
-                b + 1,
-                run.batches.len()
-            ))
-        } else {
-            None
-        };
-        if let Some(notice) = notice {
-            let bar = Rect::new(g.list.x, g.list.bottom() - 32.0, g.list.w, 32.0);
+    // ---- what the window says, the width of the card, over the list's foot -------------------
+    // What was just done in it first (finding 7), then what stopped Write notes.
+    let run_notice = s
+        .notes_run
+        .as_ref()
+        .filter(|_| s.task == TaskKind::Notes)
+        .and_then(|run| {
+            if let Some(why) = run.fault.as_ref() {
+                Some(why.clone())
+            } else if let Some(why) = run.arrange_failed.as_ref().filter(|_| !s.busy()) {
+                Some(format!(
+                    "The notes could not be arranged: {why} What was looked at is kept."
+                ))
+            } else if let Some((b, why)) = run.failed.first().filter(|_| !s.busy()) {
+                Some(format!(
+                    "Request {} of {} failed: {why} What was looked at is kept.",
+                    b + 1,
+                    s.notes_run_requests(run)
+                ))
+            } else {
+                None
+            }
+        });
+    if let Some(ask) = s.ask_line() {
+        // A folder add of more than ASK_FILES files asks first, where the window says things
+        // (D-249): the question, then its two buttons. Nothing is in the window yet.
+        let bar = Rect::new(
+            g.list.x,
+            (g.list.bottom() - 32.0).max(g.list.y),
+            g.list.w,
+            32.0_f32.min(g.list.h.max(0.0)),
+        );
+        p.fill(bar, pal.popup);
+        p.fill(Rect::new(bar.x, bar.y, bar.w, p.px()), pal.popup_line);
+        if bar.h >= 16.0 {
+            let add_label = "Add them";
+            let leave_label = "Leave them out";
+            let aw = dialog_button_w(p, add_label);
+            let lw = dialog_button_w(p, leave_label);
+            let bh = 24.0_f32.min(bar.h - 6.0);
+            let by = bar.cy() - bh / 2.0;
+            let add = Rect::new(bar.right() - 8.0 - aw, by, aw, bh);
+            let leave = Rect::new(add.x - 8.0 - lw, by, lw, bh);
+            p.icon(glyph::WARN, 13.0, x + 7.0, bar.cy(), pal.muted);
+            let room = (leave.x - 12.0 - (x + 22.0)).max(0.0);
+            p.text(Face::Ui, 12.0, x + 22.0, bar.cy(), &ask, pal.text, room);
+            draw_dialog_button(
+                p,
+                pal,
+                leave,
+                leave_label,
+                false,
+                hover == Some(Hit::AskLeave),
+                pressed == Some(Hit::AskLeave),
+            );
+            draw_dialog_button(
+                p,
+                pal,
+                add,
+                add_label,
+                true,
+                hover == Some(Hit::AskAdd),
+                pressed == Some(Hit::AskAdd),
+            );
+            hits.push((Hit::AskLeave, leave));
+            hits.push((Hit::AskAdd, add));
+        }
+    } else if let Some(notice) = s.reading_line().or_else(|| s.notice.clone()).or(run_notice) {
+        {
+            // In a list lower than the bar, the bar keeps to the list's top: it is never drawn
+            // over the rows above the list (review of the task fixes, 13).
+            let bar = Rect::new(
+                g.list.x,
+                (g.list.bottom() - 32.0).max(g.list.y),
+                g.list.w,
+                32.0_f32.min(g.list.h.max(0.0)),
+            );
             p.fill(bar, pal.popup);
             p.fill(Rect::new(bar.x, bar.y, bar.w, p.px()), pal.popup_line);
-            p.icon(glyph::WARN, 13.0, x + 7.0, bar.cy(), pal.muted);
-            p.text(
-                Face::Ui,
-                12.0,
-                x + 22.0,
-                bar.cy(),
-                &notice,
-                pal.text,
-                inner - 22.0,
-            );
+            // Too low for a line of text, the bar is a band only (Fable's second review, 2).
+            if bar.h >= 16.0 {
+                p.icon(glyph::WARN, 13.0, x + 7.0, bar.cy(), pal.muted);
+                p.text(
+                    Face::Ui,
+                    12.0,
+                    x + 22.0,
+                    bar.cy(),
+                    &notice,
+                    pal.text,
+                    inner - 22.0,
+                );
+            }
         }
     }
 
     // ---- footer --------------------------------------------------------------------------------
     let by = footer.y + (DIALOG_FOOTER - 32.0) / 2.0;
     let mut bx = r.right() - PAD;
-    let n = s.count();
     let ai_off = s.task == TaskKind::Rewrite && !s.ai_on;
     let notes = s.task == TaskKind::Notes;
     let run = s.notes_run.as_ref().filter(|_| notes);
@@ -682,10 +755,17 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     let arrange_failed = run.is_some_and(|r| !stopping && r.arrange_failed.is_some());
     let fault = run.and_then(|r| r.fault.clone()).filter(|_| !stopping);
     let notes_blocked = if notes { s.notes_blocked() } else { None };
+    // No file, or no group for the plan face: the button is off and the footer says why.
+    let primary_blocked = s.primary_blocked();
     let primary_enabled = if stopping {
         true
     } else {
-        !ai_off && n > 0 && !busy && (notes_blocked.is_none() || !s.ai_on)
+        !ai_off
+            && primary_blocked.is_none()
+            && !busy
+            && s.ask.is_none()
+            && !waiting
+            && (notes_blocked.is_none() || !s.ai_on)
     };
     let label = if ai_off {
         "The AI connection is off".to_string()
@@ -718,26 +798,26 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     } else {
         draw_dialog_button_disabled(p, pal, primary, &label, true);
         if !ai_off && s.blocked.is_none() {
-            // Nothing ticked: the button says why when the pointer is on it.
-            if hover == Some(Hit::Primary) && n == 0 {
-                p.text_right(
-                    Face::Ui,
-                    11.5,
-                    primary.x - 10.0,
-                    footer.cy(),
-                    "None of these files takes part.",
-                    pal.faint,
-                );
-            }
+            // Off, it still takes a click: on the plan face the click says in the window what is
+            // missing (a group, a placed file); with no file it does nothing. The footer says
+            // why either way.
             hits.push((Hit::Primary, primary));
         }
     }
     bx -= 10.0;
     let go_on = if arrange_failed {
-        // With text files only there is no picture to make a note of.
-        (!s.notes_parts().0.is_empty()).then(|| "One note per picture instead".to_string())
+        // With text files only, or no picture looked at, there is no picture to make a note of.
+        let looked = s
+            .notes_parts()
+            .0
+            .into_iter()
+            .any(|i| run.is_some_and(|r| r.look(i).is_some()));
+        looked.then(|| "One note per picture instead".to_string())
     } else {
-        failed.map(|run| format!("Go on with {}", run.going_on_with()))
+        // Going on with nothing to make notes of is not offered: "Try it again" is the way.
+        failed
+            .filter(|run| run.can_go_on())
+            .map(|run| run.go_on_label())
     };
     if let Some(go_on) = go_on {
         let w = dialog_button_w(p, &go_on);
@@ -785,14 +865,20 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
     );
     hits.push((Hit::Cancel, cancel));
     bx -= 16.0;
-    // "Show what is sent", a link at the left of the buttons.
+    // "Show what is sent", a link at the left of the buttons; in the header, left of Add…,
+    // when the buttons leave the footer too little room for it and the summary (finding 20).
     let link_w = p.measure(Face::Ui, 12.5, "Show what is sent");
-    let link = Rect::new(bx - link_w, by, link_w + 12.0, 32.0);
+    let in_footer = bx - link_w - 12.0 >= x + 140.0;
+    let link = if in_footer {
+        Rect::new(bx - link_w, by, link_w + 12.0, 32.0)
+    } else {
+        Rect::new(add.x - 12.0 - link_w - 12.0, add.y, link_w + 12.0, 30.0)
+    };
     p.text(
         Face::Ui,
         12.5,
         link.x + 6.0,
-        footer.cy(),
+        link.cy(),
         "Show what is sent",
         if hover == Some(Hit::ShowSent) {
             pal.accent
@@ -802,21 +888,54 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         link.w,
     );
     hits.push((Hit::ShowSent, link));
+    // The line under the title, up to the link when the link is in the header, else up to Add…;
+    // in words short enough to be read whole when the long ones would be cut (review of the
+    // task fixes, 12).
+    let under_room = if in_footer {
+        add.x - x - 12.0
+    } else {
+        link.x - x - 4.0
+    };
+    // With the Add menu open, the line stops short of it too, in shorter words rather than
+    // running under it (Fable's second review, 1).
+    let under_room = if s.add_open {
+        under_room.min(add.right() - ADD_MENU_W - 8.0 - x)
+    } else {
+        under_room
+    }
+    .max(0.0);
+    let under = if s.from.is_none() {
+        let shorter = [
+            under.as_str(),
+            "Read where they are, sent only to your provider.",
+            "Sent only to the provider you chose.",
+            "Sent only to your provider.",
+        ];
+        shorter
+            .iter()
+            .find(|t| p.measure(Face::Ui, 12.5, t) <= under_room)
+            .or(shorter.last())
+            .map_or_else(String::new, |t| t.to_string())
+    } else {
+        under
+    };
+    p.text(Face::Ui, 12.5, x, r.y + 50.0, &under, pal.muted, under_room);
     // What goes and what it costs, and why it cannot, at the left.
-    let room = (link.x - x - 12.0).max(0.0);
+    let room = if in_footer {
+        (link.x - x - 12.0).max(0.0)
+    } else {
+        (bx - x).max(0.0)
+    };
     let sum = s.summary();
     let moving = s.task == TaskKind::File && s.files_go == mdedit_core::prefs::FilesGo::Move;
     let note = if let Some(why) = &s.blocked {
         why.clone()
+    } else if let Some(why) = primary_blocked.as_ref().filter(|_| !stopping && !ai_off) {
+        why.clone()
     } else if fault.is_some() {
         "Choose a model that reads pictures in Settings \u{203A} AI.".to_string()
     } else if let Some(run) = failed {
-        let (b, _) = &run.failed[0];
-        format!(
-            "Request {} of {} failed. Try it again, or go on without it.",
-            b + 1,
-            run.batches.len()
-        )
+        s.notes_failed_note(run)
     } else if let Some(why) = notes_blocked.as_ref().filter(|_| s.ai_on) {
         why.clone()
     } else if notes && s.ai_on && s.notes_parts().0.is_empty() {
@@ -859,6 +978,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
         if moving && s.blocked.is_none() {
             pal.text
         } else if s.blocked.is_some()
+            || (primary_blocked.is_some() && !stopping)
             || ai_off
             || fault.is_some()
             || failed.is_some()
@@ -887,6 +1007,19 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             pal.text,
             right - left,
         );
+    }
+
+    // The menus and Options last, over the notice, the footer and the line under the title
+    // (drawn with the footer's link), so nothing is drawn over them and their hits come first
+    // (finding 15; Fable's second review, 1).
+    if s.dest_open {
+        draw_dest_menu(p, pal, s, &mut hits, hover);
+    }
+    if s.add_open {
+        draw_add_menu(p, pal, s, add, &mut hits, hover);
+    }
+    if s.options_open && s.task == TaskKind::Notes {
+        draw_options(p, pal, s, &mut hits, hover);
     }
 
     s.hits = hits;
@@ -1052,13 +1185,24 @@ fn draw_options(
     hover: Option<Hit>,
 ) {
     use crate::notes_task::{HOW_MANY, Tick as Opt, how_many_label};
-    const ROW: f32 = 40.0;
     let g = task_ui::geo(task_ui::card(s.win.0, s.win.1));
     let width = 440.0;
-    let h = 16.0 + 18.0 + SEGMENT_H + 14.0 + ROW * Opt::ALL.len() as f32 + 8.0;
+    // Its lines are 40 px, closer (down to 34) in a window too low for them: it is always
+    // drawn whole (finding 15).
+    let fixed = 16.0 + 18.0 + SEGMENT_H + 14.0 + 8.0;
+    let lines = Opt::ALL.len() as f32;
+    let row_h = ((s.win.1 - 16.0 - fixed) / lines).clamp(34.0, 40.0);
+    let h = fixed + row_h * lines;
+    // Under the button while the card has room for it; else as high as the card lets it go,
+    // not above the header; and in a low window inside the window, whatever the card.
+    let card = task_ui::card(s.win.0, s.win.1);
     let r = Rect::new(
         g.dest.right() - width,
-        (g.dest.bottom() + 2.0).min(g.footer.y - h - 4.0),
+        (g.dest.bottom() + 2.0)
+            .min(g.footer.y - h - 4.0)
+            .max(card.y + task_ui::HEADER_H)
+            .min(s.win.1 - 8.0 - h)
+            .max(8.0),
         width,
         h,
     );
@@ -1091,7 +1235,7 @@ fn draw_options(
     }
     let mut y = sw.bottom() + 14.0;
     for t in Opt::ALL {
-        let row = Rect::new(r.x + 4.0, y, r.w - 8.0, ROW);
+        let row = Rect::new(r.x + 4.0, y, r.w - 8.0, row_h);
         let enabled = t.enabled(&s.notes);
         if enabled && hover == Some(Hit::Tick(t)) {
             p.rbox(row, 5.0, pal.hover);
@@ -1125,12 +1269,15 @@ fn draw_options(
             r.w - 60.0,
         );
         hits.push((Hit::Tick(t), row));
-        y += ROW;
+        y += row_h;
     }
 }
 
 /// The Add menu under its button (D-207): the open tabs' files, the one in front first, then
 /// "Files…". Its rows are hit before anything under them, being pushed last.
+/// The width of the Add menu, under the right of Add….
+const ADD_MENU_W: f32 = 320.0;
+
 fn draw_add_menu(
     p: &mut Painter,
     pal: &Palette,
@@ -1141,7 +1288,7 @@ fn draw_add_menu(
 ) {
     let row_h = task_ui::ADD_ROW_H;
     let h = row_h * s.add_items.len() as f32 + 8.0;
-    let width = 320.0;
+    let width = ADD_MENU_W;
     let r = Rect::new(button.right() - width, button.bottom() + 4.0, width, h);
     p.frame(r, 7.0, pal.popup, pal.popup_line);
     for (k, item) in s.add_items.iter().enumerate() {
@@ -1261,6 +1408,7 @@ mod tests {
                 w as f32,
                 800.0,
                 false,
+                false,
             );
         }
         let at = |h: Hit| {
@@ -1318,5 +1466,196 @@ mod tests {
             shown_somewhere |= folder.w > 1.0 && !same(&with, &without, folder);
         }
         assert!(shown_somewhere, "the folder is drawn where there is room");
+    }
+}
+
+#[cfg(test)]
+mod flow_tests {
+    use super::*;
+    use crate::notes_task::Run;
+    use mdshared_text::Bitmap;
+    use mdshared_ui::gfx::Gfx;
+
+    fn screen(task: TaskKind) -> TaskScreen {
+        TaskScreen::new(
+            task,
+            Vec::new(),
+            DestChoice::Decide,
+            Vec::new(),
+            "Claude".into(),
+        )
+    }
+
+    fn draw_at(s: &mut TaskScreen, w: u32, h: u32) {
+        let mut bm = Bitmap::new(w, h);
+        let mut gfx = Gfx::new();
+        let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+        draw(
+            &mut p,
+            &mdshared_ui::theme::LIGHT,
+            s,
+            w as f32,
+            h as f32,
+            false,
+            false,
+        );
+    }
+
+    fn at(s: &TaskScreen, hit: Hit) -> Option<Rect> {
+        s.hits.iter().find(|(k, _)| *k == hit).map(|(_, r)| *r)
+    }
+
+    fn meets(a: Rect, b: Rect) -> bool {
+        a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
+    }
+
+    /// Finding 20: "Show what is sent" never overlaps a button, at any width the window allows,
+    /// with the most buttons the footer has, and stays in the card.
+    #[test]
+    fn show_what_is_sent_never_meets_a_button() {
+        let mut failed = screen(TaskKind::Notes);
+        failed.ai_on = true;
+        failed.notes_run = Some(Run {
+            batches: vec![vec![0], vec![1]],
+            next: 2,
+            answered: vec![0],
+            failed: vec![(1, "Lost.".into())],
+            stopped: true,
+            texts: vec![5],
+            ..Run::default()
+        });
+        let off = screen(TaskKind::Rewrite);
+        for mut s in [failed, off] {
+            for w in (520..=1600).step_by(20) {
+                draw_at(&mut s, w, 700);
+                let link = at(&s, Hit::ShowSent).expect("drawn");
+                let card = task_ui::card(w as f32, 700.0);
+                assert!(link.x >= card.x && link.right() <= card.right(), "{w}");
+                for hit in [
+                    Hit::Primary,
+                    Hit::TryAgain,
+                    Hit::GoOn,
+                    Hit::OpenSettings,
+                    Hit::Cancel,
+                    Hit::AddFiles,
+                ] {
+                    if let Some(b) = at(&s, hit) {
+                        assert!(!meets(link, b), "{hit:?} at {w}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Finding 15: Write notes' Options is drawn whole inside the card, at every height the
+    /// window allows, and last, so the hit on it comes before anything under it.
+    #[test]
+    fn the_options_popover_is_inside_the_card_and_on_top() {
+        for h in (360..=1000).step_by(40) {
+            let mut s = screen(TaskKind::Notes);
+            s.options_open = true;
+            s.notice = Some("A line over the foot of the list.".into());
+            draw_at(&mut s, 1280, h);
+            let pop = at(&s, Hit::Popover).expect("drawn");
+            let card = task_ui::card(1280.0, h as f32);
+            // Whole in the window always; in the card where the card is tall enough.
+            assert!(pop.y >= 0.0 && pop.bottom() <= h as f32, "{h}");
+            if card.h >= pop.h + task_ui::HEADER_H {
+                assert!(pop.y >= card.y && pop.bottom() <= card.bottom(), "{h}");
+            }
+            assert!(
+                matches!(s.hits.last(), Some((Hit::Tick(_), _))),
+                "its lines are the last hit"
+            );
+        }
+    }
+
+    /// Finding 11: the card grows with a large window, within limits, and is as before at the
+    /// default size.
+    #[test]
+    fn the_card_grows_with_the_window() {
+        let small = task_ui::card(1280.0, 800.0);
+        assert_eq!((small.w, small.h), (task_ui::CARD_W, task_ui::CARD_H));
+        let big = task_ui::card(1920.0, 1080.0);
+        assert!(big.w > small.w + 300.0 && big.h > small.h + 200.0);
+        let huge = task_ui::card(4000.0, 3000.0);
+        assert_eq!((huge.w, huge.h), (task_ui::CARD_W_MAX, task_ui::CARD_H_MAX));
+    }
+
+    /// Findings 13 and 16: an empty window's footer does not say the summary twice, and the
+    /// button says the same with the AI on or off and is off with no file.
+    #[test]
+    fn an_empty_window_says_what_to_do_and_its_button_is_off() {
+        let mut s = screen(TaskKind::Notes);
+        s.ai_on = true;
+        assert_eq!(s.summary(), "No file takes part.");
+        assert_ne!(s.notes_blocked().as_deref(), Some("No file takes part."));
+        for task in [TaskKind::File, TaskKind::Split] {
+            let mut s = screen(task);
+            s.ai_on = true;
+            let on = s.primary_label();
+            s.ai_on = false;
+            assert_eq!(s.primary_label(), on);
+            assert_eq!(on, "Make the plan", "no count of nothing");
+            assert!(s.primary_blocked().is_some());
+        }
+    }
+
+    /// Fable's second review, 1: the Add menu is drawn over the line under the title, whatever
+    /// that line says: inside the menu the pixels are the same with a short line or a long one.
+    #[test]
+    fn the_add_menu_is_drawn_over_the_line_under_the_title() {
+        let pixels = |from: Option<&str>| {
+            let mut s = screen(TaskKind::File);
+            s.from = from.map(str::to_string);
+            s.add_items = vec![
+                task_ui::AddItem::Tab {
+                    path: "a.md".into(),
+                    name: "a.md".into(),
+                    front: true,
+                },
+                task_ui::AddItem::Files,
+            ];
+            s.add_open = true;
+            let (w, h) = (800u32, 700u32);
+            let mut bm = Bitmap::new(w, h);
+            let mut gfx = Gfx::new();
+            {
+                let mut p = Painter::new(&mut bm, &mut gfx, 1.0);
+                draw(
+                    &mut p,
+                    &mdshared_ui::theme::LIGHT,
+                    &mut s,
+                    w as f32,
+                    h as f32,
+                    false,
+                    false,
+                );
+            }
+            let rows: Vec<Rect> = s
+                .hits
+                .iter()
+                .filter(|(k, _)| matches!(k, Hit::AddItem(_)))
+                .map(|(_, r)| *r)
+                .collect();
+            assert_eq!(rows.len(), 2, "the menu is drawn");
+            let top = rows[0].y.floor() as usize;
+            let bottom = rows[1].bottom().ceil() as usize;
+            let (left, right) = (rows[0].x.floor() as usize, rows[0].right().ceil() as usize);
+            let mut inside = Vec::new();
+            for y in top..bottom {
+                for x in left..right {
+                    let at = (y * w as usize + x) * 4;
+                    inside.extend_from_slice(&bm.pixels[at..at + 4]);
+                }
+            }
+            inside
+        };
+        let long = "The 12 notes of Recipes \u{203A} Pasta \u{203A} Sauces and their many friends, \
+                    from the Notes pane.";
+        assert!(
+            pixels(None) == pixels(Some(long)),
+            "no letter of the line under the title is drawn over the menu"
+        );
     }
 }

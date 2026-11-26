@@ -557,9 +557,11 @@ fn closing_a_window_that_keeps_a_plan_asks_once() {
     a.task_act(crate::task_ui::Hit::Cancel);
     assert!(a.task.is_some(), "the first Cancel says so");
     assert!(
-        a.docs
-            .toast(std::time::Instant::now())
-            .is_some_and(|t| t.starts_with("A plan is kept"))
+        a.task
+            .as_ref()
+            .and_then(|s| s.notice.as_deref())
+            .is_some_and(|t| t.starts_with("A plan is kept")),
+        "in the window (the hand-driven run, finding 7)"
     );
     a.task_act(crate::task_ui::Hit::Cancel);
     assert!(a.task.is_none(), "the second closes");
@@ -575,4 +577,23 @@ fn a_group_not_yet_made_blocks_the_write() {
     let s = a.task.as_ref().expect("open");
     let c = a.notes_plan.as_ref().expect("card");
     assert!(crate::notes_plan_ui::write_blocked(s, c).is_some());
+}
+
+/// Review of the task fixes, 6: a key taken after Cancel's warning takes the warning back, and
+/// the next Cancel warns again rather than throwing the plan away unwarned.
+#[test]
+fn a_key_after_the_kept_plan_warning_makes_cancel_warn_again() {
+    let mut a = two_pictures_planned("notes-plan-close-again", "Rooms");
+    a.notes_plan_act(Hit::Back);
+    a.task_act(crate::task_ui::Hit::Cancel);
+    assert!(a.task.as_ref().is_some_and(|s| s.notice.is_some()));
+    a.task_key(Some(crate::keys::KeyName::Down), None);
+    assert!(
+        a.task.as_ref().is_some_and(|s| s.notice.is_none()),
+        "taken back"
+    );
+    a.task_act(crate::task_ui::Hit::Cancel);
+    assert!(a.task.is_some(), "Cancel warns again");
+    a.task_act(crate::task_ui::Hit::Cancel);
+    assert!(a.task.is_none(), "and the next closes");
 }

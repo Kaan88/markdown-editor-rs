@@ -309,17 +309,35 @@ impl App {
             return;
         }
         let (pictures, _) = s.notes_parts();
+        // With the AI on, a note is made only of a picture that was looked at: one the owner
+        // went on without is left out.
+        let looked: Vec<usize> = if s.ai_on {
+            pictures
+                .iter()
+                .copied()
+                .filter(|&i| run.look(i).is_some())
+                .collect()
+        } else {
+            pictures
+        };
         // With the AI off every note is made here; One per picture needs no second request
         // unless there are only text files to arrange.
-        if !s.ai_on || (s.notes.how_many == HowMany::PerPicture && !pictures.is_empty()) {
-            self.notes_made_here(&pictures);
+        let how = s.notes.how_many;
+        let no_text = run.texts.is_empty();
+        if !s.ai_on || (how == HowMany::PerPicture && !looked.is_empty()) {
+            self.notes_made_here(&looked, how);
+            return;
+        }
+        // Nothing looked at and no text: an arrange request could not work, and none is sent.
+        if looked.is_empty() && no_text {
+            self.task_say("No picture was looked at, so there is nothing to arrange: Send again.");
             return;
         }
         self.notes_arrange();
     }
 
     /// The notes made here, with no request: one per picture, or (with the AI off) all in one.
-    fn notes_made_here(&mut self, pictures: &[usize]) {
+    fn notes_made_here(&mut self, pictures: &[usize], how: HowMany) {
         let Some(s) = self.task.as_mut() else { return };
         let names: Vec<(usize, String)> = s
             .files
@@ -342,7 +360,7 @@ impl App {
             notes,
             ..notes_ai::Arranged::default()
         };
-        if s.notes.how_many == HowMany::One {
+        if how == HowMany::One {
             arranged = notes_ai::joined(arranged);
         }
         run.arranged = Some(arranged);
@@ -451,6 +469,7 @@ impl App {
             return;
         };
         let (_, b) = run.in_flight.remove(at);
+        run.answers += 1;
         let ids = run.batches.get(b).cloned().unwrap_or_default();
         match notes_ai::read_look(text, &ids) {
             Ok(looks) => {
@@ -517,6 +536,7 @@ impl App {
         if kind == "cancelled" {
             return;
         }
+        run.failures += 1;
         run.stopped = true;
         if kind == "no_vision" {
             run.fault = Some(message.to_string());
@@ -559,6 +579,7 @@ impl App {
             return;
         };
         run.arrange = None;
+        run.answers += 1;
         let sent = run.sent_ids();
         match notes_ai::read_arrange(text, &sent) {
             Ok(a) if !a.notes.is_empty() => {
@@ -606,6 +627,9 @@ impl App {
             return;
         };
         run.arrange = None;
+        if kind != "cancelled" {
+            run.failures += 1;
+        }
         self.notes_arrange_lost((kind != "cancelled").then(|| message.to_string()));
     }
 
@@ -641,7 +665,7 @@ impl App {
     pub(super) fn notes_stop(&mut self) -> bool {
         let stopped = self.notes_cancel();
         if stopped {
-            self.docs.set_toast("Stopped. What was looked at is kept.");
+            self.task_say("Stopped. What was looked at is kept.");
             self.redraw();
         }
         stopped
@@ -709,9 +733,10 @@ impl App {
         if kept && !s.close_warned {
             s.close_warned = true;
             s.tick += 1;
-            self.docs.set_toast(
+            s.notice = Some(
                 "A plan is kept in this window: closing throws it away. Cancel again to close, \
-                 or Review the plan.",
+                 or Review the plan."
+                    .to_string(),
             );
             self.redraw();
             return;
@@ -726,24 +751,35 @@ impl App {
         };
         if run.arrange_failed.is_some() {
             let Some(s) = self.task.as_mut() else { return };
-            let pictures = s.notes_parts().0;
-            if go_on && pictures.is_empty() {
+            // The pictures looked at: "One note per picture instead" makes a note of each.
+            let looked: Vec<usize> = s
+                .notes_parts()
+                .0
+                .into_iter()
+                .filter(|&i| s.notes_run.as_ref().is_some_and(|r| r.look(i).is_some()))
+                .collect();
+            if go_on && looked.is_empty() {
                 return;
             }
             if let Some(run) = s.notes_run.as_mut() {
                 run.arrange_failed = None;
             }
             if go_on {
-                // "One note per picture instead": made here from the looks, no request. For
-                // this window only: the setting stays as it was.
-                s.notes.how_many = HowMany::PerPicture;
-                self.notes_made_here(&pictures);
+                // "One note per picture instead": made here from the looks, no request, for
+                // this plan only. Neither the window's How many nor the setting changes, so a
+                // text file keeps its tick and the next Send arranges as before.
+                self.notes_made_here(&looked, HowMany::PerPicture);
             } else {
                 self.notes_arrange();
             }
             return;
         }
         if run.failed.is_empty() {
+            return;
+        }
+        // Going on with nothing to make notes of is not offered: it would send an arrange
+        // that cannot work, then "Try it again" would ask only that again.
+        if go_on && !run.can_go_on() {
             return;
         }
         // What is asked changed since the looks: everything not kept is asked anew.
@@ -851,12 +887,9 @@ impl App {
         match written {
             Ok(()) => {
                 self.task_add_paths(vec![path]);
-                self.docs
-                    .set_toast("The picture on the clipboard is added.");
+                self.task_say("The picture on the clipboard is added.");
             }
-            Err(e) => self
-                .docs
-                .set_toast(&format!("The picture could not be kept: {e}")),
+            Err(e) => self.task_say(&format!("The picture could not be kept: {e}")),
         }
         self.redraw();
         true

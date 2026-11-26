@@ -2462,3 +2462,141 @@ better". The settled watch: Fable's review of the branch, so the system's answer
 on its helper thread) is in before the first menu, and nothing is added to the first frame. The
 shot: the owner approves by looking, and a menu at rest does not show the fade.
 **Overturned by.** The owner.
+
+## D-240 · 2026-11-25 · Settings opened from the task window hides it until Settings closes
+
+**Decision.** "Open AI settings" from the AI task window (or its plan card) hides the window while Settings is open: it neither draws nor takes a key, a click or the wheel, and keeps all its state. When Settings closes the window comes back with the connection, its name and the limits read again, and its pictures measured if the AI is on now.
+**Why.** The hand-driven run of 2026-11-25 (finding 1): Settings was drawn under the window, which took the clicks, so Settings looked dead and only Esc got out. Hiding the window is the smaller change in the overlay order, which another branch is also changing.
+**Confirmed.** The owner, 2026-11-25: "Yes, keep them".
+**Overturned by.** The owner, preferring Settings drawn over the dimmed window.
+
+## D-241 · 2026-11-25 · Esc in the task window leaves a field first, and says once what closing drops
+
+**Decision.** In the AI task window, Esc in a field with words in it (the instruction, the section, the new group's name) leaves the field; an empty field is no work to lose and Esc goes on as below. Then Esc stops a request, closes a list, and, on a window that holds files or words, says once in the window what closing drops ("Esc again closes the window, and the 3 files and the instruction in it go with it."); any other key or click takes that back, and the next Esc closes. Cancel closes at once. A kept plan of Write notes still says its own warning (D-228). This replaces DESIGN 83's "Escape stops it first, then a second Escape closes".
+**Why.** The hand-driven run (finding 2): Esc in the group-name box, whose hint says "Esc leaves it", closed the whole window and lost the files and the instruction. Asking once was chosen over keeping the setup for the next open because the window has no way to remove a file, so a setup kept for ever would come back unwanted.
+**Confirmed.** The owner, 2026-11-25: "Yes, keep them".
+**Overturned by.** The owner, if the setup should be kept for the next open instead.
+
+## D-242 · 2026-11-25 · Write notes goes on only with something to make notes of; One per picture instead is for that plan
+
+**Decision.** After a failed look, "Go on with N" counts the pictures looked at (kept from an earlier Send too) and those still to send; it is offered only when that is more than none or a text file takes part ("Go on with the text only"). No arrange request is sent with no look and no text. A note is made only of a picture that was looked at. "One note per picture instead" after a failed arrange makes that one plan one note per picture: the window's How many and the setting stay as they were, so a text file keeps its tick. This replaces D-226's last point (it applied to the window). The plan card counts the requests answered apart from those that failed.
+**Why.** The hand-driven run (findings 3, 9, 19): "Go on with 0" sent an arrange of nothing, which failed, and "Try it again" then asked only the arrange again, so the run was stuck; the window's How many changed silently and unticked the text file; a failed request was counted as answered.
+**Overturned by.** The owner.
+
+## D-243 · 2026-11-25 · Back on a rewrite's review; a split plan closed unwritten keeps its file ticked
+
+**Decision.** A file's review in the task window (Rewrite them) has Back: the review goes, nothing is written, the file stays ticked and the run waits for Run; the files rewritten before it stay so. Discard is unchanged. A split's plan opened from the window and closed without writing (Cancel, Esc) brings the window back with the file still ticked; the plan card itself is shared and keeps the word "Cancel", which acts as Back.
+**Why.** The hand-driven run (finding 4): Rewrite's Discard on the last file ended the run and closed the window, and Split's Cancel came back with the file unticked; neither had a way back to the setup as it was.
+**Confirmed.** The owner, 2026-11-25: "Yes, keep them".
+**Overturned by.** The owner.
+
+## D-244 · 2026-11-25 · The task window says its messages in itself, reopens on its last task, and grows
+
+**Decision.**
+- What the window says about something done in it ("Choose the group…", "Stopped.", a group that could not be made, a write refused, the kept plan's warning, a pasted picture) is a line over the foot of its list while it is open, not a toast; the next key or click takes it away. A message said as the window closes stays a toast.
+- "AI task…" opens on the task the window was on when it last closed (`ai_task` in the settings; File them until then). "AI task on this file…" and the Notes pane keep their own rules.
+- The card grows with the window: 200 px of the window either side and 48 above and below, from 880 × 704 up to 1240 × 1000.
+- Write notes' Files… lists pictures with the text ("Pictures and text"); the other tasks keep "Text and code".
+- "Show what is sent" for the other tasks stays a text tab (D-229), and closing that tab brings the window back. Its first line says "would send" before any request and "sends for the files ticked now", with the count made, after.
+**Why.** The hand-driven run (findings 5, 6, 7, 10, 11): toasts far from the dialog, a window always on File them, a small card in a big window, pictures hidden by the dialog's filter, and no way back from the tab but the command.
+**Confirmed.** The owner, 2026-11-25: "Yes, keep them" (the last task remembered, File them the first time; the card up to 1240 x 1000).
+**Overturned by.** The owner.
+
+## D-245 · 2026-11-25 · The task window's button and its words
+
+**Decision.** The primary button reads "Make the plan for N files" (File them and Split them, the AI on or off), "Rewrite N files", "Add N to the library"; with no file it has no count, is off, and the footer says why ("Tick a file to take part, or add one with Add…"); "Add to the library" is off with no group, saying "Choose the group the files go to first.". On the plan face, files that went and were not placed are under NOT PLACED; files no request took are under NOT SENT (LEFT OUT when nothing was sent), each row saying why. The header no longer says that nothing is opened in a tab, the lone "WHAT TO DO" is gone, "Show what is sent" moves beside Add… when the footer's buttons leave it no room, Options is drawn last and inside the card, and a line count is singular for one.
+**Why.** The hand-driven run (findings 8, 12 to 18, 20).
+**Overturned by.** The owner, by looking at the shots.
+
+## D-246 · 2026-11-25 · After Fable's review of the task fixes
+
+**Decision.**
+- Back is on a file's review only while the window it came from is open or parked. A review kept by Esc and shown again after its window closed has no Back; Back reached anyway keeps the review and says why, so its answer is never dropped.
+- Esc's warning agrees in number ("the file in it goes", "the 2 files in it go", "what is typed in it goes"). A key or a click other than Cancel takes back Cancel's kept-plan warning too, so the next Cancel warns again.
+- Out of the fields (after Esc left one), a character typed goes into the instruction, and Enter runs nothing: it puts the keyboard back in the instruction, where the next Enter runs the task as before.
+- Messages name the window's button as it reads ("“Rewrite 1 file” asks for it again"), not "Run".
+- A rewrite run that ends remembers its task as Cancel does (D-244). Settings closed over the window reads the saved prompts again, and a text file kept without its text for the largest rewrite then is read again.
+- Close others and Close all bring the window back when they close the tab of "Show what is sent", as Close does.
+- After a failed look the footer says "Request N of M failed.", numbered out of the run's requests as the summary counts them (the looks and the arrange), and "or go on without it" only when going on is offered. A file left out unticked says "unticked" with the AI off, "unticked: not sent" with it on.
+- In a narrow window (520 px) the line under the title takes shorter words before it is cut, and stops short of "Show what is sent" when that is in the header; "Write notes" is "Notes" on the task switch when THE FILES needs the room. An empty Saved prompts says so right under its label, on two lines when one is too short. The notice bar keeps inside the list in a low window.
+**From.** Fable's review of f/task-fixes (VERDICT: FIX), items 1 to 16.
+**Why.** Each was a way the first fixes could still drop work, say something untrue, or be cut at 520 px.
+**Overturned by.** The owner, by looking at the shots.
+
+## D-247 · 2026-11-25 · A folder added to the AI task window is walked whole
+
+**Decision.** A folder added to the AI task window is walked for its whole tree by `import::walk_every`, with the library import's rules and bounds: a dot name, the hidden attribute, `target` and `node_modules` are left out, a link to a folder is not followed, and a walk stops at 50,000 entries read or 64 folders deep. Unlike the import walk it takes every file kind and reads nothing: a picture, a PDF or any other file is probed by `task_probe` as before. The folder's own files come first, then each subfolder's, by name, case-insensitively, and a file already in the window is not added twice. One add brings in at most 2,000 files (`task_ui::FILES_MAX`); a walk stopped at that cap, at the entries or at the depth says so in the window's notice. This replaces the doc comment that "a folder dropped on it is walked one level".
+**Why.** The owner's report of 2026-11-25: the window found only the files directly in a folder added to it, and files in its subfolders were never found.
+**Overturned by.** The owner.
+
+## D-248 · 2026-11-25 · A folder added to the task window is read on its own thread, and Esc stops it
+
+**Decision.**
+- A folder added to the AI task window (dropped on it) is walked and probed on one `mdshared_app::job::Job` thread, never on the UI thread: a big tree, a network share or a cloud folder (whose text a read downloads) cannot freeze the window. The probe is a pure function of a copy of what it reads — the window's limits, the load options and the library's note paths — so the thread touches nothing of the window. A single file added stays inline, and a thread that cannot be made reads the folder inline.
+- While it runs the window says "Reading <folder>…" over the foot of its list. Esc stops it and nothing of it is added; closing the window and parking it behind "Show what is sent" stop it too, and a stopped job hands nothing back.
+- The walk's cap is the room left in the window (2,000 files less what it holds), and it counts only files the window does not hold: a folder added again adds nothing and does not say "Stopped". A later add that stops nowhere takes an earlier "Stopped…" away.
+- The walk is given the library folder, which it leaves out when the folder walked holds it (audit 4, C5).
+- Files are told apart by one key per path — the parts `same_path` compares, folded as it folds them — in a `HashSet`, not one `same_path` per pair; and a walk for the window no longer clones a section path per file.
+**Why.** The review of `9e15a66`: the walk and up to 2,000 probes ran on the UI thread with no cancel, so a large tree, a network share or a OneDrive folder froze the window with Esc dead; the cap counted files already in it; the library folder was not left out; and the dedup was one allocating comparison per pair.
+**Overturned by.** The owner.
+
+## D-249 · 2026-11-26 · A folder add of more than 200 new files asks before anything goes in
+
+**Decision.** A folder add to the AI task window that brings more than 200 new files adds none of them when its read ends: the window asks on its notice line over the foot of the list — "Add N files from <folder>?", or "from <k> folders" for one drop of several — with "Leave them out" and "Add them". "Add them", or Enter, adds all of them, ticked, as an add does; "Leave them out", or Esc, adds nothing and the question goes, and Esc does not close the window. 200 or fewer new files go in at once with no question. Closing the window, or parking it behind "What is sent", drops a held add. The threshold is `task_ui::ASK_FILES` (200), beside `FILES_MAX`.
+**Why.** The owner (2026-11-25): "ask before anything is in, if it's possible and not disruptive or slows it down. otherwise ask above 200." The read runs on its own thread (D-248), so the count of new files is known before anything is added: asking costs nothing and holds nothing up.
+**Overturned by.** The owner.
+
+## D-250 · 2026-11-26 · A big folder add is counted first and asked about before any file is read
+
+**Decision.**
+- A folder add is now two steps. The job walks the folder and counts the files that are new to the window and to a question already standing, and reads no file's content; at `task_ui::ASK_FILES` (200) or fewer it carries on to the probes in that same job, as before, and more are returned as paths for the question. "Add them" then reads them on a job of its own, with the bar's "Reading…" line; "Leave them out" adds nothing and not one of the files was read.
+- winit sends one `DroppedFile` per path. The window gathers a pass's paths (`App::task_batch`) and the event loop's `about_to_wait` flushes them into one read, so a drop of several folders is one read and one question ("Add N files from K folders?", K counting only folders that brought something new). A drop that arrives while a read runs waits in `App::task_queue` and is read after it: neither set is lost, and the question covers both. A drop while the question stands is walked and folded into it, so a small add cannot slip in past the question.
+- Every path that ends or replaces the window (close, Cancel, a rewrite run's end, parking behind a plan or behind "What is sent") goes through one helper, `App::task_add_forget`, which stops the read and drops the queued paths, the held paths and the question; and a read's result is applied only to the window whose id it was started for.
+- The window's room is `FILES_MAX` less what the window holds and what the question holds, and a folder is not walked past it: a full window says it left the rest of the folder out.
+- Enter and Esc answer the question only when no dropdown, menu or field has the key first; while the question stands the main button is drawn off and runs nothing, so "Make the plan" cannot leave the held files out silently.
+- A folder the walk cannot read at all is named: "Could not read <folder>.".
+- "Leave them out" is drawn as an ordinary button; only "Add them" is filled.
+**Why.** The review of `d02eb83..8ab6b3f`: the question came after up to 2,000 files had been read, which is the cost the owner said should be avoided if the ask can come first; two `DroppedFile` events lost the first folder; a run's end left a read and its question behind; a split parked the window with its read running; the room ignored the held files; keys went to the question before the window's own menus; a single file cleared the "Reading…" line; an unreadable folder said nothing.
+**Overturned by.** D-251, in part: a fold read that is still running is no longer overwritten by the answer, and nothing it finds is lost.
+
+
+## D-251 · 2026-11-26 · One read at a time, and every folder speaks
+
+**Decision.**
+- "Add them" while a read still runs does not start the probes: the answer waits in `App::task_answer`, the read's own result is taken first, and the probes start when it ends. A read started while the question stood is a *fold* read (`TaskAdd::fold`); a "Leave them out" that comes before it ends sets `App::task_declined` and its result is dropped. The bar keeps its "Reading…" line while a read runs, beside the question.
+- "Leave them out" also drops the queue. A stop (Esc while reading) drops the paths waiting on the question and the answered set too, and says how many.
+- Notes are a list, not one line: what a walk could not read ("Could not read <folder>.") and where it stopped are both kept, from every folder of the add. A folder that brings nothing new says "Nothing new in <folder>." rather than adding nothing in silence.
+- The room is checked when single files are added too, and again as files go in; a file dropped by name out of the folder a question holds is taken out of that set, so it is counted once and the question's count falls.
+- The probes of an answered set that cannot get a thread run in the window with the walk's notes, and clear the question.
+- D-249 stands exactly as written; the overturn is recorded here.
+- The junction test makes a real junction (`mklink /J`) and a directory symlink has a test of its own, each saying why when the system refuses; the cap test's name says the window tells what it left out.
+**Why.** The review of `8ab6b3f..7470c91`: an answer before a fold read ended overwrote that read's job and lost the folder; a stop left the question's paths behind; one note replaced another; single files and the answered set skipped the room; a declined question could still see its read's files added; a test's plain Enter had been changed to an answer.
+**Overturned by.** The owner.
+
+## D-252 · 2026-11-26 · A file added again is not one left out, and one question at a time
+
+**Decision.**
+- A single file's add counts the files it would bring — those the window does not hold already, each once — and only then compares that with the room: a file added again says nothing about a cap. The same holds when the window is parked and "AI task on this file…" brings it back.
+- The question is refreshed, when a file is added by name, only if it is already on screen; and when the last file it held is added, it goes.
+- A probe job starts with no folded question behind it (`task_fold` cleared) and takes any decline mark away when its result arrives, so a stale mark can never silence a later drop.
+- While answered files wait or are being probed, the main button is drawn off, and `task_primary` and `task_run` do nothing: no run starts with those files left out.
+- Notes are per folder: a folder that brings nothing new says so itself, even when another folder of the same read brought files; a held folder dropped again under its question stays silent (the question accounts for it), and a folder the walk could not read is not also said to have brought nothing.
+- The no-thread branch of the probes goes on to the queue and the decision after it applies them.
+**Why.** The review of `4d94e91`: a re-added file was counted as a file left out; stale fold/decline marks could silence a drop; the plan could run while answered files were out; "Nothing new" was said of a held folder and lost when an earlier folder spoke; an emptied question stayed on screen.
+**Overturned by.** The owner.
+
+## D-253 · 2026-11-26 · A stop ends the probes, and what is left of a question at 200 comes in
+
+**Decision.**
+- Esc during the probes of an answered set stops them like any other job: `task_probing` goes, the bar's line clears with "Stopped…", and the main button is live again. "Make the plan" then plans what the window holds.
+- Files taken by name out of the folder a question holds lower its count; when 200 or fewer are left they are read and added at once, as any set of that size is, and the question goes with them. Above 200 the question stays and its count follows.
+**Why.** The review of `4103067`: a stopped probe job left `task_probing` set, so the plan stayed off with no reason; and a count under the threshold still stood on screen as a question, which D-250's rule does not allow.
+**Overturned by.** The owner.
+
+## D-254 · 2026-11-26 · An answer waits merged, and is never replaced
+
+**Decision.**
+- An answered set waiting for a running read is put where it waits by one helper, `App::task_answer_put`, which merges into a set already there: its paths once each, its notes, its folder count and its first folder name. Every path that answers a set while a read runs goes through it, so a later answer — "Add them" or a set that fell to the threshold — adds to the waiting answer and cannot replace it.
+- "Leave them out" drops the question it is asked of, and the queued paths that were folded into it, but not a set already answered: an answer is a promise the read's end will keep.
+**Why.** The review of `4903067`: with an answer waiting and a read still running, a held set that fell to the threshold called the probe start, which wrote over the waiting answer, and the folder it held was lost in silence.
+**Overturned by.** The owner.
