@@ -2460,11 +2460,23 @@ fn notices_present_at_start_get_their_full_height_without_motion() {
 #[test]
 fn launch_layout_with_a_stale_notice_matches_the_first_paint_and_goto() {
     let mut a = moving();
+    a.docs.prefs.animations = false;
+    check_stale_notice_launch_layout(a);
+}
+
+#[test]
+fn launch_layout_with_animations_on_reserves_the_stale_notice() {
+    let a = moving();
+    assert!(a.docs.prefs.animations, "test the default preference");
+    assert!(a.motion.anim.animates(), "use a moving window");
+    check_stale_notice_launch_layout(a);
+}
+
+fn check_stale_notice_launch_layout(mut a: App) {
     let path = scratch("stale-goto").join("long.txt");
     std::fs::write(&path, "scroll to a line\n".repeat(240)).unwrap();
     open_now(&mut a, &path);
     a.focused = false;
-    a.docs.prefs.animations = false;
     BannerDemo::Stale.show(&mut a);
     a.args.goto = Some(crate::args::LineCol { line: 120, col: 1 });
     a.compose_layout_only();
