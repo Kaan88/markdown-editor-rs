@@ -1626,8 +1626,8 @@ impl App {
         let settings_t = self
             .ui
             .settings
-            .is_some()
-            .then(|| self.motion.settings_presence());
+            .as_ref()
+            .map(|f| self.motion.settings_presence(f.menu_rect().is_some()));
         // The command palette's pop, asked each frame (at rest 1, so it draws as it does now).
         self.motion.palette_t = if self.palette.open.as_ref().is_some_and(|p| !p.anchored) {
             self.motion.palette()
@@ -2243,24 +2243,23 @@ impl App {
                         ),
                     }
                 }
-                if let Some(f) = self.ui.settings.as_mut() {
-                    // Fade the dim and card as one overlay over this frame's editor.
+                if let (Some(f), Some(t)) = (self.ui.settings.as_mut(), settings_t) {
                     let window = Rect::new(0.0, 0.0, w, h);
-                    let under = settings_t
-                        .filter(|&t| t < 1.0)
-                        .map(|t| (c.p.snapshot(window), t));
-                    self.motion.anim.group(crate::motion::SETTINGS);
-                    f.draw_animated(
-                        c.p,
-                        &pal,
-                        window,
-                        self.ui.caret_on,
-                        &mut self.motion.anim,
-                        crate::motion::SETTINGS,
-                    );
-                    self.motion.anim.ungroup();
-                    if let Some((under, t)) = under {
-                        c.p.fade(&under, t);
+                    let under = crate::settings_entrance::backing(c.p, f, window, t);
+                    if t > 0.0 {
+                        self.motion.anim.group(crate::motion::SETTINGS);
+                        f.draw_animated(
+                            c.p,
+                            &pal,
+                            window,
+                            self.ui.caret_on,
+                            &mut self.motion.anim,
+                            crate::motion::SETTINGS,
+                        );
+                        self.motion.anim.ungroup();
+                    }
+                    if let Some(under) = under {
+                        crate::settings_entrance::fade(c.p, &pal, &under, t);
                     }
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {

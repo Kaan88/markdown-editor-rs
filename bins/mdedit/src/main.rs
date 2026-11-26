@@ -59,6 +59,7 @@ mod results;
 mod sent_card;
 mod sent_card_draw;
 mod session;
+mod settings_entrance;
 mod status;
 mod task_draw;
 mod task_ui;

@@ -371,13 +371,16 @@ impl Motion {
 
     /// The dim and Settings card enter together at the menu's speed. No track is asked for
     /// after closing, so it disappears in one paint.
-    pub fn settings_presence(&mut self) -> f32 {
-        self.anim.presence(
-            ("settings-in", self.settings_serial),
-            true,
-            MENU.enter,
-            MENU.exit,
-        )
+    pub fn settings_presence(&mut self, has_dropdown: bool) -> f32 {
+        let id = ("settings-in", self.settings_serial);
+        if has_dropdown {
+            // A dropdown may extend outside the card's copy. Finish the entrance before
+            // drawing it instead of treating its pixels as backdrop.
+            self.anim.set(id, 1.0_f32);
+            1.0
+        } else {
+            self.anim.presence(id, true, MENU.enter, MENU.exit)
+        }
     }
 
     pub fn theme_presence(&mut self) -> f32 {
