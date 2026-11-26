@@ -5,10 +5,10 @@
 ; differ, and there is one more task (the "Edit with mdedit" context-menu entry).
 ; build-installer.ps1 (or tools\release.ps1) builds the release exe first; this script reads it
 ; from target\release.
-; Build:  ISCC.exe /DAppVersion=0.3.1 mdedit.iss   (see build-installer.ps1)
+; Build:  ISCC.exe /DAppVersion=1.6.0 mdedit.iss   (see build-installer.ps1)
 
 #ifndef AppVersion
-  #define AppVersion "0.3.1"
+  #define AppVersion "1.6.0"
 #endif
 ; Numeric a.b.c.0 for the exe version resource (strips any -prerelease suffix).
 #define Dash Pos("-", AppVersion)
@@ -90,7 +90,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "..\..\target\release\mdedit.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\target\engine\mdview-engine.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\mdview-engine.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\target\release\mdedit-ai.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\assets\mdedit.ico"; DestDir: "{app}"; Flags: ignoreversion
 

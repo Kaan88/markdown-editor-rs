@@ -6,21 +6,58 @@
 #
 #   tests/mac-update.sh <out-dir> <app-bundle>
 set -euo pipefail
+if [[ "${RUNNER_ENVIRONMENT:-}" != github-hosted || "$(uname -s)" != Darwin ]]; then
+    echo "FAIL this test requires a GitHub-hosted macOS runner" >&2
+    exit 1
+fi
 out="$1"
 src="$2"
 name="$(basename "$src" .app)"
 upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
-rm -rf "$out"
-mkdir -p "$out/apps" "$out/new" "$out/srv"
+mkdir -p "$out"
+out="$(mktemp -d "$out/update.XXXXXX")"
+mkdir "$out/apps" "$out/new" "$out/srv"
 out="$(cd "$out" && pwd)"
+mkdir -p "$out/settings"
+settings="$out/settings/settings.ini"
 port=8443
 fail() { echo "FAIL $*"; exit 1; }
+server=""
+pid=""
+cert_hash=""
+keychain=/Library/Keychains/System.keychain
+cleanup() {
+    local status=$?
+    if [ -n "$pid" ] && [ "$(ps -o args= -p "$pid" 2>/dev/null)" = "$exe --restarted" ]; then
+        kill "$pid" 2>/dev/null || true
+    fi
+    [ -z "$server" ] || kill "$server" 2>/dev/null || true
+    if [ -n "$cert_hash" ]; then
+        if ! sudo security remove-trusted-cert -d "$out/cert.pem"; then
+            echo "Could not remove temporary trust setting" >&2
+            status=1
+        fi
+        if ! sudo security delete-certificate -Z "$cert_hash" "$keychain"; then
+            echo "Could not remove temporary certificate by fingerprint" >&2
+            status=1
+        fi
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # The installed copy, in a folder this user can write (as /Applications is), and the newer copy:
 # the same program with a marker, signed again (a changed bundle must be).
 ditto "$src" "$out/apps/$name.app"
 ditto "$src" "$out/new/$name.app"
 echo "the update" > "$out/new/$name.app/Contents/Resources/update-marker"
+# LaunchServices starts the new bundle with only --restarted. Its own Info.plist
+# supplies the scratch path without changing the runner's launchd environment.
+plist="$out/new/$name.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :LSEnvironment dict' "$plist"
+/usr/libexec/PlistBuddy -c "Add :LSEnvironment:MDEDIT_SETTINGS string \"$settings\"" "$plist"
 codesign --force --sign - "$out/new/$name.app"
 (cd "$out/new" && ditto -c -k --keepParent "$name.app" "$out/srv/$name-new.zip")
 case "$(uname -m)" in arm64) key=macos-aarch64 ;; *) key=macos-x86_64 ;; esac
@@ -42,7 +79,12 @@ done
 "$openssl" req -x509 -newkey rsa:2048 -nodes -days 2 -keyout "$out/key.pem" -out "$out/cert.pem" \
     -subj /CN=localhost -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
     -addext "extendedKeyUsage=serverAuth" -addext "basicConstraints=critical,CA:true" 2>/dev/null
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$out/cert.pem"
+fingerprint="$("$openssl" x509 -in "$out/cert.pem" -noout -fingerprint -sha1)"
+fingerprint="${fingerprint##*=}"
+fingerprint="${fingerprint//:/}"
+[[ "$fingerprint" =~ ^[[:xdigit:]]{40}$ ]] || fail "invalid temporary certificate fingerprint"
+cert_hash="$fingerprint"
+sudo security add-trusted-cert -d -r trustRoot -k "$keychain" "$out/cert.pem"
 cat > "$out/serve.py" <<'PY'
 import http.server, ssl, sys
 root, cert, key, port = sys.argv[1:5]
@@ -57,14 +99,13 @@ srv.serve_forever()
 PY
 python3 "$out/serve.py" "$out/srv" "$out/cert.pem" "$out/key.pem" "$port" > "$out/server.log" 2>&1 &
 server=$!
-trap 'kill $server 2>/dev/null || true' EXIT
 for _ in $(seq 1 40); do curl -s -o /dev/null "https://localhost:$port/update.txt" && break; sleep 0.25; done
 curl -sS "https://localhost:$port/update.txt" > /dev/null || fail "the system does not trust the test server"
 
 # The installation, from the installed copy.
 exe="$out/apps/$name.app/Contents/MacOS/$name"
 code=0
-env "${upper}_UPDATE_MANIFEST=https://localhost:$port/update.txt" "$exe" --install-update \
+env MDEDIT_SETTINGS="$settings" "${upper}_UPDATE_MANIFEST=https://localhost:$port/update.txt" "$exe" --install-update \
     > "$out/install.log" 2>&1 || code=$?
 cat "$out/install.log"
 [ "$code" = 0 ] || fail "--install-update exited with $code"
@@ -72,19 +113,24 @@ cat "$out/install.log"
 [ -d "$out/apps/$name.app.old" ] || fail "the old copy was not set aside"
 [ ! -e "$out/apps/$name.app.new" ] || fail "the staged copy was left behind"
 codesign --verify --deep --strict "$out/apps/$name.app" || fail "the new bundle's signature does not hold"
+[ "$(/usr/libexec/PlistBuddy -c 'Print :LSEnvironment:MDEDIT_SETTINGS' "$out/apps/$name.app/Contents/Info.plist")" = "$settings" ] \
+    || fail "the installed bundle lost the scratch settings path"
 for f in "$out/apps/$name.app/Contents/MacOS/"*; do
     [ -x "$f" ] || fail "$f lost its executable bit"
 done
 echo "PASS the update replaced the bundle and set the old one aside"
 
 # The restart: a new process of the installed bundle, started through LaunchServices.
-pid=""
 for _ in $(seq 1 60); do
     pid="$(pgrep -n -f "^$exe( |\$)" || true)"
-    [ -n "$pid" ] && break
+    [ -n "$pid" ] && [ -s "$out/settings/instance.port" ] && break
     sleep 0.25
 done
 [ -n "$pid" ] || fail "the new version was not started"
-echo "PASS the new version started ($(ps -o args= -p "$pid"))"
-sleep 3
-kill "$pid" 2>/dev/null || true
+args="$(ps -o args= -p "$pid")"
+[[ "$args" == "$exe --restarted" ]] || fail "the scratch version did not start with --restarted"
+[ -s "$out/settings/instance.port" ] || fail "the restarted editor did not use scratch settings"
+port="$(cat "$out/settings/instance.port")"
+/usr/sbin/lsof -a -p "$pid" -iTCP:"$port" -sTCP:LISTEN >/dev/null \
+    || fail "the restarted editor does not own the scratch instance port"
+echo "PASS the new version restarted and registered beside its scratch settings"

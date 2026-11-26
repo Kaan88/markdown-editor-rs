@@ -1,8 +1,8 @@
-//! The preview pane: the active Markdown document drawn by mdview's renderer, beside the text.
+//! The preview pane: the active Markdown document drawn by the shared renderer, beside the text.
 //!
 //! Two builds, one pane. By default (cargo feature `embedded-preview`) the drawing loop runs on a
-//! thread of mdedit's own, with mdview's renderer built in, and formulas and diagrams go to the
-//! `mdview-engine` process shipped beside mdedit (or, failing that, beside mdview): the pane is
+//! thread of mdedit's own, with the shared renderer built in, and formulas and diagrams go to the
+//! `mdview-engine` process shipped beside mdedit: the pane is
 //! always offered. Built with `--no-default-features`, the page is drawn by mdview itself:
 //! `mdview --preview-server` runs without a window and answers over a pipe, and the pane is
 //! offered only while mdview is installed. That build is kept to compare the two.
@@ -128,36 +128,125 @@ pub const STANDALONE: bool = cfg!(feature = "embedded-preview");
 
 /// The mdview installed, if any.
 pub fn viewer() -> Option<PathBuf> {
-    mdshared_app::sister::find(crate::link::VIEWER)
+    use mdshared_app::sister::Env;
+    viewer_in(
+        &Env::current(crate::link::VIEWER),
+        cfg!(target_os = "linux"),
+    )
 }
 
-/// The engine for formulas and diagrams: the one shipped with mdedit, else the one beside the
-/// installed mdview. None leaves the renderer to its own search (and the formulas as source).
-#[cfg_attr(not(feature = "embedded-preview"), allow(dead_code))]
-fn engine(viewer: Option<&Path>) -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok();
-    own_engines(exe.as_deref())
-        .into_iter()
-        .chain(viewer.and_then(|v| Some(v.parent()?.join(engine_file()))))
-        .find(|p| p.is_file())
-}
+fn viewer_in(env: &mdshared_app::sister::Env, shared_prefix: bool) -> Option<PathBuf> {
+    use mdshared_app::sister::{Env, find_in};
 
-fn engine_file() -> String {
-    format!("mdview-engine{}", std::env::consts::EXE_SUFFIX)
-}
-
-/// Where mdedit's own engine is, in the order looked at: beside the executable (Windows, the
-/// macOS bundle, the AppImage), then `../lib/mdedit/` (the Linux packages and the tarball, which
-/// keep it off `bin/`, where mdview's packages put theirs).
-fn own_engines(exe: Option<&Path>) -> Vec<PathBuf> {
-    let Some(dir) = exe.and_then(Path::parent) else {
-        return Vec::new();
-    };
-    let mut at = vec![dir.join(engine_file())];
-    if let Some(prefix) = dir.parent().filter(|_| cfg!(target_os = "linux")) {
-        at.push(prefix.join("lib/mdedit").join(engine_file()));
+    let name = crate::link::VIEWER;
+    if shared_prefix {
+        // First honour the toolkit's explicit override, without performing any other lookup.
+        if let Some(path) = find_in(
+            name,
+            &Env {
+                over: env.over.clone(),
+                ..Env::default()
+            },
+        ) {
+            return Some(path);
+        }
+        // Linux current_exe gives the real executable, not the bin/mdedit launcher symlink.
+        if let Some(prefix) = env.exe.as_deref().and_then(editor_prefix)
+            && let Some(path) = [prefix.join("lib/mdview"), prefix.join("bin")]
+                .into_iter()
+                .find_map(|dir| {
+                    find_in(
+                        name,
+                        &Env {
+                            exe: Some(dir.join("mdedit")),
+                            ..Env::default()
+                        },
+                    )
+                })
+        {
+            return Some(path);
+        }
     }
-    at
+    find_in(name, env)
+}
+
+fn editor_prefix(exe: &Path) -> Option<&Path> {
+    if !exe.is_absolute() || !exe.ends_with("mdedit") {
+        return None;
+    }
+    let dir = exe.parent()?;
+    if dir.ends_with("bin") {
+        return dir.parent();
+    }
+    let lib = dir.parent()?;
+    if dir.ends_with("mdedit") && lib.ends_with("lib") {
+        lib.parent()
+    } else {
+        None
+    }
+}
+
+/// The sole packaged engine path; the renderer checks it when it needs the engine.
+fn packaged_engine(exe: Option<&Path>) -> Option<PathBuf> {
+    let dir = exe.filter(|p| p.is_absolute())?.parent()?;
+    Some(dir.join(format!("mdview-engine{}", std::env::consts::EXE_SUFFIX)))
+}
+
+/// Never leave engine discovery to an external viewer, which may have older lookup rules.
+#[cfg(any(not(feature = "embedded-preview"), test))]
+fn external_engine(exe: Option<&Path>, override_path: Option<PathBuf>) -> Option<PathBuf> {
+    let path = match override_path {
+        Some(path) => path,
+        None => packaged_engine(exe)?,
+    };
+    (path.is_absolute() && path.is_file()).then_some(path)
+}
+
+#[cfg(any(not(feature = "embedded-preview"), test))]
+fn external_server(viewer: &Path, engine: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new(viewer);
+    command.arg("--preview-server").env("MDV_ENGINE", engine);
+    command
+}
+
+#[cfg(test)]
+pub(crate) fn test_viewer() -> Option<PathBuf> {
+    #[cfg(feature = "embedded-preview")]
+    return None;
+    #[cfg(not(feature = "embedded-preview"))]
+    {
+        let path = PathBuf::from(std::env::var_os("MDEDIT_TEST_MDVIEW").expect(
+            "external preview tests require MDEDIT_TEST_MDVIEW to name an absolute viewer executable",
+        ));
+        if !path.is_absolute() {
+            panic!(
+                "{}",
+                invalid_test_viewer(&path, "expected an absolute path", verbose_test_viewer())
+            );
+        }
+        if !path.is_file() {
+            panic!(
+                "{}",
+                invalid_test_viewer(&path, "expected a file", verbose_test_viewer())
+            );
+        }
+        Some(path)
+    }
+}
+
+#[cfg(all(test, not(feature = "embedded-preview")))]
+fn verbose_test_viewer() -> bool {
+    std::env::var_os("MDEDIT_TEST_VERBOSE").is_some_and(|v| v == "1")
+}
+
+#[cfg(test)]
+fn invalid_test_viewer(path: &Path, reason: &str, verbose: bool) -> String {
+    let message = format!("invalid MDEDIT_TEST_MDVIEW: {reason}");
+    if verbose {
+        format!("{message} ({})", path.display())
+    } else {
+        message
+    }
 }
 
 impl Pane {
@@ -543,15 +632,17 @@ impl Drop for Pane {
 }
 
 /// The embedded build: the loop runs on a thread here; formulas and diagrams go to the engine
-/// installed beside mdview.
+/// installed beside mdedit. An explicit `MDV_ENGINE` is validated by the renderer.
 #[cfg(feature = "embedded-preview")]
 fn start(
-    viewer: Option<&Path>,
+    _viewer: Option<&Path>,
     rx: Receiver<Request>,
     tx: Sender<Event>,
     wake: Waker,
 ) -> &'static str {
-    if let Some(engine) = engine(viewer) {
+    if std::env::var_os("MDV_ENGINE").is_none()
+        && let Some(engine) = packaged_engine(std::env::current_exe().ok().as_deref())
+    {
         mdview_render::set_engine_path(engine);
     }
     let (tx2, wake2) = (tx.clone(), wake.clone());
@@ -581,7 +672,7 @@ fn start(
     wake: Waker,
 ) -> &'static str {
     use std::io::{BufReader, BufWriter};
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     let ended = |tx: &Sender<Event>, wake: &Waker, why: String| {
         let _ = tx.send(Event::Ended(why));
         wake(Wake::Preview);
@@ -591,8 +682,19 @@ fn start(
         wake(Wake::Preview);
         return "mdview";
     };
-    let child = Command::new(viewer)
-        .arg("--preview-server")
+    let exe = std::env::current_exe().ok();
+    let Some(engine) = external_engine(
+        exe.as_deref(),
+        std::env::var_os("MDV_ENGINE").map(PathBuf::from),
+    ) else {
+        ended(
+            &tx,
+            &wake,
+            "No preview engine beside mdedit, or MDV_ENGINE is not an absolute file.".into(),
+        );
+        return "mdview";
+    };
+    let child = external_server(viewer, &engine)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -731,17 +833,106 @@ mod engine_tests {
     use super::*;
 
     #[test]
-    fn the_own_engine_is_looked_for_beside_the_exe_then_in_lib_mdedit() {
-        let file = engine_file();
-        let at = own_engines(Some(Path::new("/usr/bin/mdedit")));
-        assert_eq!(at[0], Path::new("/usr/bin").join(&file));
-        if cfg!(target_os = "linux") {
-            assert_eq!(at[1], Path::new("/usr/lib/mdedit").join(&file));
-            assert_eq!(at.len(), 2);
-        } else {
-            assert_eq!(at.len(), 1);
+    fn viewer_is_found_in_the_shared_prefix_off_path() {
+        use mdshared_app::sister::{Env, find_in};
+
+        let root =
+            std::env::temp_dir().join(format!("mdedit-viewer-prefix-{}", std::process::id()));
+        let name = format!("mdview{}", std::env::consts::EXE_SUFFIX);
+        let private = root.join("lib/mdview").join(&name);
+        let public = root.join("bin").join(&name);
+        let override_exe = root.join(&name);
+        for path in [&private, &public, &override_exe] {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"app discovery fixture; never executed").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
         }
-        assert!(own_engines(None).is_empty());
+        let real = root.join("lib/mdedit/mdedit");
+        let mut env = Env {
+            exe: Some(real.clone()),
+            path: Some(root.join("elsewhere").into_os_string()),
+            ..Env::default()
+        };
+        assert_eq!(find_in(crate::link::VIEWER, &env), None);
+        assert_eq!(viewer_in(&env, true), Some(private.clone()));
+        assert_eq!(viewer_in(&env, false), None);
+        for viewer in [&private, &public] {
+            std::fs::write(packaged_engine(Some(viewer)).unwrap(), b"not an engine").unwrap();
+        }
+        assert_eq!(external_engine(Some(&real), None), None);
+        env.over = Some(override_exe.clone().into_os_string());
+        assert_eq!(viewer_in(&env, true), Some(override_exe));
+        env.over = Some(root.join("missing-viewer").into_os_string());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert_eq!(viewer_in(&env, true), Some(public.clone()));
+            std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        env.exe = Some(root.join("bin/mdedit"));
+        assert_eq!(viewer_in(&env, true), Some(private.clone()));
+        std::fs::remove_file(private).unwrap();
+        env.exe = Some(real);
+        assert_eq!(viewer_in(&env, true), Some(public));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_viewer_diagnostic_hides_its_path_unless_verbose() {
+        let path = Path::new("private-viewer.exe");
+        let reason = "expected an absolute path";
+        let quiet = invalid_test_viewer(path, reason, false);
+        assert_eq!(
+            quiet,
+            "invalid MDEDIT_TEST_MDVIEW: expected an absolute path"
+        );
+        assert!(invalid_test_viewer(path, reason, true).contains("private-viewer.exe"));
+    }
+
+    #[test]
+    fn the_packaged_engine_is_only_looked_for_beside_the_exe() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("install/bin");
+        assert_eq!(
+            packaged_engine(Some(&dir.join("mdedit"))),
+            Some(dir.join(format!("mdview-engine{}", std::env::consts::EXE_SUFFIX)))
+        );
+        assert_eq!(packaged_engine(Some(Path::new("bin/mdedit"))), None);
+        assert_eq!(packaged_engine(None), None);
+    }
+
+    #[test]
+    fn external_engine_rejects_missing_sibling_and_invalid_overrides() {
+        let root =
+            std::env::temp_dir().join(format!("mdedit-preview-engine-{}", std::process::id()));
+        let dir = root.join("bin");
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("mdedit");
+        let engine = packaged_engine(Some(&exe)).unwrap();
+        let parent_engine = root.join(engine.file_name().unwrap());
+        std::fs::write(&parent_engine, []).unwrap();
+        assert_eq!(external_engine(Some(&exe), None), None);
+        std::fs::write(&engine, []).unwrap();
+        assert_eq!(external_engine(Some(&exe), None), Some(engine.clone()));
+        let relative = PathBuf::from("Cargo.toml");
+        assert!(relative.is_file());
+        assert_eq!(external_engine(Some(&exe), Some(relative)), None);
+        assert_eq!(external_engine(Some(&exe), Some(dir.join("missing"))), None);
+        assert_eq!(
+            external_engine(Some(&exe), Some(parent_engine.clone())),
+            Some(parent_engine)
+        );
+        let command = external_server(&dir.join("mdview"), &engine);
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| { key == "MDV_ENGINE" && value == Some(engine.as_os_str()) })
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 
@@ -765,11 +956,7 @@ mod tests {
     /// block of that text in the new document.
     #[test]
     fn a_block_answer_the_old_text_was_still_owed_is_dropped() {
-        let viewer = viewer();
-        if !STANDALONE && viewer.is_none() {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        }
+        let viewer = test_viewer();
         let wake: Waker = std::sync::Arc::new(|_| {});
         let mut p = Pane::open(viewer.as_deref(), wake);
         p.set_view(800, 600, 1.0, false);

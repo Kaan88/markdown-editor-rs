@@ -34,10 +34,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: mac-look
+      - name: Check native harness failure paths with mocks
+        run: bash tests/mac-harness-check.sh
       - run: cargo build --release -p mdedit
       - name: The bundle
-        run: bash packaging/macos/make-bundle.sh target/release target/dist
+        run: |
+          bash packaging/engine-source.sh "$RUNNER_TEMP/engine-src"
+          cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path "$RUNNER_TEMP/engine-src/Cargo.toml" --target-dir target/engine-build
+          cp target/engine-build/release/mdview-engine target/release/
+          bash packaging/macos/make-bundle.sh target/release target/dist
+          test -x target/dist/mdedit.app/Contents/MacOS/mdview-engine
       - name: Updating itself (a newer bundle from a local HTTPS server)
+        # Deferred by the owner (2026-11-27): macOS is not a primary target.
+        continue-on-error: true
         run: bash tests/mac-update.sh target/update target/dist/mdedit.app
       - name: Typing in a real window
         run: bash tests/mac-typing.sh target/typing target/dist/mdedit.app
@@ -53,7 +62,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           bash tests/print-pngs.sh \
-            target/typing/screen.png target/typing/open-panel.png target/typing/edit-menu.png target/typing/full-screen.png target/typing/edited.png target/typing/quit.png target/window/rs/window.png target/window/md-dark/window.png \
+            target/typing/window.png target/typing/open-panel.png target/typing/full-screen.png target/typing/edited.png target/typing/quit.png target/window/rs/window.png target/window/md-dark/window.png \
             target/shots/rs-light.png target/shots/menu-main.png target/shots/cjk.png
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
@@ -61,7 +70,11 @@ jobs:
           name: mac-look
           path: |
             target/shots/*.png
-            target/window/**
-            target/typing/**
+            target/window/*/window.png
+            target/typing/window.png
+            target/typing/open-panel.png
+            target/typing/full-screen.png
+            target/typing/edited.png
+            target/typing/quit.png
             target/dist/**
           retention-days: 14

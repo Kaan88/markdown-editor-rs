@@ -19,8 +19,7 @@ What is being worked on is in `docs/STATE.md`, and why things were decided is in
 - **A section's date is when it was written**, and "not published", "branch `f/…`" or "core
   only" in a heading was true that day. Everything up to section 68 has been released.
 - **Not written yet.** These are built and have no section here: the notes library and its pane
-  (on `main` for 1.3.0), visual editing (1.2.0), the preview pane as a pane (1.0.0; sections 54,
-  65 and 66 cover the hand-off and the live preview), pinned tabs, and the tabs left out at
+  (on `main` for 1.3.0), visual editing (1.2.0), pinned tabs, and the tabs left out at
   start. Until their sections exist, the code and its tests are the reference, and the old
   handoff in `docs/archive/` has the story. Whoever next changes one of them writes its section.
 
@@ -41,7 +40,7 @@ What is being worked on is in `docs/STATE.md`, and why things were decided is in
 | Split view, two views of one document | 38, 53 |
 | Macros | 39 |
 | Unsaved text across a close, crash recovery | 19, 61 |
-| mdview: the hand-off, the live preview, the Preview button's modes | 54, 65, 66, 78 |
+| Markdown preview: the hand-off, the live preview, the Preview button's modes, the embedded pane | 54, 65, 66, 78, 99 |
 | The window: shadow, corners, the frosted backdrop | 48, 55, 64, 67 |
 | Motion: the animator, the menus' fade, the Animations setting | 96 |
 | Paste an image, plain paste, rich text pasted as Markdown | 62, 78 |
@@ -2324,7 +2323,7 @@ line break at the end follows the original; the line breaks become the file's), 
 
 - with "Show changes before applying" (on by default), the review: Changes, a list of the changes
   with a tick each (section 79), or Preview, the text before and after drawn side by side by
-  mdview's renderer (two preview panes, opened the first time), scrolling together. The choice is
+  the shared renderer (two preview panes, opened the first time), scrolling together. The choice is
   remembered. Apply, Copy result, Discard.
 - without it, the result goes in at once.
 
@@ -4310,3 +4309,27 @@ exists; the legacy value still supplies the window size. `app/window_restore.rs`
 the shared restore before it can pick a different monitor. A modern session whose
 monitor is gone passes no position to winit. The monitor-aware lookup runs only for
 a session with a valid `window_state` value.
+
+## 99. The embedded Markdown preview
+
+`preview_pane.rs` and `app/preview.rs` send document text, view size, caret and scroll requests
+to a thread running `mdshared-md-preview` with its `server` feature. The server lays out and
+draws through `mdshared-md-core` and `mdshared-md-render`; the pane applies frame updates and
+uses the same page for selection, task toggles and visual block editing. The preview thread
+starts when a pane opens, not on a normal editor launch. The optional external comparison
+build instead starts `mdview --preview-server`, passes it the validated absolute engine path, and
+expects the `MDVPREVIEW7` greeting. It does not start the viewer if that path is unavailable. Neither
+mode changes the separate hand-off to a visible mdview window.
+
+On Linux, both discovery for the Preview menu and the visible hand-off prefer a valid
+`MD_SISTER_MDVIEW` override, then try `lib/mdview/mdview` and `bin/mdview` in mdedit's
+own prefix, before normal toolkit discovery. The prefix comes from the real executable,
+not the spelling used to launch it through a symlink. These are viewer application
+candidates only, never helper candidates.
+
+Formulas, diagrams and SVG go to `mdview-engine`, built from `mdshared-md-engine` at the same
+toolkit revision. In production it is found beside the actual editor executable, or at an
+explicit absolute `MDV_ENGINE` path. There is no parent-directory or installed-viewer
+fallback. The shared renderer refuses network image paths before probing the filesystem,
+does not let SVG load local files, and bounds image/preview sizes and work on untrusted input.
+Shared text rasterization hints only vertically; horizontal text placement is not hinted.

@@ -74,9 +74,9 @@ Homepage: $homepage
 Description: $summary
  $app is a light, fast native text editor with syntax highlighting, find
  and replace, split view, tabs and a Markdown preview. This package installs
- the program, mdview-engine (the helper process the preview starts for
- formulas and diagrams, in /usr/lib/mdedit), mdedit-ai (AI rewriting, also
- in /usr/lib/mdedit), its desktop entry and its icon. It does not update itself; use the package
+ the program and its helpers, mdview-engine (preview formulas and diagrams)
+ and mdedit-ai (AI rewriting), together in /usr/lib/mdedit. It also installs
+ the /usr/bin/mdedit link, desktop entry and icon. It does not update itself; use the package
  manager, or the AppImage if you want the built-in updater.
 CONTROL
 for script in postinst postrm; do

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Writes the release's PKGBUILD: packaging/arch/PKGBUILD with the version of Cargo.toml and the real
-# SHA-256 of the release tarball in place of SKIP.
+# SHA-256 of the release tarball in place of the template's placeholders.
 #
 #   packaging/arch/make-pkgbuild.sh [TARBALL [OUT]]
 #

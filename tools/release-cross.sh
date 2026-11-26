@@ -6,7 +6,7 @@
 # Output in target/dist-cross/:
 #   mdedit-<version>-windows-x86_64.exe   the executable
 #   mdview-engine.exe                     the preview pane's engine (formulas, diagrams), built from
-#                                         the viewer at the pinned revision (packaging/engine-source.sh);
+#                                         the shared toolkit at the pinned revision (packaging/engine-source.sh);
 #                                         the updater installs both
 #   mdedit-setup-<version>.exe            the Inno Setup installer (ISCC.exe run under Wine)
 #   mdedit-update.txt                     the manifest, Windows entry only (release-all.sh writes
@@ -47,7 +47,7 @@ cd "$root"
 version="$(awk '/^\[workspace\.package\]/{p=1;next} /^\[/{p=0} p&&/^version[ ]*=/{gsub(/[" ]/,"",$3);print $3;exit}' Cargo.toml)"
 [ -n "$version" ] || { echo "cannot read the version from Cargo.toml" >&2; exit 1; }
 dist="$root/target/dist-cross"
-mkdir -p "$cache/$app/cargo" "$cache/$app/target-win" "$cache/xwin" "$dist"
+mkdir -p "$cache/$app/cargo" "$cache/$app/target-win" "$cache/xwin" "$dist" "$cache/$app/engine-src-target-win"
 
 # 1. The executable.
 docker build -q -t "$image" packaging/windows-cross >/dev/null
@@ -55,14 +55,16 @@ docker run --rm --user "$(id -u):$(id -g)" \
     -v "$root:/src:ro" \
     -v "$cache/$app/cargo:/cache/cargo" \
     -v "$cache/$app/target-win:/cache/target" \
+    -v "$cache/$app/engine-src-target-win:/cache/engine-src" \
     -v "$cache/xwin:/cache/xwin" \
     -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR=/cache/target -e XWIN_CACHE_DIR=/cache/xwin \
     -e MD_LLVM_RC=/usr/bin/llvm-rc -e CARGO_TERM_COLOR=never \
     -w /src "$image" \
-    bash -c 'set -e; PATH=/opt/cargo/bin:$PATH cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p mdedit -p mdedit-ai
-        packaging/engine-source.sh /cache/target/engine-src
+    bash -c 'set -e; export PATH=/opt/cargo/bin:$PATH
+        cargo xwin build --release --locked --target x86_64-pc-windows-msvc -p mdedit -p mdedit-ai
+        packaging/engine-source.sh /cache/engine-src/checkout
         RUSTFLAGS="-C target-feature=+crt-static" cargo xwin build --release --locked --target x86_64-pc-windows-msvc \
-            -p mdview-engine --manifest-path /cache/target/engine-src/Cargo.toml --target-dir /cache/target/engine'
+            -p mdshared-md-engine --bin mdview-engine --manifest-path /cache/engine-src/checkout/Cargo.toml --target-dir /cache/target/engine'
 built="$cache/$app/target-win/x86_64-pc-windows-msvc/release/$app.exe"
 engine="$cache/$app/target-win/engine/x86_64-pc-windows-msvc/release/mdview-engine.exe"
 [ -f "$built" ] || { echo "build left no $built" >&2; exit 1; }
@@ -89,11 +91,11 @@ if [ "$installer" = 1 ]; then
     fi
     stage="$root/target/cross-installer"
     rm -rf "$stage"
-    mkdir -p "$stage/packaging/windows" "$stage/assets" "$stage/target/release" "$stage/target/engine"
+    mkdir -p "$stage/packaging/windows" "$stage/assets" "$stage/target/release"
     cp packaging/windows/mdedit.iss "$stage/packaging/windows/"
     cp assets/mdedit.ico "$stage/assets/"
     cp "$built" "$stage/target/release/mdedit.exe"
-    cp "$engine" "$stage/target/engine/mdview-engine.exe"
+    cp "$engine" "$stage/target/release/mdview-engine.exe"
     cp "$ai" "$stage/target/release/mdedit-ai.exe"
     export WINEPREFIX="$cache/wine-prefix" WINEARCH=win64 WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
     wine "$iscc_dir/ISCC.exe" "/DAppVersion=$version" "$(winepath -w "$stage/packaging/windows/mdedit.iss" 2>/dev/null)" >/dev/null

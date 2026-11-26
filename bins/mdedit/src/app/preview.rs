@@ -560,21 +560,7 @@ mod tests {
         pub(super) static COPIED: RefCell<Option<String>> = const { RefCell::new(None) };
     }
 
-    /// The mdview that draws the pane in the default build: `MDEDIT_TEST_MDVIEW`, or the
-    /// viewer's release build beside this repository. The embedded build needs none.
-    fn viewer() -> Option<PathBuf> {
-        if cfg!(feature = "embedded-preview") {
-            return Some(PathBuf::from("mdview"));
-        }
-        let path = std::env::var_os("MDEDIT_TEST_MDVIEW")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../../markdown-viewer-rs/target/release")
-                    .join(format!("mdview{}", std::env::consts::EXE_SUFFIX))
-            });
-        path.is_file().then_some(path)
-    }
+    use crate::preview_pane::test_viewer;
 
     /// Takes the pane's answers in until `until` holds, or five seconds pass.
     fn pump(a: &mut App, until: impl Fn(&App) -> bool) {
@@ -611,16 +597,12 @@ mod tests {
     /// page, and the page took the press before the dialog saw it.
     #[test]
     fn a_dialog_over_the_page_takes_the_click() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
         let dir = scratch("dialog-over-page");
         let md = dir.join("a.md");
         std::fs::write(&md, "# Title\n\nSome text.\n").unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(test_viewer());
         a.command(C::PreviewPane);
         a.compose();
         pump(&mut a, |a| generation(a) > 0);
@@ -641,16 +623,13 @@ mod tests {
 
     #[test]
     fn the_pane_shows_the_page_and_follows_the_typing() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("pane");
         let md = dir.join("a.md");
         std::fs::write(&md, "# Title\n\nSome text.\n").unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.command(C::PreviewPane);
         assert!(a.preview.is_some() && a.docs.pane_open);
         a.compose();
@@ -684,10 +663,7 @@ mod tests {
 
     #[test]
     fn scrolling_either_side_brings_the_other_to_the_same_line() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("pane-sync");
         let md = dir.join("a.md");
         let text: String = (0..300)
@@ -696,7 +672,7 @@ mod tests {
         std::fs::write(&md, text).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.command(C::PreviewPane);
         a.compose();
         pump(&mut a, |a| generation(a) > 0);
@@ -745,10 +721,7 @@ mod tests {
 
     #[test]
     fn the_editor_at_its_end_brings_the_page_to_its_end_wrapped_or_not() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("pane-end");
         let md = dir.join("a.md");
         // Headings and code are taller on the page than in the text: the page is the longer.
@@ -758,7 +731,7 @@ mod tests {
         std::fs::write(&md, text).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.command(C::PreviewPane);
         a.compose();
         pump(&mut a, |a| generation(a) > 0);
@@ -799,17 +772,14 @@ mod tests {
 
     #[test]
     fn a_click_on_a_task_box_ticks_it_in_the_text_without_saving() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("pane-tasks");
         let md = dir.join("a.md");
         let text = "Tasks:\n\n- [ ] one\n- [x] two\n";
         std::fs::write(&md, text).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.command(C::PreviewPane);
         a.compose();
         pump(&mut a, |a| generation(a) > 0);
@@ -851,10 +821,7 @@ mod tests {
 
     #[test]
     fn the_cursor_is_a_hand_over_a_box_and_a_tick_leaves_the_page_still() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("pane-tasks-still");
         let md = dir.join("a.md");
         let mut text = String::from("- [ ] first\n- [x] second\n\n");
@@ -862,7 +829,7 @@ mod tests {
         std::fs::write(&md, &text).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.command(C::PreviewPane);
         a.compose();
         pump(&mut a, |a| generation(a) > 0);
@@ -920,10 +887,7 @@ mod tests {
 
     #[test]
     fn the_page_selects_with_the_mouse_and_copy_takes_its_text() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("pane-select");
         let md = dir.join("a.md");
         let text: String = (0..80)
@@ -932,7 +896,7 @@ mod tests {
         std::fs::write(&md, &text).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.command(C::PreviewPane);
         a.compose();
         pump(&mut a, |a| generation(a) > 0);
@@ -1085,10 +1049,7 @@ mod tests {
     /// where it was. The box is at the block's place on the page, so it moves with it.
     #[test]
     fn the_open_block_s_box_moves_with_the_page_it_is_on() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-scroll");
         let md = dir.join("a.md");
         let text: String = (0..80)
@@ -1103,7 +1064,7 @@ mod tests {
         std::fs::write(&md, text).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.compose();
         a.command(C::VisualEdit);
         a.compose();
@@ -1173,10 +1134,7 @@ mod tests {
     fn visual_editing_keeps_the_hidden_text_safe_and_follows_edits_around_the_block() {
         use crate::docs::EditOp;
         use crate::keys::{Key, KeyName};
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-safe");
         let md = dir.join("a.md");
         std::fs::write(
@@ -1194,7 +1152,7 @@ Last.
         .unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.compose();
         a.command(C::VisualEdit);
         a.compose();
@@ -1266,10 +1224,7 @@ A new line.",
     #[test]
     fn visual_editing_opens_a_block_in_place_follows_its_typing_and_puts_it_back() {
         use crate::keys::{Key, KeyName};
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual");
         let md = dir.join("a.md");
         std::fs::write(
@@ -1287,7 +1242,7 @@ Last.
         .unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         let text_before = {
             a.compose();
             a.areas.text
@@ -1387,16 +1342,13 @@ Last.
 
     /// A long document in visual editing with its page drawn; the viewer's path, or none.
     fn visual_long(tag: &str, text: String) -> Option<(App, PathBuf)> {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return None;
-        };
+        let viewer = test_viewer();
         let dir = scratch(tag);
         let md = dir.join("a.md");
         std::fs::write(&md, text).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.compose();
         a.command(C::VisualEdit);
         a.compose();
@@ -1615,10 +1567,7 @@ Last.
     /// window's, not the file's: another Markdown tab is followed.
     #[test]
     fn visual_editing_follows_the_tab_to_another_markdown_document() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-follow-tab");
         let first = dir.join("a.md");
         let second = dir.join("b.md");
@@ -1627,7 +1576,7 @@ Last.
         let mut a = app();
         open_now(&mut a, &first);
         open_now(&mut a, &second);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.docs.activate(0);
         a.compose();
         let id_first = a.docs.active_doc().unwrap().id;
@@ -1700,10 +1649,7 @@ Last.
     /// document opened that nobody asked for. It is dropped instead.
     #[test]
     fn a_question_held_for_the_page_is_not_asked_of_the_tab_switched_to() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-held-question");
         let first = dir.join("a.md");
         let second = dir.join("b.md");
@@ -1712,7 +1658,7 @@ Last.
         let mut a = app();
         open_now(&mut a, &first);
         open_now(&mut a, &second);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.docs.activate(0);
         a.compose();
         let id_first = a.docs.active_doc().unwrap().id;
@@ -1754,10 +1700,7 @@ Last.
     /// file the page cannot show, and the mode must wait for the read.
     #[test]
     fn visual_editing_waits_for_a_note_still_loading() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-loading-tab");
         let first = dir.join("a.md");
         let second = dir.join("b.md");
@@ -1765,7 +1708,7 @@ Last.
         std::fs::write(&second, paragraphs("B", 90)).unwrap();
         let mut a = app();
         open_now(&mut a, &first);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.compose();
         let first_id = a.docs.active_doc().unwrap().id;
         a.command(C::VisualEdit);
@@ -1822,10 +1765,7 @@ Last.
     /// unknown: the mode waits, as for a note. Once read, the page cannot show it.
     #[test]
     fn visual_editing_waits_for_a_file_it_will_not_show() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-loading-other");
         let md = dir.join("a.md");
         let rs = dir.join("b.rs");
@@ -1833,7 +1773,7 @@ Last.
         std::fs::write(&rs, "fn main() {}\n").unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.compose();
         let id_md = a.docs.active_doc().unwrap().id;
         a.command(C::VisualEdit);
@@ -1870,17 +1810,14 @@ Last.
     /// a failure is not one the page can show.
     #[test]
     fn visual_editing_ends_when_the_waiting_note_cannot_be_read() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-loading-failed");
         let md = dir.join("a.md");
         let gone = dir.join("gone.md");
         std::fs::write(&md, paragraphs("A", 90)).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.compose();
         let id_md = a.docs.active_doc().unwrap().id;
         a.command(C::VisualEdit);
@@ -1920,10 +1857,7 @@ Last.
     /// editing opened goes.
     #[test]
     fn a_file_the_page_cannot_show_ends_visual_editing_and_closes_the_pane_it_opened() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-follow-off");
         let md = dir.join("a.md");
         let rs = dir.join("b.rs");
@@ -1932,7 +1866,7 @@ Last.
         let mut a = app();
         open_now(&mut a, &md);
         open_now(&mut a, &rs);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.docs.activate(0);
         a.compose();
         assert!(a.preview.is_none(), "the pane starts closed");
@@ -1972,10 +1906,7 @@ Last.
     /// open alone.
     #[test]
     fn a_file_the_page_cannot_show_leaves_a_pane_the_owner_had_open() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-follow-keep");
         let md = dir.join("a.md");
         let rs = dir.join("b.rs");
@@ -1984,7 +1915,7 @@ Last.
         let mut a = app();
         open_now(&mut a, &md);
         open_now(&mut a, &rs);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.docs.activate(0);
         a.command(C::PreviewPane);
         a.compose();
@@ -2009,10 +1940,7 @@ Last.
     /// Closing the tab visual editing is on follows the tab that takes its place.
     #[test]
     fn visual_editing_follows_a_closed_tab() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-follow-close");
         let first = dir.join("a.md");
         let second = dir.join("b.md");
@@ -2021,7 +1949,7 @@ Last.
         let mut a = app();
         open_now(&mut a, &first);
         open_now(&mut a, &second);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.docs.activate(0);
         a.compose();
         let id_first = a.docs.active_doc().unwrap().id;
@@ -2048,16 +1976,13 @@ Last.
     /// opened goes and the text area is the window's again.
     #[test]
     fn closing_the_last_tab_ends_visual_editing() {
-        let Some(viewer) = viewer() else {
-            eprintln!("no mdview build to draw the pane: skipped");
-            return;
-        };
+        let viewer = test_viewer();
         let dir = scratch("visual-follow-last");
         let md = dir.join("a.md");
         std::fs::write(&md, paragraphs("A", 20)).unwrap();
         let mut a = app();
         open_now(&mut a, &md);
-        a.viewer_path = Some(Some(viewer));
+        a.viewer_path = Some(viewer);
         a.compose();
         let id = a.docs.active_doc().unwrap().id;
         a.command(C::VisualEdit);

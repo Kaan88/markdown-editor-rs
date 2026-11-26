@@ -1,16 +1,16 @@
 # Maintainer: Kaan88 <Kaan88@users.noreply.github.com>
 #
+# Generation only: do not run makepkg on this template. Use the PKGBUILD attached to a release
+# or generate one with packaging/arch/make-pkgbuild.sh.
 # Installs the release tarball of mdedit (prebuilt binaries, the editor and the preview pane's
 # engine and the AI engine in /usr/lib/mdedit, linked against glibc 2.31 or newer).
-# This copy keeps sha256sums=('SKIP'): a PKGBUILD kept in the repository cannot know the sum of the
-# tarball of a release that does not exist yet. The release workflow uploads a PKGBUILD with the
-# real sum (packaging/arch/make-pkgbuild.sh); use that one, or fill the sum in yourself.
+# The generator substitutes the version and the tarball checksum.
 #
 #   makepkg -si
 #
 # The package does not update itself; pacman (or the AUR helper) does.
 pkgname=mdedit-bin
-pkgver=1.1.1
+pkgver=GENERATE_WITH_MAKE_PKGBUILD
 pkgrel=1
 pkgdesc="A light, fast text editor (prebuilt binary)"
 arch=('x86_64')
@@ -22,11 +22,13 @@ provides=("mdedit=$pkgver")
 conflicts=('mdedit')
 options=('!strip' '!debug')
 source=("mdedit-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/mdedit-$pkgver-linux-x86_64.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('GENERATE_WITH_MAKE_PKGBUILD')
 
 package() {
     cd "$srcdir/mdedit-$pkgver-linux-x86_64"
-    install -Dm755 bin/mdedit "$pkgdir/usr/bin/mdedit"
+    install -Dm755 lib/mdedit/mdedit "$pkgdir/usr/lib/mdedit/mdedit"
+    install -d "$pkgdir/usr/bin"
+    ln -s ../lib/mdedit/mdedit "$pkgdir/usr/bin/mdedit"
     install -Dm755 lib/mdedit/mdview-engine "$pkgdir/usr/lib/mdedit/mdview-engine"
     install -Dm755 lib/mdedit/mdedit-ai "$pkgdir/usr/lib/mdedit/mdedit-ai"
     install -Dm644 share/applications/mdedit.desktop "$pkgdir/usr/share/applications/mdedit.desktop"

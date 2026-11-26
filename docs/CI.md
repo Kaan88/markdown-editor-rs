@@ -10,7 +10,7 @@ default `GITHUB_TOKEN`.
 | Workflow | Runs on | What it is for |
 | --- | --- | --- |
 | `ci` | A push to `main`, every pull request, by hand | fmt, clippy, the tests and the screenshot suite on Linux, Windows and two Macs |
-| `mac-look` | A push to `main`, by hand | Builds on a Mac, renders the shots and uploads them, to see how the app looks there |
+| `mac-look` | A push to `main`, by hand | Builds on a Mac, runs the updater and native UI checks, and uploads only the named scratch-window captures and headless shots |
 | `preview-test` | By hand only | On Windows: builds mdedit with and without the built-in preview beside a build of the viewer, runs the preview tests, uploads shots; a second job builds `main` beside the branch to compare them |
 | `release` | A pushed tag `v*`, by hand | Builds every package and publishes the release |
 
@@ -29,15 +29,40 @@ and `macos` (two runners: Apple Silicon and Intel). Each does the same:
 
 1. `cargo fmt --all --check`
 2. `cargo clippy --release --workspace --all-targets -- -D warnings`
-3. `cargo test --release --workspace`
-4. The headless screenshot suite as a smoke test: `cargo build --release -p mdedit`,
-   `bash tests/shots.sh target/shots`, then `tests/shots-check.sh target/shots`, which fails when
+3. `bash tests/isolated.sh cargo test --release --workspace` (scratch settings and application data)
+4. The headless screenshot suite as a smoke test: build `mdedit` and stage the toolkit's pinned
+   `mdview-engine` beside it (see `docs/CODE.md`), run `bash tests/shots.sh target/shots`,
+   then `tests/shots-check.sh target/shots`, which fails when
    any shot named in `shots.sh` is missing, empty or not a PNG. There is no pixel comparison:
-   the runners' fonts differ from the development machines'. The PNGs are uploaded as the
+   the runners' fonts differ from the development machines'. The harness gives every shot a
+   fresh scratch settings file and application-data directory. The PNGs are uploaded as the
    artifacts `shots-linux`, `shots-windows` and `shots-macos-<arch>`.
 
-The Mac jobs also zip `mdedit.app` and upload it. The Linux job installs the system packages the
-build links against (the list of `packaging/linux/Dockerfile`).
+The Mac jobs also zip `mdedit.app` and upload it; `mac-look` stages the same locked helper before
+bundling. Windows also checks the installer preflight against a clean output layout. The Linux
+job installs the system packages the build links against (the list of `packaging/linux/Dockerfile`).
+The toolkit engine source checkout stays in `RUNNER_TEMP`, outside the Rust build cache.
+The Docker packaging scripts likewise mount engine sources separately from the target directory.
+
+The `preview-test` comparison requires the viewer lockfile to resolve the same shared renderer
+as mdedit, then builds the viewer with `--locked`. External tests require an explicit absolute
+`MDEDIT_TEST_MDVIEW`; CI also points `MDV_ENGINE` at the staged helper for the test binaries.
+Invalid viewer diagnostics include the configured path only with `MDEDIT_TEST_VERBOSE=1`.
+Both timing jobs use the same scratch-environment wrapper as shots and pass `--behind`.
+The `mac-look` updater uses scratch settings directly; its replacement test bundle carries
+the path in `LSEnvironment` for LaunchServices. The test checks the restart owns the port
+registered beside those settings.
+The updater refuses to touch the keychain outside a GitHub-hosted Mac runner and registers
+cleanup before trusting its temporary certificate; cleanup removes trust and deletes the
+certificate by fingerprint. The native window and typing tests launch a newly signed scratch
+bundle with a unique identifier and scratch settings. Their Swift driver verifies the bundle,
+PID, document and window, sends keys to that PID and opens the Edit menu through its
+accessibility object. Captures target only the verified window or owned Open panel; the tests
+fail closed if macOS permissions or ownership checks prevent that. The typing test checks the
+exact recent-document bookmark and verifies the custom Quit confirmation appears and is cancelled.
+The full-screen capture requires `AXFullScreen` to be true, and the test also verifies
+it returns to false. If launch times out and cleanup cannot verify ownership, it reports
+and retains the scratch bundle rather than guessing a PID.
 
 No test is skipped and no step may fail: `ci.yml` has no `--skip`, no `continue-on-error` and no
 `TEMP` override. (A few tests are `#[ignore]`d in the source: timing benchmarks and sheet
@@ -72,9 +97,9 @@ of `Cargo.toml`, before anything is built.
 
 | Job | Runs on | Does |
 | --- | --- | --- |
-| `windows` | windows-latest | Installs Inno Setup (`choco install innosetup`), runs `tools\release.ps1` without `-Publish` (the native build of `mdedit.exe` and of `mdview-engine.exe` from the pinned viewer revision, the Inno Setup installer), then `packaging\windows\build-zip.ps1` (the portable zip). |
-| `linux` | ubuntu-latest | `packaging/linux/build-packages.sh`: builds the binary in the Ubuntu 20.04 image of `packaging/linux/Dockerfile` (glibc 2.31, the script refuses a binary that needs a newer one), then the AppImage, tar.gz, deb, rpm and the PKGBUILD from that one binary. Smoke test: the tar.gz is unpacked, installed into a temporary prefix, run headless, uninstalled. |
-| `macos` | macos-15, macos-15-intel | Builds `mdview-engine` from the pinned viewer revision and `mdedit.app` with `packaging/macos/make-bundle.sh` (the engine in `Contents/MacOS`) (ad-hoc signature, checked with `codesign --verify`) and zips it as `mdedit-<version>-macos-aarch64.zip` and `-x86_64.zip`. |
+| `windows` | windows-latest | Installs Inno Setup (`choco install innosetup`), runs `tools\release.ps1` without `-Publish` (the native build of `mdedit.exe` and of `mdview-engine.exe` from the pinned toolkit revision, the Inno Setup installer), then `packaging\windows\build-zip.ps1` (the portable zip). |
+| `linux` | ubuntu-latest | `packaging/linux/build-packages.sh`: builds in the Ubuntu 20.04 image (glibc 2.31), then makes the AppImage, tar.gz, deb, rpm and generated PKGBUILD. The installed tarball and extracted AppImage both run the SVG smoke test: with no sibling helper, it requires neither SVG pixels nor a helper start from the parent directory, `PATH`, or a discoverable scratch viewer's directory. The tarball also checks uninstall. |
+| `macos` | macos-15, macos-15-intel | Builds `mdview-engine` from the pinned toolkit revision and `mdedit.app` with `packaging/macos/make-bundle.sh` (the engine in `Contents/MacOS`) (ad-hoc signature, checked with `codesign --verify`) and zips it as `mdedit-<version>-macos-aarch64.zip` and `-x86_64.zip`. |
 | `attach` | ubuntu-latest | Only for a manual run with `attach_macos_to: v<version>` (then `windows`, `linux` and `publish` are skipped): adds the two macOS zips and `mdedit-update-macos.txt` to that existing release, and the macOS paragraph to its text. |
 | `publish` | ubuntu-latest | Needs `windows`, `linux` and `macos`. Also writes `mdedit-update-macos.txt` (`packaging/macos/write-manifest.sh`) and adds the macOS paragraph (`packaging/macos/release-notes.md`) to the release text. Writes `mdedit-update.txt` with both platforms (`tools/write-manifest.sh`: the Windows entry names the native exe the `windows` job built and its engine, the Linux entry the AppImage), checks every hash against its file, copies the release text to `release-notes-<version>.md` (at most 64 KiB), writes `hub.txt` for Hub with `-NotesFile` naming it (`tools/write-hub-txt.ps1` under `pwsh`, which refuses what Hub's parser would refuse), runs the repo's manifest test (`cargo test --release -p mdedit --test release_manifest`) against the assembled `target/release-files-all/`, and, only for a tag or `publish: true`, runs `gh release create v<version>` at the tagged commit with all assets, marked latest. This is the only job with `contents: write`. |
 

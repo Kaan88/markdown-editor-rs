@@ -1,7 +1,7 @@
 # Where the code is, and how to build, test, look and measure
 
-Stable. It changes when a crate, a pin, a command or a script changes. Commits named here are
-the ones at `main` `2b407d2` (2026-11-21); the live values are in the two `Cargo.toml` files.
+Stable. It changes when a crate, a pin, a command or a script changes. The live revisions
+are in `Cargo.toml` and `Cargo.lock`.
 
 ## Three repositories
 
@@ -11,7 +11,8 @@ the ones at `main` `2b407d2` (2026-11-21); the live values are in the two `Cargo
 | `markdown-viewer-rs` | mdview, the Markdown viewer | `mv` |
 | `markdown-shared-rs` | The crates both use | `markdown-shared-rs` |
 
-All three are public and MIT. Anywhere else, clone all three side by side.
+All three are public and MIT. Building mdedit does not require a local checkout of either
+sister repository.
 
 **What is written where, when a fact is true of more than one of them.**
 
@@ -22,8 +23,8 @@ All three are public and MIT. Anywhere else, clone all three side by side.
   agent starts in one of them. When a rule changes, it changes in all three.
 - A decision that binds both apps is recorded in the app where it was taken, and the other app's
   log gets one line that points at it.
-- The state of mdview is in mdview's own documents. This repository says only which viewer
-  commit it builds against.
+- The state of mdview is in mdview's own documents. mdedit uses the toolkit for its embedded
+  preview and does not build against the viewer repository.
 
 ## This workspace
 
@@ -73,7 +74,7 @@ that drive the whole app headless.
 
 ## The shared crates, and the pins
 
-`markdown-shared-rs` holds five crates:
+The crates mdedit uses from `markdown-shared-rs`:
 
 | Crate | What |
 |---|---|
@@ -82,19 +83,22 @@ that drive the whole app headless.
 | `mdshared-text` | Fonts, the text engine, glyph bitmaps |
 | `mdshared-highlight` | The syntect set-up, the incremental line highlighter, Vue and Svelte |
 | `mdshared-fetch` | A hardened fetcher for remote images |
+| `mdshared-md-core`, `mdshared-md-render` | Markdown parsing, layout and pixel rendering |
+| `mdshared-md-preview`, `mdshared-md-engine-proto` | The preview protocol and server, and the helper's wire format |
+| `mdshared-md-engine` | Builds the separate `mdview-engine` binary for formulas, diagrams and SVG |
 
 **How they are pinned.** By commit, in two files:
 
-- Root `Cargo.toml`, `[workspace.dependencies]`: the five `mdshared-*` lines, all at one `rev`
-  (`f75b4c5`). `[patch.crates-io]` replaces winit and softbuffer with the owner's forks
+- Root `Cargo.toml`, `[workspace.dependencies]`: the live shared crates all use `7fd559f`.
+  The two `mdview-*` keys alias `mdshared-md-preview` and `mdshared-md-render`.
+  `[patch.crates-io]` replaces winit and softbuffer with the owner's forks
   (`Kaan88/winit` `62fa727`, `Kaan88/softbuffer` `dd18fec`).
-- `bins/mdedit/Cargo.toml`: `mdview-preview` and `mdview-render` at a commit of the viewer
-  (`e2b3e31`), behind the default feature `embedded-preview`; and `mdshared-app-106`, the shared
-  crate as it was at mdedit 1.0.6 (`49de4ec`), which one test uses to read a release manifest
-  the way an old install would.
-
-So a build holds two copies of some shared crates: the editor's, and the ones the viewer's
-renderer was built against. That is expected.
+- `bins/mdedit/Cargo.toml`: the default `embedded-preview` feature enables the preview
+  server and renderer. `--no-default-features` keeps only the `MDVPREVIEW7` wire client for
+  comparison with a compatible external viewer (`MDEDIT_TEST_MDVIEW` in tests). A test-only
+  `mdshared-app-106` pin stays at `49de4ec` to check manifests as mdedit 1.0.6 would.
+- The helper is built separately with the toolkit's own lockfile and release profile.
+  The engine build scripts use the full revision of `mdshared-md-render` in mdedit's `Cargo.lock`.
 
 mdview pins the shared crates too, at its own commit (`cb0ffd3` on 2026-11-21, older than the
 editor's). **A change to a shared crate must therefore not change what an existing caller draws
@@ -109,10 +113,9 @@ or does unless that caller opts in.** Add a variant beside the old function
 2. Run both apps' `tests/shots.sh` before and after and compare the folders: a shot that changed
    and should not have is the bug.
 3. Commit and push there. Never force-push.
-4. In the app: change the `rev` on every `mdshared-*` line, then
-   `cargo update -p mdshared-ui -p mdshared-app -p mdshared-text -p mdshared-highlight -p mdshared-fetch`.
-   It should only re-resolve those. If it moved a third-party crate in `Cargo.lock`, put that
-   entry back.
+4. In the app: move every live toolkit `rev` in `[workspace.dependencies]` together, including
+   the two renderer aliases. Check the lockfile diff; any third-party version change needs the
+   owner's approval. D-284 approved `regex-automata` 0.4.18 and `regex-syntax` 0.8.11.
 5. Commit the pin on its own: `mdedit: pin the shared crates at …`.
 
 While working on both at once, a local `[patch]` to the checkout on disk saves the round trip.
@@ -126,7 +129,7 @@ PowerShell refused it as unsigned (not re-checked since).
 ```bash
 export TEMP="$PWD/target/tmp" TMP="$PWD/target/tmp"; mkdir -p target/tmp   # keep temp files off the system drive
 cargo build --release --workspace
-cargo test --release --workspace
+bash tests/isolated.sh cargo test --release --workspace
 cargo clippy --release --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
@@ -134,6 +137,24 @@ cargo fmt --all --check
 All four are what `ci` runs, on Linux, Windows and two Macs (`docs/CI.md`). A test must not
 assume this PC: the first CI runs failed on line endings, on `\` in paths, and on a help line
 that was 9 px too wide in the runner's font.
+
+The workspace build does not build the helper. On Windows, use
+`pwsh -File packaging/windows/build-engine.ps1` to build it with the static CRT
+and place it in `target/release` beside `mdedit.exe`. It uses `RUNNER_TEMP/engine-src` in CI
+and `~/.cache/mdedit-build/engine-src` locally, regardless of the build's `TEMP` setting.
+On Linux and macOS:
+
+```bash
+engine_src="${XDG_CACHE_HOME:-$HOME/.cache}/mdedit/engine-src"
+bash packaging/engine-source.sh "$engine_src"
+cargo build --release --locked -p mdshared-md-engine --bin mdview-engine \
+  --manifest-path "$engine_src/Cargo.toml" --target-dir target/engine-build
+cp target/engine-build/release/mdview-engine target/release/
+```
+
+Stage it beside the editor in Windows installers and archives, macOS bundles (`Contents/MacOS`)
+and AppImages (`usr/bin`). Linux tarballs and packages put both real executables in `lib/mdedit`
+and link `bin/mdedit` to `../lib/mdedit/mdedit`, avoiding the viewer package's engine path.
 
 ## Running a build without touching the owner's
 
@@ -158,9 +179,13 @@ bash tests/shots-check.sh target/shots/a  # fails if a shot is missing, empty or
   `--scale N`, `--light` or `--dark`, and flags that put the app in a state: `--menu NAME`,
   `--dialog NAME`, `--palette`, `--ai-demo KIND`, `--replace-dialog`, `--compare A B`,
   `--pref key=value`, `--hover X,Y`, `--type TEXT`. All of them are in `args.rs`.
-- On one machine the set is deterministic: run it into two folders and every PNG is the same,
-  byte for byte. Between machines it is not, because the fonts differ, so `ci` checks only that
-  every shot exists, and uploads them (`shots-windows`, `shots-linux`, `shots-macos-…`).
+- For a standalone shot or test command, `bash tests/isolated.sh …` provides scratch settings
+  and application data and clears inherited engine and sister overrides; `shots.sh` does this
+  separately for every shot.
+- Compare the generated PNGs on the same machine; fonts differ between machines, and `runs*`
+  shots can vary with the clock. `ci` checks only that
+  every required shot exists, and uploads them (`shots-windows`, `shots-linux`, `shots-macos-…`).
+  The tracked `shots/` pictures are illustration captures, not the suite's expected outputs.
 - **Every new visible state gets a line in `tests/shots.sh`**, in both themes where it has
   colours of its own. Then open the PNGs and look.
 - A shot proves what was drawn, not that it is right, and not that it redraws. For anything

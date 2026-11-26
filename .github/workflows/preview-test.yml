@@ -1,13 +1,13 @@
 # The preview pane's Windows test app, from the main branches of mdedit and mdview (by hand):
-# builds mdview (with its engine) and both builds of mdedit's pane, times them on the runner and
-# packs one zip with a folder for each build. Not a release: no installer, no signature.
+# builds mdview only as the external comparison app, and both builds of mdedit's pane.
+# The engine comes from mdedit's toolkit pin. Not a release: no installer, no signature.
 name: preview-test
 
 on:
   workflow_dispatch:
     inputs:
       viewer_ref:
-        description: "The mdview branch to build against"
+        description: "A viewer ref that supports MDVPREVIEW7, for the external comparison only"
         type: string
         default: main
 
@@ -49,16 +49,18 @@ jobs:
       - name: Build mdview and both mdedit builds
         shell: bash
         run: |
-          (cd viewer && cargo build --release -p mdview -p mdview-engine)
           cd editor
+          bash packaging/engine-source.sh --check-lock ../viewer/Cargo.lock
+          (cd ../viewer && cargo build --release --locked -p mdview)
+          pwsh -File packaging/windows/build-engine.ps1
           cargo build --release -p mdedit --no-default-features
           mkdir -p ../out/renderer ../out/embedded
           cp target/release/mdedit.exe ../out/renderer/
           cargo build --release -p mdedit
           cp target/release/mdedit.exe ../out/embedded/
           # The renderer build needs mdview; the default build only the engine beside it.
-          cp ../viewer/target/release/mdview.exe ../viewer/target/release/mdview-engine.exe ../out/renderer/
-          cp ../viewer/target/release/mdview-engine.exe ../out/embedded/
+          cp ../viewer/target/release/mdview.exe target/release/mdview-engine.exe ../out/renderer/
+          cp target/release/mdview-engine.exe ../out/embedded/
           cp ../viewer/fixtures/everything.md ../out/everything.md
           cp ../viewer/docs/PLAN.md ../out/plan.md
           cp ../viewer/fixtures/math.md ../viewer/fixtures/diagrams.md ../out/
@@ -69,17 +71,20 @@ jobs:
           MDEDIT_TEST_MDVIEW: ${{ github.workspace }}\out\renderer\mdview.exe
         run: |
           cd editor
-          cargo test --release -p mdedit --no-default-features preview
-          cargo test --release -p mdedit preview
+          bash tests/isolated.sh env MDV_ENGINE="$(cygpath -w "$PWD/target/release/mdview-engine.exe")" \
+            cargo test --release -p mdedit --no-default-features preview
+          bash tests/isolated.sh cargo test --release -p mdedit preview
       - name: Timings (a real window on the runner)
-        shell: pwsh
+        shell: bash
         continue-on-error: true
         run: |
+          bash editor/tests/isolated.sh pwsh -NoProfile -NonInteractive -Command - <<'PS'
+          $ErrorActionPreference = 'Stop'
           $out = "$env:GITHUB_WORKSPACE\out"
           function Run($build, $file, $extra) {
             $exe = "$out\$build\mdedit.exe"
             $err = "$out\err.txt"
-            $argv = @('--no-session', '--trace', '--size', '1400x900') + $extra + @("$out\$file")
+            $argv = @('--no-session', '--behind', '--trace', '--size', '1400x900') + $extra + @("$out\$file")
             $p = Start-Process -FilePath $exe -ArgumentList $argv -RedirectStandardError $err -PassThru
             Start-Sleep -Milliseconds 3000
             $kids = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($p.Id)"
@@ -105,6 +110,8 @@ jobs:
               }
             }
           }
+
+          PS
       - uses: actions/checkout@v7
         with:
           repository: Kaan88/markdown-shared-rs
@@ -128,12 +135,12 @@ jobs:
         run: |
           mkdir -p out/shots
           for b in renderer embedded; do
-            out/$b/mdedit.exe --no-session --size 1400x860 --scale 1 --preview-pane --shot out/shots/$b-light.png out/everything.md
-            out/$b/mdedit.exe --no-session --dark --size 1400x860 --scale 1.5 --preview-pane --shot out/shots/$b-dark.png out/plan.md
+            bash editor/tests/isolated.sh out/$b/mdedit.exe --no-session --behind --size 1400x860 --scale 1 --preview-pane --shot out/shots/$b-light.png out/everything.md
+            bash editor/tests/isolated.sh out/$b/mdedit.exe --no-session --behind --dark --size 1400x860 --scale 1.5 --preview-pane --shot out/shots/$b-dark.png out/plan.md
           done
           # No mdview beside it: formulas and diagrams from the engine shipped with mdedit.
           for f in math diagrams; do
-            out/embedded/mdedit.exe --no-session --size 1400x860 --scale 1 --preview-pane --shot out/shots/standalone-$f.png out/$f.md
+            bash editor/tests/isolated.sh out/embedded/mdedit.exe --no-session --behind --size 1400x860 --scale 1 --preview-pane --shot out/shots/standalone-$f.png out/$f.md
           done
           ls -l out/shots
       - uses: actions/upload-artifact@v7
@@ -151,7 +158,7 @@ jobs:
           cat > dist/mdedit-preview-test/README.txt <<'EOF'
           mdedit preview pane, Windows test build (not a release).
 
-          embedded\mdedit.exe   the page is drawn by mdview's renderer inside mdedit; formulas
+          embedded\mdedit.exe   the page is drawn by the shared renderer inside mdedit; formulas
                                 and diagrams by mdview-engine.exe beside it. No mdview needed:
                                 "Preview in mdview" stays hidden unless mdview is installed.
           renderer\mdedit.exe   the page is drawn by mdview --preview-server, in its own
@@ -208,5 +215,6 @@ jobs:
         shell: bash
         run: |
           cd editor
-          python tools/compare-builds.py ../out/main/mdedit.exe ../out/embedded/mdedit.exe 7 \
+          bash tests/isolated.sh env MDEDIT_ARGS=--behind \
+            python tools/compare-builds.py ../out/main/mdedit.exe ../out/embedded/mdedit.exe 7 \
             fixtures/sample.rs fixtures/sample.md fixtures/complete.md target/data/100mb.txt

@@ -3036,3 +3036,60 @@ old frame. Motion-off and other snap paths do not run the extra pass.
 making the switch instant. This keeps one retained theme snapshot and does not
 change D-282's memory exception.
 **Overturned by.** A change to the owner's menu-close or theme-motion rules.
+
+## D-284 — 2026-11-27 — Build the preview and its engine from the same toolkit pin
+
+**Decision.** Replaces D-273's toolkit pin and the viewer pin recorded in D-108. Move all
+current shared crates to `7fd559f` together. The default preview uses the toolkit renderer;
+the optional external comparison build speaks `MDVPREVIEW7`. Keep `mdshared-app-106` at its
+historical revision for the old updater manifest test. Build the `mdview-engine` binary from
+the same toolkit checkout as the renderer. The packaged engine goes beside the real editor
+executable; on Linux packages and the tarball, `bin/mdedit` links to `lib/mdedit/mdedit` so
+mdedit and mdview do not claim the same engine path. No search in parent folders or beside an
+installed mdview; the renderer accepts an explicit absolute `MDV_ENGINE` override.
+**Why.** The renderer now lives in shared, and this pin brings preview input and engine
+discovery hardening, bounded work and vertical-only font hinting. Shared pins
+`regex-syntax = 0.8.11`; the old locked `regex-automata 0.4.19` requires `0.8.12` or later.
+Move `regex-syntax` from `0.8.12` to `0.8.11` and `regex-automata` from `0.4.19` to `0.4.18`
+in the editor lockfile, matching the toolkit lock.
+**Overturned by.** A deliberate toolkit pin or packaging contract change.
+**From.** The renderer migration brief and the owner's approval of both patch downgrades.
+
+## D-285 — 2026-11-27 — Pin the external preview helper and reject dirty engine sources
+
+**Decision.** Refines D-284. The external preview hands the viewer the validated absolute
+`MDV_ENGINE` value (the packaged sibling if there is no override). If that path is missing or
+the override is relative, do not start the viewer. The comparison workflow checks the viewer's
+resolved renderer revision first. Engine build scripts reuse only a clean source checkout.
+**Why.** A viewer with older lookup rules must not be allowed to supply an unchecked helper,
+and a matching Git revision is not proof that the working tree matches it.
+**Overturned by.** A change to the supported external preview or release build contract.
+**From.** The renderer migration review and follow-up brief.
+
+## D-286 — 2026-11-27 — Find a co-installed viewer in mdedit's Linux prefix
+
+**Decision.** After the explicit `MD_SISTER_MDVIEW` override, check `lib/mdview/mdview`
+and then `bin/mdview` under the prefix of mdedit's real executable. Use the toolkit's
+`find_in` to validate each candidate, then fall back to normal toolkit discovery. Use the
+same discovery to offer and open the viewer. D-284/D-285's engine lookup is unchanged.
+**Why.** Co-installed Linux packages should find each other even with the prefix off `PATH`.
+This mirrors mdview's Edit in mdedit discovery (`3429250`).
+**Overturned by.** A shared toolkit API that supplies the same discovery order.
+**From.** The owner's decision on the renderer re-review's Linux lookup finding.
+
+## D-287 — 2026-11-27 — The toolkit's font hinting is accepted
+
+The move to toolkit `7fd559f` brings vertical-only hinting (toolkit #49), which changes glyph
+edges in every shot. The owner approved it: "text rendering is great on other apps, mark it
+fine." The shot goldens are regenerated from it.
+**Why.** The owner looked at the hinting in the other apps and is happy with it.
+**Overturned by.** The owner finding text worse in mdedit itself.
+**From.** The owner, 2026-11-27.
+
+## D-288 — 2026-11-27 — Defer the hosted Mac self-update test for 1.6.0
+
+**Decision.** Keep the `mac-look` self-update test, but make only that step non-blocking.
+Do not change the Mac build or release jobs.
+**Why.** The hosted Mac runner hung in the self-update test, and macOS is not a primary target.
+**Overturned by.** A verified hosted self-update run and the owner's decision to require it again.
+**From.** The owner, 2026-11-27.
