@@ -52,6 +52,29 @@ fn tick(a: &mut App, ms: u64) {
     }
 }
 
+/// A 60 Hz paint deadline is longer than 16 ms. Use 17 ms frames and split any
+/// 16 ms remainder, while still landing on the exact requested endpoint.
+pub(super) fn transition_steps(ms: u32) -> impl Iterator<Item = u64> {
+    let tail = match u64::from(ms % 17) {
+        0 => [0, 0],
+        16 => [15, 1],
+        n => [n, 0],
+    };
+    std::iter::repeat_n(17, (ms / 17) as usize).chain(tail.into_iter().filter(|&n| n != 0))
+}
+
+#[test]
+fn transition_test_steps_do_not_undershoot_every_paint_deadline() {
+    for ms in 0..=170 {
+        let steps: Vec<_> = transition_steps(ms).collect();
+        assert_eq!(steps.iter().sum::<u64>(), u64::from(ms));
+        assert!(
+            steps.iter().all(|s| (1..=17).contains(s) && *s != 16),
+            "no 16 ms steps"
+        );
+    }
+}
+
 fn shown(a: &App) -> f32 {
     a.motion.drawn.map_or(-1.0, |m| m.main.1)
 }
@@ -2140,7 +2163,7 @@ fn settings_dim_and_card_enter_together_and_reach_the_plain_dialog_at_117_ms() {
     );
     let at = |x: u32, y: u32| ((y * editor.width + x) * 4) as usize;
     let mid = [at(2, 2), at(editor.width / 2, editor.height / 2)];
-    for step in crate::motion::shot_steps(67) {
+    for step in transition_steps(67) {
         tick(&mut a, step);
         let before = a.screen.pixels.clone();
         let (damage, _) = a.compose();
@@ -2159,7 +2182,7 @@ fn settings_dim_and_card_enter_together_and_reach_the_plain_dialog_at_117_ms() {
             "{label} is not at rest"
         );
     }
-    for step in crate::motion::shot_steps(50) {
+    for step in transition_steps(50) {
         tick(&mut a, step);
         a.compose();
     }

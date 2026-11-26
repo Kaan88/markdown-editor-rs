@@ -23,7 +23,7 @@ fn flip(a: &mut App, dark: bool) {
 }
 
 fn advance(a: &mut App, ms: u32) {
-    for step in crate::motion::shot_steps(ms) {
+    for step in super::motion_tests::transition_steps(ms) {
         a.motion.advance_ms(step);
         a.compose();
     }
