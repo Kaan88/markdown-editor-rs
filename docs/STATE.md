@@ -50,9 +50,11 @@ Rewritten, not appended to. Last rewritten 2026-11-26, when the pin moved and to
   keeps a target's first delay. **On the owner's word: quick, quiet motion; menus open in
   117 ms; menus and dialogs close instantly; everything under the one Animations setting, and
   motion off draws exactly as now; only what shared has at `09b01c1`.**
-  - **M-D, Settings and tree chevrons**: `settings::pages::Form::draw_animated` in place of
-    `draw`; tree chevrons through `glyph::draw_disclosure_animated_with` (motion from
-    `motion.rs`); D1 groups, and `keep_group` on frames that skip the pane.
+  - **M-D, Settings and tree chevrons**: done, `8ab68f1` (DESIGN 98, D-259):
+    `settings::pages::Form::draw_animated` in place of `draw`; tree chevrons through
+    `glyph::draw_disclosure_animated_with` (motion from `motion.rs`); the groups `SIDEBAR` and
+    `SETTINGS`, `keep_group` on frames that skip the pane; shots `settings-switch-*`,
+    `tree-chevron-*`.
   - **M-E, title row, X3 and the rest of the popups**: `chrome::draw_win_button_animated`,
     `draw_tab_animated`, `draw_new_tab_button_animated` (D4; shared #31 fixed the `t == 0`
     flash at `09b01c1`); X3: `Menu::draw_in_animated` (the hover row), `Palette::draw_presence`,
