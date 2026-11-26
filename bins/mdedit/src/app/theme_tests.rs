@@ -1,0 +1,296 @@
+//! Theme blending through the normal compositor, using only the manual frame clock.
+
+use super::*;
+use crate::app::files_tests::{app, scratch};
+use mdshared_app::backdrop::Backdrop;
+use mdshared_ui::anim::ManualClock;
+use winit::dpi::PhysicalSize;
+
+fn window(dark: bool) -> App {
+    let mut a = app();
+    a.motion = crate::motion::Motion::moving(ManualClock::new());
+    a.focused = false;
+    flip(&mut a, dark);
+    a
+}
+
+fn flip(a: &mut App, dark: bool) {
+    a.set_theme(if dark {
+        ThemeChoice::Dark
+    } else {
+        ThemeChoice::Light
+    });
+}
+
+fn advance(a: &mut App, ms: u32) {
+    for step in crate::motion::shot_steps(ms) {
+        a.motion.advance_ms(step);
+        a.compose();
+    }
+}
+
+fn pixel(a: &App) -> [u8; 4] {
+    let at = ((a.screen.height / 2 * a.screen.width + a.screen.width / 5) * 4) as usize;
+    a.screen.pixels[at..at + 4].try_into().unwrap()
+}
+
+fn at_rest(a: &App) {
+    assert!(a.motion.theme_fade.is_none(), "no retained snapshot");
+    assert_eq!(a.motion.due, None, "no animation deadline");
+}
+
+#[test]
+fn a_theme_flip_crossfades_the_whole_window_over_170_ms_in_either_direction() {
+    for from_dark in [false, true] {
+        let mut a = window(from_dark);
+        a.compose();
+        let from = a.screen.pixels.clone();
+        let old = pixel(&a);
+        let mut still = window(!from_dark);
+        still.compose();
+        let new = pixel(&still);
+        assert_ne!(old, new);
+
+        flip(&mut a, !from_dark);
+        a.compose();
+        let s = a
+            .motion
+            .theme_fade
+            .as_ref()
+            .expect("previous window is retained");
+        assert_eq!(s.bitmap_size(), (1280, 800));
+        assert_eq!(s.rect(), (0, 0, 1280, 800));
+        assert!(
+            a.screen.pixels == from,
+            "the first frame is entirely the old frame"
+        );
+        // 5 × 17 ms, not one clock jump (the stall guard clamps it).
+        for _ in 0..5 {
+            a.motion.advance_ms(17);
+            let (damage, _) = a.compose();
+            assert!(
+                (0..800).all(|y| damage
+                    .iter()
+                    .any(|&(x0, y0, x1, y1)| x0 == 0 && x1 == 1280 && y0 <= y && y < y1)),
+                "each row is presented through the fade"
+            );
+        }
+        let mid = pixel(&a);
+        assert_ne!(mid, old);
+        assert_ne!(mid, new);
+        for (m, (l, r)) in mid[..3].iter().zip(old.into_iter().zip(new)) {
+            assert!((i16::from(*m) * 2 - i16::from(l) - i16::from(r)).abs() <= 2);
+        }
+        advance(&mut a, 84);
+        assert!(a.motion.theme_fade.is_some(), "still in flight at 169 ms");
+        advance(&mut a, 1);
+        assert!(
+            a.screen.pixels == still.screen.pixels,
+            "pure new palette at 170 ms"
+        );
+        at_rest(&a);
+        assert!(a.compose().0.is_empty());
+    }
+}
+
+#[test]
+fn first_paint_never_snapshots_the_initial_palette() {
+    let mut a = window(false);
+    a.docs.theme = ThemeChoice::System;
+    a.system_dark = false;
+    // Exercise the frame guard, not just the bitmap-size guard.
+    a.pal = theme::DARK;
+    a.screen = Bitmap::new(a.size.0, a.size.1);
+    a.compose();
+    assert_eq!(a.pal, theme::LIGHT);
+    assert_eq!(a.motion.theme_serial, 0, "frame zero did not capture");
+    at_rest(&a);
+}
+
+#[test]
+fn another_flip_uses_the_already_blended_frame() {
+    let mut a = window(false);
+    a.compose();
+    let light = pixel(&a);
+    flip(&mut a, true);
+    a.compose();
+    advance(&mut a, 85);
+    let blended = a.screen.pixels.clone();
+    assert_ne!(pixel(&a), light);
+    let first_serial = a.motion.theme_serial;
+    flip(&mut a, false);
+    a.compose();
+    assert_ne!(a.motion.theme_serial, first_serial);
+    assert!(a.screen.pixels == blended, "the interruption does not jump");
+    advance(&mut a, 170);
+    assert_eq!(pixel(&a), light);
+    at_rest(&a);
+}
+
+#[test]
+fn same_size_resize_keeps_the_fade_but_resize_and_minimise_release_it_without_paint() {
+    for new_size in [PhysicalSize::new(1100, 700), PhysicalSize::new(0, 0)] {
+        let mut a = window(false);
+        a.compose();
+        flip(&mut a, true);
+        a.compose();
+        advance(&mut a, 17);
+        let serial = a.motion.theme_serial;
+        a.on_window_event(WindowEvent::Resized(PhysicalSize::new(1280, 800)));
+        assert!(a.motion.theme_fade.is_some(), "same-size notification");
+        advance(&mut a, 17);
+        assert_eq!(a.motion.theme_serial, serial);
+        a.on_window_event(WindowEvent::Resized(new_size));
+        assert!(
+            a.motion.theme_fade.is_none(),
+            "released before another frame"
+        );
+        a.compose();
+        at_rest(&a);
+    }
+}
+
+#[test]
+fn a_resize_concurrent_with_a_flip_does_not_capture_the_old_size() {
+    let mut a = window(false);
+    a.compose();
+    a.on_window_event(WindowEvent::Resized(PhysicalSize::new(1024, 640)));
+    flip(&mut a, true);
+    a.compose();
+    assert_eq!(
+        a.motion.theme_serial, 0,
+        "did not capture an old or blank bitmap"
+    );
+    assert_eq!((a.screen.width, a.screen.height), (1024, 640));
+    at_rest(&a);
+}
+
+#[test]
+fn a_layout_only_pass_drops_a_fade_and_does_not_capture_a_new_one() {
+    let mut a = window(false);
+    a.compose();
+    flip(&mut a, true);
+    a.compose();
+    advance(&mut a, 17);
+    let serial = a.motion.theme_serial;
+    assert!(a.motion.theme_fade.is_some());
+    a.compose_layout_only();
+    assert!(
+        a.motion.theme_fade.is_none(),
+        "layout-only releases an existing fade"
+    );
+    flip(&mut a, false);
+    a.compose_layout_only();
+    assert_eq!(a.motion.theme_serial, serial, "layout-only cannot capture");
+    a.compose();
+    at_rest(&a);
+}
+
+#[test]
+fn a_flip_over_the_pixel_cap_snaps() {
+    let mut a = window(false);
+    a.size = (2561, 1600);
+    a.compose();
+    let before = pixel(&a);
+    flip(&mut a, true);
+    a.compose();
+    at_rest(&a);
+    assert_ne!(pixel(&a), before);
+    assert_eq!(a.motion.theme_serial, 0);
+}
+
+#[test]
+fn off_reduced_and_backdrop_snap_by_the_first_frame_and_keep_no_snapshot() {
+    for policy in ["off", "reduced", "backdrop"] {
+        let mut a = window(false);
+        a.compose();
+        match policy {
+            "off" => a.docs.prefs.animations = false,
+            "reduced" => a.motion.set_reduced(true),
+            _ => a.docs.prefs.backdrop = Backdrop::Mica,
+        }
+        flip(&mut a, true);
+        a.compose();
+        assert_eq!(a.motion.theme_serial, 0, "{policy}: nothing captured");
+        at_rest(&a);
+        let first = a.screen.pixels.clone();
+        a.full = true;
+        a.compose();
+        assert!(
+            a.screen.pixels == first,
+            "{policy}: first frame was already final"
+        );
+    }
+}
+
+#[test]
+fn turning_motion_off_or_enabling_backdrop_during_a_flip_drops_it() {
+    for backdrop in [false, true] {
+        let mut a = window(false);
+        a.compose();
+        flip(&mut a, true);
+        a.compose();
+        advance(&mut a, 17);
+        assert!(a.motion.theme_fade.is_some());
+        if backdrop {
+            a.docs.prefs.backdrop = Backdrop::Mica;
+        } else {
+            a.docs.prefs.animations = false;
+        }
+        a.compose();
+        at_rest(&a);
+    }
+}
+
+#[test]
+fn closing_settings_during_a_theme_flip_leaves_no_image_of_it() {
+    let mut a = window(false);
+    a.compose();
+    a.open_settings();
+    a.compose();
+    advance(&mut a, 117);
+    flip(&mut a, true);
+    a.compose();
+    advance(&mut a, 17);
+    assert!(a.motion.theme_fade.is_some());
+    a.close_settings();
+    a.compose();
+    let mut plain = window(true);
+    plain.compose();
+    assert!(
+        a.screen.pixels == plain.screen.pixels,
+        "no ghost of Settings"
+    );
+    at_rest(&a);
+}
+
+#[test]
+fn the_system_theme_flip_shot_keeps_settings_on_system_in_both_directions() {
+    let dir = scratch("system-theme-with-settings");
+    let out = dir.join("theme.png");
+    let render = |mut a: App| {
+        a.args.dialog = Some(crate::args::ShotDialog::Settings);
+        a.args.scale = Some(1.0);
+        assert_eq!(shot(a, &out), 0);
+        std::fs::read(&out).unwrap()
+    };
+    let still = |dark| {
+        let mut a = app();
+        a.docs.theme = ThemeChoice::System;
+        a.system_dark = dark;
+        render(a)
+    };
+    let (light, dark) = (still(false), still(true));
+    for (target, before, after) in [(true, &light, &dark), (false, &dark, &light)] {
+        for (ms, expected) in [(0, before), (170, after)] {
+            let mut a = app();
+            a.args.theme_flip = Some(target);
+            a.args.motion_clock = Some(ms);
+            assert!(
+                &render(a) == expected,
+                "at {ms} ms, the flip to dark={target} matches the System dialog"
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}

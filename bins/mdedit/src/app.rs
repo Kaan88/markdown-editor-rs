@@ -137,6 +137,8 @@ mod preview;
 mod recycle_tests;
 #[cfg(test)]
 mod review_tests;
+#[cfg(test)]
+mod theme_tests;
 mod visual;
 mod window_restore;
 pub(crate) use preview::previewable;
@@ -370,6 +372,8 @@ struct App {
     requested: bool,
     expose: bool,
     first: bool,
+    /// Paint passes, including headless shots. A layout-only pass is not a frame.
+    frames: u64,
     exit: bool,
     /// The file to start once the window is closed: set by a Restart that was carried out.
     restart: Option<PathBuf>,
@@ -576,6 +580,7 @@ impl App {
             requested: false,
             expose: false,
             first: true,
+            frames: 0,
             exit: false,
             restart: None,
             mods: Mods::default(),
@@ -669,10 +674,36 @@ impl App {
         )
     }
 
-    fn sync_theme(&mut self) {
+    fn sync_theme(&mut self, painting: bool) {
+        if !painting {
+            self.drop_theme_fade();
+        }
         let dark = self.dark();
         let pal = if dark { theme::DARK } else { theme::LIGHT };
         if pal != self.pal {
+            self.drop_theme_fade();
+            let (w, h) = self.size;
+            if painting
+                && self.frames > 0
+                && (w, h) == (self.screen.width, self.screen.height)
+                && w > 0
+                && h > 0
+                && u64::from(w) * u64::from(h) <= 2560 * 1600
+                && self.theme_is_flat()
+                && self
+                    .window
+                    .as_ref()
+                    .is_none_or(|w| w.is_minimized() != Some(true))
+            {
+                // The settings may have just enabled motion after a launch with it off.
+                self.watch_motion();
+                if self.motion.anim.animates() {
+                    let (w, h) = self.logical();
+                    let p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
+                    self.motion.theme_fade = Some(p.snapshot(Rect::new(0.0, 0.0, w, h)));
+                    self.motion.theme_serial = self.motion.theme_serial.wrapping_add(1);
+                }
+            }
             self.pal = pal;
             self.full = true;
             self.view.clear();
@@ -688,6 +719,43 @@ impl App {
                 s.set_dark(dark);
             }
             self.service_dark = Some(dark);
+        }
+    }
+
+    fn theme_is_flat(&self) -> bool {
+        self.frost.key().is_none()
+            && self.docs.prefs.backdrop == mdshared_app::backdrop::Backdrop::Off
+    }
+
+    /// If the screen was partly blended, the next drawing must replace all of it.
+    fn drop_theme_fade(&mut self) {
+        if self.motion.theme_fade.take().is_some() {
+            self.full = true;
+        }
+    }
+
+    fn resize_theme_fade(&mut self, minimized: bool) {
+        if minimized
+            || self
+                .motion
+                .theme_fade
+                .as_ref()
+                .is_some_and(|s| s.bitmap_size() != self.size)
+        {
+            self.drop_theme_fade();
+        }
+    }
+
+    fn blend_theme_frame(&mut self) -> bool {
+        if let Some(under) = self.motion.theme_fade.take() {
+            let t = self.motion.theme_presence();
+            if t < 1.0 {
+                under.crossfade(&mut self.screen, t);
+                self.motion.theme_fade = Some(under);
+            }
+            true
+        } else {
+            false
         }
     }
 
@@ -1352,6 +1420,8 @@ impl App {
         self.motion.set_setting(self.docs.prefs.animations);
         let frame_at = self.motion.now();
         self.motion.anim.begin_frame(frame_at);
+        // Capture the previous drawing, never the replacement bitmap for a new size.
+        self.sync_theme(true);
         let (pw, ph) = (self.size.0.max(1), self.size.1.max(1));
         if self.screen.width != pw || self.screen.height != ph {
             self.screen = Bitmap::new(pw, ph);
@@ -1365,8 +1435,15 @@ impl App {
             }
             self.full = true;
         }
-        self.sync_theme();
         self.sync_frost();
+        // Frost or motion policy may have changed without another palette flip.
+        if self.motion.theme_fade.is_some() {
+            if !self.motion.anim.animates() || !self.theme_is_flat() {
+                self.drop_theme_fade();
+            }
+            self.resize_theme_fade(false);
+            self.full = true;
+        }
         self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
@@ -2261,6 +2338,12 @@ impl App {
         if !menus.is_some_and(|m| m.moving()) {
             self.motion.backing = None;
         }
+        if self.blend_theme_frame() {
+            // The blend touches the screen, not just the regions that drew into it.
+            damage.clear();
+            damage.push((0, 0, self.screen.width as i32, self.screen.height as i32));
+        }
+        self.frames = self.frames.saturating_add(1);
         self.motion.due = self.motion.anim.end_frame();
         if let Some(due) = self.motion.sidebar_due.update(
             &self.motion.anim,
@@ -3011,6 +3094,16 @@ impl App {
                 // The window reports the surface; the app lives in the content inside the margin
                 // (the margin in force was just re-read by `update_shadow`).
                 self.size = self.content_size(size.width, size.height);
+                if self.motion.theme_fade.is_some() {
+                    self.resize_theme_fade(
+                        size.width == 0
+                            || size.height == 0
+                            || self
+                                .window
+                                .as_ref()
+                                .is_some_and(|w| w.is_minimized() == Some(true)),
+                    );
+                }
                 self.size_save_due = Some(Instant::now() + SIZE_SAVE_DELAY);
                 self.redraw();
             }
@@ -3021,6 +3114,7 @@ impl App {
                     let s = w.inner_size();
                     self.size = self.content_size(s.width, s.height);
                 }
+                self.resize_theme_fade(false);
                 self.full = true;
                 self.redraw();
             }
@@ -3527,7 +3621,7 @@ impl App {
         self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
         self.sync_side_by_side();
-        self.sync_theme();
+        self.sync_theme(false);
         self.compare_sync();
         self.docs.sync_wrap();
         let (w, h) = self.logical();
@@ -3718,7 +3812,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
     // `--motion-clock MS`: what the shot sets moving — an open menu's hover rows, the command
     // palette, Settings, a notice bar — moves on a clock of its own from the first frame that shows it,
     // and is stepped by `MS` before the picture is taken (a still window would draw it done).
-    if app.args.motion_clock.is_some() {
+    if app.args.motion_clock.is_some() && app.args.theme_flip.is_none() {
         app.motion.shot_fade();
     }
     let (lw, lh) = app.args.size.unwrap_or((1280, 800));
@@ -3727,8 +3821,15 @@ fn shot(mut app: App, path: &Path) -> i32 {
         (lw as f32 * app.scale).round() as u32,
         (lh as f32 * app.scale).round() as u32,
     );
+    if let Some(dark) = app.args.theme_flip
+        && app.args.dark.is_none()
+    {
+        // The form is built with Theme set to System in both palettes.
+        app.docs.theme = ThemeChoice::System;
+        app.system_dark = !dark;
+    }
     let dark = app.dark();
-    app.sync_theme();
+    app.sync_theme(false);
     if app.args.split {
         app.docs.toggle_split();
         if app.docs.other.is_some() {
@@ -4192,7 +4293,11 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
     }
     // `--motion-clock MS`: the menu rows, the palette and the bars, that far into their motion.
-    if let Some(ms) = app.args.motion_clock {
+    if let Some(ms) = app
+        .args
+        .motion_clock
+        .filter(|_| app.args.theme_flip.is_none())
+    {
         app.compose();
         for step in crate::motion::shot_steps(ms) {
             app.motion.advance_ms(step);
@@ -4205,13 +4310,36 @@ fn shot(mut app: App, path: &Path) -> i32 {
         app.docs.clear_toast();
     }
     shot_toasts(&mut app);
+    if let Some(dark) = app.args.theme_flip {
+        // Establish the old palette (and an already-open Settings dialog) before flipping.
+        app.compose();
+        app.motion.shot_fade();
+        if app.args.dark.is_none() {
+            app.on_window_event(WindowEvent::ThemeChanged(if dark {
+                WinTheme::Dark
+            } else {
+                WinTheme::Light
+            }));
+        } else {
+            app.set_theme(if dark {
+                ThemeChoice::Dark
+            } else {
+                ThemeChoice::Light
+            });
+        }
+        app.compose();
+        for step in crate::motion::shot_steps(app.args.motion_clock.unwrap_or(85)) {
+            app.motion.advance_ms(step);
+            app.compose();
+        }
+    }
     app.full = true;
     app.compose();
     // `--frame`: the window as the client-drawn margin puts it on screen.
     let framed = app
         .args
         .frame
-        .map(|c| frame_of(&app.screen, c, app.scale as f64, dark));
+        .map(|c| frame_of(&app.screen, c, app.scale as f64, app.dark()));
     match framed.as_ref().unwrap_or(&app.screen).write_png(path) {
         Ok(()) => 0,
         Err(e) => {
@@ -4521,7 +4649,7 @@ pub fn run() -> i32 {
     app.ui.replace_recall = crate::recall::Recall::from_items(app.session.replace_history.clone());
     app.service = Some(service);
     app.view.zoom = app.docs.zoom;
-    app.sync_theme();
+    app.sync_theme(false);
     // Read at once, so their tabs show as modified without being visited.
     for k in restored {
         if matches!(app.docs.tabs[k].state, DocState::Pending) {

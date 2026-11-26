@@ -28,7 +28,7 @@ use mdshared_ui::gfx::{Painter, Rect};
 use mdshared_ui::menu::MENU_DROP;
 use mdshared_ui::overlay::TOAST_H;
 use mdshared_ui::theme::Palette;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// How a menu enters and leaves: the one place its timing is chosen. The shared preset as it
 /// is: in over 117 ms, decelerating (`document::MENU_ENTER`, the owner's choice over 167 ms on
@@ -134,6 +134,9 @@ pub struct Motion {
     pub settings_due: PaintDeadline,
     /// A name per Settings opening, so closing and reopening before a paint still starts fresh.
     pub settings_serial: u64,
+    /// The previous visible frame while a light/dark flip is in flight.
+    pub theme_fade: Option<Snapshot>,
+    pub theme_serial: u64,
     /// The command palette's presence as the last frame drew it (1 when it is not open).
     pub palette_t: f32,
     /// Presences of the update, crash, stale-tab and rename bars, in layout order.
@@ -205,6 +208,8 @@ impl Motion {
             rows_due: PaintDeadline::default(),
             settings_due: PaintDeadline::default(),
             settings_serial: 0,
+            theme_fade: None,
+            theme_serial: 0,
             palette_t: 1.0,
             banner_t: [0.0; 4],
             banners_composed: false,
@@ -373,6 +378,13 @@ impl Motion {
             MENU.enter,
             MENU.exit,
         )
+    }
+
+    pub fn theme_presence(&mut self) -> f32 {
+        use mdshared_ui::anim::{Easing, Motion};
+        const CROSSFADE: Motion = Motion::tween(Duration::from_millis(170), Easing::Linear);
+        self.anim
+            .presence(("theme", self.theme_serial), true, CROSSFADE, Motion::SNAP)
     }
 
     /// The same offer is returning to view, not appearing for the first time.

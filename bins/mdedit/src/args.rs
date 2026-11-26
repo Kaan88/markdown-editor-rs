@@ -125,6 +125,9 @@ pub struct Args {
     pub files: Vec<PathBuf>,
     /// `--light` (false) or `--dark` (true).
     pub dark: Option<bool>,
+    /// `--theme-flip light|dark`: crossfade from the opposite system theme unless
+    /// `--light` or `--dark` names the starting theme. For `--shot` only.
+    pub theme_flip: Option<bool>,
     /// `--folder <dir>`: the Files pane's folder.
     pub folder: Option<PathBuf>,
     /// `--files` / `--no-files`: show or hide the Files pane.
@@ -571,6 +574,13 @@ impl Args {
                 "--tree-ms" => out.tree_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover-ms" => out.hover_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--motion-clock" => out.motion_clock = checked(&a, value(&a), |v| v.parse().ok()),
+                "--theme-flip" => {
+                    out.theme_flip = checked(&a, value(&a), |v| match v {
+                        "light" => Some(false),
+                        "dark" => Some(true),
+                        _ => None,
+                    });
+                }
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),

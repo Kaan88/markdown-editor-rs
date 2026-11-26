@@ -4170,6 +4170,23 @@ a snapshot. Repeating the request for an open dialog does not restart it; closin
 forgets the presence at once, and opening again gets a fresh one. Changing pages
 does not get a transition. `settings-opening-*` captures the entrance in both themes.
 
+**Light/dark crossfade (D-275).** Before replacing the palette or resizing its
+bitmap, a normal compose can snapshot its last displayed content. `frames > 0`
+excludes the initial palette sync. The one retained theme snapshot is at most
+2560 × 1600 pixels (15.625 MiB at four bytes per pixel); a quick second flip
+releases it before taking a snapshot of the already blended pixels. Each step
+paints and presents the whole window and then drops the snapshot at 170 ms, with
+no further motion deadline. Requested or active frost, reduced motion, and
+Animations off snap. A size-changing resize (including minimization) clears
+the snapshot even if another frame does not paint; same-size resize keeps it.
+Closing Settings mid-flip cancels the blend so its old image cannot linger.
+
+Visual preview and the full-window plan, task, import, move, note and AI cards
+are drawn inside the same compose, not in a separate renderer. The startup and
+shot palette syncs and `compose_layout_only` do not capture; the layout-only
+pass drops any retained image. `theme-fading-*` shows both directions 85 ms in,
+including a simulated desktop flip while the Settings Theme row stays on System.
+
 **M-F, L3.** An overflowing embedded preview uses the same shared track and thumb
 whether alongside the editor or filling its area. `Hit::ScrollBar(Scroller::Page)`
 wins over the page selection hit; page clicks and thumb drag send the normal preview

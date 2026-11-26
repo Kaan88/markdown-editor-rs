@@ -587,6 +587,8 @@ impl App {
     pub(super) fn close_settings(&mut self) {
         if let Some(f) = &self.ui.settings {
             self.ui.settings_page = f.page();
+            // A theme snapshot may contain the dialog. Closing must not leave its image behind.
+            self.drop_theme_fade();
         }
         self.ui.settings = None;
         self.ui.pressed = None;

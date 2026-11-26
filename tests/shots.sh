@@ -265,6 +265,11 @@ shot settings-switch-light --light --dialog settings --settings-section typing -
 shot settings-switch-dark --dark --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"
 shot settings-opening-light --light --dialog settings --motion-clock 67 "$fx/sample.rs"
 shot settings-opening-dark --dark --dialog settings --motion-clock 67 "$fx/sample.rs"
+shot theme-fading-dark --light --theme-flip dark --motion-clock 85 "$fx/sample.rs"
+shot theme-fading-light --dark --theme-flip light --motion-clock 85 "$fx/sample.rs"
+# Keep the Theme row on System while simulating a desktop theme flip.
+shot theme-fading-settings-dark --dialog settings --theme-flip dark --motion-clock 85 "$fx/sample.rs"
+shot theme-fading-settings-light --dialog settings --theme-flip light --motion-clock 85 "$fx/sample.rs"
 shot tree-chevron-light --light --files "$fx" --tree-ms 60 "$fx/sample.rs"
 shot tree-chevron-dark --dark --files "$fx" --tree-ms 60 "$fx/sample.rs"
 shot settings-ai-rewrite-off --light --dialog settings --settings-section ai-rewrite "$fx/sample.rs"

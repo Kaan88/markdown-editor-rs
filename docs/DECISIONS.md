@@ -2847,3 +2847,19 @@ Animations off or reduced motion draws the whole dialog at once, as before.
 that can open it. For now the entrance uses a temporary whole-window snapshot on each
 paint of the fade, as mdview does; making that cheaper remains open.
 **Overturned by.** A new decision about Settings transitions.
+
+## D-275 — 2026-11-26 — Crossfade light and dark from the last painted frame
+
+**Decision.** Use shared `Painter::snapshot` and `Snapshot::crossfade` for a
+170 ms linear blend on an explicit theme change or a desktop change in System.
+The first paint takes no snapshot. The fade holds one previous theme frame; a
+new flip releases it before copying the currently blended frame. Above
+2560 × 1600 pixels the palette snaps to limit private memory. It also snaps
+with backdrop enabled (the pinned blend accepts only one frost key), with
+Animations off or reduced motion, or when there is no compatible painted
+frame. Size changes release the image immediately; same-size notifications
+keep it. Layout-only passes do not retain or take one.
+**Why.** Match the reviewed mdview transition without putting a capture on the
+launch path. When the blend finishes, it releases the snapshot and stops
+requesting frames.
+**Overturned by.** A change to the requested transition or shared's blend contract.
