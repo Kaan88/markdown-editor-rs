@@ -1130,6 +1130,7 @@ impl App {
             return;
         }
         if let Some(Hit::Tab(i) | Hit::TabClose(i)) = self.hit_at(x, y) {
+            self.hide_tip();
             self.close_tab(i);
             self.redraw();
         }

@@ -2091,6 +2091,39 @@ fn coming_back_to_the_same_place_waits_the_whole_delay_again() {
     assert!(a.ui.tip.shown().is_some(), "and then it shows");
 }
 
+fn open_second_tab(a: &mut App) {
+    let path = scratch("motion-second-tab").join("second.txt");
+    std::fs::write(&path, "second tab\n").unwrap();
+    let i = open_now(a, &path);
+    assert_eq!(i, 1);
+    assert_eq!(a.docs.active(), Some(i));
+}
+
+#[test]
+fn middle_clicking_a_tab_dismisses_its_tooltip() {
+    let mut a = still();
+    a.focused = false;
+    open_second_tab(&mut a);
+    a.compose();
+    let b = a.hit_rect(Hit::Tab(0)).unwrap();
+    a.pointer_moved(b.cx(), b.cy());
+    let due = a.ui.tip.deadline().expect("the tab tooltip waits");
+    a.timers(due);
+    a.compose();
+    assert_eq!(a.ui.tip.shown().unwrap().key, Hit::Tab(0));
+    let closed = a.docs.tabs[0].id;
+
+    a.on_window_event(WindowEvent::MouseInput {
+        device_id: winit::event::DeviceId::dummy(),
+        state: ElementState::Pressed,
+        button: MouseButton::Middle,
+    });
+    a.compose();
+    assert!(a.docs.index_of_id(closed).is_none(), "the tab closed");
+    assert!(a.ui.tip.shown().is_none(), "no tip for the closed tab");
+    assert_eq!(a.motion.tip_t, 0.0, "no trace of the tip on the new frame");
+}
+
 // ---- the title row (M-E, D4) ---------------------------------------------------------------------
 
 /// With motion off a caption button and a tab are the plain drawings, pixel for pixel, hovered.
