@@ -2568,3 +2568,17 @@ that its toast can be tested without a clipboard.
 re-pushes even the NEWEST toast… Fix: move a repeat to the bottom only when it is not the newest
 shown toast", and "a status shows in place at once".
 **Overturned by.** The owner; or shared PR 24, which would un-ignore both tests.
+
+## D-254 · 2026-11-26 · The snap covers only a toast still waiting for its lift
+
+**Decision.** D-253's second correction is narrowed: a status puts the toast it takes over at
+presence 1 **only when that toast is still waiting for its lift**, meaning the one `Stack::show`
+pushed onto a stack that already held something. `Motion::toast_waiting` holds that key; a toast
+that came onto an empty stack, or one already coming in, keeps rising from where it is when a
+status takes it over. Presence 0 on the last frame is not the test: a toast on its first frame
+is at 0 too, so a status set a frame after a status with no toasts under it used to jump in
+without a rise. Two tests hold it (`a_status_taking_over_a_rising_toast_lets_it_keep_rising`: on
+the first frame, and part way in), and both fail if the snap is made unconditional.
+**Why.** The review of `3afc7e0` (the owner, 2026-11-26): "A toast that came onto an empty stack
+is also at 0.0 on its first frame… Fix: snap only a key that was really pushed with a wait."
+**Overturned by.** The owner; or shared learning to tell "waiting" apart from "coming in".

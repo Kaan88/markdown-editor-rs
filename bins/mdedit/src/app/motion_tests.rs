@@ -1061,6 +1061,52 @@ fn a_status_takes_the_place_of_a_waiting_confirmation_and_shows_at_once() {
     assert_eq!(a.motion.due, None, "and nothing moves");
 }
 
+/// A status taking over a toast that is still rising keeps it rising: only a toast waiting for
+/// a lift is put there at once, and a toast that came onto an empty stack is not waiting.
+#[test]
+fn a_status_taking_over_a_rising_toast_lets_it_keep_rising() {
+    // On its first frame: nothing was there to lift for, and the last frame still said 0.
+    let mut a = moving();
+    a.compose();
+    a.docs.set_toast("An AI rewrite is running. Esc stops it.");
+    a.compose();
+    assert_eq!(toasts(&a)[0].1, 0.0, "it starts on its way in");
+    tick(&mut a, 16);
+    let key = a.motion.toast_frame[0].key;
+    a.docs.set_toast("Stopped the AI rewrite.");
+    a.compose();
+    let now = &a.motion.toast_frame;
+    assert_eq!(now.len(), 1);
+    assert_eq!(now[0].key, key, "the same toast, its text changed");
+    assert!(
+        now[0].t > 0.0 && now[0].t < 1.0,
+        "still rising, not standing there at once: {}",
+        now[0].t
+    );
+    settle(&mut a);
+    assert_eq!(
+        toasts(&a),
+        [("Stopped the AI rewrite.".to_string(), 1.0, 0.0)]
+    );
+
+    // Part way in: it goes on from where it is.
+    let mut a = moving();
+    a.compose();
+    a.docs.set_toast("A step");
+    a.compose();
+    tick(&mut a, 32);
+    a.compose();
+    let key = a.motion.toast_frame[0].key;
+    let part = a.motion.toast_frame[0].t;
+    assert!(part > 0.0 && part < 1.0, "part way in: {part}");
+    a.docs.set_toast("Another step");
+    a.compose();
+    let now = &a.motion.toast_frame;
+    assert_eq!(now[0].key, key);
+    assert_eq!(now[0].text, "Another step");
+    assert!(now[0].t < 1.0, "not stood there at once: {}", now[0].t);
+}
+
 #[test]
 fn never_more_than_three_toasts_those_leaving_included() {
     let mut a = moving();

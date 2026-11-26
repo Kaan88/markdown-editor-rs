@@ -3986,10 +3986,14 @@ in place, no exit, no entrance) after `remove` of every other toast the last fra
 ones still playing their exit included, which `current` does not name — by `Stack::show` for
 `confirm_toast` (a confirmation: under the others, and it enters once they have lifted,
 `Stack::with_wait_for_lift`), and `Stack::clear` when the status is cleared. A status that takes
-over a toast still waiting for its lift is put at presence 1 through `Animator::set` for that
-frame: the stack gives the wait up, but the animator keeps the delay it was first given for the
-name, since a new motion for an unchanged target is ignored, and the status would wait in the
-dark. A confirmation said again never stands twice: while it is the newest it keeps its own toast,
+over **a toast still waiting for its lift** — and only such a toast — is put at presence 1
+through `Animator::set` for that frame: the stack gives the wait up, but the animator keeps the
+delay it was first given for the name, since a new motion for an unchanged target is ignored, and
+the status would wait in the dark. Which toast that is is `Motion::toast_waiting`, the key
+`Stack::show` returned while the stack already held something (a toast at rest, or one leaving);
+a toast that came onto an empty stack was pushed without a wait, so a status taking it over lets
+it keep rising from where it is, and a toast part way in goes on from where it is. A
+confirmation said again never stands twice: while it is the newest it keeps its own toast,
 key and presence (its time reset, so Copy path pressed twice does not blink), and one standing
 higher is taken out first and comes in again at the bottom. A message whose time is already past
 when it is taken in shows nothing. What is left of its time is counted on from that frame on the

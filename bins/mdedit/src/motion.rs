@@ -95,6 +95,9 @@ pub struct Motion {
     pub toasts: Stack<String>,
     /// The serial of the status message the toasts last took in (`Docs::toast_line`).
     toast_seen: Option<u64>,
+    /// The toast last pushed onto a stack that already held something: with the wait for the
+    /// lift, it is the only one that can still be at nothing when a status takes its place.
+    toast_waiting: Option<u64>,
     /// This frame's toasts, the bottom one first ([`Motion::sync_toasts`]).
     pub toast_frame: Vec<ToastShown>,
 }
@@ -133,6 +136,7 @@ impl Motion {
             clock: None,
             toasts: toasts(),
             toast_seen: None,
+            toast_waiting: None,
             toast_frame: Vec::new(),
         };
         m.anim.set_policy(m.policy());
@@ -442,20 +446,26 @@ impl Motion {
                         // what the user just triggered is the one in sight, even in a short
                         // window. The newest keeps its toast, its key and its presence, so a
                         // repeat never makes it blink; `show` only resets its time.
-                        if let Some((old, _)) = self.toasts.find(|t| t.as_str() == l.text)
-                            && Some(old) != self.toasts.current().last().map(|(k, _)| k)
+                        let newest = self.toasts.current().last().map(|(k, _)| k);
+                        let equal = self.toasts.find(|t| t.as_str() == l.text);
+                        let kept = equal.is_some() && equal.map(|(k, _)| k) == newest;
+                        if let Some((old, _)) = equal
+                            && !kept
                         {
                             self.toasts.remove(old);
                         }
-                        self.toasts.show(l.text.to_string(), until);
+                        // `show` pushes unless the same one is still the newest; a push onto a
+                        // stack that holds anything, a toast at rest or one leaving, gives the
+                        // newcomer the wait for the lift. Only such a toast can be at nothing
+                        // when a status takes its place.
+                        let held = !self.toasts.is_empty();
+                        let key = self.toasts.show(l.text.to_string(), until);
+                        self.toast_waiting = (!kept && held).then_some(key);
                     } else {
                         // A status replaces in place, and every other toast goes at once — the
                         // ones still playing their exit too, named by the last frame's list,
                         // which holds them, not by `current`, which does not.
                         let newest = self.toasts.current().last().map(|(k, _)| k);
-                        let shown = newest.and_then(|k| {
-                            (self.toast_frame.iter()).find(|s| s.key == k).map(|s| s.t)
-                        });
                         let others: Vec<u64> = (self.toast_frame.iter())
                             .map(|s| s.key)
                             .filter(|k| Some(*k) != newest)
@@ -463,17 +473,28 @@ impl Motion {
                         for k in others {
                             self.toasts.remove(k);
                         }
+                        // Only leaving toasts left: `replace_newest` pushes, and that push waits.
+                        let pushed_onto = newest.is_none() && !self.toasts.is_empty();
                         let key = self.toasts.replace_newest(l.text.to_string(), until);
-                        // The toast it takes over may still have been waiting for a lift, and
+                        // The toast it takes over may still have been waiting for its lift, and
                         // the animator keeps that wait even after the stack gives it up (a new
-                        // motion for an unchanged target is ignored): it stands there now.
-                        if newest.is_some() && !shown.is_some_and(|t| t > 0.0) {
+                        // motion for an unchanged target is ignored): it stands there now. A
+                        // toast that was merely coming in keeps coming in, from where it is.
+                        let waiting = match newest {
+                            Some(k) => self.toast_waiting == Some(k),
+                            None => pushed_onto,
+                        };
+                        self.toast_waiting = None;
+                        if waiting {
                             come_in = Some(key);
                         }
                     }
                 }
                 Some(_) => {}
-                None => self.toasts.clear(),
+                None => {
+                    self.toasts.clear();
+                    self.toast_waiting = None;
+                }
             }
         }
         self.toast_frame.clear();
