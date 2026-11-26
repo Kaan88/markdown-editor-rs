@@ -77,6 +77,9 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
     frame, as in mdview. Existing menu entrance confirmed without changes.
   - **Theme crossfade** (D-275): explicit and System light/dark changes blend for
     170 ms. First paint, oversize windows, backdrop and disabled/reduced motion snap.
+    [Windows measurements](measurements/2026-11-26-settings-theme-transitions.md):
+    4/31 launches over 100 ms both before and after; idle private memory 27.10 → 27.00 MiB.
+    Both active effects temporarily exceeded 30 MiB (Settings 31.95, theme 31.41 MiB sampled).
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
