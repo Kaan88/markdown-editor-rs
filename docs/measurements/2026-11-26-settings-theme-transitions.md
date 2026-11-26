@@ -79,3 +79,49 @@ p50/p95 was 0.51/0.62 → 0.51/0.65 ms and scroll was 0.41/0.50 → 0.41/0.51 ms
 Three additional 100% light-theme samples raised the Settings sampled maximum
 to **29.31 MiB**; the unchanged theme fade reached **31.31 MiB** in this repeat.
 Raw samples: `target/sol-transition-review-bench.log`.
+
+## Menu and palette cleanup paint
+
+The 31-pair Windows replay of `2443c6a` → `4e34f25` compared the builds
+before and after adding the unpresented old-palette paint on eligible theme
+flips. First-frame median was 79.80 → 80.20 ms (+0.50 ms paired). Median
+first-frame compose was **12.35 → 12.19 ms**. Median cumulative time to
+window creation was 21.0 → 21.2 ms and to the first hidden present was
+74.7 → 74.7 ms. Idle private memory was 27.00 → 27.10 MiB.
+
+| Build | First frame (ms) | Window created (ms) | First frame presented hidden (ms) | First compose duration (ms) |
+|---|---:|---:|---:|---:|
+| Before, 1/31 over budget | 103.0 | 31.3 | 94.7 | 16.11 |
+| After, 2/31 over budget | 103.7 | 32.4 | 97.5 | 14.63 |
+| After, 2/31 over budget | 112.3 | 34.8 | 104.3 | 14.62 |
+
+The stage times are cumulative from process start; compose is a duration
+within them, not another stage to add. All three slow samples spent most
+of their elapsed time between window creation and the first hidden present
+(63.4 ms before, 65.1 and 69.5 ms after). Both window creation and hidden
+present were later than their respective medians, while the two slow after
+samples spent less time composing than the slow baseline sample. These
+traces do not establish the cause of the delays.
+
+The additional compose and snapshot are not on the launch path: they require
+an eligible flip after a frame has been painted. Raw samples:
+`target/sol-menu-theme-bench.log`.
+
+### Theme button and overlay identity follow-up
+
+A fresh 31-pair replay of `4e34f25` → `edde8a7` measured 78.30 → 77.80 ms
+first-frame median (−0.30 ms paired), and **12.01 → 12.04 ms** median
+first-frame compose. Idle private memory was 27.10 MiB on both builds.
+One baseline launch exceeded 100 ms and none did after the fixes:
+
+| Build | First frame (ms) | Window created (ms) | First frame presented hidden (ms) | First compose duration (ms) |
+|---|---:|---:|---:|---:|
+| Before, over-budget sample | 137.3 | 84.8 | 128.0 | 20.14 |
+| After, slowest sample | 82.1 | 20.5 | 76.0 | 12.23 |
+
+The slow baseline run spent most of its time before the window was created:
+84.8 ms by that mark, versus a 20.5 ms baseline median. The cause is not
+established. No cleanup paint or snapshot runs at launch. The normal first
+paint records the Theme choice and overlay inventory for possible later use;
+there is no extra paint or capture on that path.
+Raw samples: `target/sol-theme-controls-bench.log`.
