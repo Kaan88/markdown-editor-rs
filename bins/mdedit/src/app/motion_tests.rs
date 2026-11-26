@@ -2155,14 +2155,28 @@ fn settings_dim_and_card_enter_together_and_reach_the_plain_dialog_at_117_ms() {
 
     let mut plain = editor.clone();
     let (w, h) = a.logical();
-    a.ui.settings.as_mut().unwrap().draw(
-        &mut Painter::new(&mut plain, &mut a.gfx, a.scale),
+    let form = a.ui.settings.as_mut().unwrap();
+    let mut painter = Painter::new(&mut plain, &mut a.gfx, a.scale);
+    form.draw(
+        &mut painter,
         &a.pal,
         Rect::new(0.0, 0.0, w, h),
         a.ui.caret_on,
     );
+    let (x0, y0, x1, y1) = painter.dev_rect(form.rect().inset(12.0));
     let at = |x: u32, y: u32| ((y * editor.width + x) * 4) as usize;
-    let mid = [at(2, 2), at(editor.width / 2, editor.height / 2)];
+    // The center can land on two almost identical fills, depending on font metrics
+    // and layout. Quantization can make such a pixel reach its final byte early.
+    // Pick a contrasting pixel inside the card using only the two reference frames.
+    let card = (y0..y1)
+        .flat_map(|y| (x0..x1).map(move |x| at(x as u32, y as u32)))
+        .max_by_key(|&i| {
+            (i..i + 3)
+                .map(|c| editor.pixels[c].abs_diff(plain.pixels[c]))
+                .max()
+        })
+        .expect("the Settings card has an interior");
+    let mid = [at(2, 2), card];
     for step in transition_steps(67) {
         tick(&mut a, step);
         let before = a.screen.pixels.clone();
@@ -2557,18 +2571,28 @@ fn with_motion_off_the_title_row_is_the_plain_drawing() {
     }
 }
 
-/// Hovering a caption button fades its fill in: frames are asked for, they change the title
-/// row, and once it has arrived no timer is left.
+/// Hovering a title button fades its fill in: frames are asked for, they change the title
+/// row, and once it has arrived no timer is left. macOS owns the native caption buttons,
+/// so on that platform exercise mdedit's new-tab button instead.
 #[test]
-fn a_caption_button_fades_in_and_then_rests() {
+fn a_title_button_fades_in_and_then_rests() {
+    title_button_fades_in_and_then_rests(Hit::NewTab);
+    if !mdshared_ui::chrome::NATIVE_FRAME {
+        title_button_fades_in_and_then_rests(Hit::WinClose);
+    }
+}
+
+fn title_button_fades_in_and_then_rests(hit: Hit) {
     let mut a = moving();
     a.focused = false;
     a.compose();
-    let b = a
-        .hit_rect(crate::ui::Hit::WinClose)
-        .expect("the close button");
+    if mdshared_ui::chrome::NATIVE_FRAME {
+        assert!(a.hit_rect(Hit::WinClose).is_none());
+    }
+    let b = a.hit_rect(hit).expect("the app-drawn title button");
     let before = a.screen.pixels.clone();
     a.pointer_moved(b.cx(), b.cy());
+    assert_eq!(a.ui.hover, Some(hit));
     a.compose();
     assert!(a.motion.due.is_some(), "the fill is on its way");
     let mid_before = a.screen.pixels.clone();

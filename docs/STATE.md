@@ -93,7 +93,7 @@ Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migratio
 
 ## Next
 
-1. CI for renderer packaging and the macOS scratch restart; real-window verification of task fixes and motion.
+1. CI for the motion-test fixes, renderer packaging and the macOS scratch restart; real-window verification of task fixes and motion.
 2. The owner's look at 1.4.0's and 1.5.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes
    cards) and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
    mdview; D after R2.
