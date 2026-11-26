@@ -5,6 +5,7 @@ use crate::chrome::{Ctx, glyph};
 use crate::docs::Docs;
 use crate::ui::{Drag, Hit, PaneFace, Scroller, Ui};
 use mdshared_app::paths::same_path;
+use mdshared_ui::anim::Animator;
 use mdshared_ui::gfx::{Face, Rect, mix};
 pub use mdshared_ui::pane::ROW;
 use mdshared_ui::pane::{HEAD, ROW_H, Switch, draw_head_switches, draw_row_fill, draw_splitter};
@@ -45,7 +46,7 @@ pub fn draw_pane_head(c: &mut Ctx, ui: &Ui, r: Rect) {
     c.hit(hit, b);
 }
 
-pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, anim: &mut Animator) {
     let pal = *c.pal;
     c.p.fill(r, pal.pane);
     draw_pane_head(c, ui, r);
@@ -128,12 +129,19 @@ pub fn draw_files(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
         let ix = r.x + 14.0 + (row.depth as f32 + 1.0) * 14.0;
         let cy = rr.cy();
         if row.is_dir {
-            let arrow = if row.expanded {
-                glyph::DOWN
-            } else {
-                glyph::RIGHT
-            };
-            c.p.icon(arrow, 8.0, ix - 8.0, cy, pal.faint);
+            // The disclosure turns from right to down as the folder opens, by the one motion
+            // for it ([`crate::motion::DISCLOSURE`]): at rest it is the plain chevron.
+            mdshared_ui::glyph::draw_disclosure_animated_with(
+                c.p,
+                anim,
+                ("files", &row.path),
+                ix - 8.0,
+                cy,
+                8.0,
+                row.expanded,
+                pal.faint,
+                crate::motion::DISCLOSURE,
+            );
             let folder = if row.expanded {
                 glyph::FOLDER_OPEN
             } else {

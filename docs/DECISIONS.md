@@ -2644,3 +2644,19 @@ clock's tick when skipped, seven runs, the method and the figures in
 update_tip runs on every CursorMoved … If it can be avoided cheaply (for example, skip when the
 hit and position are unchanged), do so."
 **Overturned by.** The owner; or a profile showing the skip is not worth its two comparisons.
+
+## D-259 · 2026-11-26 · M-D: the Settings form and the tree's chevrons move
+
+**Decision.** M-D, from the owner's close-out brief: the Settings dialog draws with shared's
+`Form::draw_animated` (a switch's knob slides, a chosen segment slides, hover fills and the
+scrollbar fade), named `SETTINGS`; every folder row's disclosure turns with
+`glyph::draw_disclosure_animated_with` by `motion::DISCLOSURE` (shared's 167 ms `MOVE`), inside
+the group `SIDEBAR`. Both are D1 groups: a frame whose group is due damages the part it draws
+(all of the window for the form; the Files region for the tree), and a frame that draws
+something else calls `keep_group(SIDEBAR)` so a turn goes on. With motion off — `Policy::Never`,
+the setting off, reduced motion — nothing moves and the pixels are those of before. New shots:
+`--settings-ms` and `--tree-ms` (`settings-switch-*`, `tree-chevron-*`, 60 ms, both themes).
+**Why.** The owner (2026-11-26): "M-D (Settings, chevrons): `settings::pages::Form::draw_animated`
+… Tree chevrons through `glyph::draw_disclosure_animated_with` … Use D1 groups, and keep_group on
+frames that skip the pane", under "quick, quiet motion".
+**Overturned by.** The owner; or shared changing `DISCLOSURE_MOTION`.

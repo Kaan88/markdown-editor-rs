@@ -1664,3 +1664,235 @@ fn tip_move_cost() {
     eprintln!("tip_move_cost: moving within a control: median {m} ns, p10 {p10} ns");
     eprintln!("tip_move_cost: same place, skipped:     median {s} ns, p10 {s10} ns");
 }
+
+// ---- the tree's disclosure (M-D) ---------------------------------------------------------------
+
+/// A folder with a subfolder that holds a file, opened as the Files tree's root.
+fn tree_app(tag: &str) -> (App, std::path::PathBuf) {
+    let dir = scratch(tag);
+    std::fs::create_dir_all(dir.join("sub")).expect("sub");
+    std::fs::write(
+        dir.join("sub").join("a.txt"),
+        "one
+",
+    )
+    .expect("a");
+    std::fs::write(
+        dir.join("b.txt"),
+        "two
+",
+    )
+    .expect("b");
+    let mut a = moving();
+    a.focused = false;
+    a.command(crate::commands::CommandId::ToggleFiles);
+    a.ui.tree.set_root(Some(dir.clone()));
+    a.ui.tree.refresh();
+    (a, dir)
+}
+
+/// The index of the row whose name is `name`.
+fn tree_row(a: &App, name: &str) -> usize {
+    a.ui.tree
+        .rows()
+        .iter()
+        .position(|r| r.path.file_name().is_some_and(|n| n == name))
+        .expect("the row")
+}
+
+/// The name the disclosure of the row at `i` turns under.
+fn disclosure_id(a: &App, i: usize) -> mdshared_ui::anim::Id {
+    mdshared_ui::anim::Id::new(("files", &a.ui.tree.rows()[i].path)).with("disclosure")
+}
+
+/// With motion off the disclosure is the plain chevron, pixel for pixel, at both ends.
+#[test]
+fn with_motion_off_the_disclosure_is_the_plain_chevron() {
+    use mdshared_text::Bitmap;
+    use mdshared_ui::gfx::{Gfx, Painter, Rect};
+    let pal = mdshared_ui::theme::LIGHT;
+    for (size, open) in [(8.0_f32, false), (8.0, true)] {
+        let mut plain = Bitmap::new(60, 60);
+        let mut gfx = Gfx::new();
+        {
+            let mut p = Painter::new(&mut plain, &mut gfx, 1.0);
+            p.fill(Rect::new(0.0, 0.0, 60.0, 60.0), pal.page);
+            let icon = if open {
+                mdshared_ui::glyph::DOWN
+            } else {
+                mdshared_ui::glyph::RIGHT
+            };
+            p.icon(icon, size, 30.0, 30.0, pal.text);
+        }
+        let mut moved = Bitmap::new(60, 60);
+        {
+            let mut anim = mdshared_ui::anim::Animator::new();
+            anim.set_policy(Policy::Never);
+            let now = Instant::now();
+            anim.begin_frame(now);
+            let mut p = Painter::new(&mut moved, &mut gfx, 1.0);
+            p.fill(Rect::new(0.0, 0.0, 60.0, 60.0), pal.page);
+            mdshared_ui::glyph::draw_disclosure_animated_with(
+                &mut p,
+                &mut anim,
+                "row",
+                30.0,
+                30.0,
+                size,
+                open,
+                pal.text,
+                crate::motion::DISCLOSURE,
+            );
+            assert_eq!(anim.end_frame(), None, "nothing moves");
+        }
+        assert!(plain.pixels == moved.pixels, "open: {open}");
+    }
+}
+
+/// A folder opens: its chevron turns from the right chevron to the down one, frame by frame,
+/// and once it has arrived no timer is left.
+#[test]
+fn a_folder_opening_turns_its_chevron_and_then_rests() {
+    let (mut a, dir) = tree_app("motion-tree");
+    a.compose();
+    let i = tree_row(&a, "sub");
+    let id = disclosure_id(&a, i);
+    assert_eq!(a.motion.anim.get::<f32>(id).unwrap_or(0.0), 0.0, "closed");
+    a.ui.tree.toggle(i);
+    a.compose();
+    let start = a.motion.anim.get::<f32>(id).expect("asked for");
+    assert!(start < 1.0, "it starts to turn: {start}");
+    tick(&mut a, 16);
+    a.compose();
+    let early = a.motion.anim.get::<f32>(id).expect("asked for");
+    assert!(
+        early > start && early < 1.0,
+        "on its way from {start} to {early}"
+    );
+    settle(&mut a);
+    assert_eq!(a.motion.anim.get::<f32>(id), Some(1.0), "open");
+    a.wants_frame = false;
+    assert_eq!(a.timers(a.motion.now()), None, "no timer once settled");
+    assert!(!a.wants_frame);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A frame that redraws only the text keeps the turn going: the pane it skips is kept (D1), so
+/// the chevron goes on from where it was rather than starting again from the target.
+#[test]
+fn a_frame_that_skips_the_pane_keeps_the_chevrons_turn() {
+    let (mut a, dir) = tree_app("motion-tree-keep");
+    a.compose();
+    let i = tree_row(&a, "sub");
+    let id = disclosure_id(&a, i);
+    a.ui.tree.toggle(i);
+    a.compose();
+    tick(&mut a, 16);
+    a.compose();
+    let before = a.motion.anim.get::<f32>(id).expect("asked for");
+    assert!(before < 1.0, "still turning: {before}");
+    // Damage only the text: a character typed into the page.
+    a.docs.activate(0);
+    assert!(a.docs.edit(crate::docs::EditOp::Insert("x"), None));
+    a.compose();
+    let kept = a.motion.anim.get::<f32>(id);
+    assert!(
+        kept.is_some_and(|t| t >= before && t < 1.0),
+        "the turn goes on from {before}: {kept:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The frames of the turn damage the chevron that changed: no changed pixel is left undamaged.
+#[test]
+fn the_frames_of_the_turn_damage_what_changes() {
+    let (mut a, dir) = tree_app("motion-tree-damage");
+    a.compose();
+    let i = tree_row(&a, "sub");
+    a.ui.tree.toggle(i);
+    a.compose();
+    for _ in 0..3 {
+        // A frame's pace is a sixtieth of a second: 17 ms of the hand-moved clock reaches the
+        // deadline the animator asked for, where 16 would not (and would test nothing).
+        tick(&mut a, 17);
+        let before = a.screen.pixels.clone();
+        let (damage, _) = a.compose();
+        assert!(
+            !damage.is_empty(),
+            "the frame of the turn redraws something"
+        );
+        assert_eq!(
+            changed_outside(&a, &before, &damage),
+            0,
+            "every pixel the turn changed is inside the damage"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- the Settings form (M-D) --------------------------------------------------------------------
+
+/// A window with Settings open on the Typing page, composed, no caret blinking: the only timer
+/// left is the form's.
+fn settings_app() -> App {
+    let mut a = moving();
+    a.focused = false;
+    a.open_settings();
+    let f = a.ui.settings.as_mut().unwrap();
+    let typing = f
+        .page_names()
+        .iter()
+        .position(|n| *n == crate::app::modal::TYPING)
+        .unwrap();
+    f.show_page(typing);
+    a.compose();
+    a
+}
+
+/// With motion off the Settings dialog is one frame: two composes are the same pixels and no
+/// timer is left, as `draw` drew it.
+#[test]
+fn with_motion_off_the_settings_dialog_is_one_frame() {
+    let mut a = still();
+    a.focused = false;
+    a.open_settings();
+    a.compose();
+    let first = a.screen.pixels.clone();
+    assert_eq!(a.motion.due, None, "nothing moves");
+    a.compose();
+    assert!(a.screen.pixels == first, "the same frame, pixel for pixel");
+}
+
+/// A switch turned in the dialog slides: frames are asked for, they change the pixels, and once
+/// it has arrived no timer is left.
+#[test]
+fn a_switch_in_the_settings_dialog_slides_and_then_rests() {
+    let mut a = settings_app();
+    assert_eq!(a.motion.due, None, "a dialog at rest asks for nothing");
+    let f = a.ui.settings.as_mut().unwrap();
+    assert!(f.focus_row(crate::app::modal::AUTO_PAIR), "the switch");
+    let before = a.screen.pixels.clone();
+    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Space), None);
+    a.compose();
+    assert!(a.motion.due.is_some(), "the knob is on its way");
+    // A frame of it changes pixels, and its damage holds every one that changed.
+    let mid_before = a.screen.pixels.clone();
+    tick(&mut a, 17);
+    let (damage, _) = a.compose();
+    assert!(!damage.is_empty(), "the frame redraws the window");
+    assert!(a.screen.pixels != mid_before, "the switch moved");
+    assert_eq!(
+        changed_outside(&a, &mid_before, &damage),
+        0,
+        "every pixel the switch changed is inside the damage"
+    );
+    assert!(a.screen.pixels != before);
+    for _ in 0..80 {
+        if a.motion.due.is_none() {
+            break;
+        }
+        tick(&mut a, 17);
+        a.compose();
+    }
+    assert_eq!(a.motion.due, None, "and no timer once it rests");
+}

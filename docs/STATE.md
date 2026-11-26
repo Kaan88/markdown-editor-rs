@@ -43,12 +43,25 @@ Rewritten, not appended to. Last rewritten 2026-11-26, when the pin moved and to
 ## In hand
 
 - **Motion, on `f/motion2`**: menus fade (released work), the toasts (D-251 to D-255,
-  DESIGN 97) and the tooltips (M-C, D-257). Not merged, not tried in a real window. The pin is
-  `09b01c1` (D-256), which carries shared PR 24: the two tests ignored for it are un-ignored and
-  pass. Left open: the status snap in `Motion::sync_toasts` (`Animator::set`), still needed with
-  motion on because shared's animator keeps a target's first delay. **Next**: merge this branch,
-  then the rest of motion (M-D, M-E, M-F: dialogs and cards, shared's Settings form motion L10,
-  the tree chevron) on the owner's word.
+  DESIGN 97), the tooltips (M-C, D-257), and the rest of the motion plan below. Not merged,
+  not tried in a real window. The pin is `09b01c1` (D-256), which carries shared PR 24: the two
+  tests ignored for it are un-ignored and pass. Left open: the status snap in
+  `Motion::sync_toasts` (`Animator::set`), still needed with motion on because shared's animator
+  keeps a target's first delay. **On the owner's word: quick, quiet motion; menus open in
+  117 ms; menus and dialogs close instantly; everything under the one Animations setting, and
+  motion off draws exactly as now; only what shared has at `09b01c1`.**
+  - **M-D, Settings and tree chevrons**: `settings::pages::Form::draw_animated` in place of
+    `draw`; tree chevrons through `glyph::draw_disclosure_animated_with` (motion from
+    `motion.rs`); D1 groups, and `keep_group` on frames that skip the pane.
+  - **M-E, title row, X3 and the rest of the popups**: `chrome::draw_win_button_animated`,
+    `draw_tab_animated`, `draw_new_tab_button_animated` (D4; shared #31 fixed the `t == 0`
+    flash at `09b01c1`); X3: `Menu::draw_in_animated` (the hover row), `Palette::draw_presence`,
+    `notice::draw_sliding` and `bar_height`; popup damage by `presence_bounds()`, never
+    `rect.inset(-20)`. **The completion popup stays instant.**
+  - **M-F, four fixes**: L1, `submenu::Cascade` for the hand-made submenus and their dwell
+    timer; L3, the plain preview's scrollbar from shared; W2, focus for the Files and Functions
+    panes; W3, `window_state` restored onto a monitor that still exists.
+  Next: these, in that order, a commit each.
 - **The AI task window's flow fixes** (the UI run of 2026-11-25, twenty findings), on
   `f/task-fixes`, in Fable's second round.
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.

@@ -1398,6 +1398,17 @@ impl App {
                 dirty[r.index()] = true;
             }
         }
+        // A group with something in flight draws its part again at each of its deadlines (D1):
+        // the tree's turning chevrons damage the pane, and the Settings form, which covers the
+        // window, damages all of it.
+        let now = self.motion.now();
+        if self.motion.anim.group_due(crate::motion::SIDEBAR, now) {
+            dirty[Region::Files.index()] = true;
+        }
+        if self.ui.settings.is_some() && self.motion.anim.group_due(crate::motion::SETTINGS, now) {
+            self.full = true;
+            dirty = [true; 10];
+        }
         for r in REGIONS {
             if self.areas.region(r).is_none() {
                 dirty[r.index()] = false;
@@ -1728,6 +1739,11 @@ impl App {
             }
             for r in order {
                 if !dirty[r.index()] {
+                    // A region drawn by nothing this frame: what its groups hold goes on to
+                    // its target instead of being taken for new next time (D1).
+                    if r == Region::Files {
+                        self.motion.anim.keep_group(crate::motion::SIDEBAR);
+                    }
                     continue;
                 }
                 let Some(rect) = self.areas.region(r) else {
@@ -1796,14 +1812,30 @@ impl App {
                             chrome::draw_ai_bar(&mut c, bar, under);
                         }
                     }
-                    Region::Files if self.ui.outline.on => {
-                        crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect)
+                    Region::Files => {
+                        self.motion.anim.group(crate::motion::SIDEBAR);
+                        if self.ui.outline.on {
+                            crate::outline::draw(&mut c, &self.docs, &mut self.ui, rect);
+                        } else if self.ui.library.on {
+                            let ready = self.plan_parked.as_ref().map(|p| p.plan.notes().len());
+                            crate::library_pane::draw(
+                                &mut c,
+                                &self.docs,
+                                &mut self.ui,
+                                rect,
+                                ready,
+                            );
+                        } else {
+                            panes::draw_files(
+                                &mut c,
+                                &self.docs,
+                                &mut self.ui,
+                                rect,
+                                &mut self.motion.anim,
+                            );
+                        }
+                        self.motion.anim.ungroup();
                     }
-                    Region::Files if self.ui.library.on => {
-                        let ready = self.plan_parked.as_ref().map(|p| p.plan.notes().len());
-                        crate::library_pane::draw(&mut c, &self.docs, &mut self.ui, rect, ready)
-                    }
-                    Region::Files => panes::draw_files(&mut c, &self.docs, &mut self.ui, rect),
                     Region::Text => match self.docs.active() {
                         None => overlays::draw_empty(&mut c, &self.docs, rect),
                         Some(i) => {
@@ -2023,7 +2055,19 @@ impl App {
                     }
                 }
                 if let Some(f) = self.ui.settings.as_mut() {
-                    f.draw(c.p, &pal, Rect::new(0.0, 0.0, w, h), self.ui.caret_on);
+                    // Shared's motion for the form (L10): switches slide, the chosen segments
+                    // and the hover fills follow; at rest, and with motion off, the pixels of
+                    // `draw`.
+                    self.motion.anim.group(crate::motion::SETTINGS);
+                    f.draw_animated(
+                        c.p,
+                        &pal,
+                        Rect::new(0.0, 0.0, w, h),
+                        self.ui.caret_on,
+                        &mut self.motion.anim,
+                        crate::motion::SETTINGS,
+                    );
+                    self.motion.anim.ungroup();
                 }
                 if let Some(popup) = self.ui.popup.as_mut() {
                     let room = menu_room(self.areas.title, w, h);
@@ -3848,6 +3892,38 @@ fn shot(mut app: App, path: &Path) -> i32 {
     // would have said: a section named shows its page.
     if let Some(name) = app.args.settings_section.clone() {
         app.show_settings_section(&name);
+    }
+    // A Settings switch turned, and the frame caught part way into its slide, on a clock moved
+    // by hand: the Typing page's pair switch (the Animations one would turn motion off).
+    if let Some(ms) = app.args.settings_ms
+        && app.ui.settings.is_some()
+    {
+        app.motion.shot_fade();
+        if let Some(f) = app.ui.settings.as_mut() {
+            f.focus_row(crate::app::modal::AUTO_PAIR);
+        }
+        app.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Space), None);
+        for step in crate::motion::shot_steps(ms) {
+            app.motion.advance_ms(step);
+            app.compose();
+        }
+    }
+    // The Files tree with its first folder opened, the chevron part way through its turn.
+    if let Some(ms) = app.args.tree_ms {
+        app.motion.shot_fade();
+        if let Some(i) = app
+            .ui
+            .tree
+            .rows()
+            .iter()
+            .position(|r| r.is_dir && !r.expanded)
+        {
+            app.ui.tree.toggle(i);
+        }
+        for step in crate::motion::shot_steps(ms) {
+            app.motion.advance_ms(step);
+            app.compose();
+        }
     }
     if let Some(kind) = app.args.plan_demo.clone() {
         app.plan_demo(&kind);

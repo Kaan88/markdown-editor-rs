@@ -46,6 +46,16 @@ pub const TIP: document::Pair = document::TIP;
 /// The damage group of the tooltip.
 pub const TIP_GROUP: &str = "tip";
 
+/// The damage group of the left pane (the Files tree's chevrons).
+pub const SIDEBAR: &str = "sidebar";
+
+/// How a tree row's disclosure turns: shared's own for it, 167 ms both ways, made of
+/// [`fluent::MOVE`] and ended as the row's body opens.
+pub const DISCLOSURE: mdshared_ui::anim::Motion = mdshared_ui::glyph::DISCLOSURE_MOTION;
+
+/// The damage group of the Settings form.
+pub const SETTINGS: &str = "settings";
+
 /// The presence of an open menu: the popup's serial and how far it has entered (1 at rest).
 pub type Shown = (u64, f32);
 

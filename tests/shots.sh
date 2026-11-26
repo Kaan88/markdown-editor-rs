@@ -228,6 +228,12 @@ done
 # rewrite's rows disabled with the reason), Claude Code found, a model list that failed with a
 # model typed, and the window backdrop set to Mica (a shot has no window, so the chrome is flat).
 shot settings-tabs-on --light --pref skip_brief=1 --dialog settings --settings-section tabs "$fx/sample.rs"
+# M-D: the Settings form's own motion (a switch's knob sliding; shared's `draw_animated`) and
+# the Files tree's chevron turning, each part way in on the shot's clock, in both themes.
+shot settings-switch-light --light --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"
+shot settings-switch-dark --dark --dialog settings --settings-section typing --settings-ms 60 "$fx/sample.rs"
+shot tree-chevron-light --light --files "$fx" --tree-ms 60 "$fx/sample.rs"
+shot tree-chevron-dark --dark --files "$fx" --tree-ms 60 "$fx/sample.rs"
 shot settings-ai-rewrite-off --light --dialog settings --settings-section ai-rewrite "$fx/sample.rs"
 shot settings-ai-service-cli --light --pref ai_connection=claude-code --ai-demo settings "$fx/sample.rs"
 shot settings-ai-rewrite-error --light "${custom[@]}" --pref ai_custom_0_model=gpt-4.1-mini --ai-demo settings-error --settings-section ai-rewrite "$fx/sample.rs"

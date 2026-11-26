@@ -4069,3 +4069,31 @@ each earlier toast is stepped to rest, and the last one by `--motion-ms`, or to 
 `toast-*`, `toast-rising-*` (50 ms), `toasts-stacking-*` (200 ms: the lift done, the newcomer
 part way in), `toasts-stacked-*`, `toast-repeated-*` (the first said again, at the bottom),
 `toasts-short-*` (520 × 220, the third left out).
+
+## 98. Motion: the Settings form and the tree's chevrons (M-D, 2026-11-26)
+
+`motion.rs` (`DISCLOSURE`, `SIDEBAR`, `SETTINGS`), `panes.rs` (`draw_files`), `app.rs` (`compose`,
+the shot's `--settings-ms` and `--tree-ms`), shared's `settings::pages::Form::draw_animated` and
+`glyph::draw_disclosure_animated_with`. D-259.
+
+**The Settings form.** The dialog draws with `Form::draw_animated`, named `SETTINGS`, in the
+group `SETTINGS`: a switch's knob slides, its fill fades, a chosen segment slides, a row's hover
+fill and the scrollbar follow (`settings/motion` in shared). While anything in the group is in
+flight the frame is `full` — the form covers the window, so every region and the dialog are
+drawn again (`group_due(SETTINGS, now)`, D1) — and the last frame of a motion draws it once more
+at rest. `Form::draw` and `draw_animated` draw the same pixels at rest and under `Policy::Never`;
+mdedit's test holds two composes to that, and shared's own tests hold the form.
+
+**The tree's chevron.** Each folder row's disclosure is `glyph::draw_disclosure_animated_with`
+under the name `("files", path)`, turned by `motion::DISCLOSURE` (shared's `DISCLOSURE_MOTION`,
+167 ms, `fluent::MOVE`): at rest it is the plain right or down chevron, pixel for pixel. The pane
+draws inside the group `SIDEBAR`; a frame whose deadlines have come damages the Files region
+(`group_due(SIDEBAR, now)`), and a frame that draws something else keeps the group
+(`keep_group(SIDEBAR)`) so a turn goes on from where it was instead of being taken for new.
+
+**Shots.** `--settings-ms MS` (the Typing page's pair switch turned, that far into its slide, on
+the shot's clock: `settings-switch-*` at 60 ms) and `--tree-ms MS` (the first closed folder
+opened, its chevron that far into its turn: `tree-chevron-*` at 60 ms), both themes. A frame's
+pace is a sixtieth of a second, so a test that steps a hand-moved clock by 16 ms never reaches
+the deadline the animator asked for: 17 ms does (the review of mdview's D4 found that an
+assertion at 16 ms checked nothing).

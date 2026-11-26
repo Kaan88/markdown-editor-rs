@@ -181,6 +181,13 @@ pub struct Args {
     /// `--motion-ms MS`: a `--shot` of what its last `--toast` sets moving, this far into its
     /// motion (0 to 1000; more is at rest). Ignored without `--shot`.
     pub motion_ms: Option<u32>,
+    /// `--settings-ms MS`: a `--shot` of the Settings dialog one switch turned, this far into
+    /// its slide (0 to 1000; more is at rest). Needs `--settings-section` on a page with a
+    /// switch, and is ignored without `--shot`.
+    pub settings_ms: Option<u32>,
+    /// `--tree-ms MS`: a `--shot` of the Files tree with its first folder opened, this far into
+    /// the chevron's turn (0 to 1000; more is at rest). Ignored without `--shot`.
+    pub tree_ms: Option<u32>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
     /// `--wrap`: word wrap.
@@ -547,6 +554,8 @@ impl Args {
                 "--toast" => out.toasts.extend(value(&a)),
                 "--motion-ms" => out.motion_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--tip-ms" => out.tip_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--settings-ms" => out.settings_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--tree-ms" => out.tree_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),
