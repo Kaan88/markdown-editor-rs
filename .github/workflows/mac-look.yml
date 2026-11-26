@@ -45,6 +45,8 @@ jobs:
           bash packaging/macos/make-bundle.sh target/release target/dist
           test -x target/dist/mdedit.app/Contents/MacOS/mdview-engine
       - name: Updating itself (a newer bundle from a local HTTPS server)
+        # Deferred by the owner (2026-11-27): macOS is not a primary target.
+        continue-on-error: true
         run: bash tests/mac-update.sh target/update target/dist/mdedit.app
       - name: Typing in a real window
         run: bash tests/mac-typing.sh target/typing target/dist/mdedit.app

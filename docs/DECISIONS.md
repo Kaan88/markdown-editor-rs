@@ -3085,3 +3085,11 @@ fine." The shot goldens are regenerated from it.
 **Why.** The owner looked at the hinting in the other apps and is happy with it.
 **Overturned by.** The owner finding text worse in mdedit itself.
 **From.** The owner, 2026-11-27.
+
+## D-288 — 2026-11-27 — Defer the hosted Mac self-update test for 1.6.0
+
+**Decision.** Keep the `mac-look` self-update test, but make only that step non-blocking.
+Do not change the Mac build or release jobs.
+**Why.** The hosted Mac runner hung in the self-update test, and macOS is not a primary target.
+**Overturned by.** A verified hosted self-update run and the owner's decision to require it again.
+**From.** The owner, 2026-11-27.

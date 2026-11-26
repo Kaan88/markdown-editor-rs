@@ -21,9 +21,12 @@ Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migratio
 - The shared crates are not released; the apps pin them by commit. **Hub** is its own app (see
   its `docs/STATE.md`).
 
-## On `main`, not released
+## Prepared for 1.6.0, not released
 
-- **Motion** (D-232 to D-235, D-255 to D-283; DESIGN 96–98, `docs/release-notes/NEXT.md`).
+Includes window motion, AI task fixes, and the safer shared Markdown renderer with
+vertical-only hinting. The hosted Mac self-update test is deferred and non-blocking (D-288).
+
+- **Motion** (D-232 to D-235, D-255 to D-283; DESIGN 96–98, `docs/release-notes/1.6.0.md`).
   Menus open in 117 ms (now from shared's `anim::document::MENU`); menus and dialogs close
   instantly. One Animations setting (on by default); off or reduced motion draws without the
   effects. The owner tried mdview's menus only; mdedit's motion has **not** been tried by hand,
@@ -58,7 +61,7 @@ Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migratio
   - **Linux**: the theme change from D-273 starts a long-lived system-theme thread with a D-Bus
     connection at launch if the settings portal is available. Linux launch and idle costs
     are unmeasured.
-- **AI task window fixes** (D-240 to D-254; `docs/release-notes/NEXT.md`): Settings returns to
+- **AI task window fixes** (D-240 to D-254; `docs/release-notes/1.6.0.md`): Settings returns to
   the same task, Esc warns before discarding the setup, and rewrite/split can return without
   writing. Task messages are inline, with a stacking confirmation also sent for a successful
   picture paste. Folder reads walk the tree off-thread, ask above 200 new files before probing,
@@ -93,7 +96,7 @@ Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migratio
 
 ## Next
 
-1. CI for the motion-test fixes, renderer packaging and the macOS scratch restart; real-window verification of task fixes and motion.
+1. Merge and confirm `ci` on `main` before tagging `v1.6.0`; verify task fixes and motion by hand.
 2. The owner's look at 1.4.0's and 1.5.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes
    cards) and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
    mdview; D after R2.
@@ -133,18 +136,15 @@ row with Cancel and no headings per source; the Recycle Bin cannot restore an or
 
 ## Not checked by hand
 
-Linux blur, image paste on Linux, the AppImage and packages, the macOS builds, the Windows
-installer, an installed copy updating itself, and `hub.txt` read by Hub from a real release.
+The Windows installer, Linux and macOS packages by hand, and the hosted Mac self-update test
+(deferred). Also unverified: Linux blur and image paste, and Hub reading a live `hub.txt`.
 
 ## Pins, branches, worktrees (tidied 2026-11-24)
 
 - Shared crates and embedded preview: `7fd559f` (D-284). On Linux, mdedit finds a co-installed
   viewer off `PATH` (D-286); preview engine lookup is unchanged. winit `62fa727`, softbuffer `dd18fec`.
-- Branches: `main`; the drawings (`mock/ai-review`, `mock/settings`, `mock/terminal`,
-  `mock/downloader`, `mock/workbench` local only, `mock/launcher`, `mock/file-manager`,
-  `mock/task-manager`, `mock/ai-pictures`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub
-  `spike/frosted-window` and `chore/dependabot`; Hub's `hub/notes-file` in both apps. Merged
-  branches are deleted, here and on GitHub.
+- Branches: `main`, `f/renderer` (release preparation), the unmerged `mock/*` drawings,
+  `archive/doc-reorg-draft`, `spike/v-resizer`, and GitHub's `spike/frosted-window` and `chore/dependabot`.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
 - Worktrees: `main`, `hub-wt\app-prs2\mdedit`, `md-wt\ai-pictures`, `md-wt\ai-web` (spike exe); `md-wt\review-a4fix` holds the review, not a worktree.

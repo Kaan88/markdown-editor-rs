@@ -1604,7 +1604,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "mdedit"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "bytemuck",
  "libc",
@@ -1633,7 +1633,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-ai"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "gif",
  "image-webp",
@@ -1649,7 +1649,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-core"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -1664,7 +1664,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-highlight"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "mdshared-highlight",
  "ropey",
@@ -1672,7 +1672,7 @@ dependencies = [
 
 [[package]]
 name = "mdedit-outline"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "ropey",
 ]
