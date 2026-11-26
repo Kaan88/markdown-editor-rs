@@ -1435,7 +1435,7 @@ impl App {
             popup.library_row = row;
         }
         self.ui.popup = Some(popup);
-        self.ui.tip.hide();
+        self.ui.hide_tip();
     }
 
     fn build_menu(
@@ -1505,7 +1505,7 @@ impl App {
             p.sub = Some(Box::new(Popup::with_cues(sub, menu, cues)));
             p.dwell = None;
         }
-        self.ui.tip.hide();
+        self.ui.hide_tip();
         self.redraw();
     }
 
@@ -1534,7 +1534,7 @@ impl App {
 
     pub(super) fn open_dialog(&mut self, kind: DialogKind) {
         self.ui.popup = None;
-        self.ui.tip.hide();
+        self.ui.hide_tip();
         self.ui.find_focused = false;
         self.ui.dialog = Some(Dialog::new(kind));
         self.ui.dlg_hover_row = None;

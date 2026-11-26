@@ -1627,10 +1627,11 @@ fn every_frame_of_the_fade_damages_what_the_tip_covers() {
 }
 
 /// A measurement, not a test: what a pointer move costs in `update_tip` — the common case (a
-/// move within one control: one `String` from `chrome::tooltip` and two clones in
-/// `Tooltip::hover` while a tip shows) and the free one (the same control at the same place:
-/// skipped). Run it on its own, several times:
-/// `cargo test --release -p mdedit -- --ignored --nocapture tip_move_cost`.
+/// move within one control: one `String` from `chrome::tooltip` and `Tooltip::hover`'s two
+/// clones of the shown text, three allocations) and the free one (the same control at the same
+/// place: skipped). Each batch is timed as a whole and divided, since `Instant` on Windows
+/// advances in steps of about 100 ns and one call is shorter than a step. Run it on its own,
+/// several times: `cargo test --release -p mdedit -- --ignored --nocapture tip_move_cost`.
 #[test]
 #[ignore = "a measurement, not a test"]
 fn tip_move_cost() {
@@ -1643,26 +1644,23 @@ fn tip_move_cost() {
     a.update_tip(Some(hit), (10.0, 10.0), t);
     a.timers(t + TIP_WAIT);
     assert!(a.ui.tip.shown().is_some());
-    let calls = 20_000;
-    let mut moving = Vec::with_capacity(calls);
-    let mut same = Vec::with_capacity(calls);
-    for i in 0..calls {
+    const CALLS: u32 = 200_000;
+    // The whole batch, then divided: one call is under the clock's step.
+    let start = Instant::now();
+    for i in 0..CALLS {
         let at = (10.0 + (i % 7) as f32 * 0.5, 10.0);
-        let now = Instant::now();
-        a.update_tip(Some(hit), at, now);
-        moving.push(now.elapsed().as_nanos());
-        let now = Instant::now();
-        a.update_tip(Some(hit), at, now);
-        same.push(now.elapsed().as_nanos());
+        a.update_tip(Some(hit), at, Instant::now());
     }
-    let median = |mut v: Vec<u128>| {
-        v.sort_unstable();
-        (v[v.len() / 2], v[v.len() / 10])
-    };
-    let (m, p10) = median(moving);
-    let (s, s10) = median(same);
-    eprintln!("tip_move_cost: moving within a control: median {m} ns, p10 {p10} ns");
-    eprintln!("tip_move_cost: same place, skipped:     median {s} ns, p10 {s10} ns");
+    let moving = start.elapsed().as_nanos() as f64 / f64::from(CALLS);
+    let at = (10.0, 10.0);
+    a.update_tip(Some(hit), at, Instant::now());
+    let start = Instant::now();
+    for _ in 0..CALLS {
+        a.update_tip(Some(hit), at, Instant::now());
+    }
+    let same = start.elapsed().as_nanos() as f64 / f64::from(CALLS);
+    eprintln!("tip_move_cost: moving within a control: {moving:.0} ns a move");
+    eprintln!("tip_move_cost: same place, skipped:     {same:.0} ns a move");
 }
 
 // ---- the tree's disclosure (M-D) ---------------------------------------------------------------
@@ -1895,4 +1893,48 @@ fn a_switch_in_the_settings_dialog_slides_and_then_rests() {
         a.compose();
     }
     assert_eq!(a.motion.due, None, "and no timer once it rests");
+}
+
+/// A scroll takes the tip away, wherever the pointer is.
+#[test]
+fn a_scroll_hides_the_tip() {
+    let mut a = still();
+    a.focused = false;
+    a.compose();
+    let t = a.motion.now();
+    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
+    a.timers(t + TIP_WAIT);
+    assert!(a.ui.tip.shown().is_some(), "it shows");
+    a.wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -1.0));
+    assert!(a.ui.tip.shown().is_none(), "the scroll takes it away");
+    assert!(a.ui.tip.waiting().is_none(), "and nothing waits");
+    // It does not come back on its own: the pointer must move again.
+    a.timers(t + TIP_WAIT * 3);
+    assert!(a.ui.tip.shown().is_none());
+}
+
+/// Leaving the window and coming back to the same control at the same place arms the tip again
+/// with its whole delay: nothing is left behind that would show it at once.
+#[test]
+fn coming_back_to_the_same_place_waits_the_whole_delay_again() {
+    let mut a = still();
+    a.focused = false;
+    a.compose();
+    let t = a.motion.now();
+    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
+    assert!(a.ui.tip.waiting().is_some());
+    // The window loses the pointer: the same control and place again must wait afresh.
+    a.ui.hover = None;
+    a.ui.hide_tip();
+    let back = t + Duration::from_millis(40);
+    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), back);
+    assert_eq!(
+        a.ui.tip.deadline(),
+        Some(back + TIP_WAIT),
+        "the whole delay again, not the first one's left-over"
+    );
+    a.timers(back + TIP_WAIT - Duration::from_millis(1));
+    assert!(a.ui.tip.shown().is_none(), "not before its time");
+    a.timers(back + TIP_WAIT);
+    assert!(a.ui.tip.shown().is_some(), "and then it shows");
 }

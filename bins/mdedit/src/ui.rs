@@ -984,6 +984,14 @@ pub struct Ui {
 }
 
 impl Ui {
+    /// Takes the tooltip away, and forgets what it was pointed at: coming back to the same
+    /// control at the same place arms it again as it would the first time (its delay from the
+    /// rest, not "at once as a neighbour").
+    pub fn hide_tip(&mut self) {
+        self.tip.hide();
+        self.tip_point = None;
+    }
+
     /// What the left pane shows, or would show when it is opened.
     pub fn pane_face(&self) -> PaneFace {
         if self.outline.on {

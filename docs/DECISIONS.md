@@ -2660,3 +2660,25 @@ the setting off, reduced motion — nothing moves and the pixels are those of be
 … Tree chevrons through `glyph::draw_disclosure_animated_with` … Use D1 groups, and keep_group on
 frames that skip the pane", under "quick, quiet motion".
 **Overturned by.** The owner; or shared changing `DISCLOSURE_MOTION`.
+
+## D-260 · 2026-11-26 · A scroll and a leaving pointer take the tip away, and the move costs what it is
+
+**Decision.** Three corrections to M-C (D-257, D-258) from the review of `8279ff9`:
+- **A wheel scroll hides the tooltip**, as a key does and as DESIGN 96 said it did (`App::wheel`
+  called nothing). A test holds it.
+- **`Ui::hide_tip` forgets what the tip was pointed at** (`tip_point = None`), beside taking the
+  tip away, and `CursorLeft` and every other hiding call use it: coming back to the same control
+  at the same place arms the tip again with its whole delay, where the skip D-258 added would
+  have left it waiting for a deadline that had gone by (it showed at once, or not at all).
+- **The measurement was wrong and is remeasured.** D-258 said "one `String` and one clone"; the
+  warm path is one `String` from `chrome::tooltip` and **two** clones in `Tooltip::hover` (its
+  memory of the earlier frame, and its "what shows changed" comparison) — three allocations a
+  move. And the first measurement timed every call with `Instant::now()`, whose step on Windows
+  is about 100 ns, so it reported 200 ns and "0 ns" when the truth is 215 ns and 25 ns: the new
+  one times a batch of 200,000 moves and divides. Seven runs:
+  `docs/measurements/2026-11-26-tooltip-moves.md`.
+**Why.** The review of `8279ff9` (the owner, 2026-11-26): "A mouse-wheel scroll doesn't hide the
+tip … Set `tip_point = None` on CursorLeft and whenever the tip is hidden … the measurement doc
+and D-258 say 'one String, one clone', but it is two clones (three allocations a move) … Re-measure
+by timing the whole batch and dividing."
+**Overturned by.** The owner; or a tooltip that keeps its place across a scroll on the owner's word.

@@ -1012,7 +1012,7 @@ impl App {
     pub(super) fn right_press(&mut self) {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
-        self.ui.tip.hide();
+        self.ui.hide_tip();
         if self.plan_is_open() {
             self.plan_right_press();
             return;
@@ -1136,6 +1136,8 @@ impl App {
     }
 
     pub(super) fn wheel(&mut self, delta: MouseScrollDelta) {
+        // A scroll takes the tip away, wherever it happens (as a key does).
+        self.ui.hide_tip();
         let (x, y) = self.ui.mouse;
         // Notches (positive = scroll up / left).
         let (nx, ny, pixels) = match delta {
@@ -1430,7 +1432,7 @@ impl App {
 
     pub(super) fn key_pressed(&mut self, key: keys::Key, typed: Option<&str>) {
         let mods = self.mods;
-        self.ui.tip.hide();
+        self.ui.hide_tip();
         self.ui.keyboard = true;
         self.redraw();
         let name = match &key {

@@ -2923,7 +2923,7 @@ impl App {
                     self.focus_gained();
                 } else {
                     self.ui.caret_on = true;
-                    self.ui.tip.hide();
+                    self.ui.hide_tip();
                     self.docs.seal();
                 }
                 self.redraw();
@@ -2944,7 +2944,9 @@ impl App {
             WindowEvent::CursorLeft { .. } => {
                 if self.ui.drag.is_none() {
                     self.ui.hover = None;
-                    self.ui.tip.hide();
+                    // Leaving forgets what the tip was pointed at: coming back to the same spot
+                    // arms it again with its whole delay, as before the tooltip had a state.
+                    self.ui.hide_tip();
                     self.redraw();
                 }
             }

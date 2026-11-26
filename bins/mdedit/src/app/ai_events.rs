@@ -840,7 +840,7 @@ impl App {
             self.close_palette();
         }
         self.ui.popup = None;
-        self.ui.tip.hide();
+        self.ui.hide_tip();
         self.ui.hover = None;
         self.ui.find_focused = false;
         self.ai.hover = None;

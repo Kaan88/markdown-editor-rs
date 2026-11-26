@@ -3948,15 +3948,16 @@ rectangle, and the pointer's place **on every move** — `Tooltip::hover_at`, so
 `document::TIP_DELAY` 500 ms counts from the pointer coming to rest, not from entering the
 control (D-257). `timers` turns `Tooltip::deadline` into the wake-up and `Tooltip::tick` shows
 it; a neighbour's tip shows at once while one shows, a press hides it and blocks that control
-until the pointer leaves (`Tooltip::press`), and a key, a scroll or a popup hides it
-(`Tooltip::hide`). It is drawn as a bubble with the presence `Motion::tip_presence` asks for in
+until the pointer leaves (`Tooltip::press`), and a key, a scroll, a popup or the pointer leaving
+the window hides it (`Ui::hide_tip`, which also forgets the control and place it was pointed at,
+so coming back arms its delay again). It is drawn as a bubble with the presence `Motion::tip_presence` asks for in
 the group `TIP_GROUP`: it fades in by `document::TIP` and is gone at once, so no frame is asked
 for after it goes. Under `Policy::Never` the presence is 1 on its first frame and the bubble is
 drawn by `Bubble::draw`, the pixels of before. The fade's `t` is in the overlay signature with
 the bubbles', so each frame of it redraws what the tip covers; a tip taken away mid-fade goes at
 once and the pixels under it come back. A move that changes neither the control nor the pointer's
-place is skipped before any text is asked for (`Ui::tip_point`): 200 ns a move within one control
-and under the clock's tick when skipped
+place is skipped before any text is asked for (`Ui::tip_point`): 215 ns a move within one
+control and 25 ns when skipped, a batch of 200,000 divided
 (`docs/measurements/2026-11-26-tooltip-moves.md`). `tests/shots.sh` shows it part way in with
 `--tip-ms 90` (`tip-rising-light`, `tip-rising-dark`).
 
@@ -3966,7 +3967,9 @@ tip on its first frame, `Bubble::draw`, no timer), `a_tip_fades_in_and_settles_w
 `a_press_hides_the_tip_until_the_pointer_leaves` — and three from the review of them:
 `a_tip_taken_away_mid_fade_goes_at_once_and_the_pixels_come_back`,
 `a_neighbours_tip_shows_at_once_without_a_second_fade` and
-`every_frame_of_the_fade_damages_what_the_tip_covers`.
+`every_frame_of_the_fade_damages_what_the_tip_covers` — and two from the review of them, a
+scroll hiding the tip and a pointer coming back to the same place waiting its whole delay again
+(D-260).
 
 **Whether anything moves** is `Motion::policy`, the one place: `Policy::Never` in a shot and in
 every test (`args.shot` or `cfg(test)`), and with the Animations setting off (`prefs.animations`,
