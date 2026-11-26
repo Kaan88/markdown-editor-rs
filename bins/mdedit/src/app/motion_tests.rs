@@ -2008,22 +2008,55 @@ fn a_switch_in_the_settings_dialog_slides_and_then_rests() {
     assert_eq!(a.motion.due, None, "and no timer once it rests");
 }
 
-/// A scroll takes the tip away, wherever the pointer is.
+/// Even a scroll that does nothing else must request a frame to erase the tip.
 #[test]
 fn a_scroll_hides_the_tip() {
-    let mut a = still();
-    a.focused = false;
-    a.compose();
-    let t = a.motion.now();
-    a.update_tip(Some(a_tip_hit()), (10.0, 10.0), t);
-    a.timers(t + TIP_WAIT);
-    assert!(a.ui.tip.shown().is_some(), "it shows");
-    a.wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -1.0));
-    assert!(a.ui.tip.shown().is_none(), "the scroll takes it away");
-    assert!(a.ui.tip.waiting().is_none(), "and nothing waits");
-    // It does not come back on its own: the pointer must move again.
-    a.timers(t + TIP_WAIT * 3);
-    assert!(a.ui.tip.shown().is_none());
+    use winit::event::MouseScrollDelta::LineDelta;
+    for case in ["title", "zero zoom step", "empty pane", "outside palette"] {
+        let mut a = if case == "empty pane" { app() } else { still() };
+        a.focused = false;
+        if case == "outside palette" {
+            a.motion = Motion::moving(ManualClock::new());
+            a.open_palette(">fold");
+            a.compose();
+            settle(&mut a);
+        }
+        a.compose();
+        let at = match case {
+            "title" | "outside palette" => (10.0, 20.0),
+            _ => (a.areas.text.cx(), a.areas.text.cy()),
+        };
+        a.ui.mouse = at;
+        a.mods.ctrl = case == "zero zoom step";
+        let delta = LineDelta(0.0, if a.mods.ctrl { 0.0 } else { -1.0 });
+        let clean = a.screen.pixels.clone();
+        let t = a.motion.now();
+        a.update_tip(Some(a_tip_hit()), at, t);
+        a.timers(t + TIP_WAIT);
+        a.compose();
+        if case == "outside palette" {
+            tick(&mut a, 16);
+            a.compose();
+            assert!(a.motion.tip_t > 0.0 && a.motion.tip_t < 1.0);
+        }
+        assert!(a.screen.pixels != clean, "{case}: the tip was painted");
+        a.wants_frame = false;
+        a.wheel(delta);
+        assert!(a.wants_frame, "{case}: erase the painted tip");
+        assert!(a.ui.tip.shown().is_none(), "the scroll takes it away");
+        assert!(a.ui.tip.waiting().is_none(), "and nothing waits");
+        a.compose();
+        assert!(a.screen.pixels == clean, "{case}: editor pixels restored");
+        a.timers(t + TIP_WAIT * 3);
+        assert!(a.ui.tip.shown().is_none());
+
+        a.update_tip(Some(a_tip_hit()), at, t + TIP_WAIT * 3);
+        assert!(a.ui.tip.waiting().is_some());
+        a.wants_frame = false;
+        a.wheel(delta);
+        assert!(a.ui.tip.waiting().is_none());
+        assert!(!a.wants_frame, "{case}: no painted tip to erase");
+    }
 }
 
 /// Leaving the window and coming back to the same control at the same place arms the tip again

@@ -639,6 +639,16 @@ impl App {
         self.wants_frame = true;
     }
 
+    /// A shown tip can have painted pixels, even if the input that dismisses it does not
+    /// change anything else. A waiting tip has nothing to erase.
+    fn hide_tip(&mut self) {
+        let shown = self.ui.tip.shown().is_some();
+        self.ui.hide_tip();
+        if shown {
+            self.redraw();
+        }
+    }
+
     /// Starts reading and watching the system's wish for less motion, once, unless nothing can
     /// move (a shot, a test, the Animations setting off).
     fn watch_motion(&mut self) {

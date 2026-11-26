@@ -1137,7 +1137,7 @@ impl App {
 
     pub(super) fn wheel(&mut self, delta: MouseScrollDelta) {
         // A scroll takes the tip away, wherever it happens (as a key does).
-        self.ui.hide_tip();
+        self.hide_tip();
         let (x, y) = self.ui.mouse;
         // Notches (positive = scroll up / left).
         let (nx, ny, pixels) = match delta {
