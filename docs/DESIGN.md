@@ -3457,9 +3457,12 @@ folders?" counting only folders that brought something new, with "Leave them out
 first) and Esc for leaving (likewise), answers it; Esc does not close the window. "Add them"
 starts a read of its own, with the bar's "Reading…" line, and adds every file ticked. The main
 button is drawn off while the question stands, so "Make the plan" cannot leave the held files
-out. A folder that brings nothing new says "Nothing new in <folder>.", an unreadable one is named
-("Could not read Locked."), and a walk that both could not read a folder and stopped at its cap
-says both. Shots `task-files-ask` (1280 and 520 px, both themes), `task-files-ask-empty`,
+out. A folder that brings nothing new says "Nothing new in <folder>." itself, even beside another
+folder of the same drop that did bring files; a folder the walk could not read is named ("Could
+not read Locked."), and a walk that both could not read a folder and stopped at its cap says both.
+A file added again is not one left out, a question whose files have all been added by name goes,
+and while answered files wait or are being probed the main button is drawn off and runs nothing
+(D-252). Shots `task-files-ask` (1280 and 520 px, both themes), `task-files-ask-empty`,
 `task-files-unreadable` and `task-files-nothing-new`.
 
 **One read at a time, and a drop never lost (2026-11-26, D-250, D-251).** winit sends one
