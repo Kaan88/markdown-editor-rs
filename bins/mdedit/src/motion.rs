@@ -42,13 +42,13 @@ pub const MENUS: &str = "menus";
 /// (`Menu::draw_in_animated`, shared's `HOVER`), inside the popup's own bounds.
 pub const ROWS: &str = "menu-rows";
 
-/// The earliest outstanding paint for a skipped overlay. The animator advances tracks when
+/// The earliest outstanding paint for a skipped region or overlay. The animator advances tracks when
 /// kept, but offers a fresh deadline relative to each frame: preserve the paint already
 /// promised so successive early frames cannot keep postponing it.
 #[derive(Default)]
-pub struct OverlayDeadline(Option<Instant>);
+pub struct PaintDeadline(Option<Instant>);
 
-impl OverlayDeadline {
+impl PaintDeadline {
     pub fn due(&self, now: Instant) -> bool {
         self.0.is_some_and(|at| now >= at)
     }
@@ -127,8 +127,9 @@ pub enum MenuFrame {
 
 pub struct Motion {
     pub anim: Animator,
-    pub rows_due: OverlayDeadline,
-    pub settings_due: OverlayDeadline,
+    pub title_due: PaintDeadline,
+    pub rows_due: PaintDeadline,
+    pub settings_due: PaintDeadline,
     /// The command palette's presence as the last frame drew it (1 when it is not open).
     pub palette_t: f32,
     /// Presences of the update, crash, stale-tab and rename bars, in layout order.
@@ -191,8 +192,9 @@ impl Motion {
     pub fn new(still: bool) -> Motion {
         let mut m = Motion {
             anim: Animator::new(),
-            rows_due: OverlayDeadline::default(),
-            settings_due: OverlayDeadline::default(),
+            title_due: PaintDeadline::default(),
+            rows_due: PaintDeadline::default(),
+            settings_due: PaintDeadline::default(),
             palette_t: 1.0,
             banner_t: [0.0; 4],
             due: None,

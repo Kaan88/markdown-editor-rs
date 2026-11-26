@@ -1424,7 +1424,7 @@ impl App {
         if self.motion.anim.group_due(crate::motion::SIDEBAR, now) {
             dirty[Region::Files.index()] = true;
         }
-        if self.motion.anim.group_due(crate::motion::TITLE, now) {
+        if self.motion.title_due.due(now) {
             dirty[Region::Title.index()] = true;
         }
         if self.ui.settings.is_some() && self.motion.settings_due.due(now) {
@@ -2246,6 +2246,13 @@ impl App {
             self.motion.backing = None;
         }
         self.motion.due = self.motion.anim.end_frame();
+        if let Some(due) = self.motion.title_due.update(
+            &self.motion.anim,
+            crate::motion::TITLE,
+            !dirty[Region::Title.index()],
+        ) {
+            self.motion.due = Some(self.motion.due.map_or(due, |at| at.min(due)));
+        }
         if let Some(due) = self.motion.settings_due.update(
             &self.motion.anim,
             crate::motion::SETTINGS,

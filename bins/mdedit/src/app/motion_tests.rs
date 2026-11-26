@@ -2126,6 +2126,46 @@ fn middle_clicking_a_tab_dismisses_its_tooltip() {
 
 // ---- the title row (M-E, D4) ---------------------------------------------------------------------
 
+fn screen_pixel(a: &App, x: f32, y: f32) -> [u8; 4] {
+    let offset = ((y * a.scale) as usize * a.screen.width as usize + (x * a.scale) as usize) * 4;
+    a.screen.pixels[offset..offset + 4].try_into().unwrap()
+}
+
+#[test]
+fn a_frame_that_skips_the_title_keeps_its_hover_fade() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let b = a.hit_rect(Hit::NewTab).unwrap();
+    let at = (b.cx(), b.y + 4.0);
+    let rest = screen_pixel(&a, at.0, at.1);
+    a.pointer_moved(b.cx(), b.cy());
+    a.compose();
+    tick(&mut a, 17);
+    a.compose();
+    let mid = screen_pixel(&a, at.0, at.1);
+    assert_ne!(mid, rest, "the fill has started to fade");
+
+    let due = a.motion.due.unwrap();
+    tick(&mut a, 16);
+    assert!(
+        a.compose().0.is_empty(),
+        "the early frame skipped the title"
+    );
+    assert_eq!(screen_pixel(&a, at.0, at.1), mid);
+    assert_eq!(a.motion.due, Some(due), "keep the promised paint");
+    tick(&mut a, 16);
+    a.compose();
+    let later = screen_pixel(&a, at.0, at.1);
+    assert_ne!(later, mid, "the fade continued");
+    settle(&mut a);
+    assert_ne!(
+        screen_pixel(&a, at.0, at.1),
+        later,
+        "it did not snap to the end"
+    );
+}
+
 /// With motion off a caption button and a tab are the plain drawings, pixel for pixel, hovered.
 #[test]
 fn with_motion_off_the_title_row_is_the_plain_drawing() {
