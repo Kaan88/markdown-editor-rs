@@ -45,6 +45,8 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
 - **Motion, on `f/motion2`**: menus fade (released work), the toasts (D-251 to D-255,
   DESIGN 97), tooltips (M-C, D-257 and D-264), and the plan below. Not merged or tried by hand.
   The branch pins `1588e0f` (D-268), which supplies L1's opt-in cascade cancellation.
+  On Linux that pin starts a long-lived system-theme thread with a D-Bus connection at
+  launch when the settings portal is available; its Linux launch and idle costs are unmeasured.
   Left open: the status snap in
   `Motion::sync_toasts` (`Animator::set`), still needed with motion on because shared's animator
   keeps a target's first delay. **On the owner's word: quick, quiet motion; menus open in

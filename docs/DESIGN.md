@@ -3943,8 +3943,12 @@ not offer; and the pool's cancel (#28) and the window-procedure hand-over (#29) 
 shots of the pin are identical but for the clock-stamped `runs*`.
 
 **The pin `1588e0f`** (D-268) makes `Cascade::keys_cancel_wait` available without enabling
-it anywhere by itself. The Linux portal change is upstream; the new layout, terminal and
-scroll-area modules are not used by mdedit merely by moving the pin.
+it anywhere by itself. On Linux, `App::new` reads the system theme at launch; with this
+pin that first read starts `mdshared-theme`, a long-lived helper that keeps a session
+D-Bus connection open to watch the settings portal when available. The first read can
+wait for the portal's initial reply up to the existing limit. Launch and idle costs of
+this Linux change have not been measured. The new layout, terminal and scroll-area modules
+are not used by mdedit merely by moving the pin.
 
 **Tooltips.** `Ui::tip` is shared's `Tooltip<Hit>`: `update_tip` (`app/input.rs`) gives it the
 control under the pointer, its text from `chrome::tooltip` (or the replace strip's own) and its
