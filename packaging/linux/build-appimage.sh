@@ -29,7 +29,7 @@ cd "$root"
 version="$(awk '/^\[workspace\.package\]/{p=1;next} /^\[/{p=0} p&&/^version[ ]*=/{gsub(/[" ]/,"",$3);print $3;exit}' Cargo.toml)"
 [ -n "$version" ] || { echo "cannot read the version from Cargo.toml" >&2; exit 1; }
 
-mkdir -p "$cache/$app/cargo" "$cache/$app/target-linux"
+mkdir -p "$cache/$app/cargo" "$cache/$app/target-linux" "$cache/$app/engine-src-target-linux"
 
 # 1. The build image (a no-op when nothing changed).
 docker build -q -t "$image" --build-arg "RUST_TOOLCHAIN=${RUST_TOOLCHAIN:-stable}" packaging/linux >/dev/null
@@ -39,13 +39,14 @@ docker run --rm --user "$(id -u):$(id -g)" \
     -v "$root:/src:ro" \
     -v "$cache/$app/cargo:/cache/cargo" \
     -v "$cache/$app/target-linux:/cache/target" \
+    -v "$cache/$app/engine-src-target-linux:/cache/engine-src" \
     -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR=/cache/target -e CARGO_TERM_COLOR=never \
     -w /src "$image" \
     bash -c 'set -e; PATH=/opt/cargo/bin:$PATH
         cargo build --release --locked -p mdedit -p mdedit-ai
-        packaging/engine-source.sh /cache/target/engine-src
+        packaging/engine-source.sh /cache/engine-src/checkout
         cargo build --release --locked -p mdshared-md-engine --bin mdview-engine \
-            --manifest-path /cache/target/engine-src/Cargo.toml --target-dir /cache/target/engine'
+            --manifest-path /cache/engine-src/checkout/Cargo.toml --target-dir /cache/target/engine'
 bin="$cache/$app/target-linux/release/$app"
 engine="$cache/$app/target-linux/engine/release/mdview-engine"
 ai="$cache/$app/target-linux/release/mdedit-ai"

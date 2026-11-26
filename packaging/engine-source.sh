@@ -10,7 +10,9 @@
 #
 # A clean checkout already at the revision is kept. Needs git and the network (github.com).
 set -euo pipefail
-dir="${1:?usage: engine-source.sh DIR or engine-source.sh --check-lock VIEWER_LOCK}"
+default_dir="${XDG_CACHE_HOME:-$HOME/.cache}/mdedit/engine-src"
+if [ -n "${RUNNER_TEMP:-}" ]; then default_dir="$RUNNER_TEMP/engine-src"; fi
+dir="${1:-$default_dir}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 renderer_revision() {
     awk '
@@ -35,15 +37,25 @@ if [ "$dir" = --check-lock ]; then
     exit 0
 fi
 
-if [ -e "$dir/.git" ]; then
+if [ -L "$dir" ]; then
+    echo "engine-source: refusing a symlink at $dir" >&2; exit 1
+fi
+top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -n "$top" && "$top" -ef "$dir" ]]; then
     dirty="$(git --no-optional-locks -C "$dir" status --porcelain --untracked-files=all --ignored)"
     [ -z "$dirty" ] || { echo "engine-source: dirty or extra files in $dir" >&2; exit 1; }
-elif [ -e "$dir" ]; then
-    echo "engine-source: $dir exists and is not a checkout" >&2
-    exit 1
+else
+    # A cache restore can leave an empty directory tree, including .git/.
+    if [ -e "$dir" ]; then
+        [ -d "$dir" ] && [ -z "$(find "$dir" ! -type d -print -quit)" ] ||
+            { echo "engine-source: refusing nonempty non-checkout $dir" >&2; exit 1; }
+        find "$dir" -depth -type d -exec rmdir {} \;
+        [ ! -e "$dir" ] || { echo "engine-source: could not clear empty checkout $dir" >&2; exit 1; }
+    fi
+    mkdir -p "$(dirname "$dir")"
+    git init -q "$dir"
 fi
 if [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null || true)" != "$rev" ]; then
-    if [ ! -e "$dir/.git" ]; then git init -q "$dir"; fi
     git -C "$dir" fetch -q --depth 1 https://github.com/Kaan88/markdown-shared-rs "$rev"
     git -C "$dir" -c advice.detachedHead=false checkout -q FETCH_HEAD
 fi

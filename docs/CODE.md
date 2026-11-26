@@ -140,12 +140,15 @@ that was 9 px too wide in the runner's font.
 
 The workspace build does not build the helper. On Windows, use
 `pwsh -File packaging/windows/build-engine.ps1` to build it with the static CRT
-and place it in `target/release` beside `mdedit.exe`. On Linux and macOS:
+and place it in `target/release` beside `mdedit.exe`. It uses `RUNNER_TEMP/engine-src` in CI
+and `~/.cache/mdedit-build/engine-src` locally, regardless of the build's `TEMP` setting.
+On Linux and macOS:
 
 ```bash
-bash packaging/engine-source.sh target/engine-src
+engine_src="${XDG_CACHE_HOME:-$HOME/.cache}/mdedit/engine-src"
+bash packaging/engine-source.sh "$engine_src"
 cargo build --release --locked -p mdshared-md-engine --bin mdview-engine \
-  --manifest-path target/engine-src/Cargo.toml --target-dir target/engine-build
+  --manifest-path "$engine_src/Cargo.toml" --target-dir target/engine-build
 cp target/engine-build/release/mdview-engine target/release/
 ```
 

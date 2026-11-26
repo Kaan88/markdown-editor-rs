@@ -30,3 +30,20 @@ rm "$scratch/source/untracked-probe"
 printf '\n# Test edit\n' >> "$scratch/source/Cargo.toml"
 reject_dirty
 echo 'Engine source guard rejected a mismatched lock, untracked file, and tracked edit'
+
+# Reproduce a cache restore under an enclosing repository. Redirect fetches
+# to the already checked-out toolkit, so the regression needs no network.
+origin="$(cd "$scratch/source" && { pwd -W 2>/dev/null || pwd -P; })"
+mkdir "$scratch/source/target"
+for restored in git-shell empty; do
+    dest="$scratch/source/target/$restored"
+    mkdir "$dest"
+    if [ "$restored" = git-shell ]; then mkdir "$dest/.git"; fi
+    GIT_CONFIG_COUNT=1 \
+        GIT_CONFIG_KEY_0="url.$origin.insteadOf" \
+        GIT_CONFIG_VALUE_0=https://github.com/Kaan88/markdown-shared-rs \
+        bash "$script" "$dest"
+    test "$(git -C "$dest" rev-parse HEAD)" = "$(git -C "$scratch/source" rev-parse HEAD)"
+    test -f "$dest/crates/mdshared-md-engine/Cargo.toml"
+done
+echo 'Engine source guard recovered empty cache directories inside a repository'

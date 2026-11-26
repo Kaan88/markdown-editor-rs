@@ -123,7 +123,7 @@ jobs:
           restore-keys: linux-release-
       - name: AppImage, tar.gz, deb, rpm, PKGBUILD (packaging/linux/build-packages.sh)
         run: RUST_TOOLCHAIN="$RUST_TOOLCHAIN" packaging/linux/build-packages.sh
-      - name: Smoke test of the tar.gz
+      - name: Smoke test of the tar.gz and AppImage
         run: |
           v='${{ needs.meta.outputs.version }}'
           d="$(mktemp -d)"
@@ -135,6 +135,10 @@ jobs:
           test -x "$d/prefix/lib/mdedit/mdedit-ai"
           "$d/mdedit-$v-linux-x86_64/uninstall.sh" "$d/prefix"
           test ! -e "$d/prefix/bin/mdedit" && test ! -e "$d/prefix/lib/mdedit"
+          image="$PWD/target/dist-linux/mdedit-$v-linux-x86_64.AppImage"
+          (cd "$d" && "$image" --appimage-extract >/dev/null)
+          bin="$d/squashfs-root/usr/bin"
+          bash tests/preview-engine-smoke.sh "$bin/mdedit" "$bin"
       - uses: actions/upload-artifact@v7
         with:
           name: linux-files
@@ -170,8 +174,8 @@ jobs:
         run: |
           cargo build --release -p mdedit -p mdedit-ai
           # The preview pane's engine, from the same toolkit revision as the renderer.
-          bash packaging/engine-source.sh target/engine-src
-          cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path target/engine-src/Cargo.toml --target-dir target/engine
+          bash packaging/engine-source.sh "$RUNNER_TEMP/engine-src"
+          cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path "$RUNNER_TEMP/engine-src/Cargo.toml" --target-dir target/engine
           cp target/engine/release/mdview-engine target/release/
           bash packaging/macos/make-bundle.sh target/release target/dist
           test -x target/dist/mdedit.app/Contents/MacOS/mdview-engine

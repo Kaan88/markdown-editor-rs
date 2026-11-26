@@ -50,9 +50,9 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo build --release -p mdedit
-          bash packaging/engine-source.sh target/engine-src
-          bash tests/engine-source-check.sh target/engine-src
-          cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path target/engine-src/Cargo.toml --target-dir target/engine-build
+          bash packaging/engine-source.sh "$RUNNER_TEMP/engine-src"
+          bash tests/engine-source-check.sh "$RUNNER_TEMP/engine-src"
+          cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path "$RUNNER_TEMP/engine-src/Cargo.toml" --target-dir target/engine-build
           cp target/engine-build/release/mdview-engine target/release/
           bash tests/shots.sh target/shots
           bash tests/shots-check.sh target/shots
@@ -130,8 +130,8 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo build --release -p mdedit
-          bash packaging/engine-source.sh target/engine-src
-          cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path target/engine-src/Cargo.toml --target-dir target/engine-build
+          bash packaging/engine-source.sh "$RUNNER_TEMP/engine-src"
+          cargo build --release --locked -p mdshared-md-engine --bin mdview-engine --manifest-path "$RUNNER_TEMP/engine-src/Cargo.toml" --target-dir target/engine-build
           cp target/engine-build/release/mdview-engine target/release/
           bash tests/shots.sh target/shots
           bash tests/shots-check.sh target/shots
