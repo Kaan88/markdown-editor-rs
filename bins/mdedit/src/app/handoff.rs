@@ -16,6 +16,30 @@ fn tiled(area: Option<Rect>, set: impl FnOnce(Rect) -> bool) -> Option<Rect> {
     set(left).then_some(right)
 }
 
+/// Start the same viewer that the app's discovery offers in the Preview menu.
+#[cfg(target_os = "linux")]
+fn open_viewer(request: &Request) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let exe = crate::preview_pane::viewer().ok_or_else(|| "mdview is not installed".to_string())?;
+    let mut child = Command::new(exe)
+        .args(request.args(link::VIEWER))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map_err(|e| format!("mdview did not start: {e}"))?;
+    std::thread::spawn(move || _ = child.wait());
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_viewer(request: &Request) -> Result<(), String> {
+    sister::open(link::VIEWER, request)
+}
+
 impl App {
     /// What other launches and the viewer asked for since the last wake. A file is opened, shown
     /// at its line and column, and the window is raised, as a second launch always did. A live
@@ -201,7 +225,7 @@ impl App {
         if side_by_side {
             request.place = self.tile_left();
         }
-        match sister::open(link::VIEWER, &request) {
+        match open_viewer(&request) {
             Ok(()) => {
                 (self.docs.links).link(id, path.into(), line, None, Instant::now());
                 self.docs.links.start(self.docs.waker());
@@ -231,7 +255,7 @@ impl App {
             from: Some(link::FROM.into()),
             ..Request::default()
         };
-        match sister::open(link::VIEWER, &start) {
+        match open_viewer(&start) {
             Ok(()) => {
                 let place = side_by_side.then(|| self.tile_left()).flatten();
                 let opening = link::Opening { place };

@@ -3065,3 +3065,14 @@ resolved renderer revision first. Engine build scripts reuse only a clean source
 and a matching Git revision is not proof that the working tree matches it.
 **Overturned by.** A change to the supported external preview or release build contract.
 **From.** The renderer migration review and follow-up brief.
+
+## D-286 — 2026-11-27 — Find a co-installed viewer in mdedit's Linux prefix
+
+**Decision.** After the explicit `MD_SISTER_MDVIEW` override, check `lib/mdview/mdview`
+and then `bin/mdview` under the prefix of mdedit's real executable. Use the toolkit's
+`find_in` to validate each candidate, then fall back to normal toolkit discovery. Use the
+same discovery to offer and open the viewer. D-284/D-285's engine lookup is unchanged.
+**Why.** Co-installed Linux packages should find each other even with the prefix off `PATH`.
+This mirrors mdview's Edit in mdedit discovery (`3429250`).
+**Overturned by.** A shared toolkit API that supplies the same discovery order.
+**From.** The owner's decision on the renderer re-review's Linux lookup finding.

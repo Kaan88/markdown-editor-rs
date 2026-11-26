@@ -128,7 +128,62 @@ pub const STANDALONE: bool = cfg!(feature = "embedded-preview");
 
 /// The mdview installed, if any.
 pub fn viewer() -> Option<PathBuf> {
-    mdshared_app::sister::find(crate::link::VIEWER)
+    use mdshared_app::sister::Env;
+    viewer_in(
+        &Env::current(crate::link::VIEWER),
+        cfg!(target_os = "linux"),
+    )
+}
+
+fn viewer_in(env: &mdshared_app::sister::Env, shared_prefix: bool) -> Option<PathBuf> {
+    use mdshared_app::sister::{Env, find_in};
+
+    let name = crate::link::VIEWER;
+    if shared_prefix {
+        // First honour the toolkit's explicit override, without performing any other lookup.
+        if let Some(path) = find_in(
+            name,
+            &Env {
+                over: env.over.clone(),
+                ..Env::default()
+            },
+        ) {
+            return Some(path);
+        }
+        // Linux current_exe gives the real executable, not the bin/mdedit launcher symlink.
+        if let Some(prefix) = env.exe.as_deref().and_then(editor_prefix)
+            && let Some(path) = [prefix.join("lib/mdview"), prefix.join("bin")]
+                .into_iter()
+                .find_map(|dir| {
+                    find_in(
+                        name,
+                        &Env {
+                            exe: Some(dir.join("mdedit")),
+                            ..Env::default()
+                        },
+                    )
+                })
+        {
+            return Some(path);
+        }
+    }
+    find_in(name, env)
+}
+
+fn editor_prefix(exe: &Path) -> Option<&Path> {
+    if !exe.is_absolute() || !exe.ends_with("mdedit") {
+        return None;
+    }
+    let dir = exe.parent()?;
+    if dir.ends_with("bin") {
+        return dir.parent();
+    }
+    let lib = dir.parent()?;
+    if dir.ends_with("mdedit") && lib.ends_with("lib") {
+        lib.parent()
+    } else {
+        None
+    }
 }
 
 /// The sole packaged engine path; the renderer checks it when it needs the engine.
@@ -776,6 +831,56 @@ pub fn draw(
 #[cfg(test)]
 mod engine_tests {
     use super::*;
+
+    #[test]
+    fn viewer_is_found_in_the_shared_prefix_off_path() {
+        use mdshared_app::sister::{Env, find_in};
+
+        let root =
+            std::env::temp_dir().join(format!("mdedit-viewer-prefix-{}", std::process::id()));
+        let name = format!("mdview{}", std::env::consts::EXE_SUFFIX);
+        let private = root.join("lib/mdview").join(&name);
+        let public = root.join("bin").join(&name);
+        let override_exe = root.join(&name);
+        for path in [&private, &public, &override_exe] {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"app discovery fixture; never executed").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let real = root.join("lib/mdedit/mdedit");
+        let mut env = Env {
+            exe: Some(real.clone()),
+            path: Some(root.join("elsewhere").into_os_string()),
+            ..Env::default()
+        };
+        assert_eq!(find_in(crate::link::VIEWER, &env), None);
+        assert_eq!(viewer_in(&env, true), Some(private.clone()));
+        assert_eq!(viewer_in(&env, false), None);
+        for viewer in [&private, &public] {
+            std::fs::write(packaged_engine(Some(viewer)).unwrap(), b"not an engine").unwrap();
+        }
+        assert_eq!(external_engine(Some(&real), None), None);
+        env.over = Some(override_exe.clone().into_os_string());
+        assert_eq!(viewer_in(&env, true), Some(override_exe));
+        env.over = Some(root.join("missing-viewer").into_os_string());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert_eq!(viewer_in(&env, true), Some(public.clone()));
+            std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        env.exe = Some(root.join("bin/mdedit"));
+        assert_eq!(viewer_in(&env, true), Some(private.clone()));
+        std::fs::remove_file(private).unwrap();
+        env.exe = Some(real);
+        assert_eq!(viewer_in(&env, true), Some(public));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn invalid_viewer_diagnostic_hides_its_path_unless_verbose() {

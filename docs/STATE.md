@@ -138,8 +138,8 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
 
 ## Pins, branches, worktrees (tidied 2026-11-24)
 
-- Shared crates and embedded preview: `7fd559f` (D-284). Release smoke tests cover sibling
-  lookup and reject viewer fallback; Linux viewer discovery is unchanged. winit `62fa727`, softbuffer `dd18fec`.
+- Shared crates and embedded preview: `7fd559f` (D-284). On Linux, mdedit finds a co-installed
+  viewer off `PATH` (D-286); preview engine lookup is unchanged. winit `62fa727`, softbuffer `dd18fec`.
 - Branches: `main`; the drawings (`mock/ai-review`, `mock/settings`, `mock/terminal`,
   `mock/downloader`, `mock/workbench` local only, `mock/launcher`, `mock/file-manager`,
   `mock/task-manager`, `mock/ai-pictures`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub

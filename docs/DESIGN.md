@@ -4321,6 +4321,12 @@ build instead starts `mdview --preview-server`, passes it the validated absolute
 expects the `MDVPREVIEW7` greeting. It does not start the viewer if that path is unavailable. Neither
 mode changes the separate hand-off to a visible mdview window.
 
+On Linux, both discovery for the Preview menu and the visible hand-off prefer a valid
+`MD_SISTER_MDVIEW` override, then try `lib/mdview/mdview` and `bin/mdview` in mdedit's
+own prefix, before normal toolkit discovery. The prefix comes from the real executable,
+not the spelling used to launch it through a symlink. These are viewer application
+candidates only, never helper candidates.
+
 Formulas, diagrams and SVG go to `mdview-engine`, built from `mdshared-md-engine` at the same
 toolkit revision. In production it is found beside the actual editor executable, or at an
 explicit absolute `MDV_ENGINE` path. There is no parent-directory or installed-viewer

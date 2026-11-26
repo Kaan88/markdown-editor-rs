@@ -36,6 +36,7 @@ Unreleased: motion for menus, Settings, themes and messages, plus fixes to the A
   through a long page without selecting its text.
 - **Safer Markdown preview.** The editor ships the shared renderer and its matching helper;
   image loads and preview sizes are more tightly bounded, and text uses vertical-only hinting.
+- **Preview in mdview on Linux** finds a viewer installed under the same prefix, even off `PATH`.
 - **Files and Functions have keyboard focus.** Use the pane's shortcut, move with the
   arrow keys, press Enter to open the row, or press Escape to go back to the editor.
 - **Window placement follows the saved monitor.** If that monitor is no longer
