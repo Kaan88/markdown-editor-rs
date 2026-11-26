@@ -2559,17 +2559,6 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 **Why.** The review of `d02eb83..8ab6b3f`: the question came after up to 2,000 files had been read, which is the cost the owner said should be avoided if the ask can come first; two `DroppedFile` events lost the first folder; a run's end left a read and its question behind; a split parked the window with its read running; the room ignored the held files; keys went to the question before the window's own menus; a single file cleared the "Reading…" line; an unreadable folder said nothing.
 **Overturned by.** D-251, in part: a fold read that is still running is no longer overwritten by the answer, and nothing it finds is lost.
 
-## D-252 · 2026-11-26 · A file added again is not one left out, and one question at a time
-
-**Decision.**
-- A single file's add counts the files it would bring — those the window does not hold already, each once — and only then compares that with the room: a file added again says nothing about a cap. The same holds when the window is parked and "AI task on this file…" brings it back.
-- The question is refreshed, when a file is added by name, only if it is already on screen; and when the last file it held is added, it goes.
-- A probe job starts with no folded question behind it (`task_fold` cleared) and takes any decline mark away when its result arrives, so a stale mark can never silence a later drop.
-- While answered files wait or are being probed, the main button is drawn off, and `task_primary` and `task_run` do nothing: no run starts with those files left out.
-- Notes are per folder: a folder that brings nothing new says so itself, even when another folder of the same read brought files; a held folder dropped again under its question stays silent (the question accounts for it), and a folder the walk could not read is not also said to have brought nothing.
-- The no-thread branch of the probes goes on to the queue and the decision after it applies them.
-**Why.** The review of `4d94e91`: a re-added file was counted as a file left out; stale fold/decline marks could silence a drop; the plan could run while answered files were out; "Nothing new" was said of a held folder and lost when an earlier folder spoke; an emptied question stayed on screen.
-**Overturned by.** The owner.
 
 ## D-251 · 2026-11-26 · One read at a time, and every folder speaks
 
@@ -2582,4 +2571,24 @@ shot: the owner approves by looking, and a menu at rest does not show the fade.
 - D-249 stands exactly as written; the overturn is recorded here.
 - The junction test makes a real junction (`mklink /J`) and a directory symlink has a test of its own, each saying why when the system refuses; the cap test's name says the window tells what it left out.
 **Why.** The review of `8ab6b3f..7470c91`: an answer before a fold read ended overwrote that read's job and lost the folder; a stop left the question's paths behind; one note replaced another; single files and the answered set skipped the room; a declined question could still see its read's files added; a test's plain Enter had been changed to an answer.
+**Overturned by.** The owner.
+
+## D-252 · 2026-11-26 · A file added again is not one left out, and one question at a time
+
+**Decision.**
+- A single file's add counts the files it would bring — those the window does not hold already, each once — and only then compares that with the room: a file added again says nothing about a cap. The same holds when the window is parked and "AI task on this file…" brings it back.
+- The question is refreshed, when a file is added by name, only if it is already on screen; and when the last file it held is added, it goes.
+- A probe job starts with no folded question behind it (`task_fold` cleared) and takes any decline mark away when its result arrives, so a stale mark can never silence a later drop.
+- While answered files wait or are being probed, the main button is drawn off, and `task_primary` and `task_run` do nothing: no run starts with those files left out.
+- Notes are per folder: a folder that brings nothing new says so itself, even when another folder of the same read brought files; a held folder dropped again under its question stays silent (the question accounts for it), and a folder the walk could not read is not also said to have brought nothing.
+- The no-thread branch of the probes goes on to the queue and the decision after it applies them.
+**Why.** The review of `4d94e91`: a re-added file was counted as a file left out; stale fold/decline marks could silence a drop; the plan could run while answered files were out; "Nothing new" was said of a held folder and lost when an earlier folder spoke; an emptied question stayed on screen.
+**Overturned by.** The owner.
+
+## D-253 · 2026-11-26 · A stop ends the probes, and what is left of a question at 200 comes in
+
+**Decision.**
+- Esc during the probes of an answered set stops them like any other job: `task_probing` goes, the bar's line clears with "Stopped…", and the main button is live again. "Make the plan" then plans what the window holds.
+- Files taken by name out of the folder a question holds lower its count; when 200 or fewer are left they are read and added at once, as any set of that size is, and the question goes with them. Above 200 the question stays and its count follows.
+**Why.** The review of `4103067`: a stopped probe job left `task_probing` set, so the plan stayed off with no reason; and a count under the threshold still stood on screen as a question, which D-250's rule does not allow.
 **Overturned by.** The owner.

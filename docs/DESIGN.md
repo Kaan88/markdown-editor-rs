@@ -3462,8 +3462,9 @@ folder of the same drop that did bring files; a folder the walk could not read i
 not read Locked."), and a walk that both could not read a folder and stopped at its cap says both.
 A file added again is not one left out, a question whose files have all been added by name goes,
 and while answered files wait or are being probed the main button is drawn off and runs nothing
-(D-252). Shots `task-files-ask` (1280 and 520 px, both themes), `task-files-ask-empty`,
-`task-files-unreadable` and `task-files-nothing-new`.
+(D-252). Files taken by name out of a held folder lower its count, and at 200 or fewer the rest
+come in at once without a question (D-253). Shots `task-files-ask` (1280 and 520 px, both
+themes), `task-files-ask-empty`, `task-files-unreadable` and `task-files-nothing-new`.
 
 **One read at a time, and a drop never lost (2026-11-26, D-250, D-251).** winit sends one
 `DroppedFile` per path: the window gathers a pass's paths (`App::task_batch`) and the event loop's
@@ -3477,8 +3478,8 @@ found is lost or added past a "Leave them out". The window's room is `FILES_MAX`
 holds and what the question holds, checked for a single file as well and again as files go in.
 Every path that ends or replaces the window — close, Cancel, a rewrite run's end, parking behind a
 plan or behind "What is sent" — goes through `App::task_add_forget`, and a read's result is applied
-only to the window whose id it was started for. A stop (Esc while reading) drops the question's
-paths and the answered set too, and says how many.
+only to the window whose id it was started for. A stop (Esc while reading or probing) drops the
+question's paths and the answered set too, says how many, and gives the main button back (D-253).
 
 **After the hand-driven run (2026-11-25, D-240 to D-245).** `task_is_open` is false while
 Settings is open, so Settings opened from the window takes every key and click and the window
