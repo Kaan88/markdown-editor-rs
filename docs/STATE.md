@@ -53,7 +53,12 @@ is newer, doubt "In hand" first.
   notes from every folder are kept and a folder that brings nothing new says so; the room holds
   for single files as well; the question's keys keep out of menus and fields; the main button is
   off while it stands (D-251); a file added again is not "left out", a question with nothing left
-  goes, notes speak per folder, and the plan waits while answered files are probed (D-252); a stop ends the probes and gives the button back, and a question at 200 or fewer comes in at once (D-253); an answer waiting for a read is merged with any other, never replaced (D-254). fmt,
+  goes, notes speak per folder, and the plan waits while answered files are probed (D-252); a stop
+  ends the probes and gives the button back, and a question at 200 or fewer comes in at once
+  (D-253); an answer waiting for a read is merged with any other, never replaced (D-254; its text
+  cites the review as `4903067` where it should read `49028b2`, and its "a second Add them" case
+  cannot be reached through the window today — the merge is guarded by a test that builds the
+  state by hand). fmt,
   clippy `-D warnings` and the release workspace tests clean (mdedit 1,101, core 609); shots `task-files-ask`, `task-files-ask-empty`,
   `task-files-unreadable` and `task-files-nothing-new` looked at in both themes. Not pushed, no CI
   run, not seen in a real window, not yet in Fable's round.

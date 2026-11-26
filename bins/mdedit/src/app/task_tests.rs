@@ -3454,7 +3454,9 @@ fn a_single_file_beyond_the_windows_room_is_left_out() {
 }
 
 /// A second "Add them" while one answer waits adds to it through `task_ask_add`: nothing of the
-/// earlier folder is lost (D-254).
+/// earlier folder is lost (D-254). The state is built by hand — a held set, an answer waiting and
+/// a read still running — because the window cannot reach it today: the test guards the rule, and
+/// does not prove a reachable case.
 #[test]
 fn a_second_add_them_while_one_answer_waits_merges() {
     let (mut a, dir) = open("task-answer-second-add", TaskKind::File, Vec::new());
@@ -3496,7 +3498,9 @@ fn a_second_add_them_while_one_answer_waits_merges() {
 }
 
 /// "Leave them out" drops only its own question and the paths folded into it: an answer already
-/// waiting still goes in (D-254).
+/// waiting still goes in (D-254). The state is built by hand — a question on screen while an
+/// answer waits — because the window cannot reach it today: the test guards the rule, and does
+/// not prove a reachable case.
 #[test]
 fn leave_them_out_keeps_an_answer_already_waiting() {
     let (mut a, dir) = open("task-answer-leave", TaskKind::File, Vec::new());
