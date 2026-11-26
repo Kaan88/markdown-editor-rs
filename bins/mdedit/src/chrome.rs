@@ -569,7 +569,7 @@ pub fn preview_mode(docs: &Docs) -> PreviewMode {
 pub const AI_EDIT: &str = "AI edit";
 
 /// The measured text widths the bar's fit depends on.
-pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
+fn bar_text(p: &mut Painter, docs: &Docs, choice: ThemeChoice) -> BarText {
     let (count, _) = find_label(docs);
     BarText {
         open: p.measure(Face::Ui, 13.0, "Open"),
@@ -582,7 +582,7 @@ pub fn bar_text(p: &mut Painter, docs: &Docs) -> BarText {
         } else {
             p.measure(Face::Ui, 13.0, AI_EDIT)
         },
-        theme: p.measure(Face::Ui, 13.0, theme_label(docs.theme)),
+        theme: p.measure(Face::Ui, 13.0, theme_label(choice)),
         count: if count.is_empty() {
             0.0
         } else {
@@ -703,7 +703,7 @@ const TOGGLE_W: f32 = 32.0;
 
 /// Draws the replace strip into `r`: the replacement's box exactly under the find box, the search
 /// options to its left, Replace, Replace all and Close to its right (see [`replace_layout`]).
-pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, choice: ThemeChoice) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);
     let y = r.y;
@@ -715,7 +715,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     let scope = docs
         .active_ready()
         .filter(|r| r.view.replace_scope.is_some());
-    let t = bar_text(c.p, docs);
+    let t = bar_text(c.p, docs, choice);
     let plan = bar_plan(r.w, &t);
     let lay = replace_layout(r, &t, &plan, one_t, all_t, scope.is_some());
 
@@ -997,10 +997,10 @@ pub fn draw_ai_bar(c: &mut Ctx, ai: &crate::ai::Bar, bar: Rect) {
     );
 }
 
-pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
+pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect, choice: ThemeChoice) {
     let pal = *c.pal;
     c.p.fill(r, pal.bar);
-    let t = bar_text(c.p, docs);
+    let t = bar_text(c.p, docs, choice);
     let plan = bar_plan(r.w, &t);
     let y = r.y + (BAR_H - 32.0) / 2.0;
     let cy = y + 16.0;
@@ -1125,7 +1125,6 @@ pub fn draw_bar(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
     // Right group, from the right edge.
     let mut rx = r.right() - MARGIN - ICON_BTN;
     button(c, rx, BarItem::More, glyph::MORE, None, false);
-    let choice = docs.theme;
     let tw = labelled(t.theme, plan.labels);
     rx -= GAP + tw;
     button(

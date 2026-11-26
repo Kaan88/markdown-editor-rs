@@ -4185,8 +4185,10 @@ Animations off snap. A size-changing resize (including minimization) clears
 the snapshot even if another frame does not paint; same-size resize keeps it.
 If the next palette differs and a painted overlay closed, a fade-eligible flip
 first composes the live overlays in the old palette without presenting that pass
-(D-278). It then captures that clean frame and presents the regular blend. The
-palette or menu closes on the first presented frame. There is no extra pass
+(D-278). The toolbar and replace strip use the last drawn Theme choice for
+the button's glyph and text and the layout they share. Compose then captures
+that clean frame and presents the blend. The palette or menu closes on the
+first presented frame. There is no extra pass
 when motion is off or capture is otherwise disabled. A close during an active
 fade instead drops the snapshot and snaps, so the old image cannot linger.
 Root and submenu serials distinguish replacing a menu from keeping it open;

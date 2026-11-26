@@ -313,22 +313,16 @@ fn choose_dark_from_overlay(open: impl Fn(&mut App), choose: impl Fn(&mut App)) 
         a.compose();
         let old = a.screen.pixels.clone();
         let old_pixel = pixel(&a);
-        // The theme button reflects the new choice even on the clean old-palette pass.
-        // Both overlays cover the page below it, which must be entirely free of their pixels.
-        let page = a.areas.text.y.ceil() as usize * a.screen.width as usize * 4;
         open(&mut a);
-        assert!(
-            a.screen.pixels[page..] != old[page..],
-            "the overlay was painted"
-        );
+        assert!(a.screen.pixels != old, "the overlay was painted");
         choose(&mut a);
         assert!(a.dark());
         a.compose();
         if enabled {
             assert!(a.motion.theme_fade.is_some(), "the flip still fades");
             assert!(
-                a.screen.pixels[page..] == old[page..],
-                "first paint has the old palette but no overlay"
+                a.screen.pixels == old,
+                "first paint has the old palette and theme button but no overlay"
             );
             advance(&mut a, 85);
             assert_ne!(pixel(&a), old_pixel);

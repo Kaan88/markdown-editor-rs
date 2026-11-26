@@ -338,6 +338,8 @@ struct App {
     format: Option<crate::format_bar::State>,
     gfx: Gfx,
     pal: Palette,
+    /// The theme control choice baked into the last drawing, independent of the palette.
+    drawn_theme_choice: ThemeChoice,
     system_dark: bool,
     /// The theme came from `--light` / `--dark` and the user has not picked one since: the
     /// session keeps the theme it had.
@@ -560,6 +562,7 @@ impl App {
             format: None,
             gfx: Gfx::new(),
             pal: theme::LIGHT,
+            drawn_theme_choice: ThemeChoice::System,
             system_dark,
             scale: 1.0,
             size: (1, 1),
@@ -1481,11 +1484,11 @@ impl App {
             // This pass is never presented; only the blend from it is.
             self.drop_theme_fade();
             self.full = true;
-            Some(self.compose_frame(false).1)
+            Some(self.compose_frame(Some(self.drawn_theme_choice)).1)
         } else {
             None
         };
-        let (damage, mut times) = self.compose_frame(true);
+        let (damage, mut times) = self.compose_frame(None);
         if let Some(clean) = clean {
             times.layout += clean.layout;
             times.paint += clean.paint;
@@ -1494,16 +1497,20 @@ impl App {
         (damage, times)
     }
 
-    fn compose_frame(&mut self, sync_theme: bool) -> (Vec<(i32, i32, i32, i32)>, FrameTimes) {
+    fn compose_frame(
+        &mut self,
+        cleanup_theme: Option<ThemeChoice>,
+    ) -> (Vec<(i32, i32, i32, i32)>, FrameTimes) {
         self.ai_review_sync();
         let mut times = FrameTimes::default();
         let t0 = Instant::now();
         let frame_at = self.motion.now();
         self.motion.anim.begin_frame(frame_at);
         // Capture the previous drawing, never the replacement bitmap for a new size.
-        if sync_theme {
+        if cleanup_theme.is_none() {
             self.sync_theme(true);
         }
+        let paint_theme = cleanup_theme.unwrap_or(self.docs.theme);
         let (pw, ph) = (self.size.0.max(1), self.size.1.max(1));
         if self.screen.width != pw || self.screen.height != ph {
             self.screen = Bitmap::new(pw, ph);
@@ -1975,7 +1982,7 @@ impl App {
                     }
                     Region::Bar => {
                         let bar = Rect::new(rect.x, rect.y, rect.w, crate::ui::BAR_H);
-                        chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar);
+                        chrome::draw_bar(&mut c, &self.docs, &mut self.ui, bar, paint_theme);
                         let mut y = bar.bottom();
                         if let Some(state) = self.format {
                             let row = Rect::new(rect.x, y, rect.w, crate::format_bar::FORMAT_H);
@@ -1984,7 +1991,13 @@ impl App {
                         }
                         if self.ui.replace_open {
                             let strip = Rect::new(rect.x, y, rect.w, crate::ui::REPLACE_H);
-                            chrome::draw_replace_strip(&mut c, &self.docs, &mut self.ui, strip);
+                            chrome::draw_replace_strip(
+                                &mut c,
+                                &self.docs,
+                                &mut self.ui,
+                                strip,
+                                paint_theme,
+                            );
                             y = strip.bottom();
                         }
                         if self.docs.updates.bar().is_some() {
@@ -2426,6 +2439,7 @@ impl App {
         }
         // No inventory is needed for a partially initialized frame.
         self.painted_overlays = self.overlay_mask();
+        self.drawn_theme_choice = paint_theme;
         self.frames = self.frames.saturating_add(1);
         self.motion.due = self.motion.anim.end_frame();
         if let Some(due) = self.motion.sidebar_due.update(
