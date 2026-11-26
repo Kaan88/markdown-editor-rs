@@ -1943,6 +1943,40 @@ fn keyboard_focus_in_files_and_functions_fades_and_rests() {
     }
 }
 
+#[test]
+fn with_animations_off_pane_focus_paints_at_its_target_without_a_deadline() {
+    use crate::commands::CommandId;
+    use crate::keys::{Key, KeyName};
+    use crate::ui::PaneFace;
+    let (mut a, dir) = tree_app("motion-off-pane-focus");
+    let path = dir.join("symbols.rs");
+    std::fs::write(&path, "fn one() {}\n").unwrap();
+    open_now(&mut a, &path);
+    a.docs.prefs.animations = false;
+    for (face, shortcut) in [(PaneFace::Files, '1'), (PaneFace::Functions, '2')] {
+        if face == PaneFace::Functions {
+            a.command(CommandId::ToggleOutline);
+            a.ui.outline.fill_now(&a.docs);
+        }
+        a.compose();
+        let plain = a.screen.pixels.clone();
+        a.mods.ctrl = true;
+        a.mods.shift = true;
+        a.key_pressed(Key::Name(KeyName::Char(shortcut)), None);
+        a.mods = Default::default();
+        a.compose();
+        assert_eq!(
+            a.motion.anim.get::<f32>(("pane-focus", face)),
+            Some(1.0),
+            "{face:?}: full ring on the first paint"
+        );
+        assert_ne!(a.screen.pixels, plain, "{face:?}: the ring was painted");
+        assert_eq!(a.motion.due, None, "{face:?}: no follow-up frame");
+        assert!(a.compose().0.is_empty(), "{face:?}: nothing left to paint");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// The frames of the turn damage the chevron that changed: no changed pixel is left undamaged.
 #[test]
 fn the_frames_of_the_turn_damage_what_changes() {
