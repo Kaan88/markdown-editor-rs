@@ -4092,9 +4092,10 @@ the first frame. The tree test compares the live Files pane's chevrons against p
 **The tree's chevron.** Each folder row's disclosure is `glyph::draw_disclosure_animated_with`
 under the name `("files", path)`, turned by `motion::DISCLOSURE` (shared's `DISCLOSURE_MOTION`,
 167 ms, `fluent::MOVE`): at rest it is the plain right or down chevron, pixel for pixel. The pane
-draws inside the group `SIDEBAR`; a frame whose deadlines have come damages the Files region
-(`group_due(SIDEBAR, now)`), and a frame that draws something else keeps the group
-(`keep_group(SIDEBAR)`) so a turn goes on from where it was instead of being taken for new.
+draws inside the group `SIDEBAR`; its paint deadline damages the Files region when due. An
+early frame keeps the group and that original deadline, just as for Settings, so the turn
+continues even during a stream of 16 ms frames. Hiding Files drops the tracks and the deadline
+(D-267).
 
 **Shots.** `--settings-ms MS` draws the old knob position, changes the Typing switch at time
 zero, then advances to the requested sample (`settings-switch-*`, 60 ms). `--tree-ms MS`
@@ -4127,8 +4128,10 @@ and is damaged by its
 `presence_bounds()` — the same bounds a menu is damaged by, `rect().inset(-20)` having gone from
 both. The anchored language list stays instant. Each update, crash, stale-tab and rename
 notice uses `notice::draw_sliding`; `notice::bar_height` sets its visible height for
-layout and clips its button hits. The editor moves down as the strip grows, with no empty space
-reserved ahead of it.
-Shots: `--motion-clock MS`, which makes the shot animate from its first frame and then steps the
-clock by hand: `menu-row-hover-*`, `palette-in-*` and `{update,crash,stale,rename}-sliding-*`,
+layout and clips its button hits. Only notices arriving after the first paint slide on: the
+editor moves down as the strip grows, with no empty space reserved ahead of it. On the first
+paint or with motion off, both layout and paint give a visible notice full height. A rename
+offer returning with its tab snaps back, and closing any bar or palette is instant (D-266).
+Shots: `--motion-clock MS` sets the demo in motion after the initial paint and steps the clock
+by hand: `menu-row-hover-*`, `palette-in-*` and `{update,crash,stale,rename}-sliding-*`,
 40 ms in both themes.

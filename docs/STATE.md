@@ -1,6 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-26, after the tooltip and title-row review. If
+Rewritten, not appended to. Last rewritten 2026-11-26, after the X3 review. If
 `git log -1` is newer, doubt "In hand" first.
 
 ## Released
@@ -54,15 +54,17 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the tooltip and tit
     (DESIGN 98, D-259 corrected by D-263):
     `settings::pages::Form::draw_animated` in place of `draw`; tree chevrons through
     `glyph::draw_disclosure_animated_with` (motion from `motion.rs`); the groups `SIDEBAR` and
-    `SETTINGS` are kept on frames that skip drawing them. `settings-switch-*` shows a knob
-    mid-slide; `tree-chevron-*` shows an opening chevron. Pages and dialog closing stay instant.
+    `SETTINGS` keep their paint deadline on skips (D-263/D-267). Shots: `settings-switch-*`,
+    `tree-chevron-*`. Pages and dialog closing stay instant.
   - **M-E, title row, X3 and the rest of the popups**: D4 (the title row) is done, `9b7551f`
     (DESIGN 98, D-261 and D-265): `chrome::draw_win_button_animated`, `draw_tab_animated`,
     `draw_new_tab_button_animated`, group `TITLE`, shots `title-hover-*`, `tab-hover-*` (shared
     #31's `t == 0` flash fix is in `09b01c1`). X3 is wired at `d116f9e` (D-262): menu-row
-    hover fades, the command palette pops in, and four notices slide into their measured
-    strips. Popup damage uses `presence_bounds()`. **The completion popup stays instant.**
-    Windows launch repeat: `docs/measurements/2026-11-26-motion-launch-repeat.md`.
+    hover fades, the command palette pops in, and later notices slide into their measured
+    strips. Launch notices, returning rename offers, and completion stay instant (D-266).
+    Popup damage uses `presence_bounds()`. Windows launch: 121.40 ms and 134.4 ms exceeded
+    the 100 ms budget; all later 31 at `0bacb93` were under (97.0 ms max). Idle CPU and
+    transition frames weren't measured in that [repeat](measurements/2026-11-26-motion-launch-repeat.md). [Stale-tab launch](measurements/2026-11-26-motion-stale-launch.md): five extra full-height frames eliminated; slowest 102.0 ms after.
   - **M-F, four fixes**: L1, `submenu::Cascade` for the hand-made submenus and their dwell
     timer; L3, the plain preview's scrollbar from shared; W2, focus for the Files and Functions
     panes; W3, `window_state` restored onto a monitor that still exists.
@@ -145,6 +147,4 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
   branches are deleted, here and on GitHub.
 - Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
   `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main`; `hub-wt\app-prs2\mdedit`; `md-wt\ai-pictures`; `md-wt\ai-web` (detached at
-  the spike, kept for its exe). `md-wt\review-a4fix` holds the review of the
-  fixes, not a worktree.
+- Worktrees: `main`, `hub-wt\app-prs2\mdedit`, `md-wt\ai-pictures`, `md-wt\ai-web` (spike exe); `md-wt\review-a4fix` holds the review, not a worktree.

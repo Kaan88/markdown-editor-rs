@@ -50,3 +50,6 @@ before those animations run. The slow tail is real on both sides, and this does 
 a hard 100 ms bound. No cold launch, restored session with a notice, idle CPU, or 100 MB load
 was measured. Raw samples and phases are in `target/sol-launch-repeat-5a13dc7.log` and
 `target/sol-launch-repeat-0bacb93.log`.
+
+The follow-up [stale-tab restore measurement](2026-11-26-motion-stale-launch.md) covers the
+launch path this comparison omitted.

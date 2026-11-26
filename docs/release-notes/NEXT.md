@@ -14,7 +14,8 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
 - **New waits for the lift.** When confirmations stack, the ones above lift out of the way
   before the new one rises in underneath.
 - **Menu highlights fade, the command palette pops in, and notice bars slide into place.**
-  Word completion remains instant.
+  Notices already present at launch, a rename notice returning with its tab, word completion,
+  and the language list stay instant.
 - **Settings switches slide and folder chevrons turn.** Changing Settings pages or closing
   the dialog is still instant.
 - **Tooltip and title hover fixes.** Scrolling or middle-clicking a tab clears its tooltip

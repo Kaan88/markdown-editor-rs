@@ -2751,3 +2751,22 @@ mdedit's motion-off title output to plain caption and tab drawing.
 **Why.** Review of `9b7551f`: the tests had missed skipped frames, the quiet tab's animation,
 and the app's motion-off path.
 **Overturned by.** A shared title-row API that owns scheduling and damage.
+
+## D-266 — 2026-11-26 — Only notices that arrive after the first paint slide
+
+**Decision.** Refines D-262: any update, crash, stale-tab or rename notice already present on
+the first paint gets its full strip immediately. Before that paint, layout-only passes reserve
+the same strip. With motion off, a later notice also occupies its full strip immediately.
+A rename offer that comes back with its tab returns at full height, not as a new entrance.
+The anchored language list and closing a bar or palette remain instant.
+**Why.** The X3 review found startup repaints before the system's motion preference was read,
+a 32 px gap between layout and paint, and a replay on tab switches.
+**Overturned by.** An explicit change to startup or notice motion.
+
+## D-267 — 2026-11-26 — Keep the Files pane's original paint deadline
+
+**Decision.** Extends D-263/D-265 to `SIDEBAR`: a frame that skips the Files pane keeps the
+chevron tracks and the original paint deadline. Hiding the pane drops both.
+**Why.** Repeated 16 ms frames could move the reported deadline forward without painting the
+turn.
+**Overturned by.** Shared scheduling that preserves the deadline itself.
