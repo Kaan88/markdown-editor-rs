@@ -28,7 +28,8 @@ The paired median first-frame difference was −0.5 ms. The five slowest first f
 after. Every before run drew five extra full-height damage frames (6.70 ms median combined
 traced frame time); no after run did. The restored stale banner is full-height from the
 first paint in the regression test, with no animation deadline. The static before and after
-reference images are pixel-identical. The 100 ms launch budget is not a hard bound.
+reference images are pixel-identical. One after run took 102.0 ms, over the 100 ms launch
+budget. The cause is not established.
 
 Executable size: 10,139,648 → 10,140,672 bytes (+1,024 bytes); SHA-256 prefixes:
 `7f4441448b81` → `48a5b3e4dc35`. The run did not measure cold
