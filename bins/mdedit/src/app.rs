@@ -1367,7 +1367,8 @@ impl App {
         let (w, h) = self.logical();
         self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
-        self.motion.sync_banners(self.banner_flags());
+        self.motion
+            .sync_banners(self.banner_flags(), self.docs.rename_offer);
         self.sync_side_by_side();
         self.relayout_areas_for(self.motion.banner_t);
         // Lay the text out first: it clamps the scroll and says which lines want colours.
@@ -3394,10 +3395,15 @@ impl App {
         let snap = !self.motion.banners_composed
             || !self.docs.prefs.animations
             || !self.motion.anim.animates();
-        std::array::from_fn(|i| match (shown[i], snap) {
-            (false, _) => 0.0,
-            (true, true) => 1.0,
-            (true, false) => self.motion.banner_t[i],
+        std::array::from_fn(|i| {
+            match (
+                shown[i],
+                snap || (i == 3 && shown[i] && self.motion.rename_returns(self.docs.rename_offer)),
+            ) {
+                (false, _) => 0.0,
+                (true, true) => 1.0,
+                (true, false) => self.motion.banner_t[i],
+            }
         })
     }
 

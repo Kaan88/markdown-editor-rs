@@ -21,6 +21,7 @@
 //! (`Docs::confirm_toast`).
 
 use crate::ui::{Popup, PopupKind};
+use mdedit_highlight::DocId;
 use mdshared_ui::anim::stack::Stack;
 use mdshared_ui::anim::{Animator, Clock, Id, ManualClock, Policy, Snapshot, document, pop};
 use mdshared_ui::gfx::{Painter, Rect};
@@ -136,6 +137,8 @@ pub struct Motion {
     pub banner_t: [f32; 4],
     /// A layout-only pass is not a paint. Notices already present on the first paint snap.
     pub banners_composed: bool,
+    /// The rename offer we have already shown. Changing tabs does not create a new offer.
+    rename_seen: Option<DocId>,
     /// When the animator next needs a frame; cleared by the timer that wakes for it.
     pub due: Option<Instant>,
     /// A shot or a test: nothing moves.
@@ -200,6 +203,7 @@ impl Motion {
             palette_t: 1.0,
             banner_t: [0.0; 4],
             banners_composed: false,
+            rename_seen: None,
             due: None,
             still,
             setting: true,
@@ -355,21 +359,42 @@ impl Motion {
             .presence("palette", true, document::MENU_ENTER, document::MENU_ENTER)
     }
 
+    /// The same offer is returning to view, not appearing for the first time.
+    pub fn rename_returns(&self, offer: Option<DocId>) -> bool {
+        offer.is_some()
+            && offer == self.rename_seen
+            && self.anim.get::<f32>(banner_id(3, offer)).is_none()
+    }
+
     /// Ask before layout: a change in summed rounded heights damages the resized regions.
-    pub fn sync_banners(&mut self, shown: [bool; 4]) {
+    pub fn sync_banners(&mut self, shown: [bool; 4], rename_offer: Option<DocId>) {
         let first = !std::mem::replace(&mut self.banners_composed, true);
+        let returning = shown[3] && self.rename_returns(rename_offer);
+        self.rename_seen = rename_offer.filter(|_| shown[3] || self.rename_seen == rename_offer);
         self.banner_t = std::array::from_fn(|i| {
             if !shown[i] {
                 0.0
-            } else if first {
+            } else if first || (i == 3 && returning) {
                 // Establish the track at rest too, or the next frame would start an entrance.
-                self.anim.set(("bar", i), 1.0_f32);
+                self.anim.set(banner_id(i, rename_offer), 1.0_f32);
                 1.0
             } else {
-                self.anim
-                    .presence(("bar", i), true, document::MENU_ENTER, MENU.exit)
+                self.anim.presence(
+                    banner_id(i, rename_offer),
+                    true,
+                    document::MENU_ENTER,
+                    MENU.exit,
+                )
             }
         });
+    }
+}
+
+fn banner_id(i: usize, offer: Option<DocId>) -> Id {
+    if i == 3 {
+        Id::new(("bar", i, offer))
+    } else {
+        Id::new(("bar", i))
     }
 }
 

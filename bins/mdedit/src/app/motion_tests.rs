@@ -2594,6 +2594,46 @@ fn late_crash_stale_and_rename_notices_slide_with_their_hits() {
     }
 }
 
+#[test]
+fn returning_to_a_rename_offer_does_not_replay_its_entrance() {
+    let mut a = banner_app();
+    a.compose();
+    let top = a.areas.text.y;
+    let hit = BannerDemo::Rename.show(&mut a);
+    a.compose();
+    tick(&mut a, 40);
+    a.compose();
+    assert!(top < a.areas.text.y && a.areas.text.y < top + view::BANNER_H);
+
+    a.docs.activate(0);
+    a.compose();
+    assert_eq!(a.areas.text.y, top);
+    assert_eq!(a.motion.due, None);
+
+    a.docs.activate(1);
+    a.compose_layout_only();
+    assert_eq!(
+        a.areas.text.y,
+        top + view::BANNER_H,
+        "layout predicts the return"
+    );
+    a.compose();
+    assert_eq!(
+        a.areas.text.y,
+        top + view::BANNER_H,
+        "the same offer returns at rest"
+    );
+    assert!(a.hit_rect(hit).is_some());
+    assert_eq!(a.motion.due, None);
+
+    a.rename_bar(Hit::RenameDismiss);
+    a.compose();
+    BannerDemo::Rename.show(&mut a);
+    a.compose();
+    assert_eq!(a.areas.text.y, top, "a fresh offer can still slide in");
+    assert!(a.motion.due.is_some());
+}
+
 /// A menu's hovered row fades its fill in (`Menu::draw_in_animated`): once the menu itself has
 /// arrived, putting the pointer on a row asks the animator for frames again, the row changes,
 /// and it rests with no timer left.
