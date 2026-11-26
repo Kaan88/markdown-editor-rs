@@ -2253,6 +2253,7 @@ fn a_caption_button_fades_in_and_then_rests() {
 fn the_new_tab_button_and_a_tab_fade_with_the_title_row() {
     let mut a = moving();
     a.focused = false;
+    open_second_tab(&mut a);
     a.compose();
     let b = a
         .hit_rect(crate::ui::Hit::NewTab)
@@ -2260,12 +2261,62 @@ fn the_new_tab_button_and_a_tab_fade_with_the_title_row() {
     a.pointer_moved(b.cx(), b.cy());
     a.compose();
     assert!(a.motion.due.is_some(), "the new-tab fill is on its way");
+    let at = (b.cx(), b.y + 4.0);
+    let rest = screen_pixel(&a, at.0, at.1);
+    let before = a.screen.pixels.clone();
+    tick(&mut a, 17);
+    let (damage, _) = a.compose();
+    assert_ne!(screen_pixel(&a, at.0, at.1), rest, "new-tab fill changed");
+    assert_eq!(changed_outside(&a, &before, &damage), 0);
     settle(&mut a);
-    let t = a.hit_rect(crate::ui::Hit::Tab(0)).expect("the tab");
+    a.pointer_moved(10.0, a.areas.text.cy());
+    a.compose();
+    settle(&mut a);
+
+    let t = a.hit_rect(Hit::Tab(0)).expect("the quiet tab");
+    let at = (t.cx(), t.y + 6.0); // inside the fill and above the text and close glyph
+    let rest = screen_pixel(&a, at.0, at.1);
     a.pointer_moved(t.cx(), t.cy());
     a.compose();
     assert!(a.motion.due.is_some(), "the tab's hover is on its way");
+    assert_eq!(screen_pixel(&a, at.0, at.1), rest, "no flash at t = 0");
+    let before = a.screen.pixels.clone();
+    tick(&mut a, 35);
+    let (damage, _) = a.compose();
+    let mid = screen_pixel(&a, at.0, at.1);
+    assert_ne!(mid, rest, "the quiet tab's fill changed");
+    let (x, y) = ((at.0 * a.scale) as i32, (at.1 * a.scale) as i32);
+    assert!(
+        damage
+            .iter()
+            .any(|&(l, t, r, b)| l <= x && x < r && t <= y && y < b)
+    );
+    assert_eq!(changed_outside(&a, &before, &damage), 0);
     settle(&mut a);
+    assert_ne!(screen_pixel(&a, at.0, at.1), mid, "the full hover arrived");
+}
+
+#[test]
+fn hovering_the_active_tab_does_not_start_a_fade() {
+    let mut a = moving();
+    a.focused = false;
+    open_second_tab(&mut a);
+    a.compose();
+    let rest = a.screen.pixels.clone();
+    let tab = a.hit_rect(Hit::Tab(1)).unwrap();
+    a.pointer_moved(tab.cx(), tab.cy());
+    assert_eq!(a.ui.hover, Some(Hit::Tab(1)));
+    a.compose();
+    assert!(a.screen.pixels == rest, "the active tab did not change");
+    assert_eq!(a.motion.due, None, "nothing needs a follow-up frame");
+
+    let close = a.hit_rect(Hit::TabClose(1)).unwrap();
+    a.pointer_moved(close.cx(), close.cy());
+    a.compose();
+    assert!(
+        a.screen.pixels != rest,
+        "the close button still lights at once"
+    );
     assert_eq!(a.motion.due, None);
 }
 

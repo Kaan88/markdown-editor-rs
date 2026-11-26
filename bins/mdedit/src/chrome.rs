@@ -446,18 +446,24 @@ pub fn draw_title(
             close_pressed: c.pressed == Some(Hit::TabClose(i)),
             pinned: docs.tabs[i].pinned,
         };
-        // Named by its document, not its place: a tab that moves keeps its fade.
-        let drawn = draw_tab_animated(
-            c.p,
-            &pal,
-            anim,
-            ("tab", docs.tabs[i].id),
-            x,
-            w,
-            r.w,
-            label,
-            &state,
-        );
+        let drawn = if state.active {
+            // Shared already paints the active tab plain, but its animated entry point still
+            // starts an invisible hover timer. Keep the close button's instant hover and hits.
+            mdshared_ui::chrome::draw_tab(c.p, &pal, x, w, r.w, label, &state)
+        } else {
+            // Named by its document, not its place: a tab that moves keeps its fade.
+            draw_tab_animated(
+                c.p,
+                &pal,
+                anim,
+                ("tab", docs.tabs[i].id),
+                x,
+                w,
+                r.w,
+                label,
+                &state,
+            )
+        };
         c.hit(Hit::Tab(i), drawn.tab);
         // The tab in the second pane of a split view: a short line under its name.
         // When both panes show this tab the line runs the whole width of the tab.
