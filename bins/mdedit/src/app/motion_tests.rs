@@ -2345,6 +2345,73 @@ fn hovering_the_active_tab_does_not_start_a_fade() {
 
 // ---- X3: the menu's hover rows, the palette and the notice bars ------------------------------
 
+#[derive(Debug, Clone, Copy)]
+enum BannerDemo {
+    Update,
+    Crash,
+    Stale,
+    Rename,
+}
+
+impl BannerDemo {
+    const ALL: [Self; 4] = [Self::Update, Self::Crash, Self::Stale, Self::Rename];
+
+    fn show(self, a: &mut App) -> Hit {
+        match self {
+            Self::Update => {
+                a.docs.updates.preview("available");
+                Hit::UpdateGo
+            }
+            Self::Crash => {
+                // Drawing uses presence only. Never open or mark a real crash report.
+                a.docs.crash = Some("test-report.txt".into());
+                Hit::CrashOpen
+            }
+            Self::Stale => {
+                a.session.use_days = (18, 0);
+                a.docs.start_day(&mut a.session);
+                a.docs.tabs[0].seen = 1;
+                a.docs.offer_stale_tabs();
+                assert_eq!(a.docs.stale, [a.docs.tabs[0].id]);
+                Hit::StaleClose
+            }
+            Self::Rename => {
+                a.ai_made_markdown(a.docs.active_doc().unwrap().id, None);
+                Hit::RenameGo
+            }
+        }
+    }
+}
+
+fn banner_app() -> App {
+    let mut a = moving();
+    a.focused = false;
+    a.docs.format_bar = false;
+    open_second_tab(&mut a);
+    a
+}
+
+#[test]
+fn notices_present_at_start_get_their_full_height_without_motion() {
+    for demo in BannerDemo::ALL {
+        let mut a = banner_app();
+        let hit = demo.show(&mut a);
+        a.compose();
+        assert_eq!(
+            a.areas.text.y,
+            a.areas.title.bottom() + crate::ui::BAR_H + view::BANNER_H,
+            "{demo:?}: launch reserves the whole strip"
+        );
+        assert!(a.hit_rect(hit).is_some(), "{demo:?}: controls are drawn");
+        assert_eq!(a.motion.due, None, "{demo:?}: no launch animation");
+        let top = a.areas.text.y;
+        tick(&mut a, 16);
+        a.compose();
+        assert_eq!(a.areas.text.y, top, "{demo:?}: no second-frame slide");
+        assert_eq!(a.motion.due, None);
+    }
+}
+
 /// A menu's hovered row fades its fill in (`Menu::draw_in_animated`): once the menu itself has
 /// arrived, putting the pointer on a row asks the animator for frames again, the row changes,
 /// and it rests with no timer left.

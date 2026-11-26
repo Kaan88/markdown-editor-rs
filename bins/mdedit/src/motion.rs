@@ -134,6 +134,8 @@ pub struct Motion {
     pub palette_t: f32,
     /// Presences of the update, crash, stale-tab and rename bars, in layout order.
     pub banner_t: [f32; 4],
+    /// A layout-only pass is not a paint. Notices already present on the first paint snap.
+    pub banners_composed: bool,
     /// When the animator next needs a frame; cleared by the timer that wakes for it.
     pub due: Option<Instant>,
     /// A shot or a test: nothing moves.
@@ -197,6 +199,7 @@ impl Motion {
             settings_due: PaintDeadline::default(),
             palette_t: 1.0,
             banner_t: [0.0; 4],
+            banners_composed: false,
             due: None,
             still,
             setting: true,
@@ -354,12 +357,17 @@ impl Motion {
 
     /// Ask before layout: a change in summed rounded heights damages the resized regions.
     pub fn sync_banners(&mut self, shown: [bool; 4]) {
+        let first = !std::mem::replace(&mut self.banners_composed, true);
         self.banner_t = std::array::from_fn(|i| {
-            if shown[i] {
+            if !shown[i] {
+                0.0
+            } else if first {
+                // Establish the track at rest too, or the next frame would start an entrance.
+                self.anim.set(("bar", i), 1.0_f32);
+                1.0
+            } else {
                 self.anim
                     .presence(("bar", i), true, document::MENU_ENTER, MENU.exit)
-            } else {
-                0.0
             }
         });
     }

@@ -3720,6 +3720,12 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
     }
     app.compose();
+    // Unlike a launch notice, this demo is meant to enter after the first paint.
+    if app.args.motion_clock.is_some()
+        && let Some(stage) = &app.args.update_bar
+    {
+        app.docs.updates.preview(stage);
+    }
     if let Some(t) = app.args.macro_prompt.clone() {
         app.ui.naming = true;
         app.ui.focus_field(crate::ui::BarField::Goto);
@@ -4322,7 +4328,9 @@ pub fn run() -> i32 {
     crate::live::apply(&session.prefs);
     docs.recents = session.recent.clone();
     docs.check_updates = session.check_updates;
-    if let Some(stage) = &args.update_bar {
+    if let Some(stage) = &args.update_bar
+        && !(args.shot.is_some() && args.motion_clock.is_some())
+    {
         docs.updates.preview(stage);
     }
     docs.zoom = args.zoom.unwrap_or(session.zoom);
