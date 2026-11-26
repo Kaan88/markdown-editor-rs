@@ -23,7 +23,15 @@ use mdshared_ui::theme::Palette;
 
 const PAD: f32 = DIALOG_PAD;
 
-pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, caret_on: bool) {
+pub fn draw(
+    p: &mut Painter,
+    pal: &Palette,
+    s: &mut TaskScreen,
+    w: f32,
+    h: f32,
+    caret_on: bool,
+    waiting: bool,
+) {
     // The size the window is drawn at, for what is placed from it later (the group menu, the
     // Add menu's lines): the window may have been resized since it opened.
     s.win = (w, h);
@@ -756,6 +764,7 @@ pub fn draw(p: &mut Painter, pal: &Palette, s: &mut TaskScreen, w: f32, h: f32, 
             && primary_blocked.is_none()
             && !busy
             && s.ask.is_none()
+            && !waiting
             && (notes_blocked.is_none() || !s.ai_on)
     };
     let label = if ai_off {
@@ -1399,6 +1408,7 @@ mod tests {
                 w as f32,
                 800.0,
                 false,
+                false,
             );
         }
         let at = |h: Hit| {
@@ -1486,6 +1496,7 @@ mod flow_tests {
             s,
             w as f32,
             h as f32,
+            false,
             false,
         );
     }
@@ -1617,6 +1628,7 @@ mod flow_tests {
                     &mut s,
                     w as f32,
                     h as f32,
+                    false,
                     false,
                 );
             }

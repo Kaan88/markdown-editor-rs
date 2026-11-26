@@ -431,6 +431,9 @@ struct App {
     /// while it ran: its result is dropped (D-251).
     task_fold: bool,
     task_declined: bool,
+    /// A probe job of the question's files runs: the window's main button waits for them to be
+    /// in (D-252).
+    task_probing: bool,
     /// Folder paths waiting for the read that runs to finish, and the drop being gathered: one
     /// read at a time, so no drop is lost and one question covers them all (D-250).
     task_queue: Vec<PathBuf>,
@@ -628,6 +631,7 @@ impl App {
             task_answer: None,
             task_fold: false,
             task_declined: false,
+            task_probing: false,
             task_queue: Vec::new(),
             task_batch: Vec::new(),
             task_plan: None,
@@ -2049,11 +2053,14 @@ impl App {
                     plan.draw(c.p, &pal, w, h, self.ui.caret_on);
                 }
                 if let Some(s) = self.task.as_mut().filter(|_| task_shown) {
+                    let waiting = self.task_answer.is_some() || self.task_probing;
                     match self.notes_plan.as_mut().filter(|card| card.shown) {
                         Some(card) => {
                             crate::notes_plan_draw::draw(c.p, &pal, card, s, w, h, self.ui.caret_on)
                         }
-                        None => crate::task_draw::draw(c.p, &pal, s, w, h, self.ui.caret_on),
+                        None => {
+                            crate::task_draw::draw(c.p, &pal, s, w, h, self.ui.caret_on, waiting)
+                        }
                     }
                 }
                 if let Some(card) = self.mover.as_mut() {
