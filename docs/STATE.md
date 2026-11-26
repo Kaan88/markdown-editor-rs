@@ -20,9 +20,10 @@ Rewritten, not appended to. Last rewritten 2026-11-26, after the toast branch's 
 - **mdview 1.1.0**, 2026-11-24, tag `v1.1.0` at `0310e01`, fourteen assets: click to zoom a large
   diagram, the notes library, audit 4's report E (mdview `docs/HANDOFF.md`).
 - The shared crates are not released; the apps pin them by commit. mdedit pins shared `main` at
-  `535ad4c` (`feat/anim` and the "Fast-tracked for the md apps" items, `ci` green on Linux,
-  Windows and both Macs; the lock change accepted by the owner, D-234; the pin moved twice since,
-  by the shared `rev` alone, D-250 and D-252). **Hub** is its own app (its `docs/STATE.md` is its record).
+  `09b01c1` (through `8d35a07`, shared PR 24 with the toasts' wait, plus the D4 hover flash, the
+  colour row, the backdrop veil, the pool's cancel and the hand-over; `ci` green on Linux, Windows
+  and both Macs; the lock change accepted by the owner, D-234; the pin moved four times since, by
+  the shared `rev` alone, D-250, D-252, D-253 and D-256). **Hub** is its own app (its `docs/STATE.md` is its record).
 
 ## On `main`, not released
 

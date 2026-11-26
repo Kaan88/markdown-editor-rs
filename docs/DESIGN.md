@@ -3922,14 +3922,24 @@ notes record as written by a newer version.
 ## 96. Motion: one animator, and the menus' fade (2026-11-25)
 
 `bins/mdedit/src/motion.rs`, its wiring in `app.rs` (`compose`) and `app/commands.rs`
-(`timers`, `woken`), tests in `app/motion_tests.rs`. Built on shared `anim` (`535ad4c`; shared's
+(`timers`, `woken`), tests in `app/motion_tests.rs`. Built on shared `anim` (`09b01c1`; shared's
 `docs/ANIMATION.md` says how its pieces work). D-232, D-233, D-235, D-250, D-252.
 
-**The animator.** `App::motion` holds the window's one `Animator`. `compose` calls `begin_frame`
-first and `end_frame` last; the deadline is kept in `Motion::due`, which `timers` turns into a
+**The animator.** `App::motion` holds the window's one `Animator`. `compose` calls `begin_frame` first and `end_frame` last; the deadline is kept in `Motion::due`, which `timers` turns into a
 wake-up and clears when it fires (it asks for a frame, `about_to_wait` requests the redraw). While
 nothing moves the deadline is `None`, so there is no timer and no frame: an idle window, menu open
 or not, costs nothing.
+
+**The pin `09b01c1`** (through `8d35a07`, shared PR 24; D-256) changed one thing for mdedit: the
+stack's wait for the lift is skipped when nothing animates. The rest of that pin is not mdedit's:
+the one-frame hover flash (#31) was in `chrome::*_animated`, and mdedit draws its title row with
+the static `chrome::draw_tab`, `draw_win_button`, `draw_new_tab_button` and `button_fill`;
+colour rows and drag-number rows (#30) are opt-in rows of shared's Settings form that mdedit does
+not build; the application's veil (#27, `Frost::set_veil`) is for a backdrop strength mdedit does
+not offer; and the pool's cancel (#28) and the window-procedure hand-over (#29) are for apps using
+`mdshared_app::pool` and `single_mutex`, which mdedit does not. `pages::CARD_RADIUS`,
+`Form::menu_rect` and `Form::menu_bounds` are additions a host may use; the before-and-after
+shots of the pin are identical but for the clock-stamped `runs*`.
 
 **Whether anything moves** is `Motion::policy`, the one place: `Policy::Never` in a shot and in
 every test (`args.shot` or `cfg(test)`), and with the Animations setting off (`prefs.animations`,
