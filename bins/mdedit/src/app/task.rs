@@ -215,11 +215,48 @@ impl App {
         let (dirs, files): (Vec<PathBuf>, Vec<PathBuf>) =
             paths.into_iter().partition(|p| p.is_dir());
         if !files.is_empty() {
+            let held: Vec<PathBuf> = self
+                .task_held
+                .iter()
+                .chain(self.task_answer.iter())
+                .flat_map(|h| h.paths.clone())
+                .collect();
+            // What a single file's add may take is the room the window has left as well (D-251).
+            let taken = self.task.as_ref().map_or(0, |s| {
+                task_ui::FILES_MAX.saturating_sub(s.files.len() + held.len())
+            });
             let probe = self.probe();
+            let mut seen: HashSet<String> = self
+                .task
+                .as_ref()
+                .map(|s| s.files.iter().map(|f| path_key(&f.path)).collect())
+                .unwrap_or_default();
+            let mut entries = Vec::new();
+            for path in files
+                .iter()
+                .filter(|p| seen.insert(path_key(p)))
+                .take(taken)
+            {
+                entries.push(probe.file(path));
+            }
+            // A file that was waiting on the question is in now, so it is no longer held: it is
+            // counted once (D-251).
+            self.task_untake(files.iter());
+            if self.task_held.is_some() {
+                // The question's count follows what it still holds.
+                self.task_ask_show();
+            }
+            let note = (entries.len() < files.len()).then(|| {
+                format!(
+                    "Stopped at {} files; the rest was left out.",
+                    import::group_digits(task_ui::FILES_MAX)
+                )
+            });
             let add = TaskAdd {
                 window,
                 probed: true,
-                files: files.iter().map(|p| probe.file(p)).collect(),
+                files: entries,
+                notes: note.into_iter().collect(),
                 ..TaskAdd::default()
             };
             // Read here, it leaves the bar's "Reading…" line of a folder being read alone
@@ -262,22 +299,26 @@ impl App {
             return;
         }
         let window = s.id;
-        let held: Vec<PathBuf> = self
+        let waiting: Vec<PathBuf> = self
             .task_held
-            .as_ref()
-            .map(|h| h.paths.clone())
-            .unwrap_or_default();
+            .iter()
+            .chain(self.task_answer.iter())
+            .flat_map(|h| h.paths.clone())
+            .collect();
         let known: HashSet<String> = s
             .files
             .iter()
             .map(|f| path_key(&f.path))
-            .chain(held.iter().map(|p| path_key(p)))
+            .chain(waiting.iter().map(|p| path_key(p)))
             .collect();
         // What the window and a question still hold take their room (D-250).
-        let room = task_ui::FILES_MAX.saturating_sub(s.files.len() + held.len());
-        let held_len = held.len();
-        // A question waiting for its answer is not read past: the walk only counts (D-250).
-        let probe_now = self.task_held.is_none();
+        let room = task_ui::FILES_MAX.saturating_sub(s.files.len() + waiting.len());
+        let held_len = waiting.len();
+        // A question waiting for its answer is not read past: the walk only counts (D-250), and
+        // an answer already given waits for this read to end before the probes start (D-251).
+        let probe_now = self.task_held.is_none() && self.task_answer.is_none();
+        self.task_fold = self.task_held.is_some();
+        let fold = self.task_fold;
         let reading = self
             .task_queue
             .iter()
@@ -305,6 +346,7 @@ impl App {
                     room,
                     held_len,
                     probe_now,
+                    fold,
                     &|| cancel.cancelled(),
                 )
             },
@@ -330,6 +372,7 @@ impl App {
                     room,
                     held_len,
                     probe_now,
+                    fold,
                     &|| false,
                 );
                 self.task_add_result(add);
@@ -362,17 +405,23 @@ impl App {
     }
 
     /// A read's result: its files go in, or its paths are held for the question; then the next
-    /// queued read starts, or the set is answered (D-250).
+    /// queued read starts, or the set is answered (D-250). A read that started while the question
+    /// stood and finishes after it was declined adds nothing (D-251).
     fn task_add_result(&mut self, add: TaskAdd) {
         if add.probed {
             self.task_add_apply(add, true);
-            // A drop that waited for this read is read next (D-250).
-            if !self.task_queue.is_empty() {
-                self.task_read_next();
+            self.task_read_more();
+            return;
+        }
+        if add.fold && self.task_declined {
+            // The question it was folded into was left out: so is it.
+            self.task_declined = false;
+            self.task_fold = false;
+            if self.task_job.is_none() {
+                self.task_read_more();
             }
             return;
         }
-        let note = add.note.clone();
         if !add.walked.is_empty() || self.task_held.is_some() {
             let held = self.task_held.get_or_insert_with(TaskHeld::default);
             let mut known: HashSet<String> = held.paths.iter().map(|p| path_key(p)).collect();
@@ -385,17 +434,9 @@ impl App {
             if held.folder.is_none() {
                 held.folder = add.folder;
             }
-            if note.is_some() {
-                held.note = note;
-            }
-        } else if let Some(s) = self.task.as_mut() {
-            // Nothing new: the window says what the walk left out, if it left anything (D-250).
-            s.reading = None;
-            match note {
-                Some(note) => s.notice = Some(note),
-                None => s.clear_stopped_note(),
-            }
-            s.tick += 1;
+            held.notes.extend(add.notes);
+        } else {
+            self.task_say_notes(&add.notes);
         }
         if !self.task_queue.is_empty() {
             self.task_read_next();
@@ -404,8 +445,47 @@ impl App {
         self.task_decision();
     }
 
-    /// What a walked set comes to: nothing, the question, or the probes (D-250).
+    /// Starts whatever the queue holds, or probes an answer already given, once no read runs
+    /// (D-251).
+    fn task_read_more(&mut self) {
+        if self.task_job.is_some() {
+            return;
+        }
+        if !self.task_queue.is_empty() {
+            self.task_read_next();
+            return;
+        }
+        self.task_decision();
+    }
+
+    /// Says what a read left out, or takes an earlier "Stopped…" away, and clears the bar's line
+    /// when no read runs any more (D-250).
+    fn task_say_notes(&mut self, notes: &[String]) {
+        let running = self.task_job.is_some();
+        if let Some(s) = self.task.as_mut() {
+            if notes.is_empty() {
+                s.clear_stopped_note();
+            } else {
+                s.notice = Some(notes.join(" "));
+            }
+            if !running {
+                s.reading = None;
+            }
+            s.tick += 1;
+        }
+        self.redraw();
+    }
+
+    /// What a walked set comes to: nothing, the question, or the probes (D-250). The probes wait
+    /// for a read that is still running, so no read is ever overwritten (D-251).
     fn task_decision(&mut self) {
+        if self.task_job.is_some() {
+            return;
+        }
+        if let Some(answer) = self.task_answer.take() {
+            self.task_probe_start(answer);
+            return;
+        }
         let held_len = self.task_held.as_ref().map_or(0, |h| h.paths.len());
         if held_len == 0 {
             if let Some(s) = self.task.as_mut() {
@@ -443,14 +523,18 @@ impl App {
                 "Add {} files from {what}?",
                 import::group_digits(count)
             ));
-            s.reading = None;
+            // A read that goes on keeps its line beside the question (D-251).
+            if self.task_job.is_none() {
+                s.reading = None;
+            }
             s.tick += 1;
         }
         self.redraw();
     }
 
     /// "Add them", or Enter, on the question: the held paths are read now, on their own thread,
-    /// and added, every one ticked (D-250).
+    /// and added, every one ticked (D-250). A read still running is not overwritten: the answer
+    /// waits for it to end (D-251).
     pub(super) fn task_ask_add(&mut self) {
         let Some(held) = self.task_held.take() else {
             if let Some(s) = self.task.as_mut() {
@@ -460,27 +544,45 @@ impl App {
             self.redraw();
             return;
         };
+        if let Some(s) = self.task.as_mut() {
+            s.ask = None;
+            s.tick += 1;
+        }
+        if self.task_job.is_some() {
+            self.task_answer = Some(held);
+            self.redraw();
+            return;
+        }
         self.task_probe_start(held);
     }
 
     /// "Leave them out", or Esc, on the question: nothing is added, and not one of the held files
-    /// was read (D-250).
+    /// was read (D-250). A read that was folded into the question goes with it, and the bar's line
+    /// stays while that read runs (D-251).
     fn task_ask_leave(&mut self) {
         self.task_held = None;
+        self.task_answer = None;
+        // Paths a read had folded into the question, or queued for it, are left out with it.
+        self.task_declined = self.task_fold && self.task_job.is_some();
+        self.task_queue.clear();
         if let Some(s) = self.task.as_mut() {
             s.ask = None;
-            s.reading = None;
+            if self.task_job.is_none() {
+                s.reading = None;
+            }
             s.tick += 1;
-        }
-        if !self.task_queue.is_empty() {
-            self.task_read_next();
         }
         self.redraw();
     }
 
     /// The probes of a set the question said yes to, on a thread of their own with the bar's
-    /// "Reading…" line (D-250).
+    /// "Reading…" line (D-250). Called only when no read runs (D-251).
     fn task_probe_start(&mut self, held: TaskHeld) {
+        if self.task_job.is_some() {
+            // A read still runs: its result is not thrown away for this (D-251).
+            self.task_answer = Some(held);
+            return;
+        }
         let Some(s) = self.task.as_ref() else {
             return;
         };
@@ -488,13 +590,14 @@ impl App {
         let count = held.paths.len();
         let reading = format!("{} files", import::group_digits(count));
         let path = held.paths.clone();
-        let note = held.note.clone();
+        let notes = held.notes.clone();
+        let inline = notes.clone();
         let probe = self.probe();
         let wake = self.docs.waker();
         let job = mdshared_app::job::Job::start(
             move || wake(Wake::Task),
             move |cancel, _progress| {
-                task_probe_paths(held.paths, window, note, probe, &|| cancel.cancelled())
+                task_probe_paths(held.paths, window, notes, probe, &|| cancel.cancelled())
             },
         );
         match job {
@@ -508,36 +611,52 @@ impl App {
                 self.redraw();
             }
             Err(_) => {
-                // A thread could not be made: read them here.
-                let add = task_probe_paths(path, window, None, self.probe(), &|| false);
+                // A thread could not be made: read them here, with what the walk said (D-251).
+                let add = task_probe_paths(path, window, inline, self.probe(), &|| false);
                 self.task_add_apply(add, true);
             }
         }
     }
 
-    /// Esc while a folder is being read stops it: nothing of it is added (D-248). True when one
-    /// was being read.
-    fn task_add_stop(&mut self) -> bool {
+    /// Esc while a folder is being read stops it: nothing of it is added, and the paths waiting
+    /// on the question, or answered into a probe, go with it (D-248, D-251). True when one was
+    /// being read.
+    pub(super) fn task_add_stop(&mut self) -> bool {
         let Some(job) = self.task_job.take() else {
             return false;
         };
         job.cancel();
         self.task_queue.clear();
+        let waiting = self.task_held.take().map_or(0, |h| h.paths.len())
+            + self.task_answer.take().map_or(0, |h| h.paths.len());
+        self.task_declined = false;
+        self.task_fold = false;
         if let Some(s) = self.task.as_mut() {
             let name = s.reading.take();
-            s.notice = Some(match name {
-                Some(name) => format!("Stopped: {name} was not added."),
-                None => "Stopped.".to_string(),
-            });
+            s.ask = None;
+            let said = match (name, waiting) {
+                (Some(name), 0) => format!("Stopped: {name} was not added."),
+                (Some(name), n) => format!(
+                    "Stopped: {name} was not added, and the {} files waiting for the question were left out.",
+                    import::group_digits(n)
+                ),
+                (None, 0) => "Stopped.".to_string(),
+                (None, n) => format!(
+                    "Stopped, and the {} files waiting for the question were left out.",
+                    import::group_digits(n)
+                ),
+            };
+            s.notice = Some(said);
             s.tick += 1;
         }
         self.redraw();
         true
     }
 
-    /// Adds what was read to the window, each new path once, and says what a walk left out. A
-    /// later add that stops nowhere takes an earlier "Stopped…" away (D-248). Only a result of a
-    /// folder read clears the bar's "Reading…" line (D-250).
+    /// Adds what was read to the window, each new path once, within the room the window has left
+    /// (D-251), and says what a walk left out. A later add that stops nowhere takes an earlier
+    /// "Stopped…" away (D-248). Only a result of a folder read clears the bar's "Reading…" line
+    /// (D-250).
     fn task_add_apply(&mut self, add: TaskAdd, clear_reading: bool) {
         let Some(s) = self.task.as_mut() else {
             return;
@@ -546,15 +665,27 @@ impl App {
             return;
         }
         let mut known: HashSet<String> = s.files.iter().map(|f| path_key(&f.path)).collect();
+        let mut notes = add.notes;
         for file in add.files {
-            if known.insert(path_key(&file.path)) {
-                s.files.push(file);
+            if known.contains(&path_key(&file.path)) {
+                continue;
             }
+            if s.files.len() >= task_ui::FILES_MAX {
+                // The window has no room left: what is over is left out, and said (D-251).
+                notes.push(format!(
+                    "Stopped at {} files; the rest was left out.",
+                    import::group_digits(task_ui::FILES_MAX)
+                ));
+                break;
+            }
+            known.insert(path_key(&file.path));
+            s.files.push(file);
         }
         s.recount_limit();
-        match add.note {
-            Some(note) => s.notice = Some(note),
-            None => s.clear_stopped_note(),
+        if notes.is_empty() {
+            s.clear_stopped_note();
+        } else {
+            s.notice = Some(notes.join(" "));
         }
         if clear_reading {
             s.reading = None;
@@ -563,6 +694,28 @@ impl App {
         self.notes_prepare(false);
         self.sent_whole_once();
         self.redraw();
+    }
+
+    /// Takes the paths just added out of what waits on the question, so a file dropped once more
+    /// as itself is not counted twice (D-251).
+    fn task_untake<'a>(&mut self, paths: impl Iterator<Item = &'a PathBuf>) {
+        let keys: HashSet<String> = paths.map(|p| path_key(p)).collect();
+        for held in [&mut self.task_held, &mut self.task_answer]
+            .into_iter()
+            .flatten()
+        {
+            held.paths.retain(|p| !keys.contains(&path_key(p)));
+        }
+        if self.task_held.as_ref().is_some_and(|h| h.paths.is_empty()) {
+            self.task_held = None;
+        }
+        if self
+            .task_answer
+            .as_ref()
+            .is_some_and(|h| h.paths.is_empty())
+        {
+            self.task_answer = None;
+        }
     }
 
     /// Ends the window's folder read and its question: the read is stopped, the paths waiting for
@@ -575,6 +728,9 @@ impl App {
         self.task_queue.clear();
         self.task_batch.clear();
         self.task_held = None;
+        self.task_answer = None;
+        self.task_fold = false;
+        self.task_declined = false;
         if let Some(s) = self.task.as_mut() {
             s.reading = None;
             s.ask = None;
@@ -2963,6 +3119,11 @@ impl App {
             // `task-files-unreadable`.
             s.notice = Some("Could not read Locked.".to_string());
         }
+        if name == "files-nothing-new" {
+            // A folder that brought nothing new says so, rather than adding nothing in silence
+            // (D-251): shot `task-files-nothing-new`.
+            s.notice = Some("Nothing new in Bread.".to_string());
+        }
         if name == "files-copy" || name == "files-link" || name == "files-move" {
             // THE FILES (pictures plan 4.3, D-209) on the plan face: on "Copy them in" each row
             // says whether its file is copied in, and one already inside the library (made up
@@ -3123,10 +3284,14 @@ pub(super) struct TaskAdd {
     pub(super) walked: Vec<PathBuf>,
     /// How many files this read probed: none, when the question is asked first (D-250).
     pub(super) reads: usize,
-    pub(super) note: Option<String>,
+    /// What the walk left out or could not read, one line each (D-250, D-251).
+    pub(super) notes: Vec<String>,
     /// How many folders the read walked, and the first one's name, as the question says them.
     pub(super) folders: usize,
     pub(super) folder: Option<String>,
+    /// Started while the question stood: its paths belong to that question, so a "Leave them
+    /// out" that comes before this read ends drops them too (D-251).
+    pub(super) fold: bool,
 }
 
 /// A walked set of more than `ASK_FILES` files, waiting on the question: nothing of it has been
@@ -3136,7 +3301,7 @@ pub(super) struct TaskHeld {
     pub(super) paths: Vec<PathBuf>,
     pub(super) folders: usize,
     pub(super) folder: Option<String>,
-    pub(super) note: Option<String>,
+    pub(super) notes: Vec<String>,
 }
 
 /// What probing a file needs of the window, copied before a folder is read on its thread: the
@@ -3272,11 +3437,13 @@ pub(super) fn task_read(
     room: usize,
     held: usize,
     probe_when_small: bool,
+    fold: bool,
     cancel: &dyn Fn() -> bool,
 ) -> TaskAdd {
     let known = std::cell::RefCell::new(known);
     let mut add = TaskAdd {
         window,
+        fold,
         ..TaskAdd::default()
     };
     let mut walked: Vec<PathBuf> = Vec::new();
@@ -3292,7 +3459,7 @@ pub(super) fn task_read(
             if left == 0 {
                 // The window is full and the folder is not walked: the window says what it left
                 // out, even so (D-250).
-                add.note = Some(format!(
+                add.notes.push(format!(
                     "Stopped at {} files; the rest of {} was left out.",
                     import::group_digits(task_ui::FILES_MAX),
                     folder_name(&path)
@@ -3309,11 +3476,13 @@ pub(super) fn task_read(
                 },
                 cancel,
             );
+            // What the walk left out and what it could not open are both kept (D-251).
             if let Some(note) = walk_stopped_note(&path, &found) {
-                add.note = Some(note);
+                add.notes.push(note);
             }
             if let Some(bad) = found.unreadable.first() {
-                add.note = Some(format!("Could not read {}.", folder_name(bad)));
+                add.notes
+                    .push(format!("Could not read {}.", folder_name(bad)));
             }
             let before = walked.len();
             for file in found.files {
@@ -3330,6 +3499,11 @@ pub(super) fn task_read(
                 if add.folder.is_none() {
                     add.folder = Some(folder_name(&path));
                 }
+            } else if add.notes.is_empty() {
+                // Nothing new, and nothing wrong: said, so the window is never silent about a
+                // folder it added nothing from (D-251).
+                add.notes
+                    .push(format!("Nothing new in {}.", folder_name(&path)));
             }
         } else if known.borrow_mut().insert(path_key(&path)) {
             walked.push(path);
@@ -3346,18 +3520,18 @@ pub(super) fn task_read(
 }
 
 /// Reads the files the question said yes to, on the job's thread, all ticked as an add does
-/// (D-250).
+/// (D-250), with what the walk said about them (D-251).
 pub(super) fn task_probe_paths(
     paths: Vec<PathBuf>,
     window: u64,
-    note: Option<String>,
+    notes: Vec<String>,
     probe: Probe,
     cancel: &dyn Fn() -> bool,
 ) -> TaskAdd {
     let mut add = TaskAdd {
         window,
         probed: true,
-        note,
+        notes,
         ..TaskAdd::default()
     };
     for path in paths {

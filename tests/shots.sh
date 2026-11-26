@@ -302,6 +302,8 @@ for t in "" "-dark"; do
     shot "task-files-ask-empty$t" $th --size 1280x800 --task-demo files-ask-empty
     # A folder the walk could not read at all says so in the window (D-250).
     shot "task-files-unreadable$t" $th --size 1280x800 --task-demo files-unreadable
+    # A folder that brought nothing new says so (D-251).
+    shot "task-files-nothing-new$t" $th --size 1280x800 --task-demo files-nothing-new
 done
 # Write notes (pictures plan, phase V3): the window with a thumbnail and what each picture is
 # sent as, its Options, while the pictures are looked at, a failed look, a model that reads no

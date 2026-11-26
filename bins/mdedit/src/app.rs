@@ -424,6 +424,13 @@ struct App {
     /// A walked folder set of more than ASK_FILES files, waiting for its question; nothing of
     /// it has been read (D-250).
     task_held: Option<task::TaskHeld>,
+    /// A set the question said yes to while a read still ran: its probes wait for that read to
+    /// end, so a read is never overwritten (D-251).
+    task_answer: Option<task::TaskHeld>,
+    /// The running read was started while the question stood, and the question was declined
+    /// while it ran: its result is dropped (D-251).
+    task_fold: bool,
+    task_declined: bool,
     /// Folder paths waiting for the read that runs to finish, and the drop being gathered: one
     /// read at a time, so no drop is lost and one question covers them all (D-250).
     task_queue: Vec<PathBuf>,
@@ -618,6 +625,9 @@ impl App {
             task_parked: None,
             task_job: None,
             task_held: None,
+            task_answer: None,
+            task_fold: false,
+            task_declined: false,
             task_queue: Vec::new(),
             task_batch: Vec::new(),
             task_plan: None,

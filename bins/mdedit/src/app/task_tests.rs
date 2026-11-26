@@ -2559,7 +2559,7 @@ fn after_esc_left_the_fields_typing_goes_to_the_instruction() {
     assert_eq!(s.focus, Focus::Instruction);
     assert_eq!(s.instruction.text(), "Tidy!");
     a.task_key(Some(KeyName::Escape), None);
-    answer_question(&mut a);
+    a.task_key(Some(KeyName::Enter), None);
     let s = a.task.as_ref().expect("open");
     assert_eq!(s.focus, Focus::Instruction, "Enter puts the keyboard back");
     assert!(
@@ -2638,7 +2638,7 @@ fn a_folder_added_skips_dot_names_and_the_folders_the_files_pane_leaves_out() {
 /// A folder over the window's cap stops at it and says so in the window. The same folder added
 /// again adds nothing and takes that "Stopped…" away.
 #[test]
-fn a_folder_added_over_the_cap_stops_at_it_and_a_second_add_says_nothing() {
+fn a_folder_added_over_the_cap_stops_at_it_and_a_second_add_says_the_rest_was_left_out() {
     let (mut a, dir) = open("task-walk-cap", TaskKind::File, Vec::new());
     let folder = dir.join("Many");
     std::fs::create_dir_all(&folder).expect("folders");
@@ -2705,6 +2705,7 @@ fn the_cap_counts_only_the_files_that_are_new() {
         2,
         0,
         false,
+        false,
         &|| false,
     );
     let names: Vec<&str> = add
@@ -2713,7 +2714,7 @@ fn the_cap_counts_only_the_files_that_are_new() {
         .map(|p| p.file_name().unwrap().to_str().unwrap())
         .collect();
     assert_eq!(names, ["f1.md", "f2.md"], "{names:?}");
-    assert!(add.note.is_some(), "f3.md is there and there is no room");
+    assert!(!add.notes.is_empty(), "f3.md is there and there is no room");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -2835,6 +2836,7 @@ fn a_folder_add_of_201_files_asks_before_reading_anything() {
         2_000,
         0,
         true,
+        false,
         &|| false,
     );
     assert_eq!(walked.walked.len(), 201);
@@ -2911,6 +2913,7 @@ fn two_hundred_files_are_added_with_no_question() {
         2_000,
         0,
         true,
+        false,
         &|| false,
     );
     assert!(read.probed);
@@ -3293,5 +3296,204 @@ fn a_folder_added_leaves_the_library_folder_out() {
     let s = a.task.as_ref().expect("the window is open");
     let names: Vec<&str> = s.files.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["a.md"], "{names:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// "Add them" before a fold read ends waits for it: neither the read nor the answer is thrown
+/// away (D-251). The late folder then has a question of its own.
+#[test]
+fn an_answer_while_a_folded_read_runs_is_not_lost() {
+    let (mut a, dir) = open("task-answer-wait", TaskKind::File, Vec::new());
+    let first = many(&dir, "First", 201);
+    a.task_add_paths(vec![first]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    assert_eq!(
+        a.task.as_ref().expect("open").ask.as_deref(),
+        Some("Add 201 files from First?")
+    );
+    let late = many(&dir, "Late", 300);
+    a.dropped(late);
+    a.task_flush_drops();
+    assert!(a.task_job.is_some(), "the late folder is read");
+    answer_question(&mut a);
+    assert!(
+        a.task_answer.is_some(),
+        "the answer waits for the read to end"
+    );
+    assert!(a.task.as_ref().expect("open").ask.is_none());
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.files.len(), 201, "the answer went in");
+    assert_eq!(
+        s.ask.as_deref(),
+        Some("Add 300 files from Late?"),
+        "and the read that waited is asked about"
+    );
+    answer_question(&mut a);
+    read_folder(&mut a);
+    assert_eq!(a.task.as_ref().expect("open").files.len(), 501);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// "Leave them out" while a folded read runs drops what that read finds, and the window says it
+/// is still reading (D-251).
+#[test]
+fn a_late_question_declined_keeps_its_folded_read_out() {
+    let (mut a, dir) = open("task-decline-fold", TaskKind::File, Vec::new());
+    let first = many(&dir, "First", 201);
+    a.task_add_paths(vec![first]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    let late = many(&dir, "Late", 300);
+    a.dropped(late);
+    a.task_flush_drops();
+    a.task_key(Some(KeyName::Escape), None);
+    {
+        let s = a.task.as_ref().expect("open");
+        assert!(s.ask.is_none(), "the question is left out");
+        assert!(s.reading.is_some(), "the read keeps its line");
+        assert!(a.task_declined, "what that read finds is left out");
+    }
+    read_folder(&mut a);
+    {
+        let s = a.task.as_ref().expect("open");
+        assert!(s.files.is_empty(), "nothing of either set is in");
+        assert!(s.reading.is_none(), "and the line goes");
+    }
+    // A drop after the decline is a set of its own.
+    let after = many(&dir, "After", 5);
+    a.task_add_paths(vec![after]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    assert_eq!(a.task.as_ref().expect("open").files.len(), 5);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A stop takes the paths waiting on the question as well, and says how many (D-251).
+#[test]
+fn a_stop_leaves_the_questions_paths_out_too() {
+    let (mut a, dir) = open("task-stop-held", TaskKind::File, Vec::new());
+    let first = many(&dir, "First", 201);
+    a.task_add_paths(vec![first]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    let late = many(&dir, "Late", 300);
+    a.dropped(late);
+    a.task_flush_drops();
+    assert!(a.task_job.is_some(), "the late folder is read");
+    assert!(a.task_add_stop(), "a read was stopped");
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(
+        s.notice.as_deref(),
+        Some(
+            "Stopped: Late was not added, and the 201 files waiting for the question were left out."
+        )
+    );
+    assert!(s.ask.is_none());
+    assert!(a.task_held.is_none() && a.task_answer.is_none());
+    assert!(a.task_queue.is_empty());
+    // What comes next is a set of its own, not folded into the 201.
+    let after = many(&dir, "After", 5);
+    a.task_add_paths(vec![after]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("open");
+    let names: Vec<&str> = s.files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names.len(), 5, "{names:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A walk keeps both what it could not read and where it stopped (D-251).
+#[test]
+fn a_walk_keeps_its_unreadable_folder_and_its_stop() {
+    let (a, dir) = open("task-notes-both", TaskKind::File, Vec::new());
+    let many_here = many(&dir, "Many", 4);
+    let gone = dir.join("Gone");
+    let add = super::task::task_read(
+        vec![gone, many_here],
+        1,
+        a.probe(),
+        None,
+        Default::default(),
+        2,
+        0,
+        false,
+        false,
+        &|| false,
+    );
+    let said = add.notes.join(" ");
+    assert!(said.contains("Could not read Gone."), "{said}");
+    assert!(said.contains("rest of Many was left out"), "{said}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A window with no room takes no more single files, and says why (D-251).
+#[test]
+fn a_single_file_beyond_the_windows_room_is_left_out() {
+    let (mut a, dir) = open("task-room-single", TaskKind::File, Vec::new());
+    let sample = a.task_probe(&pasta(&dir));
+    if let Some(s) = a.task.as_mut() {
+        for i in 0..crate::task_ui::FILES_MAX {
+            let mut f = sample.clone();
+            f.path = dir.join(format!("fill-{i}.md"));
+            s.files.push(f);
+        }
+        s.recount_limit();
+    }
+    let late = dir.join("late.md");
+    std::fs::write(&late, "# Late\n").expect("late");
+    a.task_add_paths(vec![late]);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.files.len(), crate::task_ui::FILES_MAX);
+    assert_eq!(
+        s.notice.as_deref(),
+        Some("Stopped at 2,000 files; the rest was left out.")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file dropped by name from the folder the question holds is counted once: it goes in, and
+/// the question's count falls by one (D-251).
+#[test]
+fn a_file_from_the_held_folder_is_counted_once() {
+    let (mut a, dir) = open("task-held-one", TaskKind::File, Vec::new());
+    let folder = many(&dir, "Many", 201);
+    a.task_add_paths(vec![folder.clone()]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    a.task_add_paths(vec![folder.join("0001.md")]);
+    {
+        let s = a.task.as_ref().expect("open");
+        assert_eq!(s.files.len(), 1, "the file is in");
+        assert_eq!(
+            s.ask.as_deref(),
+            Some("Add 200 files from Many?"),
+            "and the question counts what it still holds"
+        );
+    }
+    assert_eq!(a.task_held.as_ref().map_or(0, |h| h.paths.len()), 200);
+    answer_question(&mut a);
+    read_folder(&mut a);
+    assert_eq!(a.task.as_ref().expect("open").files.len(), 201);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A folder that brings nothing new says so, rather than adding nothing in silence (D-251).
+#[test]
+fn a_folder_that_brings_nothing_new_says_so() {
+    let (mut a, dir) = open("task-nothing-new", TaskKind::File, Vec::new());
+    let folder = dir.join("Solo");
+    std::fs::create_dir_all(&folder).expect("folder");
+    let one = folder.join("one.md");
+    std::fs::write(&one, "# One\n").expect("one");
+    a.task_add_paths(vec![one]);
+    assert_eq!(a.task.as_ref().expect("open").files.len(), 1);
+    a.task_add_paths(vec![folder]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.files.len(), 1, "nothing is added twice");
+    assert_eq!(s.notice.as_deref(), Some("Nothing new in Solo."));
     let _ = std::fs::remove_dir_all(&dir);
 }
