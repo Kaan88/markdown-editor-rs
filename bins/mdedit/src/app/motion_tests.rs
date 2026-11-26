@@ -2205,13 +2205,21 @@ fn opening_a_settings_dropdown_finishes_the_entrance_without_artifacts() {
             let form = a.ui.settings.as_mut().unwrap();
             assert!(form.show_page(form.page_of(AI_AFTER_RUN).unwrap()));
             a.compose();
+            let track = ("settings-in", a.motion.settings_serial);
             if settle {
                 for step in transition_steps(117) {
                     tick(&mut a, step);
+                    a.compose();
                 }
+                assert_eq!(
+                    a.motion.anim.get::<f32>(track),
+                    Some(1.0),
+                    "reference settled before opening the dropdown"
+                );
+                assert_eq!(a.motion.due, None);
             } else {
                 tick(&mut a, 17);
-                let track = ("settings-in", a.motion.settings_serial);
+                a.compose();
                 assert!(a.motion.anim.get::<f32>(track).unwrap() < 1.0);
             }
             let r = a.ui.settings.as_ref().unwrap().control_rect(AI_AFTER_RUN);
@@ -2220,7 +2228,6 @@ fn opening_a_settings_dropdown_finishes_the_entrance_without_artifacts() {
             a.settings_release();
             assert!(a.ui.settings.as_ref().unwrap().menu_rect().is_some());
             a.compose();
-            let track = ("settings-in", a.motion.settings_serial);
             assert_eq!(
                 a.motion.anim.get::<f32>(track),
                 Some(1.0),
