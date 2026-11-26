@@ -2166,50 +2166,73 @@ fn a_frame_that_skips_the_title_keeps_its_hover_fade() {
     );
 }
 
-/// With motion off a caption button and a tab are the plain drawings, pixel for pixel, hovered.
+/// Compare the app's first title frame after each pointer move with the original plain
+/// controls, not another invocation of the animated drawing.
 #[test]
 fn with_motion_off_the_title_row_is_the_plain_drawing() {
-    use mdshared_text::Bitmap;
-    use mdshared_ui::gfx::{Gfx, Painter, Rect};
-    let pal = mdshared_ui::theme::LIGHT;
-    let b = Rect::new(4.0, 4.0, 46.0, 32.0);
-    for hovered in [false, true] {
-        let mut plain = Bitmap::new(60, 44);
-        let mut gfx = Gfx::new();
-        {
-            let mut p = Painter::new(&mut plain, &mut gfx, 1.0);
-            p.fill(Rect::new(0.0, 0.0, 60.0, 44.0), pal.title);
-            mdshared_ui::chrome::draw_win_button(
-                &mut p,
-                &pal,
-                mdshared_ui::chrome::WinButton::Close,
-                b,
-                false,
-                hovered,
-                false,
-            );
+    use mdshared_ui::chrome as plain;
+    let mut a = moving();
+    a.focused = false;
+    a.docs.prefs.animations = false;
+    open_second_tab(&mut a);
+    a.compose();
+    for hit in [Hit::WinClose, Hit::Tab(0)] {
+        if hit == Hit::WinClose && plain::NATIVE_FRAME {
+            // macOS has no app-drawn caption buttons; the quiet-tab branch still runs.
+            assert!(a.hit_rect(hit).is_none());
+            continue;
         }
-        let mut moved = Bitmap::new(60, 44);
-        {
-            let mut anim = mdshared_ui::anim::Animator::new();
-            anim.set_policy(Policy::Never);
-            anim.begin_frame(Instant::now());
-            let mut p = Painter::new(&mut moved, &mut gfx, 1.0);
-            p.fill(Rect::new(0.0, 0.0, 60.0, 44.0), pal.title);
-            mdshared_ui::chrome::draw_win_button_animated(
-                &mut p,
-                &pal,
-                &mut anim,
-                "close",
-                mdshared_ui::chrome::WinButton::Close,
-                b,
-                false,
-                hovered,
-                false,
+        let b = a.hit_rect(hit).expect("a title control");
+        for hovered in [true, false] {
+            if hovered {
+                a.pointer_moved(b.cx(), b.cy());
+                assert_eq!(a.ui.hover, Some(hit));
+            } else {
+                a.pointer_moved(10.0, a.areas.text.cy());
+            }
+            a.compose();
+            let title = a.areas.title;
+            let mut expected = mdshared_text::Bitmap::new(a.screen.width, a.screen.height);
+            let mut p = Painter::new(&mut expected, &mut a.gfx, a.scale);
+            p.fill(title, a.pal.title);
+            let crop = if hit == Hit::WinClose {
+                plain::draw_win_button(
+                    &mut p,
+                    &a.pal,
+                    plain::WinButton::Close,
+                    b,
+                    a.maximized,
+                    hovered,
+                    false,
+                );
+                b
+            } else {
+                plain::draw_tab(
+                    &mut p,
+                    &a.pal,
+                    b.x,
+                    b.w,
+                    title.w,
+                    &a.docs.labels()[0],
+                    &plain::TabState {
+                        hovered,
+                        ..Default::default()
+                    },
+                );
+                // Include fill, label and close glyph, but exclude the active neighbour's foot.
+                Rect::new(b.x, b.y, b.w, title.bottom() - 8.0 - b.y)
+            };
+            let (x0, y0, x1, y1) = p.dev_rect(crop);
+            let stride = a.screen.width as usize * 4;
+            assert!(
+                (y0 as usize..y1 as usize).all(|y| {
+                    let row = y * stride + x0 as usize * 4..y * stride + x1 as usize * 4;
+                    a.screen.pixels[row.clone()] == expected.pixels[row]
+                }),
+                "{hit:?}, hovered={hovered}: first frame matches the plain drawing"
             );
-            assert_eq!(anim.end_frame(), None, "nothing moves, hovered: {hovered}");
+            assert_eq!(a.motion.due, None, "motion is off");
         }
-        assert!(plain.pixels == moved.pixels, "hovered: {hovered}");
     }
 }
 
