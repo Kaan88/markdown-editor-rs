@@ -839,7 +839,7 @@ const FOOTER_H: f32 = 28.0;
 /// language field), its right edge at the field's, no higher than `top`. The shared palette
 /// centres its card near the top of what it is given: it is given a narrow area that ends at the
 /// field, moved down once the card's height is known.
-pub fn anchored_window(p: &mut Palette, field: Rect, w: f32, top: f32) -> Rect {
+fn anchored_window(p: &mut Palette, field: Rect, w: f32, top: f32) -> Rect {
     let card_w = LANGUAGES_W.min(w - 16.0).max(240.0);
     let x = (field.right() - card_w).min(w - card_w - 8.0).max(8.0) - CARD_MARGIN;
     // The card ends 16 px above the area's bottom when it is as tall as the area allows.
@@ -850,6 +850,17 @@ pub fn anchored_window(p: &mut Palette, field: Rect, w: f32, top: f32) -> Rect {
     let card = p.layout(area, 0.0);
     let dy = (field.y - 4.0 - card.bottom()).max(0.0);
     Rect::new(area.x, area.y + dy, area.w, area.h)
+}
+
+/// The same placement for damage and drawing. The language list uses the status field.
+pub fn placement(open: &mut PaletteState, field: Option<Rect>, w: f32, h: f32) -> (Rect, f32) {
+    match field.filter(|_| open.anchored) {
+        Some(field) => (
+            anchored_window(&mut open.palette, field, w, crate::ui::TITLE_H + 8.0),
+            0.0,
+        ),
+        None => (Rect::new(0.0, 0.0, w, h), crate::ui::TITLE_H),
+    }
 }
 
 /// The language list's small print in place of the footer's count and keys (the shared footer

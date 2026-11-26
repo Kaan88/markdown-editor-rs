@@ -38,6 +38,41 @@ pub const MENU: document::Pair = document::MENU;
 /// The damage group of the open menus: what is asked for while they are drawn.
 pub const MENUS: &str = "menus";
 
+/// The damage group of a menu's hover rows: a row's fill fades in and out with the pointer
+/// (`Menu::draw_in_animated`, shared's `HOVER`), inside the popup's own bounds.
+pub const ROWS: &str = "menu-rows";
+
+/// The earliest outstanding paint for a skipped overlay. The animator advances tracks when
+/// kept, but offers a fresh deadline relative to each frame: preserve the paint already
+/// promised so successive early frames cannot keep postponing it.
+#[derive(Default)]
+pub struct OverlayDeadline(Option<Instant>);
+
+impl OverlayDeadline {
+    pub fn due(&self, now: Instant) -> bool {
+        self.0.is_some_and(|at| now >= at)
+    }
+
+    pub fn update(&mut self, anim: &Animator, group: &str, kept: bool) -> Option<Instant> {
+        let next = anim
+            .group_deadlines()
+            .iter()
+            .find(|(id, _)| *id == Id::new(group))
+            .map(|(_, when)| *when);
+        self.0 = match (kept, self.0, next) {
+            (true, Some(old), Some(new)) => Some(old.min(new)),
+            (true, Some(old), None) => Some(old),
+            _ => next,
+        };
+        self.0
+    }
+}
+
+/// The height both the notice drawing and the editor layout give a sliding bar.
+pub fn banner_height(t: f32) -> f32 {
+    mdshared_ui::notice::bar_height(Rect::new(0.0, 0.0, 0.0, crate::view::BANNER_H), t)
+}
+
 /// How a tooltip enters: the shared preset, a plain short fade, where the eye already is. It
 /// goes at once (there is nothing to watch leave), and the wait before it is
 /// `document::TIP_DELAY` from the pointer coming to rest (`Tooltip::hover_at`).
@@ -92,6 +127,11 @@ pub enum MenuFrame {
 
 pub struct Motion {
     pub anim: Animator,
+    pub rows_due: OverlayDeadline,
+    /// The command palette's presence as the last frame drew it (1 when it is not open).
+    pub palette_t: f32,
+    /// Presences of the update, crash, stale-tab and rename bars, in layout order.
+    pub banner_t: [f32; 4],
     /// When the animator next needs a frame; cleared by the timer that wakes for it.
     pub due: Option<Instant>,
     /// A shot or a test: nothing moves.
@@ -150,6 +190,9 @@ impl Motion {
     pub fn new(still: bool) -> Motion {
         let mut m = Motion {
             anim: Animator::new(),
+            rows_due: OverlayDeadline::default(),
+            palette_t: 1.0,
+            banner_t: [0.0; 4],
             due: None,
             still,
             setting: true,
@@ -297,6 +340,25 @@ impl Motion {
         self.anim.ungroup();
         Some(Menus { main, sub })
     }
+
+    /// The command palette's presence: it pops in like a menu (117 ms, decelerating) and is
+    /// drawn by `Palette::draw_presence`; its deadline comes through `end_frame`.
+    pub fn palette(&mut self) -> f32 {
+        self.anim
+            .presence("palette", true, document::MENU_ENTER, document::MENU_ENTER)
+    }
+
+    /// Ask before layout: a change in summed rounded heights damages the resized regions.
+    pub fn sync_banners(&mut self, shown: [bool; 4]) {
+        self.banner_t = std::array::from_fn(|i| {
+            if shown[i] {
+                self.anim
+                    .presence(("bar", i), true, document::MENU_ENTER, MENU.exit)
+            } else {
+                0.0
+            }
+        });
+    }
 }
 
 /// Whether a popup of this kind fades as it opens: every menu but the completion list.
@@ -336,6 +398,7 @@ pub fn draw_popup(
     mouse: (f32, f32),
     backing: &mut Option<(Snapshot, Rect)>,
     keep: bool,
+    anim: &mut Animator,
 ) {
     if !keep {
         *backing = menus.filter(Menus::moving).map(|_| {
@@ -345,14 +408,17 @@ pub fn draw_popup(
     }
     let main = menus.map_or(1.0, |m| m.main.1);
     let sub = menus.and_then(|m| m.sub).map_or(1.0, |s| s.1);
-    draw_menu(p, pal, popup, room, main, mouse);
+    anim.group(ROWS);
+    draw_menu(p, pal, popup, room, main, mouse, anim);
     if let Some(s) = popup.sub.as_deref_mut() {
-        draw_menu(p, pal, s, room, sub, mouse);
+        draw_menu(p, pal, s, room, sub, mouse, anim);
     }
+    anim.ungroup();
 }
 
 /// One menu at presence `t`: faded as a whole and dropped [`MENU_DROP`] px into place (raised,
 /// for a menu above its anchor), the AI menu's Modify buttons with it.
+#[allow(clippy::too_many_arguments)]
 fn draw_menu(
     p: &mut Painter,
     pal: &Palette,
@@ -360,6 +426,7 @@ fn draw_menu(
     room: Rect,
     t: f32,
     mouse: (f32, f32),
+    anim: &mut Animator,
 ) {
     let ai = popup.kind == PopupKind::Ai;
     let drop = if popup.menu.opened_above() {
@@ -368,9 +435,14 @@ fn draw_menu(
         -MENU_DROP
     };
     let bounds = popup.menu.presence_bounds();
+    let (animated, id) = (fades(popup.kind), ("row-hover", popup.serial));
     let menu = &mut popup.menu;
     pop(p, bounds, t, (0.0, drop), |p| {
-        menu.draw_in(p, pal, room);
+        if animated && anim.animates() {
+            menu.draw_in_animated(p, pal, room, anim, id);
+        } else {
+            menu.draw_in(p, pal, room);
+        }
         // The AI menu stands on its own under the bar's AI edit button.
         if ai {
             crate::ai_ui::draw_menu_modify(p, pal, menu, mouse);

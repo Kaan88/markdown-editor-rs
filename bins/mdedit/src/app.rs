@@ -1076,6 +1076,9 @@ impl App {
                         self.docs.updates.relaunch_target().is_some(),
                         self.docs.crash.is_some(),
                         (self.docs.stale.len(), self.docs.rename_bar()),
+                        self.motion
+                            .banner_t
+                            .map(|t| crate::motion::banner_height(t) as u16),
                     ),
                 ))
             }
@@ -1354,6 +1357,12 @@ impl App {
         let (w, h) = self.logical();
         self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
+        self.motion.sync_banners([
+            self.docs.updates.bar().is_some(),
+            self.docs.crash.is_some(),
+            !self.docs.stale.is_empty(),
+            self.docs.rename_bar().is_some(),
+        ]);
         self.sync_side_by_side();
         self.relayout_areas();
         // Lay the text out first: it clamps the scroll and says which lines want colours.
@@ -1408,7 +1417,6 @@ impl App {
         if self.motion.anim.group_due(crate::motion::TITLE, now) {
             dirty[Region::Title.index()] = true;
         }
-
         if self.ui.settings.is_some() && self.motion.anim.group_due(crate::motion::SETTINGS, now) {
             self.full = true;
             dirty = [true; 10];
@@ -1493,6 +1501,12 @@ impl App {
             self.watch_motion();
         }
         let menus = self.motion.menus(self.ui.popup.as_ref());
+        // The command palette's pop, asked each frame (at rest 1, so it draws as it does now).
+        self.motion.palette_t = if self.palette.open.as_ref().is_some_and(|p| !p.anchored) {
+            self.motion.palette()
+        } else {
+            1.0
+        };
         // A toast touches more as it rises and sinks than at rest.
         let mut bounds: Vec<Rect> = bubbles
             .iter()
@@ -1502,14 +1516,9 @@ impl App {
             })
             .collect();
         if let Some(popup) = &self.ui.popup {
-            // A menu that fades touches its presence bounds (its drop and shadow in them).
-            let reach = |m: &mdshared_ui::menu::Menu<Act>| match menus {
-                Some(_) => m.presence_bounds(),
-                None => m.rect().inset(-20.0),
-            };
-            bounds.push(reach(&popup.menu));
+            bounds.push(popup.menu.presence_bounds());
             if let Some(s) = &popup.sub {
-                bounds.push(reach(&s.menu));
+                bounds.push(s.menu.presence_bounds());
             }
         }
         if self.ui.dialog.is_some()
@@ -1520,13 +1529,18 @@ impl App {
         {
             bounds.push(Rect::new(0.0, 0.0, w, h));
         }
+        let field = self
+            .palette
+            .open
+            .as_ref()
+            .filter(|p| p.anchored)
+            .and_then(|_| self.hit_rect(Hit::StatusLanguage));
         if let Some(p) = self.palette.open.as_mut() {
-            // The card's place is needed here, to redraw what it covers; drawing lays it out
-            // again.
-            let card = p
-                .palette
-                .layout(Rect::new(0.0, 0.0, w, h), crate::ui::TITLE_H);
-            bounds.push(card.inset(-20.0));
+            // What the card touches at any presence: its own bounds, from the pop it enters
+            // by (never an invented inset).
+            let (window, title) = crate::palette::placement(p, field, w, h);
+            p.palette.layout(window, title);
+            bounds.push(p.palette.presence_bounds());
         }
         let osig = sig((
             bubbles
@@ -1593,10 +1607,11 @@ impl App {
                 .map(|_| (self.ui.hover, self.ui.pressed)),
             // The palette does not say what changed inside: every event it handled raised the
             // tick; the caret's blink is the one thing that changes alone.
-            self.palette
-                .open
-                .is_some()
-                .then_some((self.palette.tick, self.ui.caret_on)),
+            self.palette.open.is_some().then_some((
+                self.palette.tick,
+                self.ui.caret_on,
+                self.motion.palette_t.to_bits(),
+            )),
             // The AI panels raise their tick for every change, as the palette does.
             self.ai_panel_open().then_some((
                 self.ai.tick,
@@ -1626,7 +1641,10 @@ impl App {
             // So does the import card; the caret blinks in a scheme name being typed.
             self.importer.as_ref().map(|c| c.sig(self.ui.caret_on)),
         ));
-        let overlay_changed = osig != self.overlay_sig;
+        // A menu's hovered row fading is a change inside the popup: its bounds are drawn again
+        // at each of the group's deadlines, as a region is.
+        let rows_due = menus.is_some() && self.motion.rows_due.due(now);
+        let overlay_changed = osig != self.overlay_sig || rows_due;
         self.overlay_sig = osig;
         let mut under: Vec<Rect> = bounds.clone();
         under.extend(self.overlay_bounds.iter().copied());
@@ -1665,6 +1683,11 @@ impl App {
         );
         let overlay_changed = overlay_changed || menu_frame == crate::motion::MenuFrame::Whole;
         let draw_overlays = !bounds.is_empty() && (overlay_changed || any_under_dirty || self.full);
+        let keep_rows =
+            menus.is_some() && !draw_overlays && menu_frame != crate::motion::MenuFrame::Alone;
+        if keep_rows {
+            self.motion.anim.keep_group(crate::motion::ROWS);
+        }
         if overlay_changed || any_under_dirty {
             for r in REGIONS {
                 if let Some(rr) = self.areas.region(r)
@@ -1795,13 +1818,18 @@ impl App {
                         }
                         if self.docs.updates.bar().is_some() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
-                            chrome::draw_update_bar(&mut c, &self.docs, under);
-                            y = under.bottom();
+                            chrome::draw_update_bar(
+                                &mut c,
+                                &self.docs,
+                                under,
+                                self.motion.banner_t[0],
+                            );
+                            y += crate::motion::banner_height(self.motion.banner_t[0]);
                         }
                         if self.docs.crash.is_some() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
-                            chrome::draw_crash_bar(&mut c, under);
-                            y = under.bottom();
+                            chrome::draw_crash_bar(&mut c, under, self.motion.banner_t[1]);
+                            y += crate::motion::banner_height(self.motion.banner_t[1]);
                         }
                         if !self.docs.stale.is_empty() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
@@ -1810,8 +1838,9 @@ impl App {
                                 under,
                                 self.docs.stale.len(),
                                 self.docs.prefs.stale_days,
+                                self.motion.banner_t[2],
                             );
-                            y = under.bottom();
+                            y += crate::motion::banner_height(self.motion.banner_t[2]);
                         }
                         if let Some((name, to)) = self.docs.rename_bar() {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
@@ -1819,8 +1848,14 @@ impl App {
                                 .file_name()
                                 .map(|n| n.to_string_lossy().into_owned())
                                 .unwrap_or_default();
-                            chrome::draw_rename_bar(&mut c, under, &name, &to);
-                            y = under.bottom();
+                            chrome::draw_rename_bar(
+                                &mut c,
+                                under,
+                                &name,
+                                &to,
+                                self.motion.banner_t[3],
+                            );
+                            y += crate::motion::banner_height(self.motion.banner_t[3]);
                         }
                         if let Some(bar) = &self.ai.bar {
                             let under = Rect::new(rect.x, y, rect.w, view::BANNER_H);
@@ -2095,6 +2130,7 @@ impl App {
                         self.ui.mouse,
                         &mut self.motion.backing,
                         false,
+                        &mut self.motion.anim,
                     );
                 }
                 for (b, t) in &bubbles {
@@ -2145,21 +2181,26 @@ impl App {
                     );
                 }
                 if let Some(p) = self.palette.open.as_mut() {
-                    let (window, title) = match anchor {
-                        Some(field) => (
-                            crate::palette::anchored_window(
-                                &mut p.palette,
-                                field,
-                                w,
-                                crate::ui::TITLE_H + 8.0,
-                            ),
-                            0.0,
-                        ),
-                        None => (Rect::new(0.0, 0.0, w, h), crate::ui::TITLE_H),
-                    };
-                    p.palette.draw(c.p, &pal, window, title, self.ui.caret_on);
+                    let (window, title) = crate::palette::placement(p, anchor, w, h);
+                    // It pops in as a menu does, over its own presence bounds.
+                    p.palette.draw_presence(
+                        c.p,
+                        &pal,
+                        window,
+                        title,
+                        self.ui.caret_on,
+                        self.motion.palette_t,
+                    );
                     if let Some(note) = &p.note {
                         crate::palette::draw_note(c.p, &pal, p.palette.rect(), note);
+                    }
+                    // The status field may have moved when the status region was drawn.
+                    if let Some(bounds) = self.overlay_bounds.last_mut() {
+                        let actual = p.palette.presence_bounds();
+                        if *bounds != actual {
+                            damage.push(c.p.dev_rect(actual));
+                            *bounds = actual;
+                        }
                     }
                 }
             } else if menu_frame == crate::motion::MenuFrame::Alone
@@ -2180,6 +2221,7 @@ impl App {
                     self.ui.mouse,
                     &mut self.motion.backing,
                     true,
+                    &mut self.motion.anim,
                 );
             }
         }
@@ -2191,6 +2233,13 @@ impl App {
             self.motion.backing = None;
         }
         self.motion.due = self.motion.anim.end_frame();
+        if let Some(due) =
+            self.motion
+                .rows_due
+                .update(&self.motion.anim, crate::motion::ROWS, keep_rows)
+        {
+            self.motion.due = Some(self.motion.due.map_or(due, |at| at.min(due)));
+        }
         self.full = false;
         times.compose = t1.elapsed().saturating_sub(times.paint);
         times.rows = damage.iter().map(|d| (d.3 - d.1).max(0) as u32).sum();
@@ -3314,28 +3363,8 @@ impl App {
         } else {
             0.0
         };
-        let update = if self.docs.updates.bar().is_some() {
-            view::BANNER_H
-        } else {
-            0.0
-        };
-        let crash = if self.docs.crash.is_some() {
-            view::BANNER_H
-        } else {
-            0.0
-        };
         let format = if self.format.is_some() {
             crate::format_bar::FORMAT_H
-        } else {
-            0.0
-        };
-        let stale = if self.docs.stale.is_empty() {
-            0.0
-        } else {
-            view::BANNER_H
-        };
-        let rename = if self.docs.rename_bar().is_some() {
-            view::BANNER_H
         } else {
             0.0
         };
@@ -3344,7 +3373,15 @@ impl App {
         } else {
             0.0
         };
-        format + strip + update + crash + stale + rename + ai
+        format
+            + strip
+            + self
+                .motion
+                .banner_t
+                .into_iter()
+                .map(crate::motion::banner_height)
+                .sum::<f32>()
+            + ai
     }
 
     /// Works out where everything goes now (the split's roles and share, the minimap, the
@@ -3580,6 +3617,12 @@ impl App {
 
 /// Renders one state to a PNG without a window (`--shot`).
 fn shot(mut app: App, path: &Path) -> i32 {
+    // `--motion-clock MS`: what the shot sets moving — an open menu's hover rows, the command
+    // palette, a notice bar — moves on a clock of its own from the first frame that shows it,
+    // and is stepped by `MS` before the picture is taken (a still window would draw it done).
+    if app.args.motion_clock.is_some() {
+        app.motion.shot_fade();
+    }
     let (lw, lh) = app.args.size.unwrap_or((1280, 800));
     app.scale = app.args.scale.unwrap_or_else(platform::system_scale);
     app.size = (
@@ -3837,6 +3880,15 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 app.ai_made_markdown(doc, None);
             }
         }
+        Some(ShotMenu::CrashBar) => {
+            // Only presence is read while drawing; this demo never opens a report.
+            app.docs.crash = Some("crash-demo.txt".into());
+        }
+        Some(ShotMenu::StaleBar) => {
+            if let Some(id) = app.docs.active_doc().map(|d| d.id) {
+                app.docs.stale = vec![id];
+            }
+        }
         Some(ShotMenu::Find) => {
             if let Some(r) = app.hit_rect(Hit::Find) {
                 app.ui.mouse = (r.x + 60.0, r.cy());
@@ -3981,6 +4033,13 @@ fn shot(mut app: App, path: &Path) -> i32 {
         }
     }
     if let Some((x, y)) = app.args.hover {
+        // Show the row's own fade, not another picture of the menu entering.
+        if app.args.motion_clock.is_some() && app.ui.popup.is_some() {
+            for step in crate::motion::shot_steps(117) {
+                app.motion.advance_ms(step);
+                app.compose();
+            }
+        }
         // A shot of a hover fade moves on a clock of its own from the first frame that sets
         // it: a still window would draw the hovered look at rest on that frame, and the steps
         // after it would show a finished fade.
@@ -3995,7 +4054,7 @@ fn shot(mut app: App, path: &Path) -> i32 {
         // the animator into its fade. The tip counts on the real clock (`pointer_moved` chose
         // its due by it), so it is shown by that one, not by the animator's moved clock. A
         // shot of what the hover sets moving in the title row takes no tip: none is stray.
-        if app.args.hover_ms.is_some() {
+        if app.args.hover_ms.is_some() || app.args.motion_clock.is_some() {
             app.ui.hide_tip();
         } else {
             let due = Instant::now() + mdshared_ui::anim::document::TIP_DELAY;
@@ -4017,6 +4076,14 @@ fn shot(mut app: App, path: &Path) -> i32 {
                 app.motion.advance_ms(step);
                 app.compose();
             }
+        }
+    }
+    // `--motion-clock MS`: the menu rows, the palette and the bars, that far into their motion.
+    if let Some(ms) = app.args.motion_clock {
+        app.compose();
+        for step in crate::motion::shot_steps(ms) {
+            app.motion.advance_ms(step);
+            app.compose();
         }
     }
     // The caret in its visible phase, and no toast: a shot is the same on every run.

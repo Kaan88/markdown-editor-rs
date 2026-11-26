@@ -13,3 +13,5 @@ Unreleased: menus fade in as they open, messages rise, stack and wait their turn
   stays one — brought to the bottom, so the one you just triggered is the one in sight.
 - **New waits for the lift.** When confirmations stack, the ones above lift out of the way
   before the new one rises in underneath.
+- **Menu highlights fade, the command palette pops in, and notice bars slide into place.**
+  Word completion remains instant.

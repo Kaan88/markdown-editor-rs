@@ -170,6 +170,21 @@ shot dialog-about --dark --dialog about "$fx/sample.rs"
 shot dialog-shortcuts --light --dialog shortcuts "$fx/sample.rs"
 shot dialog-recent --light --dialog recent "$fx/sample.rs" "$fx/sample.md" "$fx/cjk.txt"
 shot hover-open --light --hover 46,63 "$fx/sample.rs"
+# M-E, X3: a menu's hovered row fading (shared's `Menu::draw_in_animated`), the command palette
+# popping in (`Palette::draw_presence`) and the update bar sliding into its strip
+# (`notice::draw_sliding`), each 40 ms in on the shot's clock, in both themes.
+shot menu-row-hover-light --light --menu main --hover 1150,397 --motion-clock 40 "$fx/sample.rs"
+shot menu-row-hover-dark --dark --menu main --hover 1150,397 --motion-clock 40 "$fx/sample.rs"
+shot palette-in-light --light --palette ">fold" --motion-clock 40 "$fx/sample.rs"
+shot palette-in-dark --dark --palette ">fold" --motion-clock 40 "$fx/sample.rs"
+shot update-sliding-light --light --update-bar available --motion-clock 40 "$fx/sample.rs"
+shot update-sliding-dark --dark --update-bar available --motion-clock 40 "$fx/sample.rs"
+shot crash-sliding-light --light --menu crash-bar --motion-clock 40 "$fx/sample.rs"
+shot crash-sliding-dark --dark --menu crash-bar --motion-clock 40 "$fx/sample.rs"
+shot stale-sliding-light --light --menu stale-bar --motion-clock 40 "$fx/sample.rs"
+shot stale-sliding-dark --dark --menu stale-bar --motion-clock 40 "$fx/sample.rs"
+shot rename-sliding-light --light --menu rename-bar --motion-clock 40 "$fx/sample.rs"
+shot rename-sliding-dark --dark --menu rename-bar --motion-clock 40 "$fx/sample.rs"
 # M-E, D4: the title row's hover fills fade (shared's `chrome::*_animated`): the Close button and
 # a quiet tab part way in, on the shot's clock, in both themes.
 shot title-hover-light --light --hover 1258,21 --hover-ms 40 "$fx/sample.rs"

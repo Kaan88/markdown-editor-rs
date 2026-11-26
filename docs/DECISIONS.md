@@ -2700,3 +2700,21 @@ look; nothing in shared changed for this part.
 `draw_tab_animated`, `draw_new_tab_button_animated` (D4; shared #31 fixed the t == 0 flash at
 09b01c1)".
 **Overturned by.** The owner; or the bar's buttons being brought under motion too.
+
+## D-262 · 2026-11-26 · M-E, part X3: a menu's hovered row, the palette and the bars move
+
+**Decision.** A menu's rows draw with shared's `Menu::draw_in_animated` (the hovered row's fill
+fades by `document::HOVER`, 83 ms linear) in the group `ROWS`; the command palette draws with
+`Palette::draw_presence` at `Motion::palette_t` (117 ms decelerating between composes) and is
+damaged by its `presence_bounds()`; the anchored language list stays instant. The four notice
+bars draw through `notice::draw_sliding` at a presence each. `notice::bar_height` gives the
+layout and the hits the same visible height. Popup damage is `presence_bounds()` for both menus
+and the palette. The completion popup stays instant. With motion off nothing moves and the
+pixels are those of before. Shots: `--motion-clock MS`, which lets a shot animate from its
+first frame and then steps the clock by hand (`menu-row-hover-*`, `palette-in-*`,
+`{update,crash,stale,rename}-sliding-*`).
+**Why.** The owner's M-E item (2026-11-26): "X3: `Menu::draw_in_animated` for the hover row,
+`Palette::draw_presence`, `notice::draw_sliding`/`bar_height`; popup damage by
+`presence_bounds()`, never `rect.inset(-20)`; the completion popup stays instant." Under the
+owner's rule: quick, quiet motion; menus open in 117 ms; close instantly.
+**Overturned by.** The owner; or shared changing `HOVER`/`MENU_ENTER`.

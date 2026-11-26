@@ -62,6 +62,8 @@ pub enum ShotMenu {
     /// The active document made Markdown as the AI's Format as Markdown does, with the bar
     /// offering its `.md` name.
     RenameBar,
+    CrashBar,
+    StaleBar,
     /// The menu of the Preview button's arrow, drawn as it is when mdview is found.
     Preview,
     /// The AI menu under the bar's AI edit button (needs `--pref ai_connection=…`).
@@ -192,6 +194,10 @@ pub struct Args {
     /// button's or a tab's hover fill), this far into it (0 to 1000; more is at rest). Ignored
     /// without `--shot` and `--hover`.
     pub hover_ms: Option<u32>,
+    /// `--motion-clock MS`: a `--shot` of everything else it sets moving (a menu's hover rows,
+    /// the command palette, a notice bar) that far into its motion, on a clock of the shot's
+    /// own (0 to 1000; more is at rest). Ignored without `--shot`.
+    pub motion_clock: Option<u32>,
     /// `--whitespace`: show spaces, tabs and line endings.
     pub whitespace: bool,
     /// `--wrap`: word wrap.
@@ -561,6 +567,7 @@ impl Args {
                 "--settings-ms" => out.settings_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--tree-ms" => out.tree_ms = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover-ms" => out.hover_ms = checked(&a, value(&a), |v| v.parse().ok()),
+                "--motion-clock" => out.motion_clock = checked(&a, value(&a), |v| v.parse().ok()),
                 "--hover" => out.hover = checked(&a, value(&a), |v| pair(v, ',')),
                 "--scroll-steps" => out.scroll_steps = checked(&a, value(&a), |v| v.parse().ok()),
                 "--exit-after-ms" => out.exit_after_ms = checked(&a, value(&a), |v| v.parse().ok()),
@@ -609,6 +616,8 @@ impl Args {
                         "library-newgroup" => Some(ShotMenu::LibraryNewGroup),
                         "library-remove" => Some(ShotMenu::LibraryRemove),
                         "rename-bar" => Some(ShotMenu::RenameBar),
+                        "crash-bar" => Some(ShotMenu::CrashBar),
+                        "stale-bar" => Some(ShotMenu::StaleBar),
                         "text-markdown" => Some(ShotMenu::TextMarkdown),
                         "preview" => Some(ShotMenu::Preview),
                         "bar-ai" => Some(ShotMenu::BarAi),

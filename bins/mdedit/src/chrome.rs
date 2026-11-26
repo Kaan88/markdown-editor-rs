@@ -785,7 +785,7 @@ pub fn draw_replace_strip(c: &mut Ctx, docs: &Docs, ui: &mut Ui, r: Rect) {
 /// Draws the command bar into `r`.
 /// The bar under the command bar that offers a newer version, shows its download, and says
 /// when it is in place.
-pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect) {
+pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect, t: f32) {
     use mdshared_ui::notice::{self, UpdateBarState};
     let Some(stage) = docs.updates.bar() else {
         return;
@@ -798,20 +798,26 @@ pub fn draw_update_bar(c: &mut Ctx, docs: &Docs, bar: Rect) {
         restart_hovered: c.hover == Some(Hit::UpdateRestart),
         restart_pressed: c.pressed == Some(Hit::UpdateRestart),
     };
-    let hits = notice::draw_update_bar(c.p, c.pal, bar, &crate::updater::APP, stage, state);
+    // It slides down into its strip as it shows (`notice::draw_sliding`).
+    let pal = *c.pal;
+    let Some(hits) = notice::draw_sliding(c.p, bar, t, |p, moved| {
+        notice::draw_update_bar(p, &pal, moved, &crate::updater::APP, stage, state)
+    }) else {
+        return;
+    };
     if let Some(r) = hits.go {
-        c.hit(Hit::UpdateGo, r);
+        banner_hit(c, bar, t, Hit::UpdateGo, r);
     }
     if let Some(r) = hits.restart {
-        c.hit(Hit::UpdateRestart, r);
+        banner_hit(c, bar, t, Hit::UpdateRestart, r);
     }
     if let Some(r) = hits.close {
-        c.hit(Hit::UpdateClose, r);
+        banner_hit(c, bar, t, Hit::UpdateClose, r);
     }
 }
 
 /// The bar under the command bar that offers the report of last time's crash.
-pub fn draw_crash_bar(c: &mut Ctx, bar: Rect) {
+pub fn draw_crash_bar(c: &mut Ctx, bar: Rect, t: f32) {
     use mdshared_ui::notice::{self, CrashBarState};
     let state = CrashBarState {
         open_hovered: c.hover == Some(Hit::CrashOpen),
@@ -820,14 +826,19 @@ pub fn draw_crash_bar(c: &mut Ctx, bar: Rect) {
         copy_pressed: c.pressed == Some(Hit::CrashCopy),
         close_hovered: c.hover == Some(Hit::CrashClose),
     };
-    let hits = notice::draw_crash_bar(c.p, c.pal, bar, "mdedit", state);
+    let pal = *c.pal;
+    let Some(hits) = notice::draw_sliding(c.p, bar, t, |p, moved| {
+        notice::draw_crash_bar(p, &pal, moved, "mdedit", state)
+    }) else {
+        return;
+    };
     for (hit, r) in [
         (Hit::CrashOpen, hits.open),
         (Hit::CrashCopy, hits.copy),
         (Hit::CrashClose, hits.close),
     ] {
         if let Some(r) = r {
-            c.hit(hit, r);
+            banner_hit(c, bar, t, hit, r);
         }
     }
 }
@@ -850,7 +861,7 @@ pub fn stale_label(n: usize, days: u32) -> String {
 
 /// The bar under the command bar that offers to close the tabs not opened in the last `days`
 /// days of use.
-pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize, days: u32) {
+pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize, days: u32, t: f32) {
     use mdshared_ui::notice::{self, OfferBarState};
     use mdshared_ui::stale;
     let state = OfferBarState {
@@ -861,30 +872,35 @@ pub fn draw_stale_bar(c: &mut Ctx, bar: Rect, count: usize, days: u32) {
         close_hovered: c.hover == Some(Hit::StaleDismiss),
     };
     let text = stale_label(count, days);
-    let hits = notice::draw_offer_bar(
-        c.p,
-        c.pal,
-        bar,
-        glyph::RECENT,
-        &text,
-        stale::CLOSE_THEM,
-        stale::KEEP,
-        state,
-    );
+    let pal = *c.pal;
+    let Some(hits) = notice::draw_sliding(c.p, bar, t, |p, moved| {
+        notice::draw_offer_bar(
+            p,
+            &pal,
+            moved,
+            glyph::RECENT,
+            &text,
+            stale::CLOSE_THEM,
+            stale::KEEP,
+            state,
+        )
+    }) else {
+        return;
+    };
     for (hit, r) in [
         (Hit::StaleClose, hits.yes),
         (Hit::StaleKeep, hits.no),
         (Hit::StaleDismiss, hits.close),
     ] {
         if let Some(r) = r {
-            c.hit(hit, r);
+            banner_hit(c, bar, t, hit, r);
         }
     }
 }
 
 /// The bar under the command bar that offers a `.md` name to a file whose text the AI made
 /// Markdown: `name` is the file's name now, `to` the one offered.
-pub fn draw_rename_bar(c: &mut Ctx, bar: Rect, name: &str, to: &str) {
+pub fn draw_rename_bar(c: &mut Ctx, bar: Rect, name: &str, to: &str, t: f32) {
     use mdshared_ui::notice::{self, OfferBarState};
     let state = OfferBarState {
         yes_hovered: c.hover == Some(Hit::RenameGo),
@@ -894,15 +910,33 @@ pub fn draw_rename_bar(c: &mut Ctx, bar: Rect, name: &str, to: &str) {
         close_hovered: c.hover == Some(Hit::RenameDismiss),
     };
     let text = format!("{name} is Markdown now. Rename it to {to}?");
-    let hits = notice::draw_offer_bar(c.p, c.pal, bar, glyph::DOC, &text, "Rename", "Keep", state);
+    let pal = *c.pal;
+    let Some(hits) = notice::draw_sliding(c.p, bar, t, |p, moved| {
+        notice::draw_offer_bar(p, &pal, moved, glyph::DOC, &text, "Rename", "Keep", state)
+    }) else {
+        return;
+    };
     for (hit, r) in [
         (Hit::RenameGo, hits.yes),
         (Hit::RenameKeep, hits.no),
         (Hit::RenameDismiss, hits.close),
     ] {
         if let Some(r) = r {
-            c.hit(hit, r);
+            banner_hit(c, bar, t, hit, r);
         }
+    }
+}
+
+/// Shared returns moved targets. Hidden parts must not steal clicks from what is above them.
+fn banner_hit(c: &mut Ctx, bar: Rect, t: f32, hit: Hit, r: Rect) {
+    if t >= 1.0 {
+        c.hit(hit, r);
+        return;
+    }
+    let y = r.y.max(bar.y);
+    let end = r.bottom().min(bar.y + crate::motion::banner_height(t));
+    if end > y {
+        c.hit(hit, Rect::new(r.x, y, r.w, end - y));
     }
 }
 

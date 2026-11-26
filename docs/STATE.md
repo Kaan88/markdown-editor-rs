@@ -57,11 +57,10 @@ Rewritten, not appended to. Last rewritten 2026-11-26, when the pin moved and to
     `tree-chevron-*`.
   - **M-E, title row, X3 and the rest of the popups**: D4 (the title row) is done, `a6b51cf`'s
     successor (DESIGN 98, D-261): `chrome::draw_win_button_animated`, `draw_tab_animated`,
-    `draw_new_tab_button_animated`, group `TITLE`, shots `title-hover-*`, `tab-hover-*` (shared
-    #31's `t == 0` flash fix is in `09b01c1`); still to do — X3: `Menu::draw_in_animated`
-    (the hover row), `Palette::draw_presence`,
-    `notice::draw_sliding` and `bar_height`; popup damage by `presence_bounds()`, never
-    `rect.inset(-20)`. **The completion popup stays instant.**
+     `draw_new_tab_button_animated`, group `TITLE`, shots `title-hover-*`, `tab-hover-*` (shared
+     #31's `t == 0` flash fix is in `09b01c1`). X3 is wired (D-262): menu-row hover fades,
+     the command palette pops in, and four notices slide into their measured strips. Popup
+     damage uses `presence_bounds()`. **The completion popup stays instant.**
   - **M-F, four fixes**: L1, `submenu::Cascade` for the hand-made submenus and their dwell
     timer; L3, the plain preview's scrollbar from shared; W2, focus for the Files and Functions
     panes; W3, `window_state` restored onto a monitor that still exists.

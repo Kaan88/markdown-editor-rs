@@ -243,6 +243,15 @@ fn the_completion_list_never_fades() {
     assert_eq!(a.motion.drawn, None, "not a menu that fades");
     assert_eq!(a.motion.due, None, "no frame asked for");
     assert!(a.motion.anim.group_deadlines().is_empty());
+    let before = a.screen.pixels.clone();
+    let popup = a.ui.popup.as_mut().unwrap();
+    popup.menu.hover = Some(0);
+    a.compose();
+    assert!(
+        a.screen.pixels != before,
+        "the row lights on the first frame"
+    );
+    assert_eq!(a.motion.due, None, "no hover fade either");
 }
 
 /// Shots and tests never move; a window does, unless the setting is off.
@@ -2042,4 +2051,115 @@ fn the_new_tab_button_and_a_tab_fade_with_the_title_row() {
     assert!(a.motion.due.is_some(), "the tab's hover is on its way");
     settle(&mut a);
     assert_eq!(a.motion.due, None);
+}
+
+// ---- X3: the menu's hover rows, the palette and the notice bars ------------------------------
+
+/// A menu's hovered row fades its fill in (`Menu::draw_in_animated`): once the menu itself has
+/// arrived, putting the pointer on a row asks the animator for frames again, the row changes,
+/// and it rests with no timer left.
+#[test]
+fn a_menu_row_fades_its_fill_in_and_then_rests() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    a.open_popup(PopupKind::Main);
+    a.compose();
+    settle(&mut a);
+    assert_eq!(a.motion.due, None, "the menu itself has arrived");
+    let arrived = a.screen.pixels.clone();
+    let menu = a.ui.popup.as_ref().expect("a menu").menu.rect();
+    a.pointer_moved(menu.cx(), menu.y + 26.0);
+    a.compose();
+    assert!(a.motion.due.is_some(), "a row's fill is on its way");
+    // On the frame the hover begins the row still draws its rest look (shared's `t == 0`).
+    assert!(a.screen.pixels == arrived, "nothing yet");
+    tick(&mut a, 16);
+    let (damage, _) = a.compose();
+    assert!(damage.is_empty(), "this frame skips the menu");
+    assert!(a.motion.due.is_some(), "skipping keeps the row's deadline");
+    tick(&mut a, 16);
+    a.compose();
+    let mid = a.screen.pixels.clone();
+    assert!(mid != arrived, "the row changed");
+    for _ in 0..80 {
+        if a.motion.due.is_none() {
+            break;
+        }
+        tick(&mut a, 17);
+        a.compose();
+    }
+    assert_eq!(a.motion.due, None, "and no timer once it rests");
+    assert!(a.screen.pixels != mid, "the fill arrived");
+}
+
+/// The command palette pops in: it is asked for frames while it enters, its card is in the
+/// damage, and it rests at 1 with no timer, drawn by `draw_presence` at 1 (its plain drawing).
+#[test]
+fn the_palette_pops_in_and_then_rests() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    a.open_palette(">fold");
+    a.compose();
+    assert!(a.motion.palette_t < 1.0, "the card is on its way in");
+    assert!(a.motion.due.is_some(), "and a frame is asked for");
+    let card = {
+        let p = a.palette.open.as_ref().expect("the palette");
+        p.palette.presence_bounds()
+    };
+    let before = a.screen.pixels.clone();
+    tick(&mut a, 17);
+    let (damage, _) = a.compose();
+    // The card's own place is drawn again: some damage reaches it (the palette is over the
+    // whole window, so a region's damage reaches it too).
+    let reaches = |d: &(i32, i32, i32, i32)| {
+        let (x0, y0, x1, y1) = (d.0 as f32, d.1 as f32, d.2 as f32, d.3 as f32);
+        x0 <= card.cx() && card.cx() <= x1 && y0 <= card.cy() && card.cy() <= y1
+    };
+    assert!(
+        !damage.is_empty() && damage.iter().any(reaches),
+        "the card is in the damage: {damage:?}"
+    );
+    assert!(a.screen.pixels != before);
+    for _ in 0..40 {
+        if a.motion.due.is_none() {
+            break;
+        }
+        tick(&mut a, 20);
+        a.compose();
+    }
+    assert_eq!(a.motion.palette_t, 1.0, "at rest");
+    assert_eq!(a.motion.due, None, "no timer once it rests");
+}
+
+/// A notice bar slides down into its strip (`notice::draw_sliding`): while it moves the strip's
+/// top shows the bar cut short, and at rest the bar fills its strip; no timer is left.
+#[test]
+fn an_update_bar_slides_into_its_strip_and_then_rests() {
+    let mut a = moving();
+    a.focused = false;
+    a.compose();
+    let top = a.areas.text.y;
+    a.docs.updates.preview("available");
+    a.compose();
+    assert!(a.motion.due.is_some(), "the bar is on its way down");
+    assert_eq!(a.areas.text.y, top, "no empty strip at the start");
+    assert!(a.hit_rect(Hit::UpdateGo).is_none());
+    tick(&mut a, 40);
+    a.compose();
+    let mid = a.areas.text.y;
+    assert!(top < mid && mid < top + view::BANNER_H);
+    let go = a
+        .hit_rect(Hit::UpdateGo)
+        .expect("the visible update button");
+    assert!(
+        go.y >= top && go.bottom() <= mid,
+        "hits stay in the visible strip"
+    );
+    let moving = a.screen.pixels.clone();
+    settle(&mut a);
+    assert_eq!(a.motion.due, None, "at rest");
+    assert_eq!(a.areas.text.y, top + view::BANNER_H);
+    assert!(a.screen.pixels != moving);
 }

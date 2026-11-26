@@ -4114,3 +4114,18 @@ the rest look rather than a frame of the full one. Shots: `--hover-ms MS` takes 
 moves on a clock from the first frame that sets the hover — a still window would draw the
 finished fade and the steps after it would prove nothing (`title-hover-*`, `tab-hover-*`, 40 ms
 of 83, both themes; the second shot needs two files for a quiet tab).
+
+**A menu's hovered row, the palette and the bars (M-E, X3).** `motion::draw_menu` draws each
+menu with `Menu::draw_in_animated`, keyed by the popup serial, in the group `ROWS`. A frame
+whose group is due damages the overlay; a frame that skips the popup keeps the group and its
+earlier deadline. The completion popup uses plain drawing for both entrance and hover. The
+command palette draws by `Palette::draw_presence` at `Motion::palette_t` (117 ms decelerating)
+and is damaged by its
+`presence_bounds()` — the same bounds a menu is damaged by, `rect().inset(-20)` having gone from
+both. The anchored language list stays instant. Each update, crash, stale-tab and rename
+notice uses `notice::draw_sliding`; `notice::bar_height` sets its visible height for
+layout and clips its button hits. The editor moves down as the strip grows, with no empty space
+reserved ahead of it.
+Shots: `--motion-clock MS`, which makes the shot animate from its first frame and then steps the
+clock by hand: `menu-row-hover-*`, `palette-in-*` and `{update,crash,stale,rename}-sliding-*`,
+40 ms in both themes.
