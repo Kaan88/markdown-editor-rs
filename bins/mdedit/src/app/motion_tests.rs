@@ -2194,6 +2194,48 @@ fn settings_dim_and_card_enter_together_and_reach_the_plain_dialog_at_117_ms() {
 }
 
 #[test]
+fn opening_a_settings_dropdown_finishes_the_entrance_without_artifacts() {
+    use super::modal::AI_AFTER_RUN;
+    for dark in [false, true] {
+        let draw = |settle: bool| {
+            let mut a = super::theme_tests::window(dark);
+            a.docs.prefs.ai_connection = mdedit_core::ai::Connection::ClaudeApi;
+            a.compose();
+            a.open_settings();
+            let form = a.ui.settings.as_mut().unwrap();
+            assert!(form.show_page(form.page_of(AI_AFTER_RUN).unwrap()));
+            a.compose();
+            if settle {
+                for step in transition_steps(117) {
+                    tick(&mut a, step);
+                }
+            } else {
+                tick(&mut a, 17);
+                let track = ("settings-in", a.motion.settings_serial);
+                assert!(a.motion.anim.get::<f32>(track).unwrap() < 1.0);
+            }
+            let r = a.ui.settings.as_ref().unwrap().control_rect(AI_AFTER_RUN);
+            a.ui.mouse = (r.cx(), r.cy());
+            a.settings_press();
+            a.settings_release();
+            assert!(a.ui.settings.as_ref().unwrap().menu_rect().is_some());
+            a.compose();
+            let track = ("settings-in", a.motion.settings_serial);
+            assert_eq!(
+                a.motion.anim.get::<f32>(track),
+                Some(1.0),
+                "dropdown ends the entrance"
+            );
+            a.screen.pixels
+        };
+        assert!(
+            draw(false) == draw(true),
+            "no stray pixels compared with an already open form"
+        );
+    }
+}
+
+#[test]
 fn asking_for_open_settings_keeps_its_presence_but_reopening_starts_over() {
     let mut a = moving();
     a.focused = false;

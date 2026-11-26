@@ -7,7 +7,7 @@ use mdshared_app::backdrop::Backdrop;
 use mdshared_ui::anim::ManualClock;
 use winit::dpi::PhysicalSize;
 
-fn window(dark: bool) -> App {
+pub(super) fn window(dark: bool) -> App {
     let mut a = app();
     a.motion = crate::motion::Motion::moving(ManualClock::new());
     a.focused = false;
