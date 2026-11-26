@@ -265,29 +265,78 @@ fn closing_settings_during_a_theme_flip_leaves_no_image_of_it() {
 }
 
 #[test]
-fn choosing_a_theme_from_the_palette_closes_it_on_the_first_paint() {
-    let mut a = window(false);
-    a.compose();
-    a.open_palette(">dark theme");
-    a.compose();
-    advance(&mut a, 117);
-    let with_palette = a.screen.pixels.clone();
-    a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Enter), None);
-    assert!(!a.palette_open() && a.dark());
-    a.compose();
-    assert_eq!(
-        a.motion.theme_serial, 0,
-        "do not capture the closed palette"
+fn choosing_dark_from_the_palette_fades_from_a_frame_without_it() {
+    choose_dark_from_overlay(
+        |a| {
+            a.open_palette(">dark theme");
+            a.compose();
+            advance(a, 117);
+        },
+        |a| {
+            a.key_pressed(crate::keys::Key::Name(crate::keys::KeyName::Enter), None);
+            assert!(!a.palette_open());
+        },
     );
-    at_rest(&a);
-    assert!(a.screen.pixels != with_palette);
-    let first = a.screen.pixels.clone();
-    a.full = true;
-    a.compose();
-    assert!(
-        a.screen.pixels == first,
-        "the first paint was already final"
+}
+
+#[test]
+fn choosing_dark_from_the_main_menu_fades_from_a_frame_without_it() {
+    choose_dark_from_overlay(
+        |a| {
+            a.open_popup(PopupKind::Main);
+            a.compose();
+            advance(a, 117);
+        },
+        |a| {
+            let menu = a.ui.popup.as_ref().unwrap().root();
+            let i = menu
+                .items
+                .iter()
+                .position(|row| row.id == Act::Theme(ThemeChoice::Dark))
+                .unwrap();
+            let row = menu.row_rect(i);
+            a.pointer_moved(row.cx(), row.cy());
+            a.left_press();
+            a.left_release();
+            assert!(a.ui.popup.is_none());
+        },
     );
+}
+
+fn choose_dark_from_overlay(open: impl Fn(&mut App), choose: impl Fn(&mut App)) {
+    let mut dark = window(true);
+    dark.compose();
+    for enabled in [true, false] {
+        let mut a = window(false);
+        a.docs.prefs.animations = enabled;
+        a.compose();
+        let old = a.screen.pixels.clone();
+        let old_pixel = pixel(&a);
+        // The theme button reflects the new choice even on the clean old-palette pass.
+        // Both overlays cover the page below it, which must be entirely free of their pixels.
+        let page = a.areas.text.y.ceil() as usize * a.screen.width as usize * 4;
+        open(&mut a);
+        assert!(
+            a.screen.pixels[page..] != old[page..],
+            "the overlay was painted"
+        );
+        choose(&mut a);
+        assert!(a.dark());
+        a.compose();
+        if enabled {
+            assert!(a.motion.theme_fade.is_some(), "the flip still fades");
+            assert!(
+                a.screen.pixels[page..] == old[page..],
+                "first paint has the old palette but no overlay"
+            );
+            advance(&mut a, 85);
+            assert_ne!(pixel(&a), old_pixel);
+            assert_ne!(pixel(&a), pixel(&dark));
+            advance(&mut a, 85);
+        }
+        at_rest(&a);
+        assert!(a.screen.pixels == dark.screen.pixels, "exact final drawing");
+    }
 }
 
 #[test]

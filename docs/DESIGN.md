@@ -4183,11 +4183,13 @@ paints and presents the whole window and then drops the snapshot at 170 ms, with
 no further motion deadline. Requested or active frost, reduced motion, and
 Animations off snap. A size-changing resize (including minimization) clears
 the snapshot even if another frame does not paint; same-size resize keeps it.
-Closing an overlay during a flip cancels the blend so its image cannot linger.
-Before taking a new theme snapshot, compose checks that none of the last
-painted overlays closed. Choosing a theme from the command palette therefore
-closes it and snaps the theme on the next paint. The cap limits the theme copy,
-not total private memory (D-276).
+If the next palette differs and a painted overlay closed, a fade-eligible flip
+first composes the live overlays in the old palette without presenting that pass
+(D-278). It then captures that clean frame and presents the regular blend. The
+palette or menu closes on the first presented frame. There is no extra pass
+when motion is off or capture is otherwise disabled. A close during an active
+fade instead drops the snapshot and snaps, so the old image cannot linger.
+The cap limits the theme copy, not total private memory (D-276).
 
 Visual preview and the full-window plan, task, import, move, note and AI cards
 are drawn inside the same compose, not in a separate renderer. The startup and

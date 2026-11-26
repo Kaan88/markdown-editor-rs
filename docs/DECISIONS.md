@@ -2885,3 +2885,16 @@ decision in D-276 without changing its snapshot-only cap.
 **Why.** Windows sampled about 31.4 MiB during the fade at 1280 × 800 and
 100% scale. The overlap with the Settings entrance remains unmeasured.
 **Overturned by.** A new owner decision on the crossfade or its memory budget.
+
+## D-278 — 2026-11-26 — Close the menu without losing the theme fade
+
+**Decision.** Refines D-275: when a theme flip and an overlay dismissal land in
+the same frame, compose once in the old palette with the live overlays, then
+capture that clean frame and crossfade normally. Do not present the cleanup
+pass separately. If an overlay closes during an already-running fade, drop the
+snapshot and finish the flip instantly rather than trying to reconstruct the
+old frame. Motion-off and other snap paths do not run the extra pass.
+**Why.** A palette or menu used to choose a theme must close immediately without
+making the switch instant. This keeps one retained theme snapshot and does not
+change D-277's memory exception.
+**Overturned by.** A change to the owner's menu-close or theme-motion rules.

@@ -719,28 +719,11 @@ impl App {
         let pal = if dark { theme::DARK } else { theme::LIGHT };
         if pal != self.pal {
             self.drop_theme_fade();
-            let (w, h) = self.size;
-            if painting
-                && !closed
-                && self.frames > 0
-                && (w, h) == (self.screen.width, self.screen.height)
-                && w > 0
-                && h > 0
-                && u64::from(w) * u64::from(h) <= 2560 * 1600
-                && self.theme_is_flat()
-                && self
-                    .window
-                    .as_ref()
-                    .is_none_or(|w| w.is_minimized() != Some(true))
-            {
-                // The settings may have just enabled motion after a launch with it off.
-                self.watch_motion();
-                if self.motion.anim.animates() {
-                    let (w, h) = self.logical();
-                    let p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
-                    self.motion.theme_fade = Some(p.snapshot(Rect::new(0.0, 0.0, w, h)));
-                    self.motion.theme_serial = self.motion.theme_serial.wrapping_add(1);
-                }
+            if painting && !closed && self.can_capture_theme_frame() {
+                let (w, h) = self.logical();
+                let p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
+                self.motion.theme_fade = Some(p.snapshot(Rect::new(0.0, 0.0, w, h)));
+                self.motion.theme_serial = self.motion.theme_serial.wrapping_add(1);
             }
             self.pal = pal;
             self.full = true;
@@ -758,6 +741,26 @@ impl App {
             }
             self.service_dark = Some(dark);
         }
+    }
+
+    fn can_capture_theme_frame(&mut self) -> bool {
+        let (w, h) = self.size;
+        if self.frames == 0
+            || (w, h) != (self.screen.width, self.screen.height)
+            || w == 0
+            || h == 0
+            || u64::from(w) * u64::from(h) > 2560 * 1600
+            || !self.theme_is_flat()
+            || self
+                .window
+                .as_ref()
+                .is_some_and(|w| w.is_minimized() == Some(true))
+        {
+            return false;
+        }
+        // The settings may have just enabled motion after a launch with it off.
+        self.watch_motion();
+        self.motion.anim.animates()
     }
 
     fn theme_is_flat(&self) -> bool {
@@ -937,7 +940,7 @@ impl App {
     /// Asks the highlight worker for the visible lines and a screen each side, when the view has
     /// left the middle of what was asked last, the theme changed, or another document was asked.
     fn request_colours(&mut self) {
-        let dark = self.dark();
+        let dark = self.pal.dark;
         let Some(service) = &self.service else {
             return;
         };
@@ -972,7 +975,7 @@ impl App {
 
     /// The colours of the second pane's lines: asked for beside the active document's.
     fn request_colours_other(&mut self) {
-        let dark = self.dark();
+        let dark = self.pal.dark;
         let Some(service) = &self.service else {
             return;
         };
@@ -1018,7 +1021,7 @@ impl App {
     /// an edit made the answer stale.
     fn request_colours_map(&mut self, pane: usize) {
         self.map_lines[pane] = None;
-        let dark = self.dark();
+        let dark = self.pal.dark;
         let Some(plan) = self.map_plan[pane] else {
             return;
         };
@@ -1452,14 +1455,38 @@ impl App {
 
     /// Composes one frame into `screen` and returns the device-px rectangles changed.
     fn compose(&mut self) -> (Vec<(i32, i32, i32, i32)>, FrameTimes) {
+        self.motion.set_setting(self.docs.prefs.animations);
+        let clean = if self.dark() != self.pal.dark
+            && self.overlay_closed_since_paint()
+            && self.can_capture_theme_frame()
+        {
+            // Draw the live overlays in the old palette before taking the one theme snapshot.
+            // This pass is never presented; only the blend from it is.
+            self.drop_theme_fade();
+            self.full = true;
+            Some(self.compose_frame(false).1)
+        } else {
+            None
+        };
+        let (damage, mut times) = self.compose_frame(true);
+        if let Some(clean) = clean {
+            times.layout += clean.layout;
+            times.paint += clean.paint;
+            times.compose += clean.compose;
+        }
+        (damage, times)
+    }
+
+    fn compose_frame(&mut self, sync_theme: bool) -> (Vec<(i32, i32, i32, i32)>, FrameTimes) {
         self.ai_review_sync();
         let mut times = FrameTimes::default();
         let t0 = Instant::now();
-        self.motion.set_setting(self.docs.prefs.animations);
         let frame_at = self.motion.now();
         self.motion.anim.begin_frame(frame_at);
         // Capture the previous drawing, never the replacement bitmap for a new size.
-        self.sync_theme(true);
+        if sync_theme {
+            self.sync_theme(true);
+        }
         let (pw, ph) = (self.size.0.max(1), self.size.1.max(1));
         if self.screen.width != pw || self.screen.height != ph {
             self.screen = Bitmap::new(pw, ph);
@@ -1847,7 +1874,7 @@ impl App {
         let maximized = self.maximized;
         let (hover, pressed) = (self.ui.hover, self.ui.pressed);
         let ds = DrawState {
-            dark: self.dark(),
+            dark: pal.dark,
             caret: self.text_focused() && self.focused && self.ui.caret_on,
             band: true,
             whitespace: self.docs.whitespace,
