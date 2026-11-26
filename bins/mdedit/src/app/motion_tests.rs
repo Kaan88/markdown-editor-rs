@@ -1107,6 +1107,65 @@ fn a_status_taking_over_a_rising_toast_lets_it_keep_rising() {
     assert!(now[0].t < 1.0, "not stood there at once: {}", now[0].t);
 }
 
+/// A repeat of a toast that is still waiting for its lift does not take that wait away from the
+/// animator: the toast goes on waiting, so a status taking it over still stands there at once
+/// instead of sitting at nothing until the rest of the delay runs out.
+#[test]
+fn a_repeat_of_a_waiting_toast_leaves_the_status_standing_at_once() {
+    let mut a = moving();
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    settle(&mut a);
+    a.docs.confirm_toast("Image saved as a.png");
+    a.compose();
+    assert_eq!(toasts(&a)[0].1, 0.0, "the second waits for the lift");
+    let key = a.motion.toast_frame[0].key;
+    tick(&mut a, 16);
+    // Said again while it waits: the same toast, still waiting.
+    a.docs.confirm_toast("Image saved as a.png");
+    a.compose();
+    assert_eq!(a.motion.toast_frame[0].key, key);
+    assert_eq!(a.motion.toast_frame[0].t, 0.0, "still waiting");
+    tick(&mut a, 16);
+    a.docs.set_toast("Saved");
+    a.compose();
+    let now = &a.motion.toast_frame;
+    assert_eq!(now.len(), 1);
+    assert_eq!(
+        (now[0].key, now[0].t, now[0].text.as_str()),
+        (key, 1.0, "Saved"),
+        "the status stands there at once, in the toast that was waiting"
+    );
+}
+
+/// A toast past its wait is coming in, and a status taking it over lets it go on from where it
+/// is: only one still at nothing is stood up.
+#[test]
+fn a_status_lets_a_toast_past_its_wait_go_on_rising() {
+    let mut a = moving();
+    a.compose();
+    a.docs.confirm_toast("File path copied");
+    a.compose();
+    settle(&mut a);
+    a.docs.confirm_toast("Image saved as a.png");
+    a.compose();
+    let key = a.motion.toast_frame[0].key;
+    // Past the wait (the lift is 167 ms) and on its way in.
+    frames_for(&mut a, 200);
+    let part = a.motion.toast_frame[0].t;
+    assert!(part > 0.0 && part < 1.0, "coming in: {part}");
+    a.docs.set_toast("Saved");
+    a.compose();
+    let now = &a.motion.toast_frame;
+    assert_eq!((now[0].key, now[0].text.as_str()), (key, "Saved"));
+    assert!(
+        now[0].t < 1.0,
+        "it goes on rising, not stood up at once: {}",
+        now[0].t
+    );
+}
+
 #[test]
 fn never_more_than_three_toasts_those_leaving_included() {
     let mut a = moving();

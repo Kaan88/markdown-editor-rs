@@ -3990,10 +3990,12 @@ over **a toast still waiting for its lift** — and only such a toast — is put
 through `Animator::set` for that frame: the stack gives the wait up, but the animator keeps the
 delay it was first given for the name, since a new motion for an unchanged target is ignored, and
 the status would wait in the dark. Which toast that is is `Motion::toast_waiting`, the key
-`Stack::show` returned while the stack already held something (a toast at rest, or one leaving);
-a toast that came onto an empty stack was pushed without a wait, so a status taking it over lets
-it keep rising from where it is, and a toast part way in goes on from where it is. A
-confirmation said again never stands twice: while it is the newest it keeps its own toast,
+`Stack::show` returned while the stack already held something (a toast at rest, or one leaving),
+**and** that key must still be at nothing on the last frame: one past its wait is coming in, and
+the status lets it go on from where it is. A toast that came onto an empty stack was pushed
+without a wait, so a status taking it over lets it keep rising, first frame or part way. A repeat
+of the waiting toast leaves `toast_waiting` as it was, since `revive` keeps the animator's delay.
+A confirmation said again never stands twice: while it is the newest it keeps its own toast,
 key and presence (its time reset, so Copy path pressed twice does not blink), and one standing
 higher is taken out first and comes in again at the bottom. A message whose time is already past
 when it is taken in shows nothing. What is left of its time is counted on from that frame on the

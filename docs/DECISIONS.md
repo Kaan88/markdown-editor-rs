@@ -2582,3 +2582,22 @@ the first frame, and part way in), and both fail if the snap is made uncondition
 **Why.** The review of `3afc7e0` (the owner, 2026-11-26): "A toast that came onto an empty stack
 is also at 0.0 on its first frame… Fix: snap only a key that was really pushed with a wait."
 **Overturned by.** The owner; or shared learning to tell "waiting" apart from "coming in".
+
+## D-255 · 2026-11-26 · The snap needs both the key and nothing on screen, and a repeat keeps the wait
+
+**Decision.** Two more corrections to D-254's condition, from the review of `3cebea0`:
+- **A repeat of the waiting toast leaves `Motion::toast_waiting` alone.** `Stack::revive` no
+  longer waits, but it does not touch the animator, whose delay for that name runs on; clearing
+  the key there meant a status taking the toast over sat at nothing until the rest of the 167 ms
+  passed. Only a real push sets the key now.
+- **The key must also still be at nothing on the last frame.** A toast past its wait is coming in:
+  the status lets it go on rising from where it is, rather than standing it up at once. Both
+  conditions are read from `Motion::toast_waiting` and the last frame's list (`t == 0`).
+- `pushed_onto` goes: the status takes away every toast the last frame held, so when no toast is
+  the newest the stack is empty and the push that follows waits for nothing. A
+  `debug_assert!(self.toasts.is_empty())` says so in debug builds.
+Two tests hold it: `a_repeat_of_a_waiting_toast_leaves_the_status_standing_at_once` (fails with the
+key cleared on a repeat) and `a_status_lets_a_toast_past_its_wait_go_on_rising` (fails without the
+`t == 0` half).
+**Why.** The review of `3cebea0` (the owner, 2026-11-26).
+**Overturned by.** The owner; or shared telling a toast's wait apart from its rise.

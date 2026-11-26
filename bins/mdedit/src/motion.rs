@@ -457,10 +457,16 @@ impl Motion {
                         // `show` pushes unless the same one is still the newest; a push onto a
                         // stack that holds anything, a toast at rest or one leaving, gives the
                         // newcomer the wait for the lift. Only such a toast can be at nothing
-                        // when a status takes its place.
-                        let held = !self.toasts.is_empty();
-                        let key = self.toasts.show(l.text.to_string(), until);
-                        self.toast_waiting = (!kept && held).then_some(key);
+                        // when a status takes its place. A repeat revives the newest and does
+                        // not touch the animator, so a toast that was waiting goes on waiting
+                        // and stays the one to snap.
+                        if !kept {
+                            let held = !self.toasts.is_empty();
+                            let key = self.toasts.show(l.text.to_string(), until);
+                            self.toast_waiting = held.then_some(key);
+                        } else {
+                            self.toasts.show(l.text.to_string(), until);
+                        }
                     } else {
                         // A status replaces in place, and every other toast goes at once — the
                         // ones still playing their exit too, named by the last frame's list,
@@ -473,17 +479,22 @@ impl Motion {
                         for k in others {
                             self.toasts.remove(k);
                         }
-                        // Only leaving toasts left: `replace_newest` pushes, and that push waits.
-                        let pushed_onto = newest.is_none() && !self.toasts.is_empty();
+                        // Everything the last frame held is gone, so a push here is onto
+                        // nothing and enters at once: it is not one that waits.
+                        if newest.is_none() {
+                            debug_assert!(self.toasts.is_empty());
+                        }
                         let key = self.toasts.replace_newest(l.text.to_string(), until);
                         // The toast it takes over may still have been waiting for its lift, and
                         // the animator keeps that wait even after the stack gives it up (a new
-                        // motion for an unchanged target is ignored): it stands there now. A
-                        // toast that was merely coming in keeps coming in, from where it is.
-                        let waiting = match newest {
-                            Some(k) => self.toast_waiting == Some(k),
-                            None => pushed_onto,
-                        };
+                        // motion for an unchanged target is ignored): it stands there now. Both
+                        // things must hold: it was pushed onto others, and it is still at
+                        // nothing on the last frame. One past its wait is coming in, and a
+                        // status lets it go on from where it is.
+                        let waiting = newest.is_some_and(|k| {
+                            self.toast_waiting == Some(k)
+                                && !self.toast_frame.iter().any(|s| s.key == k && s.t > 0.0)
+                        });
                         self.toast_waiting = None;
                         if waiting {
                             come_in = Some(key);
