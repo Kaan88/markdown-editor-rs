@@ -246,9 +246,21 @@ impl App {
             self.task_untake(files.iter());
             let ask_shown = self.task.as_ref().is_some_and(|s| s.ask.is_some());
             if self.task_held.is_some() {
-                // The question's count follows what it still holds, and only when it is on screen:
-                // a smaller set is not a question (D-252).
-                if ask_shown {
+                // At `ASK_FILES` or fewer the rest comes in at once, as a set that small does
+                // (D-253); more, and the question's count follows what it still holds, and only
+                // when it is on screen: a smaller set is not a question (D-252).
+                let small = self
+                    .task_held
+                    .as_ref()
+                    .is_some_and(|h| h.paths.len() <= task_ui::ASK_FILES);
+                if small {
+                    let held = self.task_held.take().unwrap_or_default();
+                    if let Some(s) = self.task.as_mut() {
+                        s.ask = None;
+                        s.tick += 1;
+                    }
+                    self.task_probe_start(held);
+                } else if ask_shown {
                     self.task_ask_show();
                 }
             } else if self.task_answer.is_none() && ask_shown {
@@ -677,6 +689,8 @@ impl App {
             + self.task_answer.take().map_or(0, |h| h.paths.len());
         self.task_declined = false;
         self.task_fold = false;
+        // A probe job of the question's files is stopped too, and the button comes back (D-253).
+        self.task_probing = false;
         if let Some(s) = self.task.as_mut() {
             let name = s.reading.take();
             s.ask = None;

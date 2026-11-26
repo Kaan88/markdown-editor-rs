@@ -3454,7 +3454,8 @@ fn a_single_file_beyond_the_windows_room_is_left_out() {
 }
 
 /// A file dropped by name from the folder the question holds is counted once: it goes in, and
-/// the question's count falls by one (D-251).
+/// the 200 left are at the threshold, so they come in with it rather than waiting on a question
+/// (D-251, D-253).
 #[test]
 fn a_file_from_the_held_folder_is_counted_once() {
     let (mut a, dir) = open("task-held-one", TaskKind::File, Vec::new());
@@ -3466,16 +3467,48 @@ fn a_file_from_the_held_folder_is_counted_once() {
     {
         let s = a.task.as_ref().expect("open");
         assert_eq!(s.files.len(), 1, "the file is in");
-        assert_eq!(
-            s.ask.as_deref(),
-            Some("Add 200 files from Many?"),
-            "and the question counts what it still holds"
+        assert!(s.ask.is_none(), "no question for 200 (D-253)");
+    }
+    assert!(a.task_probing, "the 200 are read at once");
+    assert_eq!(a.task_held.as_ref().map_or(0, |h| h.paths.len()), 0);
+    read_folder(&mut a);
+    let s = a.task.as_ref().expect("open");
+    assert_eq!(s.files.len(), 201);
+    assert!(s.files.iter().all(|f| f.ticked));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Esc during the probes of an answered set stops them and gives the button back: the plan can be
+/// made on what the window holds (D-253).
+#[test]
+fn escape_stops_the_probes_and_the_plan_comes_back() {
+    let (mut a, dir) = open("task-stop-probes", TaskKind::File, Vec::new());
+    let one = pasta(&dir);
+    a.task_add_paths(vec![one]);
+    let folder = many(&dir, "Many", 201);
+    a.task_add_paths(vec![folder]);
+    a.task_flush_drops();
+    read_folder(&mut a);
+    answer_question(&mut a);
+    assert!(a.task_probing, "the answer's probes are out");
+    a.task_key(Some(KeyName::Escape), None);
+    assert!(!a.task_probing, "the stop ends the probes");
+    {
+        let s = a.task.as_ref().expect("open");
+        assert_eq!(s.files.len(), 1, "nothing of them is in");
+        assert!(
+            s.notice
+                .as_deref()
+                .is_some_and(|n| n.starts_with("Stopped")),
+            "{:?}",
+            s.notice
         );
     }
-    assert_eq!(a.task_held.as_ref().map_or(0, |h| h.paths.len()), 200);
-    answer_question(&mut a);
-    read_folder(&mut a);
-    assert_eq!(a.task.as_ref().expect("open").files.len(), 201);
+    a.task_primary();
+    assert!(
+        a.task.as_ref().expect("open").planned,
+        "the plan is made on the one file"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3668,7 +3701,7 @@ fn a_question_with_nothing_left_behind_goes() {
         .collect();
     a.task_add_paths(all);
     let s = a.task.as_ref().expect("open");
-    assert_eq!(s.files.len(), 201);
+    assert_eq!(s.files.len(), 201, "every one of them came in by name");
     assert_eq!(a.task_held.as_ref().map_or(0, |h| h.paths.len()), 0);
     assert_eq!(s.ask, None, "the question goes with its files");
     let _ = std::fs::remove_dir_all(&dir);
