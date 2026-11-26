@@ -1367,14 +1367,9 @@ impl App {
         let (w, h) = self.logical();
         self.drop_undone_switches();
         self.format = crate::format_bar::shown(&self.docs);
-        self.motion.sync_banners([
-            self.docs.updates.bar().is_some(),
-            self.docs.crash.is_some(),
-            !self.docs.stale.is_empty(),
-            self.docs.rename_bar().is_some(),
-        ]);
+        self.motion.sync_banners(self.banner_flags());
         self.sync_side_by_side();
-        self.relayout_areas();
+        self.relayout_areas_for(self.motion.banner_t);
         // Lay the text out first: it clamps the scroll and says which lines want colours.
         let text = self.areas.text;
         let mut geom = None;
@@ -3382,9 +3377,32 @@ impl ApplicationHandler<Wake> for App {
 }
 
 impl App {
-    /// The height of what shows under the command bar: the format bar, the replace strip, the
-    /// update bar, then the crash bar.
-    fn notice_h(&self) -> f32 {
+    fn banner_flags(&self) -> [bool; 4] {
+        [
+            self.docs.updates.bar().is_some(),
+            self.docs.crash.is_some(),
+            !self.docs.stale.is_empty(),
+            self.docs.rename_bar().is_some(),
+        ]
+    }
+
+    /// The colour wait and position requests may lay out before any paint. Reserve full
+    /// height then, just as the first paint will. Later, use the last painted heights
+    /// for animations in progress, without starting or advancing them from layout.
+    fn layout_banner_t(&self) -> [f32; 4] {
+        let shown = self.banner_flags();
+        let snap = !self.motion.banners_composed
+            || !self.docs.prefs.animations
+            || !self.motion.anim.animates();
+        std::array::from_fn(|i| match (shown[i], snap) {
+            (false, _) => 0.0,
+            (true, true) => 1.0,
+            (true, false) => self.motion.banner_t[i],
+        })
+    }
+
+    /// The height below the command bar: formatting, replace, and the notice strips.
+    fn notice_h(&self, banner_t: [f32; 4]) -> f32 {
         let strip = if self.ui.replace_open {
             crate::ui::REPLACE_H
         } else {
@@ -3402,9 +3420,7 @@ impl App {
         };
         format
             + strip
-            + self
-                .motion
-                .banner_t
+            + banner_t
                 .into_iter()
                 .map(crate::motion::banner_height)
                 .sum::<f32>()
@@ -3414,13 +3430,17 @@ impl App {
     /// Works out where everything goes now (the split's roles and share, the minimap, the
     /// panels) and makes it the current layout; a change repaints everything.
     pub(super) fn relayout_areas(&mut self) {
+        self.relayout_areas_for(self.layout_banner_t());
+    }
+
+    fn relayout_areas_for(&mut self, banner_t: [f32; 4]) {
         let (w, h) = self.logical();
         let areas = Areas::compute(
             w,
             h,
             self.ui.panes.files,
             self.ui.panes.files_w,
-            self.notice_h(),
+            self.notice_h(banner_t),
         )
         .with_results(self.ui.results.open, self.ui.results.height);
         // A split whose second tab was closed, or became the active one, is over.
@@ -3465,7 +3485,7 @@ impl App {
             h,
             self.ui.panes.files,
             self.ui.panes.files_w,
-            self.notice_h(),
+            self.notice_h(self.layout_banner_t()),
         )
         .with_results(self.ui.results.open, self.ui.results.height)
         .with_preview(

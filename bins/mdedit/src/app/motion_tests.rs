@@ -2412,6 +2412,33 @@ fn notices_present_at_start_get_their_full_height_without_motion() {
     }
 }
 
+#[test]
+fn launch_layout_with_a_stale_notice_matches_the_first_paint_and_goto() {
+    let mut a = moving();
+    let path = scratch("stale-goto").join("long.txt");
+    std::fs::write(&path, "scroll to a line\n".repeat(240)).unwrap();
+    open_now(&mut a, &path);
+    a.focused = false;
+    a.docs.prefs.animations = false;
+    BannerDemo::Stale.show(&mut a);
+    a.args.goto = Some(crate::args::LineCol { line: 120, col: 1 });
+    a.compose_layout_only();
+    let text = a.areas.text;
+    a.apply_positions();
+    let top = a.docs.active_ready().unwrap().view.top;
+    a.compose();
+    assert_eq!(
+        text, a.areas.text,
+        "layout and paint reserve the same strip"
+    );
+    assert_eq!(a.docs.active_ready().unwrap().view.top, top);
+
+    // The same `--goto` in the painted geometry gives the same top line.
+    a.docs.active_ready_mut().unwrap().view.top = 0.0;
+    a.apply_positions();
+    assert_eq!(a.docs.active_ready().unwrap().view.top, top);
+}
+
 /// A menu's hovered row fades its fill in (`Menu::draw_in_animated`): once the menu itself has
 /// arrived, putting the pointer on a row asks the animator for frames again, the row changes,
 /// and it rests with no timer left.
