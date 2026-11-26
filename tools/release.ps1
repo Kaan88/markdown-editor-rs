@@ -59,7 +59,7 @@ $exe = Join-Path $dist $asset
 Copy-Item (Join-Path $repo 'target\release\mdedit.exe') $exe
 $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
 $engine = Join-Path $dist 'mdview-engine.exe'
-Copy-Item (Join-Path $repo 'target\engine\mdview-engine.exe') $engine
+Copy-Item (Join-Path $repo 'target\release\mdview-engine.exe') $engine
 $engineHash = (Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash.ToLowerInvariant()
 $ai = Join-Path $dist 'mdedit-ai.exe'
 Copy-Item (Join-Path $repo 'target\release\mdedit-ai.exe') $ai

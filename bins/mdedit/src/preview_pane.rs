@@ -1,8 +1,8 @@
-//! The preview pane: the active Markdown document drawn by mdview's renderer, beside the text.
+//! The preview pane: the active Markdown document drawn by the shared renderer, beside the text.
 //!
 //! Two builds, one pane. By default (cargo feature `embedded-preview`) the drawing loop runs on a
-//! thread of mdedit's own, with mdview's renderer built in, and formulas and diagrams go to the
-//! `mdview-engine` process shipped beside mdedit (or, failing that, beside mdview): the pane is
+//! thread of mdedit's own, with the shared renderer built in, and formulas and diagrams go to the
+//! `mdview-engine` process shipped beside mdedit: the pane is
 //! always offered. Built with `--no-default-features`, the page is drawn by mdview itself:
 //! `mdview --preview-server` runs without a window and answers over a pipe, and the pane is
 //! offered only while mdview is installed. That build is kept to compare the two.
@@ -131,33 +131,11 @@ pub fn viewer() -> Option<PathBuf> {
     mdshared_app::sister::find(crate::link::VIEWER)
 }
 
-/// The engine for formulas and diagrams: the one shipped with mdedit, else the one beside the
-/// installed mdview. None leaves the renderer to its own search (and the formulas as source).
-#[cfg_attr(not(feature = "embedded-preview"), allow(dead_code))]
-fn engine(viewer: Option<&Path>) -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok();
-    own_engines(exe.as_deref())
-        .into_iter()
-        .chain(viewer.and_then(|v| Some(v.parent()?.join(engine_file()))))
-        .find(|p| p.is_file())
-}
-
-fn engine_file() -> String {
-    format!("mdview-engine{}", std::env::consts::EXE_SUFFIX)
-}
-
-/// Where mdedit's own engine is, in the order looked at: beside the executable (Windows, the
-/// macOS bundle, the AppImage), then `../lib/mdedit/` (the Linux packages and the tarball, which
-/// keep it off `bin/`, where mdview's packages put theirs).
-fn own_engines(exe: Option<&Path>) -> Vec<PathBuf> {
-    let Some(dir) = exe.and_then(Path::parent) else {
-        return Vec::new();
-    };
-    let mut at = vec![dir.join(engine_file())];
-    if let Some(prefix) = dir.parent().filter(|_| cfg!(target_os = "linux")) {
-        at.push(prefix.join("lib/mdedit").join(engine_file()));
-    }
-    at
+/// The sole packaged engine path; the renderer checks it when it needs the engine.
+#[cfg(any(feature = "embedded-preview", test))]
+fn packaged_engine(exe: Option<&Path>) -> Option<PathBuf> {
+    let dir = exe.filter(|p| p.is_absolute())?.parent()?;
+    Some(dir.join(format!("mdview-engine{}", std::env::consts::EXE_SUFFIX)))
 }
 
 impl Pane {
@@ -543,15 +521,17 @@ impl Drop for Pane {
 }
 
 /// The embedded build: the loop runs on a thread here; formulas and diagrams go to the engine
-/// installed beside mdview.
+/// installed beside mdedit. An explicit `MDV_ENGINE` is validated by the renderer.
 #[cfg(feature = "embedded-preview")]
 fn start(
-    viewer: Option<&Path>,
+    _viewer: Option<&Path>,
     rx: Receiver<Request>,
     tx: Sender<Event>,
     wake: Waker,
 ) -> &'static str {
-    if let Some(engine) = engine(viewer) {
+    if std::env::var_os("MDV_ENGINE").is_none()
+        && let Some(engine) = packaged_engine(std::env::current_exe().ok().as_deref())
+    {
         mdview_render::set_engine_path(engine);
     }
     let (tx2, wake2) = (tx.clone(), wake.clone());
@@ -731,17 +711,14 @@ mod engine_tests {
     use super::*;
 
     #[test]
-    fn the_own_engine_is_looked_for_beside_the_exe_then_in_lib_mdedit() {
-        let file = engine_file();
-        let at = own_engines(Some(Path::new("/usr/bin/mdedit")));
-        assert_eq!(at[0], Path::new("/usr/bin").join(&file));
-        if cfg!(target_os = "linux") {
-            assert_eq!(at[1], Path::new("/usr/lib/mdedit").join(&file));
-            assert_eq!(at.len(), 2);
-        } else {
-            assert_eq!(at.len(), 1);
-        }
-        assert!(own_engines(None).is_empty());
+    fn the_packaged_engine_is_only_looked_for_beside_the_exe() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("install/bin");
+        assert_eq!(
+            packaged_engine(Some(&dir.join("mdedit"))),
+            Some(dir.join(format!("mdview-engine{}", std::env::consts::EXE_SUFFIX)))
+        );
+        assert_eq!(packaged_engine(Some(Path::new("bin/mdedit"))), None);
+        assert_eq!(packaged_engine(None), None);
     }
 }
 

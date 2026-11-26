@@ -3036,3 +3036,21 @@ old frame. Motion-off and other snap paths do not run the extra pass.
 making the switch instant. This keeps one retained theme snapshot and does not
 change D-282's memory exception.
 **Overturned by.** A change to the owner's menu-close or theme-motion rules.
+
+## D-284 — 2026-11-27 — Build the preview and its engine from the same toolkit pin
+
+**Decision.** Replaces D-273's toolkit pin and the viewer pin recorded in D-108. Move all
+current shared crates to `7fd559f` together. The default preview uses the toolkit renderer;
+the optional external comparison build speaks `MDVPREVIEW7`. Keep `mdshared-app-106` at its
+historical revision for the old updater manifest test. Build the `mdview-engine` binary from
+the same toolkit checkout as the renderer. The packaged engine goes beside the real editor
+executable; on Linux packages and the tarball, `bin/mdedit` links to `lib/mdedit/mdedit` so
+mdedit and mdview do not claim the same engine path. No search in parent folders or beside an
+installed mdview; the renderer accepts an explicit absolute `MDV_ENGINE` override.
+**Why.** The renderer now lives in shared, and this pin brings preview input and engine
+discovery hardening, bounded work and vertical-only font hinting. Shared pins
+`regex-syntax = 0.8.11`; the old locked `regex-automata 0.4.19` requires `0.8.12` or later.
+Move `regex-syntax` from `0.8.12` to `0.8.11` and `regex-automata` from `0.4.19` to `0.4.18`
+in the editor lockfile, matching the toolkit lock.
+**Overturned by.** A deliberate toolkit pin or packaging contract change.
+**From.** The renderer migration brief and the owner's approval of both patch downgrades.

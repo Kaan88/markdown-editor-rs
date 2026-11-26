@@ -34,6 +34,8 @@ Unreleased: motion for menus, Settings, themes and messages, plus fixes to the A
   current items and check marks.
 - **The split preview has a scrollbar.** Click the track or drag the thumb to move
   through a long page without selecting its text.
+- **Safer Markdown preview.** The editor ships the shared renderer and its matching helper;
+  image loads and preview sizes are more tightly bounded, and text uses vertical-only hinting.
 - **Files and Functions have keyboard focus.** Use the pane's shortcut, move with the
   arrow keys, press Enter to open the row, or press Escape to go back to the editor.
 - **Window placement follows the saved monitor.** If that monitor is no longer

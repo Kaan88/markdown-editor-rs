@@ -26,7 +26,9 @@ sha256sums=('SKIP')
 
 package() {
     cd "$srcdir/mdedit-$pkgver-linux-x86_64"
-    install -Dm755 bin/mdedit "$pkgdir/usr/bin/mdedit"
+    install -Dm755 lib/mdedit/mdedit "$pkgdir/usr/lib/mdedit/mdedit"
+    install -d "$pkgdir/usr/bin"
+    ln -s ../lib/mdedit/mdedit "$pkgdir/usr/bin/mdedit"
     install -Dm755 lib/mdedit/mdview-engine "$pkgdir/usr/lib/mdedit/mdview-engine"
     install -Dm755 lib/mdedit/mdedit-ai "$pkgdir/usr/lib/mdedit/mdedit-ai"
     install -Dm644 share/applications/mdedit.desktop "$pkgdir/usr/share/applications/mdedit.desktop"

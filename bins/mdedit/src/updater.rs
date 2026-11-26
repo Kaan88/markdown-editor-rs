@@ -11,7 +11,7 @@ pub use shared::{
 
 /// mdedit as the updater knows it: the executable and, on Windows, the two programs beside it:
 /// the engine for the preview pane's formulas and diagrams (`mdview-engine.exe`, built from the
-/// viewer at the revision mdedit pins) and the AI engine (`mdedit-ai.exe`). The installer's entry
+/// shared toolkit at the revision mdedit pins) and the AI engine (`mdedit-ai.exe`). The installer's entry
 /// is the one the `AppId` of `packaging/windows/mdedit.iss` names.
 ///
 /// Windows reads `mdedit-update-2.txt`, the format-2 manifest that can list `mdedit-ai`;

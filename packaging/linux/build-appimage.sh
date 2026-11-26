@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the Linux release of mdedit as an AppImage, from any Linux PC with Docker. The preview
-# pane's engine (mdview-engine) is built too, from the viewer at the revision mdedit pins
+# pane's engine (mdview-engine) is built too, from the shared toolkit at the revision mdedit pins
 # (packaging/engine-source.sh), and sits beside mdedit in usr/bin of the AppImage.
 #
 #   packaging/linux/build-appimage.sh
@@ -44,7 +44,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
     bash -c 'set -e; PATH=/opt/cargo/bin:$PATH
         cargo build --release --locked -p mdedit -p mdedit-ai
         packaging/engine-source.sh /cache/target/engine-src
-        cargo build --release --locked -p mdview-engine \
+        cargo build --release --locked -p mdshared-md-engine --bin mdview-engine \
             --manifest-path /cache/target/engine-src/Cargo.toml --target-dir /cache/target/engine'
 bin="$cache/$app/target-linux/release/$app"
 engine="$cache/$app/target-linux/engine/release/mdview-engine"

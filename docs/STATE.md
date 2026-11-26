@@ -1,6 +1,6 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-26, for the task-fixes and motion merge.
+Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migration.
 
 ## Released
 
@@ -55,7 +55,7 @@ Rewritten, not appended to. Last rewritten 2026-11-26, for the task-fixes and mo
     The scaled runs already exceeded 30 MiB before opening. The owner accepted the 30 MiB
     exception only during the 170 ms theme fade; its copy is then freed (D-282). Opening
     Settings during a theme fade holds both copies; that overlap was not measured.
-  - **Linux**: shared pin `1588e0f` (D-273) starts a long-lived system-theme thread with a D-Bus
+  - **Linux**: the theme change from D-273 starts a long-lived system-theme thread with a D-Bus
     connection at launch if the settings portal is available. Linux launch and idle costs
     are unmeasured.
 - **AI task window fixes** (D-240 to D-254; `docs/release-notes/NEXT.md`): Settings returns to
@@ -138,8 +138,8 @@ installer, an installed copy updating itself, and `hub.txt` read by Hub from a r
 
 ## Pins, branches, worktrees (tidied 2026-11-24)
 
-- Shared crates: mdedit at `1588e0f`; mdview pin recorded in its own repository.
-  Viewer crates at viewer `e2b3e31`; winit `62fa727`, softbuffer `dd18fec`.
+- Shared crates and embedded preview: `7fd559f` (D-284), with safety fixes and vertical-only
+  hinting. The helper ships beside the real executable. winit `62fa727`, softbuffer `dd18fec`.
 - Branches: `main`; the drawings (`mock/ai-review`, `mock/settings`, `mock/terminal`,
   `mock/downloader`, `mock/workbench` local only, `mock/launcher`, `mock/file-manager`,
   `mock/task-manager`, `mock/ai-pictures`), never merged; `archive/doc-reorg-draft`; `spike/v-resizer`; on GitHub

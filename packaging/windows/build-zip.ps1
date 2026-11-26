@@ -6,7 +6,7 @@
   place like the installed copy (the folder must be writable).
 .NOTES
   pwsh packaging\windows\build-zip.ps1 [-Exe path\to\mdedit.exe] [-Engine path\to\mdview-engine.exe] [-OutDir dir]
-  Defaults: target\release\mdedit.exe, target\engine\mdview-engine.exe, target\dist\<version>. Run after tools\release.ps1.
+  Defaults: target\release\mdedit.exe, mdview-engine.exe beside it, target\dist\<version>. Run after tools\release.ps1.
 #>
 param([string]$Exe = '', [string]$Engine = '', [string]$Ai = '', [string]$OutDir = '')
 $ErrorActionPreference = 'Stop'
@@ -20,10 +20,10 @@ if (-not $m.Success) { Fail 'Could not read [workspace.package] version from Car
 $version = $m.Groups[1].Value
 if (-not $Exe) { $Exe = Join-Path $root 'target\release\mdedit.exe' }
 if (-not $OutDir) { $OutDir = Join-Path $root "target\dist\$version" }
-if (-not $Engine) { $Engine = Join-Path $root 'target\engine\mdview-engine.exe' }
 if (-not $Ai) { $Ai = Join-Path $root 'target\release\mdedit-ai.exe' }
 if (-not (Test-Path -LiteralPath $Ai)) { Fail "$Ai is missing." }
 if (-not (Test-Path -LiteralPath $Exe)) { Fail "$Exe is missing." }
+if (-not $Engine) { $Engine = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $Exe).Path) 'mdview-engine.exe' }
 if (-not (Test-Path -LiteralPath $Engine)) { Fail "$Engine is missing." }
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 

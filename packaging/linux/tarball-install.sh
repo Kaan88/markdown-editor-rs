@@ -10,17 +10,12 @@ prefix="${1:-${HOME:?HOME is not set}/.local}"
 case "$prefix" in /*) ;; *) prefix="$(pwd)/$prefix" ;; esac
 
 mkdir -p "$prefix/bin" "$prefix/lib/$app" "$prefix/share/applications" "$prefix/share/icons/hicolor/256x256/apps"
-cp "$here/bin/$app" "$prefix/bin/$app.new"
-chmod 755 "$prefix/bin/$app.new"
-mv -f "$prefix/bin/$app.new" "$prefix/bin/$app"
-# The preview pane's engine, where mdedit looks for it: ../lib/mdedit/ from its binary.
-cp "$here/lib/$app/mdview-engine" "$prefix/lib/$app/mdview-engine.new"
-chmod 755 "$prefix/lib/$app/mdview-engine.new"
-mv -f "$prefix/lib/$app/mdview-engine.new" "$prefix/lib/$app/mdview-engine"
-# The AI engine, in the same place.
-cp "$here/lib/$app/mdedit-ai" "$prefix/lib/$app/mdedit-ai.new"
-chmod 755 "$prefix/lib/$app/mdedit-ai.new"
-mv -f "$prefix/lib/$app/mdedit-ai.new" "$prefix/lib/$app/mdedit-ai"
+for b in mdview-engine mdedit-ai "$app"; do
+    cp "$here/lib/$app/$b" "$prefix/lib/$app/$b.new"
+    chmod 755 "$prefix/lib/$app/$b.new"
+    mv -f "$prefix/lib/$app/$b.new" "$prefix/lib/$app/$b"
+done
+ln -sf "../lib/$app/$app" "$prefix/bin/$app"
 cp "$here/share/icons/hicolor/256x256/apps/$app.png" "$prefix/share/icons/hicolor/256x256/apps/$app.png"
 # Exec is rewritten to the absolute path; a path with a space is quoted as the desktop entry
 # specification asks.

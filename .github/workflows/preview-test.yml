@@ -1,13 +1,13 @@
 # The preview pane's Windows test app, from the main branches of mdedit and mdview (by hand):
-# builds mdview (with its engine) and both builds of mdedit's pane, times them on the runner and
-# packs one zip with a folder for each build. Not a release: no installer, no signature.
+# builds mdview only as the external comparison app, and both builds of mdedit's pane.
+# The engine comes from mdedit's toolkit pin. Not a release: no installer, no signature.
 name: preview-test
 
 on:
   workflow_dispatch:
     inputs:
       viewer_ref:
-        description: "The mdview branch to build against"
+        description: "A viewer ref that supports MDVPREVIEW7, for the external comparison only"
         type: string
         default: main
 
@@ -49,16 +49,17 @@ jobs:
       - name: Build mdview and both mdedit builds
         shell: bash
         run: |
-          (cd viewer && cargo build --release -p mdview -p mdview-engine)
+          (cd viewer && cargo build --release -p mdview)
           cd editor
+          pwsh -File packaging/windows/build-engine.ps1
           cargo build --release -p mdedit --no-default-features
           mkdir -p ../out/renderer ../out/embedded
           cp target/release/mdedit.exe ../out/renderer/
           cargo build --release -p mdedit
           cp target/release/mdedit.exe ../out/embedded/
           # The renderer build needs mdview; the default build only the engine beside it.
-          cp ../viewer/target/release/mdview.exe ../viewer/target/release/mdview-engine.exe ../out/renderer/
-          cp ../viewer/target/release/mdview-engine.exe ../out/embedded/
+          cp ../viewer/target/release/mdview.exe target/release/mdview-engine.exe ../out/renderer/
+          cp target/release/mdview-engine.exe ../out/embedded/
           cp ../viewer/fixtures/everything.md ../out/everything.md
           cp ../viewer/docs/PLAN.md ../out/plan.md
           cp ../viewer/fixtures/math.md ../viewer/fixtures/diagrams.md ../out/
@@ -151,7 +152,7 @@ jobs:
           cat > dist/mdedit-preview-test/README.txt <<'EOF'
           mdedit preview pane, Windows test build (not a release).
 
-          embedded\mdedit.exe   the page is drawn by mdview's renderer inside mdedit; formulas
+          embedded\mdedit.exe   the page is drawn by the shared renderer inside mdedit; formulas
                                 and diagrams by mdview-engine.exe beside it. No mdview needed:
                                 "Preview in mdview" stays hidden unless mdview is installed.
           renderer\mdedit.exe   the page is drawn by mdview --preview-server, in its own

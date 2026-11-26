@@ -80,7 +80,7 @@ fifteen before.
 | `mdedit-<version>-macos-aarch64.zip`, `mdedit-<version>-macos-x86_64.zip` | `mdedit.app` for Apple Silicon and Intel Macs, macOS 12 or later; ad-hoc signed only, so opened with right-click, Open the first time. |
 | `mdedit-update-macos.txt` | The manifest the macOS builds read: they download the zip and replace their bundle with it. |
 | `mdedit-ai.exe` | The AI engine for Windows, an asset of its own; a copy is also inside the zip, the installer, the AppImage (`usr/bin`), the Linux packages (`lib/mdedit/`) and the Mac bundle. |
-| `mdview-engine.exe` | The viewer's engine for Windows, built from the pinned viewer revision. |
+| `mdview-engine.exe` | The preview helper for Windows, built from the same toolkit pin as the embedded renderer and installed beside `mdedit.exe`. |
 | `mdedit-update-2.txt` | The format-2 manifest (below). |
 | `hub.txt` | The manifest of Hub, the owner's launcher and updater (`tools/write-hub-txt.ps1`, a copy of the script in the Hub repository, whose first line names the Hub commit it came from). Windows only: the exe, both engines and the setup, with their hashes. Written by the `publish` job after the other manifests; a release whose files it refuses fails there. Older builds never read it. Its `notes.file` line names the next file. |
 | `release-notes-<version>.md` | The full release text, the same file as the GitHub release body (`docs/release-notes/<version>.md` with the macOS paragraph), at most 64 KiB, for the release-notes page of Hub; named by `hub.txt`'s `notes.file`. Copied by the `publish` job from `notes/release-notes.md`. |

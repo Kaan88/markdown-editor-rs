@@ -560,19 +560,13 @@ mod tests {
         pub(super) static COPIED: RefCell<Option<String>> = const { RefCell::new(None) };
     }
 
-    /// The mdview that draws the pane in the default build: `MDEDIT_TEST_MDVIEW`, or the
-    /// viewer's release build beside this repository. The embedded build needs none.
+    /// The external comparison build takes an explicit `MDEDIT_TEST_MDVIEW`.
+    /// The embedded build needs no viewer; its placeholder path is never used.
     fn viewer() -> Option<PathBuf> {
         if cfg!(feature = "embedded-preview") {
             return Some(PathBuf::from("mdview"));
         }
-        let path = std::env::var_os("MDEDIT_TEST_MDVIEW")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../../markdown-viewer-rs/target/release")
-                    .join(format!("mdview{}", std::env::consts::EXE_SUFFIX))
-            });
+        let path = PathBuf::from(std::env::var_os("MDEDIT_TEST_MDVIEW")?);
         path.is_file().then_some(path)
     }
 

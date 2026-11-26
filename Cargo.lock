@@ -1611,13 +1611,13 @@ dependencies = [
  "mdedit-core",
  "mdedit-highlight",
  "mdedit-outline",
- "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac)",
  "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc)",
+ "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f)",
  "mdshared-fetch",
- "mdshared-text 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac)",
+ "mdshared-md-preview",
+ "mdshared-md-render",
+ "mdshared-text",
  "mdshared-ui",
- "mdview-preview",
- "mdview-render",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "parley",
@@ -1653,7 +1653,7 @@ version = "1.5.0"
 dependencies = [
  "chardetng",
  "encoding_rs",
- "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac)",
+ "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f)",
  "memchr",
  "regex-automata",
  "ropey",
@@ -1666,7 +1666,7 @@ dependencies = [
 name = "mdedit-highlight"
 version = "1.5.0"
 dependencies = [
- "mdshared-highlight 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac)",
+ "mdshared-highlight",
  "ropey",
 ]
 
@@ -1680,7 +1680,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac#1588e0f7ef579d82fc4c0e43da5d8788afc08fac"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc#49de4ecfa4b2d038354749a89acce41e09b871dc"
 dependencies = [
  "notify",
  "windows-sys 0.59.0",
@@ -1689,7 +1689,7 @@ dependencies = [
 [[package]]
 name = "mdshared-app"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc#49de4ecfa4b2d038354749a89acce41e09b871dc"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
 dependencies = [
  "notify",
  "windows-sys 0.59.0",
@@ -1698,7 +1698,7 @@ dependencies = [
 [[package]]
 name = "mdshared-fetch"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac#1588e0f7ef579d82fc4c0e43da5d8788afc08fac"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
 dependencies = [
  "libloading 0.9.1",
  "windows-sys 0.59.0",
@@ -1707,23 +1707,57 @@ dependencies = [
 [[package]]
 name = "mdshared-highlight"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac#1588e0f7ef579d82fc4c0e43da5d8788afc08fac"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
 dependencies = [
  "syntect",
 ]
 
 [[package]]
-name = "mdshared-highlight"
+name = "mdshared-md-core"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc#49de4ecfa4b2d038354749a89acce41e09b871dc"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
 dependencies = [
- "syntect",
+ "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f)",
+ "memchr",
+ "pulldown-cmark",
+ "regex-syntax",
+ "unicase",
+]
+
+[[package]]
+name = "mdshared-md-engine-proto"
+version = "0.1.0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
+
+[[package]]
+name = "mdshared-md-preview"
+version = "0.1.0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
+dependencies = [
+ "mdshared-md-core",
+ "mdshared-md-render",
+]
+
+[[package]]
+name = "mdshared-md-render"
+version = "0.1.0"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
+dependencies = [
+ "gif",
+ "image-webp",
+ "mdshared-highlight",
+ "mdshared-md-core",
+ "mdshared-md-engine-proto",
+ "mdshared-text",
+ "parley",
+ "png",
+ "zune-jpeg",
 ]
 
 [[package]]
 name = "mdshared-text"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac#1588e0f7ef579d82fc4c0e43da5d8788afc08fac"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
 dependencies = [
  "parley",
  "png",
@@ -1732,23 +1766,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "mdshared-text"
-version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc#49de4ecfa4b2d038354749a89acce41e09b871dc"
-dependencies = [
- "parley",
- "png",
- "swash",
-]
-
-[[package]]
 name = "mdshared-ui"
 version = "0.1.0"
-source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac#1588e0f7ef579d82fc4c0e43da5d8788afc08fac"
+source = "git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f#7fd559f3dc0b3b58ae341dd745bb50db3d66f636"
 dependencies = [
  "arboard",
- "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac)",
- "mdshared-text 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=1588e0f7ef579d82fc4c0e43da5d8788afc08fac)",
+ "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=7fd559f)",
+ "mdshared-text",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -1764,48 +1788,6 @@ dependencies = [
  "x11rb",
  "zbus",
  "zeno",
-]
-
-[[package]]
-name = "mdview-core"
-version = "1.0.3"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=e2b3e31dc914ef08806c84655e0ec2796678e0f4#e2b3e31dc914ef08806c84655e0ec2796678e0f4"
-dependencies = [
- "mdshared-app 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc)",
- "memchr",
- "pulldown-cmark",
- "regex-syntax",
- "unicase",
-]
-
-[[package]]
-name = "mdview-engine-proto"
-version = "1.0.3"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=e2b3e31dc914ef08806c84655e0ec2796678e0f4#e2b3e31dc914ef08806c84655e0ec2796678e0f4"
-
-[[package]]
-name = "mdview-preview"
-version = "1.0.3"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=e2b3e31dc914ef08806c84655e0ec2796678e0f4#e2b3e31dc914ef08806c84655e0ec2796678e0f4"
-dependencies = [
- "mdview-core",
- "mdview-render",
-]
-
-[[package]]
-name = "mdview-render"
-version = "1.0.3"
-source = "git+https://github.com/Kaan88/markdown-viewer-rs?rev=e2b3e31dc914ef08806c84655e0ec2796678e0f4#e2b3e31dc914ef08806c84655e0ec2796678e0f4"
-dependencies = [
- "gif",
- "image-webp",
- "mdshared-highlight 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc)",
- "mdshared-text 0.1.0 (git+https://github.com/Kaan88/markdown-shared-rs?rev=49de4ecfa4b2d038354749a89acce41e09b871dc)",
- "mdview-core",
- "mdview-engine-proto",
- "parley",
- "png",
- "zune-jpeg",
 ]
 
 [[package]]
@@ -2844,9 +2826,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.19"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41d60ef07df457506a0a1a2073112eb4aae5733dbd2813c3da77d1b0fd441158"
+checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -2855,9 +2837,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.12"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
+checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rfd"

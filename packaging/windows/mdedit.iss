@@ -90,7 +90,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "..\..\target\release\mdedit.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\target\engine\mdview-engine.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\mdview-engine.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\target\release\mdedit-ai.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\assets\mdedit.ico"; DestDir: "{app}"; Flags: ignoreversion
 
