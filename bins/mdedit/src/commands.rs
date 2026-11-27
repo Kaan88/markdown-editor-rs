@@ -798,8 +798,10 @@ pub mod strings {
 
     pub const PREVIEW_UNSAVED_TOO_LARGE: &str =
         "This document is too large to preview before it is saved.";
+    // Since 1.6.1 an older viewer is one from before the authenticated hand-over (mdview 1.2.0
+    // and earlier). It is sent nothing at all, so saving the document would not help.
     pub const PREVIEW_VIEWER_OLDER: &str =
-        "This mdview cannot preview a document that has no file: save it, or update mdview.";
+        "This mdview is too old to preview from this mdedit: update mdview.";
     pub const PREVIEW_TOO_LARGE: &str =
         "This file is too large to preview as you type: mdview shows it when you save.";
     pub const PREVIEW_TILING: &str =

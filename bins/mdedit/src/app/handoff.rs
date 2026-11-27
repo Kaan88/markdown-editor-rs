@@ -1161,14 +1161,42 @@ mod tests {
     }
 
     /// A viewer of before documents without a file: it answers `ok` to whatever it is sent and
-    /// does nothing. The guard keeps what makes it count as running.
-    fn old_viewer(dir: &Path) -> impl Sized {
+    /// does nothing. Like every build before the authenticated hand-over (mdview 1.2.0 and
+    /// older), it records its port as decimal text in `instance.port` beside its settings, so
+    /// it is never sent a request and reads as older. The toolkit trusts such a file only in a
+    /// folder no other account can write to, as a settings folder in the user's profile is; a
+    /// temporary folder may let others in, so on Windows this one is made the user's alone. The
+    /// guard keeps what makes it count as running.
+    fn old_viewer(
+        dir: &Path,
+    ) -> (
+        std::fs::File,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) {
         use std::io::{BufRead, BufReader, Write};
         let settings = dir.join("old").join("viewer.ini");
         std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        #[cfg(windows)]
+        {
+            let user = format!(
+                "{}\\{}:(OI)(CI)F",
+                std::env::var("USERDOMAIN").unwrap(),
+                std::env::var("USERNAME").unwrap()
+            );
+            let made_private = std::process::Command::new("icacls")
+                .arg(settings.parent().unwrap())
+                .args(["/inheritance:r", "/grant:r", &user])
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(
+                made_private.success(),
+                "icacls could not make the folder private"
+            );
+        }
         let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
-        std::fs::write(mdshared_app::single::port_file(&settings), port.to_string()).unwrap();
+        std::fs::write(settings.with_file_name("instance.port"), port.to_string()).unwrap();
         let mut lock = std::fs::OpenOptions::new();
         lock.write(true).create(true).truncate(false);
         #[cfg(windows)]
@@ -1177,16 +1205,21 @@ mod tests {
             lock.share_mode(0);
         }
         let lock = lock.open(settings.with_file_name("instance.lock")).unwrap();
+        // How many messages it was sent: a bare connection, to see whether it runs, sends none.
+        let sent = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = sent.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let lines = BufReader::new(&stream).lines().map_while(Result::ok);
-                let _ = lines.take_while(|l| !l.is_empty()).count();
+                if lines.take_while(|l| !l.is_empty()).count() > 0 {
+                    count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 _ = (&stream).write_all(b"ok\n");
             }
         });
         // SAFETY: as in `viewer`.
         unsafe { std::env::set_var("MD_SISTER_MDVIEW_SETTINGS", &settings) };
-        lock
+        (lock, sent)
     }
 
     #[test]
@@ -1218,6 +1251,45 @@ mod tests {
                 .1
                 .contains(&"Previewing".to_string())
         );
+        // SAFETY: as in `viewer`.
+        unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A viewer from before the authenticated hand-over (mdview 1.2.0) is sent nothing, not even
+    /// a saved file, and the window says to update it rather than to save.
+    #[test]
+    fn a_viewer_from_before_the_authenticated_hand_over_is_sent_nothing() {
+        let _one = SISTER_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("hand-pre-auth");
+        let (_lock, sent) = old_viewer(&dir);
+        let path = dir.join("saved.md");
+        std::fs::write(&path, "# Saved\n\none\n\ntwo\n\nthree\n").unwrap();
+        let mut a = app();
+        let i = open_now(&mut a, &path);
+        let id = a.docs.tabs[i].id;
+        let t0 = Instant::now();
+        (a.docs.links).link(id, canonical_or_absolute(&path).into(), Some(1), None, t0);
+        a.docs.links.start(a.docs.waker());
+        // The viewer opened the file from its own launch; the caret moving is the first update
+        // the link sends.
+        a.docs.go_to(7, 1);
+        a.docs.link_poll(t0 + Duration::from_millis(500));
+        let end = Instant::now() + Duration::from_secs(5);
+        while a.docs.toast(Instant::now()).is_none() && Instant::now() < end {
+            a.woken(Wake::Link);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            a.docs.toast(Instant::now()),
+            Some(strings::PREVIEW_VIEWER_OLDER)
+        );
+        assert_eq!(sent.load(std::sync::atomic::Ordering::SeqCst), 0);
+        // Saving would not help: such a viewer is sent nothing at all.
+        assert!(!strings::PREVIEW_VIEWER_OLDER.contains("save"));
+        // The file's link stays, as for any older viewer (`link`'s
+        // `a_viewer_too_old_for_such_a_document_ends_its_link_and_keeps_the_files`).
+        a.docs.links.unlink(id);
         // SAFETY: as in `viewer`.
         unsafe { std::env::remove_var("MD_SISTER_MDVIEW_SETTINGS") };
         let _ = std::fs::remove_dir_all(&dir);

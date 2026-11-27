@@ -4,7 +4,7 @@ members = ["crates/mdedit-core", "crates/mdedit-highlight", "crates/mdedit-outli
 exclude = ["spikes"]
 
 [workspace.package]
-version = "1.6.0"
+version = "1.6.1"
 edition = "2024"
 publish = false
 
@@ -27,13 +27,13 @@ unicode-width = { version = "0.2", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "nfa-pikevm", "nfa-backtrack", "dfa-onepass", "hybrid", "perf-literal", "unicode"] }
 parley = "=0.12.0"
 bytemuck = "1.25"
-mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7fd559f3dc0b3b58ae341dd745bb50db3d66f636" }
-mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7fd559f3dc0b3b58ae341dd745bb50db3d66f636" }
-mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7fd559f3dc0b3b58ae341dd745bb50db3d66f636" }
-mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7fd559f3dc0b3b58ae341dd745bb50db3d66f636", features = ["client-margin"] }
-mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7fd559f3dc0b3b58ae341dd745bb50db3d66f636" }
-mdview-preview = { package = "mdshared-md-preview", git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7fd559f3dc0b3b58ae341dd745bb50db3d66f636" }
-mdview-render = { package = "mdshared-md-render", git = "https://github.com/Kaan88/markdown-shared-rs", rev = "7fd559f3dc0b3b58ae341dd745bb50db3d66f636" }
+mdshared-app = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "48eedb886610709fa7b6732fdeb5c2197de55d31" }
+mdshared-text = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "48eedb886610709fa7b6732fdeb5c2197de55d31" }
+mdshared-highlight = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "48eedb886610709fa7b6732fdeb5c2197de55d31" }
+mdshared-ui = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "48eedb886610709fa7b6732fdeb5c2197de55d31", features = ["client-margin"] }
+mdshared-fetch = { git = "https://github.com/Kaan88/markdown-shared-rs", rev = "48eedb886610709fa7b6732fdeb5c2197de55d31" }
+mdview-preview = { package = "mdshared-md-preview", git = "https://github.com/Kaan88/markdown-shared-rs", rev = "48eedb886610709fa7b6732fdeb5c2197de55d31" }
+mdview-render = { package = "mdshared-md-render", git = "https://github.com/Kaan88/markdown-shared-rs", rev = "48eedb886610709fa7b6732fdeb5c2197de55d31" }
 
 # The Wayland client-drawn window shadow (mdshared-ui's `client-margin`): winit gets a content margin
 # and softbuffer honours alpha on Wayland. Both are the stock 0.30.13 / 0.4.8 plus one patch; see

@@ -89,7 +89,7 @@ The crates mdedit uses from `markdown-shared-rs`:
 
 **How they are pinned.** By commit, in two files:
 
-- Root `Cargo.toml`, `[workspace.dependencies]`: the live shared crates all use `7fd559f`.
+- Root `Cargo.toml`, `[workspace.dependencies]`: the live shared crates all use `48eedb8` (D-289).
   The two `mdview-*` keys alias `mdshared-md-preview` and `mdshared-md-render`.
   `[patch.crates-io]` replaces winit and softbuffer with the owner's forks
   (`Kaan88/winit` `62fa727`, `Kaan88/softbuffer` `dd18fec`).

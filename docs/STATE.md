@@ -1,112 +1,79 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-27, for the renderer migration and review fixes.
+Rewritten, not appended to. Last rewritten 2026-11-27, after the releases of mdedit 1.6.0 and
+mdview 1.2.0.
 
 ## Released
 
+- **mdedit 1.6.0**, 2026-11-27, tag `v1.6.0` at `130f5de`, release notes
+  `docs/release-notes/1.6.0.md`. `ci` was green on all four jobs on main, the release workflow
+  passed, and it is the latest release on GitHub. In it: window motion (D-232 to D-235, D-255 to
+  D-283; DESIGN 96 to 98); the AI task window fixes (D-240 to D-254); the preview on the toolkit's
+  renderer crates, with its security fixes and vertical-only font hinting (D-287, accepted by the
+  owner). The hosted Mac self-update test is deferred and non-blocking (D-288).
 - **mdedit 1.5.0**, 2026-11-25, tag `v1.5.0` at `51d8777`, sixteen assets. Record
-  `docs/release-log.md`, notes `docs/release-notes/1.5.0.md`. In it, since 1.4.0, the whole of
-  `docs/ai-pictures-plan.md`: **F, E, L, O** (D-203, D-211, D-214), one "AI task…" command, the
-  AI task from the Notes pane, what opens after a run, Settings › AI tasks; **C1, C2** (D-210,
-  D-215 to D-220, DESIGN 88, 89), File them copies or moves files into the library; **V1 to V5
-  and the sent card** (D-221 to D-230, DESIGN 90 to 95), Write notes from pictures with its plan
-  on a card, written with a record of shared's kind `notes` that AI runs can undo. Fable reviewed
-  every milestone until VERDICT: OK. Budgets unchanged, exe +439 KB
-  (`docs/measurements/2026-11-25-write-notes.md`). **Not tried in a real window**, by the owner or
-  by me; **no picture has been sent to a provider**; the unix fake-CLI tests of the engine run
-  only in CI; copies are written on the UI thread (up to 200 MB); the plan lives in its task
-  window (D-228), not yet "Plan ready" in the Notes pane.
-- **mdview 1.1.0**, 2026-11-24, tag `v1.1.0` at `0310e01`, fourteen assets: click to zoom a large
-  diagram, the notes library, audit 4's report E (mdview `docs/HANDOFF.md`).
+  `docs/release-log.md`, notes `docs/release-notes/1.5.0.md`. The AI picture work of
+  `docs/ai-pictures-plan.md` (F, E, L, O; C1, C2; V1 to V5 and the sent card; D-203 to D-230).
+  **Not tried in a real window; no picture has been sent to a provider.** Copies are written on
+  the UI thread (up to 200 MB).
+- **mdview 1.2.0**, 2026-11-27, tag `v1.2.0` at `b2a2f7a`: the renderer switch to the toolkit's
+  crates, with its security fixes. **mdview 1.1.0**, 2026-11-24, `0310e01`.
 - The shared crates are not released; the apps pin them by commit. **Hub** is its own app (see
   its `docs/STATE.md`).
 
-## Prepared for 1.6.0, not released
+## 1.6.0: what is not verified
 
-Includes window motion, AI task fixes, and the safer shared Markdown renderer with
-vertical-only hinting. The hosted Mac self-update test is deferred and non-blocking (D-288).
+- Not run by hand in a real window: mdedit's motion (menus over a frosted window, Linux, macOS)
+  and the AI task window fixes, which were seen in shots only. The owner tried mdview's menus only.
+- No measurements on the merged 1.6.0 build. Before it, on Windows: launch median 78.0 ms,
+  slowest 103.2 ms, 1 of 31 runs over 100 ms
+  (`docs/measurements/2026-11-26-settings-theme-transitions.md`); idle private memory 27.0 MiB.
+  Settings sampled 29.3 MiB at 100% scale, 34.6 at 125% and 41.0 at 150% (card only); the scaled
+  runs were over 30 MiB before Settings opened. The owner accepted the overrun only during the
+  170 ms theme fade (D-282).
+- Linux launch and idle costs are unmeasured, and so is the Linux system-theme thread (D-273).
 
-- **Motion** (D-232 to D-235, D-255 to D-283; DESIGN 96–98, `docs/release-notes/1.6.0.md`).
-  Menus open in 117 ms (now from shared's `anim::document::MENU`); menus and dialogs close
-  instantly. One Animations setting (on by default); off or reduced motion draws without the
-  effects. The owner tried mdview's menus only; mdedit's motion has **not** been tried by hand,
-  including menus over a frosted window, on Linux or macOS.
-  - Toasts rise, fade, stack and wait for the lift (D-256 to D-261). The status snap in
-    `Motion::sync_toasts` (`Animator::set`) is still needed with motion on: shared's animator
-    keeps a target's first delay. Tooltips fade after the pointer rests (D-262, D-269).
-  - Settings switches, folder chevrons and title/menu hovers animate; the palette pops in
-    and the crash bar slides in just after launch with motion on. First-paint notices,
-    returning rename notices, completion and the language list stay instant.
-  - Main/Text submenus use shared's cascade; the split preview has a scrollbar; Files and
-    Functions have keyboard focus; placement restores only on the saved monitor (D-274 to D-278).
-  - Settings fades in the dim and card together in 117 ms; pages stay instant. Mid-entrance
-    paints copy only the card and shadow. Light/dark changes blend in 170 ms except on first
-    paint, oversize windows, backdrop or disabled/reduced motion. Choosing a theme from a
-    menu or palette first dismisses it; closing or replacing a menu mid-fade ends the fade.
-  - **Windows launch**: 121.40 ms and 134.4 ms exceeded 100 ms; all later 31 at `0bacb93` were
-    under (97.0 ms max), with idle CPU and transition frames unmeasured in that
-    [repeat](measurements/2026-11-26-motion-launch-repeat.md). [Stale-tab launch](measurements/2026-11-26-motion-stale-launch.md)
-    still reached 102.0 ms after five extra full-height frames were eliminated.
-    [M-F repeat](measurements/2026-11-26-motion-mf.md): 77.5 → 76.6 ms median, 86.9 ms max
-    after, 0/31 over 100 ms.
-  - **Windows transitions** ([measurements](measurements/2026-11-26-settings-theme-transitions.md)):
-    initially 4/31 launches over 100 ms both before and after; idle private memory 27.10 → 27.00 MiB.
-    Final launch repeat against the pre-transition baseline: 77.0 → 78.0 ms median,
-    96.7 → 103.2 ms slowest, 0/31 → 1/31 over budget.
-    At 1280 × 800 logical, the original effects sampled 31.95 MiB (Settings) and 31.41 MiB
-    (theme); card-only Settings sampled 29.31 MiB at 100%, 34.61 at 125%, and 40.97 at 150%.
-    The scaled runs already exceeded 30 MiB before opening. The owner accepted the 30 MiB
-    exception only during the 170 ms theme fade; its copy is then freed (D-282). Opening
-    Settings during a theme fade holds both copies; that overlap was not measured.
-  - **Linux**: the theme change from D-273 starts a long-lived system-theme thread with a D-Bus
-    connection at launch if the settings portal is available. Linux launch and idle costs
-    are unmeasured.
-- **AI task window fixes** (D-240 to D-254; `docs/release-notes/1.6.0.md`): Settings returns to
-  the same task, Esc warns before discarding the setup, and rewrite/split can return without
-  writing. Task messages are inline, with a stacking confirmation also sent for a successful
-  picture paste. Folder reads walk the tree off-thread, ask above 200 new files before probing,
-  and keep queued drops and answered sets distinct. The task folder-add shots were looked at
-  in both themes, but the fixes have not been seen in a real window. No CI run for this merge;
-  the final folder-add changes have not had their Fable round. D-254 cites `4903067` where it
-  should read `49028b2`; its "a second Add them" case cannot be reached through today's window
-  and is tested by constructing the state directly.
-- The release workflow: the next release carries its full notes as `release-notes-<version>.md`,
-  named by `hub.txt`'s `notes.file` (D-231; seventeen assets; not yet run on a real release).
+## 1.6.1, being released
+
+- **mdedit 1.6.1** on toolkit `48eedb8` (D-289), with mdview 1.2.1, on the owner's word
+  (2026-11-27); notes `docs/release-notes/1.6.1.md`. `Cargo.lock` gains no package. Besides the
+  pin: a viewer from before the authenticated hand-over (mdview 1.2.0) is sent nothing, so the
+  older-viewer toast now says to update mdview, not to save; a saved file's link to such a viewer
+  stays, as for any older viewer. The AppImage's `AppRun` links to `usr/bin/mdedit`, as the
+  toolkit's Linux self-update requires. On a PC whose app-data folder other accounts can write
+  to (this one), the toolkit does not trust an old viewer's port file, so mdview 1.2.0 reads as
+  not running. Not verified: the real AppImage updater check (toolkit AI1), the hand-over between
+  real 1.6.0 and 1.6.1 windows, and measurements of the 1.6.1 build.
+
+## Waiting for the owner
+
+- **AI library work**, `docs/ai-library-plan.md` section 8, in order after R2: V, drag and drop;
+  W, 4a, 4 and 5 are merged. Open: the resizer for V; a new crate to be priced first (rule 7).
+- **`docs/ai-web-plan.md`**: the AI searching the web, asked each run. Its five decisions.
+- **Audit 4's questions**: C4 (D-183 replaces D-178's interim); A F8 (D-162, Waiting); W11 needs
+  `jiff` (rule 7); the shared `%20` and `write_of` causes (D-180).
+- **Dependabot**: open PRs (mdedit #9; mdview #2 to #6; shared #2 to #7), and a
+  `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Not handled yet.
+- The notes library is used in a real build and its two faults are fixed, but nothing records
+  approval.
 
 ## In hand
 
 - **M1, M2 and D** (D-100): the owner said yes; not started. D waits for R2.
 
-## Waiting for the owner
-
-- **`docs/ai-library-plan.md`** section 8, in order after R2: V, drag and drop; W, 4a, 4 and 5
-  are merged. Open: the resizer for V, a new crate to be priced first (rule 7).
-- **`docs/ai-web-plan.md`**, the AI searching the web, asked each run: its five decisions. A
-  throwaway spike (Claude Code with only WebSearch, no ask) worked better than the owner expected
-  (2026-11-24); its branch is deleted, its build kept in `md-wt\ai-web` (detached).
-- **Audit 4's questions**: C4, a same-named group kept in another folder is refused and one with
-  no folder of its own is joined (D-183, which replaces D-178's interim); A F8, a rewrite's record
-  is not confined and its undo names the files (D-162, Waiting); W11 needs `jiff` (rule 7); the
-  shared `%20` and `write_of` causes (D-180).
-- **Dependabot**: open PRs (mdedit #9 regex-automata; mdview #2 to #6; shared #2 to #7) and a
-  `chore/dependabot` branch in each repo whose `dependabot.yml` was never merged. Left until after
-  the release; it is after it now (1.4.0).
-- The notes library is used in a real build and its two faults are fixed, but nothing records
-  approval.
-
 ## Next
 
-1. Merge and confirm `ci` on `main` before tagging `v1.6.0`; verify task fixes and motion by hand.
-2. The owner's look at 1.4.0's and 1.5.0's shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes
-   cards) and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's order. M1, M2 in
-   mdview; D after R2.
-3. The closed mdview, still to be tried (first: whether it is missed with mdview 1.0.5 too).
+1. The owner's decision on the toolkit pin move and the patch releases (above). Nothing changes
+   until then.
+2. The owner's look at mdedit 1.6.0 in a real window: menu and Settings fades, and the AI task
+   window's flow, in both themes.
+3. The owner's look at the 1.4.0 and 1.5.0 shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes cards),
+   and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's
+   order.
+4. The closed mdview, still to be tried (D-101).
 
 ## Known to be wrong on `main`
 
-- A debug-profile `cargo test` failed `closed_stderr` on the motion branch: ICU4X prints a
-  data warning with `eprintln!`, and the test closes stderr. Release builds (used by CI) were
-  unaffected; debug has not been rechecked on the merged tree.
 - **A closed mdview is still missed** (D-101): closing it by hand leaves "Stop the preview" in
   mdedit after its window has the focus again (tried with 1.0.4, which sends no `?closed`), so
   D-097's focus check does not hold. D-102 and D-105 change this (merged, not tried): three
@@ -114,16 +81,25 @@ vertical-only hinting. The hosted Mac self-update test is deferred and non-block
   With 1.0.4 and a graceful close the old code found it in 1 s against the real exe, so the
   failing case was not reproduced; a tab closed in a viewer that keeps running cannot be told
   from 1.0.4 at all.
-- **The 512-file limit.** Past 512 `.md` files in the library folder those that sort last drop
+- A debug-profile `cargo test` failed `closed_stderr`: ICU4X prints a data warning with
+  `eprintln!`, and the test closes stderr. Release builds (CI) were unaffected; debug has not been
+  rechecked on the merged tree.
+- **The 512-file limit.** Past 512 `.md` files in the library folder, those that sort last drop
   out; the foot says how many are shown but the rest cannot be listed. Flat notes count.
 - Opening Settings during an AI review discards the result.
 - **Deleting a library file orphans its notes.** It removes the list, never a note, so the folder
-  keeps every note unlisted and splitting that document again writes nothing (every note reads
-  "already there" and comes unticked). Found by the owner. The question now says the notes are
-  kept on disk; deleting itself is unchanged.
+  keeps every note unlisted, and splitting that document again writes nothing (every note reads
+  "already there" and comes unticked). The question now says the notes are kept on disk; deleting
+  itself is unchanged.
 - **The move**: a crash between the library rewrites and the digest update gives a half-undo;
   folders emptied in a home outside the library stay.
-- **The `runs*` shots draw the clock**, so two runs of `tests/shots.sh` are not byte-identical.
+- The `runs*` shots draw the clock, so two runs of `tests/shots.sh` are not byte-identical.
+
+## Not checked by hand
+
+The Windows installer; the Linux and macOS packages by hand; the hosted Mac self-update test
+(deferred, D-288); the real AppImage updater check; Linux blur and image paste; Hub reading a live
+`hub.txt`.
 
 ## Known gaps, not planned unless they get in the way
 
@@ -131,20 +107,18 @@ A Linux trash entry gets no deletion date (D-092); a note missing on disk is mar
 re-read; the notes pane has no sort or filter; side-by-side has no scrollbar; no access keys in
 the line-ending and encoding menus; no function list for Vue or Svelte; column selection pads
 short lines on typing only; no compare arrows with wrap on; the Markdown menu needs more than
-800 px. Split by AI has no progress
-row with Cancel and no headings per source; the Recycle Bin cannot restore an original (D-071).
+800 px. Split by AI has no progress row with Cancel and no headings per source; the Recycle Bin
+cannot restore an original (D-071).
 
-## Not checked by hand
+## Pins, branches, worktrees
 
-The Windows installer, Linux and macOS packages by hand, and the hosted Mac self-update test
-(deferred). Also unverified: Linux blur and image paste, and Hub reading a live `hub.txt`.
-
-## Pins, branches, worktrees (tidied 2026-11-24)
-
-- Shared crates and embedded preview: `7fd559f` (D-284). On Linux, mdedit finds a co-installed
-  viewer off `PATH` (D-286); preview engine lookup is unchanged. winit `62fa727`, softbuffer `dd18fec`.
-- Branches: `main`, `f/renderer` (release preparation), the unmerged `mock/*` drawings,
-  `archive/doc-reorg-draft`, `spike/v-resizer`, and GitHub's `spike/frosted-window` and `chore/dependabot`.
-- Kept as found, unpushed: shared `archive/settings-draft-uncommitted`, Hub's
-  `wip/install-uncommitted` (69 lines in `hub-core` and a second `hub.ico`).
-- Worktrees: `main`, `hub-wt\app-prs2\mdedit`, `md-wt\ai-pictures`, `md-wt\ai-web` (spike exe); `md-wt\review-a4fix` holds the review, not a worktree.
+- Shared crates and embedded preview: `48eedb8` (D-289), the toolkit's main after its review.
+  On Linux, mdedit finds a co-installed viewer off `PATH` (D-286). winit `62fa727`,
+  softbuffer `dd18fec`.
+- Branches: `main`; `f/shared-48eedb8` (1.6.1); `f/renderer` (merged into main at 130f5de; still on origin); the unmerged
+  `mock/*` drawings; `archive/doc-reorg-draft`, `spike/v-resizer`; GitHub's `spike/frosted-window`
+  and `chore/dependabot`. Kept as found, unpushed: shared `archive/settings-draft-uncommitted`,
+  Hub's `wip/install-uncommitted`.
+- Worktrees: `main`; `md-wt\renderer` (`f/shared-48eedb8`, 1.6.1);
+  `hub-wt\app-prs2\mdedit` (hub/notes-file); fifteen detached worker worktrees under
+  `%TEMP%\opencode\`, left from earlier sessions and not removed.

@@ -3093,3 +3093,14 @@ Do not change the Mac build or release jobs.
 **Why.** The hosted Mac runner hung in the self-update test, and macOS is not a primary target.
 **Overturned by.** A verified hosted self-update run and the owner's decision to require it again.
 **From.** The owner, 2026-11-27.
+
+## D-289 — 2026-11-27 — Release 1.6.1 on toolkit 48eedb8
+
+**Decision.** Move every live toolkit pin from `7fd559f` (D-284) to `48eedb8`, the toolkit's main
+after its full review (#61 to #67), and release it as 1.6.1 together with mdview 1.2.1.
+`Cargo.lock` gains no package: `mdshared-app` gains a direct edge to `libc` (on unix) and
+`mdshared-text` one to `skrifa`, both already in the lock. The test-only `mdshared-app-106` pin stays at `49de4ec`.
+**Why.** 1.6.0 shipped without the toolkit's panic and hang fixes, and the app aborts on a panic.
+The authenticated single-instance hand-over needs both apps on the same toolkit.
+**Overturned by.** A toolkit regression found in 1.6.1.
+**From.** The owner, 2026-11-27: "make a new release against the latest shared."
