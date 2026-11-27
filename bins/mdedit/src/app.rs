@@ -3271,6 +3271,7 @@ impl App {
                     self.ui.caret_on = true;
                     self.ui.hide_tip();
                     self.docs.seal();
+                    self.end_held();
                 }
                 self.redraw();
             }
@@ -4990,6 +4991,33 @@ mod tests {
         app.answer(1);
         assert!(app.exit);
         assert_eq!(app.restart, Some(PathBuf::from("/preview/app")));
+    }
+
+    /// winit sends no release when the window loses the mouse capture mid-drag (Alt+Tab on
+    /// Windows): losing the focus ends a selection being dragged in the text, so a plain move
+    /// after coming back does not extend it.
+    #[test]
+    fn losing_the_focus_ends_a_selection_drag_in_the_text() {
+        let mut app = app();
+        app.size = (900, 600);
+        assert!(app.docs.edit(
+            EditOp::Insert("one two three\nfour five six\nseven eight nine\n"),
+            None
+        ));
+        app.compose();
+        let t = app.areas.text;
+        let (x, y) = (t.x + 60.0, t.y + 8.0);
+        app.ui.mouse = (x, y);
+        app.left_press();
+        assert!(matches!(app.ui.drag, Some(Drag::Select { .. })));
+        app.drag_to(app.ui.drag.unwrap(), x + 40.0, y);
+        let held = app.docs.active_ready().unwrap().view.sel.range();
+        assert!(!held.is_empty(), "the drag selected something");
+        app.end_held();
+        assert!(app.ui.drag.is_none());
+        app.pointer_moved(x + 40.0, y + 40.0);
+        assert_eq!(app.docs.active_ready().unwrap().view.sel.range(), held);
+        assert!(app.ui.autoscroll_due.is_none());
     }
 
     /// Audit 1, finding 1 and round 2: with "Restore tabs at start" off, drafts kept at exit

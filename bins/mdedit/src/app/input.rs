@@ -1016,6 +1016,54 @@ impl App {
         }
     }
 
+    /// The window lost the focus: whatever the left button held is let go, and nothing acts.
+    /// winit sends no release when the window loses the mouse capture (on Windows, Alt+Tab or a
+    /// dialog during a drag), so without this the next plain move after coming back still
+    /// dragged. The files pane and the results panel keep the size they were dragged to, as a
+    /// release keeps it; a note held over the notes pane goes back, as Escape puts it; a pressed
+    /// button is not clicked.
+    pub(super) fn end_held(&mut self) {
+        self.ui.autoscroll_due = None;
+        self.ui.pressed = None;
+        match self.ui.drag.take() {
+            Some(Drag::Preview) => self.preview_release(),
+            Some(Drag::LibraryNote { .. }) => {
+                self.ui.library.let_go();
+                self.set_cursor(CursorIcon::Default);
+            }
+            Some(Drag::Splitter { .. }) => {
+                self.session.files_w = Some(self.ui.panes.files_w.round() as u32);
+            }
+            Some(Drag::ResultsEdge { .. }) => {
+                self.session.results_h = Some(self.ui.results.height.round() as u32);
+            }
+            _ => {}
+        }
+        // The scrollbar thumbs, and the sent card's text selection, of the cards over the window.
+        if let Some(rv) = self.ai.review() {
+            rv.grab = None;
+        }
+        if let Some(s) = self.task.as_mut() {
+            s.list.grab = None;
+            if let Some(c) = s.sent.as_mut() {
+                c.grab = None;
+                c.selecting = false;
+            }
+        }
+        if let Some(c) = self.notes_plan.as_mut() {
+            c.grab = None;
+        }
+        if let Some(c) = self.importer.as_mut() {
+            c.drag = None;
+        }
+        if let Some(c) = self.note.as_mut() {
+            c.drag = None;
+        }
+        if let Some(c) = self.mover.as_mut() {
+            c.drag = None;
+        }
+    }
+
     pub(super) fn right_press(&mut self) {
         self.ui.keyboard = false;
         let (x, y) = self.ui.mouse;
