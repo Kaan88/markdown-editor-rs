@@ -2639,6 +2639,15 @@ impl App {
                 at(d);
             }
         }
+        // The selection of the bar's box held past one of its ends: its text scrolls on.
+        if let Some(due) = self.field_pointer.deadline() {
+            if now >= due {
+                self.field_tick(now);
+            }
+            if let Some(d) = self.field_pointer.deadline() {
+                at(d);
+            }
+        }
         if self.compare.is_some()
             && let Some(due) = self.compare_timer(now)
         {
