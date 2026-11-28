@@ -9,7 +9,7 @@ use crate::view::offset_for_hthumb;
 use mdedit_core::selection::{self, Motion, Unit};
 use mdshared_ui::gfx::Face;
 use mdshared_ui::scroll::{offset_for_thumb, scrollbar};
-use mdshared_ui::textfield::EditKey;
+use mdshared_ui::textfield::{EditKey, FieldHit};
 use winit::event::{KeyEvent, MouseScrollDelta};
 
 /// The text area's vertical and horizontal scrollbars (track, thumb) and its geometry.
@@ -299,10 +299,15 @@ impl App {
                 }
             }
             Drag::FindSelect => {
-                if let Some(area) = self.field_area() {
-                    let stops = self.stops();
-                    self.ui.field_mut().drag(x - area.x, &stops);
-                    self.caret_reset();
+                if let Some(hit) = self.field_hit() {
+                    let now = Instant::now();
+                    let field = self.ui.field_mut();
+                    if self
+                        .field_pointer
+                        .pointer_move(field, &mut self.gfx, hit, (x, y), now)
+                    {
+                        self.caret_reset();
+                    }
                 }
             }
         }
@@ -794,6 +799,18 @@ impl App {
             self.ui.library.focused = false;
         }
         let clicks = self.click_count(x, y);
+        // A press anywhere else ends the bar's run of clicks.
+        if !matches!(
+            hit,
+            Hit::Find
+                | Hit::Replace
+                | Hit::ResultsReplace
+                | Hit::ResultsFolder
+                | Hit::ResultsKinds
+                | Hit::LibraryField
+        ) {
+            self.field_pointer.cancel();
+        }
         self.redraw();
         match hit {
             Hit::Backdrop => self.close_dialog(),
@@ -896,18 +913,23 @@ impl App {
                 } else {
                     BarField::Find
                 });
-                let Some(area) = self.field_area() else {
+                let Some(hit) = self.field_hit() else {
                     return;
                 };
-                let stops = self.stops();
-                let shift = self.mods.shift;
+                // The shared field's pointer counts the clicks (a word, then all of it) and
+                // extends with Shift. A press in the box around the text, on its icon or past
+                // the end, is taken at the nearest edge of the text, as before.
+                let r = hit.area;
+                let at = (
+                    x.clamp(r.x, (r.right() - 0.5).max(r.x)),
+                    y.clamp(r.y, (r.bottom() - 0.5).max(r.y)),
+                );
+                let mods = self.mods;
                 let field = self.ui.field_mut();
-                if clicks == 2 {
-                    field.select_word_at(x - area.x, &stops);
-                } else if clicks == 3 {
-                    field.select_all();
-                } else {
-                    field.press(x - area.x, &stops, shift);
+                if self
+                    .field_pointer
+                    .press(field, &mut self.gfx, hit, at, mods, Instant::now())
+                {
                     self.ui.drag = Some(Drag::FindSelect);
                 }
                 self.caret_reset();
@@ -975,6 +997,9 @@ impl App {
             if drag == Drag::Preview {
                 self.preview_release();
             }
+            if drag == Drag::FindSelect {
+                self.field_pointer.release();
+            }
             if matches!(drag, Drag::Splitter { .. }) {
                 self.session.files_w = Some(self.ui.panes.files_w.round() as u32);
             }
@@ -1013,6 +1038,55 @@ impl App {
                 self.activate(pressed);
             }
             self.redraw();
+        }
+    }
+
+    /// The window lost the focus: whatever the left button held is let go, and nothing acts.
+    /// winit sends no release when the window loses the mouse capture (on Windows, Alt+Tab or a
+    /// dialog during a drag), so without this the next plain move after coming back still
+    /// dragged. The files pane and the results panel keep the size they were dragged to, as a
+    /// release keeps it; a note held over the notes pane goes back, as Escape puts it; a pressed
+    /// button is not clicked.
+    pub(super) fn end_held(&mut self) {
+        self.ui.autoscroll_due = None;
+        self.ui.pressed = None;
+        self.field_pointer.cancel();
+        match self.ui.drag.take() {
+            Some(Drag::Preview) => self.preview_release(),
+            Some(Drag::LibraryNote { .. }) => {
+                self.ui.library.let_go();
+                self.set_cursor(CursorIcon::Default);
+            }
+            Some(Drag::Splitter { .. }) => {
+                self.session.files_w = Some(self.ui.panes.files_w.round() as u32);
+            }
+            Some(Drag::ResultsEdge { .. }) => {
+                self.session.results_h = Some(self.ui.results.height.round() as u32);
+            }
+            _ => {}
+        }
+        // The scrollbar thumbs, and the sent card's text selection, of the cards over the window.
+        if let Some(rv) = self.ai.review() {
+            rv.grab = None;
+        }
+        if let Some(s) = self.task.as_mut() {
+            s.list.grab = None;
+            if let Some(c) = s.sent.as_mut() {
+                c.grab = None;
+                c.selecting = false;
+            }
+        }
+        if let Some(c) = self.notes_plan.as_mut() {
+            c.grab = None;
+        }
+        if let Some(c) = self.importer.as_mut() {
+            c.drag = None;
+        }
+        if let Some(c) = self.note.as_mut() {
+            c.drag = None;
+        }
+        if let Some(c) = self.mover.as_mut() {
+            c.drag = None;
         }
     }
 
@@ -1097,6 +1171,7 @@ impl App {
             }
             Some(h @ (Hit::Find | Hit::FindClear | Hit::Replace)) => {
                 // The box takes the focus and keeps its selection, so Cut and Copy act on it.
+                self.field_pointer.cancel();
                 self.ui.focus_field(if h == Hit::Replace {
                     BarField::Replace
                 } else if self.ui.going_to() {
@@ -1343,9 +1418,28 @@ impl App {
 
     // ---- keyboard ----------------------------------------------------------------------------
 
-    pub(super) fn stops(&mut self) -> Vec<f32> {
-        let mut p = Painter::new(&mut self.screen, &mut self.gfx, self.scale);
-        p.caret_stops(Face::Ui, 13.0, self.ui.field().text())
+    /// Where the focused box's text is drawn, as `chrome::draw_field` draws it: for its pointer.
+    pub(super) fn field_hit(&self) -> Option<FieldHit> {
+        Some(FieldHit {
+            area: self.field_area()?,
+            face: Face::Ui,
+            size: 13.0,
+            scale: self.scale,
+        })
+    }
+
+    /// The selection of the bar's box is held past one of its ends: its text scrolls on while
+    /// the pointer rests there. With the box gone the drag ends, so the timer stops.
+    pub(super) fn field_tick(&mut self, now: Instant) {
+        let Some(hit) = self.field_hit() else {
+            self.field_pointer.release();
+            return;
+        };
+        let field = self.ui.field_mut();
+        if self.field_pointer.tick(field, &mut self.gfx, hit, now) {
+            self.caret_reset();
+            self.wants_frame = true;
+        }
     }
 
     /// Where the focused box's text is drawn.

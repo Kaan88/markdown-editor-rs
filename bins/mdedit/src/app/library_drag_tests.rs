@@ -176,6 +176,29 @@ fn escape_abandons_the_drag_and_the_note_stays_where_it_was() {
     let _ = std::fs::remove_dir_all(&l.dir);
 }
 
+/// winit sends no release when the window loses the mouse capture mid-drag (Alt+Tab on
+/// Windows): losing the focus abandons the drag as Escape does, so the release that comes with
+/// the next click after coming back drops nothing.
+#[test]
+fn losing_the_focus_abandons_the_drag_and_the_note_stays_where_it_was() {
+    let (mut a, l) = lib("libd-focus");
+    a.compose();
+    let source = a.hit_rect(Hit::LibraryRow(2)).unwrap();
+    let target = a.hit_rect(Hit::LibraryRow(5)).unwrap();
+    a.ui.mouse = (source.cx(), source.cy());
+    a.left_press();
+    a.drag_to(a.ui.drag.unwrap(), target.cx(), target.cy());
+    assert_eq!(a.ui.library.drop, Some(5), "Trips is marked");
+    a.end_held();
+    assert!(a.ui.drag.is_none(), "the drag is gone");
+    assert!(a.ui.library.drop.is_none(), "and its mark with it");
+    assert!(a.ui.library.held_at.is_none(), "nothing is held");
+    a.ui.mouse = (target.cx(), target.cy());
+    a.left_release();
+    assert_eq!(read(&l.file), l.text(), "nothing was written");
+    let _ = std::fs::remove_dir_all(&l.dir);
+}
+
 #[test]
 fn a_press_and_release_on_a_note_is_still_a_click() {
     let (mut a, l) = lib("libd-click");

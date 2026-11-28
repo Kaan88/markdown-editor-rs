@@ -390,6 +390,9 @@ struct App {
     control_click: bool,
     /// A trackpad pinch on its way to the next zoom step.
     pinch: mdshared_ui::window::PinchZoom,
+    /// The mouse in the bar's focused box: clicks, drags and the scroll past its ends
+    /// (`field_hit`).
+    field_pointer: mdshared_ui::textfield::Pointer,
     cursor: CursorIcon,
     last_title: String,
     /// The close button's unsaved-changes dot as last set (macOS).
@@ -614,6 +617,10 @@ impl App {
             mods: Mods::default(),
             control_click: false,
             pinch: Default::default(),
+            field_pointer: mdshared_ui::textfield::Pointer::new(
+                platform::double_click_time(),
+                (CLICK_SLOP, CLICK_SLOP),
+            ),
             cursor: CursorIcon::Default,
             last_title: String::new(),
             last_edited: false,
@@ -3271,6 +3278,7 @@ impl App {
                     self.ui.caret_on = true;
                     self.ui.hide_tip();
                     self.docs.seal();
+                    self.end_held();
                 }
                 self.redraw();
             }
@@ -4990,6 +4998,125 @@ mod tests {
         app.answer(1);
         assert!(app.exit);
         assert_eq!(app.restart, Some(PathBuf::from("/preview/app")));
+    }
+
+    /// winit sends no release when the window loses the mouse capture mid-drag (Alt+Tab on
+    /// Windows): losing the focus ends a selection being dragged in the text, so a plain move
+    /// after coming back does not extend it.
+    #[test]
+    fn losing_the_focus_ends_a_selection_drag_in_the_text() {
+        let mut app = app();
+        app.size = (900, 600);
+        assert!(app.docs.edit(
+            EditOp::Insert("one two three\nfour five six\nseven eight nine\n"),
+            None
+        ));
+        app.compose();
+        let t = app.areas.text;
+        let (x, y) = (t.x + 60.0, t.y + 8.0);
+        app.ui.mouse = (x, y);
+        app.left_press();
+        assert!(matches!(app.ui.drag, Some(Drag::Select { .. })));
+        app.drag_to(app.ui.drag.unwrap(), x + 40.0, y);
+        let held = app.docs.active_ready().unwrap().view.sel.range();
+        assert!(!held.is_empty(), "the drag selected something");
+        app.end_held();
+        assert!(app.ui.drag.is_none());
+        app.pointer_moved(x + 40.0, y + 40.0);
+        assert_eq!(app.docs.active_ready().unwrap().view.sel.range(), held);
+        assert!(app.ui.autoscroll_due.is_none());
+    }
+
+    /// A press and release at `(x, y)`.
+    fn click_at(app: &mut App, x: f32, y: f32) {
+        app.ui.mouse = (x, y);
+        app.left_press();
+        app.left_release();
+    }
+
+    /// The find box, focused by a click, holding `text`, laid out at 900 by 600.
+    fn find_box_with(text: &str) -> (App, Rect) {
+        let mut app = app();
+        app.size = (900, 600);
+        app.compose();
+        let r = app.hit_rect(Hit::Find).expect("the find box");
+        click_at(&mut app, r.cx(), r.cy());
+        app.field_pointer.cancel();
+        app.ui.find.set_text(text);
+        app.compose();
+        (app, r)
+    }
+
+    /// Logical x of the caret stop before character `i` of the find box's text.
+    fn find_stop(app: &mut App, i: usize) -> f32 {
+        let area = app.field_area().expect("the find box");
+        let text = app.ui.find.text().to_string();
+        let mut p = Painter::new(&mut app.screen, &mut app.gfx, app.scale);
+        area.x + p.caret_stops(mdshared_ui::gfx::Face::Ui, 13.0, &text)[i]
+    }
+
+    /// A double click in the find box takes a word and a triple click all of it; a press on the
+    /// magnifier or in the box's border, beside the text, is taken at the nearest end of the
+    /// text; Shift extends from the caret.
+    #[test]
+    fn the_find_box_takes_multi_clicks_shift_and_presses_beside_its_text() {
+        let (mut app, r) = find_box_with("alpha beta");
+        assert!(app.ui.find_focused && app.ui.field == BarField::Find);
+        let in_beta = (find_stop(&mut app, 7) + find_stop(&mut app, 8)) / 2.0;
+        click_at(&mut app, in_beta, r.cy());
+        assert!(!app.ui.find.has_selection());
+        click_at(&mut app, in_beta, r.cy());
+        assert_eq!(app.ui.find.selected_text(), "beta");
+        click_at(&mut app, in_beta, r.cy());
+        assert_eq!(app.ui.find.selected_text(), "alpha beta");
+        // The magnifier, left of the text: the caret goes to the start.
+        app.field_pointer.cancel();
+        click_at(&mut app, r.x + 12.0, r.cy());
+        assert_eq!(app.ui.find.caret(), (0, 0));
+        // Shift and a press in the border over "beta": from the start to there.
+        app.field_pointer.cancel();
+        app.mods.shift = true;
+        let x = find_stop(&mut app, 6);
+        click_at(&mut app, x, r.y + 0.5);
+        app.mods.shift = false;
+        assert_eq!(app.ui.find.selected_text(), "alpha ");
+    }
+
+    /// The find box's selection dragged past its right end goes on with the text, a step each
+    /// time the timer comes while the pointer rests there, until the end of the text is
+    /// selected; letting go stops the timer.
+    #[test]
+    fn a_selection_dragged_past_the_find_boxs_end_scrolls_on_at_rest() {
+        let long = "word ".repeat(60);
+        let long = long.trim_end();
+        let (mut app, r) = find_box_with(long);
+        app.key_pressed(Key::Name(KeyName::Home), None);
+        app.compose();
+        app.ui.mouse = (find_stop(&mut app, 0), r.cy());
+        app.left_press();
+        assert_eq!(app.ui.drag, Some(Drag::FindSelect));
+        app.pointer_moved(r.right() + 30.0, r.cy());
+        assert!(app.ui.find.selected_text().len() < long.len());
+        // The loop is woken for it.
+        let first = app
+            .field_pointer
+            .deadline()
+            .expect("the scroll waits for its timer");
+        let before = first - Duration::from_millis(1);
+        assert!(app.timers(before).is_some_and(|t| t <= first));
+        let mut now = before;
+        let mut steps = 0;
+        while let Some(due) = app.field_pointer.deadline() {
+            now = now.max(due);
+            app.timers(now);
+            steps += 1;
+            assert!(steps < 2000, "the scroll ends");
+        }
+        assert!(steps > 0, "the timer scrolled the text");
+        assert_eq!(app.ui.find.selected_text(), long);
+        app.left_release();
+        assert!(app.ui.drag.is_none());
+        assert!(app.field_pointer.deadline().is_none());
     }
 
     /// Audit 1, finding 1 and round 2: with "Restore tabs at start" off, drafts kept at exit
