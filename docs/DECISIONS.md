@@ -3104,3 +3104,12 @@ after its full review (#61 to #67), and release it as 1.6.1 together with mdview
 The authenticated single-instance hand-over needs both apps on the same toolkit.
 **Overturned by.** A toolkit regression found in 1.6.1.
 **From.** The owner, 2026-11-27: "make a new release against the latest shared."
+
+## D-290 — 2026-11-28 — The owner accepts the toolkit's new edges to libc and skrifa
+
+**Decision.** The direct edges D-289 brought in, `mdshared-app` to `libc` (on unix) and
+`mdshared-text` to `skrifa`, are accepted under rule 7. Both crates were already in `Cargo.lock`,
+so no package was added.
+**Why.** Rule 7 asks before any new dependency; D-289 took them in on the release word alone.
+**Overturned by.** A later toolkit pin that makes either crate cost a package or launch time.
+**From.** The owner, 2026-11-28: "it's ok".
