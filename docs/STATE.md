@@ -1,13 +1,21 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-27, after the releases of mdedit 1.6.0 and
-mdview 1.2.0.
+Rewritten, not appended to. Last rewritten 2026-11-28, after the releases of mdedit 1.6.1 and
+mdview 1.2.1.
 
 ## Released
 
+- **mdedit 1.6.1**, 2026-11-27, tag `v1.6.1` at `472c53b`, release notes
+  `docs/release-notes/1.6.1.md`, released with mdview 1.2.1 as a pair. `ci` was green on main, the
+  release workflow passed, and it is the latest release on GitHub. Toolkit `48eedb8` (D-289): its
+  crash, hang and hand-over fixes. `Cargo.lock` gained no package. A viewer from before the
+  authenticated hand-over (mdview 1.2.0) is sent nothing, so the older-viewer toast says to update
+  mdview, not to save; a saved file's link to such a viewer stays, as for any older viewer. On a PC
+  whose app-data folder other accounts can write to, the toolkit does not trust an old viewer's
+  port file, so mdview 1.2.0 reads as not running.
 - **mdedit 1.6.0**, 2026-11-27, tag `v1.6.0` at `130f5de`, release notes
-  `docs/release-notes/1.6.0.md`. `ci` was green on all four jobs on main, the release workflow
-  passed, and it is the latest release on GitHub. In it: window motion (D-232 to D-235, D-255 to
+  `docs/release-notes/1.6.0.md`. `ci` was green on all four jobs on main and the release workflow
+  passed. In it: window motion (D-232 to D-235, D-255 to
   D-283; DESIGN 96 to 98); the AI task window fixes (D-240 to D-254); the preview on the toolkit's
   renderer crates, with its security fixes and vertical-only font hinting (D-287, accepted by the
   owner). The hosted Mac self-update test is deferred and non-blocking (D-288).
@@ -16,12 +24,13 @@ mdview 1.2.0.
   `docs/ai-pictures-plan.md` (F, E, L, O; C1, C2; V1 to V5 and the sent card; D-203 to D-230).
   **Not tried in a real window; no picture has been sent to a provider.** Copies are written on
   the UI thread (up to 200 MB).
-- **mdview 1.2.0**, 2026-11-27, tag `v1.2.0` at `b2a2f7a`: the renderer switch to the toolkit's
+- **mdview 1.2.1**, 2026-11-27, tag `v1.2.1` at `e4ae1e2`, on toolkit `48eedb8`.
+  **mdview 1.2.0**, 2026-11-27, tag `v1.2.0` at `b2a2f7a`: the renderer switch to the toolkit's
   crates, with its security fixes. **mdview 1.1.0**, 2026-11-24, `0310e01`.
 - The shared crates are not released; the apps pin them by commit. **Hub** is its own app (see
   its `docs/STATE.md`).
 
-## 1.6.0: what is not verified
+## 1.6.0 and 1.6.1: what is not verified
 
 - Not run by hand in a real window: mdedit's motion (menus over a frosted window, Linux, macOS)
   and the AI task window fixes, which were seen in shots only. The owner tried mdview's menus only.
@@ -32,18 +41,8 @@ mdview 1.2.0.
   runs were over 30 MiB before Settings opened. The owner accepted the overrun only during the
   170 ms theme fade (D-282).
 - Linux launch and idle costs are unmeasured, and so is the Linux system-theme thread (D-273).
-
-## 1.6.1, being released
-
-- **mdedit 1.6.1** on toolkit `48eedb8` (D-289), with mdview 1.2.1, on the owner's word
-  (2026-11-27); notes `docs/release-notes/1.6.1.md`. `Cargo.lock` gains no package. Besides the
-  pin: a viewer from before the authenticated hand-over (mdview 1.2.0) is sent nothing, so the
-  older-viewer toast now says to update mdview, not to save; a saved file's link to such a viewer
-  stays, as for any older viewer. The AppImage's `AppRun` links to `usr/bin/mdedit`, as the
-  toolkit's Linux self-update requires. On a PC whose app-data folder other accounts can write
-  to (this one), the toolkit does not trust an old viewer's port file, so mdview 1.2.0 reads as
-  not running. Not verified: the real AppImage updater check (toolkit AI1), the hand-over between
-  real 1.6.0 and 1.6.1 windows, and measurements of the 1.6.1 build.
+- 1.6.1: the real AppImage updater check (toolkit AI1), the hand-over between real 1.6.0 and
+  1.6.1 windows, and measurements of the 1.6.1 build. The release packages were not run by hand.
 
 ## Waiting for the owner
 
@@ -63,14 +62,12 @@ mdview 1.2.0.
 
 ## Next
 
-1. The owner's decision on the toolkit pin move and the patch releases (above). Nothing changes
-   until then.
-2. The owner's look at mdedit 1.6.0 in a real window: menu and Settings fades, and the AI task
+1. The owner's look at mdedit 1.6.1 in a real window: menu and Settings fades, and the AI task
    window's flow, in both themes.
-3. The owner's look at the 1.4.0 and 1.5.0 shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes cards),
+2. The owner's look at the 1.4.0 and 1.5.0 shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes cards),
    and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's
    order.
-4. The closed mdview, still to be tried (D-101).
+3. The closed mdview, still to be tried (D-101).
 
 ## Known to be wrong on `main`
 
@@ -115,10 +112,11 @@ cannot restore an original (D-071).
 - Shared crates and embedded preview: `48eedb8` (D-289), the toolkit's main after its review.
   On Linux, mdedit finds a co-installed viewer off `PATH` (D-286). winit `62fa727`,
   softbuffer `dd18fec`.
-- Branches: `main`; `f/shared-48eedb8` (1.6.1); `f/renderer` (merged into main at 130f5de; still on origin); the unmerged
+- Branches: `main`; `f/shared-48eedb8` (merged into main at 472c53b, local only); `f/renderer`
+  (merged into main at 130f5de; still on origin); the unmerged
   `mock/*` drawings; `archive/doc-reorg-draft`, `spike/v-resizer`; GitHub's `spike/frosted-window`
   and `chore/dependabot`. Kept as found, unpushed: shared `archive/settings-draft-uncommitted`,
   Hub's `wip/install-uncommitted`.
-- Worktrees: `main`; `md-wt\renderer` (`f/shared-48eedb8`, 1.6.1);
+- Worktrees: `main`; `md-wt\renderer` (`f/shared-48eedb8`, merged);
   `hub-wt\app-prs2\mdedit` (hub/notes-file); fifteen detached worker worktrees under
   `%TEMP%\opencode\`, left from earlier sessions and not removed.
