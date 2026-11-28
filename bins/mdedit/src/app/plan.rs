@@ -282,7 +282,9 @@ impl App {
             PlanKey::Insert => (None, false),
             PlanKey::Menu => (None, true),
         };
-        let act = screen.key(name, menu_key, mods, typed);
+        // On the pointer route a rename's edit menu takes the keys first, and Shift+F10 or the
+        // Menu key opens it at the caret.
+        let act = screen.key_with_menu(name, menu_key, mods, typed, &mut self.gfx);
         self.caret_reset();
         self.plan_act(act);
     }
@@ -297,9 +299,18 @@ impl App {
         if self.move_is_open() {
             return self.move_pointer(x, y);
         }
-        if let Some(screen) = self.plan.as_mut() {
-            screen.pointer(x, y);
-        }
+        let now = Instant::now();
+        let cursor = match self.plan.as_mut() {
+            Some(screen) => {
+                // A rename's drag goes on (its text scrolls past an end) and its edit menu
+                // lights a row; otherwise the screen follows the pointer.
+                screen.pointer_motion((x, y), now, &mut self.gfx);
+                screen.cursor_at((x, y)).map(|c| c.icon())
+            }
+            None => None,
+        };
+        let edge = self.edge_at(x, y).map(CursorIcon::from);
+        self.set_cursor(cursor.or(edge).unwrap_or(CursorIcon::Default));
         self.redraw();
     }
 
@@ -315,7 +326,8 @@ impl App {
         }
         let (x, y) = self.ui.mouse;
         if let Some(screen) = self.plan.as_mut() {
-            screen.press(x, y);
+            // A rename counts its own clicks (a word, then all of it) and extends with Shift.
+            screen.pointer_press((x, y), self.mods, Instant::now(), &mut self.gfx);
         }
         // A press outside a name being typed commits it, and a new group is a new destination.
         self.plan_recheck();
@@ -337,7 +349,7 @@ impl App {
         let Some(screen) = self.plan.as_mut() else {
             return;
         };
-        let act = screen.release(x, y);
+        let act = screen.pointer_release((x, y), Instant::now(), &mut self.gfx);
         self.plan_act(act);
     }
 
@@ -347,9 +359,30 @@ impl App {
         }
         let (x, y) = self.ui.mouse;
         if let Some(screen) = self.plan.as_mut() {
-            screen.right_press(x, y);
+            // On a rename the field's edit menu; elsewhere the screen's own menu.
+            if !screen.secondary_press((x, y), Instant::now(), &mut self.gfx) {
+                screen.right_press(x, y);
+            }
         }
+        self.caret_reset();
         self.redraw();
+    }
+
+    /// A rename's drag held past one of its ends scrolls its text on, and its edit menu's
+    /// submenu delay ends: when that is due.
+    pub(super) fn plan_text_deadline(&self) -> Option<Instant> {
+        self.plan.as_ref()?.text_deadline()
+    }
+
+    pub(super) fn plan_text_tick(&mut self, now: Instant) {
+        let moved = self
+            .plan
+            .as_mut()
+            .is_some_and(|s| s.tick_text(now, &mut self.gfx));
+        if moved {
+            self.caret_reset();
+            self.wants_frame = true;
+        }
     }
 
     /// `dy` in logical px, positive towards the end.

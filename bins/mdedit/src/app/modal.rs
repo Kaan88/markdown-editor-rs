@@ -660,7 +660,7 @@ impl App {
         }
     }
 
-    fn settings_outcome(&mut self, out: Out) {
+    pub(super) fn settings_outcome(&mut self, out: Out) {
         match out {
             Out::None | Out::Unused => {}
             Out::Redraw => self.modal_changed(),

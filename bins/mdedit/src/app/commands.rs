@@ -2639,6 +2639,24 @@ impl App {
                 at(d);
             }
         }
+        // The palette's query box and the plan screen's rename: a drag held past an end, or
+        // the edit menu's submenu delay.
+        if let Some(due) = self.palette_text_deadline() {
+            if now >= due {
+                self.palette_text_tick(now);
+            }
+            if let Some(d) = self.palette_text_deadline() {
+                at(d);
+            }
+        }
+        if let Some(due) = self.plan_text_deadline() {
+            if now >= due {
+                self.plan_text_tick(now);
+            }
+            if let Some(d) = self.plan_text_deadline() {
+                at(d);
+            }
+        }
         // The selection of the bar's box held past one of its ends: its text scrolls on.
         if let Some(due) = self.field_pointer.deadline() {
             if now >= due {

@@ -139,6 +139,8 @@ mod recycle_tests;
 mod review_tests;
 #[cfg(test)]
 mod theme_tests;
+#[cfg(test)]
+mod toolkit_routes_tests;
 mod visual;
 mod window_restore;
 pub(crate) use preview::previewable;
@@ -1758,6 +1760,12 @@ impl App {
             // by (never an invented inset).
             let (window, title) = crate::palette::placement(p, field, w, h);
             p.palette.layout(window, title);
+            // The query box's edit menu can reach past the card, and the toolkit gives no
+            // bounds for it: while it is open, everything is under the palette. Before the
+            // card's own bounds, which the draw keeps last.
+            if p.palette.edit_menu_open() {
+                bounds.push(Rect::new(0.0, 0.0, w, h));
+            }
             bounds.push(p.palette.presence_bounds());
         }
         let osig = sig((
@@ -4378,6 +4386,16 @@ fn shot(mut app: App, path: &Path) -> i32 {
         app.key_pressed(Key::Name(KeyName::Escape), None);
         // The pane opened after the first frame: every region is painted again for the shot.
         app.sigs = [0; 10];
+    }
+    // `--field-menu`: the edit menu of the box that has the keys (the palette's, or a name
+    // being typed on the plan screen), opened by Shift+F10 as a person would, on the box as
+    // last drawn.
+    if app.args.field_menu {
+        use crate::keys::{Key, KeyName};
+        app.compose();
+        app.mods.shift = true;
+        app.key_pressed(Key::Name(KeyName::F(10)), None);
+        app.mods.shift = false;
     }
     if app.ui.dialog.is_some()
         || app.ui.popup.is_some()

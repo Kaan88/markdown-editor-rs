@@ -417,6 +417,9 @@ shot palette-line --light --palette ":120" "$fx/sample.rs"
 shot palette-line-dark --dark --palette ":120" "$fx/sample.rs"
 shot palette-symbols --light --palette "@" "$fx/sample.rs"
 shot palette-symbols-dark --dark --palette "@" "$fx/sample.rs"
+# The query box's edit menu (Shift+F10), over the card and past it.
+shot palette-field-menu --light --palette ">fold" --field-menu "$fx/sample.rs"
+shot palette-field-menu-dark --dark --palette ">fold" --field-menu "$fx/sample.rs"
 
 # Compare two files: the two versions of compare-*.rs, scrolled to a change, with the minimap, and
 # a file against its saved text.
@@ -557,6 +560,7 @@ for t in "" "-dark"; do
     shot "plan-split-warn$t" $th --plan-demo split-warn
     shot "plan-split-again$t" $th --plan-demo split-again
     shot "plan-split-rename$t" $th --plan-demo split-rename
+    shot "plan-split-rename-menu$t" $th --plan-demo split-rename --field-menu
     shot "plan-split-many$t" $th --plan-demo split-many
     shot "plan-split-small$t" $th --size 800x600 --plan-demo split-small
 done

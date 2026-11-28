@@ -213,6 +213,9 @@ pub struct Args {
     pub outline: bool,
     /// `--pane-focus`: give the pane the keyboard before capturing a shot.
     pub pane_focus: bool,
+    /// `--field-menu`: the edit menu of the box that has the keys, the palette's or a name being
+    /// typed on the plan screen, opened as Shift+F10 opens it (for shots).
+    pub field_menu: bool,
     /// `--bookmark <line>`, as often as wanted: bookmarked lines of the active document.
     pub bookmarks: Vec<usize>,
     /// `--split`: two files side by side, the tab after the active one in the second pane.
@@ -422,6 +425,7 @@ impl Args {
                 "--find-in-tabs" => out.find_in_tabs = true,
                 "--outline" => out.outline = true,
                 "--pane-focus" => out.pane_focus = true,
+                "--field-menu" => out.field_menu = true,
                 "--bookmark" => {
                     if let Some(n) = it.next().and_then(|v| v.parse::<usize>().ok()) {
                         out.bookmarks.push(n);
@@ -683,6 +687,7 @@ mod tests {
     #[test]
     fn the_minimap_switch() {
         assert!(parse("--minimap a.rs").minimap);
+        assert!(parse("--palette x --field-menu").field_menu && !parse("a.rs").field_menu);
         assert!(!parse("a.rs").minimap);
         // It goes with the other switches of the timing runs.
         let a = parse("--minimap --trace --type-steps 5 --scroll-steps 7 --preview-pane a.rs");

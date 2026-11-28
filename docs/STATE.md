@@ -44,6 +44,18 @@ mdview 1.2.1.
 - 1.6.1: the real AppImage updater check (toolkit AI1), the hand-over between real 1.6.0 and
   1.6.1 windows, and measurements of the 1.6.1 build. The release packages were not run by hand.
 
+## 1.6.2, being released
+
+- **mdedit 1.6.2** on toolkit `84c0fc8` (D-291), with mdview 1.2.2, on the owner's word
+  (2026-11-28); notes `docs/release-notes/1.6.2.md`. PRs #14 (a lost focus ends every drag; the
+  bar's boxes scroll past their ends) and #15 (CLAUDE.md, using the toolkit), and the palette and
+  plan screen moved to the toolkit's pointer routes: their text fields take the run of clicks,
+  the drag past an end and an edit menu. Tests `app/toolkit_routes_tests.rs`; shots
+  `palette-field-menu*` and `plan-split-rename-menu*` (`--field-menu`), whose Paste row follows
+  the clipboard of the PC that takes them. `Cargo.lock` gains no package. Not verified: by hand in
+  a real window, and measurements of the 1.6.2 build. The toolkit gives no bounds for a field's
+  edit menu, so while the palette's is open its overlay bound is the whole window.
+
 ## Waiting for the owner
 
 - **AI library work**, `docs/ai-library-plan.md` section 8, in order after R2: V, drag and drop;
@@ -62,7 +74,8 @@ mdview 1.2.1.
 
 ## Next
 
-1. The owner's look at mdedit 1.6.1 in a real window: menu and Settings fades, and the AI task
+1. The owner's look at the 1.6.2 shots (`palette-field-menu*`, `plan-split-rename-menu*`), and at
+   mdedit 1.6.2 in a real window: menu and Settings fades, and the AI task
    window's flow, in both themes.
 2. The owner's look at the 1.4.0 and 1.5.0 shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes cards),
    and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's
@@ -109,14 +122,14 @@ cannot restore an original (D-071).
 
 ## Pins, branches, worktrees
 
-- Shared crates and embedded preview: `48eedb8` (D-289), the toolkit's main after its review.
+- Shared crates and embedded preview: `84c0fc8` (D-291), the toolkit's main with `FieldInput`.
   On Linux, mdedit finds a co-installed viewer off `PATH` (D-286). winit `62fa727`,
   softbuffer `dd18fec`.
-- Branches: `main`; `f/shared-48eedb8` (merged into main at 472c53b, local only); `f/renderer`
-  (merged into main at 130f5de; still on origin); the unmerged
+- Branches: `main`; `f/1.6.2` (1.6.2); `f/shared-48eedb8` (merged into main at 472c53b, local
+  only); `f/renderer` (merged into main at 130f5de; still on origin); the unmerged
   `mock/*` drawings; `archive/doc-reorg-draft`, `spike/v-resizer`; GitHub's `spike/frosted-window`
   and `chore/dependabot`. Kept as found, unpushed: shared `archive/settings-draft-uncommitted`,
   Hub's `wip/install-uncommitted`.
-- Worktrees: `main`; `md-wt\renderer` (`f/shared-48eedb8`, merged);
+- Worktrees: `main`; `md-wt\renderer` (`f/1.6.2`);
   `hub-wt\app-prs2\mdedit` (hub/notes-file); fifteen detached worker worktrees under
   `%TEMP%\opencode\`, left from earlier sessions and not removed.

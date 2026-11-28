@@ -1051,6 +1051,20 @@ impl App {
         self.ui.autoscroll_due = None;
         self.ui.pressed = None;
         self.field_pointer.cancel();
+        // The toolkit's own screens: a press on them chooses nothing, and a drag in their text
+        // fields ends with the selection kept.
+        if let Some(p) = self.palette.open.as_mut()
+            && p.palette.cancel()
+        {
+            self.palette.tick += 1;
+        }
+        if let Some(s) = self.plan.as_mut() {
+            s.cancel();
+        }
+        if let Some(f) = self.ui.settings.as_mut() {
+            let out = f.cancel();
+            self.settings_outcome(out);
+        }
         match self.ui.drag.take() {
             Some(Drag::Preview) => self.preview_release(),
             Some(Drag::LibraryNote { .. }) => {
@@ -1098,11 +1112,11 @@ impl App {
             self.plan_right_press();
             return;
         }
-        if self.ui.dialog.is_some()
-            || self.palette_open()
-            || self.ai_panel_open()
-            || self.ui.settings.is_some()
-        {
+        if self.palette_open() {
+            self.palette_right_press();
+            return;
+        }
+        if self.ui.dialog.is_some() || self.ai_panel_open() || self.ui.settings.is_some() {
             return;
         }
         if self.notes_plan_open() {

@@ -3113,3 +3113,24 @@ so no package was added.
 **Why.** Rule 7 asks before any new dependency; D-289 took them in on the release word alone.
 **Overturned by.** A later toolkit pin that makes either crate cost a package or launch time.
 **From.** The owner, 2026-11-28: "it's ok".
+
+## D-291 — 2026-11-28 — Release 1.6.2 on toolkit 84c0fc8, with the toolkit's screens on their pointer routes
+
+**Decision.** Move every live toolkit pin from `48eedb8` (D-289) to `84c0fc8`, the toolkit's main
+with `FieldInput` (#68) and the cancel of a lost press (#69), and release it as 1.6.2 with mdview
+1.2.2, together with app PRs #14 (a lost focus ends every drag; the bar's boxes on
+`textfield::Pointer`) and #15 (CLAUDE.md, using the toolkit). The toolkit deprecates the
+palette's `press` and `pointer_move` and the plan screen's `press` and `pointer`, so both move to
+their pointer routes (`pointer_press`, `pointer_motion`, `pointer_release`, `secondary_press`,
+`key_with_menu`, `text_deadline` and `tick_text`), which gives their text fields the run of
+clicks, the drag past an end and the edit menu, in English. `App::end_held` also calls the
+palette's, the plan screen's and Settings' `cancel`. Settings keeps its `press` route, which is
+not deprecated. While the palette's edit menu is open the whole window is under it in the overlay
+bounds, because the toolkit gives no bounds for that menu. No package is added to `Cargo.lock`.
+**Why.** The owner: merge the PRs and make a point release, after the toolkit's PRs. With the
+fields' new behaviour visible, the owner chose to port before releasing rather than release on
+`48eedb8` or silence the warnings.
+**Overturned by.** A toolkit accessor for the edit menu's bounds (then the window-sized bound
+goes), or the owner's look at the shots.
+**From.** The owner, 2026-11-28: "merge the prs for both apps and make another point release",
+"wait for shared prs", and the choice "Port, then release".

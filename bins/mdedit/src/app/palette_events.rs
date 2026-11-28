@@ -90,7 +90,9 @@ impl App {
         let Some(p) = self.palette.open.as_mut() else {
             return;
         };
-        match p.palette.key(&name, mods, typed) {
+        // On the pointer route the query box's edit menu takes the keys first, and Shift+F10
+        // opens it at the caret.
+        match p.palette.key_with_menu(&name, mods, typed, &mut self.gfx) {
             Pick::Unused => {
                 if opener == Some(C::CommandPalette) {
                     self.close_palette();
@@ -101,24 +103,34 @@ impl App {
         self.caret_reset();
     }
 
+    /// The pointer moved: the query box's drag goes on (its text scrolls when the pointer is
+    /// past an end), its edit menu lights a row, and the rest of the card follows the pointer.
     pub(super) fn palette_pointer(&mut self, x: f32, y: f32) {
-        let moved = self
-            .palette
-            .open
-            .as_mut()
-            .is_some_and(|p| p.palette.pointer_move(x, y));
+        let now = Instant::now();
+        let gfx = &mut self.gfx;
+        let (moved, cursor) = match self.palette.open.as_mut() {
+            Some(p) => (
+                p.palette.pointer_motion((x, y), now, gfx),
+                p.palette.cursor_at((x, y)).map(|c| c.icon()),
+            ),
+            None => (false, None),
+        };
         let edge = self.edge_at(x, y).map(CursorIcon::from);
-        self.set_cursor(edge.unwrap_or(CursorIcon::Default));
+        self.set_cursor(cursor.or(edge).unwrap_or(CursorIcon::Default));
         if moved {
             self.palette_changed();
         }
     }
 
+    /// A press: the query box counts its own clicks (a word, then all of it), takes a press
+    /// in its padding or on the magnifier, and extends with Shift; `clicks` goes to the rows.
     pub(super) fn palette_press(&mut self, clicks: u32) {
         let (x, y) = self.ui.mouse;
         let (mods, clicks) = (self.mods, clicks.min(2) as u8);
         if let Some(p) = self.palette.open.as_mut() {
-            let out = p.palette.press(x, y, mods, clicks);
+            let out = p
+                .palette
+                .pointer_press((x, y), mods, clicks, Instant::now(), &mut self.gfx);
             self.palette_outcome(out);
         }
         self.caret_reset();
@@ -127,8 +139,42 @@ impl App {
     pub(super) fn palette_release(&mut self) {
         let (x, y) = self.ui.mouse;
         if let Some(p) = self.palette.open.as_mut() {
-            let out = p.palette.release(x, y);
+            let out = p
+                .palette
+                .pointer_release((x, y), Instant::now(), &mut self.gfx);
             self.palette_outcome(out);
+        }
+    }
+
+    /// A right press: on the query box it opens the box's edit menu; outside the card it
+    /// closes the palette, as a left press does.
+    pub(super) fn palette_right_press(&mut self) {
+        let (x, y) = self.ui.mouse;
+        if let Some(p) = self.palette.open.as_mut() {
+            let out = p
+                .palette
+                .secondary_press((x, y), Instant::now(), &mut self.gfx);
+            self.palette_outcome(out);
+        }
+        self.caret_reset();
+    }
+
+    /// The query box's drag held past one of its ends scrolls its text on, and its edit menu's
+    /// submenu delay ends: when that is due.
+    pub(super) fn palette_text_deadline(&self) -> Option<Instant> {
+        self.palette.open.as_ref()?.palette.text_deadline()
+    }
+
+    pub(super) fn palette_text_tick(&mut self, now: Instant) {
+        let moved = self
+            .palette
+            .open
+            .as_mut()
+            .is_some_and(|p| p.palette.tick_text(now, &mut self.gfx));
+        if moved {
+            self.caret_reset();
+            self.palette_changed();
+            self.wants_frame = true;
         }
     }
 

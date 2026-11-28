@@ -1473,6 +1473,15 @@ Decisions: a greyed command cannot be chosen (Enter does nothing); the file list
 the empty query (the tabs and recent files are), so opening the palette costs no walk; the macro
 commands are enabled by whether a macro can play, as in the Macro menu.
 
+**The mouse** goes through the palette's pointer route (`pointer_press`, `pointer_motion`,
+`pointer_release`, `secondary_press`, `key_with_menu`; D-291): the query box counts its own
+clicks (a word, then all of it), extends with Shift, scrolls its text on while a selection is held
+past an end (`text_deadline` and `tick_text`, in `App::timers`), and has the edit menu by a right
+press or Shift+F10. The toolkit gives no bounds for that menu, which can reach past the card, so
+while it is open the whole window is under the palette in the overlay bounds (pushed before the
+card's own, which the draw keeps last). A press the window lost (`App::end_held`, on
+`Focused(false)`) is the palette's `cancel`: the row pressed is not chosen.
+
 ## 51. Compare two files in the window (2026-11-14)
 
 The comparison is `mdedit-core::diff` (section 35); this is what the window does with it
@@ -2377,6 +2386,11 @@ ones, re-exported by `limits`. The list's and the preview's row arithmetic is
 - **The screen is over everything**, like the palette: while it is open it takes every key,
   pointer, wheel and typing event, and its tick, hover, press and caret are in the overlay
   signature in `app.rs`. A change of the look that does not raise `tick` is never repainted.
+- **The mouse** goes through the screen's pointer route (D-291): a name being typed takes the
+  run of clicks, Shift, a drag past its ends (`text_deadline` and `tick_text` in `App::timers`)
+  and the edit menu by a right press, Shift+F10 or the Menu key; a right press elsewhere is the
+  row's menu. A press the window lost is the screen's `cancel`: a tick box, row or button pressed
+  does nothing.
 - **Rows** are the notes and then "The rest", one more row than there are notes. The selected
   row is the preview's; the strip's bands name the same row numbers.
 - **The strip** is `strip_bands(plan, width)`: widths from `widths`, which keeps 2 px for every
