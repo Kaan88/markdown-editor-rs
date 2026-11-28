@@ -1,13 +1,23 @@
 # State of the work
 
-Rewritten, not appended to. Last rewritten 2026-11-28, after the releases of mdedit 1.6.1 and
-mdview 1.2.1.
+Rewritten, not appended to. Last rewritten 2026-11-28, after the releases of mdedit 1.6.2 and
+mdview 1.2.2.
 
 ## Released
 
+- **mdedit 1.6.2**, 2026-11-28, tag `v1.6.2` at `b02ff89`, release notes
+  `docs/release-notes/1.6.2.md`, released with mdview 1.2.2 as a pair on the owner's word ("make a
+  release"). `ci` was green on main, the release workflow passed, and it is the latest release on
+  GitHub; the Windows exe's SHA-256 matches `mdedit-update-2.txt`. Toolkit `84c0fc8` (D-291). PRs
+  #14 (a lost focus ends every drag; the bar's boxes scroll past their ends) and #15 (CLAUDE.md,
+  using the toolkit), and the palette and plan screen moved to the toolkit's pointer routes:
+  their text fields take the run of clicks, the drag past an end and an edit menu. Tests
+  `app/toolkit_routes_tests.rs`; shots `palette-field-menu*` and `plan-split-rename-menu*`
+  (`--field-menu`), whose Paste row follows the clipboard of the PC that takes them. `Cargo.lock`
+  gained no package. The toolkit gives no bounds for a field's edit menu, so while the palette's
+  is open its overlay bound is the whole window (toolkit ROADMAP L21).
 - **mdedit 1.6.1**, 2026-11-27, tag `v1.6.1` at `472c53b`, release notes
-  `docs/release-notes/1.6.1.md`, released with mdview 1.2.1 as a pair. `ci` was green on main, the
-  release workflow passed, and it is the latest release on GitHub. Toolkit `48eedb8` (D-289): its
+  `docs/release-notes/1.6.1.md`, released with mdview 1.2.1 as a pair. Toolkit `48eedb8` (D-289): its
   crash, hang and hand-over fixes. `Cargo.lock` gained no package. A viewer from before the
   authenticated hand-over (mdview 1.2.0) is sent nothing, so the older-viewer toast says to update
   mdview, not to save; a saved file's link to such a viewer stays, as for any older viewer. On a PC
@@ -24,13 +34,14 @@ mdview 1.2.1.
   `docs/ai-pictures-plan.md` (F, E, L, O; C1, C2; V1 to V5 and the sent card; D-203 to D-230).
   **Not tried in a real window; no picture has been sent to a provider.** Copies are written on
   the UI thread (up to 200 MB).
-- **mdview 1.2.1**, 2026-11-27, tag `v1.2.1` at `e4ae1e2`, on toolkit `48eedb8`.
+- **mdview 1.2.2**, 2026-11-28, tag `v1.2.2` at `cf22524`, on toolkit `84c0fc8`.
+  **mdview 1.2.1**, 2026-11-27, tag `v1.2.1` at `e4ae1e2`, on toolkit `48eedb8`.
   **mdview 1.2.0**, 2026-11-27, tag `v1.2.0` at `b2a2f7a`: the renderer switch to the toolkit's
   crates, with its security fixes. **mdview 1.1.0**, 2026-11-24, `0310e01`.
 - The shared crates are not released; the apps pin them by commit. **Hub** is its own app (see
   its `docs/STATE.md`).
 
-## 1.6.0 and 1.6.1: what is not verified
+## 1.6.0 to 1.6.2: what is not verified
 
 - Not run by hand in a real window: mdedit's motion (menus over a frosted window, Linux, macOS)
   and the AI task window fixes, which were seen in shots only. The owner tried mdview's menus only.
@@ -43,18 +54,11 @@ mdview 1.2.1.
 - Linux launch and idle costs are unmeasured, and so is the Linux system-theme thread (D-273).
 - 1.6.1: the real AppImage updater check (toolkit AI1), the hand-over between real 1.6.0 and
   1.6.1 windows, and measurements of the 1.6.1 build. The release packages were not run by hand.
-
-## 1.6.2, being released
-
-- **mdedit 1.6.2** on toolkit `84c0fc8` (D-291), with mdview 1.2.2, on the owner's word
-  (2026-11-28); notes `docs/release-notes/1.6.2.md`. PRs #14 (a lost focus ends every drag; the
-  bar's boxes scroll past their ends) and #15 (CLAUDE.md, using the toolkit), and the palette and
-  plan screen moved to the toolkit's pointer routes: their text fields take the run of clicks,
-  the drag past an end and an edit menu. Tests `app/toolkit_routes_tests.rs`; shots
-  `palette-field-menu*` and `plan-split-rename-menu*` (`--field-menu`), whose Paste row follows
-  the clipboard of the PC that takes them. `Cargo.lock` gains no package. Not verified: by hand in
-  a real window, and measurements of the 1.6.2 build. The toolkit gives no bounds for a field's
-  edit menu, so while the palette's is open its overlay bound is the whole window.
+- 1.6.2: by hand in a real window (the palette's and plan screen's new mouse handling and edit
+  menus); the installer and packages by hand. Measured against 1.6.1 on the
+  published exes (`docs/measurements/2026-11-28-1.6.2-against-1.6.1.md`): first frame and memory
+  the same; the keystroke and scroll frame 0.05 to 0.12 ms slower (about 12 %, ranges apart),
+  all of it in paint, far inside the budgets and not explained (no painting code changed). `sample.md` idles at 36 MiB in both builds.
 
 ## Waiting for the owner
 
@@ -74,8 +78,8 @@ mdview 1.2.1.
 
 ## Next
 
-1. The owner's look at the 1.6.2 shots (`palette-field-menu*`, `plan-split-rename-menu*`), and at
-   mdedit 1.6.2 in a real window: menu and Settings fades, and the AI task
+1. The owner's look at mdedit 1.6.2 in a real window: the palette's and plan screen's edit menus
+   (`palette-field-menu*`, `plan-split-rename-menu*` are the shots): menu and Settings fades, and the AI task
    window's flow, in both themes.
 2. The owner's look at the 1.4.0 and 1.5.0 shots (R2, W, 4a, 4, 5.8, DD, audit 4, the notes cards),
    and whether to add the viewer's page rows for R2's tinted preview (D-108); then section 8's
@@ -125,11 +129,11 @@ cannot restore an original (D-071).
 - Shared crates and embedded preview: `84c0fc8` (D-291), the toolkit's main with `FieldInput`.
   On Linux, mdedit finds a co-installed viewer off `PATH` (D-286). winit `62fa727`,
   softbuffer `dd18fec`.
-- Branches: `main`; `f/1.6.2` (1.6.2); `f/shared-48eedb8` (merged into main at 472c53b, local
+- Branches: `main`; `f/1.6.2` (merged into main at b02ff89, local only); `f/shared-48eedb8` (merged into main at 472c53b, local
   only); `f/renderer` (merged into main at 130f5de; still on origin); the unmerged
   `mock/*` drawings; `archive/doc-reorg-draft`, `spike/v-resizer`; GitHub's `spike/frosted-window`
   and `chore/dependabot`. Kept as found, unpushed: shared `archive/settings-draft-uncommitted`,
   Hub's `wip/install-uncommitted`.
-- Worktrees: `main`; `md-wt\renderer` (`f/1.6.2`);
+- Worktrees: `main`; `md-wt\renderer` (`f/1.6.2`, merged);
   `hub-wt\app-prs2\mdedit` (hub/notes-file); fifteen detached worker worktrees under
   `%TEMP%\opencode\`, left from earlier sessions and not removed.
